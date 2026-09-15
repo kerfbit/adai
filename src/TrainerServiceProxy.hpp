@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.1.0
+// @adai-version: 0.2.0
 // @adai-reviewed: 2026-09-14
 
 // TD-172: trainer_service's own admin HTTP listener. Unlike TrainerAdminAPI (which answers every
@@ -15,11 +15,18 @@
 // what TrainerAdminAPI itself would report with phase == Idle. See TECHNICAL_DEBT.md TD-172 for
 // the design rationale (loopback HTTP chosen over a file-based channel: an already-established
 // pattern in this codebase, and more portable).
+//
+// TD-173: pause/resume are no longer pure proxy-or-synthesize — they always mutate the
+// process-lifetime TrainerServiceControlState (so pause actually stops the supervisor from
+// launching another pass, not just draining the current one) in addition to best-effort proxying
+// to a live child (so an in-flight pass still drains promptly). See TrainerServiceControlState.hpp
+// and TrainerServiceMain.cpp's main loop for the other half of this fix.
 
 #include <atomic>
 #include <memory>
 #include <string>
 #include <utility>
+#include "TrainerServiceControlState.hpp"
 
 namespace adai {
 
@@ -33,8 +40,12 @@ class TrainerServiceProxy {
      *                         its own TrainerAdminAPI as config_store_dir (TRAINER_ADMIN_DIR) —
      *                         reused here, while idle, to read/write the same daemon_config.db
      *                         overlay directly.
+     * @param control          The supervisor's own process-lifetime control state (TD-173) —
+     *                         pause/resume/status read and write this directly, in addition to
+     *                         whatever proxying to a live child also happens.
      */
-    TrainerServiceProxy(std::string host, int port, std::string child_admin_dir);
+    TrainerServiceProxy(std::string host, int port, std::string child_admin_dir,
+                        std::shared_ptr<TrainerServiceControlState> control);
     ~TrainerServiceProxy();
 
     TrainerServiceProxy(const TrainerServiceProxy&) = delete;
@@ -60,11 +71,19 @@ class TrainerServiceProxy {
 
     std::pair<int, std::string> handle_get_config_idle();
     std::pair<int, std::string> handle_put_config_idle(const std::string& body);
-    static std::string idle_status_json();
+    std::string idle_status_json() const;
+    /// Appends TrainerServiceControlState's own observability fields as additional top-level
+    /// JSON keys onto an existing well-formed status object (additive only — every existing key
+    /// stays exactly where it was, so clients parsing the pre-TD-173 shape are unaffected). `body`
+    /// must end in '}' (both idle_status_json() and a live child's real /admin/status response
+    /// always do); returns `body` unchanged otherwise rather than risk mangling an unexpected
+    /// shape (e.g. a proxied error response).
+    std::string with_supervisor_fields(const std::string& body) const;
 
     std::string host_;
     int port_;
     std::string child_admin_dir_;
+    std::shared_ptr<TrainerServiceControlState> control_;
     std::atomic<int> child_port_{0};
     std::atomic<bool> running_{false};
 

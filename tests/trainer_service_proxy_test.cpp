@@ -16,13 +16,16 @@
 #include <gtest/gtest.h>
 #include <chrono>
 #include <filesystem>
+#include <memory>
 #include <thread>
 #include "TrainerAdminAPI.hpp"
 #include "TrainerControlState.hpp"
+#include "TrainerServiceControlState.hpp"
 
 namespace fs = std::filesystem;
 using adai::TrainerAdminAPI;
 using adai::TrainerControlState;
+using adai::TrainerServiceControlState;
 using adai::TrainerServiceProxy;
 
 namespace {
@@ -62,6 +65,10 @@ class TrainerServiceProxyTest : public ::testing::Test {
     fs::path test_dir;
     int proxy_port = 0;
     int child_port = 0;
+    // TD-173: the supervisor's own process-lifetime control state — exposed as a fixture member
+    // (not hidden inside make_proxy()) so tests can inspect it directly after hitting an admin
+    // endpoint, the same way a real trainer_service main loop would read it.
+    std::shared_ptr<TrainerServiceControlState> control;
 
     void SetUp() override {
         test_dir = fs::temp_directory_path() /
@@ -71,6 +78,7 @@ class TrainerServiceProxyTest : public ::testing::Test {
         const int seed = static_cast<int>(::getpid()) + static_cast<int>(reinterpret_cast<uintptr_t>(this));
         proxy_port = pick_port(seed);
         child_port = pick_port(seed + 1);
+        control = std::make_shared<TrainerServiceControlState>();
     }
 
     void TearDown() override {
@@ -79,7 +87,8 @@ class TrainerServiceProxyTest : public ::testing::Test {
     }
 
     std::unique_ptr<TrainerServiceProxy> make_proxy() {
-        return std::make_unique<TrainerServiceProxy>("127.0.0.1", proxy_port, test_dir.string());
+        return std::make_unique<TrainerServiceProxy>("127.0.0.1", proxy_port, test_dir.string(),
+                                                       control);
     }
 };
 
@@ -323,4 +332,165 @@ TEST_F(TrainerServiceProxyTest, SetChildPortBackToZeroReturnsToIdleFallback) {
     proxy_thread.join();
     child_api->stop();
     child_thread.join();
+}
+
+// ============================================================================
+// TD-173: pause/resume must have a real, persistent, service-level effect — not just proxy to (or
+// fake-acknowledge in place of) whichever child happens to be alive right now.
+// ============================================================================
+
+TEST_F(TrainerServiceProxyTest, PauseWhileIdlePersistsOnTheControlState) {
+    auto proxy = make_proxy();
+    std::thread thr([&proxy] { proxy->start(); });
+    ASSERT_TRUE(wait_until_reachable(proxy_port));
+
+    ASSERT_FALSE(control->paused.load());
+
+    httplib::Client client("127.0.0.1", proxy_port);
+    auto res = client.Post("/admin/pause", "", "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 202);
+    EXPECT_NE(res->body.find("\"paused\":true"), std::string::npos);
+
+    // The real fix: this must actually be recorded on the shared control state a trainer_service
+    // main loop reads before every launch — before TD-173 this was a fully synthetic response
+    // with no effect on anything.
+    EXPECT_TRUE(control->paused.load());
+
+    proxy->stop();
+    thr.join();
+}
+
+TEST_F(TrainerServiceProxyTest, PauseWakesASupervisorMidWayThroughItsIdlePollSleep) {
+    // Regression for a subtlety found during TD-173's own manual verification: pausing while the
+    // supervisor is already mid-way through its 45s "nothing pending" idle sleep must take effect
+    // immediately, not only once that sleep times out on its own up to 45s later.
+    auto proxy = make_proxy();
+    std::thread thr([&proxy] { proxy->start(); });
+    ASSERT_TRUE(wait_until_reachable(proxy_port));
+
+    httplib::Client client("127.0.0.1", proxy_port);
+    const auto start = std::chrono::steady_clock::now();
+    auto res = client.Post("/admin/pause", "", "application/json");
+    ASSERT_TRUE(res);
+
+    // Simulates the supervisory loop already parked in interruptible_sleep(45) when pause lands —
+    // it should return almost immediately (woken), not run the full 45s.
+    control->interruptible_sleep(45);
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    EXPECT_LT(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count(), 500);
+
+    proxy->stop();
+    thr.join();
+}
+
+TEST_F(TrainerServiceProxyTest, ResumeClearsPauseAndWakesTheSupervisorsSleep) {
+    auto proxy = make_proxy();
+    std::thread thr([&proxy] { proxy->start(); });
+    ASSERT_TRUE(wait_until_reachable(proxy_port));
+
+    control->paused = true;
+
+    httplib::Client client("127.0.0.1", proxy_port);
+    auto res = client.Post("/admin/resume", "", "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 202);
+    EXPECT_NE(res->body.find("\"paused\":false"), std::string::npos);
+    EXPECT_FALSE(control->paused.load());
+
+    // The other real fix: resume must wake a supervisor sleeping between polls, not just flip a
+    // flag nothing is waiting on — this is the scenario /admin/resume exists for in practice.
+    const auto start = std::chrono::steady_clock::now();
+    control->interruptible_sleep(60);  // would take a full minute if wake() weren't already
+                                        // called above by the /admin/resume handler itself
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    EXPECT_LT(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count(), 500)
+        << "interruptible_sleep() should have returned almost immediately — resume's wake() was "
+           "called before this sleep started, and wake() is documented to not lose a wake that "
+           "lands before interruptible_sleep() begins waiting";
+
+    proxy->stop();
+    thr.join();
+}
+
+TEST_F(TrainerServiceProxyTest, IdleStatusReflectsRealPausedState) {
+    auto proxy = make_proxy();
+    std::thread thr([&proxy] { proxy->start(); });
+    ASSERT_TRUE(wait_until_reachable(proxy_port));
+
+    httplib::Client client("127.0.0.1", proxy_port);
+    {
+        auto res = client.Get("/admin/status");
+        ASSERT_TRUE(res);
+        EXPECT_NE(res->body.find("\"paused\":false"), std::string::npos)
+            << "before TD-173 this field was hardcoded false regardless of real state";
+    }
+
+    control->paused = true;
+    {
+        auto res = client.Get("/admin/status");
+        ASSERT_TRUE(res);
+        EXPECT_NE(res->body.find("\"paused\":true"), std::string::npos);
+    }
+
+    proxy->stop();
+    thr.join();
+}
+
+TEST_F(TrainerServiceProxyTest, PauseAlsoProxiesToALiveChildForPromptDraining) {
+    auto child_control = std::make_shared<TrainerControlState>();
+    auto child_api = std::make_unique<TrainerAdminAPI>(child_control, "127.0.0.1", child_port,
+                                                        (test_dir / "child").string());
+    std::thread child_thread([&child_api] { child_api->start(); });
+    ASSERT_TRUE(wait_until_reachable(child_port));
+
+    auto proxy = make_proxy();
+    std::thread proxy_thread([&proxy] { proxy->start(); });
+    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    proxy->set_child_port(child_port);
+
+    httplib::Client client("127.0.0.1", proxy_port);
+    auto res = client.Post("/admin/pause", "", "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 202);
+
+    // Both effects: the supervisor's own persistent flag, AND the live child's own pass-local
+    // pause flag (so the in-flight pass drains promptly instead of running to its own natural
+    // stopping point) — proxy_post()'s response isn't surfaced, but its side effect is real.
+    EXPECT_TRUE(control->paused.load());
+    EXPECT_TRUE(child_control->paused.load());
+
+    proxy->stop();
+    proxy_thread.join();
+    child_api->stop();
+    child_thread.join();
+}
+
+TEST_F(TrainerServiceProxyTest, StatusIncludesSupervisorObservabilityFields) {
+    control->total_passes_launched = 5;
+    control->total_passes_did_work = 3;
+    control->total_passes_crashed = 1;
+    control->last_exit_code = 1;
+    control->service_started_unix =
+        std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count() -
+        60;  // "started" a minute ago
+
+    auto proxy = make_proxy();
+    std::thread thr([&proxy] { proxy->start(); });
+    ASSERT_TRUE(wait_until_reachable(proxy_port));
+
+    httplib::Client client("127.0.0.1", proxy_port);
+    auto res = client.Get("/admin/status");
+    ASSERT_TRUE(res);
+    EXPECT_NE(res->body.find("\"total_passes_launched\":5"), std::string::npos);
+    EXPECT_NE(res->body.find("\"total_passes_did_work\":3"), std::string::npos);
+    EXPECT_NE(res->body.find("\"total_passes_crashed\":1"), std::string::npos);
+    EXPECT_NE(res->body.find("\"last_exit_code\":1"), std::string::npos);
+    // Every pre-existing key must still be present, at its original meaning — additive only.
+    EXPECT_NE(res->body.find("\"phase\":\"idle\""), std::string::npos);
+
+    proxy->stop();
+    thr.join();
 }

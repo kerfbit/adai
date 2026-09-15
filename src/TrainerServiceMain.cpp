@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
+// @adai-version: 0.2.0
 // @adai-reviewed: 2026-09-14
 
 // TD-172: trainer_service — the thin process-supervisor binary that replaces
@@ -12,16 +12,24 @@
 //      poll interval first — the same shape `serve`'s old in-process loop already used.
 //   3. Host an always-on admin HTTP listener (TrainerServiceProxy) that proxies /admin/* requests
 //      to whichever child is currently alive, on the private port assigned via --admin-port.
-//   4. Forward a graceful-stop request (SIGTERM/SIGINT) to whatever child is currently running.
+//   4. Forward a graceful-stop request (SIGTERM/SIGINT) to whatever child is currently running,
+//      escalating to a force kill if it doesn't exit in time (see ChildProcess::stop_and_wait()).
 //
 // TrainerControlState/TrainerAdminAPI are used completely unchanged — by the *child* process,
 // exactly as `serve` already used them — see TrainerServiceProxy.hpp's own doc comment for why
 // this design needs no changes to either class.
+//
+// TD-173: TrainerControlState's own `paused` only ever affected one pass — it's reconstructed
+// fresh for every child, so nothing previously stopped this loop from immediately launching a new
+// (unpaused) child right after a paused pass drained. TrainerServiceControlState (own header) is
+// the process-lifetime piece that was missing: `paused`/`stop_requested` live here, checked by
+// this loop before every launch, and set/cleared by TrainerServiceProxy's admin handlers.
 
-#include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -29,31 +37,24 @@
 #include "Config.hpp"
 #include "IncrementalTrainerArgs.hpp"
 #include "Logger.hpp"
+#include "TrainerServiceControlState.hpp"
 #include "TrainerServiceProxy.hpp"
 
 namespace fs = std::filesystem;
 
 namespace {
 
-std::atomic<bool> g_stop_requested{false};
+// Set once in main() before std::signal() registration — a signal handler can't capture, so it
+// needs a plain pointer to reach shared state (same idiom IncrementalTrainingTool.cpp's own
+// signal_handler() already uses for its TrainerControlState).
+adai::TrainerServiceControlState* g_control = nullptr;
 
-// Only async-signal-safe work here (matches IncrementalTrainingTool.cpp's own signal_handler()
-// doc comment on why this doesn't log directly) — the main loop below observes the flag and logs
-// the graceful-shutdown message itself, outside signal context.
+// Only an async-signal-safe atomic store here — see TrainerServiceControlState::wake()'s own doc
+// comment for why this must NOT call wake() directly. interruptible_sleep()'s once-per-second
+// poll (below, inside TrainerServiceControlState) picks up stop_requested within ~1s regardless.
 void signal_handler(int sig) {
-    if (sig == SIGTERM || sig == SIGINT) {
-        g_stop_requested = true;
-    }
-}
-
-// Sleeps up to `seconds`, checking g_stop_requested once per second so a shutdown request is
-// noticed promptly instead of only after the full interval — deliberately simple (no condition
-// variable) since trainer_service owns no other thread that needs to wake this one early the way
-// TrainerControlState::wake() does for admin-triggered resume; a stop request is the only thing
-// that should ever cut this short.
-void interruptible_sleep(int seconds) {
-    for (int waited = 0; waited < seconds && !g_stop_requested.load(); ++waited) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+    if ((sig == SIGTERM || sig == SIGINT) && g_control != nullptr) {
+        g_control->stop_requested = true;
     }
 }
 
@@ -74,6 +75,14 @@ std::string resolve_incremental_trainer_path(const std::string& argv0) {
         return (p.parent_path() / name).string();
     }
     return name;
+}
+
+// Same `_unix` convention as TrainerControlState's own timestamp fields (e.g.
+// last_checkpoint_time_unix, set in IncrementalTrainer.cpp) — whole seconds since the epoch.
+std::int64_t unix_seconds() {
+    return std::chrono::duration_cast<std::chrono::seconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
 }
 
 }  // namespace
@@ -97,6 +106,9 @@ int main(int argc, char* argv[]) {
     adai::Logger::init(adai::Logger::Level::INFO,
                        {log_path, svc_config.log_max_size_mb, svc_config.log_max_files}, "adai");
 
+    auto control = std::make_shared<adai::TrainerServiceControlState>();
+    control->service_started_unix = unix_seconds();
+    g_control = control.get();
     std::signal(SIGTERM, signal_handler);
     std::signal(SIGINT, signal_handler);
 
@@ -125,7 +137,7 @@ int main(int argc, char* argv[]) {
     child_argv.push_back("resume");
 
     adai::TrainerServiceProxy proxy(svc_config.trainer_admin_host, svc_config.trainer_admin_port,
-                                    svc_config.trainer_admin_dir);
+                                    svc_config.trainer_admin_dir, control);
     std::thread proxy_thread;
     if (svc_config.trainer_admin_enabled) {
         adai::TrainerServiceProxy* proxy_ptr = &proxy;
@@ -147,37 +159,67 @@ int main(int argc, char* argv[]) {
         "trainer_service: supervisory loop starting (poll interval {}s); launching {}",
         kPollIntervalSeconds, trainer_path);
 
+    // TD-173: how long a stop request waits for the current child to exit gracefully (SIGTERM)
+    // before escalating to a force kill — see ChildProcess::stop_and_wait(). Comfortably inside
+    // scripts/adai-trainer.service's own TimeoutStopSec=30, so systemd's external hard-kill
+    // should never actually be needed; this is what makes that true even off systemd.
+    constexpr int kGracefulStopTimeoutMs = 10000;
+
     adai::ChildProcess child;
-    while (!g_stop_requested.load()) {
+    while (!control->stop_requested.load()) {
+        // TD-173: the piece TD-172 was missing — without this check, a paused pass draining and
+        // exiting would immediately be followed by launching a brand-new, unpaused child. This is
+        // exactly the same check `serve`'s own in-process loop used to make against its single,
+        // process-lifetime TrainerControlState.
+        if (control->paused.load()) {
+            control->interruptible_sleep(kPollIntervalSeconds);
+            continue;
+        }
+
         if (!child.start(child_argv)) {
             adai::Logger::error(
                 "trainer_service: failed to launch incremental_trainer — retrying after poll "
                 "interval");
-            interruptible_sleep(kPollIntervalSeconds);
+            control->interruptible_sleep(kPollIntervalSeconds);
             continue;
         }
+        control->total_passes_launched.fetch_add(1);
+        control->last_launch_unix = unix_seconds();
+        control->current_child_pid = child.pid();
         proxy.set_child_port(svc_config.trainer_child_admin_port);
 
         int exit_code = 1;
         bool exited = false;
         while (!exited) {
-            if (g_stop_requested.load()) {
-                child.request_stop();
+            if (control->stop_requested.load()) {
+                // Guaranteed to return (force-kills after kGracefulStopTimeoutMs if the child
+                // doesn't exit on its own) — no more re-sending request_stop() in a tight loop
+                // with no give-up point.
+                child.stop_and_wait(kGracefulStopTimeoutMs, &exit_code);
+                exited = true;
+                break;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
             exited = child.poll_exit(&exit_code);
         }
+        control->current_child_pid = 0;
+        control->last_exit_unix = unix_seconds();
+        control->last_exit_code = exit_code;
+        if (exit_code != 0 && exit_code != 1) {
+            control->total_passes_crashed.fetch_add(1);
+        }
         proxy.set_child_port(0);
 
-        if (g_stop_requested.load()) {
+        if (control->stop_requested.load()) {
             break;
         }
 
         const bool did_work = (exit_code == 0);
         if (did_work) {
+            control->total_passes_did_work.fetch_add(1);
             continue;  // more work may already be pending — don't sleep
         }
-        interruptible_sleep(kPollIntervalSeconds);
+        control->interruptible_sleep(kPollIntervalSeconds);
     }
 
     adai::Logger::info("trainer_service: stop requested — shutting down");

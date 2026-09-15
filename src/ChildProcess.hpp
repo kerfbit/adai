@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.1.0
+// @adai-version: 0.2.0
 // @adai-reviewed: 2026-09-14
 
 // TD-172: small cross-platform "launch and monitor one child process" helper, extracted from
@@ -28,7 +28,8 @@ namespace adai {
  *
  * Not thread-safe: intended to be driven from a single supervisory loop thread; `request_stop()`
  * is the one exception (safe to call from a signal handler's own thread — POSIX `kill()` and
- * Windows `TerminateProcess()` are both safe to call concurrently with `poll_exit()`).
+ * Windows console-control/`TerminateProcess()` are both safe to call concurrently with
+ * `poll_exit()`).
  */
 class ChildProcess {
    public:
@@ -56,19 +57,46 @@ class ChildProcess {
     bool poll_exit(int* exit_code);
 
     /**
-     * @brief Best-effort graceful stop of the current child, if any: SIGTERM on POSIX,
-     *   TerminateProcess() on Windows (Windows has no direct SIGTERM analog reachable across
-     *   process boundaries without the child cooperating via a console-control-handler dance
-     *   this class doesn't set up — TerminateProcess() is abrupt there, matching the same
-     *   limitation launch_background()'s own Windows branch already accepts elsewhere in this
-     *   codebase). No-op if no child is running.
+     * @brief Best-effort graceful stop request of the current child, if any: SIGTERM on POSIX,
+     *   an attempt at `GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT)` on Windows (falling back to
+     *   immediate `TerminateProcess()` only if that send itself fails — Windows has no direct
+     *   SIGTERM analog, but a console-control event reaching the child's own signal-equivalent
+     *   handler is closer to graceful than an unconditional force-kill). Does NOT wait for the
+     *   child to actually exit and does NOT escalate — fire-and-forget. No-op if no child is
+     *   running. Prefer `stop_and_wait()` when the caller needs a guaranteed-terminated outcome
+     *   within a bounded time; this lower-level method exists for callers (e.g. a signal handler
+     *   re-armed on repeated signals) that just want to nudge a child without blocking at all.
      */
     void request_stop();
+
+    /**
+     * @brief Stops the current child and blocks until it's confirmed gone, escalating to a force
+     *   kill if it doesn't exit gracefully in time.
+     *
+     * Calls `request_stop()`, polls `poll_exit()` up to `timeout_ms`, and if the child is still
+     * running after that, sends SIGKILL (POSIX) / `TerminateProcess()` (Windows) and does one
+     * final bounded wait to reap it. This is what makes shutdown safe against a genuinely wedged
+     * child (e.g. this host's own documented GPU-driver *hang*, not just crash — a hang may never
+     * respond to the graceful request at all) without relying on an external supervisor (systemd)
+     * to eventually SIGKILL the whole cgroup.
+     *
+     * @param timeout_ms How long to wait for a graceful exit before escalating to a force kill.
+     * @param exit_code Out-param, set the same way `poll_exit()`'s is; -2 if the process had to
+     *   be force-killed (distinct from -1's "no longer trackable" and 128's "killed by an
+     *   ordinary signal" so callers can tell a forced kill apart from either).
+     * @return true once the process is confirmed gone (always true if a child was running when
+     *   called); false if no child was running at all.
+     */
+    bool stop_and_wait(int timeout_ms, int* exit_code);
 
     /// True if a child was started and hasn't been observed to exit yet via poll_exit().
     bool is_running() const {
         return running_;
     }
+
+    /// The current child's PID, or 0 if none is running. For observability (e.g. GET
+    /// /admin/status) — not meant for direct signaling; use request_stop()/stop_and_wait().
+    long long pid() const;
 
    private:
     bool running_ = false;

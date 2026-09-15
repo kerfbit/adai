@@ -1,9 +1,10 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
+// @adai-version: 0.2.0
 // @adai-reviewed: 2026-09-14
 
 #include "TrainerServiceProxy.hpp"
 #include <httplib.h>
+#include <chrono>
 #include <sstream>
 #include "DaemonConfigStore.hpp"
 #include "Logger.hpp"
@@ -94,10 +95,12 @@ std::string child_unreachable_json() {
 // ============================================================================
 
 adai::TrainerServiceProxy::TrainerServiceProxy(std::string host, int port,
-                                               std::string child_admin_dir)
+                                               std::string child_admin_dir,
+                                               std::shared_ptr<TrainerServiceControlState> control)
     : host_(std::move(host)),
       port_(port),
       child_admin_dir_(std::move(child_admin_dir)),
+      control_(std::move(control)),
       server_impl_(std::make_unique<ServerImpl>()) {
     auto& svr = server_impl_->server;
 
@@ -125,6 +128,9 @@ adai::TrainerServiceProxy::TrainerServiceProxy(std::string host, int port,
     svr.Get("/admin/status", [this](const httplib::Request&, httplib::Response& res) {
         auto [status, body] =
             child_port_.load() != 0 ? proxy_get("/admin/status") : std::pair{200, idle_status_json()};
+        if (status == 200) {
+            body = with_supervisor_fields(body);
+        }
         res.status = status;
         res.set_content(body, "application/json");
     });
@@ -148,22 +154,34 @@ adai::TrainerServiceProxy::TrainerServiceProxy(std::string host, int port,
         res.set_content(body, "application/json");
     });
 
+    // TD-173: pause/resume always mutate the supervisor's own persistent control state — that's
+    // the real, service-level effect (stop/resume launching further passes at all) — and
+    // additionally, best-effort, proxy to a live child so an in-flight pass drains/resumes
+    // promptly too. Before this fix these two branches only ever did the proxy-or-synthesize half
+    // and never touched anything that outlived the current pass — see TECHNICAL_DEBT.md TD-173.
     svr.Post("/admin/pause", [this](const httplib::Request&, httplib::Response& res) {
-        // Pausing while idle is meaningless (no pass to drain) but harmless to accept —
-        // mirrors TrainerAdminAPI::handle_pause() never rejecting based on phase either.
-        auto [status, body] = child_port_.load() != 0
-            ? proxy_post("/admin/pause", "")
-            : std::pair{202, std::string("{\"paused\":true}")};
-        res.status = status;
-        res.set_content(body, "application/json");
+        control_->paused = true;
+        // Also wake — without this, a pause issued while the supervisor is mid-way through its
+        // 45s "nothing pending" idle sleep wouldn't be noticed until that sleep times out
+        // naturally, taking up to 45s to actually take effect. Waking makes the loop re-check
+        // `paused` (now true) immediately and park in the dedicated paused-wait instead. Safe
+        // here — a real thread, not a signal handler.
+        control_->wake();
+        if (child_port_.load() != 0) {
+            proxy_post("/admin/pause", "");  // best-effort; response not surfaced to the caller
+        }
+        res.status = 202;
+        res.set_content("{\"paused\":true}", "application/json");
     });
 
     svr.Post("/admin/resume", [this](const httplib::Request&, httplib::Response& res) {
-        auto [status, body] = child_port_.load() != 0
-            ? proxy_post("/admin/resume", "")
-            : std::pair{202, std::string("{\"paused\":false}")};
-        res.status = status;
-        res.set_content(body, "application/json");
+        control_->paused = false;
+        control_->wake();  // safe here — a real thread, not a signal handler
+        if (child_port_.load() != 0) {
+            proxy_post("/admin/resume", "");  // best-effort; response not surfaced to the caller
+        }
+        res.status = 202;
+        res.set_content("{\"paused\":false}", "application/json");
     });
 }
 
@@ -240,23 +258,54 @@ std::pair<int, std::string> adai::TrainerServiceProxy::proxy_put(const std::stri
 // Idle fallbacks (no child running at all)
 // ============================================================================
 
-std::string adai::TrainerServiceProxy::idle_status_json() {
+std::string adai::TrainerServiceProxy::idle_status_json() const {
     // Same shape TrainerAdminAPI::handle_status() reports, with TrainerControlState's own
     // just-constructed defaults for every field — this IS what a fresh TrainerControlState would
     // report before any pass ever touched it, so no separate "idle schema" is being invented here.
-    return "{\"phase\":\"idle\""
-          ",\"paused\":false"
-          ",\"run_id\":\"\""
-          ",\"session_id\":\"\""
-          ",\"model_name\":\"\""
-          ",\"current_epoch\":0"
-          ",\"total_epochs\":0"
-          ",\"samples_trained_this_pass\":0"
-          ",\"last_loss\":0"
-          ",\"best_loss\":0"
-          ",\"checkpoints_written\":0"
-          ",\"last_checkpoint_path\":\"\""
-          ",\"last_checkpoint_time_unix\":0}";
+    // TD-173: `paused` is the one field that must NOT be a hardcoded default — it's the real,
+    // persistent supervisor-level pause state; every other field stays a true default (no pass
+    // means no epoch/loss/etc. regardless of pause state).
+    std::ostringstream j;
+    j << "{\"phase\":\"idle\""
+      << ",\"paused\":" << (control_->paused.load() ? "true" : "false")
+      << ",\"run_id\":\"\""
+         ",\"session_id\":\"\""
+         ",\"model_name\":\"\""
+         ",\"current_epoch\":0"
+         ",\"total_epochs\":0"
+         ",\"samples_trained_this_pass\":0"
+         ",\"last_loss\":0"
+         ",\"best_loss\":0"
+         ",\"checkpoints_written\":0"
+         ",\"last_checkpoint_path\":\"\""
+         ",\"last_checkpoint_time_unix\":0}";
+    return j.str();
+}
+
+std::string adai::TrainerServiceProxy::with_supervisor_fields(const std::string& body) const {
+    // Defensive: only append onto a well-formed JSON object ending in '}' — both call sites
+    // (idle_status_json() and a live child's real /admin/status 200 response) always produce
+    // exactly that shape, but this guards against silently corrupting anything unexpected rather
+    // than assuming.
+    if (body.empty() || body.back() != '}') {
+        return body;
+    }
+
+    const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+    const auto started = control_->service_started_unix.load();
+    const long long uptime_seconds = started > 0 ? static_cast<long long>(now) - started : 0;
+
+    std::ostringstream extra;
+    extra << body.substr(0, body.size() - 1)
+          << ",\"supervisor_paused\":" << (control_->paused.load() ? "true" : "false")
+          << ",\"total_passes_launched\":" << control_->total_passes_launched.load()
+          << ",\"total_passes_did_work\":" << control_->total_passes_did_work.load()
+          << ",\"total_passes_crashed\":" << control_->total_passes_crashed.load()
+          << ",\"last_exit_code\":" << control_->last_exit_code.load()
+          << ",\"service_uptime_seconds\":" << uptime_seconds << "}";
+    return extra.str();
 }
 
 std::pair<int, std::string> adai::TrainerServiceProxy::handle_get_config_idle() {

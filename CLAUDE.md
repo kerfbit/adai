@@ -267,20 +267,39 @@ answering an idle default when none is) — the design point that makes it diffe
 `src/TrainerServiceProxy.{hpp,cpp}`/`src/ChildProcess.{hpp,cpp}`/`src/TrainerServiceMain.cpp` (the
 supervisor's own proxy and process-launch/monitor logic).
 
+**TD-173:** pause/resume act at *two* levels, both real. `src/TrainerServiceControlState.hpp` is
+`trainer_service`'s own process-lifetime control state (distinct from `TrainerControlState`, which
+is reconstructed fresh per child pass) — `paused` there persists across every child launch and is
+checked by the supervisory loop *before* starting the next one, the same check `serve`'s own
+single, process-lifetime `TrainerControlState` used to make. `/admin/pause`/`/admin/resume` always
+set/clear that flag (the real, service-level effect: stop/resume launching passes at all) and
+additionally proxy to a live child if one exists (so an in-flight pass also drains/resumes
+promptly). Before this fix, pause only drained whichever pass happened to be running and the
+supervisor immediately launched a fresh, unpaused child right after — see TECHNICAL_DEBT.md's
+TD-173 entry for the full incident writeup. `/admin/status` also reports several
+`trainer_service`-only observability fields (`supervisor_paused`, `total_passes_launched`,
+`total_passes_did_work`, `total_passes_crashed`, `last_exit_code`, `service_uptime_seconds`) as
+additional top-level keys alongside the pre-existing shape — additive only, so existing clients
+(the Android ops dashboard's `TrainerStatusDto` already sets `ignoreUnknownKeys = true`) are
+unaffected.
+
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/health` | liveness — always answered by `trainer_service` itself, never proxied |
 | GET | `/admin/config` | current `auto_save_enabled`/`auto_save_every_samples`/`auto_save_every_minutes`/`max_sessions_to_keep` — read from the current child if one is alive, else from the shared `TRAINER_ADMIN_DIR/daemon_config.db` directly |
 | PUT | `/admin/config` | mutate the same four keys; persisted to `TRAINER_ADMIN_DIR/daemon_config.db` either way (via the live child's own overlay, or directly when idle) — either way the next child launched picks it up |
-| GET | `/admin/status` | phase (`idle`/`loading_data`/`tokenizing`/`training`/`checkpointing`/`pausing`), run/session identity, epoch/sample/loss progress, `paused`, checkpoint counters |
+| GET | `/admin/status` | phase (`idle`/`loading_data`/`tokenizing`/`training`/`checkpointing`/`pausing`), run/session identity, epoch/sample/loss progress, real (not hardcoded) `paused`, checkpoint counters, plus `trainer_service`'s own observability fields (see above) |
 | POST | `/admin/checkpoint[?wait_ms=N]` | force a checkpoint at the next optimizer-step boundary; 409 if idle (no active pass to checkpoint) |
-| POST | `/admin/pause` | drain the current pass (if any) via `ChatbotTrainer::set_abort_flag()`, checkpoint, release claimed files back to pending, return to idle — `trainer_service` keeps serving regardless, it does not exit |
-| POST | `/admin/resume` | clear pause, wake the idle-poll sleep so pending work is checked immediately |
+| POST | `/admin/pause` | sets `trainer_service`'s own persistent pause flag (stops it launching another pass) and, best-effort, drains the current pass (if any) via `ChatbotTrainer::set_abort_flag()`/checkpoint/release-claimed-files — `trainer_service` keeps serving regardless, it does not exit |
+| POST | `/admin/resume` | clears the persistent pause flag and wakes the idle-poll sleep immediately, plus resumes a live child if one happens to be paused too |
 
 No HTTP shutdown endpoint exists or is planned — `systemctl stop`/SIGTERM stays the sole way to end the
 `trainer_service` process, which in turn forwards a graceful-stop request to whatever child is
-currently running. No companion CLI wraps this API (matches `mns_cli`/`dataset_manager` not wrapping
-their daemons' `/admin/config` either) — `curl` is the documented interface, e.g.
+currently running, escalating to a force kill (`ChildProcess::stop_and_wait()`) if it doesn't exit
+within 10s — protects against a genuinely wedged child (this host's own documented GPU-driver
+*hang*, not just crash) even without systemd's own external `TimeoutStopSec` as a backstop. No
+companion CLI wraps this API (matches `mns_cli`/`dataset_manager` not wrapping their daemons'
+`/admin/config` either) — `curl` is the documented interface, e.g.
 `curl -s http://127.0.0.1:8084/admin/status`.
 
 ## Code Conventions
@@ -308,3 +327,4 @@ trusting a `grep TD-NNN` alone. Currently active items:
 | TD-006 | Fill-in-the-Middle (FIM) training data generation not implemented |
 | TD-162 | `IntegratedInferenceEngine`/`BatchedInferenceEngine` fulfill a request's `std::promise` before finishing that request's mutex-guarded stats update — a client's `f.wait_for()`/`f.get()` can race `get_stats()` against the still-in-flight counter increment on another thread. Confirmed via a real flake (`total_requests` undercounted by one under full-suite `ctest -j8`). |
 | TD-172 | Implemented September 14, 2026: `trainer_service` (process supervisor) replaces `incremental_trainer serve`; see "Incremental trainer admin API" above. Code implemented, unit-tested, and verified end-to-end locally (real training pass, real proxying, clean shutdown) — a live deployed host still needs its own `adai-trainer.service` file and binaries updated to actually cut over. |
+| TD-173 | Fixed September 14, 2026 (same day): a review of TD-172's control pattern found pause/resume had no real service-level effect (only drained/proxied to whichever child happened to be alive, so a paused pass was immediately followed by a fresh, unpaused one) and that a wedged child could hang `trainer_service`'s own shutdown indefinitely. `TrainerServiceControlState` (new, process-lifetime) plus `ChildProcess::stop_and_wait()`'s SIGKILL escalation fix both — see "Incremental trainer admin API" above. |

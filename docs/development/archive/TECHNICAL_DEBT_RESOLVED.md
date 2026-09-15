@@ -4,6 +4,131 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-173: trainer_service's Pause/Resume Had No Real Service-Level Effect, and a Wedged Child Could Hang Shutdown Forever
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 14, 2026 | Training / Deployment / Tooling | New `TrainerServiceControlState` (process-lifetime pause/stop state) + `ChildProcess::stop_and_wait()` (bounded graceful-then-forceful stop) |
+
+Summary:
+Found by re-reading TD-172's control pattern the same day it was implemented, specifically asking
+"is this a *complete* control system" rather than just "does the happy path work." Two real,
+load-bearing gaps, not style nits:
+
+1. **`POST /admin/pause` didn't pause the service.** `TrainerControlState` is (correctly)
+   reconstructed fresh for every `incremental_trainer resume --admin-port` child — but nothing
+   replaced the role `serve`'s own single, process-lifetime `TrainerControlState` used to play for
+   "should the *service* keep launching passes at all." `TrainerServiceMain.cpp`'s loop had no
+   check of any such flag before calling `ChildProcess::start()` again, so a paused pass draining
+   and exiting was immediately followed by launching a brand-new, unpaused child. Worse,
+   `TrainerServiceProxy.cpp`'s `/admin/pause` handler, when no child was alive (the common case —
+   an operator pausing between passes), didn't even attempt to record anything: it returned a
+   canned `{"paused":true}` and changed nothing at all.
+2. **`POST /admin/resume` didn't wake anything when it mattered most.** The scenario it exists for
+   — the supervisor idly sleeping up to 45s between polls — had no live child to proxy to, and
+   `TrainerServiceMain.cpp`'s `interruptible_sleep()` was a bare free function polling a
+   namespace-scope atomic with no `wake()` mechanism at all, unlike `TrainerControlState`'s own
+   (which `serve` used to rely on for exactly this).
+3. **No stop escalation, and one path blocked forever.** `ChildProcess::request_stop()` sent one
+   SIGTERM (POSIX) / called `TerminateProcess()` immediately (Windows, no graceful attempt at all)
+   and never checked whether it worked; `TrainerServiceMain.cpp`'s shutdown loop just re-sent it
+   every 200ms with no give-up point. `~ChildProcess()`'s POSIX branch called
+   `::waitpid(pid_, &status, 0)` — a **blocking, untimed** wait — so a child that hangs instead of
+   exiting (this host's own documented GPU-driver *hang*, not just crash, is exactly this failure
+   mode) could never let the destructor return. Only systemd's external `TimeoutStopSec=30` +
+   `KillMode=mixed` rescued a *deployed* instance from this; a manual/foreground run or a Windows
+   host had no backstop at all.
+
+Root cause of (1) and (2): no state outlived one child's pass. Fixed by adding the missing piece
+rather than repurposing `TrainerControlState` (which stays exactly as TD-172 left it, scoped to
+one pass, used unchanged by the child).
+
+Changes Made:
+
+- New `src/TrainerServiceControlState.hpp` (header-only, mirrors `TrainerControlState.hpp`'s own
+  atomic-fields-plus-condvar-wake conventions): `paused`/`stop_requested` (process-lifetime, not
+  reconstructed per child), `wake()`/`interruptible_sleep()` (the same condition-variable pattern,
+  copied rather than shared — the two classes have unrelated lifetimes), plus observability fields
+  (`service_started_unix`, `last_launch_unix`, `last_exit_unix`, `last_exit_code`,
+  `current_child_pid`, `total_passes_launched`/`_did_work`/`_crashed`). Deliberately not persisted
+  to `daemon_config.db` — `paused` is a live operational instruction, not configuration; a
+  `trainer_service` restart should come back unpaused. Documented the async-signal-safety
+  constraint explicitly: the SIGTERM/SIGINT handler may only flip `stop_requested` via a plain
+  atomic store — `wake()` locks a mutex and is never safe to call from signal context; only
+  `/admin/resume`'s own real HTTP handler thread calls it.
+- `src/TrainerServiceMain.cpp`: constructs one `TrainerServiceControlState`, checks
+  `paused.load()` before every `ChildProcess::start()` (the exact check `serve`'s own loop used to
+  make), records the new observability fields around every launch/exit, and replaces the old
+  "re-send `request_stop()` every 200ms forever" shutdown path with one bounded
+  `child.stop_and_wait(10000, &exit_code)` call.
+- `src/ChildProcess.{hpp,cpp}`: new `pid()` accessor and `stop_and_wait(timeout_ms, exit_code)` —
+  sends the existing graceful stop, polls up to `timeout_ms`, escalates to SIGKILL
+  (POSIX)/`TerminateProcess()` (Windows) if still running, then does one final *bounded* wait
+  (never unbounded) to reap it, returning a distinct `-2` exit-code sentinel when a force kill was
+  needed. `~ChildProcess()`'s old unconditional blocking `waitpid()` replaced with a call to this
+  same logic (5s grace period) so destruction can never hang on a wedged child. `start()` now
+  passes `CREATE_NEW_PROCESS_GROUP` on Windows and `request_stop()` there now attempts
+  `GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, ...)` before falling back to `TerminateProcess()` —
+  closer to graceful than an unconditional force-kill, though (like all Windows-only code in this
+  session) compile-verified only, no Windows machine available to run-verify it.
+- `src/TrainerServiceProxy.{hpp,cpp}`: constructor takes the new control state.
+  `POST /admin/pause`/`POST /admin/resume` now *always* set/clear `control_->paused` (the real,
+  persistent effect) and *additionally* best-effort-proxy to a live child if one exists (so an
+  in-flight pass still drains/resumes promptly) — previously these were purely
+  proxy-or-synthesize, with no persistent effect at all in the idle case. Both handlers also call
+  `control_->wake()` — found necessary during manual end-to-end verification (see below): pausing
+  while the supervisor is already mid-way through its 45s "nothing pending" idle sleep needs to
+  interrupt that sleep immediately (so the loop re-checks `paused` right away) rather than only
+  taking effect once that sleep times out naturally up to 45s later; resume needed the identical
+  wake for the same reason in the other direction.
+  `idle_status_json()` now reads the real `paused` value instead of a hardcoded `false`.
+  `GET /admin/status` (both the idle and live-child-proxied paths) gained additional top-level
+  JSON keys for the new observability fields — additive only, every pre-existing key stays at its
+  original position; confirmed the Android ops dashboard's `TrainerStatusDto` already sets
+  `Json { ignoreUnknownKeys = true }`, so no client-side change was needed.
+- `CLAUDE.md`'s "Incremental trainer admin API" section and Active Technical Debt Tags table
+  updated to describe the corrected pause/resume semantics and the new observability fields.
+
+Verification:
+
+- ✅ 6 new `TrainerServiceProxyTests`: pause while idle persists on the control state; pause wakes
+  a supervisor already mid-way through its idle poll sleep (the manual-testing finding above,
+  regression-tested directly); resume clears the flag and wakes a real `interruptible_sleep()`
+  call in well under its full duration; idle status reflects the real paused value (not a
+  hardcoded default); pause also proxies to a live child (both the supervisor's own flag and the
+  child's own pass-local flag end up set); status includes the new observability fields alongside
+  every pre-existing key.
+- ✅ 6 new `ChildProcessTests`: `pid()` returns 0/non-zero at the right times; `stop_and_wait()`
+  returns promptly for a child that exits gracefully; returns `false` with no child running;
+  **escalates to a force kill (verified via the `-2` exit-code sentinel and a bounded elapsed
+  time) against a child that explicitly ignores SIGTERM** (`sh -c 'trap "" TERM; sleep 30'`) —
+  this is the direct regression test for the exact "wedged process" failure mode this item exists
+  to fix; the same regression verified again through `~ChildProcess()`'s own implicit cleanup path
+  specifically, confirming the destructor can never hang on a wedged child either. All 14
+  `ChildProcessTests` and 17 `TrainerServiceProxyTests` pass (8 and 11 respectively predate this
+  fix, all still passing unchanged).
+- ✅ Manual end-to-end verification against a real session (`vocab_builder` + `init` + a pending
+  file), driving the real `trainer_service` binary rather than only unit tests: confirmed a
+  genuine pause (issued after the initial passes settled) held `total_passes_launched` fixed and
+  produced zero `incremental_trainer` processes across a monitored 8-second window that would
+  otherwise have launched another pass; confirmed resume incremented `total_passes_launched`
+  within about a second rather than waiting out the remainder of the 45s poll interval; confirmed
+  a `SIGTERM` to `trainer_service` produces a clean, prompt exit with zero leftover
+  `incremental_trainer`/`trainer_service` processes.
+- ✅ Full `ctest` suite green (see TD-172's own closing verification for the baseline; no
+  regressions from this follow-up fix).
+
+Files Changed:
+
+- `src/TrainerServiceControlState.hpp` (new)
+- `src/TrainerServiceMain.cpp`
+- `src/ChildProcess.hpp`, `src/ChildProcess.cpp`
+- `src/TrainerServiceProxy.hpp`, `src/TrainerServiceProxy.cpp`
+- `tests/child_process_test.cpp`, `tests/trainer_service_proxy_test.cpp`
+- `CLAUDE.md`
+
+---
+
 ### TD-170: ParallelDataLoader's TokenBatchLoader/ThreadSafeBatchQueue Retired — No Production Caller and Nothing to Attach To
 
 | Resolution Date | Component | Resolved By |

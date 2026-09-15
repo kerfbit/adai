@@ -10,7 +10,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 159
+**Resolved Items:** 160
 **Deferred Decisions:** 3
 
 ## Recommended Execution Order
@@ -1564,6 +1564,12 @@ equivalent under `src/gpu/`.
 |----------|--------|-----------|---------|------------------|
 | MEDIUM | Open — implemented, unit-tested, and verified end-to-end locally (September 14, 2026); only a live deployed host's own systemd cutover remains | Training / Deployment / Tooling | September 14, 2026 | 14-20 hours (matched the revised estimate — see the Implementation update below) |
 
+**Follow-up:** a same-day review of this item's own control pattern ("is this a *complete* control
+system, not just a happy path") found pause/resume had no real service-level effect and a wedged
+child could hang shutdown forever — fixed and fully resolved as
+[TD-173](../archive/TECHNICAL_DEBT_RESOLVED.md#td-173-trainer_services-pauseresume-had-no-real-service-level-effect-and-a-wedged-child-could-hang-shutdown-forever)
+rather than reopening this entry.
+
 Description:
 `incremental_trainer` is one binary, built from `IncrementalTrainingTool.cpp`'s single ~894-line
 `main()`, dispatching on `args[0]` to `init`/`train`/`retrain`/`reset`/`resume`/`serve`/`status`/
@@ -1793,7 +1799,7 @@ another branch of one large `main()` instead of becoming its own focused binary)
 
 ## Resolved Items
 
-159 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+160 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements
