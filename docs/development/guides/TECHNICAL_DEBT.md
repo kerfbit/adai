@@ -4,14 +4,25 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** September 14, 2026
-**Total Items:** 13
-**High Priority:** 1
-**Medium Priority:** 7
-**Low Priority:** 5
+**Last Updated:** September 15, 2026
+**Total Items:** 26
+**High Priority:** 2
+**Medium Priority:** 14
+**Low Priority:** 10
 **Future Enhancements:** 19
 **Resolved Items:** 160
 **Deferred Decisions:** 3
+
+**September 15, 2026:** Filed TD-174 through TD-186 (13 items) — the construction pieces of
+[lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md),
+a proposed (not yet implemented) design for a self-supervised world-model encoder and a
+hippocampal-style episodic memory, both injected into `DecoderBlock` via gated cross-attention.
+Unlike most entries in this tracker, these were not found by investigating existing code — they
+don't exist yet — so each entry's Description points at the proposal doc as the design source
+rather than reporting an investigation. Sequenced into
+[Tier 10](#recommended-execution-order) of the Recommended Execution Order below (added
+September 15, 2026, same day) — re-derived directly from each entry's own "Depends on" statement
+rather than assumed from the proposal doc's own bullet order.
 
 ## Recommended Execution Order
 
@@ -136,6 +147,63 @@ operational: an actual live deployed host still needs its own systemd unit and b
 cut over, which is outside a coding session's reach — same category as TD-047's release cut or
 TD-033/TD-050's hardware-blocked validation.
 
+**Tier 10 — Newly filed, large exploratory research batch (LeJEPA world model + hippocampal
+memory):** [TD-174](#td-174-crossattentionforward_with_scores-score-bias-entry-point) through
+[TD-186](#td-186-lejepa--hippocampal-memory-pilot-run) (13 items, filed September 15, 2026 from
+[lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md)).
+None of this exists yet, and the whole batch sits below every item in Tiers 1-9 in real urgency —
+the plan's own Status line calls it "research/pilot stage, not yet scoped for full
+implementation," and its Risks section treats "the gate never opens" as a legitimate, useful
+outcome rather than a failure — but 13 interdependent items is exactly the case this section
+exists for, so it still needs its own internal sequencing. Re-derived directly from each entry's
+own "Depends on" statement, not copied from the plan doc's own bullet order (which interleaves two
+logically-parallel tracks — LeJEPA/"cortical" and hippocampal/"episodic" — into one linear reading
+sequence and is worth checking against, not trusting blindly, per this section's own opening note):
+
+- **Level 0 — fully standalone, startable immediately, in any order:**
+  [TD-174](#td-174-crossattentionforward_with_scores-score-bias-entry-point) (`forward_with_scores`,
+  2-3h), [TD-175](#td-175-sigreg-sketched-isotropic-gaussian-regularization) (`SIGReg`, 3-4h), and
+  [TD-176](#td-176-predictor-embedding-space-predictor) (`Predictor`, 2-3h) — three unrelated,
+  independently-testable pieces with no reason not to parallelize across sessions if more than one
+  is available.
+- **Level 1:** [TD-177](#td-177-lejepaencoder-construction) (`LeJEPAEncoder` construction, 5-7h) —
+  needs TD-175/TD-176 to exist as class members even though its own Description says "depends on
+  nothing else in this list" (true for the *logic*, not for *compiling*).
+- **Level 2 — two independent branches open here:**
+  [TD-178](#td-178-lejepaencodertrain_step-self-supervised-training-loop) (`train_step`, 8-10h,
+  the LeJEPA/cortical branch) and [TD-179](#td-179-hippocampalmemory-buffer) (`HippocampalMemory`
+  buffer, 5-7h, the hippocampal/episodic branch) both only need TD-177 — genuinely parallelizable;
+  TD-179 does *not* need TD-178 (confirmed in its own entry).
+- **Level 3 — the synchronization point:**
+  [TD-180](#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized)
+  (gated `DecoderBlock` extension, 12-16h, **HIGH** — the one item in this batch touching existing
+  production code) needs TD-174 (Level 0), TD-177 (Level 1), *and* TD-179 (Level 2) — both branches
+  above must land first. It does **not** need TD-178: the gated-attention path and the world
+  model's training loop are independent, so TD-178 can keep running in parallel with TD-180 and
+  beyond. [TD-183](#td-183-incremental_trainer---objectivelejepa-mode--world-model-config-keys)
+  (`--objective=lejepa` mode, 5-7h) only needs TD-178, so it's also Level 3 and can run alongside
+  TD-180 — it continues the LeJEPA-training branch, not the decoder-injection one.
+- **Level 4 — fans back out once TD-180 lands:**
+  [TD-181](#td-181-sparse-world-model-injection-knob) (injection-frequency knob, 1-2h),
+  [TD-182](#td-182-encoderdecodermodelset_world_model) (`set_world_model()`, 1-2h), and
+  [TD-185](#td-185-hippocampalmemory-wiring--config--write-policy-call-site) (`HippocampalMemory`
+  wiring, 4-5h) all only need TD-180 (TD-185's other dependency, TD-179, is already satisfied by
+  Level 2). [TD-184](#td-184-world-model-mns-registration--checkpointing) (MNS registration +
+  checkpointing, 3-4h) needs TD-177 and TD-183, both already done by this point.
+- **Level 5 — the pilot, and this batch's actual go/no-go gate:**
+  [TD-186](#td-186-lejepa--hippocampal-memory-pilot-run) (10-14h) — explicitly not startable until
+  everything above is done. Its own Description already frames "the gate never opens" or "the
+  repetition penalty shows no diversity improvement" as legitimate results, not failures — worth
+  restating here since this is the one item in the batch that isn't "build the thing," it's "find
+  out whether the thing was worth building."
+
+Total estimated effort across all 13 items: 61-84 hours (sum of each entry's own range — matches
+the Statistics section's own total below) — comparable in size to the entire rest of the active
+backlog combined. If [reasoning_process_plan.md](../../proposals/reasoning_process_plan.md)'s own
+chunks are also in scope, see that plan's interaction notes referenced from TD-180 (`RP-2a`,
+phase-conditioned gates) and TD-186 (`RP-3`/`RP-6`, joint pilot) before committing to a sequence
+that ignores it.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -155,6 +223,19 @@ TD-033/TD-050's hardware-blocked validation.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
+  - [TD-174: `CrossAttention::forward_with_scores` (Score-Bias Entry Point)](#td-174-crossattentionforward_with_scores-score-bias-entry-point)
+  - [TD-175: `SIGReg` (Sketched Isotropic Gaussian Regularization)](#td-175-sigreg-sketched-isotropic-gaussian-regularization)
+  - [TD-176: `Predictor` (Embedding-Space Predictor)](#td-176-predictor-embedding-space-predictor)
+  - [TD-177: `LeJEPAEncoder` Construction](#td-177-lejepaencoder-construction)
+  - [TD-178: `LeJEPAEncoder::train_step` (Self-Supervised Training Loop)](#td-178-lejepaencodertrain_step-self-supervised-training-loop)
+  - [TD-179: `HippocampalMemory` Buffer](#td-179-hippocampalmemory-buffer)
+  - [TD-180: Gated `DecoderBlock` Extension (World Model + Hippocampal Memory, Repetition-Penalized)](#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized)
+  - [TD-181: Sparse World-Model Injection Knob](#td-181-sparse-world-model-injection-knob)
+  - [TD-182: `EncoderDecoderModel::set_world_model()`](#td-182-encoderdecodermodelset_world_model)
+  - [TD-183: `incremental_trainer --objective=lejepa` Mode + World-Model Config Keys](#td-183-incremental_trainer---objectivelejepa-mode--world-model-config-keys)
+  - [TD-184: World-Model MNS Registration + Checkpointing](#td-184-world-model-mns-registration--checkpointing)
+  - [TD-185: `HippocampalMemory` Wiring + Config + Write-Policy Call Site](#td-185-hippocampalmemory-wiring--config--write-policy-call-site)
+  - [TD-186: LeJEPA + Hippocampal Memory Pilot Run](#td-186-lejepa--hippocampal-memory-pilot-run)
 - [Resolved Items](#resolved-items) (159 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -1797,6 +1878,406 @@ another branch of one large `main()` instead of becoming its own focused binary)
 
 ---
 
+### TD-174: `CrossAttention::forward_with_scores` (Score-Bias Entry Point)
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Planned | Core Model Architecture | September 15, 2026 | 2-3 hours |
+
+Description:
+Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#6-repetition-penalized-gated-cross-attention-hippocampal-memory)
+(chunk `HM-2`) — not yet built, no code exists for this. `CrossAttention::forward()` computes its
+own attention scores internally with no way for a caller to bias them before softmax. The
+hippocampal-memory repetition penalty (TD-180) needs exactly that: a pre-softmax additive bias
+per key position. Rather than a new attention class, this adds one entry point that accepts a
+pre-computed bias matrix; every other part of `CrossAttention` (projections, softmax, backward)
+is reused unchanged. Fully standalone — no dependency on any other item below.
+
+Action Items:
+
+- [ ] Add `CrossAttention::forward_with_scores(query_input, kv_input, score_bias, mask = nullptr)`
+- [ ] Unit test: all-zero `score_bias` reproduces `forward()`'s existing output exactly
+- [ ] Unit test: a large negative bias at one key position suppresses attention to it, same as
+  masking that position, without needing a boolean mask
+
+Files to Modify:
+
+- `src/CrossAttention.hpp` / `src/CrossAttention.cpp` — new method
+- `tests/crossattention_test.cpp` — new tests
+
+---
+
+### TD-175: `SIGReg` (Sketched Isotropic Gaussian Regularization)
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Planned | World Model / Memory (LeJEPA) | September 15, 2026 | 3-4 hours |
+
+Description:
+Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#3-sigreg)
+(chunk `LJ-1a`) — not yet built. Regularizer from the LeJEPA paper (arXiv:2511.08544): pushes a
+batch of embeddings toward an isotropic Gaussian via random 1D projections and a
+characteristic-function test. Stateless w.r.t. model weights (no learnable parameters of its
+own); consumes/produces gradients through the embeddings passed to it. Smallest, most
+independently testable piece of the LeJEPA world-model plan — no dependency on anything else in
+this list.
+
+Action Items:
+
+- [ ] Implement `SIGReg::compute_loss(embeddings)` / `SIGReg::backward(embeddings)` per the
+  proposal's interface
+- [ ] Unit test: loss on a synthetic isotropic-Gaussian batch is near zero
+- [ ] Unit test: loss on a degenerate (collapsed/constant) batch is large
+- [ ] Gradient check: finite-difference vs. `backward()`'s analytic gradient
+
+Files to Modify:
+
+- `src/SIGReg.hpp` / `src/SIGReg.cpp` — new
+- `tests/sigreg_test.cpp` — new
+
+---
+
+### TD-176: `Predictor` (Embedding-Space Predictor)
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Planned | World Model / Memory (LeJEPA) | September 15, 2026 | 2-3 hours |
+
+Description:
+Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#2-predictor)
+(chunk `LJ-1b`) — not yet built. Given a context view's embedding, predicts the target view's
+embedding — *not* a `LanguageModelHead`; no vocabulary projection, no reconstruction. Reuses
+`FeedForward`. Standalone; no dependency on `SIGReg` (TD-175) or anything else here.
+
+Action Items:
+
+- [ ] Implement `Predictor::forward()`/`backward()`/`update_weights()`/`zero_grad()` per the
+  proposal's interface
+- [ ] Gradient check on a toy embedding pair
+- [ ] `register_parameters_with_optimizer()` wired per the codebase's standard pattern
+
+Files to Modify:
+
+- `src/Predictor.hpp` / `src/Predictor.cpp` — new
+- `tests/predictor_test.cpp` — new
+
+---
+
+### TD-177: `LeJEPAEncoder` Construction
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Planned | World Model / Memory (LeJEPA) | September 15, 2026 | 5-7 hours |
+
+Description:
+Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#1-lejepaencoder)
+(chunk `LJ-2a`) — not yet built. Structurally a transformer encoder stack, mirroring
+`LLMEncoder`'s own composition (reuses `EncoderBlock`, `TokenEmbedding`, `PositionalEncoding`);
+the difference from `LLMEncoder` is entirely in training objective (TD-178), not construction.
+This item is construction/`encode()`/save-load only — no training logic yet. Depends on nothing
+else in this list, but TD-176/TD-175 (`Predictor`/`SIGReg`) are held as members and must exist
+first for the class to compile as specified.
+
+Action Items:
+
+- [ ] Implement the constructor + `encode()` (same shape contract as `LLMEncoder::encode()`)
+- [ ] Implement `save()`/`load()`/`print_config()`
+- [ ] Implement `get_encoder_block(layer)` diagnostics accessor, mirroring `LLMEncoder`'s own
+- [ ] Confirm `encode()` output is a drop-in match for anything expecting `LLMEncoder::encode()`'s
+  shape (needed by TD-179's key reuse)
+
+Files to Modify:
+
+- `src/LeJEPAEncoder.hpp` / `src/LeJEPAEncoder.cpp` — new
+- `tests/lejepaencoder_test.cpp` — new (construction/encode/save-load only at this stage)
+
+---
+
+### TD-178: `LeJEPAEncoder::train_step` (Self-Supervised Training Loop)
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Planned | World Model / Memory (LeJEPA) | September 15, 2026 | 8-10 hours |
+
+Description:
+Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#training-standard)
+(chunk `LJ-2b`) — not yet built. The self-supervised loop itself: view construction (span
+masking over the token sequence, no paired target text required), `Predictor` (TD-176), `SIGReg`
+(TD-175), combined via a `sigreg_lambda` weighting. Depends on TD-177 (construction) being done
+first.
+
+Action Items:
+
+- [ ] Implement `train_step(text)` returning `{predictor_loss, sigreg_loss}` per the proposal
+- [ ] Verify both loss terms trend downward on a small synthetic corpus
+- [ ] Wire `predictor_loss`/`sigreg_loss` as two new `TrainingMetricsService` series
+- [ ] `incremental_trainer --objective=lejepa` mode itself is TD-183, not this item — this item is
+  the model-side loop that mode will call
+
+Files to Modify:
+
+- `src/LeJEPAEncoder.cpp` — `train_step()`
+- `tests/lejepaencoder_test.cpp` — self-supervised loop coverage
+
+---
+
+### TD-179: `HippocampalMemory` Buffer
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Planned | World Model / Memory (LeJEPA) | September 15, 2026 | 5-7 hours |
+
+Description:
+Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#5-hippocampalmemory)
+(chunk `HM-1`) — not yet built. Bounded, continuously-updated episodic buffer — *not* a
+pretrained encoder like `LeJEPAEncoder`. Write (FIFO eviction, v1), `read_all()` for K/V
+materialization, and the per-slot `coverage` vector TD-180's repetition penalty consumes.
+Depends on TD-177 (`LeJEPAEncoder::encode()` as the key source) — not on TD-178.
+
+Action Items:
+
+- [ ] Implement `write()`/`read_all()`/`coverage_vector()`/`decay_coverage()`/`clear()` per the
+  proposal's interface
+- [ ] FIFO eviction at capacity — unit test that the oldest slot is evicted, not a random one
+- [ ] `save()`/`load()` for session persistence (not model-checkpoint versioning — see the
+  proposal's Compatibility section)
+- [ ] Salience-gated writing (pattern separation) is explicitly out of scope for this item —
+  documented future extension, not required here
+
+Files to Modify:
+
+- `src/HippocampalMemory.hpp` / `src/HippocampalMemory.cpp` — new
+- `tests/hippocampalmemory_test.cpp` — new
+
+---
+
+### TD-180: Gated `DecoderBlock` Extension (World Model + Hippocampal Memory, Repetition-Penalized)
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Planned | Core Model Architecture | September 15, 2026 | 12-16 hours |
+
+Description:
+Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#4-gated-cross-attention-in-decoderblock)
+(chunks `LJ-3a` + `HM-3`, deliberately filed as one item — the proposal's own README ordering
+explicitly calls for building both gated paths in the same change to avoid touching this class
+three separate times). **HIGH priority relative to the rest of this batch**: this is the one
+place existing production code changes rather than purely adding new files — same
+foundational-class risk class noted elsewhere in this tracker for `MultiHeadAttention`/
+`CrossAttention` changes (TD-059) — and every other item in this batch (TD-181 through TD-186)
+either extends or depends on the shape this item establishes.
+
+Two independent nullable gated cross-attention paths added to `DecoderBlock`: one to
+`LeJEPAEncoder` output (world model), one to `HippocampalMemory` (hippocampal), the second using
+TD-174's score-bias entry point to apply a bounded, gradually increasing repetition penalty
+(`coverage[i] = decay·coverage[i] + attn_weight[i]`, subtracted from raw attention scores —
+self-bounding by construction, deliberately avoiding the unbounded-compounding shape TD-066
+found and fixed in `TextGenerator::apply_repetition_penalty`). If
+[reasoning_process_plan.md](../../proposals/reasoning_process_plan.md)'s `RP-2a` has landed by
+the time this is picked up, build both gates as phase-conditioned pairs
+(`gate_reasoning`/`gate_answer` per path) directly rather than refactoring later — see that
+plan's "Interaction with the LeJEPA World-Model Plan" section.
+
+Depends on: TD-177 (`LeJEPAEncoder`), TD-179 (`HippocampalMemory`), TD-174
+(`forward_with_scores`).
+
+Action Items:
+
+- [ ] Add `world_model_cross_attention`/`norm_world`/`gate` (world-model path, nullable)
+- [ ] Add `hippocampal_cross_attention`/`norm_hippocampal`/`gate_h` + coverage accumulation/decay
+  (hippocampal path, nullable)
+- [ ] No-op guarantee test: both paths' pointer arguments `nullptr` ⇒ output identical to current
+  `DecoderBlock::forward()`
+- [ ] No-op guarantee test: non-null inputs with `gate == 0`/`gate_h == 0` ⇒ output still
+  identical (verifies the gates, not just the pointers, are what's disabled by default)
+- [ ] Coverage-bound stress test: hammer one hippocampal slot for many decode steps, confirm
+  `coverage[i]` never exceeds `1/(1 - repetition_decay)`
+- [ ] Gradient checks on both gate parameters (finite-difference vs. analytic `tanh` derivative)
+- [ ] `get_gate()`/`get_gate_h()` accessors for the metrics this batch's later items push
+
+Files to Modify:
+
+- `src/DecoderBlock.hpp` / `src/DecoderBlock.cpp` — both gated paths
+- `tests/decoderblock_test.cpp` — no-op guarantees (both paths), gradient checks, coverage bound
+
+---
+
+### TD-181: Sparse World-Model Injection Knob
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Planned | World Model / Memory (LeJEPA) | September 15, 2026 | 1-2 hours |
+
+Description:
+Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#4-gated-cross-attention-in-decoderblock)
+(chunk `LJ-3b`) — not yet built. `world_model_inject_every_n_layers` config-driven knob on
+`LLMDecoder` so only every Nth `DecoderBlock` gets the gated world-model path populated; the
+rest pass `nullptr` and incur zero extra cost. Depends on TD-180.
+
+Action Items:
+
+- [ ] Add `world_model_inject_every_n_layers` to `LLMDecoder`'s construction, default `1`
+  (every layer, for the initial pilot)
+- [ ] Unit test: with N=2 on a 4-layer decoder, exactly 2 layers receive a non-null world-model
+  path
+
+Files to Modify:
+
+- `src/Decoder.hpp` / `src/Decoder.cpp`
+
+---
+
+### TD-182: `EncoderDecoderModel::set_world_model()`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Planned | World Model / Memory (LeJEPA) | September 15, 2026 | 1-2 hours |
+
+Description:
+Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#7-encoderdecodermodel-extension)
+(chunk `LJ-4a`) — not yet built. Wiring + accessor only, no training-loop changes. `nullptr`
+(the default) disables the feature entirely — same no-breaking-changes guarantee as every gated
+path in this batch. Depends on TD-177/TD-180.
+
+Action Items:
+
+- [ ] Add `world_model` member + `set_world_model()`/`get_world_model()`
+- [ ] Confirm existing `encoderdecoder_test.cpp` suite passes unmodified with no world model
+  attached
+
+Files to Modify:
+
+- `src/EncoderDecoderModel.hpp` / `src/EncoderDecoderModel.cpp`
+
+---
+
+### TD-183: `incremental_trainer --objective=lejepa` Mode + World-Model Config Keys
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Planned | Training / Deployment / Tooling | September 15, 2026 | 5-7 hours |
+
+Description:
+Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#phase-0--lejepa-pretraining-new-standalone)
+(chunk `LJ-4b`) — not yet built. New objective flag on `incremental_trainer` so LeJEPA
+pretraining reuses the existing dataset registry/distributed-queue machinery instead of a
+bespoke script (unpaired text, no `(input, target)` pairs required). New `WORLD_MODEL_*` block in
+`config.trainer.conf` (`WORLD_MODEL_ENABLED`, `_D_MODEL`, `_NUM_LAYERS`, `_NUM_HEADS`, `_D_FF`,
+`_SIGREG_LAMBDA`, `_SIGREG_NUM_SKETCHES`, `_INJECT_EVERY_N_LAYERS`). Depends on TD-178
+(`train_step` is what this mode calls).
+
+Action Items:
+
+- [ ] Add `--objective=lejepa` handling to `incremental_trainer`
+- [ ] Add the `WORLD_MODEL_*` key block to `config.trainer.conf`, following the existing
+  "architecturally significant keys" convention (`CLAUDE.md`)
+- [ ] Confirm existing objective (chatbot teacher-forcing) is unaffected when this flag is absent
+
+Files to Modify:
+
+- `src/IncrementalTrainingTool.cpp` (or successor — see TD-172's binary-split precedent if this
+  grows large enough to warrant its own path)
+- `config.trainer.conf`
+
+---
+
+### TD-184: World-Model MNS Registration + Checkpointing
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Planned | World Model / Memory (LeJEPA) | September 15, 2026 | 3-4 hours |
+
+Description:
+Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#phase-0--lejepa-pretraining-new-standalone)
+(chunk `LJ-4c`) — not yet built. The world model gets its own `mns_cli register` entry and its
+own `ModelRecord` (own `D_MODEL`/`NUM_HEADS`/etc., immutable after registration, same rule as the
+chatbot model), independently versioned from the chatbot model rather than coupled through one
+MNS record. `LeJEPAEncoder::save()`/`load()` (already implemented per TD-177) under
+`training_sessions/`, same convention as every other component. Depends on TD-177, TD-183.
+
+Action Items:
+
+- [ ] Register the world-model architecture shape with MNS via `mns_cli register`
+- [ ] Confirm checkpoint save/load round-trips through `training_sessions/` correctly
+- [ ] Confirm a world model and a chatbot model can be paired/re-paired explicitly via
+  `set_world_model()` (TD-182) without either's MNS record referencing the other
+
+Files to Modify:
+
+- No new source files expected — this is registration/config, not new classes
+
+---
+
+### TD-185: `HippocampalMemory` Wiring + Config + Write-Policy Call Site
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Planned | World Model / Memory (LeJEPA) | September 15, 2026 | 4-5 hours |
+
+Description:
+Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#hippocampal-memory-no-phase-0-joint-training-only)
+(chunk `HM-4`) — not yet built. `EncoderDecoderModel::set_hippocampal_memory()`/
+`get_hippocampal_memory()`, the new `HIPPOCAMPAL_*` config block (`_ENABLED`, `_CAPACITY`,
+`_REPETITION_ALPHA` default `0.0`, `_REPETITION_DECAY` default `0.95`,
+`_COVERAGE_LOSS_WEIGHT` default `0.0`), and the call site deciding when `HippocampalMemory::
+write()` actually gets called (v1: once per generated response). Depends on TD-179, TD-180.
+
+Action Items:
+
+- [ ] Add `hippocampal_memory` member + accessors to `EncoderDecoderModel`
+- [ ] Add the `HIPPOCAMPAL_*` config block to `config.trainer.conf`/`config.chatbot.conf`
+- [ ] Wire the write-policy call site (`EncoderDecoderModel`/`ChatbotAPIServer`, v1 = FIFO
+  always-write once per response)
+- [ ] Confirm `HIPPOCAMPAL_MEMORY_ENABLED=false` (default) reproduces current behavior exactly
+
+Files to Modify:
+
+- `src/EncoderDecoderModel.hpp` / `src/EncoderDecoderModel.cpp`
+- `config.trainer.conf`, `config.chatbot.conf`
+- `src/ChatbotAPIServer.cpp` (write-policy call site, if not in `EncoderDecoderModel` itself)
+
+---
+
+### TD-186: LeJEPA + Hippocampal Memory Pilot Run
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Planned | World Model / Memory (LeJEPA) | September 15, 2026 | 10-14 hours |
+
+Description:
+Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#evaluation-standard)
+(chunks `LJ-5`/`HM-5`) — not yet built, and not startable until TD-174 through TD-185 are done.
+Small `d_model`/`num_layers` (toy sizes, e.g. matching `EncoderDecoderExample.cpp`), on a subset
+of existing training data. This is the plan's own go/no-go signal, not a code-completeness
+checkbox: produces the world-model `mean(tanh(gate))` readout, the hippocampal
+`mean(tanh(gate_h))`/`mean(coverage)` readout swept across a few `HIPPOCAMPAL_REPETITION_ALPHA`
+values, and the distinct-n/self-BLEU repetition-diversity comparison the proposal's Evaluation
+standard calls for. A gate that never opens, or a repetition penalty that shows no diversity
+improvement over `alpha=0`, is this item's legitimate possible outcome, not a failure to close
+it — see the proposal's own "Risks / Open Questions" section. If
+[reasoning_process_plan.md](../../proposals/reasoning_process_plan.md)'s `RP-3` (Stage 1 SFT) has
+also landed, run jointly with that plan's `RP-6` as one combined pilot rather than separate ones.
+
+Action Items:
+
+- [ ] Run Phase 1 fine-tuning (frozen world model, gates start at 0) and confirm the mandatory
+  first checkpoint: `WORLD_MODEL_ENABLED=true` output matches `=false` output exactly before any
+  gate training happens
+- [ ] Sweep `HIPPOCAMPAL_REPETITION_ALPHA` (including `0.0`) and record `mean(tanh(gate_h))`/
+  `mean(coverage)` per setting
+- [ ] Compute distinct-n/self-BLEU at each alpha setting; confirm the penalty earns its
+  complexity (diversity improves at `alpha > 0` vs. `alpha = 0` with memory otherwise enabled)
+- [ ] Confirm `ENABLE_GENERATION_QUALITY_METRICS` BLEU/ROUGE does not regress vs. baseline
+- [ ] Write up the go/no-go result (proceed to Phase 2 joint fine-tuning, or stop here) —
+  either outcome closes this item
+
+Files to Modify:
+
+- None expected beyond training-session artifacts under `training_sessions/` (gitignored) and
+  this document (resolution write-up)
+
+---
+
 ## Resolved Items
 
 160 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -2311,21 +2792,21 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 13 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 26 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|1|8%|
-|Medium|7|54%|
-|Low|5|38%|
+|High|2|8%|
+|Medium|14|54%|
+|Low|10|38%|
 
-**Total Active Items:** 13
+**Total Active Items:** 26
 
 ### By Component
 
 |Component|Count|
 |----------------------|-------|
-|Core Model Architecture|2|
+|Core Model Architecture|4|
 |GPU / Inference / Training|1|
 |GPU / Inference / Performance|1|
 |Tooling / Toolchain|1|
@@ -2336,19 +2817,20 @@ Recomputed directly from the 13 `### TD-NNN` entries under [Active Technical Deb
 |Android / CI|1|
 |Android / Testing|1|
 |Documentation|1|
-|Training / Deployment / Tooling|1|
+|Training / Deployment / Tooling|2|
+|World Model / Memory (LeJEPA)|10|
 
 ### Effort Distribution
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|0|
-|2-4 hours|1|
-|4-8 hours|3|
-|8+ hours|6|
+|0-2 hours|2|
+|2-4 hours|5|
+|4-8 hours|7|
+|8+ hours|9|
 |Not estimated|3|
 
-**Total Estimated Effort (Active Items):** 120-178 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate)
+**Total Estimated Effort (Active Items):** 181-262 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate; TD-174 through TD-186 add an estimated 61-84 hours)
 
 ### Future Enhancements Summary
 
