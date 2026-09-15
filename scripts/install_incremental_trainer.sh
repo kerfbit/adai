@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# @adai-status: beta        (TD-043, TD-158 resolved — see tests/scripts/install_incremental_trainer_test.sh; TD-172 trainer_service copying added)
-# @adai-version: 0.9.0
+# @adai-status: beta        (TD-043, TD-158 resolved — see tests/scripts/install_incremental_trainer_test.sh; TD-172/TD-173 trainer_service copying + admin API config stubs added; fixed a misleading --with-systemd help description and an unescaped-backtick command-substitution bug in it)
+# @adai-version: 0.9.1
 # @adai-reviewed: 2026-09-14
 
 # ADAI Incremental Trainer Sub-System - Installation Script
@@ -70,9 +70,14 @@ Options:
   --config-src PATH         Source config.conf (default: <repo-root>/config.conf)
   --vocab-src PATH          Source vocab.txt (default: <repo-root>/vocab.txt)
   --with-registry-server    Also install the registry_server binary
-  --with-systemd            Install adai-trainer.service (auto-restart on crash via
-                            `incremental_trainer --foreground resume`; see
-                            scripts/adai-trainer.service for what it does and why)
+  --with-systemd            Install a simple adai-trainer.service, generated inline, that
+                            runs \`incremental_trainer --foreground resume\` directly with
+                            Restart=on-failure (auto-restart on crash or "nothing pending").
+                            No admin API, no trainer_service — independent of, and NOT the
+                            same as, scripts/adai-trainer.service (a separate, standalone
+                            reference file this script never installs; that one runs
+                            trainer_service instead, for the admin-API-capable deployment —
+                            see CLAUDE.md "Incremental trainer admin API" if you want that).
   --coordinator             Install only registry_server as a coordinator node
                             (implies --with-registry-server; no trainer binary required)
   --remote HOST             Install to a remote host via SSH + rsync
@@ -385,9 +390,10 @@ append_cache_stubs() {
 # BPE tokenization can take a very long time on large datasets — enabling
 # this persists the result to disk so a subsequent train/retrain/resume
 # against the same dataset+vocab+config skips straight back to training.
-# Recommended whenever `resume` runs under process supervision (see
-# scripts/adai-trainer.service, --with-systemd) so a crash-restart doesn't
-# cost hours of re-tokenization.
+# Recommended whenever `resume` runs under any form of process supervision —
+# --with-systemd's own generated unit or trainer_service via
+# scripts/adai-trainer.service — so a crash-restart doesn't cost hours of
+# re-tokenization.
 # ============================================================================
 
 CACHE_TOKENIZED_DATA=true
@@ -397,6 +403,52 @@ CACHE_TOKENIZED_DATA=true
 TOKENIZED_CACHE_DIR=tokenized_cache
 STUBS
     success "Appended tokenized-cache config stubs to ${config_path}"
+}
+
+# ============================================================================
+# Append Trainer Service Admin API Config Stubs (idempotent)
+# ============================================================================
+# TD-172/TD-173: only consulted by trainer_service, not by incremental_trainer's own
+# train/retrain/resume commands run directly, and not by --with-systemd's own generated
+# adai-trainer.service unit (that one drives incremental_trainer directly, no admin API at
+# all). Appended unconditionally, all commented out, the same way append_registry_stubs
+# documents a feature regardless of whether --with-registry-server was actually passed —
+# trainer_service may not even be installed (it's optional, see the copy step below), but the
+# config keys are harmless as inert documentation either way.
+
+append_trainer_admin_stubs() {
+    local config_path="$1"
+    if grep -q "TRAINER_ADMIN_ENABLED" "${config_path}" 2>/dev/null; then
+        warn "Trainer admin API stubs already present in ${config_path}, skipping"
+        return
+    fi
+    cat >> "${config_path}" <<'STUBS'
+
+# ============================================================================
+# Trainer service admin API (TD-172/TD-173)
+# Only used if you run trainer_service (see scripts/adai-trainer.service) rather than
+# --with-systemd's own simpler generated unit, which has no admin API at all. See CLAUDE.md's
+# "Incremental trainer admin API" section for what GET/PUT /admin/config, /admin/status,
+# /admin/checkpoint, /admin/pause, /admin/resume expose.
+# ============================================================================
+
+# Opt-in — false leaves trainer_service running with no admin port at all.
+# TRAINER_ADMIN_ENABLED=true
+
+# trainer_service's own public-facing admin listener.
+# TRAINER_ADMIN_PORT=8084
+# TRAINER_ADMIN_HOST=127.0.0.1
+
+# daemon_config.db overlay directory for admin-mutable settings (auto_save_*,
+# max_sessions_to_keep), relative to trainer_service's working directory unless given as an
+# absolute path.
+# TRAINER_ADMIN_DIR=trainer_admin
+
+# Loopback-only port trainer_service assigns to each single-pass incremental_trainer child it
+# launches — distinct from TRAINER_ADMIN_PORT above (that one is trainer_service's own).
+# TRAINER_CHILD_ADMIN_PORT=8085
+STUBS
+    success "Appended trainer service admin API config stubs to ${config_path}"
 }
 
 # ============================================================================
@@ -555,9 +607,10 @@ local_install() {
     info "[5/${step_total}] Adding distributed-registry config stubs..."
     append_registry_stubs "${CONFIG_DIR}/config.conf"
 
-    # Step 6: Append tokenized-data cache config stubs
+    # Step 6: Append tokenized-data cache and trainer-service admin API config stubs
     info "[6/${step_total}] Adding tokenized-cache config stubs..."
     append_cache_stubs "${CONFIG_DIR}/config.conf"
+    append_trainer_admin_stubs "${CONFIG_DIR}/config.conf"
 
     # Step 7: Set ownership
     info "[7/${step_total}] Setting ownership and permissions..."
@@ -631,6 +684,14 @@ print_local_summary() {
         echo "  Then: sudo systemctl start adai-trainer"
         echo "  Status:  systemctl status adai-trainer"
         echo "  Logs:    journalctl -u adai-trainer -f"
+        echo ""
+    fi
+    if [[ -x "${BIN_DIR}/trainer_service" ]]; then
+        echo "trainer_service is installed but not wired to systemd by this script — it's a"
+        echo "separate, admin-API-capable alternative to --with-systemd's simpler unit above."
+        echo "To use it: set TRAINER_ADMIN_ENABLED=true (see the stubs added to"
+        echo "${CONFIG_DIR}/config.conf) and adapt scripts/adai-trainer.service's ExecStart/"
+        echo "--config path to ${BIN_DIR}/trainer_service and ${CONFIG_DIR}/config.conf."
         echo ""
     fi
     echo "Edit config:"
