@@ -4,6 +4,67 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-176: `Predictor` (Embedding-Space Predictor)
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 15, 2026 | World Model / Memory (LeJEPA) | New `Predictor` class (`src/Predictor.{hpp,cpp}`), added to the `adai_lejepa` static library |
+
+Summary:
+Second construction piece of the LeJEPA world-model plan
+([lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md),
+Component 2) — LJ-1b. `Predictor` is the embedding-space predictor `LeJEPAEncoder::train_step`
+(TD-178) will use: given a context view's embedding, it predicts the target view's embedding. It
+is deliberately *not* a `LanguageModelHead` — no vocabulary projection, no token reconstruction —
+matching the LeJEPA paper's own finding that a self-supervised predictor needs no
+architecture-specific tuning. Per the plan's Component 2 spec, it is a thin wrapper around the
+existing `FeedForward` layer (`d_model -> hidden_dim -> d_model`) rather than a new architecture:
+every actual forward/backward/optimizer detail (Xavier init, GELU, gradient accumulation) is
+`FeedForward`'s own, unchanged. Standalone — no dependency on `SIGReg` (TD-175) or anything else
+in the batch, so it could have been built in parallel with TD-174/TD-175 had more than one session
+been available (see Tier 10's Level 0 in TECHNICAL_DEBT.md's Recommended Execution Order).
+
+Changes Made:
+
+- New `src/Predictor.hpp`/`.cpp`: `Predictor` class wrapping a `std::unique_ptr<FeedForward>`.
+  Constructor validates `d_model`/`hidden_dim` are positive via the same `require_positive()`
+  helper pattern TD-175's `SIGReg` introduced, called directly in the member-initializer list so a
+  non-positive dimension is rejected with a clear `std::invalid_argument` before it ever reaches
+  `FeedForward`'s own constructor (which has no such guard and would otherwise fail deep inside
+  `Matrix`'s allocation). `forward()`/`backward()` validate the input's `d_model` dimension and
+  delegate to the wrapped `FeedForward`; `update_weights()`/`zero_grad()` delegate directly;
+  `register_parameters_with_optimizer()` calls `FeedForward::set_optimizer()`, which
+  auto-registers — the same convention every other component in the codebase
+  (`EncoderBlock`, `LLMEncoder`, `LLMDecoder`) already uses for its own sub-layers.
+- `src/CMakeLists.txt`: `Predictor.cpp` added to the `adai_lejepa` static library (alongside
+  `SIGReg.cpp`), which now also links `adai_feedforward` (needed for `FeedForward` itself).
+- New `tests/predictor_test.cpp` + `predictorTests` CMake test target (`tests/CMakeLists.txt`).
+
+Verification:
+
+- ✅ 13 new `PredictorTests`, including the two TD-176's own Action Items specifically required
+  beyond basic forward/backward/update_weights/zero_grad: a gradient check on a toy embedding
+  batch (analytic `backward()` output matched a central-difference numerical estimate of
+  d(sum(output .* grad_output))/d(embeddings) to within 5e-3 at every element, ε=1e-3) and
+  `register_parameters_with_optimizer()` verified to actually enable training (forward → backward
+  → update_weights with a real `Optimizer(ADAM)` registered changes subsequent output). Plus
+  constructor-validation, mismatched-dimension-rejection, shape-preservation (batch and
+  single-embedding), determinism, plain-SGD weight-update, and cross-instance-independence tests.
+- ✅ Re-ran the two RNG-sensitive tests (gradient-check, cross-instance-independence) 8 times in a
+  loop to confirm robustness against `FeedForward`'s own non-deterministic Xavier/He
+  initialization — all passed every time.
+- ✅ Full `ctest` suite green: 133/133 passing (up from 132 — zero regressions;
+  `IncrementalTrainerTests`, pre-existing and unrelated, verified separately with a longer timeout
+  since it alone runs ~400s).
+- ✅ `check_file_status.py`: 313 files, 0 problems.
+
+Files Changed:
+
+- `src/Predictor.hpp`, `src/Predictor.cpp` (new)
+- `src/CMakeLists.txt`
+- `tests/predictor_test.cpp` (new)
+- `tests/CMakeLists.txt`
+
 ### TD-175: SIGReg (Sketched Isotropic Gaussian Regularization)
 
 | Resolution Date | Component | Resolved By |

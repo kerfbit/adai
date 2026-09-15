@@ -50,6 +50,11 @@ add_executable(sigregTests sigreg_test.cpp)
 target_link_libraries(sigregTests adai_lejepa adai_core GTest::gtest_main)
 add_test(NAME SIGRegTests COMMAND sigregTests)
 
+# Predictor tests (TD-176 / LJ-1b)
+add_executable(predictorTests predictor_test.cpp)
+target_link_libraries(predictorTests adai_lejepa adai_core GTest::gtest_main)
+add_test(NAME PredictorTests COMMAND predictorTests)
+
 # MnsJsonHelpers tests (TD-037 — pure Qt-free logic extracted from MnsManagerGUI)
 add_executable(mnsjsonhelpersTests mnsjsonhelpers_test.cpp)
 target_link_libraries(mnsjsonhelpersTests GTest::gtest_main)
