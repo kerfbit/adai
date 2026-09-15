@@ -4,6 +4,73 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-175: SIGReg (Sketched Isotropic Gaussian Regularization)
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 15, 2026 | World Model / Memory (LeJEPA) | New `SIGReg` class (`src/SIGReg.{hpp,cpp}`), new `adai_lejepa` static library |
+
+Summary:
+First construction piece of the LeJEPA world-model plan
+([lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md),
+Component 3) — LJ-1a. SIGReg is a self-supervised regularizer that penalizes a batch of embeddings
+for departing from an isotropic standard Gaussian, `N(0, I)`, the shape LeJEPA's encoder needs its
+output distribution to hold so a JEPA-style predictor trained on top of it can't collapse to a
+trivial constant-output solution. The LeJEPA paper (arXiv:2511.08544) defines this as a continuous
+integral over a characteristic-function normality test evaluated across all 1D random projections
+("sketches") of the batch; this implementation discretizes that integral to a fixed set of 4
+frequencies (`{0.5, 1.0, 1.5, 2.0}`, chosen to cover both low-order-moment-sensitive and
+tail-sensitive regions), the same kind of simplification the classical Epps-Pulley normality test
+makes for the same reason — documented as a deliberate, defensible engineering choice rather than
+a placeholder.
+
+Design: at construction, `SIGReg(d_model, num_sketches=64)` samples `num_sketches` random unit-norm
+directions in R^d_model (fixed for the instance's lifetime — not re-sampled per call).
+`compute_loss(embeddings)` projects the batch onto each direction, computes each projection's
+empirical characteristic function at each of the 4 frequencies (`mean(cos(t·p))`,
+`mean(sin(t·p))` over the batch), compares against a standard normal's known characteristic
+function (`exp(-t²/2)`, purely real), and sums the squared differences, normalized by
+`num_sketches × num_frequencies`. `backward(embeddings)` returns the analytic gradient w.r.t. the
+input embeddings via the chain rule through the projection and trig terms.
+
+Changes Made:
+
+- New `src/SIGReg.hpp`/`.cpp`: `SIGReg` class, global scope (matches `FeedForward`/`LayerNorm`
+  convention, no namespace). Constructor validates `d_model`/`num_sketches` are positive via a
+  `require_positive()` helper called directly in the member-initializer list — validating in the
+  constructor *body* instead would run too late, since `directions_(d_model, num_sketches)`'s own
+  initializer (which runs first, in declaration order) would already have passed a negative value
+  into `Matrix`'s constructor, surfacing `std::vector`'s own less-useful `std::length_error`
+  instead of a clear `std::invalid_argument`. Public: `compute_loss()`, `backward()`,
+  `get_num_sketches()`, `get_d_model()`.
+- New `adai_lejepa` static CMake library (`src/CMakeLists.txt`), following the existing
+  small-per-concern-library pattern (e.g. `adai_layers`, `adai_feedforward`), linking `adai_core` —
+  will also house `Predictor`/`LeJEPAEncoder`/`HippocampalMemory` as TD-176/177/185 land.
+- New `tests/sigreg_test.cpp` + `sigregTests` CMake test target (`tests/CMakeLists.txt`).
+
+Verification:
+
+- ✅ 8 new `SIGRegTests`, including the three TD-175's own Action Items specifically required:
+  loss near-zero (`< 0.02`) on a genuine 4000-row i.i.d. standard-normal batch; loss on a collapsed
+  batch (every row the same fixed nonzero vector) more than 10x the Gaussian batch's own loss and
+  `> 0.1` in absolute terms; and an analytic-vs-finite-difference gradient check (central
+  difference, ε=1e-3, batch=6, d_model=5, matching to within 5e-3 at every element). Plus
+  constructor-validation, mismatched-dimension-rejection, empty-batch, accessor, and
+  cross-instance-agreement (two independently-seeded instances both correctly rank a Gaussian
+  batch below a collapsed one) tests.
+- ✅ Re-ran the two statistically-sensitive tests (Gaussian-near-zero, collapsed-large) 8 times in
+  a loop to confirm robustness against the constructor's non-deterministic RNG seed — all passed
+  every time.
+- ✅ Full `ctest` suite green: 132/132 passing (up from 131 — zero regressions).
+- ✅ `check_file_status.py`: 311 files, 0 problems.
+
+Files Changed:
+
+- `src/SIGReg.hpp`, `src/SIGReg.cpp` (new)
+- `src/CMakeLists.txt`
+- `tests/sigreg_test.cpp` (new)
+- `tests/CMakeLists.txt`
+
 ### TD-173: trainer_service's Pause/Resume Had No Real Service-Level Effect, and a Wedged Child Could Hang Shutdown Forever
 
 | Resolution Date | Component | Resolved By |

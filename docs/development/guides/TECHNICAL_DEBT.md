@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 15, 2026
-**Total Items:** 26
+**Total Items:** 25
 **High Priority:** 2
-**Medium Priority:** 14
+**Medium Priority:** 13
 **Low Priority:** 10
 **Future Enhancements:** 19
-**Resolved Items:** 160
+**Resolved Items:** 161
 **Deferred Decisions:** 3
 
 **September 15, 2026:** Filed TD-174 through TD-186 (13 items) — the construction pieces of
@@ -162,13 +162,14 @@ sequence and is worth checking against, not trusting blindly, per this section's
 
 - **Level 0 — fully standalone, startable immediately, in any order:**
   [TD-174](#td-174-crossattentionforward_with_scores-score-bias-entry-point) (`forward_with_scores`,
-  2-3h), [TD-175](#td-175-sigreg-sketched-isotropic-gaussian-regularization) (`SIGReg`, 3-4h), and
-  [TD-176](#td-176-predictor-embedding-space-predictor) (`Predictor`, 2-3h) — three unrelated,
+  2-3h), **TD-175 (`SIGReg`) — resolved September 15, 2026, same day** (see
+  [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-175-sigreg-sketched-isotropic-gaussian-regularization)),
+  and [TD-176](#td-176-predictor-embedding-space-predictor) (`Predictor`, 2-3h) — three unrelated,
   independently-testable pieces with no reason not to parallelize across sessions if more than one
   is available.
 - **Level 1:** [TD-177](#td-177-lejepaencoder-construction) (`LeJEPAEncoder` construction, 5-7h) —
-  needs TD-175/TD-176 to exist as class members even though its own Description says "depends on
-  nothing else in this list" (true for the *logic*, not for *compiling*).
+  needs TD-175 (now done)/TD-176 to exist as class members even though its own Description says
+  "depends on nothing else in this list" (true for the *logic*, not for *compiling*).
 - **Level 2 — two independent branches open here:**
   [TD-178](#td-178-lejepaencodertrain_step-self-supervised-training-loop) (`train_step`, 8-10h,
   the LeJEPA/cortical branch) and [TD-179](#td-179-hippocampalmemory-buffer) (`HippocampalMemory`
@@ -197,9 +198,11 @@ sequence and is worth checking against, not trusting blindly, per this section's
   restating here since this is the one item in the batch that isn't "build the thing," it's "find
   out whether the thing was worth building."
 
-Total estimated effort across all 13 items: 61-84 hours (sum of each entry's own range — matches
-the Statistics section's own total below) — comparable in size to the entire rest of the active
-backlog combined. If [reasoning_process_plan.md](../../proposals/reasoning_process_plan.md)'s own
+Total estimated effort across the 12 remaining active items: 58-80 hours (TD-175, 3-4h, resolved
+September 15, 2026, same day — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-175-sigreg-sketched-isotropic-gaussian-regularization);
+sum of the rest matches the Statistics section's own total below) — comparable in size to the
+entire rest of the active backlog combined. If
+[reasoning_process_plan.md](../../proposals/reasoning_process_plan.md)'s own
 chunks are also in scope, see that plan's interaction notes referenced from TD-180 (`RP-2a`,
 phase-conditioned gates) and TD-186 (`RP-3`/`RP-6`, joint pilot) before committing to a sequence
 that ignores it.
@@ -224,7 +227,6 @@ that ignores it.
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
   - [TD-174: `CrossAttention::forward_with_scores` (Score-Bias Entry Point)](#td-174-crossattentionforward_with_scores-score-bias-entry-point)
-  - [TD-175: `SIGReg` (Sketched Isotropic Gaussian Regularization)](#td-175-sigreg-sketched-isotropic-gaussian-regularization)
   - [TD-176: `Predictor` (Embedding-Space Predictor)](#td-176-predictor-embedding-space-predictor)
   - [TD-177: `LeJEPAEncoder` Construction](#td-177-lejepaencoder-construction)
   - [TD-178: `LeJEPAEncoder::train_step` (Self-Supervised Training Loop)](#td-178-lejepaencodertrain_step-self-supervised-training-loop)
@@ -1907,36 +1909,6 @@ Files to Modify:
 
 ---
 
-### TD-175: `SIGReg` (Sketched Isotropic Gaussian Regularization)
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Planned | World Model / Memory (LeJEPA) | September 15, 2026 | 3-4 hours |
-
-Description:
-Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#3-sigreg)
-(chunk `LJ-1a`) — not yet built. Regularizer from the LeJEPA paper (arXiv:2511.08544): pushes a
-batch of embeddings toward an isotropic Gaussian via random 1D projections and a
-characteristic-function test. Stateless w.r.t. model weights (no learnable parameters of its
-own); consumes/produces gradients through the embeddings passed to it. Smallest, most
-independently testable piece of the LeJEPA world-model plan — no dependency on anything else in
-this list.
-
-Action Items:
-
-- [ ] Implement `SIGReg::compute_loss(embeddings)` / `SIGReg::backward(embeddings)` per the
-  proposal's interface
-- [ ] Unit test: loss on a synthetic isotropic-Gaussian batch is near zero
-- [ ] Unit test: loss on a degenerate (collapsed/constant) batch is large
-- [ ] Gradient check: finite-difference vs. `backward()`'s analytic gradient
-
-Files to Modify:
-
-- `src/SIGReg.hpp` / `src/SIGReg.cpp` — new
-- `tests/sigreg_test.cpp` — new
-
----
-
 ### TD-176: `Predictor` (Embedding-Space Predictor)
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -2792,15 +2764,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 26 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 25 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|2|8%|
-|Medium|14|54%|
-|Low|10|38%|
+|Medium|13|52%|
+|Low|10|40%|
 
-**Total Active Items:** 26
+**Total Active Items:** 25
 
 ### By Component
 
@@ -2818,19 +2790,19 @@ Recomputed directly from the 26 `### TD-NNN` entries under [Active Technical Deb
 |Android / Testing|1|
 |Documentation|1|
 |Training / Deployment / Tooling|2|
-|World Model / Memory (LeJEPA)|10|
+|World Model / Memory (LeJEPA)|9|
 
 ### Effort Distribution
 
 |Effort Range|Count|
 |--------------|-------|
 |0-2 hours|2|
-|2-4 hours|5|
+|2-4 hours|4|
 |4-8 hours|7|
 |8+ hours|9|
 |Not estimated|3|
 
-**Total Estimated Effort (Active Items):** 181-262 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate; TD-174 through TD-186 add an estimated 61-84 hours)
+**Total Estimated Effort (Active Items):** 178-258 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate; TD-174 through TD-186 minus resolved TD-175 add an estimated 58-80 hours)
 
 ### Future Enhancements Summary
 

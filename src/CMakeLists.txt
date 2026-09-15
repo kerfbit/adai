@@ -269,6 +269,14 @@ add_library(adai_feedforward STATIC
 )
 target_link_libraries(adai_feedforward adai_core)
 
+# LeJEPA world model + hippocampal memory (docs/proposals/lejepa_world_model_gated_injection_plan.md;
+# TD-175 SIGReg is the first piece — Predictor/LeJEPAEncoder/HippocampalMemory join this same
+# library as their own TD items land, per that plan's Implementation Phases)
+add_library(adai_lejepa STATIC
+    SIGReg.cpp
+)
+target_link_libraries(adai_lejepa adai_core)
+
 # Transformer blocks
 add_library(adai_transformer STATIC
     EncoderBlock.cpp

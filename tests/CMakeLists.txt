@@ -45,6 +45,11 @@ add_executable(optimizerTests optimizer_test.cpp)
 target_link_libraries(optimizerTests adai_core GTest::gtest_main)
 add_test(NAME OptimizerTests COMMAND optimizerTests)
 
+# SIGReg tests (TD-175 / LJ-1a)
+add_executable(sigregTests sigreg_test.cpp)
+target_link_libraries(sigregTests adai_lejepa adai_core GTest::gtest_main)
+add_test(NAME SIGRegTests COMMAND sigregTests)
+
 # MnsJsonHelpers tests (TD-037 — pure Qt-free logic extracted from MnsManagerGUI)
 add_executable(mnsjsonhelpersTests mnsjsonhelpers_test.cpp)
 target_link_libraries(mnsjsonhelpersTests GTest::gtest_main)
