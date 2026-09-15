@@ -1,13 +1,15 @@
 #!/bin/bash
 
-# @adai-status: beta        (TD-043, TD-158 resolved — see tests/scripts/install_incremental_trainer_test.sh; TD-172/TD-173 trainer_service copying + admin API config stubs added; fixed a misleading --with-systemd help description and an unescaped-backtick command-substitution bug in it)
-# @adai-version: 0.9.1
+# @adai-status: beta        (TD-043, TD-158 resolved — see tests/scripts/install_incremental_trainer_test.sh; TD-172/TD-173 trainer_service copying + admin API config stubs added; fixed a misleading --with-systemd help description, an unescaped-backtick command-substitution bug in it, a stale dataset_manager mention, and remote_install()'s missing cache/trainer-admin config stubs)
+# @adai-version: 0.9.2
 # @adai-reviewed: 2026-09-14
 
 # ADAI Incremental Trainer Sub-System - Installation Script
 #
-# Installs incremental_trainer, dataset_manager, and optionally registry_server
-# to a target host. Supports local, remote (SSH+rsync), and coordinator-only modes.
+# Installs incremental_trainer, optionally trainer_service and/or registry_server, to a
+# target host. Supports local, remote (SSH+rsync), and coordinator-only modes.
+# (dataset_manager was deliberately dropped from this script's scope in commit d914070 —
+# see show_help()'s own "Binaries:" list below for the current, accurate set.)
 #
 # Usage:
 #   sudo ./install_incremental_trainer.sh [OPTIONS]
@@ -972,8 +974,13 @@ REMOTE_CHMOD
         "${REMOTE_HOST}:${remote_config}/vocab.txt"
     success "Config and vocab transferred"
 
-    # Step 5: Append distributed-registry stubs on remote
-    info "[5/${step_total}] Adding distributed-registry config stubs on ${REMOTE_HOST}..."
+    # Step 5: Append config stubs on remote (distributed-registry, tokenized-data cache,
+    # trainer-service admin API) — mirrors local_install()'s append_registry_stubs()/
+    # append_cache_stubs()/append_trainer_admin_stubs(), inlined here since those are local
+    # bash functions with no access to this remote shell (same reason the registry-stub text
+    # below was already a separate, remote-side copy rather than a shared function). One SSH
+    # call for all three rather than three round-trips.
+    info "[5/${step_total}] Adding config stubs on ${REMOTE_HOST}..."
     ssh "${SSH_ARGS[@]}" "${REMOTE_HOST}" bash -s -- "${remote_config}/config.conf" <<'REMOTE_STUBS'
 config_path="$1"
 if grep -q "REGISTRY_SERVER_URL" "${config_path}" 2>/dev/null; then
@@ -993,8 +1000,48 @@ else
 STUBS
     echo "Distributed-registry stubs appended"
 fi
+
+if grep -q "CACHE_TOKENIZED_DATA" "${config_path}" 2>/dev/null; then
+    echo "Tokenized-cache stubs already present, skipping"
+else
+    cat >> "${config_path}" <<'STUBS'
+
+# ============================================================================
+# Tokenized-data cache
+# Persists BPE tokenization to disk so a subsequent train/retrain/resume against
+# the same dataset+vocab+config skips straight back to training. Recommended
+# whenever resume runs under process supervision (--with-systemd's own unit, or
+# trainer_service via scripts/adai-trainer.service).
+# ============================================================================
+
+CACHE_TOKENIZED_DATA=true
+TOKENIZED_CACHE_DIR=tokenized_cache
+STUBS
+    echo "Tokenized-cache stubs appended"
+fi
+
+if grep -q "TRAINER_ADMIN_ENABLED" "${config_path}" 2>/dev/null; then
+    echo "Trainer admin API stubs already present, skipping"
+else
+    cat >> "${config_path}" <<'STUBS'
+
+# ============================================================================
+# Trainer service admin API (TD-172/TD-173)
+# Only used if you run trainer_service (see scripts/adai-trainer.service) rather
+# than --with-systemd's own simpler generated unit, which has no admin API at
+# all. See CLAUDE.md's "Incremental trainer admin API" section for details.
+# ============================================================================
+
+# TRAINER_ADMIN_ENABLED=true
+# TRAINER_ADMIN_PORT=8084
+# TRAINER_ADMIN_HOST=127.0.0.1
+# TRAINER_ADMIN_DIR=trainer_admin
+# TRAINER_CHILD_ADMIN_PORT=8085
+STUBS
+    echo "Trainer admin API stubs appended"
+fi
 REMOTE_STUBS
-    success "Registry config stubs added"
+    success "Config stubs added"
 
     # Step 6: Create remote service user/group and set ownership
     info "[6/${step_total}] Setting ownership on ${REMOTE_HOST}..."
