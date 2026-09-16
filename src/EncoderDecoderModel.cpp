@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy())
-// @adai-version: 0.14.0
-// @adai-reviewed: 2026-09-14
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added)
+// @adai-version: 0.15.0
+// @adai-reviewed: 2026-09-15
 
 #include "EncoderDecoderModel.hpp"
 #include <algorithm>
@@ -11,6 +11,7 @@
 #include <functional>
 #include <sstream>
 #include <stdexcept>
+#include "LeJEPAEncoder.hpp"  // TD-182: forward-declared in the header, complete type needed here
 #include "Optimizer.hpp"
 #include "SpecialTokens.hpp"
 
@@ -69,6 +70,10 @@ EncoderDecoderModel::EncoderDecoderModel(int vocab_size, int d_model, int encode
 // Destructor
 EncoderDecoderModel::~EncoderDecoderModel() {
     // Unique pointers handle cleanup
+}
+
+void EncoderDecoderModel::set_world_model(std::unique_ptr<LeJEPAEncoder> wm) {
+    world_model = std::move(wm);
 }
 
 // Compute cross-entropy loss

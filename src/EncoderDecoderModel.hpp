@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in)
-// @adai-version: 0.13.0
-// @adai-reviewed: 2026-09-14
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added)
+// @adai-version: 0.14.0
+// @adai-reviewed: 2026-09-15
 
 
 #include <functional>
@@ -21,6 +21,15 @@
 #ifdef ADAI_ENABLE_GPU
 #include "gpu/MatrixGPU.hpp"
 #endif
+
+// TD-182: forward-declared rather than #include "LeJEPAEncoder.hpp" — that header pulls in the
+// whole LeJEPA stack (EncoderBlock, Predictor, SIGReg, BPETokenizer, ...), and this class only
+// ever stores/returns a pointer to one, never constructs or calls into one itself (that's the
+// caller's job — see set_world_model()'s own doc comment). ~EncoderDecoderModel() is already
+// declared in this header but defined in the .cpp, where LeJEPAEncoder.hpp is fully included,
+// so std::unique_ptr<LeJEPAEncoder>'s destructor has the complete type it needs at the one
+// place that actually requires it.
+class LeJEPAEncoder;
 
 /**
  * EncoderDecoderModel - Complete sequence-to-sequence transformer
@@ -59,6 +68,12 @@ class EncoderDecoderModel {
     std::unique_ptr<LLMDecoder> decoder;
     std::unique_ptr<LanguageModelHead> lm_head;
     std::unique_ptr<TextGenerator> generator;
+
+    // TD-182: nullptr (the default — nothing constructs one here) disables the feature
+    // entirely, same no-breaking-changes guarantee as every other gated path in this batch
+    // (TD-174 through TD-181). Wiring + accessor only — see set_world_model()'s own doc
+    // comment for what "wiring" does and, just as importantly, does not yet do.
+    std::unique_ptr<LeJEPAEncoder> world_model;
 
     int vocab_size;
     int d_model;
@@ -533,6 +548,25 @@ class EncoderDecoderModel {
     }
     TextGenerator* get_generator() {
         return generator.get();
+    }
+
+    /**
+     * TD-182: attach (or detach) a pretrained, frozen world model (LeJEPA plan Component 7).
+     * Passing `nullptr` disables the feature entirely and restores exact current behavior —
+     * same guarantee every other gated path in this batch (TD-174 through TD-181) makes. This
+     * is wiring + an accessor only: it does not itself pass `world_model->encode(...)` into any
+     * `DecoderBlock::forward()` call, register the world model's own parameters with an
+     * optimizer, or touch the training loop in any way — those are later items' own jobs (this
+     * class's `forward()`/`backward()` are unmodified by this item). Ownership transfers to
+     * this instance; any previously-attached world model is destroyed.
+     *
+     * @param wm A LeJEPAEncoder this instance now owns, or nullptr to detach.
+     */
+    void set_world_model(std::unique_ptr<LeJEPAEncoder> wm);
+
+    /** @return The attached world model, or nullptr if none is attached. */
+    LeJEPAEncoder* get_world_model() {
+        return world_model.get();
     }
 
     /**

@@ -4,6 +4,67 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-182: `EncoderDecoderModel::set_world_model()`
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 15, 2026 | World Model / Memory (LeJEPA) | New `world_model` member + `set_world_model()`/`get_world_model()` on `EncoderDecoderModel` (`src/EncoderDecoderModel.{hpp,cpp}`) |
+
+Summary:
+Eighth piece of the LeJEPA world-model plan (LJ-4a, Component 7) — a small, deliberately narrow
+wiring-plus-accessor item. Adds a `std::unique_ptr<LeJEPAEncoder> world_model` member and
+`set_world_model()`/`get_world_model()` to `EncoderDecoderModel`. `nullptr` (the default —
+nothing constructs one in the constructor) disables the feature entirely, the same
+no-breaking-changes guarantee every gated path in this batch has made (TD-174 through TD-181).
+Scoped explicitly to wiring + an accessor, per the item's own Action Items: `forward()`/
+`backward()` are completely unmodified and never reference `world_model` at all — passing the
+attached encoder's `encode()` output into `DecoderBlock::forward()`'s own `world_model_output`
+parameter (TD-180) is a later item's job, not this one's.
+
+Design decision — `LeJEPAEncoder` is forward-declared in `EncoderDecoderModel.hpp` rather than
+`#include`d there: that header pulls in the whole LeJEPA stack (`EncoderBlock`, `Predictor`,
+`SIGReg`, `BPETokenizer`, ...), and this class only ever stores/returns a pointer to one, never
+constructs or calls into one itself. `EncoderDecoderModel` already declares an explicit
+destructor in its header (defined in the `.cpp`, pre-existing, not added by this item), which is
+exactly the place `LeJEPAEncoder.hpp` needs to be fully included for `std::unique_ptr`'s own
+destructor to have the complete type it needs — `get_world_model()` stays inline in the header
+regardless (returning a raw pointer via `.get()` doesn't require completeness), matching
+`get_encoder()`/`get_decoder()`'s own inline style; only `set_world_model()`'s definition moved
+to the `.cpp`.
+
+Changes Made:
+
+- `src/EncoderDecoderModel.hpp`: forward-declared `class LeJEPAEncoder;`; new `world_model`
+  member; `set_world_model(std::unique_ptr<LeJEPAEncoder>)` declared (defined in the `.cpp`);
+  `get_world_model()` defined inline, mirroring `get_encoder()`/`get_decoder()`.
+- `src/EncoderDecoderModel.cpp`: `#include "LeJEPAEncoder.hpp"`; `set_world_model()`'s
+  one-line definition (`world_model = std::move(wm);`).
+- `src/CMakeLists.txt`: `adai_models` now links `adai_lejepa` (needed at link time for
+  `LeJEPAEncoder`'s own destructor, reachable via `EncoderDecoderModel`'s `unique_ptr` member).
+  `adai_lejepa` depends on `adai_transformer`, not on `adai_models`, so this stays a valid DAG —
+  no repeat of TD-180's own circular-dependency lesson.
+- `tests/encoderdecoder_test.cpp`: 5 new tests.
+
+Verification:
+
+- ✅ The item's own required check: the full pre-existing 66-test `encoderdecoder_test.cpp`
+  suite passes completely unmodified with no world model attached.
+- ✅ 5 new `EncoderDecoderModelWorldModelTest` cases: `nullptr` by default; `set_world_model()`
+  attaches and `get_world_model()` returns the same pointer; `nullptr` detaches; attaching a
+  second instance replaces (and implicitly destroys) the first; and the key no-breaking-changes
+  check — the same model instance's `forward()` output is bit-identical before and after
+  attaching a real world model, confirming this item is genuinely wiring-only.
+- ✅ Full `ctest` suite green modulo the same two pre-existing, unrelated conditions noted in
+  TD-174's own entry — 136/136 of everything else passing (up from 135:
+  `EncoderDecoderTests` growing from 66 to 71 cases).
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+
+Files Changed:
+
+- `src/EncoderDecoderModel.hpp`, `src/EncoderDecoderModel.cpp`
+- `src/CMakeLists.txt`
+- `tests/encoderdecoder_test.cpp`
+
 ### TD-181: Sparse World-Model Injection Knob
 
 | Resolution Date | Component | Resolved By |

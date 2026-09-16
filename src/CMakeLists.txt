@@ -338,7 +338,12 @@ add_library(adai_models STATIC
     EncoderDecoderModel.cpp
     ModelSerializer.cpp
 )
-target_link_libraries(adai_models adai_transformer)
+# TD-182: EncoderDecoderModel now holds a std::unique_ptr<LeJEPAEncoder> (forward-declared in
+# its own header; LeJEPAEncoder.hpp is fully included in EncoderDecoderModel.cpp, where its
+# destructor is defined) — needs adai_lejepa's own object code at link time. adai_lejepa itself
+# depends on adai_transformer, not on adai_models, so this stays a valid DAG (no repeat of
+# TD-180's own circular-dependency lesson).
+target_link_libraries(adai_models adai_transformer adai_lejepa)
 target_include_directories(adai_models PRIVATE ${CMAKE_SOURCE_DIR}/external)
 
 # ============================================================================

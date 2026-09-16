@@ -6,6 +6,7 @@
 #include <memory>
 #include <stdexcept>
 #include "../src/EncoderDecoderModel.hpp"
+#include "../src/LeJEPAEncoder.hpp"
 #include "../src/Matrix.hpp"
 #include "../src/Optimizer.hpp"
 
@@ -1686,6 +1687,72 @@ TEST(EncoderDecoderModelLoRATest, MergeLoraAcrossModelPreservesOutput) {
 
     EXPECT_TRUE(matrices_equal(logits_before_merge, logits_after_merge, 1e-3f))
         << "merge_lora() changed the whole model's forward() output";
+}
+
+// ============================================================================
+// TD-182: set_world_model()/get_world_model() Tests
+// ============================================================================
+
+TEST(EncoderDecoderModelWorldModelTest, WorldModelIsNullByDefault) {
+    EncoderDecoderModel model(100, 64, 2, 2);
+    EXPECT_EQ(model.get_world_model(), nullptr);
+}
+
+TEST(EncoderDecoderModelWorldModelTest, SetWorldModelAttachesInstance) {
+    EncoderDecoderModel model(100, 64, 2, 2);
+
+    auto world_model = std::make_unique<LeJEPAEncoder>(100, 64, 2, 4, 128);
+    LeJEPAEncoder* raw_ptr = world_model.get();
+    model.set_world_model(std::move(world_model));
+
+    EXPECT_EQ(model.get_world_model(), raw_ptr);
+    EXPECT_NE(model.get_world_model(), nullptr);
+}
+
+TEST(EncoderDecoderModelWorldModelTest, SetWorldModelNullptrDetaches) {
+    EncoderDecoderModel model(100, 64, 2, 2);
+    model.set_world_model(std::make_unique<LeJEPAEncoder>(100, 64, 2, 4, 128));
+    ASSERT_NE(model.get_world_model(), nullptr);
+
+    model.set_world_model(nullptr);
+
+    EXPECT_EQ(model.get_world_model(), nullptr);
+}
+
+TEST(EncoderDecoderModelWorldModelTest, SetWorldModelReplacesPreviousInstance) {
+    EncoderDecoderModel model(100, 64, 2, 2);
+
+    auto first = std::make_unique<LeJEPAEncoder>(100, 64, 2, 4, 128);
+    LeJEPAEncoder* first_ptr = first.get();
+    model.set_world_model(std::move(first));
+
+    auto second = std::make_unique<LeJEPAEncoder>(100, 64, 2, 4, 128);
+    LeJEPAEncoder* second_ptr = second.get();
+    model.set_world_model(std::move(second));
+
+    EXPECT_NE(model.get_world_model(), first_ptr);
+    EXPECT_EQ(model.get_world_model(), second_ptr);
+}
+
+// TD-182's own Action Item: attaching a world model must not change forward()'s output at all
+// — this is wiring + an accessor only, no training-loop changes. Same instance, same inputs,
+// before vs. after attaching, must be bit-identical.
+TEST(EncoderDecoderModelWorldModelTest, ForwardOutputUnaffectedByAttachedWorldModel) {
+    int vocab_size = 100;
+    int d_model = 64;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2);
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+
+    std::vector<int> input_tokens = {1, 5, 10, 2};
+    std::vector<int> target_tokens = {1, 3, 7, 2};
+
+    Matrix logits_before = model.forward(input_tokens, target_tokens);
+
+    model.set_world_model(std::make_unique<LeJEPAEncoder>(vocab_size, d_model, 2, 4, 128));
+    Matrix logits_after = model.forward(input_tokens, target_tokens);
+
+    EXPECT_TRUE(matrices_equal(logits_before, logits_after))
+        << "attaching a world model changed forward() output — TD-182 is wiring-only";
 }
 
 // ============================================================================
