@@ -1,29 +1,44 @@
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added)
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-09-14
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added)
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-09-15
 
 #include "Decoder.hpp"
+#include <stdexcept>
 #include "Logger.hpp"
 using adai::Logger;
 
 // Constructor
 LLMDecoder::LLMDecoder(int vocab_size, int d_model, int num_layers, int num_heads, int d_ff,
-                       int max_seq_length)
+                       int max_seq_length, int world_model_inject_every_n_layers)
     : vocab_size(vocab_size),
       d_model(d_model),
       num_layers(num_layers),
       num_heads(num_heads),
       d_ff(d_ff),
-      max_seq_length(max_seq_length) {
+      max_seq_length(max_seq_length),
+      world_model_inject_every_n_layers(world_model_inject_every_n_layers) {
+    if (world_model_inject_every_n_layers < 0) {
+        throw std::invalid_argument(
+            "LLMDecoder: world_model_inject_every_n_layers must be >= 0 (0 = disabled)");
+    }
+
     // Initialize token embedding
     token_embedding = std::make_unique<TokenEmbedding>(vocab_size, d_model);
 
     // Initialize positional encoding
     positional_encoding = std::make_unique<PositionalEncoding>(max_seq_length, d_model);
 
-    // Initialize decoder blocks
+    // Initialize decoder blocks. TD-181: layer i's gated world-model path is allocated only
+    // when the knob is enabled (> 0) and i is one of every Nth layer, starting at 0 — with the
+    // knob at its default (0), enable_world_model is always false here, so every DecoderBlock
+    // is constructed exactly as it was before this knob existed (see this constructor's own
+    // header doc for why 0, not 1, is the right default).
     for (int i = 0; i < num_layers; ++i) {
-        decoder_blocks.push_back(std::make_unique<DecoderBlock>(d_model, num_heads, d_ff));
+        bool enable_world_model = (world_model_inject_every_n_layers > 0) &&
+                                  (i % world_model_inject_every_n_layers == 0);
+        decoder_blocks.push_back(std::make_unique<DecoderBlock>(
+            d_model, num_heads, d_ff, /*dropout=*/0.1f, enable_world_model,
+            /*enable_hippocampal=*/false));  // HippocampalMemory wiring is TD-185's own job
     }
 
     // Initialize final layer normalization

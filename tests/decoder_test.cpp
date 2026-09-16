@@ -951,6 +951,73 @@ TEST(DecoderTest, MemoryStability) {
 }
 
 // ============================================================================
+// TD-181: Sparse World-Model Injection Knob Tests
+// ============================================================================
+
+TEST(DecoderTest, WorldModelInjectionDisabledByDefault) {
+    int vocab_size = 100, d_model = 32, num_layers = 4, num_heads = 4, d_ff = 64;
+    LLMDecoder decoder(vocab_size, d_model, num_layers, num_heads, d_ff);
+
+    EXPECT_EQ(decoder.get_world_model_inject_every_n_layers(), 0);
+    for (int i = 0; i < num_layers; ++i) {
+        EXPECT_EQ(decoder.get_decoder_block(i)->get_world_model_cross_attention(), nullptr)
+            << "layer " << i;
+    }
+}
+
+TEST(DecoderTest, WorldModelInjectionEveryLayerWhenNIsOne) {
+    int vocab_size = 100, d_model = 32, num_layers = 4, num_heads = 4, d_ff = 64;
+    LLMDecoder decoder(vocab_size, d_model, num_layers, num_heads, d_ff, /*max_seq_length=*/512,
+                       /*world_model_inject_every_n_layers=*/1);
+
+    for (int i = 0; i < num_layers; ++i) {
+        EXPECT_NE(decoder.get_decoder_block(i)->get_world_model_cross_attention(), nullptr)
+            << "layer " << i;
+    }
+}
+
+// TD-181's own Action Item: with N=2 on a 4-layer decoder, exactly 2 layers receive a non-null
+// world-model path.
+TEST(DecoderTest, WorldModelInjectionEveryNthLayer) {
+    int vocab_size = 100, d_model = 32, num_layers = 4, num_heads = 4, d_ff = 64;
+    LLMDecoder decoder(vocab_size, d_model, num_layers, num_heads, d_ff, /*max_seq_length=*/512,
+                       /*world_model_inject_every_n_layers=*/2);
+
+    int enabled_count = 0;
+    for (int i = 0; i < num_layers; ++i) {
+        bool has_world_model = decoder.get_decoder_block(i)->get_world_model_cross_attention() != nullptr;
+        // Layers 0 and 2 (i % 2 == 0) should have it; layers 1 and 3 should not.
+        EXPECT_EQ(has_world_model, (i % 2 == 0)) << "layer " << i;
+        if (has_world_model) {
+            ++enabled_count;
+        }
+    }
+    EXPECT_EQ(enabled_count, 2);
+}
+
+TEST(DecoderTest, WorldModelInjectionNeverAllocatesHippocampalPath) {
+    // TD-181 is scoped to the world-model path only — HippocampalMemory wiring is TD-185's job.
+    int vocab_size = 100, d_model = 32, num_layers = 3, num_heads = 4, d_ff = 64;
+    LLMDecoder decoder(vocab_size, d_model, num_layers, num_heads, d_ff, /*max_seq_length=*/512,
+                       /*world_model_inject_every_n_layers=*/1);
+
+    for (int i = 0; i < num_layers; ++i) {
+        EXPECT_EQ(decoder.get_decoder_block(i)->get_hippocampal_cross_attention(), nullptr)
+            << "layer " << i;
+    }
+}
+
+TEST(DecoderTest, WorldModelInjectionRejectsNegativeKnob) {
+    EXPECT_THROW(LLMDecoder(100, 32, 2, 4, 64, 512, /*world_model_inject_every_n_layers=*/-1),
+                 std::invalid_argument);
+}
+
+TEST(DecoderTest, GetWorldModelInjectEveryNLayersAccessorReflectsConstruction) {
+    LLMDecoder decoder(100, 32, 2, 4, 64, 512, /*world_model_inject_every_n_layers=*/3);
+    EXPECT_EQ(decoder.get_world_model_inject_every_n_layers(), 3);
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 

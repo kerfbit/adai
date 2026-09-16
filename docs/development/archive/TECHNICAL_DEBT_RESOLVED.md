@@ -4,6 +4,65 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-181: Sparse World-Model Injection Knob
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 15, 2026 | World Model / Memory (LeJEPA) | New `world_model_inject_every_n_layers` constructor parameter on `LLMDecoder` (`src/Decoder.{hpp,cpp}`) |
+
+Summary:
+Seventh piece of the LeJEPA world-model plan (LJ-3b) — the sparse-injection companion to
+TD-180's own per-layer gated world-model path. Per the RETRO precedent the plan itself cites, the
+world-model path need not run on every decoder layer; this item adds the config-driven knob that
+decides which layers actually get it, so only every Nth `DecoderBlock` is constructed with its
+gated world-model path allocated at all — the rest pass `enable_world_model=false` to
+`DecoderBlock`'s own constructor (TD-180) and incur zero extra cost (no allocation, not just no
+forward-time cost). Depended only on TD-180, which had just landed.
+
+Design decision — the knob's own default deviates from the plan's literal prose: the plan
+describes `world_model_inject_every_n_layers`'s default as "`1` (every layer), for the initial
+pilot." Taken literally at `LLMDecoder`'s own raw C++ constructor level, a default of `1` would
+mean every new `LLMDecoder` — including the one existing production construction site
+(`EncoderDecoderModel`'s own decoder initialization) — would silently start allocating brand-new,
+randomly-initialized, untrained `CrossAttention`/`LayerNorm` gated-path weights on every layer
+the moment this shipped, even though nothing downstream yet provides a real world model to
+attach (`EncoderDecoderModel::set_world_model()`, TD-182, doesn't exist yet either). That
+directly contradicts the "no breaking changes for existing callers" principle every other
+TD-180-derived gate in this batch was built around. Read instead as describing the recommended
+`WORLD_MODEL_INJECT_EVERY_N_LAYERS` *config* value once a caller has already turned the feature
+on (`WORLD_MODEL_ENABLED=true`, a higher-level, config-level concern this raw constructor knows
+nothing about — see the plan's own Training Standard section), this implementation's own
+default is `0` (**disabled entirely** — no layer's world-model path is allocated), with `N >= 1`
+enabling it (`i % N == 0` gets the path). This is the same reasoning TD-180 itself already
+applied to `enable_world_model`/`enable_hippocampal`'s own `false` defaults.
+
+Changes Made:
+
+- `src/Decoder.hpp`/`.cpp`: `LLMDecoder`'s constructor gains a trailing
+  `world_model_inject_every_n_layers` parameter (default `0`); the existing one production call
+  site (`EncoderDecoderModel.cpp`, 6 positional args) is unaffected. Validates `>= 0`, throwing
+  `std::invalid_argument` otherwise. New `get_world_model_inject_every_n_layers()` accessor.
+  HippocampalMemory wiring is explicitly out of scope (`enable_hippocampal=false` always, in
+  every constructed `DecoderBlock`) — that's TD-185's own job.
+
+Verification:
+
+- ✅ 6 new `DecoderTest` cases: disabled by default (every layer's world-model path is
+  `nullptr`, and the accessor reports `0`); `N=1` allocates it on every layer; the item's own
+  required check — `N=2` on a 4-layer decoder allocates it on exactly layers 0 and 2 (2 layers
+  total), leaving 1 and 3 `nullptr`; the hippocampal path is never allocated regardless of this
+  knob; a negative knob value throws; the accessor reflects whatever was passed at construction.
+- ✅ Full `ctest` suite green modulo the same two pre-existing, unrelated conditions noted in
+  TD-174's own entry — 136/136 of everything else passing (up from 135: `DecoderTests` growing
+  from 48 to 54 cases; the two ctest-registration-count increases in this run trace to
+  pre-existing `TizenJsTests` sub-splits, unrelated to this change).
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+
+Files Changed:
+
+- `src/Decoder.hpp`, `src/Decoder.cpp`
+- `tests/decoder_test.cpp`
+
 ### TD-180: Gated `DecoderBlock` Extension (World Model + Hippocampal Memory, Repetition-Penalized)
 
 | Resolution Date | Component | Resolved By |

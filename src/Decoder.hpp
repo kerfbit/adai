@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added)
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-09-14
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added)
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-09-15
 
 
 #include <algorithm>
@@ -65,6 +65,7 @@ class LLMDecoder {
     int num_heads;
     int d_ff;
     int max_seq_length;
+    int world_model_inject_every_n_layers;  // TD-181; 0 = disabled (see constructor doc)
 
     // Training state
     bool requires_grad{true};
@@ -96,9 +97,26 @@ class LLMDecoder {
      * @param num_heads Number of attention heads
      * @param d_ff Dimension of feed-forward layer
      * @param max_seq_length Maximum sequence length
+     * @param world_model_inject_every_n_layers TD-181: sparse world-model injection knob (LeJEPA
+     *   plan Component 4's "Sparse injection knob" section). Only every Nth `DecoderBlock` (0,
+     *   N, 2N, ...) is constructed with its gated world-model cross-attention path allocated at
+     *   all — the rest pass `enable_world_model=false` to `DecoderBlock`'s own constructor and
+     *   incur zero extra cost (matching TD-180's own "nullable, zero cost when disabled"
+     *   design). Default `0` means **disabled entirely** (no layer gets the path) — this is a
+     *   deliberate departure from the plan's own prose, which frames `1` (every layer) as "the
+     *   default... for the initial pilot": that framing describes the recommended
+     *   `WORLD_MODEL_INJECT_EVERY_N_LAYERS` *config* value once a caller has already decided to
+     *   turn the feature on (`WORLD_MODEL_ENABLED=true`, a higher-level concern this
+     *   constructor knows nothing about) — this raw constructor's own default must stay "off,"
+     *   matching every other TD-180-derived gate's own "no breaking changes for existing
+     *   callers" default, since nothing downstream (`EncoderDecoderModel::set_world_model()`,
+     *   TD-182) exists yet to attach a real world model to an allocated-but-unused path anyway.
+     *   `N >= 1` enables it, injecting into layer `i` whenever `i % N == 0`.
+     * @throws std::invalid_argument if world_model_inject_every_n_layers < 0
      */
     LLMDecoder(int vocab_size, int d_model = 512, int num_layers = 6, int num_heads = 8,
-               int d_ff = 2048, int max_seq_length = 512);
+               int d_ff = 2048, int max_seq_length = 512,
+               int world_model_inject_every_n_layers = 0);
 
     /**
      * Destructor
@@ -217,6 +235,12 @@ class LLMDecoder {
      */
     int get_num_layers() const {
         return num_layers;
+    }
+
+    /** TD-181: the sparse world-model injection knob this instance was constructed with (0 =
+     *  disabled — no layer's world-model path was allocated). */
+    int get_world_model_inject_every_n_layers() const {
+        return world_model_inject_every_n_layers;
     }
 
     /**
