@@ -1,5 +1,5 @@
-// @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa)
-// @adai-version: 0.11.0
+// @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint)
+// @adai-version: 0.12.0
 // @adai-reviewed: 2026-09-16
 
 #include <array>
@@ -182,8 +182,12 @@ static void cleanup_downloads(const std::vector<fs::path>& local_paths) {
 // registry/FTP-download machinery the chatbot objective uses (the "train" command's own
 // pre-fork pending-count check, shared by both objectives — see the call site in main()), but
 // trains a standalone LeJEPAEncoder world model via LeJEPAEncoder::train_step() instead of
-// building a ChatbotTrainer/IncrementalTrainer at all. No MNS registration or IncrementalTrainer
-// ::begin_run() here — the world model isn't an MNS-registered model yet (TD-184's own job).
+// building a ChatbotTrainer/IncrementalTrainer at all. Resumes from `world_model_dir`'s own
+// checkpoint if one already exists (TD-184) — genuinely incremental across separate invocations,
+// the same way IncrementalTrainer's own constructor resumes the chatbot model. No MNS
+// registration or IncrementalTrainer::begin_run() here — the world model is its own,
+// independently MNS-registered artifact (via a manual `mns_cli register`, TD-184), not something
+// this pass registers itself.
 //
 // Data format: reuses DatasetRegistry::load_conversation_pairs() — the only file-content parser
 // this codebase has — even though LeJEPA's own objective needs no (input, target) pairing at all
@@ -214,6 +218,29 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
                               static_cast<int>(svc_config.max_seq_length),
                               static_cast<int>(svc_config.world_model_sigreg_num_sketches));
     world_model.load_tokenizer_vocab(default_vocab);
+
+    // TD-184: genuinely incremental across separate `train` invocations — resume from a prior
+    // pass's checkpoint if one exists, the same way IncrementalTrainer's own constructor resumes
+    // the chatbot model from its best saved checkpoint before training on newly-acquired data
+    // (see IncrementalTrainer.cpp's constructor). Without this, every pass would silently discard
+    // all prior progress and retrain a fresh, randomly-initialized encoder — defeating the whole
+    // point of feeding it new pending-data batches over time. A mismatched architecture (the
+    // WORLD_MODEL_* config changed since the checkpoint was saved) is reported clearly and this
+    // pass aborts rather than either silently discarding the old checkpoint or crashing uncaught.
+    if (fs::exists(world_model_dir)) {
+        try {
+            world_model.load(world_model_dir);
+            adai::Logger::info("[lejepa] Resumed world-model weights from '{}'", world_model_dir);
+        } catch (const std::exception& e) {
+            std::cerr << "❌ [lejepa] Failed to load existing world-model checkpoint at '"
+                      << world_model_dir << "': " << e.what() << "\n"
+                      << "   (WORLD_MODEL_* config must match the architecture the checkpoint "
+                         "was saved with — or move/remove the old checkpoint directory to start "
+                         "fresh)\n";
+            return 1;
+        }
+    }
+
     world_model.set_sigreg_lambda(svc_config.world_model_sigreg_lambda);
     world_model.set_learning_rate(svc_config.learning_rate);
 

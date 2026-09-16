@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 16, 2026
-**Total Items:** 15
+**Total Items:** 14
 **High Priority:** 1
 **Medium Priority:** 8
-**Low Priority:** 6
+**Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 171
+**Resolved Items:** 172
 **Deferred Decisions:** 3
 
 **September 15, 2026:** Filed TD-174 through TD-186 (13 items) — the construction pieces of
@@ -201,8 +201,9 @@ sequence and is worth checking against, not trusting blindly, per this section's
   [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-185-hippocampalmemory-wiring--config--write-policy-call-site))
   — all resolved (TD-181/182 September 15, 2026; TD-185 September 16, 2026) — all only needed
   TD-180 (TD-185's other dependency, TD-179, was already satisfied by Level 2).
-  [TD-184](#td-184-world-model-mns-registration--checkpointing) (MNS registration +
-  checkpointing, 3-4h) needs TD-177 and TD-183, both now resolved — startable immediately.
+  **TD-184 (World-Model MNS Registration + Checkpointing) — resolved September 16, 2026** (see
+  [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-184-world-model-mns-registration--checkpointing))
+  — needed TD-177 and TD-183, both already resolved by the time this was picked up.
 - **Level 5 — the pilot, and this batch's actual go/no-go gate:**
   [TD-186](#td-186-lejepa--hippocampal-memory-pilot-run) (10-14h) — explicitly not startable until
   everything above is done. Its own Description already frames "the gate never opens" or "the
@@ -210,8 +211,8 @@ sequence and is worth checking against, not trusting blindly, per this section's
   restating here since this is the one item in the batch that isn't "build the thing," it's "find
   out whether the thing was worth building."
 
-Total estimated effort across the 2 remaining active items: 13-18 hours (TD-174 through TD-183
-resolved September 15-16, 2026; TD-185, 4-5h, resolved September 16, 2026 — see
+Total estimated effort across the 1 remaining active item: 10-14 hours (TD-174 through TD-185
+all now resolved, September 15-16, 2026 — see
 [TD-174](../archive/TECHNICAL_DEBT_RESOLVED.md#td-174-crossattentionforward_with_scores-score-bias-entry-point),
 [TD-175](../archive/TECHNICAL_DEBT_RESOLVED.md#td-175-sigreg-sketched-isotropic-gaussian-regularization),
 [TD-176](../archive/TECHNICAL_DEBT_RESOLVED.md#td-176-predictor-embedding-space-predictor),
@@ -221,10 +222,11 @@ resolved September 15-16, 2026; TD-185, 4-5h, resolved September 16, 2026 — se
 [TD-180](../archive/TECHNICAL_DEBT_RESOLVED.md#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized),
 [TD-181](../archive/TECHNICAL_DEBT_RESOLVED.md#td-181-sparse-world-model-injection-knob),
 [TD-182](../archive/TECHNICAL_DEBT_RESOLVED.md#td-182-encoderdecodermodelset_world_model),
-[TD-183](../archive/TECHNICAL_DEBT_RESOLVED.md#td-183-incremental_trainer---objectivelejepa-mode--world-model-config-keys), and
+[TD-183](../archive/TECHNICAL_DEBT_RESOLVED.md#td-183-incremental_trainer---objectivelejepa-mode--world-model-config-keys),
+[TD-184](../archive/TECHNICAL_DEBT_RESOLVED.md#td-184-world-model-mns-registration--checkpointing), and
 [TD-185](../archive/TECHNICAL_DEBT_RESOLVED.md#td-185-hippocampalmemory-wiring--config--write-policy-call-site);
 sum of the rest matches the Statistics section's own total below) — down from comparable-to-the-
-entire-rest-of-the-backlog to just TD-184/TD-186. If
+entire-rest-of-the-backlog to just TD-186, this batch's own final go/no-go gate. If
 [reasoning_process_plan.md](../../proposals/reasoning_process_plan.md)'s own
 chunks are also in scope, see that plan's interaction notes referenced from TD-180 (`RP-2a`,
 phase-conditioned gates) and TD-186 (`RP-3`/`RP-6`, joint pilot) before committing to a sequence
@@ -249,9 +251,8 @@ that ignores it.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-  - [TD-184: World-Model MNS Registration + Checkpointing](#td-184-world-model-mns-registration--checkpointing)
   - [TD-186: LeJEPA + Hippocampal Memory Pilot Run](#td-186-lejepa--hippocampal-memory-pilot-run)
-- [Resolved Items](#resolved-items) (171 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (172 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -1893,36 +1894,6 @@ another branch of one large `main()` instead of becoming its own focused binary)
 
 ---
 
-### TD-184: World-Model MNS Registration + Checkpointing
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Planned | World Model / Memory (LeJEPA) | September 15, 2026 | 3-4 hours |
-
-Description:
-Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#phase-0--lejepa-pretraining-new-standalone)
-(chunk `LJ-4c`) — not yet built. The world model gets its own `mns_cli register` entry and its
-own `ModelRecord` (own `D_MODEL`/`NUM_HEADS`/etc., immutable after registration, same rule as the
-chatbot model), independently versioned from the chatbot model rather than coupled through one
-MNS record. `LeJEPAEncoder::save()`/`load()` (already implemented per TD-177) under
-`training_sessions/`, same convention as every other component. Depends on TD-177, TD-183 (both
-now resolved — TD-183's own `--objective=lejepa` pass already calls `LeJEPAEncoder::save()` at the
-end of a training run, into `<session_dir>/world_model`; this item's own "confirm round-trips
-correctly" action item is checking that output, not building the call site from scratch).
-
-Action Items:
-
-- [ ] Register the world-model architecture shape with MNS via `mns_cli register`
-- [ ] Confirm checkpoint save/load round-trips through `training_sessions/` correctly
-- [ ] Confirm a world model and a chatbot model can be paired/re-paired explicitly via
-  `set_world_model()` (TD-182) without either's MNS record referencing the other
-
-Files to Modify:
-
-- No new source files expected — this is registration/config, not new classes
-
----
-
 ### TD-186: LeJEPA + Hippocampal Memory Pilot Run
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -2477,15 +2448,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 15 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 14 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|1|7%|
-|Medium|8|53%|
-|Low|6|40%|
+|Medium|8|57%|
+|Low|5|36%|
 
-**Total Active Items:** 15
+**Total Active Items:** 14
 
 ### By Component
 
@@ -2503,19 +2474,19 @@ Recomputed directly from the 15 `### TD-NNN` entries under [Active Technical Deb
 |Android / Testing|1|
 |Documentation|1|
 |Training / Deployment / Tooling|1|
-|World Model / Memory (LeJEPA)|2|
+|World Model / Memory (LeJEPA)|1|
 
 ### Effort Distribution
 
 |Effort Range|Count|
 |--------------|-------|
 |0-2 hours|0|
-|2-4 hours|2|
+|2-4 hours|1|
 |4-8 hours|3|
 |8+ hours|7|
 |Not estimated|3|
 
-**Total Estimated Effort (Active Items):** 133-196 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate; the remaining 2 items from the TD-174 through TD-186 batch — TD-174 through TD-183 and TD-185 all now resolved — add an estimated 13-18 hours)
+**Total Estimated Effort (Active Items):** 130-192 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate; the remaining 1 item from the TD-174 through TD-186 batch — TD-174 through TD-185 all now resolved — adds an estimated 10-14 hours)
 
 ### Future Enhancements Summary
 

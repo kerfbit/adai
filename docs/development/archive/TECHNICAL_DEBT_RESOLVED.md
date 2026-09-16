@@ -4,6 +4,120 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-184: World-Model MNS Registration + Checkpointing
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 16, 2026 | World Model / Memory (LeJEPA) | Checkpoint-resume logic in `run_lejepa_training_pass()` (`src/IncrementalTrainingTool.cpp`); live verification of `mns_cli register`/`set_world_model()` decoupling — no new classes |
+
+Summary:
+Eleventh and final construction piece of the LeJEPA world-model plan (LJ-4c, filed from the
+plan's own Phase 0 section) and the last Level-4 item in Tier 10's dependency ordering — only
+Level 5's pilot run (TD-186) remains after this. Unlike almost every other item in this batch,
+this one's own filed scope explicitly said "no new source files expected — this is
+registration/config, not new classes," and investigating each of its three Action Items in turn
+confirmed that framing for two of them (MNS registration, and `set_world_model()`'s decoupling
+from MNS) while surfacing one genuine, previously-invisible functional gap in the third
+(checkpoint round-tripping) that *did* need a small code fix in an existing file.
+
+Design decisions:
+
+- **Action Item 1 (register the world-model architecture with MNS) needed zero new code.**
+  `mns_cli register <name> <role> [--d-model N] [--num-heads N] [--d-ff N] [--encoder-layers N]
+  [--decoder-layers N] [--max-seq-length N]` (`src/MnsCliCommands.cpp`) and the MNS server's own
+  storage schema (`src/ModelNameService.{hpp,cpp}`) are both already fully generic: `role` is a
+  free-form string with no whitelist (verified — no code anywhere restricts it to `"chatbot"`),
+  and `num_decoder_layers` already defaults to and freely accepts `0`, with no server-side
+  minimum-bound validation on any architecture field. This means an encoder-only world model
+  (which has a single `num_layers`, no separate encoder/decoder split at all — see
+  `LeJEPAEncoder`'s own construction) registers cleanly today via `--encoder-layers N
+  --decoder-layers 0`, `num_decoder_layers=0` acting as the documented convention for "this
+  record describes an encoder-only architecture, not a chatbot's encoder+decoder pair." Verified
+  live end-to-end against a real local `mns_server`: registered both a `chatbot`-role model
+  (encoder+decoder shape) and a `world_model`-role model (`--decoder-layers 0`) under the same
+  running server, confirmed `get`/`list --role <x>` return each cleanly and independently, and
+  confirmed neither record's own JSON schema has any field that could reference the other (no
+  "paired model" concept exists in `ModelRecord` at all — pairing, per Action Item 3 below, is
+  purely a runtime, in-process concept). No wiring of `incremental_trainer`'s own `--objective
+  =lejepa` pass to call `mns_cli register`/`ModelNameClient` itself was added — the item's own
+  Action Item just says "register," matching how an operator registers the chatbot model too (via
+  a manual `mns_cli register` invocation, not something `incremental_trainer train` does for
+  itself); automating that registration is a natural, separately-scoped future enhancement, not
+  claimed as done here.
+- **Action Item 3 (confirm `set_world_model()`/pairing has no MNS cross-reference) was a pure
+  code-inspection confirmation, not a fix.** `EncoderDecoderModel::set_world_model()`
+  (`src/EncoderDecoderModel.cpp`) — and `EncoderDecoderModel.{hpp,cpp}` as a whole — contain zero
+  references to `ModelNameClient`/`ModelNameService` anywhere; the method is exactly what TD-182's
+  own entry already described, `world_model = std::move(wm);`, given a `LeJEPAEncoder` the caller
+  already constructed and (optionally) `load()`-ed from disk independently. "Pairing" a world
+  model with a chatbot model is therefore entirely an in-process, per-`EncoderDecoderModel`
+  runtime decision — MNS records for the two are opaque to each other by construction, not merely
+  by convention, so there is nothing to "re-pair" at the MNS level at all; a future `chatbot_api_
+  server` wiring that resolves a world model by name via MNS and attaches it (not yet built — a
+  later TD's job, same "wiring a trained world model into the chatbot's own model construction is
+  later work" scoping note TD-183's own entry already made) would still keep this property, since
+  it would only ever read the world model's own record to build a `LeJEPAEncoder`, never write a
+  cross-reference into either record.
+- **Action Item 2 (confirm checkpoint save/load round-trips) surfaced a real gap: TD-183's own
+  `run_lejepa_training_pass()` never attempted to load an existing checkpoint before training,
+  meaning every `--objective=lejepa train` invocation silently discarded all prior progress and
+  retrained a fresh, randomly-initialized encoder from scratch** — the opposite of "incremental."
+  `LeJEPAEncoder::save()`/`load()` themselves were already correct and already unit-tested
+  end-to-end (`SaveAndLoadPreservesEncodeOutput` et al., TD-177) — the gap was entirely in the
+  *caller* never invoking `load()` at all. Fixed by checking `fs::exists(world_model_dir)` and
+  calling `world_model.load(world_model_dir)` right after `load_tokenizer_vocab()` (before
+  hyperparameter/optimizer setup — `load()` mutates existing sub-component objects in place via
+  each one's own `load_weights()`, so registering the optimizer before or after makes no
+  difference), mirroring the same "resume from the best available checkpoint before training on
+  newly-acquired data" principle `IncrementalTrainer`'s own constructor already applies to the
+  chatbot model (`model->load_model(best_checkpoint_path)` in `IncrementalTrainer.cpp`). An
+  architecture mismatch (`WORLD_MODEL_*` config changed since the checkpoint was saved) is caught
+  and reported with a clear, actionable error — exit 1, no acquire/release bookkeeping needed
+  since the failure happens before the registry is ever touched — rather than either silently
+  discarding the old checkpoint or letting `load()`'s own `std::runtime_error` propagate uncaught.
+- **No auto-save/retention policy analogous to `AUTO_SAVE_*`/`MAX_SESSIONS_TO_KEEP` added.**
+  TD-183's own "save once, at the end of the pass" behavior is unchanged — this item only made
+  that single end-of-pass save into a genuine round-trip by also loading beforehand. A periodic
+  mid-pass auto-save or multi-checkpoint retention policy would be a reasonable future enhancement
+  if a real pilot's pass durations ever make losing an in-progress (not-yet-saved) pass to a crash
+  a real concern, but nothing in this item's own filed scope asked for it.
+
+Changes Made:
+
+- `src/IncrementalTrainingTool.cpp`: `run_lejepa_training_pass()` now checks for and loads an
+  existing `world_model_dir` checkpoint (if present) before configuring hyperparameters/optimizer
+  and entering the training loop, with a clear error-and-exit on an architecture mismatch instead
+  of a silent discard or an uncaught crash. Doc comments updated to describe the resume behavior.
+  Version 0.11.0 → 0.12.0.
+- `docs/development/guides/TECHNICAL_DEBT.md`: Tier 10's Level 4 prose and closing effort total
+  updated; Overview/Statistics/Table-of-Contents counts recomputed.
+
+Verification:
+
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean.
+- ✅ Live manual smoke test, three real `incremental_trainer --objective=lejepa --foreground
+  train 1` passes against a real (file-backed, no `registry_server`) dataset registry: pass 1
+  (no checkpoint yet) trained from a fresh encoder as before; pass 2, against a second queued
+  data batch, logged `Resumed world-model weights from '<dir>'` and completed normally; pass 3,
+  run with a deliberately mismatched `WORLD_MODEL_D_MODEL`, failed cleanly with the new error
+  message and exit code 1 — and the file it would have trained on was never acquired from the
+  registry at all (the load-and-fail happens before `acquire_pending()`), so it stayed correctly
+  pending for a future, correctly-configured run rather than being lost or falsely marked trained.
+- ✅ Live manual verification of MNS registration: a real local `mns_server`, registering both a
+  `chatbot`-role model (encoder+decoder shape) and a `world_model`-role model
+  (`--decoder-layers 0`) — both `get`/`list --role <x>` round-trip the exact architecture given,
+  including `num_decoder_layers=0`, and the two records carry no cross-reference to each other.
+- ✅ Code-inspection verification (Action Item 3): confirmed zero `ModelNameClient`/
+  `ModelNameService` references anywhere in `EncoderDecoderModel.{hpp,cpp}`.
+- ✅ Full `ctest` suite: 136/136 passing (including `ScriptsTests_monitor_training`, the
+  load-sensitive flake noted in TD-183's/TD-185's own entries, which passed cleanly this run too).
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+
+Files Changed:
+
+- `src/IncrementalTrainingTool.cpp`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-183: `incremental_trainer --objective=lejepa` Mode + World-Model Config Keys
 
 | Resolution Date | Component | Resolved By |
