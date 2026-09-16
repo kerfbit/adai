@@ -33,6 +33,7 @@ TEST(ParseIncrementalTrainerGlobalArgs, NoArgsLeavesEverythingUnsetAndCommandLis
     EXPECT_FALSE(r.model_name.has_value());
     EXPECT_FALSE(r.foreground);
     EXPECT_FALSE(r.admin_port.has_value());
+    EXPECT_EQ(r.objective, "chatbot");
     EXPECT_TRUE(r.args.empty());
 }
 
@@ -47,6 +48,7 @@ TEST(ParseIncrementalTrainerGlobalArgs, StripsGlobalFlagsAndKeepsCommandArgs) {
                                     "--foreground",
                                     "--admin-port",
                                     "18432",
+                                    "--objective=lejepa",
                                     "train",
                                     "5"};
     auto argv = make_argv(raw);
@@ -61,9 +63,54 @@ TEST(ParseIncrementalTrainerGlobalArgs, StripsGlobalFlagsAndKeepsCommandArgs) {
     EXPECT_TRUE(r.foreground);
     ASSERT_TRUE(r.admin_port.has_value());
     EXPECT_EQ(*r.admin_port, 18432);
+    EXPECT_EQ(r.objective, "lejepa");
     ASSERT_EQ(r.args.size(), 2u);
     EXPECT_EQ(r.args[0], "train");
     EXPECT_EQ(r.args[1], "5");
+}
+
+TEST(ParseIncrementalTrainerGlobalArgs, ObjectiveFlagDefaultsToChatbotWhenAbsent) {
+    // TD-183 Action Item 3: the existing chatbot teacher-forcing objective must be unaffected
+    // when --objective is never mentioned at all.
+    std::vector<std::string> raw = {"incremental_trainer", "train"};
+    auto argv = make_argv(raw);
+    auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+    EXPECT_EQ(r.objective, "chatbot");
+    ASSERT_EQ(r.args.size(), 1u);
+    EXPECT_EQ(r.args[0], "train");
+}
+
+TEST(ParseIncrementalTrainerGlobalArgs, ObjectiveFlagUsesEqualsSyntaxNotSpaceSeparated) {
+    // Deliberately different from every other flag's "--flag value" convention — matches the
+    // literal "--objective=lejepa" syntax named in TD-183's own title.
+    std::vector<std::string> raw = {"incremental_trainer", "--objective=lejepa", "train"};
+    auto argv = make_argv(raw);
+    auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+    EXPECT_EQ(r.objective, "lejepa");
+    ASSERT_EQ(r.args.size(), 1u);
+    EXPECT_EQ(r.args[0], "train");
+}
+
+TEST(ParseIncrementalTrainerGlobalArgs, ObjectiveFlagCanAppearInAnyOrderRelativeToTheCommand) {
+    std::vector<std::string> raw = {"incremental_trainer", "train", "--objective=lejepa"};
+    auto argv = make_argv(raw);
+    auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+    EXPECT_EQ(r.objective, "lejepa");
+    ASSERT_EQ(r.args.size(), 1u);
+    EXPECT_EQ(r.args[0], "train");
+}
+
+TEST(ParseIncrementalTrainerGlobalArgs, BareObjectiveFlagWithNoEqualsSignFallsThroughAsPositional) {
+    // No "=" at all -- doesn't match the "--objective=" prefix, so (like every other malformed
+    // flag usage in this parser) it's collected as a plain positional instead of crashing or
+    // silently consuming the next token.
+    std::vector<std::string> raw = {"incremental_trainer", "--objective", "lejepa"};
+    auto argv = make_argv(raw);
+    auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+    EXPECT_EQ(r.objective, "chatbot");
+    ASSERT_EQ(r.args.size(), 2u);
+    EXPECT_EQ(r.args[0], "--objective");
+    EXPECT_EQ(r.args[1], "lejepa");
 }
 
 TEST(ParseIncrementalTrainerGlobalArgs, AdminPortMissingItsValueFallsThroughAsPositional) {

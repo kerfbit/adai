@@ -71,6 +71,14 @@ class ConfigTest : public ::testing::Test {
         _putenv("ENABLE_METRICS_SERVICE=");
         _putenv("METRICS_SERVER_URL=");
         _putenv("METRICS_HEARTBEAT_INTERVAL_MS=");
+        _putenv("WORLD_MODEL_ENABLED=");
+        _putenv("WORLD_MODEL_D_MODEL=");
+        _putenv("WORLD_MODEL_NUM_LAYERS=");
+        _putenv("WORLD_MODEL_NUM_HEADS=");
+        _putenv("WORLD_MODEL_D_FF=");
+        _putenv("WORLD_MODEL_SIGREG_LAMBDA=");
+        _putenv("WORLD_MODEL_SIGREG_NUM_SKETCHES=");
+        _putenv("WORLD_MODEL_INJECT_EVERY_N_LAYERS=");
 #else
         unsetenv("PORT");
         unsetenv("LOG_LEVEL");
@@ -116,6 +124,14 @@ class ConfigTest : public ::testing::Test {
         unsetenv("ENABLE_METRICS_SERVICE");
         unsetenv("METRICS_SERVER_URL");
         unsetenv("METRICS_HEARTBEAT_INTERVAL_MS");
+        unsetenv("WORLD_MODEL_ENABLED");
+        unsetenv("WORLD_MODEL_D_MODEL");
+        unsetenv("WORLD_MODEL_NUM_LAYERS");
+        unsetenv("WORLD_MODEL_NUM_HEADS");
+        unsetenv("WORLD_MODEL_D_FF");
+        unsetenv("WORLD_MODEL_SIGREG_LAMBDA");
+        unsetenv("WORLD_MODEL_SIGREG_NUM_SKETCHES");
+        unsetenv("WORLD_MODEL_INJECT_EVERY_N_LAYERS");
 #endif
     }
 
@@ -1054,6 +1070,121 @@ TEST_F(ConfigTest, FtpEnvVarOverridesFile) {
 
     EXPECT_EQ(config.ftp_server_port, 5121);          // from env
     EXPECT_EQ(config.download_dir, "/mnt/datasets");  // from file
+}
+
+// ============================================================================
+// World-Model (LeJEPA) Pretraining Config Tests (TD-183)
+// ============================================================================
+
+TEST_F(ConfigTest, WorldModelDefaultValues) {
+    auto config = ConfigLoader::load();
+
+    EXPECT_FALSE(config.world_model_enabled);
+    EXPECT_EQ(config.world_model_d_model, 512u);
+    EXPECT_EQ(config.world_model_num_layers, 6u);
+    EXPECT_EQ(config.world_model_num_heads, 8u);
+    EXPECT_EQ(config.world_model_d_ff, 2048u);
+    EXPECT_FLOAT_EQ(config.world_model_sigreg_lambda, 1.0f);
+    EXPECT_EQ(config.world_model_sigreg_num_sketches, 64u);
+    EXPECT_EQ(config.world_model_inject_every_n_layers, 1u);
+}
+
+TEST_F(ConfigTest, LoadWorldModelFieldsFromFile) {
+    createConfigFile({
+        {"WORLD_MODEL_ENABLED", "true"},
+        {"WORLD_MODEL_D_MODEL", "128"},
+        {"WORLD_MODEL_NUM_LAYERS", "4"},
+        {"WORLD_MODEL_NUM_HEADS", "2"},
+        {"WORLD_MODEL_D_FF", "256"},
+        {"WORLD_MODEL_SIGREG_LAMBDA", "2.5"},
+        {"WORLD_MODEL_SIGREG_NUM_SKETCHES", "32"},
+        {"WORLD_MODEL_INJECT_EVERY_N_LAYERS", "3"},
+    });
+
+    auto config = ConfigLoader::load(test_file.string());
+
+    EXPECT_TRUE(config.world_model_enabled);
+    EXPECT_EQ(config.world_model_d_model, 128u);
+    EXPECT_EQ(config.world_model_num_layers, 4u);
+    EXPECT_EQ(config.world_model_num_heads, 2u);
+    EXPECT_EQ(config.world_model_d_ff, 256u);
+    EXPECT_FLOAT_EQ(config.world_model_sigreg_lambda, 2.5f);
+    EXPECT_EQ(config.world_model_sigreg_num_sketches, 32u);
+    EXPECT_EQ(config.world_model_inject_every_n_layers, 3u);
+}
+
+TEST_F(ConfigTest, LoadWorldModelFieldsFromEnvVars) {
+    setEnv("WORLD_MODEL_ENABLED", "1");
+    setEnv("WORLD_MODEL_D_MODEL", "256");
+    setEnv("WORLD_MODEL_NUM_LAYERS", "3");
+    setEnv("WORLD_MODEL_NUM_HEADS", "4");
+    setEnv("WORLD_MODEL_D_FF", "512");
+    setEnv("WORLD_MODEL_SIGREG_LAMBDA", "0.5");
+    setEnv("WORLD_MODEL_SIGREG_NUM_SKETCHES", "16");
+    setEnv("WORLD_MODEL_INJECT_EVERY_N_LAYERS", "2");
+
+    auto config = ConfigLoader::load();
+
+    EXPECT_TRUE(config.world_model_enabled);
+    EXPECT_EQ(config.world_model_d_model, 256u);
+    EXPECT_EQ(config.world_model_num_layers, 3u);
+    EXPECT_EQ(config.world_model_num_heads, 4u);
+    EXPECT_EQ(config.world_model_d_ff, 512u);
+    EXPECT_FLOAT_EQ(config.world_model_sigreg_lambda, 0.5f);
+    EXPECT_EQ(config.world_model_sigreg_num_sketches, 16u);
+    EXPECT_EQ(config.world_model_inject_every_n_layers, 2u);
+}
+
+TEST_F(ConfigTest, WorldModelEnvVarOverridesFile) {
+    createConfigFile({
+        {"WORLD_MODEL_ENABLED", "true"},
+        {"WORLD_MODEL_D_MODEL", "128"},
+    });
+    setEnv("WORLD_MODEL_D_MODEL", "64");  // env overrides file
+
+    auto config = ConfigLoader::load(test_file.string());
+
+    EXPECT_TRUE(config.world_model_enabled);      // from file
+    EXPECT_EQ(config.world_model_d_model, 64u);   // from env
+}
+
+TEST_F(ConfigTest, WorldModelDisabledDoesNotAffectChatbotArchitecture) {
+    // TD-183 Action Item 3: enabling/configuring the world model must have zero effect on the
+    // chatbot's own D_MODEL/etc. fallback block.
+    createConfigFile({
+        {"D_MODEL", "512"},
+        {"WORLD_MODEL_ENABLED", "true"},
+        {"WORLD_MODEL_D_MODEL", "128"},
+    });
+
+    auto config = ConfigLoader::load(test_file.string());
+
+    EXPECT_EQ(config.d_model, 512u);
+    EXPECT_EQ(config.world_model_d_model, 128u);
+}
+
+TEST_F(ConfigTest, ValidationWorldModelArchitecture) {
+    createConfigFile({
+        {"WORLD_MODEL_D_MODEL", "100"},   // not divisible by num_heads below
+        {"WORLD_MODEL_NUM_HEADS", "7"},
+        {"WORLD_MODEL_D_FF", "10"},       // below minimum
+        {"WORLD_MODEL_NUM_LAYERS", "0"},  // below minimum
+        {"WORLD_MODEL_SIGREG_LAMBDA", "-1.0"},
+        {"WORLD_MODEL_SIGREG_NUM_SKETCHES", "0"},
+    });
+
+    auto config = ConfigLoader::load(test_file.string());
+    std::vector<std::string> errors;
+    EXPECT_FALSE(ConfigLoader::validate(config, errors));
+    EXPECT_GE(errors.size(), 5u);
+}
+
+TEST_F(ConfigTest, ValidationWorldModelDefaultsPassValidation) {
+    // The defaults (feature disabled) must already be internally consistent, since validation
+    // runs unconditionally rather than only when world_model_enabled is true.
+    auto config = ConfigLoader::load();
+    std::vector<std::string> errors;
+    EXPECT_TRUE(ConfigLoader::validate(config, errors));
 }
 
 // ============================================================================

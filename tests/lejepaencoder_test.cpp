@@ -103,6 +103,31 @@ TEST_F(LeJEPAEncoderTest, ConstructWithMinimalConfiguration) {
     EXPECT_EQ(encoder.get_embedding_dim(), 16);
 }
 
+// TD-183: sigreg_num_sketches trailing constructor parameter.
+TEST_F(LeJEPAEncoderTest, DefaultSigregNumSketchesMatchesSIGRegDefault) {
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+
+    EXPECT_EQ(encoder.get_sigreg_num_sketches(), 64);
+}
+
+TEST_F(LeJEPAEncoderTest, CustomSigregNumSketchesIsApplied) {
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN,
+                          /*sigreg_num_sketches=*/16);
+
+    EXPECT_EQ(encoder.get_sigreg_num_sketches(), 16);
+}
+
+TEST_F(LeJEPAEncoderTest, CustomSigregNumSketchesStillProducesFiniteTrainStepLosses) {
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN,
+                          /*sigreg_num_sketches=*/8);
+    create_test_vocabulary();
+    encoder.load_tokenizer_vocab(vocab_file);
+
+    auto [predictor_loss, sigreg_loss] = encoder.train_step("hello world test encoder");
+    EXPECT_TRUE(std::isfinite(predictor_loss));
+    EXPECT_TRUE(std::isfinite(sigreg_loss));
+}
+
 // ============================================================================
 // Tokenizer Operations Tests
 // ============================================================================

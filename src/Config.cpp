@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.3
-// @adai-reviewed: 2026-09-14
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-09-16
 
 #include "Config.hpp"
 #include <algorithm>
@@ -368,6 +368,26 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.trainer_admin_dir = value;
             } else if (key == "TRAINER_CHILD_ADMIN_PORT") {
                 config.trainer_child_admin_port = std::stoi(value);
+                // World-model (LeJEPA) pretraining configuration (TD-183)
+            } else if (key == "WORLD_MODEL_ENABLED") {
+                std::string lower = value;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                config.world_model_enabled =
+                    (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+            } else if (key == "WORLD_MODEL_D_MODEL") {
+                config.world_model_d_model = std::stoul(value);
+            } else if (key == "WORLD_MODEL_NUM_LAYERS") {
+                config.world_model_num_layers = std::stoul(value);
+            } else if (key == "WORLD_MODEL_NUM_HEADS") {
+                config.world_model_num_heads = std::stoul(value);
+            } else if (key == "WORLD_MODEL_D_FF") {
+                config.world_model_d_ff = std::stoul(value);
+            } else if (key == "WORLD_MODEL_SIGREG_LAMBDA") {
+                config.world_model_sigreg_lambda = std::stof(value);
+            } else if (key == "WORLD_MODEL_SIGREG_NUM_SKETCHES") {
+                config.world_model_sigreg_num_sketches = std::stoul(value);
+            } else if (key == "WORLD_MODEL_INJECT_EVERY_N_LAYERS") {
+                config.world_model_inject_every_n_layers = std::stoul(value);
                 // Auto-save / checkpoint retention configuration
             } else if (key == "AUTO_SAVE_ENABLED") {
                 std::string lower = value;
@@ -781,6 +801,32 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
         config.trainer_child_admin_port = *val;
     }
 
+    // World-model (LeJEPA) pretraining configuration (TD-183)
+    if (auto val = get_env_bool("WORLD_MODEL_ENABLED")) {
+        config.world_model_enabled = *val;
+    }
+    if (auto val = get_env_size_t("WORLD_MODEL_D_MODEL")) {
+        config.world_model_d_model = *val;
+    }
+    if (auto val = get_env_size_t("WORLD_MODEL_NUM_LAYERS")) {
+        config.world_model_num_layers = *val;
+    }
+    if (auto val = get_env_size_t("WORLD_MODEL_NUM_HEADS")) {
+        config.world_model_num_heads = *val;
+    }
+    if (auto val = get_env_size_t("WORLD_MODEL_D_FF")) {
+        config.world_model_d_ff = *val;
+    }
+    if (auto val = get_env_float("WORLD_MODEL_SIGREG_LAMBDA")) {
+        config.world_model_sigreg_lambda = *val;
+    }
+    if (auto val = get_env_size_t("WORLD_MODEL_SIGREG_NUM_SKETCHES")) {
+        config.world_model_sigreg_num_sketches = *val;
+    }
+    if (auto val = get_env_size_t("WORLD_MODEL_INJECT_EVERY_N_LAYERS")) {
+        config.world_model_inject_every_n_layers = *val;
+    }
+
     // Auto-save / checkpoint retention
     if (auto val = get_env_bool("AUTO_SAVE_ENABLED")) {
         config.auto_save_enabled = *val;
@@ -1058,6 +1104,50 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
     if (config.max_seq_length < 16 || config.max_seq_length > 32768) {
         errors.push_back("Invalid max_seq_length: " + std::to_string(config.max_seq_length) +
                          " (must be 16-32768)");
+        valid = false;
+    }
+
+    // Validate world-model (LeJEPA) architecture parameters (TD-183) — same bounds as the
+    // chatbot architecture block above, since these size an equivalent transformer-encoder
+    // stack. Checked unconditionally (not just when world_model_enabled) so a config that
+    // enables the feature later, without a fresh edit to these fields, is already valid.
+    if (config.world_model_d_model < 64 || config.world_model_d_model > 8192) {
+        errors.push_back("Invalid world_model_d_model: " +
+                         std::to_string(config.world_model_d_model) + " (must be 64-8192)");
+        valid = false;
+    }
+    if (config.world_model_num_heads < 1 || config.world_model_num_heads > 64) {
+        errors.push_back("Invalid world_model_num_heads: " +
+                         std::to_string(config.world_model_num_heads) + " (must be 1-64)");
+        valid = false;
+    }
+    if (config.world_model_num_heads > 0 &&
+        config.world_model_d_model % config.world_model_num_heads != 0) {
+        errors.push_back("world_model_d_model (" + std::to_string(config.world_model_d_model) +
+                         ") must be divisible by world_model_num_heads (" +
+                         std::to_string(config.world_model_num_heads) + ")");
+        valid = false;
+    }
+    if (config.world_model_d_ff < 64 || config.world_model_d_ff > 32768) {
+        errors.push_back("Invalid world_model_d_ff: " + std::to_string(config.world_model_d_ff) +
+                         " (must be 64-32768)");
+        valid = false;
+    }
+    if (config.world_model_num_layers < 1 || config.world_model_num_layers > 48) {
+        errors.push_back("Invalid world_model_num_layers: " +
+                         std::to_string(config.world_model_num_layers) + " (must be 1-48)");
+        valid = false;
+    }
+    if (config.world_model_sigreg_lambda < 0.0f) {
+        errors.push_back("Invalid world_model_sigreg_lambda: " +
+                         std::to_string(config.world_model_sigreg_lambda) + " (must be >= 0.0)");
+        valid = false;
+    }
+    if (config.world_model_sigreg_num_sketches < 1 ||
+        config.world_model_sigreg_num_sketches > 4096) {
+        errors.push_back("Invalid world_model_sigreg_num_sketches: " +
+                         std::to_string(config.world_model_sigreg_num_sketches) +
+                         " (must be 1-4096)");
         valid = false;
     }
 

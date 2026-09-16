@@ -1,6 +1,6 @@
-// @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume)
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-09-14
+// @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa)
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-09-16
 
 #include <array>
 #include <chrono>
@@ -18,6 +18,7 @@
 #include "DatasetRegistry.hpp"
 #include "IncrementalTrainer.hpp"
 #include "IncrementalTrainerArgs.hpp"
+#include "LeJEPAEncoder.hpp"
 #include "Logger.hpp"
 #include "Matrix.hpp"
 #include "ModelNameClient.hpp"
@@ -175,6 +176,146 @@ static void cleanup_downloads(const std::vector<fs::path>& local_paths) {
     }
 }
 
+// ── LeJEPA world-model pretraining pass (TD-183) ────────────────────────────────
+//
+// Runs one `--objective=lejepa train` pass: acquires pending files via the SAME dataset
+// registry/FTP-download machinery the chatbot objective uses (the "train" command's own
+// pre-fork pending-count check, shared by both objectives — see the call site in main()), but
+// trains a standalone LeJEPAEncoder world model via LeJEPAEncoder::train_step() instead of
+// building a ChatbotTrainer/IncrementalTrainer at all. No MNS registration or IncrementalTrainer
+// ::begin_run() here — the world model isn't an MNS-registered model yet (TD-184's own job).
+//
+// Data format: reuses DatasetRegistry::load_conversation_pairs() — the only file-content parser
+// this codebase has — even though LeJEPA's own objective needs no (input, target) pairing at all
+// (see LeJEPAEncoder's class doc). Both a ConversationPair's `input` and `response` fields are
+// fed to train_step() as independent, unpaired plain-text samples: the JSONL half of that parser
+// only requires a non-empty "input" field (see parse_jsonl_sample in TrainingSampleMeta.hpp), so
+// an operator queuing genuinely unpaired text for this objective can write bare `{"input":
+// "..."}` lines with no "response" field at all — and any already-queued ordinary (input,
+// response) chatbot data gets both of its sides reused for pretraining for free, with zero new
+// file-format code.
+static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
+                                    const std::string& default_vocab,
+                                    const std::string& world_model_dir, int epochs) {
+    // Determine vocab_size the same way IncrementalTrainer.cpp's own model-construction path
+    // does: load the vocab file into a throwaway tokenizer first, then size the encoder's fixed
+    // TokenEmbedding to match. LeJEPAEncoder::load_tokenizer_vocab() itself does not resize
+    // anything (a pre-existing gap in that method, not introduced here — flagged separately),
+    // so the constructor's own vocab_size must already be correct before that call.
+    BPETokenizer vocab_probe;  // ASCII mode — matches LeJEPAEncoder's own hardcoded tokenizer
+                               // mode (TD-177); TOKENIZER_MODE is not yet threaded through it.
+    vocab_probe.load_vocab(default_vocab);
+    const int vocab_size = vocab_probe.get_vocab_size();
+
+    LeJEPAEncoder world_model(vocab_size, static_cast<int>(svc_config.world_model_d_model),
+                              static_cast<int>(svc_config.world_model_num_layers),
+                              static_cast<int>(svc_config.world_model_num_heads),
+                              static_cast<int>(svc_config.world_model_d_ff),
+                              static_cast<int>(svc_config.max_seq_length),
+                              static_cast<int>(svc_config.world_model_sigreg_num_sketches));
+    world_model.load_tokenizer_vocab(default_vocab);
+    world_model.set_sigreg_lambda(svc_config.world_model_sigreg_lambda);
+    world_model.set_learning_rate(svc_config.learning_rate);
+
+    Optimizer optimizer(OptimizerType::ADAM, svc_config.learning_rate);
+    world_model.register_parameters_with_optimizer(optimizer);
+
+    std::string run_id = adai::derive_run_id(svc_config.run_id);
+
+    DatasetConfig dcfg = DatasetRegistry::make_config(svc_config);
+    DatasetRegistry reg(dcfg);
+    reg.load_registry();
+    startup_sweep(reg, run_id, dcfg.download_dir);
+
+    auto resp = reg.acquire_pending(run_id);
+    if (resp.files.empty()) {
+        adai::Logger::warn("[lejepa] No pending data files to train on");
+        return 1;
+    }
+
+    std::vector<std::string> local_paths;
+    std::vector<fs::path> downloaded_paths;
+    const bool use_ftp = !resp.ftp_server_host.empty() && !dcfg.download_dir.empty();
+    if (use_ftp) {
+        const std::size_t warn_bytes =
+            static_cast<std::size_t>(dcfg.large_file_warn_threshold_mb) * 1024ULL * 1024ULL;
+        try {
+            DataTransport dt;
+            downloaded_paths =
+                dt.fetch_all(resp, dcfg.download_dir, dcfg.max_parallel_downloads, warn_bytes);
+            for (const auto& p : downloaded_paths)
+                local_paths.push_back(p.string());
+        } catch (const std::exception& ex) {
+            adai::Logger::error("[DataTransport] Download failed: {}", ex.what());
+            reg.release_pending(run_id, resp.registry_paths());
+            return 1;
+        }
+    } else {
+        for (const auto& f : resp.files)
+            local_paths.push_back(f.registry_path);
+    }
+
+    std::vector<std::string> texts;
+    for (const auto& path : local_paths) {
+        std::vector<ConversationPair> pairs;
+        DatasetRegistry::load_conversation_pairs(path, pairs);
+        for (const auto& pair : pairs) {
+            if (!pair.input.empty())
+                texts.push_back(pair.input);
+            if (!pair.response.empty())
+                texts.push_back(pair.response);
+        }
+    }
+
+    const auto reg_paths = resp.registry_paths();
+    if (texts.empty()) {
+        adai::Logger::warn("[lejepa] Acquired files contained no usable text samples");
+        reg.release_pending(run_id, reg_paths);
+        if (use_ftp)
+            cleanup_downloads(downloaded_paths);
+        return 1;
+    }
+
+    double predictor_loss_sum = 0.0;
+    double sigreg_loss_sum = 0.0;
+    size_t step_count = 0;
+    for (int epoch = 0; epoch < epochs; ++epoch) {
+        for (const auto& text : texts) {
+            try {
+                auto [predictor_loss, sigreg_loss] = world_model.train_step(text);
+                predictor_loss_sum += predictor_loss;
+                sigreg_loss_sum += sigreg_loss;
+                ++step_count;
+            } catch (const std::invalid_argument& e) {
+                // Text tokenized to fewer than 2 tokens — too short for span masking. Skip
+                // rather than aborting the whole pass over one bad sample.
+                adai::Logger::warn("[lejepa] Skipping sample ({})", e.what());
+            }
+        }
+        adai::Logger::info("[lejepa] Epoch {}/{} complete ({} samples)", epoch + 1, epochs,
+                           texts.size());
+    }
+
+    const bool ok = step_count > 0;
+    if (ok) {
+        std::vector<int> counts(reg_paths.size(), 0);
+        reg.mark_trained(run_id, reg_paths, counts);
+        adai::Logger::info(
+            "[lejepa] Pass complete — {} steps, avg predictor_loss={:.4f}, avg sigreg_loss={:.4f}",
+            step_count, predictor_loss_sum / static_cast<double>(step_count),
+            sigreg_loss_sum / static_cast<double>(step_count));
+        world_model.save(world_model_dir);
+        adai::Logger::info("[lejepa] World-model checkpoint saved to '{}'", world_model_dir);
+    } else {
+        reg.release_pending(run_id, reg_paths);
+        adai::Logger::warn("[lejepa] No samples were long enough to train on — all skipped");
+    }
+
+    if (use_ftp)
+        cleanup_downloads(downloaded_paths);
+    return ok ? 0 : 1;
+}
+
 // Resolve which model to train.
 //
 // Priority: --model CLI flag > MODEL_NAME in config > interactive pick from MNS.
@@ -304,7 +445,13 @@ int output_usage(char* argv[]) {
     std::cout << "  --admin-port <N>             resume: host a TrainerAdminAPI on\n";
     std::cout << "                               127.0.0.1:<N> for the duration of this one pass.\n";
     std::cout << "                               For the trainer-service process supervisor only —\n";
-    std::cout << "                               not meant for interactive/manual use.\n\n";
+    std::cout << "                               not meant for interactive/manual use.\n";
+    std::cout << "  --objective=<name>           train: which objective to run — \"chatbot\"\n";
+    std::cout << "                               (default) is the existing teacher-forcing\n";
+    std::cout << "                               pipeline; \"lejepa\" pretrains the standalone\n";
+    std::cout << "                               LeJEPAEncoder world model instead (requires\n";
+    std::cout << "                               WORLD_MODEL_ENABLED=true in config.trainer.conf).\n";
+    std::cout << "                               Note the \"=\" — unlike every other flag above.\n\n";
     std::cout << "Commands:\n";
     std::cout << "  init [vocab] [model]         Initialize incremental trainer\n";
     std::cout << "  train [epochs]               Train on pending data\n";
@@ -516,6 +663,32 @@ int main(int argc, char* argv[]) {
 
         const std::string log_path =
             svc_config.log_file_path.empty() ? "chatbot_server.log" : svc_config.log_file_path;
+
+        // TD-183: --objective=lejepa reuses the pending-data check above and the same
+        // run_training_pipeline() fork/background/logging wrapper, but trains the standalone
+        // LeJEPAEncoder world model instead of the chatbot's own ChatbotTrainer/IncrementalTrainer
+        // pipeline below. This is the ONLY change to the "train" command — every existing
+        // invocation (no --objective, or --objective=chatbot) falls through to the unmodified
+        // code beneath unchanged (Action Item 3).
+        if (cli.objective == "lejepa") {
+            if (!svc_config.world_model_enabled) {
+                std::cerr << "❌ --objective=lejepa requires WORLD_MODEL_ENABLED=true in "
+                             "config.trainer.conf (or the WORLD_MODEL_ENABLED env var)\n";
+                return 1;
+            }
+            const std::string world_model_dir = svc_config.session_dir + "/world_model";
+            return run_training_pipeline(
+                argc, argv, svc_config, world_model_dir, log_path,
+                "LeJEPA world-model pretraining started in background",
+                {{"Data", std::to_string(pre_fork_pending_count) + " pending file(s)"},
+                 {"Epochs", std::to_string(epochs)}},
+                init_gpu,
+                [&]() -> int {
+                    return run_lejepa_training_pass(svc_config, default_vocab, world_model_dir,
+                                                    epochs);
+                },
+                foreground);
+        }
 
         return run_training_pipeline(
             argc, argv, svc_config, default_model, log_path, "Training started in background",

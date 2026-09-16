@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-15
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-09-16
 
 #include <memory>
 #include <string>
@@ -121,9 +121,16 @@ class LeJEPAEncoder {
      * @param d_ff Feed-forward dimension — also used as the Predictor's hidden_dim (see
      *             constructor doc in LeJEPAEncoder.cpp for why no separate parameter exists)
      * @param max_seq_length Maximum sequence length
+     * @param sigreg_num_sketches Number of random sketch projections `sigreg` uses internally
+     *        (TD-183's WORLD_MODEL_SIGREG_NUM_SKETCHES config key). Default 64 matches SIGReg's
+     *        own constructor default byte-for-byte, so every pre-existing caller that doesn't
+     *        pass this is unaffected — added as a trailing parameter (TD-177/TD-178 both predate
+     *        this) rather than, say, a setter, because SIGReg's sketch directions are fixed at
+     *        its own construction time (see SIGReg's class doc) with no way to resize them
+     *        afterward.
      */
     LeJEPAEncoder(int vocab_size, int d_model = 512, int num_layers = 6, int num_heads = 8,
-                  int d_ff = 2048, int max_seq_length = 512);
+                  int d_ff = 2048, int max_seq_length = 512, int sigreg_num_sketches = 64);
 
     /**
      * Encode one view of input text to contextualized embeddings — same shape contract as
@@ -155,6 +162,13 @@ class LeJEPAEncoder {
 
     float get_sigreg_lambda() const {
         return sigreg_lambda;
+    }
+
+    /** Number of random sketch projections `sigreg` was constructed with (TD-183's
+     *  WORLD_MODEL_SIGREG_NUM_SKETCHES) — fixed at construction, see the constructor's own doc
+     *  comment for why there's no matching setter. */
+    int get_sigreg_num_sketches() const {
+        return sigreg->get_num_sketches();
     }
 
     /** Load tokenizer vocabulary from file — same convention as LLMEncoder. */

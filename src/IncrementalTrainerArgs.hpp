@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-14
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-09-16
 
 // TD-035: incremental_trainer's global argv parsing and a few small pure helpers, pulled out of
 // IncrementalTrainingTool.cpp so they're testable without touching a real IncrementalTrainer
@@ -26,9 +26,19 @@ struct IncrementalTrainerGlobalArgs {
     // for the duration of that one pass — the supervisor's own admin listener proxies to it while
     // the child is alive. Absent for every interactive/manual invocation.
     std::optional<int> admin_port;
+    // TD-183: selects which training objective `train` runs. "chatbot" (default — the flag can
+    // be omitted entirely, matching every existing invocation byte-for-byte) is the existing
+    // teacher-forcing ChatbotTrainer/IncrementalTrainer pipeline; "lejepa" instead pretrains the
+    // standalone LeJEPAEncoder world model via LeJEPAEncoder::train_step() on the same acquired
+    // files, reusing the dataset registry/FTP machinery but none of ChatbotTrainer's own code
+    // path. Parsed from `--objective=<value>` (an "=" form, not the space-separated
+    // "--flag value" convention every other global flag here uses) — deliberately matching the
+    // literal syntax named in the flag's own filed TD (TECHNICAL_DEBT.md's TD-183 title) rather
+    // than silently normalizing it to this parser's own pre-existing convention.
+    std::string objective = "chatbot";
     // args[0] is the command (e.g. "train"), args[1..] are its own arguments — --config,
-    // --gpu-strategy, --model, --foreground, and --admin-port are stripped out before this is
-    // populated, exactly like the original inline loop.
+    // --gpu-strategy, --model, --foreground, --admin-port, and --objective are stripped out
+    // before this is populated, exactly like the original inline loop.
     std::vector<std::string> args;
 };
 

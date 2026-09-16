@@ -4,6 +4,176 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-183: `incremental_trainer --objective=lejepa` Mode + World-Model Config Keys
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 16, 2026 | Training / Deployment / Tooling | New `--objective=lejepa` CLI flag + `run_lejepa_training_pass()` in `src/IncrementalTrainingTool.cpp`; new `WORLD_MODEL_*` block in `ServiceConfig`/`ConfigLoader` (`src/Config.{hpp,cpp}`) and `config.trainer.conf` |
+
+Summary:
+Tenth piece of the LeJEPA world-model plan (LJ-4b, filed from the plan's own Phase 0 —
+"LeJEPA pretraining (new, standalone)" — section) and the last Level-3 item in Tier 10's own
+dependency ordering (it only needed TD-178, `LeJEPAEncoder::train_step()`, which was already
+done). Gives `incremental_trainer` a second training objective, `lejepa`, that pretrains the
+standalone `LeJEPAEncoder` world model on the same dataset-registry-acquired files the existing
+chatbot teacher-forcing objective uses — reusing that machinery end-to-end (registry
+acquire/mark_trained/release, FTP download, background-fork/foreground wrapper) rather than a
+bespoke script, per the item's own filed Description. The default objective (no `--objective`
+flag, or `--objective=chatbot`) is byte-for-byte unchanged — Action Item 3's own explicit
+requirement, verified both by a full unmodified test suite and a live manual smoke test.
+
+Design decisions:
+
+- **`--objective=<name>` uses "=" syntax, not this parser's own "--flag value" convention.**
+  Every other global flag on `incremental_trainer` (`--config`, `--gpu-strategy`, `--model`,
+  `--admin-port`) is space-separated; `--objective` is deliberately the one exception, matching
+  the literal syntax named in the item's own filed TD title
+  (`incremental_trainer --objective=lejepa`) rather than silently normalizing it to
+  `--objective lejepa` for parser consistency. `IncrementalTrainerGlobalArgs::objective` defaults
+  to the literal string `"chatbot"`, so the field is never left in an ambiguous unset state the
+  way the `std::optional<...>` fields on that struct are — there's always a real objective name to
+  branch on.
+- **World model architecture is entirely separate from the chatbot's own `D_MODEL`/`NUM_HEADS`/
+  etc. block**, both in `ServiceConfig` (`world_model_d_model` vs. `d_model`, etc.) and in the
+  physical config file (a distinct `WORLD_MODEL_*` section, not reusing the chatbot's own keys
+  with a prefix override). The plan's own Phase 0 treats the world model as its own,
+  independently-sized architecture (its own future MNS `ModelRecord` too, once TD-184 lands) —
+  coupling it to whatever the chatbot happens to be trained at would be a correctness trap the
+  moment the two diverge.
+- **`WORLD_MODEL_INJECT_EVERY_N_LAYERS` defaults to `1` in config, not `0`.** This deliberately
+  mirrors TD-181's own established distinction between a raw C++ constructor default (must stay
+  `0`/disabled so every pre-existing caller is unaffected — `LLMDecoder`'s own constructor default,
+  untouched by this item) and a config-level key describing what a value means once an operator
+  has *already* opted in by flipping `WORLD_MODEL_ENABLED=true` — the plan's own literal
+  `WORLD_MODEL_INJECT_EVERY_N_LAYERS=1` recommendation. Not read by `--objective=lejepa` itself
+  (which trains only the standalone encoder — no decoder, no injection, in that loop at all);
+  wiring a trained world model's gated injection into the chatbot's own `LLMDecoder` construction
+  is later work (TD-184 and beyond), filed here now purely so the whole `WORLD_MODEL_*` key block
+  lands together per `CLAUDE.md`'s "architecturally significant keys" convention.
+- **`WORLD_MODEL_ENABLED=true` is a hard precondition for `--objective=lejepa`, checked and
+  reported with a clear error before any work happens** (not merely "defaults produce a
+  plausible-looking but unconfigured run"). Matches every other opt-in gated path this batch has
+  added (`TRAINER_ADMIN_ENABLED`, `HIPPOCAMPAL_MEMORY_ENABLED`) — an operator who forgets to flip
+  the switch gets an immediate, actionable message instead of silently training a
+  default-sized (512-dim, 6-layer) world model they never intended to size that way.
+- **`LeJEPAEncoder`'s constructor gained a new trailing `sigreg_num_sketches` parameter**
+  (default 64, matching `SIGReg`'s own constructor default byte-for-byte — every pre-existing
+  caller unaffected) rather than leaving `WORLD_MODEL_SIGREG_NUM_SKETCHES` an orphaned,
+  never-actually-applied config key. `SIGReg`'s sketch directions are fixed at its own
+  construction time with no post-construction resize path (see its own class doc), so a
+  constructor parameter — not a setter — is the only place this can be threaded through. Added a
+  matching `get_sigreg_num_sketches()` accessor and three new construction tests
+  (`tests/lejepaencoder_test.cpp`) rather than silently declaring the key "documented, not yet
+  wired" the way this batch has sometimes deliberately deferred a key to a later item — here, the
+  item that owns the key is this one, so wiring it fully was in scope.
+- **Data source: reuses `DatasetRegistry::load_conversation_pairs()` — the only file-content
+  parser this codebase has — even though LeJEPA's own objective needs no `(input, target)`
+  pairing at all.** Both a parsed `ConversationPair`'s `input` and `response` fields are fed to
+  `train_step()` as independent, unpaired plain-text samples. This works cleanly because the
+  parser's JSONL branch (`parse_jsonl_sample`, `src/TrainingSampleMeta.hpp`) only requires a
+  non-empty `"input"` field — `"response"` may be absent or empty and the pair is still emitted —
+  so an operator queuing genuinely unpaired text for this objective can write bare
+  `{"input": "..."}` lines with no `"response"` at all, while any already-queued ordinary
+  `(input, response)` chatbot data gets both of its sides reused for pretraining for free. Chosen
+  over inventing a new plain-text file format, which the item's own filed scope never asked for
+  and this codebase has no other precedent for. (Confirmed *not* a hazard for the existing chatbot
+  objective's own registry-shared files: `ChatbotTrainer`'s teacher-forcing path independently
+  requires a non-empty response and crashes uncaught on one that's missing — a real, pre-existing
+  robustness gap, unrelated to and not introduced by this item, flagged separately for its own
+  follow-up rather than fixed here.)
+- **No MNS registration or `IncrementalTrainer::begin_run()` call for the world model.** The
+  world model isn't an MNS-registered model yet — that's explicitly TD-184's own job (`Depends on
+  TD-177, TD-183` in that item's own Description). `run_id` is derived purely locally via the same
+  `derive_run_id()` fallback the chatbot objective uses when MNS isn't configured at all, since
+  building an `IncrementalTrainer`/`ChatbotTrainer` pair (both chatbot-model/vocab-specific) for a
+  training loop that never uses either would be actively wrong, not just unnecessary.
+- **Checkpoint saved once, at the end of the pass, to `<session_dir>/world_model`** via
+  `LeJEPAEncoder::save()` (already implemented per TD-177) — no periodic auto-save/retention
+  policy analogous to `AUTO_SAVE_*`/`MAX_SESSIONS_TO_KEEP`, since a first version training a
+  small pretraining pass didn't need one; a future revision can add it if real usage shows
+  otherwise. `reg.mark_trained()`/`reg.release_pending()` follow the exact same
+  success/failure branching the chatbot objective's own lambda uses.
+- **A real `Optimizer` (ADAM) is constructed and registered**, rather than falling back to
+  `LeJEPAEncoder`'s own plain-SGD path — matching how `ChatbotTrainer`'s own pipeline always
+  registers a real optimizer, and avoiding the shared-optimizer over-stepping hazard from TD-178
+  entirely by construction: this is the ONLY caller of `world_model.train_step()`/
+  `update_weights()` for this `Optimizer` instance's whole lifetime, so there is no second
+  component racing to call `optimizer->step()` on it.
+
+Changes Made:
+
+- `src/Config.hpp`: new `WORLD_MODEL_ENABLED`/`_D_MODEL`/`_NUM_LAYERS`/`_NUM_HEADS`/`_D_FF`/
+  `_SIGREG_LAMBDA`/`_SIGREG_NUM_SKETCHES`/`_INJECT_EVERY_N_LAYERS` fields on `ServiceConfig`,
+  defaults matching the plan doc's own recommended config-level values exactly.
+- `src/Config.cpp`: `load_from_file()`/`load_from_env()` parsing for all 8 keys; `validate()`
+  gained an unconditional (not gated on `world_model_enabled`) architecture-bounds block mirroring
+  the chatbot's own `d_model`/`num_heads`/`d_ff`/`num_encoder_layers` checks, plus
+  `sigreg_lambda >= 0`/`sigreg_num_sketches` range checks.
+- `src/LeJEPAEncoder.hpp`/`.cpp`: new trailing `sigreg_num_sketches` constructor parameter
+  (default 64) threaded into `SIGReg`'s own construction; new `get_sigreg_num_sketches()`
+  accessor. Version 0.2.0 → 0.3.0.
+- `src/IncrementalTrainerArgs.hpp`/`.cpp`: new `objective` field (default `"chatbot"`) on
+  `IncrementalTrainerGlobalArgs`; `--objective=<value>` parsing in
+  `parse_incremental_trainer_global_args()`. Version 0.2.0 → 0.3.0.
+- `src/IncrementalTrainingTool.cpp`: new `run_lejepa_training_pass()` free function (vocab-size
+  probe, `LeJEPAEncoder` construction from `WORLD_MODEL_*` config, optimizer registration,
+  registry acquire/download/parse/train-loop/mark-trained/save); `command == "train"` branches on
+  `cli.objective == "lejepa"` right after the existing pending-count check, before falling through
+  unchanged to the pre-existing chatbot path; `WORLD_MODEL_ENABLED` precondition check;
+  `output_usage()` documents the new flag. Version 0.10.0 → 0.11.0.
+- `config.trainer.conf`: new `WORLD_MODEL_*` block (all 8 keys, plan-matching defaults), placed
+  before the existing `HIPPOCAMPAL_*` block (TD-185) since hippocampal memory's own key source is
+  the world model. Stale "TD-183, not yet filed" cross-references in both `config.trainer.conf`'s
+  and `config.chatbot.conf`'s own `HIPPOCAMPAL_*` block comments corrected now that this item has
+  landed.
+- `tests/config_test.cpp`: 7 new `WorldModel*`/`ValidationWorldModel*` tests (defaults, file
+  load, env load, env-overrides-file, chatbot-architecture isolation, validation failure and
+  pass); `WORLD_MODEL_*` keys added to the fixture's environment-variable cleanup lists (both
+  `_WIN32` and POSIX branches) to prevent inter-test leakage.
+- `tests/incremental_trainer_args_test.cpp`: 5 new/updated tests for the `objective` field
+  (default, explicit value, flag-order independence, bare-flag-with-no-"=" fallthrough).
+- `tests/lejepaencoder_test.cpp`: 3 new tests for the `sigreg_num_sketches` constructor parameter.
+- `docs/development/guides/TECHNICAL_DEBT.md`: Tier 10's Level 3/4 prose and closing effort total
+  updated; Overview/Statistics/Table-of-Contents counts recomputed.
+
+Verification:
+
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean, including
+  `incremental_trainer`, `chatbot_api_server`, and `chatbot_gui_binary` (no repeat of TD-180's own
+  circular-dependency/Qt-macro lessons; none applied here since nothing moved between CMake
+  targets this time).
+- ✅ Live manual smoke test (not just unit tests): a real `incremental_trainer --objective=lejepa
+  --foreground train 1` run against a queued JSONL file — acquired the pending file, parsed 3
+  pairs into 4 unpaired text samples (one pair had an empty `response`), trained the world model,
+  logged finite average predictor/sigreg losses, marked the file trained, and saved a real
+  6-file checkpoint to `<session_dir>/world_model/`.
+- ✅ `WORLD_MODEL_ENABLED=false` guard verified live: `--objective=lejepa` against real pending
+  data refuses to start with a clear error and exit code 1, touching nothing.
+- ✅ Default (chatbot) objective verified live and unaffected: an ordinary paired JSONL file
+  trains end-to-end exactly as before, with no `--objective` flag at all.
+- ✅ New/updated unit tests: `ConfigTests` (7 new), `IncrementalTrainerArgsTests` (5
+  new/updated), `LeJEPAEncoderTests` (3 new) — all pass standalone.
+- ✅ Full `ctest` suite: 135/136 passing; the one failure
+  (`ScriptsTests_monitor_training`, an unrelated shell-script/curses test touching no file this
+  item modified) reproduced the same load-sensitive-under-full-parallel-load flake already noted
+  in TD-185's own entry, confirmed by re-running it standalone (passed cleanly).
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+- Found but explicitly out of scope, flagged for a separate follow-up rather than fixed here: an
+  uncaught `TokenizerInputError`/`std::terminate` crash in the *existing* chatbot objective's own
+  preprocessing path when a queued JSONL sample has a present-but-empty `"response"` field (which
+  `load_conversation_pairs()`'s JSONL branch permits) — pre-existing, not introduced by this item,
+  discovered incidentally while smoke-testing with data shaped for the lejepa objective.
+
+Files Changed:
+
+- `src/Config.hpp`, `src/Config.cpp`
+- `src/LeJEPAEncoder.hpp`, `src/LeJEPAEncoder.cpp`
+- `src/IncrementalTrainerArgs.hpp`, `src/IncrementalTrainerArgs.cpp`
+- `src/IncrementalTrainingTool.cpp`
+- `config.trainer.conf`, `config.chatbot.conf`
+- `tests/config_test.cpp`, `tests/incremental_trainer_args_test.cpp`, `tests/lejepaencoder_test.cpp`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-185: `HippocampalMemory` Wiring + Config + Write-Policy Call Site
 
 | Resolution Date | Component | Resolved By |
@@ -50,10 +220,11 @@ Design decisions:
   caught and logged via `Logger::warn()` rather than propagated, so a broken/misconfigured
   optional memory feature never takes down a response that already generated successfully.
 - **`HIPPOCAMPAL_*` config keys documented, not yet parsed** — same pattern as this whole batch's
-  other config-driven knobs (e.g. `WORLD_MODEL_INJECT_EVERY_N_LAYERS`, still not read by
-  `ServiceConfig`/`IncrementalConfig` either, since TD-183 — the item that would actually wire
-  `WORLD_MODEL_*` keys — hasn't landed yet). Filed in both `config.trainer.conf` and
-  `config.chatbot.conf` per the item's own Files to Modify.
+  other config-driven knobs. TD-183 (also resolved September 16, 2026 — see its own entry) went
+  on to wire the sibling `WORLD_MODEL_*` block into `ServiceConfig`/`ConfigLoader`, but that
+  item's own scope was `WORLD_MODEL_*` only — these `HIPPOCAMPAL_*` keys remain filed-but-unparsed,
+  a still-open, smaller follow-up (not itself a filed TD as of this writing). Filed in both
+  `config.trainer.conf` and `config.chatbot.conf` per the item's own Files to Modify.
 
 Changes Made:
 

@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 16, 2026
-**Total Items:** 16
+**Total Items:** 15
 **High Priority:** 1
-**Medium Priority:** 9
+**Medium Priority:** 8
 **Low Priority:** 6
 **Future Enhancements:** 19
-**Resolved Items:** 170
+**Resolved Items:** 171
 **Deferred Decisions:** 3
 
 **September 15, 2026:** Filed TD-174 through TD-186 (13 items) — the construction pieces of
@@ -188,10 +188,10 @@ sequence and is worth checking against, not trusting blindly, per this section's
   — the one item in this batch touching existing production code, needed TD-174/TD-177/TD-179
   (all Levels 0-2, all done) — both branches had landed by the time this was picked up. It never
   needed TD-178: the gated-attention path and the world model's training loop are independent.
-  [TD-183](#td-183-incremental_trainer---objectivelejepa-mode--world-model-config-keys)
-  (`--objective=lejepa` mode, 5-7h) only needs TD-178 (now done), so it's also Level 3 and can run
-  in parallel with (or after) TD-180 — it continues the LeJEPA-training branch, not the
-  decoder-injection one.
+  **TD-183 (`--objective=lejepa` mode) — resolved September 16, 2026** (see
+  [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-183-incremental_trainer---objectivelejepa-mode--world-model-config-keys))
+  — only needed TD-178 (already done), so it was also Level 3 and ran independently of TD-180 — it
+  continued the LeJEPA-training branch, not the decoder-injection one.
 - **Level 4 — fans back out now that TD-180 has landed:** **TD-181 (injection-frequency knob)**
   (see
   [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-181-sparse-world-model-injection-knob)),
@@ -202,7 +202,7 @@ sequence and is worth checking against, not trusting blindly, per this section's
   — all resolved (TD-181/182 September 15, 2026; TD-185 September 16, 2026) — all only needed
   TD-180 (TD-185's other dependency, TD-179, was already satisfied by Level 2).
   [TD-184](#td-184-world-model-mns-registration--checkpointing) (MNS registration +
-  checkpointing, 3-4h) needs TD-177 (now done) and TD-183, both already done by this point.
+  checkpointing, 3-4h) needs TD-177 and TD-183, both now resolved — startable immediately.
 - **Level 5 — the pilot, and this batch's actual go/no-go gate:**
   [TD-186](#td-186-lejepa--hippocampal-memory-pilot-run) (10-14h) — explicitly not startable until
   everything above is done. Its own Description already frames "the gate never opens" or "the
@@ -210,8 +210,8 @@ sequence and is worth checking against, not trusting blindly, per this section's
   restating here since this is the one item in the batch that isn't "build the thing," it's "find
   out whether the thing was worth building."
 
-Total estimated effort across the 3 remaining active items: 18-25 hours (TD-174 through TD-182
-resolved September 15, 2026; TD-185, 4-5h, resolved September 16, 2026 — see
+Total estimated effort across the 2 remaining active items: 13-18 hours (TD-174 through TD-183
+resolved September 15-16, 2026; TD-185, 4-5h, resolved September 16, 2026 — see
 [TD-174](../archive/TECHNICAL_DEBT_RESOLVED.md#td-174-crossattentionforward_with_scores-score-bias-entry-point),
 [TD-175](../archive/TECHNICAL_DEBT_RESOLVED.md#td-175-sigreg-sketched-isotropic-gaussian-regularization),
 [TD-176](../archive/TECHNICAL_DEBT_RESOLVED.md#td-176-predictor-embedding-space-predictor),
@@ -220,10 +220,11 @@ resolved September 15, 2026; TD-185, 4-5h, resolved September 16, 2026 — see
 [TD-179](../archive/TECHNICAL_DEBT_RESOLVED.md#td-179-hippocampalmemory-buffer),
 [TD-180](../archive/TECHNICAL_DEBT_RESOLVED.md#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized),
 [TD-181](../archive/TECHNICAL_DEBT_RESOLVED.md#td-181-sparse-world-model-injection-knob),
-[TD-182](../archive/TECHNICAL_DEBT_RESOLVED.md#td-182-encoderdecodermodelset_world_model), and
+[TD-182](../archive/TECHNICAL_DEBT_RESOLVED.md#td-182-encoderdecodermodelset_world_model),
+[TD-183](../archive/TECHNICAL_DEBT_RESOLVED.md#td-183-incremental_trainer---objectivelejepa-mode--world-model-config-keys), and
 [TD-185](../archive/TECHNICAL_DEBT_RESOLVED.md#td-185-hippocampalmemory-wiring--config--write-policy-call-site);
-sum of the rest matches the Statistics section's own total below) — comparable in size to the
-entire rest of the active backlog combined. If
+sum of the rest matches the Statistics section's own total below) — down from comparable-to-the-
+entire-rest-of-the-backlog to just TD-184/TD-186. If
 [reasoning_process_plan.md](../../proposals/reasoning_process_plan.md)'s own
 chunks are also in scope, see that plan's interaction notes referenced from TD-180 (`RP-2a`,
 phase-conditioned gates) and TD-186 (`RP-3`/`RP-6`, joint pilot) before committing to a sequence
@@ -248,10 +249,9 @@ that ignores it.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-  - [TD-183: `incremental_trainer --objective=lejepa` Mode + World-Model Config Keys](#td-183-incremental_trainer---objectivelejepa-mode--world-model-config-keys)
   - [TD-184: World-Model MNS Registration + Checkpointing](#td-184-world-model-mns-registration--checkpointing)
   - [TD-186: LeJEPA + Hippocampal Memory Pilot Run](#td-186-lejepa--hippocampal-memory-pilot-run)
-- [Resolved Items](#resolved-items) (170 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (171 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -1893,36 +1893,6 @@ another branch of one large `main()` instead of becoming its own focused binary)
 
 ---
 
-### TD-183: `incremental_trainer --objective=lejepa` Mode + World-Model Config Keys
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Planned | Training / Deployment / Tooling | September 15, 2026 | 5-7 hours |
-
-Description:
-Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#phase-0--lejepa-pretraining-new-standalone)
-(chunk `LJ-4b`) — not yet built. New objective flag on `incremental_trainer` so LeJEPA
-pretraining reuses the existing dataset registry/distributed-queue machinery instead of a
-bespoke script (unpaired text, no `(input, target)` pairs required). New `WORLD_MODEL_*` block in
-`config.trainer.conf` (`WORLD_MODEL_ENABLED`, `_D_MODEL`, `_NUM_LAYERS`, `_NUM_HEADS`, `_D_FF`,
-`_SIGREG_LAMBDA`, `_SIGREG_NUM_SKETCHES`, `_INJECT_EVERY_N_LAYERS`). Depends on TD-178
-(`train_step` is what this mode calls).
-
-Action Items:
-
-- [ ] Add `--objective=lejepa` handling to `incremental_trainer`
-- [ ] Add the `WORLD_MODEL_*` key block to `config.trainer.conf`, following the existing
-  "architecturally significant keys" convention (`CLAUDE.md`)
-- [ ] Confirm existing objective (chatbot teacher-forcing) is unaffected when this flag is absent
-
-Files to Modify:
-
-- `src/IncrementalTrainingTool.cpp` (or successor — see TD-172's binary-split precedent if this
-  grows large enough to warrant its own path)
-- `config.trainer.conf`
-
----
-
 ### TD-184: World-Model MNS Registration + Checkpointing
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -1935,7 +1905,10 @@ Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_w
 own `ModelRecord` (own `D_MODEL`/`NUM_HEADS`/etc., immutable after registration, same rule as the
 chatbot model), independently versioned from the chatbot model rather than coupled through one
 MNS record. `LeJEPAEncoder::save()`/`load()` (already implemented per TD-177) under
-`training_sessions/`, same convention as every other component. Depends on TD-177, TD-183.
+`training_sessions/`, same convention as every other component. Depends on TD-177, TD-183 (both
+now resolved — TD-183's own `--objective=lejepa` pass already calls `LeJEPAEncoder::save()` at the
+end of a training run, into `<session_dir>/world_model`; this item's own "confirm round-trips
+correctly" action item is checking that output, not building the call site from scratch).
 
 Action Items:
 
@@ -2504,15 +2477,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 16 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 15 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|1|6%|
-|Medium|9|56%|
-|Low|6|38%|
+|High|1|7%|
+|Medium|8|53%|
+|Low|6|40%|
 
-**Total Active Items:** 16
+**Total Active Items:** 15
 
 ### By Component
 
@@ -2529,7 +2502,7 @@ Recomputed directly from the 16 `### TD-NNN` entries under [Active Technical Deb
 |Android / CI|1|
 |Android / Testing|1|
 |Documentation|1|
-|Training / Deployment / Tooling|2|
+|Training / Deployment / Tooling|1|
 |World Model / Memory (LeJEPA)|2|
 
 ### Effort Distribution
@@ -2538,11 +2511,11 @@ Recomputed directly from the 16 `### TD-NNN` entries under [Active Technical Deb
 |--------------|-------|
 |0-2 hours|0|
 |2-4 hours|2|
-|4-8 hours|4|
+|4-8 hours|3|
 |8+ hours|7|
 |Not estimated|3|
 
-**Total Estimated Effort (Active Items):** 138-203 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate; the remaining 3 items from the TD-174 through TD-186 batch — TD-174 through TD-182 and TD-185 all now resolved — add an estimated 18-25 hours)
+**Total Estimated Effort (Active Items):** 133-196 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate; the remaining 2 items from the TD-174 through TD-186 batch — TD-174 through TD-183 and TD-185 all now resolved — add an estimated 13-18 hours)
 
 ### Future Enhancements Summary
 

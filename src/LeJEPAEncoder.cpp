@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-15
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-09-16
 
 #include "LeJEPAEncoder.hpp"
 
@@ -35,7 +35,7 @@ constexpr float kMaskRatio = 0.25f;
 }  // namespace
 
 LeJEPAEncoder::LeJEPAEncoder(int vocab_size, int d_model, int num_layers, int num_heads, int d_ff,
-                             int max_seq_length)
+                             int max_seq_length, int sigreg_num_sketches)
     : vocab_size(vocab_size),
       d_model(d_model),
       num_layers(num_layers),
@@ -58,7 +58,7 @@ LeJEPAEncoder::LeJEPAEncoder(int vocab_size, int d_model, int num_layers, int nu
     // parameter-free default rather than inventing a new argument for a component whose actual
     // use starts in TD-178.
     predictor = std::make_unique<Predictor>(d_model, d_ff);
-    sigreg = std::make_unique<SIGReg>(d_model);
+    sigreg = std::make_unique<SIGReg>(d_model, sigreg_num_sketches);
 
     std::cout << "LeJEPA Encoder initialized with:" << '\n';
     std::cout << "  Vocab size: " << vocab_size << '\n';
@@ -67,6 +67,7 @@ LeJEPAEncoder::LeJEPAEncoder(int vocab_size, int d_model, int num_layers, int nu
     std::cout << "  Number of heads: " << num_heads << '\n';
     std::cout << "  Feed-forward dimension: " << d_ff << '\n';
     std::cout << "  Max sequence length: " << max_seq_length << '\n';
+    std::cout << "  SIGReg sketches: " << sigreg_num_sketches << '\n';
 }
 
 Matrix LeJEPAEncoder::encode(const std::string& text) {

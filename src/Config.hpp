@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.2
-// @adai-reviewed: 2026-09-14
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-09-16
 
 
 #include <cstdint>
@@ -448,6 +448,60 @@ struct ServiceConfig {
     /// single fixed port needs no runtime discovery. Default: 8085 (next free slot after
     /// trainer_admin_port's own 8084).
     int trainer_child_admin_port = 8085;
+
+    // ============================================================
+    // World-Model (LeJEPA) Pretraining Configuration (TD-183)
+    // Read by `incremental_trainer --objective=lejepa train` only (see
+    // docs/proposals/lejepa_world_model_gated_injection_plan.md's Phase 0). Entirely
+    // independent of the D_MODEL/NUM_HEADS/etc. fallback block above, which sizes the
+    // *chatbot* model — the world model is deliberately its own, separately-sized
+    // architecture (own MNS ModelRecord too, once TD-184 lands), not coupled to whatever
+    // the chatbot happens to be trained at. Not read by the plain chatbot teacher-forcing
+    // objective at all, so leaving these at their defaults has zero effect on it.
+    // ============================================================
+
+    /// Master switch (default: false). `--objective=lejepa` refuses to start when this is
+    /// false, same "opt-in, off by default" guarantee every other LeJEPA-batch gated path
+    /// in this codebase makes (world_model_inject_every_n_layers, HIPPOCAMPAL_MEMORY_ENABLED).
+    bool world_model_enabled = false;
+
+    /// World-model embedding dimension (default: 512 — matches LeJEPAEncoder's own
+    /// constructor default and the plan's own recommended config-level value).
+    size_t world_model_d_model = 512;
+
+    /// Number of world-model encoder layers (default: 6).
+    size_t world_model_num_layers = 6;
+
+    /// Number of world-model attention heads (default: 8).
+    size_t world_model_num_heads = 8;
+
+    /// World-model feed-forward dimension; also reused as the Predictor's hidden_dim, same
+    /// convention LeJEPAEncoder's own constructor already follows internally (default: 2048).
+    size_t world_model_d_ff = 2048;
+
+    /// λ weighting SIGReg's gradient contribution against the predictor's own inside
+    /// LeJEPAEncoder::train_step() (default: 1.0 — matches LeJEPAEncoder's own built-in
+    /// default, applied via set_sigreg_lambda()).
+    float world_model_sigreg_lambda = 1.0f;
+
+    /// Number of random sketch projections SIGReg uses (default: 64 — matches SIGReg's own
+    /// constructor default). Threaded through LeJEPAEncoder's constructor's trailing
+    /// sigreg_num_sketches parameter (added alongside this config key — see LeJEPAEncoder's
+    /// own version history — since SIGReg itself has no post-construction setter for it).
+    size_t world_model_sigreg_num_sketches = 64;
+
+    /// Sparsity of gated world-model cross-attention injection into the *chatbot's* own
+    /// LLMDecoder (TD-181's world_model_inject_every_n_layers; 0 = never inject). Default: 1
+    /// (the plan's own literal recommendation for once the feature is deliberately turned
+    /// on — distinct from LLMDecoder's own raw constructor default of 0, which stays 0 so
+    /// every existing caller that never mentions the world model at all is unaffected; see
+    /// TD-181's own resolved-archive entry for that constructor-vs-config-default distinction).
+    /// Not read by `--objective=lejepa` itself (which only trains the standalone encoder, no
+    /// decoder in the loop) — wiring this into the chatbot's own EncoderDecoderModel/LLMDecoder
+    /// construction is a later TD's job (TD-184 and beyond), filed here now purely to keep the
+    /// whole WORLD_MODEL_* key block together per CLAUDE.md's "architecturally significant
+    /// keys" convention.
+    size_t world_model_inject_every_n_layers = 1;
 
     // ============================================================
     // Auto-save / Checkpoint Retention Configuration
