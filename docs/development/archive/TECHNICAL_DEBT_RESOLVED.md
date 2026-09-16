@@ -4,6 +4,111 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-178: `LeJEPAEncoder::train_step` (Self-Supervised Training Loop)
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 15, 2026 | World Model / Memory (LeJEPA) | `LeJEPAEncoder::train_step()` + private `encode_tokens()`/`backward()`/`zero_grad()`/`update_weights()`; two new `TrainingMetricsService` fields |
+
+Summary:
+Fourth piece of the LeJEPA world-model plan
+([lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md),
+Training Standard) — LJ-2b, the self-supervised training loop TD-177's construction was built to
+support. `train_step(text)` constructs two augmented "views" of the same token sequence via span
+masking — a context view (a contiguous span replaced by the tokenizer's own unk token, ~25% of
+the sequence by default) and the target view (the original, unmasked sequence) — encodes both,
+predicts the context view's embedding forward to the target view's via `Predictor` (scored only
+at the masked span's own positions, the only positions where prediction is actually informative),
+and applies `SIGReg` to the target view's embeddings to keep this encoder's output isotropic-
+Gaussian. Both loss terms' gradients flow into the *same* shared encoder weights from both
+forward passes — LeJEPA's own point (per the plan's Background section) is removing the need for
+a stop-gradient/EMA-teacher asymmetry a classic Siamese-network JEPA setup would otherwise need.
+`train_step()` is fully self-contained (forward + backward + weight update in one call, returning
+`{predictor_loss, sigreg_loss}`), matching the plan's own public interface, which exposes no
+`backward()`/`zero_grad()`/`update_weights()` at all — only `train_step()` itself.
+
+Design decisions and a real bug found and fixed along the way:
+
+- **Cache-reuse ordering for the two forward passes.** `LeJEPAEncoder`'s cache (`cached_token_ids`/
+  `cached_encoder_outputs`) holds only the *most recent* forward pass's activations. `train_step()`
+  runs the context view's forward, then the target view's (the live cache is now the target's),
+  computes both loss terms and their gradients, backpropagates into the target view first (its
+  activations are still current), then re-runs the context view's forward once more (deterministic
+  given fixed weights — no dropout/randomness in `EncoderBlock`'s own forward, so this reproduces
+  the exact activations already used) before backpropagating into it. One redundant forward pass
+  per `train_step()` call, traded for not needing to duplicate every cached field into
+  "context"/"target" variants.
+- **A real bug found during implementation: `update_weights()` must call a shared, registered
+  `Optimizer::step()` exactly ONCE per `train_step()`, never once per sub-component.** The
+  naive design — `update_weights()` simply delegating to each sub-component's own
+  `update_weights()` (`token_embedding`, each `EncoderBlock`, `final_norm`, `predictor`) — is
+  exactly what `LLMEncoder` itself never needs to do (it exposes no whole-encoder
+  `update_weights()` at all; its own external trainer registers everything with one `Optimizer`
+  and calls that `Optimizer`'s own `step()` directly, exactly once). `Optimizer::step()` iterates
+  *every* parameter group ever registered with it, not just the calling sub-component's own — so
+  if each of N sub-components independently called it via their own `update_weights()`, the
+  shared model would be over-stepped once per sub-component per training step (5x for a 2-layer
+  test configuration), with a staggered, escalating corruption depending on which sub-component
+  happened to be updated last in the sequence (traced through by hand: the first-updated
+  sub-component gets exactly one real update since its own gradient is zeroed right after, but
+  each later one accumulates one extra spurious update per earlier sub-component still ahead of
+  it in the sequence). Fixed by having `LeJEPAEncoder` track its own `Optimizer*` (set by
+  `register_parameters_with_optimizer()`) and branching in `update_weights()`: with a registered
+  optimizer, call `optimizer_->step()` exactly once, then a full `zero_grad()` sweep; without one,
+  delegate to each sub-component's own `update_weights()` (safe in that path, since no shared
+  mutable optimizer state exists to conflict over).
+- **Metrics wiring scoped to the setter only, not full dashboard/JSON export.** Added
+  `TrainingMetricsService::update_lejepa_metrics(predictor_loss, sigreg_loss)` plus two new
+  `-1.0f`-defaulted snapshot fields (`current_predictor_loss`/`current_sigreg_loss`), following
+  the exact pattern `update_activation_saturation()`/`update_attention_entropy()` already use.
+  Deliberately NOT wired into `end_epoch()`'s `PersistentMetricsRecord` copy, the epoch-end push
+  JSON, or `persist_summary()`'s JSON — those are epoch-level aggregation/dashboard-surfacing
+  decisions (per-sample? per-epoch average?) that belong to TD-183's own not-yet-written
+  `incremental_trainer --objective=lejepa` loop, the actual call site for this setter (mirroring
+  how `LLMEncoder`/`EncoderDecoderModel` have zero direct `TrainingMetricsService` dependency of
+  their own — only the outer trainer classes call it).
+
+Changes Made:
+
+- `src/LeJEPAEncoder.hpp`/`.cpp`: `encode()`'s body extracted into a private `encode_tokens()`
+  helper (shared with `train_step()`, behavior-preserving — all 23 pre-existing TD-177 tests
+  still pass unchanged); new private `backward()`/`zero_grad()`/`update_weights()` and an
+  `Optimizer*` tracking field; new public `train_step()`, `set_sigreg_lambda()`/
+  `get_sigreg_lambda()`.
+- `src/TrainingMetricsService.hpp`/`.cpp`: two new snapshot fields + `update_lejepa_metrics()`
+  (see the scoping note above).
+- `tests/lejepaencoder_test.cpp`: 6 new `train_step()` tests.
+- New `tests/lejepa_metrics_test.cpp` + `lejepaMetricsTests` CMake test target.
+
+Verification:
+
+- ✅ 6 new `train_step()` tests: finite/non-negative losses, correct handling of a minimal
+  (3-token) input, weight updates happen without a registered optimizer, weight updates are a
+  no-op when frozen (`requires_grad=false`, losses still computed for diagnostic purposes), and
+  — the item's own required check — both `predictor_loss` and `sigreg_loss` trend downward over
+  120 `train_step()` calls on a small synthetic corpus with a real registered ADAM optimizer
+  (first-half vs. second-half average comparison, chosen over a small-window comparison after an
+  initial version proved statistically noisy — `sigreg_loss` in particular is estimated from a
+  single call's own handful of per-token embeddings, a far noisier "batch" than `SIGReg`'s own
+  dedicated tests use). This same test doubles as the regression guard for the optimizer
+  over-stepping bug above: that bug's corruption would very likely have prevented a clean
+  downward trend across 120 iterations with a real shared optimizer. Verified robust across 15
+  repeated standalone runs plus 4 concurrent runs under CPU contention.
+- ✅ 4 new `LeJEPAMetricsTests` for `update_lejepa_metrics()` (default -1.0f, stores both values,
+  overwrite semantics, additive-only alongside an unrelated existing field).
+- ✅ Full `ctest` suite green modulo the same two pre-existing, unrelated conditions noted in
+  TD-174's own entry — 133/133 of everything else passing (up from 131: the new
+  `LeJEPAMetricsTests` suite, plus `LeJEPAEncoderTests` growing from 23 to 28 cases).
+- ✅ `check_file_status.py`: 315 files, 0 problems.
+
+Files Changed:
+
+- `src/LeJEPAEncoder.hpp`, `src/LeJEPAEncoder.cpp`
+- `src/TrainingMetricsService.hpp`, `src/TrainingMetricsService.cpp`
+- `tests/lejepaencoder_test.cpp`
+- `tests/lejepa_metrics_test.cpp` (new)
+- `tests/CMakeLists.txt`
+
 ### TD-177: `LeJEPAEncoder` Construction
 
 | Resolution Date | Component | Resolved By |

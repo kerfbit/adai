@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.1.0
+// @adai-version: 0.2.0
 // @adai-reviewed: 2026-09-15
 
 #include <memory>
@@ -19,21 +19,34 @@
 #include "TokenEmbedding.hpp"
 
 /**
- * LeJEPAEncoder (LeJEPA world-model plan, LJ-2a / TD-177)
+ * LeJEPAEncoder (LeJEPA world-model plan, LJ-2a/LJ-2b / TD-177/TD-178)
  *
  * Self-supervised world-model encoder. Structurally a transformer encoder stack — same
  * composition as LLMEncoder (BPETokenizer, TokenEmbedding, PositionalEncoding, a stack of
  * EncoderBlock, a final LayerNorm) — the difference from LLMEncoder is entirely in what it is
- * trained on and with what objective (LeJEPAEncoder::train_step, TD-178), not in construction.
+ * trained on and with what objective (train_step(), below), not in construction.
  * See docs/proposals/lejepa_world_model_gated_injection_plan.md's Component 1.
  *
- * TD-177 scope: construction, encode(), save()/load(), print_config(), and the plumbing methods
- * (set_requires_grad/set_learning_rate/register_parameters_with_optimizer) needed for a later
- * training loop to attach to — mirroring exactly how little "logic" the equivalent methods on
- * LLMEncoder itself contain. `train_step()` (the actual self-supervised training loop) is TD-178's
- * job, deliberately not implemented here; this class holds `predictor_`/`sigreg_` as constructed
- * members (per the plan's own class spec) purely so TD-178 can add `train_step()` without also
- * needing to touch this constructor.
+ * TD-177 scope (construction): constructor, encode(), save()/load(), print_config(), and the
+ * plumbing methods (set_requires_grad/set_learning_rate/register_parameters_with_optimizer)
+ * needed for a training loop to attach to — mirroring how little "logic" the equivalent methods
+ * on LLMEncoder itself contain.
+ *
+ * TD-178 scope (this training loop): train_step(text) constructs two augmented "views" of the
+ * same token sequence via span masking — a context view (a contiguous span replaced by the
+ * tokenizer's own unk token) and the target view (the original, unmasked sequence) — encodes
+ * both, predicts the context view's embedding forward to the target view's via `predictor`
+ * (scored only at the masked span's own positions, the only positions where prediction is
+ * actually informative — an unmasked position's context-view token is literally identical to
+ * its target-view counterpart), and applies `sigreg` to the target view's embeddings to keep
+ * this encoder's output isotropic-Gaussian (see SIGReg's own class doc for why). Both loss
+ * terms' gradients flow into the *same* shared encoder weights from both the context and
+ * target forward passes — LeJEPA's own point (per the plan's Background section) is removing
+ * the need for a stop-gradient/EMA-teacher asymmetry a classic Siamese-network JEPA setup would
+ * otherwise need. `train_step()` is a fully self-contained training step (forward + backward +
+ * weight update in one call, returning `{predictor_loss, sigreg_loss}` for the caller to log) —
+ * matching the plan's own public interface, which does not expose backward()/zero_grad()/
+ * update_weights() at all, only train_step() itself as the training entry point.
  *
  * encode()'s output is a drop-in match for LLMEncoder::encode()'s own shape contract
  * ([seq_len, d_model]) — required by TD-179's `HippocampalMemory`, which stores/reads keys
@@ -47,20 +60,57 @@ class LeJEPAEncoder {
     std::unique_ptr<PositionalEncoding> positional_encoding;
     std::vector<std::unique_ptr<EncoderBlock>> encoder_blocks;
     std::unique_ptr<LayerNorm> final_norm;
-    std::unique_ptr<Predictor> predictor;  // embedding-space predictor — used by train_step()
-                                            // (TD-178), constructed here only
-    std::unique_ptr<SIGReg> sigreg;        // isotropic-Gaussian regularizer — same as above
+    std::unique_ptr<Predictor> predictor;  // embedding-space predictor, used by train_step()
+    std::unique_ptr<SIGReg> sigreg;        // isotropic-Gaussian regularizer, used by train_step()
 
     int vocab_size, d_model, num_layers, num_heads, d_ff, max_seq_length;
     bool requires_grad{true};
     float learning_rate{0.001f};
-    float sigreg_lambda{1.0f};  // λ weighting SIGReg term against predictor loss in train_step()
+    float sigreg_lambda{1.0f};  // λ weighting SIGReg's gradient contribution in train_step()
 
-    // Cached values for a future backward pass (TD-178) — same fields, same guard-by-
-    // requires_grad convention as LLMEncoder's own cache, populated by encode() below so
-    // train_step() can add a private backward() later without changing encode() at all.
+    // Set by register_parameters_with_optimizer(); nullptr = plain-SGD fallback. Tracked here
+    // (not just delegated to each sub-component's own optimizer pointer) so update_weights()
+    // can call optimizer_->step() exactly ONCE per train_step() when a shared optimizer is in
+    // use — see update_weights()'s own doc comment for why calling every sub-component's own
+    // update_weights() unconditionally would be a real bug here (each would independently call
+    // the SAME shared Optimizer's step(), over-applying it once per sub-component instead of
+    // once per training step).
+    Optimizer* optimizer_{nullptr};
+
+    // Cached values for backward(), same guard-by-requires_grad convention as LLMEncoder's own
+    // cache. Reused across both the context and target forward passes within one train_step()
+    // call — see train_step()'s own implementation comment for the ordering this requires.
     std::vector<int> cached_token_ids;
     std::vector<Matrix> cached_encoder_outputs;
+
+    /** Core forward pipeline shared by encode() and train_step() — embedding, positional
+     *  encoding, encoder blocks, final norm. Populates the cache above when requires_grad. */
+    Matrix encode_tokens(const std::vector<int>& token_ids);
+
+    /** Backward pass through this encoder alone (final_norm -> encoder_blocks reverse ->
+     *  token_embedding), mirroring LLMEncoder::backward() exactly. No-op if !requires_grad.
+     *  Private: only train_step() calls this, matching the plan's own public interface, which
+     *  exposes no backward() at all. */
+    void backward(const Matrix& grad_output);
+
+    /** Zeroes every sub-component's accumulated gradients, predictor included (SIGReg has none
+     *  of its own — see its class doc). */
+    void zero_grad();
+
+    /**
+     * Applies accumulated gradients. With a registered optimizer (optimizer_ != nullptr): calls
+     * optimizer_->step() exactly once, then zero_grad() — mirroring the apply-then-clear
+     * sequence every individual component's own update_weights() already follows internally,
+     * but done once for the whole encoder rather than once per sub-component (each
+     * sub-component's own update_weights() would otherwise each independently re-invoke the
+     * SAME shared Optimizer::step(), which iterates every one of its registered parameter
+     * groups on every call — calling it N times per training step would apply N full optimizer
+     * steps to the entire model instead of one). Without a registered optimizer: delegates to
+     * each sub-component's own update_weights() (each independently falls back to its own
+     * plain-SGD path and auto-zeros its own gradients — no shared mutable state to conflict
+     * over in that path, so no equivalent hazard).
+     */
+    void update_weights();
 
    public:
     /**
@@ -81,6 +131,31 @@ class LeJEPAEncoder {
      * needs embeddings (e.g. HippocampalMemory's key/value source, TD-179).
      */
     Matrix encode(const std::string& text);
+
+    /**
+     * Self-supervised training step on a single example (TD-178) — see the class doc above for
+     * the full view-construction/loss/gradient-flow design. Fully self-contained: forward,
+     * backward, and a weight update all happen inside this one call.
+     *
+     * @param text Raw text — no paired target required, unlike EncoderDecoderModel::train_step.
+     * @return {predictor_loss, sigreg_loss}, logged as two separate series (see
+     *         TrainingMetricsService::update_lejepa_metrics()) rather than summed into one
+     *         number, so each term's own trend is independently visible.
+     * @throws std::invalid_argument if `text` tokenizes to fewer than 2 tokens — span masking
+     *         needs at least one context token and one target token to be meaningful.
+     */
+    std::pair<float, float> train_step(const std::string& text);
+
+    /** λ weighting SIGReg's gradient contribution against the predictor's own, inside
+     *  train_step(). Corresponds to the plan's WORLD_MODEL_SIGREG_LAMBDA config key
+     *  (TD-183's job to actually read that key and call this setter). */
+    void set_sigreg_lambda(float lambda) {
+        sigreg_lambda = lambda;
+    }
+
+    float get_sigreg_lambda() const {
+        return sigreg_lambda;
+    }
 
     /** Load tokenizer vocabulary from file — same convention as LLMEncoder. */
     void load_tokenizer_vocab(const std::string& vocab_file);

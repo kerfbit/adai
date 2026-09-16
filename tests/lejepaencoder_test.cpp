@@ -1,12 +1,13 @@
 /**
  * @file lejepaencoder_test.cpp
- * @brief Tests for LeJEPAEncoder (TD-177 / LJ-2a) — construction, encode(), save/load, and
- *        plumbing methods, per docs/proposals/lejepa_world_model_gated_injection_plan.md's
- *        Component 1. `train_step()` is deliberately out of scope here (TD-178).
+ * @brief Tests for LeJEPAEncoder — construction, encode(), save/load, and plumbing methods
+ *        (TD-177 / LJ-2a), plus the self-supervised train_step() training loop (TD-178 / LJ-2b),
+ *        per docs/proposals/lejepa_world_model_gated_injection_plan.md's Component 1.
  */
 
 #include "../src/LeJEPAEncoder.hpp"
 #include <gtest/gtest.h>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -344,4 +345,148 @@ TEST_F(LeJEPAEncoderTest, SaveAndLoadPreservesEncodeOutput) {
             EXPECT_NEAR(output_before(i, j), output_after(i, j), 1e-4f);
         }
     }
+}
+
+// ============================================================================
+// train_step() Tests (TD-178 / LJ-2b)
+// ============================================================================
+
+TEST_F(LeJEPAEncoderTest, TrainStepReturnsFiniteNonNegativeLosses) {
+    create_test_vocabulary();
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder.load_tokenizer_vocab(vocab_file);
+
+    auto [predictor_loss, sigreg_loss] = encoder.train_step("hello world this is a test");
+
+    EXPECT_TRUE(std::isfinite(predictor_loss));
+    EXPECT_TRUE(std::isfinite(sigreg_loss));
+    EXPECT_GE(predictor_loss, 0.0f);
+    EXPECT_GE(sigreg_loss, 0.0f);
+}
+
+TEST_F(LeJEPAEncoderTest, TrainStepHandlesShortText) {
+    create_test_vocabulary();
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder.load_tokenizer_vocab(vocab_file);
+
+    // bos + one content token + eos = 3 tokens — small enough to exercise span-length clamping
+    // (span_len must never reach the full sequence; at least one context token must remain).
+    EXPECT_NO_THROW(encoder.train_step("hello"));
+}
+
+TEST_F(LeJEPAEncoderTest, TrainStepUpdatesWeightsWithoutOptimizer) {
+    create_test_vocabulary();
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder.load_tokenizer_vocab(vocab_file);
+    encoder.set_learning_rate(0.1f);
+
+    Matrix output_before = encoder.encode("hello world test");
+    encoder.train_step("hello world this is a test");
+    Matrix output_after = encoder.encode("hello world test");
+
+    bool changed = false;
+    for (int i = 0; i < output_before.rows && !changed; ++i) {
+        for (int j = 0; j < output_before.cols && !changed; ++j) {
+            if (std::abs(output_after(i, j) - output_before(i, j)) > 1e-6f) {
+                changed = true;
+            }
+        }
+    }
+    EXPECT_TRUE(changed);
+}
+
+TEST_F(LeJEPAEncoderTest, TrainStepIsNoOpForWeightsWhenFrozen) {
+    create_test_vocabulary();
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder.load_tokenizer_vocab(vocab_file);
+    encoder.set_requires_grad(false);
+
+    Matrix output_before = encoder.encode("hello world test");
+    auto [predictor_loss, sigreg_loss] = encoder.train_step("hello world this is a test");
+    Matrix output_after = encoder.encode("hello world test");
+
+    // Losses are still computed (useful for eval-time diagnostics on a frozen encoder)...
+    EXPECT_TRUE(std::isfinite(predictor_loss));
+    EXPECT_TRUE(std::isfinite(sigreg_loss));
+
+    // ...but no weight update happened, mirroring LLMEncoder::backward()'s own
+    // no-op-when-!requires_grad convention.
+    for (int i = 0; i < output_before.rows; ++i) {
+        for (int j = 0; j < output_before.cols; ++j) {
+            EXPECT_FLOAT_EQ(output_after(i, j), output_before(i, j));
+        }
+    }
+}
+
+// TD-178's own Action Items: both loss terms must trend downward on a small synthetic corpus.
+// Registers a real Optimizer (ADAM) rather than using the plain-SGD fallback — this doubles as
+// a regression guard for a real bug found and fixed during this item's own implementation
+// (LeJEPAEncoder::update_weights() calling optimizer_->step() exactly once per train_step, not
+// once per sub-component sharing the same registered Optimizer): had that bug been present, the
+// shared Optimizer would have been over-stepped once per sub-component (5x for this fixture's
+// 2-layer configuration: token_embedding, 2 encoder blocks, final_norm, predictor), a
+// corruption severe enough that a healthy downward trend across dozens of iterations would be
+// very unlikely to survive it.
+TEST_F(LeJEPAEncoderTest, TrainStepLossesTrendDownwardOnSyntheticCorpus) {
+    create_test_vocabulary();
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder.load_tokenizer_vocab(vocab_file);
+
+    Optimizer optimizer(OptimizerType::ADAM, 0.02f);
+    encoder.register_parameters_with_optimizer(optimizer);
+    // Strengthens SIGReg's gradient contribution relative to the predictor's own for this test:
+    // sigreg_loss is estimated from just this one call's own per-token embeddings (a handful of
+    // rows), a far noisier "batch" than SIGReg's own dedicated tests use (thousands of rows) —
+    // giving it more relative weight here makes its downward trend detectable against that
+    // noise floor within a practical number of test iterations.
+    encoder.set_sigreg_lambda(3.0f);
+
+    // Longer sentences than a minimal smoke test would need — more tokens per call means a
+    // larger, less noisy "batch" for SIGReg's own per-call loss estimate.
+    const std::vector<std::string> corpus = {
+        "hello world the is a to of and in that it for on with",
+        "as this was are be have from or one had by but not what",
+        "hello the world is a to of and in that it for on",
+        "with as this was are be have from or one had by but"};
+
+    const int total_iters = 120;
+    std::vector<float> predictor_losses;
+    std::vector<float> sigreg_losses;
+    predictor_losses.reserve(total_iters);
+    sigreg_losses.reserve(total_iters);
+
+    for (int i = 0; i < total_iters; ++i) {
+        auto [predictor_loss, sigreg_loss] = encoder.train_step(corpus[i % corpus.size()]);
+        ASSERT_TRUE(std::isfinite(predictor_loss)) << "iteration " << i;
+        ASSERT_TRUE(std::isfinite(sigreg_loss)) << "iteration " << i;
+        predictor_losses.push_back(predictor_loss);
+        sigreg_losses.push_back(sigreg_loss);
+    }
+
+    // Compare the first half's average against the second half's, not just a handful of samples
+    // at each end — each call's own span placement is randomized (a fresh std::random_device
+    // seed per train_step(), matching this session's own established convention for SIGReg's/
+    // Predictor's non-deterministic weight init), so averaging over many more samples per group
+    // is what keeps this comparison meaningful against that per-call noise rather than a couple
+    // of unlucky samples at either boundary.
+    const int half = total_iters / 2;
+    auto average = [](const std::vector<float>& v, int start, int count) {
+        float sum = 0.0f;
+        for (int i = start; i < start + count; ++i) {
+            sum += v[i];
+        }
+        return sum / static_cast<float>(count);
+    };
+
+    float predictor_first = average(predictor_losses, 0, half);
+    float predictor_last = average(predictor_losses, half, half);
+    float sigreg_first = average(sigreg_losses, 0, half);
+    float sigreg_last = average(sigreg_losses, half, half);
+
+    EXPECT_LT(predictor_last, predictor_first)
+        << "predictor_loss should trend downward (first-half avg=" << predictor_first
+        << ", second-half avg=" << predictor_last << ")";
+    EXPECT_LT(sigreg_last, sigreg_first)
+        << "sigreg_loss should trend downward (first-half avg=" << sigreg_first
+        << ", second-half avg=" << sigreg_last << ")";
 }

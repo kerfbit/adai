@@ -537,6 +537,15 @@ target_link_libraries(paddingEfficiencyTests
 )
 add_test(NAME PaddingEfficiencyTests COMMAND paddingEfficiencyTests)
 
+# LeJEPA world-model pretraining metrics tests (TD-178)
+add_executable(lejepaMetricsTests lejepa_metrics_test.cpp)
+target_include_directories(lejepaMetricsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(lejepaMetricsTests
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME LeJEPAMetricsTests COMMAND lejepaMetricsTests)
+
 # TrainingMetricsService resume-state regression tests
 add_executable(trainingMetricsServiceResumeTests training_metrics_service_resume_test.cpp)
 target_include_directories(trainingMetricsServiceResumeTests PRIVATE ${CMAKE_SOURCE_DIR}/src)

@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.9.1
+// @adai-reviewed: 2026-09-15
 
 #include "TrainingMetricsService.hpp"
 #include <algorithm>
@@ -1581,6 +1581,14 @@ void TrainingMetricsService::update_attention_entropy(float entropy) {
     std::lock_guard<std::mutex> lock(mutex_);
     current_snapshot_.attention_entropy = entropy;
     adai::Logger::debug("Attention entropy: {:.4f}", entropy);
+}
+
+void TrainingMetricsService::update_lejepa_metrics(float predictor_loss, float sigreg_loss) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    current_snapshot_.current_predictor_loss = predictor_loss;
+    current_snapshot_.current_sigreg_loss = sigreg_loss;
+    adai::Logger::debug("LeJEPA metrics: predictor_loss={:.4f} sigreg_loss={:.4f}", predictor_loss,
+                        sigreg_loss);
 }
 
 void TrainingMetricsService::update_padding_efficiency(float efficiency) {

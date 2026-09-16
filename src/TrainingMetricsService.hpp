@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.9.1
+// @adai-reviewed: 2026-09-15
 
 
 #include <atomic>
@@ -107,6 +107,19 @@ struct TrainingMetricsSnapshot {
     /// mismatch within accumulation windows. Trivially 1.0 when gradient_accumulation_steps == 1.
     float current_padding_efficiency = -1.0f;
     std::vector<float> epoch_padding_efficiencies;  ///< Per-epoch history (-1 = not computed)
+
+    // LeJEPA world-model pretraining metrics (TD-178; -1 = not computed / not applicable to the
+    // current training run). Set via update_lejepa_metrics(), from LeJEPAEncoder::train_step()'s
+    // own {predictor_loss, sigreg_loss} return value — LeJEPAEncoder itself has no dependency on
+    // this class (same complete decoupling as LLMEncoder/EncoderDecoderModel), so the actual
+    // call site is the outer training-loop driver (TD-183's `incremental_trainer
+    // --objective=lejepa` mode), not LeJEPAEncoder. Deliberately just these two current-value
+    // fields for now, not per-epoch history/JSON-export/Prometheus wiring — that's an epoch-level
+    // aggregation/dashboard-surfacing design TD-183's own not-yet-written loop should decide
+    // (per-sample? per-epoch average?), matching the existing fields' own history-vector pattern
+    // rather than guessing at it ahead of time.
+    float current_predictor_loss = -1.0f;
+    float current_sigreg_loss = -1.0f;
 
     // Adaptive gradient clipping (TD-017; -1 / 0 = not used / not computed)
     float current_adaptive_clip_threshold =
@@ -314,6 +327,13 @@ class TrainingMetricsService {
     /// Update average per-token attention entropy for the current epoch.
     /// Pass -1.0f to mark "not computed".
     void update_attention_entropy(float entropy);
+
+    /**
+     * @brief Record LeJEPA world-model pretraining losses (TD-178).
+     * @param predictor_loss Embedding-space prediction loss from LeJEPAEncoder::train_step().
+     * @param sigreg_loss SIGReg isotropic-Gaussian regularization loss from the same call.
+     */
+    void update_lejepa_metrics(float predictor_loss, float sigreg_loss);
 
     /// Report per-layer gradient norms for the current epoch (TD-013 extension).
     /// @param encoder_layer_norms One entry per encoder layer, in layer order
