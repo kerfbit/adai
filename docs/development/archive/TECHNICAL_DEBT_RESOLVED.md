@@ -4,6 +4,77 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-179: `HippocampalMemory` Buffer
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 15, 2026 | World Model / Memory (LeJEPA) | New `HippocampalMemory` class (`src/HippocampalMemory.{hpp,cpp}`), added to the `adai_lejepa` static library |
+
+Summary:
+Fifth piece of the LeJEPA world-model plan
+([lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md),
+Component 5) — HM-1, the "hippocampal" half of the Complementary Learning Systems pairing this
+batch's `LeJEPAEncoder` plays the "cortical" half of. Structurally *not* a transformer encoder:
+a bounded, continuously-updated ring buffer of `(key, value)` pairs with no pretraining phase —
+starts empty and accumulates content during actual use. v1 write policy is FIFO-always-write
+(oldest slot evicted at capacity); salience-gated writing (pattern separation) is explicitly out
+of scope per this item's own Action Items, left as a documented future extension. Depended only
+on TD-177 (`LeJEPAEncoder::encode()` as the typical key source) — not on TD-178, confirmed
+independently parallelizable with it (Tier 10's own Level 2).
+
+Design decision — coverage storage deviates from the plan's own illustrative `Slot` struct: the
+plan's snippet embeds `coverage` as a per-`Slot` float inside `std::deque<Slot> slots`, but also
+declares a public `std::vector<float>& coverage_vector()` accessor returning a *mutable
+reference* — the two are incompatible as literally written (a `std::vector<float>&` cannot
+reference data embedded inside deque elements of a different type). TD-180's own Component 6
+pseudocode needs genuine live, indexable, mutable access
+(`memory->coverage_vector()[i] += hm_attn.attention_weights[i]`), so this implementation keeps
+coverage in a separate `coverage_` vector kept in lockstep with `slots` (same size, same
+insertion/eviction order via `write()`/eviction/`clear()`/`load()`) instead of embedded per-slot.
+Everything else matches the plan's interface exactly, including `save()`/`load()` being session
+persistence (not model-checkpoint versioning, per the plan's own Compatibility section) — a
+saved-vs-current `capacity` mismatch is accepted (oldest excess slots evicted down to the loading
+instance's own capacity) since capacity is a runtime tuning knob, not an architectural constant
+like `d_model` (which IS validated strictly, throwing on mismatch).
+
+Changes Made:
+
+- New `src/HippocampalMemory.hpp`/`.cpp`: `HippocampalMemory` class. Constructor validates
+  `d_model`/`capacity` via the same `require_positive()` helper pattern TD-175/TD-176/TD-177
+  established. `write()` validates both `key`/`value` are exactly `[1, d_model]`. `read_all()`
+  materializes `[num_slots, d_model]` K/V matrices (`[0, d_model]` when empty, mirroring SIGReg's
+  own empty-batch handling). `save()`/`load()` use a flat binary file (`d_model`, `capacity`,
+  slot count, then each slot's key/value floats plus its coverage value) — a single file rather
+  than `LeJEPAEncoder`'s directory convention, matching this class's own simpler,
+  no-sub-component-hierarchy shape.
+- `src/CMakeLists.txt`: `HippocampalMemory.cpp` added to the `adai_lejepa` static library
+  (needs only `adai_core` for `Matrix`, unlike `LeJEPAEncoder`'s heavier dependency list).
+- New `tests/hippocampalmemory_test.cpp` + `hippocampalMemoryTests` CMake test target.
+
+Verification:
+
+- ✅ 20 new `HippocampalMemoryTests`, including the two TD-179 Action Items specifically
+  required beyond the basic interface: a dedicated FIFO-eviction test confirming the *oldest*
+  slot is dropped (not a random one, verified via distinguishable per-write values), and a
+  `save()`/`load()` round-trip test (slots, values, and coverage all preserved) plus a
+  mismatched-`d_model`-rejection test and a mismatched-(smaller)-`capacity`-acceptance test
+  (verifying the correct oldest-excess-evicted behavior). Plus constructor validation,
+  shape-mismatch rejection, empty-`read_all()`, insertion-order preservation, coverage
+  mutability/persistence, coverage staying correctly aligned with slots across an eviction
+  (a new slot's coverage must read 0.0f, not a stale value shifted over from an evicted one),
+  `decay_coverage()`, and `clear()`.
+- ✅ Full `ctest` suite green modulo the same two pre-existing, unrelated conditions noted in
+  TD-174's own entry — 134/134 of everything else passing (up from 133: the new
+  `HippocampalMemoryTests` suite).
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+
+Files Changed:
+
+- `src/HippocampalMemory.hpp`, `src/HippocampalMemory.cpp` (new)
+- `src/CMakeLists.txt`
+- `tests/hippocampalmemory_test.cpp` (new)
+- `tests/CMakeLists.txt`
+
 ### TD-178: `LeJEPAEncoder::train_step` (Self-Supervised Training Loop)
 
 | Resolution Date | Component | Resolved By |

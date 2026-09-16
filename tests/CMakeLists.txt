@@ -75,6 +75,11 @@ target_link_libraries(lejepaencoderTests
 )
 add_test(NAME LeJEPAEncoderTests COMMAND lejepaencoderTests)
 
+# HippocampalMemory tests (TD-179 / HM-1)
+add_executable(hippocampalMemoryTests hippocampalmemory_test.cpp)
+target_link_libraries(hippocampalMemoryTests adai_lejepa adai_core GTest::gtest_main)
+add_test(NAME HippocampalMemoryTests COMMAND hippocampalMemoryTests)
+
 # MnsJsonHelpers tests (TD-037 — pure Qt-free logic extracted from MnsManagerGUI)
 add_executable(mnsjsonhelpersTests mnsjsonhelpers_test.cpp)
 target_link_libraries(mnsjsonhelpersTests GTest::gtest_main)

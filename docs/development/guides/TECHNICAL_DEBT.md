@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 15, 2026
-**Total Items:** 21
+**Total Items:** 20
 **High Priority:** 2
-**Medium Priority:** 10
+**Medium Priority:** 9
 **Low Priority:** 9
 **Future Enhancements:** 19
-**Resolved Items:** 165
+**Resolved Items:** 166
 **Deferred Decisions:** 3
 
 **September 15, 2026:** Filed TD-174 through TD-186 (13 items) — the construction pieces of
@@ -175,17 +175,18 @@ sequence and is worth checking against, not trusting blindly, per this section's
   [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-177-lejepaencoder-construction)) — needed
   TD-175/TD-176 to exist as class members even though its own Description said "depends on
   nothing else in this list" (true for the *logic*, not for *compiling*).
-- **Level 2 — two independent branches open here:** **TD-178 (`train_step`) — resolved
-  September 15, 2026, same day** (see
+- **Level 2 — two independent branches, both resolved same day (September 15, 2026):**
+  **TD-178 (`train_step`)** (see
   [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-178-lejepaencodertrain_step-self-supervised-training-loop)),
-  the LeJEPA/cortical branch, and [TD-179](#td-179-hippocampalmemory-buffer) (`HippocampalMemory`
-  buffer, 5-7h, the hippocampal/episodic branch, still open) both only needed TD-177 — genuinely
-  parallelizable; TD-179 does *not* need TD-178 (confirmed in its own entry).
+  the LeJEPA/cortical branch, and **TD-179 (`HippocampalMemory` buffer)** (see
+  [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-179-hippocampalmemory-buffer)), the
+  hippocampal/episodic branch — both only needed TD-177; TD-179 never needed TD-178 either
+  (confirmed in its own entry), so the two were independently parallelizable.
 - **Level 3 — the synchronization point:**
   [TD-180](#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized)
   (gated `DecoderBlock` extension, 12-16h, **HIGH** — the one item in this batch touching existing
   production code) needs TD-174 (Level 0, now done), TD-177 (Level 1, now done), *and* TD-179
-  (Level 2) — both branches above must land first. It does **not** need TD-178 (now done anyway):
+  (Level 2, now done) — both branches above have landed. It does **not** need TD-178 (also done):
   the gated-attention path and the world model's training loop are independent.
   [TD-183](#td-183-incremental_trainer---objectivelejepa-mode--world-model-config-keys)
   (`--objective=lejepa` mode, 5-7h) only needs TD-178 (now done), so it's also Level 3 and can run
@@ -204,15 +205,16 @@ sequence and is worth checking against, not trusting blindly, per this section's
   restating here since this is the one item in the batch that isn't "build the thing," it's "find
   out whether the thing was worth building."
 
-Total estimated effort across the 8 remaining active items: 41-57 hours (TD-174, 2-3h, TD-175,
-3-4h, TD-176, 2-3h, TD-177, 5-7h, and TD-178, 8-10h, all resolved September 15, 2026, same day —
-see
+Total estimated effort across the 7 remaining active items: 36-50 hours (TD-174, 2-3h, TD-175,
+3-4h, TD-176, 2-3h, TD-177, 5-7h, TD-178, 8-10h, and TD-179, 5-7h, all resolved September 15,
+2026, same day — see
 [TD-174](../archive/TECHNICAL_DEBT_RESOLVED.md#td-174-crossattentionforward_with_scores-score-bias-entry-point),
 [TD-175](../archive/TECHNICAL_DEBT_RESOLVED.md#td-175-sigreg-sketched-isotropic-gaussian-regularization),
 [TD-176](../archive/TECHNICAL_DEBT_RESOLVED.md#td-176-predictor-embedding-space-predictor),
-[TD-177](../archive/TECHNICAL_DEBT_RESOLVED.md#td-177-lejepaencoder-construction), and
-[TD-178](../archive/TECHNICAL_DEBT_RESOLVED.md#td-178-lejepaencodertrain_step-self-supervised-training-loop);
-sum of the rest matches the Statistics section's own total below) — comparable in size to the
+[TD-177](../archive/TECHNICAL_DEBT_RESOLVED.md#td-177-lejepaencoder-construction),
+[TD-178](../archive/TECHNICAL_DEBT_RESOLVED.md#td-178-lejepaencodertrain_step-self-supervised-training-loop),
+and [TD-179](../archive/TECHNICAL_DEBT_RESOLVED.md#td-179-hippocampalmemory-buffer); sum of the
+rest matches the Statistics section's own total below) — comparable in size to the
 entire rest of the active backlog combined. If
 [reasoning_process_plan.md](../../proposals/reasoning_process_plan.md)'s own
 chunks are also in scope, see that plan's interaction notes referenced from TD-180 (`RP-2a`,
@@ -238,7 +240,6 @@ that ignores it.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-  - [TD-179: `HippocampalMemory` Buffer](#td-179-hippocampalmemory-buffer)
   - [TD-180: Gated `DecoderBlock` Extension (World Model + Hippocampal Memory, Repetition-Penalized)](#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized)
   - [TD-181: Sparse World-Model Injection Knob](#td-181-sparse-world-model-injection-knob)
   - [TD-182: `EncoderDecoderModel::set_world_model()`](#td-182-encoderdecodermodelset_world_model)
@@ -1888,36 +1889,6 @@ another branch of one large `main()` instead of becoming its own focused binary)
 
 ---
 
-### TD-179: `HippocampalMemory` Buffer
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Planned | World Model / Memory (LeJEPA) | September 15, 2026 | 5-7 hours |
-
-Description:
-Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#5-hippocampalmemory)
-(chunk `HM-1`) — not yet built. Bounded, continuously-updated episodic buffer — *not* a
-pretrained encoder like `LeJEPAEncoder`. Write (FIFO eviction, v1), `read_all()` for K/V
-materialization, and the per-slot `coverage` vector TD-180's repetition penalty consumes.
-Depends on TD-177 (`LeJEPAEncoder::encode()` as the key source) — not on TD-178.
-
-Action Items:
-
-- [ ] Implement `write()`/`read_all()`/`coverage_vector()`/`decay_coverage()`/`clear()` per the
-  proposal's interface
-- [ ] FIFO eviction at capacity — unit test that the oldest slot is evicted, not a random one
-- [ ] `save()`/`load()` for session persistence (not model-checkpoint versioning — see the
-  proposal's Compatibility section)
-- [ ] Salience-gated writing (pattern separation) is explicitly out of scope for this item —
-  documented future extension, not required here
-
-Files to Modify:
-
-- `src/HippocampalMemory.hpp` / `src/HippocampalMemory.cpp` — new
-- `tests/hippocampalmemory_test.cpp` — new
-
----
-
 ### TD-180: Gated `DecoderBlock` Extension (World Model + Hippocampal Memory, Repetition-Penalized)
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -2659,15 +2630,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 21 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 20 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|2|9%|
-|Medium|10|48%|
-|Low|9|43%|
+|High|2|10%|
+|Medium|9|45%|
+|Low|9|45%|
 
-**Total Active Items:** 21
+**Total Active Items:** 20
 
 ### By Component
 
@@ -2685,7 +2656,7 @@ Recomputed directly from the 21 `### TD-NNN` entries under [Active Technical Deb
 |Android / Testing|1|
 |Documentation|1|
 |Training / Deployment / Tooling|2|
-|World Model / Memory (LeJEPA)|6|
+|World Model / Memory (LeJEPA)|5|
 
 ### Effort Distribution
 
@@ -2693,11 +2664,11 @@ Recomputed directly from the 21 `### TD-NNN` entries under [Active Technical Deb
 |--------------|-------|
 |0-2 hours|2|
 |2-4 hours|2|
-|4-8 hours|6|
+|4-8 hours|5|
 |8+ hours|8|
 |Not estimated|3|
 
-**Total Estimated Effort (Active Items):** 161-235 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate; the remaining 8 items from the TD-174 through TD-186 batch — TD-174 through TD-178 all now resolved — add an estimated 41-57 hours)
+**Total Estimated Effort (Active Items):** 156-228 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate; the remaining 7 items from the TD-174 through TD-186 batch — TD-174 through TD-179 all now resolved — add an estimated 36-50 hours)
 
 ### Future Enhancements Summary
 

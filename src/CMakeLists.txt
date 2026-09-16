@@ -302,14 +302,16 @@ if(NOT ENABLE_SYCL)
 endif()
 
 # LeJEPA world model + hippocampal memory (docs/proposals/lejepa_world_model_gated_injection_plan.md;
-# TD-175 SIGReg, TD-176 Predictor, and TD-177 LeJEPAEncoder are the first three pieces —
-# HippocampalMemory joins this same library as its own TD item lands, per that plan's
-# Implementation Phases). LeJEPAEncoder mirrors LLMEncoder's own composition (EncoderBlock stack
-# + BPETokenizer/TokenEmbedding/PositionalEncoding), hence the transformer/layers/nlp deps below.
+# TD-175 SIGReg, TD-176 Predictor, TD-177/178 LeJEPAEncoder, and TD-179 HippocampalMemory are all
+# construction pieces landed so far, per that plan's Implementation Phases). LeJEPAEncoder
+# mirrors LLMEncoder's own composition (EncoderBlock stack + BPETokenizer/TokenEmbedding/
+# PositionalEncoding), hence the transformer/layers/nlp deps below — HippocampalMemory itself
+# only needs adai_core (Matrix).
 add_library(adai_lejepa STATIC
     SIGReg.cpp
     Predictor.cpp
     LeJEPAEncoder.cpp
+    HippocampalMemory.cpp
 )
 target_link_libraries(adai_lejepa
     adai_core
