@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
+#include "../src/HippocampalMemory.hpp"
 #include "../src/Matrix.hpp"
 
 // ============================================================================
@@ -49,6 +50,36 @@ Matrix create_causal_mask(int seq_len) {
         }
     }
     return mask;
+}
+
+// TD-180: copies every core-sublayer weight (self-attention, cross-attention, feed-forward,
+// all three layer norms) from `src` into `dst`, via the same public SafeTensors-style
+// get_W*/set_W* accessors DecoderBlock::save()/load() itself uses. Lets a no-op test compare
+// two separately-constructed instances (one with the gated paths allocated, one without) as if
+// they were the same weights — otherwise each instance's own random initialization would make
+// any output comparison meaningless.
+void clone_core_weights(DecoderBlock& dst, DecoderBlock& src) {
+    dst.get_self_attention()->set_Wq(src.get_self_attention()->get_Wq());
+    dst.get_self_attention()->set_Wk(src.get_self_attention()->get_Wk());
+    dst.get_self_attention()->set_Wv(src.get_self_attention()->get_Wv());
+    dst.get_self_attention()->set_Wo(src.get_self_attention()->get_Wo());
+
+    dst.get_cross_attention()->set_Wq(src.get_cross_attention()->get_Wq());
+    dst.get_cross_attention()->set_Wk(src.get_cross_attention()->get_Wk());
+    dst.get_cross_attention()->set_Wv(src.get_cross_attention()->get_Wv());
+    dst.get_cross_attention()->set_Wo(src.get_cross_attention()->get_Wo());
+
+    dst.get_feed_forward()->set_W1(src.get_feed_forward()->get_W1());
+    dst.get_feed_forward()->set_W2(src.get_feed_forward()->get_W2());
+    dst.get_feed_forward()->set_b1(src.get_feed_forward()->get_b1());
+    dst.get_feed_forward()->set_b2(src.get_feed_forward()->get_b2());
+
+    dst.get_norm1()->set_gamma(src.get_norm1()->get_gamma());
+    dst.get_norm1()->set_beta(src.get_norm1()->get_beta());
+    dst.get_norm2()->set_gamma(src.get_norm2()->get_gamma());
+    dst.get_norm2()->set_beta(src.get_norm2()->get_beta());
+    dst.get_norm3()->set_gamma(src.get_norm3()->get_gamma());
+    dst.get_norm3()->set_beta(src.get_norm3()->get_beta());
 }
 
 // ============================================================================
@@ -1081,6 +1112,351 @@ TEST(DecoderBlockEdgeCaseTest, SmallModelDimensions) {
         EXPECT_EQ(output.rows, seq_len);
         EXPECT_EQ(output.cols, d_model);
     });
+}
+
+// ============================================================================
+// TD-180: Gated World-Model / Hippocampal Cross-Attention Path Tests
+// ============================================================================
+
+// No-op guarantee #1 (TD-180's own Action Item): an instance constructed WITHOUT the gated
+// paths (the default — every pre-TD-180 caller's own behavior) must produce identical output
+// whether or not "real-looking" world_model_output/memory arguments are passed to forward() —
+// world_model_cross_attention/hippocampal_cross_attention are both null, so the gated branches
+// are unreachable regardless of what forward() is given.
+TEST(DecoderBlockGatedPathTest, NoOpWhenGatedPathsNotAllocated) {
+    int d_model = 32, num_heads = 4, d_ff = 64;
+    int tgt_len = 4, src_len = 5, wm_len = 3;
+
+    DecoderBlock decoder_block(d_model, num_heads, d_ff);  // gated paths NOT enabled
+
+    Matrix decoder_input(tgt_len, d_model);
+    Matrix encoder_output(src_len, d_model);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            decoder_input(i, j) = 0.05f * std::sin(static_cast<float>(i * d_model + j));
+        }
+    }
+    for (int i = 0; i < src_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            encoder_output(i, j) = 0.05f * std::cos(static_cast<float>(i * d_model + j));
+        }
+    }
+    Matrix causal_mask = create_causal_mask(tgt_len);
+
+    Matrix baseline_output = decoder_block.forward(decoder_input, encoder_output, causal_mask);
+
+    Matrix world_model_output(wm_len, d_model);
+    for (int i = 0; i < wm_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            world_model_output(i, j) = 0.2f;
+        }
+    }
+    HippocampalMemory memory(d_model, 8);
+    Matrix key(1, d_model), value(1, d_model);
+    for (int j = 0; j < d_model; ++j) {
+        key(0, j) = 0.3f;
+        value(0, j) = 0.3f;
+    }
+    memory.write(key, value);
+
+    Matrix output_with_real_args =
+        decoder_block.forward(decoder_input, encoder_output, causal_mask, nullptr,
+                              &world_model_output, nullptr, &memory, 0.5f, 0.9f);
+
+    EXPECT_TRUE(matrices_equal(baseline_output, output_with_real_args));
+}
+
+// No-op guarantee #1, other half: an instance WITH both gated paths allocated, called with the
+// default nullptr world_model_output/memory, must match a same-weights baseline instance that
+// never allocated them at all.
+TEST(DecoderBlockGatedPathTest, NoOpWhenGatedPathsAllocatedButInputsNull) {
+    int d_model = 32, num_heads = 4, d_ff = 64;
+    int tgt_len = 4, src_len = 5;
+
+    DecoderBlock baseline(d_model, num_heads, d_ff);
+    DecoderBlock gated(d_model, num_heads, d_ff, 0.1f, /*enable_world_model=*/true,
+                       /*enable_hippocampal=*/true);
+    clone_core_weights(gated, baseline);
+
+    Matrix decoder_input(tgt_len, d_model);
+    Matrix encoder_output(src_len, d_model);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            decoder_input(i, j) = 0.05f * std::sin(static_cast<float>(i * d_model + j));
+        }
+    }
+    for (int i = 0; i < src_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            encoder_output(i, j) = 0.05f * std::cos(static_cast<float>(i * d_model + j));
+        }
+    }
+    Matrix causal_mask = create_causal_mask(tgt_len);
+
+    Matrix baseline_output = baseline.forward(decoder_input, encoder_output, causal_mask);
+    Matrix gated_output = gated.forward(decoder_input, encoder_output, causal_mask);
+
+    EXPECT_TRUE(matrices_equal(baseline_output, gated_output));
+}
+
+// No-op guarantee #2 (TD-180's own Action Item): with both gated paths allocated AND real,
+// non-null world_model_output/memory supplied, gate == gate_h == 0.0f (the construction
+// default) must still reproduce the no-gated-input output exactly — verifies the *gates*, not
+// just the pointer arguments, are what's disabled by default.
+TEST(DecoderBlockGatedPathTest, NoOpWhenGateIsZeroEvenWithRealInputs) {
+    int d_model = 32, num_heads = 4, d_ff = 64;
+    int tgt_len = 4, src_len = 5, wm_len = 3;
+
+    DecoderBlock decoder_block(d_model, num_heads, d_ff, 0.1f, true, true);
+
+    Matrix decoder_input(tgt_len, d_model);
+    Matrix encoder_output(src_len, d_model);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            decoder_input(i, j) = 0.05f * std::sin(static_cast<float>(i * d_model + j));
+        }
+    }
+    for (int i = 0; i < src_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            encoder_output(i, j) = 0.05f * std::cos(static_cast<float>(i * d_model + j));
+        }
+    }
+    Matrix causal_mask = create_causal_mask(tgt_len);
+
+    Matrix output_without_gated_inputs =
+        decoder_block.forward(decoder_input, encoder_output, causal_mask);
+
+    Matrix world_model_output(wm_len, d_model);
+    for (int i = 0; i < wm_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            world_model_output(i, j) = 0.4f;
+        }
+    }
+    HippocampalMemory memory(d_model, 8);
+    Matrix key(1, d_model), value(1, d_model);
+    for (int j = 0; j < d_model; ++j) {
+        key(0, j) = 0.3f;
+        value(0, j) = 0.3f;
+    }
+    memory.write(key, value);
+
+    Matrix output_with_real_gated_inputs =
+        decoder_block.forward(decoder_input, encoder_output, causal_mask, nullptr,
+                              &world_model_output, nullptr, &memory, 0.5f, 0.9f);
+
+    EXPECT_TRUE(matrices_equal(output_without_gated_inputs, output_with_real_gated_inputs));
+}
+
+// TD-180's own Action Item: hammer a single hippocampal slot for many decode steps and confirm
+// its coverage never exceeds the theoretical bound 1 / (1 - repetition_decay) — self-bounding
+// by construction (decay-then-accumulate, per-step increment always in [0, 1]).
+TEST(DecoderBlockGatedPathTest, CoverageNeverExceedsTheoreticalBound) {
+    int d_model = 16, num_heads = 2, d_ff = 32;
+    int tgt_len = 2, src_len = 3;
+
+    DecoderBlock decoder_block(d_model, num_heads, d_ff, 0.1f, /*enable_world_model=*/false,
+                               /*enable_hippocampal=*/true);
+
+    HippocampalMemory memory(d_model, /*capacity=*/1);  // exactly one slot to hammer
+    Matrix key(1, d_model), value(1, d_model);
+    for (int j = 0; j < d_model; ++j) {
+        key(0, j) = 0.1f * static_cast<float>(j);
+        value(0, j) = 0.1f * static_cast<float>(j);
+    }
+    memory.write(key, value);
+
+    Matrix decoder_input(tgt_len, d_model);
+    Matrix encoder_output(src_len, d_model);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            decoder_input(i, j) = 0.1f * static_cast<float>(i + j);
+        }
+    }
+    for (int i = 0; i < src_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            encoder_output(i, j) = 0.1f * static_cast<float>(i - j);
+        }
+    }
+    Matrix causal_mask = create_causal_mask(tgt_len);
+
+    const float repetition_decay = 0.9f;
+    const float bound = 1.0f / (1.0f - repetition_decay);
+
+    for (int step = 0; step < 300; ++step) {
+        decoder_block.forward(decoder_input, encoder_output, causal_mask, nullptr, nullptr,
+                              nullptr, &memory, /*repetition_alpha=*/0.5f, repetition_decay);
+        ASSERT_EQ(memory.size(), 1);
+        float coverage_val = memory.coverage_vector()[0];
+        EXPECT_LE(coverage_val, bound + 1e-4f) << "step " << step;
+        EXPECT_GE(coverage_val, 0.0f) << "step " << step;
+    }
+}
+
+// TD-180's own Action Item: gradient check on the world-model gate (finite-difference vs.
+// analytic tanh derivative), same technique as BackwardPassMatchesNumericalGradient above.
+TEST(DecoderBlockGatedPathTest, GateGradientMatchesFiniteDifference) {
+    int d_model = 16, num_heads = 2, d_ff = 32;
+    int tgt_len = 3, src_len = 4, wm_len = 3;
+
+    DecoderBlock decoder_block(d_model, num_heads, d_ff, 0.1f, /*enable_world_model=*/true,
+                               /*enable_hippocampal=*/false);
+    decoder_block.set_gate(0.3f);  // away from 0 so tanh's own curvature is actually exercised
+
+    Matrix decoder_input(tgt_len, d_model);
+    Matrix encoder_output(src_len, d_model);
+    Matrix world_model_output(wm_len, d_model);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            decoder_input(i, j) = 0.05f * std::sin(static_cast<float>(i * d_model + j));
+        }
+    }
+    for (int i = 0; i < src_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            encoder_output(i, j) = 0.05f * std::cos(static_cast<float>(i * d_model + j));
+        }
+    }
+    for (int i = 0; i < wm_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            world_model_output(i, j) = 0.05f * static_cast<float>(i - j);
+        }
+    }
+    Matrix causal_mask = create_causal_mask(tgt_len);
+
+    Matrix output = decoder_block.forward(decoder_input, encoder_output, causal_mask, nullptr,
+                                          &world_model_output);
+
+    Matrix grad_output(output.rows, output.cols);
+    for (int i = 0; i < output.rows; ++i) {
+        for (int j = 0; j < output.cols; ++j) {
+            grad_output(i, j) = 0.05f * static_cast<float>(i - j);
+        }
+    }
+    decoder_block.backward(grad_output);
+    float analytic_grad = decoder_block.get_gate_grad();
+
+    auto weighted_output_sum = [&]() {
+        Matrix out = decoder_block.forward(decoder_input, encoder_output, causal_mask, nullptr,
+                                           &world_model_output);
+        float total = 0.0f;
+        for (int i = 0; i < out.rows; ++i) {
+            for (int j = 0; j < out.cols; ++j) {
+                total += out(i, j) * grad_output(i, j);
+            }
+        }
+        return total;
+    };
+
+    const float original_gate = decoder_block.get_gate();
+    const float epsilon = 1e-3f;
+
+    decoder_block.set_gate(original_gate + epsilon);
+    float loss_plus = weighted_output_sum();
+    decoder_block.set_gate(original_gate - epsilon);
+    float loss_minus = weighted_output_sum();
+    decoder_block.set_gate(original_gate);
+
+    float numerical_grad = (loss_plus - loss_minus) / (2.0f * epsilon);
+    float tolerance = std::max(1e-2f, 0.05f * std::abs(numerical_grad));
+    EXPECT_NEAR(analytic_grad, numerical_grad, tolerance);
+}
+
+// Same check, hippocampal gate.
+TEST(DecoderBlockGatedPathTest, GateHGradientMatchesFiniteDifference) {
+    int d_model = 16, num_heads = 2, d_ff = 32;
+    int tgt_len = 3, src_len = 4;
+
+    DecoderBlock decoder_block(d_model, num_heads, d_ff, 0.1f, /*enable_world_model=*/false,
+                               /*enable_hippocampal=*/true);
+    decoder_block.set_gate_h(-0.4f);
+
+    HippocampalMemory memory(d_model, 4);
+    for (int slot = 0; slot < 3; ++slot) {
+        Matrix key(1, d_model), value(1, d_model);
+        for (int j = 0; j < d_model; ++j) {
+            key(0, j) = 0.1f * static_cast<float>(slot + j);
+            value(0, j) = 0.1f * static_cast<float>(slot + j);
+        }
+        memory.write(key, value);
+    }
+
+    Matrix decoder_input(tgt_len, d_model);
+    Matrix encoder_output(src_len, d_model);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            decoder_input(i, j) = 0.05f * std::sin(static_cast<float>(i * d_model + j));
+        }
+    }
+    for (int i = 0; i < src_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            encoder_output(i, j) = 0.05f * std::cos(static_cast<float>(i * d_model + j));
+        }
+    }
+    Matrix causal_mask = create_causal_mask(tgt_len);
+
+    auto run_forward = [&]() {
+        // repetition_alpha = 0.0f: isolates the gate's own gradient from the coverage-penalty
+        // machinery, which also perturbs the score distribution as gate_h (indirectly, via
+        // nothing here) — not actually coupled, but keeping alpha at 0 keeps this check focused
+        // purely on tanh(gate_h)'s own derivative, matching the world-model check's own setup.
+        return decoder_block.forward(decoder_input, encoder_output, causal_mask, nullptr, nullptr,
+                                     nullptr, &memory, /*repetition_alpha=*/0.0f, 0.9f);
+    };
+
+    Matrix output = run_forward();
+    Matrix grad_output(output.rows, output.cols);
+    for (int i = 0; i < output.rows; ++i) {
+        for (int j = 0; j < output.cols; ++j) {
+            grad_output(i, j) = 0.05f * static_cast<float>(i - j);
+        }
+    }
+    decoder_block.backward(grad_output);
+    float analytic_grad = decoder_block.get_gate_h_grad();
+
+    auto weighted_output_sum = [&]() {
+        Matrix out = run_forward();
+        float total = 0.0f;
+        for (int i = 0; i < out.rows; ++i) {
+            for (int j = 0; j < out.cols; ++j) {
+                total += out(i, j) * grad_output(i, j);
+            }
+        }
+        return total;
+    };
+
+    const float original_gate_h = decoder_block.get_gate_h();
+    const float epsilon = 1e-3f;
+
+    decoder_block.set_gate_h(original_gate_h + epsilon);
+    float loss_plus = weighted_output_sum();
+    decoder_block.set_gate_h(original_gate_h - epsilon);
+    float loss_minus = weighted_output_sum();
+    decoder_block.set_gate_h(original_gate_h);
+
+    float numerical_grad = (loss_plus - loss_minus) / (2.0f * epsilon);
+    float tolerance = std::max(1e-2f, 0.05f * std::abs(numerical_grad));
+    EXPECT_NEAR(analytic_grad, numerical_grad, tolerance);
+}
+
+TEST(DecoderBlockGatedPathTest, GetGateAccessorsReflectSetters) {
+    DecoderBlock decoder_block(16, 2, 32, 0.1f, true, true);
+
+    EXPECT_FLOAT_EQ(decoder_block.get_gate(), 0.0f);
+    EXPECT_FLOAT_EQ(decoder_block.get_gate_h(), 0.0f);
+
+    decoder_block.set_gate(0.7f);
+    decoder_block.set_gate_h(-0.2f);
+
+    EXPECT_FLOAT_EQ(decoder_block.get_gate(), 0.7f);
+    EXPECT_FLOAT_EQ(decoder_block.get_gate_h(), -0.2f);
+}
+
+TEST(DecoderBlockGatedPathTest, NullableAccessorsReflectConstruction) {
+    DecoderBlock neither(16, 2, 32);
+    EXPECT_EQ(neither.get_world_model_cross_attention(), nullptr);
+    EXPECT_EQ(neither.get_hippocampal_cross_attention(), nullptr);
+
+    DecoderBlock both(16, 2, 32, 0.1f, true, true);
+    EXPECT_NE(both.get_world_model_cross_attention(), nullptr);
+    EXPECT_NE(both.get_hippocampal_cross_attention(), nullptr);
 }
 
 // ============================================================================

@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: stable        (TD-050 GPU incremental-cache forward added)
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-09-14
+// @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc)
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-09-15
 
 
 #include <memory>
@@ -10,6 +10,7 @@
 #include <utility>
 #include "CrossAttention.hpp"
 #include "FeedForward.hpp"
+#include "HippocampalMemory.hpp"
 #include "KVCache.hpp"
 #include "LayerNorm.hpp"
 #include "Matrix.hpp"
@@ -37,6 +38,11 @@
  *     ↓
  *   Norm -> Cross-Attention (to encoder output) -> Add (residual)
  *     ↓
+ *   [TD-180: Norm -> World-Model Cross-Attention -> tanh(gate) * (·) -> Add (residual)]
+ *     ↓
+ *   [TD-180: Norm -> Hippocampal Cross-Attention (repetition-penalized) ->
+ *            tanh(gate_h) * (·) -> Add (residual)]
+ *     ↓
  *   Norm -> Feed-Forward Network -> Add (residual)
  *     ↓
  *   Output (unnormalized)
@@ -46,15 +52,25 @@
  *   residual1 = input + self_attn_output
  *   cross_attn_output = CrossAttention(LayerNorm(residual1), encoder, mask)
  *   residual2 = residual1 + cross_attn_output
+ *   [TD-180, if world_model_output given] residual2 += tanh(gate) * WorldModelCrossAttention(...)
+ *   [TD-180, if memory given]  residual2 += tanh(gate_h) * HippocampalCrossAttention(...)
  *   ff_output = FeedForward(LayerNorm(residual2))
  *   output = residual2 + ff_output
  *
  * Features:
  *   - Causal self-attention (prevents attending to future)
  *   - Cross-attention to encoder output
+ *   - TD-180: two further optional gated cross-attention paths — a frozen, pretrained world
+ *     model (docs/proposals/lejepa_world_model_gated_injection_plan.md's Component 4) and a
+ *     continuously-written hippocampal episodic memory with an attention-level repetition
+ *     penalty (same plan's Component 6). Both are nullable at construction (zero cost when
+ *     disabled, the default) and start with a zero-init gate (a strict forward-pass no-op even
+ *     when allocated, until training opens the gate) — see forward()'s own doc comment for the
+ *     full backward-compatibility guarantee. CPU forward()/backward() only; forward_with_cache()
+ *     and the GPU path are unchanged and do not support either gated path yet.
  *   - Position-wise feed-forward transformation
- *   - Three residual connections for gradient flow
- *   - Three layer normalizations for training stability
+ *   - Three residual connections for gradient flow (five when both gated paths are active)
+ *   - Three layer normalizations for training stability (five when both gated paths are active)
  *   - Full backpropagation support
  */
 class DecoderBlock {
@@ -66,6 +82,32 @@ class DecoderBlock {
     std::unique_ptr<LayerNorm> norm1;  // After self-attention
     std::unique_ptr<LayerNorm> norm2;  // After cross-attention
     std::unique_ptr<LayerNorm> norm3;  // After feed-forward
+
+    // TD-180: gated world-model cross-attention path (LeJEPA plan Component 4). Nullable —
+    // allocated only when the constructor's enable_world_model flag is true (default false,
+    // matching pre-TD-180 behavior exactly: no allocation, no forward-time cost, byte-identical
+    // output). gate starts at 0.0f so tanh(gate) == 0 — the path is a strict no-op even once
+    // allocated, until training actually opens the gate (see forward()'s own doc comment).
+    std::unique_ptr<CrossAttention> world_model_cross_attention;
+    std::unique_ptr<LayerNorm> norm_world;
+    float gate{0.0f};
+    float gate_grad{0.0f};
+    bool world_model_path_active_{false};  // set by the most recent forward() call; read by
+                                            // backward() to know whether to backprop this path
+    Matrix cached_wm_attn;                 // this path's own attention output, for gate's gradient
+
+    // TD-180: gated hippocampal cross-attention path (LeJEPA plan Component 6) — structurally a
+    // sibling of the world-model path above, same nullable/zero-init-gate pattern, but the
+    // attention scores are additionally penalized by each memory slot's own accumulated
+    // coverage before softmax (via CrossAttention::forward_with_scores(), TD-174), which is
+    // what makes this a *content*-level repetition penalty rather than the existing
+    // token-identity-level one in TextGenerator::apply_repetition_penalty.
+    std::unique_ptr<CrossAttention> hippocampal_cross_attention;
+    std::unique_ptr<LayerNorm> norm_hippocampal;
+    float gate_h{0.0f};
+    float gate_h_grad{0.0f};
+    bool hippocampal_path_active_{false};
+    Matrix cached_hm_attn;
 
     // Hyperparameters
     int d_model;
@@ -120,6 +162,48 @@ class DecoderBlock {
         return norm3.get();
     }
 
+    /** TD-180: current gate value, tanh(gate) applied at forward time — for the
+     *  mean(tanh(gate)) metric the Training Standard's Phase 1 fine-tuning pushes per layer. */
+    float get_gate() const {
+        return gate;
+    }
+
+    /** TD-180: hippocampal gate's own current value — same metric role as get_gate(), separate
+     *  series. */
+    float get_gate_h() const {
+        return gate_h;
+    }
+
+    /** TD-180: direct gate setters, mainly for tests (gradient checks need a nonzero starting
+     *  gate) and for a future checkpoint-load path once save()/load() is extended to cover the
+     *  gated paths (see save()'s own doc comment on that known gap). Not used by forward()
+     *  itself; training only ever reaches these values via update_weights()'s own plain-SGD
+     *  step. */
+    void set_gate(float g) {
+        gate = g;
+    }
+    void set_gate_h(float g) {
+        gate_h = g;
+    }
+
+    /** TD-180: current accumulated gate gradient — mainly for gradient-check tests (finite
+     *  difference vs. this value) and diagnostics. Zeroed by zero_grad()/update_weights(). */
+    float get_gate_grad() const {
+        return gate_grad;
+    }
+    float get_gate_h_grad() const {
+        return gate_h_grad;
+    }
+
+    /** TD-180: nullable sub-component accessors, mirroring get_cross_attention() above.
+     *  Return nullptr when the corresponding gated path wasn't enabled at construction. */
+    CrossAttention* get_world_model_cross_attention() {
+        return world_model_cross_attention.get();
+    }
+    CrossAttention* get_hippocampal_cross_attention() {
+        return hippocampal_cross_attention.get();
+    }
+
     /**
      * Constructor
      *
@@ -127,8 +211,16 @@ class DecoderBlock {
      * @param num_heads Number of attention heads
      * @param d_ff Feed-forward network hidden dimension
      * @param dropout Dropout rate for regularization (default: 0.1)
+     * @param enable_world_model TD-180: allocate the gated world-model cross-attention path
+     *   (world_model_cross_attention/norm_world/gate). Default false — matches every
+     *   pre-TD-180 caller's behavior exactly (no allocation, forward()'s gated branch is
+     *   unreachable regardless of what's passed to it). TD-181's own
+     *   world_model_inject_every_n_layers knob is what actually decides this per layer.
+     * @param enable_hippocampal TD-180: same, for the gated hippocampal cross-attention path
+     *   (hippocampal_cross_attention/norm_hippocampal/gate_h). Default false.
      */
-    DecoderBlock(int d_model, int num_heads, int d_ff, float dropout = 0.1f);
+    DecoderBlock(int d_model, int num_heads, int d_ff, float dropout = 0.1f,
+                 bool enable_world_model = false, bool enable_hippocampal = false);
 
     /**
      * Forward pass through decoder block
@@ -138,17 +230,46 @@ class DecoderBlock {
      *   2. Residual connection and layer norm
      *   3. Cross-attention to encoder output
      *   4. Residual connection and layer norm
-     *   5. Feed-forward network
-     *   6. Residual connection and layer norm
+     *   5. TD-180: gated world-model cross-attention (no-op unless both
+     *      world_model_output != nullptr AND this instance's own world_model_cross_attention
+     *      was allocated at construction)
+     *   6. TD-180: gated hippocampal cross-attention, repetition-penalized (no-op unless both
+     *      memory != nullptr, memory->size() > 0, AND hippocampal_cross_attention was allocated)
+     *   7. Feed-forward network
+     *   8. Residual connection and layer norm
+     *
+     * Backward-compatibility guarantee (per the plan's own Compatibility section): passing
+     * nullptr for world_model_output/memory — the default — is bit-identical to pre-TD-180
+     * behavior, regardless of whether this instance's gated paths were ever allocated. Even
+     * with them allocated and non-null inputs supplied, gate/gate_h start at 0.0f, so
+     * tanh(gate) == tanh(gate_h) == 0 and the additive terms are still an exact no-op until
+     * training actually opens a gate — see this item's own two dedicated no-op tests.
      *
      * @param input Decoder input [seq_len, d_model]
      * @param encoder_output Encoder output for cross-attention [enc_seq_len, d_model]
      * @param self_attn_mask Causal mask for self-attention [seq_len, seq_len]
      * @param cross_attn_mask Optional padding mask for encoder [seq_len, enc_seq_len]
+     * @param world_model_output Frozen world-model encoder output [wm_seq_len, d_model], or
+     *   nullptr to skip the gated path entirely.
+     * @param world_model_mask Optional padding mask for world_model_output, same convention as
+     *   cross_attn_mask.
+     * @param memory Hippocampal memory to attend over, or nullptr to skip that path entirely.
+     *   read_all()'s key matrix is used as CrossAttention's own kv_input — see this method's
+     *   implementation comment for why (both K and V end up derived from the stored keys via
+     *   this path's own learned projections; correct in the common case where a slot's value
+     *   equals its key, a documented simplification otherwise).
+     * @param repetition_alpha Penalty growth rate — score_bias[i][slot] = -repetition_alpha *
+     *   coverage[slot], applied uniformly across every query position. 0.0f (default) makes the
+     *   penalty a no-op regardless of coverage, independent of the gate itself.
+     * @param repetition_decay Per-call coverage decay, 0 < gamma <= 1 (only meaningful when
+     *   memory is non-null and non-empty; ignored otherwise). gamma = 1 disables decay.
      * @return Output [seq_len, d_model]
      */
     Matrix forward(const Matrix& input, const Matrix& encoder_output, const Matrix& self_attn_mask,
-                   const Matrix* cross_attn_mask = nullptr);
+                   const Matrix* cross_attn_mask = nullptr,
+                   const Matrix* world_model_output = nullptr,
+                   const Matrix* world_model_mask = nullptr, HippocampalMemory* memory = nullptr,
+                   float repetition_alpha = 0.0f, float repetition_decay = 0.95f);
 
     /**
      * Forward pass with KV cache support (for inference optimization)
@@ -177,12 +298,22 @@ class DecoderBlock {
      *   1. Third residual connection (split gradient)
      *   2. Feed-forward network (backward)
      *   3. Third layer norm (backward)
-     *   4. Second residual connection (split gradient)
-     *   5. Cross-attention (backward)
-     *   6. Second layer norm (backward)
-     *   7. First residual connection (split gradient)
-     *   8. Self-attention (backward)
-     *   9. First layer norm (backward)
+     *   4. TD-180: gated hippocampal path (backward, only if it was active in the most recent
+     *      forward() call — see world_model_path_active_/hippocampal_path_active_)
+     *   5. TD-180: gated world-model path (backward, same condition)
+     *   6. Second residual connection (split gradient)
+     *   7. Cross-attention (backward)
+     *   8. Second layer norm (backward)
+     *   9. First residual connection (split gradient)
+     *   10. Self-attention (backward)
+     *   11. First layer norm (backward)
+     *
+     * TD-180's own gated paths' K/V-source gradients (w.r.t. world_model_output and the
+     * hippocampal memory's keys) are computed (required by CrossAttention::backward()'s own
+     * signature) but deliberately discarded, not returned via any new out-param: the world
+     * model is frozen during Phase 1 fine-tuning (LeJEPAEncoder::set_requires_grad(false)) and
+     * HippocampalMemory's stored keys are never learnable parameters, so nothing currently
+     * needs either gradient. This keeps both backward() signatures below completely unchanged.
      *
      * @param grad_output Gradient from next layer [seq_len, d_model]
      * @param grad_encoder_output Out-param: gradient w.r.t. this block's cross-attention
@@ -204,7 +335,8 @@ class DecoderBlock {
     /**
      * Zero accumulated gradients
      *
-     * Clears gradients in all sub-components
+     * Clears gradients in all sub-components, plus gate_grad/gate_h_grad for whichever gated
+     * paths were allocated at construction (TD-180).
      */
     void zero_grad();
 
@@ -228,6 +360,12 @@ class DecoderBlock {
     /**
      * Save decoder block parameters to file
      *
+     * TD-180 known gap: the gated world-model/hippocampal sub-components (and gate/gate_h
+     * themselves) are NOT persisted by save()/load() — out of this item's own explicit scope
+     * (not listed in its Action Items or Files to Modify); flagged for a later checkpointing
+     * TD to close, since a real Phase 1 fine-tuning run's trained gate/cross-attention weights
+     * would currently be lost across a save/load cycle.
+     *
      * @param filepath Path to save file
      */
     void save(const std::string& filepath);
@@ -240,7 +378,11 @@ class DecoderBlock {
     void load(const std::string& filepath);
 
     /**
-     * Register all decoder block parameters with optimizer
+     * Register all decoder block parameters with optimizer, including the gated paths' own
+     * CrossAttention/LayerNorm sub-components when allocated (TD-180). gate/gate_h themselves
+     * are NOT registered — they're plain floats with no ParameterGroup equivalent in
+     * Optimizer's Matrix-based registration API, so they're always updated via plain SGD in
+     * update_weights() regardless of whether an optimizer is registered here.
      *
      * @param optimizer Optimizer to register parameters with
      */

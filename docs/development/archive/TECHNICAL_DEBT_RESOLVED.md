@@ -4,6 +4,131 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-180: Gated `DecoderBlock` Extension (World Model + Hippocampal Memory, Repetition-Penalized)
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 15, 2026 | Core Model Architecture | Two new nullable gated cross-attention paths on `DecoderBlock` (`src/DecoderBlock.{hpp,cpp}`), plus a new `CrossAttention::get_last_attention_weights()` accessor |
+
+Summary:
+Sixth piece of the LeJEPA world-model plan (LJ-3a + HM-3, filed as one item per the plan's own
+README ordering) — the injection point, and the **one item in this batch that changes existing
+production code** rather than purely adding new files. Adds two independent, nullable gated
+cross-attention paths to `DecoderBlock`: one to a frozen `LeJEPAEncoder` output (world model,
+Component 4), one to a `HippocampalMemory` (Component 6) whose attention scores are additionally
+penalized by each memory slot's own accumulated coverage before softmax, via TD-174's
+`forward_with_scores()`. Both paths are allocated only when requested at construction
+(`enable_world_model`/`enable_hippocampal`, both defaulting to `false`) and both gates
+(`gate`/`gate_h`) start at `0.0f`, so `tanh(gate) == 0` — every pre-existing caller (the one
+production construction site, `LLMDecoder`'s own decoder-block loop) is completely unaffected,
+byte-for-byte, matching this tracker's other foundational-class changes (TD-059, TD-174).
+
+Two real bugs found and fixed during implementation, plus two deliberately-scoped-out gaps:
+
+- **A real, cross-file circular library dependency, caught only by a full rebuild.**
+  `HippocampalMemory` (TD-179) had been placed in the `adai_lejepa` static library, which itself
+  depends on `adai_transformer` (for `LeJEPAEncoder`'s own `EncoderBlock` composition). Once
+  `DecoderBlock.cpp` (part of `adai_transformer`) needed to call into `HippocampalMemory`, that
+  would have created `adai_transformer → adai_lejepa → adai_transformer` — an actual cycle
+  CMake's static-library target graph can't express. Fixed by moving `HippocampalMemory.cpp`
+  into `adai_core` (the one library everything in this codebase's stack already sits above),
+  since its only real dependency is `Matrix`. Building only the isolated `decoderblockTests`
+  target didn't surface this — it took a **full project rebuild** to catch, a reminder (already
+  flagged once this session for TD-178's optimizer bug) that isolated-target builds aren't a
+  substitute for one before considering an item done.
+- **A real Qt macro collision, also only caught by a full rebuild.** `HippocampalMemory`'s
+  member was originally named `slots` (matching the plan's own snippet) — `slots` is a Qt macro
+  (expands to `Q_SLOTS` unless `QT_NO_KEYWORDS` is defined) and broke compilation the moment
+  `HippocampalMemory.hpp` became transitively reachable from `ChatbotGUI.cpp` (via
+  `EncoderDecoderModel.hpp → Decoder.hpp → DecoderBlock.hpp`). Renamed to `slots_` — this is the
+  one place this implementation's naming deviates from the plan's own literal snippet purely for
+  this reason (see `HippocampalMemory.hpp`'s own "Naming note").
+- **`save()`/`load()` do not persist the new gated-path state** (gate/gate_h and the gated
+  cross-attention weights) — explicitly out of this item's own Action Items and Files to Modify;
+  flagged as a follow-up (a real Phase 1 fine-tuning run's trained gate weights would currently
+  be lost across a checkpoint cycle) rather than silently left undocumented.
+- **`forward_with_cache()` and the GPU path do not support either gated path** — out of scope
+  for the same reason; autoregressive generation via the cached path (or GPU inference) simply
+  doesn't have access to the gated paths yet, a documented limitation rather than a regression
+  (both continue to behave exactly as before).
+
+Design decisions:
+
+- **`CrossAttention::get_last_attention_weights()`** — new, small, purely additive accessor
+  exposing the already-computed (but previously unexposed) `cached_attention_weights` field, the
+  mean-across-heads post-softmax weights from the most recent forward call. Needed for the
+  hippocampal coverage-update mechanism, which the plan's own pseudocode assumes exists
+  (`hm_attn.attention_weights`) but which had no real accessor before this.
+- **Hippocampal path's `kv_input`** — `HippocampalMemory::read_all()`'s *key* matrix is passed
+  as `CrossAttention`'s single `kv_input` (which internally derives both K and V from it via its
+  own learned projections). This is exactly correct when a slot's stored value equals its key
+  (the plan's own stated common case) and a documented simplification otherwise — `CrossAttention`
+  has no mechanism to derive K and V from two different source matrices, and building one was
+  never requested by TD-174 or this item.
+- **Coverage-update aggregation** — `get_last_attention_weights()` is `[query_rows, n_slots]`;
+  averaged over query rows to get one per-slot increment (bounded in `[0, 1]` since each row's
+  own weights are a softmax output), generalizing the plan's own "once per decode step" framing
+  to a multi-row forward call (e.g. teacher-forced training) without breaking the coverage bound.
+- **Both K/V-source gradients discarded in `backward()`** — `world_model_output`'s own gradient
+  and the hippocampal memory's own key gradient are computed (`CrossAttention::backward()`'s
+  signature always produces them) but not returned via any new out-param, since the world model
+  is frozen during Phase 1 fine-tuning and `HippocampalMemory`'s keys are never learnable. Keeps
+  both public `backward()` signatures completely unchanged.
+- **`gate`/`gate_h` are plain-SGD-only**, never registered with an `Optimizer` — they're raw
+  floats with no `ParameterGroup` equivalent in `Optimizer`'s Matrix-based registration API.
+  `update_weights()`/`zero_grad()`/`register_parameters_with_optimizer()` were all extended
+  following the class's own pre-existing pattern (call each sub-component's own method
+  unconditionally) rather than redesigning that pattern — real end-to-end training bypasses
+  `DecoderBlock::update_weights()` entirely via a single, directly-called `Optimizer::step()`
+  (confirmed by checking `ChatbotTrainer.cpp`), so no new over-stepping risk is introduced by
+  this addition (unlike TD-178's `LeJEPAEncoder::train_step()`, which is itself the thing calling
+  `update_weights()`).
+
+Changes Made:
+
+- `src/DecoderBlock.hpp`/`.cpp`: `world_model_cross_attention`/`norm_world`/`gate`/`gate_grad`
+  and `hippocampal_cross_attention`/`norm_hippocampal`/`gate_h`/`gate_h_grad`, all nullable/
+  zero-init; constructor gains `enable_world_model`/`enable_hippocampal` (both default `false`);
+  `forward()` gains `world_model_output`/`world_model_mask`/`memory`/`repetition_alpha`/
+  `repetition_decay` (all defaulted, so every existing 3-4-arg call site is unaffected);
+  `backward()`, `update_weights()`, `zero_grad()`, `get_gradient_norm()`, `set_learning_rate()`,
+  `register_parameters_with_optimizer()` all extended to cover the new paths;
+  `get_gate()`/`get_gate_h()`/`get_gate_grad()`/`get_gate_h_grad()`/`set_gate()`/`set_gate_h()`/
+  `get_world_model_cross_attention()`/`get_hippocampal_cross_attention()` accessors added.
+- `src/CrossAttention.hpp`: new `get_last_attention_weights()` accessor.
+- `src/CMakeLists.txt`: `HippocampalMemory.cpp` moved from `adai_lejepa` to `adai_core` (see the
+  circular-dependency bug above); `hippocampalMemoryTests`' own link list updated to match.
+- `tests/decoderblock_test.cpp`: 8 new tests, `clone_core_weights()` test helper added.
+
+Verification:
+
+- ✅ 8 new `DecoderBlockGatedPathTest` cases, covering every one of this item's own required
+  checks: both no-op guarantees (paths not allocated with real-looking inputs supplied anyway;
+  paths allocated but called with `nullptr`, compared against a same-core-weights baseline via
+  the new `clone_core_weights()` helper) — both bit-identical; a third no-op check (gate/gate_h
+  at their construction default `0.0f` with real, non-null inputs supplied) — also
+  bit-identical; a 300-iteration coverage-bound stress test against a single hammered slot,
+  confirming `coverage[0]` never exceeds `1/(1-repetition_decay)`; finite-difference gradient
+  checks on both `gate` and `gate_h` (central difference vs. the analytic `tanh` derivative);
+  and accessor tests for `get_gate()`/`get_gate_h()`/the nullable sub-component pointers.
+- ✅ Verified robust across 10 repeated runs (weight initialization is non-deterministic).
+- ✅ Full `ctest` suite green modulo the same two pre-existing, unrelated conditions noted in
+  TD-174's own entry — 134/134 of everything else passing (up from 133: `DecoderBlockTests`
+  growing from 28 to 36 cases).
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+- ⚠️ Two follow-ups flagged rather than silently left: `save()`/`load()` not covering the gated
+  paths (spawned as a separate suggested task), and `forward_with_cache()`/GPU path not
+  supporting either gated path (documented in code comments, not independently tracked — squarely
+  future inference-wiring work per this batch's own later items).
+
+Files Changed:
+
+- `src/DecoderBlock.hpp`, `src/DecoderBlock.cpp`
+- `src/CrossAttention.hpp`
+- `src/CMakeLists.txt`
+- `tests/decoderblock_test.cpp`
+- `tests/CMakeLists.txt`
+
 ### TD-179: `HippocampalMemory` Buffer
 
 | Resolution Date | Component | Resolved By |

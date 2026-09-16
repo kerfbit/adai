@@ -29,9 +29,14 @@
  * reference data embedded inside deque elements of a different type). TD-180's own Component 6
  * pseudocode needs genuine live, indexable, mutable access
  * (`memory->coverage_vector()[i] += hm_attn.attention_weights[i]`), so this implementation keeps
- * coverage in a separate `coverage_` vector kept in lockstep with `slots` (same size, same
+ * coverage in a separate `coverage_` vector kept in lockstep with `slots_` (same size, same
  * insertion/eviction order) instead of embedded per-slot — everything else matches the plan's
  * interface exactly.
+ *
+ * Naming note: the member is `slots_`, not `slots` as in the plan's own snippet — `slots` is a
+ * Qt macro (expanding to `Q_SLOTS` unless `QT_NO_KEYWORDS` is defined) and collides in any
+ * translation unit that also includes Qt headers, discovered when this class's header is pulled
+ * transitively into ChatbotGUI.cpp via DecoderBlock.hpp (TD-180).
  */
 class HippocampalMemory {
    private:
@@ -40,8 +45,8 @@ class HippocampalMemory {
         Matrix value;  // [1, d_model] — may equal key, or a separately stored payload
     };
 
-    std::deque<Slot> slots;
-    std::vector<float> coverage_;  // coverage_[i] corresponds to slots[i]; see class doc above
+    std::deque<Slot> slots_;
+    std::vector<float> coverage_;  // coverage_[i] corresponds to slots_[i]; see class doc above
     int capacity;
     int d_model;
 
@@ -86,7 +91,7 @@ class HippocampalMemory {
     void decay_coverage(float gamma);
 
     int size() const {
-        return static_cast<int>(slots.size());
+        return static_cast<int>(slots_.size());
     }
 
     int get_capacity() const {

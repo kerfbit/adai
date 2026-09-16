@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 15, 2026
-**Total Items:** 20
-**High Priority:** 2
+**Total Items:** 19
+**High Priority:** 1
 **Medium Priority:** 9
 **Low Priority:** 9
 **Future Enhancements:** 19
-**Resolved Items:** 166
+**Resolved Items:** 167
 **Deferred Decisions:** 3
 
 **September 15, 2026:** Filed TD-174 through TD-186 (13 items) — the construction pieces of
@@ -182,16 +182,17 @@ sequence and is worth checking against, not trusting blindly, per this section's
   [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-179-hippocampalmemory-buffer)), the
   hippocampal/episodic branch — both only needed TD-177; TD-179 never needed TD-178 either
   (confirmed in its own entry), so the two were independently parallelizable.
-- **Level 3 — the synchronization point:**
-  [TD-180](#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized)
-  (gated `DecoderBlock` extension, 12-16h, **HIGH** — the one item in this batch touching existing
-  production code) needs TD-174 (Level 0, now done), TD-177 (Level 1, now done), *and* TD-179
-  (Level 2, now done) — both branches above have landed. It does **not** need TD-178 (also done):
-  the gated-attention path and the world model's training loop are independent.
+- **Level 3 — the synchronization point:** **TD-180 (gated `DecoderBlock` extension) — resolved
+  September 15, 2026, same day** (see
+  [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized))
+  — the one item in this batch touching existing production code, needed TD-174/TD-177/TD-179
+  (all Levels 0-2, all done) — both branches had landed by the time this was picked up. It never
+  needed TD-178: the gated-attention path and the world model's training loop are independent.
   [TD-183](#td-183-incremental_trainer---objectivelejepa-mode--world-model-config-keys)
   (`--objective=lejepa` mode, 5-7h) only needs TD-178 (now done), so it's also Level 3 and can run
-  alongside TD-180 — it continues the LeJEPA-training branch, not the decoder-injection one.
-- **Level 4 — fans back out once TD-180 lands:**
+  in parallel with (or after) TD-180 — it continues the LeJEPA-training branch, not the
+  decoder-injection one.
+- **Level 4 — fans back out now that TD-180 has landed:**
   [TD-181](#td-181-sparse-world-model-injection-knob) (injection-frequency knob, 1-2h),
   [TD-182](#td-182-encoderdecodermodelset_world_model) (`set_world_model()`, 1-2h), and
   [TD-185](#td-185-hippocampalmemory-wiring--config--write-policy-call-site) (`HippocampalMemory`
@@ -205,16 +206,17 @@ sequence and is worth checking against, not trusting blindly, per this section's
   restating here since this is the one item in the batch that isn't "build the thing," it's "find
   out whether the thing was worth building."
 
-Total estimated effort across the 7 remaining active items: 36-50 hours (TD-174, 2-3h, TD-175,
-3-4h, TD-176, 2-3h, TD-177, 5-7h, TD-178, 8-10h, and TD-179, 5-7h, all resolved September 15,
-2026, same day — see
+Total estimated effort across the 6 remaining active items: 24-34 hours (TD-174, 2-3h, TD-175,
+3-4h, TD-176, 2-3h, TD-177, 5-7h, TD-178, 8-10h, TD-179, 5-7h, and TD-180, 12-16h, all resolved
+September 15, 2026, same day — see
 [TD-174](../archive/TECHNICAL_DEBT_RESOLVED.md#td-174-crossattentionforward_with_scores-score-bias-entry-point),
 [TD-175](../archive/TECHNICAL_DEBT_RESOLVED.md#td-175-sigreg-sketched-isotropic-gaussian-regularization),
 [TD-176](../archive/TECHNICAL_DEBT_RESOLVED.md#td-176-predictor-embedding-space-predictor),
 [TD-177](../archive/TECHNICAL_DEBT_RESOLVED.md#td-177-lejepaencoder-construction),
 [TD-178](../archive/TECHNICAL_DEBT_RESOLVED.md#td-178-lejepaencodertrain_step-self-supervised-training-loop),
-and [TD-179](../archive/TECHNICAL_DEBT_RESOLVED.md#td-179-hippocampalmemory-buffer); sum of the
-rest matches the Statistics section's own total below) — comparable in size to the
+[TD-179](../archive/TECHNICAL_DEBT_RESOLVED.md#td-179-hippocampalmemory-buffer), and
+[TD-180](../archive/TECHNICAL_DEBT_RESOLVED.md#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized);
+sum of the rest matches the Statistics section's own total below) — comparable in size to the
 entire rest of the active backlog combined. If
 [reasoning_process_plan.md](../../proposals/reasoning_process_plan.md)'s own
 chunks are also in scope, see that plan's interaction notes referenced from TD-180 (`RP-2a`,
@@ -240,7 +242,6 @@ that ignores it.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-  - [TD-180: Gated `DecoderBlock` Extension (World Model + Hippocampal Memory, Repetition-Penalized)](#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized)
   - [TD-181: Sparse World-Model Injection Knob](#td-181-sparse-world-model-injection-knob)
   - [TD-182: `EncoderDecoderModel::set_world_model()`](#td-182-encoderdecodermodelset_world_model)
   - [TD-183: `incremental_trainer --objective=lejepa` Mode + World-Model Config Keys](#td-183-incremental_trainer---objectivelejepa-mode--world-model-config-keys)
@@ -1889,57 +1890,6 @@ another branch of one large `main()` instead of becoming its own focused binary)
 
 ---
 
-### TD-180: Gated `DecoderBlock` Extension (World Model + Hippocampal Memory, Repetition-Penalized)
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| **HIGH** | Planned | Core Model Architecture | September 15, 2026 | 12-16 hours |
-
-Description:
-Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#4-gated-cross-attention-in-decoderblock)
-(chunks `LJ-3a` + `HM-3`, deliberately filed as one item — the proposal's own README ordering
-explicitly calls for building both gated paths in the same change to avoid touching this class
-three separate times). **HIGH priority relative to the rest of this batch**: this is the one
-place existing production code changes rather than purely adding new files — same
-foundational-class risk class noted elsewhere in this tracker for `MultiHeadAttention`/
-`CrossAttention` changes (TD-059) — and every other item in this batch (TD-181 through TD-186)
-either extends or depends on the shape this item establishes.
-
-Two independent nullable gated cross-attention paths added to `DecoderBlock`: one to
-`LeJEPAEncoder` output (world model), one to `HippocampalMemory` (hippocampal), the second using
-TD-174's score-bias entry point to apply a bounded, gradually increasing repetition penalty
-(`coverage[i] = decay·coverage[i] + attn_weight[i]`, subtracted from raw attention scores —
-self-bounding by construction, deliberately avoiding the unbounded-compounding shape TD-066
-found and fixed in `TextGenerator::apply_repetition_penalty`). If
-[reasoning_process_plan.md](../../proposals/reasoning_process_plan.md)'s `RP-2a` has landed by
-the time this is picked up, build both gates as phase-conditioned pairs
-(`gate_reasoning`/`gate_answer` per path) directly rather than refactoring later — see that
-plan's "Interaction with the LeJEPA World-Model Plan" section.
-
-Depends on: TD-177 (`LeJEPAEncoder`), TD-179 (`HippocampalMemory`), TD-174
-(`forward_with_scores`).
-
-Action Items:
-
-- [ ] Add `world_model_cross_attention`/`norm_world`/`gate` (world-model path, nullable)
-- [ ] Add `hippocampal_cross_attention`/`norm_hippocampal`/`gate_h` + coverage accumulation/decay
-  (hippocampal path, nullable)
-- [ ] No-op guarantee test: both paths' pointer arguments `nullptr` ⇒ output identical to current
-  `DecoderBlock::forward()`
-- [ ] No-op guarantee test: non-null inputs with `gate == 0`/`gate_h == 0` ⇒ output still
-  identical (verifies the gates, not just the pointers, are what's disabled by default)
-- [ ] Coverage-bound stress test: hammer one hippocampal slot for many decode steps, confirm
-  `coverage[i]` never exceeds `1/(1 - repetition_decay)`
-- [ ] Gradient checks on both gate parameters (finite-difference vs. analytic `tanh` derivative)
-- [ ] `get_gate()`/`get_gate_h()` accessors for the metrics this batch's later items push
-
-Files to Modify:
-
-- `src/DecoderBlock.hpp` / `src/DecoderBlock.cpp` — both gated paths
-- `tests/decoderblock_test.cpp` — no-op guarantees (both paths), gradient checks, coverage bound
-
----
-
 ### TD-181: Sparse World-Model Injection Knob
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -2630,21 +2580,21 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 20 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 19 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|2|10%|
-|Medium|9|45%|
-|Low|9|45%|
+|High|1|5%|
+|Medium|9|48%|
+|Low|9|47%|
 
-**Total Active Items:** 20
+**Total Active Items:** 19
 
 ### By Component
 
 |Component|Count|
 |----------------------|-------|
-|Core Model Architecture|3|
+|Core Model Architecture|2|
 |GPU / Inference / Training|1|
 |GPU / Inference / Performance|1|
 |Tooling / Toolchain|1|
@@ -2665,10 +2615,10 @@ Recomputed directly from the 20 `### TD-NNN` entries under [Active Technical Deb
 |0-2 hours|2|
 |2-4 hours|2|
 |4-8 hours|5|
-|8+ hours|8|
+|8+ hours|7|
 |Not estimated|3|
 
-**Total Estimated Effort (Active Items):** 156-228 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate; the remaining 7 items from the TD-174 through TD-186 batch — TD-174 through TD-179 all now resolved — add an estimated 36-50 hours)
+**Total Estimated Effort (Active Items):** 144-212 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate; the remaining 6 items from the TD-174 through TD-186 batch — TD-174 through TD-180 all now resolved — add an estimated 24-34 hours)
 
 ### Future Enhancements Summary
 

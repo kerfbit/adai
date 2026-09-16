@@ -1,7 +1,7 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-174 forward_with_scores added)
-// @adai-version: 0.13.0
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-174 forward_with_scores added; TD-180 get_last_attention_weights added)
+// @adai-version: 0.13.1
 // @adai-reviewed: 2026-09-15
 
 
@@ -268,6 +268,20 @@ class CrossAttention {
      */
     int get_num_heads() const {
         return num_heads;
+    }
+
+    /**
+     * @brief TD-180: the mean-across-heads post-softmax attention weights from the most recent
+     * forward()/forward_with_cache()/forward_with_scores() call, [tgt_len, src_len]. Was already
+     * computed and cached internally for exactly this purpose (see cached_attention_weights'
+     * own doc comment, "for callers/visualization only") but had no public accessor until the
+     * hippocampal repetition penalty (DecoderBlock's coverage-update mechanism) needed genuine
+     * read access to it. Purely additive — exposes existing state, changes no behavior.
+     *
+     * @return Reference valid until the next forward-family call on this instance.
+     */
+    const Matrix& get_last_attention_weights() const {
+        return cached_attention_weights;
     }
 
     // ── SafeTensors accessor API ─────────────────────────────────────────────

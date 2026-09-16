@@ -1,16 +1,18 @@
-// @adai-status: stable        (TD-050 GPU incremental-cache forward added)
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-09-14
+// @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc)
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-09-15
 
 #include "DecoderBlock.hpp"
 #include <cmath>
 #include <fstream>
 #include <stdexcept>
+#include <vector>
 #include "Logger.hpp"
 using adai::Logger;
 #include "CrossAttention.hpp"
 
-DecoderBlock::DecoderBlock(int d_model, int num_heads, int d_ff, float dropout)
+DecoderBlock::DecoderBlock(int d_model, int num_heads, int d_ff, float dropout,
+                           bool enable_world_model, bool enable_hippocampal)
     : d_model(d_model), num_heads(num_heads), d_ff(d_ff), dropout_rate(dropout) {
     // Initialize self-attention (masked)
     self_attention = std::make_unique<MultiHeadAttention>(d_model, num_heads);
@@ -34,12 +36,34 @@ DecoderBlock::DecoderBlock(int d_model, int num_heads, int d_ff, float dropout)
     norm2->learning_rate = learning_rate;
     norm3->learning_rate = learning_rate;
 
-    Logger::info("DecoderBlock initialized: d_model={} num_heads={} d_ff={}", d_model, num_heads,
-                 d_ff);
+    // TD-180: gated world-model/hippocampal paths — allocated only when requested. Both flags
+    // default to false (see header), so every pre-TD-180 call site (only one exists in
+    // production code, LLMDecoder's own construction loop) is completely unaffected: these
+    // unique_ptrs stay null, forward()'s gated branches are unreachable regardless of what's
+    // passed to them, and no extra weight memory is allocated at all.
+    if (enable_world_model) {
+        world_model_cross_attention = std::make_unique<CrossAttention>(d_model, num_heads);
+        norm_world = std::make_unique<LayerNorm>(d_model);
+        world_model_cross_attention->learning_rate = learning_rate;
+        norm_world->learning_rate = learning_rate;
+    }
+    if (enable_hippocampal) {
+        hippocampal_cross_attention = std::make_unique<CrossAttention>(d_model, num_heads);
+        norm_hippocampal = std::make_unique<LayerNorm>(d_model);
+        hippocampal_cross_attention->learning_rate = learning_rate;
+        norm_hippocampal->learning_rate = learning_rate;
+    }
+
+    Logger::info(
+        "DecoderBlock initialized: d_model={} num_heads={} d_ff={} world_model={} hippocampal={}",
+        d_model, num_heads, d_ff, enable_world_model, enable_hippocampal);
 }
 
 Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
-                             const Matrix& self_attn_mask, const Matrix* cross_attn_mask) {
+                             const Matrix& self_attn_mask, const Matrix* cross_attn_mask,
+                             const Matrix* world_model_output, const Matrix* world_model_mask,
+                             HippocampalMemory* memory, float repetition_alpha,
+                             float repetition_decay) {
     // Cache input for backward pass
     cached_input = input;
     cached_encoder_output = encoder_output;
@@ -74,6 +98,80 @@ Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
             residual2(i, j) = residual1(i, j) + cross_attn_out(i, j);
         }
     }
+
+    // Step 4a (TD-180): gated world-model cross-attention. No-op unless both a real input was
+    // supplied AND this instance's own path was allocated at construction — either condition
+    // alone reproduces pre-TD-180 output exactly, since `residual2` above is untouched
+    // otherwise.
+    world_model_path_active_ = (world_model_output != nullptr && world_model_cross_attention);
+    if (world_model_path_active_) {
+        Matrix normed_world = norm_world->forward(residual2);
+        Matrix wm_attn =
+            world_model_cross_attention->forward(normed_world, *world_model_output, world_model_mask);
+        cached_wm_attn = wm_attn;
+        const float gate_tanh = std::tanh(gate);
+        for (int i = 0; i < residual2.rows; ++i) {
+            for (int j = 0; j < residual2.cols; ++j) {
+                residual2(i, j) += gate_tanh * wm_attn(i, j);
+            }
+        }
+    }
+
+    // Step 4b (TD-180): gated hippocampal cross-attention, repetition-penalized. No-op unless a
+    // real, non-empty memory was supplied AND this instance's own path was allocated. Applied
+    // after the world-model path, per the plan's own Component 6 ordering ("after Component 4's
+    // world-model Add & Norm").
+    hippocampal_path_active_ = (memory != nullptr && memory->size() > 0 && hippocampal_cross_attention);
+    if (hippocampal_path_active_) {
+        auto [keys, values] = memory->read_all();
+        (void)values;  // see forward()'s own doc comment: keys double as CrossAttention's
+                        // kv_input, so both K and V are derived from them — correct when a
+                        // slot's value equals its key (the documented common case).
+        const int n_slots = memory->size();
+
+        Matrix normed_hippocampal = norm_hippocampal->forward(residual2);
+
+        // score_bias[i][slot] = -repetition_alpha * coverage[slot], broadcast across every
+        // query row — coverage is a per-slot quantity, not per-query-position (same convention
+        // CrossAttention's own mask broadcasting already uses).
+        std::vector<float>& coverage = memory->coverage_vector();
+        Matrix score_bias(normed_hippocampal.rows, n_slots);
+        for (int i = 0; i < normed_hippocampal.rows; ++i) {
+            for (int slot = 0; slot < n_slots; ++slot) {
+                score_bias(i, slot) = -repetition_alpha * coverage[slot];
+            }
+        }
+
+        Matrix hm_attn =
+            hippocampal_cross_attention->forward_with_scores(normed_hippocampal, keys, score_bias);
+        cached_hm_attn = hm_attn;
+        const float gate_h_tanh = std::tanh(gate_h);
+        for (int i = 0; i < residual2.rows; ++i) {
+            for (int j = 0; j < residual2.cols; ++j) {
+                residual2(i, j) += gate_h_tanh * hm_attn(i, j);
+            }
+        }
+
+        // Coverage update: decay-then-accumulate (per the plan's own Component 6 pseudocode).
+        // Self-bounding by construction — decay_coverage() runs before accumulation, and the
+        // per-slot mean attention weight added below is itself in [0, 1] (a softmax output), so
+        // coverage[slot] converges to at most 1 / (1 - repetition_decay) regardless of how many
+        // decode steps hammer the same slot. get_last_attention_weights() is
+        // [query_rows, n_slots]; averaged over query rows to get one per-slot increment,
+        // matching the plan's own "called once per decode step" framing generalized to a
+        // multi-row (e.g. teacher-forced training) call.
+        memory->decay_coverage(repetition_decay);
+        const Matrix& attn_weights = hippocampal_cross_attention->get_last_attention_weights();
+        const float inv_rows = 1.0f / static_cast<float>(attn_weights.rows);
+        for (int slot = 0; slot < n_slots; ++slot) {
+            float mean_weight = 0.0f;
+            for (int i = 0; i < attn_weights.rows; ++i) {
+                mean_weight += attn_weights(i, slot);
+            }
+            coverage[slot] += mean_weight * inv_rows;
+        }
+    }
+
     cached_residual2 = residual2;
 
     // Step 5: Pre-feedforward layer normalization, then feed-forward network
@@ -190,6 +288,59 @@ Matrix DecoderBlock::backward(const Matrix& grad_output, Matrix& grad_encoder_ou
         }
     }
 
+    // Step 4a/4b (TD-180): backprop through the gated paths, in reverse of the order forward()
+    // applied them (hippocampal was applied last, so it's unwound first). grad_residual2 at
+    // this point is the gradient w.r.t. whatever value fed norm3 — the POST-gated-path residual2
+    // if either path was active on the most recent forward() call. Both paths' own K/V-source
+    // gradients (w.r.t. the hippocampal memory's keys / world_model_output) are computed,
+    // since CrossAttention::backward()'s own signature always produces them, but discarded —
+    // see this method's own doc comment in DecoderBlock.hpp for why.
+    if (hippocampal_path_active_) {
+        const float gate_h_tanh = std::tanh(gate_h);
+        Matrix grad_hm_attn(grad_residual2.rows, grad_residual2.cols);
+        float gate_h_dot = 0.0f;
+        for (int i = 0; i < grad_residual2.rows; ++i) {
+            for (int j = 0; j < grad_residual2.cols; ++j) {
+                grad_hm_attn(i, j) = grad_residual2(i, j) * gate_h_tanh;
+                gate_h_dot += grad_residual2(i, j) * cached_hm_attn(i, j);
+            }
+        }
+        gate_h_grad += gate_h_dot * (1.0f - gate_h_tanh * gate_h_tanh);  // d(tanh)/dx = 1 - tanh^2
+
+        Matrix grad_normed_hippocampal, grad_memory_keys_unused;
+        hippocampal_cross_attention->backward(grad_hm_attn, grad_normed_hippocampal,
+                                              grad_memory_keys_unused);
+        Matrix grad_from_hippocampal = norm_hippocampal->backward(grad_normed_hippocampal);
+        for (int i = 0; i < grad_residual2.rows; ++i) {
+            for (int j = 0; j < grad_residual2.cols; ++j) {
+                grad_residual2(i, j) += grad_from_hippocampal(i, j);
+            }
+        }
+    }
+
+    if (world_model_path_active_) {
+        const float gate_tanh = std::tanh(gate);
+        Matrix grad_wm_attn(grad_residual2.rows, grad_residual2.cols);
+        float gate_dot = 0.0f;
+        for (int i = 0; i < grad_residual2.rows; ++i) {
+            for (int j = 0; j < grad_residual2.cols; ++j) {
+                grad_wm_attn(i, j) = grad_residual2(i, j) * gate_tanh;
+                gate_dot += grad_residual2(i, j) * cached_wm_attn(i, j);
+            }
+        }
+        gate_grad += gate_dot * (1.0f - gate_tanh * gate_tanh);
+
+        Matrix grad_normed_world, grad_world_model_output_unused;
+        world_model_cross_attention->backward(grad_wm_attn, grad_normed_world,
+                                              grad_world_model_output_unused);
+        Matrix grad_from_world = norm_world->backward(grad_normed_world);
+        for (int i = 0; i < grad_residual2.rows; ++i) {
+            for (int j = 0; j < grad_residual2.cols; ++j) {
+                grad_residual2(i, j) += grad_from_world(i, j);
+            }
+        }
+    }
+
     // Step 5: Gradient through second residual connection (residual2 = residual1 + cross_attn_output)
     // Gradient splits into two paths: directly to residual1, and through the
     // cross-attention branch (cross_attn_output -> normed2 -> residual1)
@@ -254,6 +405,24 @@ void DecoderBlock::update_weights() {
     norm1->update_weights();
     norm2->update_weights();
     norm3->update_weights();
+
+    // TD-180: gated paths' own sub-components follow the exact same pattern as the six above
+    // (each already handles both the optimizer-registered and plain-SGD cases internally). gate/
+    // gate_h have no Optimizer equivalent (see register_parameters_with_optimizer()'s own doc
+    // comment), so they're always plain SGD here regardless of whether an optimizer is
+    // registered elsewhere on this instance.
+    if (world_model_cross_attention) {
+        world_model_cross_attention->update_weights();
+        norm_world->update_weights();
+        gate -= learning_rate * gate_grad;
+        gate_grad = 0.0f;
+    }
+    if (hippocampal_cross_attention) {
+        hippocampal_cross_attention->update_weights();
+        norm_hippocampal->update_weights();
+        gate_h -= learning_rate * gate_h_grad;
+        gate_h_grad = 0.0f;
+    }
 }
 
 void DecoderBlock::zero_grad() {
@@ -263,6 +432,17 @@ void DecoderBlock::zero_grad() {
     norm1->zero_grad();
     norm2->zero_grad();
     norm3->zero_grad();
+
+    if (world_model_cross_attention) {
+        world_model_cross_attention->zero_grad();
+        norm_world->zero_grad();
+        gate_grad = 0.0f;
+    }
+    if (hippocampal_cross_attention) {
+        hippocampal_cross_attention->zero_grad();
+        norm_hippocampal->zero_grad();
+        gate_h_grad = 0.0f;
+    }
 }
 
 float DecoderBlock::get_gradient_norm() const {
@@ -281,6 +461,17 @@ float DecoderBlock::get_gradient_norm() const {
     // LayerNorm doesn't expose gradient norm method
     // Approximation: gradients handled internally during backward
 
+    // TD-180: gated paths' own cross-attention gradient norms, plus the gate scalars
+    // themselves — same quadrature combination as everything else here.
+    if (world_model_cross_attention) {
+        float wm_norm = world_model_cross_attention->get_gradient_norm();
+        norm_sq += wm_norm * wm_norm + gate_grad * gate_grad;
+    }
+    if (hippocampal_cross_attention) {
+        float hm_norm = hippocampal_cross_attention->get_gradient_norm();
+        norm_sq += hm_norm * hm_norm + gate_h_grad * gate_h_grad;
+    }
+
     return std::sqrt(norm_sq);
 }
 
@@ -292,6 +483,15 @@ void DecoderBlock::set_learning_rate(float lr) {
     norm1->learning_rate = lr;
     norm2->learning_rate = lr;
     norm3->learning_rate = lr;
+
+    if (world_model_cross_attention) {
+        world_model_cross_attention->learning_rate = lr;
+        norm_world->learning_rate = lr;
+    }
+    if (hippocampal_cross_attention) {
+        hippocampal_cross_attention->learning_rate = lr;
+        norm_hippocampal->learning_rate = lr;
+    }
 }
 
 void DecoderBlock::save(const std::string& filepath) {
@@ -413,6 +613,18 @@ void DecoderBlock::register_parameters_with_optimizer(Optimizer& optimizer) {
     norm1->set_optimizer(&optimizer);
     norm2->set_optimizer(&optimizer);
     norm3->set_optimizer(&optimizer);
+
+    // TD-180: gated paths' own CrossAttention/LayerNorm sub-components, when allocated. gate/
+    // gate_h are NOT registered here — they're plain floats with no ParameterGroup equivalent
+    // in Optimizer's Matrix-based registration API (see this method's own header doc comment).
+    if (world_model_cross_attention) {
+        world_model_cross_attention->set_optimizer(&optimizer);
+        norm_world->set_optimizer(&optimizer);
+    }
+    if (hippocampal_cross_attention) {
+        hippocampal_cross_attention->set_optimizer(&optimizer);
+        norm_hippocampal->set_optimizer(&optimizer);
+    }
 }
 
 #ifdef ADAI_ENABLE_GPU

@@ -76,8 +76,10 @@ target_link_libraries(lejepaencoderTests
 add_test(NAME LeJEPAEncoderTests COMMAND lejepaencoderTests)
 
 # HippocampalMemory tests (TD-179 / HM-1)
+# HippocampalMemory now lives in adai_core (see that library's own CMake comment for why —
+# DecoderBlock, in adai_transformer, needs it too, and adai_lejepa depends on adai_transformer).
 add_executable(hippocampalMemoryTests hippocampalmemory_test.cpp)
-target_link_libraries(hippocampalMemoryTests adai_lejepa adai_core GTest::gtest_main)
+target_link_libraries(hippocampalMemoryTests adai_core GTest::gtest_main)
 add_test(NAME HippocampalMemoryTests COMMAND hippocampalMemoryTests)
 
 # MnsJsonHelpers tests (TD-037 — pure Qt-free logic extracted from MnsManagerGUI)

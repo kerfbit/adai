@@ -84,6 +84,13 @@ add_library(adai_core STATIC
     ParquetReader.cpp
     SQLiteMetricsDatabase.cpp
     DaemonConfigStore.cpp
+    # TD-179/TD-180: HippocampalMemory needs only Matrix, but DecoderBlock.cpp (adai_transformer)
+    # now needs to call into it — putting it in adai_lejepa (which itself depends on
+    # adai_transformer for LeJEPAEncoder) would create a circular library dependency
+    # (adai_transformer -> adai_lejepa -> adai_transformer). adai_core sits below everything in
+    # this codebase's own stack, so it's the natural place for a component whose only real
+    # dependency is Matrix but that needs to be reachable from multiple higher tiers.
+    HippocampalMemory.cpp
 )
 target_link_libraries(adai_core PUBLIC spdlog::spdlog)
 
@@ -301,17 +308,18 @@ if(NOT ENABLE_SYCL)
     )
 endif()
 
-# LeJEPA world model + hippocampal memory (docs/proposals/lejepa_world_model_gated_injection_plan.md;
-# TD-175 SIGReg, TD-176 Predictor, TD-177/178 LeJEPAEncoder, and TD-179 HippocampalMemory are all
-# construction pieces landed so far, per that plan's Implementation Phases). LeJEPAEncoder
-# mirrors LLMEncoder's own composition (EncoderBlock stack + BPETokenizer/TokenEmbedding/
-# PositionalEncoding), hence the transformer/layers/nlp deps below — HippocampalMemory itself
-# only needs adai_core (Matrix).
+# LeJEPA world model (docs/proposals/lejepa_world_model_gated_injection_plan.md; TD-175 SIGReg,
+# TD-176 Predictor, and TD-177/178 LeJEPAEncoder are the construction pieces landed so far, per
+# that plan's Implementation Phases). LeJEPAEncoder mirrors LLMEncoder's own composition
+# (EncoderBlock stack + BPETokenizer/TokenEmbedding/PositionalEncoding), hence the
+# transformer/layers/nlp deps below. HippocampalMemory (TD-179) moved to adai_core instead of
+# living here — see that library's own comment for why (DecoderBlock, in adai_transformer, needs
+# it too, and adai_lejepa itself depends on adai_transformer, so a HippocampalMemory living here
+# would create a circular library dependency).
 add_library(adai_lejepa STATIC
     SIGReg.cpp
     Predictor.cpp
     LeJEPAEncoder.cpp
-    HippocampalMemory.cpp
 )
 target_link_libraries(adai_lejepa
     adai_core
