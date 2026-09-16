@@ -1,6 +1,6 @@
-// @adai-status: experimental        (TD-038 — new class, first real RLHF integration; see TECHNICAL_DEBT.md)
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-13
+// @adai-status: experimental        (TD-038 — new class, first real RLHF integration; see TECHNICAL_DEBT.md; run_iteration() now checks for an empty generated response before encode() instead of after, closing a real uncaught-exception crash)
+// @adai-version: 0.1.1
+// @adai-reviewed: 2026-09-16
 
 #include "RLHFTrainer.hpp"
 #include <algorithm>
@@ -175,9 +175,20 @@ RLHFStepResult RLHFTrainer::run_iteration(const std::vector<std::string>& prompt
         //    superseded by apply_policy_gradient()'s own authoritative forward() call below.
         std::string response = model_.generate_response_with_strategy(
             prompt, config_.max_response_length, config_.generation_strategy, config_.temperature);
+        // Checked BEFORE encode(), not after: BPETokenizer::encode() unconditionally throws
+        // TokenizerInputError on an empty string (BPETokenizer.cpp's own validate_input()), so an
+        // empty response -- which real generation genuinely produces sometimes, e.g. greedy/
+        // low-temperature decoding immediately emitting EOS -- used to crash this whole method
+        // uncaught instead of being skipped the way the comment already intended. Confirmed via a
+        // real, reproduced flake in this exact shape (tests/rlhftrainer_test.cpp's own
+        // investigation notes on RunIterationChangesPolicyWeights /
+        // PositiveAdvantageIncreasesLogProbNegativeAdvantageDecreasesIt).
+        if (response.empty()) {
+            continue;  // nothing to learn from an empty response
+        }
         std::vector<int> response_tokens = tok->encode(response, true);
         if (response_tokens.empty()) {
-            continue;  // nothing to learn from an empty response
+            continue;  // encode() can still tokenize a non-empty string to nothing in principle
         }
 
         // 2. Score the pair. Must happen before the authoritative forward() inside
