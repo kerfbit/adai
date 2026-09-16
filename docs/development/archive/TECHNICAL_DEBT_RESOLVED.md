@@ -4,6 +4,103 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-185: `HippocampalMemory` Wiring + Config + Write-Policy Call Site
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 16, 2026 | World Model / Memory (LeJEPA) | New `hippocampal_memory` member + accessors + `maybe_write_hippocampal_memory()` on `EncoderDecoderModel` (`src/EncoderDecoderModel.{hpp,cpp}`); new `HIPPOCAMPAL_*` config block in `config.trainer.conf`/`config.chatbot.conf` |
+
+Summary:
+Ninth piece of the LeJEPA world-model plan (HM-4, filed from the plan's "Hippocampal memory: no
+Phase 0, joint training only" section) — the last Level-4 item in Tier 10's own dependency
+ordering. Unlike TD-182 (pure wiring + accessor, no other effect), this item's own Action Items
+explicitly ask for a functioning **write-policy call site** — v1 is FIFO always-write, once per
+generated response, no salience gating (a documented future extension). `nullptr` (the default —
+nothing constructs one) disables the feature entirely, the same guarantee every gated path in
+this batch has made.
+
+Design decisions:
+
+- **Write-policy call site placed inside `EncoderDecoderModel` itself, not `ChatbotAPIServer`**
+  (the item's own Files to Modify explicitly allowed either). At least seven other files
+  (`ChatbotAPI.cpp`, `ChatbotGUI.cpp`, `ChatbotCLI.cpp`, `ChatbotTrainer.cpp`, `RAGInference.cpp`,
+  `RLHFTrainer.cpp`, plus `ChatbotAPIServer.cpp` itself) call `generate_response()`/
+  `generate_response_with_strategy()` — wiring the write policy into every one of those call
+  sites individually would be far more invasive and inconsistent than adding it once, inside the
+  two CPU generation methods themselves, reached identically regardless of which caller invoked
+  them.
+- **Only the two CPU generation paths call it** — `generate_response()`/
+  `generate_response_with_strategy()`, inserted at all 4 of their own return points (each method
+  has an early beam-search branch plus its own main-path return). `gpu_generate_response()`/
+  `gpu_generate_response_with_strategy()` do NOT — a documented gap matching TD-180's own "GPU
+  path doesn't support the gated paths yet" precedent, and consistent with this being the two
+  entry points actually exercised/tested in this environment (no GPU hardware available).
+- **Key/value computed by mean-pooling `world_model->encode(response_text)`** (`[seq_len,
+  d_model]`) down to a single `[1, d_model]` row — the same pooling convention
+  `LLMEncoder::get_sentence_embedding()` already uses for a whole-text summary vector, since
+  `HippocampalMemory::write()` requires exactly `[1, d_model]`. Writes the same pooled vector as
+  both key and value, the plan's own stated common case.
+- **No-op unless BOTH `world_model` (TD-182) and `hippocampal_memory` are attached** — the world
+  model is the memory's only key source per the plan's own design, so attaching a memory alone
+  has no effect until a world model is also attached. This makes `set_hippocampal_memory()`'s own
+  no-breaking-changes guarantee strictly stronger than a plain nullptr-check would need: even a
+  *non-null* memory with no world model attached is inert.
+- **Best-effort, not propagated on failure**: `world_model->encode()` can throw (e.g. its own
+  tokenizer has no vocabulary loaded, if a caller attaches a half-configured world model) —
+  caught and logged via `Logger::warn()` rather than propagated, so a broken/misconfigured
+  optional memory feature never takes down a response that already generated successfully.
+- **`HIPPOCAMPAL_*` config keys documented, not yet parsed** — same pattern as this whole batch's
+  other config-driven knobs (e.g. `WORLD_MODEL_INJECT_EVERY_N_LAYERS`, still not read by
+  `ServiceConfig`/`IncrementalConfig` either, since TD-183 — the item that would actually wire
+  `WORLD_MODEL_*` keys — hasn't landed yet). Filed in both `config.trainer.conf` and
+  `config.chatbot.conf` per the item's own Files to Modify.
+
+Changes Made:
+
+- `src/EncoderDecoderModel.hpp`: forward-declared `class HippocampalMemory;` (alongside the
+  existing `LeJEPAEncoder` forward declaration from TD-182, same rationale — this class only
+  ever stores/returns a pointer, with the one real exception being the new private
+  `maybe_write_hippocampal_memory()` helper, whose *definition* lives in the `.cpp` where both
+  headers are fully included); new `hippocampal_memory` member;
+  `set_hippocampal_memory()`/`get_hippocampal_memory()`, mirroring `set_world_model()`'s own
+  style; `maybe_write_hippocampal_memory()` declared private, alongside `compute_loss()`/
+  `compute_loss_gradient()`.
+- `src/EncoderDecoderModel.cpp`: `#include "HippocampalMemory.hpp"` and `"Logger.hpp"`;
+  `set_hippocampal_memory()`'s one-line definition; `maybe_write_hippocampal_memory()`'s full
+  implementation (guard, mean-pool, write, try/catch); one-line calls inserted at all 4 return
+  points across `generate_response()`/`generate_response_with_strategy()`.
+- `config.trainer.conf`, `config.chatbot.conf`: new `HIPPOCAMPAL_*` block each
+  (`_ENABLED=false`, `_CAPACITY=512`, `_REPETITION_ALPHA=0.0`, `_REPETITION_DECAY=0.95`,
+  `_COVERAGE_LOSS_WEIGHT=0.0`), matching the plan's own documented defaults.
+- `tests/encoderdecoder_test.cpp`: 8 new tests.
+
+Verification:
+
+- ✅ The item's own required check (matching TD-182's identical Action Item): the full
+  pre-existing `encoderdecoder_test.cpp` suite passes completely unmodified with nothing
+  attached.
+- ✅ 8 new `EncoderDecoderModelWorldModelTest` cases: `nullptr` by default; attach/detach/replace
+  (mirroring TD-182's own 3 tests); a real generated response's TEXT output is unaffected by
+  attaching a memory alone (forced to greedy decoding for determinism — the default config's
+  `temperature=1.0` sampling is legitimately non-deterministic call-to-call, a pre-existing
+  property of `generate_response()` unrelated to this item, found while writing this exact test);
+  no write happens with only memory attached; no crash with only a world model attached; and the
+  write-policy's own functional check — a real, non-empty generated response with both attached
+  is actually written to the memory.
+- ✅ Verified the 6 RNG-sensitive/generation tests robust across 5 repeated runs.
+- ✅ Full `ctest` suite green modulo the same two pre-existing, unrelated conditions noted in
+  TD-174's own entry, plus one unrelated shell-script test (`ScriptsTests_monitor_training`)
+  that failed once under full-suite parallel load and passed cleanly standalone (confirmed
+  load-sensitive flake, not a regression — touches no file this item modified) — 136/136 of
+  everything else passing (up from 135: `EncoderDecoderTests` growing from 71 to 79 cases).
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+
+Files Changed:
+
+- `src/EncoderDecoderModel.hpp`, `src/EncoderDecoderModel.cpp`
+- `config.trainer.conf`, `config.chatbot.conf`
+- `tests/encoderdecoder_test.cpp`
+
 ### TD-182: `EncoderDecoderModel::set_world_model()`
 
 | Resolution Date | Component | Resolved By |

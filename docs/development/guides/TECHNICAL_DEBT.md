@@ -4,13 +4,13 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** September 15, 2026
-**Total Items:** 17
+**Last Updated:** September 16, 2026
+**Total Items:** 16
 **High Priority:** 1
 **Medium Priority:** 9
-**Low Priority:** 7
+**Low Priority:** 6
 **Future Enhancements:** 19
-**Resolved Items:** 169
+**Resolved Items:** 170
 **Deferred Decisions:** 3
 
 **September 15, 2026:** Filed TD-174 through TD-186 (13 items) — the construction pieces of
@@ -194,15 +194,15 @@ sequence and is worth checking against, not trusting blindly, per this section's
   decoder-injection one.
 - **Level 4 — fans back out now that TD-180 has landed:** **TD-181 (injection-frequency knob)**
   (see
-  [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-181-sparse-world-model-injection-knob)) and
+  [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-181-sparse-world-model-injection-knob)),
   **TD-182 (`set_world_model()`)** (see
-  [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-182-encoderdecodermodelset_world_model)) —
-  both resolved September 15, 2026, same day — and
-  [TD-185](#td-185-hippocampalmemory-wiring--config--write-policy-call-site) (`HippocampalMemory`
-  wiring, 4-5h, still open) all only needed TD-180 (TD-185's other dependency, TD-179, is already
-  satisfied by Level 2). [TD-184](#td-184-world-model-mns-registration--checkpointing) (MNS
-  registration + checkpointing, 3-4h) needs TD-177 (now done) and TD-183, both already done by
-  this point.
+  [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-182-encoderdecodermodelset_world_model)),
+  and **TD-185 (`HippocampalMemory` wiring)** (see
+  [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-185-hippocampalmemory-wiring--config--write-policy-call-site))
+  — all resolved (TD-181/182 September 15, 2026; TD-185 September 16, 2026) — all only needed
+  TD-180 (TD-185's other dependency, TD-179, was already satisfied by Level 2).
+  [TD-184](#td-184-world-model-mns-registration--checkpointing) (MNS registration +
+  checkpointing, 3-4h) needs TD-177 (now done) and TD-183, both already done by this point.
 - **Level 5 — the pilot, and this batch's actual go/no-go gate:**
   [TD-186](#td-186-lejepa--hippocampal-memory-pilot-run) (10-14h) — explicitly not startable until
   everything above is done. Its own Description already frames "the gate never opens" or "the
@@ -210,9 +210,8 @@ sequence and is worth checking against, not trusting blindly, per this section's
   restating here since this is the one item in the batch that isn't "build the thing," it's "find
   out whether the thing was worth building."
 
-Total estimated effort across the 4 remaining active items: 22-30 hours (TD-174, 2-3h, TD-175,
-3-4h, TD-176, 2-3h, TD-177, 5-7h, TD-178, 8-10h, TD-179, 5-7h, TD-180, 12-16h, TD-181, 1-2h, and
-TD-182, 1-2h, all resolved September 15, 2026, same day — see
+Total estimated effort across the 3 remaining active items: 18-25 hours (TD-174 through TD-182
+resolved September 15, 2026; TD-185, 4-5h, resolved September 16, 2026 — see
 [TD-174](../archive/TECHNICAL_DEBT_RESOLVED.md#td-174-crossattentionforward_with_scores-score-bias-entry-point),
 [TD-175](../archive/TECHNICAL_DEBT_RESOLVED.md#td-175-sigreg-sketched-isotropic-gaussian-regularization),
 [TD-176](../archive/TECHNICAL_DEBT_RESOLVED.md#td-176-predictor-embedding-space-predictor),
@@ -220,8 +219,9 @@ TD-182, 1-2h, all resolved September 15, 2026, same day — see
 [TD-178](../archive/TECHNICAL_DEBT_RESOLVED.md#td-178-lejepaencodertrain_step-self-supervised-training-loop),
 [TD-179](../archive/TECHNICAL_DEBT_RESOLVED.md#td-179-hippocampalmemory-buffer),
 [TD-180](../archive/TECHNICAL_DEBT_RESOLVED.md#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized),
-[TD-181](../archive/TECHNICAL_DEBT_RESOLVED.md#td-181-sparse-world-model-injection-knob), and
-[TD-182](../archive/TECHNICAL_DEBT_RESOLVED.md#td-182-encoderdecodermodelset_world_model);
+[TD-181](../archive/TECHNICAL_DEBT_RESOLVED.md#td-181-sparse-world-model-injection-knob),
+[TD-182](../archive/TECHNICAL_DEBT_RESOLVED.md#td-182-encoderdecodermodelset_world_model), and
+[TD-185](../archive/TECHNICAL_DEBT_RESOLVED.md#td-185-hippocampalmemory-wiring--config--write-policy-call-site);
 sum of the rest matches the Statistics section's own total below) — comparable in size to the
 entire rest of the active backlog combined. If
 [reasoning_process_plan.md](../../proposals/reasoning_process_plan.md)'s own
@@ -250,9 +250,8 @@ that ignores it.
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
   - [TD-183: `incremental_trainer --objective=lejepa` Mode + World-Model Config Keys](#td-183-incremental_trainer---objectivelejepa-mode--world-model-config-keys)
   - [TD-184: World-Model MNS Registration + Checkpointing](#td-184-world-model-mns-registration--checkpointing)
-  - [TD-185: `HippocampalMemory` Wiring + Config + Write-Policy Call Site](#td-185-hippocampalmemory-wiring--config--write-policy-call-site)
   - [TD-186: LeJEPA + Hippocampal Memory Pilot Run](#td-186-lejepa--hippocampal-memory-pilot-run)
-- [Resolved Items](#resolved-items) (159 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+- [Resolved Items](#resolved-items) (170 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -1951,36 +1950,6 @@ Files to Modify:
 
 ---
 
-### TD-185: `HippocampalMemory` Wiring + Config + Write-Policy Call Site
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Planned | World Model / Memory (LeJEPA) | September 15, 2026 | 4-5 hours |
-
-Description:
-Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#hippocampal-memory-no-phase-0-joint-training-only)
-(chunk `HM-4`) — not yet built. `EncoderDecoderModel::set_hippocampal_memory()`/
-`get_hippocampal_memory()`, the new `HIPPOCAMPAL_*` config block (`_ENABLED`, `_CAPACITY`,
-`_REPETITION_ALPHA` default `0.0`, `_REPETITION_DECAY` default `0.95`,
-`_COVERAGE_LOSS_WEIGHT` default `0.0`), and the call site deciding when `HippocampalMemory::
-write()` actually gets called (v1: once per generated response). Depends on TD-179, TD-180.
-
-Action Items:
-
-- [ ] Add `hippocampal_memory` member + accessors to `EncoderDecoderModel`
-- [ ] Add the `HIPPOCAMPAL_*` config block to `config.trainer.conf`/`config.chatbot.conf`
-- [ ] Wire the write-policy call site (`EncoderDecoderModel`/`ChatbotAPIServer`, v1 = FIFO
-  always-write once per response)
-- [ ] Confirm `HIPPOCAMPAL_MEMORY_ENABLED=false` (default) reproduces current behavior exactly
-
-Files to Modify:
-
-- `src/EncoderDecoderModel.hpp` / `src/EncoderDecoderModel.cpp`
-- `config.trainer.conf`, `config.chatbot.conf`
-- `src/ChatbotAPIServer.cpp` (write-policy call site, if not in `EncoderDecoderModel` itself)
-
----
-
 ### TD-186: LeJEPA + Hippocampal Memory Pilot Run
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -2535,15 +2504,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 17 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 16 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|1|6%|
-|Medium|9|53%|
-|Low|7|41%|
+|Medium|9|56%|
+|Low|6|38%|
 
-**Total Active Items:** 17
+**Total Active Items:** 16
 
 ### By Component
 
@@ -2561,7 +2530,7 @@ Recomputed directly from the 17 `### TD-NNN` entries under [Active Technical Deb
 |Android / Testing|1|
 |Documentation|1|
 |Training / Deployment / Tooling|2|
-|World Model / Memory (LeJEPA)|3|
+|World Model / Memory (LeJEPA)|2|
 
 ### Effort Distribution
 
@@ -2569,11 +2538,11 @@ Recomputed directly from the 17 `### TD-NNN` entries under [Active Technical Deb
 |--------------|-------|
 |0-2 hours|0|
 |2-4 hours|2|
-|4-8 hours|5|
+|4-8 hours|4|
 |8+ hours|7|
 |Not estimated|3|
 
-**Total Estimated Effort (Active Items):** 142-208 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate; the remaining 4 items from the TD-174 through TD-186 batch — TD-174 through TD-182 all now resolved — add an estimated 22-30 hours)
+**Total Estimated Effort (Active Items):** 138-203 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate; the remaining 3 items from the TD-174 through TD-186 batch — TD-174 through TD-182 and TD-185 all now resolved — add an estimated 18-25 hours)
 
 ### Future Enhancements Summary
 

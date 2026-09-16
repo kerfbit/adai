@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added)
-// @adai-version: 0.15.0
-// @adai-reviewed: 2026-09-15
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added)
+// @adai-version: 0.16.0
+// @adai-reviewed: 2026-09-16
 
 #include "EncoderDecoderModel.hpp"
 #include <algorithm>
@@ -11,9 +11,12 @@
 #include <functional>
 #include <sstream>
 #include <stdexcept>
-#include "LeJEPAEncoder.hpp"  // TD-182: forward-declared in the header, complete type needed here
+#include "HippocampalMemory.hpp"  // TD-185: forward-declared in the header, complete type needed here
+#include "LeJEPAEncoder.hpp"      // TD-182: forward-declared in the header, complete type needed here
+#include "Logger.hpp"
 #include "Optimizer.hpp"
 #include "SpecialTokens.hpp"
+using adai::Logger;
 
 namespace {
 // Checkpoint .config format marker. Negative so it can never collide with a
@@ -74,6 +77,39 @@ EncoderDecoderModel::~EncoderDecoderModel() {
 
 void EncoderDecoderModel::set_world_model(std::unique_ptr<LeJEPAEncoder> wm) {
     world_model = std::move(wm);
+}
+
+void EncoderDecoderModel::set_hippocampal_memory(std::unique_ptr<HippocampalMemory> hm) {
+    hippocampal_memory = std::move(hm);
+}
+
+void EncoderDecoderModel::maybe_write_hippocampal_memory(const std::string& response_text) {
+    if (!world_model || !hippocampal_memory || response_text.empty()) {
+        return;
+    }
+
+    try {
+        Matrix embeddings = world_model->encode(response_text);  // [seq_len, d_model]
+        if (embeddings.rows == 0) {
+            return;
+        }
+
+        // Mean-pool across the sequence dimension — see this method's own header doc comment.
+        Matrix pooled(1, embeddings.cols);
+        for (int j = 0; j < embeddings.cols; ++j) {
+            float sum = 0.0f;
+            for (int i = 0; i < embeddings.rows; ++i) {
+                sum += embeddings(i, j);
+            }
+            pooled(0, j) = sum / static_cast<float>(embeddings.rows);
+        }
+
+        hippocampal_memory->write(pooled, pooled);
+    } catch (const std::exception& e) {
+        // Best-effort: an episodic-memory write failure must not take down a response that
+        // already generated successfully — see this method's own header doc comment.
+        Logger::warn("EncoderDecoderModel: hippocampal memory write skipped ({})", e.what());
+    }
 }
 
 // Compute cross-entropy loss
@@ -209,7 +245,9 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
         };
         std::vector<int> output_tokens =
             generator->generate_beam_search(beam_model_fn, {bos_token_id});
-        return tokenizer->decode(output_tokens, true);
+        std::string beam_response = tokenizer->decode(output_tokens, true);
+        maybe_write_hippocampal_memory(beam_response);  // TD-185
+        return beam_response;
     }
 
     // Initialize KV cache for efficient generation
@@ -244,6 +282,7 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
 
     // Decode tokens to text (skip special tokens like <bos>, <eos>, <unk>, <pad>)
     std::string response = tokenizer->decode(output_tokens, true);
+    maybe_write_hippocampal_memory(response);  // TD-185
 
     return response;
 }
@@ -359,7 +398,9 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
         output_tokens = generator->generate_beam_search(beam_model_fn, {bos_token_id});
 
         // Decode tokens to text (skip special tokens like <bos>, <eos>, <unk>, <pad>)
-        return tokenizer->decode(output_tokens, true);
+        std::string beam_response = tokenizer->decode(output_tokens, true);
+        maybe_write_hippocampal_memory(beam_response);  // TD-185
+        return beam_response;
     }
 
     // For non-beam strategies, use KV caching for efficiency
@@ -430,7 +471,9 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     }
 
     // Decode tokens to text (skip special tokens like <bos>, <eos>, <unk>, <pad>)
-    return tokenizer->decode(output_tokens, true);
+    std::string response = tokenizer->decode(output_tokens, true);
+    maybe_write_hippocampal_memory(response);  // TD-185
+    return response;
 }
 
 // Training step

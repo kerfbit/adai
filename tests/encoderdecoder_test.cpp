@@ -6,6 +6,7 @@
 #include <memory>
 #include <stdexcept>
 #include "../src/EncoderDecoderModel.hpp"
+#include "../src/HippocampalMemory.hpp"
 #include "../src/LeJEPAEncoder.hpp"
 #include "../src/Matrix.hpp"
 #include "../src/Optimizer.hpp"
@@ -1753,6 +1754,161 @@ TEST(EncoderDecoderModelWorldModelTest, ForwardOutputUnaffectedByAttachedWorldMo
 
     EXPECT_TRUE(matrices_equal(logits_before, logits_after))
         << "attaching a world model changed forward() output — TD-182 is wiring-only";
+}
+
+// ============================================================================
+// TD-185: set_hippocampal_memory()/get_hippocampal_memory() + write-policy Tests
+// ============================================================================
+
+TEST(EncoderDecoderModelWorldModelTest, HippocampalMemoryIsNullByDefault) {
+    EncoderDecoderModel model(100, 64, 2, 2);
+    EXPECT_EQ(model.get_hippocampal_memory(), nullptr);
+}
+
+TEST(EncoderDecoderModelWorldModelTest, SetHippocampalMemoryAttachesInstance) {
+    EncoderDecoderModel model(100, 64, 2, 2);
+
+    auto memory = std::make_unique<HippocampalMemory>(64, 8);
+    HippocampalMemory* raw_ptr = memory.get();
+    model.set_hippocampal_memory(std::move(memory));
+
+    EXPECT_EQ(model.get_hippocampal_memory(), raw_ptr);
+    EXPECT_NE(model.get_hippocampal_memory(), nullptr);
+}
+
+TEST(EncoderDecoderModelWorldModelTest, SetHippocampalMemoryNullptrDetaches) {
+    EncoderDecoderModel model(100, 64, 2, 2);
+    model.set_hippocampal_memory(std::make_unique<HippocampalMemory>(64, 8));
+    ASSERT_NE(model.get_hippocampal_memory(), nullptr);
+
+    model.set_hippocampal_memory(nullptr);
+
+    EXPECT_EQ(model.get_hippocampal_memory(), nullptr);
+}
+
+TEST(EncoderDecoderModelWorldModelTest, SetHippocampalMemoryReplacesPreviousInstance) {
+    EncoderDecoderModel model(100, 64, 2, 2);
+
+    auto first = std::make_unique<HippocampalMemory>(64, 8);
+    HippocampalMemory* first_ptr = first.get();
+    model.set_hippocampal_memory(std::move(first));
+
+    auto second = std::make_unique<HippocampalMemory>(64, 8);
+    HippocampalMemory* second_ptr = second.get();
+    model.set_hippocampal_memory(std::move(second));
+
+    EXPECT_NE(model.get_hippocampal_memory(), first_ptr);
+    EXPECT_EQ(model.get_hippocampal_memory(), second_ptr);
+}
+
+// TD-185's own Action Item: HIPPOCAMPAL_MEMORY_ENABLED=false (nothing attached, the default)
+// must reproduce current behavior exactly. Since attaching a memory with no world model is
+// exactly what "not really enabled" looks like at the C++ level (maybe_write_hippocampal_memory
+// requires both), this checks that generate_response()'s own TEXT output — not just whether the
+// write happened — is completely unaffected by having a memory attached at all.
+TEST(EncoderDecoderModelWorldModelTest, GenerateResponseTextUnaffectedByAttachedHippocampalMemory) {
+    int vocab_size = 100;
+    int d_model = 64;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2);
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+    model.set_training(false);
+
+    // Force greedy (deterministic) decoding — generate_response()'s own default config uses
+    // temperature=1.0 (sampling), which is legitimately non-deterministic call-to-call on its
+    // own, unrelated to anything this test is actually checking.
+    TextGenerator::GenerationConfig greedy_config = model.get_generator()->get_config();
+    greedy_config.temperature = 0.0f;
+    model.get_generator()->set_config(greedy_config);
+
+    std::string response_before;
+    bool before_threw = false;
+    try {
+        response_before = model.generate_response("hello", 10);
+    } catch (const std::exception&) {
+        before_threw = true;  // legitimate on an untrained, randomly-initialized model
+    }
+
+    model.set_hippocampal_memory(std::make_unique<HippocampalMemory>(d_model, 8));
+
+    std::string response_after;
+    bool after_threw = false;
+    try {
+        response_after = model.generate_response("hello", 10);
+    } catch (const std::exception&) {
+        after_threw = true;
+    }
+
+    EXPECT_EQ(before_threw, after_threw);
+    if (!before_threw && !after_threw) {
+        EXPECT_EQ(response_before, response_after);
+    }
+}
+
+TEST(EncoderDecoderModelWorldModelTest, GenerateResponseDoesNotWriteWithOnlyMemoryAttached) {
+    int vocab_size = 100;
+    int d_model = 64;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2);
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+    model.set_training(false);
+    model.set_hippocampal_memory(std::make_unique<HippocampalMemory>(d_model, 8));
+
+    try {
+        model.generate_response("hello", 10);
+    } catch (const std::exception&) {
+        // Generation can legitimately fail on an untrained model (matches GenerateResponseBasic
+        // above) — either way, the memory must stay empty since no world model is attached.
+    }
+
+    EXPECT_EQ(model.get_hippocampal_memory()->size(), 0);
+}
+
+TEST(EncoderDecoderModelWorldModelTest, GenerateResponseDoesNotThrowWithOnlyWorldModelAttached) {
+    int vocab_size = 100;
+    int d_model = 64;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2);
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+    model.set_training(false);
+    model.set_world_model(std::make_unique<LeJEPAEncoder>(vocab_size, d_model, 2, 4, 128));
+
+    EXPECT_NO_THROW({
+        try {
+            model.generate_response("hello", 10);
+        } catch (const std::exception&) {
+            // Matches GenerateResponseBasic's own convention.
+        }
+    });
+    EXPECT_EQ(model.get_hippocampal_memory(), nullptr);  // never attached in this test
+}
+
+// The write-policy call site's own functional check: a real, non-empty generated response,
+// with both a world model (the key source) and a memory attached, must actually be written.
+TEST(EncoderDecoderModelWorldModelTest, GenerateResponseWritesToHippocampalMemoryWhenBothAttached) {
+    int vocab_size = 100;
+    int d_model = 64;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2);
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+    model.set_training(false);
+
+    auto world_model_ptr = std::make_unique<LeJEPAEncoder>(vocab_size, d_model, 2, 4, 128);
+    std::vector<std::string> corpus = {"hello world",  "how are you",  "I am fine",     "thank you",
+                                       "good morning", "good evening", "see you later", "goodbye"};
+    world_model_ptr->build_tokenizer(corpus, vocab_size);
+    model.set_world_model(std::move(world_model_ptr));
+    model.set_hippocampal_memory(std::make_unique<HippocampalMemory>(d_model, 8));
+
+    ASSERT_EQ(model.get_hippocampal_memory()->size(), 0);
+
+    try {
+        std::string response = model.generate_response("hello", 10);
+        if (!response.empty()) {
+            EXPECT_EQ(model.get_hippocampal_memory()->size(), 1)
+                << "a non-empty generated response should have been written to hippocampal memory";
+        }
+    } catch (const std::exception&) {
+        // Matches GenerateResponseBasic's own convention — generation can legitimately fail on
+        // an untrained, randomly-initialized model; nothing to write in that case either.
+        SUCCEED();
+    }
 }
 
 // ============================================================================

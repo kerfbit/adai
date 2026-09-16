@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added)
-// @adai-version: 0.14.0
-// @adai-reviewed: 2026-09-15
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added)
+// @adai-version: 0.15.0
+// @adai-reviewed: 2026-09-16
 
 
 #include <functional>
@@ -22,14 +22,16 @@
 #include "gpu/MatrixGPU.hpp"
 #endif
 
-// TD-182: forward-declared rather than #include "LeJEPAEncoder.hpp" — that header pulls in the
-// whole LeJEPA stack (EncoderBlock, Predictor, SIGReg, BPETokenizer, ...), and this class only
-// ever stores/returns a pointer to one, never constructs or calls into one itself (that's the
-// caller's job — see set_world_model()'s own doc comment). ~EncoderDecoderModel() is already
-// declared in this header but defined in the .cpp, where LeJEPAEncoder.hpp is fully included,
-// so std::unique_ptr<LeJEPAEncoder>'s destructor has the complete type it needs at the one
-// place that actually requires it.
+// TD-182/TD-185: forward-declared rather than #include-d directly — LeJEPAEncoder.hpp pulls in
+// the whole LeJEPA stack (EncoderBlock, Predictor, SIGReg, BPETokenizer, ...), and this class
+// only ever stores/returns a pointer to either, doing nothing more with them here than
+// set_world_model()/set_hippocampal_memory()'s own doc comments describe (TD-185's write-policy
+// helper, which does call into both, is defined in the .cpp, where both headers are fully
+// included). ~EncoderDecoderModel() is already declared in this header but defined in the .cpp,
+// so std::unique_ptr<T>'s destructor has the complete type it needs at the one place that
+// actually requires it.
 class LeJEPAEncoder;
+class HippocampalMemory;
 
 /**
  * EncoderDecoderModel - Complete sequence-to-sequence transformer
@@ -74,6 +76,14 @@ class EncoderDecoderModel {
     // (TD-174 through TD-181). Wiring + accessor only — see set_world_model()'s own doc
     // comment for what "wiring" does and, just as importantly, does not yet do.
     std::unique_ptr<LeJEPAEncoder> world_model;
+
+    // TD-185: nullptr (the default) disables the feature entirely, same guarantee as
+    // world_model above. Unlike world_model, this one IS read from — see
+    // maybe_write_hippocampal_memory()'s own doc comment — but only as the write-policy call
+    // site's own destination buffer; nothing here reads it back into generation yet (no
+    // hippocampal-aware LLMDecoder forward path exists to consume it — that's beyond this
+    // item's own scope, same limitation TD-180 already documented for forward_with_cache()).
+    std::unique_ptr<HippocampalMemory> hippocampal_memory;
 
     int vocab_size;
     int d_model;
@@ -156,6 +166,34 @@ class EncoderDecoderModel {
      * @return Gradient matrix [seq_length, vocab_size]
      */
     Matrix compute_loss_gradient(const Matrix& logits, const std::vector<int>& target_tokens);
+
+    /**
+     * TD-185's own write-policy call site: v1 is FIFO always-write, once per generated response
+     * (no salience gating — a documented future extension, matching HippocampalMemory's own
+     * class doc). No-op unless BOTH `world_model` and `hippocampal_memory` are attached — the
+     * world model is the memory's only key source (per the plan's own design: "keys come from
+     * the already-trained, frozen LeJEPAEncoder::encode()"), and a response with nothing to key
+     * off of has nothing meaningful to write. Also a no-op for an empty response.
+     *
+     * `world_model->encode(response_text)` returns per-token embeddings `[seq_len, d_model]`;
+     * mean-pooled here to a single `[1, d_model]` row (the same pooling
+     * `LLMEncoder::get_sentence_embedding()` already uses for a whole-text summary vector),
+     * since `HippocampalMemory::write()` requires exactly `[1, d_model]`. Writes the same pooled
+     * vector as both key and value — the plan's own stated common case ("value... may equal
+     * key").
+     *
+     * Called from `generate_response()`/`generate_response_with_strategy()` only (the two CPU
+     * paths actually exercised/tested in this environment) — `gpu_generate_response()`/
+     * `gpu_generate_response_with_strategy()` do not yet call this, a documented gap matching
+     * TD-180's own "GPU path doesn't support the gated paths yet" precedent.
+     *
+     * Deliberately best-effort: `world_model->encode()` can throw (e.g. its own tokenizer has
+     * no vocabulary loaded) if a caller attaches a world model that was never actually set up
+     * for real use — this is caught and logged rather than propagated, so a broken/half-attached
+     * world model degrades the memory feature, not the response the caller already successfully
+     * generated.
+     */
+    void maybe_write_hippocampal_memory(const std::string& response_text);
 
    public:
     /**
@@ -567,6 +605,27 @@ class EncoderDecoderModel {
     /** @return The attached world model, or nullptr if none is attached. */
     LeJEPAEncoder* get_world_model() {
         return world_model.get();
+    }
+
+    /**
+     * TD-185: attach (or detach) an episodic hippocampal memory (LeJEPA plan Component 5/6,
+     * `HIPPOCAMPAL_MEMORY_ENABLED` config key). Passing `nullptr` disables the feature entirely
+     * and restores exact current behavior — same guarantee every other gated path in this batch
+     * makes. Unlike `set_world_model()`, attaching one here DOES have a real, if narrow, effect:
+     * `generate_response()`/`generate_response_with_strategy()` write a pooled embedding of
+     * their own generated response into it (see `maybe_write_hippocampal_memory()`'s own doc
+     * comment) whenever BOTH this and a world model are attached — the world model is the
+     * memory's own key source, per the plan's own design, so attaching a memory alone (with no
+     * world model) is accepted but has no effect until a world model is also attached. Ownership
+     * transfers to this instance; any previously-attached memory is destroyed.
+     *
+     * @param hm A HippocampalMemory this instance now owns, or nullptr to detach.
+     */
+    void set_hippocampal_memory(std::unique_ptr<HippocampalMemory> hm);
+
+    /** @return The attached hippocampal memory, or nullptr if none is attached. */
+    HippocampalMemory* get_hippocampal_memory() {
+        return hippocampal_memory.get();
     }
 
     /**
