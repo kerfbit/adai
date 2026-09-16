@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added)
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-09-15
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
+// @adai-version: 0.13.0
+// @adai-reviewed: 2026-09-16
 
 #include "Decoder.hpp"
 #include <stdexcept>
@@ -33,12 +33,26 @@ LLMDecoder::LLMDecoder(int vocab_size, int d_model, int num_layers, int num_head
     // knob at its default (0), enable_world_model is always false here, so every DecoderBlock
     // is constructed exactly as it was before this knob existed (see this constructor's own
     // header doc for why 0, not 1, is the right default).
+    //
+    // TD-186: enable_hippocampal now follows the exact same sparse pattern as
+    // enable_world_model, reusing this same knob rather than adding a second injection-
+    // frequency key — the plan's own Training Standard has no separate one for the
+    // hippocampal path ("trained during Phase 1, alongside the world-model gate — not a
+    // separate stage"), and TD-180 built both gated paths side by side in DecoderBlock
+    // expecting exactly this pairing. Before this fix, no LLMDecoder constructor ever passed
+    // enable_hippocampal=true at all (TD-181's own entry deferred it to "TD-185's own job",
+    // but TD-185's own scope turned out to be set_hippocampal_memory()/the write-policy call
+    // site only, not DecoderBlock construction) — meaning HippocampalMemory's own gated
+    // cross-attention was structurally unreachable everywhere, confirmed by TD-186's own pilot
+    // run: mean(tanh(gate_h)) stayed exactly 0 even with a real, non-empty memory attached and
+    // the read-side forward wiring in place, because hippocampal_cross_attention was nullptr on
+    // every block regardless.
     for (int i = 0; i < num_layers; ++i) {
-        bool enable_world_model = (world_model_inject_every_n_layers > 0) &&
-                                  (i % world_model_inject_every_n_layers == 0);
+        bool inject_here =
+            (world_model_inject_every_n_layers > 0) && (i % world_model_inject_every_n_layers == 0);
         decoder_blocks.push_back(std::make_unique<DecoderBlock>(
-            d_model, num_heads, d_ff, /*dropout=*/0.1f, enable_world_model,
-            /*enable_hippocampal=*/false));  // HippocampalMemory wiring is TD-185's own job
+            d_model, num_heads, d_ff, /*dropout=*/0.1f, /*enable_world_model=*/inject_here,
+            /*enable_hippocampal=*/inject_here));
     }
 
     // Initialize final layer normalization
@@ -71,7 +85,10 @@ Matrix LLMDecoder::forward(const std::vector<int>& token_ids) {
 
 // Forward pass with encoder outputs
 Matrix LLMDecoder::forward_with_encoder(const std::vector<int>& token_ids,
-                                        const Matrix& encoder_output) {
+                                        const Matrix& encoder_output,
+                                        const Matrix* world_model_output,
+                                        HippocampalMemory* memory, float repetition_alpha,
+                                        float repetition_decay) {
     int seq_length = static_cast<int>(token_ids.size());
 
     // Cache inputs for backward pass
@@ -94,11 +111,15 @@ Matrix LLMDecoder::forward_with_encoder(const std::vector<int>& token_ids,
     for (int i = 0; i < num_layers; ++i) {
         if (encoder_output.rows > 0 && encoder_output.cols > 0) {
             // Encoder-decoder mode: use cross-attention
-            x = decoder_blocks[i]->forward(x, encoder_output, causal_mask, nullptr);
+            x = decoder_blocks[i]->forward(x, encoder_output, causal_mask, nullptr,
+                                           world_model_output, nullptr, memory, repetition_alpha,
+                                           repetition_decay);
         } else {
             // Decoder-only mode: no cross-attention (pass empty encoder output)
             Matrix empty_encoder(1, d_model);  // Dummy encoder output
-            x = decoder_blocks[i]->forward(x, empty_encoder, causal_mask, nullptr);
+            x = decoder_blocks[i]->forward(x, empty_encoder, causal_mask, nullptr,
+                                           world_model_output, nullptr, memory, repetition_alpha,
+                                           repetition_decay);
         }
         cached_decoder_outputs.push_back(x);
     }

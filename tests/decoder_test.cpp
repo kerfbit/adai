@@ -995,14 +995,37 @@ TEST(DecoderTest, WorldModelInjectionEveryNthLayer) {
     EXPECT_EQ(enabled_count, 2);
 }
 
-TEST(DecoderTest, WorldModelInjectionNeverAllocatesHippocampalPath) {
-    // TD-181 is scoped to the world-model path only — HippocampalMemory wiring is TD-185's job.
+TEST(DecoderTest, WorldModelInjectionAlsoAllocatesHippocampalPathOnTheSameLayers) {
+    // TD-186: no separate injection-frequency knob exists for the hippocampal path — it follows
+    // world_model_inject_every_n_layers's own sparse pattern exactly (see this constructor's own
+    // doc comment for why: found during TD-186's own pilot run that no LLMDecoder constructor
+    // had ever allocated this path at all, since TD-181 deferred it to "TD-185's own job" and
+    // TD-185's actual scope never touched DecoderBlock construction).
+    int vocab_size = 100, d_model = 32, num_layers = 4, num_heads = 4, d_ff = 64;
+    LLMDecoder decoder(vocab_size, d_model, num_layers, num_heads, d_ff, /*max_seq_length=*/512,
+                       /*world_model_inject_every_n_layers=*/2);
+
+    for (int i = 0; i < num_layers; ++i) {
+        bool expected = (i % 2 == 0);
+        EXPECT_EQ(decoder.get_decoder_block(i)->get_hippocampal_cross_attention() != nullptr,
+                 expected)
+            << "layer " << i;
+        // Both gated paths are allocated (or not) together, on the exact same layers.
+        EXPECT_EQ(decoder.get_decoder_block(i)->get_world_model_cross_attention() != nullptr,
+                 expected)
+            << "layer " << i;
+    }
+}
+
+TEST(DecoderTest, WorldModelInjectionDisabledAllocatesNeitherGatedPath) {
     int vocab_size = 100, d_model = 32, num_layers = 3, num_heads = 4, d_ff = 64;
     LLMDecoder decoder(vocab_size, d_model, num_layers, num_heads, d_ff, /*max_seq_length=*/512,
-                       /*world_model_inject_every_n_layers=*/1);
+                       /*world_model_inject_every_n_layers=*/0);
 
     for (int i = 0; i < num_layers; ++i) {
         EXPECT_EQ(decoder.get_decoder_block(i)->get_hippocampal_cross_attention(), nullptr)
+            << "layer " << i;
+        EXPECT_EQ(decoder.get_decoder_block(i)->get_world_model_cross_attention(), nullptr)
             << "layer " << i;
     }
 }
@@ -1015,6 +1038,105 @@ TEST(DecoderTest, WorldModelInjectionRejectsNegativeKnob) {
 TEST(DecoderTest, GetWorldModelInjectEveryNLayersAccessorReflectsConstruction) {
     LLMDecoder decoder(100, 32, 2, 4, 64, 512, /*world_model_inject_every_n_layers=*/3);
     EXPECT_EQ(decoder.get_world_model_inject_every_n_layers(), 3);
+}
+
+// ============================================================================
+// forward_with_encoder()'s world_model_output/memory pass-through (TD-186)
+// ============================================================================
+
+TEST(DecoderTest, ForwardWithEncoderWorldModelOutputIgnoredWhenInjectionDisabled) {
+    // Injection disabled (default) — passing a non-null world_model_output must not change
+    // anything, since no block was constructed with the gated path allocated at all. Compared
+    // via two calls on the SAME instance (so both read identical, already-initialized weights)
+    // rather than two separate instances (which would differ by random init alone).
+    LLMDecoder decoder(100, 32, 2, 4, 64, 512, /*world_model_inject_every_n_layers=*/0);
+    std::vector<int> tokens = {1, 2, 3};
+    Matrix encoder_output(4, 32);
+    for (int i = 0; i < encoder_output.rows; ++i)
+        for (int j = 0; j < encoder_output.cols; ++j) encoder_output(i, j) = 0.1f * (i + j);
+
+    Matrix baseline = decoder.forward_with_encoder(tokens, encoder_output);
+
+    Matrix wm_output(3, 32);
+    for (int i = 0; i < wm_output.rows; ++i)
+        for (int j = 0; j < wm_output.cols; ++j) wm_output(i, j) = 5.0f;
+    Matrix with_wm = decoder.forward_with_encoder(tokens, encoder_output, &wm_output);
+
+    EXPECT_TRUE(matrices_equal(baseline, with_wm));
+}
+
+TEST(DecoderTest, ForwardWithEncoderWorldModelOutputNoOpWhenGateZero) {
+    // TD-186's own critical guarantee, at the LLMDecoder level: injection enabled (gated blocks
+    // allocated) but gate left at its construction default (0.0f) must reproduce the exact same
+    // output as no world_model_output at all — this is the plan's own "mandatory first
+    // checkpoint" for Phase 1 fine-tuning (diff WORLD_MODEL_ENABLED=true vs =false before any
+    // gate training happens).
+    LLMDecoder decoder(100, 32, 2, 4, 64, 512, /*world_model_inject_every_n_layers=*/1);
+    std::vector<int> tokens = {1, 2, 3};
+    Matrix encoder_output(4, 32);
+    for (int i = 0; i < encoder_output.rows; ++i)
+        for (int j = 0; j < encoder_output.cols; ++j) encoder_output(i, j) = 0.1f * (i + j);
+
+    Matrix without_wm = decoder.forward_with_encoder(tokens, encoder_output);
+
+    Matrix wm_output(3, 32);
+    for (int i = 0; i < wm_output.rows; ++i)
+        for (int j = 0; j < wm_output.cols; ++j) wm_output(i, j) = 5.0f;
+    Matrix with_wm = decoder.forward_with_encoder(tokens, encoder_output, &wm_output);
+
+    EXPECT_TRUE(matrices_equal(without_wm, with_wm));
+}
+
+TEST(DecoderTest, ForwardWithEncoderWorldModelOutputChangesOutputWhenGateNonzero) {
+    // Once the gate is actually opened, a real world_model_output must change the output —
+    // confirming the wiring genuinely reaches the gated cross-attention, not just no-ops safely.
+    LLMDecoder decoder(100, 32, 2, 4, 64, 512, /*world_model_inject_every_n_layers=*/1);
+    decoder.get_decoder_block(0)->set_gate(1.0f);
+
+    std::vector<int> tokens = {1, 2, 3};
+    Matrix encoder_output(4, 32);
+    for (int i = 0; i < encoder_output.rows; ++i)
+        for (int j = 0; j < encoder_output.cols; ++j) encoder_output(i, j) = 0.1f * (i + j);
+
+    Matrix without_wm = decoder.forward_with_encoder(tokens, encoder_output);
+
+    Matrix wm_output(3, 32);
+    for (int i = 0; i < wm_output.rows; ++i)
+        for (int j = 0; j < wm_output.cols; ++j) wm_output(i, j) = 5.0f;
+    Matrix with_wm = decoder.forward_with_encoder(tokens, encoder_output, &wm_output);
+
+    EXPECT_FALSE(matrices_equal(without_wm, with_wm));
+}
+
+TEST(DecoderTest, ForwardWithEncoderHippocampalMemoryNoOpWhenGateHZero) {
+    // Same guarantee as the world-model test above, for the hippocampal path: memory attached
+    // and non-empty, gate_h left at 0.0f, must reproduce the no-memory output exactly.
+    LLMDecoder decoder(100, 32, 2, 4, 64, 512, /*world_model_inject_every_n_layers=*/0);
+    // world_model_inject_every_n_layers only gates the world-model path; the hippocampal path
+    // needs its own DecoderBlock constructed with enable_hippocampal=true, which no LLMDecoder
+    // constructor knob allocates yet (TD-181 scoped that to the world-model path only) — so this
+    // test exercises the pass-through at the LLMDecoder level with a real HippocampalMemory,
+    // confirming it's accepted and does not crash or alter output when no block has the
+    // hippocampal path allocated (the same "safe regardless of allocation" guarantee the
+    // world-model no-op test above documents).
+    HippocampalMemory memory(32, /*capacity=*/4);
+    Matrix key(1, 32), value(1, 32);
+    for (int j = 0; j < 32; ++j) {
+        key(0, j) = 0.2f;
+        value(0, j) = 0.2f;
+    }
+    memory.write(key, value);
+
+    std::vector<int> tokens = {1, 2, 3};
+    Matrix encoder_output(4, 32);
+    for (int i = 0; i < encoder_output.rows; ++i)
+        for (int j = 0; j < encoder_output.cols; ++j) encoder_output(i, j) = 0.1f * (i + j);
+
+    Matrix without_memory = decoder.forward_with_encoder(tokens, encoder_output);
+    Matrix with_memory =
+        decoder.forward_with_encoder(tokens, encoder_output, nullptr, &memory, 0.0f, 0.95f);
+
+    EXPECT_TRUE(matrices_equal(without_memory, with_memory));
 }
 
 // ============================================================================

@@ -1,7 +1,7 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added)
-// @adai-version: 0.15.0
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
+// @adai-version: 0.17.0
 // @adai-reviewed: 2026-09-16
 
 
@@ -73,17 +73,26 @@ class EncoderDecoderModel {
 
     // TD-182: nullptr (the default — nothing constructs one here) disables the feature
     // entirely, same no-breaking-changes guarantee as every other gated path in this batch
-    // (TD-174 through TD-181). Wiring + accessor only — see set_world_model()'s own doc
-    // comment for what "wiring" does and, just as importantly, does not yet do.
+    // (TD-174 through TD-181). TD-186 wired this into forward()'s own gated cross-attention
+    // path (see forward()'s doc comment) and generate_response()/
+    // generate_response_with_strategy()'s beam branches — every other entry point
+    // (forward_with_cache()'s own non-beam strategies, the GPU path) still does not consume it,
+    // the same documented limitation TD-180 already noted for those paths.
     std::unique_ptr<LeJEPAEncoder> world_model;
 
     // TD-185: nullptr (the default) disables the feature entirely, same guarantee as
-    // world_model above. Unlike world_model, this one IS read from — see
-    // maybe_write_hippocampal_memory()'s own doc comment — but only as the write-policy call
-    // site's own destination buffer; nothing here reads it back into generation yet (no
-    // hippocampal-aware LLMDecoder forward path exists to consume it — that's beyond this
-    // item's own scope, same limitation TD-180 already documented for forward_with_cache()).
+    // world_model above. TD-186 wired the read side into the same forward()/beam-generation
+    // paths as world_model above (see forward()'s doc comment) — the write side
+    // (maybe_write_hippocampal_memory()) is unchanged from TD-185.
     std::unique_ptr<HippocampalMemory> hippocampal_memory;
+
+    // TD-186: repetition-penalty parameters for hippocampal_memory's own gated cross-attention
+    // (DecoderBlock's repetition_alpha/repetition_decay, TD-180) — set via
+    // set_hippocampal_repetition_params() below, read every forward() call. Defaults match
+    // HIPPOCAMPAL_REPETITION_ALPHA/_DECAY's own documented config defaults (config.trainer.conf):
+    // alpha=0.0 makes the penalty an explicit opt-in magnitude, not just on/off.
+    float hippocampal_repetition_alpha_{0.0f};
+    float hippocampal_repetition_decay_{0.95f};
 
     int vocab_size;
     int d_model;
@@ -206,10 +215,16 @@ class EncoderDecoderModel {
      * @param num_heads Number of attention heads
      * @param d_ff Feed-forward dimension
      * @param max_seq_length Maximum sequence length
+     * @param world_model_inject_every_n_layers (TD-186) Threaded straight through to
+     *   LLMDecoder's own constructor parameter of the same name (TD-181) — 0 (default) allocates
+     *   no gated world-model/hippocampal cross-attention path on any decoder block, reproducing
+     *   every pre-existing caller's behavior exactly. N >= 1 gates every Nth decoder block,
+     *   ready for set_world_model()/set_hippocampal_memory() to actually populate at forward
+     *   time (see forward()'s own doc comment).
      */
     EncoderDecoderModel(int vocab_size, int d_model = 512, int encoder_layers = 6,
                         int decoder_layers = 6, int num_heads = 8, int d_ff = 2048,
-                        int max_seq_length = 512);
+                        int max_seq_length = 512, int world_model_inject_every_n_layers = 0);
 
     /**
      * Destructor
@@ -591,12 +606,14 @@ class EncoderDecoderModel {
     /**
      * TD-182: attach (or detach) a pretrained, frozen world model (LeJEPA plan Component 7).
      * Passing `nullptr` disables the feature entirely and restores exact current behavior —
-     * same guarantee every other gated path in this batch (TD-174 through TD-181) makes. This
-     * is wiring + an accessor only: it does not itself pass `world_model->encode(...)` into any
-     * `DecoderBlock::forward()` call, register the world model's own parameters with an
-     * optimizer, or touch the training loop in any way — those are later items' own jobs (this
-     * class's `forward()`/`backward()` are unmodified by this item). Ownership transfers to
-     * this instance; any previously-attached world model is destroyed.
+     * same guarantee every other gated path in this batch (TD-174 through TD-181) makes.
+     * TD-186 wired `world_model->encode(...)`'s output into `forward()`'s own gated
+     * `DecoderBlock::forward()` calls (see `forward()`'s doc comment) — this method itself
+     * remains pure storage: it does not register the world model's own parameters with an
+     * optimizer (Phase 1 fine-tuning freezes it, per the plan's own Training Standard —
+     * `LeJEPAEncoder::set_requires_grad(false)`, the caller's job) or touch anything beyond the
+     * `world_model` member itself. Ownership transfers to this instance; any previously-attached
+     * world model is destroyed.
      *
      * @param wm A LeJEPAEncoder this instance now owns, or nullptr to detach.
      */
@@ -629,7 +646,34 @@ class EncoderDecoderModel {
     }
 
     /**
+     * TD-186: repetition-penalty parameters forwarded to DecoderBlock's own gated hippocampal
+     * cross-attention on every forward() call (HIPPOCAMPAL_REPETITION_ALPHA/_DECAY config
+     * keys). Defaults (0.0/0.95) match config.trainer.conf's own documented defaults — alpha=0.0
+     * makes the penalty an explicit opt-in magnitude, not just on/off. Has no effect unless both
+     * a world model and a hippocampal memory are attached and the decoder has gated layers
+     * (world_model_inject_every_n_layers >= 1 at construction).
+     */
+    void set_hippocampal_repetition_params(float alpha, float decay) {
+        hippocampal_repetition_alpha_ = alpha;
+        hippocampal_repetition_decay_ = decay;
+    }
+
+    /**
      * Forward pass through complete model (for custom training loops)
+     *
+     * TD-186: when a world model is attached, this decodes `input_tokens` back to text via
+     * this model's own tokenizer and feeds it through `world_model->encode()`, threading the
+     * result into every gated decoder block's own world-model cross-attention (a no-op on
+     * blocks that weren't constructed with one — see DecoderBlock::forward()'s own guard).
+     * Round-tripping through decode() rather than requiring a separate text parameter keeps
+     * this method's own signature — and every existing caller, including the real production
+     * path in ChatbotTrainer.cpp, which only ever has token ids at this call site — completely
+     * unchanged; an imperfect BPE round-trip is an accepted simplification (the world model only
+     * needs *a* textual representation to attend over, not an exact reconstruction). When a
+     * hippocampal memory is attached, it (and set_hippocampal_repetition_params()'s own alpha/
+     * decay) are threaded through unconditionally, independent of the world-model path — reading
+     * stored memory doesn't need this call's own input text. Both paths are strictly additive:
+     * with neither attached (the default), this call is byte-for-byte identical to before TD-186.
      *
      * @param input_tokens Input token IDs
      * @param target_tokens Target token IDs (for teacher forcing)

@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-09-16
 
 
@@ -450,23 +450,32 @@ struct ServiceConfig {
     int trainer_child_admin_port = 8085;
 
     // ============================================================
-    // World-Model (LeJEPA) Pretraining Configuration (TD-183)
-    // Read by `incremental_trainer --objective=lejepa train` only (see
-    // docs/proposals/lejepa_world_model_gated_injection_plan.md's Phase 0). Entirely
-    // independent of the D_MODEL/NUM_HEADS/etc. fallback block above, which sizes the
-    // *chatbot* model — the world model is deliberately its own, separately-sized
-    // architecture (own MNS ModelRecord too, once TD-184 lands), not coupled to whatever
-    // the chatbot happens to be trained at. Not read by the plain chatbot teacher-forcing
-    // objective at all, so leaving these at their defaults has zero effect on it.
+    // World-Model (LeJEPA) Pretraining + Injection Configuration (TD-183/TD-186)
+    // Read by `incremental_trainer --objective=lejepa train` (Phase 0 pretraining) AND by the
+    // plain chatbot objective's own `IncrementalTrainer::build_model()` (Phase 1 attachment —
+    // TD-186), matching the plan's own framing of `WORLD_MODEL_ENABLED` as one master switch
+    // covering both training and inference-time use ("toggles the feature off entirely at
+    // inference", Evaluation standard). Entirely independent of the D_MODEL/NUM_HEADS/etc.
+    // fallback block above, which sizes the *chatbot* model — the world model is deliberately
+    // its own, separately-sized architecture (own MNS ModelRecord too, per TD-184), EXCEPT for
+    // one hard constraint: world_model_d_model MUST equal d_model whenever
+    // world_model_inject_every_n_layers > 0, because the gated cross-attention
+    // (DecoderBlock's own world_model_cross_attention, TD-180) is constructed with the
+    // chatbot's own d_model on both the query and kv-projection sides — CrossAttention has no
+    // separate kv-dimension parameter (see its own constructor). Leaving these at their
+    // defaults with world_model_enabled=false has zero effect on the plain chatbot objective.
     // ============================================================
 
-    /// Master switch (default: false). `--objective=lejepa` refuses to start when this is
-    /// false, same "opt-in, off by default" guarantee every other LeJEPA-batch gated path
-    /// in this codebase makes (world_model_inject_every_n_layers, HIPPOCAMPAL_MEMORY_ENABLED).
+    /// Master switch (default: false). Gates BOTH `--objective=lejepa` (refuses to start when
+    /// false) AND the plain chatbot objective's own attachment of a pretrained world model
+    /// (skipped entirely when false) — same "opt-in, off by default" guarantee every other
+    /// LeJEPA-batch gated path in this codebase makes.
     bool world_model_enabled = false;
 
     /// World-model embedding dimension (default: 512 — matches LeJEPAEncoder's own
-    /// constructor default and the plan's own recommended config-level value).
+    /// constructor default and the plan's own recommended config-level value). See this
+    /// block's own doc comment above for the world_model_d_model == d_model constraint that
+    /// applies once injection is actually enabled.
     size_t world_model_d_model = 512;
 
     /// Number of world-model encoder layers (default: 6).
@@ -497,11 +506,33 @@ struct ServiceConfig {
     /// every existing caller that never mentions the world model at all is unaffected; see
     /// TD-181's own resolved-archive entry for that constructor-vs-config-default distinction).
     /// Not read by `--objective=lejepa` itself (which only trains the standalone encoder, no
-    /// decoder in the loop) — wiring this into the chatbot's own EncoderDecoderModel/LLMDecoder
-    /// construction is a later TD's job (TD-184 and beyond), filed here now purely to keep the
-    /// whole WORLD_MODEL_* key block together per CLAUDE.md's "architecturally significant
-    /// keys" convention.
-    size_t world_model_inject_every_n_layers = 1;
+    /// decoder in the loop) — read by `IncrementalTrainer::build_model()` (TD-186) to decide
+    /// whether/how densely the chatbot's own decoder gets gated blocks constructed at all.
+    size_t world_model_inject_every_n_layers = 0;
+
+    // ============================================================
+    // Hippocampal Memory Configuration (TD-185 filed the keys; TD-186 wires them)
+    // Read by IncrementalTrainer::build_model() (chatbot objective only) to decide whether to
+    // construct and attach a HippocampalMemory instance, and with what repetition-penalty
+    // parameters. Requires world_model_enabled=true and a successfully-attached world model —
+    // per the plan's own design, the memory's keys come from the world model's own encode(), so
+    // enabling this without a world model attached has no effect (same guarantee
+    // maybe_write_hippocampal_memory() already makes for the write side, TD-185).
+    // ============================================================
+
+    /// Master switch (default: false) — same opt-in guarantee as world_model_enabled.
+    bool hippocampal_memory_enabled = false;
+
+    /// Ring-buffer capacity (default: 512, matching config.trainer.conf's documented default).
+    size_t hippocampal_memory_capacity = 512;
+
+    /// Attention-level repetition-penalty growth rate (DecoderBlock's own gated hippocampal
+    /// cross-attention, TD-180). Default: 0.0 — an explicit opt-in magnitude, not just on/off,
+    /// so a pilot can sweep it (TD-186's own Action Item) rather than committing up front.
+    float hippocampal_repetition_alpha = 0.0f;
+
+    /// Per-decode-step coverage decay, 0 < gamma <= 1 (default: 0.95). 1.0 disables decay.
+    float hippocampal_repetition_decay = 0.95f;
 
     // ============================================================
     // Auto-save / Checkpoint Retention Configuration

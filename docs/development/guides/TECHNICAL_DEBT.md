@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 16, 2026
-**Total Items:** 14
+**Total Items:** 13
 **High Priority:** 1
-**Medium Priority:** 8
+**Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 172
+**Resolved Items:** 173
 **Deferred Decisions:** 3
 
 **September 15, 2026:** Filed TD-174 through TD-186 (13 items) — the construction pieces of
@@ -147,18 +147,19 @@ operational: an actual live deployed host still needs its own systemd unit and b
 cut over, which is outside a coding session's reach — same category as TD-047's release cut or
 TD-033/TD-050's hardware-blocked validation.
 
-**Tier 10 — Newly filed, large exploratory research batch (LeJEPA world model + hippocampal
-memory):** TD-174 through
-[TD-186](#td-186-lejepa--hippocampal-memory-pilot-run) (13 items, filed September 15, 2026 from
-[lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md)).
-None of this exists yet, and the whole batch sits below every item in Tiers 1-9 in real urgency —
-the plan's own Status line calls it "research/pilot stage, not yet scoped for full
-implementation," and its Risks section treats "the gate never opens" as a legitimate, useful
-outcome rather than a failure — but 13 interdependent items is exactly the case this section
-exists for, so it still needs its own internal sequencing. Re-derived directly from each entry's
-own "Depends on" statement, not copied from the plan doc's own bullet order (which interleaves two
-logically-parallel tracks — LeJEPA/"cortical" and hippocampal/"episodic" — into one linear reading
-sequence and is worth checking against, not trusting blindly, per this section's own opening note):
+**Tier 10 — RESOLVED IN FULL (September 15-16, 2026): large exploratory research batch (LeJEPA
+world model + hippocampal memory).** TD-174 through
+[TD-186](../archive/TECHNICAL_DEBT_RESOLVED.md#td-186-lejepa--hippocampal-memory-pilot-run) (13
+items, filed September 15, 2026 from
+[lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md)),
+built and pilot-tested across two days — the plan's own Status line called it "research/pilot
+stage, not yet scoped for full implementation," and its Risks section treated "the gate never
+opens" as a legitimate, useful outcome rather than a failure; TD-186's own pilot run landed
+exactly there (no-go at toy scale, mechanism proven sound — see that item's own archive entry).
+The sequencing below is kept as a historical record of how 13 interdependent items were actually
+staged, re-derived directly from each entry's own "Depends on" statement rather than copied from
+the plan doc's own bullet order (which interleaves two logically-parallel tracks — LeJEPA/
+"cortical" and hippocampal/"episodic" — into one linear reading sequence):
 
 - **Level 0 — fully standalone, startable immediately, in any order:** all three items originally
   at this level are now resolved, same day (September 15, 2026): **TD-174
@@ -204,33 +205,32 @@ sequence and is worth checking against, not trusting blindly, per this section's
   **TD-184 (World-Model MNS Registration + Checkpointing) — resolved September 16, 2026** (see
   [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-184-world-model-mns-registration--checkpointing))
   — needed TD-177 and TD-183, both already resolved by the time this was picked up.
-- **Level 5 — the pilot, and this batch's actual go/no-go gate:**
-  [TD-186](#td-186-lejepa--hippocampal-memory-pilot-run) (10-14h) — explicitly not startable until
-  everything above is done. Its own Description already frames "the gate never opens" or "the
-  repetition penalty shows no diversity improvement" as legitimate results, not failures — worth
-  restating here since this is the one item in the batch that isn't "build the thing," it's "find
-  out whether the thing was worth building."
+- **Level 5 — the pilot, and this batch's actual go/no-go gate: TD-186 — resolved September 16,
+  2026** (see
+  [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-186-lejepa--hippocampal-memory-pilot-run)).
+  Result: **no-go on this pilot's own toy-scale numbers, but not because the machinery is
+  broken** — the pilot investigation itself found and fixed two real, previously-invisible gaps
+  (no `LLMDecoder`/`EncoderDecoderModel` forward-pass ever actually threaded `world_model_output`
+  into a gated `DecoderBlock`; no constructor ever allocated the hippocampal gated path at all)
+  before either gate could be exercised for the first time. With both fixed, `mean(tanh(gate))`/
+  `mean(tanh(gate_h))` both move under gradient (confirmed both by unit test and by this pilot's
+  own live run) but only by ~0.01–0.05 after 40 toy-corpus epochs — noise-level for a 32-dim,
+  2-layer model, not a clear "opens meaningfully" signal — and the beam-generation diversity
+  comparison the plan's own Evaluation standard calls for came back inconclusive because
+  generation collapsed to empty output across *every* configuration tested, baseline included,
+  a known risk of teacher-forcing a tiny model on a handful of repetitive synthetic examples with
+  no dropout/regularization, not a symptom of the gated paths themselves. Same category of
+  environment limit as TD-059's blocked retrain: the code path is now sound end-to-end, but a
+  decisive answer needs real production data/checkpoint scale, not available in this sandbox.
 
-Total estimated effort across the 1 remaining active item: 10-14 hours (TD-174 through TD-185
-all now resolved, September 15-16, 2026 — see
-[TD-174](../archive/TECHNICAL_DEBT_RESOLVED.md#td-174-crossattentionforward_with_scores-score-bias-entry-point),
-[TD-175](../archive/TECHNICAL_DEBT_RESOLVED.md#td-175-sigreg-sketched-isotropic-gaussian-regularization),
-[TD-176](../archive/TECHNICAL_DEBT_RESOLVED.md#td-176-predictor-embedding-space-predictor),
-[TD-177](../archive/TECHNICAL_DEBT_RESOLVED.md#td-177-lejepaencoder-construction),
-[TD-178](../archive/TECHNICAL_DEBT_RESOLVED.md#td-178-lejepaencodertrain_step-self-supervised-training-loop),
-[TD-179](../archive/TECHNICAL_DEBT_RESOLVED.md#td-179-hippocampalmemory-buffer),
-[TD-180](../archive/TECHNICAL_DEBT_RESOLVED.md#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized),
-[TD-181](../archive/TECHNICAL_DEBT_RESOLVED.md#td-181-sparse-world-model-injection-knob),
-[TD-182](../archive/TECHNICAL_DEBT_RESOLVED.md#td-182-encoderdecodermodelset_world_model),
-[TD-183](../archive/TECHNICAL_DEBT_RESOLVED.md#td-183-incremental_trainer---objectivelejepa-mode--world-model-config-keys),
-[TD-184](../archive/TECHNICAL_DEBT_RESOLVED.md#td-184-world-model-mns-registration--checkpointing), and
-[TD-185](../archive/TECHNICAL_DEBT_RESOLVED.md#td-185-hippocampalmemory-wiring--config--write-policy-call-site);
-sum of the rest matches the Statistics section's own total below) — down from comparable-to-the-
-entire-rest-of-the-backlog to just TD-186, this batch's own final go/no-go gate. If
-[reasoning_process_plan.md](../../proposals/reasoning_process_plan.md)'s own
-chunks are also in scope, see that plan's interaction notes referenced from TD-180 (`RP-2a`,
-phase-conditioned gates) and TD-186 (`RP-3`/`RP-6`, joint pilot) before committing to a sequence
-that ignores it.
+This closes out Tier 10 in full — **all 13 items (TD-174 through TD-186) are now resolved**, first
+landing September 15, 2026 and closing September 16, 2026. See each item's own archive entry
+(linked from its own line above) for the individual verification writeups; TD-186's own entry
+carries the pilot's full numbers and the two forward-pass-wiring fixes it found along the way. If
+[reasoning_process_plan.md](../../proposals/reasoning_process_plan.md)'s own chunks are ever
+picked up, see that plan's interaction notes referenced from TD-180 (`RP-2a`, phase-conditioned
+gates) and TD-186 (`RP-3`/`RP-6`, joint pilot) — that plan itself remains unstarted, independent
+of this tier closing.
 
 ## Table of Contents
 
@@ -251,8 +251,7 @@ that ignores it.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-  - [TD-186: LeJEPA + Hippocampal Memory Pilot Run](#td-186-lejepa--hippocampal-memory-pilot-run)
-- [Resolved Items](#resolved-items) (172 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (173 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -1894,46 +1893,6 @@ another branch of one large `main()` instead of becoming its own focused binary)
 
 ---
 
-### TD-186: LeJEPA + Hippocampal Memory Pilot Run
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Planned | World Model / Memory (LeJEPA) | September 15, 2026 | 10-14 hours |
-
-Description:
-Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#evaluation-standard)
-(chunks `LJ-5`/`HM-5`) — not yet built, and not startable until TD-174 through TD-185 are done.
-Small `d_model`/`num_layers` (toy sizes, e.g. matching `EncoderDecoderExample.cpp`), on a subset
-of existing training data. This is the plan's own go/no-go signal, not a code-completeness
-checkbox: produces the world-model `mean(tanh(gate))` readout, the hippocampal
-`mean(tanh(gate_h))`/`mean(coverage)` readout swept across a few `HIPPOCAMPAL_REPETITION_ALPHA`
-values, and the distinct-n/self-BLEU repetition-diversity comparison the proposal's Evaluation
-standard calls for. A gate that never opens, or a repetition penalty that shows no diversity
-improvement over `alpha=0`, is this item's legitimate possible outcome, not a failure to close
-it — see the proposal's own "Risks / Open Questions" section. If
-[reasoning_process_plan.md](../../proposals/reasoning_process_plan.md)'s `RP-3` (Stage 1 SFT) has
-also landed, run jointly with that plan's `RP-6` as one combined pilot rather than separate ones.
-
-Action Items:
-
-- [ ] Run Phase 1 fine-tuning (frozen world model, gates start at 0) and confirm the mandatory
-  first checkpoint: `WORLD_MODEL_ENABLED=true` output matches `=false` output exactly before any
-  gate training happens
-- [ ] Sweep `HIPPOCAMPAL_REPETITION_ALPHA` (including `0.0`) and record `mean(tanh(gate_h))`/
-  `mean(coverage)` per setting
-- [ ] Compute distinct-n/self-BLEU at each alpha setting; confirm the penalty earns its
-  complexity (diversity improves at `alpha > 0` vs. `alpha = 0` with memory otherwise enabled)
-- [ ] Confirm `ENABLE_GENERATION_QUALITY_METRICS` BLEU/ROUGE does not regress vs. baseline
-- [ ] Write up the go/no-go result (proceed to Phase 2 joint fine-tuning, or stop here) —
-  either outcome closes this item
-
-Files to Modify:
-
-- None expected beyond training-session artifacts under `training_sessions/` (gitignored) and
-  this document (resolution write-up)
-
----
-
 ## Resolved Items
 
 160 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -2448,15 +2407,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 14 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 13 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|1|7%|
-|Medium|8|57%|
-|Low|5|36%|
+|High|1|8%|
+|Medium|7|54%|
+|Low|5|38%|
 
-**Total Active Items:** 14
+**Total Active Items:** 13
 
 ### By Component
 
@@ -2474,7 +2433,6 @@ Recomputed directly from the 14 `### TD-NNN` entries under [Active Technical Deb
 |Android / Testing|1|
 |Documentation|1|
 |Training / Deployment / Tooling|1|
-|World Model / Memory (LeJEPA)|1|
 
 ### Effort Distribution
 
@@ -2483,10 +2441,10 @@ Recomputed directly from the 14 `### TD-NNN` entries under [Active Technical Deb
 |0-2 hours|0|
 |2-4 hours|1|
 |4-8 hours|3|
-|8+ hours|7|
+|8+ hours|6|
 |Not estimated|3|
 
-**Total Estimated Effort (Active Items):** 130-192 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate; the remaining 1 item from the TD-174 through TD-186 batch — TD-174 through TD-185 all now resolved — adds an estimated 10-14 hours)
+**Total Estimated Effort (Active Items):** 120-178 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

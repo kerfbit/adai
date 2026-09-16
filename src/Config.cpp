@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-09-16
 
 #include "Config.hpp"
@@ -388,6 +388,18 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.world_model_sigreg_num_sketches = std::stoul(value);
             } else if (key == "WORLD_MODEL_INJECT_EVERY_N_LAYERS") {
                 config.world_model_inject_every_n_layers = std::stoul(value);
+                // Hippocampal memory configuration (TD-185 filed; TD-186 wires)
+            } else if (key == "HIPPOCAMPAL_MEMORY_ENABLED") {
+                std::string lower = value;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                config.hippocampal_memory_enabled =
+                    (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+            } else if (key == "HIPPOCAMPAL_MEMORY_CAPACITY") {
+                config.hippocampal_memory_capacity = std::stoul(value);
+            } else if (key == "HIPPOCAMPAL_REPETITION_ALPHA") {
+                config.hippocampal_repetition_alpha = std::stof(value);
+            } else if (key == "HIPPOCAMPAL_REPETITION_DECAY") {
+                config.hippocampal_repetition_decay = std::stof(value);
                 // Auto-save / checkpoint retention configuration
             } else if (key == "AUTO_SAVE_ENABLED") {
                 std::string lower = value;
@@ -827,6 +839,20 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
         config.world_model_inject_every_n_layers = *val;
     }
 
+    // Hippocampal memory configuration (TD-185 filed; TD-186 wires)
+    if (auto val = get_env_bool("HIPPOCAMPAL_MEMORY_ENABLED")) {
+        config.hippocampal_memory_enabled = *val;
+    }
+    if (auto val = get_env_size_t("HIPPOCAMPAL_MEMORY_CAPACITY")) {
+        config.hippocampal_memory_capacity = *val;
+    }
+    if (auto val = get_env_float("HIPPOCAMPAL_REPETITION_ALPHA")) {
+        config.hippocampal_repetition_alpha = *val;
+    }
+    if (auto val = get_env_float("HIPPOCAMPAL_REPETITION_DECAY")) {
+        config.hippocampal_repetition_decay = *val;
+    }
+
     // Auto-save / checkpoint retention
     if (auto val = get_env_bool("AUTO_SAVE_ENABLED")) {
         config.auto_save_enabled = *val;
@@ -1148,6 +1174,42 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
         errors.push_back("Invalid world_model_sigreg_num_sketches: " +
                          std::to_string(config.world_model_sigreg_num_sketches) +
                          " (must be 1-4096)");
+        valid = false;
+    }
+    // TD-186: DecoderBlock's own gated world-model cross-attention is constructed with the
+    // chatbot's own d_model on both the query and kv-projection sides (CrossAttention has no
+    // separate kv-dimension parameter) — a mismatch here would crash deep inside a matrix
+    // multiply the first time a gated layer actually runs, rather than at config-load time with
+    // a clear message. Only checked once injection is actually requested; a world model
+    // pretrained at a different size with injection left at 0 (the default) is unaffected.
+    if (config.world_model_inject_every_n_layers > 0 &&
+        config.world_model_d_model != config.d_model) {
+        errors.push_back(
+            "world_model_d_model (" + std::to_string(config.world_model_d_model) +
+            ") must equal d_model (" + std::to_string(config.d_model) +
+            ") whenever world_model_inject_every_n_layers > 0 (currently " +
+            std::to_string(config.world_model_inject_every_n_layers) +
+            ") — DecoderBlock's gated world-model cross-attention has no separate kv-dimension");
+        valid = false;
+    }
+
+    // Validate hippocampal memory parameters (TD-185 filed; TD-186 wires)
+    if (config.hippocampal_memory_capacity < 1 || config.hippocampal_memory_capacity > 65536) {
+        errors.push_back("Invalid hippocampal_memory_capacity: " +
+                         std::to_string(config.hippocampal_memory_capacity) +
+                         " (must be 1-65536)");
+        valid = false;
+    }
+    if (config.hippocampal_repetition_alpha < 0.0f) {
+        errors.push_back("Invalid hippocampal_repetition_alpha: " +
+                         std::to_string(config.hippocampal_repetition_alpha) +
+                         " (must be >= 0.0)");
+        valid = false;
+    }
+    if (config.hippocampal_repetition_decay <= 0.0f || config.hippocampal_repetition_decay > 1.0f) {
+        errors.push_back("Invalid hippocampal_repetition_decay: " +
+                         std::to_string(config.hippocampal_repetition_decay) +
+                         " (must be in (0.0, 1.0])");
         valid = false;
     }
 

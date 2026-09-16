@@ -1,5 +1,5 @@
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added)
-// @adai-version: 0.16.0
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
+// @adai-version: 0.17.0
 // @adai-reviewed: 2026-09-16
 
 #include "EncoderDecoderModel.hpp"
@@ -33,7 +33,8 @@ constexpr int32_t kConfigFormatVersion = 2;  // 2 = Pre-LN EncoderBlock/DecoderB
 // Constructor
 EncoderDecoderModel::EncoderDecoderModel(int vocab_size, int d_model, int encoder_layers,
                                          int decoder_layers, int num_heads, int d_ff,
-                                         int max_seq_length)
+                                         int max_seq_length,
+                                         int world_model_inject_every_n_layers)
     : vocab_size(vocab_size),
       d_model(d_model),
       encoder_layers(encoder_layers),
@@ -50,7 +51,7 @@ EncoderDecoderModel::EncoderDecoderModel(int vocab_size, int d_model, int encode
 
     // Initialize decoder
     decoder = std::make_unique<LLMDecoder>(vocab_size, d_model, decoder_layers, num_heads, d_ff,
-                                           max_seq_length);
+                                           max_seq_length, world_model_inject_every_n_layers);
 
     // Initialize language model head
     lm_head = std::make_unique<LanguageModelHead>(d_model, vocab_size);
@@ -206,6 +207,31 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
     }
     cached_encoder_output = encoder->encode_with_mask(input_tokens, encoder_mask);
 
+    // TD-186: gated world-model cross-attention wiring — see forward()'s own doc comment
+    // (EncoderDecoderModel.hpp) for the full rationale; the reasoning is identical here, minus
+    // the decode-back trick since input_text is already this call's own parameter. Computed
+    // once per call (not per beam step) since the input doesn't change across steps — captured
+    // by value (a raw pointer into world_model_encoding, which outlives beam_model_fn's own
+    // usage within this call) into beam_model_fn below. Only beam search (this branch and
+    // generate_response_with_strategy()'s own beam branch) exercises the gated path at
+    // inference time — the non-beam, KV-cached model_fn further down uses
+    // forward_with_cache(), which does not support either gated path (TD-180's own documented
+    // limitation).
+    Matrix world_model_encoding;
+    const Matrix* world_model_output_ptr = nullptr;
+    if (world_model && !input_text.empty()) {
+        try {
+            world_model_encoding = world_model->encode(input_text);
+            if (world_model_encoding.rows > 0) {
+                world_model_output_ptr = &world_model_encoding;
+            }
+        } catch (const std::exception& e) {
+            Logger::warn("EncoderDecoderModel::generate_response(): world-model encode skipped "
+                        "({})",
+                        e.what());
+        }
+    }
+
     // TD-050 follow-up (September 14, 2026): beam search explores multiple diverging token-
     // sequence hypotheses by calling model_fn once per beam per step with that beam's own
     // sequence; a single shared DecoderKVCache has no way to correctly serve more than one
@@ -225,10 +251,13 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
         // generate_response_with_strategy()'s own beam_model_fn exactly, masking included, so
         // this path and that one compute identically given the same inputs.
         int actual_vocab_size = static_cast<int>(tokenizer->get_vocab_size());
-        auto beam_model_fn = [this, actual_vocab_size](const std::vector<int>& tokens) -> Matrix {
+        auto beam_model_fn = [this, actual_vocab_size,
+                              world_model_output_ptr](const std::vector<int>& tokens) -> Matrix {
             // Process all tokens from scratch (no caching) — mirrors
             // generate_response_with_strategy()'s own beam_model_fn.
-            Matrix decoder_out = decoder->forward_with_encoder(tokens, cached_encoder_output);
+            Matrix decoder_out = decoder->forward_with_encoder(
+                tokens, cached_encoder_output, world_model_output_ptr, hippocampal_memory.get(),
+                hippocampal_repetition_alpha_, hippocampal_repetition_decay_);
             Matrix logits = lm_head->forward(decoder_out);
 
             // Mask out invalid token IDs beyond actual vocabulary size, same as
@@ -346,6 +375,25 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     }
     cached_encoder_output = encoder->encode_with_mask(input_tokens, encoder_mask);
 
+    // TD-186: gated world-model cross-attention wiring — see generate_response()'s identical
+    // comment just above (same rationale, same "beam search only" scope) and forward()'s own
+    // doc comment (EncoderDecoderModel.hpp) for the full picture.
+    Matrix world_model_encoding;
+    const Matrix* world_model_output_ptr = nullptr;
+    if (world_model && !input_text.empty()) {
+        try {
+            world_model_encoding = world_model->encode(input_text);
+            if (world_model_encoding.rows > 0) {
+                world_model_output_ptr = &world_model_encoding;
+            }
+        } catch (const std::exception& e) {
+            Logger::warn(
+                "EncoderDecoderModel::generate_response_with_strategy(): world-model encode "
+                "skipped ({})",
+                e.what());
+        }
+    }
+
     // Generate based on strategy
     std::vector<int> output_tokens;
 
@@ -375,9 +423,12 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
 
         // Create model function WITHOUT KV caching for beam search
         // Each beam has independent token sequences, so we can't share a cache
-        auto beam_model_fn = [this, actual_vocab_size](const std::vector<int>& tokens) -> Matrix {
+        auto beam_model_fn = [this, actual_vocab_size,
+                              world_model_output_ptr](const std::vector<int>& tokens) -> Matrix {
             // Process all tokens from scratch (no caching)
-            Matrix decoder_out = decoder->forward_with_encoder(tokens, cached_encoder_output);
+            Matrix decoder_out = decoder->forward_with_encoder(
+                tokens, cached_encoder_output, world_model_output_ptr, hippocampal_memory.get(),
+                hippocampal_repetition_alpha_, hippocampal_repetition_decay_);
 
             // Project to vocabulary (last position of output)
             Matrix logits = lm_head->forward(decoder_out);
@@ -869,8 +920,31 @@ Matrix EncoderDecoderModel::forward(const std::vector<int>& input_tokens,
         decoder_input.push_back(target_tokens[i]);
     }
 
+    // TD-186: gated world-model / hippocampal cross-attention wiring — see this method's own
+    // doc comment (EncoderDecoderModel.hpp) for the full rationale. Both remain no-ops when not
+    // attached (world_model_output_ptr stays nullptr, hippocampal_memory.get() is nullptr),
+    // reproducing this method's exact pre-TD-186 behavior byte-for-byte.
+    Matrix world_model_encoding;
+    const Matrix* world_model_output_ptr = nullptr;
+    if (world_model) {
+        std::string decoded_input = tokenizer->decode(input_tokens, /*skip_special_tokens=*/true);
+        if (!decoded_input.empty()) {
+            try {
+                world_model_encoding = world_model->encode(decoded_input);
+                if (world_model_encoding.rows > 0) {
+                    world_model_output_ptr = &world_model_encoding;
+                }
+            } catch (const std::exception& e) {
+                Logger::warn("EncoderDecoderModel::forward(): world-model encode skipped ({})",
+                            e.what());
+            }
+        }
+    }
+
     // Decode with cross-attention
-    cached_decoder_output = decoder->forward_with_encoder(decoder_input, cached_encoder_output);
+    cached_decoder_output = decoder->forward_with_encoder(
+        decoder_input, cached_encoder_output, world_model_output_ptr, hippocampal_memory.get(),
+        hippocampal_repetition_alpha_, hippocampal_repetition_decay_);
 
     // Project to vocabulary
     Matrix logits = lm_head->forward(cached_decoder_output);

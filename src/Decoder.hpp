@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added)
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-09-15
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
+// @adai-version: 0.13.0
+// @adai-reviewed: 2026-09-16
 
 
 #include <algorithm>
@@ -111,7 +111,12 @@ class LLMDecoder {
      *   matching every other TD-180-derived gate's own "no breaking changes for existing
      *   callers" default, since nothing downstream (`EncoderDecoderModel::set_world_model()`,
      *   TD-182) exists yet to attach a real world model to an allocated-but-unused path anyway.
-     *   `N >= 1` enables it, injecting into layer `i` whenever `i % N == 0`.
+     *   `N >= 1` enables it, injecting into layer `i` whenever `i % N == 0`. TD-186: this same
+     *   knob also allocates each such layer's gated *hippocampal* cross-attention path
+     *   (`enable_hippocampal`) — no separate injection-frequency parameter exists for it, since
+     *   the plan's own Training Standard trains both gates together ("alongside the world-model
+     *   gate — not a separate stage") and TD-180 built both paths side by side in `DecoderBlock`
+     *   expecting exactly this pairing.
      * @throws std::invalid_argument if world_model_inject_every_n_layers < 0
      */
     LLMDecoder(int vocab_size, int d_model = 512, int num_layers = 6, int num_heads = 8,
@@ -138,11 +143,27 @@ class LLMDecoder {
     /**
      * Forward pass with encoder outputs (encoder-decoder mode)
      *
+     * TD-186: `world_model_output`/`memory` are threaded straight through to every decoder
+     * block's own `DecoderBlock::forward()` call unconditionally — each block itself no-ops
+     * unless it was actually constructed with the matching gated path allocated (see
+     * `DecoderBlock::forward()`'s own guard), so passing a non-null pointer here is always
+     * safe regardless of `world_model_inject_every_n_layers`. All four new parameters default
+     * to their off values, reproducing this method's exact pre-TD-186 behavior for every
+     * existing caller.
+     *
      * @param token_ids Vector of token IDs [sequence_length]
      * @param encoder_output Matrix from encoder [encoder_seq_len, d_model]
+     * @param world_model_output World model's own encode() output for this input, or nullptr —
+     *   see DecoderBlock::forward()'s own doc comment for the shape/masking contract.
+     * @param memory Hippocampal memory to attend over, or nullptr — ditto.
+     * @param repetition_alpha/repetition_decay Hippocampal repetition-penalty parameters,
+     *   ignored when memory is nullptr — see DecoderBlock::forward()'s own doc comment.
      * @return Matrix of shape [sequence_length, d_model]
      */
-    Matrix forward_with_encoder(const std::vector<int>& token_ids, const Matrix& encoder_output);
+    Matrix forward_with_encoder(const std::vector<int>& token_ids, const Matrix& encoder_output,
+                                const Matrix* world_model_output = nullptr,
+                                HippocampalMemory* memory = nullptr,
+                                float repetition_alpha = 0.0f, float repetition_decay = 0.95f);
 
     /**
      * Forward pass with custom causal mask

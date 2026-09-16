@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added)
-// @adai-version: 0.9.2
-// @adai-reviewed: 2026-09-13
+// @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-09-16
 
 
 #include <chrono>
@@ -88,6 +88,28 @@ struct IncrementalConfig {
     // constructor — not just the ones a caller happens to build a DatasetRegistry
     // for separately — has access to registry_server_url/model_name/run_id.
     DatasetConfig dataset;
+
+    // World-model attachment + hippocampal memory (TD-186) — mirrors ServiceConfig's own
+    // WORLD_MODEL_*/HIPPOCAMPAL_* fields (Config.hpp; see make_incremental_config()'s mapping).
+    // Read by IncrementalTrainer::build_model() to decide whether to construct, load, and
+    // attach a pretrained LeJEPAEncoder (from <session_dir>/world_model, TD-183's own save
+    // location) and a HippocampalMemory to the chatbot's own EncoderDecoderModel. Placed at this
+    // top level rather than inside base_config, matching session_dir's own placement above —
+    // these are whole-model-construction concerns, not per-forward-pass training
+    // hyperparameters. world_model_enabled alone only unlocks `--objective=lejepa` pretraining
+    // (IncrementalTrainingTool.cpp reads svc_config directly for that, not through this struct);
+    // chatbot-side attachment additionally requires world_model_inject_every_n_layers >= 1.
+    bool world_model_enabled = false;
+    size_t world_model_d_model = 512;
+    size_t world_model_num_layers = 6;
+    size_t world_model_num_heads = 8;
+    size_t world_model_d_ff = 2048;
+    size_t world_model_sigreg_num_sketches = 64;
+    size_t world_model_inject_every_n_layers = 0;
+    bool hippocampal_memory_enabled = false;
+    size_t hippocampal_memory_capacity = 512;
+    float hippocampal_repetition_alpha = 0.0f;
+    float hippocampal_repetition_decay = 0.95f;
 };
 
 /**
@@ -144,6 +166,15 @@ class IncrementalTrainer {
     // Configuration
     void set_config(const IncrementalConfig& cfg);
     IncrementalConfig& get_config();
+
+    /** (TD-186) Access to the underlying model — chiefly for tests/diagnostics to confirm
+     *  maybe_attach_world_model()'s own effects (get_world_model()/get_hippocampal_memory()),
+     *  matching this class's other get_*() accessors' own non-const style (get_encoder(),
+     *  get_decoder(), get_tokenizer()). nullptr only in the brief window before the first
+     *  build_model() call (pending_vocab_build_ case). */
+    EncoderDecoderModel* get_model() {
+        return model.get();
+    }
 
     /**
      * @brief Tear down the current model and rebuild it from config.base_config.
@@ -321,6 +352,27 @@ class IncrementalTrainer {
      * method — there is no other place that instantiates EncoderDecoderModel.
      */
     void build_model();
+
+    /**
+     * @brief (TD-186) Attach a pretrained world model + hippocampal memory to `model`, if
+     *        configured. Called from build_model() right after construction.
+     *
+     * Requires config.world_model_enabled AND config.world_model_inject_every_n_layers >= 1
+     * (world_model_enabled alone only gates `--objective=lejepa` pretraining, a separate
+     * concern — see IncrementalConfig's own doc comment). Loads
+     * `<session_dir>/world_model` (TD-183's own save location) into a freshly-constructed
+     * LeJEPAEncoder matching config's own WORLD_MODEL_* architecture, freezes it
+     * (set_requires_grad(false), per the plan's own Phase 1 Training Standard), and attaches it
+     * via model->set_world_model(). Best-effort: a missing checkpoint or an architecture
+     * mismatch is logged as a warning and skipped (model continues with no world model
+     * attached, gated layers present but permanently inert) rather than throwing — a
+     * misconfigured optional feature must not prevent an otherwise-normal training/serving
+     * session from starting. Separately, when config.hippocampal_memory_enabled, constructs and
+     * attaches a HippocampalMemory + repetition parameters — independent of whether the world
+     * model attach above succeeded, though it only has any actual effect once a world model is
+     * also attached (same guarantee maybe_write_hippocampal_memory() already makes).
+     */
+    void maybe_attach_world_model();
 
     /**
      * @brief Build and save the vocabulary from a set of conversation pairs.

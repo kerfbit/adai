@@ -18,6 +18,9 @@
 #include <fstream>
 #include <thread>
 #include "BPETokenizer.hpp"
+#include "EncoderDecoderModel.hpp"
+#include "HippocampalMemory.hpp"
+#include "LeJEPAEncoder.hpp"
 
 namespace fs = std::filesystem;
 
@@ -1019,6 +1022,177 @@ TEST_F(IncrementalTrainerTest, DisplayDashboardDoesNotCrash) {
     trainer2.load_session_history();
     fs::remove(hist_path);
     EXPECT_NO_THROW(trainer2.print_training_summary());
+}
+
+// ============================================================================
+// World-model attachment (TD-186) — IncrementalTrainer::maybe_attach_world_model()
+// ============================================================================
+
+TEST_F(IncrementalTrainerTest, MakeIncrementalConfigMapsWorldModelAndHippocampalFields) {
+    adai::ServiceConfig svc;
+    svc.world_model_enabled = true;
+    svc.world_model_d_model = 16;
+    svc.world_model_num_layers = 1;
+    svc.world_model_num_heads = 2;
+    svc.world_model_d_ff = 32;
+    svc.world_model_sigreg_num_sketches = 8;
+    svc.world_model_inject_every_n_layers = 1;
+    svc.hippocampal_memory_enabled = true;
+    svc.hippocampal_memory_capacity = 64;
+    svc.hippocampal_repetition_alpha = 0.5f;
+    svc.hippocampal_repetition_decay = 0.9f;
+
+    const IncrementalConfig cfg = IncrementalTrainer::make_incremental_config(svc);
+
+    EXPECT_TRUE(cfg.world_model_enabled);
+    EXPECT_EQ(cfg.world_model_d_model, 16u);
+    EXPECT_EQ(cfg.world_model_num_layers, 1u);
+    EXPECT_EQ(cfg.world_model_num_heads, 2u);
+    EXPECT_EQ(cfg.world_model_d_ff, 32u);
+    EXPECT_EQ(cfg.world_model_sigreg_num_sketches, 8u);
+    EXPECT_EQ(cfg.world_model_inject_every_n_layers, 1u);
+    EXPECT_TRUE(cfg.hippocampal_memory_enabled);
+    EXPECT_EQ(cfg.hippocampal_memory_capacity, 64u);
+    EXPECT_FLOAT_EQ(cfg.hippocampal_repetition_alpha, 0.5f);
+    EXPECT_FLOAT_EQ(cfg.hippocampal_repetition_decay, 0.9f);
+}
+
+TEST_F(IncrementalTrainerTest, BuildModelSkipsWorldModelAttachmentWhenDisabled) {
+    IncrementalConfig config;
+    config.session_dir = session_dir.string();
+    // world_model_enabled defaults to false.
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+
+    ASSERT_NE(trainer.get_model(), nullptr);
+    EXPECT_EQ(trainer.get_model()->get_world_model(), nullptr);
+    EXPECT_EQ(trainer.get_model()->get_hippocampal_memory(), nullptr);
+}
+
+TEST_F(IncrementalTrainerTest, BuildModelSkipsAttachmentWhenInjectionKnobIsZero) {
+    // world_model_enabled alone (no injection) only unlocks --objective=lejepa pretraining, not
+    // chatbot-side attachment — see IncrementalConfig's own doc comment.
+    IncrementalConfig config;
+    config.session_dir = session_dir.string();
+    config.world_model_enabled = true;
+    config.world_model_inject_every_n_layers = 0;
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+
+    ASSERT_NE(trainer.get_model(), nullptr);
+    EXPECT_EQ(trainer.get_model()->get_world_model(), nullptr);
+}
+
+TEST_F(IncrementalTrainerTest, BuildModelWarnsAndSkipsWhenNoCheckpointExists) {
+    // Enabled + injection requested, but nothing has ever run `--objective=lejepa train` to
+    // produce <session_dir>/world_model — must not crash, just skip (best-effort).
+    IncrementalConfig config;
+    config.session_dir = session_dir.string();
+    config.world_model_enabled = true;
+    config.world_model_inject_every_n_layers = 1;
+    config.world_model_d_model = config.base_config.d_model;  // satisfy the real dimension
+                                                               // constraint regardless
+
+    EXPECT_NO_THROW({
+        IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+        EXPECT_EQ(trainer.get_model()->get_world_model(), nullptr);
+    });
+}
+
+TEST_F(IncrementalTrainerTest, BuildModelAttachesWorldModelWhenCheckpointExists) {
+    IncrementalConfig config;
+    config.session_dir = session_dir.string();
+    config.world_model_enabled = true;
+    config.world_model_inject_every_n_layers = 1;
+    config.world_model_d_model = config.base_config.d_model;  // required: gated cross-attention
+                                                               // has no separate kv-dimension
+    config.world_model_num_layers = 1;
+    config.world_model_num_heads = 2;
+    config.world_model_d_ff = 32;
+    config.world_model_sigreg_num_sketches = 8;
+
+    // Probe the exact vocab size the trainer's own tokenizer will load, matching
+    // maybe_attach_world_model()'s own probe — LeJEPAEncoder::load() validates vocab_size
+    // exactly.
+    BPETokenizer probe;
+    probe.load_vocab(vocab_file.string());
+    const int vocab_size = probe.get_vocab_size();
+
+    LeJEPAEncoder world_model(vocab_size, static_cast<int>(config.world_model_d_model),
+                              static_cast<int>(config.world_model_num_layers),
+                              static_cast<int>(config.world_model_num_heads),
+                              static_cast<int>(config.world_model_d_ff),
+                              config.base_config.max_seq_length,
+                              static_cast<int>(config.world_model_sigreg_num_sketches));
+    world_model.save((session_dir / "world_model").string());
+
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+
+    ASSERT_NE(trainer.get_model(), nullptr);
+    EXPECT_NE(trainer.get_model()->get_world_model(), nullptr);
+}
+
+TEST_F(IncrementalTrainerTest, BuildModelAttachesHippocampalMemoryAlongsideWorldModel) {
+    IncrementalConfig config;
+    config.session_dir = session_dir.string();
+    config.world_model_enabled = true;
+    config.world_model_inject_every_n_layers = 1;
+    config.world_model_d_model = config.base_config.d_model;
+    config.world_model_num_layers = 1;
+    config.world_model_num_heads = 2;
+    config.world_model_d_ff = 32;
+    config.world_model_sigreg_num_sketches = 8;
+    config.hippocampal_memory_enabled = true;
+    config.hippocampal_memory_capacity = 32;
+    config.hippocampal_repetition_alpha = 0.3f;
+    config.hippocampal_repetition_decay = 0.9f;
+
+    BPETokenizer probe;
+    probe.load_vocab(vocab_file.string());
+    const int vocab_size = probe.get_vocab_size();
+
+    LeJEPAEncoder world_model(vocab_size, static_cast<int>(config.world_model_d_model),
+                              static_cast<int>(config.world_model_num_layers),
+                              static_cast<int>(config.world_model_num_heads),
+                              static_cast<int>(config.world_model_d_ff),
+                              config.base_config.max_seq_length,
+                              static_cast<int>(config.world_model_sigreg_num_sketches));
+    world_model.save((session_dir / "world_model").string());
+
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+
+    ASSERT_NE(trainer.get_model(), nullptr);
+    EXPECT_NE(trainer.get_model()->get_world_model(), nullptr);
+    EXPECT_NE(trainer.get_model()->get_hippocampal_memory(), nullptr);
+}
+
+TEST_F(IncrementalTrainerTest, BuildModelSkipsWorldModelOnArchitectureMismatch) {
+    // A checkpoint exists but doesn't match config's own WORLD_MODEL_* architecture (num_layers
+    // differs here) — must be reported (via Logger::warn, not asserted here) and skipped, not
+    // crash the whole construction.
+    IncrementalConfig config;
+    config.session_dir = session_dir.string();
+    config.world_model_enabled = true;
+    config.world_model_inject_every_n_layers = 1;
+    config.world_model_d_model = config.base_config.d_model;
+    config.world_model_num_layers = 2;  // saved checkpoint below uses 1
+    config.world_model_num_heads = 2;
+    config.world_model_d_ff = 32;
+    config.world_model_sigreg_num_sketches = 8;
+
+    BPETokenizer probe;
+    probe.load_vocab(vocab_file.string());
+    const int vocab_size = probe.get_vocab_size();
+
+    LeJEPAEncoder world_model(vocab_size, static_cast<int>(config.world_model_d_model),
+                              /*num_layers=*/1, static_cast<int>(config.world_model_num_heads),
+                              static_cast<int>(config.world_model_d_ff),
+                              config.base_config.max_seq_length,
+                              static_cast<int>(config.world_model_sigreg_num_sketches));
+    world_model.save((session_dir / "world_model").string());
+
+    EXPECT_NO_THROW({
+        IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+        EXPECT_EQ(trainer.get_model()->get_world_model(), nullptr);
+    });
 }
 
 // Run all tests

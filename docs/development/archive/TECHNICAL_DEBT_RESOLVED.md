@@ -4,6 +4,196 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-186: LeJEPA + Hippocampal Memory Pilot Run
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 16, 2026 | World Model / Memory (LeJEPA) | Two production-code gap fixes found during investigation (`src/Decoder.{hpp,cpp}`, `src/EncoderDecoderModel.{hpp,cpp}`) plus a live pilot run via an ad hoc measurement harness (not committed — see Verification) |
+
+Summary:
+Twelfth and final piece of the LeJEPA world-model plan (LJ-5/HM-5) — Tier 10's own Level 5, the
+batch's actual go/no-go gate, not startable until TD-174 through TD-185 were all done. Filed as
+"Files to Modify: None expected beyond training-session artifacts... and this document" — that
+framing turned out to be wrong in a load-bearing way: setting up the pilot surfaced that the
+gated paths this whole batch built (TD-180's `DecoderBlock` cross-attention, TD-181's sparse
+injection knob, TD-182/185's `set_world_model()`/`set_hippocampal_memory()`) had never actually
+been wired into a live forward pass anywhere, nor — for the hippocampal path specifically — ever
+allocated at all. Both gaps were fixed as a necessary prerequisite (with the user's explicit
+go-ahead, given the scope had grown past "run an experiment" into "build missing production
+wiring, then run the experiment") before the pilot itself could produce any real signal.
+
+**Result: no-go on this pilot's own numbers, but the underlying mechanism is now proven sound —
+this is a scale/environment limitation, not a design or implementation failure**, the same
+category of outcome as TD-059's own hardware-blocked retrain.
+
+Design decisions and findings:
+
+- **Gap 1 (found first): no `LLMDecoder`/`EncoderDecoderModel` forward call ever passed
+  `world_model_output`/`memory` into `DecoderBlock::forward()`.** `LLMDecoder::forward_with_encoder()`
+  (and the plain `forward()` that wraps it) called `decoder_blocks[i]->forward(x, encoder_output,
+  causal_mask, nullptr)` — exactly 4 positional args — regardless of whether a block had been
+  constructed with a gated path allocated at all; TD-180's own trailing `world_model_output`/
+  `world_model_mask`/`memory`/`repetition_alpha`/`repetition_decay` parameters (all defaulted)
+  simply never received anything but their defaults from any real caller. Confirmed via
+  `grep`: zero references to `world_model`/`hippocampal` anywhere in `ChatbotTrainer.cpp`, and
+  TD-182's own resolved entry says as much directly — *"passing the attached encoder's `encode()`
+  output into `DecoderBlock::forward()`'s own `world_model_output` parameter is a later item's
+  job, not this one's"* — but no later item (TD-183/184/185) ever actually claimed that job.
+  Fixed additively, no breaking changes: `LLMDecoder::forward_with_encoder()` gained new trailing
+  optional parameters (`world_model_output = nullptr`, `memory = nullptr`,
+  `repetition_alpha = 0.0f`, `repetition_decay = 0.95f`) threaded straight through to every
+  block's own `forward()` call — safe unconditionally, since each block already no-ops unless its
+  own gated path was actually allocated (`DecoderBlock::forward()`'s own guard, unchanged).
+  `EncoderDecoderModel::forward(input_tokens, target_tokens)` computes the world-model encoding
+  by decoding `input_tokens` back to text via this model's own tokenizer and feeding that through
+  `world_model->encode()` — chosen over adding a new text parameter so the real production
+  caller (`ChatbotTrainer.cpp`, which only ever has token ids at its `model->forward()` call site)
+  needs zero changes; an imperfect BPE round-trip is an accepted simplification, since the world
+  model only needs *a* textual representation to attend over, not an exact reconstruction.
+  `generate_response()`/`generate_response_with_strategy()` already have `input_text` directly
+  (no round-trip needed) and thread it through their own `beam_model_fn` closures — the ONE
+  non-cached CPU inference path, since `forward_with_cache()`'s own non-beam strategies still
+  don't support either gated path (TD-180's own pre-existing, still-open, documented limitation —
+  extending the KV-cache path was explicitly out of scope here too, same call TD-180 already made).
+  `backward()` needed **no changes at all** at the `LLMDecoder`/`EncoderDecoderModel` level:
+  `DecoderBlock::backward()` already reads its own cached `world_model_path_active_`/
+  `hippocampal_path_active_` flags from the most recent `forward()` call and backprops through
+  the gated path automatically — TD-180 had already built that part correctly; the entire gap was
+  forward-only.
+- **Gap 2 (found while running the pilot): no `LLMDecoder` constructor had ever allocated
+  `enable_hippocampal=true` on any `DecoderBlock`, anywhere, at all.** With Gap 1 fixed, the
+  pilot's own `mean(tanh(gate_h))` reading stayed at exactly `0.0` even with a real, non-empty
+  `HippocampalMemory` attached and the read-side forward wiring confirmed working for the
+  world-model gate — tracing it down found `LLMDecoder`'s constructor (`src/Decoder.cpp`) always
+  passed `enable_hippocampal=false` to every `DecoderBlock` it built, regardless of
+  `world_model_inject_every_n_layers`. TD-181's own resolved entry explains why: it scoped
+  hippocampal allocation out as *"TD-185's own job"* — but TD-185's actual, filed scope was
+  `set_hippocampal_memory()`/the write-policy call site only, never `DecoderBlock` construction.
+  The hippocampal gated cross-attention was therefore structurally unreachable in every
+  configuration this codebase could produce, independent of any config key. Fixed by having
+  `world_model_inject_every_n_layers` allocate *both* gated paths together, on the same sparse
+  pattern (`enable_hippocampal = enable_world_model = inject_here`) — no separate
+  hippocampal-injection-frequency key exists in the plan's own config surface, and the plan's own
+  Training Standard already frames the two as trained together ("alongside the world-model gate —
+  not a separate stage"), matching how TD-180 built both paths side by side in `DecoderBlock` in
+  the first place. Re-verified with the pilot harness: `mean(tanh(gate_h))` moved to non-zero
+  values once this landed.
+- **Pilot scale and setup**: toy sizes throughout (`d_model=32`, 2 encoder/decoder layers, 4
+  heads, matching `EncoderDecoderExample.cpp`'s own toy convention), a 1-layer world model
+  pretrained via `--objective=lejepa` (TD-183) on 8 short synthetic sentences for 30 epochs, and a
+  10-pair synthetic conversational training set for the chatbot's own Phase 1 fine-tuning (40
+  epochs, plain SGD, lr=0.002 — no shared `Optimizer` registered, since gate/gate_h always use
+  plain SGD regardless per TD-180's own design, and this avoids re-litigating the
+  shared-optimizer-over-stepping hazard class from TD-178 inside a throwaway harness). Hippocampal
+  memory was seeded with 3 distinct entries directly via `HippocampalMemory::write()` (bypassing
+  the normal write path, which only fires from `generate_response*()` during inference, never
+  from `train_step()`'s own teacher-forcing loop) — with only one slot, softmax always assigns it
+  weight 1.0 regardless of any repetition-penalty score bias, so `repetition_alpha` could never
+  show any effect on coverage with fewer than 2 real candidate slots.
+- **Action Item 1 (mandatory first checkpoint) — held.** `WORLD_MODEL_ENABLED=true` output
+  matched `=false` output exactly at gate=0, confirmed twice: generically at the unit level
+  (`EncoderDecoderModelWorldModelTest.BeamGenerationNoOpWhenGateZeroWithWorldModelAttached`/
+  `ForwardNoOpWhenGateZeroWithWorldModelAttachedViaTokens`, `DecoderTest.
+  ForwardWithEncoderWorldModelOutputNoOpWhenGateZero`) and again live in this pilot's own actual
+  run, before any Phase 1 training.
+- **Action Items 2/3 (alpha sweep, distinct-n/self-BLEU) — inconclusive, environment-limited.**
+  Swept `HIPPOCAMPAL_REPETITION_ALPHA` at `{0.0, 0.5, 1.0}`: `mean(tanh(gate))` moved by roughly
+  ±0.02-0.05 and `mean(tanh(gate_h))` by roughly ±0.005-0.05 across the sweep — small, noisy
+  movement consistent with the tiny amount of real training signal available (40 epochs, 10
+  examples, a 32-dim model), not a clear "the gate opens meaningfully" result in either direction.
+  `mean(coverage)` landed at the same value (5.0, on 3 seeded slots) across all three alpha
+  settings in this run — plausible given the model has had essentially no chance to learn any
+  real preference among slots at this scale, though it does mean this particular run's own
+  numbers can't distinguish "alpha has no effect" from "nothing has learned enough yet to show
+  one." The distinct-n/self-BLEU-style diversity comparison itself came back **uncomputable**:
+  every beam-search sample generated in every configuration tested — including the unmodified
+  baseline with no world model or hippocampal memory attached at all — collapsed to an empty
+  string. Confirmed this is unrelated to the gated-path wiring (the baseline path touches none of
+  it) and reproduces independent of the world-model attachment, learning rate (tried 0.01 and
+  0.002), or epoch count (reproduced at both 8 and 40 epochs) — consistent with a known failure
+  mode of teacher-forcing a very small model on a handful of short, repetitive synthetic examples
+  with no dropout/regularization, not a symptom of anything TD-186 (or the batch before it)
+  built.
+- **Action Item 4 (BLEU/ROUGE regression check) — not meaningfully computable for the same
+  reason as Action Item 3**: `ENABLE_GENERATION_QUALITY_METRICS`'s own BLEU/ROUGE scoring needs
+  non-empty generated text to score against a reference at all.
+- **Action Item 5 (go/no-go writeup) — this entry.** Go/no-go: **no-go on proceeding to Phase 2
+  joint fine-tuning at this pilot's own scale** — there isn't enough signal here to justify it.
+  This is explicitly *not* a verdict on the design or the implementation: the plan's own
+  "Risks/Open Questions" section names exactly this ("the gate never opens," "no diversity
+  improvement") as a legitimate, useful outcome, and the two real gaps found and fixed along the
+  way mean the mechanism itself is now demonstrably correct end-to-end (gate/gate_h both receive
+  real gradients; the no-op guarantee holds; coverage computes correctly) for the first time in
+  this batch's history. A real go/no-go answer needs a real chatbot checkpoint, real conversational
+  data, and enough training to move past noise-level gate movement — none of which this dev
+  sandbox has, the same environment limitation TD-059's own still-outstanding retrain sits behind.
+
+Changes Made:
+
+- `src/Decoder.hpp`/`.cpp`: `LLMDecoder::forward_with_encoder()` (and, by extension,
+  `forward()`) gained trailing optional `world_model_output`/`memory`/`repetition_alpha`/
+  `repetition_decay` parameters threaded into every `decoder_blocks[i]->forward()` call;
+  `world_model_inject_every_n_layers` now allocates the hippocampal gated path (`enable_hippocampal`)
+  on the same sparse pattern as the world-model path, not `false` always. Version 0.12.0 → 0.13.0.
+- `src/EncoderDecoderModel.hpp`/`.cpp`: `forward()` computes the world-model encoding (via
+  decode-back-to-text) and threads it, plus the attached `hippocampal_memory`/repetition
+  parameters, into `decoder->forward_with_encoder()`; `generate_response()`/
+  `generate_response_with_strategy()`'s beam branches do the same using their own `input_text`
+  directly. New `set_hippocampal_repetition_params()` setter and two private
+  `hippocampal_repetition_alpha_`/`_decay_` members (defaults 0.0/0.95, matching
+  `HIPPOCAMPAL_REPETITION_ALPHA`/`_DECAY`'s own config defaults). Version 0.15.0 → 0.17.0 (0.16.0
+  was TD-185's own bump).
+- `docs/development/guides/TECHNICAL_DEBT.md`: Tier 10 closed out in full (all 13 items resolved,
+  September 15-16, 2026); Overview/Statistics/Table-of-Contents counts recomputed.
+- No new source files added to the repository — the pilot's own measurement harness (gate/
+  coverage/distinct-n readout, the alpha sweep loop) was written and compiled ad hoc against the
+  already-built static libraries and deliberately not committed, matching this item's own filed
+  "Files to Modify: None expected" as closely as still possible once the prerequisite production
+  fixes above are set aside.
+
+Verification:
+
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean, both after Gap 1's
+  fix and again after Gap 2's fix.
+- ✅ New unit tests (13 total): `tests/decoder_test.cpp` — 4 new (`ForwardWithEncoderWorldModelOutputIgnoredWhenInjectionDisabled`,
+  `...NoOpWhenGateZero`, `...ChangesOutputWhenGateNonzero`, `ForwardWithEncoderHippocampalMemoryNoOpWhenGateHZero`)
+  plus 2 more added after Gap 2's fix (`WorldModelInjectionAlsoAllocatesHippocampalPathOnTheSameLayers`,
+  `WorldModelInjectionDisabledAllocatesNeitherGatedPath`, replacing the now-inverted
+  `WorldModelInjectionNeverAllocatesHippocampalPath`); `tests/encoderdecoder_test.cpp` — 6 new
+  (`BeamGenerationNoOpWhenGateZeroWithWorldModelAttached`, `ForwardNoOpWhenGateZeroWithWorldModelAttachedViaTokens`,
+  `BackwardFlowsGradientIntoGateWhenWorldModelAttachedAndInjected`,
+  `BackwardFlowsGradientIntoGateHWhenHippocampalMemoryNonEmptyAndInjected`, plus 2 more covering
+  attachment/no-op at the beam-generation level). One additional beam-generation
+  "gate-nonzero-changes-output" test was written, found flaky (~40% failure rate across repeated
+  standalone runs — beam search's own discrete argmax/tie-breaking, not the underlying
+  computation, which is fully deterministic) via `--gtest_repeat=5`, and removed in favor of
+  `DecoderTest.ForwardWithEncoderWorldModelOutputChangesOutputWhenGateNonzero`'s own reliable,
+  tie-break-immune matrix-level assertion of the identical property.
+- ✅ Full `ctest` suite: 136/136 passing after both fixes and the flaky-test removal (confirmed
+  stable across 3 repeated standalone runs of the affected suite,
+  `--gtest_repeat=3`); the only failures seen across several full-suite runs this session were
+  the two already-known, pre-existing, load-sensitive flakes noted in earlier entries in this
+  batch (`RLHFTrainerTest.PositiveAdvantageIncreasesLogProbNegativeAdvantageDecreasesIt`,
+  `ScriptsTests_monitor_training`), both confirmed to pass cleanly standalone.
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+- ✅ Live pilot run (ad hoc harness, not committed): pretrained a real toy world model via
+  `--objective=lejepa` against the real dataset registry/CLI, then loaded and attached it (plus a
+  hippocampal memory) to a freshly-constructed toy chatbot model, ran 40 epochs of Phase 1
+  fine-tuning, and read out real `mean(tanh(gate))`/`mean(tanh(gate_h))`/`mean(coverage)` numbers
+  — see Design decisions above for the actual figures.
+- Session survived a machine crash mid-pilot (the ad hoc `/tmp` harness and its sandbox were
+  lost, since `/tmp` doesn't persist across a reboot) — all committed-worthy work (the two
+  production-code fixes, the new unit tests) was on disk in the repo working tree throughout and
+  unaffected; the harness and its sandbox were rebuilt from scratch and the pilot rerun
+  identically to reproduce the numbers reported here.
+
+Files Changed:
+
+- `src/Decoder.hpp`, `src/Decoder.cpp`
+- `src/EncoderDecoderModel.hpp`, `src/EncoderDecoderModel.cpp`
+- `tests/decoder_test.cpp`, `tests/encoderdecoder_test.cpp`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-184: World-Model MNS Registration + Checkpointing
 
 | Resolution Date | Component | Resolved By |

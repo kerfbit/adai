@@ -1757,6 +1757,158 @@ TEST(EncoderDecoderModelWorldModelTest, ForwardOutputUnaffectedByAttachedWorldMo
 }
 
 // ============================================================================
+// TD-186: forward()/generate_response()'s gated world-model read path
+// ============================================================================
+
+namespace {
+// Same corpus build_test_vocab() uses (BPE training is deterministic given the same corpus and
+// target size, so building the world model's own separate tokenizer from it produces the same
+// learned vocabulary) — lets the world model's own encode() actually tokenize "hello world"
+// successfully rather than falling back to <unk>.
+const std::vector<std::string>& world_model_test_corpus() {
+    static const std::vector<std::string> corpus = {
+        "hello world",  "how are you",  "I am fine",     "thank you",
+        "good morning", "good evening", "see you later", "goodbye"};
+    return corpus;
+}
+}  // namespace
+
+// The plan's own "mandatory first checkpoint" for Phase 1 fine-tuning (Training Standard):
+// WORLD_MODEL_ENABLED=true output must match =false output exactly before any gate training
+// happens. Exercised here via beam-search generation (the one CPU inference path TD-186 wired,
+// see forward_with_cache()'s own documented limitation) rather than forward(), so input_text is
+// a real, controllable string instead of relying on a token-id round-trip through decode().
+TEST(EncoderDecoderModelWorldModelTest, BeamGenerationNoOpWhenGateZeroWithWorldModelAttached) {
+    int vocab_size = 100;
+    int d_model = 64;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2, 8, 256, 512,
+                              /*world_model_inject_every_n_layers=*/1);
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+
+    std::string input_text = "hello world";
+    std::string response_before =
+        model.generate_response_with_strategy(input_text, 10, "beam", 1.0f, 50, 0.9f, 2);
+
+    auto world_model = std::make_unique<LeJEPAEncoder>(vocab_size, d_model, 2, 4, 128);
+    world_model->build_tokenizer(world_model_test_corpus(), vocab_size);
+    model.set_world_model(std::move(world_model));
+
+    // Every gated block's gate is still 0.0f (fresh construction) — attaching alone must not
+    // change beam output, even though world_model->encode() genuinely runs this time.
+    std::string response_after =
+        model.generate_response_with_strategy(input_text, 10, "beam", 1.0f, 50, 0.9f, 2);
+
+    EXPECT_EQ(response_before, response_after);
+}
+
+// Note: a beam-search text-comparison equivalent of "gate nonzero changes output" was tried here
+// and dropped — beam search's own discrete argmax/tie-breaking made it flake (~40% failure rate
+// across repeated standalone runs) even though the underlying computation is fully deterministic.
+// DecoderTest.ForwardWithEncoderWorldModelOutputChangesOutputWhenGateNonzero (decoder_test.cpp)
+// already covers this exact property reliably via direct matrix comparison, which is the
+// stronger, tie-break-immune assertion; BeamGenerationNoOpWhenGateZeroWithWorldModelAttached
+// above covers the no-op side at this class's own beam-generation level.
+
+// forward()'s own decode-back-to-text wiring (used by the real ChatbotTrainer.cpp training
+// path, which only ever has token ids) — confirms it doesn't crash regardless of whether the
+// round-trip through tokenizer->decode() produces reconstructable text, and confirms the
+// gate-zero no-op guarantee holds at the raw forward() level too, not just via generate_*().
+TEST(EncoderDecoderModelWorldModelTest, ForwardNoOpWhenGateZeroWithWorldModelAttachedViaTokens) {
+    int vocab_size = 100;
+    int d_model = 64;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2, 8, 256, 512,
+                              /*world_model_inject_every_n_layers=*/1);
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+
+    std::vector<int> input_tokens = model.get_tokenizer()->encode("hello world", false);
+    std::vector<int> target_tokens = model.get_tokenizer()->encode("how are you", true);
+
+    Matrix logits_before = model.forward(input_tokens, target_tokens);
+
+    auto world_model = std::make_unique<LeJEPAEncoder>(vocab_size, d_model, 2, 4, 128);
+    world_model->build_tokenizer(world_model_test_corpus(), vocab_size);
+    model.set_world_model(std::move(world_model));
+    Matrix logits_after = model.forward(input_tokens, target_tokens);
+
+    EXPECT_TRUE(matrices_equal(logits_before, logits_after));
+}
+
+TEST(EncoderDecoderModelWorldModelTest, BackwardFlowsGradientIntoGateWhenWorldModelAttachedAndInjected) {
+    int vocab_size = 100;
+    int d_model = 64;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2, 8, 256, 512,
+                              /*world_model_inject_every_n_layers=*/1);
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+
+    auto world_model = std::make_unique<LeJEPAEncoder>(vocab_size, d_model, 2, 4, 128);
+    world_model->build_tokenizer(world_model_test_corpus(), vocab_size);
+    model.set_world_model(std::move(world_model));
+
+    std::vector<int> input_tokens = model.get_tokenizer()->encode("hello world", false);
+    std::vector<int> target_tokens = model.get_tokenizer()->encode("how are you", true);
+
+    Matrix logits = model.forward(input_tokens, target_tokens);
+    Matrix grad_loss = model.compute_loss_gradient_for_training(logits, target_tokens);
+    model.backward(grad_loss);
+
+    // Every gated layer (world_model_inject_every_n_layers=1 -> both of this 2-layer decoder's
+    // blocks) should have accumulated a nonzero gate gradient — confirming gradients genuinely
+    // reach the gate parameter end-to-end, not just that the forward path runs.
+    bool any_nonzero = false;
+    for (int i = 0; i < model.get_decoder()->get_num_layers(); ++i) {
+        if (model.get_decoder()->get_decoder_block(i)->get_gate_grad() != 0.0f) {
+            any_nonzero = true;
+        }
+    }
+    EXPECT_TRUE(any_nonzero);
+}
+
+// TD-186's own pilot run found that HippocampalMemory's gated cross-attention was never
+// actually allocated by any LLMDecoder constructor at all (world_model_inject_every_n_layers
+// only ever drove the world-model path) — fixed in Decoder.cpp to allocate both paths together.
+// This test is the gate_h equivalent of the one above: a non-empty memory must let gradient
+// reach gate_h during an ordinary forward+backward call.
+TEST(EncoderDecoderModelWorldModelTest,
+    BackwardFlowsGradientIntoGateHWhenHippocampalMemoryNonEmptyAndInjected) {
+    int vocab_size = 100;
+    int d_model = 64;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2, 8, 256, 512,
+                              /*world_model_inject_every_n_layers=*/1);
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+
+    auto world_model = std::make_unique<LeJEPAEncoder>(vocab_size, d_model, 2, 4, 128);
+    world_model->build_tokenizer(world_model_test_corpus(), vocab_size);
+    Matrix key = world_model->encode("hello world");
+    model.set_world_model(std::move(world_model));
+
+    auto memory = std::make_unique<HippocampalMemory>(d_model, /*capacity=*/4);
+    Matrix pooled(1, key.cols);
+    for (int j = 0; j < key.cols; ++j) {
+        float sum = 0.0f;
+        for (int i = 0; i < key.rows; ++i) sum += key(i, j);
+        pooled(0, j) = sum / static_cast<float>(key.rows);
+    }
+    memory->write(pooled, pooled);
+    model.set_hippocampal_memory(std::move(memory));
+    model.set_hippocampal_repetition_params(0.5f, 0.95f);
+
+    std::vector<int> input_tokens = model.get_tokenizer()->encode("hello world", false);
+    std::vector<int> target_tokens = model.get_tokenizer()->encode("how are you", true);
+
+    Matrix logits = model.forward(input_tokens, target_tokens);
+    Matrix grad_loss = model.compute_loss_gradient_for_training(logits, target_tokens);
+    model.backward(grad_loss);
+
+    bool any_nonzero = false;
+    for (int i = 0; i < model.get_decoder()->get_num_layers(); ++i) {
+        if (model.get_decoder()->get_decoder_block(i)->get_gate_h_grad() != 0.0f) {
+            any_nonzero = true;
+        }
+    }
+    EXPECT_TRUE(any_nonzero);
+}
+
+// ============================================================================
 // TD-185: set_hippocampal_memory()/get_hippocampal_memory() + write-policy Tests
 // ============================================================================
 

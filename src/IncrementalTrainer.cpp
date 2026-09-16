@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added)
-// @adai-version: 0.9.2
-// @adai-reviewed: 2026-09-13
+// @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-09-16
 
 #include "IncrementalTrainer.hpp"
 #include <algorithm>
@@ -22,6 +22,8 @@
 #include <unistd.h>
 #endif
 #include "Config.hpp"
+#include "HippocampalMemory.hpp"
+#include "LeJEPAEncoder.hpp"
 #include "Logger.hpp"
 #include "ModelNameClient.hpp"  // always included for complete type (unique_ptr destructor)
 #include "TrainingMetricsAPI.hpp"
@@ -199,11 +201,77 @@ void IncrementalTrainer::build_model() {
     Logger::info("Tokenizer loaded (vocab size: {}, mode: {})", tok->get_vocab_size(),
                  tok->is_unicode_mode() ? "unicode" : "ascii");
 
+    const int inject_every_n =
+        (config.world_model_enabled && config.world_model_inject_every_n_layers > 0)
+            ? static_cast<int>(config.world_model_inject_every_n_layers)
+            : 0;
     model = std::make_unique<EncoderDecoderModel>(
         tok->get_vocab_size(), config.base_config.d_model, config.base_config.num_encoder_layers,
         config.base_config.num_decoder_layers, config.base_config.num_heads,
-        config.base_config.d_ff, config.base_config.max_seq_length);
+        config.base_config.d_ff, config.base_config.max_seq_length, inject_every_n);
     model->set_tokenizer(tok.release());
+
+    maybe_attach_world_model();
+}
+
+void IncrementalTrainer::maybe_attach_world_model() {
+    if (!config.world_model_enabled || config.world_model_inject_every_n_layers == 0) {
+        return;
+    }
+
+    const std::string world_model_dir = get_session_dir() + "/world_model";
+    if (!fs::exists(world_model_dir)) {
+        Logger::warn(
+            "World-model attachment requested (WORLD_MODEL_ENABLED=true, "
+            "WORLD_MODEL_INJECT_EVERY_N_LAYERS={}) but no checkpoint found at '{}' — continuing "
+            "with gated layers allocated but inert. Run `incremental_trainer --objective=lejepa "
+            "train` first to produce one.",
+            config.world_model_inject_every_n_layers, world_model_dir);
+        return;
+    }
+
+    // Same vocab-size-probe pattern IncrementalTrainingTool.cpp's own run_lejepa_training_pass()
+    // uses (TD-183) — LeJEPAEncoder::load_tokenizer_vocab() doesn't resize anything, so the
+    // constructor's vocab_size must already match the vocab file being loaded.
+    BPETokenizer vocab_probe;
+    vocab_probe.load_vocab(vocab_path_);
+
+    auto world_model = std::make_unique<LeJEPAEncoder>(
+        vocab_probe.get_vocab_size(), static_cast<int>(config.world_model_d_model),
+        static_cast<int>(config.world_model_num_layers),
+        static_cast<int>(config.world_model_num_heads),
+        static_cast<int>(config.world_model_d_ff), config.base_config.max_seq_length,
+        static_cast<int>(config.world_model_sigreg_num_sketches));
+    world_model->load_tokenizer_vocab(vocab_path_);
+
+    try {
+        world_model->load(world_model_dir);
+    } catch (const std::exception& e) {
+        Logger::warn(
+            "World-model checkpoint at '{}' failed to load ({}) — continuing with no world "
+            "model attached. WORLD_MODEL_* config must match the architecture it was saved "
+            "with.",
+            world_model_dir, e.what());
+        return;
+    }
+
+    // Phase 1 fine-tuning (plan's own Training Standard): the world model stays frozen while
+    // only the gate/gated-cross-attention parameters train — LeJEPAEncoder::set_requires_grad()
+    // is the same toggle LLMEncoder already exposes for exactly this purpose.
+    world_model->set_requires_grad(false);
+    Logger::info("World model attached from '{}' (frozen, inject_every_n_layers={})",
+                world_model_dir, config.world_model_inject_every_n_layers);
+    model->set_world_model(std::move(world_model));
+
+    if (config.hippocampal_memory_enabled) {
+        model->set_hippocampal_memory(std::make_unique<HippocampalMemory>(
+            config.base_config.d_model, static_cast<int>(config.hippocampal_memory_capacity)));
+        model->set_hippocampal_repetition_params(config.hippocampal_repetition_alpha,
+                                                 config.hippocampal_repetition_decay);
+        Logger::info("Hippocampal memory attached (capacity={}, repetition_alpha={}, decay={})",
+                    config.hippocampal_memory_capacity, config.hippocampal_repetition_alpha,
+                    config.hippocampal_repetition_decay);
+    }
 }
 
 // ============================================================================
@@ -331,6 +399,19 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     // IncrementalTrainer constructor a caller uses (fixes resume/reset silently
     // ignoring REGISTRY_SERVER_URL; see CLAUDE.md "Distributed Dataset Registry").
     cfg.dataset = DatasetRegistry::make_config(svc);
+
+    // World-model attachment + hippocampal memory (TD-186)
+    cfg.world_model_enabled = svc.world_model_enabled;
+    cfg.world_model_d_model = svc.world_model_d_model;
+    cfg.world_model_num_layers = svc.world_model_num_layers;
+    cfg.world_model_num_heads = svc.world_model_num_heads;
+    cfg.world_model_d_ff = svc.world_model_d_ff;
+    cfg.world_model_sigreg_num_sketches = svc.world_model_sigreg_num_sketches;
+    cfg.world_model_inject_every_n_layers = svc.world_model_inject_every_n_layers;
+    cfg.hippocampal_memory_enabled = svc.hippocampal_memory_enabled;
+    cfg.hippocampal_memory_capacity = svc.hippocampal_memory_capacity;
+    cfg.hippocampal_repetition_alpha = svc.hippocampal_repetition_alpha;
+    cfg.hippocampal_repetition_decay = svc.hippocampal_repetition_decay;
 
     return cfg;
 }

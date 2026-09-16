@@ -1086,7 +1086,20 @@ TEST_F(ConfigTest, WorldModelDefaultValues) {
     EXPECT_EQ(config.world_model_d_ff, 2048u);
     EXPECT_FLOAT_EQ(config.world_model_sigreg_lambda, 1.0f);
     EXPECT_EQ(config.world_model_sigreg_num_sketches, 64u);
-    EXPECT_EQ(config.world_model_inject_every_n_layers, 1u);
+    // TD-186: 0 (never inject), not TD-183's original 1 — this field now has real effect
+    // (IncrementalTrainer::build_model() actually constructs gated layers from it), so the
+    // config-level default reverted to matching every other gate's own "off by default"
+    // guarantee. See this field's own doc comment in Config.hpp for the full reasoning.
+    EXPECT_EQ(config.world_model_inject_every_n_layers, 0u);
+}
+
+TEST_F(ConfigTest, HippocampalMemoryDefaultValues) {
+    auto config = ConfigLoader::load();
+
+    EXPECT_FALSE(config.hippocampal_memory_enabled);
+    EXPECT_EQ(config.hippocampal_memory_capacity, 512u);
+    EXPECT_FLOAT_EQ(config.hippocampal_repetition_alpha, 0.0f);
+    EXPECT_FLOAT_EQ(config.hippocampal_repetition_decay, 0.95f);
 }
 
 TEST_F(ConfigTest, LoadWorldModelFieldsFromFile) {
