@@ -4,6 +4,106 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-187: DecoderBlock::save()/load() Did Not Persist the Gated World-Model/Hippocampal Paths
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 17, 2026 | Core Model Architecture | `world_model_cross_attention`/`norm_world`/`gate` and `hippocampal_cross_attention`/`norm_hippocampal`/`gate_h` persistence added to `DecoderBlock::save()`/`load()` (`src/DecoderBlock.{hpp,cpp}`) |
+
+Summary:
+Closes a gap TD-180 itself documented but explicitly left open ("out of this item's own explicit
+scope — not listed in its Action Items or Files to Modify"): `DecoderBlock::save()`/`load()` never
+persisted the gated world-model/hippocampal sub-components TD-180 added, meaning a real Phase 1
+fine-tuning run's trained gate/cross-attention weights were silently lost across any checkpoint
+save/load cycle. Filed and resolved the same day — never spent time as its own active entry in
+this document. Distinct from TD-184 (World-Model MNS Registration + Checkpointing), which covers
+the standalone `LeJEPAEncoder`'s own, separate checkpoint (`LeJEPAEncoder::save()`/`load()` under
+`training_sessions/world_model`) — this item is entirely about `DecoderBlock`'s own file format,
+one layer down, unrelated to the world model's own persistence.
+
+Design decisions:
+
+- **A one-byte presence flag precedes each optional section in the main file**, mirroring two
+  conventions already established elsewhere in this batch: `LeJEPAEncoder::save()`'s own "write a
+  config header before variable content" structure, and `HippocampalMemory::save()`'s own
+  `num_slots` count preceding its variable-length slot data. `load()` reads each flag to know
+  whether a gate scalar follows in the main file and whether a matching sub-component file pair
+  (`.world_model_cross_attn`/`.norm_world`, or `.hippocampal_cross_attn`/`.norm_hippocampal`) was
+  ever written — it never has to guess from its own construction, which may differ from whatever
+  instance originally called `save()`.
+- **A flag mismatch between the saved file and the loading instance's own construction throws
+  `std::runtime_error`**, the same "fail clearly" choice this method already makes for a
+  `d_model`/`num_heads`/`d_ff` mismatch (and the same choice this whole LeJEPA batch has made
+  everywhere else a similar fork came up — e.g. TD-186's own `LeJEPAEncoder::load()` architecture
+  check). The alternative — silently skipping a saved-but-not-constructed gated path, or silently
+  leaving a constructed-but-not-in-the-file gated path at its fresh random-init state — would
+  either discard real trained weights with no warning or silently corrupt a resumed training run
+  in a way nothing downstream could detect. The fix is always the same as for a dimension
+  mismatch: construct the instance with the same `enable_world_model`/`enable_hippocampal` flags
+  the checkpoint was originally saved with.
+- **Sub-components use their own existing `save()`/`save_weights()` methods into separate files**
+  (`CrossAttention::save()`, `LayerNorm::save_weights()`), matching how `self_attention`/
+  `cross_attention`/`feed_forward` are already persisted — not the inline gamma/beta-array
+  approach `norm1`/`norm2`/`norm3` use in the main file. Reusing the existing per-component
+  file-based save/load avoids hand-writing new serialization code for two more `LayerNorm`
+  instances, and keeps the new gated-path sections structurally consistent with every other
+  *optional, variably-present* piece of state this method persists (the mandatory `norm1`/`norm2`/
+  `norm3` inline approach is a pre-existing choice from before any of this batch, left unchanged).
+- **No file-format version field was added.** This mirrors every other binary artifact format in
+  this codebase (`LeJEPAEncoder`'s own `config.bin` has none either) — these are internal training
+  artifacts (`training_sessions/`, gitignored), not a public interchange format, and adding
+  versioning here would be a larger, separate concern affecting every `save()`/`load()` pair in
+  the codebase, not something this item's own scope calls for.
+- **No new source files** — same principle this whole batch has followed when a gap turned out to
+  be closeable inside the files that already owned the affected behavior.
+
+Changes Made:
+
+- `src/DecoderBlock.hpp`: `save()`/`load()`'s own doc comments rewritten to describe the new
+  persistence and the mismatch-throws contract, replacing the "TD-180 known gap" language;
+  `set_gate()`/`set_gate_h()`'s own doc comment updated to drop its now-stale "future
+  checkpoint-load path" framing. Version 1.2.0 → 1.3.0.
+- `src/DecoderBlock.cpp`: `save()` writes a presence flag (and, when true, the gate scalar) for
+  each gated path to the main file, then calls `world_model_cross_attention->save()`/
+  `norm_world->save_weights()` (and the hippocampal equivalents) when allocated. `load()` reads
+  both flags, throws on any mismatch against this instance's own `enable_world_model`/
+  `enable_hippocampal` state, then loads each gated sub-component's own file pair and restores
+  its own `gate`/`gate_h` scalar and `learning_rate`, mirroring the existing treatment of
+  `self_attention`/`cross_attention`/`feed_forward`. Version 1.2.0 → 1.3.0.
+- `tests/decoderblock_test.cpp`: 7 new `DecoderBlockGatedPathSaveLoadTest` cases — round-trip for
+  the world-model path alone, the hippocampal path alone, and both together (each verified via a
+  full `forward()` call with the gate genuinely nonzero and real gated inputs supplied, so a
+  wrong gate value *or* wrong cross-attention/norm weights would both be caught, not just the
+  gate scalar in isolation); a mismatch throwing in both directions for each gated path
+  independently; and a regression guard confirming a plain, non-gated instance's own save/load
+  round-trip is unaffected by the new unconditionally-written presence flags.
+- `docs/development/guides/TECHNICAL_DEBT.md`: Overview's Resolved Items count and the
+  Table-of-Contents' own resolved-count line bumped; a same-day filed-and-resolved note added
+  (this item never appeared as its own active entry).
+
+Verification:
+
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean, including
+  `chatbot_gui_binary`/`chatbot_api_server` (no repeat of TD-180's own circular-dependency/
+  Qt-macro lessons; neither applies here since nothing moved between CMake targets or introduced
+  a `slots`-named member).
+- ✅ New unit tests (7): round-trip for world-model-only, hippocampal-only, and both-together
+  configurations, each asserting both the restored gate scalar *and* a full `forward()` output
+  match (catching either a gate or a cross-attention-weight persistence bug); mismatch-throws in
+  both directions (saved-present-loaded-absent, saved-absent-loaded-present) for each gated path;
+  a non-gated round-trip regression guard. All pass.
+- ✅ Full `decoderblockTests`/`DecoderBlockTests` suite: 43/43 passing (up from 36).
+- ✅ Full `ctest` suite: 136/136 passing, including the load-sensitive
+  `ScriptsTests_monitor_training` flake noted in earlier entries in this batch (passed cleanly
+  this run).
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+
+Files Changed:
+
+- `src/DecoderBlock.hpp`, `src/DecoderBlock.cpp`
+- `tests/decoderblock_test.cpp`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-186: LeJEPA + Hippocampal Memory Pilot Run
 
 | Resolution Date | Component | Resolved By |

@@ -1,6 +1,6 @@
-// @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc)
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-09-15
+// @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap)
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-09-17
 
 #include "DecoderBlock.hpp"
 #include <cmath>
@@ -535,12 +535,41 @@ void DecoderBlock::save(const std::string& filepath) {
         file.write(reinterpret_cast<const char*>(&beta3(0, j)), sizeof(float));
     }
 
+    // TD-187: gated world-model path, only when this instance actually has one allocated. The
+    // presence flag is written unconditionally so load() always knows whether a gate value
+    // follows and whether a matching .world_model_cross_attn/.norm_world file pair exists,
+    // without having to guess from this instance's own construction (which may differ from
+    // whatever instance eventually calls load()).
+    const bool has_world_model = (world_model_cross_attention != nullptr);
+    file.write(reinterpret_cast<const char*>(&has_world_model), sizeof(has_world_model));
+    if (has_world_model) {
+        file.write(reinterpret_cast<const char*>(&gate), sizeof(gate));
+    }
+
+    // TD-187: gated hippocampal path, same convention as the world-model path above.
+    const bool has_hippocampal = (hippocampal_cross_attention != nullptr);
+    file.write(reinterpret_cast<const char*>(&has_hippocampal), sizeof(has_hippocampal));
+    if (has_hippocampal) {
+        file.write(reinterpret_cast<const char*>(&gate_h), sizeof(gate_h));
+    }
+
     file.close();
 
     // Save sub-components to separate files
     self_attention->save_weights(filepath + ".self_attn");
     cross_attention->save(filepath + ".cross_attn");
     feed_forward->save_weights(filepath + ".ff");
+
+    // TD-187: gated paths' own sub-components, only written when actually allocated (matching
+    // the presence flags just written above).
+    if (has_world_model) {
+        world_model_cross_attention->save(filepath + ".world_model_cross_attn");
+        norm_world->save_weights(filepath + ".norm_world");
+    }
+    if (has_hippocampal) {
+        hippocampal_cross_attention->save(filepath + ".hippocampal_cross_attn");
+        norm_hippocampal->save_weights(filepath + ".norm_hippocampal");
+    }
 }
 
 void DecoderBlock::load(const std::string& filepath) {
@@ -592,6 +621,42 @@ void DecoderBlock::load(const std::string& filepath) {
     norm3->set_gamma(gamma3);
     norm3->set_beta(beta3);
 
+    // TD-187: gated world-model path presence flag — must match this instance's own
+    // construction-time enable_world_model exactly (see load()'s own doc comment for why a
+    // mismatch throws rather than silently dropping or fabricating trained state).
+    bool loaded_has_world_model = false;
+    file.read(reinterpret_cast<char*>(&loaded_has_world_model), sizeof(loaded_has_world_model));
+    float loaded_gate = 0.0f;
+    if (loaded_has_world_model) {
+        file.read(reinterpret_cast<char*>(&loaded_gate), sizeof(loaded_gate));
+    }
+    const bool current_has_world_model = (world_model_cross_attention != nullptr);
+    if (loaded_has_world_model != current_has_world_model) {
+        throw std::runtime_error(
+            std::string("DecoderBlock::load(): saved world-model gated path is ") +
+            (loaded_has_world_model ? "present" : "absent") +
+            " but this instance was constructed with enable_world_model=" +
+            (current_has_world_model ? "true" : "false") +
+            " — construct with a matching flag before loading");
+    }
+
+    // TD-187: gated hippocampal path presence flag, same convention as above.
+    bool loaded_has_hippocampal = false;
+    file.read(reinterpret_cast<char*>(&loaded_has_hippocampal), sizeof(loaded_has_hippocampal));
+    float loaded_gate_h = 0.0f;
+    if (loaded_has_hippocampal) {
+        file.read(reinterpret_cast<char*>(&loaded_gate_h), sizeof(loaded_gate_h));
+    }
+    const bool current_has_hippocampal = (hippocampal_cross_attention != nullptr);
+    if (loaded_has_hippocampal != current_has_hippocampal) {
+        throw std::runtime_error(
+            std::string("DecoderBlock::load(): saved hippocampal gated path is ") +
+            (loaded_has_hippocampal ? "present" : "absent") +
+            " but this instance was constructed with enable_hippocampal=" +
+            (current_has_hippocampal ? "true" : "false") +
+            " — construct with a matching flag before loading");
+    }
+
     file.close();
 
     // Load sub-components
@@ -603,6 +668,23 @@ void DecoderBlock::load(const std::string& filepath) {
     self_attention->learning_rate = learning_rate;
     cross_attention->learning_rate = learning_rate;
     feed_forward->learning_rate = learning_rate;
+
+    // TD-187: gated paths' own sub-components + gate scalars, only when actually present (the
+    // mismatch checks above already guarantee current_has_* matches loaded_has_* exactly here).
+    if (current_has_world_model) {
+        gate = loaded_gate;
+        world_model_cross_attention->load(filepath + ".world_model_cross_attn");
+        norm_world->load_weights(filepath + ".norm_world");
+        world_model_cross_attention->learning_rate = learning_rate;
+        norm_world->learning_rate = learning_rate;
+    }
+    if (current_has_hippocampal) {
+        gate_h = loaded_gate_h;
+        hippocampal_cross_attention->load(filepath + ".hippocampal_cross_attn");
+        norm_hippocampal->load_weights(filepath + ".norm_hippocampal");
+        hippocampal_cross_attention->learning_rate = learning_rate;
+        norm_hippocampal->learning_rate = learning_rate;
+    }
 }
 
 void DecoderBlock::register_parameters_with_optimizer(Optimizer& optimizer) {

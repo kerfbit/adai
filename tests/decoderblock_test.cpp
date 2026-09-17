@@ -1460,6 +1460,222 @@ TEST(DecoderBlockGatedPathTest, NullableAccessorsReflectConstruction) {
 }
 
 // ============================================================================
+// TD-187: save()/load() persistence of the gated world-model/hippocampal paths
+// (closes TD-180's own documented gap — see DecoderBlock::save()'s own doc comment)
+// ============================================================================
+
+namespace {
+// Removes the main file plus every sub-component file save()/load() can possibly have written,
+// gated paths included — safe to call even when a given suffix was never written (std::remove
+// on a non-existent path is a silent no-op).
+void remove_decoder_block_files(const std::string& filepath) {
+    std::remove(filepath.c_str());
+    std::remove((filepath + ".self_attn").c_str());
+    std::remove((filepath + ".cross_attn").c_str());
+    std::remove((filepath + ".ff").c_str());
+    std::remove((filepath + ".world_model_cross_attn").c_str());
+    std::remove((filepath + ".norm_world").c_str());
+    std::remove((filepath + ".hippocampal_cross_attn").c_str());
+    std::remove((filepath + ".norm_hippocampal").c_str());
+}
+}  // namespace
+
+TEST(DecoderBlockGatedPathSaveLoadTest, RoundTripPersistsWorldModelGateAndCrossAttentionWeights) {
+    int d_model = 16, num_heads = 2, d_ff = 32;
+    int tgt_len = 3, src_len = 4, wm_len = 3;
+
+    DecoderBlock original(d_model, num_heads, d_ff, 0.1f, /*enable_world_model=*/true,
+                          /*enable_hippocampal=*/false);
+    original.set_gate(0.6f);
+
+    Matrix decoder_input(tgt_len, d_model), encoder_output(src_len, d_model),
+        world_model_output(wm_len, d_model);
+    for (int i = 0; i < tgt_len; ++i)
+        for (int j = 0; j < d_model; ++j) decoder_input(i, j) = 0.05f * (i + j);
+    for (int i = 0; i < src_len; ++i)
+        for (int j = 0; j < d_model; ++j) encoder_output(i, j) = 0.03f * (i - j);
+    for (int i = 0; i < wm_len; ++i)
+        for (int j = 0; j < d_model; ++j) world_model_output(i, j) = 0.2f * (i + 1);
+    Matrix causal_mask = create_causal_mask(tgt_len);
+
+    // Reference output from the original, pre-save instance, with the gated path genuinely
+    // exercised (nonzero gate, real world_model_output) -- if either the gate scalar or the
+    // gated cross-attention/norm weights fail to round-trip, this won't match after loading.
+    Matrix reference_output = original.forward(decoder_input, encoder_output, causal_mask,
+                                               nullptr, &world_model_output);
+
+    std::string filepath = "test_decoder_block_wm_gated.bin";
+    original.save(filepath);
+
+    // A freshly, independently-constructed instance (different random init) with the SAME
+    // enable_world_model=true -- load() must fully overwrite its random gate/cross-attention
+    // weights with the saved ones, not just leave them as coincidentally-close random values.
+    DecoderBlock loaded(d_model, num_heads, d_ff, 0.1f, /*enable_world_model=*/true,
+                       /*enable_hippocampal=*/false);
+    loaded.load(filepath);
+
+    EXPECT_FLOAT_EQ(loaded.get_gate(), 0.6f);
+    Matrix loaded_output = loaded.forward(decoder_input, encoder_output, causal_mask, nullptr,
+                                          &world_model_output);
+    EXPECT_TRUE(matrices_equal(reference_output, loaded_output));
+
+    remove_decoder_block_files(filepath);
+}
+
+TEST(DecoderBlockGatedPathSaveLoadTest, RoundTripPersistsHippocampalGateAndCrossAttentionWeights) {
+    int d_model = 16, num_heads = 2, d_ff = 32;
+    int tgt_len = 3, src_len = 4;
+
+    DecoderBlock original(d_model, num_heads, d_ff, 0.1f, /*enable_world_model=*/false,
+                          /*enable_hippocampal=*/true);
+    original.set_gate_h(-0.4f);
+
+    Matrix decoder_input(tgt_len, d_model), encoder_output(src_len, d_model);
+    for (int i = 0; i < tgt_len; ++i)
+        for (int j = 0; j < d_model; ++j) decoder_input(i, j) = 0.05f * (i + j);
+    for (int i = 0; i < src_len; ++i)
+        for (int j = 0; j < d_model; ++j) encoder_output(i, j) = 0.03f * (i - j);
+    Matrix causal_mask = create_causal_mask(tgt_len);
+
+    HippocampalMemory memory(d_model, /*capacity=*/4);
+    Matrix key(1, d_model), value(1, d_model);
+    for (int j = 0; j < d_model; ++j) {
+        key(0, j) = 0.25f;
+        value(0, j) = 0.25f;
+    }
+    memory.write(key, value);
+
+    Matrix reference_output = original.forward(decoder_input, encoder_output, causal_mask,
+                                               nullptr, nullptr, nullptr, &memory,
+                                               /*repetition_alpha=*/0.3f,
+                                               /*repetition_decay=*/0.9f);
+
+    std::string filepath = "test_decoder_block_hm_gated.bin";
+    original.save(filepath);
+
+    DecoderBlock loaded(d_model, num_heads, d_ff, 0.1f, /*enable_world_model=*/false,
+                       /*enable_hippocampal=*/true);
+    loaded.load(filepath);
+
+    EXPECT_FLOAT_EQ(loaded.get_gate_h(), -0.4f);
+    Matrix loaded_output = loaded.forward(decoder_input, encoder_output, causal_mask, nullptr,
+                                          nullptr, nullptr, &memory, 0.3f, 0.9f);
+    EXPECT_TRUE(matrices_equal(reference_output, loaded_output));
+
+    remove_decoder_block_files(filepath);
+}
+
+TEST(DecoderBlockGatedPathSaveLoadTest, RoundTripPersistsBothGatedPathsWhenBothAllocated) {
+    int d_model = 16, num_heads = 2, d_ff = 32;
+    int tgt_len = 3, src_len = 4, wm_len = 3;
+
+    DecoderBlock original(d_model, num_heads, d_ff, 0.1f, /*enable_world_model=*/true,
+                          /*enable_hippocampal=*/true);
+    original.set_gate(0.5f);
+    original.set_gate_h(0.35f);
+
+    Matrix decoder_input(tgt_len, d_model), encoder_output(src_len, d_model),
+        world_model_output(wm_len, d_model);
+    for (int i = 0; i < tgt_len; ++i)
+        for (int j = 0; j < d_model; ++j) decoder_input(i, j) = 0.04f * (i + j);
+    for (int i = 0; i < src_len; ++i)
+        for (int j = 0; j < d_model; ++j) encoder_output(i, j) = 0.02f * (i - j);
+    for (int i = 0; i < wm_len; ++i)
+        for (int j = 0; j < d_model; ++j) world_model_output(i, j) = 0.15f * (i + 1);
+    Matrix causal_mask = create_causal_mask(tgt_len);
+
+    HippocampalMemory memory(d_model, /*capacity=*/4);
+    Matrix key(1, d_model), value(1, d_model);
+    for (int j = 0; j < d_model; ++j) {
+        key(0, j) = 0.2f;
+        value(0, j) = 0.2f;
+    }
+    memory.write(key, value);
+
+    Matrix reference_output =
+        original.forward(decoder_input, encoder_output, causal_mask, nullptr,
+                         &world_model_output, nullptr, &memory, 0.4f, 0.9f);
+
+    std::string filepath = "test_decoder_block_both_gated.bin";
+    original.save(filepath);
+
+    DecoderBlock loaded(d_model, num_heads, d_ff, 0.1f, /*enable_world_model=*/true,
+                       /*enable_hippocampal=*/true);
+    loaded.load(filepath);
+
+    EXPECT_FLOAT_EQ(loaded.get_gate(), 0.5f);
+    EXPECT_FLOAT_EQ(loaded.get_gate_h(), 0.35f);
+    Matrix loaded_output = loaded.forward(decoder_input, encoder_output, causal_mask, nullptr,
+                                          &world_model_output, nullptr, &memory, 0.4f, 0.9f);
+    EXPECT_TRUE(matrices_equal(reference_output, loaded_output));
+
+    remove_decoder_block_files(filepath);
+}
+
+TEST(DecoderBlockGatedPathSaveLoadTest, LoadThrowsWhenWorldModelFlagMismatchesSavedPresent) {
+    int d_model = 16, num_heads = 2, d_ff = 32;
+    DecoderBlock with_world_model(d_model, num_heads, d_ff, 0.1f, /*enable_world_model=*/true,
+                                  /*enable_hippocampal=*/false);
+    std::string filepath = "test_decoder_block_mismatch1.bin";
+    with_world_model.save(filepath);
+
+    // Loading into an instance constructed WITHOUT the world-model path must fail clearly,
+    // not silently drop the saved gate/cross-attention weights.
+    DecoderBlock without_world_model(d_model, num_heads, d_ff);
+    EXPECT_THROW(without_world_model.load(filepath), std::runtime_error);
+
+    remove_decoder_block_files(filepath);
+}
+
+TEST(DecoderBlockGatedPathSaveLoadTest, LoadThrowsWhenWorldModelFlagMismatchesSavedAbsent) {
+    int d_model = 16, num_heads = 2, d_ff = 32;
+    DecoderBlock without_world_model(d_model, num_heads, d_ff);
+    std::string filepath = "test_decoder_block_mismatch2.bin";
+    without_world_model.save(filepath);
+
+    // Loading into an instance constructed WITH the world-model path must also fail clearly,
+    // not silently leave it at its fresh random-init state.
+    DecoderBlock with_world_model(d_model, num_heads, d_ff, 0.1f, /*enable_world_model=*/true,
+                                  /*enable_hippocampal=*/false);
+    EXPECT_THROW(with_world_model.load(filepath), std::runtime_error);
+
+    remove_decoder_block_files(filepath);
+}
+
+TEST(DecoderBlockGatedPathSaveLoadTest, LoadThrowsWhenHippocampalFlagMismatches) {
+    int d_model = 16, num_heads = 2, d_ff = 32;
+    DecoderBlock with_hippocampal(d_model, num_heads, d_ff, 0.1f, /*enable_world_model=*/false,
+                                  /*enable_hippocampal=*/true);
+    std::string filepath = "test_decoder_block_mismatch3.bin";
+    with_hippocampal.save(filepath);
+
+    DecoderBlock without_hippocampal(d_model, num_heads, d_ff);
+    EXPECT_THROW(without_hippocampal.load(filepath), std::runtime_error);
+
+    remove_decoder_block_files(filepath);
+}
+
+TEST(DecoderBlockGatedPathSaveLoadTest, NonGatedSaveLoadRoundTripsUnaffectedByTheNewFlags) {
+    // Regression guard: a plain, non-gated instance must still save/load exactly as before --
+    // the new presence-flag bytes are written unconditionally (both false here) but change
+    // nothing about the existing, already-tested non-gated round-trip behavior.
+    int d_model = 16, num_heads = 2, d_ff = 32;
+    DecoderBlock original(d_model, num_heads, d_ff);
+    EXPECT_EQ(original.get_world_model_cross_attention(), nullptr);
+    EXPECT_EQ(original.get_hippocampal_cross_attention(), nullptr);
+
+    std::string filepath = "test_decoder_block_nongated.bin";
+    original.save(filepath);
+
+    DecoderBlock loaded(d_model, num_heads, d_ff);
+    EXPECT_NO_THROW(loaded.load(filepath));
+    EXPECT_EQ(loaded.get_world_model_cross_attention(), nullptr);
+    EXPECT_EQ(loaded.get_hippocampal_cross_attention(), nullptr);
+
+    remove_decoder_block_files(filepath);
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 

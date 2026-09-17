@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc)
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-09-15
+// @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap)
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-09-17
 
 
 #include <memory>
@@ -175,10 +175,9 @@ class DecoderBlock {
     }
 
     /** TD-180: direct gate setters, mainly for tests (gradient checks need a nonzero starting
-     *  gate) and for a future checkpoint-load path once save()/load() is extended to cover the
-     *  gated paths (see save()'s own doc comment on that known gap). Not used by forward()
-     *  itself; training only ever reaches these values via update_weights()'s own plain-SGD
-     *  step. */
+     *  gate) — TD-187's own load() now sets these directly too, when a saved gate value is
+     *  present. Not used by forward() itself; training only ever reaches these values via
+     *  update_weights()'s own plain-SGD step. */
     void set_gate(float g) {
         gate = g;
     }
@@ -358,20 +357,40 @@ class DecoderBlock {
     void set_learning_rate(float lr);
 
     /**
-     * Save decoder block parameters to file
+     * Save decoder block parameters to file.
      *
-     * TD-180 known gap: the gated world-model/hippocampal sub-components (and gate/gate_h
-     * themselves) are NOT persisted by save()/load() — out of this item's own explicit scope
-     * (not listed in its Action Items or Files to Modify); flagged for a later checkpointing
-     * TD to close, since a real Phase 1 fine-tuning run's trained gate/cross-attention weights
-     * would currently be lost across a save/load cycle.
+     * TD-187 (closing TD-180's own documented gap): the gated world-model/hippocampal
+     * sub-components — `world_model_cross_attention`/`norm_world`/`gate` and
+     * `hippocampal_cross_attention`/`norm_hippocampal`/`gate_h` — are now persisted too, but
+     * only when this instance actually has them allocated (`enable_world_model`/
+     * `enable_hippocampal` at construction). A one-byte presence flag is written to the main
+     * file immediately before each optional section (mirroring `LeJEPAEncoder::save()`'s own
+     * "header record before variable content" convention, and `HippocampalMemory::save()`'s own
+     * `num_slots` count) so `load()` knows whether a gate scalar follows and whether a
+     * `.world_model_cross_attn`/`.norm_world` (or `.hippocampal_cross_attn`/
+     * `.norm_hippocampal`) file pair was written — a call site never needs to guess. See
+     * `load()`'s own doc comment for what happens when the saved flags don't match this
+     * instance's own construction.
      *
      * @param filepath Path to save file
      */
     void save(const std::string& filepath);
 
     /**
-     * Load decoder block parameters from file
+     * Load decoder block parameters from file.
+     *
+     * TD-187: the saved presence flags for the gated world-model/hippocampal paths (see save()'s
+     * own doc comment) must match this instance's own construction-time
+     * `enable_world_model`/`enable_hippocampal` state exactly — a saved-present-but-
+     * constructed-absent (or vice versa) mismatch throws `std::runtime_error`, the same
+     * "fail clearly rather than silently drop or fabricate trained state" choice this method
+     * already makes for a `d_model`/`num_heads`/`d_ff` mismatch. This is deliberate: silently
+     * skipping a saved gated path would discard real trained gate/cross-attention weights with
+     * no warning, and silently leaving an allocated-but-absent-from-the-file gated path at its
+     * fresh random-init state would silently break a resumed training run in a way nothing
+     * downstream could detect. The caller's own fix is always the same as for a dimension
+     * mismatch: construct this instance with the same `enable_world_model`/`enable_hippocampal`
+     * flags the checkpoint was originally saved with.
      *
      * @param filepath Path to load file
      */
