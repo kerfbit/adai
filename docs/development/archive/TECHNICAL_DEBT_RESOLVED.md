@@ -4,6 +4,123 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-189: LeJEPAEncoder::train_step() Silently Dropped the Target-View/SIGReg Gradient for Every Weight but token_embedding
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 17, 2026 | LeJEPA World Model | `train_step()` restructured to apply each view's gradient with its own `update_weights()` call (`src/LeJEPAEncoder.cpp`) |
+
+Summary:
+`LeJEPAEncoder::train_step()` (TD-178) constructs a context view and a target view of the same
+token sequence, encodes both with the shared encoder weights, and is supposed to backpropagate
+both the predictor loss and the SIGReg isotropic-Gaussian regularization loss into those shared
+weights — the whole point of LeJEPA's stop-gradient-free design (see the class's own doc comment).
+It did this by calling the encoder's private `backward()` twice in a row — once for the target
+view's gradient (`grad_target_total`, which folds in both the predictor's target-side term and
+`sigreg_lambda`-weighted SIGReg gradient), once for the context view's gradient
+(`grad_ctx_embeddings`, the predictor's context-side term) — before a single `update_weights()`
+call. This silently broke the design: `LayerNorm::backward()`, `FeedForward::backward()`, and
+`MultiHeadAttention::backward()` (used inside every `encoder_blocks[i]` and `final_norm`) all
+*overwrite* their own gradient members (`gamma_grad`/`beta_grad`, `W1_grad`/`W2_grad`/
+`b1_grad`/`b2_grad`, `W_q_grad`/`W_k_grad`/`W_v_grad`/`W_o_grad`) on every call rather than
+accumulating with `+=`. Only `TokenEmbedding::backward()` genuinely accumulates. So the second
+(context-view) `backward()` call clobbered every gradient the first (target-view) call had just
+computed for `encoder_blocks`/`final_norm`, and only the context-view/predictor signal ever
+reached those weights — `sigreg_lambda` had **no effect whatsoever** on any weight but the token
+embedding table, regardless of its magnitude. Found during a full-text review of every file newly
+added in the LeJEPA batch (TD-174 through TD-186), not reported by a user; filed and resolved the
+same day since it was fully root-caused and fixed within the review itself.
+
+This is also why the existing `TrainStepLossesTrendDownwardOnSyntheticCorpus` test (added with
+TD-178) never caught it: `TokenEmbedding`'s own correct accumulation was apparently enough, on
+that test's small 4-sentence repeated corpus, to produce a detectable downward `sigreg_loss` trend
+through the embedding-table channel alone — the test couldn't distinguish "the whole encoder
+trained" from "only the embedding table moved."
+
+Design decisions:
+
+- **Two sequential `update_weights()` calls instead of widening every shared component's own
+  `backward()` to accumulate.** The more fundamental fix — making `LayerNorm`/`FeedForward`/
+  `MultiHeadAttention::backward()` accumulate gradients across calls like `TokenEmbedding` already
+  does — would also directly benefit `ChatbotTrainer`'s own `GRADIENT_ACCUMULATION_STEPS` feature
+  (configured to 32 in the live `config.trainer.conf`), which appears to rely on exactly this kind
+  of accumulation via a comment at `ChatbotTrainer.cpp:1146` ("Backward pass (accumulates
+  gradients)") that doesn't match the actual overwrite behavior either. That's a much larger,
+  higher-blast-radius change touching every caller of those three foundational classes across the
+  whole codebase, and is tracked as its own separate investigation rather than folded into this
+  fix (see the Action Items below). The fix here stays entirely inside `LeJEPAEncoder.cpp`: each
+  view's gradient is consumed by its own `backward()` + `update_weights()` pair immediately, so
+  nothing is overwritten before it's applied.
+- **Sequential, not simultaneous, application is an accepted, bounded approximation.** Splitting
+  one combined update into two — target view's gradient applied first, then the context view's —
+  means the context-view backward (recomputed via a fresh `encode_tokens(context_tokens)` call, to
+  repopulate the shared cache) technically runs against slightly-updated weights rather than the
+  exact weights `predicted`/`grad_predicted` were originally computed against. This is the same
+  bounded staleness any sequential mini-batch update incurs, and is negligible at the learning
+  rates this encoder trains at — far preferable to the prior behavior of silently dropping one
+  signal entirely.
+- **Predictor's own `backward()` call deliberately ordered *after* step 1's `update_weights()`,
+  not before.** `update_weights()` (with a registered optimizer) calls `zero_grad()` on every
+  registered component including `predictor` — calling `predictor->backward(grad_predicted)`
+  before step 1's update would have its result wiped before step 2 ever used it. Calling
+  `optimizer_->step()` twice per `train_step()` now (once per view) also means `predictor`'s own
+  weights receive a near-zero, momentum-only nudge during step 1's optimizer call (its gradient
+  buffer is still zero at that point) — a bounded, self-correcting artifact of using one shared
+  `Optimizer` across sub-components with no way to "partially step" only some of them, judged an
+  acceptable tradeoff against the alternative of leaving SIGReg's gradient dropped entirely.
+
+Changes Made:
+
+- `src/LeJEPAEncoder.cpp`: `train_step()`'s gradient-application block restructured into two
+  sequential `backward()` + `update_weights()` pairs (target view, then context view) instead of
+  two `backward()` calls sharing one `update_weights()`. Also removed the dead `cached_encoder_outputs`
+  member (populated on every `encode_tokens()` call, 3x per `train_step()`, but never read anywhere)
+  and replaced the per-`train_step()`-call `std::random_device`/`std::mt19937` construction for the
+  span-start draw with a single `span_rng_` member seeded once at construction. Version 0.3.0 → 0.4.0.
+- `src/LeJEPAEncoder.hpp`: `cached_encoder_outputs` member removed; new `span_rng_` member added;
+  class doc, `train_step()`'s own doc, and the `optimizer_`/`update_weights()` doc comments updated
+  to describe the two-sequential-updates design (the old text claimed `optimizer_->step()` is
+  called "exactly once per train_step()," no longer true — it's exactly once per
+  `update_weights()` call, now called twice per `train_step()`). Version 0.3.0 → 0.4.0.
+- `tests/lejepaencoder_test.cpp`: new regression test
+  `SigregLambdaAffectsEncoderBlockWeightsNotJustTokenEmbedding` — runs `train_step()` once with
+  `sigreg_lambda=0` and once with `sigreg_lambda=50` (8 trials each, summed to control for
+  random-init noise) and asserts `encoder_blocks[0]`'s own `FeedForward::W1` moves measurably more
+  under the high-lambda case. Confirmed this fails against the pre-fix code (5/5 standalone runs:
+  lambda=0 and lambda=50 produced statistically indistinguishable `W1` deltas) and passes reliably
+  against the fix (10/10 standalone runs).
+- `docs/development/guides/TECHNICAL_DEBT.md`: Overview/Table-of-Contents resolved-item counts
+  bumped; a same-day filed-and-resolved note added (this item never appeared as its own active
+  entry).
+
+Verification:
+
+- ✅ Confirmed the regression test fails against the pre-fix code (via `git stash` of just the
+  `.cpp`/`.hpp` changes): 5/5 standalone runs failed, `sigreg_lambda` producing no detectable
+  difference in `encoder_blocks[0]`'s own weight movement.
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean.
+- ✅ New regression test + full `lejepaencoderTests` suite: 32/32 passing, 15/15 standalone repeats
+  of the new test clean (10/10 more after the dead-cache/RNG cleanup).
+- ✅ Full `ctest` suite: 136/136 passing.
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+
+Action Items:
+
+- The same overwrite-not-accumulate gradient semantics in `LayerNorm`/`FeedForward`/
+  `MultiHeadAttention::backward()` appears to also silently break `ChatbotTrainer`'s
+  `GRADIENT_ACCUMULATION_STEPS` feature (live default: 32) — only the last sample in each
+  accumulation window would actually train most weights (again, everything but
+  `token_embedding`). This needs its own focused repro and investigation before concluding it's a
+  real bug in that much larger, actively-used code path; flagged separately rather than folded
+  into this fix.
+
+Files Changed:
+
+- `src/LeJEPAEncoder.cpp`
+- `src/LeJEPAEncoder.hpp`
+- `tests/lejepaencoder_test.cpp`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-188: ChatbotTrainer::preprocess_data() Crashes Uncaught on a Pair with an Empty Input or Response
 
 | Resolution Date | Component | Resolved By |

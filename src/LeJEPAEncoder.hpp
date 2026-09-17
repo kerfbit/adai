@@ -1,10 +1,11 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.3.0
-// @adai-reviewed: 2026-09-16
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-09-17
 
 #include <memory>
+#include <random>
 #include <string>
 #include <utility>
 #include <vector>
@@ -51,6 +52,15 @@
  * encode()'s output is a drop-in match for LLMEncoder::encode()'s own shape contract
  * ([seq_len, d_model]) — required by TD-179's `HippocampalMemory`, which stores/reads keys
  * produced by whichever encoder a caller passes in.
+ *
+ * TD-189: both loss terms' gradients flow into the same shared encoder weights, but as two
+ * *sequential* weight updates within one train_step() call, not one joint combined update —
+ * the target view's gradient (SIGReg + the predictor's target-side term) is applied first, then
+ * the context view's (the predictor's context-side term). This is a deliberate consequence of
+ * every shared component's own backward() overwriting (not accumulating) its gradient members
+ * across separate calls; see train_step()'s own implementation comment for the full rationale.
+ * Still no stop-gradient/EMA-teacher asymmetry either way — LeJEPA's own point (per the plan's
+ * Background section).
  */
 class LeJEPAEncoder {
    private:
@@ -70,18 +80,24 @@ class LeJEPAEncoder {
 
     // Set by register_parameters_with_optimizer(); nullptr = plain-SGD fallback. Tracked here
     // (not just delegated to each sub-component's own optimizer pointer) so update_weights()
-    // can call optimizer_->step() exactly ONCE per train_step() when a shared optimizer is in
-    // use — see update_weights()'s own doc comment for why calling every sub-component's own
-    // update_weights() unconditionally would be a real bug here (each would independently call
-    // the SAME shared Optimizer's step(), over-applying it once per sub-component instead of
-    // once per training step).
+    // can call optimizer_->step() exactly ONCE per update_weights() call when a shared optimizer
+    // is in use — see update_weights()'s own doc comment for why calling every sub-component's
+    // own update_weights() unconditionally would be a real bug here (each would independently
+    // call the SAME shared Optimizer's step(), over-applying it once per sub-component instead
+    // of once per update_weights() call). TD-189: train_step() itself now calls update_weights()
+    // (hence optimizer_->step()) TWICE — once per view's gradient, see train_step()'s own
+    // implementation comment — so "once" here is per update_weights() call, not per train_step().
     Optimizer* optimizer_{nullptr};
 
-    // Cached values for backward(), same guard-by-requires_grad convention as LLMEncoder's own
-    // cache. Reused across both the context and target forward passes within one train_step()
-    // call — see train_step()'s own implementation comment for the ordering this requires.
+    // Cached value for backward()'s own token_embedding->backward() call, same
+    // guard-by-requires_grad convention as LLMEncoder's own cache. Reused across both the
+    // context and target forward passes within one train_step() call — see train_step()'s own
+    // implementation comment for the ordering this requires.
     std::vector<int> cached_token_ids;
-    std::vector<Matrix> cached_encoder_outputs;
+
+    // Seeded once at construction (one std::random_device query) rather than per train_step()
+    // call — train_step()'s own span-start draw is the only user.
+    std::mt19937 span_rng_{std::random_device{}()};
 
     /** Core forward pipeline shared by encode() and train_step() — embedding, positional
      *  encoding, encoder blocks, final norm. Populates the cache above when requires_grad. */
@@ -142,7 +158,9 @@ class LeJEPAEncoder {
     /**
      * Self-supervised training step on a single example (TD-178) — see the class doc above for
      * the full view-construction/loss/gradient-flow design. Fully self-contained: forward,
-     * backward, and a weight update all happen inside this one call.
+     * backward, and weight updates all happen inside this one call (TD-189: two sequential
+     * updates, one per view's gradient — see the class doc and this method's own implementation
+     * comment for why).
      *
      * @param text Raw text — no paired target required, unlike EncoderDecoderModel::train_step.
      * @return {predictor_loss, sigreg_loss}, logged as two separate series (see

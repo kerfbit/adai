@@ -515,3 +515,62 @@ TEST_F(LeJEPAEncoderTest, TrainStepLossesTrendDownwardOnSyntheticCorpus) {
         << "sigreg_loss should trend downward (first-half avg=" << sigreg_first
         << ", second-half avg=" << sigreg_last << ")";
 }
+
+namespace {
+float matrix_delta_l2(const Matrix& before, const Matrix& after) {
+    float sum_sq = 0.0f;
+    for (int i = 0; i < before.rows; ++i) {
+        for (int j = 0; j < before.cols; ++j) {
+            const float d = after(i, j) - before(i, j);
+            sum_sq += d * d;
+        }
+    }
+    return std::sqrt(sum_sq);
+}
+}  // namespace
+
+// TD-189 regression test: LayerNorm::backward()/FeedForward::backward()/
+// MultiHeadAttention::backward() overwrite (not accumulate) their own gradient members on every
+// call. train_step() used to call backward() twice — once for the target view (predictor's
+// target-side term + SIGReg), once for the context view (predictor's context-side term) — before
+// a single update_weights(), silently discarding whichever gradient the FIRST call computed for
+// every encoder_blocks/final_norm weight (only TokenEmbedding::backward() genuinely accumulates).
+// In practice this meant sigreg_lambda had NO effect whatsoever on encoder_blocks/final_norm
+// weights, regardless of its magnitude — only the predictor's own (context-view) gradient ever
+// reached them. This test checks that cranking sigreg_lambda up visibly increases how much
+// encoder_blocks[0]'s own FeedForward weight (W1) moves in a single train_step() call — under the
+// bug, a huge sigreg_lambda moved that weight no more than sigreg_lambda=0 did, since SIGReg's
+// gradient never survived to be applied there.
+TEST_F(LeJEPAEncoderTest, SigregLambdaAffectsEncoderBlockWeightsNotJustTokenEmbedding) {
+    create_test_vocabulary();
+
+    const int trials = 8;
+    float sum_delta_low = 0.0f;
+    float sum_delta_high = 0.0f;
+
+    for (int t = 0; t < trials; ++t) {
+        LeJEPAEncoder encoder_low(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+        encoder_low.load_tokenizer_vocab(vocab_file);
+        encoder_low.set_learning_rate(0.5f);
+        encoder_low.set_sigreg_lambda(0.0f);
+        Matrix w1_before_low = encoder_low.get_encoder_block(0)->get_feed_forward()->get_W1();
+        encoder_low.train_step("hello world this is a test");
+        Matrix w1_after_low = encoder_low.get_encoder_block(0)->get_feed_forward()->get_W1();
+        sum_delta_low += matrix_delta_l2(w1_before_low, w1_after_low);
+
+        LeJEPAEncoder encoder_high(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+        encoder_high.load_tokenizer_vocab(vocab_file);
+        encoder_high.set_learning_rate(0.5f);
+        encoder_high.set_sigreg_lambda(50.0f);
+        Matrix w1_before_high = encoder_high.get_encoder_block(0)->get_feed_forward()->get_W1();
+        encoder_high.train_step("hello world this is a test");
+        Matrix w1_after_high = encoder_high.get_encoder_block(0)->get_feed_forward()->get_W1();
+        sum_delta_high += matrix_delta_l2(w1_before_high, w1_after_high);
+    }
+
+    EXPECT_GT(sum_delta_high, 2.0f * sum_delta_low)
+        << "sigreg_lambda should visibly scale how much encoder_blocks[0]'s own FeedForward "
+           "weights move (sum over "
+        << trials << " trials: lambda=0 -> " << sum_delta_low << ", lambda=50 -> " << sum_delta_high
+        << ") — if it doesn't, the target-view/SIGReg gradient isn't reaching them";
+}

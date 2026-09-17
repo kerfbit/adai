@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.3.0
-// @adai-reviewed: 2026-09-16
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-09-17
 
 #include "LeJEPAEncoder.hpp"
 
@@ -88,16 +88,8 @@ Matrix LeJEPAEncoder::encode_tokens(const std::vector<int>& token_ids) {
     Matrix embeddings = token_embedding->forward(token_ids);
     Matrix encoded = positional_encoding->forward(embeddings);
 
-    if (requires_grad) {
-        cached_encoder_outputs.clear();
-        cached_encoder_outputs.push_back(encoded);
-    }
-
     for (int i = 0; i < num_layers; i++) {
         encoded = encoder_blocks[i]->forward(encoded);
-        if (requires_grad) {
-            cached_encoder_outputs.push_back(encoded);
-        }
     }
 
     encoded = final_norm->forward(encoded);
@@ -166,10 +158,8 @@ std::pair<float, float> LeJEPAEncoder::train_step(const std::string& text) {
     int span_len = std::max(1, static_cast<int>(std::round(seq_len * kMaskRatio)));
     span_len = std::min(span_len, seq_len - 1);  // leave at least one context token unmasked
 
-    std::random_device rd;
-    std::mt19937 gen(rd());
     std::uniform_int_distribution<int> start_dist(0, seq_len - span_len);
-    const int span_start = start_dist(gen);
+    const int span_start = start_dist(span_rng_);
 
     std::vector<int> context_tokens = token_ids;
     const int unk_id = tokenizer->get_unk_token_id();
@@ -224,24 +214,40 @@ std::pair<float, float> LeJEPAEncoder::train_step(const std::string& text) {
             }
         }
 
-        // Backward into the target view's own encode pass first — its activations are still
-        // the live cache (the most recent encode_tokens() call above). No stop-gradient/EMA
-        // teacher here per LeJEPA's own design (see the class doc) — both views' gradients
-        // flow into the same shared encoder weights.
+        // TD-189: LayerNorm::backward()/FeedForward::backward()/MultiHeadAttention::backward()
+        // (used inside encoder_blocks/final_norm) OVERWRITE their own gradient members on every
+        // call rather than accumulating — only TokenEmbedding::backward() actually accumulates
+        // (+=). Calling backward() twice back-to-back for the two views, as this method used to,
+        // silently discarded whichever view's gradient the FIRST call computed for every weight
+        // except token_embedding: in practice only the context view's (predictor's own) gradient
+        // ever reached encoder_blocks/final_norm, and SIGReg's contribution — meant to keep this
+        // encoder's *target*-view output isotropic-Gaussian — never influenced anything but the
+        // embedding table. The fix: consume each view's gradient with its own update_weights()
+        // call immediately after its own backward(), so nothing is overwritten before it's
+        // applied. This trades one atomic combined update for two sequential ones — both views'
+        // gradients still reach every shared weight, just not simultaneously, the same tradeoff
+        // any sequential mini-batch update makes. Widening every shared component's backward()
+        // to accumulate across calls instead would fix this more fundamentally, but is a much
+        // larger, riskier change affecting every other caller of those components (see TD-189's
+        // own entry in TECHNICAL_DEBT.md for why that's tracked separately).
+
+        // Step 1: target view's gradient (predictor's target-side term + SIGReg) — cache is
+        // currently the target view's (the most recent encode_tokens() call above). Applied on
+        // its own so it can't be clobbered by step 2's backward() below.
         backward(grad_target_total);
+        update_weights();
 
-        // Predictor's own backward uses ITS OWN cache (from predictor->forward() above),
-        // independent of the encoder's cache state, so this is safe regardless of order.
+        // Step 2: predictor's own backward (uses its own cache from predictor->forward() above,
+        // independent of the encoder's weights, so it's safe to compute after step 1's update)
+        // followed by the context view's gradient into the encoder. Re-running the context
+        // view's forward pass repopulates the encoder's shared cache with its own activations
+        // (needed since step 1's backward() re-pointed it at the target view) — deterministic
+        // given fixed weights (no dropout/randomness in EncoderBlock's own forward), modulo the
+        // small change step 1's update just made to those weights, the same bounded staleness any
+        // sequential mini-batch update incurs.
         Matrix grad_ctx_embeddings = predictor->backward(grad_predicted);
-
-        // Re-run the context view's forward pass once more to repopulate the encoder's shared
-        // cache with its own activations (overwritten by the target forward pass above) before
-        // backward()ing into it. Deterministic given fixed weights (no dropout/randomness in
-        // EncoderBlock's own forward), so this reproduces the exact same activations already
-        // used for `predicted` above — a small redundant-compute cost, not a correctness gap.
         encode_tokens(context_tokens);
         backward(grad_ctx_embeddings);
-
         update_weights();
     }
 
