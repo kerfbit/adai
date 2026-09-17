@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added)
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-09-13
+// @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
+// @adai-version: 0.10.1
+// @adai-reviewed: 2026-09-17
 
 #include "ChatbotTrainer.hpp"
 #include <algorithm>
@@ -528,11 +528,27 @@ void ChatbotTrainer::preprocess_data() {
     tokenized_training_data.clear();
     tokenized_training_data.resize(n_train);
     int skipped_train = 0;
+    int skipped_empty_train = 0;
 #ifdef ADAI_ENABLE_OPENMP
-#pragma omp parallel for schedule(dynamic, 16) reduction(+ : skipped_train)
+#pragma omp parallel for schedule(dynamic, 16) reduction(+ : skipped_train, skipped_empty_train)
 #endif
     for (int i = 0; i < n_train; i++) {
         const auto& pair = training_data[i];
+        // BPETokenizer::encode() unconditionally throws TokenizerInputError (validate_input(),
+        // BPETokenizer.cpp) on an empty string rather than returning an empty token vector, so
+        // an empty input or response must be checked BEFORE calling encode() at all — a
+        // TokenizerEncodingError catch alone does not catch it (TokenizerInputError derives from
+        // std::invalid_argument, a separate hierarchy from TokenizerEncodingError's
+        // std::runtime_error). DatasetRegistry::load_conversation_pairs()'s own JSONL parser
+        // (parse_jsonl_sample(), TrainingSampleMeta.hpp) only requires a non-empty "input"
+        // field, so a queued file with e.g. {"input": "hello world"} and no "response" at all
+        // produces exactly this pair — previously an uncaught crash, not a skip.
+        if (pair.input.empty() || pair.response.empty()) {
+            // Leave default-constructed (empty) — filtered out during training, same as an
+            // invalid-UTF-8 skip below.
+            ++skipped_empty_train;
+            continue;
+        }
         try {
             tokenized_training_data[i] = TokenizedPair(
                 truncate_tokens_tail(
@@ -550,17 +566,28 @@ void ChatbotTrainer::preprocess_data() {
     if (skipped_train > 0) {
         adai::Logger::warn("Skipped {} training pairs with invalid UTF-8", skipped_train);
     }
+    if (skipped_empty_train > 0) {
+        adai::Logger::warn("Skipped {} training pairs with an empty input or response",
+                           skipped_empty_train);
+    }
 
     // Tokenize validation data — parallel BPE encoding
     const int n_val = static_cast<int>(validation_data.size());
     tokenized_validation_data.clear();
     tokenized_validation_data.resize(n_val);
     int skipped_val = 0;
+    int skipped_empty_val = 0;
 #ifdef ADAI_ENABLE_OPENMP
-#pragma omp parallel for schedule(dynamic, 16) reduction(+ : skipped_val)
+#pragma omp parallel for schedule(dynamic, 16) reduction(+ : skipped_val, skipped_empty_val)
 #endif
     for (int i = 0; i < n_val; i++) {
         const auto& pair = validation_data[i];
+        // See the identical guard in the training loop above for why this must be checked
+        // before encode() is ever called.
+        if (pair.input.empty() || pair.response.empty()) {
+            ++skipped_empty_val;
+            continue;
+        }
         try {
             tokenized_validation_data[i] = TokenizedPair(
                 truncate_tokens_tail(
@@ -576,6 +603,10 @@ void ChatbotTrainer::preprocess_data() {
     }
     if (skipped_val > 0) {
         adai::Logger::warn("Skipped {} validation pairs with invalid UTF-8", skipped_val);
+    }
+    if (skipped_empty_val > 0) {
+        adai::Logger::warn("Skipped {} validation pairs with an empty input or response",
+                           skipped_empty_val);
     }
 
     // Initialize shuffling indices

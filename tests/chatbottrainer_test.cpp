@@ -746,6 +746,40 @@ TEST_F(MetricsTrackerWiringTest, ExportsRealCsvAfterTraining) {
     std::filesystem::remove(csv_path);
 }
 
+// Regression test: DatasetRegistry::load_conversation_pairs() and
+// ChatbotTrainer::load_conversation_data() both share parse_jsonl_sample()
+// (TrainingSampleMeta.hpp), which only requires a non-empty "input" field — a JSONL line with no
+// "response" field at all (e.g. `{"input": "hello world"}`, exactly what a queued lejepa-style
+// unpaired-text file might contain) is accepted with response="". Before this fix,
+// ChatbotTrainer::preprocess_data() called tokenizer->encode("") on that empty response, which
+// unconditionally throws TokenizerInputError (BPETokenizer.cpp's own validate_input()) — and
+// since that call happens inside preprocess_data()'s own `#pragma omp parallel for` loop, an
+// uncaught exception there terminates the whole process immediately (undefined behavior escaping
+// an OpenMP parallel region), not just this one training pass. A real production trainer, not a
+// unit test, hit exactly this crash.
+TEST_F(MetricsTrackerWiringTest, TrainingSkipsPairsWithEmptyResponseInsteadOfCrashing) {
+    ChatbotTrainer trainer(tiny_config());
+    std::vector<std::string> corpus = {"hello world", "how are you", "I am fine", "thank you"};
+    ASSERT_TRUE(trainer.build_vocabulary(corpus, 100, vocab_path_.string()));
+
+    {
+        std::ofstream f(data_path_);
+        f << "{\"input\":\"hello world\",\"response\":\"how are you\"}\n"
+             "{\"input\":\"I am fine\"}\n"  // no "response" field at all -> response == ""
+             "{\"input\":\"I am fine\",\"response\":\"thank you\"}\n";
+    }
+    ASSERT_TRUE(trainer.load_conversation_data(data_path_.string()));
+    // All three raw pairs are loaded as-is -- load_conversation_data() has no reason to reject
+    // an empty response either; the skip belongs in preprocess_data(), not here.
+    ASSERT_EQ(trainer.get_training_data_size(), 3u);
+
+    // The actual regression check: training must complete normally, not crash, despite one of
+    // the three loaded pairs having an empty response.
+    bool trained_ok = false;
+    EXPECT_NO_THROW({ trained_ok = trainer.train(1); });
+    EXPECT_TRUE(trained_ok);
+}
+
 // ============================================================================
 // Edge Case Tests
 // ============================================================================

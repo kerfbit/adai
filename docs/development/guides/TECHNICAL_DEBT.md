@@ -10,7 +10,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 174
+**Resolved Items:** 175
 **Deferred Decisions:** 3
 
 **September 17, 2026:** Filed and resolved
@@ -18,6 +18,13 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 the same day — closes TD-180's own documented "gated world-model/hippocampal paths not persisted
 by `DecoderBlock::save()`/`load()`" gap. Never spent time as an active entry in this document; see
 its own archive entry for the full writeup.
+
+**September 17, 2026 (same day):** Filed and resolved
+[TD-188](../archive/TECHNICAL_DEBT_RESOLVED.md#td-188-chatbottrainerpreprocess_data-crashes-uncaught-on-a-pair-with-an-empty-input-or-response)
+— `ChatbotTrainer::preprocess_data()` crashed the whole process (uncaught `TokenizerInputError`,
+undefined behavior escaping its own OpenMP parallel region) on any pair with an empty input or
+response, e.g. a queued JSONL line with only an `"input"` field. Also never spent time as an
+active entry; see its own archive entry.
 
 **September 15, 2026:** Filed TD-174 through TD-186 (13 items) — the construction pieces of
 [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md),
@@ -257,7 +264,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (174 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (175 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)

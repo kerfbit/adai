@@ -4,6 +4,93 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-188: ChatbotTrainer::preprocess_data() Crashes Uncaught on a Pair with an Empty Input or Response
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 17, 2026 | Training / Data Generation | Empty-input/response pre-check added to both tokenization loops in `ChatbotTrainer::preprocess_data()` (`src/ChatbotTrainer.cpp`) |
+
+Summary:
+`DatasetRegistry::load_conversation_pairs()` and `ChatbotTrainer::load_conversation_data()` both
+share `parse_jsonl_sample()` (`src/TrainingSampleMeta.hpp`), which only requires a non-empty
+`"input"` field — a JSONL line with no `"response"` field at all (e.g. `{"input": "hello
+world"}`, exactly the kind of unpaired-text file an operator might queue) is accepted with
+`response=""`. `ChatbotTrainer::preprocess_data()` then called
+`tokenizer->encode(clip_text(pair.response), true)` unconditionally, and `BPETokenizer::encode()`
+unconditionally throws `TokenizerInputError` on an empty string
+(`BPETokenizer.cpp`'s own `validate_input()`) rather than returning an empty token vector. The
+existing `try { ... } catch (const TokenizerEncodingError&)` around that call did not catch it —
+`TokenizerInputError` derives from `std::invalid_argument`, `TokenizerEncodingError` from
+`std::runtime_error`, two separate hierarchies — so the exception propagated uncaught. Worse,
+because this happens inside `preprocess_data()`'s own `#pragma omp parallel for` loop, an
+exception escaping unhandled from an OpenMP parallel region is undefined behavior and terminates
+the whole process immediately (`terminate called after throwing an instance of
+'TokenizerInputError'`) rather than merely failing the current training pass — a real production
+trainer processing a queued file with even one such line would crash outright. Found and reported
+during TD-186's own pilot investigation (the `--objective=lejepa` path deliberately treats a
+missing `"response"` as a legitimate empty-response case, so it never triggers this — it was hit
+via the *default*, chatbot teacher-forcing objective, unrelated to TD-183/186's own scope); filed
+and resolved the same day as its own item since it's a genuine, pre-existing production bug, not
+new code needing design deliberation.
+
+Design decisions:
+
+- **Checked before calling `encode()` at all, not via a broadened catch.** A `try/catch` for
+  `TokenizerInputError` would also work, but a pre-check produces a clearer, more specific warning
+  message (`"Skipped N pairs with an empty input or response"`, distinct from the existing
+  `"Skipped N pairs with invalid UTF-8"`) and avoids even attempting a call already known to fail
+  — matching how a caller would reason about this case, not just how it happens to be catchable.
+- **A separate skip counter (`skipped_empty_train`/`skipped_empty_val`) rather than reusing the
+  existing UTF-8 one.** These are two distinct, independently-actionable failure modes for an
+  operator staring at a training log — "your queued file has invalid UTF-8" vs. "your queued file
+  has pairs missing a response field" call for different fixes on the data side, so folding them
+  into one count and one message would lose real diagnostic information for no benefit.
+- **Left as a skip (matching the existing invalid-UTF-8 treatment) rather than an error/abort.**
+  `preprocess_data()`'s own established convention for a malformed individual sample is
+  "leave its `TokenizedPair` default-constructed (empty) and count it," not stop the whole
+  training pass over one bad row — consistent with treating training data quality issues as data
+  problems to log and route around, not fatal errors. A default-constructed empty `TokenizedPair`
+  reaching the actual training loop later still triggers a "Matrix index out of bounds" exception
+  there today — but that call site already has its own per-sample `try/catch` (confirmed live: it
+  logs `"❌ Error training sample N: Matrix index out of bounds"` and continues), so this was
+  never a second crash risk, just pre-existing, working defensive handling this item's own fix now
+  also benefits from for the newly-skipped case.
+- **No new source files** — the fix lives entirely inside the one function that owns the crashing
+  behavior.
+
+Changes Made:
+
+- `src/ChatbotTrainer.cpp`: both tokenization loops in `preprocess_data()` (training and
+  validation) now check `pair.input.empty() || pair.response.empty()` and `continue` before
+  calling `encode()`, incrementing a new `skipped_empty_train`/`skipped_empty_val` counter (an
+  OpenMP reduction variable, same pattern as the existing `skipped_train`/`skipped_val`) and
+  logging a distinct warning when nonzero. Version 0.10.0 → 0.10.1.
+- `tests/chatbottrainer_test.cpp`: one new regression test,
+  `MetricsTrackerWiringTest.TrainingSkipsPairsWithEmptyResponseInsteadOfCrashing` — a real,
+  public-API end-to-end run (`build_vocabulary()` → write a JSONL file with one line missing
+  `"response"` → `load_conversation_data()` → `train(1)`) asserting `train()` completes and
+  returns `true` rather than an exception propagating out of the test body.
+- `docs/development/guides/TECHNICAL_DEBT.md`: Overview/Table-of-Contents resolved-item counts
+  bumped; a same-day filed-and-resolved note added (this item never appeared as its own active
+  entry).
+
+Verification:
+
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean.
+- ✅ New regression test passes; full `chatbottrainerTests` suite: 72/72 passing (up from 71).
+- ✅ Live manual repro exactly as reported: a real `incremental_trainer` sandbox, a queued JSONL
+  file containing only `{"input": "hello world"}`, running the plain (non-`lejepa`) `train`
+  command — before this fix, this crashed uncaught; after, it logs `"Skipped 1 training pairs
+  with an empty input or response"` and completes successfully (exit code 0, checkpoint saved).
+- ✅ Full `ctest` suite: 136/136 passing.
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+
+Files Changed:
+
+- `src/ChatbotTrainer.cpp`
+- `tests/chatbottrainer_test.cpp`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-187: DecoderBlock::save()/load() Did Not Persist the Gated World-Model/Hippocampal Paths
 
 | Resolution Date | Component | Resolved By |
