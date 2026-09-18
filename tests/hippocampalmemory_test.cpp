@@ -12,6 +12,7 @@
 #include "../src/HippocampalMemory.hpp"
 #include <gtest/gtest.h>
 #include <cstdio>
+#include <fstream>
 #include <stdexcept>
 #include <string>
 #include "../src/Matrix.hpp"
@@ -256,6 +257,52 @@ TEST(HippocampalMemoryTest, LoadRejectsMismatchedDModel) {
 TEST(HippocampalMemoryTest, LoadNonExistentFileThrows) {
     HippocampalMemory memory(8, 4);
     EXPECT_THROW(memory.load("nonexistent_hippocampal_memory_file.bin"), std::runtime_error);
+}
+
+// Regression tests: load() must validate the header's own slot count against the file's actual
+// remaining size before trusting it for loaded_coverage.reserve() — previously a corrupted or
+// wrong-format file could hand reserve() a huge or negative value and throw an unrelated
+// std::length_error/std::bad_alloc instead of this class's own consistent std::runtime_error.
+TEST(HippocampalMemoryTest, LoadRejectsNegativeSlotCount) {
+    const int d_model = 4;
+    const std::string filepath = "test_hippocampal_memory_negative_slots.bin";
+
+    std::ofstream file(filepath, std::ios::binary);
+    ASSERT_TRUE(file.is_open());
+    const int capacity = 8;
+    const int negative_slots = -1;
+    file.write(reinterpret_cast<const char*>(&d_model), sizeof(int));
+    file.write(reinterpret_cast<const char*>(&capacity), sizeof(int));
+    file.write(reinterpret_cast<const char*>(&negative_slots), sizeof(int));
+    file.close();
+
+    HippocampalMemory memory(d_model, capacity);
+    EXPECT_THROW(memory.load(filepath), std::runtime_error);
+
+    std::remove(filepath.c_str());
+}
+
+TEST(HippocampalMemoryTest, LoadRejectsSlotCountLargerThanFileActuallyContains) {
+    const int d_model = 4;
+    const std::string filepath = "test_hippocampal_memory_truncated.bin";
+
+    // A real, valid one-slot file...
+    HippocampalMemory memory1(d_model, 8);
+    memory1.write(make_row(d_model, 1.0f), make_row(d_model, 1.0f));
+    memory1.save(filepath);
+
+    // ...whose header is then corrupted to claim far more slots than the file actually holds.
+    std::fstream file(filepath, std::ios::binary | std::ios::in | std::ios::out);
+    ASSERT_TRUE(file.is_open());
+    file.seekp(2 * sizeof(int));  // the num_slots field, after d_model and capacity
+    const int bogus_slots = 1000000;
+    file.write(reinterpret_cast<const char*>(&bogus_slots), sizeof(int));
+    file.close();
+
+    HippocampalMemory memory2(d_model, 8);
+    EXPECT_THROW(memory2.load(filepath), std::runtime_error);
+
+    std::remove(filepath.c_str());
 }
 
 TEST(HippocampalMemoryTest, LoadAcceptsDifferentCapacityAndEvictsExcess) {

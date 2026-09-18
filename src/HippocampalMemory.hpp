@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-15
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-17
 
 #include <deque>
 #include <string>
@@ -113,10 +113,14 @@ class HippocampalMemory {
     void save(const std::string& filepath) const;
 
     /**
-     * @throws std::runtime_error if the saved d_model doesn't match this instance's own. A saved
-     *         session larger than this instance's own current capacity is accepted — the oldest
-     *         excess slots are evicted down to this instance's capacity rather than throwing,
-     *         since capacity is a runtime tuning knob, not an architectural constant.
+     * @throws std::runtime_error if the saved d_model doesn't match this instance's own, or if the
+     *         file's own header slot count doesn't fit the file's actual remaining size (a
+     *         corrupted or wrong-format file) — checked before trusting the count for any
+     *         allocation, so a bad file fails clearly here rather than surfacing as an unrelated
+     *         std::length_error/std::bad_alloc. A saved session larger than this instance's own
+     *         current capacity is accepted — the oldest excess slots are evicted down to this
+     *         instance's capacity rather than throwing, since capacity is a runtime tuning knob,
+     *         not an architectural constant.
      */
     void load(const std::string& filepath);
 };

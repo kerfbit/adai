@@ -4,6 +4,84 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-191: HippocampalMemory::load() Trusted an Untrusted Slot Count Before Allocating
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 17, 2026 | LeJEPA World Model / Hippocampal Memory | `num_slots` validated against the file's own actual remaining size before use (`src/HippocampalMemory.cpp`) |
+
+Summary:
+Found during the same follow-up review pass as TD-190. `HippocampalMemory::load()` reads a
+`num_slots` header field straight from the file being loaded and used it immediately —
+`loaded_coverage.reserve(num_slots)` — with no validation at all, unlike the `d_model` field read
+one line earlier, which is checked against this instance's own value and throws a clear
+`std::runtime_error` on mismatch. A corrupted file, a truncated write, or simply loading the wrong
+file as hippocampal-memory session state could hand `reserve()` either a negative `int` (which
+converts to an enormous `size_t` on the implicit call into `reserve()`) or a huge-but-positive one,
+throwing an unrelated `std::length_error`/`std::bad_alloc` instead of this class's own consistent
+`std::runtime_error`. Worse, a `num_slots` that's positive but merely *larger than the file
+actually contains* didn't throw at all: `std::ifstream::read()` on a stream that hits EOF sets the
+fail bit but doesn't throw (no exceptions enabled on this stream) and leaves the destination buffer
+holding whatever it was already initialized to — so `load()` would silently populate
+`loaded_slots`/`loaded_coverage` with a mix of real data and zero-initialized garbage and return
+successfully with no error indication whatsoever. Reproduced directly: a file corrupted to claim
+1,000,000 slots when it actually held 1 took ~92 seconds to "successfully" load, silently
+fabricating 999,999 garbage slots in the process.
+
+Design decisions:
+
+- **Validated against the file's own actual remaining size, not just checked for a negative
+  value.** A negative-only check would have caught the `std::length_error`/`std::bad_alloc` risk
+  but not the "huge-but-positive, silently reads past EOF" risk — both are real failure modes of
+  the same untrusted-header-field root cause, so both needed the same fix. `file.tellg()` right
+  after reading the header, then `seekg(0, end)`/`tellg()` again, gives the exact remaining byte
+  count to compare `num_slots * (2 * d_model + 1) * sizeof(float)` against, with `seekg()` back to
+  the data start before the read loop actually begins.
+- **Kept the class's own existing `std::runtime_error` convention** rather than introducing a new
+  exception type — matches the `d_model` mismatch check immediately above it, so a caller catching
+  `std::runtime_error` around `load()` (the same pattern `IncrementalTrainingTool.cpp` already uses
+  around `LeJEPAEncoder::load()`) now also catches a corrupted hippocampal-memory session file
+  cleanly, without needing to also catch `std::length_error`/`std::bad_alloc`.
+- **No change to `save()`** — the vulnerability is entirely in how `load()` trusts its input; the
+  file format itself (three header ints, then fixed-size records) is unchanged and remains
+  self-describing enough for this validation.
+
+Changes Made:
+
+- `src/HippocampalMemory.cpp`: `load()` now computes the file's actual remaining byte count right
+  after reading the header and throws `std::runtime_error` if `num_slots` is negative or the file
+  is too small to actually contain that many slots, before `loaded_coverage.reserve(num_slots)` or
+  the read loop ever runs. Version 0.1.0 → 0.2.0.
+- `src/HippocampalMemory.hpp`: `load()`'s own `@throws` doc comment updated to describe the new
+  corrupt/truncated-file case. Version 0.1.0 → 0.2.0.
+- `tests/hippocampalmemory_test.cpp`: two new regression tests —
+  `LoadRejectsNegativeSlotCount` (a hand-crafted header with `num_slots = -1`) and
+  `LoadRejectsSlotCountLargerThanFileActuallyContains` (a real one-slot file whose header is then
+  patched to claim 1,000,000 slots). Both confirmed to fail against the pre-fix code — the negative
+  case threw `std::length_error` instead of `std::runtime_error`; the oversized case threw nothing
+  at all and took ~92 seconds to "succeed" — and pass instantly against the fix.
+- `docs/development/guides/TECHNICAL_DEBT.md`: Overview/Table-of-Contents resolved-item counts
+  bumped; a same-day filed-and-resolved note added (this item never appeared as its own active
+  entry).
+
+Verification:
+
+- ✅ Confirmed both new regression tests fail against the pre-fix code (via `git stash` of just the
+  `HippocampalMemory.cpp`/`.hpp` changes) — one with the wrong exception type, one with no
+  exception at all after a ~92-second silent garbage-fabrication run — and pass instantly (0ms)
+  against the fix.
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean.
+- ✅ Full `hippocampalMemoryTests` suite: 22/22 passing (up from 20).
+- ✅ Full `ctest` suite: 136/136 passing.
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+
+Files Changed:
+
+- `src/HippocampalMemory.cpp`
+- `src/HippocampalMemory.hpp`
+- `tests/hippocampalmemory_test.cpp`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-190: Optimizer::step() Gave a Stale-Gradient Parameter Group a Phantom Momentum-Decay Update
 
 | Resolution Date | Component | Resolved By |

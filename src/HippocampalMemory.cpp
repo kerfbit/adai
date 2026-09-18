@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-15
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-17
 
 #include "HippocampalMemory.hpp"
 
@@ -118,6 +118,31 @@ void HippocampalMemory::load(const std::string& filepath) {
         throw std::runtime_error("HippocampalMemory dimension mismatch: saved d_model=" +
                                   std::to_string(loaded_d_model) +
                                   " vs current d_model=" + std::to_string(d_model));
+    }
+
+    // Validate num_slots against the file's own actual remaining size before trusting it for
+    // loaded_coverage.reserve() below — a corrupted or wrong-format file could otherwise hand
+    // reserve() a huge or negative value (negative converts to an enormous size_t), throwing an
+    // unexpected std::length_error/std::bad_alloc instead of the clear std::runtime_error this
+    // method otherwise uses consistently for malformed data (see the d_model check above).
+    const std::streampos data_start = file.tellg();
+    file.seekg(0, std::ios::end);
+    const std::streampos file_end = file.tellg();
+    file.seekg(data_start);
+
+    const long long remaining_bytes =
+        (data_start >= 0 && file_end >= 0)
+            ? static_cast<long long>(file_end) - static_cast<long long>(data_start)
+            : -1;
+    const long long bytes_per_slot = (2LL * d_model + 1) * static_cast<long long>(sizeof(float));
+    const long long expected_bytes = static_cast<long long>(num_slots) * bytes_per_slot;
+
+    if (num_slots < 0 || remaining_bytes < 0 || expected_bytes > remaining_bytes) {
+        throw std::runtime_error("HippocampalMemory: corrupt or truncated file '" + filepath +
+                                  "' — header claims " + std::to_string(num_slots) +
+                                  " slot(s), which needs " + std::to_string(expected_bytes) +
+                                  " byte(s), but only " + std::to_string(remaining_bytes) +
+                                  " remain");
     }
 
     std::deque<Slot> loaded_slots;
