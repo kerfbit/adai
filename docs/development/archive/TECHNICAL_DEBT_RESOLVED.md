@@ -4,6 +4,92 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-190: Optimizer::step() Gave a Stale-Gradient Parameter Group a Phantom Momentum-Decay Update
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 17, 2026 | Training / Optimizer | `Optimizer::step()` now skips a parameter group entirely when its gradient is exactly all-zero and no weight decay is configured (`src/Optimizer.cpp`) |
+
+Summary:
+Found during a dedicated follow-up review pass over TD-189's own fix, at the user's request ("make
+another pass over the files looking for any additional issues"). TD-189 restructured
+`LeJEPAEncoder::train_step()` to call `update_weights()` (hence `optimizer_->step()`, when a
+shared `Optimizer` is registered) twice per call — once per augmented view — since the alternative
+(one call for both) was what silently dropped the target-view/SIGReg gradient in the first place.
+`predictor` is registered on the *same* shared `Optimizer` as `token_embedding`/`encoder_blocks`/
+`final_norm`, but unlike those three, `predictor` only ever gets a real, non-zero gradient on the
+*second* of the two `update_weights()` calls (`grad_predicted`/`grad_ctx_embeddings` are the only
+things that ever feed it). On the *first* call, `predictor`'s registered gradient buffers are still
+exactly zero — yet `Optimizer::step_adam()` (and `step_sgd_momentum()`) don't treat "zero gradient"
+as "nothing to do": they still decay the parameter group's existing momentum/velocity state toward
+zero (`momentum = beta1 * momentum + (1 - beta1) * 0`) and apply whatever nonzero weight delta that
+stale, decaying momentum produces. So every `train_step()` call gave `predictor` one extra,
+unearned Adam update driven purely by leftover momentum from a *previous* call's real gradient,
+with no new gradient signal behind it at all — small and self-correcting (it decays away with no
+further real gradient), but a genuine, confirmed correctness wrinkle, not just a hypothetical one.
+
+Design decisions:
+
+- **Fixed generically in `Optimizer::step()`, not by decoupling `predictor` from the shared
+  optimizer.** The alternative — stop registering `predictor` with `optimizer_` and let it always
+  fall back to `Predictor`/`FeedForward`'s own plain-SGD path — was rejected because `Predictor`
+  deliberately exposes no settable `learning_rate` of its own (see `LeJEPAEncoder::set_learning_rate()`'s
+  own comment): it's meant to always be driven through a registered `Optimizer`, precisely so it
+  trains at the same configured learning rate as everything else. Decoupling it would have traded
+  one bug (an occasional phantom nudge) for a worse one (silently training at an unconfigured
+  default learning rate forever).
+- **Skip is gated on `weight_decay == 0.0f`, not just an all-zero gradient.** `step_sgd`/`step_adam`
+  fold weight decay into the gradient (`grad += weight_decay * weight`), and `step_adamw` applies
+  its own decoupled decay directly to the weight regardless of the incoming gradient — both are a
+  real, *intentional* per-call effect that must still fire even with a zero incoming gradient
+  whenever weight decay is actually configured. Gating the skip on `weight_decay == 0.0f` preserves
+  that behavior exactly for every other caller; `LeJEPAEncoder`'s own registered `Optimizer` (via
+  `IncrementalTrainingTool.cpp`) uses the default `weight_decay = 0.0f` regardless, so this never
+  affects it either way.
+- **The skip also withholds the parameter group's own `step` counter increment.** If the group is
+  genuinely untouched this call, incrementing its Adam bias-correction step counter anyway would
+  misalign that counter against how many *real* gradient-bearing updates actually happened —
+  skipping it keeps `step` counting real updates only, which is the more correct interpretation for
+  Adam's own bias-correction math in the first place.
+- **`step_sgd` (plain, no momentum) gets the same skip for symmetry, though it's already an exact
+  no-op for a zero gradient with no weight decay** (no persistent state to decay) — skipping it too
+  just avoids a wasted full-matrix pass with no behavior change.
+
+Changes Made:
+
+- `src/Optimizer.cpp`: new anonymous-namespace `is_all_zero(const Matrix&)` helper; `step()` now
+  skips a parameter group entirely (before the `switch` dispatch) when `weight_decay == 0.0f &&
+  is_all_zero(*param.gradients)`. Version 1.0.0 → 1.0.1.
+- `src/Optimizer.hpp`: `step()`'s own doc comment updated to describe the skip and why it matters
+  for a shared optimizer across parameter groups that don't all have a gradient on every call.
+  Version 1.0.0 → 1.0.1.
+- `tests/optimizer_test.cpp`: three new tests —
+  `OptimizerEdgeCaseTest.ZeroGradientAfterNonzeroMomentumIsANoOpForAdam` and
+  `...ForSgdMomentum` (build up real nonzero momentum via one real step, then assert a
+  following zero-gradient step leaves the weight completely unchanged), and
+  `ZeroGradientStillAppliesWeightDecayForAdamW` (confirms the skip does *not* suppress AdamW's own
+  decoupled weight decay when it's actually configured). Confirmed the two no-op tests fail against
+  the pre-fix code (both assertions caught real, nonzero drift) and pass reliably against the fix.
+
+Verification:
+
+- ✅ Confirmed both new no-op regression tests fail against the pre-fix code (via `git stash` of
+  just the `Optimizer.cpp`/`.hpp` changes) and pass against the fix; the AdamW weight-decay test
+  passes either way, confirming it wasn't accidentally relying on the new behavior.
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean.
+- ✅ Full `optimizerTests` suite: 48/48 passing (up from 45).
+- ✅ Full `ctest` suite: 136/136 passing — notably including `RLHFTrainerTests` and every other
+  Adam-optimizer-driven suite, confirming the change is safe for the codebase's other existing
+  Optimizer callers, not just `LeJEPAEncoder`.
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+
+Files Changed:
+
+- `src/Optimizer.cpp`
+- `src/Optimizer.hpp`
+- `tests/optimizer_test.cpp`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-189: LeJEPAEncoder::train_step() Silently Dropped the Target-View/SIGReg Gradient for Every Weight but token_embedding
 
 | Resolution Date | Component | Resolved By |

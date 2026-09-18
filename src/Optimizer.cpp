@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-17
 
 #include "Optimizer.hpp"
 #include <cmath>
@@ -11,6 +11,27 @@
 #ifdef ADAI_ENABLE_OPENMP
 #include <omp.h>
 #endif
+
+namespace {
+// A parameter group whose gradient is exactly all-zero this call has nothing for SGD/Adam/AdamW
+// to learn from. Skipping it entirely (not just leaving the weight unchanged) matters for the
+// stateful variants — SGD_MOMENTUM/ADAM/ADAMW would otherwise still decay their own momentum/
+// velocity toward zero and apply a resulting nonzero weight nudge purely from stale state, with
+// no new gradient signal behind it. This matters when several parameter groups share one
+// Optimizer and only some of them have a real gradient on a given step() call (see LeJEPAEncoder's
+// own TD-190: predictor is registered on the same Optimizer as the rest of the encoder, but only
+// has a real gradient on one of the two update_weights() calls train_step() makes per call).
+bool is_all_zero(const Matrix& m) {
+    for (int i = 0; i < m.rows; ++i) {
+        for (int j = 0; j < m.cols; ++j) {
+            if (m(i, j) != 0.0f) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+}  // namespace
 
 // Constructor
 Optimizer::Optimizer(OptimizerType opt_type, float lr) : type(opt_type), learning_rate(lr) {}
@@ -322,6 +343,15 @@ void Optimizer::step() {
     global_step++;
 
     for (auto& param : parameter_groups) {
+        // Nothing to apply and no weight-decay pressure that should move the weights anyway —
+        // skip entirely (including the step++ below) rather than let SGD_MOMENTUM/Adam/AdamW's
+        // own momentum/velocity decay toward zero and nudge weights from stale state alone. Gated
+        // on weight_decay == 0 so AdamW's decoupled decay (and SGD/Adam's own gradient-coupled
+        // decay) still applies exactly as before whenever it's actually configured.
+        if (weight_decay == 0.0f && is_all_zero(*param.gradients)) {
+            continue;
+        }
+
         switch (type) {
             case OptimizerType::SGD:
                 step_sgd(param);

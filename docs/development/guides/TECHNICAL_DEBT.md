@@ -10,8 +10,19 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 176
+**Resolved Items:** 177
 **Deferred Decisions:** 3
+
+**September 17, 2026 (same day):** Filed and resolved
+[TD-190](../archive/TECHNICAL_DEBT_RESOLVED.md#td-190-optimizerstep-gave-a-stale-gradient-parameter-group-a-phantom-momentum-decay-update)
+— found during a follow-up review pass over TD-189's own fix. Because `LeJEPAEncoder::train_step()`
+now calls `update_weights()` (hence `optimizer_->step()`) twice per call but `predictor` only ever
+has a real gradient on one of those two calls, `Optimizer::step_adam()`/`step_sgd_momentum()`
+still decayed `predictor`'s stale momentum/velocity into a nonzero weight nudge on the call where
+its gradient was exactly zero — a real, if small, artifact of sharing one `Optimizer` across
+parameter groups that don't all have a gradient on every call. Fixed generically in `Optimizer`
+rather than by decoupling `predictor` from the shared optimizer (which would have left it training
+at an unconfigured, default learning rate instead). See its own archive entry.
 
 **September 17, 2026 (same day):** Filed and resolved
 [TD-189](../archive/TECHNICAL_DEBT_RESOLVED.md#td-189-lejepaencodertrain_step-silently-dropped-the-target-viewsigreg-gradient-for-every-weight-but-token_embedding)
@@ -275,7 +286,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (176 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (177 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)

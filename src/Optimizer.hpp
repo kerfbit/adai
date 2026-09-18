@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-17
 
 
 #include <algorithm>
@@ -204,6 +204,14 @@ class Optimizer {
      *
      * Updates all parameters based on their gradients using
      * the configured optimization algorithm.
+     *
+     * A parameter group whose gradient is exactly all-zero this call, and with no weight_decay
+     * configured to still apply, is skipped entirely (no momentum/velocity/step-counter change)
+     * rather than letting SGD_MOMENTUM/Adam/AdamW decay their own stale momentum/velocity into a
+     * nonzero weight nudge with no actual gradient signal behind it — relevant whenever multiple
+     * parameter groups share one Optimizer and only some of them have a real gradient on a given
+     * call (e.g. LeJEPAEncoder's predictor, registered alongside components that both call
+     * update_weights() twice per train_step() but only give predictor a real gradient once).
      */
     void step();
 

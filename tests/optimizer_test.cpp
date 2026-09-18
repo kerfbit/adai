@@ -741,6 +741,74 @@ TEST(OptimizerEdgeCaseTest, ZeroGradient) {
     EXPECT_FLOAT_EQ(weights(0, 0), 1.0f);
 }
 
+// TD-190 regression test: a parameter group with prior nonzero momentum/velocity that then gets
+// an exactly-zero gradient must be left completely untouched by Adam — not have its momentum
+// decay toward zero and nudge the weight from stale state alone with no real gradient behind it.
+// This matters when several parameter groups share one Optimizer and only some of them have a
+// real gradient on a given step() call (e.g. LeJEPAEncoder's predictor, registered alongside
+// components whose own train_step() calls update_weights() twice per call, but only ever gives
+// predictor a real gradient on one of those two calls).
+TEST(OptimizerEdgeCaseTest, ZeroGradientAfterNonzeroMomentumIsANoOpForAdam) {
+    Optimizer opt(OptimizerType::ADAM, 0.1f);
+
+    Matrix weights(1, 1);
+    Matrix gradients(1, 1);
+    weights(0, 0) = 1.0f;
+    gradients(0, 0) = 1.0f;
+
+    opt.add_parameter_group(&weights, &gradients);
+    opt.step();  // real gradient — builds up nonzero momentum/velocity and moves the weight
+
+    const float weight_after_real_step = weights(0, 0);
+    ASSERT_NE(weight_after_real_step, 1.0f) << "sanity check: the real step should have moved it";
+
+    gradients(0, 0) = 0.0f;
+    opt.step();  // zero gradient now — must be a complete no-op, not a momentum-decay nudge
+
+    EXPECT_FLOAT_EQ(weights(0, 0), weight_after_real_step);
+}
+
+// Same as above but for SGD_MOMENTUM, which has the identical "stale momentum decays into a
+// weight nudge with no new gradient" hazard.
+TEST(OptimizerEdgeCaseTest, ZeroGradientAfterNonzeroMomentumIsANoOpForSgdMomentum) {
+    Optimizer opt(OptimizerType::SGD_MOMENTUM, 0.1f);
+    opt.set_momentum(0.9f);
+
+    Matrix weights(1, 1);
+    Matrix gradients(1, 1);
+    weights(0, 0) = 1.0f;
+    gradients(0, 0) = 1.0f;
+
+    opt.add_parameter_group(&weights, &gradients);
+    opt.step();
+
+    const float weight_after_real_step = weights(0, 0);
+    ASSERT_NE(weight_after_real_step, 1.0f) << "sanity check: the real step should have moved it";
+
+    gradients(0, 0) = 0.0f;
+    opt.step();
+
+    EXPECT_FLOAT_EQ(weights(0, 0), weight_after_real_step);
+}
+
+// The skip is gated on weight_decay == 0 so AdamW's own decoupled weight decay — which is
+// supposed to keep pulling weights toward zero regardless of the current gradient — still applies
+// exactly as before when it's actually configured.
+TEST(OptimizerEdgeCaseTest, ZeroGradientStillAppliesWeightDecayForAdamW) {
+    Optimizer opt(OptimizerType::ADAMW, 0.1f);
+    opt.set_weight_decay(0.1f);
+
+    Matrix weights(1, 1);
+    Matrix gradients(1, 1);
+    weights(0, 0) = 1.0f;
+    gradients(0, 0) = 0.0f;
+
+    opt.add_parameter_group(&weights, &gradients);
+    opt.step();
+
+    EXPECT_NE(weights(0, 0), 1.0f) << "weight decay should still move the weight with zero grad";
+}
+
 TEST(OptimizerEdgeCaseTest, VerySmallGradient) {
     Optimizer opt(OptimizerType::ADAM, 0.001f);
 
