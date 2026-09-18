@@ -4,14 +4,27 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** September 17, 2026
+**Last Updated:** September 18, 2026
 **Total Items:** 13
 **High Priority:** 1
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 179
+**Resolved Items:** 180
 **Deferred Decisions:** 3
+
+**September 18, 2026 (same day):** Filed and resolved
+[TD-193](../archive/TECHNICAL_DEBT_RESOLVED.md#td-193-hippocampalmemory-gains-least-used-eviction-a-reloadable-swap-file-and-persistence-in-chatbot_api_server)
+— user request: hippocampal memory should persist from conversation to conversation, and evicted
+memories should go to a recoverable "swap" file rather than being discarded. `HippocampalMemory`'s
+eviction policy changed from FIFO to least-used (lowest attention `coverage_`, ties broken by
+oldest), evicted slots now append to an optional, reloadable swap file (`recall_from_swap()`,
+LIFO), and `chatbot_api_server` — which never attached a world model or hippocampal memory at all
+before this — now does both (opt-in, `WORLD_MODEL_ENABLED`/`HIPPOCAMPAL_MEMORY_ENABLED`), loading
+persisted state on startup and saving it on graceful shutdown. See its own archive entry for the
+full design, the live end-to-end verification, and an important caveat found along the way
+(hippocampal memory's write-path only fires on beam-search generation, and this session's own
+TD-186 pilot already found beam search collapsing to empty output at toy scale).
 
 **September 17, 2026 (same day):** Filed and resolved
 [TD-192](../archive/TECHNICAL_DEBT_RESOLVED.md#td-192-hippocampalmemory-coverage-eviction-was-on-instead-of-o1)
@@ -306,7 +319,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (179 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (180 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)

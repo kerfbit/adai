@@ -4,6 +4,141 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-193: HippocampalMemory Gains Least-Used Eviction, a Reloadable Swap File, and Persistence in chatbot_api_server
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 18, 2026 | LeJEPA World Model / Hippocampal Memory / chatbot_api_server | `HippocampalMemory`'s eviction policy, swap file, and `recall_from_swap()` (`src/HippocampalMemory.{hpp,cpp}`); attach/persist wiring in `src/ChatbotAPIServer.cpp` |
+
+Summary:
+User request: hippocampal memory should be persistent, remaining from conversation to
+conversation, and evicted memories should move to a recoverable "swap" file rather than being
+discarded. Investigating where to wire this in surfaced two things worth recording:
+
+1. `HippocampalMemory` was never actually attached anywhere except `IncrementalTrainer` (the
+   training tool) — `chatbot_api_server`, the binary that actually serves live conversations, never
+   constructed a world model or hippocampal memory at all, and the class's own `save()`/`load()`
+   methods (TD-179) had never been called by any production code path.
+2. `EncoderDecoderModel::maybe_write_hippocampal_memory()` only ever gets called from
+   `generate_response()`/`generate_response_with_strategy()`'s *beam-search* branches (TD-186) —
+   hippocampal memory has zero effect without a world model also attached (its keys come from the
+   world model's own `encode()`), and a world model has zero effect on a served checkpoint unless
+   that checkpoint was actually trained with `WORLD_MODEL_INJECT_EVERY_N_LAYERS > 0` allocating the
+   gated cross-attention parameters in the first place. Both are opt-in and off by default, and
+   both are exactly the feature this session's own TD-186 pilot ended "no-go" on for production use
+   at the scale it was tested.
+
+Given that, the user confirmed the scope explicitly: wire real, working attachment + persistence
+into `chatbot_api_server`, gated behind the same `WORLD_MODEL_ENABLED`/`HIPPOCAMPAL_MEMORY_ENABLED`
+switches (default `false`) — infrastructure that's genuinely there the moment someone has a
+validated world-model checkpoint to point it at, without pretending the underlying feature is
+production-ready today.
+
+Design decisions:
+
+- **Eviction policy: least-used, not FIFO.** `write()` now evicts whichever currently-stored slot
+  has the lowest `coverage_` value (ties broken by oldest), reusing the same coverage bookkeeping
+  TD-180's own repetition-penalty cross-attention already maintains, rather than adding a new
+  tracking mechanism. This degenerates to the original FIFO behavior whenever nothing's coverage
+  has ever been touched (every slot ties at 0.0f), so it's a strict superset, not a behavior change
+  for any caller that never reads `coverage_vector()`.
+- **Swap file: append-only, LIFO recall, disabled by default.** A new optional constructor
+  parameter (`swap_filepath`, default empty = disabled, preserving every existing caller's exact
+  prior behavior) — when set, every evicted slot is appended (one-time `d_model` header, then
+  fixed-size records) rather than discarded, and `recall_from_swap()` can bring the *most recently
+  evicted* one back (LIFO — the OS-swap intuition the user's own naming implied: a recently
+  paged-out slot is the most likely to be needed again soon), resetting its coverage to 0.0f
+  (treated as freshly relevant again). `load()`'s own excess-slot trim (when a saved session is
+  larger than the loading instance's capacity) now uses the identical least-used+swap logic via a
+  shared private helper (`evict_least_used()`), rather than leaving that one path as a silent,
+  undocumented exception to the new policy.
+- **chatbot_api_server wiring mirrors `IncrementalTrainer::maybe_attach_world_model()` almost
+  exactly** — same `SESSION_DIR + "/world_model"` directory convention (an operator running both
+  binaries for the same model needs `SESSION_DIR` configured consistently, or left at its shared
+  default, for them to agree on where the checkpoint lives), same frozen-at-inference
+  (`set_requires_grad(false)`) load, same tolerant-on-failure behavior (log and continue without
+  the feature rather than aborting startup). The one new piece: `EncoderDecoderModel`'s own
+  constructor call now threads `world_model_inject_every_n_layers` through (0 unless
+  `WORLD_MODEL_ENABLED`, reproducing every existing deployment's behavior exactly when the feature
+  is off) — a served checkpoint's `DecoderBlock`s only ever have the gated cross-attention
+  parameters allocated when this matches what the checkpoint was actually trained with (a mismatch
+  throws, per TD-187's own flag-mismatch check in `DecoderBlock::load()`).
+- **Hippocampal state + swap file paths derived from `MODEL_PATH`**, not a new config key — a
+  `HIPPOCAMPAL_MEMORY_ENABLED` model's live ring buffer persists to `MODEL_PATH.hippocampal`
+  (loaded back on the next startup) and its swap archive to `MODEL_PATH.hippocampal.swap`, the same
+  suffix convention `load_model()`/`save_model()` already use for `.config`/`.lm_head`/etc. Saved
+  on graceful shutdown, alongside (but independent of) the existing "model weights are read-only"
+  log line — the model's own weights genuinely aren't modified by this server, hippocampal memory
+  genuinely is.
+- **No periodic autosave added.** Persistence happens on load (startup) and save (graceful
+  shutdown via SIGINT/SIGTERM) only — an ungraceful crash (SIGKILL, power loss) between saves would
+  lose whatever accumulated since the last one. Matches the user's own stated scope; flagged here
+  rather than added speculatively.
+
+Changes Made:
+
+- `src/HippocampalMemory.hpp`/`.cpp`: new `swap_filepath` constructor parameter (default empty);
+  `evict_least_used()` (shared by `insert_slot()` and `load()`'s excess-trim loop) replaces FIFO
+  eviction; `append_to_swap()`/`recall_from_swap()`/`swap_enabled()` added. Version 0.3.0 → 0.4.0.
+- `tests/hippocampalmemory_test.cpp`: renamed/re-commented the old FIFO-specific test to describe
+  the tie-break case it now demonstrates; added a genuinely discriminating least-used-not-oldest
+  test; 9 new swap/recall tests (disabled-by-default, append-on-evict, recall LIFO order, coverage
+  reset on recall, drain-to-false, cross-instance d_model mismatch, `load()`'s own trim feeding
+  swap). 32/32 passing (up from 22).
+- `src/ChatbotAPIServer.cpp`: `EncoderDecoderModel` construction now threads
+  `world_model_inject_every_n_layers`; new attachment block (world model + hippocampal memory,
+  mirroring `IncrementalTrainer`'s pattern) after draft-model loading; shutdown sequence now saves
+  hippocampal memory state when attached. Version 1.5.0 → 1.6.0.
+- `config.chatbot.conf`/`config.trainer.conf`: updated stale comments (chatbot_api_server
+  attachment was previously documented as "a later TD's job"; capacity comments still described
+  FIFO) to describe the current, real behavior and the derived state/swap file paths.
+
+Verification:
+
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean.
+- ✅ `hippocampalMemoryTests`: 32/32 passing. `decoderblockTests`: 43/43 passing (unaffected by the
+  eviction-policy/swap changes — `DecoderBlock` only ever reads `coverage_vector()`, never cares
+  why a slot isn't there).
+- ✅ Full `ctest` suite: 136/136 passing.
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+- ✅ **Live end-to-end verification** in a real sandbox: built a vocab, pretrained a real (toy)
+  LeJEPA world-model checkpoint via `incremental_trainer --objective=lejepa train`, trained a real
+  chatbot checkpoint with `WORLD_MODEL_ENABLED=true`/`WORLD_MODEL_INJECT_EVERY_N_LAYERS=1`/
+  `HIPPOCAMPAL_MEMORY_ENABLED=true` (confirmed the saved checkpoint actually contains
+  `.hippocampal_cross_attn`/`.norm_hippocampal`/`.world_model_cross_attn`/`.norm_world` files), then
+  started `chatbot_api_server` against it:
+  - ✅ Startup logs showed "World model attached" and "Hippocampal memory attached" exactly as
+    designed.
+  - ✅ `/chat` requests succeeded end-to-end through the live HTTP server.
+  - ✅ Graceful `SIGTERM` shutdown logged "Hippocampal memory saved to '...' (N slot(s))".
+  - ✅ Hand-wrote a realistic hippocampal state file (2 slots) and restarted: startup logged
+    "Hippocampal memory restored from '...' (2 slot(s))"; a second `SIGTERM` shutdown logged
+    "Hippocampal memory saved ... (2 slot(s))" — confirming the full load → serve → save round trip
+    genuinely works end-to-end through the real server binary, not just in unit tests.
+  - ⚠️ **Caveat found, not fixed here**: the default `/chat` request uses nucleus sampling
+    (`ChatbotAPI::GenerationConfig::strategy` defaults to `"nucleus"`, not overridable per-request),
+    and `maybe_write_hippocampal_memory()` only fires from the beam-search branches — so organically
+    populating hippocampal memory through live traffic requires `STRATEGY=beam` (a real, pre-existing
+    `ServiceConfig`/`config.chatbot.conf` key, confirmed to route through to
+    `ChatbotAPI::set_generation_config()`). With `STRATEGY=beam` set in this same sandbox, beam
+    search itself returned an **empty string** in every attempt — reproducing this session's own
+    TD-186 pilot finding (beam search collapsing to empty output at toy scale) rather than anything
+    new. `maybe_write_hippocampal_memory()`'s own `response_text.empty()` guard correctly declines
+    to write a memory in that case. This is a pre-existing model-quality/beam-search limitation, not
+    a defect in the persistence wiring itself (verified independently above via a hand-written state
+    file) — left as-is, matching this session's TD-186 pilot's own "no-go at this scale" verdict
+    rather than attempting a fix here.
+
+Files Changed:
+
+- `src/HippocampalMemory.hpp`
+- `src/HippocampalMemory.cpp`
+- `tests/hippocampalmemory_test.cpp`
+- `src/ChatbotAPIServer.cpp`
+- `config.chatbot.conf`
+- `config.trainer.conf`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-192: HippocampalMemory Coverage Eviction Was O(n) Instead of O(1)
 
 | Resolution Date | Component | Resolved By |

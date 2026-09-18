@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.5.0
-// @adai-reviewed: 2026-09-12
+// @adai-version: 1.6.0
+// @adai-reviewed: 2026-09-18
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
 #include <atomic>
@@ -20,6 +20,8 @@
 #include "Config.hpp"
 #include "DocumentStore.hpp"
 #include "EncoderDecoderModel.hpp"
+#include "HippocampalMemory.hpp"
+#include "LeJEPAEncoder.hpp"
 #include "Logger.hpp"
 #include "Matrix.hpp"
 #include "RAGInference.hpp"
@@ -289,8 +291,14 @@ int main(int argc, char* argv[]) {
             config.num_decoder_layers,    // decoder_layers
             config.num_heads,             // num_heads
             config.d_ff,                  // d_ff
-            config.max_seq_length         // max_seq_length
-        );
+            config.max_seq_length,        // max_seq_length
+            // TD-193: 0 (default) unless WORLD_MODEL_ENABLED, matching every pre-existing
+            // caller's behavior exactly when the feature is off — see the world-model/hippocampal
+            // memory attachment block below for why this needs to be decided at construction time
+            // rather than after load_model().
+            config.world_model_enabled
+                ? static_cast<int>(config.world_model_inject_every_n_layers)
+                : 0);
 
         // Load model weights if path provided
         if (!config.model_path.empty()) {
@@ -325,6 +333,88 @@ int main(int argc, char* argv[]) {
                 adai::Logger::warn("  Failed to load draft model weights: {}", e.what());
                 adai::Logger::warn("  Speculative decoding disabled for this run");
                 draft_model.reset();
+            }
+        }
+
+        // TD-193: optional world model + hippocampal memory attachment, mirroring
+        // IncrementalTrainer::maybe_attach_world_model()'s own pattern (see its own doc comment
+        // for the full design rationale). Both are opt-in (WORLD_MODEL_ENABLED /
+        // HIPPOCAMPAL_MEMORY_ENABLED default false) and experimental — TD-186's own pilot run
+        // found beam-search generation collapsing to empty strings at toy scale, with no trained
+        // checkpoint yet validated for production use. Hippocampal memory has no effect at all
+        // without a world model also attached — EncoderDecoderModel::maybe_write_hippocampal_
+        // memory() early-returns otherwise, since the memory's own keys come from the world
+        // model's encode() — so hippocampal attachment happens only inside the
+        // world-model-attached branch below, matching IncrementalTrainer's own structure exactly.
+        std::string hippocampal_state_path;
+        if (config.world_model_enabled) {
+            // Same directory convention IncrementalTrainer::maybe_attach_world_model() uses
+            // (get_session_dir() + "/world_model") — an operator training the world model via
+            // `incremental_trainer --objective=lejepa train` and serving it here needs SESSION_DIR
+            // configured consistently across config.trainer.conf/config.chatbot.conf (or left at
+            // its shared default) for the two binaries to agree on where it lives.
+            const std::string world_model_dir = config.session_dir + "/world_model";
+            if (!std::filesystem::exists(world_model_dir)) {
+                adai::Logger::info(
+                    "  WORLD_MODEL_ENABLED is set but no checkpoint found at '{}' — continuing "
+                    "without a world model",
+                    world_model_dir);
+            } else {
+                try {
+                    auto world_model = std::make_unique<LeJEPAEncoder>(
+                        tokenizer->get_vocab_size(), static_cast<int>(config.world_model_d_model),
+                        static_cast<int>(config.world_model_num_layers),
+                        static_cast<int>(config.world_model_num_heads),
+                        static_cast<int>(config.world_model_d_ff), config.max_seq_length,
+                        static_cast<int>(config.world_model_sigreg_num_sketches));
+                    world_model->load_tokenizer_vocab(config.vocab_path);
+                    world_model->load(world_model_dir);
+                    world_model->set_requires_grad(false);  // frozen at inference, matches the
+                                                            // plan's own Phase 1 standard
+                    adai::Logger::info("  World model attached from '{}'", world_model_dir);
+                    model->set_world_model(std::move(world_model));
+
+                    if (config.hippocampal_memory_enabled) {
+                        // Derived from the model checkpoint path, same suffix convention
+                        // load_model()/save_model() already use for ".config"/".lm_head" etc.
+                        hippocampal_state_path = config.model_path + ".hippocampal";
+                        const std::string swap_path = config.model_path + ".hippocampal.swap";
+
+                        auto hippocampal_memory = std::make_unique<HippocampalMemory>(
+                            config.d_model,
+                            static_cast<int>(config.hippocampal_memory_capacity), swap_path);
+
+                        if (!hippocampal_state_path.empty() &&
+                            std::filesystem::exists(hippocampal_state_path)) {
+                            try {
+                                hippocampal_memory->load(hippocampal_state_path);
+                                adai::Logger::info(
+                                    "  Hippocampal memory restored from '{}' ({} slot(s))",
+                                    hippocampal_state_path, hippocampal_memory->size());
+                            } catch (const std::exception& e) {
+                                adai::Logger::warn(
+                                    "  Failed to load hippocampal memory state from '{}' ({}) — "
+                                    "starting empty",
+                                    hippocampal_state_path, e.what());
+                            }
+                        }
+
+                        model->set_hippocampal_memory(std::move(hippocampal_memory));
+                        model->set_hippocampal_repetition_params(
+                            config.hippocampal_repetition_alpha,
+                            config.hippocampal_repetition_decay);
+                        adai::Logger::info(
+                            "  Hippocampal memory attached (capacity={}, repetition_alpha={}, "
+                            "decay={}, swap='{}')",
+                            config.hippocampal_memory_capacity,
+                            config.hippocampal_repetition_alpha,
+                            config.hippocampal_repetition_decay, swap_path);
+                    }
+                } catch (const std::exception& e) {
+                    adai::Logger::warn(
+                        "  Failed to attach world model from '{}' ({}) — continuing without it",
+                        world_model_dir, e.what());
+                }
             }
         }
 
@@ -584,8 +674,9 @@ int main(int argc, char* argv[]) {
             adai::Logger::info("      API server stopped");
 
             // Step 2: Save model state if needed
-            // Note: Currently the API server doesn't modify the model,
-            // but this is where we would save it if we had online learning
+            // Note: The chatbot model's own weights are still read-only here (no online learning
+            // — see TECHNICAL_DEBT.md Future Enhancement (Configuration and Service Management
+            // #3) for that separate, larger piece of work).
             // TODO: See TECHNICAL_DEBT.md Future Enhancement (Configuration and Service Management #3) - Model State Persistence
             // Automatically save model weights during graceful shutdown if MODEL_PATH is configured
             // Add checkpoint metadata (timestamp, loss, training state)
@@ -594,6 +685,24 @@ int main(int argc, char* argv[]) {
                 // Future: Call model->save_weights(config.model_path) here
             } else {
                 adai::Logger::info("[2/3] Model state: not persisted (no model path configured)");
+            }
+
+            // TD-193: hippocampal memory DOES change while serving (every generated response
+            // write()s a new episode into it, per EncoderDecoderModel::maybe_write_hippocampal_
+            // memory()) — unlike the model weights above, its state is genuinely worth persisting
+            // across restarts when attached, so it can remain persistent from conversation to
+            // conversation instead of resetting empty on every server start.
+            if (auto* hippocampal_memory = model->get_hippocampal_memory()) {
+                if (!hippocampal_state_path.empty()) {
+                    try {
+                        hippocampal_memory->save(hippocampal_state_path);
+                        adai::Logger::info("      Hippocampal memory saved to '{}' ({} slot(s))",
+                                           hippocampal_state_path, hippocampal_memory->size());
+                    } catch (const std::exception& e) {
+                        adai::Logger::warn("      Failed to save hippocampal memory to '{}': {}",
+                                           hippocampal_state_path, e.what());
+                    }
+                }
             }
 
             // Step 3: Cleanup resources (RAII will handle this)
