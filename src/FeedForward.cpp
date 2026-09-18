@@ -1,6 +1,6 @@
-// @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: stable        (TD-195 — backward() gradient members now accumulate, not overwrite, across calls)
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-18
 
 #include "FeedForward.hpp"
 #include <cmath>
@@ -116,11 +116,11 @@ Matrix FeedForward::backward(const Matrix& grad_output) {
         for (int i = 0; i < grad_output.rows; ++i) {
             sum += grad_output(i, j);
         }
-        b2_grad(0, j) = sum;
+        b2_grad(0, j) += sum;
     }
 
     // Gradient w.r.t. W2: cached_hidden_activated^T * grad_output
-    W2_grad = cached_hidden_activated.transpose() * grad_output;
+    W2_grad = W2_grad + cached_hidden_activated.transpose() * grad_output;
 
     // Gradient w.r.t. hidden_activated: grad_output * W2^T
     Matrix grad_hidden_activated = grad_output * W2.transpose();
@@ -135,11 +135,11 @@ Matrix FeedForward::backward(const Matrix& grad_output) {
         for (int i = 0; i < grad_hidden.rows; ++i) {
             sum += grad_hidden(i, j);
         }
-        b1_grad(0, j) = sum;
+        b1_grad(0, j) += sum;
     }
 
     // Gradient w.r.t. W1: cached_input^T * grad_hidden
-    W1_grad = cached_input.transpose() * grad_hidden;
+    W1_grad = W1_grad + cached_input.transpose() * grad_hidden;
 
     // Gradient w.r.t. input: grad_hidden * W1^T
     Matrix grad_input = grad_hidden * W1.transpose();

@@ -883,15 +883,19 @@ TEST(MultiHeadAttentionBackwardTest, MultipleBackwardPasses) {
     float norm1 = mha.get_gradient_norm();
     EXPECT_GT(norm1, 0.0f);
 
-    // Second forward and backward (without update_weights)
-    // Since backward() replaces gradients, norm should be the same
+    // Second forward and backward (without zero_grad()/update_weights() in between)
+    // TD-195: backward() accumulates (+=) into W_q_grad/W_k_grad/W_v_grad/W_o_grad rather than
+    // overwriting them — a second call with the identical input/grad_output adds the identical
+    // gradient a second time, so every element (and therefore the L2 norm) should double, not
+    // stay the same. This is the actual, intended behavior gradient-accumulation training
+    // (ChatbotTrainer.cpp's own GRADIENT_ACCUMULATION_STEPS) relies on: multiple backward() calls
+    // between one zero_grad() and one update_weights() are meant to sum, not replace.
     mha.forward(input);
     mha.backward(grad_output);
 
     float norm2 = mha.get_gradient_norm();
 
-    // With same input/grad, gradient norm should be similar
-    EXPECT_NEAR(norm2, norm1, 1e-3f);
+    EXPECT_NEAR(norm2, 2.0f * norm1, 1e-2f);
 }
 
 // ============================================================================

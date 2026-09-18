@@ -1,6 +1,6 @@
-// @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: stable        (TD-195 — backward() gradient members now accumulate, not overwrite, across calls)
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-18
 
 #include "LayerNorm.hpp"
 
@@ -92,8 +92,8 @@ Matrix LayerNorm::backward(const Matrix& grad_output) {
             gamma_g += grad_output(i, j) * cached_normalized(i, j);
             beta_g += grad_output(i, j);
         }
-        gamma_grad(0, j) = gamma_g;
-        beta_grad(0, j) = beta_g;
+        gamma_grad(0, j) += gamma_g;
+        beta_grad(0, j) += beta_g;
     }
 
     // Compute gradient w.r.t. input

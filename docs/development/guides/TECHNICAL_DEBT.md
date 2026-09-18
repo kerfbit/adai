@@ -10,8 +10,24 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 181
+**Resolved Items:** 182
 **Deferred Decisions:** 3
+
+**September 18, 2026 (same day):** Filed and resolved
+[TD-195](../archive/TECHNICAL_DEBT_RESOLVED.md#td-195-layernormfeedforwardmultiheadattentionlora-backward-overwrote-gradients-instead-of-accumulating-them-silently-breaking-gradient_accumulation_steps)
+— reported by the user, following up on a background-task suggestion filed earlier this session
+during a LeJEPA-batch code review. `LayerNorm`/`FeedForward`/`MultiHeadAttention`/`LoRA`'s own
+`backward()` methods overwrote their gradient members (`=`) instead of accumulating (`+=`) across
+calls — confirmed via a precise standalone repro using the real `EncoderDecoderModel` production
+API: an "accumulated" run (`zero_grad()` once, 3 `forward()`+`backward_pass()` calls, one
+`update_weights()`) produced an effective gradient bit-identical to the *last* sample alone, not
+the sum of all three. Since `ChatbotTrainer.cpp`'s own `GRADIENT_ACCUMULATION_STEPS` (live default:
+32) relies on exactly this accumulation pattern, this meant 31 of every 32 samples' gradient
+contributions to every attention/feed-forward/layer-norm weight in the entire model (encoder and
+decoder) were silently discarded on every optimizer step — a severe, load-bearing correctness bug
+in the main, non-experimental training pipeline, not just the LeJEPA batch. Fixed by changing the
+overwriting assignments to accumulate, confirmed via the same repro (now matches the sum) and the
+full `ctest` suite. See its own archive entry.
 
 **September 18, 2026 (same day):** Filed and resolved
 [TD-194](../archive/TECHNICAL_DEBT_RESOLVED.md#td-194-hippocampalmemory-cross-reference-association-layer)
@@ -335,7 +351,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (181 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (182 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)

@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added)
-// @adai-version: 0.12.0
-// @adai-reviewed: 2026-09-14
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-195 backward() gradient members now accumulate, not overwrite, across calls)
+// @adai-version: 0.12.1
+// @adai-reviewed: 2026-09-18
 
 #include "MultiHeadAttention.hpp"
 #include <cmath>
@@ -391,7 +391,7 @@ Matrix MultiHeadAttention::backward(const Matrix& grad_output) {
 
     // Gradient w.r.t. W_o
     // W_o_grad = attention_output^T * grad_output
-    W_o_grad = cached_attention_output.transpose() * grad_output;
+    W_o_grad = W_o_grad + cached_attention_output.transpose() * grad_output;
 
     // Gradient w.r.t. attention output
     // grad_attn_out = grad_output * W_o^T
@@ -461,13 +461,13 @@ Matrix MultiHeadAttention::backward(const Matrix& grad_output) {
 
     // Gradients w.r.t. projection weights
     // W_q_grad = input^T * dQ
-    W_q_grad = cached_input.transpose() * dQ;
+    W_q_grad = W_q_grad + cached_input.transpose() * dQ;
 
     // W_k_grad = input^T * dK
-    W_k_grad = cached_input.transpose() * dK;
+    W_k_grad = W_k_grad + cached_input.transpose() * dK;
 
     // W_v_grad = input^T * dV
-    W_v_grad = cached_input.transpose() * dV;
+    W_v_grad = W_v_grad + cached_input.transpose() * dV;
 
     // Gradient w.r.t. input (sum gradients from all three projections)
     // grad_input = dQ * W_q^T + dK * W_k^T + dV * W_v^T

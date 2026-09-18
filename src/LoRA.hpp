@@ -1,9 +1,9 @@
 #ifndef LORA_HPP
 #define LORA_HPP
 
-// @adai-status: beta        (TD-038 — now genuinely wired into MultiHeadAttention/CrossAttention)
-// @adai-version: 0.8.0
-// @adai-reviewed: 2026-09-13
+// @adai-status: beta        (TD-038 — now genuinely wired into MultiHeadAttention/CrossAttention; TD-195 backward() grad_A_/grad_B_ now accumulate, not overwrite, across calls)
+// @adai-version: 0.8.1
+// @adai-reviewed: 2026-09-18
 
 
 #include <algorithm>
@@ -181,24 +181,25 @@ class LoRAAdapter {
         Matrix A_T = A_.transpose();
         Matrix xA_T = x * A_T;                    // (batch, rank)
         Matrix grad_T = grad_output.transpose();  // (output_dim, batch)
-        grad_B_ = grad_T * xA_T;                  // (output_dim, rank)
+        Matrix grad_B_raw = grad_T * xA_T;        // (output_dim, rank)
 
-        // Scale grad_B
+        // Scale and accumulate into grad_B_ (not overwrite — a caller may call backward()
+        // multiple times before update()/zero_grad(), e.g. gradient-accumulation training).
         for (int r = 0; r < grad_B_.rows; r++) {
             for (int c = 0; c < grad_B_.cols; c++) {
-                grad_B_(r, c) *= scale;
+                grad_B_(r, c) += grad_B_raw(r, c) * scale;
             }
         }
 
         // grad_A = scale * B^T * grad_output^T * x
-        Matrix B_T = B_.transpose();     // (rank, output_dim)
-        Matrix B_T_grad = B_T * grad_T;  // (rank, batch)
-        grad_A_ = B_T_grad * x;          // (rank, input_dim)
+        Matrix B_T = B_.transpose();          // (rank, output_dim)
+        Matrix B_T_grad = B_T * grad_T;       // (rank, batch)
+        Matrix grad_A_raw = B_T_grad * x;     // (rank, input_dim)
 
-        // Scale grad_A
+        // Scale and accumulate into grad_A_ (same reasoning as grad_B_ above).
         for (int r = 0; r < grad_A_.rows; r++) {
             for (int c = 0; c < grad_A_.cols; c++) {
-                grad_A_(r, c) *= scale;
+                grad_A_(r, c) += grad_A_raw(r, c) * scale;
             }
         }
 

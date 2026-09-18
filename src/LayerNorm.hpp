@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: stable        (TD-195 — backward() gradient members now accumulate, not overwrite, across calls)
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-18
 
 
 #include <cmath>

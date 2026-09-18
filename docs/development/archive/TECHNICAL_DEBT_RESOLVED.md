@@ -4,6 +4,140 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-195: LayerNorm/FeedForward/MultiHeadAttention/LoRA backward() Overwrote Gradients Instead of Accumulating Them, Silently Breaking GRADIENT_ACCUMULATION_STEPS
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 18, 2026 | Core Transformer / Training | `backward()` gradient-member assignments changed from `=` to `+=` (`src/LayerNorm.cpp`, `src/FeedForward.cpp`, `src/MultiHeadAttention.cpp`, `src/LoRA.hpp`) |
+
+Summary:
+Reported by the user, itself a follow-up on a background-task suggestion (`task_64f032c5`) this
+session filed during an earlier LeJEPA-batch code review — a genuine, independent discovery, not
+something the review's own scope covered. `LayerNorm::backward()`, `FeedForward::backward()`, and
+`MultiHeadAttention::backward()` all overwrote their own gradient members
+(`gamma_grad`/`beta_grad`, `W1_grad`/`W2_grad`/`b1_grad`/`b2_grad`,
+`W_q_grad`/`W_k_grad`/`W_v_grad`/`W_o_grad`) with a plain `=` on every call rather than
+accumulating with `+=`. `TokenEmbedding::backward()` and `LanguageModelHead::backward()` were
+already correct (`+=`); `CrossAttention::backward()` was also already correct — confirming
+accumulation was always the codebase's own intended, and mostly-implemented, convention, with
+these specific components as outliers rather than a deliberate design choice.
+
+This matters because `ChatbotTrainer.cpp`'s main training loop implements
+`GRADIENT_ACCUMULATION_STEPS` (live default: 32, both `config.trainer.conf` and `config.conf`) by
+calling `model->zero_grad()` once at the start of an accumulation window, then
+`model->forward()`/`model->backward_pass()` once per sample for `gradient_accumulation_steps`
+samples with **no** intervening `zero_grad()`, then one `optimizer->step()` — exactly the
+"accumulate across multiple backward() calls, then apply once" pattern a comment at
+`ChatbotTrainer.cpp:1146` already describes ("Backward pass (accumulates gradients)"). With the
+overwrite bug, each sample's own `backward_pass()` call — threading down through
+`DecoderBlock`/`EncoderBlock` into `MultiHeadAttention`/`FeedForward`/`LayerNorm` — replaced
+rather than added to the shared gradient buffers, so only the **last** sample in each 32-sample
+window actually influenced the resulting optimizer step for every attention/feed-forward/
+layer-norm weight in the entire model (encoder and decoder) — the other 31 samples' gradients were
+silently discarded on every single training step, for as long as this feature has existed. Unlike
+this session's earlier LeJEPA-scoped gradient bugs (TD-189), this is squarely in the main,
+non-experimental, actively-used chatbot training pipeline.
+
+Verification (confirmed the bug, then confirmed the fix):
+
+- Built a standalone repro using the real `EncoderDecoderModel` production API — the exact chain
+  `ChatbotTrainer.cpp` itself calls (`forward()` → `compute_loss_gradient_for_training()` →
+  `backward_pass()` → `update_weights()`), against a tiny model whose starting weights were saved
+  once and reloaded fresh for every experiment run, so every comparison started from bit-identical
+  weights.
+- Computed 3 samples' own individual effective gradients on `DecoderBlock`'s own
+  `FeedForward::W1` by reverse-engineering them from the observed weight delta after a single
+  plain-SGD `update_weights()` call (`grad = (before - after) / learning_rate`, with no optimizer
+  registered so `update_weights()`'s fallback path is a simple, invertible `W -= lr * grad`).
+- Ran an "accumulated" experiment on a 4th fresh copy: `zero_grad()` once, then all 3 samples'
+  `forward()`/`backward_pass()` calls with no `zero_grad()`/`update_weights()` between them, then
+  one `update_weights()` — mirroring `ChatbotTrainer.cpp`'s own pattern exactly.
+- **Pre-fix**: the accumulated run's effective gradient was bit-identical to sample 2's own
+  individual gradient alone (`max|g_accum - g2| = 0.000000`), and clearly different from the sum
+  of all three (`max|g_accum - (g0+g1+g2)| = 0.216437`) — the overwrite bug confirmed precisely,
+  not just plausibly.
+- **Post-fix**: the accumulated run's effective gradient matched the sum of all three individual
+  gradients to floating-point precision (`max|g_accum - (g0+g1+g2)| = 0.000002`) and clearly
+  diverged from the last-sample-only value (`max|g_accum - g2| = 0.141051`) — the fix confirmed
+  precisely.
+
+Design decisions:
+
+- **Fixed by accumulating, not by restructuring the caller** (unlike TD-189's own LeJEPAEncoder
+  fix, which worked around the same underlying overwrite behavior via two sequential
+  update_weights() calls because widening `backward()` to accumulate was judged too large/risky a
+  change to make there). Here, accumulation is the *correct* fix directly: `ChatbotTrainer.cpp`'s
+  own gradient-scaling (`grad_loss *= 1/gradient_accumulation_steps` before each `backward_pass()`
+  call) already assumed downstream accumulation would turn that into a genuine running average
+  over the window — the scaling logic was already correct and complete; only the actual `+=` was
+  missing. TD-189's own accepted, documented tradeoff (LeJEPAEncoder's two-sequential-update
+  design) remains valid and is unaffected by this fix — `update_weights()` between its two
+  `backward()` calls already zeros the gradient buffers first, so each call still starts from a
+  clean slate either way.
+- **`W1_grad`/`W2_grad`/`W_q_grad`/`W_k_grad`/`W_v_grad`/`W_o_grad` (matrix-valued gradients) use
+  `X_grad = X_grad + (...)`**, not a `Matrix::operator+=` (the class doesn't define one) —
+  `b1_grad`/`b2_grad`/`gamma_grad`/`beta_grad` (scalar-per-column) use direct `+=` on the indexed
+  element, since `Matrix::operator()` already returns a mutable reference there.
+- **`LoRA.hpp`'s `grad_A_`/`grad_B_` fixed too, one hop from the reported issue.** Found while
+  tracing `MultiHeadAttention::backward()`'s own LoRA branch (`add_lora_grad`, TD-038): `LoRAAdapter::
+  backward()` had the identical overwrite bug on its own `grad_A_`/`grad_B_` members. Left unfixed,
+  a LoRA-fine-tuning run using `GRADIENT_ACCUMULATION_STEPS > 1` would still silently drop 31 of
+  every 32 samples' contribution to the LoRA adapter weights even after the other 4 components
+  were fixed — the same root cause, reachable through the same code path, so fixing it alongside
+  the rest avoids shipping a known-incomplete fix.
+- **`CrossAttention::backward()` needed no fix** — already correctly accumulates
+  (`W_o_grad = W_o_grad + (...)`, etc.), confirmed by direct inspection before concluding the fix
+  set was complete.
+- **One test's own assumption was the old bug, stated as intended behavior** —
+  `MultiHeadAttentionBackwardTest.MultipleBackwardPasses` fed the identical input/grad_output
+  through `backward()` twice with no `zero_grad()`/`update_weights()` between the calls and
+  asserted the resulting gradient norm stayed the *same*, with a comment reading "Since backward()
+  replaces gradients, norm should be the same." Updated to assert the norm *doubles* instead
+  (accumulating the identical gradient twice), matching the now-correct, intended behavior — the
+  same fix pattern this session already used for stale test comments (TD-189/TD-193's own test
+  updates). Checked `CrossAttentionBackwardTest`/`DecoderBlockBackwardTest`'s own
+  `MultipleBackwardPasses` tests too — both call `zero_grad()` inside their own loop each
+  iteration, so neither was actually exercising cross-call accumulation and neither needed
+  updating.
+
+Changes Made:
+
+- `src/LayerNorm.cpp`: `backward()`'s `gamma_grad(0, j) = ...` / `beta_grad(0, j) = ...` changed to
+  `+=`. Version 1.0.0 → 1.0.1.
+- `src/FeedForward.cpp`: `backward()`'s `b2_grad`/`b1_grad` element assignments changed to `+=`;
+  `W1_grad`/`W2_grad` changed to `X_grad = X_grad + (...)`. Version 1.0.0 → 1.0.1.
+- `src/MultiHeadAttention.cpp`: `backward()`'s `W_q_grad`/`W_k_grad`/`W_v_grad`/`W_o_grad`
+  assignments changed to `X_grad = X_grad + (...)`. Version 0.12.0 → 0.12.1.
+- `src/LoRA.hpp`: `backward()`'s `grad_A_`/`grad_B_` computation restructured to scale-then-`+=`
+  into the member instead of overwrite-then-scale. Version 0.8.0 → 0.8.1.
+- `tests/multiheadattention_test.cpp`: `MultipleBackwardPasses` updated to assert the correct
+  (doubling) behavior instead of the old, bug-matching (unchanged) one.
+
+Verification:
+
+- ✅ Standalone repro (see above) confirmed the bug precisely, then confirmed the fix precisely.
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean.
+- ✅ `multiheadattentionTests`: 64/64 passing after updating the one test whose own assertion
+  encoded the bug as intended behavior.
+- ✅ Full `ctest` suite: 136/136 passing — notably including `EncoderDecoderTests`,
+  `DecoderBlockTests`, `LayerNormTests`, `FeedForwardTests`, `CrossAttentionTests`,
+  `IncrementalTrainerTests`, and `RLHFTrainerTests`, exercising every component this change
+  touches (or, for `CrossAttentionTests`, confirming the already-correct sibling class stayed
+  correct).
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+
+Files Changed:
+
+- `src/LayerNorm.hpp`
+- `src/LayerNorm.cpp`
+- `src/FeedForward.hpp`
+- `src/FeedForward.cpp`
+- `src/MultiHeadAttention.hpp`
+- `src/MultiHeadAttention.cpp`
+- `src/LoRA.hpp`
+- `tests/multiheadattention_test.cpp`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-194: HippocampalMemory Cross-Reference Association Layer
 
 | Resolution Date | Component | Resolved By |
