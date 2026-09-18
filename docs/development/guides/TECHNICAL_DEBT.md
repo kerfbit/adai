@@ -10,8 +10,17 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 178
+**Resolved Items:** 179
 **Deferred Decisions:** 3
+
+**September 17, 2026 (same day):** Filed and resolved
+[TD-192](../archive/TECHNICAL_DEBT_RESOLVED.md#td-192-hippocampalmemory-coverage-eviction-was-on-instead-of-o1)
+— found during the same follow-up review pass as TD-190/TD-191. `HippocampalMemory::slots_` is a
+`std::deque` specifically so FIFO eviction (`pop_front()`) is O(1), but the parallel `coverage_`
+was a `std::vector<float>`, so its own eviction (`erase(begin())`) was an O(n) shift every time
+`write()` evicted at capacity. Changed `coverage_` to `std::deque<float>` to match — same
+`operator[]`-only access pattern throughout, so no other code needed to change beyond the one
+external caller that named the type explicitly. See its own archive entry.
 
 **September 17, 2026 (same day):** Filed and resolved
 [TD-191](../archive/TECHNICAL_DEBT_RESOLVED.md#td-191-hippocampalmemoryload-trusted-an-untrusted-slot-count-before-allocating)
@@ -297,7 +306,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (178 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (179 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)

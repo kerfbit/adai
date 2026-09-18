@@ -134,7 +134,7 @@ Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
         // score_bias[i][slot] = -repetition_alpha * coverage[slot], broadcast across every
         // query row — coverage is a per-slot quantity, not per-query-position (same convention
         // CrossAttention's own mask broadcasting already uses).
-        std::vector<float>& coverage = memory->coverage_vector();
+        std::deque<float>& coverage = memory->coverage_vector();
         Matrix score_bias(normed_hippocampal.rows, n_slots);
         for (int i = 0; i < normed_hippocampal.rows; ++i) {
             for (int slot = 0; slot < n_slots; ++slot) {

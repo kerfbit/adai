@@ -4,6 +4,80 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-192: HippocampalMemory Coverage Eviction Was O(n) Instead of O(1)
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 17, 2026 | LeJEPA World Model / Hippocampal Memory | `coverage_` changed from `std::vector<float>` to `std::deque<float>` (`src/HippocampalMemory.{hpp,cpp}`) |
+
+Summary:
+Found during the same follow-up review pass as TD-190/TD-191. `HippocampalMemory::slots_` is a
+`std::deque<Slot>` specifically so FIFO eviction at capacity (`slots_.pop_front()`) is O(1) — the
+class's own doc comment already explains this design intent — but the parallel `coverage_`
+container, kept in lockstep with `slots_` (same size, same insertion/eviction order), was a
+`std::vector<float>`. `write()`'s own eviction therefore paired an O(1) `slots_.pop_front()` with
+an O(n) `coverage_.erase(coverage_.begin())` — a full shift of every remaining element — on every
+single eviction once at capacity. Given `write()` is meant to be called on every decode step (per
+TD-180's own hippocampal cross-attention design) with a default capacity of 512, this is a small
+but entirely avoidable cost paid on a hot path, for a container that never actually needs
+`std::vector`'s contiguous-storage guarantee — every use of `coverage_` (`operator[]`,
+range-for iteration, `.empty()`, `.clear()`) works identically on `std::deque`.
+
+Design decisions:
+
+- **`std::deque<float>` chosen over, say, reserving vector capacity up front or reversing
+  iteration order.** A `std::deque` gives true O(1) pop-front (unlike `std::vector`, which has no
+  way to avoid an O(n) shift when removing from the front — `reserve()` only amortizes *growth*,
+  not front-removal) and needs zero changes to how `coverage_` is otherwise read or written
+  (`operator[]` access, range-for in `decay_coverage()`, `.empty()`/`.clear()`) — a genuinely
+  drop-in container swap for every internal use.
+- **One external call site needed an explicit type update.** `DecoderBlock.cpp`'s own hippocampal
+  cross-attention path (TD-180) declared `std::vector<float>& coverage =
+  memory->coverage_vector();` — a reference binding requires the exact declared type, so this
+  became `std::deque<float>&`. `tests/hippocampalmemory_test.cpp` already used `auto&` and needed
+  no change; `tests/decoderblock_test.cpp`'s own use (`memory.coverage_vector()[0]`, copied into a
+  `float`) is unaffected by the container type either way.
+- **`std::vector` include dropped from `HippocampalMemory.hpp`** once nothing in the class uses it
+  anymore — `<deque>` was already included for `slots_`.
+- **No behavior change, so no new dedicated test** — this is a pure container swap with identical
+  external semantics (same FIFO order, same values, same public API shape). The existing
+  correctness tests (`FIFOEvictionEvictsOldestSlotNotRandom`,
+  `CoverageStaysAlignedWithSlotsAcrossEviction`, `WriteBeyondCapacityDoesNotExceedIt`, and the rest
+  of the `coverage_vector()`-exercising tests) already cover the eviction contract this change
+  must preserve, and all still pass unchanged.
+
+Changes Made:
+
+- `src/HippocampalMemory.hpp`: `coverage_` member and `coverage_vector()`'s return type changed
+  from `std::vector<float>` to `std::deque<float>`; `#include <vector>` removed (no longer used);
+  class doc's own coverage-storage design note updated to explain the deque choice. Version 0.2.0
+  → 0.3.0.
+- `src/HippocampalMemory.cpp`: `write()`'s and `load()`'s own eviction loops changed from
+  `erase(begin())` to `pop_front()`; `load()`'s local `loaded_coverage` changed from
+  `std::vector<float>` to `std::deque<float>` (and its now-inapplicable `.reserve()` call removed
+  — `std::deque` has no `reserve()`, and doesn't need one for amortized O(1) `push_back()` either).
+  Version 0.2.0 → 0.3.0.
+- `src/DecoderBlock.cpp`: the one external caller's explicit `std::vector<float>&` declaration
+  updated to `std::deque<float>&` to match the new return type.
+
+Verification:
+
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean, including
+  `chatbot_gui`/`ChatbotGUI.cpp`, the file whose transitive include of this header originally
+  motivated `slots_`'s own `slots` → `slots_` rename (Qt macro collision) — confirming this change
+  doesn't reintroduce anything like it.
+- ✅ Full `hippocampalMemoryTests` suite: 22/22 passing, unchanged.
+- ✅ Full `decoderblockTests` suite: 43/43 passing, unchanged.
+- ✅ Full `ctest` suite: 136/136 passing.
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+
+Files Changed:
+
+- `src/HippocampalMemory.hpp`
+- `src/HippocampalMemory.cpp`
+- `src/DecoderBlock.cpp`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-191: HippocampalMemory::load() Trusted an Untrusted Slot Count Before Allocating
 
 | Resolution Date | Component | Resolved By |

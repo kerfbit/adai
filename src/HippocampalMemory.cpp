@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.2.0
+// @adai-version: 0.3.0
 // @adai-reviewed: 2026-09-17
 
 #include "HippocampalMemory.hpp"
@@ -35,7 +35,7 @@ void HippocampalMemory::write(const Matrix& key, const Matrix& value) {
 
     if (static_cast<int>(slots_.size()) >= capacity) {
         slots_.pop_front();
-        coverage_.erase(coverage_.begin());
+        coverage_.pop_front();
     }
 
     slots_.push_back(Slot{key, value});
@@ -59,7 +59,7 @@ std::pair<Matrix, Matrix> HippocampalMemory::read_all() const {
     return {keys, values};
 }
 
-std::vector<float>& HippocampalMemory::coverage_vector() {
+std::deque<float>& HippocampalMemory::coverage_vector() {
     return coverage_;
 }
 
@@ -146,8 +146,7 @@ void HippocampalMemory::load(const std::string& filepath) {
     }
 
     std::deque<Slot> loaded_slots;
-    std::vector<float> loaded_coverage;
-    loaded_coverage.reserve(num_slots);
+    std::deque<float> loaded_coverage;
 
     for (int i = 0; i < num_slots; ++i) {
         Matrix key(1, d_model);
@@ -170,7 +169,7 @@ void HippocampalMemory::load(const std::string& filepath) {
     // loaded slots down to it rather than throwing.
     while (static_cast<int>(loaded_slots.size()) > capacity) {
         loaded_slots.pop_front();
-        loaded_coverage.erase(loaded_coverage.begin());
+        loaded_coverage.pop_front();
     }
 
     slots_ = std::move(loaded_slots);

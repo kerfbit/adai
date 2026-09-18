@@ -1,13 +1,12 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.2.0
+// @adai-version: 0.3.0
 // @adai-reviewed: 2026-09-17
 
 #include <deque>
 #include <string>
 #include <utility>
-#include <vector>
 #include "Matrix.hpp"
 
 /**
@@ -29,9 +28,13 @@
  * reference data embedded inside deque elements of a different type). TD-180's own Component 6
  * pseudocode needs genuine live, indexable, mutable access
  * (`memory->coverage_vector()[i] += hm_attn.attention_weights[i]`), so this implementation keeps
- * coverage in a separate `coverage_` vector kept in lockstep with `slots_` (same size, same
+ * coverage in a separate `coverage_` container kept in lockstep with `slots_` (same size, same
  * insertion/eviction order) instead of embedded per-slot — everything else matches the plan's
- * interface exactly.
+ * interface exactly. `coverage_` is a `std::deque<float>`, not a `std::vector`, so FIFO eviction
+ * (`pop_front()`) is O(1) for both containers together — a `std::vector` would need an O(n)
+ * `erase(begin())` shift on every eviction at capacity for no benefit, since nothing here needs
+ * `coverage_`'s storage to be contiguous (only index-based `operator[]` access, which `std::deque`
+ * supports identically).
  *
  * Naming note: the member is `slots_`, not `slots` as in the plan's own snippet — `slots` is a
  * Qt macro (expanding to `Q_SLOTS` unless `QT_NO_KEYWORDS` is defined) and collides in any
@@ -46,7 +49,7 @@ class HippocampalMemory {
     };
 
     std::deque<Slot> slots_;
-    std::vector<float> coverage_;  // coverage_[i] corresponds to slots_[i]; see class doc above
+    std::deque<float> coverage_;  // coverage_[i] corresponds to slots_[i]; see class doc above
     int capacity;
     int d_model;
 
@@ -83,9 +86,9 @@ class HippocampalMemory {
      * Mutable reference into this instance's own per-slot coverage — index i corresponds to the
      * i-th oldest currently-stored slot (same order read_all() returns). Invalidated by any
      * write() (eviction/append), clear(), or load() call that changes size(), the same rule as
-     * any other vector-invalidating operation — do not hold onto this reference across one.
+     * any other container-invalidating operation — do not hold onto this reference across one.
      */
-    std::vector<float>& coverage_vector();
+    std::deque<float>& coverage_vector();
 
     /** coverage[i] *= gamma for every currently-stored slot, called once per decode step. */
     void decay_coverage(float gamma);
