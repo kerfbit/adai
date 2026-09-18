@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
-// @adai-version: 0.13.0
-// @adai-reviewed: 2026-09-16
+// @adai-version: 0.14.0
+// @adai-reviewed: 2026-09-18
 
 #include "Decoder.hpp"
 #include <stdexcept>
@@ -88,7 +88,8 @@ Matrix LLMDecoder::forward_with_encoder(const std::vector<int>& token_ids,
                                         const Matrix& encoder_output,
                                         const Matrix* world_model_output,
                                         HippocampalMemory* memory, float repetition_alpha,
-                                        float repetition_decay) {
+                                        float repetition_decay, float cross_reference_alpha,
+                                        float association_decay) {
     int seq_length = static_cast<int>(token_ids.size());
 
     // Cache inputs for backward pass
@@ -113,13 +114,15 @@ Matrix LLMDecoder::forward_with_encoder(const std::vector<int>& token_ids,
             // Encoder-decoder mode: use cross-attention
             x = decoder_blocks[i]->forward(x, encoder_output, causal_mask, nullptr,
                                            world_model_output, nullptr, memory, repetition_alpha,
-                                           repetition_decay);
+                                           repetition_decay, cross_reference_alpha,
+                                           association_decay);
         } else {
             // Decoder-only mode: no cross-attention (pass empty encoder output)
             Matrix empty_encoder(1, d_model);  // Dummy encoder output
             x = decoder_blocks[i]->forward(x, empty_encoder, causal_mask, nullptr,
                                            world_model_output, nullptr, memory, repetition_alpha,
-                                           repetition_decay);
+                                           repetition_decay, cross_reference_alpha,
+                                           association_decay);
         }
         cached_decoder_outputs.push_back(x);
     }

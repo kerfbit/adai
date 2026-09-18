@@ -4,6 +4,170 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-194: HippocampalMemory Cross-Reference Association Layer
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 18, 2026 | LeJEPA World Model / Hippocampal Memory / DecoderBlock | `association_matrix()` (`src/HippocampalMemory.{hpp,cpp}`); gated pull + Hebbian strengthening (`src/DecoderBlock.{hpp,cpp}`); threaded through `src/Decoder.{hpp,cpp}`, `src/EncoderDecoderModel.{hpp,cpp}`, `src/IncrementalTrainer.{hpp,cpp}`, `src/ChatbotAPIServer.cpp`, `src/Config.{hpp,cpp}` |
+
+Summary:
+User request, following directly on TD-193's persistence work: hippocampal memory needs a memory
+cross-reference layer. As memories are used close together, they should strengthen their
+cross-reference; a pre-existing activation routine should gate pulling in cross-referenced
+memories.
+
+`HippocampalMemory` gained a `size() x size()` association matrix (`association_matrix()`),
+one entry per pair of currently-stored slots, kept in lockstep with `slots_`/`coverage_` across
+every lifecycle event (`write()`, `recall_from_swap()`, least-used eviction, `clear()`, `load()`).
+`DecoderBlock`'s existing gated hippocampal cross-attention path (TD-180) is both the writer and
+the reader of it, reusing machinery that already existed rather than inventing a parallel
+mechanism:
+
+- **Writer ("used close together" strengthens the link)**: after each forward pass, any two slots
+  that received meaningful attention weight in the *same* query step get their association
+  Hebbian-strengthened — `association[a][b] += mean_i(attn(i,a) * attn(i,b))` — decaying first the
+  same self-bounding way `coverage_` already does (decay-then-accumulate, each term itself a
+  product of two `[0, 1]` softmax outputs, so association converges to at most
+  `1 / (1 - association_decay)` regardless of how often a pair co-occurs).
+- **Reader ("gated pulling of cross-referenced memories")**: before scoring, a slot's own
+  association with other *currently recently-used* slots (their `coverage_`, from prior decode
+  steps) is folded into the existing `score_bias` mechanism — the same injection point the
+  repetition penalty already uses — through `tanh`: the exact activation `gate_h`'s own blend
+  already gates the whole hippocampal path with. A memory strongly cross-referenced with something
+  just used gets pulled toward attention, bounded rather than unbounded, without introducing any
+  new activation function to the codebase (the user's own explicit ask: "we can use one of the
+  pre-existing activation routines").
+
+Design decisions:
+
+- **Two independent, trailing-defaulted parameters** (`cross_reference_alpha` — the pull
+  strength, default `0.0f` — and `association_decay` — default `0.95f`, mirroring
+  `repetition_decay`'s own default) threaded through every existing call site
+  (`DecoderBlock::forward()` → `LLMDecoder::forward_with_encoder()` →
+  `EncoderDecoderModel::set_hippocampal_repetition_params()`/its 3 `forward_with_encoder()` call
+  sites → `IncrementalTrainer`/`ChatbotAPIServer`'s own attachment code → `ServiceConfig`/
+  `IncrementalConfig`). `cross_reference_alpha=0.0f` makes the pull term an exact no-op regardless
+  of association content — matches every other "explicit opt-in magnitude, not just on/off" gate
+  in this codebase — so every existing caller that doesn't ask for this feature is bit-for-bit
+  unaffected. Verified directly: a dedicated test seeds a large, real association plus high
+  coverage on the linked slot and confirms `cross_reference_alpha=0` still produces byte-identical
+  output to leaving the association at zero.
+- **Hebbian strengthening is unconditional (not gated on `cross_reference_alpha`)**, matching the
+  existing precedent `coverage_` itself already set: coverage tracking runs whenever the
+  hippocampal path is active regardless of `repetition_alpha`'s value; only *applying* it as a
+  bias is gated. Association strengthening follows the identical pattern — the bookkeeping always
+  happens, only the pull into `score_bias` is conditional.
+- **A separate `association_decay` parameter, not a reuse of `repetition_decay`.** Coverage and
+  association are conceptually different quantities (per-slot usage vs. per-pair co-occurrence);
+  giving them independent decay knobs (both defaulting to `0.95f`, so behavior is identical unless
+  someone deliberately decouples them) avoids overloading one parameter's meaning across two
+  different decayed signals.
+- **Cross-reference boost computed once per slot, not once per query row.** Neither
+  `association_matrix()` nor `coverage_vector()` vary across query rows within one forward() call,
+  so hoisting the `O(n_slots^2)` boost computation outside the per-row loop turns the total cost
+  into `O(n_slots^2 + rows * n_slots)` instead of `O(rows * n_slots^2)`.
+- **Persisted separately from `save()`/`load()`'s own file format**, via new
+  `save_associations()`/`load_associations()` methods and a new `.hippocampal.assoc` file
+  (alongside the existing `.hippocampal` state file and `.hippocampal.swap` archive) — avoids any
+  version migration on the already-shipped TD-193 state format. `load_associations()` validates
+  its own file's slot count against `size()` *at call time* and throws if they don't match, since
+  the association matrix's indices only mean something relative to a specific `slots_`/`coverage_`
+  ordering — `load()` must be called first, and `ChatbotAPIServer.cpp`'s own attach code (and its
+  shutdown-save code) follows that ordering explicitly.
+- **A recalled or newly-written slot starts with zero associations** (no cross-references carried
+  over), the same "freshly relevant again" treatment `recall_from_swap()` already gives coverage
+  (TD-193) — an evicted slot's own association row/column is simply dropped, not preserved in the
+  swap file.
+
+Changes Made:
+
+- `src/HippocampalMemory.hpp`/`.cpp`: `association_` member; `association_matrix()`/
+  `decay_associations()` (mirroring `coverage_vector()`/`decay_coverage()`); `evict_least_used()`
+  widened to optionally keep an association matrix in lockstep (used by `insert_slot()`, skipped
+  by `load()`'s own excess-trim, which resets `association_` fresh instead); `save_associations()`/
+  `load_associations()`. Version 0.4.0 → 0.5.0.
+- `src/DecoderBlock.hpp`/`.cpp`: `forward()` gained trailing `cross_reference_alpha`/
+  `association_decay` parameters; the hippocampal block now computes the tanh-gated cross-reference
+  boost into `score_bias` before scoring, and Hebbian-strengthens `association_matrix()` from the
+  step's own attention weights after scoring. Version 1.3.0 → 1.4.0.
+- `src/Decoder.hpp`/`.cpp` (`LLMDecoder`): `forward_with_encoder()` threads the same two trailing
+  parameters through to both `DecoderBlock::forward()` call sites. Version 0.13.0 → 0.14.0.
+- `src/EncoderDecoderModel.hpp`/`.cpp`: `hippocampal_cross_reference_alpha_`/
+  `hippocampal_association_decay_` members; `set_hippocampal_repetition_params()` widened with two
+  trailing defaulted parameters; threaded into all 3 `forward_with_encoder()` call sites. Version
+  0.17.0 → 0.18.0.
+- `src/IncrementalTrainer.hpp`/`.cpp`: `IncrementalConfig` gained the two matching fields, mapped
+  in `make_incremental_config()`, threaded into `maybe_attach_world_model()`'s own
+  `set_hippocampal_repetition_params()` call.
+- `src/Config.hpp`/`.cpp`: new `hippocampal_cross_reference_alpha`/`hippocampal_association_decay`
+  `ServiceConfig` fields, parsed from `HIPPOCAMPAL_CROSS_REFERENCE_ALPHA`/
+  `HIPPOCAMPAL_ASSOCIATION_DECAY` (config file and env var, matching the existing
+  `HIPPOCAMPAL_REPETITION_ALPHA`/`_DECAY` pattern exactly).
+- `src/ChatbotAPIServer.cpp`: the TD-193 attachment block now also loads
+  `MODEL_PATH.hippocampal.assoc` (after the main state file) and threads the two new config values
+  into `set_hippocampal_repetition_params()`; the shutdown block now also saves the association
+  matrix alongside the main state. Version 1.6.0 → 1.7.0.
+- `config.chatbot.conf`/`config.trainer.conf`: documented the two new keys, defaulting to off.
+- `tests/hippocampalmemory_test.cpp`: 11 new tests covering association matrix growth, mutability,
+  decay, eviction row/column alignment, fresh-start-on-recall, `clear()`, `load()`'s reset
+  behavior, and `save_associations()`/`load_associations()` round-trip + validation.
+- `tests/decoderblock_test.cpp`: 4 new tests — Hebbian strengthening actually runs and is
+  symmetric, association stays within its theoretical bound over 300 steps (mirroring the existing
+  coverage-bound test), `cross_reference_alpha=0` is a byte-identical no-op regardless of
+  association content, and a nonzero `cross_reference_alpha` with a real association genuinely
+  changes the output — the latter two share a `CrossReferenceFixture` reusing one `DecoderBlock` +
+  `HippocampalMemory` instance across both compared forward() calls (an earlier draft compared two
+  independently-constructed `DecoderBlock`s and falsely "passed"/"failed" from their own unrelated
+  random-initialization differences, not the feature under test — caught and fixed before landing).
+
+Verification:
+
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean.
+- ✅ `hippocampalMemoryTests`: 43/43 passing (up from 32). `decoderblockTests`: 47/47 passing (up
+  from 43).
+- ✅ Full `ctest` suite: 135/136 passing, the one failure (`ScriptsTests_monitor_training`, an
+  unrelated Python script test) reproduced clean standalone twice — the same transient
+  heavy-parallel-load flake already documented in TD-189's own verification, not a regression.
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+- ✅ **Live end-to-end verification**: pretrained a real (toy) LeJEPA world model and chatbot
+  checkpoint (confirmed gated hippocampal cross-attention weights present, as in TD-193), started
+  `chatbot_api_server` with `HIPPOCAMPAL_CROSS_REFERENCE_ALPHA=0.2`/`HIPPOCAMPAL_ASSOCIATION_DECAY=0.9`
+  configured — confirmed via its own startup log that both values were read and threaded through
+  (`"cross_reference_alpha=0.2, association_decay=0.9"` in the attach log line). Hand-wrote a
+  hippocampal state file *and* a 3x3 association file; restart logged "Hippocampal memory restored
+  ... (3 slot(s))" followed by "Hippocampal cross-reference matrix restored", and a subsequent
+  `SIGTERM` shutdown logged both being saved back — confirming the full load → serve → save round
+  trip for the association matrix genuinely works through the real server, in the correct order
+  relative to the main state file. A live `/chat` request with `STRATEGY=beam` ran the new
+  `score_bias`/Hebbian-update code paths without error (no crash, no exception logged).
+  ⚠️ Slot count didn't grow across that live request even though beam search returned non-empty
+  output this time — consistent with, not a new instance of, the write-path uncertainty already
+  flagged in TD-193's own archive entry; not investigated further here since the cross-reference
+  layer itself (this item's own deliverable) is independently verified correct via the controlled
+  `DecoderBlock` tests above, which exercise the exact same code path with known, controlled
+  attention patterns.
+
+Files Changed:
+
+- `src/HippocampalMemory.hpp`
+- `src/HippocampalMemory.cpp`
+- `src/DecoderBlock.hpp`
+- `src/DecoderBlock.cpp`
+- `src/Decoder.hpp`
+- `src/Decoder.cpp`
+- `src/EncoderDecoderModel.hpp`
+- `src/EncoderDecoderModel.cpp`
+- `src/IncrementalTrainer.hpp`
+- `src/IncrementalTrainer.cpp`
+- `src/Config.hpp`
+- `src/Config.cpp`
+- `src/ChatbotAPIServer.cpp`
+- `config.chatbot.conf`
+- `config.trainer.conf`
+- `tests/hippocampalmemory_test.cpp`
+- `tests/decoderblock_test.cpp`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-193: HippocampalMemory Gains Least-Used Eviction, a Reloadable Swap File, and Persistence in chatbot_api_server
 
 | Resolution Date | Component | Resolved By |

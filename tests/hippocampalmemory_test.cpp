@@ -2,7 +2,8 @@
  * @file hippocampalmemory_test.cpp
  * @brief Tests for HippocampalMemory (TD-179 / HM-1) — bounded episodic buffer from
  *        docs/proposals/lejepa_world_model_gated_injection_plan.md's Component 5. Also covers
- *        TD-193's least-used eviction policy and reloadable swap file.
+ *        TD-193's least-used eviction policy and reloadable swap file, and TD-194's cross-
+ *        reference association matrix.
  *
  * TD-179's own Action Items ask for three things specifically: write()/read_all()/
  * coverage_vector()/decay_coverage()/clear() per the proposal's interface, a dedicated unit
@@ -10,6 +11,11 @@
  * persistence. TD-193 replaces the original FIFO eviction policy with a least-used one (lowest
  * coverage_ value, ties broken by oldest — FIFO is what this degenerates to when nothing's
  * coverage has ever been touched) and adds an optional, reloadable swap file for evicted slots.
+ * TD-194 adds association_matrix() — a size() x size() cross-reference strength matrix kept in
+ * lockstep with slots_/coverage_ across write()/recall_from_swap()/eviction/load() — plus its own
+ * save_associations()/load_associations() persistence. DecoderBlock (see decoderblock_test.cpp)
+ * is the actual reader/writer of association strengths; this file only tests HippocampalMemory's
+ * own bookkeeping contract (indices stay aligned with slots_, matching container lifecycle rules).
  */
 
 #include "../src/HippocampalMemory.hpp"
@@ -545,4 +551,226 @@ TEST(HippocampalMemoryTest, LoadExcessTrimAppendsLeastUsedSlotsToSwap) {
 
     std::remove(filepath.c_str());
     std::remove(swap_path.c_str());
+}
+
+// ============================================================================
+// TD-194: cross-reference association matrix
+// ============================================================================
+
+TEST(HippocampalMemoryTest, AssociationMatrixStartsEmpty) {
+    HippocampalMemory memory(4, 8);
+    EXPECT_TRUE(memory.association_matrix().empty());
+}
+
+TEST(HippocampalMemoryTest, AssociationMatrixGrowsWithEachWrite) {
+    const int d_model = 4;
+    HippocampalMemory memory(d_model, 8);
+
+    memory.write(make_row(d_model, 1.0f), make_row(d_model, 1.0f));
+    ASSERT_EQ(memory.association_matrix().size(), 1u);
+    EXPECT_EQ(memory.association_matrix()[0].size(), 1u);
+
+    memory.write(make_row(d_model, 2.0f), make_row(d_model, 2.0f));
+    ASSERT_EQ(memory.association_matrix().size(), 2u);
+    EXPECT_EQ(memory.association_matrix()[0].size(), 2u);
+    EXPECT_EQ(memory.association_matrix()[1].size(), 2u);
+
+    // A brand-new slot starts cross-referenced with nothing.
+    EXPECT_FLOAT_EQ(memory.association_matrix()[0][1], 0.0f);
+    EXPECT_FLOAT_EQ(memory.association_matrix()[1][0], 0.0f);
+}
+
+TEST(HippocampalMemoryTest, AssociationMatrixIsMutable) {
+    const int d_model = 4;
+    HippocampalMemory memory(d_model, 8);
+    memory.write(make_row(d_model, 1.0f), make_row(d_model, 1.0f));
+    memory.write(make_row(d_model, 2.0f), make_row(d_model, 2.0f));
+
+    memory.association_matrix()[0][1] = 0.75f;
+    memory.association_matrix()[1][0] = 0.75f;
+
+    EXPECT_FLOAT_EQ(memory.association_matrix()[0][1], 0.75f);
+    EXPECT_FLOAT_EQ(memory.association_matrix()[1][0], 0.75f);
+}
+
+TEST(HippocampalMemoryTest, DecayAssociationsMultipliesEveryEntryBySameGamma) {
+    const int d_model = 4;
+    HippocampalMemory memory(d_model, 8);
+    memory.write(make_row(d_model, 1.0f), make_row(d_model, 1.0f));
+    memory.write(make_row(d_model, 2.0f), make_row(d_model, 2.0f));
+    memory.association_matrix()[0][1] = 1.0f;
+    memory.association_matrix()[1][0] = 2.0f;
+
+    memory.decay_associations(0.5f);
+
+    EXPECT_FLOAT_EQ(memory.association_matrix()[0][1], 0.5f);
+    EXPECT_FLOAT_EQ(memory.association_matrix()[1][0], 1.0f);
+}
+
+// TD-194 regression: eviction must drop the evicted slot's own row AND column, not just resize
+// the matrix, so the remaining slots' cross-references to each other stay correctly aligned.
+TEST(HippocampalMemoryTest, EvictionDropsAssociationRowAndColumnKeepingOthersAligned) {
+    const int d_model = 4;
+    const int capacity = 3;
+    HippocampalMemory memory(d_model, capacity);
+
+    memory.write(make_row(d_model, 0.0f), make_row(d_model, 0.0f));  // index 0, will be evicted
+    memory.write(make_row(d_model, 1.0f), make_row(d_model, 1.0f));  // index 1
+    memory.write(make_row(d_model, 2.0f), make_row(d_model, 2.0f));  // index 2
+    // Establish a distinctive cross-reference between what will survive as slots 1 and 2.
+    memory.association_matrix()[1][2] = 9.0f;
+    memory.association_matrix()[2][1] = 9.0f;
+
+    // All coverage still 0.0f (tied) — evicts index 0 (oldest tiebreak), matching TD-193.
+    memory.write(make_row(d_model, 3.0f), make_row(d_model, 3.0f));
+
+    ASSERT_EQ(memory.size(), capacity);
+    auto& association = memory.association_matrix();
+    ASSERT_EQ(association.size(), static_cast<size_t>(capacity));
+
+    auto [keys, values] = memory.read_all();
+    (void)values;
+    int idx_of_1 = -1, idx_of_2 = -1;
+    for (int i = 0; i < memory.size(); ++i) {
+        if (row_equals(keys, i, 1.0f, d_model)) idx_of_1 = i;
+        if (row_equals(keys, i, 2.0f, d_model)) idx_of_2 = i;
+    }
+    ASSERT_NE(idx_of_1, -1);
+    ASSERT_NE(idx_of_2, -1);
+    EXPECT_FLOAT_EQ(association[idx_of_1][idx_of_2], 9.0f)
+        << "the surviving slots' own cross-reference should have moved with them, not been "
+           "scrambled by the eviction";
+}
+
+TEST(HippocampalMemoryTest, RecallFromSwapGivesRecalledSlotFreshAssociations) {
+    const int d_model = 4;
+    const std::string swap_path = "test_hippocampal_memory_swap_assoc.bin";
+    std::remove(swap_path.c_str());
+
+    HippocampalMemory memory(d_model, 2, swap_path);
+    memory.write(make_row(d_model, 1.0f), make_row(d_model, 1.0f));
+    memory.write(make_row(d_model, 2.0f), make_row(d_model, 2.0f));
+    memory.association_matrix()[0][1] = 5.0f;  // some prior association before eviction
+    memory.association_matrix()[1][0] = 5.0f;
+
+    memory.write(make_row(d_model, 3.0f), make_row(d_model, 3.0f));  // evicts slot 0 (value 1.0)
+    ASSERT_TRUE(memory.recall_from_swap());
+
+    auto [keys, values] = memory.read_all();
+    (void)values;
+    for (int i = 0; i < memory.size(); ++i) {
+        if (row_equals(keys, i, 1.0f, d_model)) {
+            for (int j = 0; j < memory.size(); ++j) {
+                if (j != i) {
+                    EXPECT_FLOAT_EQ(memory.association_matrix()[i][j], 0.0f)
+                        << "a recalled slot should start with no cross-references, the same "
+                           "fresh start a brand-new write() gets";
+                }
+            }
+        }
+    }
+
+    std::remove(swap_path.c_str());
+}
+
+TEST(HippocampalMemoryTest, ClearAlsoClearsAssociationMatrix) {
+    const int d_model = 4;
+    HippocampalMemory memory(d_model, 8);
+    memory.write(make_row(d_model, 1.0f), make_row(d_model, 1.0f));
+    memory.write(make_row(d_model, 2.0f), make_row(d_model, 2.0f));
+
+    memory.clear();
+
+    EXPECT_TRUE(memory.association_matrix().empty());
+}
+
+TEST(HippocampalMemoryTest, LoadResetsAssociationMatrixToFreshZeros) {
+    const int d_model = 4;
+    const std::string filepath = "test_hippocampal_memory_assoc_load_reset.bin";
+    std::remove(filepath.c_str());
+
+    HippocampalMemory memory1(d_model, 8);
+    memory1.write(make_row(d_model, 1.0f), make_row(d_model, 1.0f));
+    memory1.write(make_row(d_model, 2.0f), make_row(d_model, 2.0f));
+    memory1.save(filepath);
+
+    HippocampalMemory memory2(d_model, 8);
+    memory2.load(filepath);
+
+    ASSERT_EQ(memory2.association_matrix().size(), 2u);
+    EXPECT_FLOAT_EQ(memory2.association_matrix()[0][1], 0.0f);
+    EXPECT_FLOAT_EQ(memory2.association_matrix()[1][0], 0.0f);
+
+    std::remove(filepath.c_str());
+}
+
+TEST(HippocampalMemoryTest, SaveAndLoadAssociationsRoundTrips) {
+    const int d_model = 4;
+    const std::string filepath = "test_hippocampal_memory_assoc_main.bin";
+    const std::string assoc_path = "test_hippocampal_memory_assoc_matrix.bin";
+    std::remove(filepath.c_str());
+    std::remove(assoc_path.c_str());
+
+    HippocampalMemory memory1(d_model, 8);
+    memory1.write(make_row(d_model, 1.0f), make_row(d_model, 1.0f));
+    memory1.write(make_row(d_model, 2.0f), make_row(d_model, 2.0f));
+    memory1.write(make_row(d_model, 3.0f), make_row(d_model, 3.0f));
+    memory1.association_matrix()[0][1] = 0.25f;
+    memory1.association_matrix()[1][0] = 0.25f;
+    memory1.association_matrix()[0][2] = 0.75f;
+    memory1.association_matrix()[2][0] = 0.75f;
+    memory1.save(filepath);
+    memory1.save_associations(assoc_path);
+
+    HippocampalMemory memory2(d_model, 8);
+    memory2.load(filepath);  // must happen first — see load_associations()'s own doc comment
+    memory2.load_associations(assoc_path);
+
+    ASSERT_EQ(memory2.association_matrix().size(), 3u);
+    EXPECT_FLOAT_EQ(memory2.association_matrix()[0][1], 0.25f);
+    EXPECT_FLOAT_EQ(memory2.association_matrix()[1][0], 0.25f);
+    EXPECT_FLOAT_EQ(memory2.association_matrix()[0][2], 0.75f);
+    EXPECT_FLOAT_EQ(memory2.association_matrix()[2][0], 0.75f);
+
+    std::remove(filepath.c_str());
+    std::remove(assoc_path.c_str());
+}
+
+TEST(HippocampalMemoryTest, LoadAssociationsRejectsSlotCountMismatch) {
+    const int d_model = 4;
+    const std::string assoc_path = "test_hippocampal_memory_assoc_mismatch.bin";
+    std::remove(assoc_path.c_str());
+
+    HippocampalMemory writer(d_model, 8);
+    writer.write(make_row(d_model, 1.0f), make_row(d_model, 1.0f));
+    writer.write(make_row(d_model, 2.0f), make_row(d_model, 2.0f));
+    writer.save_associations(assoc_path);  // a 2x2 association file
+
+    HippocampalMemory reader(d_model, 8);
+    reader.write(make_row(d_model, 9.0f), make_row(d_model, 9.0f));  // only 1 slot live
+
+    EXPECT_THROW(reader.load_associations(assoc_path), std::runtime_error);
+
+    std::remove(assoc_path.c_str());
+}
+
+TEST(HippocampalMemoryTest, LoadAssociationsRejectsTruncatedFile) {
+    const int d_model = 4;
+    const std::string assoc_path = "test_hippocampal_memory_assoc_truncated.bin";
+    std::remove(assoc_path.c_str());
+
+    HippocampalMemory memory(d_model, 8);
+    memory.write(make_row(d_model, 1.0f), make_row(d_model, 1.0f));
+    memory.write(make_row(d_model, 2.0f), make_row(d_model, 2.0f));
+
+    // Header claims a 2x2 matrix but the file holds no actual entries.
+    std::ofstream file(assoc_path, std::ios::binary);
+    ASSERT_TRUE(file.is_open());
+    const int n = 2;
+    file.write(reinterpret_cast<const char*>(&n), sizeof(int));
+    file.close();
+
+    EXPECT_THROW(memory.load_associations(assoc_path), std::runtime_error);
+
+    std::remove(assoc_path.c_str());
 }

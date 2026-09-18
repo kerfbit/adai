@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap)
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-09-17
+// @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap; TD-194 gated cross-reference pull + Hebbian association strengthening added to the hippocampal path)
+// @adai-version: 1.4.0
+// @adai-reviewed: 2026-09-18
 
 
 #include <memory>
@@ -262,13 +262,27 @@ class DecoderBlock {
      *   penalty a no-op regardless of coverage, independent of the gate itself.
      * @param repetition_decay Per-call coverage decay, 0 < gamma <= 1 (only meaningful when
      *   memory is non-null and non-empty; ignored otherwise). gamma = 1 disables decay.
+     * @param cross_reference_alpha (TD-194) Gated cross-reference pull strength — before scoring,
+     *   score_bias[i][slot] additionally gets
+     *   cross_reference_alpha * tanh(sum_j(association[slot][j] * coverage[j])) added to it: a
+     *   slot strongly cross-referenced with other *recently used* slots is pulled toward
+     *   attention, bounded by tanh (the same gating activation gate_h's own blend already uses)
+     *   rather than growing unboundedly. 0.0f (default) makes this term a no-op regardless of
+     *   association strength, independent of repetition_alpha/the gate itself. After scoring,
+     *   any two slots attended together in this same call have their association
+     *   Hebbian-strengthened ("used close together") — see this method's own implementation
+     *   comment for the exact formula and association_decay's role there.
+     * @param association_decay (TD-194) Per-call association decay, 0 < gamma <= 1, mirroring
+     *   repetition_decay's own role for coverage — self-bounding the same way. Ignored when
+     *   memory is null/empty.
      * @return Output [seq_len, d_model]
      */
     Matrix forward(const Matrix& input, const Matrix& encoder_output, const Matrix& self_attn_mask,
                    const Matrix* cross_attn_mask = nullptr,
                    const Matrix* world_model_output = nullptr,
                    const Matrix* world_model_mask = nullptr, HippocampalMemory* memory = nullptr,
-                   float repetition_alpha = 0.0f, float repetition_decay = 0.95f);
+                   float repetition_alpha = 0.0f, float repetition_decay = 0.95f,
+                   float cross_reference_alpha = 0.0f, float association_decay = 0.95f);
 
     /**
      * Forward pass with KV cache support (for inference optimization)

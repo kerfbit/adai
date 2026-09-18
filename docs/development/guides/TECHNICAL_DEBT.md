@@ -10,8 +10,24 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 180
+**Resolved Items:** 181
 **Deferred Decisions:** 3
+
+**September 18, 2026 (same day):** Filed and resolved
+[TD-194](../archive/TECHNICAL_DEBT_RESOLVED.md#td-194-hippocampalmemory-cross-reference-association-layer)
+— user request: a memory cross-reference layer — memories used close together should strengthen
+their cross-reference, and a pre-existing activation routine should gate pulling in
+cross-referenced memories. Added a `size() x size()` association matrix to `HippocampalMemory`,
+kept in lockstep with `slots_`/`coverage_`; `DecoderBlock`'s existing gated hippocampal
+cross-attention path both writes it (Hebbian-strengthens any two slots attended together in the
+same step, "used close together") and reads it (a `tanh`-gated boost — the same activation
+`gate_h`'s own blend already uses — added into the existing `score_bias` mechanism, pulling a
+slot toward attention when it's linked to something recently used). New opt-in
+`cross_reference_alpha`/`association_decay` parameters default to off, threaded through every
+existing call site with no behavior change when unused. Persisted separately from `save()`/
+`load()`'s own state file via `save_associations()`/`load_associations()`, wired into
+`chatbot_api_server`'s TD-193 lifecycle alongside the main hippocampal state. See its own archive
+entry.
 
 **September 18, 2026 (same day):** Filed and resolved
 [TD-193](../archive/TECHNICAL_DEBT_RESOLVED.md#td-193-hippocampalmemory-gains-least-used-eviction-a-reloadable-swap-file-and-persistence-in-chatbot_api_server)
@@ -319,7 +335,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (180 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (181 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)

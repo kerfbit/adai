@@ -266,11 +266,15 @@ void IncrementalTrainer::maybe_attach_world_model() {
     if (config.hippocampal_memory_enabled) {
         model->set_hippocampal_memory(std::make_unique<HippocampalMemory>(
             config.base_config.d_model, static_cast<int>(config.hippocampal_memory_capacity)));
-        model->set_hippocampal_repetition_params(config.hippocampal_repetition_alpha,
-                                                 config.hippocampal_repetition_decay);
-        Logger::info("Hippocampal memory attached (capacity={}, repetition_alpha={}, decay={})",
-                    config.hippocampal_memory_capacity, config.hippocampal_repetition_alpha,
-                    config.hippocampal_repetition_decay);
+        model->set_hippocampal_repetition_params(
+            config.hippocampal_repetition_alpha, config.hippocampal_repetition_decay,
+            config.hippocampal_cross_reference_alpha, config.hippocampal_association_decay);
+        Logger::info(
+            "Hippocampal memory attached (capacity={}, repetition_alpha={}, decay={}, "
+            "cross_reference_alpha={}, association_decay={})",
+            config.hippocampal_memory_capacity, config.hippocampal_repetition_alpha,
+            config.hippocampal_repetition_decay, config.hippocampal_cross_reference_alpha,
+            config.hippocampal_association_decay);
     }
 }
 
@@ -412,6 +416,8 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.hippocampal_memory_capacity = svc.hippocampal_memory_capacity;
     cfg.hippocampal_repetition_alpha = svc.hippocampal_repetition_alpha;
     cfg.hippocampal_repetition_decay = svc.hippocampal_repetition_decay;
+    cfg.hippocampal_cross_reference_alpha = svc.hippocampal_cross_reference_alpha;
+    cfg.hippocampal_association_decay = svc.hippocampal_association_decay;
 
     return cfg;
 }

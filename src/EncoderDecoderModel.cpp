@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.17.0
-// @adai-reviewed: 2026-09-16
+// @adai-version: 0.18.0
+// @adai-reviewed: 2026-09-18
 
 #include "EncoderDecoderModel.hpp"
 #include <algorithm>
@@ -257,7 +257,8 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
             // generate_response_with_strategy()'s own beam_model_fn.
             Matrix decoder_out = decoder->forward_with_encoder(
                 tokens, cached_encoder_output, world_model_output_ptr, hippocampal_memory.get(),
-                hippocampal_repetition_alpha_, hippocampal_repetition_decay_);
+                hippocampal_repetition_alpha_, hippocampal_repetition_decay_,
+                hippocampal_cross_reference_alpha_, hippocampal_association_decay_);
             Matrix logits = lm_head->forward(decoder_out);
 
             // Mask out invalid token IDs beyond actual vocabulary size, same as
@@ -428,7 +429,8 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
             // Process all tokens from scratch (no caching)
             Matrix decoder_out = decoder->forward_with_encoder(
                 tokens, cached_encoder_output, world_model_output_ptr, hippocampal_memory.get(),
-                hippocampal_repetition_alpha_, hippocampal_repetition_decay_);
+                hippocampal_repetition_alpha_, hippocampal_repetition_decay_,
+                hippocampal_cross_reference_alpha_, hippocampal_association_decay_);
 
             // Project to vocabulary (last position of output)
             Matrix logits = lm_head->forward(decoder_out);
@@ -944,7 +946,8 @@ Matrix EncoderDecoderModel::forward(const std::vector<int>& input_tokens,
     // Decode with cross-attention
     cached_decoder_output = decoder->forward_with_encoder(
         decoder_input, cached_encoder_output, world_model_output_ptr, hippocampal_memory.get(),
-        hippocampal_repetition_alpha_, hippocampal_repetition_decay_);
+        hippocampal_repetition_alpha_, hippocampal_repetition_decay_,
+                hippocampal_cross_reference_alpha_, hippocampal_association_decay_);
 
     // Project to vocabulary
     Matrix logits = lm_head->forward(cached_decoder_output);

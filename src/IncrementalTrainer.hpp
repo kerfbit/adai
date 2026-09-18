@@ -110,6 +110,8 @@ struct IncrementalConfig {
     size_t hippocampal_memory_capacity = 512;
     float hippocampal_repetition_alpha = 0.0f;
     float hippocampal_repetition_decay = 0.95f;
+    float hippocampal_cross_reference_alpha = 0.0f;  // TD-194
+    float hippocampal_association_decay = 0.95f;     // TD-194
 };
 
 /**

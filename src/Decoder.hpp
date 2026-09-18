@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
-// @adai-version: 0.13.0
-// @adai-reviewed: 2026-09-16
+// @adai-version: 0.14.0
+// @adai-reviewed: 2026-09-18
 
 
 #include <algorithm>
@@ -158,12 +158,17 @@ class LLMDecoder {
      * @param memory Hippocampal memory to attend over, or nullptr — ditto.
      * @param repetition_alpha/repetition_decay Hippocampal repetition-penalty parameters,
      *   ignored when memory is nullptr — see DecoderBlock::forward()'s own doc comment.
+     * @param cross_reference_alpha/association_decay (TD-194) Hippocampal cross-reference gated
+     *   pull/Hebbian-strengthening parameters, ignored when memory is nullptr — see
+     *   DecoderBlock::forward()'s own doc comment.
      * @return Matrix of shape [sequence_length, d_model]
      */
     Matrix forward_with_encoder(const std::vector<int>& token_ids, const Matrix& encoder_output,
                                 const Matrix* world_model_output = nullptr,
                                 HippocampalMemory* memory = nullptr,
-                                float repetition_alpha = 0.0f, float repetition_decay = 0.95f);
+                                float repetition_alpha = 0.0f, float repetition_decay = 0.95f,
+                                float cross_reference_alpha = 0.0f,
+                                float association_decay = 0.95f);
 
     /**
      * Forward pass with custom causal mask

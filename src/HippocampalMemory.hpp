@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.4.0
+// @adai-version: 0.5.0
 // @adai-reviewed: 2026-09-18
 
 #include <deque>
@@ -60,6 +60,25 @@
  * exactly matching this class's original (pre-TD-193) behavior, so every existing caller that
  * doesn't ask for swap is unaffected.
  *
+ * TD-194 cross-reference layer — a `size() x size()` association matrix (`association_`), one
+ * entry per pair of currently-stored slots, kept in lockstep with `slots_`/`coverage_` (grows a
+ * new zero row+column on insert, drops the evicted slot's row+column on eviction, matching
+ * `coverage_vector()`'s own "mutable reference, caller does the actual bookkeeping" convention —
+ * `association_matrix()`/`decay_associations()` mirror `coverage_vector()`/`decay_coverage()`
+ * exactly). `DecoderBlock`'s own gated hippocampal cross-attention (TD-180) is both the writer and
+ * the reader: after each forward pass, any two slots that received meaningful attention weight in
+ * the *same* query step get their association Hebbian-strengthened ("used close together"),
+ * decaying the same self-bounding way `coverage_` already does; before the next attention
+ * computation, a slot's own association with other *recently used* slots (their current
+ * `coverage_`) is folded into `score_bias` — the same injection point the repetition penalty
+ * already uses — through `tanh` (the same gating activation `gate_h` already blends the whole
+ * hippocampal path with), so a memory strongly cross-referenced with something just used gets
+ * pulled toward attention, bounded rather than unbounded. See `DecoderBlock::forward()`'s own
+ * implementation comment for the exact formula. Persisted separately from `save()`/`load()`'s own
+ * concern via `save_associations()`/`load_associations()` — a fresh (all-zero) association matrix
+ * is otherwise assumed after `load()`, since a saved session's own slot count/order must already
+ * match before a saved association matrix means anything.
+ *
  * Naming note: the member is `slots_`, not `slots` as in the plan's own snippet — `slots` is a
  * Qt macro (expanding to `Q_SLOTS` unless `QT_NO_KEYWORDS` is defined) and collides in any
  * translation unit that also includes Qt headers, discovered when this class's header is pulled
@@ -74,15 +93,20 @@ class HippocampalMemory {
 
     std::deque<Slot> slots_;
     std::deque<float> coverage_;  // coverage_[i] corresponds to slots_[i]; see class doc above
+    std::deque<std::deque<float>> association_;  // association_[i][j]: slots_[i]<->slots_[j]
+                                                  // cross-reference strength; see TD-194 class doc
     int capacity;
     int d_model;
     std::string swap_filepath_;  // empty = swap disabled; see class doc's TD-193 section
 
     /** Evicts the least-used entry (lowest coverage; ties broken by oldest/lowest index) from
      *  the given containers in place, appending it to swap_filepath_ first if one is configured.
-     *  Shared by insert_slot() (the live buffer) and load()'s own excess-trim loop (a local pair
-     *  of containers being reconciled down to this instance's capacity). */
-    void evict_least_used(std::deque<Slot>& slots, std::deque<float>& coverage) const;
+     *  Shared by insert_slot() (the live buffer, association non-null) and load()'s own
+     *  excess-trim loop (a local pair of containers being reconciled down to this instance's
+     *  capacity, association null — load() resets association_ separately, see its own doc). When
+     *  association is non-null, the evicted slot's row and column are dropped from it too. */
+    void evict_least_used(std::deque<Slot>& slots, std::deque<float>& coverage,
+                          std::deque<std::deque<float>>* association) const;
 
     /** Evicts (see above) if already at capacity, then appends the new (key, value, coverage) to
      *  the live buffer. Shared by write() and recall_from_swap(). */
@@ -136,6 +160,18 @@ class HippocampalMemory {
     /** coverage[i] *= gamma for every currently-stored slot, called once per decode step. */
     void decay_coverage(float gamma);
 
+    /**
+     * Mutable reference into this instance's own cross-reference association matrix (TD-194) —
+     * association[i][j] is the strength between the i-th and j-th currently-stored slots (same
+     * order read_all()/coverage_vector() use), symmetric, diagonal unused. Same invalidation rule
+     * as coverage_vector() — do not hold onto this reference across a write()/recall_from_swap()/
+     * clear()/load() call.
+     */
+    std::deque<std::deque<float>>& association_matrix();
+
+    /** association[i][j] *= gamma for every currently-stored pair, mirroring decay_coverage(). */
+    void decay_associations(float gamma);
+
     int size() const {
         return static_cast<int>(slots_.size());
     }
@@ -188,7 +224,26 @@ class HippocampalMemory {
      *         current capacity is accepted — the least-used excess slots are evicted (to the
      *         swap file, if one is configured) down to this instance's capacity rather than
      *         throwing, since capacity is a runtime tuning knob, not an architectural constant —
-     *         same policy write()'s own eviction uses (TD-193).
+     *         same policy write()'s own eviction uses (TD-193). Resets association_matrix() to a
+     *         fresh all-zero size() x size() matrix (TD-194) — call load_associations() after,
+     *         with a file saved against this exact post-load slot count/order, to restore it.
      */
     void load(const std::string& filepath);
+
+    /**
+     * Persist the current cross-reference association matrix (TD-194) to its own file, separate
+     * from save()'s own concern (the live ring buffer's slots/coverage) — see the class doc for
+     * why. A `size() x size()` matrix means nothing without also knowing which slots/order it
+     * belongs to, so this is meant to be called alongside save(), against the same instance.
+     */
+    void save_associations(const std::string& filepath) const;
+
+    /**
+     * @throws std::runtime_error if the file's own saved slot count doesn't match this instance's
+     *         *current* size() — call load() with the matching main state file first, since the
+     *         association matrix's own indices only mean something relative to a specific
+     *         slots_/coverage_ ordering — or if the file is corrupt/truncated relative to its own
+     *         claimed slot count (same discipline load()'s own num_slots check uses, TD-191).
+     */
+    void load_associations(const std::string& filepath);
 };

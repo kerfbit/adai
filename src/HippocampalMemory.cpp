@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.4.0
+// @adai-version: 0.5.0
 // @adai-reviewed: 2026-09-18
 
 #include "HippocampalMemory.hpp"
@@ -28,8 +28,8 @@ HippocampalMemory::HippocampalMemory(int d_model, int capacity, std::string swap
       d_model(require_positive(d_model, "d_model")),
       swap_filepath_(std::move(swap_filepath)) {}
 
-void HippocampalMemory::evict_least_used(std::deque<Slot>& slots,
-                                          std::deque<float>& coverage) const {
+void HippocampalMemory::evict_least_used(std::deque<Slot>& slots, std::deque<float>& coverage,
+                                          std::deque<std::deque<float>>* association) const {
     size_t evict_idx = 0;
     float min_cov = coverage[0];
     for (size_t i = 1; i < coverage.size(); ++i) {
@@ -45,15 +45,29 @@ void HippocampalMemory::evict_least_used(std::deque<Slot>& slots,
 
     slots.erase(slots.begin() + static_cast<std::ptrdiff_t>(evict_idx));
     coverage.erase(coverage.begin() + static_cast<std::ptrdiff_t>(evict_idx));
+
+    if (association) {
+        association->erase(association->begin() + static_cast<std::ptrdiff_t>(evict_idx));
+        for (auto& row : *association) {
+            row.erase(row.begin() + static_cast<std::ptrdiff_t>(evict_idx));
+        }
+    }
 }
 
 void HippocampalMemory::insert_slot(const Matrix& key, const Matrix& value, float coverage) {
     if (static_cast<int>(slots_.size()) >= capacity) {
-        evict_least_used(slots_, coverage_);
+        evict_least_used(slots_, coverage_, &association_);
     }
 
     slots_.push_back(Slot{key, value});
     coverage_.push_back(coverage);
+
+    // New slot starts cross-referenced with nothing (TD-194) — a fresh zero column on every
+    // existing row, plus a fresh zero row (including its own diagonal) for the new slot itself.
+    for (auto& row : association_) {
+        row.push_back(0.0f);
+    }
+    association_.push_back(std::deque<float>(slots_.size(), 0.0f));
 }
 
 void HippocampalMemory::write(const Matrix& key, const Matrix& value) {
@@ -94,9 +108,22 @@ void HippocampalMemory::decay_coverage(float gamma) {
     }
 }
 
+std::deque<std::deque<float>>& HippocampalMemory::association_matrix() {
+    return association_;
+}
+
+void HippocampalMemory::decay_associations(float gamma) {
+    for (auto& row : association_) {
+        for (float& v : row) {
+            v *= gamma;
+        }
+    }
+}
+
 void HippocampalMemory::clear() {
     slots_.clear();
     coverage_.clear();
+    association_.clear();
 }
 
 void HippocampalMemory::append_to_swap(const Matrix& key, const Matrix& value,
@@ -280,9 +307,79 @@ void HippocampalMemory::load(const std::string& filepath) {
     // least-used excess slots (to swap, if configured) down to it rather than throwing — same
     // policy write()'s own eviction uses (TD-193).
     while (static_cast<int>(loaded_slots.size()) > capacity) {
-        evict_least_used(loaded_slots, loaded_coverage);
+        evict_least_used(loaded_slots, loaded_coverage, nullptr);
     }
 
     slots_ = std::move(loaded_slots);
     coverage_ = std::move(loaded_coverage);
+
+    // TD-194: association_ is not part of this file's own format (see class doc) — reset to a
+    // fresh all-zero matrix matching the just-loaded slot count; load_associations() can restore
+    // real values afterward if a matching association file exists.
+    association_.assign(slots_.size(), std::deque<float>(slots_.size(), 0.0f));
+}
+
+void HippocampalMemory::save_associations(const std::string& filepath) const {
+    std::ofstream file(filepath, std::ios::binary);
+    if (!file.is_open()) {
+        throw std::runtime_error("Failed to open file for writing: " + filepath);
+    }
+
+    const int n = static_cast<int>(slots_.size());
+    file.write(reinterpret_cast<const char*>(&n), sizeof(int));
+    for (const auto& row : association_) {
+        for (float v : row) {
+            file.write(reinterpret_cast<const char*>(&v), sizeof(float));
+        }
+    }
+}
+
+void HippocampalMemory::load_associations(const std::string& filepath) {
+    std::ifstream file(filepath, std::ios::binary);
+    if (!file.is_open()) {
+        throw std::runtime_error("Failed to open file for reading: " + filepath);
+    }
+
+    int n = 0;
+    file.read(reinterpret_cast<char*>(&n), sizeof(int));
+
+    if (n != static_cast<int>(slots_.size())) {
+        throw std::runtime_error(
+            "HippocampalMemory: association file '" + filepath + "' slot count (" +
+            std::to_string(n) + ") does not match this instance's current size (" +
+            std::to_string(slots_.size()) +
+            ") — call load() with the matching main state file first");
+    }
+
+    // Same validate-before-trust discipline load()'s own num_slots check uses (TD-191) — a
+    // corrupted or wrong-format file could otherwise claim an n that doesn't fit its own actual
+    // size, reading past EOF into zero-initialized garbage instead of failing clearly.
+    const std::streampos data_start = file.tellg();
+    file.seekg(0, std::ios::end);
+    const std::streampos file_end = file.tellg();
+    file.seekg(data_start);
+
+    const long long remaining_bytes =
+        (data_start >= 0 && file_end >= 0)
+            ? static_cast<long long>(file_end) - static_cast<long long>(data_start)
+            : -1;
+    const long long expected_bytes =
+        static_cast<long long>(n) * static_cast<long long>(n) * static_cast<long long>(sizeof(float));
+
+    if (n < 0 || remaining_bytes < 0 || expected_bytes > remaining_bytes) {
+        throw std::runtime_error("HippocampalMemory: corrupt or truncated association file '" +
+                                  filepath + "' — header claims " + std::to_string(n) + "x" +
+                                  std::to_string(n) + ", which needs " +
+                                  std::to_string(expected_bytes) + " byte(s), but only " +
+                                  std::to_string(remaining_bytes) + " remain");
+    }
+
+    std::deque<std::deque<float>> loaded(n, std::deque<float>(n, 0.0f));
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < n; ++j) {
+            file.read(reinterpret_cast<char*>(&loaded[i][j]), sizeof(float));
+        }
+    }
+
+    association_ = std::move(loaded);
 }

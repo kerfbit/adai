@@ -1,6 +1,6 @@
-// @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap)
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-09-17
+// @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap; TD-194 gated cross-reference pull + Hebbian association strengthening added to the hippocampal path)
+// @adai-version: 1.4.0
+// @adai-reviewed: 2026-09-18
 
 #include "DecoderBlock.hpp"
 #include <cmath>
@@ -63,7 +63,8 @@ Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
                              const Matrix& self_attn_mask, const Matrix* cross_attn_mask,
                              const Matrix* world_model_output, const Matrix* world_model_mask,
                              HippocampalMemory* memory, float repetition_alpha,
-                             float repetition_decay) {
+                             float repetition_decay, float cross_reference_alpha,
+                             float association_decay) {
     // Cache input for backward pass
     cached_input = input;
     cached_encoder_output = encoder_output;
@@ -131,14 +132,37 @@ Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
 
         Matrix normed_hippocampal = norm_hippocampal->forward(residual2);
 
-        // score_bias[i][slot] = -repetition_alpha * coverage[slot], broadcast across every
-        // query row — coverage is a per-slot quantity, not per-query-position (same convention
-        // CrossAttention's own mask broadcasting already uses).
+        // score_bias[i][slot] = -repetition_alpha * coverage[slot]
+        //                     + cross_reference_alpha * tanh(sum_j(association[slot][j] * coverage[j]))
+        // (TD-194's own second term added below), broadcast across every query row — both terms
+        // are per-slot quantities, not per-query-position (same convention CrossAttention's own
+        // mask broadcasting already uses).
         std::deque<float>& coverage = memory->coverage_vector();
+        std::deque<std::deque<float>>& association = memory->association_matrix();
+
+        // TD-194 gated cross-reference pull: a slot strongly associated with other *currently
+        // recently-used* slots (their own coverage, from prior decode steps — this step's own
+        // attention hasn't happened yet) gets pulled toward attention this step too. tanh keeps
+        // the pull bounded regardless of how large association/coverage grow, the same gating
+        // idiom gate_h's own blend below already uses. Computed once per slot (not per query row)
+        // since neither association nor coverage vary across query rows.
+        std::vector<float> cross_ref_boost(n_slots, 0.0f);
+        if (cross_reference_alpha != 0.0f) {
+            for (int slot = 0; slot < n_slots; ++slot) {
+                float signal = 0.0f;
+                for (int other = 0; other < n_slots; ++other) {
+                    if (other != slot) {
+                        signal += association[slot][other] * coverage[other];
+                    }
+                }
+                cross_ref_boost[slot] = cross_reference_alpha * std::tanh(signal);
+            }
+        }
+
         Matrix score_bias(normed_hippocampal.rows, n_slots);
         for (int i = 0; i < normed_hippocampal.rows; ++i) {
             for (int slot = 0; slot < n_slots; ++slot) {
-                score_bias(i, slot) = -repetition_alpha * coverage[slot];
+                score_bias(i, slot) = -repetition_alpha * coverage[slot] + cross_ref_boost[slot];
             }
         }
 
@@ -169,6 +193,28 @@ Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
                 mean_weight += attn_weights(i, slot);
             }
             coverage[slot] += mean_weight * inv_rows;
+        }
+
+        // TD-194: Hebbian cross-reference strengthening — any two slots attended together in the
+        // SAME query row this step ("used close together") get their association bumped by their
+        // co-activation (the product of their attention weights, averaged over query rows,
+        // mirroring coverage's own per-slot-mean-weight convention above). Self-bounding the same
+        // way coverage is: decay runs before accumulation, and each co-activation term is itself
+        // a product of two [0, 1] softmax outputs, so association[a][b] converges to at most
+        // 1 / (1 - association_decay) regardless of how often the pair co-occurs.
+        memory->decay_associations(association_decay);
+        for (int a = 0; a < n_slots; ++a) {
+            for (int b = a + 1; b < n_slots; ++b) {
+                float coactivation = 0.0f;
+                for (int i = 0; i < attn_weights.rows; ++i) {
+                    coactivation += attn_weights(i, a) * attn_weights(i, b);
+                }
+                coactivation *= inv_rows;
+                if (coactivation != 0.0f) {
+                    association[a][b] += coactivation;
+                    association[b][a] += coactivation;
+                }
+            }
         }
     }
 

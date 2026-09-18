@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.6.0
+// @adai-version: 1.7.0
 // @adai-reviewed: 2026-09-18
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
@@ -347,6 +347,7 @@ int main(int argc, char* argv[]) {
         // model's encode() — so hippocampal attachment happens only inside the
         // world-model-attached branch below, matching IncrementalTrainer's own structure exactly.
         std::string hippocampal_state_path;
+        std::string hippocampal_association_path;  // TD-194
         if (config.world_model_enabled) {
             // Same directory convention IncrementalTrainer::maybe_attach_world_model() uses
             // (get_session_dir() + "/world_model") — an operator training the world model via
@@ -378,6 +379,7 @@ int main(int argc, char* argv[]) {
                         // Derived from the model checkpoint path, same suffix convention
                         // load_model()/save_model() already use for ".config"/".lm_head" etc.
                         hippocampal_state_path = config.model_path + ".hippocampal";
+                        hippocampal_association_path = config.model_path + ".hippocampal.assoc";
                         const std::string swap_path = config.model_path + ".hippocampal.swap";
 
                         auto hippocampal_memory = std::make_unique<HippocampalMemory>(
@@ -399,16 +401,36 @@ int main(int argc, char* argv[]) {
                             }
                         }
 
+                        // TD-194: must happen AFTER load() above — the association matrix's own
+                        // indices only mean something relative to the slot count/order load()
+                        // just established (see load_associations()'s own doc comment).
+                        if (std::filesystem::exists(hippocampal_association_path)) {
+                            try {
+                                hippocampal_memory->load_associations(hippocampal_association_path);
+                                adai::Logger::info("  Hippocampal cross-reference matrix restored from '{}'",
+                                                   hippocampal_association_path);
+                            } catch (const std::exception& e) {
+                                adai::Logger::warn(
+                                    "  Failed to load hippocampal cross-reference matrix from "
+                                    "'{}' ({}) — starting with no associations",
+                                    hippocampal_association_path, e.what());
+                            }
+                        }
+
                         model->set_hippocampal_memory(std::move(hippocampal_memory));
                         model->set_hippocampal_repetition_params(
                             config.hippocampal_repetition_alpha,
-                            config.hippocampal_repetition_decay);
+                            config.hippocampal_repetition_decay,
+                            config.hippocampal_cross_reference_alpha,
+                            config.hippocampal_association_decay);
                         adai::Logger::info(
                             "  Hippocampal memory attached (capacity={}, repetition_alpha={}, "
-                            "decay={}, swap='{}')",
+                            "decay={}, cross_reference_alpha={}, association_decay={}, swap='{}')",
                             config.hippocampal_memory_capacity,
                             config.hippocampal_repetition_alpha,
-                            config.hippocampal_repetition_decay, swap_path);
+                            config.hippocampal_repetition_decay,
+                            config.hippocampal_cross_reference_alpha,
+                            config.hippocampal_association_decay, swap_path);
                     }
                 } catch (const std::exception& e) {
                     adai::Logger::warn(
@@ -701,6 +723,20 @@ int main(int argc, char* argv[]) {
                     } catch (const std::exception& e) {
                         adai::Logger::warn("      Failed to save hippocampal memory to '{}': {}",
                                            hippocampal_state_path, e.what());
+                    }
+                }
+                // TD-194: the cross-reference association matrix persists alongside the main
+                // state — same reasoning (it changes while serving, worth carrying across
+                // restarts) and same "call save() first" ordering load_associations() requires.
+                if (!hippocampal_association_path.empty()) {
+                    try {
+                        hippocampal_memory->save_associations(hippocampal_association_path);
+                        adai::Logger::info("      Hippocampal cross-reference matrix saved to '{}'",
+                                           hippocampal_association_path);
+                    } catch (const std::exception& e) {
+                        adai::Logger::warn(
+                            "      Failed to save hippocampal cross-reference matrix to '{}': {}",
+                            hippocampal_association_path, e.what());
                     }
                 }
             }

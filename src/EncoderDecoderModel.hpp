@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.17.0
-// @adai-reviewed: 2026-09-16
+// @adai-version: 0.18.0
+// @adai-reviewed: 2026-09-18
 
 
 #include <functional>
@@ -93,6 +93,13 @@ class EncoderDecoderModel {
     // alpha=0.0 makes the penalty an explicit opt-in magnitude, not just on/off.
     float hippocampal_repetition_alpha_{0.0f};
     float hippocampal_repetition_decay_{0.95f};
+
+    // TD-194: cross-reference gated-pull/Hebbian-strengthening parameters for
+    // hippocampal_memory's own association matrix — set via set_hippocampal_repetition_params()
+    // above, read every forward() call. Defaults mirror repetition_alpha/repetition_decay's own:
+    // cross_reference_alpha=0.0 makes the pull an explicit opt-in magnitude, not just on/off.
+    float hippocampal_cross_reference_alpha_{0.0f};
+    float hippocampal_association_decay_{0.95f};
 
     int vocab_size;
     int d_model;
@@ -652,10 +659,19 @@ class EncoderDecoderModel {
      * makes the penalty an explicit opt-in magnitude, not just on/off. Has no effect unless both
      * a world model and a hippocampal memory are attached and the decoder has gated layers
      * (world_model_inject_every_n_layers >= 1 at construction).
+     *
+     * @param cross_reference_alpha/association_decay (TD-194) Hippocampal cross-reference gated
+     *   pull/Hebbian-strengthening parameters — see DecoderBlock::forward()'s own doc comment.
+     *   Trailing, defaulted (0.0/0.95, matching repetition_alpha/repetition_decay's own defaults)
+     *   so every existing caller of this setter is unaffected.
      */
-    void set_hippocampal_repetition_params(float alpha, float decay) {
+    void set_hippocampal_repetition_params(float alpha, float decay,
+                                           float cross_reference_alpha = 0.0f,
+                                           float association_decay = 0.95f) {
         hippocampal_repetition_alpha_ = alpha;
         hippocampal_repetition_decay_ = decay;
+        hippocampal_cross_reference_alpha_ = cross_reference_alpha;
+        hippocampal_association_decay_ = association_decay;
     }
 
     /**

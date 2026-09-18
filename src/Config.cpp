@@ -400,6 +400,10 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.hippocampal_repetition_alpha = std::stof(value);
             } else if (key == "HIPPOCAMPAL_REPETITION_DECAY") {
                 config.hippocampal_repetition_decay = std::stof(value);
+            } else if (key == "HIPPOCAMPAL_CROSS_REFERENCE_ALPHA") {
+                config.hippocampal_cross_reference_alpha = std::stof(value);
+            } else if (key == "HIPPOCAMPAL_ASSOCIATION_DECAY") {
+                config.hippocampal_association_decay = std::stof(value);
                 // Auto-save / checkpoint retention configuration
             } else if (key == "AUTO_SAVE_ENABLED") {
                 std::string lower = value;
@@ -851,6 +855,12 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_float("HIPPOCAMPAL_REPETITION_DECAY")) {
         config.hippocampal_repetition_decay = *val;
+    }
+    if (auto val = get_env_float("HIPPOCAMPAL_CROSS_REFERENCE_ALPHA")) {
+        config.hippocampal_cross_reference_alpha = *val;
+    }
+    if (auto val = get_env_float("HIPPOCAMPAL_ASSOCIATION_DECAY")) {
+        config.hippocampal_association_decay = *val;
     }
 
     // Auto-save / checkpoint retention

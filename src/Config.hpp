@@ -534,6 +534,17 @@ struct ServiceConfig {
     /// Per-decode-step coverage decay, 0 < gamma <= 1 (default: 0.95). 1.0 disables decay.
     float hippocampal_repetition_decay = 0.95f;
 
+    /// TD-194: gated cross-reference pull strength — before scoring, a hippocampal slot strongly
+    /// associated with other recently-used slots gets this much of a tanh-bounded boost added to
+    /// its own attention score (see DecoderBlock::forward()'s own doc comment for the exact
+    /// formula). Default: 0.0 — an explicit opt-in magnitude, not just on/off, same convention
+    /// hippocampal_repetition_alpha's own default follows.
+    float hippocampal_cross_reference_alpha = 0.0f;
+
+    /// Per-decode-step association decay, 0 < gamma <= 1 (default: 0.95), mirroring
+    /// hippocampal_repetition_decay's own role for coverage. 1.0 disables decay.
+    float hippocampal_association_decay = 0.95f;
+
     // ============================================================
     // Auto-save / Checkpoint Retention Configuration
     // Maps into IncrementalConfig's matching fields (IncrementalTrainer.hpp),

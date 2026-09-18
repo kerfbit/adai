@@ -1436,6 +1436,239 @@ TEST(DecoderBlockGatedPathTest, GateHGradientMatchesFiniteDifference) {
     EXPECT_NEAR(analytic_grad, numerical_grad, tolerance);
 }
 
+// ============================================================================
+// TD-194: cross-reference gated pull + Hebbian association strengthening
+// ============================================================================
+
+// The Hebbian update must actually run and touch association_matrix() — a plain mechanism check,
+// not a claim about which specific pair strengthens most (that depends on randomly-initialized
+// attention weights this test doesn't control).
+TEST(DecoderBlockCrossReferenceTest, ForwardStrengthensAssociationBetweenAttendedSlots) {
+    int d_model = 16, num_heads = 2, d_ff = 32;
+    int tgt_len = 3, src_len = 4;
+
+    DecoderBlock decoder_block(d_model, num_heads, d_ff, 0.1f, /*enable_world_model=*/false,
+                               /*enable_hippocampal=*/true);
+
+    HippocampalMemory memory(d_model, 4);
+    for (int slot = 0; slot < 3; ++slot) {
+        Matrix key(1, d_model), value(1, d_model);
+        for (int j = 0; j < d_model; ++j) {
+            key(0, j) = 0.1f * static_cast<float>(slot + j);
+            value(0, j) = 0.1f * static_cast<float>(slot + j);
+        }
+        memory.write(key, value);
+    }
+
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            EXPECT_FLOAT_EQ(memory.association_matrix()[i][j], 0.0f) << "starts at zero";
+        }
+    }
+
+    Matrix decoder_input(tgt_len, d_model);
+    Matrix encoder_output(src_len, d_model);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            decoder_input(i, j) = 0.05f * std::sin(static_cast<float>(i * d_model + j));
+        }
+    }
+    for (int i = 0; i < src_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            encoder_output(i, j) = 0.05f * std::cos(static_cast<float>(i * d_model + j));
+        }
+    }
+    Matrix causal_mask = create_causal_mask(tgt_len);
+
+    decoder_block.forward(decoder_input, encoder_output, causal_mask, nullptr, nullptr, nullptr,
+                          &memory, /*repetition_alpha=*/0.0f, /*repetition_decay=*/0.9f,
+                          /*cross_reference_alpha=*/0.0f, /*association_decay=*/0.9f);
+
+    bool any_nonzero = false;
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            if (i != j && memory.association_matrix()[i][j] != 0.0f) {
+                any_nonzero = true;
+                // Symmetric by construction.
+                EXPECT_FLOAT_EQ(memory.association_matrix()[i][j], memory.association_matrix()[j][i]);
+            }
+        }
+    }
+    EXPECT_TRUE(any_nonzero) << "at least one pair of slots should have co-activated";
+}
+
+// Mirrors CoverageNeverExceedsTheoreticalBound's own self-bounding check, for association.
+TEST(DecoderBlockCrossReferenceTest, AssociationNeverExceedsTheoreticalBound) {
+    int d_model = 16, num_heads = 2, d_ff = 32;
+    int tgt_len = 2, src_len = 3;
+
+    DecoderBlock decoder_block(d_model, num_heads, d_ff, 0.1f, /*enable_world_model=*/false,
+                               /*enable_hippocampal=*/true);
+
+    HippocampalMemory memory(d_model, 3);
+    for (int slot = 0; slot < 3; ++slot) {
+        Matrix key(1, d_model), value(1, d_model);
+        for (int j = 0; j < d_model; ++j) {
+            key(0, j) = 0.1f * static_cast<float>(slot + j);
+            value(0, j) = 0.1f * static_cast<float>(slot + j);
+        }
+        memory.write(key, value);
+    }
+
+    Matrix decoder_input(tgt_len, d_model);
+    Matrix encoder_output(src_len, d_model);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            decoder_input(i, j) = 0.1f * static_cast<float>(i + j);
+        }
+    }
+    for (int i = 0; i < src_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            encoder_output(i, j) = 0.1f * static_cast<float>(i - j);
+        }
+    }
+    Matrix causal_mask = create_causal_mask(tgt_len);
+
+    const float association_decay = 0.9f;
+    const float bound = 1.0f / (1.0f - association_decay);
+
+    for (int step = 0; step < 300; ++step) {
+        decoder_block.forward(decoder_input, encoder_output, causal_mask, nullptr, nullptr,
+                              nullptr, &memory, /*repetition_alpha=*/0.0f,
+                              /*repetition_decay=*/0.9f, /*cross_reference_alpha=*/0.0f,
+                              association_decay);
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                if (i != j) {
+                    EXPECT_LE(memory.association_matrix()[i][j], bound + 1e-3f)
+                        << "step " << step << " (" << i << "," << j << ")";
+                    EXPECT_GE(memory.association_matrix()[i][j], 0.0f)
+                        << "step " << step << " (" << i << "," << j << ")";
+                }
+            }
+        }
+    }
+}
+
+// Shared fixture-style setup for the two tests below: ONE DecoderBlock + ONE HippocampalMemory
+// instance reused across both forward() calls being compared, so randomly-initialized weights
+// stay fixed and any output difference can only come from what the test itself changes between
+// calls (association_matrix()/coverage_vector() content, or cross_reference_alpha) — comparing
+// two independently-constructed DecoderBlocks would confound the comparison with their own
+// unrelated random-initialization differences.
+namespace {
+struct CrossReferenceFixture {
+    std::unique_ptr<DecoderBlock> block;
+    std::unique_ptr<HippocampalMemory> memory;
+    Matrix decoder_input;
+    Matrix encoder_output;
+    Matrix causal_mask;
+
+    static CrossReferenceFixture make(int d_model, int num_heads, int d_ff, int tgt_len,
+                                      int src_len) {
+        CrossReferenceFixture fx{
+            std::make_unique<DecoderBlock>(d_model, num_heads, d_ff, 0.1f,
+                                           /*enable_world_model=*/false,
+                                           /*enable_hippocampal=*/true),
+            std::make_unique<HippocampalMemory>(d_model, 3), Matrix(tgt_len, d_model),
+            Matrix(src_len, d_model), create_causal_mask(tgt_len)};
+        fx.block->set_gate_h(0.6f);
+
+        for (int slot = 0; slot < 3; ++slot) {
+            Matrix key(1, d_model), value(1, d_model);
+            for (int j = 0; j < d_model; ++j) {
+                key(0, j) = 0.1f * static_cast<float>(slot + j);
+                value(0, j) = 0.1f * static_cast<float>(slot + j);
+            }
+            fx.memory->write(key, value);
+        }
+
+        for (int i = 0; i < tgt_len; ++i) {
+            for (int j = 0; j < d_model; ++j) {
+                fx.decoder_input(i, j) = 0.1f * static_cast<float>(i + j);
+            }
+        }
+        for (int i = 0; i < src_len; ++i) {
+            for (int j = 0; j < d_model; ++j) {
+                fx.encoder_output(i, j) = 0.1f * static_cast<float>(i - j);
+            }
+        }
+        return fx;
+    }
+
+    // Resets coverage/association to a known baseline (undoing whatever the previous forward()
+    // call's own bookkeeping just did to them) before seeding a specific scenario.
+    void reset_state() {
+        for (float& c : memory->coverage_vector()) {
+            c = 0.0f;
+        }
+        for (auto& row : memory->association_matrix()) {
+            for (float& v : row) {
+                v = 0.0f;
+            }
+        }
+    }
+
+    Matrix run(float cross_reference_alpha) {
+        return block->forward(decoder_input, encoder_output, causal_mask, nullptr, nullptr,
+                              nullptr, memory.get(), /*repetition_alpha=*/0.0f,
+                              /*repetition_decay=*/1.0f, cross_reference_alpha,
+                              /*association_decay=*/1.0f);
+    }
+};
+
+bool matrices_differ(const Matrix& a, const Matrix& b, float tolerance = 1e-6f) {
+    for (int i = 0; i < a.rows; ++i) {
+        for (int j = 0; j < a.cols; ++j) {
+            if (std::abs(a(i, j) - b(i, j)) > tolerance) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+}  // namespace
+
+// cross_reference_alpha=0.0f (the default) must be a complete no-op regardless of how strong a
+// pre-existing association is — matches this codebase's "explicit opt-in magnitude, not just
+// on/off" convention already established for repetition_alpha.
+TEST(DecoderBlockCrossReferenceTest, ZeroCrossReferenceAlphaIsNoOpRegardlessOfAssociation) {
+    auto fx = CrossReferenceFixture::make(/*d_model=*/16, /*num_heads=*/2, /*d_ff=*/32,
+                                          /*tgt_len=*/2, /*src_len=*/3);
+
+    fx.reset_state();
+    Matrix out_no_association = fx.run(/*cross_reference_alpha=*/0.0f);
+
+    fx.reset_state();
+    fx.memory->association_matrix()[0][1] = 50.0f;
+    fx.memory->association_matrix()[1][0] = 50.0f;
+    fx.memory->coverage_vector()[1] = 5.0f;  // large, so a real boost would be very visible
+    Matrix out_with_association = fx.run(/*cross_reference_alpha=*/0.0f);
+
+    EXPECT_FALSE(matrices_differ(out_no_association, out_with_association))
+        << "cross_reference_alpha=0 should ignore association/coverage content entirely";
+}
+
+// The mirror image: a nonzero cross_reference_alpha with a real pre-existing association must
+// change the output relative to leaving the association at zero.
+TEST(DecoderBlockCrossReferenceTest, NonzeroCrossReferenceAlphaChangesOutputWhenAssociationNonzero) {
+    auto fx = CrossReferenceFixture::make(/*d_model=*/16, /*num_heads=*/2, /*d_ff=*/32,
+                                          /*tgt_len=*/2, /*src_len=*/3);
+
+    fx.reset_state();
+    Matrix out_no_association = fx.run(/*cross_reference_alpha=*/0.8f);
+
+    fx.reset_state();
+    fx.memory->association_matrix()[0][1] = 50.0f;
+    fx.memory->association_matrix()[1][0] = 50.0f;
+    fx.memory->coverage_vector()[1] = 5.0f;
+    Matrix out_with_association = fx.run(/*cross_reference_alpha=*/0.8f);
+
+    EXPECT_TRUE(matrices_differ(out_no_association, out_with_association))
+        << "a real association combined with nonzero cross_reference_alpha should change the "
+           "gated hippocampal output";
+}
+
 TEST(DecoderBlockGatedPathTest, GetGateAccessorsReflectSetters) {
     DecoderBlock decoder_block(16, 2, 32, 0.1f, true, true);
 
