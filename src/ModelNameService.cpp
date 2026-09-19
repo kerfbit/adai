@@ -391,10 +391,55 @@ static ArtifactLocation parse_artifact(const std::string& obj) {
     return a;
 }
 
+// TD-196: ModelConnection's own JSON shape — persisted as one column (connection_json) and
+// surfaced as one nested "connection" object in the record's own JSON, the same "structured
+// extra data" treatment tags_json/tags_to_json already get.
+static std::string serialize_connection(const ModelConnection& c) {
+    std::ostringstream j;
+    j << "{\"encoder_name\":\"" << json_escape(c.encoder_name) << "\""
+      << ",\"decoder_name\":\"" << json_escape(c.decoder_name) << "\""
+      << ",\"world_model_name\":\"" << json_escape(c.world_model_name) << "\""
+      << ",\"world_model_inject_every_n_layers\":" << c.world_model_inject_every_n_layers
+      << ",\"hippocampal_memory_enabled\":" << (c.hippocampal_memory_enabled ? "true" : "false")
+      << ",\"hippocampal_memory_capacity\":" << c.hippocampal_memory_capacity
+      << ",\"hippocampal_repetition_alpha\":" << c.hippocampal_repetition_alpha
+      << ",\"hippocampal_repetition_decay\":" << c.hippocampal_repetition_decay
+      << ",\"hippocampal_cross_reference_alpha\":" << c.hippocampal_cross_reference_alpha
+      << ",\"hippocampal_association_decay\":" << c.hippocampal_association_decay
+      << ",\"sigreg_lambda\":" << c.sigreg_lambda
+      << ",\"sigreg_num_sketches\":" << c.sigreg_num_sketches << "}";
+    return j.str();
+}
+
+static ModelConnection parse_connection(const std::string& obj) {
+    ModelConnection c;
+    c.encoder_name = json_string(obj, "encoder_name");
+    c.decoder_name = json_string(obj, "decoder_name");
+    c.world_model_name = json_string(obj, "world_model_name");
+    c.world_model_inject_every_n_layers =
+        static_cast<size_t>(json_int(obj, "world_model_inject_every_n_layers", 0));
+    c.hippocampal_memory_enabled = json_bool(obj, "hippocampal_memory_enabled", false);
+    c.hippocampal_memory_capacity =
+        static_cast<size_t>(json_int(obj, "hippocampal_memory_capacity", 512));
+    c.hippocampal_repetition_alpha =
+        static_cast<float>(json_double(obj, "hippocampal_repetition_alpha", 0.0));
+    c.hippocampal_repetition_decay =
+        static_cast<float>(json_double(obj, "hippocampal_repetition_decay", 0.95));
+    c.hippocampal_cross_reference_alpha =
+        static_cast<float>(json_double(obj, "hippocampal_cross_reference_alpha", 0.0));
+    c.hippocampal_association_decay =
+        static_cast<float>(json_double(obj, "hippocampal_association_decay", 0.95));
+    c.sigreg_lambda = static_cast<float>(json_double(obj, "sigreg_lambda", 1.0));
+    c.sigreg_num_sketches = static_cast<size_t>(json_int(obj, "sigreg_num_sketches", 64));
+    return c;
+}
+
 static std::string serialize_record(const ModelRecord& r) {
     std::ostringstream j;
     j << "{\"model_id\":\"" << json_escape(r.model_id) << "\"" << ",\"model_name\":\""
       << json_escape(r.model_name) << "\"" << ",\"role\":\"" << json_escape(r.role) << "\""
+      << ",\"kind\":\"" << json_escape(r.kind) << "\""
+      << ",\"connection\":" << serialize_connection(r.connection)
       << ",\"run_group\":\"" << json_escape(r.run_group) << "\"" << ",\"state\":\""
       << json_escape(r.state) << "\"" << ",\"run_id\":\""
       << json_escape(r.run_id) << "\"" << ",\"created_utc\":\"" << json_escape(r.created_utc)
@@ -512,6 +557,7 @@ adai::ModelNameService::ModelNameService(std::string data_dir, int port)
     svr.Get("/models", [this](const httplib::Request& req, httplib::Response& res) {
         const std::string sf = req.has_param("state") ? req.get_param_value("state") : "";
         const std::string rf = req.has_param("role") ? req.get_param_value("role") : "";
+        const std::string kf = req.has_param("kind") ? req.get_param_value("kind") : "";
         int limit = 50;
         if (req.has_param("limit")) {
             try {
@@ -519,7 +565,7 @@ adai::ModelNameService::ModelNameService(std::string data_dir, int port)
             } catch (...) {
             }
         }
-        auto [status, body] = handle_list(sf, rf, limit);
+        auto [status, body] = handle_list(sf, rf, limit, kf);
         res.status = status;
         res.set_content(body, "application/json");
     });
@@ -558,6 +604,14 @@ adai::ModelNameService::ModelNameService(std::string data_dir, int port)
                 res.status = status;
                 res.set_content(body, "application/json");
             });
+
+    svr.Post(R"(/models/([^/]+)/link-world-model)",
+             [this](const httplib::Request& req, httplib::Response& res) {
+                 auto [status, body] =
+                     handle_link_world_model(std::string(req.matches[1]), req.body);
+                 res.status = status;
+                 res.set_content(body, "application/json");
+             });
 
     svr.Delete(R"(/models/([^/]+))", [this](const httplib::Request& req, httplib::Response& res) {
         auto [status, body] = handle_delete(std::string(req.matches[1]));
@@ -733,7 +787,9 @@ CREATE TABLE IF NOT EXISTS models (
     progress_loss        REAL DEFAULT 0.0,
     progress_best_loss   REAL DEFAULT 0.0,
     progress_updated_utc TEXT DEFAULT '',
-    run_group            TEXT DEFAULT ''
+    run_group            TEXT DEFAULT '',
+    kind                 TEXT DEFAULT 'chatbot',
+    connection_json      TEXT DEFAULT '{}'
 );
 CREATE TABLE IF NOT EXISTS training_history (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -798,6 +854,10 @@ CREATE TABLE IF NOT EXISTS roles (
     // up with the same physical layout — required for persist_model's
     // positional `INSERT ... VALUES (?,?,...)` to bind correctly either way.
     add_column_if_missing("models", "run_group", "TEXT DEFAULT ''");
+    // TD-196: same "must stay last, in this order" rule — kind/connection_json are now the last
+    // two columns in the CREATE TABLE literal above, so they're the last two added here too.
+    add_column_if_missing("models", "kind", "TEXT DEFAULT 'chatbot'");
+    add_column_if_missing("models", "connection_json", "TEXT DEFAULT '{}'");
     add_column_if_missing("training_history", "incomplete", "INTEGER DEFAULT 0");
 
     // Migrate legacy JSONL files on first run (no rows yet).
@@ -942,7 +1002,7 @@ void adai::ModelNameService::load_from_disk() {
         "artifact_host,artifact_path,artifact_checksum,artifact_format,"
         "d_model,num_heads,d_ff,num_encoder_layers,num_decoder_layers,max_seq_length,tags_json,"
         "current_run_number,run_started_utc,progress_session_id,progress_epoch,progress_loss,"
-        "progress_best_loss,progress_updated_utc,run_group "
+        "progress_best_loss,progress_updated_utc,run_group,kind,connection_json "
         "FROM models";
     if (sqlite3_prepare_v2(db, sql, -1, &st, nullptr) != SQLITE_OK) {
         Logger::error("ModelNameService: load query failed: {}", sqlite3_errmsg(db));
@@ -983,10 +1043,14 @@ void adai::ModelNameService::load_from_disk() {
         r.progress_best_loss = sqlite3_column_double(st, 23);
         r.progress_updated_utc = col_text(24);
         r.run_group = col_text(25);
+        r.kind = col_text(26);
+        r.connection = parse_connection(col_text(27));
         if (r.state.empty())
             r.state = "initializing";
         if (r.artifact.format.empty())
             r.artifact.format = "adai-native";
+        if (r.kind.empty())
+            r.kind = "chatbot";
         if (!r.model_name.empty()) {
             models_[r.model_name] = std::move(r);
             ++loaded;
@@ -1048,7 +1112,7 @@ void adai::ModelNameService::persist_model(const ModelRecord& rec) {
 
     const char* sql =
         "INSERT OR REPLACE INTO models VALUES "
-        "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     sqlite3_stmt* st = nullptr;
     if (sqlite3_prepare_v2(db, sql, -1, &st, nullptr) != SQLITE_OK) {
         Logger::warn("ModelNameService: persist_model prepare failed: {}", sqlite3_errmsg(db));
@@ -1081,6 +1145,9 @@ void adai::ModelNameService::persist_model(const ModelRecord& rec) {
     sqlite3_bind_double(st, 24, rec.progress_best_loss);
     sqlite3_bind_text(st, 25, rec.progress_updated_utc.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(st, 26, rec.run_group.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 27, rec.kind.c_str(), -1, SQLITE_TRANSIENT);
+    const std::string connection_j = serialize_connection(rec.connection);
+    sqlite3_bind_text(st, 28, connection_j.c_str(), -1, SQLITE_TRANSIENT);
     if (sqlite3_step(st) != SQLITE_DONE) {
         Logger::warn("ModelNameService: persist_model step failed: {}", sqlite3_errmsg(db));
     }
@@ -1154,6 +1221,18 @@ std::pair<int, std::string> adai::ModelNameService::handle_register(const std::s
         return {400,
                 "{\"error\":\"invalid model_name: must match [a-z0-9][a-z0-9\\-\\.]{1,127}\"}"};
 
+    // TD-196: kind selects which of the 6 inline architecture fields apply and how `connection`
+    // is interpreted — see ModelRecord::kind's own doc comment for the full per-kind contract.
+    // Defaults to "chatbot" so every pre-existing caller (which never sends "kind" at all) is
+    // unaffected.
+    std::string kind = json_string(body, "kind");
+    if (kind.empty())
+        kind = "chatbot";
+    if (kind != "encoder" && kind != "decoder" && kind != "world_model" && kind != "chatbot") {
+        return {400,
+                "{\"error\":\"invalid kind: must be encoder, decoder, world_model, or chatbot\"}"};
+    }
+
     std::unique_lock lock(mutex_);
     if (models_.count(model_name))
         return {409, "{\"error\":\"model_name already registered\"}"};
@@ -1161,6 +1240,7 @@ std::pair<int, std::string> adai::ModelNameService::handle_register(const std::s
     ModelRecord r;
     r.model_id = generate_uuid();
     r.model_name = model_name;
+    r.kind = kind;
     r.role = json_string(body, "role");
     r.run_group = json_string(body, "run_group");  // optional; empty = not yet migrated to MNS-sourced group
     r.state = "initializing";
@@ -1177,6 +1257,62 @@ std::pair<int, std::string> adai::ModelNameService::handle_register(const std::s
         r.max_seq_length = static_cast<size_t>(json_int(arch, "max_seq_length"));
     }
     r.tags = parse_string_map(extract_object(body, "tags"));
+    const auto connection_obj = extract_object(body, "connection");
+    if (connection_obj != "{}") {
+        r.connection = parse_connection(connection_obj);
+    }
+
+    // Per-kind validation (TD-196) — standalone encoder/decoder/world_model records each use
+    // exactly one of the two layer-count fields (the other must be 0); a chatbot linking a real
+    // encoder+decoder must reference two existing, correctly-kinded, dimensionally-compatible
+    // records — the same shared-d_model/num_heads/d_ff/max_seq_length constraint
+    // EncoderDecoderModel's own constructor physically enforces.
+    if (kind == "encoder" || kind == "decoder" || kind == "world_model") {
+        const size_t own_layers =
+            (kind == "decoder") ? r.num_decoder_layers : r.num_encoder_layers;
+        const size_t other_layers =
+            (kind == "decoder") ? r.num_encoder_layers : r.num_decoder_layers;
+        if (own_layers == 0) {
+            return {400, "{\"error\":\"" + kind + " requires a positive layer count\"}"};
+        }
+        if (other_layers != 0) {
+            return {400, "{\"error\":\"" + kind +
+                             " must not set the layer-count field belonging to the other kind\"}"};
+        }
+        if (r.d_model == 0 || r.num_heads == 0 || r.d_ff == 0 || r.max_seq_length == 0) {
+            return {400, "{\"error\":\"" + kind +
+                             " requires d_model/num_heads/d_ff/max_seq_length all positive\"}"};
+        }
+    } else if (kind == "chatbot") {
+        const bool has_encoder = !r.connection.encoder_name.empty();
+        const bool has_decoder = !r.connection.decoder_name.empty();
+        if (has_encoder != has_decoder) {
+            return {400,
+                    "{\"error\":\"chatbot requires both encoder_name and decoder_name, or "
+                    "neither (legacy inline architecture)\"}"};
+        }
+        if (has_encoder) {
+            const auto enc_it = models_.find(r.connection.encoder_name);
+            const auto dec_it = models_.find(r.connection.decoder_name);
+            if (enc_it == models_.end() || enc_it->second.kind != "encoder") {
+                return {400, "{\"error\":\"encoder_name '" + r.connection.encoder_name +
+                                 "' is not a registered encoder\"}"};
+            }
+            if (dec_it == models_.end() || dec_it->second.kind != "decoder") {
+                return {400, "{\"error\":\"decoder_name '" + r.connection.decoder_name +
+                                 "' is not a registered decoder\"}"};
+            }
+            const auto& enc = enc_it->second;
+            const auto& dec = dec_it->second;
+            if (enc.d_model != dec.d_model || enc.num_heads != dec.num_heads ||
+                enc.d_ff != dec.d_ff || enc.max_seq_length != dec.max_seq_length) {
+                return {409,
+                        "{\"error\":\"encoder '" + r.connection.encoder_name + "' and decoder '" +
+                            r.connection.decoder_name +
+                            "' have incompatible d_model/num_heads/d_ff/max_seq_length\"}"};
+            }
+        }
+    }
 
     models_[model_name] = r;
     persist_model(r);
@@ -1193,7 +1329,8 @@ std::pair<int, std::string> adai::ModelNameService::handle_register(const std::s
 
 std::pair<int, std::string> adai::ModelNameService::handle_list(const std::string& state_filter,
                                                                 const std::string& role_filter,
-                                                                int limit) {
+                                                                int limit,
+                                                                const std::string& kind_filter) {
     std::shared_lock lock(mutex_);
     std::ostringstream j;
     j << "{\"models\":[";
@@ -1203,6 +1340,8 @@ std::pair<int, std::string> adai::ModelNameService::handle_list(const std::strin
         if (!state_filter.empty() && r.state != state_filter)
             continue;
         if (!role_filter.empty() && r.role != role_filter)
+            continue;
+        if (!kind_filter.empty() && r.kind != kind_filter)
             continue;
         if (count >= limit)
             break;
@@ -1433,6 +1572,83 @@ std::pair<int, std::string> adai::ModelNameService::handle_update_run_group(
     persist_model(r);
     Logger::info("ModelNameService: run_group for '{}' set to '{}'", name, r.run_group);
     return {200, "{\"status\":\"ok\",\"run_group\":\"" + json_escape(r.run_group) + "\"}"};
+}
+
+// ============================================================================
+// Handler: POST /models/{name}/link-world-model (TD-196)
+// ============================================================================
+
+std::pair<int, std::string> adai::ModelNameService::handle_link_world_model(
+    const std::string& name, const std::string& body) {
+    std::unique_lock lock(mutex_);
+    const auto it = models_.find(name);
+    if (it == models_.end())
+        return {404, "{\"error\":\"model not found\"}"};
+
+    ModelRecord& r = it->second;
+    if (r.kind != "chatbot") {
+        return {400, "{\"error\":\"only a chatbot-kind record can link a world model\"}"};
+    }
+
+    const std::string world_model_name = json_string(body, "world_model_name");
+
+    // Detach: clear the link, leave the tuning parameters as-is (harmless — they're only
+    // meaningful while a world model is actually attached).
+    if (world_model_name.empty()) {
+        r.connection.world_model_name.clear();
+        r.updated_utc = utc_now();
+        persist_model(r);
+        Logger::info("ModelNameService: '{}' detached from its world model", name);
+        return {200, "{\"status\":\"ok\",\"world_model_name\":\"\"}"};
+    }
+
+    const auto wm_it = models_.find(world_model_name);
+    if (wm_it == models_.end() || wm_it->second.kind != "world_model") {
+        return {400, "{\"error\":\"world_model_name '" + world_model_name +
+                         "' is not a registered world_model\"}"};
+    }
+    const ModelRecord& wm = wm_it->second;
+
+    const size_t inject_every_n_layers =
+        static_cast<size_t>(json_int(body, "world_model_inject_every_n_layers", 0));
+
+    // The chatbot's own d_model — via its linked encoder for a new-style chatbot, or its own
+    // inline field for a legacy one (see ModelRecord::kind's own doc comment).
+    const size_t chatbot_d_model = [&]() -> size_t {
+        if (!r.connection.encoder_name.empty()) {
+            const auto enc_it = models_.find(r.connection.encoder_name);
+            if (enc_it != models_.end())
+                return enc_it->second.d_model;
+        }
+        return r.d_model;
+    }();
+
+    if (inject_every_n_layers > 0 && wm.d_model != chatbot_d_model) {
+        return {409, "{\"error\":\"world model '" + world_model_name + "' d_model (" +
+                         std::to_string(wm.d_model) + ") does not match chatbot '" + name +
+                         "' d_model (" + std::to_string(chatbot_d_model) +
+                         ") — required whenever world_model_inject_every_n_layers > 0\"}"};
+    }
+
+    r.connection.world_model_name = world_model_name;
+    r.connection.world_model_inject_every_n_layers = inject_every_n_layers;
+    r.connection.hippocampal_memory_enabled = json_bool(body, "hippocampal_memory_enabled", false);
+    r.connection.hippocampal_memory_capacity =
+        static_cast<size_t>(json_int(body, "hippocampal_memory_capacity", 512));
+    r.connection.hippocampal_repetition_alpha =
+        static_cast<float>(json_double(body, "hippocampal_repetition_alpha", 0.0));
+    r.connection.hippocampal_repetition_decay =
+        static_cast<float>(json_double(body, "hippocampal_repetition_decay", 0.95));
+    r.connection.hippocampal_cross_reference_alpha =
+        static_cast<float>(json_double(body, "hippocampal_cross_reference_alpha", 0.0));
+    r.connection.hippocampal_association_decay =
+        static_cast<float>(json_double(body, "hippocampal_association_decay", 0.95));
+    r.updated_utc = utc_now();
+    persist_model(r);
+    Logger::info("ModelNameService: '{}' linked to world model '{}' (inject_every_n_layers={})",
+                name, world_model_name, inject_every_n_layers);
+    return {200, "{\"status\":\"ok\",\"world_model_name\":\"" + json_escape(world_model_name) +
+                     "\"}"};
 }
 
 // ============================================================================

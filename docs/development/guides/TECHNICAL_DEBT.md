@@ -4,14 +4,43 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** September 18, 2026
+**Last Updated:** September 19, 2026
 **Total Items:** 13
 **High Priority:** 1
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 182
+**Resolved Items:** 183
 **Deferred Decisions:** 3
+
+**September 19, 2026:** Filed and resolved
+[TD-196](../archive/TECHNICAL_DEBT_RESOLVED.md#td-196-mns-model-kind-schema--encoderdecoderworld-model-connection-standard)
+— user request: since the world model, encoder, and decoder are separate information-flow
+systems, MNS needed to account for the design of each piece as well as the connection standard
+between them. Previously MNS treated every registered model as shape-identical (one flat 6-field
+`ModelArchitecture`), with a world model registered under `role: "world_model"` using
+`--decoder-layers 0` as an undocumented "encoder-only" convention (TD-184) and zero
+cross-referencing between a chatbot's MNS record and its world model's — the entire
+encoder/decoder/world-model "connection standard" (injection cadence, the `d_model` compatibility
+constraint, every `HIPPOCAMPAL_*` setting) lived only in local config files kept in sync purely by
+operator discipline across two binaries. Added a `kind` column (`encoder`/`decoder`/`world_model`/
+`chatbot`, default `chatbot` — every pre-existing row keeps working unchanged) and a
+`connection_json` column holding a new `ModelConnection` struct (`encoder_name`/`decoder_name`,
+world-model link + hippocampal tuning, sigreg params). Encoder and decoder are now independently
+registrable entities; a `chatbot` is either legacy-bundled (unchanged) or a named pairing of a
+linked encoder + decoder, validated dimensionally compatible by the server at register time (409 on
+mismatch). New `POST /models/{name}/link-world-model` attaches/replaces/detaches a chatbot's world
+model, server-validating `d_model` compatibility (409 on mismatch) whenever injection is enabled.
+`ModelNameClient::get_architecture()` needed no signature or call-site change — it transparently
+composes the 6-field `ModelArchitecture` from the linked encoder+decoder for a new-style chatbot,
+or falls back to inline fields for a legacy one, so `ChatbotAPIServer.cpp`/
+`IncrementalTrainingTool.cpp`'s existing call sites are untouched. Also closed the TD-184 gap:
+both binaries now resolve a linked world model's own artifact path/architecture/connection
+settings from MNS first, falling back to local config only when unlinked or MNS is unreachable.
+Verified live end-to-end against a real `mns_server` (register encoder/decoder/world_model,
+register/link a chatbot with deliberate dimension mismatches confirming 409s, composed
+`get_architecture()` verified via a standalone client probe) plus 18 new `MNSLiveTests` handler
+tests and the full `ctest` suite. See its own archive entry.
 
 **September 18, 2026 (same day):** Filed and resolved
 [TD-195](../archive/TECHNICAL_DEBT_RESOLVED.md#td-195-layernormfeedforwardmultiheadattentionlora-backward-overwrote-gradients-instead-of-accumulating-them-silently-breaking-gradient_accumulation_steps)
@@ -351,7 +380,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (182 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (183 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)

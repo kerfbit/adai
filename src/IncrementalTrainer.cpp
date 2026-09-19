@@ -219,7 +219,14 @@ void IncrementalTrainer::maybe_attach_world_model() {
         return;
     }
 
-    const std::string world_model_dir = get_session_dir() + "/world_model";
+    // TD-196: prefer the linked world model's own MNS artifact.path (resolved at startup by
+    // IncrementalTrainingTool.cpp alongside the chatbot's own architecture) over the local
+    // <session_dir>/world_model convention, so a chatbot registered with a world model link
+    // doesn't depend on an operator having manually copied the checkpoint into its own session
+    // directory.
+    const std::string world_model_dir = !config.world_model_artifact_path.empty()
+                                            ? config.world_model_artifact_path
+                                            : get_session_dir() + "/world_model";
     if (!fs::exists(world_model_dir)) {
         Logger::warn(
             "World-model attachment requested (WORLD_MODEL_ENABLED=true, "
@@ -412,6 +419,7 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.world_model_d_ff = svc.world_model_d_ff;
     cfg.world_model_sigreg_num_sketches = svc.world_model_sigreg_num_sketches;
     cfg.world_model_inject_every_n_layers = svc.world_model_inject_every_n_layers;
+    cfg.world_model_artifact_path = svc.world_model_artifact_path;
     cfg.hippocampal_memory_enabled = svc.hippocampal_memory_enabled;
     cfg.hippocampal_memory_capacity = svc.hippocampal_memory_capacity;
     cfg.hippocampal_repetition_alpha = svc.hippocampal_repetition_alpha;

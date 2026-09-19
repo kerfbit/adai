@@ -861,3 +861,352 @@ TEST_F(MNSLiveTest, StateTransition_CandidateRejectsSupersededRunId) {
     EXPECT_EQ(200, real_candidate->status);
     EXPECT_EQ("candidate", json_str(real_candidate->body, "state"));
 }
+
+// ---------------------------------------------------------------------------
+// TD-196: model `kind` + encoder/decoder/world-model connection standard
+// ---------------------------------------------------------------------------
+
+namespace {
+std::string arch_json(size_t d_model, size_t num_heads, size_t d_ff, size_t enc_layers,
+                      size_t dec_layers, size_t max_seq) {
+    std::ostringstream j;
+    j << "{\"d_model\":" << d_model << ",\"num_heads\":" << num_heads << ",\"d_ff\":" << d_ff
+      << ",\"num_encoder_layers\":" << enc_layers << ",\"num_decoder_layers\":" << dec_layers
+      << ",\"max_seq_length\":" << max_seq << "}";
+    return j.str();
+}
+}  // namespace
+
+TEST_F(MNSLiveTest, RegisterEncoder_ZeroLayersReturns400) {
+    const auto name = make_model("enc0");
+    auto c = make_client();
+    const std::string body = "{\"model_name\":\"" + name + "\",\"kind\":\"encoder\",\"arch\":" +
+                             arch_json(128, 4, 512, 0, 0, 256) + "}";
+    auto res = c.Post("/models", body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(400, res->status);
+}
+
+TEST_F(MNSLiveTest, RegisterEncoder_RejectsDecoderLayersSet) {
+    const auto name = make_model("encdec");
+    auto c = make_client();
+    const std::string body = "{\"model_name\":\"" + name + "\",\"kind\":\"encoder\",\"arch\":" +
+                             arch_json(128, 4, 512, 2, 2, 256) + "}";
+    auto res = c.Post("/models", body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(400, res->status);
+}
+
+TEST_F(MNSLiveTest, RegisterEncoder_ValidSucceedsAndPersistsKind) {
+    const auto name = make_model("encok");
+    auto c = make_client();
+    const std::string body = "{\"model_name\":\"" + name + "\",\"kind\":\"encoder\",\"arch\":" +
+                             arch_json(128, 4, 512, 2, 0, 256) + "}";
+    auto res = c.Post("/models", body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(201, res->status);
+
+    auto get_res = c.Get("/models/" + name);
+    ASSERT_TRUE(get_res);
+    EXPECT_EQ("encoder", json_str(get_res->body, "kind"));
+}
+
+TEST_F(MNSLiveTest, RegisterDecoder_ValidSucceedsAndPersistsKind) {
+    const auto name = make_model("decok");
+    auto c = make_client();
+    const std::string body = "{\"model_name\":\"" + name + "\",\"kind\":\"decoder\",\"arch\":" +
+                             arch_json(128, 4, 512, 0, 3, 256) + "}";
+    auto res = c.Post("/models", body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(201, res->status);
+
+    auto get_res = c.Get("/models/" + name);
+    ASSERT_TRUE(get_res);
+    EXPECT_EQ("decoder", json_str(get_res->body, "kind"));
+}
+
+TEST_F(MNSLiveTest, RegisterWorldModel_PersistsSigregParams) {
+    const auto name = make_model("wmok");
+    auto c = make_client();
+    const std::string body =
+        "{\"model_name\":\"" + name + "\",\"kind\":\"world_model\",\"arch\":" +
+        arch_json(128, 4, 512, 6, 0, 256) +
+        ",\"connection\":{\"sigreg_lambda\":2.5,\"sigreg_num_sketches\":32}}";
+    auto res = c.Post("/models", body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(201, res->status);
+
+    auto get_res = c.Get("/models/" + name);
+    ASSERT_TRUE(get_res);
+    EXPECT_EQ("world_model", json_str(get_res->body, "kind"));
+    EXPECT_TRUE(body_contains(get_res->body, "\"sigreg_lambda\":2.5"));
+    EXPECT_TRUE(body_contains(get_res->body, "\"sigreg_num_sketches\":32"));
+}
+
+TEST_F(MNSLiveTest, RegisterInvalidKindReturns400) {
+    const auto name = make_model("badkind");
+    auto c = make_client();
+    auto res = c.Post("/models", "{\"model_name\":\"" + name + "\",\"kind\":\"bogus\"}",
+                      "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(400, res->status);
+}
+
+TEST_F(MNSLiveTest, RegisterChatbot_LinkedToCompatibleEncoderDecoderSucceeds) {
+    const auto enc = make_model("linkenc");
+    const auto dec = make_model("linkdec");
+    const auto bot = make_model("linkbot");
+    auto c = make_client();
+
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + enc + "\",\"kind\":\"encoder\",\"arch\":" +
+                              arch_json(128, 4, 512, 2, 0, 256) + "}",
+                          "application/json")
+                       ->status);
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + dec + "\",\"kind\":\"decoder\",\"arch\":" +
+                              arch_json(128, 4, 512, 0, 2, 256) + "}",
+                          "application/json")
+                       ->status);
+
+    const std::string bot_body = "{\"model_name\":\"" + bot +
+                                 "\",\"kind\":\"chatbot\",\"connection\":{\"encoder_name\":\"" +
+                                 enc + "\",\"decoder_name\":\"" + dec + "\"}}";
+    auto res = c.Post("/models", bot_body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(201, res->status);
+
+    auto get_res = c.Get("/models/" + bot);
+    ASSERT_TRUE(get_res);
+    EXPECT_EQ("chatbot", json_str(get_res->body, "kind"));
+    EXPECT_EQ(enc, json_str(get_res->body, "encoder_name"));
+    EXPECT_EQ(dec, json_str(get_res->body, "decoder_name"));
+}
+
+TEST_F(MNSLiveTest, RegisterChatbot_LinkedToIncompatibleEncoderDecoderReturns409) {
+    const auto enc = make_model("mmenc");
+    const auto dec = make_model("mmdec");
+    const auto bot = make_model("mmbot");
+    auto c = make_client();
+
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + enc + "\",\"kind\":\"encoder\",\"arch\":" +
+                              arch_json(128, 4, 512, 2, 0, 256) + "}",
+                          "application/json")
+                       ->status);
+    // Mismatched d_model.
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + dec + "\",\"kind\":\"decoder\",\"arch\":" +
+                              arch_json(64, 4, 512, 0, 2, 256) + "}",
+                          "application/json")
+                       ->status);
+
+    const std::string bot_body = "{\"model_name\":\"" + bot +
+                                 "\",\"kind\":\"chatbot\",\"connection\":{\"encoder_name\":\"" +
+                                 enc + "\",\"decoder_name\":\"" + dec + "\"}}";
+    auto res = c.Post("/models", bot_body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(409, res->status);
+}
+
+TEST_F(MNSLiveTest, RegisterChatbot_OnlyEncoderNameSetReturns400) {
+    const auto enc = make_model("onlyenc");
+    const auto bot = make_model("onlyencbot");
+    auto c = make_client();
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + enc + "\",\"kind\":\"encoder\",\"arch\":" +
+                              arch_json(128, 4, 512, 2, 0, 256) + "}",
+                          "application/json")
+                       ->status);
+
+    const std::string bot_body = "{\"model_name\":\"" + bot +
+                                 "\",\"kind\":\"chatbot\",\"connection\":{\"encoder_name\":\"" +
+                                 enc + "\"}}";
+    auto res = c.Post("/models", bot_body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(400, res->status);
+}
+
+TEST_F(MNSLiveTest, RegisterChatbot_EncoderNameReferencesWrongKindReturns400) {
+    const auto not_enc = make_model("notenc");
+    const auto dec = make_model("wkdec");
+    const auto bot = make_model("wkbot");
+    auto c = make_client();
+    // A plain chatbot-kind record used where an "encoder" is required.
+    ASSERT_EQ(201, c.Post("/models", "{\"model_name\":\"" + not_enc + "\"}", "application/json")
+                       ->status);
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + dec + "\",\"kind\":\"decoder\",\"arch\":" +
+                              arch_json(128, 4, 512, 0, 2, 256) + "}",
+                          "application/json")
+                       ->status);
+
+    const std::string bot_body = "{\"model_name\":\"" + bot +
+                                 "\",\"kind\":\"chatbot\",\"connection\":{\"encoder_name\":\"" +
+                                 not_enc + "\",\"decoder_name\":\"" + dec + "\"}}";
+    auto res = c.Post("/models", bot_body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(400, res->status);
+}
+
+TEST_F(MNSLiveTest, ListModels_FilteredByKind) {
+    const auto wm = make_model("kindfilterwm");
+    auto c = make_client();
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + wm + "\",\"kind\":\"world_model\",\"arch\":" +
+                              arch_json(128, 4, 512, 6, 0, 256) + "}",
+                          "application/json")
+                       ->status);
+
+    auto res = c.Get("/models?kind=world_model&limit=1000");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(200, res->status);
+    EXPECT_TRUE(body_contains(res->body, wm));
+
+    auto res2 = c.Get("/models?kind=decoder&limit=1000");
+    ASSERT_TRUE(res2);
+    EXPECT_EQ(200, res2->status);
+    EXPECT_FALSE(body_contains(res2->body, wm));
+}
+
+TEST_F(MNSLiveTest, LinkWorldModel_AttachSucceedsAndPersists) {
+    const auto bot = make_model("linkwmbot");
+    const auto wm = make_model("linkwmwm");
+    auto c = make_client();
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + bot + "\",\"arch\":" +
+                              arch_json(128, 4, 512, 2, 2, 256) + "}",
+                          "application/json")
+                       ->status);
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + wm + "\",\"kind\":\"world_model\",\"arch\":" +
+                              arch_json(128, 4, 512, 6, 0, 256) + "}",
+                          "application/json")
+                       ->status);
+
+    const std::string link_body = "{\"world_model_name\":\"" + wm +
+                                  "\",\"world_model_inject_every_n_layers\":2"
+                                  ",\"hippocampal_memory_enabled\":true}";
+    auto res = c.Post("/models/" + bot + "/link-world-model", link_body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(200, res->status);
+
+    auto get_res = c.Get("/models/" + bot);
+    ASSERT_TRUE(get_res);
+    EXPECT_EQ(wm, json_str(get_res->body, "world_model_name"));
+    EXPECT_EQ(2, json_int(get_res->body, "world_model_inject_every_n_layers"));
+    EXPECT_TRUE(json_bool(get_res->body, "hippocampal_memory_enabled"));
+}
+
+TEST_F(MNSLiveTest, LinkWorldModel_MismatchedDModelReturns409) {
+    const auto bot = make_model("linkmmbot");
+    const auto wm = make_model("linkmmwm");
+    auto c = make_client();
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + bot + "\",\"arch\":" +
+                              arch_json(128, 4, 512, 2, 2, 256) + "}",
+                          "application/json")
+                       ->status);
+    // Different d_model (64 vs the chatbot's own 128).
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + wm + "\",\"kind\":\"world_model\",\"arch\":" +
+                              arch_json(64, 4, 512, 6, 0, 256) + "}",
+                          "application/json")
+                       ->status);
+
+    const std::string link_body =
+        "{\"world_model_name\":\"" + wm + "\",\"world_model_inject_every_n_layers\":2}";
+    auto res = c.Post("/models/" + bot + "/link-world-model", link_body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(409, res->status);
+}
+
+TEST_F(MNSLiveTest, LinkWorldModel_ZeroInjectSkipsDModelValidation) {
+    const auto bot = make_model("linkskipbot");
+    const auto wm = make_model("linkskipwm");
+    auto c = make_client();
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + bot + "\",\"arch\":" +
+                              arch_json(128, 4, 512, 2, 2, 256) + "}",
+                          "application/json")
+                       ->status);
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + wm + "\",\"kind\":\"world_model\",\"arch\":" +
+                              arch_json(64, 4, 512, 6, 0, 256) + "}",
+                          "application/json")
+                       ->status);
+
+    // world_model_inject_every_n_layers defaults to 0 — the d_model constraint doesn't apply.
+    const std::string link_body = "{\"world_model_name\":\"" + wm + "\"}";
+    auto res = c.Post("/models/" + bot + "/link-world-model", link_body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(200, res->status);
+}
+
+TEST_F(MNSLiveTest, LinkWorldModel_EmptyNameDetaches) {
+    const auto bot = make_model("linkdetbot");
+    const auto wm = make_model("linkdetwm");
+    auto c = make_client();
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + bot + "\",\"arch\":" +
+                              arch_json(128, 4, 512, 2, 2, 256) + "}",
+                          "application/json")
+                       ->status);
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + wm + "\",\"kind\":\"world_model\",\"arch\":" +
+                              arch_json(128, 4, 512, 6, 0, 256) + "}",
+                          "application/json")
+                       ->status);
+    ASSERT_EQ(200,
+             c.Post("/models/" + bot + "/link-world-model", "{\"world_model_name\":\"" + wm + "\"}",
+                    "application/json")
+                 ->status);
+
+    auto detach_res =
+        c.Post("/models/" + bot + "/link-world-model", "{\"world_model_name\":\"\"}",
+               "application/json");
+    ASSERT_TRUE(detach_res);
+    EXPECT_EQ(200, detach_res->status);
+
+    auto get_res = c.Get("/models/" + bot);
+    ASSERT_TRUE(get_res);
+    EXPECT_EQ("", json_str(get_res->body, "world_model_name"));
+}
+
+TEST_F(MNSLiveTest, LinkWorldModel_UnknownChatbotReturns404) {
+    auto c = make_client();
+    auto res = c.Post("/models/no-such-model-xyzzy/link-world-model",
+                      "{\"world_model_name\":\"whatever\"}", "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(404, res->status);
+}
+
+TEST_F(MNSLiveTest, LinkWorldModel_NonChatbotKindReturns400) {
+    const auto enc = make_model("linknonchatbot");
+    auto c = make_client();
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + enc + "\",\"kind\":\"encoder\",\"arch\":" +
+                              arch_json(128, 4, 512, 2, 0, 256) + "}",
+                          "application/json")
+                       ->status);
+
+    auto res = c.Post("/models/" + enc + "/link-world-model", "{\"world_model_name\":\"whatever\"}",
+                      "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(400, res->status);
+}
+
+TEST_F(MNSLiveTest, LinkWorldModel_TargetNotWorldModelKindReturns400) {
+    const auto bot = make_model("linkbadtargetbot");
+    const auto not_wm = make_model("linkbadtargetwm");
+    auto c = make_client();
+    ASSERT_EQ(201, c.Post("/models", "{\"model_name\":\"" + bot + "\"}", "application/json")
+                       ->status);
+    ASSERT_EQ(201, c.Post("/models", "{\"model_name\":\"" + not_wm + "\"}", "application/json")
+                       ->status);
+
+    auto res = c.Post("/models/" + bot + "/link-world-model",
+                      "{\"world_model_name\":\"" + not_wm + "\"}", "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(400, res->status);
+}

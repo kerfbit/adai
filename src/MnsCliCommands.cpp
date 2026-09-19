@@ -67,13 +67,15 @@ MnsCliRequest make_error(std::string message) {
 }  // namespace
 
 MnsCliRequest build_list_request(const std::vector<std::string>& args) {
-    std::string state, role;
+    std::string state, role, kind;
     int limit = 0;
     for (size_t i = 0; i < args.size(); ++i) {
         if (args[i] == "--state" && i + 1 < args.size()) {
             state = args[++i];
         } else if (args[i] == "--role" && i + 1 < args.size()) {
             role = args[++i];
+        } else if (args[i] == "--kind" && i + 1 < args.size()) {
+            kind = args[++i];
         } else if (args[i] == "--limit" && i + 1 < args.size()) {
             limit = std::stoi(args[++i]);
         }
@@ -86,6 +88,10 @@ MnsCliRequest build_list_request(const std::vector<std::string>& args) {
     }
     if (!role.empty()) {
         path += sep + "role=" + role;
+        sep = "&";
+    }
+    if (!kind.empty()) {
+        path += sep + "kind=" + kind;
         sep = "&";
     }
     if (limit > 0) {
@@ -113,6 +119,7 @@ MnsCliRequest build_register_request(const std::vector<std::string>& args,
     const std::string& name = args[0];
     const std::string& role = args[1];
 
+    std::string kind = "chatbot";
     size_t d_model = cfg.d_model;
     size_t num_heads = cfg.num_heads;
     size_t d_ff = cfg.d_ff;
@@ -122,14 +129,28 @@ MnsCliRequest build_register_request(const std::vector<std::string>& args,
     std::string run_group = cfg.run_group;
     std::map<std::string, std::string> tags;
 
+    // TD-196: --num-layers is the single layer-count flag for standalone encoder/decoder/
+    // world_model records (own-kind field selected below); --encoder-layers/--decoder-layers
+    // stay as-is for legacy bundled chatbot registration.
+    bool num_layers_set = false;
+    size_t num_layers = 0;
+    std::string encoder_name, decoder_name;
+    float sigreg_lambda = 1.0f;
+    size_t sigreg_num_sketches = 64;
+
     for (size_t i = 2; i < args.size(); ++i) {
-        if (args[i] == "--d-model" && i + 1 < args.size())
+        if (args[i] == "--kind" && i + 1 < args.size())
+            kind = args[++i];
+        else if (args[i] == "--d-model" && i + 1 < args.size())
             d_model = static_cast<size_t>(std::stoul(args[++i]));
         else if (args[i] == "--num-heads" && i + 1 < args.size())
             num_heads = static_cast<size_t>(std::stoul(args[++i]));
         else if (args[i] == "--d-ff" && i + 1 < args.size())
             d_ff = static_cast<size_t>(std::stoul(args[++i]));
-        else if (args[i] == "--encoder-layers" && i + 1 < args.size())
+        else if (args[i] == "--num-layers" && i + 1 < args.size()) {
+            num_layers = static_cast<size_t>(std::stoul(args[++i]));
+            num_layers_set = true;
+        } else if (args[i] == "--encoder-layers" && i + 1 < args.size())
             enc_layers = static_cast<size_t>(std::stoul(args[++i]));
         else if (args[i] == "--decoder-layers" && i + 1 < args.size())
             dec_layers = static_cast<size_t>(std::stoul(args[++i]));
@@ -137,6 +158,14 @@ MnsCliRequest build_register_request(const std::vector<std::string>& args,
             max_seq = static_cast<size_t>(std::stoul(args[++i]));
         else if (args[i] == "--run-group" && i + 1 < args.size())
             run_group = args[++i];
+        else if (args[i] == "--encoder" && i + 1 < args.size())
+            encoder_name = args[++i];
+        else if (args[i] == "--decoder" && i + 1 < args.size())
+            decoder_name = args[++i];
+        else if (args[i] == "--sigreg-lambda" && i + 1 < args.size())
+            sigreg_lambda = std::stof(args[++i]);
+        else if (args[i] == "--sigreg-num-sketches" && i + 1 < args.size())
+            sigreg_num_sketches = static_cast<size_t>(std::stoul(args[++i]));
         else if (args[i] == "--tag" && i + 1 < args.size()) {
             const auto& kv = args[++i];
             auto eq = kv.find('=');
@@ -145,12 +174,60 @@ MnsCliRequest build_register_request(const std::vector<std::string>& args,
         }
     }
 
+    if (kind != "encoder" && kind != "decoder" && kind != "world_model" && kind != "chatbot")
+        return make_error("--kind must be one of: encoder, decoder, world_model, chatbot");
+
+    const bool has_encoder_decoder = !encoder_name.empty() || !decoder_name.empty();
+    if (kind != "chatbot" && has_encoder_decoder)
+        return make_error("--encoder/--decoder are only valid with --kind chatbot");
+    if (kind == "chatbot" && has_encoder_decoder &&
+        (d_model != cfg.d_model || num_heads != cfg.num_heads || d_ff != cfg.d_ff ||
+         enc_layers != cfg.num_encoder_layers || dec_layers != cfg.num_decoder_layers ||
+         max_seq != cfg.max_seq_length)) {
+        return make_error(
+            "--encoder/--decoder (new-style linked chatbot) cannot be combined with "
+            "--d-model/--num-heads/--d-ff/--encoder-layers/--decoder-layers/--max-seq-length "
+            "(legacy inline architecture)");
+    }
+
+    if (kind == "encoder" || kind == "decoder" || kind == "world_model") {
+        if (num_layers_set) {
+            if (kind == "decoder") {
+                dec_layers = num_layers;
+                enc_layers = 0;
+            } else {
+                enc_layers = num_layers;
+                dec_layers = 0;
+            }
+        }
+    }
+
     std::ostringstream body;
     body << "{\"model_name\":\"" << json_escape(name) << "\"" << ",\"role\":\"" << json_escape(role)
-         << "\"" << ",\"run_group\":\"" << json_escape(run_group) << "\""
-         << ",\"arch\":{" << "\"d_model\":" << d_model << ",\"num_heads\":" << num_heads
-         << ",\"d_ff\":" << d_ff << ",\"num_encoder_layers\":" << enc_layers
-         << ",\"num_decoder_layers\":" << dec_layers << ",\"max_seq_length\":" << max_seq << "}";
+         << "\"" << ",\"kind\":\"" << json_escape(kind) << "\""
+         << ",\"run_group\":\"" << json_escape(run_group) << "\"";
+    if (kind != "chatbot" || !has_encoder_decoder) {
+        body << ",\"arch\":{" << "\"d_model\":" << d_model << ",\"num_heads\":" << num_heads
+             << ",\"d_ff\":" << d_ff << ",\"num_encoder_layers\":" << enc_layers
+             << ",\"num_decoder_layers\":" << dec_layers << ",\"max_seq_length\":" << max_seq
+             << "}";
+    }
+    if (has_encoder_decoder || kind == "world_model") {
+        body << ",\"connection\":{";
+        bool first = true;
+        if (has_encoder_decoder) {
+            body << "\"encoder_name\":\"" << json_escape(encoder_name) << "\""
+                 << ",\"decoder_name\":\"" << json_escape(decoder_name) << "\"";
+            first = false;
+        }
+        if (kind == "world_model") {
+            if (!first)
+                body << ',';
+            body << "\"sigreg_lambda\":" << sigreg_lambda
+                 << ",\"sigreg_num_sketches\":" << sigreg_num_sketches;
+        }
+        body << "}";
+    }
     if (!tags.empty()) {
         body << ",\"tags\":{";
         bool first = true;
@@ -167,6 +244,66 @@ MnsCliRequest build_register_request(const std::vector<std::string>& args,
     MnsCliRequest r;
     r.method = HttpMethod::Post;
     r.path = "/models";
+    r.body = body.str();
+    return r;
+}
+
+MnsCliRequest build_link_world_model_request(const std::vector<std::string>& args) {
+    if (args.empty()) {
+        return make_error(
+            "Usage: link-world-model <chatbot-name> --world-model <name> "
+            "[--inject-every-n-layers N] [--hippocampal-enabled] [--hippocampal-capacity N] "
+            "[--hippocampal-repetition-alpha F] [--hippocampal-repetition-decay F] "
+            "[--hippocampal-cross-reference-alpha F] [--hippocampal-association-decay F]\n"
+            "  Pass --world-model \"\" (empty) to detach.");
+    }
+    const std::string& name = args[0];
+    std::string world_model_name;
+    bool world_model_set = false;
+    size_t inject_every_n_layers = 0;
+    bool hippocampal_enabled = false;
+    size_t hippocampal_capacity = 512;
+    float repetition_alpha = 0.0f;
+    float repetition_decay = 0.95f;
+    float cross_reference_alpha = 0.0f;
+    float association_decay = 0.95f;
+
+    for (size_t i = 1; i < args.size(); ++i) {
+        if (args[i] == "--world-model" && i + 1 < args.size()) {
+            world_model_name = args[++i];
+            world_model_set = true;
+        } else if (args[i] == "--inject-every-n-layers" && i + 1 < args.size())
+            inject_every_n_layers = static_cast<size_t>(std::stoul(args[++i]));
+        else if (args[i] == "--hippocampal-enabled")
+            hippocampal_enabled = true;
+        else if (args[i] == "--hippocampal-capacity" && i + 1 < args.size())
+            hippocampal_capacity = static_cast<size_t>(std::stoul(args[++i]));
+        else if (args[i] == "--hippocampal-repetition-alpha" && i + 1 < args.size())
+            repetition_alpha = std::stof(args[++i]);
+        else if (args[i] == "--hippocampal-repetition-decay" && i + 1 < args.size())
+            repetition_decay = std::stof(args[++i]);
+        else if (args[i] == "--hippocampal-cross-reference-alpha" && i + 1 < args.size())
+            cross_reference_alpha = std::stof(args[++i]);
+        else if (args[i] == "--hippocampal-association-decay" && i + 1 < args.size())
+            association_decay = std::stof(args[++i]);
+    }
+
+    if (!world_model_set)
+        return make_error("Usage: link-world-model <chatbot-name> --world-model <name> [...]");
+
+    std::ostringstream body;
+    body << "{\"world_model_name\":\"" << json_escape(world_model_name) << "\""
+         << ",\"world_model_inject_every_n_layers\":" << inject_every_n_layers
+         << ",\"hippocampal_memory_enabled\":" << (hippocampal_enabled ? "true" : "false")
+         << ",\"hippocampal_memory_capacity\":" << hippocampal_capacity
+         << ",\"hippocampal_repetition_alpha\":" << repetition_alpha
+         << ",\"hippocampal_repetition_decay\":" << repetition_decay
+         << ",\"hippocampal_cross_reference_alpha\":" << cross_reference_alpha
+         << ",\"hippocampal_association_decay\":" << association_decay << "}";
+
+    MnsCliRequest r;
+    r.method = HttpMethod::Post;
+    r.path = "/models/" + name + "/link-world-model";
     r.body = body.str();
     return r;
 }

@@ -510,6 +510,15 @@ struct ServiceConfig {
     /// whether/how densely the chatbot's own decoder gets gated blocks constructed at all.
     size_t world_model_inject_every_n_layers = 0;
 
+    /// TD-196: overrides the default `<session_dir>/world_model` checkpoint directory
+    /// `IncrementalTrainer::maybe_attach_world_model()`/`ChatbotAPIServer.cpp`'s own attachment
+    /// block both use — set from the linked world model's own MNS `artifact.path` when this
+    /// chatbot is registered with `NAME_SERVICE_URL`+`MODEL_NAME`/`MODEL_ROLE` and has a world
+    /// model attached via `POST /models/{name}/link-world-model` (see
+    /// ModelNameClient::get_connection()). Empty (default) keeps the original local-only
+    /// derivation for a standalone/unregistered deployment.
+    std::string world_model_artifact_path;
+
     // ============================================================
     // Hippocampal Memory Configuration (TD-185 filed the keys; TD-186 wires them)
     // Read by IncrementalTrainer::build_model() (chatbot objective only) to decide whether to

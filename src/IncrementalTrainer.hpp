@@ -106,6 +106,9 @@ struct IncrementalConfig {
     size_t world_model_d_ff = 2048;
     size_t world_model_sigreg_num_sketches = 64;
     size_t world_model_inject_every_n_layers = 0;
+    // TD-196: overrides the default <session_dir>/world_model checkpoint directory when set —
+    // see ServiceConfig::world_model_artifact_path's own doc comment.
+    std::string world_model_artifact_path;
     bool hippocampal_memory_enabled = false;
     size_t hippocampal_memory_capacity = 512;
     float hippocampal_repetition_alpha = 0.0f;

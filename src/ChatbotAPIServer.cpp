@@ -237,6 +237,63 @@ int main(int argc, char* argv[]) {
                         "architecture",
                         resolved.model_name);
                 }
+
+                // TD-196: MNS-first world-model/hippocampal resolution, closing the gap flagged
+                // in TD-184 — previously WORLD_MODEL_*/HIPPOCAMPAL_* came exclusively from local
+                // config, kept in sync with the trainer's own config file purely by operator
+                // discipline. When this chatbot has a world model linked via
+                // POST /models/{name}/link-world-model, its connection settings and the world
+                // model's own resolved architecture + artifact path now override local config;
+                // falls back to local config entirely when unlinked or MNS is unreachable.
+                if (auto conn = mns_client.get_connection(resolved.model_name)) {
+                    if (!conn->world_model_name.empty()) {
+                        try {
+                            const adai::ResolvedModel wm_resolved =
+                                mns_client.resolve_model(conn->world_model_name);
+                            const auto wm_arch = mns_client.get_architecture(conn->world_model_name);
+                            if (!wm_resolved.artifact.path.empty() && wm_arch) {
+                                config.world_model_enabled = true;
+                                config.world_model_artifact_path = wm_resolved.artifact.path;
+                                config.world_model_d_model = wm_arch->d_model;
+                                config.world_model_num_layers = wm_arch->num_encoder_layers;
+                                config.world_model_num_heads = wm_arch->num_heads;
+                                config.world_model_d_ff = wm_arch->d_ff;
+                                config.world_model_inject_every_n_layers =
+                                    conn->world_model_inject_every_n_layers;
+                                config.hippocampal_memory_enabled =
+                                    conn->hippocampal_memory_enabled;
+                                config.hippocampal_memory_capacity =
+                                    conn->hippocampal_memory_capacity;
+                                config.hippocampal_repetition_alpha =
+                                    conn->hippocampal_repetition_alpha;
+                                config.hippocampal_repetition_decay =
+                                    conn->hippocampal_repetition_decay;
+                                config.hippocampal_cross_reference_alpha =
+                                    conn->hippocampal_cross_reference_alpha;
+                                config.hippocampal_association_decay =
+                                    conn->hippocampal_association_decay;
+                                if (auto wm_conn = mns_client.get_connection(conn->world_model_name)) {
+                                    config.world_model_sigreg_lambda = wm_conn->sigreg_lambda;
+                                    config.world_model_sigreg_num_sketches =
+                                        wm_conn->sigreg_num_sketches;
+                                }
+                                adai::Logger::info(
+                                    "[MNS] World model '{}' resolved from MNS link (artifact='{}')",
+                                    conn->world_model_name, wm_resolved.artifact.path);
+                            } else {
+                                adai::Logger::warn(
+                                    "[MNS] World model '{}' linked but not yet resolvable "
+                                    "(no artifact/architecture) — using local config",
+                                    conn->world_model_name);
+                            }
+                        } catch (const std::exception& e) {
+                            adai::Logger::warn(
+                                "[MNS] World model '{}' resolution failed: {} — using local "
+                                "config",
+                                conn->world_model_name, e.what());
+                        }
+                    }
+                }
             } catch (const std::exception& e) {
                 adai::Logger::warn(
                     "[MNS] Resolution failed: {} — using configured model_path/architecture",
@@ -349,12 +406,16 @@ int main(int argc, char* argv[]) {
         std::string hippocampal_state_path;
         std::string hippocampal_association_path;  // TD-194
         if (config.world_model_enabled) {
-            // Same directory convention IncrementalTrainer::maybe_attach_world_model() uses
-            // (get_session_dir() + "/world_model") — an operator training the world model via
-            // `incremental_trainer --objective=lejepa train` and serving it here needs SESSION_DIR
-            // configured consistently across config.trainer.conf/config.chatbot.conf (or left at
-            // its shared default) for the two binaries to agree on where it lives.
-            const std::string world_model_dir = config.session_dir + "/world_model";
+            // TD-196: prefer the linked world model's own MNS artifact.path (resolved at startup
+            // above, alongside this chatbot's own architecture) over the local
+            // <session_dir>/world_model convention IncrementalTrainer::maybe_attach_world_model()
+            // falls back to — an operator training the world model via
+            // `incremental_trainer --objective=lejepa train` and serving it here otherwise needs
+            // SESSION_DIR configured consistently across config.trainer.conf/config.chatbot.conf
+            // (or left at its shared default) for the two binaries to agree on where it lives.
+            const std::string world_model_dir = !config.world_model_artifact_path.empty()
+                                                    ? config.world_model_artifact_path
+                                                    : config.session_dir + "/world_model";
             if (!std::filesystem::exists(world_model_dir)) {
                 adai::Logger::info(
                     "  WORLD_MODEL_ENABLED is set but no checkpoint found at '{}' — continuing "

@@ -55,5 +55,7 @@ MnsCliRequest build_roles_request();
 MnsCliRequest build_resolve_role_request(const std::vector<std::string>& args);
 MnsCliRequest build_promote_request(const std::vector<std::string>& args);
 MnsCliRequest build_health_request();
+// TD-196: attach/replace/detach a chatbot-kind record's world-model connection.
+MnsCliRequest build_link_world_model_request(const std::vector<std::string>& args);
 
 }  // namespace adai

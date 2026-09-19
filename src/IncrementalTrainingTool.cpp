@@ -633,6 +633,53 @@ int main(int argc, char* argv[]) {
             std::cerr << "[MNS] Architecture lookup failed (" << e.what()
                       << "); using local config architecture\n";
         }
+
+        // TD-196: MNS-first world-model/hippocampal resolution, closing the gap flagged in
+        // TD-184 — previously WORLD_MODEL_*/HIPPOCAMPAL_* came exclusively from local config,
+        // kept in sync with the chatbot server's own config file purely by operator discipline.
+        // When this chatbot has a world model linked via POST /models/{name}/link-world-model,
+        // its connection settings and the world model's own resolved architecture + artifact
+        // path now override local config; falls back to local config entirely when unlinked or
+        // MNS is unreachable.
+        try {
+            adai::ModelNameClient mns(svc_config.name_service_url,
+                                      svc_config.name_service_timeout_ms);
+            if (auto conn = mns.get_connection(resolved); conn && !conn->world_model_name.empty()) {
+                const adai::ResolvedModel wm_resolved = mns.resolve_model(conn->world_model_name);
+                const auto wm_arch = mns.get_architecture(conn->world_model_name);
+                if (!wm_resolved.artifact.path.empty() && wm_arch) {
+                    svc_config.world_model_enabled = true;
+                    svc_config.world_model_artifact_path = wm_resolved.artifact.path;
+                    svc_config.world_model_d_model = wm_arch->d_model;
+                    svc_config.world_model_num_layers = wm_arch->num_encoder_layers;
+                    svc_config.world_model_num_heads = wm_arch->num_heads;
+                    svc_config.world_model_d_ff = wm_arch->d_ff;
+                    svc_config.world_model_inject_every_n_layers =
+                        conn->world_model_inject_every_n_layers;
+                    svc_config.hippocampal_memory_enabled = conn->hippocampal_memory_enabled;
+                    svc_config.hippocampal_memory_capacity = conn->hippocampal_memory_capacity;
+                    svc_config.hippocampal_repetition_alpha = conn->hippocampal_repetition_alpha;
+                    svc_config.hippocampal_repetition_decay = conn->hippocampal_repetition_decay;
+                    svc_config.hippocampal_cross_reference_alpha =
+                        conn->hippocampal_cross_reference_alpha;
+                    svc_config.hippocampal_association_decay = conn->hippocampal_association_decay;
+                    if (auto wm_conn = mns.get_connection(conn->world_model_name)) {
+                        svc_config.world_model_sigreg_lambda = wm_conn->sigreg_lambda;
+                        svc_config.world_model_sigreg_num_sketches = wm_conn->sigreg_num_sketches;
+                    }
+                    std::cout << "[MNS] World model '" << conn->world_model_name
+                              << "' resolved from MNS link (artifact='"
+                              << wm_resolved.artifact.path << "')\n";
+                } else {
+                    std::cout << "[MNS] World model '" << conn->world_model_name
+                              << "' linked but not yet resolvable (no artifact/architecture) — "
+                                 "using local config\n";
+                }
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "[MNS] World model connection lookup failed (" << e.what()
+                      << "); using local config\n";
+        }
     }
 #endif
 

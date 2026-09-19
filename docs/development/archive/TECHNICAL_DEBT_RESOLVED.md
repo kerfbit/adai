@@ -4,6 +4,143 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-196: MNS `kind` Schema + Encoder/Decoder/World-Model Connection Standard
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 19, 2026 | Model Name Service (`mns_server`/`mns_cli`/`ModelNameClient`) | New `kind` column + `ModelConnection` (`connection_json`) on `ModelRecord`; per-kind register validation; new `POST /models/{name}/link-world-model`; composed `get_architecture()` resolution |
+
+Summary:
+User request: "Since world model, encoder model and decoder model are separate information flow
+systems, we need to modify MNS to account for the design of each piece as well as the connection
+standard." Before this, MNS treated every registered model as shape-identical — one flat
+`ModelArchitecture` (`d_model`/`num_heads`/`d_ff`/`num_encoder_layers`/`num_decoder_layers`/
+`max_seq_length`) regardless of what was actually being registered. This already leaked in
+practice: TD-184 registered a world model under `role: "world_model"` using that same 6-field
+struct with `--decoder-layers 0` as an undocumented convention meaning "encoder-only," and the
+world model's own real parameters (`sigreg_lambda`, `sigreg_num_sketches`) had no home in MNS at
+all. There was zero cross-referencing between a chatbot's MNS record and its world model's — no
+field anywhere linked one to the other — and the entire "connection standard" between them
+(injection cadence, the `world_model.d_model == chatbot.d_model` constraint, every
+`HIPPOCAMPAL_*` setting including TD-194's `cross_reference_alpha`/`association_decay`) lived only
+in local `config.trainer.conf`/`config.chatbot.conf` files, kept consistent purely by operator
+discipline across two separate binaries — `IncrementalTrainer::maybe_attach_world_model()`/
+`ChatbotAPIServer.cpp`'s own attachment code never called MNS for any of it (confirmed by direct
+inspection: zero `ModelNameClient` references in either function before this change).
+
+Design (see the approved plan for the full rationale — summarized here):
+
+- **Schema**: exactly 2 new columns on the existing `models` table — `kind TEXT DEFAULT 'chatbot'`
+  (`encoder` | `decoder` | `world_model` | `chatbot`; defaulting to `chatbot` means every
+  pre-existing row keeps behaving exactly as before with zero data migration) and
+  `connection_json TEXT DEFAULT '{}'` (a JSON blob, matching the existing `tags_json` precedent,
+  parsed into a new `ModelConnection` struct at the API boundary rather than exploding into a
+  dozen new typed columns).
+- **Reused, not duplicated, architecture columns**: the existing 6 architecture fields are
+  reinterpreted per-`kind` — `encoder`/`decoder`/`world_model` each use the 4 shared fields plus
+  their own single layer-count field (the other must be 0); a `chatbot` is either legacy-bundled
+  (all 6 inline, unchanged) or new-style (`connection.encoder_name`/`decoder_name` set, 6 inline
+  fields unused).
+- **Encoder/decoder became fully independent, separately-registrable/versionable entities** — the
+  user's own explicit choice over a smaller "keep them bundled" alternative, matching their own
+  framing that the three are "separate information flow systems."
+- **Linking by model name** (`connection.world_model_name`), not by reusing the single-slot
+  `"world_model"` role — supports multiple distinct world models across different chatbots, the
+  user's own explicit choice.
+- **Server-side validation at register/link time**, the user's own explicit choice over a
+  looser "client's responsibility" alternative — `mns_server` rejects a dimensionally-incompatible
+  encoder+decoder pairing or world-model link with `409 Conflict` rather than accepting it and
+  letting the mismatch surface later as a construction-time crash in `EncoderDecoderModel`/
+  `DecoderBlock`'s own gated cross-attention.
+- **`ModelNameClient::get_architecture()` needed no signature or call-site change at all** — the
+  one deliberate design point making the whole redesign transparent to existing consumers.
+  Internally, for a `chatbot` with `connection.encoder_name`/`decoder_name` both set, it now issues
+  2 additional `GET /models/{name}` calls and composes the returned `ModelArchitecture` from them
+  (`d_model`/`num_heads`/`d_ff`/`max_seq_length` from either — validated equal at register time;
+  `num_encoder_layers`/`num_decoder_layers` from the encoder's/decoder's own layer count); a legacy
+  chatbot (no encoder_name/decoder_name) falls back to reading the 6 inline fields exactly as
+  before. `ChatbotAPIServer.cpp:225`/`IncrementalTrainingTool.cpp:619`'s existing call sites are
+  byte-for-byte unchanged.
+
+Changes Made:
+
+- `src/ModelNameService.hpp`: new `ModelConnection` struct; `ModelRecord` gains `kind`/
+  `connection` fields; `handle_list()` gains a `kind_filter` parameter; new
+  `handle_link_world_model()` declaration. Version 1.0.0 → 1.1.0.
+- `src/ModelNameService.cpp`: `serialize_connection()`/`parse_connection()` helpers;
+  `serialize_record()` emits `kind`/`connection`; `init_db()` schema + migration (2 new columns,
+  added last to match `add_column_if_missing()`'s own append-order constraint);
+  `persist_model()`/`load_from_disk()` bind/read the 2 new columns; `handle_register()` gains
+  per-kind validation (own layer count > 0, other kind's layer-count field must be 0, all 4 shared
+  dims > 0 for `encoder`/`decoder`/`world_model`; `encoder_name`/`decoder_name` both-or-neither,
+  looked up and dimension-matched with `409` on mismatch, for `chatbot`); new
+  `handle_link_world_model()` (404 unknown chatbot, 400 non-chatbot-kind or non-world_model-kind
+  target, 409 on `d_model` mismatch whenever `world_model_inject_every_n_layers > 0`, empty
+  `world_model_name` detaches); new `POST /models/{name}/link-world-model` route; `GET /models`
+  gains a `kind` query-param filter.
+- `src/MnsCliCommands.hpp`/`.cpp`: `build_list_request()` gains `--kind`; `build_register_request()`
+  gains `--kind`, `--num-layers`, `--encoder`/`--decoder`, `--sigreg-lambda`/
+  `--sigreg-num-sketches` (mutually exclusive with legacy inline-architecture flags for a new-style
+  chatbot); new `build_link_world_model_request()`.
+- `src/MnsCliTool.cpp`: usage text for the above; new `link-world-model` subcommand dispatch.
+- `src/ModelNameClient.hpp`/`.cpp`: new `ClientModelConnection` (client mirror); `get_architecture()`
+  extended with the composed-resolution logic above (no signature change); new `get_connection()`,
+  `link_world_model()`.
+- `src/Config.hpp`/`.cpp`: new `world_model_artifact_path` field (`WORLD_MODEL_ARTIFACT_PATH` config
+  key + env override) — overrides the default `<session_dir>/world_model` checkpoint directory
+  when a linked world model's real MNS artifact path is known.
+- `src/IncrementalTrainer.hpp`/`.cpp`: `IncrementalConfig` gains `world_model_artifact_path`,
+  mapped in `make_incremental_config()`; `maybe_attach_world_model()` prefers it over the local
+  `<session_dir>/world_model` derivation when set.
+- `src/ChatbotAPIServer.cpp`: after the existing MNS architecture-resolution block, added MNS-first
+  world-model/hippocampal connection resolution — closes the TD-184 gap — via
+  `ModelNameClient::get_connection()`/`resolve_model()`/`get_architecture()`, falling back to local
+  config when unlinked or MNS is unreachable; the world-model attachment block now prefers
+  `config.world_model_artifact_path` over the local `<session_dir>/world_model` convention.
+- `src/IncrementalTrainingTool.cpp`: the mirror-image MNS-first world-model/hippocampal resolution
+  block, alongside the existing architecture-resolution block.
+- `tests/model_name_service_live_test.cpp`: 18 new `MNSLiveTest` cases covering per-kind register
+  validation (zero/wrong layer count, dimension mismatch 409, both-or-neither encoder/decoder
+  names, wrong-kind reference), `GET /models?kind=` filtering, and `link-world-model` (attach,
+  mismatch 409, zero-inject skips the dimension check, detach, unknown/wrong-kind targets).
+
+Verification:
+
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean, zero errors, every
+  target including all test binaries.
+- ✅ Full `ctest` suite: 136/136 passing (one incidental `LeJEPAEncoderTests` flake under full
+  parallel `-j` load, unrelated to this change — confirmed passing in isolation).
+- ✅ Live end-to-end smoke test against a real `mns_server`: all 18 new `MNSLiveTests` cases passed
+  against a running server (57/57 total in that suite, including all pre-existing cases); separately
+  exercised via `mns_cli` — registered an encoder/decoder/world_model, registered a chatbot linking
+  the first two (confirmed a deliberate `d_model` mismatch on a second decoder was rejected with
+  409), `link-world-model`'d it to the world model (confirmed a deliberate mismatch on a second
+  world model was rejected with 409, and that `world_model_inject_every_n_layers=0` correctly
+  skips the dimension check), confirmed detach clears the link, and confirmed `mns_cli get` shows
+  the fully composed view. A standalone `ModelNameClient::get_architecture()` probe confirmed the
+  composed path for the linked chatbot (`d_model`/`num_heads`/`d_ff` from the encoder,
+  `num_encoder_layers` from the encoder's own layer count, `num_decoder_layers` from the decoder's)
+  and the unchanged inline-field path for a legacy `world_model` record.
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+
+Files Changed:
+
+- `src/ModelNameService.hpp`
+- `src/ModelNameService.cpp`
+- `src/MnsCliCommands.hpp`
+- `src/MnsCliCommands.cpp`
+- `src/MnsCliTool.cpp`
+- `src/ModelNameClient.hpp`
+- `src/ModelNameClient.cpp`
+- `src/Config.hpp`
+- `src/Config.cpp`
+- `src/IncrementalTrainer.hpp`
+- `src/IncrementalTrainer.cpp`
+- `src/ChatbotAPIServer.cpp`
+- `src/IncrementalTrainingTool.cpp`
+- `tests/model_name_service_live_test.cpp`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-195: LayerNorm/FeedForward/MultiHeadAttention/LoRA backward() Overwrote Gradients Instead of Accumulating Them, Silently Breaking GRADIENT_ACCUMULATION_STEPS
 
 | Resolution Date | Component | Resolved By |

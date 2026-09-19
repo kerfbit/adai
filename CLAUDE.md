@@ -221,6 +221,46 @@ checkpoint-compatible lockstep without hand-syncing two files. Architecture is s
 checkpoint). The local values are only used standalone (no MNS) or to bootstrap a not-yet-registered
 model.
 
+**TD-196: MNS `kind` schema + encoder/decoder/world-model connection standard.** Every MNS
+`ModelRecord` has a `kind`: `encoder` | `decoder` | `world_model` | `chatbot` (default `chatbot` —
+every pre-TD-196 record keeps working unchanged). `encoder`/`decoder`/`world_model` are
+independently-registrable entities, each using the existing 6 architecture fields per the table
+below; a `chatbot` is either legacy-bundled (all 6 inline, as before) or a **named pairing** of a
+linked encoder + decoder (`connection.encoder_name`/`decoder_name`, set at register time,
+immutable — `mns_server` rejects a dimensionally-incompatible pairing with `409`).
+
+| kind | uses | own layer-count field |
+|---|---|---|
+| `encoder` | `d_model`/`num_heads`/`d_ff`/`max_seq_length` | `num_encoder_layers` (`num_decoder_layers` must be 0) |
+| `decoder` | same 4 | `num_decoder_layers` (`num_encoder_layers` must be 0) |
+| `world_model` | same 4 | `num_encoder_layers` (standalone encoder; `num_decoder_layers` must be 0) |
+| `chatbot` (new-style) | resolved via `connection.encoder_name`/`decoder_name` | — |
+| `chatbot` (legacy) | inline, as before TD-196 | both |
+
+A `chatbot`'s `connection` (a JSON blob, `ModelConnection`) also carries the **world-model
+connection standard** — everything that used to live only in local
+`config.trainer.conf`/`config.chatbot.conf`, kept in sync purely by operator discipline:
+`world_model_name` (empty = none attached), `world_model_inject_every_n_layers`, and every
+`HIPPOCAMPAL_*` tuning parameter. Mutable via `POST /models/{name}/link-world-model` (unlike
+`encoder_name`/`decoder_name` — swapping the world model doesn't break checkpoint compatibility);
+`mns_server` rejects a `d_model` mismatch between the chatbot (via its encoder, or its own inline
+field for a legacy chatbot) and the target world model with `409` whenever
+`world_model_inject_every_n_layers > 0`. A `world_model`-kind record's own `connection.sigreg_lambda`/
+`sigreg_num_sketches` are set at register time.
+
+`ModelNameClient::get_architecture()` needed **no signature or call-site change** — for a
+new-style chatbot it transparently composes the 6-field `ModelArchitecture` from 2 additional
+`GET /models/{name}` calls against the linked encoder/decoder; a legacy chatbot or a standalone
+encoder/decoder/world_model record falls back to the inline fields exactly as before. Both
+`ChatbotAPIServer.cpp` and `IncrementalTrainingTool.cpp` also now resolve a linked world model's
+own artifact path/architecture/connection settings from MNS first (via
+`ModelNameClient::get_connection()`/`resolve_model()`/`get_architecture()`), falling back to local
+`WORLD_MODEL_*`/`HIPPOCAMPAL_*` config only when unlinked or MNS is unreachable — closing the gap
+TD-184 originally flagged. `mns_cli register` gained `--kind`, `--num-layers`, `--encoder`/
+`--decoder`, `--sigreg-lambda`/`--sigreg-num-sketches`; `mns_cli link-world-model` wraps the new
+endpoint. See [TECHNICAL_DEBT_RESOLVED.md](docs/development/archive/TECHNICAL_DEBT_RESOLVED.md)'s
+TD-196 entry for the full design rationale.
+
 Other architecturally significant keys:
 
 | Key | Notes |
@@ -231,6 +271,7 @@ Other architecturally significant keys:
 | `METRICS_STALENESS_THRESHOLD_SECONDS` | Seconds idle before dashboard drops session (default: 60) |
 | `METRICS_HEARTBEAT_INTERVAL_MS` | Idle heartbeat period from trainer (default: 30 000) |
 | `NAME_SERVICE_URL`, `MODEL_NAME`, `MODEL_ROLE` | MNS connection |
+| `WORLD_MODEL_ARTIFACT_PATH` | Overrides the default `<session_dir>/world_model` checkpoint directory; normally set automatically from a linked world model's own MNS `artifact.path` (TD-196), not by hand |
 | `REGISTRY_SERVER_URL`, `RUN_GROUP`, `RUN_ID` | Distributed dataset registry |
 | `REGISTRY_LISTEN_PORT`, `REGISTRY_DATA_DIR` | `registry_server`'s own listen port / data dir (server-side, distinct from the client-side `REGISTRY_SERVER_URL` above) |
 | `AUTO_SAVE_ENABLED`, `AUTO_SAVE_EVERY_SAMPLES`, `AUTO_SAVE_EVERY_MINUTES`, `MAX_SESSIONS_TO_KEEP` | Checkpoint cadence / retention — map into `IncrementalConfig`'s matching fields via `make_incremental_config()`; live-tunable under `serve` via `PUT /admin/config`, see below |

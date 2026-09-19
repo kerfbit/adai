@@ -388,6 +388,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.world_model_sigreg_num_sketches = std::stoul(value);
             } else if (key == "WORLD_MODEL_INJECT_EVERY_N_LAYERS") {
                 config.world_model_inject_every_n_layers = std::stoul(value);
+            } else if (key == "WORLD_MODEL_ARTIFACT_PATH") {
+                config.world_model_artifact_path = value;
                 // Hippocampal memory configuration (TD-185 filed; TD-186 wires)
             } else if (key == "HIPPOCAMPAL_MEMORY_ENABLED") {
                 std::string lower = value;
@@ -841,6 +843,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_size_t("WORLD_MODEL_INJECT_EVERY_N_LAYERS")) {
         config.world_model_inject_every_n_layers = *val;
+    }
+    if (auto val = get_env("WORLD_MODEL_ARTIFACT_PATH")) {
+        config.world_model_artifact_path = *val;
     }
 
     // Hippocampal memory configuration (TD-185 filed; TD-186 wires)

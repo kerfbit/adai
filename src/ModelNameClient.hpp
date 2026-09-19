@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: stable        (TD-196 — encoder/decoder-linked chatbot arch resolution + connection/world-model-link API added)
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-09-18
 
 
 #include <map>
@@ -33,6 +33,25 @@ struct ModelSummary {
     std::string state;
     std::string role;
     std::string updated_utc;
+};
+
+// TD-196: client-side mirror of adai::ModelConnection (ModelNameService.hpp) — see that struct's
+// own doc comment for the full per-field/per-kind contract.
+struct ClientModelConnection {
+    std::string encoder_name;
+    std::string decoder_name;
+
+    std::string world_model_name;
+    size_t world_model_inject_every_n_layers = 0;
+    bool hippocampal_memory_enabled = false;
+    size_t hippocampal_memory_capacity = 512;
+    float hippocampal_repetition_alpha = 0.0f;
+    float hippocampal_repetition_decay = 0.95f;
+    float hippocampal_cross_reference_alpha = 0.0f;
+    float hippocampal_association_decay = 0.95f;
+
+    float sigreg_lambda = 1.0f;
+    size_t sigreg_num_sketches = 64;
 };
 
 /**
@@ -86,7 +105,37 @@ class ModelNameClient {
 
     // Fetch a registered model's authoritative architecture. Returns std::nullopt
     // if the model isn't registered (404); throws on other request failures.
+    // TD-196: for a "chatbot"-kind model registered with connection.encoder_name/decoder_name
+    // (new-style, linked), this composes the returned ModelArchitecture from 2 additional
+    // GET /models/{name} calls against the linked encoder/decoder records — d_model/num_heads/
+    // d_ff/max_seq_length from either (validated equal at register time), num_encoder_layers from
+    // the encoder's own layer count, num_decoder_layers from the decoder's. For a legacy chatbot
+    // (no encoder_name/decoder_name) or a standalone encoder/decoder/world_model record, falls
+    // back to reading the 6 inline architecture fields exactly as before this existed — this
+    // signature and every existing call site (ChatbotAPIServer.cpp, IncrementalTrainingTool.cpp)
+    // are unchanged.
     std::optional<ModelArchitecture> get_architecture(const std::string& model_name);
+
+    // TD-196: fetch a registered model's connection standard (world-model link, hippocampal
+    // tuning, sigreg params, encoder/decoder link). Returns std::nullopt if the model isn't
+    // registered (404); throws on other request failures.
+    std::optional<ClientModelConnection> get_connection(const std::string& model_name);
+
+    // TD-196: attach/replace (or, with world_model_name empty, detach) a chatbot-kind record's
+    // world-model connection. Returns false (and logs) on a non-2xx response — most notably a 409
+    // when the world model's d_model doesn't match the chatbot's own resolved d_model and
+    // inject_every_n_layers > 0 — the same tolerant failure handling other ModelNameClient calls
+    // already use; throws only on connection failure via check_status's usual contract elsewhere
+    // is deliberately NOT used here since a 409 is an expected, recoverable outcome for a caller
+    // validating a proposed pairing, not an exceptional one.
+    bool link_world_model(const std::string& chatbot_name, const std::string& world_model_name,
+                          size_t world_model_inject_every_n_layers = 0,
+                          bool hippocampal_memory_enabled = false,
+                          size_t hippocampal_memory_capacity = 512,
+                          float hippocampal_repetition_alpha = 0.0f,
+                          float hippocampal_repetition_decay = 0.95f,
+                          float hippocampal_cross_reference_alpha = 0.0f,
+                          float hippocampal_association_decay = 0.95f);
 
     // Resolve the production model for a role; throws if no production model.
     ResolvedModel resolve_role(const std::string& role);

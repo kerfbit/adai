@@ -1,6 +1,6 @@
-// @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: stable        (TD-196 — encoder/decoder-linked chatbot arch resolution + connection/world-model-link API added)
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-09-18
 
 #include "ModelNameClient.hpp"
 #include <chrono>
@@ -137,6 +137,75 @@ size_t json_int_client(const std::string& body, const std::string& key) {
     } catch (...) {
         return 0;
     }
+}
+
+double json_double_client(const std::string& body, const std::string& key, double def) {
+    const std::string needle = "\"" + key + "\":";
+    const auto pos = body.find(needle);
+    if (pos == std::string::npos)
+        return def;
+    try {
+        return std::stod(body.substr(pos + needle.size()));
+    } catch (...) {
+        return def;
+    }
+}
+
+bool json_bool_client(const std::string& body, const std::string& key, bool def) {
+    const std::string needle = "\"" + key + "\":";
+    const auto pos = body.find(needle);
+    if (pos == std::string::npos)
+        return def;
+    const auto start = pos + needle.size();
+    if (body.compare(start, 4, "true") == 0)
+        return true;
+    if (body.compare(start, 5, "false") == 0)
+        return false;
+    return def;
+}
+
+// Same "take the substring from the object's opening key to the end of the response body"
+// technique get_architecture() has always used for "arch" — safe because the field names inside
+// each object ("d_model" vs "encoder_name" etc.) never collide with a later sibling object's own
+// keys of the same name at the top level of a single-record GET /models/{name} response.
+adai::ModelArchitecture parse_arch_from_record(const std::string& record_json) {
+    adai::ModelArchitecture a;
+    const auto arch_pos = record_json.find("\"arch\":{");
+    if (arch_pos == std::string::npos)
+        return a;
+    const std::string arch = record_json.substr(arch_pos);
+    a.d_model = json_int_client(arch, "d_model");
+    a.num_heads = json_int_client(arch, "num_heads");
+    a.d_ff = json_int_client(arch, "d_ff");
+    a.num_encoder_layers = json_int_client(arch, "num_encoder_layers");
+    a.num_decoder_layers = json_int_client(arch, "num_decoder_layers");
+    a.max_seq_length = json_int_client(arch, "max_seq_length");
+    return a;
+}
+
+adai::ClientModelConnection parse_connection_from_record(const std::string& record_json) {
+    adai::ClientModelConnection c;
+    const auto conn_pos = record_json.find("\"connection\":{");
+    if (conn_pos == std::string::npos)
+        return c;
+    const std::string conn = record_json.substr(conn_pos);
+    c.encoder_name = json_string_client(conn, "encoder_name");
+    c.decoder_name = json_string_client(conn, "decoder_name");
+    c.world_model_name = json_string_client(conn, "world_model_name");
+    c.world_model_inject_every_n_layers = json_int_client(conn, "world_model_inject_every_n_layers");
+    c.hippocampal_memory_enabled = json_bool_client(conn, "hippocampal_memory_enabled", false);
+    c.hippocampal_memory_capacity = json_int_client(conn, "hippocampal_memory_capacity");
+    c.hippocampal_repetition_alpha =
+        static_cast<float>(json_double_client(conn, "hippocampal_repetition_alpha", 0.0));
+    c.hippocampal_repetition_decay =
+        static_cast<float>(json_double_client(conn, "hippocampal_repetition_decay", 0.95));
+    c.hippocampal_cross_reference_alpha =
+        static_cast<float>(json_double_client(conn, "hippocampal_cross_reference_alpha", 0.0));
+    c.hippocampal_association_decay =
+        static_cast<float>(json_double_client(conn, "hippocampal_association_decay", 0.95));
+    c.sigreg_lambda = static_cast<float>(json_double_client(conn, "sigreg_lambda", 1.0));
+    c.sigreg_num_sketches = json_int_client(conn, "sigreg_num_sketches");
+    return c;
 }
 
 }  // namespace
@@ -419,20 +488,81 @@ std::optional<adai::ModelArchitecture> adai::ModelNameClient::get_architecture(
     }
     check_status(status, out, "get_architecture(" + model_name + ")");
 
+    const std::string kind = json_string_client(out, "kind");
+
+    // TD-196: a new-style chatbot (kind=="chatbot" with encoder_name/decoder_name linked) has no
+    // meaningful inline "arch" — compose it from the 2 linked records instead. A legacy chatbot
+    // (no encoder_name/decoder_name) and a standalone encoder/decoder/world_model record all fall
+    // through to the original inline-"arch" path below unchanged.
+    if (kind.empty() || kind == "chatbot") {
+        const adai::ClientModelConnection conn = parse_connection_from_record(out);
+        if (!conn.encoder_name.empty() && !conn.decoder_name.empty()) {
+            std::string enc_out, dec_out;
+            const int enc_status = http_get("/models/" + conn.encoder_name, enc_out);
+            const int dec_status = http_get("/models/" + conn.decoder_name, dec_out);
+            check_status(enc_status, enc_out,
+                        "get_architecture(" + model_name + ") -> encoder " + conn.encoder_name);
+            check_status(dec_status, dec_out,
+                        "get_architecture(" + model_name + ") -> decoder " + conn.decoder_name);
+            const ModelArchitecture enc_arch = parse_arch_from_record(enc_out);
+            const ModelArchitecture dec_arch = parse_arch_from_record(dec_out);
+
+            ModelArchitecture a;
+            a.d_model = enc_arch.d_model;
+            a.num_heads = enc_arch.num_heads;
+            a.d_ff = enc_arch.d_ff;
+            a.max_seq_length = enc_arch.max_seq_length;
+            a.num_encoder_layers = enc_arch.num_encoder_layers;
+            a.num_decoder_layers = dec_arch.num_decoder_layers;
+            return a;
+        }
+    }
+
     const auto arch_pos = out.find("\"arch\":{");
     if (arch_pos == std::string::npos) {
         return std::nullopt;
     }
-    const std::string arch = out.substr(arch_pos);
+    return parse_arch_from_record(out);
+}
 
-    ModelArchitecture a;
-    a.d_model = json_int_client(arch, "d_model");
-    a.num_heads = json_int_client(arch, "num_heads");
-    a.d_ff = json_int_client(arch, "d_ff");
-    a.num_encoder_layers = json_int_client(arch, "num_encoder_layers");
-    a.num_decoder_layers = json_int_client(arch, "num_decoder_layers");
-    a.max_seq_length = json_int_client(arch, "max_seq_length");
-    return a;
+std::optional<adai::ClientModelConnection> adai::ModelNameClient::get_connection(
+    const std::string& model_name) {
+    std::string out;
+    const int status = http_get("/models/" + model_name, out);
+    if (status == 404) {
+        return std::nullopt;
+    }
+    check_status(status, out, "get_connection(" + model_name + ")");
+    if (out.find("\"connection\":{") == std::string::npos) {
+        return std::nullopt;
+    }
+    return parse_connection_from_record(out);
+}
+
+bool adai::ModelNameClient::link_world_model(
+    const std::string& chatbot_name, const std::string& world_model_name,
+    size_t world_model_inject_every_n_layers, bool hippocampal_memory_enabled,
+    size_t hippocampal_memory_capacity, float hippocampal_repetition_alpha,
+    float hippocampal_repetition_decay, float hippocampal_cross_reference_alpha,
+    float hippocampal_association_decay) {
+    std::ostringstream body;
+    body << "{\"world_model_name\":\"" << json_escape_client(world_model_name) << "\""
+         << ",\"world_model_inject_every_n_layers\":" << world_model_inject_every_n_layers
+         << ",\"hippocampal_memory_enabled\":" << (hippocampal_memory_enabled ? "true" : "false")
+         << ",\"hippocampal_memory_capacity\":" << hippocampal_memory_capacity
+         << ",\"hippocampal_repetition_alpha\":" << hippocampal_repetition_alpha
+         << ",\"hippocampal_repetition_decay\":" << hippocampal_repetition_decay
+         << ",\"hippocampal_cross_reference_alpha\":" << hippocampal_cross_reference_alpha
+         << ",\"hippocampal_association_decay\":" << hippocampal_association_decay << "}";
+
+    std::string out;
+    const int status = http_post("/models/" + chatbot_name + "/link-world-model", body.str(), out);
+    if (status < 200 || status >= 300) {
+        Logger::warn("ModelNameClient: link_world_model({} -> {}) failed: HTTP {}: {}",
+                    chatbot_name, world_model_name, status, out);
+        return false;
+    }
+    return true;
 }
 
 adai::ResolvedModel adai::ModelNameClient::resolve_role(const std::string& role) {

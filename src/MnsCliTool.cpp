@@ -121,21 +121,47 @@ static void print_usage(const char* prog) {
               << "                         Also settable via NAME_SERVICE_URL env/config key.\n"
               << "  --config PATH          Path to config.mns.conf for URL and arch defaults.\n\n"
               << "Commands:\n"
-              << "  list [--state STATE] [--role ROLE] [--limit N]\n"
+              << "  list [--state STATE] [--role ROLE] [--kind KIND] [--limit N]\n"
               << "      List registered models.  Optional filters narrow results.\n\n"
               << "  get <name>\n"
               << "      Show the full record for a model.\n\n"
-              << "  register <name> <role> [--d-model N] [--num-heads N] [--d-ff N]\n"
+              << "  register <name> <role> [--kind encoder|decoder|world_model|chatbot]\n"
+              << "           [--d-model N] [--num-heads N] [--d-ff N] [--num-layers N]\n"
               << "           [--encoder-layers N] [--decoder-layers N] [--max-seq-length N]\n"
+              << "           [--encoder NAME] [--decoder NAME]\n"
+              << "           [--sigreg-lambda F] [--sigreg-num-sketches N]\n"
               << "           [--run-group GROUP] [--tag key=value ...]\n"
-              << "      Register a new model.  Architecture defaults come from config.mns.conf,\n"
-              << "      and — unlike --run-group — is immutable after register (changing it would\n"
-              << "      break checkpoint compatibility).\n"
+              << "      Register a new model.  --kind defaults to \"chatbot\" (unaffected — every\n"
+              << "      pre-existing invocation keeps working exactly as before).\n"
+              << "      For --kind encoder/decoder/world_model: register a standalone entity;\n"
+              << "      --num-layers sets that kind's own layer count (num_encoder_layers for\n"
+              << "      encoder/world_model, num_decoder_layers for decoder) — the other layer\n"
+              << "      count field must stay 0. world_model also accepts --sigreg-lambda/\n"
+              << "      --sigreg-num-sketches.\n"
+              << "      For --kind chatbot: EITHER legacy inline architecture (--d-model etc, as\n"
+              << "      before) OR --encoder NAME --decoder NAME to link to already-registered\n"
+              << "      encoder/decoder records (mutually exclusive with the inline architecture\n"
+              << "      flags) — the server rejects a dimensionally-incompatible pairing with 409.\n"
+              << "      Architecture is immutable after register (changing it would break\n"
+              << "      checkpoint compatibility).\n"
               << "      --run-group sets the dataset-registry group this model's trainer should\n"
               << "      use (see DatasetRegistry); omitted/empty means clients fall back to their\n"
               << "      own local RUN_GROUP config / SESSION_DIR-basename derivation. Safe to\n"
               << "      change later with 'update' (see below) — no checkpoint-compatibility\n"
               << "      concern the way architecture has.\n\n"
+              << "  link-world-model <chatbot-name> --world-model <name>\n"
+              << "                   [--inject-every-n-layers N] [--hippocampal-enabled]\n"
+              << "                   [--hippocampal-capacity N] [--hippocampal-repetition-alpha F]\n"
+              << "                   [--hippocampal-repetition-decay F]\n"
+              << "                   [--hippocampal-cross-reference-alpha F]\n"
+              << "                   [--hippocampal-association-decay F]\n"
+              << "      Attach/replace a chatbot-kind record's world-model connection (pass\n"
+              << "      --world-model \"\" to detach). Only valid on a chatbot-kind record; the\n"
+              << "      target must be a registered world_model. Mutable — unlike --encoder/\n"
+              << "      --decoder, swapping the world model doesn't break checkpoint compatibility.\n"
+              << "      Rejected with 409 if the world model's d_model doesn't match the chatbot's\n"
+              << "      own (via its --encoder link, or its inline d_model) whenever\n"
+              << "      --inject-every-n-layers > 0.\n\n"
               << "  update <name> --run-group <value>\n"
               << "      Set/change an already-registered model's run_group. The only per-model\n"
               << "      field with an update-after-register path — everything else (architecture,\n"
@@ -220,6 +246,10 @@ static int cmd_update_run_group(const ParsedUrl& u, const std::vector<std::strin
     return send(u, adai::build_update_run_group_request(args));
 }
 
+static int cmd_link_world_model(const ParsedUrl& u, const std::vector<std::string>& args) {
+    return send(u, adai::build_link_world_model_request(args));
+}
+
 static int cmd_health(const ParsedUrl& u) {
     return send(u, adai::build_health_request());
 }
@@ -276,6 +306,8 @@ int main(int argc, char* argv[]) {
         return cmd_register(url, cmd_args, svc_config);
     if (command == "update")
         return cmd_update_run_group(url, cmd_args);
+    if (command == "link-world-model")
+        return cmd_link_world_model(url, cmd_args);
     if (command == "resolve")
         return cmd_resolve(url, cmd_args);
     if (command == "set-training")
