@@ -1049,6 +1049,113 @@ TEST_F(MNSLiveTest, RegisterChatbot_EncoderNameReferencesWrongKindReturns400) {
     EXPECT_EQ(400, res->status);
 }
 
+// Regression tests for a review finding: handle_register() originally parsed
+// connection.world_model_name straight off the body with no validation at all, silently
+// accepting a nonexistent/wrong-kind/dimensionally-incompatible world model that
+// POST .../link-world-model correctly rejects — completely bypassing the checks
+// validate_world_model_link() (shared by both handlers) is supposed to enforce regardless of
+// which endpoint sets the link.
+
+TEST_F(MNSLiveTest, RegisterChatbot_WorldModelNameMismatchedDModelReturns409) {
+    const auto wm = make_model("regwmmm");
+    const auto bot = make_model("regwmmmbot");
+    auto c = make_client();
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + wm + "\",\"kind\":\"world_model\",\"arch\":" +
+                              arch_json(999, 4, 512, 6, 0, 256) + "}",
+                          "application/json")
+                       ->status);
+
+    // Chatbot's own d_model (128) doesn't match the world model's (999); setting
+    // world_model_name directly in the register body (not via link-world-model) must still be
+    // rejected the same way link-world-model would reject it.
+    const std::string bot_body =
+        "{\"model_name\":\"" + bot + "\",\"arch\":" + arch_json(128, 4, 512, 2, 2, 256) +
+        ",\"connection\":{\"world_model_name\":\"" + wm +
+        "\",\"world_model_inject_every_n_layers\":2}}";
+    auto res = c.Post("/models", bot_body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(409, res->status);
+
+    // Must not have been persisted at all — not half-registered with a bad link.
+    auto get_res = c.Get("/models/" + bot);
+    ASSERT_TRUE(get_res);
+    EXPECT_EQ(404, get_res->status);
+}
+
+TEST_F(MNSLiveTest, RegisterChatbot_WorldModelNameWrongKindReturns400) {
+    const auto not_wm = make_model("regwmwk");
+    const auto bot = make_model("regwmwkbot");
+    auto c = make_client();
+    // An ordinary chatbot-kind record used where a "world_model" is required.
+    ASSERT_EQ(201, c.Post("/models", "{\"model_name\":\"" + not_wm + "\"}", "application/json")
+                       ->status);
+
+    const std::string bot_body =
+        "{\"model_name\":\"" + bot + "\",\"arch\":" + arch_json(128, 4, 512, 2, 2, 256) +
+        ",\"connection\":{\"world_model_name\":\"" + not_wm + "\"}}";
+    auto res = c.Post("/models", bot_body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(400, res->status);
+
+    auto get_res = c.Get("/models/" + bot);
+    ASSERT_TRUE(get_res);
+    EXPECT_EQ(404, get_res->status);
+}
+
+TEST_F(MNSLiveTest, RegisterChatbot_WorldModelNameUnknownReturns400) {
+    const auto bot = make_model("regwmunknownbot");
+    auto c = make_client();
+    const std::string bot_body =
+        "{\"model_name\":\"" + bot + "\",\"arch\":" + arch_json(128, 4, 512, 2, 2, 256) +
+        ",\"connection\":{\"world_model_name\":\"no-such-world-model-xyzzy\"}}";
+    auto res = c.Post("/models", bot_body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(400, res->status);
+}
+
+TEST_F(MNSLiveTest, RegisterChatbot_WorldModelNameCompatibleSucceeds) {
+    const auto wm = make_model("regwmok");
+    const auto bot = make_model("regwmokbot");
+    auto c = make_client();
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + wm + "\",\"kind\":\"world_model\",\"arch\":" +
+                              arch_json(128, 4, 512, 6, 0, 256) + "}",
+                          "application/json")
+                       ->status);
+
+    const std::string bot_body =
+        "{\"model_name\":\"" + bot + "\",\"arch\":" + arch_json(128, 4, 512, 2, 2, 256) +
+        ",\"connection\":{\"world_model_name\":\"" + wm +
+        "\",\"world_model_inject_every_n_layers\":2}}";
+    auto res = c.Post("/models", bot_body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(201, res->status);
+
+    auto get_res = c.Get("/models/" + bot);
+    ASSERT_TRUE(get_res);
+    EXPECT_EQ(wm, json_str(get_res->body, "world_model_name"));
+}
+
+TEST_F(MNSLiveTest, RegisterChatbot_WorldModelNameZeroInjectSkipsDModelValidation) {
+    const auto wm = make_model("regwmskip");
+    const auto bot = make_model("regwmskipbot");
+    auto c = make_client();
+    // Mismatched d_model (64 vs the chatbot's own 128), but inject_every_n_layers defaults to 0.
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + wm + "\",\"kind\":\"world_model\",\"arch\":" +
+                              arch_json(64, 4, 512, 6, 0, 256) + "}",
+                          "application/json")
+                       ->status);
+
+    const std::string bot_body = "{\"model_name\":\"" + bot +
+                                 "\",\"arch\":" + arch_json(128, 4, 512, 2, 2, 256) +
+                                 ",\"connection\":{\"world_model_name\":\"" + wm + "\"}}";
+    auto res = c.Post("/models", bot_body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(201, res->status);
+}
+
 TEST_F(MNSLiveTest, ListModels_FilteredByKind) {
     const auto wm = make_model("kindfilterwm");
     auto c = make_client();

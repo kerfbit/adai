@@ -4,6 +4,89 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-197: MNS `handle_register()` Never Validated a Chatbot's `connection.world_model_name`, Bypassing `handle_link_world_model()`'s Own Checks
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 19, 2026 | Model Name Service (`mns_server`) | New shared `validate_world_model_link()`, called from both `handle_register()` and `handle_link_world_model()` (`src/ModelNameService.hpp`/`.cpp`) |
+
+Summary:
+Found during a full-text review pass requested immediately after TD-196 landed. TD-196 added
+`POST /models/{name}/link-world-model` (`handle_link_world_model()`) to attach a world model to a
+chatbot, validating two things server-side: the target must be a registered `world_model`-kind
+record, and its `d_model` must match the chatbot's own resolved `d_model` whenever
+`world_model_inject_every_n_layers > 0` (409 on mismatch) — exactly the "server validates at
+link/register time" contract the user asked for. But `handle_register()` (`POST /models`) also
+accepts a `connection` object in its own body, including `world_model_name`/
+`world_model_inject_every_n_layers` — and that code path parsed those fields with
+`parse_connection()` and stored them on the new record with **no validation at all**, silently
+skipping both checks.
+
+Confirmed live, not just by reading the diff:
+- `POST /models` with `{"model_name":"bot","arch":{"d_model":64,...},"connection":
+  {"world_model_name":"wm-999","world_model_inject_every_n_layers":3}}` returned `201` and
+  persisted the link even though `wm-999`'s own `d_model` was `999` — the identical pairing via
+  `POST /models/bot/link-world-model` correctly returns `409`.
+- `POST /models` with `connection.world_model_name` pointing at a plain `chatbot`-kind record
+  (not `kind:"world_model"` at all) also returned `201` — `link-world-model` correctly returns
+  `400` for the same target.
+
+This isn't just an API-consistency nit: `DecoderBlock` constructs `world_model_cross_attention`
+sized to the chatbot's own `d_model` (`src/DecoderBlock.cpp:45`), while the attached
+`LeJEPAEncoder::encode()` returns embeddings sized to the world model's own `d_model` — so a
+mismatched pairing accepted through `register` reaches a real dimension mismatch inside
+`CrossAttention::forward()` the first time such a chatbot is actually served or trained, exactly
+the class of bug the register/link-time validation was supposed to prevent from ever reaching
+that point.
+
+Design decision:
+
+- **Factored the shared checks into one `validate_world_model_link()` rather than duplicating
+  them in `handle_register()`** — the two handlers had already drifted apart once (this bug); a
+  second, independently-written copy of the same two checks in `handle_register()` would only
+  reproduce the same risk under a different name the next time either one changed.
+  `handle_link_world_model()` itself was refactored to call the new shared method too, so there is
+  now exactly one place that decides whether a world-model link is valid.
+
+Changes Made:
+
+- `src/ModelNameService.hpp`: added `#include <optional>`; new private
+  `validate_world_model_link(const ModelRecord&, const std::string& world_model_name, size_t
+  inject_every_n_layers) const` declaration, returning `std::optional<std::pair<int,
+  std::string>>` (an error pair, or `std::nullopt` on success). Version 1.1.0 → 1.1.1.
+- `src/ModelNameService.cpp`: new `validate_world_model_link()` implementation (the exact checks
+  `handle_link_world_model()` used to inline: target exists and `kind=="world_model"`, `d_model`
+  match required whenever `inject_every_n_layers > 0`, resolving the chatbot's own `d_model` via
+  its linked encoder for a new-style chatbot or its inline field for a legacy one). Called from
+  `handle_register()`'s `chatbot` branch whenever `connection.world_model_name` is non-empty (a
+  failure aborts registration entirely — nothing is persisted). `handle_link_world_model()`
+  rewritten to call the same method instead of its own inline copy. Version 1.0.1 → 1.0.2.
+- `tests/model_name_service_live_test.cpp`: 5 new `MNSLiveTest` regression cases —
+  `RegisterChatbot_WorldModelNameMismatchedDModelReturns409` (and confirms the record was never
+  persisted — a 404 on the follow-up `GET`), `RegisterChatbot_WorldModelNameWrongKindReturns400`,
+  `RegisterChatbot_WorldModelNameUnknownReturns400`, `RegisterChatbot_WorldModelNameCompatibleSucceeds`,
+  `RegisterChatbot_WorldModelNameZeroInjectSkipsDModelValidation` (mirrors
+  `LinkWorldModel_ZeroInjectSkipsDModelValidation`'s own coverage for the register-time path).
+
+Verification:
+
+- ✅ Live repro against a real `mns_server`, pre-fix: confirmed both bypasses (mismatched
+  `d_model` accepted with `201`; wrong-kind target accepted with `201`) via direct `curl`.
+- ✅ Same repro, post-fix: both now correctly rejected (`409` and `400` respectively), and the
+  bad chatbot record is never persisted (`GET` afterward returns `404`).
+- ✅ All 62 `MNSLiveTests` cases (39 pre-TD-196 + 18 from TD-196 + 5 new here) passing against a
+  live `mns_server`.
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean.
+- ✅ Full `ctest` suite: 136/136 passing.
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+
+Files Changed:
+
+- `src/ModelNameService.hpp`
+- `src/ModelNameService.cpp`
+- `tests/model_name_service_live_test.cpp`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-196: MNS `kind` Schema + Encoder/Decoder/World-Model Connection Standard
 
 | Resolution Date | Component | Resolved By |

@@ -1,14 +1,15 @@
 #pragma once
 
-// @adai-status: stable        (TD-196 — model `kind` + encoder/decoder/world-model connection standard added)
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-09-18
+// @adai-status: stable        (TD-197 — validate_world_model_link() declared, shared by handle_register()/handle_link_world_model())
+// @adai-version: 1.1.1
+// @adai-reviewed: 2026-09-19
 
 
 #include <atomic>
 #include <chrono>
 #include <map>
 #include <memory>
+#include <optional>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
@@ -230,6 +231,15 @@ class ModelNameService {
     // whenever world_model_inject_every_n_layers > 0 — 409 Conflict on mismatch.
     std::pair<int, std::string> handle_link_world_model(const std::string& name,
                                                         const std::string& body);
+
+    // TD-196: shared world-model-link validation used by both handle_register() (a chatbot
+    // registering with connection.world_model_name already set in its body — found, during
+    // review, to have been silently skipping this check entirely) and handle_link_world_model()
+    // (POST .../link-world-model). Requires `models_` already locked by the caller (both do).
+    // Returns an {status, json_body} error pair on failure, std::nullopt on success.
+    std::optional<std::pair<int, std::string>> validate_world_model_link(
+        const ModelRecord& r, const std::string& world_model_name,
+        size_t inject_every_n_layers) const;
 
     // ── Persistence ──────────────────────────────────────────────────────────
     void load_from_disk();

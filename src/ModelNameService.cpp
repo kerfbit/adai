@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-12
+// @adai-version: 1.0.2
+// @adai-reviewed: 2026-09-19
 
 #include "ModelNameService.hpp"
 #include <httplib.h>
@@ -1209,6 +1209,44 @@ void adai::ModelNameService::rewrite_models_jsonl() {
     // in-memory map was already updated before this call.
 }
 
+// TD-196: shared validation for a chatbot-kind record's world-model link — used by both
+// handle_register() (connection.world_model_name set directly in the register body) and
+// handle_link_world_model() (POST .../link-world-model), so the two can't drift apart the way
+// they did before this was factored out (handle_register originally didn't validate this field
+// at all). Requires `models_` already locked by the caller (both do, via a std::unique_lock held
+// across the whole handler). Returns an {status, json_body} error pair on failure, std::nullopt
+// on success.
+std::optional<std::pair<int, std::string>> adai::ModelNameService::validate_world_model_link(
+    const ModelRecord& r, const std::string& world_model_name,
+    size_t inject_every_n_layers) const {
+    const auto wm_it = models_.find(world_model_name);
+    if (wm_it == models_.end() || wm_it->second.kind != "world_model") {
+        return std::make_pair(400, "{\"error\":\"world_model_name '" + world_model_name +
+                                        "' is not a registered world_model\"}");
+    }
+    const ModelRecord& wm = wm_it->second;
+
+    // The chatbot's own d_model — via its linked encoder for a new-style chatbot, or its own
+    // inline field for a legacy one (see ModelRecord::kind's own doc comment).
+    const size_t chatbot_d_model = [&]() -> size_t {
+        if (!r.connection.encoder_name.empty()) {
+            const auto enc_it = models_.find(r.connection.encoder_name);
+            if (enc_it != models_.end())
+                return enc_it->second.d_model;
+        }
+        return r.d_model;
+    }();
+
+    if (inject_every_n_layers > 0 && wm.d_model != chatbot_d_model) {
+        return std::make_pair(
+            409, "{\"error\":\"world model '" + world_model_name + "' d_model (" +
+                     std::to_string(wm.d_model) + ") does not match chatbot '" + r.model_name +
+                     "' d_model (" + std::to_string(chatbot_d_model) +
+                     ") — required whenever world_model_inject_every_n_layers > 0\"}");
+    }
+    return std::nullopt;
+}
+
 // ============================================================================
 // Handler: POST /models
 // ============================================================================
@@ -1310,6 +1348,17 @@ std::pair<int, std::string> adai::ModelNameService::handle_register(const std::s
                         "{\"error\":\"encoder '" + r.connection.encoder_name + "' and decoder '" +
                             r.connection.decoder_name +
                             "' have incompatible d_model/num_heads/d_ff/max_seq_length\"}"};
+            }
+        }
+        // TD-196 (follow-up): a chatbot can also arrive with connection.world_model_name already
+        // set directly in the register body (not just via the later, mutable
+        // POST .../link-world-model path) — this used to skip validation entirely, silently
+        // accepting a nonexistent/wrong-kind/dimensionally-incompatible world model that
+        // POST .../link-world-model would reject with 400/409. Same check, same call either way.
+        if (!r.connection.world_model_name.empty()) {
+            if (auto err = validate_world_model_link(r, r.connection.world_model_name,
+                                                      r.connection.world_model_inject_every_n_layers)) {
+                return *err;
             }
         }
     }
@@ -1602,32 +1651,11 @@ std::pair<int, std::string> adai::ModelNameService::handle_link_world_model(
         return {200, "{\"status\":\"ok\",\"world_model_name\":\"\"}"};
     }
 
-    const auto wm_it = models_.find(world_model_name);
-    if (wm_it == models_.end() || wm_it->second.kind != "world_model") {
-        return {400, "{\"error\":\"world_model_name '" + world_model_name +
-                         "' is not a registered world_model\"}"};
-    }
-    const ModelRecord& wm = wm_it->second;
-
     const size_t inject_every_n_layers =
         static_cast<size_t>(json_int(body, "world_model_inject_every_n_layers", 0));
 
-    // The chatbot's own d_model — via its linked encoder for a new-style chatbot, or its own
-    // inline field for a legacy one (see ModelRecord::kind's own doc comment).
-    const size_t chatbot_d_model = [&]() -> size_t {
-        if (!r.connection.encoder_name.empty()) {
-            const auto enc_it = models_.find(r.connection.encoder_name);
-            if (enc_it != models_.end())
-                return enc_it->second.d_model;
-        }
-        return r.d_model;
-    }();
-
-    if (inject_every_n_layers > 0 && wm.d_model != chatbot_d_model) {
-        return {409, "{\"error\":\"world model '" + world_model_name + "' d_model (" +
-                         std::to_string(wm.d_model) + ") does not match chatbot '" + name +
-                         "' d_model (" + std::to_string(chatbot_d_model) +
-                         ") — required whenever world_model_inject_every_n_layers > 0\"}"};
+    if (auto err = validate_world_model_link(r, world_model_name, inject_every_n_layers)) {
+        return *err;
     }
 
     r.connection.world_model_name = world_model_name;

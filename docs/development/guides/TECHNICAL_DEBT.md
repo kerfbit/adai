@@ -10,8 +10,22 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 183
+**Resolved Items:** 184
 **Deferred Decisions:** 3
+
+**September 19, 2026 (same day):** Filed and resolved
+[TD-197](../archive/TECHNICAL_DEBT_RESOLVED.md#td-197-mns-handle_register-never-validated-a-chatbots-connectionworld_model_name-bypassing-handle_link_world_models-own-checks)
+— found during a full-text review pass over TD-196's own diff (requested immediately after that
+commit landed). `handle_register()` parsed a chatbot's `connection.world_model_name`/
+`world_model_inject_every_n_layers` straight off the request body with no validation at all,
+while `handle_link_world_model()` enforced both "target must be `kind==world_model`" and the
+`d_model`-match constraint. Confirmed live (not just by reading the diff): registering a chatbot
+with `connection.world_model_name` pointing at a dimensionally-incompatible or wrong-kind record
+succeeded with `201`, persisting exactly the inconsistent pairing the link endpoint exists to
+reject — a real path to a downstream `CrossAttention` dimension mismatch once such a chatbot is
+served or trained, not just an API-consistency nit. Fixed by factoring the shared checks into a
+new `validate_world_model_link()`, called from both `handle_register()` and
+`handle_link_world_model()` so the two can no longer drift apart. See its own archive entry.
 
 **September 19, 2026:** Filed and resolved
 [TD-196](../archive/TECHNICAL_DEBT_RESOLVED.md#td-196-mns-model-kind-schema--encoderdecoderworld-model-connection-standard)
@@ -380,7 +394,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (183 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (184 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
