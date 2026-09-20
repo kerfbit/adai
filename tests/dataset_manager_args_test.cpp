@@ -177,3 +177,59 @@ TEST(ParseDeleteArgs, DefaultsFlagsFalse) {
     EXPECT_FALSE(r.force);
     EXPECT_FALSE(r.delete_files);
 }
+
+// ============================================================================
+// TD-202: is_valid_dataset_kind / parse_migrate_args
+// ============================================================================
+
+TEST(IsValidDatasetKind, AcceptsExactlyMnsKindVocabulary) {
+    EXPECT_TRUE(is_valid_dataset_kind("encoder"));
+    EXPECT_TRUE(is_valid_dataset_kind("decoder"));
+    EXPECT_TRUE(is_valid_dataset_kind("world_model"));
+    EXPECT_TRUE(is_valid_dataset_kind("chatbot"));
+}
+
+TEST(IsValidDatasetKind, RejectsEmptyAndUnknownValues) {
+    EXPECT_FALSE(is_valid_dataset_kind(""));
+    EXPECT_FALSE(is_valid_dataset_kind("Encoder"))
+        << "case-sensitive, matching MNS's own kind check";
+    EXPECT_FALSE(is_valid_dataset_kind("not_a_kind"));
+}
+
+TEST(ParseMigrateArgs, RequiresKind) {
+    EXPECT_TRUE(parse_migrate_args({}).error);
+}
+
+TEST(ParseMigrateArgs, RejectsInvalidKind) {
+    auto r = parse_migrate_args({"not_a_kind"});
+    EXPECT_TRUE(r.error);
+    EXPECT_NE(r.error_message.find("not_a_kind"), std::string::npos);
+}
+
+TEST(ParseMigrateArgs, NoFilesOrCountMeansMigrateAll) {
+    auto r = parse_migrate_args({"world_model"});
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.kind, "world_model");
+    EXPECT_TRUE(r.targets.empty());
+    EXPECT_EQ(r.count, 0);
+}
+
+TEST(ParseMigrateArgs, ExplicitFilesAreCollectedAsTargets) {
+    auto r = parse_migrate_args({"chatbot", "file1.jsonl", "file2.jsonl"});
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.kind, "chatbot");
+    EXPECT_EQ(r.targets, (std::vector<std::string>{"file1.jsonl", "file2.jsonl"}));
+}
+
+TEST(ParseMigrateArgs, CountFlagIsParsed) {
+    auto r = parse_migrate_args({"encoder", "--count", "5"});
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.kind, "encoder");
+    EXPECT_EQ(r.count, 5);
+    EXPECT_TRUE(r.targets.empty());
+}
+
+TEST(ParseMigrateArgs, InvalidCountValueIsAnError) {
+    auto r = parse_migrate_args({"decoder", "--count", "not-a-number"});
+    EXPECT_TRUE(r.error);
+}

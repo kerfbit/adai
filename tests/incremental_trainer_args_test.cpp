@@ -34,6 +34,7 @@ TEST(ParseIncrementalTrainerGlobalArgs, NoArgsLeavesEverythingUnsetAndCommandLis
     EXPECT_FALSE(r.foreground);
     EXPECT_FALSE(r.admin_port.has_value());
     EXPECT_EQ(r.objective, "chatbot");
+    EXPECT_FALSE(r.dataset_kind.has_value());
     EXPECT_TRUE(r.args.empty());
 }
 
@@ -49,6 +50,8 @@ TEST(ParseIncrementalTrainerGlobalArgs, StripsGlobalFlagsAndKeepsCommandArgs) {
                                     "--admin-port",
                                     "18432",
                                     "--objective=lejepa",
+                                    "--dataset-kind",
+                                    "world_model",
                                     "train",
                                     "5"};
     auto argv = make_argv(raw);
@@ -64,9 +67,31 @@ TEST(ParseIncrementalTrainerGlobalArgs, StripsGlobalFlagsAndKeepsCommandArgs) {
     ASSERT_TRUE(r.admin_port.has_value());
     EXPECT_EQ(*r.admin_port, 18432);
     EXPECT_EQ(r.objective, "lejepa");
+    ASSERT_TRUE(r.dataset_kind.has_value());
+    EXPECT_EQ(*r.dataset_kind, "world_model");
     ASSERT_EQ(r.args.size(), 2u);
     EXPECT_EQ(r.args[0], "train");
     EXPECT_EQ(r.args[1], "5");
+}
+
+TEST(ParseIncrementalTrainerGlobalArgs, DatasetKindFlagUnsetWhenAbsent) {
+    // TD-202: absent --dataset-kind means "use the automatic objective->kind default computed
+    // in IncrementalTrainingTool.cpp's main()" — this parser itself has no default to fall back
+    // to, hence std::optional rather than a plain string.
+    std::vector<std::string> raw = {"incremental_trainer", "train"};
+    auto argv = make_argv(raw);
+    auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+    EXPECT_FALSE(r.dataset_kind.has_value());
+}
+
+TEST(ParseIncrementalTrainerGlobalArgs, DatasetKindMissingItsValueFallsThroughAsPositional) {
+    std::vector<std::string> raw = {"incremental_trainer", "train", "--dataset-kind"};
+    auto argv = make_argv(raw);
+    auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+    EXPECT_FALSE(r.dataset_kind.has_value());
+    ASSERT_EQ(r.args.size(), 2u);
+    EXPECT_EQ(r.args[0], "train");
+    EXPECT_EQ(r.args[1], "--dataset-kind");
 }
 
 TEST(ParseIncrementalTrainerGlobalArgs, ObjectiveFlagDefaultsToChatbotWhenAbsent) {

@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.9.2
-// @adai-reviewed: 2026-09-13
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-09-19
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) is hardened to
@@ -105,11 +105,24 @@ static std::mutex groups_mtx;
 static std::map<std::string, GroupState> groups;
 static std::string data_dir = "registry_sessions";
 
-static GroupState& get_group(const std::string& group) {
+// TD-202: kind partitions a group's pending pool into its own physical sub-directory — one per
+// trainable piece (encoder/decoder/world_model/chatbot, same vocabulary as MNS's own
+// ModelRecord::kind, TD-196) — so e.g. --objective=lejepa's world-model pretraining data never
+// leaks into plain chatbot fine-tuning's own pool, or vice versa. Empty kind reproduces today's
+// exact single-pool-per-group behavior byte-for-byte; this is what keeps every already-deployed
+// group working untouched after this upgrade. Shared by get_group() and every path builder below
+// that (like the Gutenberg/HuggingFace fetch-cursor and dataset-output paths) doesn't go through
+// get_group() at all but still needs to land inside the same kind-scoped sub-directory.
+static std::string group_dir(const std::string& group, const std::string& kind) {
+    return kind.empty() ? data_dir + "/" + group : data_dir + "/" + group + "/" + kind;
+}
+
+static GroupState& get_group(const std::string& group, const std::string& kind) {
     std::lock_guard<std::mutex> lock(groups_mtx);
-    auto& gs = groups[group];
+    const std::string map_key = kind.empty() ? group : group + "/" + kind;
+    auto& gs = groups[map_key];
     if (!gs.transport) {
-        const std::string dir = data_dir + "/" + group;
+        const std::string dir = group_dir(group, kind);
         fs::create_directories(dir);
         gs.transport = std::make_unique<LocalTransport>(dir + "/data_registry.txt",
                                                         dir + "/pending_files.txt");
@@ -361,8 +374,8 @@ static bool path_resolves_under(const std::string& path, const fs::path& root) {
 
 // GET /registry/<group>/queue
 static void handle_queue(const httplib::Request& req, httplib::Response& res,
-                         const std::string& group) {
-    auto& gs = get_group(group);
+                         const std::string& group, const std::string& kind) {
+    auto& gs = get_group(group, kind);
     std::lock_guard<std::mutex> lock(gs.mtx);
 
     std::vector<PendingEntry> entries;
@@ -391,7 +404,7 @@ static void handle_queue(const httplib::Request& req, httplib::Response& res,
 // Legacy format ("acquired":[...]) is used when ftp_enabled is false so that
 // old RemoteTransport clients continue to work.
 static void handle_acquire(const httplib::Request& req, httplib::Response& res,
-                           const std::string& group) {
+                           const std::string& group, const std::string& kind) {
     const std::string run_id = json_string(req.body, "run_id");
     const std::string model_name = json_string(req.body, "model_name");
     const int max_files = json_int(req.body, "max_files", 0);
@@ -402,7 +415,7 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
         return;
     }
 
-    auto& gs = get_group(group);
+    auto& gs = get_group(group, kind);
     std::lock_guard<std::mutex> lock(gs.mtx);
 
     std::vector<PendingEntry> entries;
@@ -572,11 +585,11 @@ static bool is_safe_model_name(const std::string& s) {
 }
 
 static void handle_release(const httplib::Request& req, httplib::Response& res,
-                           const std::string& group) {
+                           const std::string& group, const std::string& kind) {
     const std::string run_id = json_string(req.body, "run_id");
     const std::vector<std::string> files = json_string_array(req.body, "files");
 
-    auto& gs = get_group(group);
+    auto& gs = get_group(group, kind);
     std::lock_guard<std::mutex> lock(gs.mtx);
 
     std::vector<PendingEntry> entries;
@@ -615,7 +628,7 @@ static void handle_release(const httplib::Request& req, httplib::Response& res,
 // The response always includes the exact list of paths touched, since the
 // count-based mode doesn't otherwise tell the caller which files were picked.
 static void handle_assign(const httplib::Request& req, httplib::Response& res,
-                          const std::string& group) {
+                          const std::string& group, const std::string& kind) {
     const std::string model_name = json_string(req.body, "model_name");
     const std::vector<std::string> paths = json_string_array(req.body, "paths");
     const int count = json_int(req.body, "count", 0);
@@ -628,7 +641,7 @@ static void handle_assign(const httplib::Request& req, httplib::Response& res,
         return;
     }
 
-    auto& gs = get_group(group);
+    auto& gs = get_group(group, kind);
     std::lock_guard<std::mutex> lock(gs.mtx);
 
     std::vector<PendingEntry> entries;
@@ -685,7 +698,7 @@ static void handle_assign(const httplib::Request& req, httplib::Response& res,
 // skipped unless force:true is passed, to avoid yanking the assignment out
 // from under an in-flight run.
 static void handle_unassign(const httplib::Request& req, httplib::Response& res,
-                            const std::string& group) {
+                            const std::string& group, const std::string& kind) {
     const std::string model_name = json_string(req.body, "model_name");
     const std::vector<std::string> paths = json_string_array(req.body, "paths");
     const bool force = json_bool(req.body, "force", false);
@@ -705,7 +718,7 @@ static void handle_unassign(const httplib::Request& req, httplib::Response& res,
         return;
     }
 
-    auto& gs = get_group(group);
+    auto& gs = get_group(group, kind);
     std::lock_guard<std::mutex> lock(gs.mtx);
 
     std::vector<PendingEntry> entries;
@@ -770,7 +783,7 @@ static void handle_unassign(const httplib::Request& req, httplib::Response& res,
 // touched, since the server has no business reaching outside its own managed
 // directory tree.
 static void handle_delete(const httplib::Request& req, httplib::Response& res,
-                          const std::string& group) {
+                          const std::string& group, const std::string& kind) {
     const std::vector<std::string> paths = json_string_array(req.body, "paths");
     const bool force = json_bool(req.body, "force", false);
     const bool delete_files = json_bool(req.body, "delete_files", false);
@@ -782,7 +795,7 @@ static void handle_delete(const httplib::Request& req, httplib::Response& res,
         return;
     }
 
-    auto& gs = get_group(group);
+    auto& gs = get_group(group, kind);
     std::lock_guard<std::mutex> lock(gs.mtx);
 
     std::vector<PendingEntry> pending;
@@ -891,13 +904,13 @@ static void handle_delete(const httplib::Request& req, httplib::Response& res,
 
 // POST /registry/<group>/trained  {"run_id":"...","files":[...],"samples":[...],"model_id":"..."}
 static void handle_trained(const httplib::Request& req, httplib::Response& res,
-                           const std::string& group) {
+                           const std::string& group, const std::string& kind) {
     const std::string run_id = json_string(req.body, "run_id");
     const std::string model_id = json_string(req.body, "model_id");
     const std::vector<std::string> files = json_string_array(req.body, "files");
     const std::vector<int> samples = json_int_array(req.body, "samples");
 
-    auto& gs = get_group(group);
+    auto& gs = get_group(group, kind);
     std::lock_guard<std::mutex> lock(gs.mtx);
 
     // Phase 15: look up each trained path's originating PendingEntry before it's
@@ -969,8 +982,8 @@ static void handle_trained(const httplib::Request& req, httplib::Response& res,
 
 // GET /registry/<group>/registry
 static void handle_registry(const httplib::Request& req, httplib::Response& res,
-                            const std::string& group) {
-    auto& gs = get_group(group);
+                            const std::string& group, const std::string& kind) {
+    auto& gs = get_group(group, kind);
     std::lock_guard<std::mutex> lock(gs.mtx);
 
     std::vector<DataVersion> reg;
@@ -993,8 +1006,8 @@ static void handle_registry(const httplib::Request& req, httplib::Response& res,
 
 // GET /registry/<group>/runs
 static void handle_runs(const httplib::Request& req, httplib::Response& res,
-                        const std::string& group) {
-    auto& gs = get_group(group);
+                        const std::string& group, const std::string& kind) {
+    auto& gs = get_group(group, kind);
     std::lock_guard<std::mutex> lock(gs.mtx);
 
     std::vector<PendingEntry> entries;
@@ -1028,10 +1041,10 @@ static void handle_runs(const httplib::Request& req, httplib::Response& res,
 
 // GET /registry/<group>/history?model_id=<uuid>
 static void handle_history(const httplib::Request& req, httplib::Response& res,
-                           const std::string& group) {
+                           const std::string& group, const std::string& kind) {
     const std::string filter_id = req.has_param("model_id") ? req.get_param_value("model_id") : "";
 
-    auto& gs = get_group(group);
+    auto& gs = get_group(group, kind);
     std::lock_guard<std::mutex> lock(gs.mtx);
 
     std::vector<DataVersion> reg;
@@ -1100,7 +1113,7 @@ static bool add_pending_path_locked(GroupState& gs, const std::string& path,
 // from handle_acquire()'s own warning (or not at all, if FTP happens to be
 // disabled at add-time and enabled later).
 static void handle_pending_add(const httplib::Request& req, httplib::Response& res,
-                               const std::string& group) {
+                               const std::string& group, const std::string& kind) {
     const std::string path = json_string(req.body, "path");
     if (path.empty()) {
         res.status = 400;
@@ -1116,7 +1129,7 @@ static void handle_pending_add(const httplib::Request& req, httplib::Response& r
             group, path);
     }
 
-    auto& gs = get_group(group);
+    auto& gs = get_group(group, kind);
     std::lock_guard<std::mutex> lock(gs.mtx);
 
     if (!add_pending_path_locked(gs, path, "manual")) {
@@ -1170,17 +1183,18 @@ static std::string flatten_for_path(std::string s) {
     return s;
 }
 
-static std::string hf_cursor_path(const std::string& group, const std::string& dataset_id,
-                                  const std::string& split, const std::string& model_name) {
+static std::string hf_cursor_path(const std::string& group, const std::string& kind,
+                                  const std::string& dataset_id, const std::string& split,
+                                  const std::string& model_name) {
     const std::string safe_model = model_name.empty() ? "_unassigned" : flatten_for_path(model_name);
-    return data_dir + "/" + group + "/fetch_cursors/hf_" + flatten_for_path(dataset_id) + "__" +
+    return group_dir(group, kind) + "/fetch_cursors/hf_" + flatten_for_path(dataset_id) + "__" +
           flatten_for_path(split) + "__" + safe_model + ".txt";
 }
 
-static std::string gutenberg_cursor_path(const std::string& group, int book_id,
-                                         const std::string& model_name) {
+static std::string gutenberg_cursor_path(const std::string& group, const std::string& kind,
+                                         int book_id, const std::string& model_name) {
     const std::string safe_model = model_name.empty() ? "_unassigned" : flatten_for_path(model_name);
-    return data_dir + "/" + group + "/fetch_cursors/gutenberg_" + std::to_string(book_id) + "__" +
+    return group_dir(group, kind) + "/fetch_cursors/gutenberg_" + std::to_string(book_id) + "__" +
           safe_model + ".txt";
 }
 
@@ -1208,7 +1222,7 @@ static void write_cursor(const std::string& path, int offset) {
 // same response shape as fetch/huggingface so both sources are served
 // identically to the requesting trainer.
 static void handle_fetch_gutenberg(const httplib::Request& req, httplib::Response& res,
-                                   const std::string& group) {
+                                   const std::string& group, const std::string& kind) {
     const int book_id = json_int(req.body, "book_id", -1);
     const int num_pairs = json_int(req.body, "num_pairs", 500);
     const std::string model_name = json_string(req.body, "model_name");
@@ -1225,7 +1239,7 @@ static void handle_fetch_gutenberg(const httplib::Request& req, httplib::Respons
         return;
     }
 
-    const std::string out_dir = data_dir + "/" + group + "/datasets";
+    const std::string out_dir = group_dir(group, kind) + "/datasets";
     FetcherConfig fcfg;
     fcfg.gutenberg_output_dir = out_dir;
     DataFetcher fetcher(fcfg);
@@ -1239,7 +1253,7 @@ static void handle_fetch_gutenberg(const httplib::Request& req, httplib::Respons
         return;
     }
 
-    const std::string cursor_path = gutenberg_cursor_path(group, book_id, model_name);
+    const std::string cursor_path = gutenberg_cursor_path(group, kind, book_id, model_name);
     const int offset = read_cursor(cursor_path);
 
     const std::string safe_model = model_name.empty() ? "_unassigned" : flatten_for_path(model_name);
@@ -1259,7 +1273,7 @@ static void handle_fetch_gutenberg(const httplib::Request& req, httplib::Respons
     }
     write_cursor(cursor_path, next_offset);
 
-    auto& gs = get_group(group);
+    auto& gs = get_group(group, kind);
     std::lock_guard<std::mutex> lock(gs.mtx);
     add_pending_path_locked(gs, path, "gutenberg", pairs_written);
 
@@ -1281,7 +1295,7 @@ static void handle_fetch_gutenberg(const httplib::Request& req, httplib::Respons
 // per-(dataset_id,split,model_name) cursor rather than always the first
 // num_pairs rows, wrapping around to row 0 once the dataset is exhausted.
 static void handle_fetch_huggingface(const httplib::Request& req, httplib::Response& res,
-                                     const std::string& group) {
+                                     const std::string& group, const std::string& kind) {
     const std::string dataset_id = json_string(req.body, "dataset_id");
     const int num_pairs = json_int(req.body, "num_pairs", 500);
     std::string split = json_string(req.body, "split");
@@ -1307,7 +1321,7 @@ static void handle_fetch_huggingface(const httplib::Request& req, httplib::Respo
         return;
     }
 
-    const std::string out_dir = data_dir + "/" + group + "/datasets";
+    const std::string out_dir = group_dir(group, kind) + "/datasets";
     FetcherConfig fcfg;
     fcfg.huggingface_output_dir = out_dir;
     DataFetcher fetcher(fcfg);
@@ -1322,7 +1336,7 @@ static void handle_fetch_huggingface(const httplib::Request& req, httplib::Respo
         return;
     }
 
-    const std::string cursor_path = hf_cursor_path(group, dataset_id, split, model_name);
+    const std::string cursor_path = hf_cursor_path(group, kind, dataset_id, split, model_name);
     const int offset = read_cursor(cursor_path);
 
     const std::string safe_id = flatten_for_path(dataset_id);
@@ -1343,7 +1357,7 @@ static void handle_fetch_huggingface(const httplib::Request& req, httplib::Respo
     }
     write_cursor(cursor_path, next_offset);
 
-    auto& gs = get_group(group);
+    auto& gs = get_group(group, kind);
     std::lock_guard<std::mutex> lock(gs.mtx);
     add_pending_path_locked(gs, path, "huggingface", pairs_written);
 
@@ -1358,7 +1372,7 @@ static void handle_fetch_huggingface(const httplib::Request& req, httplib::Respo
 
 // POST /registry/<group>/upload?filename=<name>  (raw body = file bytes)
 static void handle_upload(const httplib::Request& req, httplib::Response& res,
-                          const std::string& group) {
+                          const std::string& group, const std::string& kind) {
     const std::string filename =
         req.has_param("filename") ? req.get_param_value("filename") : "";
     if (!is_safe_upload_filename(filename)) {
@@ -1374,7 +1388,7 @@ static void handle_upload(const httplib::Request& req, httplib::Response& res,
         return;
     }
 
-    const std::string dir = data_dir + "/" + group + "/uploads";
+    const std::string dir = group_dir(group, kind) + "/uploads";
     fs::create_directories(dir);
     const std::string path = dir + "/" + filename;
 
@@ -1387,7 +1401,7 @@ static void handle_upload(const httplib::Request& req, httplib::Response& res,
     }
     out.close();
 
-    auto& gs = get_group(group);
+    auto& gs = get_group(group, kind);
     std::lock_guard<std::mutex> lock(gs.mtx);
     add_pending_path_locked(gs, path, "upload");
 
@@ -1489,7 +1503,7 @@ static void handle_admin_put_config(const httplib::Request& req, httplib::Respon
 // ============================================================================
 
 static void handle_session_next(const httplib::Request& req, httplib::Response& res,
-                                const std::string& /*group*/) {
+                                const std::string& /*group*/, const std::string& /*kind*/) {
     const std::string model_name = json_string(req.body, "model_name");
     const std::string run_id = json_string(req.body, "run_id");
     if (run_id.empty()) {
@@ -1650,57 +1664,76 @@ int main(int argc, char* argv[]) {
     httplib::Server svr;
     g_server = &svr;
 
-    // Route all /registry/<group>/... paths
-    svr.Get(R"(/registry/([^/]+)/queue)", [](const httplib::Request& r, httplib::Response& res) {
-        handle_queue(r, res, r.matches[1]);
-    });
-    svr.Post(R"(/registry/([^/]+)/acquire)", [](const httplib::Request& r, httplib::Response& res) {
-        handle_acquire(r, res, r.matches[1]);
-    });
-    svr.Post(R"(/registry/([^/]+)/session/next)",
+    // Route all /registry/<group>/... paths. TD-202: every pattern gains an optional kind
+    // segment right after the group capture — (?:/(encoder|decoder|world_model|chatbot))? — so
+    // one regex handles both today's 2-segment legacy URL (kind unmatched, r.matches[2] == "")
+    // and the new 3-segment kind-scoped URL. [^/]+ can never cross a '/', so a bare group name
+    // (e.g. "foo") and a kind-qualified one (e.g. "foo/encoder") never collide regardless of
+    // segment count. A mistyped/unknown kind value simply fails to match any route (404) rather
+    // than reaching a handler — the closed alternation *is* the validation, so no handler needs
+    // its own redundant kind check.
+#define ADAI_KIND_SEGMENT R"((?:/(encoder|decoder|world_model|chatbot))?)"
+    svr.Get(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/queue)",
+            [](const httplib::Request& r, httplib::Response& res) {
+                handle_queue(r, res, r.matches[1], r.matches[2]);
+            });
+    svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/acquire)",
              [](const httplib::Request& r, httplib::Response& res) {
-                 handle_session_next(r, res, r.matches[1]);
+                 handle_acquire(r, res, r.matches[1], r.matches[2]);
              });
-    svr.Post(R"(/registry/([^/]+)/release)", [](const httplib::Request& r, httplib::Response& res) {
-        handle_release(r, res, r.matches[1]);
-    });
-    svr.Post(R"(/registry/([^/]+)/assign)", [](const httplib::Request& r, httplib::Response& res) {
-        handle_assign(r, res, r.matches[1]);
-    });
-    svr.Post(R"(/registry/([^/]+)/unassign)",
+    svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/session/next)",
              [](const httplib::Request& r, httplib::Response& res) {
-                 handle_unassign(r, res, r.matches[1]);
+                 handle_session_next(r, res, r.matches[1], r.matches[2]);
              });
-    svr.Post(R"(/registry/([^/]+)/delete)", [](const httplib::Request& r, httplib::Response& res) {
-        handle_delete(r, res, r.matches[1]);
-    });
-    svr.Post(R"(/registry/([^/]+)/trained)", [](const httplib::Request& r, httplib::Response& res) {
-        handle_trained(r, res, r.matches[1]);
-    });
-    svr.Get(R"(/registry/([^/]+)/registry)", [](const httplib::Request& r, httplib::Response& res) {
-        handle_registry(r, res, r.matches[1]);
-    });
-    svr.Get(R"(/registry/([^/]+)/runs)", [](const httplib::Request& r, httplib::Response& res) {
-        handle_runs(r, res, r.matches[1]);
-    });
-    svr.Get(R"(/registry/([^/]+)/history)", [](const httplib::Request& r, httplib::Response& res) {
-        handle_history(r, res, r.matches[1]);
-    });
-    svr.Post(R"(/registry/([^/]+)/pending/add)",
+    svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/release)",
              [](const httplib::Request& r, httplib::Response& res) {
-                 handle_pending_add(r, res, r.matches[1]);
+                 handle_release(r, res, r.matches[1], r.matches[2]);
              });
-    svr.Post(R"(/registry/([^/]+)/fetch/gutenberg)",
+    svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/assign)",
              [](const httplib::Request& r, httplib::Response& res) {
-                 handle_fetch_gutenberg(r, res, r.matches[1]);
+                 handle_assign(r, res, r.matches[1], r.matches[2]);
              });
-    svr.Post(R"(/registry/([^/]+)/fetch/huggingface)",
+    svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/unassign)",
              [](const httplib::Request& r, httplib::Response& res) {
-                 handle_fetch_huggingface(r, res, r.matches[1]);
+                 handle_unassign(r, res, r.matches[1], r.matches[2]);
              });
-    svr.Post(R"(/registry/([^/]+)/upload)", [](const httplib::Request& r, httplib::Response& res) {
-        handle_upload(r, res, r.matches[1]);
-    });
+    svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/delete)",
+             [](const httplib::Request& r, httplib::Response& res) {
+                 handle_delete(r, res, r.matches[1], r.matches[2]);
+             });
+    svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/trained)",
+             [](const httplib::Request& r, httplib::Response& res) {
+                 handle_trained(r, res, r.matches[1], r.matches[2]);
+             });
+    svr.Get(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/registry)",
+            [](const httplib::Request& r, httplib::Response& res) {
+                handle_registry(r, res, r.matches[1], r.matches[2]);
+            });
+    svr.Get(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/runs)",
+            [](const httplib::Request& r, httplib::Response& res) {
+                handle_runs(r, res, r.matches[1], r.matches[2]);
+            });
+    svr.Get(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/history)",
+            [](const httplib::Request& r, httplib::Response& res) {
+                handle_history(r, res, r.matches[1], r.matches[2]);
+            });
+    svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/pending/add)",
+             [](const httplib::Request& r, httplib::Response& res) {
+                 handle_pending_add(r, res, r.matches[1], r.matches[2]);
+             });
+    svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/fetch/gutenberg)",
+             [](const httplib::Request& r, httplib::Response& res) {
+                 handle_fetch_gutenberg(r, res, r.matches[1], r.matches[2]);
+             });
+    svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/fetch/huggingface)",
+             [](const httplib::Request& r, httplib::Response& res) {
+                 handle_fetch_huggingface(r, res, r.matches[1], r.matches[2]);
+             });
+    svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/upload)",
+             [](const httplib::Request& r, httplib::Response& res) {
+                 handle_upload(r, res, r.matches[1], r.matches[2]);
+             });
+#undef ADAI_KIND_SEGMENT
     svr.Get("/admin/config", handle_admin_get_config);
     svr.Put("/admin/config", handle_admin_put_config);
 

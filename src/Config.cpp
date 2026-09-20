@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-09-16
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-09-19
 
 #include "Config.hpp"
 #include <algorithm>
@@ -302,6 +302,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.run_group = value;
             } else if (key == "RUN_ID") {
                 config.run_id = value;
+            } else if (key == "DATASET_KIND") {
+                config.dataset_kind = value;
             } else if (key == "CACHE_TOKENIZED_DATA") {
                 std::string lower = value;
                 std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
@@ -725,6 +727,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env("RUN_ID")) {
         config.run_id = *val;
+    }
+    if (auto val = get_env("DATASET_KIND")) {
+        config.dataset_kind = *val;
     }
     if (auto val = get_env_bool("CACHE_TOKENIZED_DATA")) {
         config.cache_tokenized_data = *val;

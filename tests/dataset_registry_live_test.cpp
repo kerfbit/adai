@@ -450,6 +450,83 @@ TEST_F(LiveRegistryTest, PendingAddEmptyBodyReturns400) {
 }
 
 // ===========================================================================
+// TD-202: dataset_kind sub-pools — /registry/<group>/<kind>/<endpoint>
+// ===========================================================================
+//
+// The route regex's optional kind segment ((?:/(encoder|decoder|world_model|chatbot))?) is what
+// makes a kind-scoped and a legacy (no kind) URL land in physically separate pools on the same
+// server — this is the actual black-box confirmation of that routing, not just a unit test of
+// the regex in isolation.
+
+TEST_F(LiveRegistryTest, KindScopedQueueIsDisjointFromLegacyQueue) {
+    const std::string legacy_path = "/data/" + group() + "/legacy.txt";
+    const std::string wm_path = "/data/" + group() + "/wm.txt";
+
+    ASSERT_TRUE(add_pending(legacy_path));
+    ASSERT_TRUE(client().Post(("/registry/" + group() + "/world_model/pending/add").c_str(),
+                              "{\"path\":\"" + wm_path + "\"}", "application/json"));
+
+    auto legacy_queue = get_queue();
+    ASSERT_TRUE(legacy_queue);
+    EXPECT_NE(legacy_queue->body.find(legacy_path), std::string::npos) << legacy_queue->body;
+    EXPECT_EQ(legacy_queue->body.find(wm_path), std::string::npos)
+        << "world_model-pool file leaked into the legacy queue: " << legacy_queue->body;
+
+    auto wm_queue = client().Get(("/registry/" + group() + "/world_model/queue").c_str());
+    ASSERT_TRUE(wm_queue);
+    EXPECT_NE(wm_queue->body.find(wm_path), std::string::npos) << wm_queue->body;
+    EXPECT_EQ(wm_queue->body.find(legacy_path), std::string::npos)
+        << "legacy-pool file leaked into the world_model queue: " << wm_queue->body;
+}
+
+TEST_F(LiveRegistryTest, DifferentKindsOfTheSameGroupAreMutuallyDisjoint) {
+    const std::string enc_path = "/data/" + group() + "/enc.txt";
+    const std::string dec_path = "/data/" + group() + "/dec.txt";
+
+    ASSERT_TRUE(client().Post(("/registry/" + group() + "/encoder/pending/add").c_str(),
+                              "{\"path\":\"" + enc_path + "\"}", "application/json"));
+    ASSERT_TRUE(client().Post(("/registry/" + group() + "/decoder/pending/add").c_str(),
+                              "{\"path\":\"" + dec_path + "\"}", "application/json"));
+
+    auto enc_queue = client().Get(("/registry/" + group() + "/encoder/queue").c_str());
+    ASSERT_TRUE(enc_queue);
+    EXPECT_NE(enc_queue->body.find(enc_path), std::string::npos) << enc_queue->body;
+    EXPECT_EQ(enc_queue->body.find(dec_path), std::string::npos) << enc_queue->body;
+
+    auto dec_queue = client().Get(("/registry/" + group() + "/decoder/queue").c_str());
+    ASSERT_TRUE(dec_queue);
+    EXPECT_NE(dec_queue->body.find(dec_path), std::string::npos) << dec_queue->body;
+    EXPECT_EQ(dec_queue->body.find(enc_path), std::string::npos) << dec_queue->body;
+}
+
+TEST_F(LiveRegistryTest, InvalidKindSegmentIs404NotAValidationError) {
+    // TD-202 design: the route regex's closed alternation IS the kind validation — an
+    // unrecognized kind value simply can't match any route at all, so this must 404 like any
+    // other unknown path, not reach a handler and come back 400.
+    auto res = client().Get(("/registry/" + group() + "/not_a_real_kind/queue").c_str());
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 404);
+}
+
+TEST_F(LiveRegistryTest, KindScopedAcquireOnlyClaimsFromItsOwnPool) {
+    const std::string wm_path = "/data/" + group() + "/wm_acquire.txt";
+    ASSERT_TRUE(client().Post(("/registry/" + group() + "/world_model/pending/add").c_str(),
+                              "{\"path\":\"" + wm_path + "\"}", "application/json"));
+
+    // A legacy (unkinded) acquire must not see the world_model-pool file.
+    auto legacy_acq = acquire("run-td202-legacy");
+    ASSERT_TRUE(legacy_acq);
+    EXPECT_EQ(legacy_acq->body.find(wm_path), std::string::npos) << legacy_acq->body;
+
+    std::ostringstream body;
+    body << "{\"run_id\":\"run-td202-wm\",\"max_files\":0,\"model_name\":\"\"}";
+    auto wm_acq = client().Post(("/registry/" + group() + "/world_model/acquire").c_str(),
+                                body.str(), "application/json");
+    ASSERT_TRUE(wm_acq);
+    EXPECT_NE(wm_acq->body.find(wm_path), std::string::npos) << wm_acq->body;
+}
+
+// ===========================================================================
 // Acquire — POST /registry/<group>/acquire
 // ===========================================================================
 

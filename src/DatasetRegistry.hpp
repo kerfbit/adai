@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-09-19
 
 
 #include <memory>
@@ -32,6 +32,10 @@ struct DatasetConfig {
     std::string registry_server_url;
     /// Logical namespace for multi-project server sharing; defaults to session_dir basename
     std::string run_group;
+    /// TD-202: selects a per-trainable-piece sub-pool within run_group
+    /// ("encoder"/"decoder"/"world_model"/"chatbot", MNS's own kind vocabulary).
+    /// Empty (default) reproduces the pre-TD-202 single shared pool.
+    std::string dataset_kind;
     /// Per-process run identifier; auto-derived from hostname+PID when empty
     std::string run_id;
     /// HTTP timeout in milliseconds for registry_server calls (default: 5000)
@@ -109,6 +113,20 @@ class DatasetRegistry {
      * file was successfully added.
      */
     bool add_files(const std::vector<std::string>& paths);
+
+    /**
+     * @brief Add a path directly to the pending queue, skipping the local
+     *        filesystem existence check add_file() otherwise requires.
+     *
+     * TD-202: used by `dataset_manager migrate` to move an already-queued
+     * entry's path into a different kind's sub-pool. The path was already
+     * validated (it was accepted into some pool's queue previously) and, in
+     * a distributed deployment, may live on the registry_server's own
+     * storage rather than the migrating CLI's local filesystem — the same
+     * reason `add` itself skips add_file() in favor of remote_upload() when
+     * REGISTRY_SERVER_URL is set.
+     */
+    bool add_pending_path_unchecked(const std::string& path);
 
     /**
      * @brief Discard the in-memory pending queue (does not write to disk).

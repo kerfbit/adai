@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-09-16
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-09-19
 
 
 #include <cstdint>
@@ -275,6 +275,13 @@ struct ServiceConfig {
 
     /// Per-process training run identifier. Auto-derived from hostname+PID when empty.
     std::string run_id;
+
+    /// TD-202: selects a per-trainable-piece sub-pool within run_group
+    /// ("encoder"/"decoder"/"world_model"/"chatbot", MNS's own kind vocabulary).
+    /// Empty (default) reproduces the pre-TD-202 single shared pool. Plain string,
+    /// no load-time validation, matching run_group/model_name's own precedent —
+    /// validated where it matters (registry_server route regex, dataset_manager CLI).
+    std::string dataset_kind;
 
     /// On-disk tokenized-data cache: ChatbotTrainer::preprocess_data() skips
     /// re-tokenizing on a hit (default: false — opt-in, since it uses disk

@@ -187,6 +187,27 @@ Sessions are marked stale after `METRICS_STALENESS_THRESHOLD_SECONDS` (default: 
 
 `dataset_manager status` calls `load_pending` (returns all entries). The trainer calls `acquire` (returns only untrained entries — `run_id` empty — that are also unassigned or assigned to the caller's own `model_name`; a caller with no `model_name` can only claim unassigned entries, never one assigned to a specific model). A file visible in `status` but not acquired means its `run_id` is still set from a previous run, or it's assigned to a different model (`dataset_manager assign`/`unassign`). Release with `POST /registry/{group}/release {"run_id":"","files":[...]}` (empty `run_id` bypasses the owner check).
 
+**TD-202: per-trainable-piece sub-pools (`dataset_kind`).** Within one `run_group`, each
+trainable piece of the overall model system gets its own physical sub-pool — `data_dir/<group>/<kind>/`
+server-side (its own `data_registry.txt`/`pending_files.txt`), or `<session_dir>/<kind>/` for
+`LocalTransport` — instead of one shared pool with no way to separate, say, `--objective=lejepa`'s
+world-model pretraining data from plain chatbot fine-tuning pairs (they used to draw from the exact
+same pending pool with no isolation at all). `kind` reuses MNS's own vocabulary
+(`encoder`/`decoder`/`world_model`/`chatbot`, TD-196); empty (the default) reproduces every
+pre-TD-202 group's behavior byte-for-byte. `RemoteTransport` encodes it as a URL segment
+(`/registry/{group}/{kind}/...`, added via a route regex's optional capture group — an
+unrecognized kind value simply can't match any route, so it 404s rather than needing its own
+validation check); `DatasetConfig::dataset_kind`/`ServiceConfig::dataset_kind` (config key
+`DATASET_KIND`) carry it from config/env through to `DatasetRegistry::build_transport()`.
+`incremental_trainer` sets it automatically from the training objective (`--objective=lejepa` →
+`"world_model"`, every other objective → `"chatbot"`) right after `svc_config` loads; `--dataset-kind
+<kind>` overrides that default. `dataset_manager` gets a global `--kind <kind>` flag (selects which
+sub-pool every command in that invocation targets) and a `migrate <kind> [file ...] [--count N]`
+command for moving already-queued legacy (unkinded) pending files into a kind's own sub-pool —
+the one-time upgrade path for data queued before this feature existed (a migrated entry's model
+assignment, if any, is restored via a follow-up `assign` call, since the underlying add-pending
+wire format has no model_name field of its own).
+
 ## Configuration
 
 Config files use `KEY=VALUE` format, parsed by the single `ServiceConfig`/`ConfigLoader` in
@@ -273,6 +294,7 @@ Other architecturally significant keys:
 | `NAME_SERVICE_URL`, `MODEL_NAME`, `MODEL_ROLE` | MNS connection |
 | `WORLD_MODEL_ARTIFACT_PATH` | Overrides the default `<session_dir>/world_model` checkpoint directory; normally set automatically from a linked world model's own MNS `artifact.path` (TD-196), not by hand |
 | `REGISTRY_SERVER_URL`, `RUN_GROUP`, `RUN_ID` | Distributed dataset registry |
+| `DATASET_KIND` | TD-202: per-trainable-piece sub-pool within `RUN_GROUP` (`encoder`/`decoder`/`world_model`/`chatbot`); empty = legacy shared pool. `incremental_trainer` sets this automatically from the training objective — see "Distributed Dataset Registry" above |
 | `REGISTRY_LISTEN_PORT`, `REGISTRY_DATA_DIR` | `registry_server`'s own listen port / data dir (server-side, distinct from the client-side `REGISTRY_SERVER_URL` above) |
 | `AUTO_SAVE_ENABLED`, `AUTO_SAVE_EVERY_SAMPLES`, `AUTO_SAVE_EVERY_MINUTES`, `MAX_SESSIONS_TO_KEEP` | Checkpoint cadence / retention — map into `IncrementalConfig`'s matching fields via `make_incremental_config()`; live-tunable under `serve` via `PUT /admin/config`, see below |
 | `TRAINER_ADMIN_ENABLED`, `TRAINER_ADMIN_PORT`, `TRAINER_ADMIN_HOST`, `TRAINER_ADMIN_DIR` | `trainer_service`'s admin HTTP API — see below |

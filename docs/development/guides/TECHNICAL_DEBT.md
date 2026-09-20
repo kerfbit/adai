@@ -10,8 +10,22 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 188
+**Resolved Items:** 189
 **Deferred Decisions:** 3
+
+**September 19, 2026 (same day):** Filed and resolved
+[TD-202](../archive/TECHNICAL_DEBT_RESOLVED.md#td-202-dataset-registry-gained-per-trainable-piece-sub-pools-dataset_kind)
+— user request: "With the variety of models that need training within a single named set we need
+to upgrade the dataset registry to account for and organize different datasets being used to for
+each trainable piece of the overall model." A `run_group` previously had exactly one shared pending
+pool with no way to separate `--objective=lejepa`'s world-model pretraining data from plain chatbot
+fine-tuning pairs — confirmed they drew from the exact same pool with zero isolation. Gave each
+kind (reusing MNS's own `encoder`/`decoder`/`world_model`/`chatbot` vocabulary from TD-196) its own
+physical sub-pool, server-routed via an optional kind segment in each route's regex (the closed
+alternation doubles as the validation — an unrecognized kind simply 404s); `incremental_trainer`
+now selects its pool automatically from the training objective; `dataset_manager` gained a global
+`--kind` flag and a `migrate` command for moving already-queued legacy data into a kind's own pool.
+See its own archive entry.
 
 **September 19, 2026 (same day):** Filed and resolved
 [TD-201](../archive/TECHNICAL_DEBT_RESOLVED.md#td-201-linkworldmodeldialogs-confirm-preview-showed-a-literal-name-placeholder-instead-of-the-real-chatbot-name)
@@ -456,7 +470,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (188 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (189 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -2100,7 +2114,7 @@ another branch of one large `main()` instead of becoming its own focused binary)
 
 ## Resolved Items
 
-160 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+189 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-19
 
 // Calling convention note: every parse_*_args() here takes the command's OWN argument slice —
 // NOT including the command name itself (main() strips that off before dispatching, the same
@@ -166,6 +166,37 @@ DeleteArgs parse_delete_args(const std::vector<std::string>& args) {
     if (r.targets.empty()) {
         return make_error<DeleteArgs>(
             "Usage: dataset_manager delete <file1> [file2 ...] [--force] [--delete-files]");
+    }
+    return r;
+}
+
+bool is_valid_dataset_kind(const std::string& kind) {
+    return kind == "encoder" || kind == "decoder" || kind == "world_model" || kind == "chatbot";
+}
+
+MigrateArgs parse_migrate_args(const std::vector<std::string>& args) {
+    if (args.empty()) {
+        return make_error<MigrateArgs>(
+            "Usage: dataset_manager migrate <encoder|decoder|world_model|chatbot> "
+            "[file1 file2 ...] [--count N]");
+    }
+    MigrateArgs r;
+    r.kind = args[0];
+    if (!is_valid_dataset_kind(r.kind)) {
+        return make_error<MigrateArgs>("Invalid kind '" + r.kind +
+                                       "' — must be one of: encoder, decoder, world_model, "
+                                       "chatbot");
+    }
+    for (std::size_t i = 1; i < args.size(); ++i) {
+        if (args[i] == "--count" && i + 1 < args.size()) {
+            try {
+                r.count = std::stoi(args[++i]);
+            } catch (const std::exception&) {
+                return make_error<MigrateArgs>("Invalid --count value");
+            }
+        } else {
+            r.targets.push_back(args[i]);
+        }
     }
     return r;
 }

@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-12
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-09-19
 
 #include "DatasetRegistry.hpp"
 #include <algorithm>
@@ -49,7 +49,7 @@ static std::unique_ptr<RegistryTransport> build_transport(const DatasetConfig& c
         const std::string group =
             cfg.run_group.empty() ? fs::path(cfg.session_dir).filename().string() : cfg.run_group;
         return std::make_unique<RemoteTransport>(cfg.registry_server_url, group,
-                                                 cfg.registry_timeout_ms);
+                                                 cfg.registry_timeout_ms, cfg.dataset_kind);
 #else
         // BUILD_METRICS_API_SERVER is reused here as a general "cpp-httplib was found at
         // configure time" signal (RemoteTransport is an HTTP client, unrelated to the
@@ -64,8 +64,14 @@ static std::unique_ptr<RegistryTransport> build_transport(const DatasetConfig& c
             "available (vendored at external/cpp-httplib) to fix this.");
 #endif
     }
-    const std::string reg_path = cfg.session_dir + "/" + cfg.data_registry_file;
-    const std::string pend_path = cfg.session_dir + "/pending_files.txt";
+    // TD-202: a kind-qualified sub-directory under session_dir gives local (non-distributed)
+    // deployments the same per-trainable-piece pool separation RemoteTransport gets from its
+    // kind-scoped URL segment — a chatbot's own local session_dir and a --objective=lejepa pass
+    // against that same session_dir no longer share one pending_files.txt.
+    const std::string kind_dir =
+        cfg.dataset_kind.empty() ? cfg.session_dir : cfg.session_dir + "/" + cfg.dataset_kind;
+    const std::string reg_path = kind_dir + "/" + cfg.data_registry_file;
+    const std::string pend_path = kind_dir + "/pending_files.txt";
     return std::make_unique<LocalTransport>(reg_path, pend_path);
 }
 
@@ -88,6 +94,7 @@ DatasetConfig DatasetRegistry::make_config(const adai::ServiceConfig& svc) {
     cfg.registry_server_url = svc.registry_server_url;
     cfg.run_group = svc.run_group;
     cfg.run_id = svc.run_id;
+    cfg.dataset_kind = svc.dataset_kind;
     cfg.cache_tokenized_data = svc.cache_tokenized_data;
     if (!svc.tokenized_cache_dir.empty()) {
         cfg.tokenized_cache_dir = svc.tokenized_cache_dir;
@@ -140,6 +147,21 @@ bool DatasetRegistry::add_file(const std::string& path) {
     }
     pending_.push_back({path, {}, {}});
     Logger::info("Added new data file: {}", path);
+    return true;
+}
+
+bool DatasetRegistry::add_pending_path_unchecked(const std::string& path) {
+    const bool already_pending = std::any_of(pending_.begin(), pending_.end(),
+                                             [&](const PendingEntry& e) { return e.path == path; });
+    if (already_pending) {
+        Logger::warn("Data file already in pending queue: {}", path);
+        return false;
+    }
+    if (!transport_->add_pending(path)) {
+        Logger::error("Failed to persist pending entry for: {}", path);
+        return false;
+    }
+    pending_.push_back({path, {}, {}});
     return true;
 }
 

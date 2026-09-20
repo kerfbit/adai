@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.3.0
-// @adai-reviewed: 2026-09-16
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-09-19
 
 // TD-035: incremental_trainer's global argv parsing and a few small pure helpers, pulled out of
 // IncrementalTrainingTool.cpp so they're testable without touching a real IncrementalTrainer
@@ -36,9 +36,14 @@ struct IncrementalTrainerGlobalArgs {
     // literal syntax named in the flag's own filed TD (TECHNICAL_DEBT.md's TD-183 title) rather
     // than silently normalizing it to this parser's own pre-existing convention.
     std::string objective = "chatbot";
+    // TD-202: overrides the dataset registry's per-trainable-piece sub-pool that would otherwise
+    // be picked automatically from `objective` ("lejepa" -> "world_model", else "chatbot") in
+    // IncrementalTrainingTool.cpp's main(). Empty (unset) means "use the automatic default" —
+    // explicitly passing e.g. "--dataset-kind chatbot" always wins over that default.
+    std::optional<std::string> dataset_kind;
     // args[0] is the command (e.g. "train"), args[1..] are its own arguments — --config,
-    // --gpu-strategy, --model, --foreground, --admin-port, and --objective are stripped out
-    // before this is populated, exactly like the original inline loop.
+    // --gpu-strategy, --model, --foreground, --admin-port, --objective, and --dataset-kind are
+    // stripped out before this is populated, exactly like the original inline loop.
     std::vector<std::string> args;
 };
 

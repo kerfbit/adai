@@ -1,5 +1,5 @@
-// @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint)
-// @adai-version: 0.12.1
+// @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override)
+// @adai-version: 0.13.0
 // @adai-reviewed: 2026-09-19
 
 #include <array>
@@ -525,6 +525,17 @@ int main(int argc, char* argv[]) {
     std::string config_path =
         adai::ConfigLoader::discover_config_path(cli.config_path.value_or(""), "config.trainer.conf");
     adai::ServiceConfig svc_config = adai::ConfigLoader::load(config_path);
+
+    // TD-202: pick the dataset registry's per-trainable-piece sub-pool automatically from the
+    // training objective — "lejepa" pretrains the standalone world model, so it acquires from
+    // the "world_model" sub-pool; every other objective (the default chatbot fine-tuning path)
+    // acquires from "chatbot". This is what actually separates the two objectives' pending data
+    // (they used to share one pool with no way to keep them apart). --dataset-kind, if given,
+    // always overrides this default, same as --gpu-strategy does immediately below.
+    svc_config.dataset_kind = (cli.objective == "lejepa") ? "world_model" : "chatbot";
+    if (cli.dataset_kind) {
+        svc_config.dataset_kind = *cli.dataset_kind;
+    }
 
     // CLI --gpu-strategy overrides the config file value.
     if (cli.gpu_strategy) {

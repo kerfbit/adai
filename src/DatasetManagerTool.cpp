@@ -1,7 +1,8 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-09-19
 
+#include <algorithm>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -21,15 +22,24 @@ int main(int argc, char* argv[]) {
     // Usage:  dataset_manager [--config <path>] <command> [args...]
     // -----------------------------------------------------------------------
     std::string config_path;
+    std::string kind_flag;  // TD-202: --kind <encoder|decoder|world_model|chatbot>
     std::vector<std::string> args;  // args[0] = command, args[1..] = its args
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--config" && i + 1 < argc) {
             config_path = argv[++i];
+        } else if (a == "--kind" && i + 1 < argc) {
+            kind_flag = argv[++i];
         } else {
             args.push_back(a);
         }
+    }
+
+    if (!kind_flag.empty() && !adai::is_valid_dataset_kind(kind_flag)) {
+        std::cerr << "❌ Invalid --kind '" << kind_flag
+                  << "' — must be one of: encoder, decoder, world_model, chatbot\n";
+        return 1;
     }
 
     // Discovery: --config > ./config.registry.conf > /etc/adai/config.registry.conf
@@ -37,15 +47,28 @@ int main(int argc, char* argv[]) {
     config_path = adai::ConfigLoader::discover_config_path(config_path, "config.registry.conf");
     adai::ServiceConfig svc_config = adai::ConfigLoader::load(config_path);
 
+    // TD-202: --kind selects which per-trainable-piece sub-pool every command in this
+    // invocation operates against; every existing command already builds its DatasetRegistry
+    // from DatasetRegistry::make_config(svc_config), so this one assignment threads through
+    // all of them uniformly. Empty (unset) reproduces today's legacy shared-pool default.
+    if (!kind_flag.empty()) {
+        svc_config.dataset_kind = kind_flag;
+    }
+
     if (args.empty()) {
-        std::cout << "Usage: " << argv[0] << " [--config <path>] <command> [options]\n\n";
+        std::cout << "Usage: " << argv[0] << " [--config <path>] [--kind <kind>] <command> [options]\n\n";
         std::cout << "Global options:\n";
         std::cout << "  --config <path>              Path to config.registry.conf\n";
         std::cout << "                               Search order: --config > "
                      "./config.registry.conf >\n";
         std::cout << "                               /etc/adai/config.registry.conf > "
                      "./config.conf (legacy) >\n";
-        std::cout << "                               /etc/adai/config.conf (legacy)\n\n";
+        std::cout << "                               /etc/adai/config.conf (legacy)\n";
+        std::cout << "  --kind <encoder|decoder|world_model|chatbot>\n";
+        std::cout << "                               Operate against that trainable piece's own "
+                     "sub-pool\n";
+        std::cout << "                               instead of the legacy shared pool "
+                     "(default: unset)\n\n";
         std::cout << "Commands:\n";
         std::cout
             << "  add <data_file>              Add a local training file to the pending queue\n";
@@ -83,6 +106,11 @@ int main(int argc, char* argv[]) {
         std::cout << "  delete <file> [...] [--force] [--delete-files]\n";
         std::cout << "                               Permanently purge file(s) from the pending "
                      "queue and registry\n";
+        std::cout << "  migrate <kind> [file ...] [--count N]\n";
+        std::cout << "                               One-time move of legacy (unkinded) pending "
+                     "file(s) into\n";
+        std::cout << "                               <kind>'s own sub-pool (omit files/--count = "
+                     "all legacy pending)\n";
         std::cout << "  models                       List registered models from name service\n";
         std::cout << "\nPopular Gutenberg Books:\n";
         std::cout << "  1342  - Pride and Prejudice (Jane Austen)\n";
@@ -279,6 +307,9 @@ int main(int argc, char* argv[]) {
         auto trained = reg.trained_files();
 
         std::cout << "📊 Dataset status\n";
+        std::cout << "   Kind     : "
+                  << (svc_config.dataset_kind.empty() ? "(legacy/unkinded)" : svc_config.dataset_kind)
+                  << "\n";
         std::cout << "   Pending  : " << pending.size() << " file(s)\n";
         std::cout << "   Trained  : " << trained.size() << " file(s)\n";
         std::cout << "   Samples  : " << reg.total_samples_trained() << " total trained\n";
@@ -300,6 +331,9 @@ int main(int argc, char* argv[]) {
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_pending_list();
 
+        std::cout << "# Kind: "
+                  << (svc_config.dataset_kind.empty() ? "(legacy/unkinded)" : svc_config.dataset_kind)
+                  << "\n";
         auto entries = reg.pending_entries();
         if (entries.empty()) {
             std::cout << "No pending files.\n";
@@ -316,6 +350,9 @@ int main(int argc, char* argv[]) {
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_registry();
 
+        std::cout << "# Kind: "
+                  << (svc_config.dataset_kind.empty() ? "(legacy/unkinded)" : svc_config.dataset_kind)
+                  << "\n";
         auto trained = reg.trained_files();
         if (trained.empty()) {
             std::cout << "No trained files.\n";
@@ -483,6 +520,87 @@ int main(int argc, char* argv[]) {
             std::cout << "\n";
         }
         if (result.deleted == 0) {
+            return 1;
+        }
+
+    } else if (command == "migrate") {
+        auto parsed = adai::parse_migrate_args(cmd_args);
+        if (parsed.error) {
+            std::cerr << parsed.error_message << "\n";
+            std::cerr << "  One-time move of legacy (unkinded) pending file(s) into <kind>'s "
+                        "own sub-pool.\n";
+            std::cerr
+                << "  Omit files and --count to migrate every legacy pending file.\n";
+            return 1;
+        }
+
+        // TD-202: source is always the legacy (unkinded) pool, regardless of any global
+        // --kind — that's the one-time upgrade path this command exists for. Destination
+        // is the given kind.
+        adai::ServiceConfig source_config = svc_config;
+        source_config.dataset_kind.clear();
+        adai::ServiceConfig dest_config = svc_config;
+        dest_config.dataset_kind = parsed.kind;
+
+        DatasetRegistry source(DatasetRegistry::make_config(source_config));
+        source.load_pending_list();
+        DatasetRegistry dest(DatasetRegistry::make_config(dest_config));
+        dest.load_pending_list();
+
+        auto source_entries = source.pending_entries();
+        if (source_entries.empty()) {
+            std::cerr << "No legacy pending files to migrate.\n";
+            return 1;
+        }
+
+        std::vector<PendingEntry> to_migrate;
+        if (!parsed.targets.empty()) {
+            for (const auto& t : parsed.targets) {
+                auto it = std::find_if(source_entries.begin(), source_entries.end(),
+                                       [&](const PendingEntry& e) { return e.path == t; });
+                if (it == source_entries.end()) {
+                    std::cerr << "⚠️  Not found in legacy pending queue, skipping: " << t << "\n";
+                    continue;
+                }
+                to_migrate.push_back(*it);
+            }
+        } else if (parsed.count > 0) {
+            const std::size_t n =
+                std::min<std::size_t>(parsed.count, source_entries.size());
+            to_migrate.assign(source_entries.begin(), source_entries.begin() + n);
+        } else {
+            to_migrate = source_entries;
+        }
+
+        if (to_migrate.empty()) {
+            std::cerr << "❌ No matching legacy pending files found\n";
+            return 1;
+        }
+
+        int migrated = 0;
+        for (const auto& entry : to_migrate) {
+            if (!dest.add_pending_path_unchecked(entry.path)) {
+                std::cerr << "⚠️  Failed to add to '" << parsed.kind
+                          << "' pool, skipping: " << entry.path << "\n";
+                continue;
+            }
+            // Restore the model assignment (if any) via the existing assign endpoint —
+            // the pending-add wire format has no model_name field, so this is the only
+            // way to carry it forward without changing that shared interface.
+            if (!entry.model_name.empty()) {
+                dest.assign_model(entry.model_name, {entry.path});
+            }
+            // force=true: migrate is an operator-invoked one-time reorganization; leaving
+            // an actively-claimed legacy entry behind would just duplicate it (it's
+            // already in the destination pool at this point) rather than actually move it.
+            source.delete_entries({entry.path}, /*force=*/true, /*delete_files=*/false);
+            std::cout << "   " << entry.path << " -> " << parsed.kind << "\n";
+            ++migrated;
+        }
+
+        std::cout << "✅ Migrated " << migrated << "/" << to_migrate.size() << " file(s) into '"
+                  << parsed.kind << "'\n";
+        if (migrated == 0) {
             return 1;
         }
 

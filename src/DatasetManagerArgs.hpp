@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-19
 
 // TD-035: dataset_manager's per-command argument parsing, pulled out of
 // DatasetManagerTool.cpp so it's testable without touching a real DatasetRegistry/DataFetcher
@@ -86,5 +86,19 @@ struct DeleteArgs {
     std::string error_message;
 };
 DeleteArgs parse_delete_args(const std::vector<std::string>& args);
+
+// TD-202: "encoder" | "decoder" | "world_model" | "chatbot" — the same fixed vocabulary as
+// MNS's own ModelRecord::kind. Used to validate both the global --kind flag and migrate's
+// destination kind argument.
+bool is_valid_dataset_kind(const std::string& kind);
+
+struct MigrateArgs {
+    std::string kind;  // destination sub-pool; validated by the caller via is_valid_dataset_kind()
+    std::vector<std::string> targets;
+    int count = 0;
+    bool error = false;
+    std::string error_message;
+};
+MigrateArgs parse_migrate_args(const std::vector<std::string>& args);
 
 }  // namespace adai

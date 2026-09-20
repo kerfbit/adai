@@ -156,6 +156,7 @@ TEST(DatasetConfigTest, DefaultValues) {
     EXPECT_TRUE(cfg.run_id.empty());
     EXPECT_EQ(cfg.registry_timeout_ms, 5000);
     EXPECT_EQ(cfg.max_files_per_run, 0);
+    EXPECT_TRUE(cfg.dataset_kind.empty());
 }
 
 TEST(DatasetConfigTest, MakeConfigCopiesFields) {
@@ -165,6 +166,7 @@ TEST(DatasetConfigTest, MakeConfigCopiesFields) {
     svc.run_group = "my-group";
     svc.run_id = "host_1234";
     svc.registry_timeout_ms = 3000;
+    svc.dataset_kind = "world_model";
 
     const DatasetConfig cfg = DatasetRegistry::make_config(svc);
 
@@ -173,6 +175,7 @@ TEST(DatasetConfigTest, MakeConfigCopiesFields) {
     EXPECT_EQ(cfg.run_group, svc.run_group);
     EXPECT_EQ(cfg.run_id, svc.run_id);
     EXPECT_EQ(cfg.registry_timeout_ms, svc.registry_timeout_ms);
+    EXPECT_EQ(cfg.dataset_kind, svc.dataset_kind);
 }
 
 TEST(DatasetConfigTest, MakeConfigEmptySessionDirKeepsDefault) {
@@ -381,6 +384,64 @@ TEST_F(DatasetRegistryTest, AddFilePersistsToDiskOnSecondLoad) {
     const auto pending = reg2.pending_files();
     ASSERT_EQ(pending.size(), 1u);
     EXPECT_EQ(pending[0], data_file_);
+}
+
+// ============================================================================
+// TD-202: dataset_kind sub-pools (LocalTransport)
+// ============================================================================
+
+TEST_F(DatasetRegistryTest, DatasetKindLandsPendingFileUnderKindSubdirectory) {
+    DatasetConfig cfg = make_cfg();
+    cfg.dataset_kind = "world_model";
+    DatasetRegistry reg(cfg);
+    ASSERT_TRUE(reg.add_file(data_file_));
+    EXPECT_TRUE(fs::exists(fs::path(session_dir_) / "world_model" / "pending_files.txt"));
+    EXPECT_FALSE(fs::exists(fs::path(session_dir_) / "pending_files.txt"))
+        << "an empty dataset_kind's pool must not be touched by a kind-scoped registry";
+}
+
+TEST_F(DatasetRegistryTest, DatasetKindPoolsAreIsolatedFromEachOtherAndFromLegacy) {
+    DatasetConfig legacy_cfg = make_cfg();  // dataset_kind left empty — today's shared pool
+    DatasetConfig wm_cfg = make_cfg();
+    wm_cfg.dataset_kind = "world_model";
+    DatasetConfig chatbot_cfg = make_cfg();
+    chatbot_cfg.dataset_kind = "chatbot";
+
+    const std::string other_file = (tmp_dir_ / "other.txt").string();
+    write_file(other_file, kSimplePairs);
+    const std::string third_file = (tmp_dir_ / "third.txt").string();
+    write_file(third_file, kSimplePairs);
+
+    DatasetRegistry legacy(legacy_cfg);
+    ASSERT_TRUE(legacy.add_file(data_file_));
+    DatasetRegistry wm(wm_cfg);
+    ASSERT_TRUE(wm.add_file(other_file));
+    DatasetRegistry chatbot(chatbot_cfg);
+    ASSERT_TRUE(chatbot.add_file(third_file));
+
+    // Each pool sees only its own file — this is the actual TD-202 leakage fix.
+    EXPECT_EQ(legacy.pending_files(), std::vector<std::string>{data_file_});
+    EXPECT_EQ(wm.pending_files(), std::vector<std::string>{other_file});
+    EXPECT_EQ(chatbot.pending_files(), std::vector<std::string>{third_file});
+}
+
+TEST_F(DatasetRegistryTest, AddPendingPathUncheckedSkipsFilesystemExistenceCheck) {
+    DatasetConfig cfg = make_cfg();
+    cfg.dataset_kind = "world_model";
+    DatasetRegistry reg(cfg);
+    // Deliberately a path that does not exist on this host's filesystem — add_file() would
+    // reject it, but add_pending_path_unchecked() (used by dataset_manager migrate) must not,
+    // since a migrated entry's path may only exist on a remote registry_server's own storage.
+    EXPECT_TRUE(reg.add_pending_path_unchecked("/no/such/file/on/this/host.jsonl"));
+    EXPECT_EQ(reg.pending_files(), std::vector<std::string>{"/no/such/file/on/this/host.jsonl"});
+}
+
+TEST_F(DatasetRegistryTest, AddPendingPathUncheckedRejectsDuplicate) {
+    DatasetConfig cfg = make_cfg();
+    DatasetRegistry reg(cfg);
+    ASSERT_TRUE(reg.add_pending_path_unchecked(data_file_));
+    EXPECT_FALSE(reg.add_pending_path_unchecked(data_file_));
+    EXPECT_EQ(reg.pending_files().size(), 1u);
 }
 
 TEST_F(DatasetRegistryTest, AddFileSkipsAlreadyTrainedFile) {

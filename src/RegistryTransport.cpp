@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-12
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-09-19
 
 #include "RegistryTransport.hpp"
 #include <fcntl.h>  // open(), O_RDWR
@@ -747,12 +747,13 @@ std::pair<std::string, int> parse_host_port(const std::string& url) {
 
 }  // anonymous namespace
 
-RemoteTransport::RemoteTransport(std::string base_url, std::string run_group, int timeout_ms)
+RemoteTransport::RemoteTransport(std::string base_url, std::string run_group, int timeout_ms,
+                                 std::string dataset_kind)
     : timeout_ms_(timeout_ms) {
     auto [host, port] = parse_host_port(base_url);
     host_ = std::move(host);
     port_ = port;
-    group_prefix_ = "/registry/" + run_group;
+    group_prefix_ = "/registry/" + run_group + (dataset_kind.empty() ? "" : "/" + dataset_kind);
 }
 
 bool RemoteTransport::load_registry(std::vector<DataVersion>& out) {

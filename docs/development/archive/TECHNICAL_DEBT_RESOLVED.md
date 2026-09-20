@@ -4,6 +4,149 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-202: Dataset Registry Gained Per-Trainable-Piece Sub-Pools (`dataset_kind`)
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 19, 2026 | Dataset registry (`registry_server`/`DatasetRegistry`/`RegistryTransport`/`dataset_manager`/`incremental_trainer`) | New `dataset_kind` sub-pool dimension reusing MNS's own `encoder`/`decoder`/`world_model`/`chatbot` vocabulary; route-regex-based server routing; automatic-by-objective trainer wiring; `dataset_manager migrate` |
+
+Summary:
+User request: "With the variety of models that need training within a single named set we need to
+upgrade the dataset registry to account for and organize different datasets being used to for each
+trainable piece of the overall model." Before this, a single named dataset set (a `run_group`) had
+exactly one shared pending-file pool, with `model_name` as the only filtering dimension — no way to
+say "this data is for the encoder" vs. "this is LeJEPA world-model pretraining" vs. "this is
+chatbot fine-tuning pairs." Confirmed directly: `--objective=lejepa` and the default chatbot
+objective in `IncrementalTrainingTool.cpp` built identical `DatasetConfig`s and called
+`acquire_pending()` against the exact same pending pool — LeJEPA even reuses ordinary chatbot
+`(input, response)` pairs as unpaired text by design, but had no way to draw its own pending files
+without exposing them to plain chatbot training too, or vice versa. This is the direct, natural
+follow-up to TD-196 giving MNS itself a `kind` per model.
+
+Design (see the approved plan for the full rationale — summarized here):
+
+- **Each kind gets its own physical sub-pool** — `data_dir/<run_group>/<kind>/` server-side (own
+  `data_registry.txt`/`pending_files.txt`), or `<session_dir>/<kind>/` for `LocalTransport` — the
+  user's own explicit, non-recommended choice over a lighter-weight `model_name`-style tag column,
+  mirroring how a `run_group` itself is already a directory-level partition.
+- **Kind vocabulary matches MNS's exactly** (`encoder`/`decoder`/`world_model`/`chatbot`, TD-196's
+  own `ModelRecord::kind` values) — the user's own explicit, recommended choice.
+- **Rollout is automatic by objective, not opt-in** — `incremental_trainer`'s default chatbot
+  objective acquires from the `chatbot` sub-pool, `--objective=lejepa` from `world_model`, with no
+  new flag needed for the common case — the user's own explicit, recommended choice. Consequence:
+  existing top-level (unkinded) pending data isn't visible to these calls after upgrading, so
+  `dataset_manager` gained a `migrate` command for the one-time move.
+- **Kind only ever affects which physical pool a `RegistryTransport` is constructed against — it
+  never became a parameter of any existing virtual method** (`acquire`/`assign`/etc. keep their
+  exact signatures unchanged). This is what kept the change mechanical despite touching many files:
+  thread one new string alongside `group` at the two existing choke points
+  (`RegistryServer.cpp`'s `get_group()`, `DatasetRegistry::build_transport()`), plus the handful of
+  path builders that construct paths directly against `data_dir + group` without going through
+  `get_group()` at all (Gutenberg/HuggingFace fetch-cursor and dataset-output paths, upload
+  destination).
+- **Route regex**: every route gained an optional, non-capturing-then-capturing kind segment
+  (`(?:/(encoder|decoder|world_model|chatbot))?`) inserted right after the group capture, via a
+  `#define ADAI_KIND_SEGMENT` concatenated into each pattern. `[^/]+` can never cross a `/`, so
+  `foo` and `foo/encoder` never collide regardless of segment count, and a non-participating
+  optional group yields an empty `matches[]` entry — i.e. today's exact legacy behavior — so one
+  pattern per route handles both the 2-segment legacy URL and the new 3-segment kind-scoped URL. A
+  deliberate simplification from the original plan (which called for a server-side "400 on
+  unrecognized kind" check in each handler): the closed regex alternation **is** the kind
+  validation — an invalid/mistyped kind value simply can't match any route at all (404), so no
+  handler needs its own redundant check.
+
+Changes Made:
+
+- `src/RegistryServer.cpp`: new `group_dir(group, kind)` helper; `get_group()` gains a `kind`
+  parameter (map key and on-disk directory both become kind-qualified, empty kind reproducing
+  today's exact single-pool-per-group behavior byte-for-byte); all 15 `handle_*` route functions
+  gain a trailing `kind` parameter, threaded to `get_group()`; `hf_cursor_path()`/
+  `gutenberg_cursor_path()` and the `out_dir`/upload-destination path builders in
+  `handle_fetch_gutenberg`/`handle_fetch_huggingface`/`handle_upload` now build their paths via
+  `group_dir(group, kind)` instead of `data_dir + "/" + group` directly; every route registration
+  gained the optional kind-segment regex described above. Version 0.9.2 → 0.10.0.
+- `src/RegistryTransport.hpp`/`.cpp`: `RemoteTransport`'s constructor gains a trailing
+  `dataset_kind = ""` parameter; `group_prefix_` becomes `"/registry/" + run_group +
+  (dataset_kind.empty() ? "" : "/" + dataset_kind)`. Fully source-compatible with every existing
+  call site. Version 1.0.x → 1.1.0.
+- `src/DatasetRegistry.hpp`/`.cpp`: new `DatasetConfig::dataset_kind` field; `build_transport()`
+  passes it to `RemoteTransport`'s new parameter and, for `LocalTransport`, computes a
+  kind-qualified `session_dir` before building the two flat-file paths — giving local
+  (non-distributed) deployments the identical leakage fix; `make_config()` copies it from
+  `ServiceConfig`; new `add_pending_path_unchecked()` (skips the local-filesystem existence check
+  `add_file()` requires — used by `dataset_manager migrate` to move an already-queued entry's path,
+  which in a distributed deployment may only exist on the registry_server's own storage, not the
+  migrating CLI's local filesystem). Version 1.0.x → 1.1.0.
+- `src/Config.hpp`/`.cpp`: new `ServiceConfig::dataset_kind` field; `DATASET_KIND` config-file key
+  + env-var override, mirroring `RUN_GROUP`'s exact plain-string, no-load-time-validation pattern.
+  Version 1.2.0 → 1.3.0.
+- `src/IncrementalTrainerArgs.hpp`/`.cpp`: new `--dataset-kind <kind>` global CLI flag
+  (`IncrementalTrainerGlobalArgs::dataset_kind`, an `std::optional<std::string>`). Version 0.3.0 →
+  0.4.0.
+- `src/IncrementalTrainingTool.cpp`: one insertion point right after `svc_config` loads —
+  `svc_config.dataset_kind = (cli.objective == "lejepa") ? "world_model" : "chatbot"`, then
+  `--dataset-kind` overrides it if given — mirroring the `--gpu-strategy` override pattern
+  immediately below it. Every existing `DatasetRegistry::make_config(svc_config)` call site in this
+  file picks it up automatically; none needed to change. Version 0.12.1 → 0.13.0.
+- `src/DatasetManagerArgs.hpp`/`.cpp`: new `is_valid_dataset_kind()` (the same closed 4-value set);
+  new `MigrateArgs`/`parse_migrate_args()` (destination kind + the same exact-files/first-N/all
+  three-mode target selection `AssignArgs` already established). Version 0.1.0 → 0.2.0.
+- `src/DatasetManagerTool.cpp`: new global `--kind <kind>` flag (validated, then assigned into
+  `svc_config.dataset_kind` — every existing command's own `DatasetRegistry::make_config(svc_config)`
+  call picks it up with no per-command changes); `status`/`list-pending`/`list-trained` now display
+  which kind they're showing; new `migrate` command builds two `DatasetRegistry` instances (source
+  `dataset_kind=""`, destination the given kind) and moves matching entries — a migrated entry's
+  `model_name` assignment, if any, is restored via a follow-up `assign_model()` call, since the
+  underlying add-pending wire format carries no model_name field of its own; removal from the
+  source pool uses `delete_entries(..., force=true)` (works against both `LocalTransport` and
+  `RemoteTransport`, unlike `remove_pending()`). Version 1.0.0 → 1.1.0.
+- `CLAUDE.md`: "Distributed Dataset Registry" section describes the `dataset_kind` sub-pool
+  concept; new `DATASET_KIND` row in the configuration-keys table.
+- Tests: `tests/DatasetRegistryTests.cpp` (kind-qualified `LocalTransport` paths, pool isolation
+  between kinds and legacy, `add_pending_path_unchecked()`), `tests/dataset_manager_args_test.cpp`
+  (`is_valid_dataset_kind()`, `parse_migrate_args()`), `tests/incremental_trainer_args_test.cpp`
+  (`--dataset-kind` parsing), `tests/dataset_registry_live_test.cpp` (4 new real-HTTP black-box
+  cases: kind-scoped queue disjoint from legacy, different kinds mutually disjoint, an invalid kind
+  segment 404s rather than reaching a handler, kind-scoped acquire only claims from its own pool).
+
+Verification:
+
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean, zero errors, every
+  target including all test binaries.
+- ✅ Full `ctest` suite: 136/136 passing.
+- ✅ Live end-to-end smoke test against a real `registry_server` + `dataset_manager`: added a file
+  to the legacy pool and another to the `world_model` pool via `--kind world_model add`, confirmed
+  `status`/`list-pending` show disjoint contents per pool and each file physically landed under its
+  own kind-scoped `uploads/` directory; assigned the legacy file to a model, then `migrate chatbot`
+  moved it into the `chatbot` sub-pool with its model assignment intact and removed it from the
+  legacy pool; confirmed `migrate not_a_kind` and `--kind not_a_kind` are both rejected with a clear
+  CLI error before any request is made. Separately confirmed via `datasetRegistryLiveTests` against
+  the same running server: kind-scoped `queue`/`pending/add`/`acquire` endpoints are disjoint from
+  the legacy pool and from each other, and an unrecognized kind segment 404s.
+- ✅ `check_file_status.py --strict`: 319 files, 0 problems.
+
+Files Changed:
+
+- `src/RegistryServer.cpp`
+- `src/RegistryTransport.hpp`
+- `src/RegistryTransport.cpp`
+- `src/DatasetRegistry.hpp`
+- `src/DatasetRegistry.cpp`
+- `src/Config.hpp`
+- `src/Config.cpp`
+- `src/IncrementalTrainerArgs.hpp`
+- `src/IncrementalTrainerArgs.cpp`
+- `src/IncrementalTrainingTool.cpp`
+- `src/DatasetManagerArgs.hpp`
+- `src/DatasetManagerArgs.cpp`
+- `src/DatasetManagerTool.cpp`
+- `CLAUDE.md`
+- `tests/DatasetRegistryTests.cpp`
+- `tests/dataset_manager_args_test.cpp`
+- `tests/incremental_trainer_args_test.cpp`
+- `tests/dataset_registry_live_test.cpp`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-201: `LinkWorldModelDialog`'s Confirm Preview Showed a Literal `{name}` Placeholder Instead of the Real Chatbot Name
 
 | Resolution Date | Component | Resolved By |

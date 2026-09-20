@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-09-19
 
 
 #include <cstddef>
@@ -420,11 +420,17 @@ class LocalTransport : public RegistryTransport {
 class RemoteTransport final : public RegistryTransport {
    public:
     /**
-     * @param base_url   Scheme + host + optional port, e.g. "http://reg:8082"
-     * @param run_group  Logical namespace for this project.
-     * @param timeout_ms HTTP connect/read timeout in milliseconds.
+     * @param base_url     Scheme + host + optional port, e.g. "http://reg:8082"
+     * @param run_group    Logical namespace for this project.
+     * @param timeout_ms   HTTP connect/read timeout in milliseconds.
+     * @param dataset_kind TD-202: selects a per-trainable-piece sub-pool within the group
+     *                     ("encoder"/"decoder"/"world_model"/"chatbot", MNS's own kind
+     *                     vocabulary). Empty (default) reproduces the pre-TD-202 single
+     *                     shared pool, so every existing caller stays byte-for-byte
+     *                     unaffected by this trailing parameter.
      */
-    RemoteTransport(std::string base_url, std::string run_group, int timeout_ms = 5000);
+    RemoteTransport(std::string base_url, std::string run_group, int timeout_ms = 5000,
+                    std::string dataset_kind = "");
 
     bool load_registry(std::vector<DataVersion>& out) override;
     bool save_registry(const std::vector<DataVersion>& entries) override;
@@ -458,6 +464,6 @@ class RemoteTransport final : public RegistryTransport {
    private:
     std::string host_;
     int port_;
-    std::string group_prefix_;  ///< "/registry/<run_group>"
+    std::string group_prefix_;  ///< "/registry/<run_group>" or "/registry/<run_group>/<kind>" (TD-202)
     int timeout_ms_;
 };

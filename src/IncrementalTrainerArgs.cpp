@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.3.0
-// @adai-reviewed: 2026-09-16
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-09-19
 
 #include "IncrementalTrainerArgs.hpp"
 #include <array>
@@ -34,6 +34,8 @@ IncrementalTrainerGlobalArgs parse_incremental_trainer_global_args(int argc, cha
             result.admin_port = std::stoi(argv[++i]);
         } else if (a.rfind("--objective=", 0) == 0) {
             result.objective = a.substr(std::string("--objective=").size());
+        } else if (a == "--dataset-kind" && i + 1 < argc) {
+            result.dataset_kind = argv[++i];
         } else {
             result.args.push_back(a);
         }
