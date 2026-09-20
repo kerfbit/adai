@@ -1,7 +1,7 @@
 package com.adai.ops.ui.models
 
-// @adai-status: beta        (TD-196 — kind-aware design view: encoder/decoder/world-model links + link/detach world model)
-// @adai-version: 0.4.0
+// @adai-status: beta        (TD-199 review fix — passes chatbotName into LinkWorldModelDialog so its confirm preview shows the real endpoint)
+// @adai-version: 0.4.1
 // @adai-reviewed: 2026-09-19
 
 
@@ -161,6 +161,7 @@ fun ModelDetailScreen(
     }
     if (pendingAction == PendingAction.ENTER_LINK_WORLD_MODEL && model != null) {
         LinkWorldModelDialog(
+            chatbotName = model.model_name,
             worldModelCandidates = state.worldModelCandidates,
             currentConnection = model.connection,
             onSubmit = { request, preview ->

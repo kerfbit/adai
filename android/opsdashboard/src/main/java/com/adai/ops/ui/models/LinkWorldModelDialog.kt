@@ -1,7 +1,7 @@
 package com.adai.ops.ui.models
 
-// @adai-status: experimental        (TD-196 — new)
-// @adai-version: 0.1.0
+// @adai-status: experimental        (TD-199 review fix — preview now interpolates the real chatbot name instead of a literal "{name}" placeholder)
+// @adai-version: 0.1.1
 // @adai-reviewed: 2026-09-19
 
 
@@ -43,6 +43,7 @@ import com.adai.ops.ui.common.ModelPickerDropdown
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LinkWorldModelDialog(
+    chatbotName: String,
     worldModelCandidates: List<ModelRecordDto>,
     currentConnection: ConnectionDto,
     onSubmit: (LinkWorldModelRequestDto, String) -> Unit,
@@ -104,7 +105,7 @@ fun LinkWorldModelDialog(
                         hippocampal_cross_reference_alpha = crossReferenceAlpha!!,
                         hippocampal_association_decay = associationDecay!!,
                     )
-                    val preview = "POST /models/{name}/link-world-model\n{\"world_model_name\":\"$worldModelName\"," +
+                    val preview = "POST /models/$chatbotName/link-world-model\n{\"world_model_name\":\"$worldModelName\"," +
                         "\"world_model_inject_every_n_layers\":$inject,\"hippocampal_memory_enabled\":$hippocampalEnabled," +
                         "\"hippocampal_memory_capacity\":$capacity,\"hippocampal_repetition_alpha\":$repetitionAlpha," +
                         "\"hippocampal_repetition_decay\":$repetitionDecay,\"hippocampal_cross_reference_alpha\":$crossReferenceAlpha," +

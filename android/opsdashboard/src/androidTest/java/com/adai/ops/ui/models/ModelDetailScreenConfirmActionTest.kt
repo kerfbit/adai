@@ -1,11 +1,12 @@
 package com.adai.ops.ui.models
 
-// @adai-status: experimental        (TD-196 — Link/Detach World Model confirm-dialog flow added)
-// @adai-version: 0.2.0
+// @adai-status: experimental        (TD-199/TD-200 review fix — asserts the link-world-model preview shows the real chatbot name, not a "{name}" placeholder)
+// @adai-version: 0.2.1
 // @adai-reviewed: 2026-09-19
 
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -174,6 +175,10 @@ class ModelDetailScreenConfirmActionTest {
         composeTestRule.onNodeWithText("Continue").performClick()
 
         composeTestRule.onNodeWithText("Link world model?").assertExists()
+        // TD-199/TD-200 review fix: the preview must show the real chatbot name, not a literal
+        // unsubstituted "{name}" placeholder.
+        composeTestRule.onNodeWithText("POST /models/chatbot-main/link-world-model", substring = true).assertExists()
+        composeTestRule.onAllNodesWithText("{name}", substring = true).assertCountEquals(0)
         composeTestRule.onNodeWithText("Link").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { fakeService.linkWorldModelCalls.isNotEmpty() }

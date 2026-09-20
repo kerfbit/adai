@@ -10,8 +10,22 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 187
+**Resolved Items:** 188
 **Deferred Decisions:** 3
+
+**September 19, 2026 (same day):** Filed and resolved
+[TD-201](../archive/TECHNICAL_DEBT_RESOLVED.md#td-201-linkworldmodeldialogs-confirm-preview-showed-a-literal-name-placeholder-instead-of-the-real-chatbot-name)
+— found during a second full-text review pass over the TD-199/TD-200 diffs. `LinkWorldModelDialog`
+built its `ConfirmActionDialog` preview as the literal string `"POST /models/{name}/link-world-
+model"` — an unsubstituted template placeholder, not the real chatbot name — because the dialog's
+own signature never received it at all. This broke the explicit "always shows the literal HTTP
+call" guarantee both this dialog's and `ConfirmActionDialog`'s own doc comments state, right before
+an operator authenticates and commits to the action. The sibling "Detach world model" action for
+the identical endpoint, built inline in `ModelDetailScreen.kt`, already interpolated
+`model.model_name` correctly — confirming this was an isolated oversight, not a systemic gap.
+Fixed by adding a `chatbotName` parameter and interpolating it into the preview; the actual network
+call was never affected (it already used the real `modelName` internally). See its own archive
+entry.
 
 **September 19, 2026 (same day):** Filed and resolved
 [TD-200](../archive/TECHNICAL_DEBT_RESOLVED.md#td-200-registerchatbotdialogs-encoderdecoder-picker-was-starved-by-the-list-screens-own-kind-filter)
@@ -442,7 +456,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (187 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (188 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)

@@ -4,6 +4,66 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-201: `LinkWorldModelDialog`'s Confirm Preview Showed a Literal `{name}` Placeholder Instead of the Real Chatbot Name
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 19, 2026 | Android ops dashboard, Models tab | New `chatbotName` parameter on `LinkWorldModelDialog`, interpolated into its `ConfirmActionDialog` preview |
+
+Summary:
+Found during a second full-text review pass over the TD-199/TD-200 diffs. `LinkWorldModelDialog`'s
+"Continue" button built its `ConfirmActionDialog` preview as:
+
+```kotlin
+val preview = "POST /models/{name}/link-world-model\n{\"world_model_name\":\"$worldModelName\"," + ...
+```
+
+`{name}` here was a literal, unsubstituted template placeholder — not the real chatbot's
+`model_name` — because `LinkWorldModelDialog`'s own signature (`worldModelCandidates`,
+`currentConnection`, `onSubmit`, `onDismiss`) never received the chatbot's name at all. Every
+admin-action confirm preview elsewhere in this app interpolates the real resource name
+(`ModelDetailScreen.kt`'s clear-lock/retire/promote dialogs, and — in the very same commit — the
+sibling "Detach world model" action for this exact endpoint: `"POST /models/${model.model_name}/
+link-world-model\n{\"world_model_name\":\"\"}"`). An operator linking a world model would see the
+literal text `POST /models/{name}/link-world-model` in the dialog that exists specifically so they
+know exactly what they're about to authenticate and commit to — directly undermining
+`ConfirmActionDialog`'s own stated purpose ("Always states the literal HTTP call it will make").
+
+The actual network call was never affected by this bug: `ModelDetailViewModel.linkWorldModel()`
+always used its own real `modelName` field when calling `modelRepository.linkWorldModel(modelName,
+request)`, entirely independent of the dialog's cosmetic preview string. This was a display-only
+trust/consistency defect, not a functional one — but a real, confirmed instance of exactly the
+mismatch class `ConfirmActionDialog` exists to rule out. The Detach action's own correct
+interpolation, sitting right next to this bug in the same file, confirmed it was an isolated
+oversight rather than a systemic gap in this pattern.
+
+Changes Made:
+
+- `src/main/java/com/adai/ops/ui/models/LinkWorldModelDialog.kt`: added a `chatbotName: String`
+  parameter; the preview now interpolates it (`"POST /models/$chatbotName/link-world-model\n..."`)
+  instead of the literal `{name}` placeholder. Version 0.1.0 → 0.1.1.
+- `src/main/java/com/adai/ops/ui/models/ModelDetailScreen.kt`: passes `chatbotName =
+  model.model_name` at the one call site. Version 0.4.0 → 0.4.1.
+- `src/androidTest/java/com/adai/ops/ui/models/ModelDetailScreenConfirmActionTest.kt`: the
+  existing `linkWorldModel_confirmedWithSuccessfulAuth_invokesLinkAndClosesDialog` test now also
+  asserts the confirm dialog shows `POST /models/chatbot-main/link-world-model` and that no node
+  anywhere on screen still contains the literal text `{name}`.
+
+Verification:
+
+- ✅ `./gradlew :opsdashboard:compileDebugKotlin` / `:opsdashboard:compileDebugAndroidTestKotlin`
+  — clean.
+- ✅ `./gradlew :opsdashboard:testDebugUnitTest` — unaffected suites still 100% passing (this fix
+  touches only Compose UI code with no unit-testable ViewModel/repository logic change).
+- ✅ `check_file_status.py`: 319 files, 0 problems.
+
+Files Changed:
+
+- `android/opsdashboard/src/main/java/com/adai/ops/ui/models/LinkWorldModelDialog.kt`
+- `android/opsdashboard/src/main/java/com/adai/ops/ui/models/ModelDetailScreen.kt`
+- `android/opsdashboard/src/androidTest/java/com/adai/ops/ui/models/ModelDetailScreenConfirmActionTest.kt`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-200: `RegisterChatbotDialog`'s Encoder/Decoder Picker Was Starved by the List Screen's Own Kind Filter
 
 | Resolution Date | Component | Resolved By |
