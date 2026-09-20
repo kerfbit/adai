@@ -1,8 +1,13 @@
 package com.adai.ops.data.mns
 
 import com.adai.ops.network.ApiResult
+import com.adai.ops.network.dto.ArchDto
+import com.adai.ops.network.dto.LinkWorldModelRequestDto
 import com.adai.ops.network.dto.MnsAdminConfigDto
+import com.adai.ops.network.dto.ModelsResponseDto
 import com.adai.ops.network.dto.PromoteResultDto
+import com.adai.ops.network.dto.RegisterModelRequestDto
+import com.adai.ops.network.dto.RegisterModelResultDto
 import com.adai.ops.testutil.FakeApiClientProvider
 import com.adai.ops.testutil.FakeMnsApiService
 import com.adai.ops.testutil.FakeSettingsRepository
@@ -151,5 +156,96 @@ class ModelRepositoryTest {
 
         assertTrue(result is ApiResult.ApiError)
         assertFalse((result as ApiResult.ApiError).message.isEmpty())
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // TD-196: kind filter, registerModel, linkWorldModel
+    // ─────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `listModels passes the kind query param through`() = runTest {
+        var capturedKind: String? = "unset"
+        val fakeService = FakeMnsApiService(
+            listModelsResponse = { _, _, kind, _ -> capturedKind = kind; ModelsResponseDto() },
+        )
+        val repository = ModelRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        repository.listModels(kind = "encoder")
+
+        assertEquals("encoder", capturedKind)
+    }
+
+    @Test
+    fun `registerModel sends the full request and returns the model_id on success`() = runTest {
+        val fakeService = FakeMnsApiService(
+            registerModelResponse = { Response.success(RegisterModelResultDto(model_id = "uuid-1", state = "initializing")) },
+        )
+        val repository = ModelRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+        val request = RegisterModelRequestDto(
+            model_name = "my-encoder", kind = "encoder",
+            arch = ArchDto(d_model = 128, num_heads = 4, d_ff = 512, num_encoder_layers = 3, max_seq_length = 256),
+        )
+
+        val result = repository.registerModel(request)
+
+        assertTrue(result is ApiResult.Success)
+        assertEquals("uuid-1", (result as ApiResult.Success).data.model_id)
+        assertEquals(request, fakeService.registerModelCalls.single())
+    }
+
+    @Test
+    fun `registerModel surfaces a 409 dimension mismatch as Conflict`() = runTest {
+        val fakeService = FakeMnsApiService(
+            registerModelResponse = {
+                Response.error(409, ResponseBody.create("application/json".toMediaType(), "{\"error\":\"incompatible d_model\"}"))
+            },
+        )
+        val repository = ModelRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        val result = repository.registerModel(RegisterModelRequestDto(model_name = "bot", kind = "chatbot"))
+
+        assertTrue(result is ApiResult.Conflict)
+        assertEquals("incompatible d_model", (result as ApiResult.Conflict).message)
+    }
+
+    @Test
+    fun `linkWorldModel sends the request to the chatbot's own path`() = runTest {
+        val fakeService = FakeMnsApiService()
+        val repository = ModelRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+        val request = LinkWorldModelRequestDto(world_model_name = "my-wm", world_model_inject_every_n_layers = 2)
+
+        val result = repository.linkWorldModel("my-chatbot", request)
+
+        assertTrue(result is ApiResult.Success)
+        assertEquals("my-wm", (result as ApiResult.Success).data.world_model_name)
+        val (name, body) = fakeService.linkWorldModelCalls.single()
+        assertEquals("my-chatbot", name)
+        assertEquals(request, body)
+    }
+
+    @Test
+    fun `linkWorldModel surfaces a 409 d_model mismatch as Conflict`() = runTest {
+        val fakeService = FakeMnsApiService(
+            linkWorldModelResponse = { _, _ ->
+                Response.error(409, ResponseBody.create("application/json".toMediaType(), "{\"error\":\"d_model mismatch\"}"))
+            },
+        )
+        val repository = ModelRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        val result = repository.linkWorldModel("my-chatbot", LinkWorldModelRequestDto(world_model_name = "my-wm"))
+
+        assertTrue(result is ApiResult.Conflict)
+        assertEquals("d_model mismatch", (result as ApiResult.Conflict).message)
+    }
+
+    @Test
+    fun `linkWorldModel with an empty world_model_name detaches`() = runTest {
+        val fakeService = FakeMnsApiService()
+        val repository = ModelRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        val result = repository.linkWorldModel("my-chatbot", LinkWorldModelRequestDto(world_model_name = ""))
+
+        assertTrue(result is ApiResult.Success)
+        assertEquals("", (result as ApiResult.Success).data.world_model_name)
     }
 }

@@ -1,15 +1,18 @@
 package com.adai.ops.ui.models
 
-// @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-13
+// @adai-status: experimental        (TD-196 — kind filter chips + register-flow field-validation coverage added)
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-19
 
 
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import com.adai.ops.data.mns.ModelRepository
 import com.adai.ops.network.dto.ModelRecordDto
 import com.adai.ops.network.dto.ModelsResponseDto
@@ -47,7 +50,7 @@ class ModelListScreenTest {
 
     @Test
     fun noModelsRegistered_showsPlaceholderMessage() {
-        val vm = viewModel(FakeMnsApiService(listModelsResponse = { _, _, _ -> ModelsResponseDto() }))
+        val vm = viewModel(FakeMnsApiService(listModelsResponse = { _, _, _, _ -> ModelsResponseDto() }))
 
         composeTestRule.setContent {
             ModelListScreen(viewModel = vm, onOpenModel = {}, onOpenSettings = {})
@@ -60,7 +63,7 @@ class ModelListScreenTest {
     fun modelsPopulated_showEachRowWithRoleAndState() {
         val vm = viewModel(
             FakeMnsApiService(
-                listModelsResponse = { _, _, _ ->
+                listModelsResponse = { _, _, _, _ ->
                     ModelsResponseDto(
                         models = listOf(
                             ModelRecordDto(model_id = "1", model_name = "chatbot-main", role = "production", state = "production"),
@@ -77,9 +80,10 @@ class ModelListScreenTest {
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("chatbot-main") }
         composeTestRule.onNodeWithText("chatbot-candidate").assertExists()
-        composeTestRule.onNodeWithText("Role: production").assertExists()
+        // TD-196: ModelRow's supporting text now also shows kind — both rows default to "chatbot".
+        composeTestRule.onNodeWithText("Role: production · Kind: chatbot").assertExists()
         // A blank role renders as "(none)" (see ModelListScreen.kt's ModelRow).
-        composeTestRule.onNodeWithText("Role: (none)").assertExists()
+        composeTestRule.onNodeWithText("Role: (none) · Kind: chatbot").assertExists()
         composeTestRule.onNodeWithText("production").assertExists()
         composeTestRule.onNodeWithText("training").assertExists()
     }
@@ -87,7 +91,7 @@ class ModelListScreenTest {
     @Test
     fun fetchFailsWithNoPriorModels_showsFullScreenError() {
         val vm = viewModel(
-            FakeMnsApiService(listModelsResponse = { _, _, _ -> throw IOException("connection refused") }),
+            FakeMnsApiService(listModelsResponse = { _, _, _, _ -> throw IOException("connection refused") }),
         )
 
         composeTestRule.setContent {
@@ -102,7 +106,7 @@ class ModelListScreenTest {
     fun clickingAModelRow_invokesOnOpenModelWithItsName() {
         val vm = viewModel(
             FakeMnsApiService(
-                listModelsResponse = { _, _, _ ->
+                listModelsResponse = { _, _, _, _ ->
                     ModelsResponseDto(models = listOf(ModelRecordDto(model_id = "1", model_name = "chatbot-main")))
                 },
             ),
@@ -121,7 +125,7 @@ class ModelListScreenTest {
 
     @Test
     fun clickingSettingsIcon_invokesOnOpenSettings() {
-        val vm = viewModel(FakeMnsApiService(listModelsResponse = { _, _, _ -> ModelsResponseDto() }))
+        val vm = viewModel(FakeMnsApiService(listModelsResponse = { _, _, _, _ -> ModelsResponseDto() }))
         var settingsOpened = false
 
         composeTestRule.setContent {
@@ -132,4 +136,64 @@ class ModelListScreenTest {
 
         assert(settingsOpened) { "expected onOpenSettings() to have been invoked" }
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // TD-196: kind filter chips + register-model flow
+    // ─────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun clickingAKindChip_refetchesWithThatKindFilter() {
+        val capturedKinds = mutableListOf<String?>()
+        val vm = viewModel(FakeMnsApiService(listModelsResponse = { _, _, kind, _ -> capturedKinds += kind; ModelsResponseDto() }))
+
+        composeTestRule.setContent {
+            ModelListScreen(viewModel = vm, onOpenModel = {}, onOpenSettings = {})
+        }
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("No models registered") }
+
+        composeTestRule.onNodeWithText("Encoder").performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { capturedKinds.contains("encoder") }
+    }
+
+    @Test
+    fun clickingAddButton_opensKindPicker() {
+        val vm = viewModel(FakeMnsApiService(listModelsResponse = { _, _, _, _ -> ModelsResponseDto() }))
+
+        composeTestRule.setContent {
+            ModelListScreen(viewModel = vm, onOpenModel = {}, onOpenSettings = {})
+        }
+
+        composeTestRule.onNodeWithContentDescription("Register model").performClick()
+
+        composeTestRule.onNodeWithText("Register a model").assertExists()
+        composeTestRule.onNodeWithText("Register Encoder").assertExists()
+        composeTestRule.onNodeWithText("Register Chatbot").assertExists()
+    }
+
+    @Test
+    fun registerEncoderDialog_registerDisabledUntilAllFieldsAreValid() {
+        val vm = viewModel(FakeMnsApiService(listModelsResponse = { _, _, _, _ -> ModelsResponseDto() }))
+
+        composeTestRule.setContent {
+            ModelListScreen(viewModel = vm, onOpenModel = {}, onOpenSettings = {})
+        }
+        composeTestRule.onNodeWithContentDescription("Register model").performClick()
+        composeTestRule.onNodeWithText("Register Encoder").performClick()
+
+        composeTestRule.onNodeWithText("Register").assertIsNotEnabled()
+        composeTestRule.onNodeWithText("Model name").performTextInput("my-encoder")
+        composeTestRule.onNodeWithText("d_model").performTextInput("128")
+        composeTestRule.onNodeWithText("num_heads").performTextInput("4")
+        composeTestRule.onNodeWithText("d_ff").performTextInput("512")
+        composeTestRule.onNodeWithText("num_layers").performTextInput("3")
+        composeTestRule.onNodeWithText("max_seq_length").performTextInput("256")
+        composeTestRule.onNodeWithText("Register").assertIsEnabled()
+    }
+
+    // NOTE: the flow beyond this point (clicking "Register" opens ConfirmActionDialog, which
+    // requires a real FragmentActivity for its biometric/PIN gate) needs
+    // createAndroidComposeRule<ConfirmDialogTestActivity>() — this plain createComposeRule() host
+    // would crash rendering ConfirmActionDialog. See ModelListScreenConfirmActionTest.kt, mirroring
+    // ModelDetailScreenConfirmActionTest.kt's own reasoning for the same split.
 }

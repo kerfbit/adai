@@ -1,8 +1,8 @@
 package com.adai.ops.ui.models
 
-// @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: experimental        (TD-196 — onOpenModel cross-navigation threaded into the detail pane)
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-19
 
 
 import androidx.activity.compose.BackHandler
@@ -51,6 +51,7 @@ fun ModelsRoute(app: OpsApp, onOpenSettings: () -> Unit) {
                         modelName = modelName,
                         viewModel = detailViewModel,
                         onBack = { navigator.navigateBack() },
+                        onOpenModel = { name -> navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, name) },
                     )
                 } else {
                     EmptyDetailPlaceholder("Select a model")

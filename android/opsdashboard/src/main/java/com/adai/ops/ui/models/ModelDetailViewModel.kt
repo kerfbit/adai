@@ -1,14 +1,15 @@
 package com.adai.ops.ui.models
 
-// @adai-status: beta        (TD-048 resolved — was mistagged "capped by TD-047"; see TECHNICAL_DEBT.md)
-// @adai-version: 0.5.0
-// @adai-reviewed: 2026-09-12
+// @adai-status: beta        (TD-196 — kind-aware design view: link/detach world model added)
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-09-19
 
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.adai.ops.data.mns.ModelRepository
 import com.adai.ops.network.ApiResult
+import com.adai.ops.network.dto.LinkWorldModelRequestDto
 import com.adai.ops.network.dto.ModelRecordDto
 import com.adai.ops.network.errorMessageOrNull
 import com.adai.ops.polling.FixedIntervalPoller
@@ -24,6 +25,7 @@ data class ModelDetailUiState(
     val error: String? = null,
     val actionInProgress: Boolean = false,
     val actionMessage: String? = null,
+    val worldModelCandidates: List<ModelRecordDto> = emptyList(),
 )
 
 /**
@@ -97,6 +99,54 @@ class ModelDetailViewModel(
                             actionMessage = "Promoted to production for role '${result.data.role}' (retired: $retired).",
                         )
                     }
+                    refresh()
+                }
+                else -> _uiState.update {
+                    it.copy(actionInProgress = false, actionMessage = "Failed: ${result.errorMessageOrNull()}")
+                }
+            }
+        }
+    }
+
+    /** TD-196: populates the world-model picker for the "Link World Model" dialog on demand. */
+    fun loadWorldModelCandidates() {
+        viewModelScope.launch {
+            val result = modelRepository.listModels(kind = "world_model")
+            if (result is ApiResult.Success) {
+                _uiState.update { it.copy(worldModelCandidates = result.data.models) }
+            }
+        }
+    }
+
+    /**
+     * Admin action: POST /models/{name}/link-world-model. Only meaningful on a chatbot-kind
+     * record; the server rejects (409) a d_model mismatch whenever
+     * world_model_inject_every_n_layers > 0 in [request].
+     */
+    fun linkWorldModel(request: LinkWorldModelRequestDto) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(actionInProgress = true, actionMessage = null) }
+            when (val result = modelRepository.linkWorldModel(modelName, request)) {
+                is ApiResult.Success -> {
+                    _uiState.update {
+                        it.copy(actionInProgress = false, actionMessage = "Linked world model '${result.data.world_model_name}'.")
+                    }
+                    refresh()
+                }
+                else -> _uiState.update {
+                    it.copy(actionInProgress = false, actionMessage = "Failed: ${result.errorMessageOrNull()}")
+                }
+            }
+        }
+    }
+
+    /** Admin action: POST /models/{name}/link-world-model with an empty world_model_name. */
+    fun detachWorldModel() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(actionInProgress = true, actionMessage = null) }
+            when (val result = modelRepository.linkWorldModel(modelName, LinkWorldModelRequestDto(world_model_name = ""))) {
+                is ApiResult.Success -> {
+                    _uiState.update { it.copy(actionInProgress = false, actionMessage = "World model detached.") }
                     refresh()
                 }
                 else -> _uiState.update {

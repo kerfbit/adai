@@ -1,18 +1,22 @@
 package com.adai.ops.data.mns
 
-// @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.4.1
-// @adai-reviewed: 2026-09-11
+// @adai-status: beta        (TD-196 — kind filter + registerModel/linkWorldModel added)
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-09-19
 
 
 import com.adai.ops.network.ApiClientProvider
 import com.adai.ops.network.ApiResult
 import com.adai.ops.network.MnsApiService
+import com.adai.ops.network.dto.LinkWorldModelRequestDto
+import com.adai.ops.network.dto.LinkWorldModelResultDto
 import com.adai.ops.network.dto.MnsAdminConfigDto
 import com.adai.ops.network.dto.ModelRecordDto
 import com.adai.ops.network.dto.ModelsResponseDto
 import com.adai.ops.network.dto.PromoteRequestDto
 import com.adai.ops.network.dto.PromoteResultDto
+import com.adai.ops.network.dto.RegisterModelRequestDto
+import com.adai.ops.network.dto.RegisterModelResultDto
 import com.adai.ops.network.dto.ResolvedModelDto
 import com.adai.ops.network.dto.RolesResponseDto
 import com.adai.ops.network.dto.SetStateRequestDto
@@ -44,11 +48,34 @@ class ModelRepository(
         )
     }
 
-    suspend fun listModels(state: String? = null, role: String? = null, limit: Int? = null): ApiResult<ModelsResponseDto> =
-        safeApiCall { service().listModels(state, role, limit) }
+    suspend fun listModels(
+        state: String? = null,
+        role: String? = null,
+        kind: String? = null,
+        limit: Int? = null,
+    ): ApiResult<ModelsResponseDto> = safeApiCall { service().listModels(state, role, kind, limit) }
 
     suspend fun getModel(name: String): ApiResult<ModelRecordDto> =
         safeResponseCall { service().getModel(name) }
+
+    /**
+     * TD-196: POST /models. Per-kind validation is entirely server-side (own layer count,
+     * encoder/decoder dimensional match, world-model link compatibility) — a 400/409 surfaces
+     * here as [ApiResult.ApiError]/[ApiResult.Conflict] with the server's own message, no
+     * client-side re-validation needed beyond basic form completeness.
+     */
+    suspend fun registerModel(request: RegisterModelRequestDto): ApiResult<RegisterModelResultDto> =
+        safeResponseCall { service().registerModel(request) }
+
+    /**
+     * Admin action: POST /models/{name}/link-world-model. Only valid on a chatbot-kind record;
+     * an empty world_model_name in [request] detaches. 409 on a d_model mismatch whenever
+     * world_model_inject_every_n_layers > 0.
+     */
+    suspend fun linkWorldModel(
+        chatbotName: String,
+        request: LinkWorldModelRequestDto,
+    ): ApiResult<LinkWorldModelResultDto> = safeResponseCall { service().linkWorldModel(chatbotName, request) }
 
     suspend fun resolveModel(name: String): ApiResult<ResolvedModelDto> =
         safeResponseCall { service().resolveModel(name) }

@@ -10,8 +10,25 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 185
+**Resolved Items:** 186
 **Deferred Decisions:** 3
+
+**September 19, 2026 (same day):** Filed and resolved
+[TD-199](../archive/TECHNICAL_DEBT_RESOLVED.md#td-199-android-ops-dashboard-models-section-had-zero-td-196-awareness)
+— user request: "the mns section of the opsdashboard... needs to contain a full model design
+system." The Android ops dashboard's Models tab predated TD-196 entirely: `ModelRecordDto` had no
+`kind`/`connection` field, `MnsApiService` had no register or link-world-model call at all, and
+the detail screen only ever rendered the old flat 6-field architecture regardless of what a model
+actually was. Brought to full parity with the backend: `ModelRecordDto`/`ArchDto` gained `kind`
+and a new `ConnectionDto`; `MnsApiService`/`ModelRepository` gained a `kind` list filter plus
+`registerModel()`/`linkWorldModel()`; the list screen gained kind-filter chips and a "+" entry
+point into 4 separate per-kind registration dialogs (encoder/decoder/world_model/chatbot, the
+chatbot one offering a Linked-via-picker or Legacy-inline-architecture toggle); the detail screen
+became kind-aware (a linked chatbot shows clickable Encoder/Decoder rows instead of dead inline
+zeros, a "World Model" section shows the link + hippocampal tuning with Link/Detach actions). Per
+this app's own established convention, register and link-world-model both route through
+`ConfirmActionDialog`'s biometric/PIN gate exactly like every other admin action, previewing the
+literal HTTP call first. See its own archive entry.
 
 **September 19, 2026 (same day):** Filed and resolved
 [TD-198](../archive/TECHNICAL_DEBT_RESOLVED.md#td-198-mns-first-world-model-resolution-fetched-sigreg_lambda-that-was-never-consumed-on-the-frozen-attach-path)
@@ -411,7 +428,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (185 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (186 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)

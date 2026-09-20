@@ -1,8 +1,8 @@
 package com.adai.ops.ui.models
 
-// @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-13
+// @adai-status: experimental        (TD-196 — Link/Detach World Model confirm-dialog flow added)
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-19
 
 
 import androidx.compose.runtime.CompositionLocalProvider
@@ -13,7 +13,10 @@ import androidx.compose.ui.test.performClick
 import com.adai.ops.data.mns.ModelRepository
 import com.adai.ops.network.dto.ArchDto
 import com.adai.ops.network.dto.ArtifactDto
+import com.adai.ops.network.dto.ConnectionDto
+import com.adai.ops.network.dto.LinkWorldModelResultDto
 import com.adai.ops.network.dto.ModelRecordDto
+import com.adai.ops.network.dto.ModelsResponseDto
 import com.adai.ops.testutil.ConfirmDialogTestActivity
 import com.adai.ops.testutil.FakeAdminAuthGate
 import com.adai.ops.testutil.FakeApiClientProvider
@@ -21,6 +24,8 @@ import com.adai.ops.testutil.FakeMnsApiService
 import com.adai.ops.testutil.FakeSettingsRepository
 import com.adai.ops.ui.common.AdminAuthResult
 import com.adai.ops.ui.common.LocalAdminAuthGate
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ResponseBody
 import org.junit.Rule
 import org.junit.Test
 import retrofit2.Response
@@ -140,5 +145,86 @@ class ModelDetailScreenConfirmActionTest {
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("sensor error") }
         composeTestRule.onNodeWithText("Clear stale training lock?").assertExists()
         assert(fakeService.setStateCalls.isEmpty())
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // TD-196: Link World Model / Detach World Model
+    // ─────────────────────────────────────────────────────────────────────
+
+    private fun chatbotModel(connection: ConnectionDto = ConnectionDto()) = ModelRecordDto(
+        model_id = "model-1", model_name = "chatbot-main", kind = "chatbot", state = "production",
+        artifact = ArtifactDto(), arch = ArchDto(), connection = connection,
+    )
+
+    @Test
+    fun linkWorldModel_confirmedWithSuccessfulAuth_invokesLinkAndClosesDialog() {
+        val fakeService = FakeMnsApiService(
+            getModelResponse = { Response.success(chatbotModel()) },
+            listModelsResponse = { _, _, _, _ -> ModelsResponseDto(models = listOf(ModelRecordDto(model_id = "wm-1", model_name = "my-wm", kind = "world_model"))) },
+            linkWorldModelResponse = { _, body -> Response.success(LinkWorldModelResultDto(status = "ok", world_model_name = body.world_model_name)) },
+        )
+        val authGate = FakeAdminAuthGate(result = { AdminAuthResult.Success })
+        setContent(fakeService, authGate)
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("chatbot-main") }
+        composeTestRule.onNodeWithText("Link world model", substring = true).performClick()
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("(unassigned)") }
+        composeTestRule.onNodeWithText("(unassigned)").performClick()
+        composeTestRule.onNodeWithText("my-wm").performClick()
+        composeTestRule.onNodeWithText("Continue").performClick()
+
+        composeTestRule.onNodeWithText("Link world model?").assertExists()
+        composeTestRule.onNodeWithText("Link").performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { fakeService.linkWorldModelCalls.isNotEmpty() }
+        val (name, body) = fakeService.linkWorldModelCalls.single()
+        assert(name == "chatbot-main" && body.world_model_name == "my-wm") {
+            "unexpected linkWorldModel call: name=$name body=$body"
+        }
+        composeTestRule.onNodeWithText("Link world model?").assertDoesNotExist()
+    }
+
+    @Test
+    fun linkWorldModel_serverRejectsMismatch_surfacesErrorMessage() {
+        val fakeService = FakeMnsApiService(
+            getModelResponse = { Response.success(chatbotModel()) },
+            listModelsResponse = { _, _, _, _ -> ModelsResponseDto(models = listOf(ModelRecordDto(model_id = "wm-1", model_name = "my-wm", kind = "world_model"))) },
+            linkWorldModelResponse = { _, _ ->
+                Response.error(409, ResponseBody.create("application/json".toMediaType(), "{\"error\":\"d_model mismatch\"}"))
+            },
+        )
+        val authGate = FakeAdminAuthGate(result = { AdminAuthResult.Success })
+        setContent(fakeService, authGate)
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("chatbot-main") }
+        composeTestRule.onNodeWithText("Link world model", substring = true).performClick()
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("(unassigned)") }
+        composeTestRule.onNodeWithText("(unassigned)").performClick()
+        composeTestRule.onNodeWithText("my-wm").performClick()
+        composeTestRule.onNodeWithText("Continue").performClick()
+        composeTestRule.onNodeWithText("Link").performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("d_model mismatch") }
+    }
+
+    @Test
+    fun detachWorldModel_confirmedWithSuccessfulAuth_sendsEmptyWorldModelName() {
+        val fakeService = FakeMnsApiService(
+            getModelResponse = { Response.success(chatbotModel(ConnectionDto(world_model_name = "my-wm"))) },
+            linkWorldModelResponse = { _, body -> Response.success(LinkWorldModelResultDto(status = "ok", world_model_name = body.world_model_name)) },
+        )
+        val authGate = FakeAdminAuthGate(result = { AdminAuthResult.Success })
+        setContent(fakeService, authGate)
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("chatbot-main") }
+        composeTestRule.onNodeWithText("Detach world model", substring = true).performClick()
+        composeTestRule.onNodeWithText("Detach world model?").assertExists()
+        composeTestRule.onNodeWithText("Detach").performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { fakeService.linkWorldModelCalls.isNotEmpty() }
+        val (name, body) = fakeService.linkWorldModelCalls.single()
+        assert(name == "chatbot-main" && body.world_model_name == "") {
+            "unexpected linkWorldModel (detach) call: name=$name body=$body"
+        }
     }
 }

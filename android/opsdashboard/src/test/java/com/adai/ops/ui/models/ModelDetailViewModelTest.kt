@@ -1,7 +1,10 @@
 package com.adai.ops.ui.models
 
 import com.adai.ops.data.mns.ModelRepository
+import com.adai.ops.network.dto.LinkWorldModelRequestDto
+import com.adai.ops.network.dto.LinkWorldModelResultDto
 import com.adai.ops.network.dto.ModelRecordDto
+import com.adai.ops.network.dto.ModelsResponseDto
 import com.adai.ops.network.dto.PromoteResultDto
 import com.adai.ops.testutil.FakeApiClientProvider
 import com.adai.ops.testutil.FakeMnsApiService
@@ -166,5 +169,95 @@ class ModelDetailViewModelTest {
 
         assertNull(viewModel.uiState.value.actionMessage)
         pollJob.cancel()
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // TD-196: linkWorldModel / detachWorldModel / loadWorldModelCandidates
+    // ─────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `loadWorldModelCandidates fetches world_model-kind records into uiState`() = runTest {
+        var capturedKind: String? = "unset"
+        val fakeService = FakeMnsApiService(
+            listModelsResponse = { _, _, kind, _ ->
+                capturedKind = kind
+                ModelsResponseDto(models = listOf(ModelRecordDto(model_id = "wm-1", model_name = "my-wm", kind = "world_model")))
+            },
+        )
+        val viewModel = ModelDetailViewModel(
+            modelName = "my-chatbot",
+            modelRepository = ModelRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository()),
+        )
+
+        viewModel.loadWorldModelCandidates()
+        testScheduler.runCurrent()
+
+        assertEquals("world_model", capturedKind)
+        assertEquals("my-wm", viewModel.uiState.value.worldModelCandidates.single().model_name)
+    }
+
+    @Test
+    fun `linkWorldModel success updates the model and sets a confirmation message`() = runTest {
+        val fakeService = FakeMnsApiService(
+            getModelResponse = { Response.success(ModelRecordDto(model_id = "my-chatbot", kind = "chatbot")) },
+            linkWorldModelResponse = { _, body -> Response.success(LinkWorldModelResultDto(status = "ok", world_model_name = body.world_model_name)) },
+        )
+        val viewModel = ModelDetailViewModel(
+            modelName = "my-chatbot",
+            modelRepository = ModelRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository()),
+        )
+        val pollJob = backgroundScope.launch { viewModel.pollModel() }
+        testScheduler.runCurrent()
+
+        viewModel.linkWorldModel(LinkWorldModelRequestDto(world_model_name = "my-wm", world_model_inject_every_n_layers = 2))
+        testScheduler.runCurrent()
+
+        val state = viewModel.uiState.value
+        assertTrue(state.actionMessage!!.contains("my-wm"))
+        assertEquals(false, state.actionInProgress)
+        val (name, body) = fakeService.linkWorldModelCalls.single()
+        assertEquals("my-chatbot", name)
+        assertEquals("my-wm", body.world_model_name)
+        assertEquals(2L, body.world_model_inject_every_n_layers)
+        pollJob.cancel()
+    }
+
+    @Test
+    fun `linkWorldModel 409 mismatch surfaces the server's error`() = runTest {
+        val fakeService = FakeMnsApiService(
+            linkWorldModelResponse = { _, _ ->
+                Response.error(409, ResponseBody.create("application/json".toMediaType(), "{\"error\":\"d_model mismatch\"}"))
+            },
+        )
+        val viewModel = ModelDetailViewModel(
+            modelName = "my-chatbot",
+            modelRepository = ModelRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository()),
+        )
+
+        viewModel.linkWorldModel(LinkWorldModelRequestDto(world_model_name = "my-wm"))
+        testScheduler.runCurrent()
+
+        val state = viewModel.uiState.value
+        assertTrue(state.actionMessage!!.contains("Failed"))
+        assertTrue(state.actionMessage!!.contains("d_model mismatch"))
+    }
+
+    @Test
+    fun `detachWorldModel sends an empty world_model_name`() = runTest {
+        val fakeService = FakeMnsApiService(
+            linkWorldModelResponse = { _, body -> Response.success(LinkWorldModelResultDto(status = "ok", world_model_name = body.world_model_name)) },
+        )
+        val viewModel = ModelDetailViewModel(
+            modelName = "my-chatbot",
+            modelRepository = ModelRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository()),
+        )
+
+        viewModel.detachWorldModel()
+        testScheduler.runCurrent()
+
+        val (name, body) = fakeService.linkWorldModelCalls.single()
+        assertEquals("my-chatbot", name)
+        assertEquals("", body.world_model_name)
+        assertTrue(viewModel.uiState.value.actionMessage!!.contains("detached"))
     }
 }

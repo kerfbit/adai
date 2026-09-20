@@ -1,8 +1,8 @@
 package com.adai.ops.ui.models
 
-// @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-13
+// @adai-status: experimental        (TD-196 — kind-aware design view coverage: encoder/decoder/world-model links)
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-19
 
 
 import androidx.compose.ui.test.assertIsEnabled
@@ -15,6 +15,7 @@ import androidx.compose.ui.test.performClick
 import com.adai.ops.data.mns.ModelRepository
 import com.adai.ops.network.dto.ArchDto
 import com.adai.ops.network.dto.ArtifactDto
+import com.adai.ops.network.dto.ConnectionDto
 import com.adai.ops.network.dto.ModelRecordDto
 import com.adai.ops.network.dto.TrainingHistoryEntryDto
 import com.adai.ops.testutil.FakeApiClientProvider
@@ -216,5 +217,105 @@ class ModelDetailScreenTest {
         composeTestRule.onNodeWithContentDescription("Back").performClick()
 
         assert(backInvoked) { "expected onBack() to have been invoked" }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // TD-196: kind-aware design view — encoder/decoder/world-model links
+    // ─────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun linkedChatbot_showsEncoderAndDecoderRowsInsteadOfInlineArch() {
+        val vm = viewModel(
+            fullModel().copy(connection = ConnectionDto(encoder_name = "my-enc", decoder_name = "my-dec")),
+        )
+
+        composeTestRule.setContent {
+            ModelDetailScreen(modelName = "chatbot-main", viewModel = vm, onBack = {})
+        }
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("model-1") }
+        composeTestRule.onNodeWithText("my-enc").assertExists()
+        composeTestRule.onNodeWithText("my-dec").assertExists()
+        // The legacy inline d_model row must not render for a linked chatbot.
+        composeTestRule.onNodeWithText("512").assertDoesNotExist()
+    }
+
+    @Test
+    fun clickingLinkedEncoderRow_invokesOnOpenModelWithItsName() {
+        val vm = viewModel(
+            fullModel().copy(connection = ConnectionDto(encoder_name = "my-enc", decoder_name = "my-dec")),
+        )
+        var opened: String? = null
+
+        composeTestRule.setContent {
+            ModelDetailScreen(modelName = "chatbot-main", viewModel = vm, onBack = {}, onOpenModel = { opened = it })
+        }
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("my-enc") }
+        composeTestRule.onNodeWithText("my-enc").performClick()
+
+        assert(opened == "my-enc") { "expected onOpenModel(\"my-enc\"), got $opened" }
+    }
+
+    @Test
+    fun chatbotWithLinkedWorldModel_showsWorldModelSectionAndDetachEnabled() {
+        val vm = viewModel(
+            fullModel().copy(
+                connection = ConnectionDto(
+                    world_model_name = "my-wm", world_model_inject_every_n_layers = 2,
+                    hippocampal_memory_enabled = true, hippocampal_memory_capacity = 256,
+                ),
+            ),
+        )
+
+        composeTestRule.setContent {
+            ModelDetailScreen(modelName = "chatbot-main", viewModel = vm, onBack = {})
+        }
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("my-wm") }
+        composeTestRule.onNodeWithText("my-wm").assertExists()
+        composeTestRule.onNodeWithText("Link world model", substring = true).assertIsEnabled()
+        composeTestRule.onNodeWithText("Detach world model", substring = true).assertIsEnabled()
+    }
+
+    @Test
+    fun chatbotWithoutWorldModel_detachButtonDisabled() {
+        val vm = viewModel(fullModel())
+
+        composeTestRule.setContent {
+            ModelDetailScreen(modelName = "chatbot-main", viewModel = vm, onBack = {})
+        }
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("model-1") }
+        composeTestRule.onNodeWithText("Link world model", substring = true).assertIsEnabled()
+        composeTestRule.onNodeWithText("Detach world model", substring = true).assertIsNotEnabled()
+    }
+
+    @Test
+    fun encoderKind_showsOwnArchitectureAndNoWorldModelSection() {
+        val vm = viewModel(fullModel().copy(kind = "encoder", connection = ConnectionDto()))
+
+        composeTestRule.setContent {
+            ModelDetailScreen(modelName = "chatbot-main", viewModel = vm, onBack = {})
+        }
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("model-1") }
+        composeTestRule.onNodeWithText("512").assertExists()
+        composeTestRule.onNodeWithText("World Model").assertDoesNotExist()
+    }
+
+    @Test
+    fun worldModelKind_showsSigregFields() {
+        val vm = viewModel(
+            fullModel().copy(kind = "world_model", connection = ConnectionDto(sigreg_lambda = 2.5f, sigreg_num_sketches = 32)),
+        )
+
+        composeTestRule.setContent {
+            ModelDetailScreen(modelName = "chatbot-main", viewModel = vm, onBack = {})
+        }
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("model-1") }
+        composeTestRule.onNodeWithText("2.5").assertExists()
+        composeTestRule.onNodeWithText("32").assertExists()
     }
 }

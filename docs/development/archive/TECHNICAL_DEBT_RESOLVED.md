@@ -4,6 +4,101 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-199: Android Ops Dashboard Models Section Had Zero TD-196 Awareness
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 19, 2026 | Android ops dashboard (`android/opsdashboard`), Models tab | New `ConnectionDto`/`kind` fields, `registerModel()`/`linkWorldModel()` API + repository methods, kind-aware list/detail screens, 4 per-kind register dialogs, `LinkWorldModelDialog` |
+
+Summary:
+User request: "the mns section of the opsdashboard... needs to contain a full model design
+system." The Android ops dashboard's Models tab (`ui/models/`) predated TD-196 entirely — it was
+never updated when the backend gained `kind`/`connection`. Confirmed via a full read of the
+module: `ModelRecordDto` had no `kind` or `connection` field, `ArchDto` was the flat pre-TD-196
+6-field shape, `MnsApiService` had no register endpoint at all and no `link-world-model` call, and
+`ModelDetailScreen` rendered the same 6 architecture rows regardless of what a model actually was
+— a linked chatbot would have shown its own dead, all-zero inline `arch` fields with no indication
+its real architecture lived on a separate encoder/decoder pair.
+
+Three explicit scope decisions (asked via `AskUserQuestion`, all answered with the more complete
+option):
+- **Full CRUD**, not read-only: register new encoder/decoder/world_model/chatbot records and
+  link/detach a chatbot's world model from the app, not just view them.
+- **Separate screens (dialogs) per kind** for registration, not one shared adaptive form —
+  matching this app's own existing convention for creation forms (`FetchGutenbergDialog`/
+  `FetchHuggingfaceDialog`/`AssignModelDialog` in `ui/registry/GroupDetailScreen.kt`, all plain
+  `AlertDialog`s opened from the current screen).
+- **Same biometric/PIN gate as every other admin action**: register and link-world-model both
+  route through `ConfirmActionDialog` (previews the literal HTTP call, requires device auth)
+  exactly like clear-lock/retire/promote — a two-step flow where the kind-specific data-entry
+  dialog hands its built request to `ConfirmActionDialog` instead of calling the repository
+  directly.
+
+Design notes:
+
+- **`RegisterModelRequestDto` always sends `arch` and `connection` in full**, unlike `mns_cli`'s
+  own C++ (which conditionally omits them per kind) — a zero-valued `arch` alongside
+  `connection.encoder_name`/`decoder_name` is inert server-side (the chatbot-with-linked-encoder/
+  decoder validation path never reads the inline arch fields), and an empty-string `connection` is
+  likewise inert for encoder/decoder/legacy-chatbot registration, since those are exactly
+  `ModelRecord`'s own server-side defaults. Removes an entire category of "did I build the right
+  conditional JSON shape" bugs before they could exist.
+- **`registerModel`/`linkWorldModel` return `Response<T>`, not bare DTOs** — matching
+  `setState`/`promote`'s existing pattern so `safeResponseCall` (`network/SafeCall.kt`, untouched)
+  automatically turns a 400/409 `{"error":"..."}` body into a display-ready
+  `ApiResult.ApiError`/`Conflict` message, with no new error-handling code needed above the
+  repository layer.
+- **The register kind-picker's dialog options read "Register Encoder"/"Register Decoder"/etc,
+  not bare kind names** — deliberately distinct from the list screen's own kind-filter chip labels
+  ("Encoder"/"Decoder"/...), which would otherwise render identical, ambiguous text simultaneously
+  on screen (the filter row sits behind the picker dialog) — a real would-have-shipped UX/
+  accessibility rough edge caught while writing the Compose UI test for it (two nodes matching the
+  same text is also what would have made `onNodeWithText` ambiguous in that test).
+- **`ModelDetailScreen`'s "Link World Model" dialog pre-fills every field from the chatbot's
+  current `connection`** (not just `ConnectionDto`'s own bare defaults) — re-linking or retuning
+  an already-linked world model is "edit in place," not "start over."
+
+Verification:
+
+- ✅ `./gradlew :opsdashboard:testDebugUnitTest` — 65 tests passing across
+  `ModelRepositoryTest`/`ModelListViewModelTest`/`ModelDetailViewModelTest` (14/5/9, up from
+  8/2/5), including register/link-world-model success, 409 handling, and the `kind`
+  query-param plumbing.
+- ✅ `./gradlew :opsdashboard:compileDebugAndroidTestKotlin` — all instrumented test sources
+  (list/detail screens, 2 confirm-action-flow files) compile clean.
+- ✅ Live attempt on a real emulator (`Medium_Phone_API_35`, booted and connected for this
+  session): confirmed the pre-existing, documented `INSTALL_FAILED_MISSING_SHARED_LIBRARY:
+  ...wear-sdk` blocker (already called out in this module's own `ModelListScreenTest.kt`/
+  `ModelDetailScreenTest.kt` doc comments from TD-048) still applies — not introduced by this
+  change, and not fixable from this environment (the AVD image lacks the Wear OS shared library
+  `com.adai.ops` depends on). Instrumented tests remain compile-verified and hand-checked against
+  the real production code paths, matching every other opsdashboard screen test's own documented
+  status.
+- ✅ `./gradlew :opsdashboard:lintDebug` — clean (0 errors, 6 pre-existing warnings, none in any
+  file this change touched).
+
+Files Changed:
+
+- `android/opsdashboard/src/main/java/com/adai/ops/network/dto/MnsDtos.kt`
+- `android/opsdashboard/src/main/java/com/adai/ops/network/MnsApiService.kt`
+- `android/opsdashboard/src/main/java/com/adai/ops/data/mns/ModelRepository.kt`
+- `android/opsdashboard/src/main/java/com/adai/ops/ui/models/ModelListViewModel.kt`
+- `android/opsdashboard/src/main/java/com/adai/ops/ui/models/ModelListScreen.kt`
+- `android/opsdashboard/src/main/java/com/adai/ops/ui/models/RegisterModelDialogs.kt` (new)
+- `android/opsdashboard/src/main/java/com/adai/ops/ui/models/ModelDetailViewModel.kt`
+- `android/opsdashboard/src/main/java/com/adai/ops/ui/models/ModelDetailScreen.kt`
+- `android/opsdashboard/src/main/java/com/adai/ops/ui/models/LinkWorldModelDialog.kt` (new)
+- `android/opsdashboard/src/main/java/com/adai/ops/ui/models/ModelsRoute.kt`
+- `android/opsdashboard/src/sharedTest/java/com/adai/ops/testutil/FakeMnsApiService.kt`
+- `android/opsdashboard/src/test/java/com/adai/ops/data/mns/ModelRepositoryTest.kt`
+- `android/opsdashboard/src/test/java/com/adai/ops/ui/models/ModelListViewModelTest.kt`
+- `android/opsdashboard/src/test/java/com/adai/ops/ui/models/ModelDetailViewModelTest.kt`
+- `android/opsdashboard/src/androidTest/java/com/adai/ops/ui/models/ModelListScreenTest.kt`
+- `android/opsdashboard/src/androidTest/java/com/adai/ops/ui/models/ModelListScreenConfirmActionTest.kt` (new)
+- `android/opsdashboard/src/androidTest/java/com/adai/ops/ui/models/ModelDetailScreenTest.kt`
+- `android/opsdashboard/src/androidTest/java/com/adai/ops/ui/models/ModelDetailScreenConfirmActionTest.kt`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-198: MNS-First World-Model Resolution Fetched `sigreg_lambda` That Was Never Consumed on the Frozen-Attach Path
 
 | Resolution Date | Component | Resolved By |
