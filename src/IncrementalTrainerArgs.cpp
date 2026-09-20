@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-19
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-09-20
 
 #include "IncrementalTrainerArgs.hpp"
 #include <array>
@@ -67,6 +67,14 @@ std::string derive_run_id(const std::string& configured) {
     if (host.size() > 8)
         host = host.substr(0, 8);
     return host + "_" + std::to_string(pid_tail);
+}
+
+std::string resolve_dataset_kind(const std::string& objective,
+                                 const std::optional<std::string>& cli_override) {
+    if (cli_override) {
+        return *cli_override;
+    }
+    return (objective == "lejepa") ? "world_model" : "chatbot";
 }
 
 ResetCommandArgs parse_reset_command_args(const std::vector<std::string>& args) {

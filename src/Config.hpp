@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-09-19
+// @adai-version: 1.3.1
+// @adai-reviewed: 2026-09-20
 
 
 #include <cstdint>
@@ -281,6 +281,11 @@ struct ServiceConfig {
     /// Empty (default) reproduces the pre-TD-202 single shared pool. Plain string,
     /// no load-time validation, matching run_group/model_name's own precedent —
     /// validated where it matters (registry_server route regex, dataset_manager CLI).
+    /// TD-204: honored by dataset_manager (falls back to this when --kind isn't passed),
+    /// but deliberately IGNORED by incremental_trainer's automatic objective->kind selection
+    /// (IncrementalTrainingTool.cpp's main()) — a static config value can't track which
+    /// objective a given invocation is running, so letting it override the automatic default
+    /// would silently reunite the two objectives' pools this field exists to keep apart.
     std::string dataset_kind;
 
     /// On-disk tokenized-data cache: ChatbotTrainer::preprocess_data() skips

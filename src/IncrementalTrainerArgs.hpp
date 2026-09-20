@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-19
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-09-20
 
 // TD-035: incremental_trainer's global argv parsing and a few small pure helpers, pulled out of
 // IncrementalTrainingTool.cpp so they're testable without touching a real IncrementalTrainer
@@ -57,6 +57,18 @@ bool incremental_trainer_command_defers_gpu_init(const std::string& command);
 // Derives a fallback run_id from hostname+pid when `configured` (RUN_ID from config/MNS) is
 // empty. Pure aside from the hostname/pid syscalls — no file or network I/O.
 std::string derive_run_id(const std::string& configured);
+
+// TD-202/TD-204: resolves the dataset registry sub-pool ("chatbot"/"world_model") for this
+// invocation. Deliberately takes only `objective` and `cli_override` — NOT a pre-loaded
+// ServiceConfig::dataset_kind — so a static config-file/env DATASET_KIND value structurally
+// cannot leak into this decision. That's the actual fix for the TD-203 regression: a config
+// value is a single static string that can't vary between a plain `train` and a
+// `--objective=lejepa` run against the same config.trainer.conf, so letting it override the
+// automatic default would silently reunite the two objectives' pools — the exact leak TD-202
+// exists to prevent. Only a deliberate, per-invocation `--dataset-kind` flag (`cli_override`)
+// may override the objective-based default.
+std::string resolve_dataset_kind(const std::string& objective,
+                                 const std::optional<std::string>& cli_override);
 
 struct ResetCommandArgs {
     bool yes = false;

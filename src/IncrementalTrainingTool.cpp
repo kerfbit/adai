@@ -1,5 +1,5 @@
-// @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override)
-// @adai-version: 0.13.1
+// @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
+// @adai-version: 0.13.2
 // @adai-reviewed: 2026-09-20
 
 #include <array>
@@ -485,10 +485,16 @@ int output_usage(char* argv[]) {
                  "otherwise be picked\n";
     std::cout << "                               automatically from --objective (lejepa -> "
                  "world_model,\n";
-    std::cout << "                               else chatbot). Also settable via DATASET_KIND "
-                 "in\n";
-    std::cout << "                               config.trainer.conf; this flag wins over "
-                 "both.\n\n";
+    std::cout << "                               else chatbot). This is the only override — "
+                 "DATASET_KIND in\n";
+    std::cout << "                               config.trainer.conf is ignored here (it only "
+                 "matters to\n";
+    std::cout << "                               dataset_manager); a per-invocation flag is "
+                 "required so the\n";
+    std::cout << "                               automatic pool separation can't be silently "
+                 "defeated by a\n";
+    std::cout << "                               stale config value shared across both "
+                 "objectives.\n\n";
     std::cout << "Commands:\n";
     std::cout << "  init [vocab] [model]         Initialize incremental trainer\n";
     std::cout << "  train [epochs]               Train on pending data\n";
@@ -536,22 +542,12 @@ int main(int argc, char* argv[]) {
         adai::ConfigLoader::discover_config_path(cli.config_path.value_or(""), "config.trainer.conf");
     adai::ServiceConfig svc_config = adai::ConfigLoader::load(config_path);
 
-    // TD-202: pick the dataset registry's per-trainable-piece sub-pool automatically from the
-    // training objective — "lejepa" pretrains the standalone world model, so it acquires from
-    // the "world_model" sub-pool; every other objective (the default chatbot fine-tuning path)
-    // acquires from "chatbot". This is what actually separates the two objectives' pending data
-    // (they used to share one pool with no way to keep them apart). Only applied when
-    // DATASET_KIND wasn't already set via config file/env (svc_config.dataset_kind still
-    // empty) — an explicit config-file value takes precedence over the automatic default,
-    // matching every other ServiceConfig field's env-then-file-then-default loading order.
-    // --dataset-kind, if given, always overrides both, same as --gpu-strategy does immediately
-    // below.
-    if (svc_config.dataset_kind.empty()) {
-        svc_config.dataset_kind = (cli.objective == "lejepa") ? "world_model" : "chatbot";
-    }
-    if (cli.dataset_kind) {
-        svc_config.dataset_kind = *cli.dataset_kind;
-    }
+    // TD-202/TD-204: pick the dataset registry's per-trainable-piece sub-pool for this
+    // invocation — see adai::resolve_dataset_kind()'s own doc comment for why this is a pure
+    // function of (objective, --dataset-kind) only, deliberately never consulting a pre-loaded
+    // ServiceConfig::dataset_kind (a config-file/env DATASET_KIND is ignored here by design; it
+    // remains meaningful for `dataset_manager`, which has no per-objective mapping to protect).
+    svc_config.dataset_kind = adai::resolve_dataset_kind(cli.objective, cli.dataset_kind);
 
     // CLI --gpu-strategy overrides the config file value.
     if (cli.gpu_strategy) {

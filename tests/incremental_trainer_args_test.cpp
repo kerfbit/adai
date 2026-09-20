@@ -14,6 +14,7 @@ using adai::derive_run_id;
 using adai::incremental_trainer_command_defers_gpu_init;
 using adai::parse_incremental_trainer_global_args;
 using adai::parse_reset_command_args;
+using adai::resolve_dataset_kind;
 
 namespace {
 std::vector<char*> make_argv(std::vector<std::string>& storage) {
@@ -207,6 +208,34 @@ TEST(DeriveRunId, FallsBackToHostnamePidWhenConfiguredIsEmpty) {
 TEST(DeriveRunId, IsStableAcrossRepeatedCallsInTheSameProcess) {
     // Same process -> same pid and hostname -> same derived id both times.
     EXPECT_EQ(derive_run_id(""), derive_run_id(""));
+}
+
+// TD-202/TD-204: resolve_dataset_kind() is the extracted, directly-testable form of the
+// objective->kind mapping that was previously inlined in IncrementalTrainingTool.cpp's main()
+// (untestable there) — the exact spot where a TD-203 "fix" introduced a regression (a
+// config-file DATASET_KIND silently overriding the automatic per-objective default) that TD-204
+// then reverted. These tests exist so that regression can't recur silently a third time.
+
+TEST(ResolveDatasetKind, DefaultObjectiveMapsToChatbot) {
+    EXPECT_EQ(resolve_dataset_kind("chatbot", std::nullopt), "chatbot");
+}
+
+TEST(ResolveDatasetKind, LejepaObjectiveMapsToWorldModel) {
+    EXPECT_EQ(resolve_dataset_kind("lejepa", std::nullopt), "world_model");
+}
+
+TEST(ResolveDatasetKind, UnrecognizedObjectiveFallsBackToChatbot) {
+    // Mirrors IncrementalTrainerGlobalArgs::objective's own "chatbot" default — only the
+    // literal string "lejepa" selects world_model, matching TD-183's own contract.
+    EXPECT_EQ(resolve_dataset_kind("something-else", std::nullopt), "chatbot");
+}
+
+TEST(ResolveDatasetKind, CliOverrideAlwaysWinsRegardlessOfObjective) {
+    // Also the regression guard for the actual TD-203 bug: this function's signature has no
+    // parameter through which a static config-file/env DATASET_KIND could leak in and silently
+    // override the objective-based default — only a real, per-invocation `cli_override` can.
+    EXPECT_EQ(resolve_dataset_kind("chatbot", std::optional<std::string>("encoder")), "encoder");
+    EXPECT_EQ(resolve_dataset_kind("lejepa", std::optional<std::string>("chatbot")), "chatbot");
 }
 
 TEST(ParseResetCommandArgs, DefaultsBothFalse) {

@@ -4,6 +4,73 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-204: TD-203's Own `dataset_kind` Precedence "Fix" Was Itself a Regression — Reverted
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 20, 2026 | `incremental_trainer` (dataset registry `dataset_kind` selection) | Reverted TD-203's config-precedence guard; extracted the objective→kind mapping into a directly-testable pure function, `adai::resolve_dataset_kind()`, that structurally cannot consult a pre-loaded config value |
+
+Summary:
+A further full-text review pass — this time over TD-203's own diff — found that TD-203's fix for
+"incremental_trainer discards a config-file `DATASET_KIND`" was itself wrong, and reintroduced
+the exact leak TD-202 exists to prevent, via a different path.
+
+TD-203 changed the unconditional `svc_config.dataset_kind = (objective == "lejepa") ?
+"world_model" : "chatbot";` to only apply `if (svc_config.dataset_kind.empty())`, reasoning that
+an explicit config-file value should take precedence over an automatic default, matching every
+other `ServiceConfig` field's env→file→default precedence. That reasoning doesn't hold for this
+specific field: `DATASET_KIND` in `config.trainer.conf` is a single static value that cannot vary
+between a plain `train` invocation and a `--objective=lejepa` invocation against the very same
+config file — both are entirely normal, expected uses of one config file in this codebase. Once an
+operator sets `DATASET_KIND` to *any* value (a reasonable thing to do, since `CLAUDE.md` documented
+it as a plain settable key), every subsequent run — regardless of objective — would silently use
+that one static value instead of the objective-appropriate pool, unless the operator remembered to
+also pass a matching `--dataset-kind` on every invocation. That defeats the user's own explicit,
+approved design goal for TD-202 — "automatic by objective, not opt-in" — and reintroduces the
+identical chatbot/world_model pending-data cross-contamination the whole feature was built to
+eliminate, just gated behind "an operator has DATASET_KIND set" instead of "always."
+
+Fix: reverted the guard, restoring the unconditional objective-based assignment with only the
+per-invocation `--dataset-kind` CLI flag as an override — `DATASET_KIND` (config/env) is now
+documented as having no effect on `incremental_trainer`'s automatic selection (it remains
+meaningful for `dataset_manager`, which has no per-objective mapping to protect). To stop this
+specific bug from being reintroduced a third time, the mapping was also extracted from
+`IncrementalTrainingTool.cpp`'s previously-untestable `main()` into a new pure function,
+`adai::resolve_dataset_kind(objective, cli_override)` (`IncrementalTrainerArgs.hpp/.cpp`) — its
+signature has no parameter through which a pre-loaded config value could leak in, and it now has
+direct unit test coverage, closing the actual testing gap (untestable `main()` wiring) that let
+both TD-203's and the original TD-202 oversight go undetected by the test suite.
+
+Changes Made:
+
+- `src/IncrementalTrainerArgs.hpp`/`.cpp`: new `resolve_dataset_kind(objective, cli_override)` —
+  pure, takes no config parameter by design. Version 0.4.0 → 0.5.0.
+- `src/IncrementalTrainingTool.cpp`: `main()` now calls `adai::resolve_dataset_kind()` instead of
+  the inline, config-consulting logic; `--dataset-kind` `--help` text corrected to state
+  `DATASET_KIND` is ignored by this binary. Version 0.13.1 → 0.13.2.
+- `src/Config.hpp`: `ServiceConfig::dataset_kind`'s doc comment corrected to state it's ignored by
+  `incremental_trainer`'s automatic selection. Version 1.3.0 → 1.3.1.
+- `CLAUDE.md`: "Distributed Dataset Registry" section and the `DATASET_KIND` config-key table row
+  corrected to state the config key has no effect on `incremental_trainer`.
+- `tests/incremental_trainer_args_test.cpp`: new `ResolveDatasetKind` test suite (4 cases:
+  default/lejepa objective mapping, unrecognized-objective fallback, CLI override precedence).
+
+Verification:
+
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean, zero errors.
+- ✅ Full `ctest` suite: 136/136 passing.
+- ✅ `check_file_status.py --strict`: 319 files, 0 problems.
+
+Files Changed:
+
+- `src/IncrementalTrainerArgs.hpp`
+- `src/IncrementalTrainerArgs.cpp`
+- `src/IncrementalTrainingTool.cpp`
+- `src/Config.hpp`
+- `CLAUDE.md`
+- `tests/incremental_trainer_args_test.cpp`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-203: Five Flaws Found in TD-202's Dataset-Kind Sub-Pool Rollout by a Full-Text Review Pass
 
 | Resolution Date | Component | Resolved By |
