@@ -142,6 +142,40 @@ class ModelListViewModelTest {
         assertTrue("registerModel must trigger a refresh() on success", getModelCalls >= 1)
     }
 
+    // TD-199 (review fix): loadChatbotLinkCandidates() must issue its own dedicated
+    // encoder/decoder fetches, independent of whatever kind filter chip is currently selected on
+    // the list screen — RegisterChatbotDialog used to be handed state.models directly, which is
+    // always restricted to the active filter, silently emptying the Decoder (or both) pickers
+    // whenever a filter other than "All" was selected.
+    @Test
+    fun `loadChatbotLinkCandidates fetches encoders and decoders independent of the active list filter`() = runTest {
+        val fakeService = FakeMnsApiService(
+            listModelsResponse = { _, _, kind, _ ->
+                when (kind) {
+                    "encoder" -> ModelsResponseDto(models = listOf(ModelRecordDto(model_id = "e1", model_name = "my-enc", kind = "encoder")))
+                    "decoder" -> ModelsResponseDto(models = listOf(ModelRecordDto(model_id = "d1", model_name = "my-dec", kind = "decoder")))
+                    // Simulates the list screen's own "Encoder" filter chip already being active
+                    // (this is exactly the case the bug reproduced under) — must have no bearing
+                    // on what loadChatbotLinkCandidates() itself fetches.
+                    "chatbot" -> ModelsResponseDto()
+                    else -> ModelsResponseDto()
+                }
+            },
+        )
+        val viewModel = ModelListViewModel(
+            ModelRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository()),
+        )
+        viewModel.setKindFilter("encoder")
+        testScheduler.runCurrent()
+
+        viewModel.loadChatbotLinkCandidates()
+        testScheduler.runCurrent()
+
+        val state = viewModel.uiState.value
+        assertEquals("my-enc", state.encoderCandidates.single().model_name)
+        assertEquals("my-dec", state.decoderCandidates.single().model_name)
+    }
+
     @Test
     fun `registerModel failure surfaces the server's error in the register message`() = runTest {
         val fakeService = FakeMnsApiService(

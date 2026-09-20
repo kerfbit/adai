@@ -4,6 +4,69 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-200: `RegisterChatbotDialog`'s Encoder/Decoder Picker Was Starved by the List Screen's Own Kind Filter
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 19, 2026 | Android ops dashboard, Models tab | New `ModelListViewModel.loadChatbotLinkCandidates()`; `RegisterChatbotDialog` now takes dedicated `encoders`/`decoders` lists instead of filtering the list screen's own `state.models` |
+
+Summary:
+Found during a full-text review pass requested immediately after TD-199 landed. `ModelListScreen`
+passed `state.models` straight into `RegisterChatbotDialog`, which filtered it client-side into
+`encoders = models.filter { it.kind == "encoder" }` / `decoders = models.filter { it.kind ==
+"decoder" }` for its Linked-mode `ModelPickerDropdown`s. But `state.models` is never the full
+model list — `ModelListViewModel.refresh()` always calls `modelRepository.listModels(kind =
+selectedKind)`, so `state.models` is permanently restricted to whichever kind-filter chip is
+currently selected on the Models screen (added in the same TD-199 commit).
+
+Concretely: a user taps the "Encoder" filter chip to check what's registered, then taps "+" →
+"Register Chatbot" → "Linked" to pair that encoder with a decoder — and finds the Decoder picker
+empty, with the Encoder picker only accidentally non-empty because "Encoder" happened to be the
+active filter. Selecting "Chatbot" or "World model" as the active filter first empties *both*
+pickers. Nothing in the UI indicates any of this is a filtering artifact rather than "nothing is
+registered" — directly defeating the "compose a chatbot from an encoder+decoder pair" flow TD-199
+was built to deliver.
+
+Confirmed as a real, isolated oversight rather than a systemic problem: `ModelDetailViewModel.
+loadWorldModelCandidates()`, added in the very same commit for the parallel "Link World Model"
+flow, already does this correctly — it issues its own dedicated `listModels(kind = "world_model")`
+call rather than reusing any list filtered for another purpose. The register-chatbot path simply
+didn't follow its own sibling's pattern.
+
+Changes Made:
+
+- `src/main/java/com/adai/ops/ui/models/ModelListViewModel.kt`: new `encoderCandidates`/
+  `decoderCandidates` fields on `ModelListUiState`; new `loadChatbotLinkCandidates()` issuing its
+  own `listModels(kind = "encoder")`/`listModels(kind = "decoder")` calls, independent of
+  `selectedKind`. Version 0.3.0 → 0.3.1.
+- `src/main/java/com/adai/ops/ui/models/ModelListScreen.kt`: calls
+  `viewModel.loadChatbotLinkCandidates()` when the user picks "Chatbot" in the register kind
+  picker (mirroring how `onRequestLinkWorldModel` already calls
+  `loadWorldModelCandidates()` before opening its own dialog); passes `state.encoderCandidates`/
+  `state.decoderCandidates` into `RegisterChatbotDialog` instead of `state.models`.
+- `src/main/java/com/adai/ops/ui/models/RegisterModelDialogs.kt`: `RegisterChatbotDialog` now
+  takes `encoders`/`decoders` parameters directly instead of a raw `models` list it filtered
+  itself. Version 0.1.0 → 0.1.1.
+- `src/test/java/com/adai/ops/ui/models/ModelListViewModelTest.kt`: new regression test —
+  sets the list's own kind filter to `"encoder"` first (reproducing the exact pre-fix scenario),
+  then confirms `loadChatbotLinkCandidates()` still returns both a real encoder and a real decoder.
+
+Verification:
+
+- ✅ `./gradlew :opsdashboard:compileDebugKotlin` / `:opsdashboard:compileDebugAndroidTestKotlin`
+  — clean.
+- ✅ `./gradlew :opsdashboard:testDebugUnitTest` — `ModelListViewModelTest`: 6/6 passing (up from
+  5), including the new regression test.
+- ✅ `check_file_status.py`: 319 files, 0 problems.
+
+Files Changed:
+
+- `android/opsdashboard/src/main/java/com/adai/ops/ui/models/ModelListViewModel.kt`
+- `android/opsdashboard/src/main/java/com/adai/ops/ui/models/ModelListScreen.kt`
+- `android/opsdashboard/src/main/java/com/adai/ops/ui/models/RegisterModelDialogs.kt`
+- `android/opsdashboard/src/test/java/com/adai/ops/ui/models/ModelListViewModelTest.kt`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-199: Android Ops Dashboard Models Section Had Zero TD-196 Awareness
 
 | Resolution Date | Component | Resolved By |

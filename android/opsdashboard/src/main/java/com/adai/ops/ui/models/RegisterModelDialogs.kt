@@ -1,7 +1,7 @@
 package com.adai.ops.ui.models
 
-// @adai-status: experimental        (TD-196 — new)
-// @adai-version: 0.1.0
+// @adai-status: experimental        (TD-199 review fix — RegisterChatbotDialog takes dedicated encoder/decoder candidate lists, not the list screen's own kind-filtered models)
+// @adai-version: 0.1.1
 // @adai-reviewed: 2026-09-19
 
 
@@ -179,7 +179,8 @@ fun RegisterWorldModelDialog(onSubmit: (RegisterModelRequestDto, String) -> Unit
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RegisterChatbotDialog(
-    models: List<ModelRecordDto>,
+    encoders: List<ModelRecordDto>,
+    decoders: List<ModelRecordDto>,
     onSubmit: (RegisterModelRequestDto, String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -191,8 +192,6 @@ fun RegisterChatbotDialog(
     // Linked mode
     var encoderName by remember { mutableStateOf("") }
     var decoderName by remember { mutableStateOf("") }
-    val encoders = models.filter { it.kind == "encoder" }
-    val decoders = models.filter { it.kind == "decoder" }
 
     // Legacy mode
     var dModelText by remember { mutableStateOf("") }

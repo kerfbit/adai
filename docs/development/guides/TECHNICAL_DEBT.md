@@ -10,8 +10,22 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 186
+**Resolved Items:** 187
 **Deferred Decisions:** 3
+
+**September 19, 2026 (same day):** Filed and resolved
+[TD-200](../archive/TECHNICAL_DEBT_RESOLVED.md#td-200-registerchatbotdialogs-encoderdecoder-picker-was-starved-by-the-list-screens-own-kind-filter)
+— found during a full-text review pass over TD-199's own diff (requested immediately after that
+commit landed). `RegisterChatbotDialog`'s Encoder/Decoder pickers (Linked mode) were built by
+filtering `ModelListUiState.models` — but that list is always restricted to whichever kind-filter
+chip is currently selected on the Models screen (`ModelListViewModel.refresh()` always calls
+`listModels(kind = selectedKind)`). Filtering to "Encoder" (or "Chatbot"/"World model") before
+tapping "+" → "Register Chatbot" → "Linked" silently emptied the Decoder picker (or both), with no
+indication anything was filtered — defeating the exact "compose a chatbot from an encoder+decoder
+pair" flow TD-199 was built for. Fixed by giving the register-chatbot flow its own dedicated,
+unfiltered fetch (`ModelListViewModel.loadChatbotLinkCandidates()`), mirroring
+`ModelDetailViewModel.loadWorldModelCandidates()`'s own already-correct pattern from the same
+commit. See its own archive entry.
 
 **September 19, 2026 (same day):** Filed and resolved
 [TD-199](../archive/TECHNICAL_DEBT_RESOLVED.md#td-199-android-ops-dashboard-models-section-had-zero-td-196-awareness)
@@ -428,7 +442,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (186 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (187 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)

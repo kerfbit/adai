@@ -129,7 +129,14 @@ fun ModelListScreen(
                     "encoder" -> RegisterStep.ENTER_ENCODER
                     "decoder" -> RegisterStep.ENTER_DECODER
                     "world_model" -> RegisterStep.ENTER_WORLD_MODEL
-                    else -> RegisterStep.ENTER_CHATBOT
+                    else -> {
+                        // TD-199 (review fix): fetch encoder/decoder candidates via their own
+                        // dedicated, unfiltered-by-kind-chip calls — RegisterChatbotDialog used to
+                        // be handed state.models directly, which is always restricted to whatever
+                        // kind filter chip happens to be selected on this screen.
+                        viewModel.loadChatbotLinkCandidates()
+                        RegisterStep.ENTER_CHATBOT
+                    }
                 }
             },
             onDismiss = { registerStep = RegisterStep.NONE },
@@ -145,7 +152,12 @@ fun ModelListScreen(
         RegisterStep.ENTER_ENCODER -> RegisterEncoderDialog(onSubmit = onEntered, onDismiss = { registerStep = RegisterStep.NONE })
         RegisterStep.ENTER_DECODER -> RegisterDecoderDialog(onSubmit = onEntered, onDismiss = { registerStep = RegisterStep.NONE })
         RegisterStep.ENTER_WORLD_MODEL -> RegisterWorldModelDialog(onSubmit = onEntered, onDismiss = { registerStep = RegisterStep.NONE })
-        RegisterStep.ENTER_CHATBOT -> RegisterChatbotDialog(models = state.models, onSubmit = onEntered, onDismiss = { registerStep = RegisterStep.NONE })
+        RegisterStep.ENTER_CHATBOT -> RegisterChatbotDialog(
+            encoders = state.encoderCandidates,
+            decoders = state.decoderCandidates,
+            onSubmit = onEntered,
+            onDismiss = { registerStep = RegisterStep.NONE },
+        )
         else -> Unit
     }
 

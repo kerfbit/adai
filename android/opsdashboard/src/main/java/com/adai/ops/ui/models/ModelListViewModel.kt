@@ -1,7 +1,7 @@
 package com.adai.ops.ui.models
 
-// @adai-status: beta        (TD-196 — kind filter + registerModel added)
-// @adai-version: 0.3.0
+// @adai-status: beta        (TD-199 review fix — loadChatbotLinkCandidates() added, no longer reuses the list's own kind-filtered state.models)
+// @adai-version: 0.3.1
 // @adai-reviewed: 2026-09-19
 
 
@@ -26,6 +26,8 @@ data class ModelListUiState(
     val error: String? = null,
     val registerInProgress: Boolean = false,
     val registerMessage: String? = null,
+    val encoderCandidates: List<ModelRecordDto> = emptyList(),
+    val decoderCandidates: List<ModelRecordDto> = emptyList(),
 )
 
 class ModelListViewModel(private val modelRepository: ModelRepository) : ViewModel() {
@@ -41,6 +43,28 @@ class ModelListViewModel(private val modelRepository: ModelRepository) : ViewMod
     fun setKindFilter(kind: String?) {
         _uiState.update { it.copy(selectedKind = kind) }
         viewModelScope.launch { refresh() }
+    }
+
+    /**
+     * TD-199 (review fix): populates the encoder/decoder pickers for "Register Chatbot"'s Linked
+     * mode with their own dedicated, unfiltered-by-kind-chip fetches — RegisterChatbotDialog used
+     * to be handed [ModelListUiState.models] directly, which is always restricted to whatever
+     * kind filter chip happens to be selected on the list screen (see refresh()), so picking e.g.
+     * "Encoder" to browse the list before registering a chatbot silently emptied the Decoder
+     * picker. Mirrors ModelDetailViewModel.loadWorldModelCandidates()'s own dedicated-fetch
+     * pattern.
+     */
+    fun loadChatbotLinkCandidates() {
+        viewModelScope.launch {
+            val encoders = modelRepository.listModels(kind = "encoder")
+            val decoders = modelRepository.listModels(kind = "decoder")
+            if (encoders is ApiResult.Success) {
+                _uiState.update { it.copy(encoderCandidates = encoders.data.models) }
+            }
+            if (decoders is ApiResult.Success) {
+                _uiState.update { it.copy(decoderCandidates = decoders.data.models) }
+            }
+        }
     }
 
     /**
