@@ -57,9 +57,16 @@ class GroupListViewModelTest {
     @Test
     fun `one group failing does not affect the others in the same refresh`() = runTest {
         val fakeService = FakeRegistryApiService(
+            // TD-205: refresh() now sums the legacy pool + all 4 kind sub-pools per group
+            // (see GroupListViewModel), so this must only return entries for the bare
+            // (legacy) group path — an unmatched kind-scoped path (e.g. "healthy-group/chatbot")
+            // falling through to the same 1-entry response would inflate the expected count.
             queueResponse = { group ->
-                if (group == "broken-group") throw IOException("connection refused")
-                QueueResponseDto(entries = listOf(QueueEntryDto(path = "ok1")))
+                when (group) {
+                    "broken-group" -> throw IOException("connection refused")
+                    "healthy-group" -> QueueResponseDto(entries = listOf(QueueEntryDto(path = "ok1")))
+                    else -> QueueResponseDto()
+                }
             },
         )
         val viewModel = GroupListViewModel(

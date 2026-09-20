@@ -615,6 +615,191 @@ TEST_F(LocalTransportPhase9Test, DeleteRefusesToUnlinkOwnRegistryOrPendingFile) 
 }
 
 // ============================================================================
+// TD-205: row-range segments — segment_matches(), add_pending/assign/unassign/
+// delete_paths/release all keyed by (path, segment_start, segment_count) instead
+// of bare path.
+// ============================================================================
+
+TEST(SegmentMatchesTest, EmptyQueryMatchesOnlyWholeFileEntry) {
+    PendingEntry whole;
+    whole.path = "/data/a.txt";
+    PendingEntry segment;
+    segment.path = "/data/a.txt";
+    segment.segment_start = 0;
+    segment.segment_count = 100;
+
+    EXPECT_TRUE(segment_matches(whole, "/data/a.txt", -1, -1));
+    EXPECT_FALSE(segment_matches(segment, "/data/a.txt", -1, -1));
+}
+
+TEST(SegmentMatchesTest, SegmentQueryMatchesOnlyExactRange) {
+    PendingEntry segment;
+    segment.path = "/data/a.txt";
+    segment.segment_start = 0;
+    segment.segment_count = 100;
+
+    EXPECT_TRUE(segment_matches(segment, "/data/a.txt", 0, 100));
+    EXPECT_FALSE(segment_matches(segment, "/data/a.txt", 100, 100));  // different range
+    EXPECT_FALSE(segment_matches(segment, "/data/a.txt", -1, -1));   // "whole file" query
+}
+
+TEST(SegmentMatchesTest, DifferentPathNeverMatches) {
+    PendingEntry e;
+    e.path = "/data/a.txt";
+    EXPECT_FALSE(segment_matches(e, "/data/b.txt", -1, -1));
+}
+
+TEST_F(LocalTransportPhase9Test, AddPendingTwoSegmentsOfSamePathAreIndependentEntries) {
+    LocalTransport t(reg_path_, pend_path_);
+    EXPECT_TRUE(t.add_pending("/data/big.jsonl", 0, 100));
+    EXPECT_TRUE(t.add_pending("/data/big.jsonl", 100, 100));
+
+    std::vector<PendingEntry> entries;
+    ASSERT_TRUE(t.load_pending(entries));
+    ASSERT_EQ(entries.size(), 2u);
+    EXPECT_EQ(entries[0].path, "/data/big.jsonl");
+    EXPECT_EQ(entries[0].segment_start, 0);
+    EXPECT_EQ(entries[0].segment_count, 100);
+    EXPECT_EQ(entries[1].segment_start, 100);
+    EXPECT_EQ(entries[1].segment_count, 100);
+}
+
+TEST_F(LocalTransportPhase9Test, AddPendingRejectsDuplicateSegment) {
+    LocalTransport t(reg_path_, pend_path_);
+    ASSERT_TRUE(t.add_pending("/data/big.jsonl", 0, 100));
+    EXPECT_TRUE(t.add_pending("/data/big.jsonl", 0, 100));  // no-op success, same as whole-file dedup
+
+    std::vector<PendingEntry> entries;
+    t.load_pending(entries);
+    EXPECT_EQ(entries.size(), 1u);
+}
+
+TEST_F(LocalTransportPhase9Test, AddPendingSegmentDoesNotCollideWithWholeFileEntry) {
+    LocalTransport t(reg_path_, pend_path_);
+    ASSERT_TRUE(t.add_pending("/data/big.jsonl"));           // whole-file
+    ASSERT_TRUE(t.add_pending("/data/big.jsonl", 0, 100));  // segment of the same path
+
+    std::vector<PendingEntry> entries;
+    t.load_pending(entries);
+    ASSERT_EQ(entries.size(), 2u);
+}
+
+TEST_F(LocalTransportPhase9Test, AssignSegmentTargetsExactRangeOnly) {
+    LocalTransport t(reg_path_, pend_path_);
+    t.add_pending("/data/big.jsonl", 0, 100);
+    t.add_pending("/data/big.jsonl", 100, 100);
+
+    auto result = t.assign("model-a", {}, 0, {{"/data/big.jsonl", 0, 100}});
+    EXPECT_EQ(result.assigned, 1);
+    ASSERT_EQ(result.segments.size(), 1u);
+    EXPECT_TRUE(result.paths.empty());
+
+    std::vector<PendingEntry> entries;
+    t.load_pending(entries);
+    for (const auto& e : entries) {
+        if (e.segment_start == 0)
+            EXPECT_EQ(e.model_name, "model-a");
+        else
+            EXPECT_TRUE(e.model_name.empty());
+    }
+}
+
+TEST_F(LocalTransportPhase9Test, AssignByWholeFilePathsNeverTouchesSegmentsOfThatPath) {
+    LocalTransport t(reg_path_, pend_path_);
+    t.add_pending("/data/big.jsonl");           // whole-file entry
+    t.add_pending("/data/big.jsonl", 0, 100);  // segment of the same path
+
+    auto result = t.assign("model-a", {"/data/big.jsonl"}, 0);
+    EXPECT_EQ(result.assigned, 1);
+
+    std::vector<PendingEntry> entries;
+    t.load_pending(entries);
+    for (const auto& e : entries) {
+        if (e.segment_start < 0)
+            EXPECT_EQ(e.model_name, "model-a");
+        else
+            EXPECT_TRUE(e.model_name.empty()) << "whole-file paths must not match a segment";
+    }
+}
+
+TEST_F(LocalTransportPhase9Test, UnassignSegmentTargetsExactRangeOnly) {
+    LocalTransport t(reg_path_, pend_path_);
+    t.add_pending("/data/big.jsonl", 0, 100);
+    t.add_pending("/data/big.jsonl", 100, 100);
+    t.assign("model-a", {}, 0, {{"/data/big.jsonl", 0, 100}});
+    t.assign("model-a", {}, 0, {{"/data/big.jsonl", 100, 100}});
+
+    auto result = t.unassign("model-a", {}, false, {{"/data/big.jsonl", 0, 100}});
+    EXPECT_EQ(result.unassigned, 1);
+    ASSERT_EQ(result.segments.size(), 1u);
+
+    std::vector<PendingEntry> entries;
+    t.load_pending(entries);
+    for (const auto& e : entries) {
+        if (e.segment_start == 0)
+            EXPECT_TRUE(e.model_name.empty());
+        else
+            EXPECT_EQ(e.model_name, "model-a");
+    }
+}
+
+TEST_F(LocalTransportPhase9Test, DeleteSegmentTargetNeverUnlinksSharedPhysicalFile) {
+    const std::string real_file = (tmp_dir_ / "shared.jsonl").string();
+    {
+        std::ofstream f(real_file);
+        f << "hello";
+    }
+    LocalTransport t(reg_path_, pend_path_);
+    t.add_pending(real_file, 0, 100);
+    t.add_pending(real_file, 100, 100);
+
+    // delete_files=true must still be ignored for a segment target — another segment
+    // of the same physical file is still pending and needs the bytes to remain.
+    auto result = t.delete_paths({}, false, true, {{real_file, 0, 100}});
+    EXPECT_EQ(result.deleted, 1);
+    ASSERT_EQ(result.details.size(), 1u);
+    EXPECT_FALSE(result.details[0].file_deleted);
+    EXPECT_TRUE(fs::exists(real_file));
+
+    std::vector<PendingEntry> entries;
+    t.load_pending(entries);
+    ASSERT_EQ(entries.size(), 1u);
+    EXPECT_EQ(entries[0].segment_start, 100);  // the other segment survives
+}
+
+TEST_F(LocalTransportPhase9Test, DeleteByWholeFilePathsNeverTouchesSegmentsOfThatPath) {
+    LocalTransport t(reg_path_, pend_path_);
+    t.add_pending("/data/big.jsonl");
+    t.add_pending("/data/big.jsonl", 0, 100);
+
+    auto result = t.delete_paths({"/data/big.jsonl"}, false, false);
+    EXPECT_EQ(result.deleted, 1);
+
+    std::vector<PendingEntry> entries;
+    t.load_pending(entries);
+    ASSERT_EQ(entries.size(), 1u);
+    EXPECT_EQ(entries[0].segment_start, 0) << "the segment must survive a whole-file-path delete";
+}
+
+TEST_F(LocalTransportPhase9Test, ReleaseSegmentTargetOnlyReleasesThatSegment) {
+    LocalTransport t(reg_path_, pend_path_);
+    t.add_pending("/data/big.jsonl", 0, 100);
+    t.add_pending("/data/big.jsonl", 100, 100);
+    t.acquire("run-1", 0);  // claims both segments under run-1
+
+    t.release("run-1", {}, {{"/data/big.jsonl", 0, 100}});
+
+    std::vector<PendingEntry> entries;
+    t.load_pending(entries);
+    for (const auto& e : entries) {
+        if (e.segment_start == 0)
+            EXPECT_TRUE(e.run_id.empty());
+        else
+            EXPECT_EQ(e.run_id, "run-1") << "the other segment's claim must survive";
+    }
+}
+
+// ============================================================================
 // next_session() — Phase 3 run/session numbering
 // ============================================================================
 

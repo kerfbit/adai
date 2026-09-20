@@ -118,11 +118,11 @@ bool LocalTransport::load_pending(std::vector<PendingEntry>& out) {
         if (line.empty())
             continue;
 
-        // Format: path[\trun_id[\tmodel_name[\tsource[\tadded_utc[\tsize_bytes[\tnum_entries[\tchecksum]]]]]]]
+        // Format: path[\trun_id[\tmodel_name[\tsource[\tadded_utc[\tsize_bytes[\tnum_entries[\tchecksum[\tsegment_start[\tsegment_count]]]]]]]]]
         // Each trailing column was added in a later phase (run_id: Phase 9,
         // model_name: Phase 11-ish, source/added_utc/size_bytes/num_entries/
-        // checksum: Phase 15) — split on tab and assign positionally so
-        // shorter lines from older files keep loading with defaults for the
+        // checksum: Phase 15, segment_start/segment_count: TD-205) — split on tab and assign
+        // positionally so shorter lines from older files keep loading with defaults for the
         // columns they predate.
         std::vector<std::string> cols;
         std::size_t start = 0;
@@ -160,6 +160,18 @@ bool LocalTransport::load_pending(std::vector<PendingEntry>& out) {
         }
         if (cols.size() > 7)
             e.checksum = cols[7];
+        if (cols.size() > 8 && !cols[8].empty()) {
+            try {
+                e.segment_start = std::stoi(cols[8]);
+            } catch (...) {
+            }
+        }
+        if (cols.size() > 9 && !cols[9].empty()) {
+            try {
+                e.segment_count = std::stoi(cols[9]);
+            } catch (...) {
+            }
+        }
 
         out.push_back(std::move(e));
     }
@@ -178,7 +190,7 @@ bool LocalTransport::save_pending(const std::vector<PendingEntry>& entries) {
     for (const auto& e : entries) {
         file << e.path << '\t' << e.run_id << '\t' << e.model_name << '\t' << e.source << '\t'
              << e.added_utc << '\t' << e.size_bytes << '\t' << e.num_entries << '\t' << e.checksum
-             << '\n';
+             << '\t' << e.segment_start << '\t' << e.segment_count << '\n';
     }
 
     return file.good();
@@ -262,6 +274,8 @@ AcquireResponse LocalTransport::acquire(const std::string& run_id, int max_files
             e.run_id = run_id;
             FileToken tok;
             tok.registry_path = e.path;
+            tok.segment_start = e.segment_start;
+            tok.segment_count = e.segment_count;
             resp.files.push_back(std::move(tok));
         }
     }
@@ -275,7 +289,8 @@ AcquireResponse LocalTransport::acquire(const std::string& run_id, int max_files
     return resp;
 }
 
-void LocalTransport::release(const std::string& run_id, const std::vector<std::string>& paths) {
+void LocalTransport::release(const std::string& run_id, const std::vector<std::string>& paths,
+                             const std::vector<SegmentTarget>& segments) {
     const int lock_fd = lock_pending();
     if (lock_fd < 0) {
         Logger::error("LocalTransport::release — failed to acquire pending lock");
@@ -285,15 +300,34 @@ void LocalTransport::release(const std::string& run_id, const std::vector<std::s
     std::vector<PendingEntry> entries;
     load_pending(entries);
 
-    const std::set<std::string> to_release(paths.begin(), paths.end());
-    for (auto& e : entries) {
-        if (e.run_id == run_id && to_release.count(e.path)) {
-            e.run_id.clear();
+    if (!segments.empty()) {
+        // TD-205: segment-targeted release — match the exact (path, range), not every entry
+        // sharing that path, so releasing one segment doesn't also release its siblings.
+        for (auto& e : entries) {
+            if (e.run_id != run_id)
+                continue;
+            for (const auto& t : segments) {
+                if (segment_matches(e, t.path, t.segment_start, t.segment_count)) {
+                    e.run_id.clear();
+                    break;
+                }
+            }
         }
+        save_pending(entries);
+        Logger::info("Released {} segment(s) back to pending queue (run '{}')", segments.size(),
+                    run_id);
+    } else {
+        // TD-205: whole-file paths must only match whole-file entries (segment_start < 0) —
+        // never sweep up a segment sharing the same physical path; that requires `segments`.
+        const std::set<std::string> to_release(paths.begin(), paths.end());
+        for (auto& e : entries) {
+            if (e.run_id == run_id && e.segment_start < 0 && to_release.count(e.path)) {
+                e.run_id.clear();
+            }
+        }
+        save_pending(entries);
+        Logger::info("Released {} files back to pending queue (run '{}')", paths.size(), run_id);
     }
-
-    save_pending(entries);
-    Logger::info("Released {} files back to pending queue (run '{}')", paths.size(), run_id);
 
     unlock_pending(lock_fd);
 }
@@ -332,7 +366,7 @@ void LocalTransport::commit_trained(const std::string& run_id,
     unlock_pending(lock_fd);
 }
 
-bool LocalTransport::add_pending(const std::string& path) {
+bool LocalTransport::add_pending(const std::string& path, int segment_start, int segment_count) {
     const int lock_fd = lock_pending();
     if (lock_fd < 0) {
         Logger::error("LocalTransport::add_pending — failed to acquire pending lock");
@@ -342,7 +376,7 @@ bool LocalTransport::add_pending(const std::string& path) {
     std::vector<PendingEntry> entries;
     load_pending(entries);
     for (const auto& e : entries) {
-        if (e.path == path) {
+        if (segment_matches(e, path, segment_start, segment_count)) {
             unlock_pending(lock_fd);
             return true;  // already queued
         }
@@ -350,7 +384,21 @@ bool LocalTransport::add_pending(const std::string& path) {
 
     fs::create_directories(fs::path(pending_path_).parent_path());
     std::ofstream file(pending_path_, std::ios::app);
-    const bool ok = file.is_open() && (file << path << '\n') && file.good();
+    bool ok;
+    if (segment_start < 0) {
+        // Whole-file: keep the original minimal single-token line, byte-for-byte identical
+        // to every pre-TD-205 add_pending() caller/on-disk file.
+        ok = file.is_open() && (file << path << '\n') && file.good();
+    } else {
+        // TD-205: a segment needs its range recorded, which requires the full tab-delimited
+        // row shape load_pending() parses positionally — empty run_id/model_name/source/
+        // added_utc/size_bytes/num_entries/checksum columns are fine, load_pending() already
+        // defaults each of those for short/legacy lines.
+        ok = file.is_open() &&
+            (file << path << "\t\t\t\t\t\t\t\t" << segment_start << '\t' << segment_count
+                 << '\n') &&
+            file.good();
+    }
     unlock_pending(lock_fd);
     return ok;
 }
@@ -395,7 +443,8 @@ std::string LocalTransport::next_session(const std::string& model_name,
 // ── Phase 16: assign-by-count / unassign / delete ──────────────────────────
 
 AssignResult LocalTransport::assign(const std::string& model_name,
-                                    const std::vector<std::string>& paths, int count) {
+                                    const std::vector<std::string>& paths, int count,
+                                    const std::vector<SegmentTarget>& segments) {
     AssignResult result;
     const int lock_fd = lock_pending();
     if (lock_fd < 0) {
@@ -406,25 +455,41 @@ AssignResult LocalTransport::assign(const std::string& model_name,
     std::vector<PendingEntry> entries;
     load_pending(entries);
 
-    const bool by_paths = !paths.empty();
-    const bool by_count = !by_paths && count > 0;
-    const bool assign_all = !by_paths && !by_count;
-    const std::set<std::string> target_paths(paths.begin(), paths.end());
-    for (auto& e : entries) {
-        if (by_count && static_cast<int>(result.paths.size()) >= count) {
-            break;
+    if (!segments.empty()) {
+        // TD-205: explicit segment targets — highest priority, paths/count ignored.
+        for (const auto& t : segments) {
+            for (auto& e : entries) {
+                if (segment_matches(e, t.path, t.segment_start, t.segment_count)) {
+                    e.model_name = model_name;
+                    result.segments.push_back(t);
+                    break;
+                }
+            }
         }
-        const bool matches = by_paths ? target_paths.count(e.path) > 0
-                            : by_count ? e.model_name.empty()
-                                       : assign_all;
-        if (matches) {
-            e.model_name = model_name;
-            result.paths.push_back(e.path);
+    } else {
+        const bool by_paths = !paths.empty();
+        const bool by_count = !by_paths && count > 0;
+        const bool assign_all = !by_paths && !by_count;
+        const std::set<std::string> target_paths(paths.begin(), paths.end());
+        for (auto& e : entries) {
+            if (by_count && static_cast<int>(result.paths.size()) >= count) {
+                break;
+            }
+            // TD-205: by_paths/by_count only ever match whole-file entries — a caller
+            // targeting a specific segment must use `segments` above. assign_all (the bulk
+            // "assign every pending entry" default) still applies to segments too.
+            const bool matches = by_paths ? (e.segment_start < 0 && target_paths.count(e.path) > 0)
+                                : by_count ? (e.segment_start < 0 && e.model_name.empty())
+                                           : assign_all;
+            if (matches) {
+                e.model_name = model_name;
+                result.paths.push_back(e.path);
+            }
         }
     }
-    result.assigned = static_cast<int>(result.paths.size());
+    result.assigned = static_cast<int>(result.paths.size() + result.segments.size());
 
-    if (!result.paths.empty()) {
+    if (result.assigned > 0) {
         save_pending(entries);
     }
     unlock_pending(lock_fd);
@@ -434,13 +499,14 @@ AssignResult LocalTransport::assign(const std::string& model_name,
 }
 
 UnassignResult LocalTransport::unassign(const std::string& model_name,
-                                        const std::vector<std::string>& paths, bool force) {
+                                        const std::vector<std::string>& paths, bool force,
+                                        const std::vector<SegmentTarget>& segments) {
     UnassignResult result;
     // Defense in depth: DatasetRegistry already rejects this combination before
     // it reaches the transport, but a caller could invoke LocalTransport
     // directly.
-    if (paths.empty() && model_name.empty()) {
-        Logger::warn("LocalTransport::unassign — no-op: both paths and model_name empty");
+    if (paths.empty() && segments.empty() && model_name.empty()) {
+        Logger::warn("LocalTransport::unassign — no-op: paths, segments, and model_name all empty");
         return result;
     }
 
@@ -453,26 +519,46 @@ UnassignResult LocalTransport::unassign(const std::string& model_name,
     std::vector<PendingEntry> entries;
     load_pending(entries);
 
-    const bool bulk_by_model = paths.empty();
-    const std::set<std::string> target_paths(paths.begin(), paths.end());
-    for (auto& e : entries) {
-        const bool matches = bulk_by_model
-                                ? e.model_name == model_name
-                                : (target_paths.count(e.path) > 0 &&
-                                   (model_name.empty() || e.model_name == model_name));
-        if (!matches) {
-            continue;
+    if (!segments.empty()) {
+        for (const auto& t : segments) {
+            for (auto& e : entries) {
+                if (segment_matches(e, t.path, t.segment_start, t.segment_count) &&
+                    (model_name.empty() || e.model_name == model_name)) {
+                    if (!e.run_id.empty() && !force) {
+                        ++result.skipped;
+                    } else {
+                        e.model_name.clear();
+                        result.segments.push_back(t);
+                    }
+                    break;
+                }
+            }
         }
-        if (!e.run_id.empty() && !force) {
-            ++result.skipped;
-            continue;
+    } else {
+        // bulk-by-model (paths empty) intentionally matches whole-file AND segment entries
+        // alike — "clear every entry assigned to this model" shouldn't need to know which
+        // entries happen to be segments. Explicit `paths` matches whole-file entries only.
+        const bool bulk_by_model = paths.empty();
+        const std::set<std::string> target_paths(paths.begin(), paths.end());
+        for (auto& e : entries) {
+            const bool matches = bulk_by_model
+                                    ? e.model_name == model_name
+                                    : (e.segment_start < 0 && target_paths.count(e.path) > 0 &&
+                                       (model_name.empty() || e.model_name == model_name));
+            if (!matches) {
+                continue;
+            }
+            if (!e.run_id.empty() && !force) {
+                ++result.skipped;
+                continue;
+            }
+            e.model_name.clear();
+            result.paths.push_back(e.path);
         }
-        e.model_name.clear();
-        result.paths.push_back(e.path);
     }
-    result.unassigned = static_cast<int>(result.paths.size());
+    result.unassigned = static_cast<int>(result.paths.size() + result.segments.size());
 
-    if (!result.paths.empty()) {
+    if (result.unassigned > 0) {
         save_pending(entries);
     }
     unlock_pending(lock_fd);
@@ -488,10 +574,11 @@ UnassignResult LocalTransport::unassign(const std::string& model_name,
 // self-protection: never unlink this transport's own state files even if
 // somehow passed as a delete target.
 DeleteResult LocalTransport::delete_paths(const std::vector<std::string>& paths, bool force,
-                                          bool delete_files) {
+                                          bool delete_files,
+                                          const std::vector<SegmentTarget>& segments) {
     DeleteResult result;
-    if (paths.empty()) {
-        Logger::warn("LocalTransport::delete_paths — no-op: paths is empty");
+    if (paths.empty() && segments.empty()) {
+        Logger::warn("LocalTransport::delete_paths — no-op: paths and segments both empty");
         return result;
     }
 
@@ -511,12 +598,23 @@ DeleteResult LocalTransport::delete_paths(const std::vector<std::string>& paths,
     bool pending_changed = false;
     bool registry_changed = false;
 
-    for (const auto& p : paths) {
+    // TD-205: one combined worklist — a whole-file path becomes a target with segment_start=-1,
+    // so it and an explicit segment target share the exact same per-item logic below via
+    // segment_matches().
+    std::vector<SegmentTarget> targets;
+    targets.reserve(paths.size() + segments.size());
+    for (const auto& p : paths)
+        targets.push_back({p, -1, -1});
+    for (const auto& s : segments)
+        targets.push_back(s);
+
+    for (const auto& t : targets) {
         bool pending_blocked = false;
         bool found_anywhere = false;
 
-        auto pit = std::find_if(pending.begin(), pending.end(),
-                                [&](const PendingEntry& e) { return e.path == p; });
+        auto pit = std::find_if(pending.begin(), pending.end(), [&](const PendingEntry& e) {
+            return segment_matches(e, t.path, t.segment_start, t.segment_count);
+        });
         if (pit != pending.end()) {
             found_anywhere = true;
             if (!pit->run_id.empty() && !force) {
@@ -527,31 +625,43 @@ DeleteResult LocalTransport::delete_paths(const std::vector<std::string>& paths,
             }
         }
 
-        auto rit = std::find_if(registry.begin(), registry.end(),
-                                [&](const DataVersion& dv) { return dv.data_file == p; });
-        if (rit != registry.end()) {
-            found_anywhere = true;
-            registry.erase(rit);
-            registry_changed = true;
+        // TD-205: the trained registry has no segment concept — a DataVersion always
+        // represents the whole physical file actually trained on — so only a whole-file
+        // target (segment_start < 0) can match/erase it.
+        if (t.segment_start < 0) {
+            auto rit = std::find_if(registry.begin(), registry.end(), [&](const DataVersion& dv) {
+                return dv.data_file == t.path;
+            });
+            if (rit != registry.end()) {
+                found_anywhere = true;
+                registry.erase(rit);
+                registry_changed = true;
+            }
         }
 
         DeleteResult::Detail detail;
-        detail.path = p;
+        detail.path = t.path;
+        detail.segment_start = t.segment_start;
+        detail.segment_count = t.segment_count;
         if (pending_blocked) {
             detail.status = "skipped_active_run";
             ++result.skipped;
         } else if (found_anywhere) {
             detail.status = "deleted";
             ++result.deleted;
-            const bool is_own_state_file =
-                fs::path(p) == fs::path(registry_path_) || fs::path(p) == fs::path(pending_path_);
-            if (delete_files && !is_own_state_file && fs::exists(p)) {
+            const bool is_own_state_file = fs::path(t.path) == fs::path(registry_path_) ||
+                                           fs::path(t.path) == fs::path(pending_path_);
+            // TD-205: never unlink the physical file for a segment target — other segments
+            // (or a legacy whole-file consumer) may still reference the same physical path;
+            // only a whole-file target's own bytes are ever eligible for deletion here.
+            if (delete_files && t.segment_start < 0 && !is_own_state_file && fs::exists(t.path)) {
                 std::error_code ec;
-                fs::remove(p, ec);
+                fs::remove(t.path, ec);
                 detail.file_deleted = !ec;
-            } else if (delete_files && is_own_state_file) {
+            } else if (delete_files && t.segment_start < 0 && is_own_state_file) {
                 Logger::warn(
-                    "LocalTransport::delete_paths — refusing to unlink own state file '{}'", p);
+                    "LocalTransport::delete_paths — refusing to unlink own state file '{}'",
+                    t.path);
             }
         } else {
             detail.status = "not_found";
@@ -706,6 +816,32 @@ std::vector<std::string> json_string_array(const std::string& body, const std::s
     return result;
 }
 
+// TD-205: parse a flat JSON array of numbers: [1,2,-1,...] — used for the legacy (non-FTP)
+// acquire response's "segment_starts"/"segment_counts" parallel arrays.
+std::vector<int> json_int_array(const std::string& body, const std::string& key) {
+    std::vector<int> result;
+    const std::string needle = "\"" + key + "\":[";
+    const auto pos = body.find(needle);
+    if (pos == std::string::npos)
+        return result;
+    auto cur = pos + needle.size();
+    const auto close_pos = body.find(']', cur);
+    if (close_pos == std::string::npos)
+        return result;
+    std::string inner = body.substr(cur, close_pos - cur);
+    std::istringstream iss(inner);
+    std::string token;
+    while (std::getline(iss, token, ',')) {
+        if (token.empty())
+            continue;
+        try {
+            result.push_back(std::stoi(token));
+        } catch (...) {
+        }
+    }
+    return result;
+}
+
 // Build a JSON array of quoted strings: ["a","b",...]
 std::string json_array(const std::vector<std::string>& v) {
     std::string out = "[";
@@ -715,6 +851,25 @@ std::string json_array(const std::vector<std::string>& v) {
         out += '"';
         out += json_escape(v[i]);
         out += '"';
+    }
+    out += ']';
+    return out;
+}
+
+// TD-205: build a JSON array of segment targets:
+// [{"path":"...","segment_start":N,"segment_count":N},...]
+std::string json_segments_array(const std::vector<SegmentTarget>& v) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        if (i)
+            out += ',';
+        out += "{\"path\":\"";
+        out += json_escape(v[i].path);
+        out += "\",\"segment_start\":";
+        out += std::to_string(v[i].segment_start);
+        out += ",\"segment_count\":";
+        out += std::to_string(v[i].segment_count);
+        out += "}";
     }
     out += ']';
     return out;
@@ -880,6 +1035,22 @@ bool RemoteTransport::load_pending(std::vector<PendingEntry>& out) {
                 } catch (...) {
                 }
             }
+            const std::string ss_needle = "\"segment_start\":";
+            const auto ssp = obj.find(ss_needle);
+            if (ssp != std::string::npos) {
+                try {
+                    e.segment_start = std::stoi(obj.substr(ssp + ss_needle.size()));
+                } catch (...) {
+                }
+            }
+            const std::string sc_needle = "\"segment_count\":";
+            const auto scp = obj.find(sc_needle);
+            if (scp != std::string::npos) {
+                try {
+                    e.segment_count = std::stoi(obj.substr(scp + sc_needle.size()));
+                } catch (...) {
+                }
+            }
             out.push_back(std::move(e));
         }
         cur = obj_end + 1;
@@ -977,6 +1148,24 @@ AcquireResponse RemoteTransport::acquire(const std::string& run_id, int max_file
                     } catch (...) {
                     }
                 }
+                // TD-205: segment_start/segment_count are JSON numbers, same pattern as
+                // size_bytes above.
+                const std::string ss_needle = "\"segment_start\":";
+                const auto ssp = obj.find(ss_needle);
+                if (ssp != std::string::npos) {
+                    try {
+                        tok.segment_start = std::stoi(obj.substr(ssp + ss_needle.size()));
+                    } catch (...) {
+                    }
+                }
+                const std::string sc_needle = "\"segment_count\":";
+                const auto scp = obj.find(sc_needle);
+                if (scp != std::string::npos) {
+                    try {
+                        tok.segment_count = std::stoi(obj.substr(scp + sc_needle.size()));
+                    } catch (...) {
+                    }
+                }
                 if (!tok.registry_path.empty()) {
                     resp.files.push_back(std::move(tok));
                 }
@@ -988,10 +1177,20 @@ AcquireResponse RemoteTransport::acquire(const std::string& run_id, int max_file
     } else {
         // Legacy format: {"acquired":["path1","path2",...]}
         // Wrap each path in a minimal FileToken with ftp fields empty.
+        // TD-205: "segment_starts"/"segment_counts" are new, purely-additive parallel arrays
+        // (same order/length as "acquired") — an older server predating this field simply
+        // omits them, and json_int_array() returns empty, so every entry defaults to -1
+        // (whole file), matching pre-TD-205 behavior byte-for-byte.
         auto paths = json_string_array(b, "acquired");
-        for (auto& p : paths) {
+        const auto segment_starts = json_int_array(b, "segment_starts");
+        const auto segment_counts = json_int_array(b, "segment_counts");
+        for (std::size_t i = 0; i < paths.size(); ++i) {
             FileToken tok;
-            tok.registry_path = std::move(p);
+            tok.registry_path = std::move(paths[i]);
+            if (i < segment_starts.size())
+                tok.segment_start = segment_starts[i];
+            if (i < segment_counts.size())
+                tok.segment_count = segment_counts[i];
             resp.files.push_back(std::move(tok));
         }
     }
@@ -1003,7 +1202,8 @@ AcquireResponse RemoteTransport::acquire(const std::string& run_id, int max_file
     return resp;
 }
 
-void RemoteTransport::release(const std::string& run_id, const std::vector<std::string>& paths) {
+void RemoteTransport::release(const std::string& run_id, const std::vector<std::string>& paths,
+                              const std::vector<SegmentTarget>& segments) {
 #ifdef BUILD_METRICS_API_SERVER
     httplib::Client cli(host_, port_);
     cli.set_connection_timeout(0, timeout_ms_ * 1000);
@@ -1011,7 +1211,7 @@ void RemoteTransport::release(const std::string& run_id, const std::vector<std::
 
     std::ostringstream body;
     body << "{\"run_id\":\"" << json_escape(run_id) << "\"," << "\"files\":" << json_array(paths)
-         << "}";
+         << "," << "\"segments\":" << json_segments_array(segments) << "}";
 
     const auto res = cli.Post((group_prefix_ + "/release").c_str(), body.str(), "application/json");
     if (!res || res->status != 200) {
@@ -1067,14 +1267,16 @@ void RemoteTransport::commit_trained(const std::string& run_id,
 #endif
 }
 
-bool RemoteTransport::add_pending(const std::string& path) {
+bool RemoteTransport::add_pending(const std::string& path, int segment_start,
+                                  int segment_count) {
 #ifdef BUILD_METRICS_API_SERVER
     httplib::Client cli(host_, port_);
     cli.set_connection_timeout(0, timeout_ms_ * 1000);
     cli.set_read_timeout(0, timeout_ms_ * 1000);
 
     std::ostringstream body;
-    body << "{\"path\":\"" << json_escape(path) << "\"}";
+    body << "{\"path\":\"" << json_escape(path) << "\"," << "\"segment_start\":" << segment_start
+         << ",\"segment_count\":" << segment_count << "}";
 
     const auto res =
         cli.Post((group_prefix_ + "/pending/add").c_str(), body.str(), "application/json");
@@ -1122,7 +1324,8 @@ std::string RemoteTransport::next_session(const std::string& model_name,
 // Phase 16: assign-by-count / unassign / delete ------------------------------
 
 AssignResult RemoteTransport::assign(const std::string& model_name,
-                                     const std::vector<std::string>& paths, int count) {
+                                     const std::vector<std::string>& paths, int count,
+                                     const std::vector<SegmentTarget>& segments) {
     AssignResult result;
 #ifdef BUILD_METRICS_API_SERVER
     httplib::Client cli(host_, port_);
@@ -1131,7 +1334,8 @@ AssignResult RemoteTransport::assign(const std::string& model_name,
 
     std::ostringstream body;
     body << "{\"model_name\":\"" << json_escape(model_name) << "\","
-         << "\"paths\":" << json_array(paths) << "," << "\"count\":" << count << "}";
+         << "\"paths\":" << json_array(paths) << "," << "\"count\":" << count << ","
+         << "\"segments\":" << json_segments_array(segments) << "}";
 
     const auto res = cli.Post((group_prefix_ + "/assign").c_str(), body.str(), "application/json");
     if (!res || res->status != 200) {
@@ -1149,7 +1353,8 @@ AssignResult RemoteTransport::assign(const std::string& model_name,
 }
 
 UnassignResult RemoteTransport::unassign(const std::string& model_name,
-                                         const std::vector<std::string>& paths, bool force) {
+                                         const std::vector<std::string>& paths, bool force,
+                                         const std::vector<SegmentTarget>& segments) {
     UnassignResult result;
 #ifdef BUILD_METRICS_API_SERVER
     httplib::Client cli(host_, port_);
@@ -1159,7 +1364,7 @@ UnassignResult RemoteTransport::unassign(const std::string& model_name,
     std::ostringstream body;
     body << "{\"model_name\":\"" << json_escape(model_name) << "\","
          << "\"paths\":" << json_array(paths) << "," << "\"force\":" << (force ? "true" : "false")
-         << "}";
+         << "," << "\"segments\":" << json_segments_array(segments) << "}";
 
     const auto res =
         cli.Post((group_prefix_ + "/unassign").c_str(), body.str(), "application/json");
@@ -1180,7 +1385,8 @@ UnassignResult RemoteTransport::unassign(const std::string& model_name,
 }
 
 DeleteResult RemoteTransport::delete_paths(const std::vector<std::string>& paths, bool force,
-                                           bool delete_files) {
+                                           bool delete_files,
+                                           const std::vector<SegmentTarget>& segments) {
     DeleteResult result;
 #ifdef BUILD_METRICS_API_SERVER
     httplib::Client cli(host_, port_);
@@ -1189,7 +1395,8 @@ DeleteResult RemoteTransport::delete_paths(const std::vector<std::string>& paths
 
     std::ostringstream body;
     body << "{\"paths\":" << json_array(paths) << "," << "\"force\":" << (force ? "true" : "false")
-         << "," << "\"delete_files\":" << (delete_files ? "true" : "false") << "}";
+         << "," << "\"delete_files\":" << (delete_files ? "true" : "false") << ","
+         << "\"segments\":" << json_segments_array(segments) << "}";
 
     const auto res = cli.Post((group_prefix_ + "/delete").c_str(), body.str(), "application/json");
     if (!res || res->status != 200) {
@@ -1220,6 +1427,8 @@ DeleteResult RemoteTransport::delete_paths(const std::vector<std::string>& paths
             detail.path = json_string(obj, "path");
             detail.status = json_string(obj, "status");
             detail.file_deleted = json_bool(obj, "file_deleted");
+            detail.segment_start = json_int(obj, "segment_start", -1);
+            detail.segment_count = json_int(obj, "segment_count", -1);
             result.details.push_back(std::move(detail));
             cur = obj_end + 1;
             if (b.find(']', cur) < b.find('{', cur))

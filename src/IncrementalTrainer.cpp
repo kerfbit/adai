@@ -102,13 +102,23 @@ int detect_pid_mod_10000() {
 // produces the same key. Hashed (not used verbatim) to keep the resulting
 // cache filename short and filesystem-safe regardless of how many files or
 // how long their paths are.
-std::string compute_tokenized_cache_key(std::vector<std::string> files,
+std::string compute_tokenized_cache_key(std::vector<PendingFileRange> files,
                                         const std::string& vocab_path,
                                         TokenizerMode tokenizer_mode, int max_seq_length) {
-    std::sort(files.begin(), files.end());
+    // TD-205: sort/hash by (path, segment_start, segment_count) — two different segments of
+    // the same physical file must never collide on the same cache key (their path and
+    // whole-file checksum are identical; only the range distinguishes them).
+    std::sort(files.begin(), files.end(), [](const PendingFileRange& a, const PendingFileRange& b) {
+        if (a.path != b.path)
+            return a.path < b.path;
+        if (a.segment_start != b.segment_start)
+            return a.segment_start < b.segment_start;
+        return a.segment_count < b.segment_count;
+    });
     std::ostringstream oss;
     for (const auto& f : files) {
-        oss << f << ':' << DatasetRegistry::compute_checksum(f) << '|';
+        oss << f.path << ':' << DatasetRegistry::compute_checksum(f.path) << ':' << f.segment_start
+            << ':' << f.segment_count << '|';
     }
     oss << "vocab:" << DatasetRegistry::compute_checksum(vocab_path) << '|'
         << "mode:" << static_cast<int>(tokenizer_mode) << '|' << "maxlen:" << max_seq_length;
@@ -1014,7 +1024,8 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
     return success && !aborted;
 }
 
-bool IncrementalTrainer::train_on_files(const std::vector<std::string>& files, int num_epochs) {
+bool IncrementalTrainer::train_on_files(const std::vector<PendingFileRange>& files,
+                                        int num_epochs) {
     const std::string start_message = "Starting incremental training session #" +
         std::to_string(current_session_id + 1) + " (" + std::to_string(files.size()) + " file(s))";
     if (control_) {
@@ -1040,7 +1051,9 @@ bool IncrementalTrainer::train_on_files(const std::vector<std::string>& files, i
 #pragma omp parallel for schedule(dynamic)
 #endif
         for (int fi = 0; fi < n_files; ++fi)
-            DatasetRegistry::load_conversation_pairs(files[fi], per_file[fi]);
+            DatasetRegistry::load_conversation_pairs(files[fi].path, per_file[fi],
+                                                     files[fi].segment_start,
+                                                     files[fi].segment_count);
 
         for (int fi = 0; fi < n_files; ++fi)
             all_pairs.insert(all_pairs.end(), per_file[fi].begin(), per_file[fi].end());
@@ -1088,7 +1101,8 @@ bool IncrementalTrainer::train_on_files(const std::vector<std::string>& files, i
     return success;
 }
 
-bool IncrementalTrainer::retrain_on_files(const std::vector<std::string>& files, int num_epochs) {
+bool IncrementalTrainer::retrain_on_files(const std::vector<PendingFileRange>& files,
+                                          int num_epochs) {
     const std::string start_message = "Starting full retrain on " + std::to_string(files.size()) + " file(s)";
     if (control_) {
         control_->log(adai::TrainerLogLevel::Info, start_message);
@@ -1107,7 +1121,9 @@ bool IncrementalTrainer::retrain_on_files(const std::vector<std::string>& files,
 #pragma omp parallel for schedule(dynamic)
 #endif
         for (int fi = 0; fi < n_files; ++fi)
-            DatasetRegistry::load_conversation_pairs(files[fi], per_file[fi]);
+            DatasetRegistry::load_conversation_pairs(files[fi].path, per_file[fi],
+                                                     files[fi].segment_start,
+                                                     files[fi].segment_count);
 
         for (int fi = 0; fi < n_files; ++fi)
             all_pairs.insert(all_pairs.end(), per_file[fi].begin(), per_file[fi].end());
@@ -1159,6 +1175,10 @@ bool IncrementalTrainer::resume_last_session() {
     // resume_last_session runs on the same machine as the registry (localhost path);
     // ftp_server_host is always empty here.  Use registry paths directly.
     std::vector<std::string> pending = resp.registry_paths();
+    // TD-205: file_ranges() is registry_paths() with each entry's segment range attached —
+    // only train_on_files() needs the range; mark_trained()/release_pending() still key by
+    // bare path exactly as before.
+    std::vector<PendingFileRange> pending_ranges = resp.file_ranges();
 
     std::string resume_checkpoint = best_checkpoint_path;
     int resume_session_id = -1;
@@ -1200,7 +1220,7 @@ bool IncrementalTrainer::resume_last_session() {
         }
     }
 
-    bool ok = train_on_files(pending, config.base_config.num_epochs);
+    bool ok = train_on_files(pending_ranges, config.base_config.num_epochs);
     if (ok) {
         std::vector<int> counts(pending.size(), 0);
         reg.mark_trained(run_id, pending, counts);

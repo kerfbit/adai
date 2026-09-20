@@ -233,3 +233,74 @@ TEST(ParseMigrateArgs, InvalidCountValueIsAnError) {
     auto r = parse_migrate_args({"decoder", "--count", "not-a-number"});
     EXPECT_TRUE(r.error);
 }
+
+// ============================================================================
+// TD-205: parse_segment_args
+// ============================================================================
+
+TEST(ParseSegmentArgs, RequiresPath) {
+    EXPECT_TRUE(parse_segment_args({}).error);
+}
+
+TEST(ParseSegmentArgs, RequiresEitherCountOrRanges) {
+    auto r = parse_segment_args({"data.jsonl"});
+    EXPECT_TRUE(r.error);
+}
+
+TEST(ParseSegmentArgs, CountAndRangesAreMutuallyExclusive) {
+    auto r = parse_segment_args({"data.jsonl", "--count", "3", "--ranges", "0-9"});
+    EXPECT_TRUE(r.error);
+}
+
+TEST(ParseSegmentArgs, ParsesCount) {
+    auto r = parse_segment_args({"data.jsonl", "--count", "3"});
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.path, "data.jsonl");
+    EXPECT_EQ(r.split_count, 3);
+    EXPECT_TRUE(r.ranges.empty());
+}
+
+TEST(ParseSegmentArgs, InvalidCountValueIsAnError) {
+    auto r = parse_segment_args({"data.jsonl", "--count", "not-a-number"});
+    EXPECT_TRUE(r.error);
+}
+
+TEST(ParseSegmentArgs, ParsesSingleRange) {
+    auto r = parse_segment_args({"data.jsonl", "--ranges", "0-99"});
+    ASSERT_FALSE(r.error);
+    ASSERT_EQ(r.ranges.size(), 1u);
+    EXPECT_EQ(r.ranges[0].start, 0);
+    EXPECT_EQ(r.ranges[0].count, 100);
+}
+
+TEST(ParseSegmentArgs, ParsesMultipleCommaSeparatedRanges) {
+    auto r = parse_segment_args({"data.jsonl", "--ranges", "0-99,100-149,150-150"});
+    ASSERT_FALSE(r.error);
+    ASSERT_EQ(r.ranges.size(), 3u);
+    EXPECT_EQ(r.ranges[0].start, 0);
+    EXPECT_EQ(r.ranges[0].count, 100);
+    EXPECT_EQ(r.ranges[1].start, 100);
+    EXPECT_EQ(r.ranges[1].count, 50);
+    EXPECT_EQ(r.ranges[2].start, 150);
+    EXPECT_EQ(r.ranges[2].count, 1);
+}
+
+TEST(ParseSegmentArgs, RejectsRangeWithEndBeforeStart) {
+    auto r = parse_segment_args({"data.jsonl", "--ranges", "10-5"});
+    EXPECT_TRUE(r.error);
+}
+
+TEST(ParseSegmentArgs, RejectsRangeWithNegativeStart) {
+    auto r = parse_segment_args({"data.jsonl", "--ranges", "-1-5"});
+    EXPECT_TRUE(r.error);
+}
+
+TEST(ParseSegmentArgs, RejectsMalformedRangeToken) {
+    auto r = parse_segment_args({"data.jsonl", "--ranges", "not-a-range-at-all-just-text"});
+    EXPECT_TRUE(r.error);
+}
+
+TEST(ParseSegmentArgs, RejectsUnrecognizedArgument) {
+    auto r = parse_segment_args({"data.jsonl", "--bogus"});
+    EXPECT_TRUE(r.error);
+}

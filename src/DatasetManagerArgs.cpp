@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-19
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-09-20
 
 // Calling convention note: every parse_*_args() here takes the command's OWN argument slice —
 // NOT including the command name itself (main() strips that off before dispatching, the same
@@ -197,6 +197,58 @@ MigrateArgs parse_migrate_args(const std::vector<std::string>& args) {
         } else {
             r.targets.push_back(args[i]);
         }
+    }
+    return r;
+}
+
+SegmentArgs parse_segment_args(const std::vector<std::string>& args) {
+    if (args.empty()) {
+        return make_error<SegmentArgs>(
+            "Usage: dataset_manager segment <path> [--count N | --ranges A-B,C-D,...]");
+    }
+    SegmentArgs r;
+    r.path = args[0];
+    for (std::size_t i = 1; i < args.size(); ++i) {
+        if (args[i] == "--count" && i + 1 < args.size()) {
+            try {
+                r.split_count = std::stoi(args[++i]);
+            } catch (const std::exception&) {
+                return make_error<SegmentArgs>("Invalid --count value");
+            }
+        } else if (args[i] == "--ranges" && i + 1 < args.size()) {
+            const std::string& spec = args[++i];
+            std::stringstream ss(spec);
+            std::string token;
+            while (std::getline(ss, token, ',')) {
+                const auto dash = token.find('-');
+                if (dash == std::string::npos || dash == 0) {
+                    return make_error<SegmentArgs>(
+                        "Invalid --ranges token (expected A-B, 0-based inclusive pair "
+                        "indices): " +
+                        token);
+                }
+                try {
+                    const int a = std::stoi(token.substr(0, dash));
+                    const int b = std::stoi(token.substr(dash + 1));
+                    if (a < 0 || b < a) {
+                        return make_error<SegmentArgs>(
+                            "Invalid --ranges token (need 0 <= A <= B): " + token);
+                    }
+                    r.ranges.push_back({a, b - a + 1});
+                } catch (const std::exception&) {
+                    return make_error<SegmentArgs>(
+                        "Invalid --ranges token (expected A-B, integers): " + token);
+                }
+            }
+        } else {
+            return make_error<SegmentArgs>("Unrecognized argument: " + args[i]);
+        }
+    }
+    if (r.split_count <= 0 && r.ranges.empty()) {
+        return make_error<SegmentArgs>("Either --count N or --ranges A-B,... is required");
+    }
+    if (r.split_count > 0 && !r.ranges.empty()) {
+        return make_error<SegmentArgs>("--count and --ranges are mutually exclusive");
     }
     return r;
 }

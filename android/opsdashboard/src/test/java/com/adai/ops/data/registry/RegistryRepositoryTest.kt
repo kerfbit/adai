@@ -2,13 +2,17 @@ package com.adai.ops.data.registry
 
 import com.adai.ops.network.ApiResult
 import com.adai.ops.network.dto.AssignResponseDto
+import com.adai.ops.network.dto.DeleteResponseDto
 import com.adai.ops.network.dto.FetchResponseDto
+import com.adai.ops.network.dto.PendingAddResponseDto
 import com.adai.ops.network.dto.QueueEntryDto
 import com.adai.ops.network.dto.QueueResponseDto
 import com.adai.ops.network.dto.RegistryAdminConfigDto
 import com.adai.ops.network.dto.RegistryEntryDto
 import com.adai.ops.network.dto.RegistryResponseDto
 import com.adai.ops.network.dto.ReleaseResponseDto
+import com.adai.ops.network.dto.SegmentTargetDto
+import com.adai.ops.network.dto.UnassignResponseDto
 import com.adai.ops.testutil.FakeApiClientProvider
 import com.adai.ops.testutil.FakeRegistryApiService
 import com.adai.ops.testutil.FakeSettingsRepository
@@ -16,6 +20,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import retrofit2.Response
@@ -162,6 +167,175 @@ class RegistryRepositoryTest {
         val entry = (result as ApiResult.Success).data.entries.single()
         assertEquals("2026-08-01T09:00:00Z", entry.added_utc)
         assertEquals("upload", entry.source)
+    }
+
+    @Test
+    fun `queue folds a non-null kind into the URL path via groupPath`() = runTest {
+        val fakeService = FakeRegistryApiService(
+            queueResponse = { groupPath ->
+                if (groupPath == "my-group/chatbot") {
+                    QueueResponseDto(entries = listOf(QueueEntryDto(path = "a.jsonl")))
+                } else {
+                    QueueResponseDto()
+                }
+            },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        val result = repository.queue("my-group", kind = "chatbot")
+
+        assertTrue(result is ApiResult.Success)
+        assertEquals(1, (result as ApiResult.Success).data.entries.size)
+    }
+
+    @Test
+    fun `unassignModel sends paths, force, and an empty segments list when no segment is given`() = runTest {
+        val fakeService = FakeRegistryApiService(
+            unassignResponse = { _, _ -> Response.success(UnassignResponseDto(unassigned = 1)) },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        val result = repository.unassignModel("my-group", paths = listOf("a.jsonl"), force = true)
+
+        assertTrue(result is ApiResult.Success)
+        assertEquals(1, (result as ApiResult.Success).data.unassigned)
+        val (group, body) = fakeService.unassignCalls.single()
+        assertEquals("my-group", group)
+        assertEquals(listOf("a.jsonl"), body.paths)
+        assertTrue(body.force)
+        assertTrue(body.segments.isEmpty())
+    }
+
+    @Test
+    fun `unassignModel targets a segment instead of a whole-file path when given one`() = runTest {
+        val fakeService = FakeRegistryApiService()
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        repository.unassignModel("my-group", segment = SegmentTargetDto("a.jsonl", 0, 50))
+
+        val (_, body) = fakeService.unassignCalls.single()
+        assertTrue(body.paths.isEmpty())
+        assertEquals(listOf(SegmentTargetDto("a.jsonl", 0, 50)), body.segments)
+    }
+
+    @Test
+    fun `deleteEntries sends force and delete_files through unchanged`() = runTest {
+        val fakeService = FakeRegistryApiService(
+            deleteResponse = { _, _ -> Response.success(DeleteResponseDto(deleted = 1)) },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        val result = repository.deleteEntries("my-group", paths = listOf("a.jsonl"), force = true, deleteFiles = true)
+
+        assertTrue(result is ApiResult.Success)
+        assertEquals(1, (result as ApiResult.Success).data.deleted)
+        val (_, body) = fakeService.deleteCalls.single()
+        assertEquals(listOf("a.jsonl"), body.paths)
+        assertTrue(body.force)
+        assertTrue(body.delete_files)
+    }
+
+    @Test
+    fun `pendingAdd sends the path and segment range through unchanged`() = runTest {
+        val fakeService = FakeRegistryApiService(
+            pendingAddResponse = { _, _ -> Response.success(PendingAddResponseDto(added = true)) },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        val result = repository.pendingAdd("my-group", path = "a.jsonl", segmentStart = 0, segmentCount = 10)
+
+        assertTrue(result is ApiResult.Success)
+        assertTrue((result as ApiResult.Success).data.added)
+        val (_, body) = fakeService.pendingAddCalls.single()
+        assertEquals("a.jsonl", body.path)
+        assertEquals(0, body.segment_start)
+        assertEquals(10, body.segment_count)
+    }
+
+    @Test
+    fun `upload sends the filename and the exact bytes given`() = runTest {
+        val fakeService = FakeRegistryApiService()
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+        val bytes = byteArrayOf(1, 2, 3, 4)
+
+        val result = repository.upload("my-group", filename = "new.jsonl", bytes = bytes)
+
+        assertTrue(result is ApiResult.Success)
+        val (group, filename, sentBytes) = fakeService.uploadCalls.single()
+        assertEquals("my-group", group)
+        assertEquals("new.jsonl", filename)
+        assertTrue(bytes.contentEquals(sentBytes))
+    }
+
+    @Test
+    fun `migrateToKind queues into destKind, restores the model assignment, then deletes from the legacy pool`() = runTest {
+        val fakeService = FakeRegistryApiService(
+            pendingAddResponse = { _, _ -> Response.success(PendingAddResponseDto(added = true)) },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+        val entry = QueueEntryDto(path = "a.jsonl", model_name = "model-a")
+
+        val result = repository.migrateToKind("my-group", entry, destKind = "chatbot")
+
+        assertTrue(result is ApiResult.Success)
+        assertEquals("a.jsonl", (result as ApiResult.Success).data)
+        val (addGroup, addBody) = fakeService.pendingAddCalls.single()
+        assertEquals("my-group/chatbot", addGroup)
+        assertEquals("a.jsonl", addBody.path)
+        val (assignGroup, assignBody) = fakeService.assignCalls.single()
+        assertEquals("my-group/chatbot", assignGroup)
+        assertEquals(listOf(SegmentTargetDto("a.jsonl", -1, -1)), assignBody.segments)
+        val (deleteGroup, deleteBody) = fakeService.deleteCalls.single()
+        assertEquals("my-group", deleteGroup)
+        assertEquals(listOf(SegmentTargetDto("a.jsonl", -1, -1)), deleteBody.segments)
+    }
+
+    @Test
+    fun `migrateToKind aborts before touching the source entry when pending-add fails`() = runTest {
+        val fakeService = FakeRegistryApiService(
+            pendingAddResponse = { _, _ -> Response.success(PendingAddResponseDto(added = false)) },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+        val entry = QueueEntryDto(path = "a.jsonl", model_name = "model-a")
+
+        val result = repository.migrateToKind("my-group", entry, destKind = "chatbot")
+
+        assertTrue(result is ApiResult.ApiError)
+        assertTrue(fakeService.assignCalls.isEmpty())
+        assertTrue(fakeService.deleteCalls.isEmpty())
+    }
+
+    @Test
+    fun `migrateToKind does not restore an assignment when the source entry was unassigned`() = runTest {
+        val fakeService = FakeRegistryApiService(
+            pendingAddResponse = { _, _ -> Response.success(PendingAddResponseDto(added = true)) },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+        val entry = QueueEntryDto(path = "a.jsonl", model_name = "")
+
+        repository.migrateToKind("my-group", entry, destKind = "chatbot")
+
+        assertTrue(fakeService.assignCalls.isEmpty())
+        assertFalse(fakeService.deleteCalls.isEmpty())
+    }
+
+    @Test
+    fun `createSegments queues one pendingAdd per range and counts only the successful ones`() = runTest {
+        var callCount = 0
+        val fakeService = FakeRegistryApiService(
+            pendingAddResponse = { _, _ ->
+                callCount++
+                Response.success(PendingAddResponseDto(added = callCount != 2))
+            },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        val created = repository.createSegments("my-group", "big.jsonl", ranges = listOf(0 to 5, 5 to 5, 10 to 5))
+
+        assertEquals(2, created)
+        assertEquals(3, fakeService.pendingAddCalls.size)
+        val ranges = fakeService.pendingAddCalls.map { it.second.segment_start to it.second.segment_count }
+        assertEquals(listOf(0 to 5, 5 to 5, 10 to 5), ranges)
     }
 
     @Test

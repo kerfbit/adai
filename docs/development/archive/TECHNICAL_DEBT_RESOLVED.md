@@ -4,6 +4,175 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-205: Dataset Registry Row-Range Segments + Ops Dashboard Full Dataset Management Segment
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 20, 2026 | Dataset registry (`RegistryTransport`/`RegistryServer`/`DatasetRegistry`/`IncrementalTrainer`/`dataset_manager`), Android ops dashboard (Registry section) | Added addressable row-range "segments" within one physical file at the registry-transport/server/training layers; expanded the ops dashboard's Registry tab into a full planning-and-management segment (pool-health overview, kind filter chips, full CLI parity, uniform `ConfirmActionDialog` gating) |
+
+Summary:
+TD-202/203/204 gave the dataset registry per-trainable-piece (`kind`) sub-pools, but within one
+sub-pool a pending file was still tracked, assigned, and consumed only as a whole unit — there was
+no way to queue or train on only part of a large file, or to hold most of a file back and release
+it to training in stages. Separately, the ops dashboard's Registry tab predated `kind` entirely and
+had drifted well behind the `dataset_manager` CLI's own capabilities (no unassign, delete,
+manual-add, upload, or migrate-to-kind actions), and mixed admin-gating conventions (force-release
+went through `ConfirmActionDialog`'s biometric/PIN check; assign and both fetch actions did not,
+despite being equally mutating). The user asked for both: real backend segmentation (their own
+explicit choice over the simpler client-side-file-splitting alternative), and a full planning/
+management expansion of the Android Registry section built on top of it.
+
+**Backend — row-range segments.** `PendingEntry`/`FileToken` gained `segment_start`/`segment_count`
+(both `-1` = whole file, fully backward compatible — every pre-existing entry and caller is
+unaffected). A pending entry's identity for dedup/lookup changed from bare `path` to
+`(path, segment_start, segment_count)` via a new `segment_matches()` free function, replacing every
+`e.path == path` comparison across `add_pending`/`assign`/`unassign`/`release`/`delete_paths` in
+both `LocalTransport` and `RegistryServer` — critically, every whole-file-`paths`-based operation
+was also guarded with `segment_start < 0` so it can never accidentally sweep up (or, for delete,
+unlink the shared physical file of) a segment sharing the same path. A new `SegmentTarget`
+struct is the wire/API currency for addressing one exact segment, threaded as an additive
+`segments` parameter alongside every existing `paths`-based request — no existing caller (CLI,
+Android, tests) needed to change. `PendingFileRange` replaces bare `std::string` paths in
+`IncrementalTrainer::train_on_files`/`retrain_on_files`, so a segment's `segment_start`/
+`segment_count` reach `DatasetRegistry::load_conversation_pairs`'s new range-aware overload, which
+skips/limits by *parsed pair count* for JSONL (matching `count_pairs()`) and falls back to
+whole-file loading only for the legacy `INPUT:`/`RESPONSE:` format, which can't be cheaply sliced.
+The legacy (non-FTP) `acquire` response's existing `{"acquired":[...]}` shape was deliberately left
+alone (real deployed-client-version-skew scenarios depend on it) — segment metadata rides alongside
+it in new, purely-additive `"segment_starts"`/`"segment_counts"` parallel arrays, so an
+older client that only reads `"acquired"` is unaffected. New CLI command
+`dataset_manager segment <path> [--count N | --ranges A-B,C-D,...]` splits a file's pairs into
+independently-manageable pending entries (0-based inclusive ranges); `status`/`list-pending` now
+also display a segment's range when present, closing a pre-existing "tracked but never shown" gap
+for `num_entries` along the way. Staged/incremental release needs no new state machine: a segment
+assigned to a holding `model_name` is simply unassigned when the operator is ready to release it to
+training — reusing the existing assign/unassign primitives, now segment-addressable.
+
+**Android — full dataset management segment.** The Registry tab's `GroupDetailScreen` gained: (1)
+a "pool health" planning overview — one row per kind (including the legacy pool) showing
+pending/trained counts and total samples, computed alongside the normal refresh tick, independent
+of the currently-selected filter; (2) kind filter chips within the existing screen (not a new nav
+level), changing which sub-pool's queue/runs/registry are shown; (3) full CLI parity — new
+Unassign, Delete (with an optional "also unlink the file" toggle), Manual-add, Upload (device file
+picker), Migrate-to-kind, and Create-segments actions, each with its own data-entry dialog
+(`RegistryActionDialogs.kt`, new file); (4) every mutating action — including Assign and both
+Fetch dialogs, previously ungated despite being equally mutating as force-release — now goes
+through `ConfirmActionDialog`'s biometric/PIN gate and literal HTTP-call preview, for full
+consistency across the screen. `GroupListScreen`'s per-group pending count, which used to reflect
+only the legacy pool (and would misleadingly show 0 for a group whose data had all been migrated
+into kind sub-pools), now sums across the legacy pool and all four kinds. `RegistryRepository`
+gained one new method per new server capability plus two client-side composites —
+`migrateToKind()` (pending-add into the destination kind, restore the model assignment if any, then
+delete from the legacy pool — mirroring `dataset_manager migrate`'s exact sequencing) and
+`createSegments()` (one `pendingAdd` per requested range) — needing no new server endpoints beyond
+the ones segments/kind-scoping already added.
+
+Self-caught bugs during implementation (all fixed before this entry, none shipped):
+`GroupDetailScreen.kt`'s own doc comment claimed both Fetch dialogs were already
+`ConfirmActionDialog`-gated when their `onFetch` callbacks still called the ViewModel directly —
+caught while writing `GroupDetailScreenConfirmActionTest.kt`'s
+`confirmingFetchGutenberg_invokesFetchGutenberg` test, whose two-click structure (submit data entry,
+then confirm) exposed that there was no second gate to click; and two Compose test cases
+(`confirmingUnassign...`/`confirmingMigrate...`) relied on an undocumented dialog/root
+composition-order guess (`onAllNodesWithText(...).onFirst()/.onLast()`) to disambiguate a row-level
+button from `ConfirmActionDialog`'s confirm button sharing the same text ("Unassign", "Migrate") —
+fixed by renaming the two confirm labels to "Confirm unassign"/"Confirm migrate", mirroring this
+screen's own pre-existing "Release" (row) / "Force release" (confirm) precedent for the identical
+ambiguity, and asserting on the now-unique text directly instead of guessing at traversal order.
+
+Changes Made:
+
+- `src/RegistryTransport.hpp`/`.cpp`: `PendingEntry`/`FileToken` segment fields, `segment_matches()`,
+  `SegmentTarget`, `PendingFileRange`, `AcquireResponse::file_ranges()`, segment-aware
+  `add_pending`/`release`/`assign`/`unassign`/`delete_paths` in both `LocalTransport` and
+  `RemoteTransport` (including the additive legacy-acquire-response `segment_starts`/
+  `segment_counts` arrays). Version 1.1.0 → 1.2.0.
+- `src/RegistryServer.cpp`: segment-aware `handle_queue`/`handle_acquire`/`handle_release`/
+  `handle_assign`/`handle_unassign`/`handle_delete`/`handle_pending_add`; new
+  `json_segment_targets()` helper.
+- `src/DatasetRegistry.hpp`/`.cpp`: `add_file`/`add_pending_path_unchecked` segment params; new
+  `load_conversation_pairs(path, out, segment_start, segment_count)` overload + `count_pairs()`;
+  `assign_model`/`unassign_model`/`delete_entries`/`release_pending` segment params.
+- `src/IncrementalTrainer.hpp`/`.cpp`: `PendingFileRange`; `train_on_files`/`retrain_on_files`
+  signature change; `compute_tokenized_cache_key` sorts/hashes ranges; `resume_last_session()`
+  builds `pending_ranges`.
+- `src/IncrementalTrainingTool.cpp`: `train`/`retrain` call sites build `local_ranges` zipped
+  against `resp.files[i]`'s segment fields.
+- `src/DatasetManagerArgs.hpp`/`.cpp`: new `SegmentRange`, `SegmentArgs`, `parse_segment_args()`.
+  Version 0.2.0 → 0.3.0.
+- `src/DatasetManagerTool.cpp`: new `segment` command; `status`/`list-pending` display segment info.
+- `tests/RegistryTransportTests.cpp` (+12), `tests/DatasetRegistryTests.cpp` (+11, plus
+  `FakeFetchTransport` updated for the new virtual signatures), `tests/dataset_manager_args_test.cpp`
+  (+9).
+- `android/opsdashboard/.../network/dto/RegistryDtos.kt`: segment fields on `QueueEntryDto`;
+  `SegmentTargetDto`; new Unassign/Delete/PendingAdd request/response DTOs. Version 0.4.0 → 0.5.0.
+- `android/opsdashboard/.../network/RegistryApiService.kt`: every method takes a `groupPath`; new
+  `unassign`/`delete`/`pendingAdd`/`upload` endpoints. Version 0.4.0 → 0.5.0.
+- `android/opsdashboard/.../data/registry/RegistryRepository.kt`: `groupPath()` helper; `kind` param
+  on every method; new `forceReleaseSegment`/`assignModelToSegment`/`unassignModel`/`deleteEntries`/
+  `pendingAdd`/`upload`/`migrateToKind`/`createSegments`. Version 0.4.0 → 0.5.0.
+- `android/opsdashboard/.../ui/registry/GroupDetailViewModel.kt`: `KindPoolHealth`, `selectedKind`/
+  `poolHealth` state, `setKindFilter`, and the six new action methods. Version 0.5.0 → 0.6.0.
+- `android/opsdashboard/.../ui/registry/RegistryActionDialogs.kt` (new): Delete/ManualAdd/Upload/
+  MigrateToKind/CreateSegments dialogs.
+- `android/opsdashboard/.../ui/registry/GroupDetailScreen.kt`: kind filter chips, pool-health
+  section, "+" add-data menu, `PendingAction` sealed interface covering every mutating action
+  (including the two previously-ungated Fetch dialogs) routed through `ConfirmActionDialog`.
+  Version 0.4.0 → 0.5.0.
+- `android/opsdashboard/.../ui/registry/GroupListViewModel.kt`: per-group pending count now sums
+  the legacy pool and all four kind sub-pools instead of the legacy pool alone. Version 0.2.0 →
+  0.3.0.
+- `android/opsdashboard/src/sharedTest/.../FakeRegistryApiService.kt`: new configurable
+  response lambdas/call-lists for the new endpoints. Version 0.2.0 → 0.3.0.
+- `android/opsdashboard/src/{test,androidTest}/...`: `RegistryRepositoryTest.kt` (+10 new cases:
+  kind-path threading, unassign/delete/pendingAdd/upload, migrateToKind success/abort/no-op-assign,
+  createSegments), `GroupListViewModelTest.kt` (fake updated for the new per-kind summing),
+  `GroupDetailViewModelTest.kt` (+4: `setKindFilter`, `poolHealth`, `unassignModel`,
+  `migrateToKind` failure path), `GroupDetailScreenTest.kt`, `GroupDetailScreenConfirmActionTest.kt`
+  (rewritten, 9 cases covering every gated action end-to-end through the Compose UI).
+
+Verification:
+
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean, zero errors.
+- ✅ Full `ctest` suite: 136/136 passing.
+- ✅ `./gradlew :opsdashboard:compileDebugKotlin :opsdashboard:compileDebugUnitTestKotlin
+  :opsdashboard:compileDebugAndroidTestKotlin` — clean.
+- ✅ `./gradlew :opsdashboard:testDebugUnitTest` — all unit tests passing (18/18
+  `RegistryRepositoryTest`, 3/3 `GroupListViewModelTest`, 6/6 `GroupDetailViewModelTest`).
+- ✅ `./gradlew :opsdashboard:lintDebug` — clean.
+- ⏳ Live end-to-end check against a real `registry_server` exercising every new Android action
+  (unassign, delete, upload, migrate, create-segments) and a real segmented training pass —
+  not run in this environment; Android Compose UI tests remain compile-verified/hand-checked
+  against production code paths, not run on a device (same standing limitation as every other
+  opsdashboard screen test in this codebase).
+
+Files Changed:
+
+- `src/RegistryTransport.hpp`, `src/RegistryTransport.cpp`
+- `src/RegistryServer.cpp`
+- `src/DatasetRegistry.hpp`, `src/DatasetRegistry.cpp`
+- `src/IncrementalTrainer.hpp`, `src/IncrementalTrainer.cpp`
+- `src/IncrementalTrainingTool.cpp`
+- `src/DatasetManagerArgs.hpp`, `src/DatasetManagerArgs.cpp`
+- `src/DatasetManagerTool.cpp`
+- `tests/RegistryTransportTests.cpp`, `tests/DatasetRegistryTests.cpp`,
+  `tests/dataset_manager_args_test.cpp`
+- `android/opsdashboard/src/main/java/com/adai/ops/network/dto/RegistryDtos.kt`
+- `android/opsdashboard/src/main/java/com/adai/ops/network/RegistryApiService.kt`
+- `android/opsdashboard/src/main/java/com/adai/ops/data/registry/RegistryRepository.kt`
+- `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupDetailViewModel.kt`
+- `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupListViewModel.kt`
+- `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/RegistryActionDialogs.kt` (new)
+- `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupDetailScreen.kt`
+- `android/opsdashboard/src/sharedTest/java/com/adai/ops/testutil/FakeRegistryApiService.kt`
+- `android/opsdashboard/src/test/java/com/adai/ops/data/registry/RegistryRepositoryTest.kt`
+- `android/opsdashboard/src/test/java/com/adai/ops/ui/registry/GroupListViewModelTest.kt`
+- `android/opsdashboard/src/test/java/com/adai/ops/ui/registry/GroupDetailViewModelTest.kt`
+- `android/opsdashboard/src/androidTest/java/com/adai/ops/ui/registry/GroupDetailScreenTest.kt`
+- `android/opsdashboard/src/androidTest/java/com/adai/ops/ui/registry/GroupDetailScreenConfirmActionTest.kt`
+- `CLAUDE.md`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-204: TD-203's Own `dataset_kind` Precedence "Fix" Was Itself a Regression — Reverted
 
 | Resolution Date | Component | Resolved By |

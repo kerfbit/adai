@@ -1,8 +1,8 @@
 package com.adai.ops.ui.registry
 
 // @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-13
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-20
 
 
 import androidx.compose.ui.test.assertIsEnabled
@@ -35,12 +35,15 @@ import org.junit.Test
  * previously hardcoded to always return an empty RunsResponseDto) so the "Claimed by run" section
  * could actually be exercised.
  *
+ * TD-205: Assign and both Fetch dialogs are now ConfirmActionDialog-gated (retrofitted alongside
+ * the new Unassign/Delete/Manual-add/Upload/Migrate/Segment actions, all gated from the start) —
+ * this file only covers their own input-validation-gated confirm-button *enablement*, not the
+ * click reaching the repository; see GroupDetailScreenConfirmActionTest.kt for the full
+ * dialog-then-confirm-then-auth flows (mirrors ModelDetailScreenConfirmActionTest's own split).
  * Deliberately out of scope for this pass, same reason/infra gap as ModelDetailScreen/
  * SessionDetailScreen: the "Force release" admin-action confirm-dialog flow itself
  * (ConfirmActionDialog's FragmentActivity/LocalAdminAuthGate requirement) -- only the button's
- * default-enabled rendering is checked, not the click. The Gutenberg/HuggingFace fetch dialogs and
- * the Assign-model dialog are plain AlertDialogs with no such gate, so those flows ARE fully
- * exercised here, including their own input-validation-gated confirm buttons.
+ * default-enabled rendering is checked, not the click.
  *
  * NOTE: same sandbox limitation as the other opsdashboard screen tests -- compile-verified and
  * hand-checked against the real production code paths, not run on a device here.
@@ -73,8 +76,8 @@ class GroupDetailScreenTest {
         }
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("No files currently claimed by a run.") }
-        composeTestRule.onNodeWithText("No pending files in this group.").assertExists()
-        composeTestRule.onNodeWithText("No trained files in this group yet.").assertExists()
+        composeTestRule.onNodeWithText("No pending files in this pool.").assertExists()
+        composeTestRule.onNodeWithText("No trained files in this pool yet.").assertExists()
     }
 
     @Test
@@ -164,51 +167,7 @@ class GroupDetailScreenTest {
     }
 
     @Test
-    fun fetchGutenbergDialog_clickingFetch_invokesViewModelWithParsedValues() {
-        val fixture = Fixture()
-
-        composeTestRule.setContent {
-            GroupDetailScreen(group = fixture.group, viewModel = fixture.viewModel(), onBack = {})
-        }
-
-        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("No pending files") }
-        composeTestRule.onNodeWithText("Fetch Gutenberg book").performClick()
-        composeTestRule.onNodeWithText("Gutenberg book ID").performTextInput("42")
-        composeTestRule.onNodeWithText("Fetch").performClick()
-
-        composeTestRule.waitUntil(timeoutMillis = 5_000) { fixture.registryService.fetchGutenbergCalls.isNotEmpty() }
-        val (group, body) = fixture.registryService.fetchGutenbergCalls.single()
-        assert(group == fixture.group) { "expected group '${fixture.group}', got '$group'" }
-        assert(body.book_id == 42 && body.num_pairs == 500 && body.model_name == "") {
-            "unexpected fetch body: $body"
-        }
-    }
-
-    @Test
-    fun fetchHuggingfaceDialog_clickingFetch_invokesViewModelWithEnteredValues() {
-        val fixture = Fixture()
-
-        composeTestRule.setContent {
-            GroupDetailScreen(group = fixture.group, viewModel = fixture.viewModel(), onBack = {})
-        }
-
-        composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("No pending files") }
-        composeTestRule.onNodeWithText("Fetch HuggingFace dataset").performClick()
-        composeTestRule.onNodeWithText("Fetch").assertIsNotEnabled()
-        composeTestRule.onNodeWithText("Dataset ID (e.g. tatsu-lab/alpaca)").performTextInput("tatsu-lab/alpaca")
-        composeTestRule.onNodeWithText("Fetch").assertIsEnabled()
-        composeTestRule.onNodeWithText("Fetch").performClick()
-
-        composeTestRule.waitUntil(timeoutMillis = 5_000) { fixture.registryService.fetchHuggingfaceCalls.isNotEmpty() }
-        val (group, body) = fixture.registryService.fetchHuggingfaceCalls.single()
-        assert(group == fixture.group) { "expected group '${fixture.group}', got '$group'" }
-        assert(body.dataset_id == "tatsu-lab/alpaca" && body.num_pairs == 500 && body.split == "train") {
-            "unexpected fetch body: $body"
-        }
-    }
-
-    @Test
-    fun assignModelDialog_clickingAssign_invokesViewModelWithPathAndCurrentModel() {
+    fun assignModelDialog_confirmButtonEnabledOnceModelChosen() {
         val fixture = Fixture(
             registryService = FakeRegistryApiService(
                 queueResponse = {
@@ -223,15 +182,10 @@ class GroupDetailScreenTest {
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) { textIsShowing("file1.jsonl") }
         composeTestRule.onNodeWithContentDescription("Assign model").performClick()
+        // TD-205: Assign is now ConfirmActionDialog-gated — tapping this button opens the
+        // confirmation dialog rather than calling the repository directly; the actual
+        // dialog-then-confirm-then-auth flow is covered in GroupDetailScreenConfirmActionTest.kt.
         composeTestRule.onNodeWithText("Assign").assertIsEnabled()
-        composeTestRule.onNodeWithText("Assign").performClick()
-
-        composeTestRule.waitUntil(timeoutMillis = 5_000) { fixture.registryService.assignCalls.isNotEmpty() }
-        val (group, body) = fixture.registryService.assignCalls.single()
-        assert(group == fixture.group) { "expected group '${fixture.group}', got '$group'" }
-        assert(body.model_name == "model-a" && body.paths == listOf("file1.jsonl")) {
-            "unexpected assign body: $body"
-        }
     }
 
     @Test

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-19
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-09-20
 
 // TD-035: dataset_manager's per-command argument parsing, pulled out of
 // DatasetManagerTool.cpp so it's testable without touching a real DatasetRegistry/DataFetcher
@@ -100,5 +100,22 @@ struct MigrateArgs {
     std::string error_message;
 };
 MigrateArgs parse_migrate_args(const std::vector<std::string>& args);
+
+// TD-205: one row-range segment, as a 0-based [start, start+count) pair index range.
+struct SegmentRange {
+    int start = 0;
+    int count = 0;
+};
+
+struct SegmentArgs {
+    std::string path;
+    // Exactly one of split_count (> 0) or ranges (non-empty) is set on success — mutually
+    // exclusive, validated by the parser.
+    int split_count = 0;         // --count N: split into N near-equal parts
+    std::vector<SegmentRange> ranges;  // --ranges A-B,C-D,...: explicit inclusive pair ranges
+    bool error = false;
+    std::string error_message;
+};
+SegmentArgs parse_segment_args(const std::vector<std::string>& args);
 
 }  // namespace adai

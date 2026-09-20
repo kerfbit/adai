@@ -296,6 +296,39 @@ static std::vector<int> json_int_array(const std::string& body, const std::strin
     return result;
 }
 
+// TD-205: parse "<key>":[{"path":"...","segment_start":N,"segment_count":N},...] — flat
+// (non-nested) objects, same iteration idiom as every other object-array parser in this file
+// (see handle_acquire's own response-parsing counterpart, RegistryTransport.cpp).
+static std::vector<SegmentTarget> json_segment_targets(const std::string& body,
+                                                        const std::string& key) {
+    std::vector<SegmentTarget> result;
+    const std::string needle = "\"" + key + "\":[";
+    auto cur = body.find(needle);
+    if (cur == std::string::npos)
+        return result;
+    cur += needle.size();
+    while (cur < body.size()) {
+        auto obj_start = body.find('{', cur);
+        if (obj_start == std::string::npos)
+            break;
+        auto obj_end = body.find('}', obj_start);
+        if (obj_end == std::string::npos)
+            break;
+        const std::string obj = body.substr(obj_start, obj_end - obj_start + 1);
+        SegmentTarget t;
+        t.path = json_string(obj, "path");
+        t.segment_start = json_int(obj, "segment_start", -1);
+        t.segment_count = json_int(obj, "segment_count", -1);
+        if (!t.path.empty()) {
+            result.push_back(std::move(t));
+        }
+        cur = obj_end + 1;
+        if (body.find(']', cur) < body.find('{', cur))
+            break;
+    }
+    return result;
+}
+
 // ============================================================================
 // Phase 15: dataset metadata helpers (size/checksum/entry count/timestamps)
 // ============================================================================
@@ -395,7 +428,9 @@ static void handle_queue(const httplib::Request& req, httplib::Response& res,
              << json_escape(entries[i].source) << "\"," << "\"added_utc\":\""
              << json_escape(entries[i].added_utc) << "\"," << "\"size_bytes\":"
              << entries[i].size_bytes << "," << "\"num_entries\":" << entries[i].num_entries
-             << "," << "\"checksum\":\"" << json_escape(entries[i].checksum) << "\"}";
+             << "," << "\"checksum\":\"" << json_escape(entries[i].checksum) << "\","
+             << "\"segment_start\":" << entries[i].segment_start << ","
+             << "\"segment_count\":" << entries[i].segment_count << "}";
     }
     json << "]}";
     res.set_content(json.str(), "application/json");
@@ -477,6 +512,10 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
 
     const int limit = (max_files > 0) ? max_files : static_cast<int>(entries.size());
     std::vector<std::string> acquired;
+    // TD-205: parallel arrays, pushed in lockstep with `acquired`, so both response shapes
+    // below can carry each claimed entry's segment range (whole-file entries are -1/-1).
+    std::vector<int> acquired_segment_start;
+    std::vector<int> acquired_segment_count;
     std::vector<std::string> ftp_rejected;
     for (auto& e : entries) {
         // Unclaimed, OR already claimed by this exact run_id — see the
@@ -489,6 +528,8 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
             }
             e.run_id = run_id;
             acquired.push_back(e.path);
+            acquired_segment_start.push_back(e.segment_start);
+            acquired_segment_count.push_back(e.segment_count);
         }
     }
 
@@ -502,13 +543,27 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
     }
 
     if (!ftp_enabled || !g_ftp_server) {
-        // Legacy response format
+        // Legacy response format. TD-205: "segment_starts"/"segment_counts" are new, purely
+        // additive parallel arrays (same order/length as "acquired", -1 = whole file) — an
+        // older client that only knows "acquired" simply ignores the extra keys.
         std::ostringstream json;
         json << "{\"acquired\":[";
         for (std::size_t i = 0; i < acquired.size(); ++i) {
             if (i)
                 json << ',';
             json << '"' << json_escape(acquired[i]) << '"';
+        }
+        json << "],\"segment_starts\":[";
+        for (std::size_t i = 0; i < acquired_segment_start.size(); ++i) {
+            if (i)
+                json << ',';
+            json << acquired_segment_start[i];
+        }
+        json << "],\"segment_counts\":[";
+        for (std::size_t i = 0; i < acquired_segment_count.size(); ++i) {
+            if (i)
+                json << ',';
+            json << acquired_segment_count[i];
         }
         json << "]}";
         res.set_content(json.str(), "application/json");
@@ -564,7 +619,9 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
              << json_escape(tok.username) << "\"," << "\"ftp_password\":\""
              << json_escape(tok.password) << "\"," << "\"checksum\":\"" << json_escape(checksum)
              << "\"," << "\"size_bytes\":" << size_bytes << "," << "\"token_expires_utc\":\""
-             << json_escape(tok.token_expires_utc) << "\"" << "}";
+             << json_escape(tok.token_expires_utc) << "\"," << "\"segment_start\":"
+             << acquired_segment_start[i] << "," << "\"segment_count\":"
+             << acquired_segment_count[i] << "}";
     }
 
     json << "]}";
@@ -591,6 +648,8 @@ static void handle_release(const httplib::Request& req, httplib::Response& res,
                            const std::string& group, const std::string& kind) {
     const std::string run_id = json_string(req.body, "run_id");
     const std::vector<std::string> files = json_string_array(req.body, "files");
+    // TD-205: explicit segment targets, additive alongside "files" — see json_segment_targets().
+    const std::vector<SegmentTarget> segments = json_segment_targets(req.body, "segments");
 
     auto& gs = get_group(group, kind);
     std::lock_guard<std::mutex> lock(gs.mtx);
@@ -598,12 +657,28 @@ static void handle_release(const httplib::Request& req, httplib::Response& res,
     std::vector<PendingEntry> entries;
     gs.transport->load_pending(entries);
 
-    const std::set<std::string> to_release(files.begin(), files.end());
     int released = 0;
-    for (auto& e : entries) {
-        if ((run_id.empty() || e.run_id == run_id) && to_release.count(e.path)) {
-            e.run_id.clear();
-            ++released;
+    if (!segments.empty()) {
+        for (const auto& t : segments) {
+            for (auto& e : entries) {
+                if ((run_id.empty() || e.run_id == run_id) &&
+                    segment_matches(e, t.path, t.segment_start, t.segment_count)) {
+                    e.run_id.clear();
+                    ++released;
+                    break;
+                }
+            }
+        }
+    } else {
+        // TD-205: whole-file "files" must only match whole-file entries — a segment sharing
+        // the same physical path needs its own targeted `segments` entry to be released.
+        const std::set<std::string> to_release(files.begin(), files.end());
+        for (auto& e : entries) {
+            if ((run_id.empty() || e.run_id == run_id) && e.segment_start < 0 &&
+                to_release.count(e.path)) {
+                e.run_id.clear();
+                ++released;
+            }
         }
     }
 
@@ -635,6 +710,8 @@ static void handle_assign(const httplib::Request& req, httplib::Response& res,
     const std::string model_name = json_string(req.body, "model_name");
     const std::vector<std::string> paths = json_string_array(req.body, "paths");
     const int count = json_int(req.body, "count", 0);
+    // TD-205: explicit segment targets, highest priority — see json_segment_targets().
+    const std::vector<SegmentTarget> segments = json_segment_targets(req.body, "segments");
 
     if (!is_safe_model_name(model_name) || model_name.empty()) {
         res.status = 400;
@@ -650,39 +727,63 @@ static void handle_assign(const httplib::Request& req, httplib::Response& res,
     std::vector<PendingEntry> entries;
     gs.transport->load_pending(entries);
 
-    const bool by_paths = !paths.empty();
-    const bool by_count = !by_paths && count > 0;
-    const bool assign_all = !by_paths && !by_count;
-    const std::set<std::string> target_paths(paths.begin(), paths.end());
     std::vector<std::string> assigned_paths;
-    for (auto& e : entries) {
-        if (by_count && static_cast<int>(assigned_paths.size()) >= count) {
-            break;
+    std::vector<SegmentTarget> assigned_segments;
+    if (!segments.empty()) {
+        for (const auto& t : segments) {
+            for (auto& e : entries) {
+                if (segment_matches(e, t.path, t.segment_start, t.segment_count)) {
+                    e.model_name = model_name;
+                    assigned_segments.push_back(t);
+                    break;
+                }
+            }
         }
-        const bool matches = by_paths ? target_paths.count(e.path) > 0
-                            : by_count ? e.model_name.empty()
-                                       : assign_all;
-        if (matches) {
-            e.model_name = model_name;
-            assigned_paths.push_back(e.path);
+    } else {
+        const bool by_paths = !paths.empty();
+        const bool by_count = !by_paths && count > 0;
+        const bool assign_all = !by_paths && !by_count;
+        const std::set<std::string> target_paths(paths.begin(), paths.end());
+        for (auto& e : entries) {
+            if (by_count && static_cast<int>(assigned_paths.size()) >= count) {
+                break;
+            }
+            // TD-205: by_paths/by_count only ever match whole-file entries; assign_all (the
+            // bulk default) still applies to segments too — see handle_unassign's own note.
+            const bool matches = by_paths ? (e.segment_start < 0 && target_paths.count(e.path) > 0)
+                                : by_count ? (e.segment_start < 0 && e.model_name.empty())
+                                           : assign_all;
+            if (matches) {
+                e.model_name = model_name;
+                assigned_paths.push_back(e.path);
+            }
         }
     }
 
-    if (!assigned_paths.empty()) {
+    const std::size_t assigned_total = assigned_paths.size() + assigned_segments.size();
+    if (assigned_total > 0) {
         gs.transport->save_pending(entries);
     }
 
     std::ostringstream json;
-    json << "{\"assigned\":" << assigned_paths.size() << ",\"paths\":[";
+    json << "{\"assigned\":" << assigned_total << ",\"paths\":[";
     for (std::size_t i = 0; i < assigned_paths.size(); ++i) {
         if (i > 0)
             json << ",";
         json << "\"" << json_escape(assigned_paths[i]) << "\"";
     }
+    json << "],\"segments\":[";
+    for (std::size_t i = 0; i < assigned_segments.size(); ++i) {
+        if (i > 0)
+            json << ",";
+        json << "{\"path\":\"" << json_escape(assigned_segments[i].path) << "\","
+             << "\"segment_start\":" << assigned_segments[i].segment_start << ","
+             << "\"segment_count\":" << assigned_segments[i].segment_count << "}";
+    }
     json << "]}";
     res.set_content(json.str(), "application/json");
     Logger::info("[{}] assign: model='{}' assigned {} file(s) (count={})", group, model_name,
-                assigned_paths.size(), count);
+                assigned_total, count);
 }
 
 // POST /registry/<group>/unassign  {"model_name":"...","paths":[...],"force":bool}
@@ -705,12 +806,16 @@ static void handle_unassign(const httplib::Request& req, httplib::Response& res,
     const std::string model_name = json_string(req.body, "model_name");
     const std::vector<std::string> paths = json_string_array(req.body, "paths");
     const bool force = json_bool(req.body, "force", false);
+    // TD-205: explicit segment targets, highest priority — see json_segment_targets().
+    const std::vector<SegmentTarget> segments = json_segment_targets(req.body, "segments");
 
-    if (paths.empty() && model_name.empty()) {
+    if (paths.empty() && segments.empty() && model_name.empty()) {
         res.status = 400;
-        res.set_content("{\"error\":\"either paths or model_name (or both) required\"}",
-                        "application/json");
-        Logger::warn("[{}] unassign: rejected — both paths and model_name empty", group);
+        res.set_content(
+            "{\"error\":\"paths, segments, or model_name (or a combination) required\"}",
+            "application/json");
+        Logger::warn("[{}] unassign: rejected — paths, segments, and model_name all empty",
+                     group);
         return;
     }
     if (!model_name.empty() && !is_safe_model_name(model_name)) {
@@ -727,42 +832,72 @@ static void handle_unassign(const httplib::Request& req, httplib::Response& res,
     std::vector<PendingEntry> entries;
     gs.transport->load_pending(entries);
 
-    const bool bulk_by_model = paths.empty();
-    const std::set<std::string> target_paths(paths.begin(), paths.end());
     std::vector<std::string> unassigned_paths;
+    std::vector<SegmentTarget> unassigned_segments;
     int skipped = 0;
-    for (auto& e : entries) {
-        const bool matches = bulk_by_model
-                                ? e.model_name == model_name
-                                : (target_paths.count(e.path) > 0 &&
-                                   (model_name.empty() || e.model_name == model_name));
-        if (!matches) {
-            continue;
+    if (!segments.empty()) {
+        for (const auto& t : segments) {
+            for (auto& e : entries) {
+                if (segment_matches(e, t.path, t.segment_start, t.segment_count) &&
+                    (model_name.empty() || e.model_name == model_name)) {
+                    if (!e.run_id.empty() && !force) {
+                        ++skipped;
+                    } else {
+                        e.model_name.clear();
+                        unassigned_segments.push_back(t);
+                    }
+                    break;
+                }
+            }
         }
-        if (!e.run_id.empty() && !force) {
-            ++skipped;
-            continue;
+    } else {
+        // TD-205: bulk-by-model (paths empty) intentionally matches whole-file AND segment
+        // entries alike; explicit `paths` matches whole-file entries only — see
+        // handle_assign's own note.
+        const bool bulk_by_model = paths.empty();
+        const std::set<std::string> target_paths(paths.begin(), paths.end());
+        for (auto& e : entries) {
+            const bool matches = bulk_by_model
+                                    ? e.model_name == model_name
+                                    : (e.segment_start < 0 && target_paths.count(e.path) > 0 &&
+                                       (model_name.empty() || e.model_name == model_name));
+            if (!matches) {
+                continue;
+            }
+            if (!e.run_id.empty() && !force) {
+                ++skipped;
+                continue;
+            }
+            e.model_name.clear();
+            unassigned_paths.push_back(e.path);
         }
-        e.model_name.clear();
-        unassigned_paths.push_back(e.path);
     }
 
-    if (!unassigned_paths.empty()) {
+    const std::size_t unassigned_total = unassigned_paths.size() + unassigned_segments.size();
+    if (unassigned_total > 0) {
         gs.transport->save_pending(entries);
     }
 
     std::ostringstream json;
-    json << "{\"unassigned\":" << unassigned_paths.size() << ",\"skipped\":" << skipped
+    json << "{\"unassigned\":" << unassigned_total << ",\"skipped\":" << skipped
         << ",\"paths\":[";
     for (std::size_t i = 0; i < unassigned_paths.size(); ++i) {
         if (i > 0)
             json << ",";
         json << "\"" << json_escape(unassigned_paths[i]) << "\"";
     }
+    json << "],\"segments\":[";
+    for (std::size_t i = 0; i < unassigned_segments.size(); ++i) {
+        if (i > 0)
+            json << ",";
+        json << "{\"path\":\"" << json_escape(unassigned_segments[i].path) << "\","
+             << "\"segment_start\":" << unassigned_segments[i].segment_start << ","
+             << "\"segment_count\":" << unassigned_segments[i].segment_count << "}";
+    }
     json << "]}";
     res.set_content(json.str(), "application/json");
     Logger::info("[{}] unassign: model='{}' unassigned {} file(s), {} skipped (force={})", group,
-                model_name, unassigned_paths.size(), skipped, force);
+                model_name, unassigned_total, skipped, force);
 }
 
 // POST /registry/<group>/delete  {"paths":[...],"force":bool,"delete_files":bool}
@@ -790,11 +925,13 @@ static void handle_delete(const httplib::Request& req, httplib::Response& res,
     const std::vector<std::string> paths = json_string_array(req.body, "paths");
     const bool force = json_bool(req.body, "force", false);
     const bool delete_files = json_bool(req.body, "delete_files", false);
+    // TD-205: explicit segment targets, additive alongside "paths" — see json_segment_targets().
+    const std::vector<SegmentTarget> segments = json_segment_targets(req.body, "segments");
 
-    if (paths.empty()) {
+    if (paths.empty() && segments.empty()) {
         res.status = 400;
-        res.set_content("{\"error\":\"paths required\"}", "application/json");
-        Logger::warn("[{}] delete: rejected — empty paths", group);
+        res.set_content("{\"error\":\"paths or segments required\"}", "application/json");
+        Logger::warn("[{}] delete: rejected — paths and segments both empty", group);
         return;
     }
 
@@ -824,12 +961,22 @@ static void handle_delete(const httplib::Request& req, httplib::Response& res,
     details << "[";
     bool first_detail = true;
 
-    for (const auto& p : paths) {
+    // TD-205: one combined worklist — a whole-file path becomes a target with segment_start=-1,
+    // so it and an explicit segment target share the exact same per-item logic below.
+    std::vector<SegmentTarget> targets;
+    targets.reserve(paths.size() + segments.size());
+    for (const auto& p : paths)
+        targets.push_back({p, -1, -1});
+    for (const auto& s : segments)
+        targets.push_back(s);
+
+    for (const auto& t : targets) {
         bool pending_blocked = false;
         bool found_anywhere = false;
 
-        auto pit = std::find_if(pending.begin(), pending.end(),
-                                [&](const PendingEntry& e) { return e.path == p; });
+        auto pit = std::find_if(pending.begin(), pending.end(), [&](const PendingEntry& e) {
+            return segment_matches(e, t.path, t.segment_start, t.segment_count);
+        });
         if (pit != pending.end()) {
             found_anywhere = true;
             if (!pit->run_id.empty() && !force) {
@@ -840,12 +987,16 @@ static void handle_delete(const httplib::Request& req, httplib::Response& res,
             }
         }
 
-        auto rit = std::find_if(reg.begin(), reg.end(),
-                                [&](const DataVersion& dv) { return dv.data_file == p; });
-        if (rit != reg.end()) {
-            found_anywhere = true;
-            reg.erase(rit);
-            registry_changed = true;
+        // TD-205: the trained registry has no segment concept — only a whole-file target can
+        // match/erase it.
+        if (t.segment_start < 0) {
+            auto rit = std::find_if(reg.begin(), reg.end(),
+                                    [&](const DataVersion& dv) { return dv.data_file == t.path; });
+            if (rit != reg.end()) {
+                found_anywhere = true;
+                reg.erase(rit);
+                registry_changed = true;
+            }
         }
 
         std::string status;
@@ -856,10 +1007,12 @@ static void handle_delete(const httplib::Request& req, httplib::Response& res,
         } else if (found_anywhere) {
             status = "deleted";
             ++deleted;
-            if (delete_files && have_root) {
+            // TD-205: never unlink the physical file for a segment target — other segments
+            // (or a legacy whole-file consumer) may still reference the same physical path.
+            if (delete_files && t.segment_start < 0 && have_root) {
                 try {
-                    if (fs::exists(p)) {
-                        const auto canon = fs::weakly_canonical(p);
+                    if (fs::exists(t.path)) {
+                        const auto canon = fs::weakly_canonical(t.path);
                         const auto rel = canon.lexically_relative(group_root);
                         const bool contained =
                             !rel.empty() && rel.string().compare(0, 2, "..") != 0;
@@ -870,7 +1023,7 @@ static void handle_delete(const httplib::Request& req, httplib::Response& res,
                         } else {
                             Logger::warn(
                                 "[{}] delete: refusing to unlink '{}' — outside group data_dir",
-                                group, p);
+                                group, t.path);
                         }
                     }
                 } catch (...) {
@@ -885,8 +1038,10 @@ static void handle_delete(const httplib::Request& req, httplib::Response& res,
         if (!first_detail)
             details << ",";
         first_detail = false;
-        details << "{\"path\":\"" << json_escape(p) << "\",\"status\":\"" << status
-               << "\",\"file_deleted\":" << (file_deleted ? "true" : "false") << "}";
+        details << "{\"path\":\"" << json_escape(t.path) << "\",\"status\":\"" << status
+               << "\",\"file_deleted\":" << (file_deleted ? "true" : "false")
+               << ",\"segment_start\":" << t.segment_start
+               << ",\"segment_count\":" << t.segment_count << "}";
     }
     details << "]";
 
@@ -1079,11 +1234,12 @@ static void handle_history(const httplib::Request& req, httplib::Response& res,
 // instead of paying for a redundant re-read. -1 (default) means "count it
 // yourself if the file is locally readable, else leave it unknown."
 static bool add_pending_path_locked(GroupState& gs, const std::string& path,
-                                    const std::string& source, int known_num_entries = -1) {
+                                    const std::string& source, int known_num_entries = -1,
+                                    int segment_start = -1, int segment_count = -1) {
     std::vector<PendingEntry> entries;
     gs.transport->load_pending(entries);
     for (const auto& e : entries) {
-        if (e.path == path) {
+        if (segment_matches(e, path, segment_start, segment_count)) {
             return false;
         }
     }
@@ -1092,11 +1248,18 @@ static bool add_pending_path_locked(GroupState& gs, const std::string& path,
     entry.path = path;
     entry.source = source;
     entry.added_utc = utc_now_string();
+    entry.segment_start = segment_start;
+    entry.segment_count = segment_count;
     if (const auto stat = stat_local_file(path)) {
         entry.size_bytes = stat->size_bytes;
         entry.checksum = stat->checksum;
     }
-    entry.num_entries = (known_num_entries >= 0) ? known_num_entries : count_jsonl_entries(path);
+    // TD-205: a segment's own num_entries is its segment_count (the pair count it actually
+    // covers), never the whole physical file's line count — count_jsonl_entries(path) would
+    // otherwise report the WHOLE file's size for what is only a slice of it.
+    entry.num_entries = (segment_start >= 0) ? segment_count
+                       : (known_num_entries >= 0) ? known_num_entries
+                                                   : count_jsonl_entries(path);
 
     entries.push_back(std::move(entry));
     gs.transport->save_pending(entries);
@@ -1123,6 +1286,9 @@ static void handle_pending_add(const httplib::Request& req, httplib::Response& r
         res.set_content("{\"error\":\"path required\"}", "application/json");
         return;
     }
+    // TD-205: optional row-range segment — absent/-1 means "the whole file", exactly as before.
+    const int segment_start = json_int(req.body, "segment_start", -1);
+    const int segment_count = json_int(req.body, "segment_count", -1);
 
     if (!path_resolves_under(path, fs::path(data_dir))) {
         Logger::warn(
@@ -1135,7 +1301,7 @@ static void handle_pending_add(const httplib::Request& req, httplib::Response& r
     auto& gs = get_group(group, kind);
     std::lock_guard<std::mutex> lock(gs.mtx);
 
-    if (!add_pending_path_locked(gs, path, "manual")) {
+    if (!add_pending_path_locked(gs, path, "manual", -1, segment_start, segment_count)) {
         res.set_content("{\"added\":false,\"reason\":\"already_pending\"}", "application/json");
         Logger::info("[{}] pending/add: '{}' already queued", group, path);
         return;

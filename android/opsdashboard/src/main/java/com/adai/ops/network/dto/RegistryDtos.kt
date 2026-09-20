@@ -1,8 +1,8 @@
 package com.adai.ops.network.dto
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-09-20
 
 
 import kotlinx.serialization.Serializable
@@ -19,6 +19,11 @@ import kotlinx.serialization.Serializable
  * own data_dir) leaves size_bytes=0, num_entries=-1, checksum="". Anything
  * created via fetch/gutenberg, fetch/huggingface, or /upload is always
  * locally readable, so those are populated for real.
+ *
+ * TD-205: segment_start/segment_count default to -1 ("the whole file", reproducing every
+ * pre-TD-205 entry byte-for-byte) — when segment_start >= 0 this entry is one row-range
+ * segment of `path`'s own JSONL pairs, not the whole file; num_entries for a segment is its
+ * own pair count (segment_count), never the whole physical file's.
  */
 @Serializable
 data class QueueEntryDto(
@@ -30,7 +35,12 @@ data class QueueEntryDto(
     val size_bytes: Long = 0,
     val num_entries: Int = -1,
     val checksum: String = "",
-)
+    val segment_start: Int = -1,
+    val segment_count: Int = -1,
+) {
+    /** True if this entry is a row-range segment of [path] rather than the whole file. */
+    val isSegment: Boolean get() = segment_start >= 0
+}
 
 @Serializable
 data class QueueResponseDto(
@@ -77,11 +87,25 @@ data class HistoryResponseDto(
     val entries: List<HistoryEntryDto> = emptyList(),
 )
 
+/**
+ * TD-205: one entry in an explicit segment-targeting list, additive alongside a request's own
+ * plain `paths`/`files` list — see RegistryTransport.hpp's `SegmentTarget` (server/C++ side)
+ * for the exact same shape. `segment_start < 0` addresses the whole-file entry for [path],
+ * same convention as [QueueEntryDto].
+ */
+@Serializable
+data class SegmentTargetDto(
+    val path: String,
+    val segment_start: Int = -1,
+    val segment_count: Int = -1,
+)
+
 /** For a force-release, send run_id = "" — the server bypasses the owner check on empty run_id. */
 @Serializable
 data class ReleaseRequestDto(
     val run_id: String,
     val files: List<String>,
+    val segments: List<SegmentTargetDto> = emptyList(),
 )
 
 @Serializable
@@ -89,16 +113,95 @@ data class ReleaseResponseDto(
     val released: Int = 0,
 )
 
-/** Empty/absent [paths] assigns every pending entry in the group, not just none. */
+/**
+ * Empty/absent [paths] (and empty [segments]) assigns every pending entry in the group, not
+ * just none. TD-205: non-empty [segments] targets exactly those segment entries, taking
+ * precedence over [paths]/[count] — see handle_assign's own mode-priority doc comment.
+ */
 @Serializable
 data class AssignRequestDto(
     val model_name: String,
     val paths: List<String> = emptyList(),
+    val count: Int = 0,
+    val segments: List<SegmentTargetDto> = emptyList(),
 )
 
 @Serializable
 data class AssignResponseDto(
     val assigned: Int = 0,
+    val paths: List<String> = emptyList(),
+    val segments: List<SegmentTargetDto> = emptyList(),
+)
+
+/**
+ * Reverses [AssignRequestDto]: clears model_name back to unassigned. Both [paths]/[segments]
+ * empty + non-empty [model_name] is the bulk "clear everything assigned to this model" mode.
+ */
+@Serializable
+data class UnassignRequestDto(
+    val model_name: String = "",
+    val paths: List<String> = emptyList(),
+    val force: Boolean = false,
+    val segments: List<SegmentTargetDto> = emptyList(),
+)
+
+@Serializable
+data class UnassignResponseDto(
+    val unassigned: Int = 0,
+    val skipped: Int = 0,
+    val paths: List<String> = emptyList(),
+    val segments: List<SegmentTargetDto> = emptyList(),
+)
+
+/** At least one of [paths]/[segments] must be non-empty — there is no bulk "delete everything". */
+@Serializable
+data class DeleteRequestDto(
+    val paths: List<String> = emptyList(),
+    val force: Boolean = false,
+    val delete_files: Boolean = false,
+    val segments: List<SegmentTargetDto> = emptyList(),
+)
+
+@Serializable
+data class DeleteDetailDto(
+    val path: String,
+    val status: String,
+    val file_deleted: Boolean = false,
+    val segment_start: Int = -1,
+    val segment_count: Int = -1,
+)
+
+@Serializable
+data class DeleteResponseDto(
+    val deleted: Int = 0,
+    val skipped: Int = 0,
+    val not_found: Int = 0,
+    val details: List<DeleteDetailDto> = emptyList(),
+)
+
+/**
+ * POST /registry/{group}/pending/add {"path":...} — queues an already-existing path (one the
+ * registry_server can read from its own data_dir) without fetching/uploading new bytes.
+ * TD-205: segment_start/segment_count queue a specific row-range segment instead of the whole
+ * file. Shares its response shape with the upload endpoint (see UploadResponseDto's own note).
+ */
+@Serializable
+data class PendingAddRequestDto(
+    val path: String,
+    val segment_start: Int = -1,
+    val segment_count: Int = -1,
+)
+
+/**
+ * Shared response shape for both pending/add and upload — both endpoints return
+ * {"added":bool} on success (upload also echoes back "path"; pending/add doesn't) and
+ * {"added":false,"reason":"..."} on failure/already-pending.
+ */
+@Serializable
+data class PendingAddResponseDto(
+    val added: Boolean = false,
+    val path: String = "",
+    val reason: String? = null,
 )
 
 @Serializable

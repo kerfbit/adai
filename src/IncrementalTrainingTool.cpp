@@ -851,7 +851,23 @@ int main(int argc, char* argv[]) {
                         local_paths.push_back(f.registry_path);
                 }
 
-                const bool ok = trainer.train_on_files(local_paths, epochs);
+                // TD-205: local_paths[i] corresponds 1:1 with resp.files[i] in both branches
+                // above (DataTransport::fetch_all() fills its result vector by index, and the
+                // direct-access branch iterates resp.files in the same order) — zip each local
+                // path with its originating entry's segment range.
+                std::vector<PendingFileRange> local_ranges;
+                local_ranges.reserve(local_paths.size());
+                for (std::size_t i = 0; i < local_paths.size(); ++i) {
+                    PendingFileRange r;
+                    r.path = local_paths[i];
+                    if (i < resp.files.size()) {
+                        r.segment_start = resp.files[i].segment_start;
+                        r.segment_count = resp.files[i].segment_count;
+                    }
+                    local_ranges.push_back(std::move(r));
+                }
+
+                const bool ok = trainer.train_on_files(local_ranges, epochs);
                 const auto reg_paths = resp.registry_paths();
 
                 if (ok) {
@@ -960,7 +976,29 @@ int main(int argc, char* argv[]) {
                 }
                 adai::Logger::info("Starting full retrain on {} data file(s)", local_paths.size());
 
-                const bool ok = trainer.retrain_on_files(local_paths, epochs);
+                // TD-205: local_paths[0..trained_fs.size()) came from the trained DataVersion
+                // registry, which has no segment concept — always whole-file. The remainder
+                // came from pending_resp, 1:1 by index (same guarantee as the train_on_files
+                // call site above).
+                std::vector<PendingFileRange> local_ranges;
+                local_ranges.reserve(local_paths.size());
+                for (std::size_t i = 0; i < trained_fs.size(); ++i) {
+                    PendingFileRange r;
+                    r.path = local_paths[i];
+                    local_ranges.push_back(std::move(r));
+                }
+                for (std::size_t i = trained_fs.size(); i < local_paths.size(); ++i) {
+                    const std::size_t pi = i - trained_fs.size();
+                    PendingFileRange r;
+                    r.path = local_paths[i];
+                    if (pi < pending_resp.files.size()) {
+                        r.segment_start = pending_resp.files[pi].segment_start;
+                        r.segment_count = pending_resp.files[pi].segment_count;
+                    }
+                    local_ranges.push_back(std::move(r));
+                }
+
+                const bool ok = trainer.retrain_on_files(local_ranges, epochs);
                 const auto pending_reg_paths = pending_resp.registry_paths();
 
                 if (ok) {

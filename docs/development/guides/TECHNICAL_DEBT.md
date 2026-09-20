@@ -10,8 +10,23 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 191
+**Resolved Items:** 192
 **Deferred Decisions:** 3
+
+**September 20, 2026 (same day):** Filed and resolved
+[TD-205](../archive/TECHNICAL_DEBT_RESOLVED.md#td-205-dataset-registry-row-range-segments--ops-dashboard-full-dataset-management-segment)
+— the user's own explicit follow-up request, "expand the dataset portion of the opsdashboard into
+a full planning and management segment." Added addressable row-range segments within one physical
+file at the registry-transport/server/training layers (their own choice over the simpler
+client-side-file-splitting alternative), so a large file can be queued/assigned/trained in
+independently-manageable slices instead of only as a whole unit — the primitive behind both "use
+only part of a dataset" and staged, incremental release via the existing assign/unassign
+primitives. Expanded the ops dashboard's Registry tab into a full planning-and-management segment
+on top of it: a pool-health overview across all kinds, kind filter chips, full CLI parity
+(unassign/delete/manual-add/upload/migrate-to-kind/create-segments), and uniform
+`ConfirmActionDialog` gating across every mutating action — including Assign and both Fetch
+dialogs, which a self-caught bug during implementation found were still calling the ViewModel
+directly despite the screen's own doc comment claiming otherwise. See its own archive entry.
 
 **September 20, 2026 (same day):** Filed and resolved
 [TD-204](../archive/TECHNICAL_DEBT_RESOLVED.md#td-204-td-203s-own-dataset_kind-precedence-fix-was-itself-a-regression--reverted)
@@ -495,7 +510,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (191 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (192 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -2139,7 +2154,7 @@ another branch of one large `main()` instead of becoming its own focused binary)
 
 ## Resolved Items
 
-191 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+192 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

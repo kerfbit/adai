@@ -119,6 +119,16 @@ int main(int argc, char* argv[]) {
                      "global --kind flag\n";
         std::cout << "                               is ignored here; <kind> selects the "
                      "destination.\n";
+        std::cout << "  segment <path> [--count N | --ranges A-B,C-D,...]\n";
+        std::cout << "                               Split a JSONL file's pairs into N "
+                     "near-equal parts, or\n";
+        std::cout << "                               explicit 0-based inclusive pair ranges, "
+                     "queuing each as its\n";
+        std::cout << "                               own independently-assignable/deletable "
+                     "pending entry (into\n";
+        std::cout << "                               the pool selected by --kind). Needs local "
+                     "read access to\n";
+        std::cout << "                               <path> to count its pairs first.\n";
         std::cout << "  models                       List registered models from name service\n";
         std::cout << "\nPopular Gutenberg Books:\n";
         std::cout << "  1342  - Pride and Prejudice (Jane Austen)\n";
@@ -329,6 +339,12 @@ int main(int argc, char* argv[]) {
             std::cout << "\n📋 Pending files:\n";
             for (const auto& e : entries) {
                 std::cout << "  - " << e.path;
+                if (e.segment_start >= 0) {
+                    std::cout << "  [segment " << e.segment_start << "-"
+                              << (e.segment_start + e.segment_count - 1) << "]";
+                } else if (e.num_entries >= 0) {
+                    std::cout << "  [" << e.num_entries << " pair(s)]";
+                }
                 if (!e.model_name.empty())
                     std::cout << "  [model: " << e.model_name << "]";
                 std::cout << "\n";
@@ -348,6 +364,12 @@ int main(int argc, char* argv[]) {
         } else {
             for (const auto& e : entries) {
                 std::cout << e.path;
+                if (e.segment_start >= 0) {
+                    std::cout << "\tsegment[" << e.segment_start << "-"
+                              << (e.segment_start + e.segment_count - 1) << "]";
+                } else if (e.num_entries >= 0) {
+                    std::cout << "\t" << e.num_entries << " pairs";
+                }
                 if (!e.model_name.empty())
                     std::cout << "\t" << e.model_name;
                 std::cout << "\n";
@@ -619,6 +641,72 @@ int main(int argc, char* argv[]) {
         std::cout << "✅ Migrated " << migrated << "/" << to_migrate.size() << " file(s) into '"
                   << parsed.kind << "'\n";
         if (migrated == 0) {
+            return 1;
+        }
+
+    } else if (command == "segment") {
+        auto parsed = adai::parse_segment_args(cmd_args);
+        if (parsed.error) {
+            std::cerr << parsed.error_message << "\n";
+            std::cerr << "  --count N splits the file into N near-equal parts; --ranges takes\n";
+            std::cerr << "  explicit 0-based inclusive pair-index ranges (e.g. 0-99,100-199).\n";
+            std::cerr << "  Requires local read access to <path> (its pair count must be\n";
+            std::cerr << "  countable on this host) — a remote-only path that only exists on\n";
+            std::cerr << "  the registry_server's own storage can't be segmented from here.\n";
+            return 1;
+        }
+
+        const int total_pairs = DatasetRegistry::count_pairs(parsed.path);
+        if (total_pairs <= 0) {
+            std::cerr << "❌ '" << parsed.path
+                      << "' has no JSONL pairs to segment (legacy INPUT:/RESPONSE: files can't "
+                        "be segmented, and a remote-only path needs local read access here)\n";
+            return 1;
+        }
+        std::cout << "📊 '" << parsed.path << "' has " << total_pairs << " pair(s)\n";
+
+        // {start, count} — either split_count near-equal parts, or the explicit --ranges list.
+        std::vector<std::pair<int, int>> ranges;
+        if (parsed.split_count > 0) {
+            const int n = parsed.split_count;
+            const int base = total_pairs / n;
+            const int extra = total_pairs % n;
+            int start = 0;
+            for (int i = 0; i < n && start < total_pairs; ++i) {
+                const int count = base + (i < extra ? 1 : 0);
+                if (count <= 0)
+                    continue;
+                ranges.emplace_back(start, count);
+                start += count;
+            }
+        } else {
+            for (const auto& r : parsed.ranges) {
+                ranges.emplace_back(r.start, r.count);
+            }
+        }
+
+        DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
+        reg.load_pending_list();
+        reg.load_registry();
+
+        int created = 0;
+        for (const auto& [start, count] : ranges) {
+            // TD-205: add_pending_path_unchecked (not add_file) — count_pairs() above already
+            // proved this path is locally readable, so the redundant existence check is
+            // skipped, same reasoning `migrate` uses for the identical primitive.
+            if (reg.add_pending_path_unchecked(parsed.path, start, count)) {
+                std::cout << "   segment [" << start << ", " << (start + count)
+                          << ") -> queued\n";
+                ++created;
+            } else {
+                std::cerr << "⚠️  Failed to queue segment [" << start << ", " << (start + count)
+                          << ") — already pending or already trained\n";
+            }
+        }
+
+        std::cout << "✅ Created " << created << "/" << ranges.size() << " segment(s) from '"
+                  << parsed.path << "'\n";
+        if (created == 0) {
             return 1;
         }
 

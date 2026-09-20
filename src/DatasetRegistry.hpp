@@ -102,9 +102,13 @@ class DatasetRegistry {
      * in the trained-files set.  Persists the updated queue immediately
      * via save_pending_list().
      *
+     * TD-205: @p segment_start/@p segment_count (both -1 by default, meaning "the whole
+     * file") add a specific row-range segment instead of the whole file — see
+     * DatasetRegistry::count_pairs() to determine a file's own pair count first.
+     *
      * @return true if the file was added; false if skipped or missing.
      */
-    bool add_file(const std::string& path);
+    bool add_file(const std::string& path, int segment_start = -1, int segment_count = -1);
 
     /**
      * @brief Add multiple files to the pending queue.
@@ -128,8 +132,12 @@ class DatasetRegistry {
      * storage rather than the migrating CLI's local filesystem — the same
      * reason `add` itself skips add_file() in favor of remote_upload() when
      * REGISTRY_SERVER_URL is set.
+     *
+     * TD-205: @p segment_start/@p segment_count add a specific row-range segment instead of
+     * the whole file, same convention as add_file().
      */
-    bool add_pending_path_unchecked(const std::string& path);
+    bool add_pending_path_unchecked(const std::string& path, int segment_start = -1,
+                                    int segment_count = -1);
 
     /**
      * @brief Discard the in-memory pending queue (does not write to disk).
@@ -167,7 +175,8 @@ class DatasetRegistry {
      *   - empty @p paths, count<=0  — assign every pending entry (default)
      */
     AssignResult assign_model(const std::string& model_name,
-                              const std::vector<std::string>& paths = {}, int count = 0);
+                              const std::vector<std::string>& paths = {}, int count = 0,
+                              const std::vector<SegmentTarget>& segments = {});
 
     /**
      * @brief Clear model_name back to unassigned. Delegates to
@@ -180,7 +189,8 @@ class DatasetRegistry {
      * (non-empty run_id) is left untouched unless @p force is true.
      */
     UnassignResult unassign_model(const std::string& model_name,
-                                  const std::vector<std::string>& paths = {}, bool force = false);
+                                  const std::vector<std::string>& paths = {}, bool force = false,
+                                  const std::vector<SegmentTarget>& segments = {});
 
     /**
      * @brief Permanently purge entries matching @p paths from both the
@@ -195,7 +205,8 @@ class DatasetRegistry {
      * delete_paths() for the local-vs-remote containment rules.
      */
     DeleteResult delete_entries(const std::vector<std::string>& paths, bool force = false,
-                                bool delete_files = false);
+                                bool delete_files = false,
+                                const std::vector<SegmentTarget>& segments = {});
 
     /** @return Copy of the current in-memory pending-file paths. */
     std::vector<std::string> pending_files() const;
@@ -255,7 +266,8 @@ class DatasetRegistry {
      * Use on training failure or crash recovery.  Has no effect on files
      * that were not assigned to @p run_id.
      */
-    void release_pending(const std::string& run_id, const std::vector<std::string>& paths);
+    void release_pending(const std::string& run_id, const std::vector<std::string>& paths,
+                         const std::vector<SegmentTarget>& segments = {});
 
     /**
      * @brief Mark trained files and release the run's reservation atomically.
@@ -359,6 +371,33 @@ class DatasetRegistry {
      * @return Number of pairs appended to @p out.
      */
     static int load_conversation_pairs(const std::string& path, std::vector<ConversationPair>& out);
+
+    /**
+     * @brief TD-205: like load_conversation_pairs(), but reads only pairs
+     *        [@p segment_start, @p segment_start + @p segment_count) instead of the whole
+     *        file. JSONL only — a legacy INPUT:/RESPONSE: file can't be cheaply range-sliced
+     *        (a pair may span several raw lines), so a range request against one logs a
+     *        warning and falls back to loading the whole file instead. A range that simply
+     *        runs past the end of a JSONL file (e.g. the file has fewer pairs than expected)
+     *        is NOT a fallback case — it just yields fewer pairs than @p segment_count, or
+     *        none at all, exactly like asking for rows past the end of any bounded sequence.
+     *
+     * @param segment_start 0-based pair index to start from; < 0 means "the whole file"
+     *                      (identical to the 2-arg overload).
+     * @param segment_count How many pairs to read from @p segment_start.
+     * @return Number of pairs appended to @p out.
+     */
+    static int load_conversation_pairs(const std::string& path, std::vector<ConversationPair>& out,
+                                       int segment_start, int segment_count);
+
+    /**
+     * @brief TD-205: counts the JSONL pairs in @p path without materializing them —
+     *        used to show an operator how many pairs are available before choosing segment
+     *        split points (`dataset_manager segment`, the Android "create segments" dialog).
+     *        Works for the legacy format too (returns its own pair count), even though that
+     *        format can't be segment-sliced.
+     */
+    static int count_pairs(const std::string& path);
 
     /**
      * @brief Compute a lightweight content fingerprint for @p path.

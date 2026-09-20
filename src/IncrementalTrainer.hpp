@@ -225,8 +225,11 @@ class IncrementalTrainer {
     }
 
     // Training — file-list API (TD-028 Phase 3)
-    bool train_on_files(const std::vector<std::string>& files, int num_epochs);
-    bool retrain_on_files(const std::vector<std::string>& files, int num_epochs);
+    // TD-205: PendingFileRange (path + optional segment_start/segment_count, -1/-1 = whole
+    // file) instead of a bare path — lets a caller train on only a row-range slice of an
+    // acquired file (see AcquireResponse::file_ranges(), the source of these lists).
+    bool train_on_files(const std::vector<PendingFileRange>& files, int num_epochs);
+    bool retrain_on_files(const std::vector<PendingFileRange>& files, int num_epochs);
 
     // Session management
     bool resume_last_session();

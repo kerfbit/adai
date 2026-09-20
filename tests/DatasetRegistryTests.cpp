@@ -78,30 +78,32 @@ class FakeFetchTransport : public RegistryTransport {
                             const std::string& model_name = "") override {
         return inner_.acquire(run_id, max_files, model_name);
     }
-    void release(const std::string& run_id, const std::vector<std::string>& paths) override {
-        inner_.release(run_id, paths);
+    void release(const std::string& run_id, const std::vector<std::string>& paths,
+                const std::vector<SegmentTarget>& segments = {}) override {
+        inner_.release(run_id, paths, segments);
     }
     void commit_trained(const std::string& run_id, const std::vector<DataVersion>& new_entries,
                         const std::vector<std::string>& trained_paths) override {
         inner_.commit_trained(run_id, new_entries, trained_paths);
     }
-    bool add_pending(const std::string& path) override {
-        return inner_.add_pending(path);
+    bool add_pending(const std::string& path, int segment_start = -1,
+                     int segment_count = -1) override {
+        return inner_.add_pending(path, segment_start, segment_count);
     }
     std::string next_session(const std::string& model_name, const std::string& run_id) override {
         return inner_.next_session(model_name, run_id);
     }
     AssignResult assign(const std::string& model_name, const std::vector<std::string>& paths,
-                        int count) override {
-        return inner_.assign(model_name, paths, count);
+                        int count, const std::vector<SegmentTarget>& segments = {}) override {
+        return inner_.assign(model_name, paths, count, segments);
     }
     UnassignResult unassign(const std::string& model_name, const std::vector<std::string>& paths,
-                            bool force) override {
-        return inner_.unassign(model_name, paths, force);
+                            bool force, const std::vector<SegmentTarget>& segments = {}) override {
+        return inner_.unassign(model_name, paths, force, segments);
     }
-    DeleteResult delete_paths(const std::vector<std::string>& paths, bool force,
-                              bool delete_files) override {
-        return inner_.delete_paths(paths, force, delete_files);
+    DeleteResult delete_paths(const std::vector<std::string>& paths, bool force, bool delete_files,
+                              const std::vector<SegmentTarget>& segments = {}) override {
+        return inner_.delete_paths(paths, force, delete_files, segments);
     }
 
     // Controllable Phase 11 behaviour:
@@ -271,6 +273,89 @@ TEST(DatasetRegistryParserTest, ParsesJsonlPairs) {
     EXPECT_EQ(pairs[0].response, "world");
     EXPECT_EQ(pairs[1].input, "foo");
     EXPECT_EQ(pairs[1].response, "bar");
+    fs::remove(tmp);
+}
+
+// ── TD-205: row-range segment reads ────────────────────────────────────────
+
+const std::string kFiveJsonlPairs =
+    "{\"input\":\"q0\",\"response\":\"a0\"}\n"
+    "{\"input\":\"q1\",\"response\":\"a1\"}\n"
+    "{\"input\":\"q2\",\"response\":\"a2\"}\n"
+    "{\"input\":\"q3\",\"response\":\"a3\"}\n"
+    "{\"input\":\"q4\",\"response\":\"a4\"}\n";
+
+TEST(DatasetRegistryParserTest, CountPairsReturnsTotalWithoutMaterializingThem) {
+    const fs::path tmp = fs::temp_directory_path() / "adai_parser_count.txt";
+    write_file(tmp.string(), kFiveJsonlPairs);
+    EXPECT_EQ(DatasetRegistry::count_pairs(tmp.string()), 5);
+    fs::remove(tmp);
+}
+
+TEST(DatasetRegistryParserTest, RangedReadReturnsExactSlice) {
+    const fs::path tmp = fs::temp_directory_path() / "adai_parser_ranged.txt";
+    write_file(tmp.string(), kFiveJsonlPairs);
+
+    std::vector<ConversationPair> pairs;
+    const int n = DatasetRegistry::load_conversation_pairs(tmp.string(), pairs, 1, 2);
+    ASSERT_EQ(n, 2);
+    EXPECT_EQ(pairs[0].input, "q1");
+    EXPECT_EQ(pairs[1].input, "q2");
+    fs::remove(tmp);
+}
+
+TEST(DatasetRegistryParserTest, RangedReadAtStartMatchesFirstNPairs) {
+    const fs::path tmp = fs::temp_directory_path() / "adai_parser_ranged_start.txt";
+    write_file(tmp.string(), kFiveJsonlPairs);
+
+    std::vector<ConversationPair> pairs;
+    const int n = DatasetRegistry::load_conversation_pairs(tmp.string(), pairs, 0, 3);
+    ASSERT_EQ(n, 3);
+    EXPECT_EQ(pairs[0].input, "q0");
+    EXPECT_EQ(pairs[2].input, "q2");
+    fs::remove(tmp);
+}
+
+TEST(DatasetRegistryParserTest, RangedReadPastEndOfFileReturnsFewerPairsNotWholeFile) {
+    const fs::path tmp = fs::temp_directory_path() / "adai_parser_ranged_oob.txt";
+    write_file(tmp.string(), kFiveJsonlPairs);
+
+    std::vector<ConversationPair> pairs;
+    // Only 2 pairs exist from index 4 onward (just q4), even though 100 were requested —
+    // must NOT silently fall back to loading the whole 5-pair file.
+    const int n = DatasetRegistry::load_conversation_pairs(tmp.string(), pairs, 4, 100);
+    ASSERT_EQ(n, 1);
+    EXPECT_EQ(pairs[0].input, "q4");
+    fs::remove(tmp);
+}
+
+TEST(DatasetRegistryParserTest, RangedReadFullyPastEndReturnsZeroPairs) {
+    const fs::path tmp = fs::temp_directory_path() / "adai_parser_ranged_oob2.txt";
+    write_file(tmp.string(), kFiveJsonlPairs);
+
+    std::vector<ConversationPair> pairs;
+    const int n = DatasetRegistry::load_conversation_pairs(tmp.string(), pairs, 100, 5);
+    EXPECT_EQ(n, 0);
+    fs::remove(tmp);
+}
+
+TEST(DatasetRegistryParserTest, RangedReadOnLegacyFormatFallsBackToWholeFile) {
+    const fs::path tmp = fs::temp_directory_path() / "adai_parser_ranged_legacy.txt";
+    write_file(tmp.string(), kSimplePairs);  // legacy INPUT:/RESPONSE: format, 2 pairs
+
+    std::vector<ConversationPair> pairs;
+    const int n = DatasetRegistry::load_conversation_pairs(tmp.string(), pairs, 1, 1);
+    EXPECT_EQ(n, 2) << "legacy format can't be range-sliced — must fall back to the whole file";
+    fs::remove(tmp);
+}
+
+TEST(DatasetRegistryParserTest, NegativeSegmentStartBehavesLikeTheTwoArgOverload) {
+    const fs::path tmp = fs::temp_directory_path() / "adai_parser_ranged_negative.txt";
+    write_file(tmp.string(), kFiveJsonlPairs);
+
+    std::vector<ConversationPair> pairs;
+    const int n = DatasetRegistry::load_conversation_pairs(tmp.string(), pairs, -1, -1);
+    EXPECT_EQ(n, 5);
     fs::remove(tmp);
 }
 
@@ -777,6 +862,69 @@ TEST_F(DatasetRegistryTest, DeleteEntriesSkipsActiveClaim) {
     auto result2 = reg.delete_entries({data_file_}, /*force=*/true);
     EXPECT_EQ(result2.deleted, 1);
     EXPECT_EQ(result2.skipped, 0);
+}
+
+// ============================================================================
+// TD-205: DatasetRegistry-level segment support (add_file/assign_model/
+// unassign_model/delete_entries with explicit SegmentTarget lists)
+// ============================================================================
+
+TEST_F(DatasetRegistryTest, AddFileWithSegmentCreatesIndependentEntry) {
+    DatasetRegistry reg(make_cfg());
+    ASSERT_TRUE(reg.add_file(data_file_, 0, 1));
+    ASSERT_TRUE(reg.add_file(data_file_, 1, 1));
+
+    ASSERT_EQ(reg.pending_entries().size(), 2u);
+    EXPECT_EQ(reg.pending_entries()[0].segment_start, 0);
+    EXPECT_EQ(reg.pending_entries()[1].segment_start, 1);
+}
+
+TEST_F(DatasetRegistryTest, AssignModelWithSegmentsTargetsExactRange) {
+    DatasetRegistry reg(make_cfg());
+    reg.add_file(data_file_, 0, 1);
+    reg.add_file(data_file_, 1, 1);
+
+    auto result = reg.assign_model("model-a", {}, 0, {{data_file_, 0, 1}});
+    EXPECT_EQ(result.assigned, 1);
+    ASSERT_EQ(result.segments.size(), 1u);
+
+    for (const auto& e : reg.pending_entries()) {
+        if (e.segment_start == 0)
+            EXPECT_EQ(e.model_name, "model-a");
+        else
+            EXPECT_TRUE(e.model_name.empty());
+    }
+}
+
+TEST_F(DatasetRegistryTest, UnassignModelWithSegmentsTargetsExactRange) {
+    DatasetRegistry reg(make_cfg());
+    reg.add_file(data_file_, 0, 1);
+    reg.add_file(data_file_, 1, 1);
+    reg.assign_model("model-a", {}, 0, {{data_file_, 0, 1}});
+    reg.assign_model("model-a", {}, 0, {{data_file_, 1, 1}});
+
+    auto result = reg.unassign_model("model-a", {}, false, {{data_file_, 0, 1}});
+    EXPECT_EQ(result.unassigned, 1);
+
+    for (const auto& e : reg.pending_entries()) {
+        if (e.segment_start == 0)
+            EXPECT_TRUE(e.model_name.empty());
+        else
+            EXPECT_EQ(e.model_name, "model-a");
+    }
+}
+
+TEST_F(DatasetRegistryTest, DeleteEntriesWithSegmentsNeverUnlinksSharedFileAndKeepsOtherSegment) {
+    DatasetRegistry reg(make_cfg());
+    reg.add_file(data_file_, 0, 1);
+    reg.add_file(data_file_, 1, 1);
+
+    auto result = reg.delete_entries({}, false, true, {{data_file_, 0, 1}});
+    EXPECT_EQ(result.deleted, 1);
+    EXPECT_TRUE(fs::exists(data_file_)) << "a segment delete must never unlink the shared file";
+
+    ASSERT_EQ(reg.pending_entries().size(), 1u);
+    EXPECT_EQ(reg.pending_entries()[0].segment_start, 1);
 }
 
 // ============================================================================

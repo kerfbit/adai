@@ -1,8 +1,8 @@
 package com.adai.ops.ui.registry
 
 // @adai-status: beta        (TD-048 resolved — see GroupListViewModelTest.kt)
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-12
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-09-20
 
 
 import androidx.lifecycle.ViewModel
@@ -49,15 +49,27 @@ class GroupListViewModel(
     private suspend fun refresh() {
         val groupNames = settingsRepository.settings.first().registryGroups
         val summaries = groupNames.map { name ->
-            when (val result = registryRepository.queue(name)) {
-                is ApiResult.Success -> GroupSummary(name, pendingCount = result.data.entries.size)
-                else -> GroupSummary(name, error = result.errorMessageOrNull())
+            // TD-205: a group's pending count used to come from the legacy pool alone
+            // (queue(name), no kind) — since TD-202 split each group into per-kind
+            // sub-pools, a group whose data has all been migrated/queued under a kind
+            // would show a misleading 0 here. Sum across the legacy pool plus every kind
+            // instead, mirroring GroupDetailViewModel's own poolHealth computation
+            // (a per-sub-pool failure just contributes 0, same as there).
+            var total = 0
+            var firstError: String? = null
+            for (kind in ALL_KINDS) {
+                when (val result = registryRepository.queue(name, kind)) {
+                    is ApiResult.Success -> total += result.data.entries.size
+                    else -> if (firstError == null) firstError = result.errorMessageOrNull()
+                }
             }
+            if (firstError != null) GroupSummary(name, error = firstError) else GroupSummary(name, pendingCount = total)
         }
         _uiState.update { it.copy(groups = summaries, isLoading = false) }
     }
 
     private companion object {
         const val LIST_POLL_INTERVAL_MS = 8000L
+        val ALL_KINDS: List<String?> = listOf(null, "encoder", "decoder", "world_model", "chatbot")
     }
 }

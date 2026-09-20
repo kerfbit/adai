@@ -214,6 +214,35 @@ the one-time upgrade path for data queued before this feature existed (a migrate
 assignment, if any, is restored via a follow-up `assign` call, since the underlying add-pending
 wire format has no model_name field of its own).
 
+**TD-205: row-range segments.** Within one physical file, a `PendingEntry`/`FileToken` can now
+carry `segment_start`/`segment_count` (both `-1` = whole file, the default — every pre-TD-205
+entry/caller is unaffected byte-for-byte). This makes one file's pairs independently
+addressable/assignable/deletable in row-range slices instead of only as a whole unit — the
+primitive behind both "use only part of a large dataset" and staged/incremental release (queue a
+file once, then unassign its held-back segments to training in stages, reusing the ordinary
+assign/unassign primitives — no new status/state machine). Identity for dedup/lookup is
+`(path, segment_start, segment_count)`, not bare `path`; a `SegmentTarget{path, segment_start,
+segment_count}` addresses one exact segment via an additive `segments` field alongside every
+existing `paths`-based request (assign/unassign/delete/release), so no pre-TD-205 caller needed to
+change. Segmentation only applies to JSONL files (range-sliced by *parsed pair count*, matching
+`DatasetRegistry::count_pairs()`); a legacy `INPUT:`/`RESPONSE:` file can't be cheaply sliced by
+line-number arithmetic and always falls back to whole-file loading regardless of a requested
+range. `dataset_manager segment <path> [--count N | --ranges A-B,C-D,...]` (0-based inclusive
+ranges) creates the segments; `status`/`list-pending` display a segment's range when present. The
+Android ops dashboard's Registry section (its own "Create segments" dialog) is the primary
+consumer — see below.
+
+**TD-205: ops dashboard dataset management segment.** The Android app's Registry tab (previously a
+thin, kind-unaware CRUD screen) is now a full planning-and-management segment: a pool-health
+overview across every kind (pending/trained counts, total samples, independent of the currently
+selected filter), kind filter chips within the group detail screen, full CLI parity (unassign,
+delete, manual-add, upload, migrate-to-kind, create-segments — previously missing entirely), and
+every mutating action (including assign and both Gutenberg/HuggingFace fetch dialogs, previously
+ungated) now goes through the same `ConfirmActionDialog` biometric/PIN gate and literal HTTP-call
+preview force-release already used. `migrateToKind()`/`createSegments()` in
+`RegistryRepository.kt` are client-side composites of existing calls (no new server endpoints),
+mirroring `dataset_manager migrate`'s/`segment`'s own exact sequencing.
+
 ## Configuration
 
 Config files use `KEY=VALUE` format, parsed by the single `ServiceConfig`/`ConfigLoader` in

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-09-19
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-09-20
 
 
 #include <cstddef>
@@ -58,11 +58,62 @@ struct PendingEntry {
     /// Phase 15: lightweight size+mtime fingerprint (same convention as
     /// FileToken::checksum) — not cryptographic, logging/display only.
     std::string checksum;
+    /// TD-205: row-range segment within `path`'s own JSONL pairs; -1/-1 (default) means "the
+    /// whole file" — reproducing every pre-TD-205 entry's behavior byte-for-byte. When set,
+    /// `segment_start` is a 0-based pair index and `segment_count` is how many pairs from
+    /// there this entry covers. Two entries sharing the same `path` are distinct, independent
+    /// pending units as long as their (segment_start, segment_count) differ — see
+    /// segment_matches() below, the identity check every dedup/lookup site now uses instead of
+    /// a bare `path` comparison.
+    int segment_start = -1;
+    int segment_count = -1;
+};
+
+/**
+ * @brief TD-205: identity check for a PendingEntry, used everywhere a bare `e.path == path`
+ *        comparison used to suffice before segments existed. A query with `segment_start < 0`
+ *        ("give me the whole-file entry") matches only a whole-file entry (itself
+ *        `segment_start < 0`) — never a specific segment of that same path, and vice versa.
+ *        This is what lets multiple segments of one physical file coexist as independent
+ *        pending entries without colliding with each other or with a legacy whole-file entry.
+ */
+inline bool segment_matches(const PendingEntry& e, const std::string& path, int segment_start,
+                            int segment_count) {
+    if (e.path != path) {
+        return false;
+    }
+    if (segment_start < 0) {
+        return e.segment_start < 0;
+    }
+    return e.segment_start == segment_start && e.segment_count == segment_count;
+}
+
+/** @brief TD-205: one entry in an explicit segment-targeting list (see assign()/unassign()/
+ *         delete_paths()/release()'s own `segments` parameter, and AcquireResponse::file_ranges()).
+ *         `segment_start < 0` addresses the whole-file entry for `path`, same convention as
+ *         PendingEntry itself. */
+struct SegmentTarget {
+    std::string path;
+    int segment_start = -1;
+    int segment_count = -1;
 };
 
 // ============================================================================
 // FTP transport data types (Phase 10: dataset transport)
 // ============================================================================
+
+/**
+ * @brief TD-205: a trainable unit — a physical file, or a row-range segment of one.
+ *
+ * Replaces a bare `std::string` path wherever a caller needs to distinguish "read the whole
+ * file" from "read only this range" — see IncrementalTrainer::train_on_files()/
+ * retrain_on_files() and AcquireResponse::file_ranges().
+ */
+struct PendingFileRange {
+    std::string path;
+    int segment_start = -1;
+    int segment_count = -1;
+};
 
 /**
  * @brief Per-file FTP credential bundle returned by RemoteTransport::acquire().
@@ -78,6 +129,10 @@ struct FileToken {
     std::string checksum;           ///< size+mtime from DataVersion (logging only)
     std::size_t size_bytes = 0;     ///< expected byte count; used for size verification
     std::string token_expires_utc;  ///< ISO-8601 UTC expiry timestamp
+    /// TD-205: carried forward from the originating PendingEntry so a trainer that acquired a
+    /// segment (not a whole file) knows which row-range to actually read; -1/-1 = whole file.
+    int segment_start = -1;
+    int segment_count = -1;
 };
 
 /**
@@ -102,6 +157,17 @@ struct AcquireResponse {
             out.push_back(f.registry_path);
         return out;
     }
+
+    /// TD-205: like registry_paths(), but also carries each file's segment range (if any) — use
+    /// this instead of registry_paths() wherever the caller needs to read only the acquired
+    /// row-range rather than the whole file (see IncrementalTrainer::train_on_files()).
+    std::vector<PendingFileRange> file_ranges() const {
+        std::vector<PendingFileRange> out;
+        out.reserve(files.size());
+        for (const auto& f : files)
+            out.push_back({f.registry_path, f.segment_start, f.segment_count});
+        return out;
+    }
 };
 
 // ============================================================================
@@ -111,7 +177,10 @@ struct AcquireResponse {
 /** @brief Result of RegistryTransport::assign(). */
 struct AssignResult {
     int assigned = 0;
-    std::vector<std::string> paths;  ///< exact paths touched, in every mode
+    std::vector<std::string> paths;  ///< exact whole-file paths touched, in every mode
+    /// TD-205: exact segment-targeted entries touched (empty unless the call used @p segments
+    /// or a bulk/count mode happened to also match some segments).
+    std::vector<SegmentTarget> segments;
 };
 
 /** @brief Result of RegistryTransport::unassign(). */
@@ -120,7 +189,8 @@ struct UnassignResult {
     /// Entries that matched but were left untouched because they're actively
     /// claimed by a run (non-empty run_id) and force was not set.
     int skipped = 0;
-    std::vector<std::string> paths;  ///< exact paths touched
+    std::vector<std::string> paths;  ///< exact whole-file paths touched
+    std::vector<SegmentTarget> segments;  ///< TD-205: exact segment-targeted entries touched
 };
 
 /** @brief Result of RegistryTransport::delete_paths(). */
@@ -129,6 +199,10 @@ struct DeleteResult {
         std::string path;
         std::string status;       ///< "deleted" | "skipped_active_run" | "not_found"
         bool file_deleted = false;  ///< true only if delete_files was requested and it worked
+        /// TD-205: -1/-1 (default) for a whole-file target; otherwise the segment range that
+        /// was targeted, so a caller deleting several segments of one path can tell them apart.
+        int segment_start = -1;
+        int segment_count = -1;
     };
     int deleted = 0;
     int skipped = 0;
@@ -189,8 +263,12 @@ class RegistryTransport {
     virtual AcquireResponse acquire(const std::string& run_id, int max_files,
                                     const std::string& model_name = "") = 0;
 
-    /** @brief Release @p paths assigned to @p run_id back to the unassigned pool. */
-    virtual void release(const std::string& run_id, const std::vector<std::string>& paths) = 0;
+    /** @brief Release @p paths assigned to @p run_id back to the unassigned pool.
+     *  TD-205: @p segments, when non-empty, releases exactly those segment-targeted entries
+     *  instead — the whole-file @p paths list is ignored in that case. Use it to release a
+     *  specific segment rather than every entry sharing its physical path. */
+    virtual void release(const std::string& run_id, const std::vector<std::string>& paths,
+                         const std::vector<SegmentTarget>& segments = {}) = 0;
 
     /**
      * @brief Atomically append @p new_entries to the registry and remove
@@ -206,9 +284,14 @@ class RegistryTransport {
                                 const std::vector<std::string>& trained_paths) = 0;
 
     /** @brief Atomically append a single @p path to the pending queue.
-     *  No-op (returns true) if @p path is already present.
+     *  No-op (returns false) if an entry with the same identity — see segment_matches() — is
+     *  already present.
+     *  TD-205: @p segment_start/@p segment_count (both -1 by default, meaning "the whole
+     *  file") let this add a specific row-range segment instead. Adding two different ranges
+     *  of the same @p path creates two independent pending entries, not a dedup conflict.
      *  @return true on success. */
-    virtual bool add_pending(const std::string& path) = 0;
+    virtual bool add_pending(const std::string& path, int segment_start = -1,
+                             int segment_count = -1) = 0;
 
     /**
      * @brief Allocate the next session number for (@p model_name, @p run_id),
@@ -224,30 +307,37 @@ class RegistryTransport {
     // ── Phase 16: dataset management (assign-by-count, unassign, delete) ──
 
     /**
-     * @brief Set model_name on pending entries. Three modes, checked in order:
-     *          - non-empty @p paths        — assign exactly those (count ignored)
+     * @brief Set model_name on pending entries. Modes, checked in order:
+     *          - non-empty @p segments     — assign exactly those segment-targeted entries
+     *                                        (TD-205; @p paths/@p count ignored)
+     *          - non-empty @p paths        — assign exactly those whole-file entries (count
+     *                                        ignored)
      *          - empty @p paths, count > 0 — assign the first @p count
-     *                                        currently-unassigned entries
-     *          - empty @p paths, count<=0  — assign every pending entry
+     *                                        currently-unassigned whole-file entries
+     *          - empty @p paths, count<=0  — assign every pending entry (whole-file and
+     *                                        segments alike)
      */
     virtual AssignResult assign(const std::string& model_name,
-                                const std::vector<std::string>& paths = {}, int count = 0) = 0;
+                                const std::vector<std::string>& paths = {}, int count = 0,
+                                const std::vector<SegmentTarget>& segments = {}) = 0;
 
     /**
-     * @brief Clear model_name back to unassigned. If @p paths is empty, clears
-     *        every entry currently assigned to @p model_name (bulk mode,
-     *        requires non-empty @p model_name). Otherwise clears only the
-     *        listed paths; a non-empty @p model_name additionally acts as an
-     *        ownership filter. An entry actively claimed by a run (non-empty
-     *        run_id) is left untouched unless @p force is true.
+     * @brief Clear model_name back to unassigned. If both @p paths and @p segments are empty,
+     *        clears every entry currently assigned to @p model_name (bulk mode, requires
+     *        non-empty @p model_name). Otherwise clears only the listed whole-file @p paths
+     *        and/or segment-targeted @p segments (TD-205); a non-empty @p model_name
+     *        additionally acts as an ownership filter. An entry actively claimed by a run
+     *        (non-empty run_id) is left untouched unless @p force is true.
      */
     virtual UnassignResult unassign(const std::string& model_name,
-                                    const std::vector<std::string>& paths, bool force) = 0;
+                                    const std::vector<std::string>& paths, bool force,
+                                    const std::vector<SegmentTarget>& segments = {}) = 0;
 
     /**
-     * @brief Permanently purge entries matching @p paths from both the
-     *        pending queue and the trained registry. @p paths must be
-     *        non-empty — there is no bulk "delete everything" mode.
+     * @brief Permanently purge entries matching @p paths (whole-file) and/or @p segments
+     *        (TD-205, segment-targeted) from both the pending queue and the trained registry.
+     *        At least one of @p paths/@p segments must be non-empty — there is no bulk
+     *        "delete everything" mode.
      *
      * A pending entry actively claimed by a run (non-empty run_id) is left
      * untouched unless @p force is true; the trained registry has no run_id
@@ -263,7 +353,8 @@ class RegistryTransport {
      * path, except its own registry_path_/pending_path_ state files.
      */
     virtual DeleteResult delete_paths(const std::vector<std::string>& paths, bool force,
-                                      bool delete_files) = 0;
+                                      bool delete_files,
+                                      const std::vector<SegmentTarget>& segments = {}) = 0;
 
     // ── Phase 11: server-side dataset fetch ────────────────────────────────
     //
@@ -361,18 +452,20 @@ class LocalTransport : public RegistryTransport {
     bool save_pending(const std::vector<PendingEntry>& entries) override;
     AcquireResponse acquire(const std::string& run_id, int max_files,
                             const std::string& model_name = "") override;
-    void release(const std::string& run_id, const std::vector<std::string>& paths) override;
+    void release(const std::string& run_id, const std::vector<std::string>& paths,
+                const std::vector<SegmentTarget>& segments = {}) override;
     void commit_trained(const std::string& run_id, const std::vector<DataVersion>& new_entries,
                         const std::vector<std::string>& trained_paths) override;
-    bool add_pending(const std::string& path) override;
+    bool add_pending(const std::string& path, int segment_start = -1,
+                     int segment_count = -1) override;
     std::string next_session(const std::string& model_name, const std::string& run_id) override;
 
     AssignResult assign(const std::string& model_name, const std::vector<std::string>& paths,
-                        int count) override;
+                        int count, const std::vector<SegmentTarget>& segments = {}) override;
     UnassignResult unassign(const std::string& model_name, const std::vector<std::string>& paths,
-                            bool force) override;
-    DeleteResult delete_paths(const std::vector<std::string>& paths, bool force,
-                              bool delete_files) override;
+                            bool force, const std::vector<SegmentTarget>& segments = {}) override;
+    DeleteResult delete_paths(const std::vector<std::string>& paths, bool force, bool delete_files,
+                              const std::vector<SegmentTarget>& segments = {}) override;
 
     // Phase 11: not supported in local mode — logs a warning and returns "".
     std::string fetch_gutenberg(int book_id, int num_pairs,
@@ -438,18 +531,20 @@ class RemoteTransport final : public RegistryTransport {
     bool save_pending(const std::vector<PendingEntry>& entries) override;
     AcquireResponse acquire(const std::string& run_id, int max_files,
                             const std::string& model_name = "") override;
-    void release(const std::string& run_id, const std::vector<std::string>& paths) override;
+    void release(const std::string& run_id, const std::vector<std::string>& paths,
+                const std::vector<SegmentTarget>& segments = {}) override;
     void commit_trained(const std::string& run_id, const std::vector<DataVersion>& new_entries,
                         const std::vector<std::string>& trained_paths) override;
-    bool add_pending(const std::string& path) override;
+    bool add_pending(const std::string& path, int segment_start = -1,
+                     int segment_count = -1) override;
     std::string next_session(const std::string& model_name, const std::string& run_id) override;
 
     AssignResult assign(const std::string& model_name, const std::vector<std::string>& paths,
-                        int count) override;
+                        int count, const std::vector<SegmentTarget>& segments = {}) override;
     UnassignResult unassign(const std::string& model_name, const std::vector<std::string>& paths,
-                            bool force) override;
-    DeleteResult delete_paths(const std::vector<std::string>& paths, bool force,
-                              bool delete_files) override;
+                            bool force, const std::vector<SegmentTarget>& segments = {}) override;
+    DeleteResult delete_paths(const std::vector<std::string>& paths, bool force, bool delete_files,
+                              const std::vector<SegmentTarget>& segments = {}) override;
 
     // Phase 11: delegate to the registry_server, which performs the fetch/
     // upload itself and stores the result under its own data_dir.

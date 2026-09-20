@@ -123,7 +123,7 @@ std::string DatasetRegistry::pending_file_path() const {
 // Pending queue
 // ============================================================================
 
-bool DatasetRegistry::add_file(const std::string& path) {
+bool DatasetRegistry::add_file(const std::string& path, int segment_start, int segment_count) {
     if (!fs::exists(path)) {
         Logger::error("Data file not found: {}", path);
         return false;
@@ -134,38 +134,51 @@ bool DatasetRegistry::add_file(const std::string& path) {
         return false;
     }
 
-    const bool already_pending = std::any_of(pending_.begin(), pending_.end(),
-                                             [&](const PendingEntry& e) { return e.path == path; });
+    const bool already_pending =
+        std::any_of(pending_.begin(), pending_.end(), [&](const PendingEntry& e) {
+            return segment_matches(e, path, segment_start, segment_count);
+        });
     if (already_pending) {
         Logger::warn("Data file already in pending queue: {}", path);
         return false;
     }
 
-    if (!transport_->add_pending(path)) {
+    if (!transport_->add_pending(path, segment_start, segment_count)) {
         Logger::error("Failed to persist pending entry for: {}", path);
         return false;
     }
-    pending_.push_back({path, {}, {}});
+    PendingEntry entry;
+    entry.path = path;
+    entry.segment_start = segment_start;
+    entry.segment_count = segment_count;
+    pending_.push_back(std::move(entry));
     Logger::info("Added new data file: {}", path);
     return true;
 }
 
-bool DatasetRegistry::add_pending_path_unchecked(const std::string& path) {
+bool DatasetRegistry::add_pending_path_unchecked(const std::string& path, int segment_start,
+                                                 int segment_count) {
     if (is_trained(path)) {
         Logger::warn("Data file already trained, skipping: {}", path);
         return false;
     }
-    const bool already_pending = std::any_of(pending_.begin(), pending_.end(),
-                                             [&](const PendingEntry& e) { return e.path == path; });
+    const bool already_pending =
+        std::any_of(pending_.begin(), pending_.end(), [&](const PendingEntry& e) {
+            return segment_matches(e, path, segment_start, segment_count);
+        });
     if (already_pending) {
         Logger::warn("Data file already in pending queue: {}", path);
         return false;
     }
-    if (!transport_->add_pending(path)) {
+    if (!transport_->add_pending(path, segment_start, segment_count)) {
         Logger::error("Failed to persist pending entry for: {}", path);
         return false;
     }
-    pending_.push_back({path, {}, {}});
+    PendingEntry entry;
+    entry.path = path;
+    entry.segment_start = segment_start;
+    entry.segment_count = segment_count;
+    pending_.push_back(std::move(entry));
     return true;
 }
 
@@ -208,13 +221,24 @@ std::vector<PendingEntry> DatasetRegistry::pending_entries() const {
 }
 
 AssignResult DatasetRegistry::assign_model(const std::string& model_name,
-                                           const std::vector<std::string>& paths, int count) {
-    auto result = transport_->assign(model_name, paths, count);
+                                           const std::vector<std::string>& paths, int count,
+                                           const std::vector<SegmentTarget>& segments) {
+    auto result = transport_->assign(model_name, paths, count, segments);
     if (!result.paths.empty()) {
+        // TD-205: whole-file touched paths only ever update a whole-file entry in the
+        // in-memory cache — never a segment sharing that same path.
         const std::set<std::string> touched(result.paths.begin(), result.paths.end());
         for (auto& e : pending_) {
-            if (touched.count(e.path)) {
+            if (e.segment_start < 0 && touched.count(e.path)) {
                 e.model_name = model_name;
+            }
+        }
+    }
+    for (const auto& t : result.segments) {
+        for (auto& e : pending_) {
+            if (segment_matches(e, t.path, t.segment_start, t.segment_count)) {
+                e.model_name = model_name;
+                break;
             }
         }
     }
@@ -222,13 +246,22 @@ AssignResult DatasetRegistry::assign_model(const std::string& model_name,
 }
 
 UnassignResult DatasetRegistry::unassign_model(const std::string& model_name,
-                                               const std::vector<std::string>& paths, bool force) {
-    auto result = transport_->unassign(model_name, paths, force);
+                                               const std::vector<std::string>& paths, bool force,
+                                               const std::vector<SegmentTarget>& segments) {
+    auto result = transport_->unassign(model_name, paths, force, segments);
     if (!result.paths.empty()) {
         const std::set<std::string> touched(result.paths.begin(), result.paths.end());
         for (auto& e : pending_) {
-            if (touched.count(e.path)) {
+            if (e.segment_start < 0 && touched.count(e.path)) {
                 e.model_name.clear();
+            }
+        }
+    }
+    for (const auto& t : result.segments) {
+        for (auto& e : pending_) {
+            if (segment_matches(e, t.path, t.segment_start, t.segment_count)) {
+                e.model_name.clear();
+                break;
             }
         }
     }
@@ -236,20 +269,30 @@ UnassignResult DatasetRegistry::unassign_model(const std::string& model_name,
 }
 
 DeleteResult DatasetRegistry::delete_entries(const std::vector<std::string>& paths, bool force,
-                                             bool delete_files) {
-    auto result = transport_->delete_paths(paths, force, delete_files);
+                                             bool delete_files,
+                                             const std::vector<SegmentTarget>& segments) {
+    auto result = transport_->delete_paths(paths, force, delete_files, segments);
     for (const auto& d : result.details) {
         if (d.status != "deleted") {
             continue;
         }
+        // TD-205: match the exact (path, range) — a bare path comparison would erase every
+        // segment sharing that path even when only one specific segment was actually deleted.
         pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
-                                      [&](const PendingEntry& e) { return e.path == d.path; }),
+                                      [&](const PendingEntry& e) {
+                                          return segment_matches(e, d.path, d.segment_start,
+                                                                 d.segment_count);
+                                      }),
                        pending_.end());
-        registry_.erase(
-            std::remove_if(registry_.begin(), registry_.end(),
-                           [&](const DataVersion& dv) { return dv.data_file == d.path; }),
-            registry_.end());
-        trained_set_.erase(d.path);
+        if (d.segment_start < 0) {
+            // The trained registry has no segment concept — only a whole-file delete can
+            // ever remove a DataVersion/trained-set entry.
+            registry_.erase(
+                std::remove_if(registry_.begin(), registry_.end(),
+                               [&](const DataVersion& dv) { return dv.data_file == d.path; }),
+                registry_.end());
+            trained_set_.erase(d.path);
+        }
     }
     return result;
 }
@@ -337,11 +380,17 @@ AcquireResponse DatasetRegistry::acquire_pending(const std::string& run_id, int 
 
     // Reflect acquisition in in-memory pending_
     for (const auto& f : resp.files) {
-        const bool already_in =
-            std::any_of(pending_.begin(), pending_.end(),
-                        [&](const PendingEntry& e) { return e.path == f.registry_path; });
+        const bool already_in = std::any_of(
+            pending_.begin(), pending_.end(), [&](const PendingEntry& e) {
+                return segment_matches(e, f.registry_path, f.segment_start, f.segment_count);
+            });
         if (!already_in) {
-            pending_.push_back({f.registry_path, run_id, {}});
+            PendingEntry entry;
+            entry.path = f.registry_path;
+            entry.run_id = run_id;
+            entry.segment_start = f.segment_start;
+            entry.segment_count = f.segment_count;
+            pending_.push_back(std::move(entry));
         }
     }
 
@@ -354,14 +403,26 @@ std::string DatasetRegistry::next_session(const std::string& model_name,
 }
 
 void DatasetRegistry::release_pending(const std::string& run_id,
-                                      const std::vector<std::string>& paths) {
-    transport_->release(run_id, paths);
+                                      const std::vector<std::string>& paths,
+                                      const std::vector<SegmentTarget>& segments) {
+    transport_->release(run_id, paths, segments);
 
-    // Remove from in-memory pending_
+    // Remove from in-memory pending_. TD-205: whole-file paths only ever remove a whole-file
+    // entry — never a segment sharing that path; explicit `segments` remove exactly those.
     const std::set<std::string> rel_set(paths.begin(), paths.end());
     pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
-                                  [&](const PendingEntry& e) { return rel_set.count(e.path) > 0; }),
+                                  [&](const PendingEntry& e) {
+                                      return e.segment_start < 0 && rel_set.count(e.path) > 0;
+                                  }),
                    pending_.end());
+    for (const auto& t : segments) {
+        pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
+                                      [&](const PendingEntry& e) {
+                                          return segment_matches(e, t.path, t.segment_start,
+                                                                 t.segment_count);
+                                      }),
+                       pending_.end());
+    }
 }
 
 // ============================================================================
@@ -497,6 +558,19 @@ int DatasetRegistry::total_samples_trained() const {
 /*static*/
 int DatasetRegistry::load_conversation_pairs(const std::string& path,
                                              std::vector<ConversationPair>& pairs) {
+    return load_conversation_pairs(path, pairs, -1, -1);
+}
+
+/*static*/
+int DatasetRegistry::count_pairs(const std::string& path) {
+    std::vector<ConversationPair> pairs;
+    return load_conversation_pairs(path, pairs);
+}
+
+/*static*/
+int DatasetRegistry::load_conversation_pairs(const std::string& path,
+                                             std::vector<ConversationPair>& pairs,
+                                             int segment_start, int segment_count) {
     std::ifstream file(path);
     if (!file.is_open()) {
         Logger::error("Cannot open file: {}", path);
@@ -512,20 +586,44 @@ int DatasetRegistry::load_conversation_pairs(const std::string& path,
     }
     file.seekg(0);
 
+    const bool is_jsonl = !first_line.empty() && first_line.front() == '{';
+    const bool ranged = segment_start >= 0;
+    if (ranged && !is_jsonl) {
+        Logger::warn(
+            "load_conversation_pairs: segment range requested for legacy INPUT:/RESPONSE: file "
+            "'{}' — this format can't be cheaply range-sliced (a pair may span multiple raw "
+            "lines); loading the whole file instead.",
+            path);
+    }
+
     int pair_count = 0;
 
-    if (!first_line.empty() && first_line.front() == '{') {
-        // JSONL training format
+    if (is_jsonl) {
+        // JSONL training format. TD-205: `seen` counts successfully-parsed pairs only (the
+        // same index space count_pairs() reports to an operator) — a `{`-prefixed line that
+        // fails to parse doesn't consume a segment index.
         std::string line;
+        int seen = 0;
         while (std::getline(file, line)) {
             if (line.empty() || line.front() != '{')
                 continue;
             std::string in, resp;
             SampleMeta meta;
-            if (parse_jsonl_sample(line, in, resp, meta)) {
-                pairs.emplace_back(std::move(in), std::move(resp), std::move(meta));
-                ++pair_count;
+            if (!parse_jsonl_sample(line, in, resp, meta)) {
+                continue;
             }
+            if (ranged) {
+                if (seen < segment_start) {
+                    ++seen;
+                    continue;
+                }
+                if (seen >= segment_start + segment_count) {
+                    break;
+                }
+            }
+            pairs.emplace_back(std::move(in), std::move(resp), std::move(meta));
+            ++pair_count;
+            ++seen;
         }
     } else {
         // Legacy INPUT:/RESPONSE: format
