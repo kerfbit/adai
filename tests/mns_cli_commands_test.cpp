@@ -11,6 +11,7 @@
 using adai::build_delete_request;
 using adai::build_get_request;
 using adai::build_health_request;
+using adai::build_link_world_model_request;
 using adai::build_list_request;
 using adai::build_promote_request;
 using adai::build_register_request;
@@ -72,6 +73,21 @@ TEST(BuildListRequest, AppliesAllThreeFiltersWithCorrectSeparators) {
 TEST(BuildListRequest, LimitZeroOrUnsetIsOmitted) {
     auto r = build_list_request({"--limit", "0"});
     EXPECT_EQ(r.path, "/models");
+}
+
+// TD-196
+TEST(BuildListRequest, AppliesKindFilter) {
+    auto r = build_list_request({"--kind", "world_model"});
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.path, "/models?kind=world_model");
+}
+
+// TD-196
+TEST(BuildListRequest, AllFourFiltersCombineWithCorrectSeparators) {
+    auto r = build_list_request(
+        {"--state", "training", "--role", "chatbot", "--kind", "encoder", "--limit", "5"});
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.path, "/models?state=training&role=chatbot&kind=encoder&limit=5");
 }
 
 TEST(BuildGetRequest, MissingNameIsAnError) {
@@ -146,6 +162,148 @@ TEST(BuildRegisterRequest, NameAndRoleAreJsonEscaped) {
     auto r = build_register_request({"weird\"name", "role"}, cfg);
     ASSERT_FALSE(r.error);
     EXPECT_NE(r.body.find("weird\\\"name"), std::string::npos);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// TD-196: --kind / --num-layers / --encoder / --decoder / --sigreg-* flags
+// ─────────────────────────────────────────────────────────────────────────
+
+TEST(BuildRegisterRequest, KindDefaultsToChatbotWhenNotGiven) {
+    ServiceConfig cfg;
+    auto r = build_register_request({"m", "role"}, cfg);
+    ASSERT_FALSE(r.error);
+    EXPECT_NE(r.body.find("\"kind\":\"chatbot\""), std::string::npos);
+}
+
+TEST(BuildRegisterRequest, InvalidKindIsAnError) {
+    ServiceConfig cfg;
+    EXPECT_TRUE(build_register_request({"m", "role", "--kind", "bogus"}, cfg).error);
+}
+
+TEST(BuildRegisterRequest, EncoderKindNumLayersSetsOwnFieldAndZeroesDecoderLayers) {
+    ServiceConfig cfg;
+    cfg.num_encoder_layers = 6;
+    cfg.num_decoder_layers = 6;  // config defaults, would collide with encoder's own-field rule
+                                 // if --num-layers didn't zero this out.
+    auto r = build_register_request({"m", "role", "--kind", "encoder", "--num-layers", "3"}, cfg);
+    ASSERT_FALSE(r.error);
+    EXPECT_NE(r.body.find("\"kind\":\"encoder\""), std::string::npos);
+    EXPECT_NE(r.body.find("\"num_encoder_layers\":3"), std::string::npos);
+    EXPECT_NE(r.body.find("\"num_decoder_layers\":0"), std::string::npos);
+}
+
+TEST(BuildRegisterRequest, DecoderKindNumLayersSetsOwnFieldAndZeroesEncoderLayers) {
+    ServiceConfig cfg;
+    cfg.num_encoder_layers = 6;
+    cfg.num_decoder_layers = 6;
+    auto r = build_register_request({"m", "role", "--kind", "decoder", "--num-layers", "4"}, cfg);
+    ASSERT_FALSE(r.error);
+    EXPECT_NE(r.body.find("\"num_decoder_layers\":4"), std::string::npos);
+    EXPECT_NE(r.body.find("\"num_encoder_layers\":0"), std::string::npos);
+}
+
+TEST(BuildRegisterRequest, WorldModelKindNumLayersUsesEncoderLayersField) {
+    ServiceConfig cfg;
+    auto r =
+        build_register_request({"m", "role", "--kind", "world_model", "--num-layers", "5"}, cfg);
+    ASSERT_FALSE(r.error);
+    EXPECT_NE(r.body.find("\"num_encoder_layers\":5"), std::string::npos);
+    EXPECT_NE(r.body.find("\"num_decoder_layers\":0"), std::string::npos);
+}
+
+TEST(BuildRegisterRequest, WorldModelKindIncludesSigregParamsInConnection) {
+    ServiceConfig cfg;
+    auto r = build_register_request({"m", "role", "--kind", "world_model", "--num-layers", "5",
+                                     "--sigreg-lambda", "2.5", "--sigreg-num-sketches", "32"},
+                                    cfg);
+    ASSERT_FALSE(r.error);
+    EXPECT_NE(r.body.find("\"connection\":{"), std::string::npos);
+    EXPECT_NE(r.body.find("\"sigreg_lambda\":2.5"), std::string::npos);
+    EXPECT_NE(r.body.find("\"sigreg_num_sketches\":32"), std::string::npos);
+}
+
+TEST(BuildRegisterRequest, EncoderOrDecoderFlagsRejectedForNonChatbotKind) {
+    ServiceConfig cfg;
+    EXPECT_TRUE(build_register_request(
+                    {"m", "role", "--kind", "encoder", "--encoder", "e", "--decoder", "d"}, cfg)
+                    .error);
+}
+
+TEST(BuildRegisterRequest, EncoderDecoderFlagsProduceConnectionObjectAndOmitInlineArch) {
+    ServiceConfig cfg;
+    auto r = build_register_request({"m", "role", "--encoder", "my-enc", "--decoder", "my-dec"},
+                                    cfg);
+    ASSERT_FALSE(r.error);
+    EXPECT_NE(r.body.find("\"kind\":\"chatbot\""), std::string::npos);
+    EXPECT_NE(r.body.find("\"connection\":{\"encoder_name\":\"my-enc\""), std::string::npos);
+    EXPECT_NE(r.body.find("\"decoder_name\":\"my-dec\""), std::string::npos);
+    EXPECT_EQ(r.body.find("\"arch\""), std::string::npos)
+        << "a new-style linked chatbot must not send inline architecture at all";
+}
+
+TEST(BuildRegisterRequest, EncoderDecoderFlagsRejectCombinationWithLegacyArchFlags) {
+    ServiceConfig cfg;
+    auto r = build_register_request(
+        {"m", "role", "--encoder", "my-enc", "--decoder", "my-dec", "--d-model", "999"}, cfg);
+    EXPECT_TRUE(r.error);
+}
+
+TEST(BuildRegisterRequest, OnlyEncoderFlagWithoutDecoderStillBuildsRequest) {
+    // build_register_request itself doesn't enforce the both-or-neither rule (that's
+    // handle_register()'s own job, server-side) — it should still build a request the server can
+    // reject; it must not silently drop the one flag that was given.
+    ServiceConfig cfg;
+    auto r = build_register_request({"m", "role", "--encoder", "my-enc"}, cfg);
+    ASSERT_FALSE(r.error);
+    EXPECT_NE(r.body.find("\"encoder_name\":\"my-enc\""), std::string::npos);
+    EXPECT_NE(r.body.find("\"decoder_name\":\"\""), std::string::npos);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// TD-196: link-world-model
+// ─────────────────────────────────────────────────────────────────────────
+
+TEST(BuildLinkWorldModelRequest, RequiresChatbotName) {
+    EXPECT_TRUE(build_link_world_model_request({}).error);
+}
+
+TEST(BuildLinkWorldModelRequest, RequiresWorldModelFlag) {
+    EXPECT_TRUE(build_link_world_model_request({"my-chatbot"}).error);
+    EXPECT_TRUE(build_link_world_model_request({"my-chatbot", "--inject-every-n-layers", "2"})
+                    .error);
+}
+
+TEST(BuildLinkWorldModelRequest, BuildsCorrectPostRequestWithDefaults) {
+    auto r = build_link_world_model_request({"my-chatbot", "--world-model", "my-wm"});
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.method, HttpMethod::Post);
+    EXPECT_EQ(r.path, "/models/my-chatbot/link-world-model");
+    EXPECT_NE(r.body.find("\"world_model_name\":\"my-wm\""), std::string::npos);
+    EXPECT_NE(r.body.find("\"world_model_inject_every_n_layers\":0"), std::string::npos);
+    EXPECT_NE(r.body.find("\"hippocampal_memory_enabled\":false"), std::string::npos);
+    EXPECT_NE(r.body.find("\"hippocampal_memory_capacity\":512"), std::string::npos);
+}
+
+TEST(BuildLinkWorldModelRequest, EmptyWorldModelNameBuildsDetachRequest) {
+    auto r = build_link_world_model_request({"my-chatbot", "--world-model", ""});
+    ASSERT_FALSE(r.error);
+    EXPECT_NE(r.body.find("\"world_model_name\":\"\""), std::string::npos);
+}
+
+TEST(BuildLinkWorldModelRequest, AllOptionalFlagsRoundTrip) {
+    auto r = build_link_world_model_request(
+        {"my-chatbot", "--world-model", "my-wm", "--inject-every-n-layers", "3",
+         "--hippocampal-enabled", "--hippocampal-capacity", "256",
+         "--hippocampal-repetition-alpha", "0.1", "--hippocampal-repetition-decay", "0.9",
+         "--hippocampal-cross-reference-alpha", "0.2", "--hippocampal-association-decay", "0.8"});
+    ASSERT_FALSE(r.error);
+    EXPECT_NE(r.body.find("\"world_model_inject_every_n_layers\":3"), std::string::npos);
+    EXPECT_NE(r.body.find("\"hippocampal_memory_enabled\":true"), std::string::npos);
+    EXPECT_NE(r.body.find("\"hippocampal_memory_capacity\":256"), std::string::npos);
+    EXPECT_NE(r.body.find("\"hippocampal_repetition_alpha\":0.1"), std::string::npos);
+    EXPECT_NE(r.body.find("\"hippocampal_repetition_decay\":0.9"), std::string::npos);
+    EXPECT_NE(r.body.find("\"hippocampal_cross_reference_alpha\":0.2"), std::string::npos);
+    EXPECT_NE(r.body.find("\"hippocampal_association_decay\":0.8"), std::string::npos);
 }
 
 TEST(BuildUpdateRunGroupRequest, RequiresRunGroupFlagLiterally) {

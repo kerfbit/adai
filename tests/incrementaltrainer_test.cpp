@@ -1037,6 +1037,7 @@ TEST_F(IncrementalTrainerTest, MakeIncrementalConfigMapsWorldModelAndHippocampal
     svc.world_model_d_ff = 32;
     svc.world_model_sigreg_num_sketches = 8;
     svc.world_model_inject_every_n_layers = 1;
+    svc.world_model_artifact_path = "/some/mns/resolved/path";
     svc.hippocampal_memory_enabled = true;
     svc.hippocampal_memory_capacity = 64;
     svc.hippocampal_repetition_alpha = 0.5f;
@@ -1051,6 +1052,7 @@ TEST_F(IncrementalTrainerTest, MakeIncrementalConfigMapsWorldModelAndHippocampal
     EXPECT_EQ(cfg.world_model_d_ff, 32u);
     EXPECT_EQ(cfg.world_model_sigreg_num_sketches, 8u);
     EXPECT_EQ(cfg.world_model_inject_every_n_layers, 1u);
+    EXPECT_EQ(cfg.world_model_artifact_path, "/some/mns/resolved/path");
     EXPECT_TRUE(cfg.hippocampal_memory_enabled);
     EXPECT_EQ(cfg.hippocampal_memory_capacity, 64u);
     EXPECT_FLOAT_EQ(cfg.hippocampal_repetition_alpha, 0.5f);
@@ -1128,6 +1130,49 @@ TEST_F(IncrementalTrainerTest, BuildModelAttachesWorldModelWhenCheckpointExists)
 
     ASSERT_NE(trainer.get_model(), nullptr);
     EXPECT_NE(trainer.get_model()->get_world_model(), nullptr);
+}
+
+// TD-196: when a chatbot is registered with a world model linked via MNS,
+// IncrementalTrainingTool.cpp's own MNS-first resolution sets config.world_model_artifact_path to
+// the linked world model's real MNS artifact.path — maybe_attach_world_model() must prefer that
+// over the local <session_dir>/world_model convention, since the whole point is not depending on
+// an operator having manually copied the checkpoint into its own session directory.
+TEST_F(IncrementalTrainerTest, BuildModelPrefersWorldModelArtifactPathOverSessionDirConvention) {
+    IncrementalConfig config;
+    config.session_dir = session_dir.string();
+    config.world_model_enabled = true;
+    config.world_model_inject_every_n_layers = 1;
+    config.world_model_d_model = config.base_config.d_model;
+    config.world_model_num_layers = 1;
+    config.world_model_num_heads = 2;
+    config.world_model_d_ff = 32;
+    config.world_model_sigreg_num_sketches = 8;
+
+    // Save the checkpoint at a path that is deliberately NOT <session_dir>/world_model, and point
+    // world_model_artifact_path at it instead.
+    const fs::path linked_world_model_dir = test_dir / "linked_world_model";
+    config.world_model_artifact_path = linked_world_model_dir.string();
+    ASSERT_FALSE(fs::exists(session_dir / "world_model"))
+        << "precondition: nothing at the default convention path";
+
+    BPETokenizer probe;
+    probe.load_vocab(vocab_file.string());
+    const int vocab_size = probe.get_vocab_size();
+
+    LeJEPAEncoder world_model(vocab_size, static_cast<int>(config.world_model_d_model),
+                              static_cast<int>(config.world_model_num_layers),
+                              static_cast<int>(config.world_model_num_heads),
+                              static_cast<int>(config.world_model_d_ff),
+                              config.base_config.max_seq_length,
+                              static_cast<int>(config.world_model_sigreg_num_sketches));
+    world_model.save(linked_world_model_dir.string());
+
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+
+    ASSERT_NE(trainer.get_model(), nullptr);
+    EXPECT_NE(trainer.get_model()->get_world_model(), nullptr)
+        << "must have loaded from world_model_artifact_path, not the (nonexistent) session-dir "
+           "convention path";
 }
 
 TEST_F(IncrementalTrainerTest, BuildModelAttachesHippocampalMemoryAlongsideWorldModel) {
