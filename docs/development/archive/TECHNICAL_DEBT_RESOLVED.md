@@ -4,6 +4,85 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-203: Five Flaws Found in TD-202's Dataset-Kind Sub-Pool Rollout by a Full-Text Review Pass
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 20, 2026 | Dataset registry (`incremental_trainer`/`dataset_manager`/`registry_server`/`DatasetRegistry`) | Guarded the objective-based `dataset_kind` default; a warning when `migrate` ignores a global `--kind`; `--dataset-kind` added to `--help`; `registry_server`'s own doc comment/`--help` updated for kind-scoped routes; `add_pending_path_unchecked()` now also rejects an already-trained path |
+
+Summary:
+Requested full-text review pass over TD-202's diff (`RegistryServer.cpp`, `RegistryTransport.*`,
+`DatasetRegistry.*`, `Config.*`, `IncrementalTrainerArgs.*`, `IncrementalTrainingTool.cpp`,
+`DatasetManagerArgs.*`, `DatasetManagerTool.cpp`) found five distinct issues, all fixed together:
+
+1. **`incremental_trainer` silently discarded a config-file/env `DATASET_KIND`.** Right after
+   `ConfigLoader::load()` populated `svc_config.dataset_kind` from `config.trainer.conf`/the
+   `DATASET_KIND` env var, the very next line unconditionally overwrote it with the
+   objective-computed default (`"chatbot"`/`"world_model"`) before the `--dataset-kind` CLI
+   check even ran — so the config-file value had zero effect unless the operator happened to
+   also pass the identical value via `--dataset-kind`. This broke the codebase's own documented
+   env→file→default precedence (`--gpu-strategy`'s override immediately below it in the same
+   function follows that precedence correctly) and was inconsistent with `dataset_manager`,
+   which honors the same `DATASET_KIND` key correctly. Fixed by guarding the automatic default
+   with `if (svc_config.dataset_kind.empty())`, so an explicit config-file value now wins over
+   the objective-based default, while `--dataset-kind` still wins over both.
+2. **`dataset_manager migrate` silently ignored a global `--kind` flag** it claims (in its own
+   `--help` text) to apply to "every command in this invocation." `migrate`'s source pool is
+   deliberately always the legacy (unkinded) pool by design, but nothing told an operator running
+   `dataset_manager --kind world_model migrate chatbot` that their `--kind` was being discarded.
+   Fixed by printing a warning naming the ignored value, and updating the `--kind`/`migrate`
+   `--help` entries to document the exception explicitly.
+3. **`incremental_trainer --help` never documented `--dataset-kind`** — every other global flag
+   (`--gpu-strategy`, `--objective`, `--admin-port`, etc.) has a `output_usage()` entry; the new
+   flag had none. Fixed by adding one.
+4. **`registry_server`'s own file-level doc comment and `--help` "Endpoints per group" text were
+   stale** — both still described every route as the plain `/registry/<group>/<action>` form,
+   with no mention of the new optional `/<kind>/` segment or the "unrecognized kind → 404"
+   contract, despite this now being a real part of the wire protocol. Fixed by updating both.
+5. **`DatasetRegistry::add_pending_path_unchecked()` silently also skipped the `is_trained()`
+   guard** `add_file()` performs, not just the filesystem-existence check its doc comment
+   described — and since `dataset_manager migrate` never called `dest.load_registry()`, the
+   check would have been a no-op even if present, letting a file already trained under the
+   destination kind get silently re-queued as pending there. Fixed by restoring the
+   `is_trained()` check inside `add_pending_path_unchecked()` and having `migrate` call
+   `dest.load_registry()` before the move loop so the check sees real state; the doc comment was
+   corrected to describe exactly what is and isn't skipped.
+
+Changes Made:
+
+- `src/IncrementalTrainingTool.cpp`: dataset_kind default now conditional on
+  `svc_config.dataset_kind.empty()`; `--dataset-kind` documented in `output_usage()`. Version
+  0.13.0 → 0.13.1.
+- `src/DatasetManagerTool.cpp`: warning printed when `migrate` ignores a set global `--kind`;
+  `--kind`/`migrate` `--help` text updated to document the exception. Version 1.1.0 → 1.1.1.
+- `src/RegistryServer.cpp`: file-level doc comment and `print_usage()`'s "Endpoints per group"
+  section updated to describe the optional `/<kind>/` segment and its 404-on-invalid-value
+  contract. Version 0.10.0 → 0.10.1.
+- `src/DatasetRegistry.hpp`/`.cpp`: `add_pending_path_unchecked()` re-checks `is_trained()`; doc
+  comment corrected. Version 1.1.0 → 1.1.1.
+- `tests/DatasetRegistryTests.cpp`: new
+  `AddPendingPathUncheckedRejectsAlreadyTrainedFile` regression test.
+
+Verification:
+
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean, zero errors.
+- ✅ Full `ctest` suite: 136/136 passing.
+- ✅ Live smoke test against a real `registry_server` + `dataset_manager`: confirmed
+  `migrate` still moves files from the legacy pool into the requested destination kind when a
+  global `--kind` is also set, now with the new warning printed; confirmed the warning text and
+  behavior match.
+- ✅ `check_file_status.py --strict`: 319 files, 0 problems.
+
+Files Changed:
+
+- `src/IncrementalTrainingTool.cpp`
+- `src/DatasetManagerTool.cpp`
+- `src/RegistryServer.cpp`
+- `src/DatasetRegistry.hpp`
+- `src/DatasetRegistry.cpp`
+- `tests/DatasetRegistryTests.cpp`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-202: Dataset Registry Gained Per-Trainable-Piece Sub-Pools (`dataset_kind`)
 
 | Resolution Date | Component | Resolved By |

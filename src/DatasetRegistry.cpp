@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-09-19
+// @adai-version: 1.1.1
+// @adai-reviewed: 2026-09-20
 
 #include "DatasetRegistry.hpp"
 #include <algorithm>
@@ -151,6 +151,10 @@ bool DatasetRegistry::add_file(const std::string& path) {
 }
 
 bool DatasetRegistry::add_pending_path_unchecked(const std::string& path) {
+    if (is_trained(path)) {
+        Logger::warn("Data file already trained, skipping: {}", path);
+        return false;
+    }
     const bool already_pending = std::any_of(pending_.begin(), pending_.end(),
                                              [&](const PendingEntry& e) { return e.path == path; });
     if (already_pending) {

@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-09-19
+// @adai-version: 1.1.1
+// @adai-reviewed: 2026-09-20
 
 #include <algorithm>
 #include <fstream>
@@ -51,6 +51,8 @@ int main(int argc, char* argv[]) {
     // invocation operates against; every existing command already builds its DatasetRegistry
     // from DatasetRegistry::make_config(svc_config), so this one assignment threads through
     // all of them uniformly. Empty (unset) reproduces today's legacy shared-pool default.
+    // Exception: `migrate` ignores this (with a warning) — its own <kind> argument selects
+    // the destination pool, and its source is always the legacy pool by design.
     if (!kind_flag.empty()) {
         svc_config.dataset_kind = kind_flag;
     }
@@ -68,7 +70,9 @@ int main(int argc, char* argv[]) {
         std::cout << "                               Operate against that trainable piece's own "
                      "sub-pool\n";
         std::cout << "                               instead of the legacy shared pool "
-                     "(default: unset)\n\n";
+                     "(default: unset).\n";
+        std::cout << "                               Ignored by migrate — see its own entry "
+                     "below.\n\n";
         std::cout << "Commands:\n";
         std::cout
             << "  add <data_file>              Add a local training file to the pending queue\n";
@@ -110,7 +114,11 @@ int main(int argc, char* argv[]) {
         std::cout << "                               One-time move of legacy (unkinded) pending "
                      "file(s) into\n";
         std::cout << "                               <kind>'s own sub-pool (omit files/--count = "
-                     "all legacy pending)\n";
+                     "all legacy pending).\n";
+        std::cout << "                               Source is always the legacy pool — the "
+                     "global --kind flag\n";
+        std::cout << "                               is ignored here; <kind> selects the "
+                     "destination.\n";
         std::cout << "  models                       List registered models from name service\n";
         std::cout << "\nPopular Gutenberg Books:\n";
         std::cout << "  1342  - Pride and Prejudice (Jane Austen)\n";
@@ -536,7 +544,14 @@ int main(int argc, char* argv[]) {
 
         // TD-202: source is always the legacy (unkinded) pool, regardless of any global
         // --kind — that's the one-time upgrade path this command exists for. Destination
-        // is the given kind.
+        // is the given kind. Warn rather than silently overriding: --kind's own --help text
+        // says it scopes "every command in this invocation," so a global --kind here would
+        // otherwise be silently discarded with no indication anything was ignored.
+        if (!kind_flag.empty()) {
+            std::cerr << "⚠️  --kind '" << kind_flag
+                      << "' is ignored by migrate — its source is always the legacy "
+                        "(unkinded) pool; the <kind> argument selects the destination.\n";
+        }
         adai::ServiceConfig source_config = svc_config;
         source_config.dataset_kind.clear();
         adai::ServiceConfig dest_config = svc_config;
@@ -546,6 +561,9 @@ int main(int argc, char* argv[]) {
         source.load_pending_list();
         DatasetRegistry dest(DatasetRegistry::make_config(dest_config));
         dest.load_pending_list();
+        // Load the destination's own trained registry too, so add_pending_path_unchecked()'s
+        // is_trained() guard actually sees real state instead of an always-empty trained set.
+        dest.load_registry();
 
         auto source_entries = source.pending_entries();
         if (source_entries.empty()) {

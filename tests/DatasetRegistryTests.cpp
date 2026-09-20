@@ -444,6 +444,17 @@ TEST_F(DatasetRegistryTest, AddPendingPathUncheckedRejectsDuplicate) {
     EXPECT_EQ(reg.pending_files().size(), 1u);
 }
 
+TEST_F(DatasetRegistryTest, AddPendingPathUncheckedRejectsAlreadyTrainedFile) {
+    // Regression: add_pending_path_unchecked() must reject an already-trained path exactly
+    // like add_file() does — this is what protects `dataset_manager migrate` from re-queuing
+    // a file that's already trained in the destination kind's own trained registry.
+    DatasetConfig cfg = make_cfg();
+    DatasetRegistry reg(cfg);
+    reg.mark_trained({data_file_}, {10});
+    EXPECT_FALSE(reg.add_pending_path_unchecked(data_file_));
+    EXPECT_TRUE(reg.pending_files().empty());
+}
+
 TEST_F(DatasetRegistryTest, AddFileSkipsAlreadyTrainedFile) {
     DatasetRegistry reg(make_cfg());
     reg.mark_trained({data_file_}, {10});

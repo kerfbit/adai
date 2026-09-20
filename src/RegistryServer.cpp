@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-09-19
+// @adai-version: 0.10.1
+// @adai-reviewed: 2026-09-20
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) is hardened to
@@ -22,24 +22,27 @@
  * FtpDataServer is started on --ftp-port (default 2121).  Trainers on remote
  * machines use these credentials to download their files before training.
  *
- * State is persisted to flat files in --data-dir/<group>/ using the same format
+ * State is persisted to flat files in --data-dir/<group>/[<kind>/] using the same format
  * as LocalTransport, so manual inspection and recovery are always possible.
  *
- * Endpoints:
- *   GET  /registry/<group>/queue     — all pending entries with run assignments
- *   POST /registry/<group>/acquire   — atomically claim up to N files for run_id
- *   POST /registry/<group>/release   — return reserved files to the unassigned pool
- *   POST /registry/<group>/assign    — set model_name on N pending entries, by path,
+ * Endpoints (every path below also accepts an optional kind segment right after <group> —
+ * /registry/<group>/<encoder|decoder|world_model|chatbot>/<action> — TD-202; omitting it
+ * targets the legacy shared pool exactly as before. A kind value outside that fixed set
+ * simply doesn't match any route and 404s, rather than reaching a handler):
+ *   GET  /registry/<group>[/<kind>]/queue     — all pending entries with run assignments
+ *   POST /registry/<group>[/<kind>]/acquire   — atomically claim up to N files for run_id
+ *   POST /registry/<group>[/<kind>]/release   — return reserved files to the unassigned pool
+ *   POST /registry/<group>[/<kind>]/assign    — set model_name on N pending entries, by path,
  *                                       count, or all (Phase 14; count added Phase 16)
- *   POST /registry/<group>/unassign  — clear model_name back to unassigned (Phase 16)
- *   POST /registry/<group>/delete    — purge entries from pending and/or registry by
+ *   POST /registry/<group>[/<kind>]/unassign  — clear model_name back to unassigned (Phase 16)
+ *   POST /registry/<group>[/<kind>]/delete    — purge entries from pending and/or registry by
  *                                       path, optionally unlinking the file (Phase 16)
- *   POST /registry/<group>/trained   — mark files trained and remove from queue
- *   GET  /registry/<group>/registry  — full data registry
- *   GET  /registry/<group>/runs      — files currently assigned per run_id
- *   POST /registry/<group>/fetch/gutenberg   — download a Gutenberg book server-side (Phase 11)
- *   POST /registry/<group>/fetch/huggingface — download a HuggingFace dataset server-side (Phase 11)
- *   POST /registry/<group>/upload?filename=  — upload a local file's bytes server-side (Phase 11)
+ *   POST /registry/<group>[/<kind>]/trained   — mark files trained and remove from queue
+ *   GET  /registry/<group>[/<kind>]/registry  — full data registry
+ *   GET  /registry/<group>[/<kind>]/runs      — files currently assigned per run_id
+ *   POST /registry/<group>[/<kind>]/fetch/gutenberg   — download a Gutenberg book server-side (Phase 11)
+ *   POST /registry/<group>[/<kind>]/fetch/huggingface — download a HuggingFace dataset server-side (Phase 11)
+ *   POST /registry/<group>[/<kind>]/upload?filename=  — upload a local file's bytes server-side (Phase 11)
  *   GET  /health                     — liveness check
  *
  * Phase 11 extension: the three endpoints above make the registry itself
@@ -1561,6 +1564,10 @@ static void print_usage(const char* prog) {
         << "  --admin-enabled BOOL  Allow PUT /admin/config to mutate settings (default: true)\n"
         << "  --help                Show this message\n\n"
         << "Endpoints per group:\n"
+        << "  (TD-202: every path below also accepts an optional kind segment right after\n"
+        << "   <group> — /registry/<group>/<encoder|decoder|world_model|chatbot>/<action> —\n"
+        << "   to target that trainable piece's own sub-pool instead of the legacy shared one;\n"
+        << "   any other kind value 404s.)\n"
         << "  GET  /registry/<group>/queue\n"
         << "  POST /registry/<group>/acquire  "
            "{\"run_id\":\"...\",\"max_files\":N,\"model_name\":\"...\"}\n"

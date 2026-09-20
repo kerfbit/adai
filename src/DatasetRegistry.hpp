@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-09-19
+// @adai-version: 1.1.1
+// @adai-reviewed: 2026-09-20
 
 
 #include <memory>
@@ -117,6 +117,9 @@ class DatasetRegistry {
     /**
      * @brief Add a path directly to the pending queue, skipping the local
      *        filesystem existence check add_file() otherwise requires.
+     *        Still rejects an already-trained or already-pending path exactly
+     *        like add_file() does (requires load_registry()/load_pending_list()
+     *        to have been called first for those checks to see real state).
      *
      * TD-202: used by `dataset_manager migrate` to move an already-queued
      * entry's path into a different kind's sub-pool. The path was already

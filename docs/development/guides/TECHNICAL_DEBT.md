@@ -4,14 +4,26 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** September 19, 2026
+**Last Updated:** September 20, 2026
 **Total Items:** 13
 **High Priority:** 1
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 189
+**Resolved Items:** 190
 **Deferred Decisions:** 3
+
+**September 20, 2026 (same day):** Filed and resolved
+[TD-203](../archive/TECHNICAL_DEBT_RESOLVED.md#td-203-five-flaws-found-in-td-202s-dataset-kind-sub-pool-rollout-by-a-full-text-review-pass)
+— a requested full-text review pass over TD-202's own diff found 5 issues, all fixed together:
+`incremental_trainer` silently discarded a config-file/env `DATASET_KIND` (the objective-based
+default unconditionally overwrote it instead of only applying when unset); `dataset_manager
+migrate` silently ignored a global `--kind` flag despite its own `--help` text claiming that flag
+scopes "every command"; `--dataset-kind` was undocumented in `incremental_trainer --help`;
+`registry_server`'s own doc comment/`--help` were stale about the new kind-scoped routes; and
+`DatasetRegistry::add_pending_path_unchecked()` silently also skipped the `is_trained()` guard
+`add_file()` performs (and `migrate` never loaded the destination's trained registry, so the
+check would have been a no-op even if present). See its own archive entry.
 
 **September 19, 2026 (same day):** Filed and resolved
 [TD-202](../archive/TECHNICAL_DEBT_RESOLVED.md#td-202-dataset-registry-gained-per-trainable-piece-sub-pools-dataset_kind)
@@ -470,7 +482,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (189 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (190 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -2114,7 +2126,7 @@ another branch of one large `main()` instead of becoming its own focused binary)
 
 ## Resolved Items
 
-189 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+190 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements
