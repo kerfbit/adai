@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint)
-// @adai-version: 0.12.0
-// @adai-reviewed: 2026-09-16
+// @adai-version: 0.12.1
+// @adai-reviewed: 2026-09-19
 
 #include <array>
 #include <chrono>
@@ -663,8 +663,16 @@ int main(int argc, char* argv[]) {
                     svc_config.hippocampal_cross_reference_alpha =
                         conn->hippocampal_cross_reference_alpha;
                     svc_config.hippocampal_association_decay = conn->hippocampal_association_decay;
+                    // Only sigreg_num_sketches carries over here — it's structural (shapes the
+                    // SIGReg module's own internal sketch matrices, so it must match whatever the
+                    // checkpoint being load()ed was saved with). sigreg_lambda is purely a
+                    // training-time gradient weight (LeJEPAEncoder::train_step()) with no effect
+                    // on a world model attached here frozen — IncrementalTrainer::
+                    // maybe_attach_world_model() always calls set_requires_grad(false), and
+                    // IncrementalConfig itself has no world_model_sigreg_lambda field to carry it
+                    // to that call site even if it did matter. Fetching it here would be dead
+                    // weight, not a bug fix.
                     if (auto wm_conn = mns.get_connection(conn->world_model_name)) {
-                        svc_config.world_model_sigreg_lambda = wm_conn->sigreg_lambda;
                         svc_config.world_model_sigreg_num_sketches = wm_conn->sigreg_num_sketches;
                     }
                     std::cout << "[MNS] World model '" << conn->world_model_name

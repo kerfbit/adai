@@ -4,6 +4,60 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-198: MNS-First World-Model Resolution Fetched `sigreg_lambda` That Was Never Consumed on the Frozen-Attach Path
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 19, 2026 | `chatbot_api_server`, `incremental_trainer` | Removed the dead `config.world_model_sigreg_lambda`/`svc_config.world_model_sigreg_lambda` assignment from both MNS-first world-model resolution blocks (`src/ChatbotAPIServer.cpp`, `src/IncrementalTrainingTool.cpp`) |
+
+Summary:
+Found during the same full-text review pass as TD-197 (requested immediately after TD-196
+landed). TD-196's MNS-first world-model resolution blocks — added to both `chatbot_api_server`
+and `incremental_trainer` to close the TD-184 gap — fetched a linked world model's own registered
+`connection.sigreg_lambda`/`sigreg_num_sketches` (via an extra `ModelNameClient::get_connection()`
+call against the world model's own name) and assigned both to
+`config`/`svc_config.world_model_sigreg_lambda`/`world_model_sigreg_num_sketches`. Only
+`sigreg_num_sketches` actually does anything on this path: it's structural, passed straight into
+`LeJEPAEncoder`'s constructor (`src/ChatbotAPIServer.cpp`, `IncrementalTrainer::
+maybe_attach_world_model()`), shaping the SIGReg module's own internal sketch matrices, so it must
+match whatever the checkpoint being `load()`ed was actually saved with. `sigreg_lambda`, by
+contrast, only weights SIGReg's gradient contribution inside `LeJEPAEncoder::train_step()`
+(`src/LeJEPAEncoder.cpp:213`) — it has no effect on construction or `load()` at all — and the
+world model attached on this path is always immediately frozen
+(`world_model->set_requires_grad(false)`, both in `IncrementalTrainer::
+maybe_attach_world_model()` and `ChatbotAPIServer.cpp`'s own attachment block), so `train_step()`
+never runs on it here. Confirmed doubly dead for `incremental_trainer`'s own path specifically:
+`IncrementalConfig` (the struct `IncrementalTrainer::maybe_attach_world_model()` actually reads)
+has no `world_model_sigreg_lambda` field at all — `ServiceConfig::world_model_sigreg_lambda` is
+mapped only into `run_lejepa_training_pass()`'s own separate, unrelated invocation (which trains a
+world model directly by its own registered identity, not through this chatbot-linked resolution
+block at all).
+
+Not a wrong-output bug — the fetched value was silently discarded, at the cost of implying (to
+any future reader of the code) that `sigreg_lambda` is a live, per-attachment-tunable parameter
+when it structurally cannot be for a model that's frozen the moment it's loaded.
+
+Changes Made:
+
+- `src/ChatbotAPIServer.cpp`: removed `config.world_model_sigreg_lambda = wm_conn->sigreg_lambda;`
+  from the MNS-first world-model resolution block; kept the `sigreg_num_sketches` assignment and
+  the `get_connection()` call it still needs. Added a comment explaining why only
+  `sigreg_num_sketches` carries over. Version 1.7.0 → 1.7.1.
+- `src/IncrementalTrainingTool.cpp`: identical removal in the mirror-image resolution block.
+  Version 0.12.0 → 0.12.1.
+
+Verification:
+
+- ✅ Full project rebuild (`cmake --build --preset=debug -j$(nproc)`) — clean.
+- ✅ Full `ctest` suite: 136/136 passing.
+- ✅ `check_file_status.py`: 317 files, 0 problems.
+
+Files Changed:
+
+- `src/ChatbotAPIServer.cpp`
+- `src/IncrementalTrainingTool.cpp`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-197: MNS `handle_register()` Never Validated a Chatbot's `connection.world_model_name`, Bypassing `handle_link_world_model()`'s Own Checks
 
 | Resolution Date | Component | Resolved By |

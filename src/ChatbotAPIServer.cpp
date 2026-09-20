@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.7.0
-// @adai-reviewed: 2026-09-18
+// @adai-version: 1.7.1
+// @adai-reviewed: 2026-09-19
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
 #include <atomic>
@@ -272,8 +272,14 @@ int main(int argc, char* argv[]) {
                                     conn->hippocampal_cross_reference_alpha;
                                 config.hippocampal_association_decay =
                                     conn->hippocampal_association_decay;
+                                // Only sigreg_num_sketches carries over here — it's structural
+                                // (shapes the SIGReg module's own internal sketch matrices, so it
+                                // must match whatever the checkpoint being load()ed was saved
+                                // with). sigreg_lambda is purely a training-time gradient weight
+                                // (LeJEPAEncoder::train_step()) with no effect on a world model
+                                // attached here frozen (set_requires_grad(false) below) — fetching
+                                // it would be dead weight, not a bug fix.
                                 if (auto wm_conn = mns_client.get_connection(conn->world_model_name)) {
-                                    config.world_model_sigreg_lambda = wm_conn->sigreg_lambda;
                                     config.world_model_sigreg_num_sketches =
                                         wm_conn->sigreg_num_sketches;
                                 }

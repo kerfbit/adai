@@ -10,8 +10,25 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 184
+**Resolved Items:** 185
 **Deferred Decisions:** 3
+
+**September 19, 2026 (same day):** Filed and resolved
+[TD-198](../archive/TECHNICAL_DEBT_RESOLVED.md#td-198-mns-first-world-model-resolution-fetched-sigreg_lambda-that-was-never-consumed-on-the-frozen-attach-path)
+— found during the same full-text review pass as TD-197. TD-196's MNS-first world-model
+resolution blocks in `ChatbotAPIServer.cpp` and `IncrementalTrainingTool.cpp` fetched a linked
+world model's own `sigreg_lambda` (via an extra `ModelNameClient::get_connection()` call) and
+assigned it to `config`/`svc_config.world_model_sigreg_lambda` — but that field is never read
+anywhere on the actual frozen-attach path (`IncrementalTrainer::maybe_attach_world_model()`
+freezes the world model with `set_requires_grad(false)` before any training step could use it,
+`IncrementalConfig` has no `world_model_sigreg_lambda` field to carry the value there even if it
+did matter, and `sigreg_lambda` only affects `LeJEPAEncoder::train_step()`'s own gradient
+weighting — never construction or `load()`). `sigreg_num_sketches`, fetched by the same call, is
+genuinely structural (shapes the SIGReg module's own sketch matrices, so it must match whatever
+the checkpoint was saved with) and stays. Not a wrong-output bug — a dead, silently-discarded
+assignment that read as if sigreg strength were configurable per-attachment when it structurally
+isn't for a frozen model. Fixed by removing just the dead assignment, keeping the
+`get_connection()` call (still needed for `sigreg_num_sketches`). See its own archive entry.
 
 **September 19, 2026 (same day):** Filed and resolved
 [TD-197](../archive/TECHNICAL_DEBT_RESOLVED.md#td-197-mns-handle_register-never-validated-a-chatbots-connectionworld_model_name-bypassing-handle_link_world_models-own-checks)
@@ -394,7 +411,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (184 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (185 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
