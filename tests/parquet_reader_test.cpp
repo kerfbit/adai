@@ -15,6 +15,7 @@
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -27,6 +28,17 @@ namespace fs = std::filesystem;
 namespace {
 
 fs::path fixtures_dir() {
+    // __FILE__ bakes in this machine's compile-time absolute source path -- correct for a
+    // normal ctest run (the source tree is always right there next to the build), but breaks
+    // the instant this test binary is packaged and run somewhere else without that exact path
+    // existing (confirmed on ai-machine's GPU test package, which ships a flat bin/ with no
+    // source tree at all). ADAI_TEST_FIXTURES_DIR lets a relocated package point this at
+    // wherever it actually placed the fixtures, without changing behavior for the normal
+    // in-tree ctest case.
+    if (const char* override_dir = std::getenv("ADAI_TEST_FIXTURES_DIR");
+        override_dir != nullptr && *override_dir != '\0') {
+        return fs::path(override_dir);
+    }
     return fs::path(__FILE__).parent_path() / "fixtures" / "parquet";
 }
 

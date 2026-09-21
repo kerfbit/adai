@@ -51,6 +51,27 @@ int pick_port(int seed, int offset) {
     return kBasePort + offset * kPortSpan + (seed % kPortSpan);
 }
 
+// REGISTRY_SERVER_BINARY_PATH is baked in at compile time via CMake's
+// $<TARGET_FILE:registry_server> -- an absolute path into *this machine's*
+// build directory. That's correct for a normal ctest run (the build tree is
+// always right there), but breaks the instant this test binary is packaged
+// and run somewhere else without that exact path existing (confirmed on
+// ai-machine's GPU test package, which ships a flat bin/ with no build
+// tree at all). ADAI_REGISTRY_SERVER_BINARY lets a relocated package point
+// this at wherever it actually placed the registry_server binary, without
+// changing behavior for the normal in-tree ctest case.
+std::string resolve_registry_server_binary() {
+    if (const char* override_path = std::getenv("ADAI_REGISTRY_SERVER_BINARY");
+        override_path != nullptr && *override_path != '\0') {
+        return override_path;
+    }
+#ifdef REGISTRY_SERVER_BINARY_PATH
+    return REGISTRY_SERVER_BINARY_PATH;
+#else
+    return "";
+#endif
+}
+
 }  // namespace
 
 class RegistryFtpConfinementTest : public ::testing::Test {
@@ -64,17 +85,18 @@ class RegistryFtpConfinementTest : public ::testing::Test {
     bool server_ready_ = false;
 
     void SetUp() override {
-#ifndef REGISTRY_SERVER_BINARY_PATH
-        GTEST_SKIP() << "REGISTRY_SERVER_BINARY_PATH not defined at build time — "
-                        "registry_server target unavailable";
-        return;
-#else
-        if (!fs::exists(REGISTRY_SERVER_BINARY_PATH)) {
-            GTEST_SKIP() << "registry_server binary not found at " << REGISTRY_SERVER_BINARY_PATH
-                         << " — build it first";
+        const std::string registry_server_binary = resolve_registry_server_binary();
+        if (registry_server_binary.empty()) {
+            GTEST_SKIP() << "REGISTRY_SERVER_BINARY_PATH not defined at build time and "
+                            "ADAI_REGISTRY_SERVER_BINARY not set — registry_server target "
+                            "unavailable";
             return;
         }
-
+        if (!fs::exists(registry_server_binary)) {
+            GTEST_SKIP() << "registry_server binary not found at " << registry_server_binary
+                         << " — build it first, or point ADAI_REGISTRY_SERVER_BINARY at it";
+            return;
+        }
         const auto seed =
             static_cast<int>(::getpid()) + static_cast<int>(reinterpret_cast<uintptr_t>(this));
         http_port_ = pick_port(seed, 0);
@@ -111,7 +133,7 @@ class RegistryFtpConfinementTest : public ::testing::Test {
             const std::string ftp_port_str = std::to_string(ftp_port_);
             const std::string data_dir_str = data_dir_.string();
             char* argv[] = {
-                const_cast<char*>(REGISTRY_SERVER_BINARY_PATH),
+                const_cast<char*>(registry_server_binary.c_str()),
                 const_cast<char*>("--port"),
                 const_cast<char*>(port_str.c_str()),
                 const_cast<char*>("--data-dir"),
@@ -128,7 +150,7 @@ class RegistryFtpConfinementTest : public ::testing::Test {
                 ::dup2(devnull, STDOUT_FILENO);
                 ::dup2(devnull, STDERR_FILENO);
             }
-            ::execv(REGISTRY_SERVER_BINARY_PATH, argv);
+            ::execv(registry_server_binary.c_str(), argv);
             ::_exit(127);  // execv only returns on failure
         }
 
@@ -148,7 +170,6 @@ class RegistryFtpConfinementTest : public ::testing::Test {
             TearDown();
             GTEST_SKIP() << "registry_server did not become ready within 5s";
         }
-#endif
     }
 
     void TearDown() override {
@@ -271,12 +292,15 @@ TEST_F(RegistryFtpConfinementTest, PendingAddStillAcceptsOutOfTreePathForDirectF
 // live check exercised a relative --data-dir, which is how this slipped
 // through — this test closes that gap directly, independent of the fixture.
 TEST(RegistryPendingAddRelativeDataDirTest, InTreeAddWithRelativeDataDirLogsNoWarning) {
-#ifndef REGISTRY_SERVER_BINARY_PATH
-    GTEST_SKIP() << "REGISTRY_SERVER_BINARY_PATH not defined at build time";
-    return;
-#else
-    if (!fs::exists(REGISTRY_SERVER_BINARY_PATH)) {
-        GTEST_SKIP() << "registry_server binary not found at " << REGISTRY_SERVER_BINARY_PATH;
+    const std::string registry_server_binary = resolve_registry_server_binary();
+    if (registry_server_binary.empty()) {
+        GTEST_SKIP() << "REGISTRY_SERVER_BINARY_PATH not defined at build time and "
+                        "ADAI_REGISTRY_SERVER_BINARY not set";
+        return;
+    }
+    if (!fs::exists(registry_server_binary)) {
+        GTEST_SKIP() << "registry_server binary not found at " << registry_server_binary
+                     << " — build it first, or point ADAI_REGISTRY_SERVER_BINARY at it";
         return;
     }
 
@@ -300,7 +324,7 @@ TEST(RegistryPendingAddRelativeDataDirTest, InTreeAddWithRelativeDataDirLogsNoWa
         // Deliberately relative --data-dir, matching the real default
         // ("registry_sessions") — the exact shape that exposed the bug.
         char* argv[] = {
-            const_cast<char*>(REGISTRY_SERVER_BINARY_PATH),
+            const_cast<char*>(registry_server_binary.c_str()),
             const_cast<char*>("--port"),
             const_cast<char*>(port_str.c_str()),
             const_cast<char*>("--data-dir"),
@@ -312,7 +336,7 @@ TEST(RegistryPendingAddRelativeDataDirTest, InTreeAddWithRelativeDataDirLogsNoWa
             ::dup2(log_fd, STDOUT_FILENO);
             ::dup2(log_fd, STDERR_FILENO);
         }
-        ::execv(REGISTRY_SERVER_BINARY_PATH, argv);
+        ::execv(registry_server_binary.c_str(), argv);
         ::_exit(127);
     }
 
@@ -364,5 +388,4 @@ TEST(RegistryPendingAddRelativeDataDirTest, InTreeAddWithRelativeDataDirLogsNoWa
 
     std::error_code ec;
     fs::remove_all(scratch_root, ec);
-#endif
 }
