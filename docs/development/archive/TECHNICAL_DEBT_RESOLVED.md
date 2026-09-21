@@ -4,6 +4,145 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-206: First Real-GPU-Hardware Validation of the SYCL Backend — 3 Latent Bugs Found and Fixed
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 21, 2026 | Build system (`CMakeLists.txt`, `src/CMakeLists.txt`), GPU-resident decode path (`FeedForward.cpp`, `MultiHeadAttention.cpp`), 6 test files | Made `-fsycl` a global compile/link option instead of scoped to the `adai_gpu` target; fixed a `.rows`-only cache-resize check that collided with a `(1,1)` sentinel whenever a single-token GPU decode step occurred; added the missing `GPUManager::initialize()`/`Matrix::gpu_try_initialize()` calls six different test files were missing |
+
+Summary:
+This is the first time any part of this codebase's SYCL/GPU backend has actually run against
+physical GPU hardware (an Intel Arc Pro B60, on a separate machine referred to throughout this
+work as "ai-machine") rather than compiling against the SYCL toolchain with no device present.
+Every prior GPU-related TD (TD-033, TD-050, TD-059) explicitly flagged "needs real hardware
+validation" as its one remaining gap; this item is that validation, run to completion, and the
+three real bugs it surfaced.
+
+**1. Build system: `-fsycl` wasn't reaching most of the codebase.** `src/CMakeLists.txt` applied
+`target_compile_options(adai_gpu PRIVATE -fsycl)` — scoped to the `adai_gpu` library's own source
+files only. But `GPUUtils.hpp` unconditionally includes a SYCL extension header
+(`gpu/sycl/GPUUtils_SYCL.hpp`, no `#ifdef` guard) whenever `ADAI_GPU_BACKEND_SYCL` is defined — a
+*global* compile definition every target in the project sees, not just `adai_gpu`. Any target that
+transitively included `Matrix.hpp` without itself linking `adai_gpu` (most test binaries link only
+`GTest::gtest_main`) failed to compile with `sycl/ext/oneapi/properties/properties.hpp: file not
+found`. This had never been caught because the `sycl` CMake preset always sets `BUILD_TESTING=OFF`
+— the two had simply never been combined before. Fixed by making `-fsycl` a global
+`add_compile_options`/`add_link_options` whenever `ENABLE_SYCL=ON`, at the same place
+`ADAI_GPU_BACKEND_SYCL` itself is defined.
+
+**2. The real GPU bug: a cache-resize check that only compared `.rows`.**
+`FeedForward::gpu_forward()`'s "has the sequence length changed, do I need to resize my cached
+activation buffers" check was `if (gpu_->cached_input.rows != seq)` — but `GPUState`'s constructor
+sentinel-initializes `cached_input`/`cached_hidden`/`cached_act` to `GPUMatrix(1, 1)` before the
+first real call. Whenever `seq == 1`, the sentinel's `rows == 1` coincidentally satisfied the
+check, so the resize was silently skipped and `cached_act` stayed at its degenerate `[1,1]` shape
+instead of resizing to `[1, d_ff]`. The very next line, `cached_act * W2_g`, then threw
+`"GPUMatrix dimensions incompatible for multiply: [1x1] * [64x32]"`. `seq == 1` had never occurred
+before in this codebase's history: every prior caller of `gpu_forward()` passed a full multi-token
+sequence (batch training, or encoder prefill); the *only* code path that ever calls it with a
+single token is `DecoderBlock::gpu_forward_with_cache()`'s incremental KV-cache decode step
+(TD-050's GPU-resident cache), which had never actually run on hardware until now. Confirmed via a
+real segfault/crash in `chatbotapiTests.GpuResidentPathProducesValidOutputForEveryStrategy` on
+`ai-machine`. `MultiHeadAttention.cpp` had the identical sentinel-and-check pattern in its own
+(unrelated, training-only) `gpu_forward()` — not on the decode path today, so not yet triggered,
+but fixed proactively rather than waiting for it to bite too.  `CrossAttention.cpp` already got
+this right (`cached_query.rows != tgt || cached_query.cols != d_model`) — both fixes mirror that
+existing, correct pattern instead of inventing a new one. `operator*`'s own error message
+(`MatrixGPU.hpp`/`MatrixGPU_SYCL.hpp`) was also improved to include the actual shapes involved —
+it previously said only "dimensions incompatible," with no numbers, which was the single biggest
+obstacle to root-causing this from a log alone.
+
+**3. Six test files never actually initialized the GPU they were testing.** Every one of these
+followed the same shape: guard on `GPUManager::probe()` (device *exists*) but never call
+`GPUManager::initialize()`/`Matrix::gpu_try_initialize()` (device is actually *ready to use*) —
+harmless in a device-less sandbox, where `probe()` returning false skips the test entirely, but a
+real crash the instant real hardware makes `probe()` return true:
+- `tests/matrixgpu_td003_test.cpp` — all 13 tests, missing `initialize()` entirely.
+- `tests/gpuutils_test.cpp` — two separate bugs: `GetDeviceInfoThrowsForInvalidDeviceId`'s own
+  comment claimed it ran "before any test that could call a *successful* initialize()," but
+  `InitializeMatchesProbe` (declared earlier in the same fixture) already does exactly that on real
+  hardware, and `cleanup()` deliberately never resets `current_device_` — reordered the test to
+  actually run first, matching its own stated intent. `GPUMemoryTracksAllocationInBudget` asserted
+  `get_used_memory_bytes()` returned to its prior value immediately after a `GPUMemory` destructor
+  ran, without accounting for `GPUMemory` deferring its actual `release_memory()` into a queued
+  SYCL `host_task` (documented in `reserve_memory()`'s own comment) — added the missing
+  `GPUManager::synchronize()` before asserting.
+- `tests/multiheadattention_test.cpp` (`MultiHeadAttentionGPUStatsHookTest`, 4 tests) and
+  `tests/feedforward_test.cpp` (`FeedForwardGPUActivationStatsHookTest`, 4 tests) — no guard at
+  all, not even `probe()`.
+- `tests/chatbottrainer_test.cpp` (`MetricsTrackerWiringTest`/`ChatbotTrainerAbortTest`, 8 tests)
+  and `tests/generation_quality_async_test.cpp` (5 tests) — both construct a `ChatbotTrainer`
+  directly, bypassing the `Matrix::gpu_try_initialize()` call every real GPU-enabled binary
+  (`IncrementalTrainingTool.cpp`, `ChatbotAPIServer.cpp`) makes before constructing any
+  trainer/model — added the same call to each file's own trainer-construction helper.
+
+A stray, unrelated compile failure (`tests/MetricsDatabaseTest.cpp` using `std::exp` without
+`#include <cmath>`, surfaced only under icpx's stricter header behavior) was fixed alongside the
+build-system fix, since both were found by the same first-ever `BUILD_TESTING=ON` +
+`ENABLE_SYCL=ON` combination.
+
+Debugging note for posterity: root-causing bug #2 took several rounds of remote iteration with
+`ai-machine`, including two rounds where an already-correct fix appeared not to work — the actual
+cause was a stale binary surviving a same-named directory's `tar xzf` re-extraction, not a flaw in
+the fix itself. Confirmed by `strings <binary> | grep -c DIAG` against temporary diagnostic
+instrumentation (since removed) after a clean `rm -rf` + re-extract. Worth remembering next time a
+"fix" appears to have no effect on remote hardware: verify the binary actually changed before
+re-diagnosing the code.
+
+Changes Made:
+
+- `CMakeLists.txt`: `-fsycl` promoted from `adai_gpu`-only to a global compile/link option under
+  `ENABLE_SYCL`.
+- `src/CMakeLists.txt`: `adai_gpu`'s own `-fsycl` compile option changed `PRIVATE` → `PUBLIC` for
+  consistency (now redundant with the global option above, but harmless and self-documenting).
+- `src/FeedForward.cpp`, `src/MultiHeadAttention.cpp`: cache-resize checks now compare `.cols` as
+  well as `.rows`.
+- `src/gpu/MatrixGPU.hpp`, `src/gpu/sycl/MatrixGPU_SYCL.hpp`: `operator*`'s dimension-mismatch
+  exception message now includes the actual shapes.
+- `tests/matrixgpu_td003_test.cpp`, `tests/gpuutils_test.cpp`, `tests/multiheadattention_test.cpp`,
+  `tests/feedforward_test.cpp`, `tests/chatbottrainer_test.cpp`,
+  `tests/generation_quality_async_test.cpp`: added the missing GPU initialization calls described
+  above.
+- `tests/MetricsDatabaseTest.cpp`: added missing `#include <cmath>`.
+
+Verification:
+
+- ✅ Full project rebuild (`cmake --build --preset=debug`, no GPU) — clean, zero errors.
+- ✅ Full `ctest` suite on the regular (non-SYCL) build: 136/136 passing.
+- ✅ Full project rebuild with `ENABLE_SYCL=ON` + `BUILD_TESTING=ON` (first time ever combined) —
+  clean, zero errors.
+- ✅ Full test suite run on real GPU hardware (Intel Arc Pro B60, `ai-machine`): 93/95 suites
+  passing, including every previously-crashing/failing suite this item's fixes targeted
+  (`chatbotapiTests`, `feedforwardTests`, `gpuutilsTests`, `matrixgpuTd003Tests`,
+  `multiheadattentionTests`, `generationQualityAsyncTests`, `chatbottrainerTests`). The remaining 2
+  failures (`parquetReaderTests`, `registryFtpConfinementTests`) are packaging artifacts of the
+  ad hoc test-distribution script used for this validation (missing fixture files and a
+  hardcoded dev-machine build path respectively) — not code bugs, and not applicable to the
+  project's normal `ctest`-driven build/test flow.
+- ✅ `attention_head_benchmark`/`batched_inference_benchmark`/`pipeline_benchmark`/
+  `integrated_benchmark` all ran successfully on real hardware, closing TD-033/TD-050's own
+  long-flagged "only the before/after GPU latency benchmark remains" gap. Matrix multiplication
+  showed a 19.8x GPU speedup over CPU on a 512x512 benchmark; smaller/cheaper ops (add, transpose,
+  scalar multiply) were slower on GPU than CPU due to transfer overhead, as expected for their
+  size.
+
+Files Changed:
+
+- `CMakeLists.txt`
+- `src/CMakeLists.txt`
+- `src/FeedForward.cpp`
+- `src/MultiHeadAttention.cpp`
+- `src/gpu/MatrixGPU.hpp`
+- `src/gpu/sycl/MatrixGPU_SYCL.hpp`
+- `tests/matrixgpu_td003_test.cpp`
+- `tests/gpuutils_test.cpp`
+- `tests/multiheadattention_test.cpp`
+- `tests/feedforward_test.cpp`
+- `tests/chatbottrainer_test.cpp`
+- `tests/generation_quality_async_test.cpp`
+- `tests/MetricsDatabaseTest.cpp`
+- `docs/development/guides/TECHNICAL_DEBT.md`
+
 ### TD-205: Dataset Registry Row-Range Segments + Ops Dashboard Full Dataset Management Segment
 
 | Resolution Date | Component | Resolved By |

@@ -4,14 +4,29 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** September 20, 2026
+**Last Updated:** September 21, 2026
 **Total Items:** 13
 **High Priority:** 1
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 192
+**Resolved Items:** 193
 **Deferred Decisions:** 3
+
+**September 21, 2026:** Filed and resolved
+[TD-206](../archive/TECHNICAL_DEBT_RESOLVED.md#td-206-first-real-gpu-hardware-validation-of-the-sycl-backend--3-latent-bugs-found-and-fixed)
+— the first time this codebase's SYCL backend has ever run against physical GPU hardware (an
+Intel Arc Pro B60, "ai-machine"), closing the "needs real hardware validation" gap TD-033/TD-050/
+TD-059 all flagged. Found and fixed three real bugs no amount of device-less compilation could
+have caught: `-fsycl` was scoped to a single CMake target instead of applied globally, so
+`BUILD_TESTING=ON` had never once been combined with `ENABLE_SYCL=ON` before now; a GPU-resident
+incremental decode cache-resize check compared only `.rows`, coincidentally colliding with a
+`(1,1)` sentinel on the very first single-token decode step this codebase has ever run (a genuine
+crash on real hardware, previously unreachable without a physical device); and six separate test
+files checked `GPUManager::probe()` but never called `initialize()`, harmless in a device-less
+sandbox but crashing the instant real hardware made `probe()` succeed. Full test suite now passes
+on real GPU hardware (93/95 — the other 2 are packaging artifacts of the ad hoc validation script,
+not code bugs) and the regular non-SYCL build stays a clean 136/136. See its own archive entry.
 
 **September 20, 2026 (same day):** Filed and resolved
 [TD-205](../archive/TECHNICAL_DEBT_RESOLVED.md#td-205-dataset-registry-row-range-segments--ops-dashboard-full-dataset-management-segment)
@@ -510,7 +525,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (192 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (193 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -2154,7 +2169,7 @@ another branch of one large `main()` instead of becoming its own focused binary)
 
 ## Resolved Items
 
-192 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+193 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

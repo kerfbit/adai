@@ -235,7 +235,10 @@ class GPUMatrix {
     /** @brief Matrix multiplication (C = this × other).  Uses cuBLAS SGEMM. */
     GPUMatrix operator*(const GPUMatrix& other) const {
         if (cols != other.rows)
-            throw std::invalid_argument("GPUMatrix dimensions incompatible for multiply");
+            throw std::invalid_argument(
+                "GPUMatrix dimensions incompatible for multiply: [" + std::to_string(rows) + "x" +
+                std::to_string(cols) + "] * [" + std::to_string(other.rows) + "x" +
+                std::to_string(other.cols) + "]");
         GPUMatrix result(rows, other.cols);
         matrix_multiply_gpu(data_.get(), other.data_.get(), result.data_.get(), rows, cols,
                             other.cols);

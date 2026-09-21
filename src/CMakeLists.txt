@@ -222,7 +222,15 @@ elseif(ENABLE_SYCL)
         gpu/sycl/MatrixGPU_SYCL.cpp
     )
 
-    target_compile_options(adai_gpu PRIVATE -fsycl)
+    # PUBLIC (not PRIVATE): GPUUtils.hpp unconditionally includes
+    # gpu/sycl/GPUUtils_SYCL.hpp whenever ADAI_GPU_BACKEND_SYCL is defined — a
+    # global compile definition every target in the project sees, not just
+    # adai_gpu's own sources. Without -fsycl propagating to every consumer
+    # that transitively includes Matrix.hpp (adai_core, and in turn every
+    # test target), their compiles fail with a missing SYCL extension header
+    # (sycl/ext/oneapi/properties/properties.hpp not found) — caught when
+    # BUILD_TESTING=ON was combined with ENABLE_SYCL=ON for the first time.
+    target_compile_options(adai_gpu PUBLIC -fsycl)
     target_link_options(adai_gpu PUBLIC -fsycl)
 
     target_link_libraries(adai_gpu

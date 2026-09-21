@@ -14,6 +14,16 @@
 // between. Confirmed directly: `C++ exception with description "cudaMalloc failed: no
 // CUDA-capable device is detected" thrown in the test body.` on every test in this file, in a
 // sandbox with /dev/nvidia* absent and no GPU PCI device.
+//
+// probe() alone is NOT sufficient once a device is actually present, though — it only reports
+// that a device exists, not that GPUManager::initialize() has been called. Every test also
+// explicitly calls initialize() right after the probe() guard (idempotent — an already-
+// initialized process just returns true immediately), matching gpuutils_test.cpp's own
+// pattern. Missing this was a real bug caught the first time this suite actually ran against
+// real GPU hardware (ai-machine, SYCL/Intel ARC) rather than a device-less sandbox: every test
+// failed with `C++ exception with description "GPU not initialized. Call GPUManager::
+// initialize() first." thrown in the test body.` since probe() reported a device present (so
+// nothing skipped) but nothing in this file had ever called initialize().
 
 #include <gtest/gtest.h>
 #include <cmath>
@@ -47,6 +57,8 @@ TEST(MatrixGPUTD003Test, CountBelowThresholdAllBelow) {
     if (!GPUManager::probe()) {
         GTEST_SKIP() << "No GPU device present.";
     }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
     GPUMatrix m = upload({0.0f, 0.0f, 0.0f, 0.0f}, 2, 2);
     EXPECT_FLOAT_EQ(m.count_below_threshold(0.01f), 1.0f);
 }
@@ -55,6 +67,8 @@ TEST(MatrixGPUTD003Test, CountBelowThresholdNoneBelow) {
     if (!GPUManager::probe()) {
         GTEST_SKIP() << "No GPU device present.";
     }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
     GPUMatrix m = upload({5.0f, -5.0f, 3.0f, -3.0f}, 2, 2);
     EXPECT_FLOAT_EQ(m.count_below_threshold(0.01f), 0.0f);
 }
@@ -63,6 +77,8 @@ TEST(MatrixGPUTD003Test, CountBelowThresholdMixed) {
     if (!GPUManager::probe()) {
         GTEST_SKIP() << "No GPU device present.";
     }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
     // 2 of 4 elements have |x| < 0.01
     GPUMatrix m = upload({0.0f, 5.0f, 0.001f, -5.0f}, 2, 2);
     EXPECT_FLOAT_EQ(m.count_below_threshold(0.01f), 0.5f);
@@ -72,6 +88,8 @@ TEST(MatrixGPUTD003Test, CountBelowThresholdLargeMatrixMultiBlock) {
     if (!GPUManager::probe()) {
         GTEST_SKIP() << "No GPU device present.";
     }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
     // 256*4 = 1024 elements, exercises the multi-block recursive reduction
     // path (matrix_sum_gpu/matrix_count_below_threshold_gpu recurse when
     // there's more than one 256-thread block's worth of data).
@@ -91,6 +109,8 @@ TEST(MatrixGPUTD003Test, RowEntropyOneHotIsZero) {
     if (!GPUManager::probe()) {
         GTEST_SKIP() << "No GPU device present.";
     }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
     // A one-hot row has entropy 0 (log(1) = 0 for the single p=1 term; all
     // other terms are exactly 0 and skipped by the p>0 guard).
     GPUMatrix m = upload({1.0f, 0.0f, 0.0f, 0.0f}, 1, 4);
@@ -101,6 +121,8 @@ TEST(MatrixGPUTD003Test, RowEntropyUniformMatchesLogCols) {
     if (!GPUManager::probe()) {
         GTEST_SKIP() << "No GPU device present.";
     }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
     // A uniform distribution over `cols` outcomes has entropy ln(cols).
     const int cols = 8;
     std::vector<float> host(cols, 1.0f / static_cast<float>(cols));
@@ -112,6 +134,8 @@ TEST(MatrixGPUTD003Test, RowEntropyIsNonNegativeForMultipleRows) {
     if (!GPUManager::probe()) {
         GTEST_SKIP() << "No GPU device present.";
     }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
     GPUMatrix m =
         upload({0.25f, 0.25f, 0.25f, 0.25f, 0.7f, 0.1f, 0.1f, 0.1f, 0.1f, 0.7f, 0.1f, 0.1f}, 3, 4);
     EXPECT_GE(m.row_entropy_avg(), 0.0f);
@@ -125,6 +149,8 @@ TEST(MatrixGPUTD003Test, CopyDeviceToDeviceRoundTrip) {
     if (!GPUManager::probe()) {
         GTEST_SKIP() << "No GPU device present.";
     }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
     GPUMatrix src = upload({1.0f, 2.0f, 3.0f, 4.0f}, 2, 2);
     GPUMatrix dst(2, 2);
     dst.zero();
@@ -141,6 +167,8 @@ TEST(MatrixGPUTD003Test, DownloadAtOffsetReadsCorrectRow) {
     if (!GPUManager::probe()) {
         GTEST_SKIP() << "No GPU device present.";
     }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
     // Mirrors EncoderDecoderModel.cpp's gpu_generate_response use: download one
     // row from an arbitrary offset into a larger buffer.
     GPUMatrix m = upload({1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f}, 3, 2);
@@ -159,6 +187,8 @@ TEST(MatrixGPUTD003Test, AddInplaceAccumulates) {
     if (!GPUManager::probe()) {
         GTEST_SKIP() << "No GPU device present.";
     }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
     GPUMatrix dst = upload({1.0f, 2.0f, 3.0f, 4.0f}, 2, 2);
     GPUMatrix src = upload({10.0f, 20.0f, 30.0f, 40.0f}, 2, 2);
     dst.add_inplace(src);
@@ -174,6 +204,8 @@ TEST(MatrixGPUTD003Test, SoftmaxRowsSumToOneAndMatchKnownValues) {
     if (!GPUManager::probe()) {
         GTEST_SKIP() << "No GPU device present.";
     }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
     // Row [0, 0] -> uniform [0.5, 0.5]; row [0, log(3)] -> [1/4, 3/4].
     GPUMatrix m = upload({0.0f, 0.0f, 0.0f, std::log(3.0f)}, 2, 2);
     m.softmax_rows_inplace();
@@ -189,6 +221,8 @@ TEST(MatrixGPUTD003Test, MaskedFillReplacesMaskedElements) {
     if (!GPUManager::probe()) {
         GTEST_SKIP() << "No GPU device present.";
     }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
     GPUMatrix m = upload({1.0f, 2.0f, 3.0f, 4.0f}, 2, 2);
     GPUMatrix mask = upload({1.0f, 0.0f, 0.0f, 1.0f}, 2, 2);  // 0 = fill
     m.masked_fill_inplace(mask, -1e9f);
@@ -204,6 +238,8 @@ TEST(MatrixGPUTD003Test, SumRowsReducesColumnwise) {
     if (!GPUManager::probe()) {
         GTEST_SKIP() << "No GPU device present.";
     }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
     // [[1,2,3],[4,5,6]] -> column sums [5,7,9]
     GPUMatrix m = upload({1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f}, 2, 3);
     GPUMatrix result = m.sum_rows();

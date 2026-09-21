@@ -435,8 +435,18 @@ adai::gpu::GPUMatrix FeedForward::gpu_forward(const adai::gpu::GPUMatrix& input)
     if (!gpu_)
         gpu_upload_weights();
     const int seq = input.rows;
-    // Resize caches if seq length changed
-    if (gpu_->cached_input.rows != seq) {
+    // Resize caches if seq length changed. Must check .cols too, not just .rows: GPUState's
+    // constructor sentinel-initializes these to (1, 1) before the first real call, and a
+    // rows-only check coincidentally matches whenever seq == 1 -- exactly the case a
+    // single-token incremental decode step (DecoderBlock::gpu_forward_with_cache() calling
+    // this same gpu_forward() for its feed-forward sub-layer) introduces for the first time in
+    // this codebase, since every prior caller always passed a multi-token sequence. Confirmed
+    // crashing on real GPU hardware (ai-machine) with cached_act stuck at its [1,1] sentinel
+    // shape instead of resizing to [1, d_ff], causing `cached_act * W2_g` below to throw
+    // "GPUMatrix dimensions incompatible for multiply: [1x1] * [64x32]". CrossAttention.cpp's
+    // own equivalent check (cached_query.rows != tgt || cached_query.cols != d_model) already
+    // gets this right -- mirrored here instead of inventing a new pattern.
+    if (gpu_->cached_input.rows != seq || gpu_->cached_input.cols != d_model) {
         gpu_->cached_input = adai::gpu::GPUMatrix(seq, d_model);
         gpu_->cached_hidden = adai::gpu::GPUMatrix(seq, d_ff);
         gpu_->cached_act = adai::gpu::GPUMatrix(seq, d_ff);

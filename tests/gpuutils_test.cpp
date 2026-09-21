@@ -50,6 +50,27 @@ TEST_F(GPUManagerTest, IsAvailableFalseBeforeInitialize) {
     EXPECT_FALSE(GPUManager::is_available());
 }
 
+TEST_F(GPUManagerTest, GetDeviceInfoThrowsForInvalidDeviceId) {
+    // TD-041 follow-up: get_device_info() used to diverge between backends for an invalid
+    // device ID -- CUDA let cudaGetDeviceProperties() fail on its own (surfacing as a generic
+    // std::runtime_error from CUDA_CHECK), while SYCL silently returned the string "Invalid
+    // device ID" instead of throwing at all. Both now throw std::out_of_range, matching
+    // set_device()'s own validation for the identical condition. Must run before any test in
+    // this fixture that could call a *successful* initialize() (cleanup() deliberately does not
+    // reset current_device_ back to -1 -- confirmed the hard way on real GPU hardware, where
+    // this test used to run AFTER InitializeMatchesProbe/DeviceCountMatchesProbe below and
+    // therefore saw current_device_ already left at a valid index, so get_device_info()'s
+    // default-argument case resolved to a real device and stopped throwing at all), so the
+    // default-argument case (device == -1 -> current_device_) is guaranteed to still resolve to
+    // current_device_'s own never-touched default of -1, regardless of whether real hardware is
+    // present in this process. Kept immediately after IsAvailableFalseBeforeInitialize (the only
+    // other test that also needs pre-initialize state) rather than relying on GTest to run
+    // fixture tests in declaration order by coincidence.
+    EXPECT_THROW(GPUManager::get_device_info(), std::out_of_range);    // default -> current_device_ (-1)
+    EXPECT_THROW(GPUManager::get_device_info(-1), std::out_of_range);  // explicit -1
+    EXPECT_THROW(GPUManager::get_device_info(GPUManager::device_count() + 100), std::out_of_range);
+}
+
 TEST_F(GPUManagerTest, InitializeMatchesProbe) {
     // The documented soft-fail contract: initialize() returns exactly what probe() predicted,
     // and never throws merely for "no device present" (only for invalid arguments once a device
@@ -95,21 +116,6 @@ TEST_F(GPUManagerTest, MemoryGettersAreZeroWhenNeverInitialized) {
 
 TEST_F(GPUManagerTest, SynchronizeDoesNotThrowBeforeInitialize) {
     EXPECT_NO_THROW(GPUManager::synchronize());
-}
-
-TEST_F(GPUManagerTest, GetDeviceInfoThrowsForInvalidDeviceId) {
-    // TD-041 follow-up: get_device_info() used to diverge between backends for an invalid
-    // device ID -- CUDA let cudaGetDeviceProperties() fail on its own (surfacing as a generic
-    // std::runtime_error from CUDA_CHECK), while SYCL silently returned the string "Invalid
-    // device ID" instead of throwing at all. Both now throw std::out_of_range, matching
-    // set_device()'s own validation for the identical condition. Placed before any test in this
-    // fixture that could call a *successful* initialize() (only the real-device tests further
-    // down do), so the default-argument case (device == -1 -> current_device_) is guaranteed to
-    // still resolve to current_device_'s own never-touched default of -1, regardless of whether
-    // real hardware is present in this process.
-    EXPECT_THROW(GPUManager::get_device_info(), std::out_of_range);    // default -> current_device_ (-1)
-    EXPECT_THROW(GPUManager::get_device_info(-1), std::out_of_range);  // explicit -1
-    EXPECT_THROW(GPUManager::get_device_info(GPUManager::device_count() + 100), std::out_of_range);
 }
 
 TEST_F(GPUManagerTest, InvalidDeviceIdThrowsOnceADeviceExists) {
@@ -196,7 +202,16 @@ TEST_F(GPUManagerTest, GPUMemoryTracksAllocationInBudget) {
         GPUMemory<float> mem(256);
         EXPECT_EQ(GPUManager::get_used_memory_bytes(), before + 256 * sizeof(float));
     }
-    // Destructor released it back.
+    // Destructor released it back -- but GPUMemory defers the actual
+    // sycl::free()/release_memory() into a queued host_task (see
+    // GPUManager::reserve_memory()'s own comment on this), so allocated_bytes_
+    // can still reflect the pre-release value immediately after the scope
+    // exits on genuinely async hardware. synchronize() drains the queue so
+    // the deferred release has actually run before asserting on it -- without
+    // this, the assertion below is a race, confirmed failing on real GPU
+    // hardware (ai-machine) even though it always passed here (no discrete
+    // device, so probe() short-circuits the whole test as skipped).
+    GPUManager::synchronize();
     EXPECT_EQ(GPUManager::get_used_memory_bytes(), before);
 }
 

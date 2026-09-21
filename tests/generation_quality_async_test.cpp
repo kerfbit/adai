@@ -88,6 +88,14 @@ static std::unique_ptr<ChatbotTrainer> make_tiny_trainer(TrainingConfig cfg, int
     cfg.num_epochs = 1;
     cfg.generation_quality_max_tokens = 4;  // very short — keeps generation fast
 
+    // Matches the order every real GPU-enabled binary follows (IncrementalTrainingTool.cpp,
+    // ChatbotAPIServer.cpp both call Matrix::gpu_try_initialize() before constructing any
+    // trainer/model) -- see chatbottrainer_test.cpp's MetricsTrackerWiringTest::SetUp() for the
+    // full explanation of why this is needed. Without it, every test using this helper failed
+    // with train() returning false ("GPU not initialized") the first time this suite actually
+    // ran against real GPU hardware (ai-machine).
+    Matrix::gpu_try_initialize();
+
     auto trainer = std::make_unique<ChatbotTrainer>(cfg);
 
     std::vector<std::string> corpus = {"hello world foo bar baz", "the quick brown fox",

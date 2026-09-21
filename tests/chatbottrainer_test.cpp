@@ -643,6 +643,18 @@ class MetricsTrackerWiringTest : public ::testing::Test {
     std::filesystem::path data_path_;
 
     void SetUp() override {
+        // Matches the order every real GPU-enabled binary follows (IncrementalTrainingTool.cpp,
+        // ChatbotAPIServer.cpp both call Matrix::gpu_try_initialize() before constructing any
+        // trainer/model) -- ChatbotTrainer::setup_training() unconditionally calls
+        // model->gpu_init_training() under #ifdef ADAI_ENABLE_GPU with no runtime
+        // is_available() check of its own, so it relies on the caller having already
+        // initialized (or deliberately left uninitialized) GPUManager first. Without this,
+        // every test here failed with "GPU not initialized" the first time this suite actually
+        // ran against real GPU hardware (ai-machine) rather than a device-less sandbox, where
+        // gpu_try_initialize()'s own probe() short-circuits to false and nothing downstream is
+        // reached. gpu_try_initialize() is the safe wrapper (probes, catches, falls back to
+        // CPU) -- exactly what a real binary would call, not the throwing gpu_initialize().
+        Matrix::gpu_try_initialize();
         vocab_path_ =
             std::filesystem::temp_directory_path() / "adai_metricstracker_wiring_vocab.txt";
         data_path_ = std::filesystem::temp_directory_path() / "adai_metricstracker_wiring_data.jsonl";
@@ -1044,6 +1056,9 @@ namespace {
 
 std::unique_ptr<ChatbotTrainer> make_abort_test_trainer(TrainingConfig cfg, int num_train_pairs,
                                                         const std::string& vocab_tmp_path) {
+    // See MetricsTrackerWiringTest::SetUp()'s own comment on why this call is needed before
+    // constructing any ChatbotTrainer under a GPU-enabled build.
+    Matrix::gpu_try_initialize();
     cfg.d_model = 8;
     cfg.num_heads = 2;
     cfg.d_ff = 32;

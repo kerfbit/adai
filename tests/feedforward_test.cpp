@@ -1535,9 +1535,20 @@ TEST(FeedForwardActivationHookTest, HookCalledOncePerForwardPass) {
 // GPU Activation-Stats Hook Tests (gpu_forward() path — the fix for the
 // activation_saturation_ratio-always--1.0 bug: these hooks fire from
 // gpu_forward(), which set_activation_hook()'s CPU-only hook never sees).
+//
+// Every test guards on GPUManager::probe() (skip in a device-less sandbox) and then calls
+// GPUManager::initialize() (idempotent) before constructing any GPUMatrix — this suite
+// originally had neither, matching the same gap found and fixed in
+// multiheadattention_test.cpp's own GPU stats hook tests when this suite first ran against
+// real GPU hardware (ai-machine) rather than a device-less sandbox.
 // ============================================================================
 
 TEST(FeedForwardGPUActivationStatsHookTest, HookFiresOnGpuForward) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
     FeedForward ff(8, 32);
 
     bool hook_called = false;
@@ -1551,6 +1562,11 @@ TEST(FeedForwardGPUActivationStatsHookTest, HookFiresOnGpuForward) {
 }
 
 TEST(FeedForwardGPUActivationStatsHookTest, ClearedHookDoesNotFire) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
     FeedForward ff(8, 32);
 
     bool hook_called = false;
@@ -1565,6 +1581,11 @@ TEST(FeedForwardGPUActivationStatsHookTest, ClearedHookDoesNotFire) {
 }
 
 TEST(FeedForwardGPUActivationStatsHookTest, SaturationRatioAllSaturated) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
     // Zero input -> pre-activations = 0*W1 + b1 = b1 (all 0 at init) -> GELU(0) = 0.
     // Every element is exactly 0, which is < 0.01, so saturation ratio should be 1,
     // matching the CPU-hook SaturationRatioAllSaturated test above.
@@ -1581,6 +1602,11 @@ TEST(FeedForwardGPUActivationStatsHookTest, SaturationRatioAllSaturated) {
 }
 
 TEST(FeedForwardGPUActivationStatsHookTest, SaturationRatioNoneSaturated) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
     // Modest positive inputs produce large GELU outputs, so saturation is near 0,
     // matching the CPU-hook SaturationRatioNoneSaturated test above.
     FeedForward ff(8, 32);

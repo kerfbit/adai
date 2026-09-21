@@ -134,6 +134,19 @@ elseif(ENABLE_SYCL)
     message(STATUS "  oneMKL: ${MKL_ROOT}")
     add_compile_definitions(ADAI_ENABLE_GPU)
     add_compile_definitions(ADAI_GPU_BACKEND_SYCL)
+    # Global, not just on the adai_gpu target: GPUUtils.hpp unconditionally
+    # includes gpu/sycl/GPUUtils_SYCL.hpp (unconditional SYCL extension header
+    # includes, no #ifdef guard) whenever ADAI_GPU_BACKEND_SYCL is defined —
+    # which, per the add_compile_definitions() calls above, is every target in
+    # the project, not just adai_gpu's own sources. Many test targets only
+    # link GTest::gtest_main (never adai_core/adai_gpu), so target-scoped
+    # compile options on adai_gpu never reach them via CMake's usage-
+    # requirement propagation (which only flows through target_link_libraries)
+    # even when marked PUBLIC there. Found when BUILD_TESTING=ON was combined
+    # with ENABLE_SYCL=ON for the first time (the "sycl" CMake preset always
+    # sets BUILD_TESTING=OFF, which is why this went uncaught previously).
+    add_compile_options(-fsycl)
+    add_link_options(-fsycl)
 
 else()
     message(STATUS "GPU acceleration disabled (enable with -DENABLE_GPU=ON or -DENABLE_SYCL=ON)")

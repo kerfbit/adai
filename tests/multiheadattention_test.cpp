@@ -1788,9 +1788,23 @@ TEST(AttentionHookTest, HookCalledOncePerForwardPass) {
 // GPU Attention-Stats Hook Tests (gpu_forward() path — the fix for the
 // attention_entropy-always--1.0 bug: these hooks fire from gpu_forward(),
 // which set_attention_hook()'s CPU-only hook never sees).
+//
+// Every test guards on GPUManager::probe() (skip in a device-less sandbox)
+// and then calls GPUManager::initialize() (idempotent) before constructing
+// any GPUMatrix — this suite originally had neither, unlike
+// matrixgpu_td003_test.cpp/gpuutils_test.cpp's own TD-041 guard pattern, so
+// every test here failed outright (uncaught GPUMemory allocation exception
+// with no device, or "GPU not initialized" with a real device present but
+// never explicitly initialized) rather than skipping or passing. Confirmed
+// the latter directly on real GPU hardware (ai-machine).
 // ============================================================================
 
 TEST(MultiHeadAttentionGPUStatsHookTest, HookFiresOnGpuForward) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
     MultiHeadAttention mha(64, 4);
 
     bool hook_called = false;
@@ -1804,6 +1818,11 @@ TEST(MultiHeadAttentionGPUStatsHookTest, HookFiresOnGpuForward) {
 }
 
 TEST(MultiHeadAttentionGPUStatsHookTest, ClearedHookDoesNotFire) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
     MultiHeadAttention mha(64, 4);
 
     bool hook_called = false;
@@ -1818,6 +1837,11 @@ TEST(MultiHeadAttentionGPUStatsHookTest, ClearedHookDoesNotFire) {
 }
 
 TEST(MultiHeadAttentionGPUStatsHookTest, EntropyIsNonNegative) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
     // Shannon entropy of a probability distribution (post-softmax attention
     // weights) is always >= 0 — matches the CPU-hook EntropyIsNonNegative test.
     MultiHeadAttention mha(64, 4);
@@ -1833,6 +1857,11 @@ TEST(MultiHeadAttentionGPUStatsHookTest, EntropyIsNonNegative) {
 }
 
 TEST(MultiHeadAttentionGPUStatsHookTest, HookCalledOncePerForwardPass) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
     MultiHeadAttention mha(64, 4);
 
     int call_count = 0;

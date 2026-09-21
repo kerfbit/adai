@@ -839,8 +839,15 @@ adai::gpu::GPUMatrix MultiHeadAttention::gpu_forward(const adai::gpu::GPUMatrix&
     const int seq = input.rows;
     const float scale = 1.0f / std::sqrt(static_cast<float>(d_k));
 
-    // Resize caches if seq changed
-    if (gpu_->cached_input.rows != seq) {
+    // Resize caches if seq changed. Must check .cols too, not just .rows -- see
+    // FeedForward::gpu_forward()'s identical fix for the confirmed-crashing instance of this
+    // same bug: GPUState's constructor sentinel-initializes these to (1, 1), and a rows-only
+    // check coincidentally matches whenever seq == 1. This particular call site (plain
+    // gpu_forward(), not gpu_forward_with_cache()) isn't reached by the GPU-resident decode
+    // path today, so it hasn't actually crashed yet, but the same collision would trigger it
+    // the same way for any single-token gpu_forward() call (e.g. training on a length-1
+    // sequence) -- fixed proactively rather than waiting for that to happen too.
+    if (gpu_->cached_input.rows != seq || gpu_->cached_input.cols != d_model) {
         gpu_->cached_input = adai::gpu::GPUMatrix(seq, d_model);
         gpu_->cached_Q = adai::gpu::GPUMatrix(seq, d_model);
         gpu_->cached_K = adai::gpu::GPUMatrix(seq, d_model);
