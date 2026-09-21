@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-09-16
+// @adai-version: 0.10.1
+// @adai-reviewed: 2026-09-21
 
 #include "IncrementalTrainer.hpp"
 #include <algorithm>
@@ -867,7 +867,7 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
     // means the auto-save clock reflects actual training time elapsed, not
     // setup/download/tokenize time.
     int cumulative_samples_this_session = 0;
-    trainer.set_sample_callback([this, &epoch_start, &epochs_fully_completed,
+    trainer.set_sample_callback([this, &trainer, &epoch_start, &epochs_fully_completed,
                                  &cumulative_samples_this_session](int sample, int, float running_loss,
                                                                     float, float, float) {
         if (sample == 1) {
@@ -894,12 +894,13 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
             // auto-save cadence, consumed once via exchange().
             if (control_->checkpoint_requested.exchange(false)) {
                 control_->phase = adai::TrainerPhase::Checkpointing;
-                perform_auto_save(epochs_fully_completed + 1, cumulative_samples_this_session);
+                perform_auto_save(epochs_fully_completed + 1, cumulative_samples_this_session,
+                                  &trainer);
                 control_->phase = adai::TrainerPhase::Training;
             }
         }
         if (should_auto_save()) {
-            perform_auto_save(epochs_fully_completed + 1, cumulative_samples_this_session);
+            perform_auto_save(epochs_fully_completed + 1, cumulative_samples_this_session, &trainer);
         }
     });
 
@@ -1857,11 +1858,36 @@ bool IncrementalTrainer::should_auto_save() {
     return false;
 }
 
-void IncrementalTrainer::perform_auto_save(int current_epoch, int cumulative_samples_trained) {
+void IncrementalTrainer::perform_auto_save(int current_epoch, int cumulative_samples_trained,
+                                           ChatbotTrainer* live_trainer) {
     std::string auto_save_path =
         get_session_dir() + "/auto_save_session_" + std::to_string(current_session_id) + ".bin";
 
-    if (save_model(auto_save_path)) {
+    // Mid-epoch auto-save (live_trainer set): this->model is still the default-
+    // constructed null unique_ptr — it isn't assigned until run_training() calls
+    // trainer.release_model() after trainer.train() returns, well after any
+    // sample-callback-driven auto-save could have fired. The model actually being
+    // trained right now lives inside ChatbotTrainer, so save through it instead
+    // (mirrors the existing best-model-snapshot callback's trainer.save_to() use).
+    // Discovered via a real SIGSEGV (null-model deref inside save_model) on the
+    // first training pass at the 768-dim/24-decoder-layer architecture, whose
+    // larger per-epoch sample count was the first to cross AUTO_SAVE_EVERY_SAMPLES
+    // before an epoch finished — reproduced locally under ASan.
+    bool saved;
+    if (live_trainer) {
+        try {
+            live_trainer->save_to(auto_save_path);
+            Logger::info("Model saved to: {}", auto_save_path);
+            saved = true;
+        } catch (const std::exception& e) {
+            Logger::error("Failed to save model: {}", e.what());
+            saved = false;
+        }
+    } else {
+        saved = save_model(auto_save_path);
+    }
+
+    if (saved) {
         // Routed through control_->log() (which itself calls Logger::info) rather
         // than calling Logger::info directly here too — avoids double-logging the
         // same line when running under `serve` (control_ non-null).

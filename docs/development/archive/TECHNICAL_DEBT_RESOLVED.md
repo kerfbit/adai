@@ -4,6 +4,55 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-207: Mid-Epoch Auto-Save Crashed on a Model's First-Ever Training Pass (Null-Model Deref)
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 21, 2026 | `src/IncrementalTrainer.{cpp,hpp}` | `perform_auto_save()` now saves through the live `ChatbotTrainer`'s own model when called mid-epoch, instead of through `IncrementalTrainer::model`, which isn't populated until `release_model()` runs after `trainer.train()` returns |
+
+Summary:
+The first-ever real end-to-end training pass at the new 768-dim/12-head/8-encoder/24-decoder-layer
+architecture (see the LeJEPA/encoder/decoder training plan) crashed on `ai-machine` with a SIGSEGV
+inside `EncoderDecoderModel::save_model()`'s `ostream::write()`, reached via
+`IncrementalTrainer::perform_auto_save()` → `ChatbotTrainer::train_epoch()`'s per-sample callback.
+A `gdb` backtrace on the real hardware pointed at `save_model()`'s own writes; reproducing locally
+under AddressSanitizer (CPU-only, no GPU needed — the crash is in a pure host-side file-write path)
+pinned it exactly: `EncoderDecoderModel.cpp:756`, a **READ** at address `0x48` — a null-`this`-plus-
+small-member-offset pattern, meaning `save_model()` was being called on a null model pointer.
+
+Root cause: `IncrementalTrainer::model` (a `std::unique_ptr<EncoderDecoderModel>`) is only assigned
+at `model = trainer.release_model();` in `run_training()`, which runs *after* `trainer.train()`
+returns. But `perform_auto_save()` is also invoked *during* training, from a per-sample callback
+(`should_auto_save()`'s sample/time-based cadence, and the `/admin/checkpoint` forced-checkpoint
+path) — at that point `IncrementalTrainer::model` is still the default-constructed null pointer (or,
+on a *resumed* session, a stale pre-training snapshot distinct from the object actually being
+trained inside `ChatbotTrainer`). `IncrementalTrainer::save_model()` unconditionally dereferences
+`model->save_model(path)`, crashing on a first-ever session and silently saving stale weights on a
+resumed one. This had never fired before because every prior real-data training run either
+completed each epoch before `AUTO_SAVE_EVERY_SAMPLES` (default 1000) was reached, or ran against a
+tiny/zero-sample smoke test where the per-sample callback never fired at all — the new
+architecture's `BATCH_SIZE=4` and a 27,000-sample real dataset was the first case to actually cross
+the threshold mid-epoch.
+
+Fix: `perform_auto_save()` gained an optional `ChatbotTrainer* live_trainer` parameter. The two
+mid-epoch call sites (inside `run_training()`'s sample callback) now pass `&trainer` and save via
+`trainer.save_to(path)` — the same method the pre-existing best-model-snapshot callback already
+used successfully for this exact mid-training situation — instead of the `IncrementalTrainer::model`
+path. The one post-`release_model()` call site (the `/admin/pause`-abort path) is left unchanged
+(`live_trainer` defaults to `nullptr`), since `IncrementalTrainer::model` is already correct there.
+Verified via the same local ASan repro: training now completes cleanly with no crash. Full
+`incrementaltrainerTests` (46/46) and `chatbottrainerTests` (72/72) suites re-verified with no
+regressions.
+
+A separate, unrelated gap was found in passing during this investigation and left unfixed:
+`IncrementalTrainingTool.cpp`'s local/standalone-mode (`REGISTRY_SERVER_URL` empty) pre-flight
+pending-file count reads `<session_dir>/pending_files.txt` directly, ignoring TD-202's per-`kind`
+sub-pools entirely — a file queued into a kind-scoped pool (as `incremental_trainer` itself
+automatically does per training objective) is invisible to this check in standalone mode, even
+though the real `DatasetRegistry::acquire_pending()` call deeper in the same code path does resolve
+kind correctly. Only affects local/standalone mode; the remote `registry_server` path used in
+production is unaffected.
+
 ### TD-206: First Real-GPU-Hardware Validation of the SYCL Backend — 3 Latent Bugs Found and Fixed
 
 | Resolution Date | Component | Resolved By |

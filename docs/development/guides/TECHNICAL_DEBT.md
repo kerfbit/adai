@@ -10,8 +10,18 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 193
+**Resolved Items:** 194
 **Deferred Decisions:** 3
+
+**September 21, 2026:** Filed and resolved
+[TD-207](../archive/TECHNICAL_DEBT_RESOLVED.md#td-207-mid-epoch-auto-save-crashed-on-a-models-first-ever-training-pass-null-model-deref)
+— the first-ever real training pass at the new 768-dim/24-decoder-layer architecture crashed with a
+SIGSEGV inside checkpoint serialization; root-caused via a local AddressSanitizer repro (no GPU
+needed) to `perform_auto_save()` dereferencing `IncrementalTrainer::model`, which isn't populated
+until *after* `trainer.train()` returns, whenever it fires mid-epoch. Fixed by saving through the
+live `ChatbotTrainer`'s own model instead, mirroring the pre-existing best-model-snapshot callback's
+already-correct pattern. See its own archive entry, including a separate unrelated gap found (but
+left unfixed) in standalone-mode's pending-file pre-check ignoring TD-202 kind sub-pools.
 
 **September 21, 2026:** Filed and resolved
 [TD-206](../archive/TECHNICAL_DEBT_RESOLVED.md#td-206-first-real-gpu-hardware-validation-of-the-sycl-backend--3-latent-bugs-found-and-fixed)
@@ -525,7 +535,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (193 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (194 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -2169,7 +2179,7 @@ another branch of one large `main()` instead of becoming its own focused binary)
 
 ## Resolved Items
 
-193 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+194 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

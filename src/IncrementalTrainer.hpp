@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-09-16
+// @adai-version: 0.10.1
+// @adai-reviewed: 2026-09-21
 
 
 #include <chrono>
@@ -397,7 +397,13 @@ class IncrementalTrainer {
     bool finalize_session(int samples_trained, int epochs_completed, float final_loss,
                           float final_val_loss);
     bool should_auto_save();
-    void perform_auto_save(int current_epoch, int cumulative_samples_trained);
+    // live_trainer: non-null when called mid-epoch (from run_training()'s sample
+    // callback, before trainer.release_model() has transferred ownership into
+    // this->model) — saves via the ChatbotTrainer's own live model instead of
+    // this->model, which is still null/stale at that point. Null (default) for
+    // the post-release_model() call site, where this->model is already correct.
+    void perform_auto_save(int current_epoch, int cumulative_samples_trained,
+                           ChatbotTrainer* live_trainer = nullptr);
     std::string generate_session_checkpoint_path();
     std::string get_session_dir() const;
     void ensure_directories_exist();
