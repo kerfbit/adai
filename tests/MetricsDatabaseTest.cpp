@@ -496,6 +496,129 @@ TEST_F(MetricsDatabaseTest, MigratesPreExistingDatabaseMissingTD013MetricsHistor
     EXPECT_FLOAT_EQ(results2[1].attention_entropy, 1.9f);
 }
 
+// TD-178: predictor_loss/sigreg_loss round-trip through insert + query_history, mirroring
+// TD013DiagnosticsRoundTripThroughInsertAndQueryHistory above.
+TEST_F(MetricsDatabaseTest, TD178LejepaLossesRoundTripThroughInsertAndQueryHistory) {
+    SQLiteMetricsDatabase db(db_path_);
+
+    SessionRecord session;
+    session.key = "td178-test";
+    session.session_id = 1;
+    session.is_training = true;
+    session.created_at = std::chrono::system_clock::now();
+    session.last_update_at = session.created_at;
+    db.upsert_session(session);
+
+    PersistentMetricsRecord rec;
+    rec.timestamp = std::chrono::system_clock::now();
+    rec.epoch = 1;
+    rec.sample = 100;
+    rec.loss = 1.5f;
+    rec.predictor_loss = 0.42f;
+    rec.sigreg_loss = 0.13f;
+    db.insert_metrics_record("td178-test", rec);
+
+    // A second record that never reported the LeJEPA fields must stay at their
+    // "not computed" default, not silently inherit the first row's values.
+    PersistentMetricsRecord rec2;
+    rec2.timestamp = std::chrono::system_clock::now() + std::chrono::seconds(1);
+    rec2.epoch = 1;
+    rec2.sample = 200;
+    rec2.loss = 1.4f;
+    db.insert_metrics_record("td178-test", rec2);
+
+    auto results = db.query_history("td178-test", std::nullopt, std::nullopt, 0);
+    ASSERT_EQ(results.size(), 2u);
+
+    EXPECT_FLOAT_EQ(results[0].predictor_loss, 0.42f);
+    EXPECT_FLOAT_EQ(results[0].sigreg_loss, 0.13f);
+
+    EXPECT_FLOAT_EQ(results[1].predictor_loss, -1.0f);
+    EXPECT_FLOAT_EQ(results[1].sigreg_loss, -1.0f);
+}
+
+// Regression test for the migration-gate mistake this feature could easily introduce: seed a
+// database with the CURRENT full TD-013 schema already applied (compute_time_ratio and friends
+// already present) but predictor_loss/sigreg_loss still missing, and confirm the migration still
+// adds them. If the migration were mistakenly nested inside the existing has_compute_time_ratio
+// gate (which is already satisfied on a TD-013-migrated database), these two columns would
+// silently, permanently never get added — this test exists specifically to catch that.
+TEST_F(MetricsDatabaseTest, MigratesPreExistingDatabaseWithTD013ButMissingTD178LossColumns) {
+    {
+        sqlite3* raw_db = nullptr;
+        ASSERT_EQ(sqlite3_open(db_path_.c_str(), &raw_db), SQLITE_OK);
+        const char* old_schema = R"SQL(
+            CREATE TABLE sessions (
+                key                  TEXT    PRIMARY KEY,
+                session_id           INTEGER NOT NULL,
+                label                TEXT    NOT NULL DEFAULT '',
+                config_json          TEXT,
+                is_training          INTEGER NOT NULL DEFAULT 1,
+                created_at           TEXT    NOT NULL,
+                ended_at             TEXT,
+                last_update_at       TEXT    NOT NULL,
+                total_epochs         INTEGER NOT NULL DEFAULT 0,
+                total_samples        INTEGER NOT NULL DEFAULT 0,
+                best_validation_loss REAL,
+                best_epoch           INTEGER,
+                final_loss            REAL,
+                final_validation_loss REAL
+            );
+            CREATE TABLE metrics_history (
+                id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_key                 TEXT    NOT NULL REFERENCES sessions(key),
+                recorded_at                 TEXT    NOT NULL,
+                epoch                       INTEGER NOT NULL,
+                sample                      INTEGER NOT NULL,
+                loss                        REAL,
+                validation_loss             REAL,
+                learning_rate               REAL,
+                gradient_norm               REAL,
+                perplexity                  REAL,
+                compute_time_ratio          REAL,
+                weight_update_ratio         REAL,
+                activation_saturation_ratio REAL,
+                attention_entropy           REAL,
+                padding_efficiency          REAL,
+                layer_gradient_norms_json   TEXT
+            );
+            INSERT INTO sessions (key, session_id, is_training, created_at, last_update_at,
+                                  total_epochs, total_samples, best_validation_loss, best_epoch)
+            VALUES ('pre-td178', 1, 0, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z',
+                   3, 100, 0.9, 2);
+            INSERT INTO metrics_history (session_key, recorded_at, epoch, sample, loss,
+                                        compute_time_ratio, padding_efficiency)
+            VALUES ('pre-td178', '2026-01-01T00:00:00.000Z', 1, 50, 1.8, 0.5, 0.9);
+        )SQL";
+        char* err = nullptr;
+        ASSERT_EQ(sqlite3_exec(raw_db, old_schema, nullptr, nullptr, &err), SQLITE_OK)
+            << (err ? err : "unknown error");
+        sqlite3_close(raw_db);
+    }
+
+    // Opening via SQLiteMetricsDatabase must migrate in the two new columns even though
+    // has_compute_time_ratio is already true on this database.
+    SQLiteMetricsDatabase db(db_path_);
+    auto results = db.query_history("pre-td178", std::nullopt, std::nullopt, 0);
+    ASSERT_EQ(results.size(), 1u);
+    EXPECT_FLOAT_EQ(results[0].loss, 1.8f);
+    EXPECT_FLOAT_EQ(results[0].compute_time_ratio, 0.5f);
+
+    // And the migrated table must accept new writes to the new columns going forward.
+    PersistentMetricsRecord rec;
+    rec.timestamp = std::chrono::system_clock::now();
+    rec.epoch = 2;
+    rec.sample = 60;
+    rec.loss = 1.6f;
+    rec.predictor_loss = 0.37f;
+    rec.sigreg_loss = 0.08f;
+    db.insert_metrics_record("pre-td178", rec);
+    auto results2 = db.query_history("pre-td178", std::nullopt, std::nullopt, 0);
+    ASSERT_EQ(results2.size(), 2u);
+    EXPECT_FLOAT_EQ(results2[1].predictor_loss, 0.37f);
+    EXPECT_FLOAT_EQ(results2[1].sigreg_loss, 0.08f);
+}
+
 // insert_gradient_variance_sample() writes to a dedicated table, deliberately
 // separate from metrics_history's throttled per-100-sample cadence (see
 // IMetricsDatabase::insert_gradient_variance_sample doc comment) — verify it

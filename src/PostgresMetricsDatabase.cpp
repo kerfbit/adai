@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-042 resolved — real test coverage added; still not built by default)
-// @adai-version: 0.4.1
-// @adai-reviewed: 2026-09-12
+// @adai-version: 0.4.2
+// @adai-reviewed: 2026-09-23
 
 #ifdef ADAI_ENABLE_POSTGRES
 
@@ -224,7 +224,9 @@ void PostgresMetricsDatabase::bootstrap_schema(PGconn* conn) {
             activation_saturation_ratio REAL,
             attention_entropy           REAL,
             padding_efficiency          REAL,
-            layer_gradient_norms_json   TEXT
+            layer_gradient_norms_json   TEXT,
+            predictor_loss              REAL,
+            sigreg_loss                 REAL
         );
 
         CREATE INDEX IF NOT EXISTS idx_metrics_history_session_time
@@ -327,6 +329,12 @@ void PostgresMetricsDatabase::bootstrap_schema(PGconn* conn) {
     res = PQexec(conn,
                  "ALTER TABLE metrics_history ADD COLUMN IF NOT EXISTS "
                  "layer_gradient_norms_json TEXT;");
+    PQclear(res);
+
+    // Migration: TD-178 LeJEPA loss columns.
+    res = PQexec(conn, "ALTER TABLE metrics_history ADD COLUMN IF NOT EXISTS predictor_loss REAL;");
+    PQclear(res);
+    res = PQexec(conn, "ALTER TABLE metrics_history ADD COLUMN IF NOT EXISTS sigreg_loss REAL;");
     PQclear(res);
 
     adai::Logger::info("[PostgresMetricsDB] Schema bootstrap complete");
@@ -542,6 +550,8 @@ void PostgresMetricsDatabase::insert_metrics_record(const std::string& session_k
         auto asr = pg_float_to_string(rec.activation_saturation_ratio);
         auto aent = pg_float_to_string(rec.attention_entropy);
         auto peff = pg_float_to_string(rec.padding_efficiency);
+        auto ploss = pg_float_to_string(rec.predictor_loss);
+        auto sloss = pg_float_to_string(rec.sigreg_loss);
         // PQexecParams treats a NULL entry in the params array as SQL NULL —
         // pass nullptr instead of an empty string when not reported this epoch.
         const char* lg_json = rec.layer_gradient_norms_json.empty()
@@ -552,16 +562,18 @@ void PostgresMetricsDatabase::insert_metrics_record(const std::string& session_k
                                 sample.c_str(),      loss.c_str(),  vloss.c_str(),
                                 lr.c_str(),          gnorm.c_str(), ppl.c_str(),
                                 ctr.c_str(),         wur.c_str(),   asr.c_str(),
-                                aent.c_str(),         peff.c_str(), lg_json};
+                                aent.c_str(),         peff.c_str(), lg_json,
+                                ploss.c_str(),        sloss.c_str()};
 
         PGresult* res = PQexecParams(
             conn,
             "INSERT INTO metrics_history (session_key, recorded_at, epoch, sample, "
             "loss, validation_loss, learning_rate, gradient_norm, perplexity, "
             "compute_time_ratio, weight_update_ratio, activation_saturation_ratio, "
-            "attention_entropy, padding_efficiency, layer_gradient_norms_json) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
-            15, nullptr, params, nullptr, nullptr, 0);
+            "attention_entropy, padding_efficiency, layer_gradient_norms_json, "
+            "predictor_loss, sigreg_loss) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
+            17, nullptr, params, nullptr, nullptr, 0);
 
         bool ok = PQresultStatus(res) == PGRES_COMMAND_OK;
         if (!ok)
@@ -680,7 +692,7 @@ std::vector<PersistentMetricsRecord> PostgresMetricsDatabase::query_history(
             "SELECT recorded_at, epoch, sample, loss, validation_loss, "
             "learning_rate, gradient_norm, perplexity, compute_time_ratio, "
             "weight_update_ratio, activation_saturation_ratio, attention_entropy, "
-            "padding_efficiency, layer_gradient_norms_json "
+            "padding_efficiency, layer_gradient_norms_json, predictor_loss, sigreg_loss "
             "FROM metrics_history WHERE session_key = $1";
 
         std::vector<std::string> param_strs;
@@ -747,6 +759,8 @@ std::vector<PersistentMetricsRecord> PostgresMetricsDatabase::query_history(
             if (!PQgetisnull(res, i, 13)) {
                 rec.layer_gradient_norms_json = PQgetvalue(res, i, 13);
             }
+            rec.predictor_loss = opt_float(i, 14, -1.0f);
+            rec.sigreg_loss = opt_float(i, 15, -1.0f);
             results.push_back(rec);
         }
 

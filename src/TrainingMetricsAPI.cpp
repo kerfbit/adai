@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.9.1
-// @adai-reviewed: 2026-09-12
+// @adai-version: 0.9.2
+// @adai-reviewed: 2026-09-23
 
 #include "TrainingMetricsAPI.hpp"
 #include "PortableTime.hpp"
@@ -340,6 +340,22 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
         [this](const httplib::Request& req, httplib::Response& res) {
             try {
                 std::string response = handle_padding_efficiency_metrics(req.matches[1]);
+                res.set_content(response, "application/json");
+                res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
+            } catch (const std::exception& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 500;
+            }
+        });
+
+    server_impl_->server.Get(
+        "/api/sessions/" + key_pattern + "/metrics/lejepa",
+        [this](const httplib::Request& req, httplib::Response& res) {
+            try {
+                std::string response = handle_lejepa_metrics(req.matches[1]);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const ApiRequestError& e) {
@@ -756,6 +772,23 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
             } catch (const ApiRequestError& e) {
                 set_legacy_deprecation_headers(
                     res, "/api/sessions/0-default/metrics/padding-efficiency");
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
+            } catch (const std::exception& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 500;
+            }
+        });
+
+    server_impl_->server.Get(
+        "/api/metrics/lejepa", [this](const httplib::Request&, httplib::Response& res) {
+            try {
+                std::string response = handle_lejepa_metrics("0-default");
+                set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/lejepa");
+                res.set_content(response, "application/json");
+                res.status = 200;
+            } catch (const ApiRequestError& e) {
+                set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/lejepa");
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = e.status_code();
             } catch (const std::exception& e) {
@@ -1360,6 +1393,32 @@ std::string TrainingMetricsAPI::handle_padding_efficiency_metrics(const std::str
             json << ",";
         }
         json << snapshot.epoch_padding_efficiencies[i];
+    }
+    json << "]}";
+    return json.str();
+}
+
+std::string TrainingMetricsAPI::handle_lejepa_metrics(const std::string& session_key) {
+    auto service = resolve_session_service(session_key, false);
+    auto snapshot = service->get_current_snapshot();
+    std::ostringstream json;
+    json << std::fixed << std::setprecision(6);
+    json << "{";
+    json << "\"current_predictor_loss\":" << snapshot.current_predictor_loss << ",";
+    json << "\"current_sigreg_loss\":" << snapshot.current_sigreg_loss << ",";
+    json << "\"epoch_predictor_losses\":[";
+    for (size_t i = 0; i < snapshot.epoch_predictor_losses.size(); ++i) {
+        if (i > 0) {
+            json << ",";
+        }
+        json << snapshot.epoch_predictor_losses[i];
+    }
+    json << "],\"epoch_sigreg_losses\":[";
+    for (size_t i = 0; i < snapshot.epoch_sigreg_losses.size(); ++i) {
+        if (i > 0) {
+            json << ",";
+        }
+        json << snapshot.epoch_sigreg_losses[i];
     }
     json << "]}";
     return json.str();
@@ -2034,6 +2093,8 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     float activation_saturation_ratio = -1.0f;
     float attention_entropy = -1.0f;
     float current_padding_efficiency = -1.0f;
+    float predictor_loss_field = -1.0f;
+    float sigreg_loss_field = -1.0f;
     double epoch_time = 0.0;
 
     pos = body.find("\"epoch_time\"");
@@ -2068,8 +2129,32 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
         }
     }
 
-    service->end_epoch(epoch, loss, validation_loss, learning_rate, perplexity, gradient_norm,
-                       epoch_time);
+    // TD-178: LeJEPA predictor/SIGReg losses — optional, only present for
+    // --objective=lejepa passes. Reported as a pair (see IMetricsReporter's own doc
+    // comment on update_lejepa_metrics) rather than as two independent optional fields.
+    pos = body.find("\"predictor_loss\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            predictor_loss_field = std::stof(body.substr(pos + 1));
+        }
+    }
+
+    pos = body.find("\"sigreg_loss\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            sigreg_loss_field = std::stof(body.substr(pos + 1));
+        }
+    }
+
+    // These optional per-epoch fields must be applied BEFORE end_epoch() — end_epoch() both
+    // (a) pushes the CURRENT snapshot value into that field's history vector and (b) reads it
+    // into the PersistentMetricsRecord it persists, so calling it first would push/persist last
+    // epoch's stale value instead of the one just POSTed in this same request body (caught by
+    // TrainingMetricsAPIRoutesTest.LejepaMetricsRoundTripThroughEpochEndAndGet — no prior test
+    // exercised any of these optional fields through the real HTTP handler, only via direct
+    // TrainingMetricsService calls in the already-correct order).
     if (gradient_variance != 0.0f || compute_time_ratio != 0.0f || weight_update_ratio != 0.0f) {
         service->update_advanced_epoch_metrics(gradient_variance, compute_time_ratio,
                                                weight_update_ratio);
@@ -2083,6 +2168,12 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (current_padding_efficiency >= 0.0f) {
         service->update_padding_efficiency(current_padding_efficiency);
     }
+    if (predictor_loss_field >= 0.0f && sigreg_loss_field >= 0.0f) {
+        service->update_lejepa_metrics(predictor_loss_field, sigreg_loss_field);
+    }
+
+    service->end_epoch(epoch, loss, validation_loss, learning_rate, perplexity, gradient_norm,
+                       epoch_time);
 
     return R"({"status":"ok","message":"Epoch ended"})";
 }

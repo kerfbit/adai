@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.9.1
-// @adai-reviewed: 2026-09-15
+// @adai-version: 0.9.2
+// @adai-reviewed: 2026-09-23
 
 #include "TrainingMetricsService.hpp"
 #include <algorithm>
@@ -287,6 +287,9 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
         // Persist per-epoch padding efficiency (-1 if not computed this epoch)
         current_snapshot_.epoch_padding_efficiencies.push_back(
             current_snapshot_.current_padding_efficiency);
+        // TD-178: persist per-epoch LeJEPA predictor/SIGReg losses (-1 if not reported this epoch)
+        current_snapshot_.epoch_predictor_losses.push_back(current_snapshot_.current_predictor_loss);
+        current_snapshot_.epoch_sigreg_losses.push_back(current_snapshot_.current_sigreg_loss);
         // TD-017: Persist per-epoch adaptive clip threshold (-1 if adaptive clipping not active)
         // Note: update_adaptive_clip_epoch() already pushes into epoch_adaptive_clip_thresholds;
         // nothing to do here — the push from ChatbotTrainer arrives before end_epoch() is called.
@@ -323,6 +326,8 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
         record.activation_saturation_ratio = current_snapshot_.activation_saturation_ratio;
         record.attention_entropy = current_snapshot_.attention_entropy;
         record.padding_efficiency = current_snapshot_.current_padding_efficiency;
+        record.predictor_loss = current_snapshot_.current_predictor_loss;
+        record.sigreg_loss = current_snapshot_.current_sigreg_loss;
         if (!current_snapshot_.encoder_layer_grad_norms.empty() ||
             !current_snapshot_.decoder_layer_grad_norms.empty()) {
             std::ostringstream lg;
@@ -375,7 +380,9 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
                  << current_snapshot_.activation_saturation_ratio
                  << ",\"attention_entropy\":" << current_snapshot_.attention_entropy
                  << ",\"current_padding_efficiency\":"
-                 << current_snapshot_.current_padding_efficiency << "}";
+                 << current_snapshot_.current_padding_efficiency
+                 << ",\"predictor_loss\":" << current_snapshot_.current_predictor_loss
+                 << ",\"sigreg_loss\":" << current_snapshot_.current_sigreg_loss << "}";
             push_json = json.str();
         }
     }  // mutex released here
@@ -687,6 +694,8 @@ std::string TrainingMetricsService::to_json() const {
     oss << "  \"current_rouge2\": " << snapshot.current_rouge2 << ",\n";
     oss << "  \"current_rougeL\": " << snapshot.current_rougeL << ",\n";
     oss << "  \"current_padding_efficiency\": " << snapshot.current_padding_efficiency << ",\n";
+    oss << "  \"current_predictor_loss\": " << snapshot.current_predictor_loss << ",\n";
+    oss << "  \"current_sigreg_loss\": " << snapshot.current_sigreg_loss << ",\n";
     oss << "  \"current_adaptive_clip_threshold\": " << snapshot.current_adaptive_clip_threshold
         << ",\n";
     oss << "  \"current_adaptive_clip_spikes\": " << snapshot.current_adaptive_clip_spikes << ",\n";

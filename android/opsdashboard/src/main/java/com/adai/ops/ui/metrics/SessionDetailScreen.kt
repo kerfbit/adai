@@ -1,8 +1,8 @@
 package com.adai.ops.ui.metrics
 
 // @adai-status: beta        (TD-048 — SessionDetailScreenConfirmActionTest.kt now covers the admin-action confirm-dialog flow; real-device run still unverified, see below)
-// @adai-version: 0.3.0
-// @adai-reviewed: 2026-09-13
+// @adai-version: 0.3.1
+// @adai-reviewed: 2026-09-23
 
 
 import androidx.compose.foundation.layout.Arrangement
@@ -137,6 +137,7 @@ private fun SessionDetailContent(
     val status = state.status
     val current = state.current
     val epochs = state.epochs
+    val lejepa = state.lejepa
 
     LazyColumn(
         modifier = modifier.padding(16.dp),
@@ -155,6 +156,10 @@ private fun SessionDetailContent(
             item { AdvancedDiagnosticsSection(it) }
             item { HorizontalDivider() }
             item { GenerationQualitySection(it) }
+            if (it.current_predictor_loss >= 0.0) {
+                item { HorizontalDivider() }
+                item { LejepaSection(it) }
+            }
         }
 
         if (epochs != null && epochs.epoch_losses.size >= 2) {
@@ -173,6 +178,18 @@ private fun SessionDetailContent(
                     title = "Perplexity History (per epoch)",
                     trainValues = epochs.epoch_perplexities,
                     validationValues = epochs.epoch_validation_perplexities,
+                )
+            }
+        }
+
+        if (lejepa != null && lejepa.epoch_predictor_losses.size >= 2) {
+            item {
+                MetricHistoryChart(
+                    title = "LeJEPA Loss Components (per epoch)",
+                    trainValues = lejepa.epoch_predictor_losses,
+                    validationValues = lejepa.epoch_sigreg_losses,
+                    trainLabel = "Predictor loss",
+                    validationLabel = "SIGReg loss",
                 )
             }
         }
@@ -253,6 +270,17 @@ private fun GenerationQualitySection(current: CurrentMetricsDto) {
     MetricRow("ROUGE-1", String.format(Locale.US, "%.4f", current.current_rouge1))
     MetricRow("ROUGE-2", String.format(Locale.US, "%.4f", current.current_rouge2))
     MetricRow("ROUGE-L", String.format(Locale.US, "%.4f", current.current_rougeL))
+}
+
+/** TD-178: LeJEPA world-model pretraining — only rendered when a --objective=lejepa
+ * pass has actually reported these fields (current_predictor_loss stays -1 otherwise,
+ * same "not applicable to this run" convention GenerationQualitySection uses above). */
+@Composable
+private fun LejepaSection(current: CurrentMetricsDto) {
+    if (current.current_predictor_loss < 0.0) return
+    Text("LeJEPA World-Model Pretraining", style = MaterialTheme.typography.titleLarge)
+    MetricRow("Predictor loss", String.format(Locale.US, "%.4f", current.current_predictor_loss))
+    MetricRow("SIGReg loss", String.format(Locale.US, "%.4f", current.current_sigreg_loss))
 }
 
 @Composable

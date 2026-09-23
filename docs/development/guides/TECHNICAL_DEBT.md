@@ -10,8 +10,21 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 194
+**Resolved Items:** 195
 **Deferred Decisions:** 3
+
+**September 23, 2026:** Filed and resolved
+[TD-208](../archive/TECHNICAL_DEBT_RESOLVED.md#td-208-finished-td-178s-deferred-lejepa-metrics-dashboard-wiring)
+— TD-178 deliberately deferred how `predictor_loss`/`sigreg_loss` reach a dashboard to whichever
+training loop drives it; that loop (`run_lejepa_training_pass()`, `--objective=lejepa`) did nothing
+at all until now, discovered while smoke-testing LeJEPA on real hardware right after TD-207. Wired
+the full round-trip — client push, HTTP route, history vectors, DB persistence on both backends,
+and Android dashboard display (closing a dead-round-trip gap padding-efficiency's own precedent
+left open). Also fixed two bugs found in passing: `handle_post_epoch_end()` applied several
+optional per-epoch fields (including the new ones) *after* `end_epoch()` already read/persisted
+them, making their history/DB values one epoch stale for as long as those fields have existed; and
+a SQLite migration-gate mistake that would have silently skipped adding the new columns on any
+database already migrated for TD-013. See its own archive entry.
 
 **September 21, 2026:** Filed and resolved
 [TD-207](../archive/TECHNICAL_DEBT_RESOLVED.md#td-207-mid-epoch-auto-save-crashed-on-a-models-first-ever-training-pass-null-model-deref)
@@ -535,7 +548,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (194 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (195 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -2179,7 +2192,7 @@ another branch of one large `main()` instead of becoming its own focused binary)
 
 ## Resolved Items
 
-194 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+195 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

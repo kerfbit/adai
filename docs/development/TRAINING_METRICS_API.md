@@ -92,6 +92,7 @@ The server uses a session-keyed design. Each training run opens a named **sessio
 | **GET** | `/api/sessions/{key}/metrics/abnormal` | Anomalous samples flagged by outlier detection |
 | **GET** | `/api/sessions/{key}/metrics/generation-quality` | BLEU/ROUGE scores per epoch |
 | **GET** | `/api/sessions/{key}/metrics/padding-efficiency` | Padding efficiency per epoch |
+| **GET** | `/api/sessions/{key}/metrics/lejepa` | TD-178: LeJEPA predictor/SIGReg loss per epoch |
 | **GET** | `/api/sessions/{key}/metrics/prometheus` | Prometheus text format |
 | **GET** | `/api/sessions/{key}/metrics/csv` | CSV format |
 | **GET** | `/api/sessions/{key}/status` | Session status and ETA |
@@ -110,7 +111,7 @@ The server uses a session-keyed design. Each training run opens a named **sessio
 | **POST** | `/api/sessions/{key}/start` | Create / start a training session |
 | **POST** | `/api/sessions/{key}/end` | End and finalize a session |
 | **POST** | `/api/sessions/{key}/epoch/start` | Signal epoch start |
-| **POST** | `/api/sessions/{key}/epoch/end` | Report epoch results |
+| **POST** | `/api/sessions/{key}/epoch/end` | Report epoch results (optionally carries `predictor_loss`/`sigreg_loss`, TD-178) |
 | **POST** | `/api/sessions/{key}/metrics/sample` | Push per-sample loss/gradient metrics |
 | **POST** | `/api/sessions/{key}/metrics/validation` | Push validation metrics |
 | **POST** | `/api/sessions/{key}/metrics/best` | Record best epoch checkpoint |
@@ -131,6 +132,7 @@ These paths work identically to their session-scoped equivalents but include `De
 | `GET /api/metrics/abnormal` | `GET /api/sessions/0-default/metrics/abnormal` |
 | `GET /api/metrics/generation-quality` | `GET /api/sessions/0-default/metrics/generation-quality` |
 | `GET /api/metrics/padding-efficiency` | `GET /api/sessions/0-default/metrics/padding-efficiency` |
+| `GET /api/metrics/lejepa` | `GET /api/sessions/0-default/metrics/lejepa` |
 | `GET /api/metrics/prometheus` | `GET /api/sessions/0-default/metrics/prometheus` |
 | `GET /api/metrics/csv` | `GET /api/sessions/0-default/metrics/csv` |
 | `GET /api/session/status` | `GET /api/sessions/0-default/status` |
@@ -435,6 +437,27 @@ Response:
 
 ---
 
+### `GET /api/sessions/{key}/metrics/lejepa`
+
+TD-178: LeJEPA world-model pretraining metrics (`incremental_trainer --objective=lejepa`).
+`predictor_loss` and `sigreg_loss` are `LeJEPAEncoder::train_step()`'s two independent loss
+components, reported as two separate series rather than summed into one number. Pushed as
+optional fields on `POST .../epoch/end`; a `-1.0` entry means that epoch didn't report them
+(not a `--objective=lejepa` run, or an epoch before this metric existed).
+
+Response:
+
+```json
+{
+  "current_predictor_loss": 0.4213,
+  "current_sigreg_loss": 0.1327,
+  "epoch_predictor_losses": [0.62, 0.51, 0.4213],
+  "epoch_sigreg_losses": [0.30, 0.21, 0.1327]
+}
+```
+
+---
+
 ### `GET /api/sessions/{key}/metrics/prometheus`
 
 Metrics in Prometheus text format for scraping.
@@ -724,12 +747,16 @@ Request body:
   "weight_update_ratio": 0.000456,
   "activation_saturation_ratio": 0.1234,
   "attention_entropy": 2.31,
-  "current_padding_efficiency": 0.873
+  "current_padding_efficiency": 0.873,
+  "predictor_loss": 0.4213,
+  "sigreg_loss": 0.1327
 }
 ```
 
 Required: `epoch`, `loss`, `validation_loss`, `learning_rate`, `perplexity`, `gradient_norm`.
-Optional: all remaining fields. Omit or set to `-1.0` if not computed.
+Optional: all remaining fields. Omit or set to `-1.0` if not computed. `predictor_loss`/
+`sigreg_loss` (TD-178) are LeJEPA-specific and only sent by `--objective=lejepa` passes;
+they're applied as a pair — both must be present (and `>= 0.0`) or neither is recorded.
 
 Response: `{"status":"ok","message":"Epoch ended"}`
 

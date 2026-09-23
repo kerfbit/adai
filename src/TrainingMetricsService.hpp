@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.9.1
-// @adai-reviewed: 2026-09-15
+// @adai-version: 0.9.2
+// @adai-reviewed: 2026-09-23
 
 
 #include <atomic>
@@ -112,14 +112,14 @@ struct TrainingMetricsSnapshot {
     // current training run). Set via update_lejepa_metrics(), from LeJEPAEncoder::train_step()'s
     // own {predictor_loss, sigreg_loss} return value — LeJEPAEncoder itself has no dependency on
     // this class (same complete decoupling as LLMEncoder/EncoderDecoderModel), so the actual
-    // call site is the outer training-loop driver (TD-183's `incremental_trainer
-    // --objective=lejepa` mode), not LeJEPAEncoder. Deliberately just these two current-value
-    // fields for now, not per-epoch history/JSON-export/Prometheus wiring — that's an epoch-level
-    // aggregation/dashboard-surfacing design TD-183's own not-yet-written loop should decide
-    // (per-sample? per-epoch average?), matching the existing fields' own history-vector pattern
-    // rather than guessing at it ahead of time.
+    // call site is the outer training-loop driver (`incremental_trainer --objective=lejepa`'s
+    // run_lejepa_training_pass(), IncrementalTrainingTool.cpp), not LeJEPAEncoder. Per-epoch
+    // average cadence (TD-183's own loop decided this), matching epoch_padding_efficiencies'
+    // own history-vector pattern below.
     float current_predictor_loss = -1.0f;
     float current_sigreg_loss = -1.0f;
+    std::vector<float> epoch_predictor_losses;  ///< Per-epoch history (-1 = not computed)
+    std::vector<float> epoch_sigreg_losses;     ///< Per-epoch history (-1 = not computed)
 
     // Adaptive gradient clipping (TD-017; -1 / 0 = not used / not computed)
     float current_adaptive_clip_threshold =
@@ -163,6 +163,8 @@ struct PersistentMetricsRecord {
     float activation_saturation_ratio = -1.0f;
     float attention_entropy = -1.0f;
     float padding_efficiency = -1.0f;
+    float predictor_loss = -1.0f;  ///< TD-178: LeJEPA predictor loss
+    float sigreg_loss = -1.0f;     ///< TD-178: LeJEPA SIGReg loss
     // JSON string {"encoder":[...],"decoder":[...]} of per-layer gradient
     // norms, or empty if not reported this epoch. Stored pre-serialized
     // (rather than as vectors) since this is the exact form persisted to and

@@ -1,8 +1,8 @@
 package com.adai.ops.network.dto
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.4.1
+// @adai-reviewed: 2026-09-23
 
 
 import kotlinx.serialization.Serializable
@@ -60,6 +60,8 @@ data class CurrentMetricsDto(
     val current_rouge1: Double = -1.0,
     val current_rouge2: Double = -1.0,
     val current_rougeL: Double = -1.0,
+    val current_predictor_loss: Double = -1.0,
+    val current_sigreg_loss: Double = -1.0,
 )
 
 @Serializable
@@ -139,6 +141,16 @@ data class GenerationQualityDto(
 data class PaddingEfficiencyDto(
     val current_padding_efficiency: Double = 0.0,
     val epoch_padding_efficiencies: List<Double> = emptyList(),
+)
+
+/** TD-178: LeJEPA world-model pretraining metrics — predictor_loss/sigreg_loss are two
+ * independent series (see LeJEPAEncoder.hpp's own doc comment), not a train/validation pair. */
+@Serializable
+data class LejepaMetricsDto(
+    val current_predictor_loss: Double = -1.0,
+    val current_sigreg_loss: Double = -1.0,
+    val epoch_predictor_losses: List<Double> = emptyList(),
+    val epoch_sigreg_losses: List<Double> = emptyList(),
 )
 
 @Serializable

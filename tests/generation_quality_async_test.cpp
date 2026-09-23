@@ -59,6 +59,7 @@ class RecordingMetricsReporter final : public IMetricsReporter {
         last_bleu4 = bleu4;
         generation_quality_call_count.fetch_add(1, std::memory_order_relaxed);
     }
+    void update_lejepa_metrics(float, float) override {}
 };
 
 /**

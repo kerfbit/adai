@@ -372,6 +372,43 @@ TEST_F(TrainingMetricsAPIRoutesTest, LayerGradientNormsRoundTripThroughPostAndGe
         << get_res->body;
 }
 
+TEST_F(TrainingMetricsAPIRoutesTest, LejepaMetricsRoundTripThroughEpochEndAndGet) {
+    auto client = make_client();
+
+    const std::string start_body = R"({"session_id":707,"total_epochs":1,"total_samples":10})";
+    auto start_res = client.Post("/api/sessions/lejepa1/start", start_body, "application/json");
+    ASSERT_TRUE(start_res);
+    ASSERT_EQ(start_res->status, 200);
+
+    const std::string epoch_end_body =
+        R"({"epoch":1,"loss":0,"validation_loss":0,"learning_rate":0.001,)"
+        R"("predictor_loss":0.42,"sigreg_loss":0.13})";
+    auto post_res =
+        client.Post("/api/sessions/lejepa1/epoch/end", epoch_end_body, "application/json");
+    ASSERT_TRUE(post_res);
+    EXPECT_EQ(post_res->status, 200);
+
+    auto lejepa_res = client.Get("/api/sessions/lejepa1/metrics/lejepa");
+    ASSERT_TRUE(lejepa_res);
+    EXPECT_EQ(lejepa_res->status, 200);
+    EXPECT_NE(lejepa_res->body.find("\"current_predictor_loss\":0.420000"), std::string::npos)
+        << lejepa_res->body;
+    EXPECT_NE(lejepa_res->body.find("\"current_sigreg_loss\":0.130000"), std::string::npos)
+        << lejepa_res->body;
+    EXPECT_NE(lejepa_res->body.find("\"epoch_predictor_losses\":[0.420000]"), std::string::npos)
+        << lejepa_res->body;
+    EXPECT_NE(lejepa_res->body.find("\"epoch_sigreg_losses\":[0.130000]"), std::string::npos)
+        << lejepa_res->body;
+
+    auto current_res = client.Get("/api/sessions/lejepa1/metrics/current");
+    ASSERT_TRUE(current_res);
+    EXPECT_EQ(current_res->status, 200);
+    EXPECT_NE(current_res->body.find("\"current_predictor_loss\": 0.420000"), std::string::npos)
+        << current_res->body;
+    EXPECT_NE(current_res->body.find("\"current_sigreg_loss\": 0.130000"), std::string::npos)
+        << current_res->body;
+}
+
 TEST_F(TrainingMetricsAPICapacityRoutesTest, SessionStartReturns503WhenRegistryIsFull) {
     auto client = make_client();
 

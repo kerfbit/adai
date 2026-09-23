@@ -1,8 +1,8 @@
 package com.adai.ops.ui.metrics
 
 // @adai-status: beta        (TD-048 resolved — was mistagged "capped by TD-047"; see TECHNICAL_DEBT.md)
-// @adai-version: 0.5.0
-// @adai-reviewed: 2026-09-12
+// @adai-version: 0.5.1
+// @adai-reviewed: 2026-09-23
 
 
 import androidx.lifecycle.ViewModel
@@ -12,6 +12,7 @@ import com.adai.ops.data.wearsync.WatchSyncRepository
 import com.adai.ops.network.ApiResult
 import com.adai.ops.network.dto.CurrentMetricsDto
 import com.adai.ops.network.dto.EpochHistoryDto
+import com.adai.ops.network.dto.LejepaMetricsDto
 import com.adai.ops.network.dto.SampleRecordDto
 import com.adai.ops.network.dto.SessionStatusDto
 import com.adai.ops.network.errorMessageOrNull
@@ -35,6 +36,7 @@ data class SessionDetailUiState(
     val status: SessionStatusDto? = null,
     val current: CurrentMetricsDto? = null,
     val epochs: EpochHistoryDto? = null,
+    val lejepa: LejepaMetricsDto? = null,
     val sampleHistory: List<SampleRecordDto> = emptyList(),
     val pollerPhase: PollerPhase = PollerPhase.LIVE,
     val pollIntervalMs: Long = 2000L,
@@ -112,9 +114,11 @@ class SessionDetailViewModel(
         if (tick % EPOCHS_REFRESH_EVERY_N_TICKS == 1) {
             val epochs = (metricsRepository.epochHistory(sessionKey) as? ApiResult.Success)?.data
             val samples = (metricsRepository.sampleHistory(sessionKey) as? ApiResult.Success)?.data?.records
+            val lejepa = (metricsRepository.lejepaMetrics(sessionKey) as? ApiResult.Success)?.data
             _uiState.update {
                 it.copy(
                     epochs = epochs ?: it.epochs,
+                    lejepa = lejepa ?: it.lejepa,
                     sampleHistory = samples ?: it.sampleHistory,
                 )
             }

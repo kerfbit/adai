@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-23
 
 #include "MetricsPushClient.hpp"
 #include <chrono>
@@ -219,6 +219,8 @@ void MetricsPushClient::start_epoch(int epoch, int total_samples) {
     buf_padding_efficiency_ = -1.0f;
     buf_adaptive_clip_avg_ = -1.0f;
     buf_adaptive_clip_spikes_ = 0;
+    buf_predictor_loss_ = -1.0f;
+    buf_sigreg_loss_ = -1.0f;
 
     std::ostringstream json;
     json << "{\"epoch\":" << epoch << ",\"total_samples\":" << total_samples << "}";
@@ -241,7 +243,9 @@ void MetricsPushClient::end_epoch(int epoch, float loss, float validation_loss, 
          << ",\"weight_update_ratio\":" << buf_weight_update_ratio_
          << ",\"activation_saturation_ratio\":" << buf_activation_saturation_
          << ",\"attention_entropy\":" << buf_attention_entropy_
-         << ",\"current_padding_efficiency\":" << buf_padding_efficiency_ << "}";
+         << ",\"current_padding_efficiency\":" << buf_padding_efficiency_
+         << ",\"predictor_loss\":" << buf_predictor_loss_
+         << ",\"sigreg_loss\":" << buf_sigreg_loss_ << "}";
     enqueue({EventPriority::Epoch, "/epoch/end", json.str()});
 }
 
@@ -372,6 +376,15 @@ void MetricsPushClient::update_generation_quality_metrics(float bleu4, float rou
     json << "{\"bleu4\":" << bleu4 << ",\"rouge1\":" << rouge1 << ",\"rouge2\":" << rouge2
          << ",\"rougeL\":" << rougeL << "}";
     enqueue({EventPriority::Epoch, "/metrics/generation-quality", json.str()});
+}
+
+// ============================================================================
+// IMetricsReporter — LeJEPA world-model pretraining metrics (TD-178)
+// ============================================================================
+
+void MetricsPushClient::update_lejepa_metrics(float predictor_loss, float sigreg_loss) {
+    buf_predictor_loss_ = predictor_loss;
+    buf_sigreg_loss_ = sigreg_loss;
 }
 
 // ============================================================================

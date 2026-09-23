@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.13.2
-// @adai-reviewed: 2026-09-20
+// @adai-version: 0.13.3
+// @adai-reviewed: 2026-09-23
 
 #include <array>
 #include <chrono>
@@ -198,6 +198,23 @@ static void cleanup_downloads(const std::vector<fs::path>& local_paths) {
 // "..."}` lines with no "response" field at all — and any already-queued ordinary (input,
 // response) chatbot data gets both of its sides reused for pretraining for free, with zero new
 // file-format code.
+// Compact JSON config snapshot for the LeJEPA metrics session — mirrors
+// IncrementalTrainer.cpp's own build_config_snapshot(), but reads the
+// WORLD_MODEL_* fields off ServiceConfig directly since this path has no
+// IncrementalConfig/TrainingConfig of its own.
+static std::string build_lejepa_config_snapshot(const adai::ServiceConfig& svc_config) {
+    std::ostringstream json;
+    json << std::fixed;
+    json << "{" << "\"d_model\":" << svc_config.world_model_d_model
+         << ",\"heads\":" << svc_config.world_model_num_heads
+         << ",\"d_ff\":" << svc_config.world_model_d_ff
+         << ",\"layers\":" << svc_config.world_model_num_layers
+         << ",\"sigreg_lambda\":" << svc_config.world_model_sigreg_lambda
+         << ",\"sigreg_sketches\":" << svc_config.world_model_sigreg_num_sketches
+         << ",\"lr\":" << svc_config.learning_rate << "}";
+    return json.str();
+}
+
 static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
                                     const std::string& default_vocab,
                                     const std::string& world_model_dir, int epochs) {
@@ -303,16 +320,87 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         return 1;
     }
 
+    // Metrics-dashboard reporting (previously entirely absent from this path — the only
+    // signal during a potentially many-hour pass was two log lines total: one per epoch,
+    // one at the very end). Mirrors IncrementalTrainer::run_training()'s MetricsPushClient
+    // wiring (IncrementalTrainer.cpp), but with a deliberately STABLE session key —
+    // "lejepa-<model_name>", not a per-invocation session_id+host key — so the dashboard
+    // shows one continuous training-history curve across every separate `train` invocation
+    // for this world model's lifetime, matching how the checkpoint itself is resumed above.
+    // A 409 here means a prior pass crashed without ever reaching end_session() (this loop
+    // has no periodic checkpoint, so a crash mid-pass — e.g. the real GPU engine-reset seen
+    // on ai-machine — leaves the session marked "training" forever); MetricsSessionRegistry
+    // only 409s a genuinely still-"training" session, never an already-ended one, so a short
+    // retry on the SAME key (changing it would fragment the continuous curve) gives the
+    // staleness sweep a chance to reclaim it.
+    std::unique_ptr<MetricsPushClient> metrics_client;
+    if (!svc_config.metrics_server_url.empty()) {
+        const std::string session_key = sanitize_session_key(
+            "lejepa-" + (svc_config.model_name.empty() ? std::string("world-model")
+                                                        : svc_config.model_name));
+        const std::string push_url =
+            build_metrics_session_push_base(svc_config.metrics_server_url, session_key);
+        const std::string label = svc_config.metrics_session_label.empty()
+                                      ? derive_metrics_session_label(1, world_model_dir)
+                                      : svc_config.metrics_session_label;
+        const std::string config_snapshot = build_lejepa_config_snapshot(svc_config);
+
+        auto pc = std::make_unique<MetricsPushClient>(push_url, svc_config.metrics_push_timeout_ms,
+                                                      1024, svc_config.metrics_heartbeat_interval_ms);
+        int rc = 0;
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            if (attempt > 0) {
+                adai::Logger::warn("[lejepa] Metrics session busy (409), retrying '{}'",
+                                   session_key);
+                std::this_thread::sleep_for(std::chrono::milliseconds(500 * attempt));
+            }
+            rc = pc->start_session(1, epochs, static_cast<int>(texts.size()), label,
+                                   config_snapshot, /*reset_best=*/false);
+            if (rc != 409)
+                break;
+        }
+        if (rc >= 200 && rc < 300) {
+            metrics_client = std::move(pc);
+        } else {
+            adai::Logger::error(
+                "[lejepa] Metrics session/start failed for key '{}' (HTTP {}) — training will "
+                "proceed WITHOUT metrics reporting for this pass",
+                session_key, rc);
+        }
+    }
+
     double predictor_loss_sum = 0.0;
     double sigreg_loss_sum = 0.0;
     size_t step_count = 0;
     for (int epoch = 0; epoch < epochs; ++epoch) {
+        if (metrics_client)
+            metrics_client->start_epoch(epoch + 1, static_cast<int>(texts.size()));
+
+        double epoch_predictor_sum = 0.0;
+        double epoch_sigreg_sum = 0.0;
+        size_t epoch_step_count = 0;
+        int sample_idx = 0;
         for (const auto& text : texts) {
+            ++sample_idx;
             try {
                 auto [predictor_loss, sigreg_loss] = world_model.train_step(text);
                 predictor_loss_sum += predictor_loss;
                 sigreg_loss_sum += sigreg_loss;
+                epoch_predictor_sum += predictor_loss;
+                epoch_sigreg_sum += sigreg_loss;
                 ++step_count;
+                ++epoch_step_count;
+                if (metrics_client) {
+                    // Live per-sample curve on the existing loss/perplexity chart —
+                    // predictor_loss alone (the actual predictive objective, most
+                    // interpretable). sigreg_loss gets its own dedicated dashboard
+                    // channel via update_lejepa_metrics() below (TD-178), not folded
+                    // in here.
+                    metrics_client->update_sample_metrics(
+                        sample_idx, static_cast<float>(predictor_loss),
+                        optimizer.get_gradient_norm(),
+                        static_cast<float>(svc_config.learning_rate));
+                }
             } catch (const std::invalid_argument& e) {
                 // Text tokenized to fewer than 2 tokens — too short for span masking. Skip
                 // rather than aborting the whole pass over one bad sample.
@@ -321,6 +409,21 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         }
         adai::Logger::info("[lejepa] Epoch {}/{} complete ({} samples)", epoch + 1, epochs,
                            texts.size());
+        if (metrics_client && epoch_step_count > 0) {
+            const float avg_predictor_loss =
+                static_cast<float>(epoch_predictor_sum / static_cast<double>(epoch_step_count));
+            const float avg_sigreg_loss =
+                static_cast<float>(epoch_sigreg_sum / static_cast<double>(epoch_step_count));
+            // No real validation split for this objective — validation_loss stays 0.0f,
+            // matching ChatbotTrainer's own convention of simply not reporting it when
+            // there's no validation data (rather than an N/A sentinel).
+            metrics_client->end_epoch(epoch + 1, avg_predictor_loss, /*validation_loss=*/0.0f,
+                                      static_cast<float>(svc_config.learning_rate),
+                                      /*perplexity=*/0.0f, optimizer.get_gradient_norm());
+            // TD-178: predictor_loss/sigreg_loss get their own dedicated dashboard
+            // channel — two independent series, not a train/validation pair.
+            metrics_client->update_lejepa_metrics(avg_predictor_loss, avg_sigreg_loss);
+        }
     }
 
     const bool ok = step_count > 0;
@@ -338,6 +441,8 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         adai::Logger::warn("[lejepa] No samples were long enough to train on — all skipped");
     }
 
+    if (metrics_client)
+        metrics_client->end_session();
     if (use_ftp)
         cleanup_downloads(downloaded_paths);
     return ok ? 0 : 1;

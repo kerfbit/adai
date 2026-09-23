@@ -1,18 +1,128 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-23
 
 
 #include <atomic>
+#include <array>
+#include <cctype>
 #include <condition_variable>
+#include <cstdlib>
+#include <ctime>
 #include <deque>
+#include <filesystem>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 #include "IMetricsReporter.hpp"
+
+// ============================================================================
+// Metrics session key/label helpers
+//
+// Shared by every MetricsPushClient caller — originally lived in
+// IncrementalTrainer.cpp's anonymous namespace (chatbot path only) until a
+// second training loop (run_lejepa_training_pass, IncrementalTrainingTool.cpp)
+// needed the identical session-key/label derivation and would otherwise have
+// had to duplicate it. Header-only/inline since multiple translation units
+// include this file.
+// ============================================================================
+
+inline std::string trim_trailing_slashes(std::string value) {
+    while (!value.empty() && value.back() == '/') {
+        value.pop_back();
+    }
+    return value;
+}
+
+inline std::string sanitize_session_key(const std::string& raw) {
+    std::string out;
+    out.reserve(raw.size());
+    for (unsigned char ch : raw) {
+        if (std::isalnum(ch) || ch == '-' || ch == '_') {
+            out.push_back(static_cast<char>(ch));
+        } else {
+            out.push_back('-');
+        }
+    }
+    return out;
+}
+
+inline std::string detect_hostname_fragment() {
+    std::string host = "host";
+#ifdef _WIN32
+    if (const char* env_host = std::getenv("COMPUTERNAME")) {
+        host = env_host;
+    }
+#else
+    std::array<char, 256> buffer{};
+    if (gethostname(buffer.data(), buffer.size() - 1) == 0) {
+        host = buffer.data();
+    }
+#endif
+
+    host = sanitize_session_key(host);
+    if (host.empty()) {
+        host = "host";
+    }
+    if (host.size() > 8) {
+        host = host.substr(0, 8);
+    }
+    return host;
+}
+
+inline std::string derive_metrics_session_key(int session_id) {
+    const std::string host = detect_hostname_fragment();
+    return std::to_string(session_id) + "-" + host;
+}
+
+inline std::string build_metrics_session_push_base(const std::string& metrics_server_url,
+                                                    const std::string& session_key) {
+    const std::string base = trim_trailing_slashes(metrics_server_url);
+    return base + "/api/sessions/" + session_key;
+}
+
+/**
+ * @brief Auto-derive a human-readable session label when none is configured.
+ *
+ * Format: "#{id}: {stem} ({host}, {date})"
+ *   id    — numeric session ID
+ *   stem  — filename stem of the model file (e.g. "chatbot_model")
+ *   host  — sanitised first-8-chars of hostname
+ *   date  — ISO-8601 date of the training run (YYYY-MM-DD)
+ */
+inline std::string derive_metrics_session_label(int session_id, const std::string& model_path) {
+    // Stem: filename without extension
+    std::string stem = std::filesystem::path(model_path).stem().string();
+    if (stem.empty())
+        stem = "model";
+
+    // Host (first 8 chars, sanitised)
+    const std::string host = detect_hostname_fragment();
+
+    // Date: YYYY-MM-DD
+    const std::time_t now = std::time(nullptr);
+    std::tm tm_buf{};
+#ifdef _WIN32
+    localtime_s(&tm_buf, &now);
+#else
+    localtime_r(&now, &tm_buf);
+#endif
+    char date_buf[16];
+    std::strftime(date_buf, sizeof(date_buf), "%Y-%m-%d", &tm_buf);
+
+    std::ostringstream label;
+    label << "#" << session_id << ": " << stem << " (" << host << ", " << date_buf << ")";
+    return label.str();
+}
 
 // ============================================================================
 // TD-021: MetricsPushClient — HTTP push client for the trainer process
@@ -143,6 +253,7 @@ class MetricsPushClient final : public IMetricsReporter {
     void update_padding_efficiency(float efficiency) override;
     void update_generation_quality_metrics(float bleu4, float rouge1, float rouge2,
                                            float rougeL) override;
+    void update_lejepa_metrics(float predictor_loss, float sigreg_loss) override;
 
    private:
     std::string session_base_url_;
@@ -169,6 +280,8 @@ class MetricsPushClient final : public IMetricsReporter {
     float buf_padding_efficiency_{-1.0f};
     float buf_adaptive_clip_avg_{-1.0f};
     int buf_adaptive_clip_spikes_{0};
+    float buf_predictor_loss_{-1.0f};  ///< TD-178: LeJEPA predictor loss
+    float buf_sigreg_loss_{-1.0f};     ///< TD-178: LeJEPA SIGReg loss
 
     void push_loop();
     void enqueue(PushEvent event);

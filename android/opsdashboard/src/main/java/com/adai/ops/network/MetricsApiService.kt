@@ -1,8 +1,8 @@
 package com.adai.ops.network
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.4.1
+// @adai-reviewed: 2026-09-23
 
 
 import com.adai.ops.network.dto.AggregateMetricsDto
@@ -10,6 +10,7 @@ import com.adai.ops.network.dto.CurrentMetricsDto
 import com.adai.ops.network.dto.DbHistoryDto
 import com.adai.ops.network.dto.EpochHistoryDto
 import com.adai.ops.network.dto.GenerationQualityDto
+import com.adai.ops.network.dto.LejepaMetricsDto
 import com.adai.ops.network.dto.MetricsAdminConfigDto
 import com.adai.ops.network.dto.MetricsHealthDto
 import com.adai.ops.network.dto.PaddingEfficiencyDto
@@ -71,6 +72,9 @@ interface MetricsApiService {
 
     @GET("api/sessions/{key}/metrics/padding-efficiency")
     suspend fun paddingEfficiency(@Path("key") key: String): PaddingEfficiencyDto
+
+    @GET("api/sessions/{key}/metrics/lejepa")
+    suspend fun lejepaMetrics(@Path("key") key: String): LejepaMetricsDto
 
     @GET("api/metrics/aggregate")
     suspend fun aggregate(): AggregateMetricsDto

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-23
 
 
 #include <chrono>
@@ -158,6 +158,16 @@ class IMetricsReporter {
     /// @param rougeL  Macro-avg ROUGE-L F1
     virtual void update_generation_quality_metrics(float bleu4, float rouge1, float rouge2,
                                                    float rougeL) = 0;
+
+    // ── LeJEPA world-model pretraining metrics (TD-178) ──────────────────────
+
+    /// Update epoch-average predictor/SIGReg losses for LeJEPAEncoder::train_step()'s
+    /// two independent loss components — reported as two separate series (see
+    /// LeJEPAEncoder.hpp's own doc comment) rather than summed into one number, so
+    /// each term's own trend is independently visible.
+    /// @param predictor_loss Epoch-average masked-span prediction loss
+    /// @param sigreg_loss    Epoch-average SIGReg (variance-collapse) regularization loss
+    virtual void update_lejepa_metrics(float predictor_loss, float sigreg_loss) = 0;
 };
 
 /**
@@ -191,4 +201,5 @@ class NullMetricsReporter final : public IMetricsReporter {
     void update_padding_efficiency(float /*efficiency*/) override {}
     void update_generation_quality_metrics(float /*bleu4*/, float /*rouge1*/, float /*rouge2*/,
                                            float /*rougeL*/) override {}
+    void update_lejepa_metrics(float /*predictor_loss*/, float /*sigreg_loss*/) override {}
 };

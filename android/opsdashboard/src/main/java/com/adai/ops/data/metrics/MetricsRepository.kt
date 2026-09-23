@@ -1,8 +1,8 @@
 package com.adai.ops.data.metrics
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.4.1
+// @adai-reviewed: 2026-09-23
 
 
 import com.adai.ops.network.ApiClientProvider
@@ -13,6 +13,7 @@ import com.adai.ops.network.dto.CurrentMetricsDto
 import com.adai.ops.network.dto.DbHistoryDto
 import com.adai.ops.network.dto.EpochHistoryDto
 import com.adai.ops.network.dto.GenerationQualityDto
+import com.adai.ops.network.dto.LejepaMetricsDto
 import com.adai.ops.network.dto.MetricsAdminConfigDto
 import com.adai.ops.network.dto.MetricsHealthDto
 import com.adai.ops.network.dto.PaddingEfficiencyDto
@@ -70,6 +71,9 @@ class MetricsRepository(
 
     suspend fun paddingEfficiency(key: String): ApiResult<PaddingEfficiencyDto> =
         safeApiCall { service().paddingEfficiency(key) }
+
+    suspend fun lejepaMetrics(key: String): ApiResult<LejepaMetricsDto> =
+        safeApiCall { service().lejepaMetrics(key) }
 
     suspend fun aggregate(): ApiResult<AggregateMetricsDto> = safeApiCall { service().aggregate() }
 

@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-12
+// @adai-version: 1.0.2
+// @adai-reviewed: 2026-09-23
 
 #include "SQLiteMetricsDatabase.hpp"
 #include "GenerationQualityMetrics.hpp"
@@ -122,7 +122,9 @@ void SQLiteMetricsDatabase::bootstrap_schema() {
             activation_saturation_ratio REAL,
             attention_entropy           REAL,
             padding_efficiency          REAL,
-            layer_gradient_norms_json   TEXT
+            layer_gradient_norms_json   TEXT,
+            predictor_loss              REAL,
+            sigreg_loss                 REAL
         );
 
         CREATE INDEX IF NOT EXISTS idx_metrics_history_session_time
@@ -265,6 +267,35 @@ void SQLiteMetricsDatabase::bootstrap_schema() {
                      "ALTER TABLE metrics_history ADD COLUMN layer_gradient_norms_json TEXT;",
                      nullptr, nullptr, nullptr);
     }
+
+    // Migration: TD-178 LeJEPA loss columns, added after the initial schema (and after
+    // the TD-013 columns above) — its OWN independent PRAGMA table_info check, not nested
+    // inside has_compute_time_ratio's block above: a DB already migrated for TD-013 already
+    // has compute_time_ratio, so reusing that gate would make these two new columns never
+    // get added to any such database.
+    bool has_predictor_loss = false;
+    sqlite3_stmt* lejepa_pragma_stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, "PRAGMA table_info(metrics_history);", -1, &lejepa_pragma_stmt,
+                           nullptr) == SQLITE_OK) {
+        while (sqlite3_step(lejepa_pragma_stmt) == SQLITE_ROW) {
+            const auto* col_name =
+                reinterpret_cast<const char*>(sqlite3_column_text(lejepa_pragma_stmt, 1));
+            if (col_name && std::string(col_name) == "predictor_loss") {
+                has_predictor_loss = true;
+                break;
+            }
+        }
+    }
+    sqlite3_finalize(lejepa_pragma_stmt);
+
+    if (!has_predictor_loss) {
+        adai::Logger::info(
+            "[SQLiteMetricsDB] Migrating metrics_history table: adding TD-178 LeJEPA loss columns");
+        sqlite3_exec(db_, "ALTER TABLE metrics_history ADD COLUMN predictor_loss REAL;", nullptr,
+                     nullptr, nullptr);
+        sqlite3_exec(db_, "ALTER TABLE metrics_history ADD COLUMN sigreg_loss REAL;", nullptr,
+                     nullptr, nullptr);
+    }
 }
 
 // ============================================================================
@@ -308,8 +339,8 @@ void SQLiteMetricsDatabase::prepare_statements() {
                                      gradient_norm, perplexity, compute_time_ratio,
                                      weight_update_ratio, activation_saturation_ratio,
                                      attention_entropy, padding_efficiency,
-                                     layer_gradient_norms_json)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15);
+                                     layer_gradient_norms_json, predictor_loss, sigreg_loss)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17);
     )SQL",
          &stmt_insert_metrics_);
 
@@ -518,6 +549,8 @@ void SQLiteMetricsDatabase::insert_metrics_record(const std::string& session_key
         sqlite3_bind_text(stmt_insert_metrics_, 15, rec.layer_gradient_norms_json.c_str(), -1,
                           SQLITE_TRANSIENT);
     }
+    sqlite3_bind_double(stmt_insert_metrics_, 16, static_cast<double>(rec.predictor_loss));
+    sqlite3_bind_double(stmt_insert_metrics_, 17, static_cast<double>(rec.sigreg_loss));
 
     check_sqlite(sqlite3_step(stmt_insert_metrics_), db_, "insert_metrics_record");
 }
@@ -593,7 +626,7 @@ std::vector<PersistentMetricsRecord> SQLiteMetricsDatabase::query_history(
         "SELECT recorded_at, epoch, sample, loss, validation_loss, "
         "learning_rate, gradient_norm, perplexity, compute_time_ratio, "
         "weight_update_ratio, activation_saturation_ratio, attention_entropy, "
-        "padding_efficiency, layer_gradient_norms_json "
+        "padding_efficiency, layer_gradient_norms_json, predictor_loss, sigreg_loss "
         "FROM metrics_history WHERE session_key = ?";
 
     int param_idx = 2;
@@ -646,6 +679,8 @@ std::vector<PersistentMetricsRecord> SQLiteMetricsDatabase::query_history(
                 reinterpret_cast<const char*>(sqlite3_column_text(stmt, 13))) {
             rec.layer_gradient_norms_json = lg_text;
         }
+        rec.predictor_loss = static_cast<float>(sqlite3_column_double(stmt, 14));
+        rec.sigreg_loss = static_cast<float>(sqlite3_column_double(stmt, 15));
         results.push_back(rec);
     }
 

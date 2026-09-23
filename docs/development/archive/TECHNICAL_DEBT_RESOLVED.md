@@ -4,6 +4,70 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-208: Finished TD-178's Deferred LeJEPA Metrics Dashboard Wiring
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 23, 2026 | `MetricsPushClient`, `IMetricsReporter`, `TrainingMetricsService`, `TrainingMetricsAPI`, `SQLiteMetricsDatabase`, `PostgresMetricsDatabase`, `IncrementalTrainingTool.cpp`, Android opsdashboard | Added the missing client push, HTTP route, history vectors, and DB persistence for `predictor_loss`/`sigreg_loss`; wired the Android dashboard to actually display them (a gap the closest precedent, padding-efficiency, also left open) |
+
+Summary:
+TD-178 (`LeJEPAEncoder::train_step()`) deliberately deferred "how predictor_loss/sigreg_loss reach
+a dashboard" to whichever training loop actually drives it, noting only that they should render as
+two independently-visible series, matching the existing fields' own history-vector pattern
+(`TrainingMetricsService.hpp`'s field doc comment). That loop is now `run_lejepa_training_pass()`
+(`IncrementalTrainingTool.cpp`, `--objective=lejepa`), and until this item it did nothing at all —
+zero metrics reporting, two log lines total for a pass that can run many hours. Discovered while
+smoke-testing LeJEPA training on real hardware right after TD-207: no way to tell if the process
+was alive, stuck, or progressing.
+
+Server-side, `TrainingMetricsService::update_lejepa_metrics(predictor_loss, sigreg_loss)` and its
+two snapshot fields already existed (from TD-178) but were unreachable from any client — no HTTP
+route parsed these fields, confirmed via `grep` returning zero hits in `TrainingMetricsAPI.cpp`.
+Finished end-to-end, mirroring the existing `update_padding_efficiency` pattern exactly: buffered
+client-side in `MetricsPushClient`, folded into the existing `POST .../epoch/end` payload as two
+new optional fields (no new push endpoint), parsed server-side with a `-1.0` sentinel, fanned out
+to new `epoch_predictor_losses`/`epoch_sigreg_losses` history vectors, persisted to a new
+`predictor_loss`/`sigreg_loss` column pair on both SQLite and Postgres backends, and exposed via a
+new dedicated `GET .../metrics/lejepa` route (mirroring `padding-efficiency`'s own route/handler
+shape) plus the two `current_*` fields on `to_json()`/`GET .../metrics/current` for live
+single-epoch-run visibility before any chart's 2-point minimum is reached. `predictor_loss` and
+`sigreg_loss` get their own dashboard chart/history rather than reusing the loss/validation_loss
+shape (they are two independent series, not a train/validation pair) — a stopgap from earlier the
+same session that repurposed `end_epoch()`'s unused `validation_loss` slot to carry `sigreg_loss`
+(getting a free but mislabeled second curve) was removed in favor of this proper channel.
+
+**A second, more consequential bug found in passing while writing the end-to-end test**
+(`TrainingMetricsAPIRoutesTest.LejepaMetricsRoundTripThroughEpochEndAndGet`): `handle_post_epoch_end()`
+called `service->end_epoch(...)` — which both pushes the *current* snapshot value into that
+field's history vector and reads it into the `PersistentMetricsRecord` it persists — **before**
+applying any of that same request's optional per-epoch fields (`activation_saturation_ratio`,
+`attention_entropy`, `current_padding_efficiency`, and now `predictor_loss`/`sigreg_loss`). Every
+one of these fields' history entries and persisted DB rows was therefore one epoch stale — the
+value just POSTed only became "current" (and correctly recorded) starting the *next* epoch. No
+prior test caught this because every existing test exercised these fields via direct
+`TrainingMetricsService` calls in the correct order, never through the real HTTP handler end to
+end. Fixed by reordering the handler to apply all optional-field setters before calling
+`end_epoch()` — a pure ordering fix, no wire-format or schema change, and it retroactively
+corrects `padding_efficiency`/`activation_saturation_ratio`/`attention_entropy`'s own history and
+persistence accuracy too, not just the new LeJEPA fields.
+
+Also fixed a two-way SQLite migration hazard this feature could easily have introduced: nesting
+the two new columns inside the existing `has_compute_time_ratio` gate (which batch-adds 6 TD-013
+columns) would mean any database already migrated for TD-013 — i.e. `compute_time_ratio` already
+present — would silently, permanently never receive the two new columns. Given its own independent
+`PRAGMA table_info` gate instead, mirroring the standalone `has_final_loss` check already in the
+same function. A new regression test (`MigratesPreExistingDatabaseWithTD013ButMissingTD178LossColumns`)
+seeds a database with the full current TD-013 schema already applied and confirms the new columns
+still get added — this is the test that would have caught the mistake had it been made.
+
+Verified via new unit tests (`lejepa_metrics_test.cpp`'s history-vector coverage, mirroring
+`padding_efficiency_test.cpp`), a database round-trip + migration regression test
+(`MetricsDatabaseTest.cpp`), a real in-process end-to-end HTTP test
+(`training_metrics_api_routes_test.cpp`, the one that caught the ordering bug), and a Kotlin
+compile check (`./gradlew :opsdashboard:compileDebugKotlin`) for the Android DTO/Retrofit/
+ViewModel/Composable changes — no Android emulator was available to verify the UI renders
+correctly beyond that.
+
 ### TD-207: Mid-Epoch Auto-Save Crashed on a Model's First-Ever Training Pass (Null-Model Deref)
 
 | Resolution Date | Component | Resolved By |
