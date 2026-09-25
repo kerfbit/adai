@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.13.3
-// @adai-reviewed: 2026-09-23
+// @adai-version: 0.13.4
+// @adai-reviewed: 2026-09-24
 
 #include <array>
 #include <chrono>
@@ -369,6 +369,19 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         }
     }
 
+    // Mid-pass checkpointing: this loop previously only saved once, after every acquired
+    // file had been fully processed — for a many-hour-to-many-day pass over the whole
+    // pending pool, a crash (process kill, the real GPU engine-reset seen on ai-machine,
+    // etc.) lost 100% of progress, not just the time since the last save. Reuses the same
+    // AUTO_SAVE_ENABLED/AUTO_SAVE_EVERY_SAMPLES/AUTO_SAVE_EVERY_MINUTES config keys the
+    // chatbot path already uses (same cross-objective concern, no new config surface) —
+    // resuming from wherever this leaves off is already handled by the TD-184 load-on-
+    // startup logic above, so a periodic world_model.save() here is the whole fix; nothing
+    // else needs to change. A failed periodic save is logged and skipped rather than
+    // aborting the pass — the resilience feature itself must not become a new crash source.
+    int samples_since_last_save = 0;
+    auto last_save_time = std::chrono::steady_clock::now();
+
     double predictor_loss_sum = 0.0;
     double sigreg_loss_sum = 0.0;
     size_t step_count = 0;
@@ -400,6 +413,31 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
                         sample_idx, static_cast<float>(predictor_loss),
                         optimizer.get_gradient_norm(),
                         static_cast<float>(svc_config.learning_rate));
+                }
+
+                ++samples_since_last_save;
+                if (svc_config.auto_save_enabled) {
+                    const auto elapsed_minutes =
+                        std::chrono::duration_cast<std::chrono::minutes>(
+                            std::chrono::steady_clock::now() - last_save_time)
+                            .count();
+                    const bool due_by_samples = svc_config.auto_save_every_samples > 0 &&
+                        samples_since_last_save >= svc_config.auto_save_every_samples;
+                    const bool due_by_time = svc_config.auto_save_every_minutes > 0 &&
+                        elapsed_minutes >= svc_config.auto_save_every_minutes;
+                    if (due_by_samples || due_by_time) {
+                        try {
+                            world_model.save(world_model_dir);
+                            adai::Logger::info(
+                                "[lejepa] Checkpoint saved to '{}' ({} steps this pass so far)",
+                                world_model_dir, step_count);
+                        } catch (const std::exception& e) {
+                            adai::Logger::warn("[lejepa] Checkpoint save failed, continuing: {}",
+                                               e.what());
+                        }
+                        samples_since_last_save = 0;
+                        last_save_time = std::chrono::steady_clock::now();
+                    }
                 }
             } catch (const std::invalid_argument& e) {
                 // Text tokenized to fewer than 2 tokens — too short for span masking. Skip

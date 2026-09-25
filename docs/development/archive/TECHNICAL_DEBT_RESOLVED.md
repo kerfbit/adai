@@ -4,6 +4,45 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-209: LeJEPA Training Pass Had No Mid-Pass Checkpoint
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 24, 2026 | `src/IncrementalTrainingTool.cpp` (`run_lejepa_training_pass()`) | Periodic `world_model.save()` reusing the existing `AUTO_SAVE_ENABLED`/`AUTO_SAVE_EVERY_SAMPLES`/`AUTO_SAVE_EVERY_MINUTES` config keys |
+
+Summary:
+`run_lejepa_training_pass()` (`--objective=lejepa`) only ever saved the world-model checkpoint
+once, after every acquired file had been fully processed. For a pass over the whole pending pool
+— now running 1.5–3 days at the 768-dim/16-layer architecture across ~13 books — a crash (process
+kill, the real GPU engine-reset already seen once on ai-machine, an OOM, anything) lost 100% of
+that pass's progress, not just the time since a periodic save. TD-184's own resume-from-checkpoint
+logic (load an existing checkpoint at start, already implemented) meant the fix was narrow: just
+save periodically to the same path during the pass, reusing it needs no new plumbing. Added a
+sample-count and wall-clock timer (mirroring the chatbot path's own `should_auto_save()`/
+`perform_auto_save()` cadence, but implemented locally since this free function has no
+`IncrementalTrainer` instance to call those methods on) that calls `world_model.save(world_model_dir)`
+periodically inside the per-sample loop; a failed periodic save is logged and skipped rather than
+aborting the pass, so the resilience feature itself can't become a new crash source.
+
+Verified directly against a real kill-and-resume cycle (not just code review): ran a local
+repro with `AUTO_SAVE_EVERY_SAMPLES=5` against a small (32-dim) LeJEPA model, confirmed periodic
+"Checkpoint saved" log lines fired at the expected cadence, then ran a 2,000-sample pass, hard-
+killed the process mid-pass (`kill -9` at step 395), and confirmed a fresh invocation logged
+"Resumed world-model weights from ..." rather than reinitializing — the actual failure-recovery
+scenario this exists for, exercised end-to-end.
+
+**A real, scoped-out finding from that repro work**: `world_model_dir` (the checkpoint path,
+`<session_dir>/world_model`) and the dataset registry's `world_model`-kind sub-pool directory
+(TD-202, same `<session_dir>/world_model` path when `dataset_kind="world_model"`) collide at the
+exact same filesystem path in local/standalone mode (no `REGISTRY_SERVER_URL`) — the checkpoint
+and the pending-file queue live in the same directory, so cleaning up one can destroy the other.
+Confirmed via direct reproduction, not just reading the code. This does **not** affect the real
+ai-machine deployment, which uses a remote `registry_server` whose data lives on an entirely
+separate filesystem/machine from the trainer's own `SESSION_DIR` — local/standalone mode is not
+how any real training in this project actually runs. Left unfixed as out of scope for this item
+(matches the precedent already set for the local-mode pending-count pre-check gap noted during
+TD-207's own investigation) — flagged here for whoever next touches local-mode LeJEPA testing.
+
 ### TD-208: Finished TD-178's Deferred LeJEPA Metrics Dashboard Wiring
 
 | Resolution Date | Component | Resolved By |
