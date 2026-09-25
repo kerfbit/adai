@@ -221,6 +221,10 @@ void MetricsPushClient::start_epoch(int epoch, int total_samples) {
     buf_adaptive_clip_spikes_ = 0;
     buf_predictor_loss_ = -1.0f;
     buf_sigreg_loss_ = -1.0f;
+    buf_masking_ratio_ = -1.0f;
+    buf_predictor_target_cosine_sim_ = -1.0f;
+    buf_sigreg_variance_mean_ = -1.0f;
+    buf_sigreg_variance_stddev_ = -1.0f;
 
     std::ostringstream json;
     json << "{\"epoch\":" << epoch << ",\"total_samples\":" << total_samples << "}";
@@ -245,7 +249,11 @@ void MetricsPushClient::end_epoch(int epoch, float loss, float validation_loss, 
          << ",\"attention_entropy\":" << buf_attention_entropy_
          << ",\"current_padding_efficiency\":" << buf_padding_efficiency_
          << ",\"predictor_loss\":" << buf_predictor_loss_
-         << ",\"sigreg_loss\":" << buf_sigreg_loss_ << "}";
+         << ",\"sigreg_loss\":" << buf_sigreg_loss_
+         << ",\"masking_ratio\":" << buf_masking_ratio_
+         << ",\"predictor_target_cosine_sim\":" << buf_predictor_target_cosine_sim_
+         << ",\"sigreg_variance_mean\":" << buf_sigreg_variance_mean_
+         << ",\"sigreg_variance_stddev\":" << buf_sigreg_variance_stddev_ << "}";
     enqueue({EventPriority::Epoch, "/epoch/end", json.str()});
 }
 
@@ -385,6 +393,16 @@ void MetricsPushClient::update_generation_quality_metrics(float bleu4, float rou
 void MetricsPushClient::update_lejepa_metrics(float predictor_loss, float sigreg_loss) {
     buf_predictor_loss_ = predictor_loss;
     buf_sigreg_loss_ = sigreg_loss;
+}
+
+void MetricsPushClient::update_lejepa_advanced_metrics(float masking_ratio,
+                                                       float predictor_target_cosine_sim,
+                                                       float sigreg_variance_mean,
+                                                       float sigreg_variance_stddev) {
+    buf_masking_ratio_ = masking_ratio;
+    buf_predictor_target_cosine_sim_ = predictor_target_cosine_sim;
+    buf_sigreg_variance_mean_ = sigreg_variance_mean;
+    buf_sigreg_variance_stddev_ = sigreg_variance_stddev;
 }
 
 // ============================================================================

@@ -290,6 +290,14 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
         // TD-178: persist per-epoch LeJEPA predictor/SIGReg losses (-1 if not reported this epoch)
         current_snapshot_.epoch_predictor_losses.push_back(current_snapshot_.current_predictor_loss);
         current_snapshot_.epoch_sigreg_losses.push_back(current_snapshot_.current_sigreg_loss);
+        // LeJEPA advanced diagnostics: persist per-epoch history (-1 if not reported this epoch)
+        current_snapshot_.epoch_masking_ratios.push_back(current_snapshot_.current_masking_ratio);
+        current_snapshot_.epoch_predictor_target_cosine_sims.push_back(
+            current_snapshot_.current_predictor_target_cosine_sim);
+        current_snapshot_.epoch_sigreg_variance_means.push_back(
+            current_snapshot_.current_sigreg_variance_mean);
+        current_snapshot_.epoch_sigreg_variance_stddevs.push_back(
+            current_snapshot_.current_sigreg_variance_stddev);
         // TD-017: Persist per-epoch adaptive clip threshold (-1 if adaptive clipping not active)
         // Note: update_adaptive_clip_epoch() already pushes into epoch_adaptive_clip_thresholds;
         // nothing to do here — the push from ChatbotTrainer arrives before end_epoch() is called.
@@ -328,6 +336,10 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
         record.padding_efficiency = current_snapshot_.current_padding_efficiency;
         record.predictor_loss = current_snapshot_.current_predictor_loss;
         record.sigreg_loss = current_snapshot_.current_sigreg_loss;
+        record.masking_ratio = current_snapshot_.current_masking_ratio;
+        record.predictor_target_cosine_sim = current_snapshot_.current_predictor_target_cosine_sim;
+        record.sigreg_variance_mean = current_snapshot_.current_sigreg_variance_mean;
+        record.sigreg_variance_stddev = current_snapshot_.current_sigreg_variance_stddev;
         if (!current_snapshot_.encoder_layer_grad_norms.empty() ||
             !current_snapshot_.decoder_layer_grad_norms.empty()) {
             std::ostringstream lg;
@@ -382,7 +394,13 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
                  << ",\"current_padding_efficiency\":"
                  << current_snapshot_.current_padding_efficiency
                  << ",\"predictor_loss\":" << current_snapshot_.current_predictor_loss
-                 << ",\"sigreg_loss\":" << current_snapshot_.current_sigreg_loss << "}";
+                 << ",\"sigreg_loss\":" << current_snapshot_.current_sigreg_loss
+                 << ",\"masking_ratio\":" << current_snapshot_.current_masking_ratio
+                 << ",\"predictor_target_cosine_sim\":"
+                 << current_snapshot_.current_predictor_target_cosine_sim
+                 << ",\"sigreg_variance_mean\":" << current_snapshot_.current_sigreg_variance_mean
+                 << ",\"sigreg_variance_stddev\":"
+                 << current_snapshot_.current_sigreg_variance_stddev << "}";
             push_json = json.str();
         }
     }  // mutex released here
@@ -1598,6 +1616,21 @@ void TrainingMetricsService::update_lejepa_metrics(float predictor_loss, float s
     current_snapshot_.current_sigreg_loss = sigreg_loss;
     adai::Logger::debug("LeJEPA metrics: predictor_loss={:.4f} sigreg_loss={:.4f}", predictor_loss,
                         sigreg_loss);
+}
+
+void TrainingMetricsService::update_lejepa_advanced_metrics(float masking_ratio,
+                                                             float predictor_target_cosine_sim,
+                                                             float sigreg_variance_mean,
+                                                             float sigreg_variance_stddev) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    current_snapshot_.current_masking_ratio = masking_ratio;
+    current_snapshot_.current_predictor_target_cosine_sim = predictor_target_cosine_sim;
+    current_snapshot_.current_sigreg_variance_mean = sigreg_variance_mean;
+    current_snapshot_.current_sigreg_variance_stddev = sigreg_variance_stddev;
+    adai::Logger::debug(
+        "LeJEPA advanced metrics: masking_ratio={:.4f} cosine_sim={:.4f} "
+        "sigreg_variance_mean={:.4f} sigreg_variance_stddev={:.4f}",
+        masking_ratio, predictor_target_cosine_sim, sigreg_variance_mean, sigreg_variance_stddev);
 }
 
 void TrainingMetricsService::update_padding_efficiency(float efficiency) {

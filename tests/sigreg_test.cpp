@@ -110,6 +110,78 @@ TEST(SIGRegTest, LossLargeForDegenerateBatch) {
     EXPECT_GT(collapsed_loss, 0.1f);
 }
 
+// ============================================================================
+// compute_variance_stats() — advanced LeJEPA metrics diagnostic, distinct from compute_loss()'s
+// characteristic-function test: per-direction projected variance (mean + stddev across
+// directions), computed on the same projections compute_loss() forms internally.
+// ============================================================================
+
+TEST(SIGRegTest, ComputeVarianceStatsRejectsMismatchedDModel) {
+    SIGReg sigreg(16, 32);
+    Matrix wrong_shape(10, 8);
+    EXPECT_THROW(sigreg.compute_variance_stats(wrong_shape), std::invalid_argument);
+}
+
+TEST(SIGRegTest, ComputeVarianceStatsEmptyBatchReturnsZero) {
+    SIGReg sigreg(16, 32);
+    Matrix empty(0, 16);
+    auto stats = sigreg.compute_variance_stats(empty);
+    EXPECT_FLOAT_EQ(stats.mean, 0.0f);
+    EXPECT_FLOAT_EQ(stats.stddev, 0.0f);
+}
+
+TEST(SIGRegTest, ComputeVarianceStatsIsotropicBatchHasMeanNearOneAndLowStddev) {
+    const int d_model = 16;
+    const int batch = 4000;  // same rationale as LossNearZeroForIsotropicGaussianBatch — large
+                              // enough that Monte-Carlo noise stays small
+    SIGReg sigreg(d_model, /*num_sketches=*/64);
+
+    Matrix gaussian_batch = make_isotropic_gaussian_batch(batch, d_model, /*seed=*/123);
+    auto stats = sigreg.compute_variance_stats(gaussian_batch);
+
+    EXPECT_NEAR(stats.mean, 1.0f, 0.1f)
+        << "every direction's projected variance should be ~1.0 for a genuine N(0,I) batch";
+    EXPECT_LT(stats.stddev, 0.15f)
+        << "variance should be roughly uniform across directions for an isotropic batch";
+}
+
+TEST(SIGRegTest, ComputeVarianceStatsCollapsedBatchHasNearZeroMean) {
+    const int d_model = 16;
+    SIGReg sigreg(d_model, /*num_sketches=*/64);
+
+    Matrix collapsed_batch = make_collapsed_batch(50, d_model);
+    auto stats = sigreg.compute_variance_stats(collapsed_batch);
+
+    // Every row identical -> zero variance along every projection direction.
+    EXPECT_NEAR(stats.mean, 0.0f, 1e-4f);
+    EXPECT_NEAR(stats.stddev, 0.0f, 1e-4f);
+}
+
+TEST(SIGRegTest, ComputeVarianceStatsAnisotropicBatchHasLargerStddevThanIsotropic) {
+    const int d_model = 16;
+    const int batch = 4000;
+    SIGReg sigreg(d_model, /*num_sketches=*/64);
+
+    // High variance along dimension 0 only, ~zero elsewhere — the aggregate compute_loss() scalar
+    // can't distinguish this from "globally slightly off," but compute_variance_stats()'s stddev
+    // should clearly separate it from the genuinely isotropic case above.
+    Matrix anisotropic_batch(batch, d_model);
+    std::mt19937 gen(99);
+    std::normal_distribution<float> wide_dist(0.0f, 10.0f);
+    for (int i = 0; i < batch; ++i) {
+        anisotropic_batch.data[i][0] = wide_dist(gen);
+        for (int j = 1; j < d_model; ++j) {
+            anisotropic_batch.data[i][j] = 0.0f;
+        }
+    }
+
+    auto isotropic_stats =
+        sigreg.compute_variance_stats(make_isotropic_gaussian_batch(batch, d_model, 123));
+    auto anisotropic_stats = sigreg.compute_variance_stats(anisotropic_batch);
+
+    EXPECT_GT(anisotropic_stats.stddev, 3.0f * isotropic_stats.stddev);
+}
+
 TEST(SIGRegTest, GradientMatchesFiniteDifference) {
     const int d_model = 5;
     const int batch = 6;

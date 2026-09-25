@@ -441,6 +441,85 @@ TEST_F(LeJEPAEncoderTest, TrainStepIsNoOpForWeightsWhenFrozen) {
             EXPECT_FLOAT_EQ(output_after(i, j), output_before(i, j));
         }
     }
+
+    // No weight update also means no gradient norm to report.
+    EXPECT_FLOAT_EQ(encoder.get_last_gradient_norm(), 0.0f);
+}
+
+// Regression test for a real, already-shipping bug found during the advanced-metrics work:
+// LeJEPAEncoder::update_weights() zeroes every gradient buffer internally, and train_step() calls
+// it TWICE before ever returning — so calling optimizer.get_gradient_norm() from OUTSIDE
+// train_step() after it returns always reads 0.0f. get_last_gradient_norm() captures the norm
+// from INSIDE train_step(), before each internal update_weights() call zeroes it.
+TEST_F(LeJEPAEncoderTest, TrainStepSetsPositiveGradientNormWithRegisteredOptimizer) {
+    create_test_vocabulary();
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder.load_tokenizer_vocab(vocab_file);
+
+    Optimizer optimizer(OptimizerType::ADAM, 0.01f);
+    encoder.register_parameters_with_optimizer(optimizer);
+
+    encoder.train_step("hello world this is a test");
+
+    // The bug this test guards against: reading optimizer.get_gradient_norm() here (outside
+    // train_step()) would read 0.0f, since both of train_step()'s internal update_weights() calls
+    // already zeroed it by the time control returns.
+    EXPECT_GT(encoder.get_last_gradient_norm(), 0.0f);
+}
+
+TEST_F(LeJEPAEncoderTest, TrainStepGradientNormIsZeroWithoutRegisteredOptimizer) {
+    create_test_vocabulary();
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder.load_tokenizer_vocab(vocab_file);
+    encoder.set_learning_rate(0.1f);
+
+    // No register_parameters_with_optimizer() call — plain-SGD fallback path, which has no single
+    // combined-norm primitive across every sub-component (see get_last_gradient_norm()'s own doc
+    // comment for why this scope is intentionally narrow).
+    encoder.train_step("hello world this is a test");
+
+    EXPECT_FLOAT_EQ(encoder.get_last_gradient_norm(), 0.0f);
+}
+
+TEST_F(LeJEPAEncoderTest, TrainStepMaskingRatioIsWithinValidRangeAndTracksNominal) {
+    create_test_vocabulary();
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder.load_tokenizer_vocab(vocab_file);
+
+    // A long-enough sentence that the nominal 25% span ratio isn't distorted by the
+    // at-least-one-context-token clamp short sequences hit.
+    encoder.train_step("the quick brown fox jumps over the lazy dog again and again today");
+
+    const float ratio = encoder.get_last_masking_ratio();
+    EXPECT_GT(ratio, 0.0f);
+    EXPECT_LE(ratio, 1.0f);
+    EXPECT_NEAR(ratio, 0.25f, 0.15f) << "should roughly track the nominal 25% mask ratio for a "
+                                        "sequence long enough to avoid the short-sequence clamp";
+}
+
+TEST_F(LeJEPAEncoderTest, TrainStepCosineSimilarityIsBounded) {
+    create_test_vocabulary();
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder.load_tokenizer_vocab(vocab_file);
+
+    encoder.train_step("hello world this is a test");
+
+    const float cos_sim = encoder.get_last_predictor_target_cosine_sim();
+    EXPECT_TRUE(std::isfinite(cos_sim));
+    EXPECT_GE(cos_sim, -1.0f);
+    EXPECT_LE(cos_sim, 1.0f);
+}
+
+TEST_F(LeJEPAEncoderTest, TrainStepSigregVarianceStatsAreFiniteAndStddevNonNegative) {
+    create_test_vocabulary();
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder.load_tokenizer_vocab(vocab_file);
+
+    encoder.train_step("hello world this is a test");
+
+    EXPECT_TRUE(std::isfinite(encoder.get_last_sigreg_variance_mean()));
+    EXPECT_TRUE(std::isfinite(encoder.get_last_sigreg_variance_stddev()));
+    EXPECT_GE(encoder.get_last_sigreg_variance_stddev(), 0.0f);
 }
 
 // TD-178's own Action Items: both loss terms must trend downward on a small synthetic corpus.

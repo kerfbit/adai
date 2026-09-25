@@ -1420,6 +1420,41 @@ std::string TrainingMetricsAPI::handle_lejepa_metrics(const std::string& session
         }
         json << snapshot.epoch_sigreg_losses[i];
     }
+    json << "],";
+    json << "\"current_masking_ratio\":" << snapshot.current_masking_ratio << ",";
+    json << "\"current_predictor_target_cosine_sim\":"
+         << snapshot.current_predictor_target_cosine_sim << ",";
+    json << "\"current_sigreg_variance_mean\":" << snapshot.current_sigreg_variance_mean << ",";
+    json << "\"current_sigreg_variance_stddev\":" << snapshot.current_sigreg_variance_stddev
+         << ",";
+    json << "\"epoch_masking_ratios\":[";
+    for (size_t i = 0; i < snapshot.epoch_masking_ratios.size(); ++i) {
+        if (i > 0) {
+            json << ",";
+        }
+        json << snapshot.epoch_masking_ratios[i];
+    }
+    json << "],\"epoch_predictor_target_cosine_sims\":[";
+    for (size_t i = 0; i < snapshot.epoch_predictor_target_cosine_sims.size(); ++i) {
+        if (i > 0) {
+            json << ",";
+        }
+        json << snapshot.epoch_predictor_target_cosine_sims[i];
+    }
+    json << "],\"epoch_sigreg_variance_means\":[";
+    for (size_t i = 0; i < snapshot.epoch_sigreg_variance_means.size(); ++i) {
+        if (i > 0) {
+            json << ",";
+        }
+        json << snapshot.epoch_sigreg_variance_means[i];
+    }
+    json << "],\"epoch_sigreg_variance_stddevs\":[";
+    for (size_t i = 0; i < snapshot.epoch_sigreg_variance_stddevs.size(); ++i) {
+        if (i > 0) {
+            json << ",";
+        }
+        json << snapshot.epoch_sigreg_variance_stddevs[i];
+    }
     json << "]}";
     return json.str();
 }
@@ -2095,6 +2130,10 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     float current_padding_efficiency = -1.0f;
     float predictor_loss_field = -1.0f;
     float sigreg_loss_field = -1.0f;
+    float masking_ratio_field = -1.0f;
+    float predictor_target_cosine_sim_field = -1.0f;
+    float sigreg_variance_mean_field = -1.0f;
+    float sigreg_variance_stddev_field = -1.0f;
     double epoch_time = 0.0;
 
     pos = body.find("\"epoch_time\"");
@@ -2148,6 +2187,40 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
         }
     }
 
+    // LeJEPA advanced diagnostics — optional, only present once the trainer's
+    // update_lejepa_advanced_metrics() has been called for this epoch.
+    pos = body.find("\"masking_ratio\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            masking_ratio_field = std::stof(body.substr(pos + 1));
+        }
+    }
+
+    pos = body.find("\"predictor_target_cosine_sim\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            predictor_target_cosine_sim_field = std::stof(body.substr(pos + 1));
+        }
+    }
+
+    pos = body.find("\"sigreg_variance_mean\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            sigreg_variance_mean_field = std::stof(body.substr(pos + 1));
+        }
+    }
+
+    pos = body.find("\"sigreg_variance_stddev\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            sigreg_variance_stddev_field = std::stof(body.substr(pos + 1));
+        }
+    }
+
     // These optional per-epoch fields must be applied BEFORE end_epoch() — end_epoch() both
     // (a) pushes the CURRENT snapshot value into that field's history vector and (b) reads it
     // into the PersistentMetricsRecord it persists, so calling it first would push/persist last
@@ -2170,6 +2243,18 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     }
     if (predictor_loss_field >= 0.0f && sigreg_loss_field >= 0.0f) {
         service->update_lejepa_metrics(predictor_loss_field, sigreg_loss_field);
+    }
+    // Gate on masking_ratio alone (not all four, unlike predictor/sigreg loss above):
+    // masking_ratio is strictly positive whenever computed (span_len is clamped to >= 1), so
+    // it has an unambiguous sentinel — unlike predictor_target_cosine_sim_field, whose valid
+    // range [-1, 1] legitimately includes the -1.0f "not sent" sentinel value itself. All four
+    // fields are always sent together as one bundle from a single train_step() call, so gating
+    // on masking_ratio's presence is equivalent to gating on the whole bundle's presence.
+    if (masking_ratio_field >= 0.0f) {
+        service->update_lejepa_advanced_metrics(masking_ratio_field,
+                                                predictor_target_cosine_sim_field,
+                                                sigreg_variance_mean_field,
+                                                sigreg_variance_stddev_field);
     }
 
     service->end_epoch(epoch, loss, validation_loss, learning_rate, perplexity, gradient_norm,

@@ -4,6 +4,106 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-210: Add LeJEPA Advanced Training Diagnostics and Fix a Zero-Gradient-Norm Bug
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 25, 2026 | `LeJEPAEncoder`, `SIGReg`, `IMetricsReporter`, `MetricsPushClient`, `TrainingMetricsService`, `TrainingMetricsAPI`, `SQLiteMetricsDatabase`, `PostgresMetricsDatabase`, `IncrementalTrainingTool.cpp`, Android opsdashboard | Gradient-norm bug fix + hook-based diagnostics (activation saturation, attention entropy, compute-time ratio) + LeJEPA-native signals (masking ratio, predictor/target cosine similarity, SIGReg per-direction variance) |
+
+Summary:
+The user asked for "advanced metrics" on the LeJEPA training track, matching the chatbot path's own
+"Advanced Epoch Diagnostics" set. Research (two independent passes, each verified against the actual
+source) found this doesn't port cleanly — LeJEPA's loop has no batching/padding/validation split —
+and surfaced a real, already-shipping bug: `LeJEPAEncoder::train_step()` calls its internal
+`update_weights()` (which zeroes every gradient buffer) *twice* before ever returning to the caller
+(TD-189's two-sequential-updates design), so `optimizer.get_gradient_norm()` called from
+`IncrementalTrainingTool.cpp` — as it has since TD-208 — always read ~0.0. Given a three-tier scope
+choice via `AskUserQuestion`, picked the middle tier: fix the bug, add the diagnostics that transfer
+via caller-side hook wiring alone (activation saturation, attention entropy, compute-time ratio), and
+add LeJEPA-native signals with no chatbot equivalent (SIGReg per-direction projected variance,
+predictor/target cosine similarity at the masked span, actual masking ratio applied) — excluding
+gradient_variance/weight_update_ratio/per-layer gradient norms/adaptive-clip stats, all blocked on a
+deeper, not-yet-made design question about how `train_step()`'s two internal updates should report
+gradients separately vs. combined.
+
+`LeJEPAEncoder::train_step()` gained 5 new getters (`get_last_gradient_norm()`,
+`get_last_masking_ratio()`, `get_last_predictor_target_cosine_sim()`,
+`get_last_sigreg_variance_mean()`, `get_last_sigreg_variance_stddev()`) rather than a changed return
+type — 9 existing call sites structurally unpack its `{predictor_loss, sigreg_loss}` pair, and a
+5-member struct would break every one for no functional gain, since these are diagnostic
+side-channel data valid only transiently after the call (matching this class's own
+`get_sigreg_lambda()`-style convention). The gradient-norm fix captures
+`optimizer_->get_gradient_norm()` right after each of the two internal `backward()` calls, before
+their respective `update_weights()` zeroes it, and combines them via `sqrt(norm1² + norm2²)`
+(mirroring `EncoderBlock::get_gradient_norm()`'s own combining convention) — scoped to the
+optimizer-registered path only; the plain-SGD fallback still returns `0.0f`, since building a
+combined-norm primitive there would need a new `Predictor::get_gradient_norm()` for a path
+production code never exercises. `SIGReg` gained a new `compute_variance_stats(embeddings)` method
+returning `{mean, stddev}` of the per-sketch-direction projected variance its `compute_loss()`
+already computes internally but never exposed — a materially different, complementary signal to the
+aggregate loss scalar (mean ≈ 1.0 means "appropriately spread overall"; stddev distinguishes uniform
+spread from collapse in specific directions).
+
+Metrics wiring mirrors TD-208's exact file-by-file pattern: a new
+`update_lejepa_advanced_metrics(masking_ratio, predictor_target_cosine_sim, sigreg_variance_mean,
+sigreg_variance_stddev)` on `IMetricsReporter`, buffered client-side in `MetricsPushClient` and
+folded into the existing `POST .../epoch/end` payload, parsed server-side in
+`TrainingMetricsAPI::handle_post_epoch_end()` (gated on `masking_ratio`'s presence alone, not all
+four — it has an unambiguous positive-only sentinel, unlike `predictor_target_cosine_sim`, whose
+valid range `[-1, 1]` legitimately includes the `-1.0f` "not sent" sentinel value itself), fanned out
+to 4 new `epoch_*` history vectors, persisted to 4 new columns on both SQLite (own independent
+`PRAGMA table_info` migration gate, not nested inside the existing `has_predictor_loss` gate — same
+lesson TD-208 already learned once) and Postgres backends, and exposed via 4 new fields plus their
+history arrays on the existing dedicated `GET .../metrics/lejepa` route only — deliberately **not**
+duplicated into `to_json()`/`CurrentMetricsDto` the way TD-208 duplicated `predictor_loss`/
+`sigreg_loss` into both, since the Android `SessionDetailViewModel` already fetches the dedicated DTO
+separately and nothing needs these fields on the hot generic endpoint. Activation-saturation/
+attention-entropy hooks are registered once on every `world_model.get_encoder_block(l)`'s
+`FeedForward`/`MultiHeadAttention` before the epoch loop, mirroring `ChatbotTrainer.cpp`'s own
+accumulate/reset/report pattern (epoch, not a gradient-accumulation window, is the natural reset
+boundary here) — with one caveat worth remembering: `train_step()` calls `encode_tokens()` 3x per
+sample internally (context view, target view, re-encoded context view), so these hooks fire 3x per
+sample, blending the masked context view and unmasked target view indiscriminately. `compute_time_ratio`
+means something different here than on the chatbot path — "fraction of epoch wall time actually
+inside `train_step()` calls" (surfaces checkpoint-save/metrics-push overhead), since `train_step()`
+is an indivisible forward+backward+both-optimizer-steps black box, not "forward+backward vs.
+data-loading." `update_advanced_epoch_metrics()`'s existing bundled-3-field shape means
+`gradient_variance`/`weight_update_ratio` get sent as literal `0.0` (not the `-1` "not applicable"
+sentinel used elsewhere) whenever `compute_time_ratio` is reported — a pre-existing API-shape wrinkle,
+documented via code comment rather than fixed, and covered by a living regression test
+(`AdvancedEpochMetricsGatingQuirkSendsZeroForUnsetFields`).
+
+**A second, independent ordering bug found while running a real local end-to-end verification pass**
+(not caught by any existing test, since every prior test exercised these fields via direct
+`TrainingMetricsService`/synthetic-curl calls, never through an actual trainer process): in
+`run_lejepa_training_pass()`, every buffered-field setter (`update_lejepa_metrics()`, and this
+change's own new advanced-metrics setters) was called *after* `metrics_client->end_epoch()` —
+but `MetricsPushClient::end_epoch()` reads its buffers synchronously while building the
+`/epoch/end` JSON body, so each setter's value only reached the *next* epoch's POST, one epoch late,
+identical in shape to TD-208's own already-fixed server-side ordering bug in
+`handle_post_epoch_end()`, just on the client side this time. This means `predictor_loss`/
+`sigreg_loss` have effectively never reached the dashboard correctly from a real trainer process
+since TD-208 shipped — TD-208's own end-to-end test posted fields directly in one synthetic HTTP
+request and couldn't have caught a client-side call-order bug. Fixed by moving every buffered-field
+setter before `end_epoch()`, mirroring `ChatbotTrainer.cpp`'s own correct call order. Verified via a
+real local training pass against a scratch `metrics_api_server` (small architecture, `--dataset-kind
+encoder` override to dodge TD-209's known local-mode `world_model` path collision): before the fix,
+`GET .../metrics/lejepa` returned every field — old and new — as its `-1.0` sentinel despite a
+completed epoch; after the fix, all fields round-tripped with real values
+(`current_gradient_norm: 2.015987` where the old code path would read ~0.0,
+`activation_saturation_ratio: 0.03814`, `attention_entropy: 3.355468`, `current_masking_ratio:
+0.256154`, `current_predictor_target_cosine_sim: 0.615788`, `current_sigreg_variance_mean: 0.07021`,
+`current_sigreg_variance_stddev: 0.036793`).
+
+New tests: `lejepaencoder_test.cpp` (gradient-norm regression test asserting `> 0.0f` with a
+registered optimizer — reads `0.0f` on the old code path — plus masking-ratio/cosine-similarity/
+SIGReg-variance bounds checks), `sigreg_test.cpp` (`compute_variance_stats()` on isotropic/collapsed/
+anisotropic/empty batches), `lejepa_metrics_test.cpp` (mirrors the existing `LeJEPAMetrics` suite for
+the new bundled setter, plus a test confirming the deliberate `to_json()` non-duplication),
+`MetricsDatabaseTest.cpp` (round-trip plus a migration regression test seeding the current full
+TD-178 schema with the new columns missing), `training_metrics_api_routes_test.cpp` (a full
+POST-then-GET round trip for the new fields, plus the gating-quirk regression test above).
+
 ### TD-209: LeJEPA Training Pass Had No Mid-Pass Checkpoint
 
 | Resolution Date | Component | Resolved By |

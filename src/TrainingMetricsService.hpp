@@ -121,6 +121,20 @@ struct TrainingMetricsSnapshot {
     std::vector<float> epoch_predictor_losses;  ///< Per-epoch history (-1 = not computed)
     std::vector<float> epoch_sigreg_losses;     ///< Per-epoch history (-1 = not computed)
 
+    // LeJEPA "advanced" diagnostics — signals with no chatbot-path equivalent, set via
+    // update_lejepa_advanced_metrics() alongside update_lejepa_metrics() above. Deliberately only
+    // reachable via the dedicated /metrics/lejepa route (handle_lejepa_metrics()), not to_json()/
+    // CurrentMetricsDto — a deviation from current_predictor_loss/current_sigreg_loss's own
+    // duplication into both, since nothing reads these off the generic hot endpoint.
+    float current_masking_ratio = -1.0f;
+    float current_predictor_target_cosine_sim = -1.0f;
+    float current_sigreg_variance_mean = -1.0f;
+    float current_sigreg_variance_stddev = -1.0f;
+    std::vector<float> epoch_masking_ratios;
+    std::vector<float> epoch_predictor_target_cosine_sims;
+    std::vector<float> epoch_sigreg_variance_means;
+    std::vector<float> epoch_sigreg_variance_stddevs;
+
     // Adaptive gradient clipping (TD-017; -1 / 0 = not used / not computed)
     float current_adaptive_clip_threshold =
         -1.0f;  ///< Effective clip threshold for the latest optimizer step
@@ -165,6 +179,10 @@ struct PersistentMetricsRecord {
     float padding_efficiency = -1.0f;
     float predictor_loss = -1.0f;  ///< TD-178: LeJEPA predictor loss
     float sigreg_loss = -1.0f;     ///< TD-178: LeJEPA SIGReg loss
+    float masking_ratio = -1.0f;                  ///< LeJEPA advanced: masking ratio
+    float predictor_target_cosine_sim = -1.0f;    ///< LeJEPA advanced: cosine similarity
+    float sigreg_variance_mean = -1.0f;           ///< LeJEPA advanced: SIGReg variance mean
+    float sigreg_variance_stddev = -1.0f;         ///< LeJEPA advanced: SIGReg variance stddev
     // JSON string {"encoder":[...],"decoder":[...]} of per-layer gradient
     // norms, or empty if not reported this epoch. Stored pre-serialized
     // (rather than as vectors) since this is the exact form persisted to and
@@ -336,6 +354,13 @@ class TrainingMetricsService {
      * @param sigreg_loss SIGReg isotropic-Gaussian regularization loss from the same call.
      */
     void update_lejepa_metrics(float predictor_loss, float sigreg_loss);
+
+    /**
+     * @brief Record "advanced" LeJEPA diagnostics (masking ratio, predictor/target cosine
+     * similarity, SIGReg per-direction variance mean/stddev) alongside update_lejepa_metrics().
+     */
+    void update_lejepa_advanced_metrics(float masking_ratio, float predictor_target_cosine_sim,
+                                        float sigreg_variance_mean, float sigreg_variance_stddev);
 
     /// Report per-layer gradient norms for the current epoch (TD-013 extension).
     /// @param encoder_layer_norms One entry per encoder layer, in layer order

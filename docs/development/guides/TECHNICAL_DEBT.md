@@ -10,8 +10,25 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 7
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 196
+**Resolved Items:** 197
 **Deferred Decisions:** 3
+
+**September 25, 2026:** Filed and resolved
+[TD-210](../archive/TECHNICAL_DEBT_RESOLVED.md#td-210-add-lejepa-advanced-training-diagnostics-and-fix-a-zero-gradient-norm-bug)
+— added richer diagnostics to the LeJEPA training track (masking ratio, predictor/target cosine
+similarity, SIGReg per-direction projected variance, activation saturation, attention entropy,
+compute-time ratio), mirroring the chatbot path's own "Advanced Epoch Diagnostics" where it
+transfers. Research for this surfaced a real, already-shipping bug: `LeJEPAEncoder::train_step()`
+calls its internal `update_weights()` (which zeroes gradients) twice before returning, so the
+`gradient_norm` field the dashboard has shown since TD-208 has always read ~0.0 — fixed by
+capturing the norm from each internal update before its own zeroing. Also found and fixed a second,
+independent ordering bug while running a real local end-to-end pass: `run_lejepa_training_pass()`
+called every buffered-field setter (`update_lejepa_metrics()`, and now the new advanced-metrics
+setters) *after* `metrics_client->end_epoch()`, but `MetricsPushClient::end_epoch()` reads those
+buffers synchronously while building its JSON body — so `predictor_loss`/`sigreg_loss` have never
+actually reached the dashboard from a real trainer process since TD-208 shipped (only a synthetic
+curl round-trip, which posts fields directly in one request, could have missed this). See its own
+archive entry.
 
 **September 24, 2026:** Filed and resolved
 [TD-209](../archive/TECHNICAL_DEBT_RESOLVED.md#td-209-lejepa-training-pass-had-no-mid-pass-checkpoint)
@@ -557,7 +574,7 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-- [Resolved Items](#resolved-items) (196 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
+- [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)

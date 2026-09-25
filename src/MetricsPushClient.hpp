@@ -254,6 +254,9 @@ class MetricsPushClient final : public IMetricsReporter {
     void update_generation_quality_metrics(float bleu4, float rouge1, float rouge2,
                                            float rougeL) override;
     void update_lejepa_metrics(float predictor_loss, float sigreg_loss) override;
+    void update_lejepa_advanced_metrics(float masking_ratio, float predictor_target_cosine_sim,
+                                        float sigreg_variance_mean,
+                                        float sigreg_variance_stddev) override;
 
    private:
     std::string session_base_url_;
@@ -282,6 +285,10 @@ class MetricsPushClient final : public IMetricsReporter {
     int buf_adaptive_clip_spikes_{0};
     float buf_predictor_loss_{-1.0f};  ///< TD-178: LeJEPA predictor loss
     float buf_sigreg_loss_{-1.0f};     ///< TD-178: LeJEPA SIGReg loss
+    float buf_masking_ratio_{-1.0f};                  ///< LeJEPA advanced: masking ratio
+    float buf_predictor_target_cosine_sim_{-1.0f};    ///< LeJEPA advanced: cosine similarity
+    float buf_sigreg_variance_mean_{-1.0f};           ///< LeJEPA advanced: SIGReg variance mean
+    float buf_sigreg_variance_stddev_{-1.0f};         ///< LeJEPA advanced: SIGReg variance stddev
 
     void push_loop();
     void enqueue(PushEvent event);

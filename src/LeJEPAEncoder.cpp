@@ -157,6 +157,7 @@ std::pair<float, float> LeJEPAEncoder::train_step(const std::string& text) {
     // doc comment for the ratio's rationale.
     int span_len = std::max(1, static_cast<int>(std::round(seq_len * kMaskRatio)));
     span_len = std::min(span_len, seq_len - 1);  // leave at least one context token unmasked
+    last_masking_ratio_ = static_cast<float>(span_len) / static_cast<float>(seq_len);
 
     std::uniform_int_distribution<int> start_dist(0, seq_len - span_len);
     const int span_start = start_dist(span_rng_);
@@ -189,7 +190,29 @@ std::pair<float, float> LeJEPAEncoder::train_step(const std::string& text) {
     }
     predictor_loss /= static_cast<float>(n_masked_elems);
 
+    // Cosine similarity between the prediction and the real target embedding at the same masked
+    // rows the MSE loss above scores — isolates directional accuracy from predictor_loss's
+    // magnitude-conflated signal. Computed unconditionally (not gated on requires_grad) since it's
+    // a pure read of already-computed forward-pass outputs, no gradient involved.
+    float cos_sum = 0.0f;
+    for (int i = span_start; i < span_start + span_len; ++i) {
+        float dot = 0.0f, norm_p = 0.0f, norm_t = 0.0f;
+        for (int j = 0; j < d_model; ++j) {
+            const float p = predicted(i, j);
+            const float t = tgt_embeddings(i, j);
+            dot += p * t;
+            norm_p += p * p;
+            norm_t += t * t;
+        }
+        const float denom = std::sqrt(norm_p) * std::sqrt(norm_t);
+        cos_sum += (denom > 1e-8f) ? (dot / denom) : 0.0f;
+    }
+    last_predictor_target_cosine_sim_ = cos_sum / static_cast<float>(span_len);
+
     const float sigreg_loss = sigreg->compute_loss(tgt_embeddings);
+    const auto variance_stats = sigreg->compute_variance_stats(tgt_embeddings);
+    last_sigreg_variance_mean_ = variance_stats.mean;
+    last_sigreg_variance_stddev_ = variance_stats.stddev;
 
     if (requires_grad) {
         // d(predictor_loss)/d(predicted) and its mirror-image w.r.t. target_embeddings — zero
@@ -235,6 +258,9 @@ std::pair<float, float> LeJEPAEncoder::train_step(const std::string& text) {
         // currently the target view's (the most recent encode_tokens() call above). Applied on
         // its own so it can't be clobbered by step 2's backward() below.
         backward(grad_target_total);
+        // Captured BEFORE update_weights() zeroes it — see get_last_gradient_norm()'s own doc
+        // comment for why reading this from outside train_step() always sees 0.0f otherwise.
+        const float grad_norm_1 = optimizer_ ? optimizer_->get_gradient_norm() : 0.0f;
         update_weights();
 
         // Step 2: predictor's own backward (uses its own cache from predictor->forward() above,
@@ -248,7 +274,17 @@ std::pair<float, float> LeJEPAEncoder::train_step(const std::string& text) {
         Matrix grad_ctx_embeddings = predictor->backward(grad_predicted);
         encode_tokens(context_tokens);
         backward(grad_ctx_embeddings);
+        const float grad_norm_2 = optimizer_ ? optimizer_->get_gradient_norm() : 0.0f;
         update_weights();
+
+        // Combined norm across both sequential updates, matching EncoderBlock::get_gradient_norm()'s
+        // own sqrt-of-sum-of-squares combining convention. 0.0f (the member's default) when no
+        // optimizer is registered — the plain-SGD fallback path has no single combined-norm
+        // primitive across every sub-component (Predictor/LayerNorm don't expose one), and
+        // production always registers an optimizer, so this scope is intentionally narrow.
+        last_gradient_norm_ = std::sqrt(grad_norm_1 * grad_norm_1 + grad_norm_2 * grad_norm_2);
+    } else {
+        last_gradient_norm_ = 0.0f;
     }
 
     return {predictor_loss, sigreg_loss};

@@ -226,7 +226,11 @@ void PostgresMetricsDatabase::bootstrap_schema(PGconn* conn) {
             padding_efficiency          REAL,
             layer_gradient_norms_json   TEXT,
             predictor_loss              REAL,
-            sigreg_loss                 REAL
+            sigreg_loss                 REAL,
+            masking_ratio               REAL,
+            predictor_target_cosine_sim REAL,
+            sigreg_variance_mean        REAL,
+            sigreg_variance_stddev      REAL
         );
 
         CREATE INDEX IF NOT EXISTS idx_metrics_history_session_time
@@ -335,6 +339,21 @@ void PostgresMetricsDatabase::bootstrap_schema(PGconn* conn) {
     res = PQexec(conn, "ALTER TABLE metrics_history ADD COLUMN IF NOT EXISTS predictor_loss REAL;");
     PQclear(res);
     res = PQexec(conn, "ALTER TABLE metrics_history ADD COLUMN IF NOT EXISTS sigreg_loss REAL;");
+    PQclear(res);
+
+    // Migration: LeJEPA "advanced" diagnostic columns.
+    res = PQexec(conn, "ALTER TABLE metrics_history ADD COLUMN IF NOT EXISTS masking_ratio REAL;");
+    PQclear(res);
+    res = PQexec(conn,
+                 "ALTER TABLE metrics_history ADD COLUMN IF NOT EXISTS "
+                 "predictor_target_cosine_sim REAL;");
+    PQclear(res);
+    res = PQexec(
+        conn, "ALTER TABLE metrics_history ADD COLUMN IF NOT EXISTS sigreg_variance_mean REAL;");
+    PQclear(res);
+    res = PQexec(conn,
+                 "ALTER TABLE metrics_history ADD COLUMN IF NOT EXISTS "
+                 "sigreg_variance_stddev REAL;");
     PQclear(res);
 
     adai::Logger::info("[PostgresMetricsDB] Schema bootstrap complete");
@@ -552,18 +571,22 @@ void PostgresMetricsDatabase::insert_metrics_record(const std::string& session_k
         auto peff = pg_float_to_string(rec.padding_efficiency);
         auto ploss = pg_float_to_string(rec.predictor_loss);
         auto sloss = pg_float_to_string(rec.sigreg_loss);
+        auto mratio = pg_float_to_string(rec.masking_ratio);
+        auto pcossim = pg_float_to_string(rec.predictor_target_cosine_sim);
+        auto svmean = pg_float_to_string(rec.sigreg_variance_mean);
+        auto svstddev = pg_float_to_string(rec.sigreg_variance_stddev);
         // PQexecParams treats a NULL entry in the params array as SQL NULL —
         // pass nullptr instead of an empty string when not reported this epoch.
         const char* lg_json = rec.layer_gradient_norms_json.empty()
                                   ? nullptr
                                   : rec.layer_gradient_norms_json.c_str();
 
-        const char* params[] = {session_key.c_str(), ts.c_str(),    epoch.c_str(),
-                                sample.c_str(),      loss.c_str(),  vloss.c_str(),
-                                lr.c_str(),          gnorm.c_str(), ppl.c_str(),
-                                ctr.c_str(),         wur.c_str(),   asr.c_str(),
-                                aent.c_str(),         peff.c_str(), lg_json,
-                                ploss.c_str(),        sloss.c_str()};
+        const char* params[] = {
+            session_key.c_str(), ts.c_str(),    epoch.c_str(),   sample.c_str(),  loss.c_str(),
+            vloss.c_str(),       lr.c_str(),    gnorm.c_str(),   ppl.c_str(),     ctr.c_str(),
+            wur.c_str(),         asr.c_str(),   aent.c_str(),    peff.c_str(),    lg_json,
+            ploss.c_str(),       sloss.c_str(), mratio.c_str(), pcossim.c_str(), svmean.c_str(),
+            svstddev.c_str()};
 
         PGresult* res = PQexecParams(
             conn,
@@ -571,9 +594,11 @@ void PostgresMetricsDatabase::insert_metrics_record(const std::string& session_k
             "loss, validation_loss, learning_rate, gradient_norm, perplexity, "
             "compute_time_ratio, weight_update_ratio, activation_saturation_ratio, "
             "attention_entropy, padding_efficiency, layer_gradient_norms_json, "
-            "predictor_loss, sigreg_loss) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
-            17, nullptr, params, nullptr, nullptr, 0);
+            "predictor_loss, sigreg_loss, masking_ratio, predictor_target_cosine_sim, "
+            "sigreg_variance_mean, sigreg_variance_stddev) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, "
+            "$18, $19, $20, $21)",
+            21, nullptr, params, nullptr, nullptr, 0);
 
         bool ok = PQresultStatus(res) == PGRES_COMMAND_OK;
         if (!ok)
@@ -692,7 +717,9 @@ std::vector<PersistentMetricsRecord> PostgresMetricsDatabase::query_history(
             "SELECT recorded_at, epoch, sample, loss, validation_loss, "
             "learning_rate, gradient_norm, perplexity, compute_time_ratio, "
             "weight_update_ratio, activation_saturation_ratio, attention_entropy, "
-            "padding_efficiency, layer_gradient_norms_json, predictor_loss, sigreg_loss "
+            "padding_efficiency, layer_gradient_norms_json, predictor_loss, sigreg_loss, "
+            "masking_ratio, predictor_target_cosine_sim, sigreg_variance_mean, "
+            "sigreg_variance_stddev "
             "FROM metrics_history WHERE session_key = $1";
 
         std::vector<std::string> param_strs;
@@ -761,6 +788,10 @@ std::vector<PersistentMetricsRecord> PostgresMetricsDatabase::query_history(
             }
             rec.predictor_loss = opt_float(i, 14, -1.0f);
             rec.sigreg_loss = opt_float(i, 15, -1.0f);
+            rec.masking_ratio = opt_float(i, 16, -1.0f);
+            rec.predictor_target_cosine_sim = opt_float(i, 17, -1.0f);
+            rec.sigreg_variance_mean = opt_float(i, 18, -1.0f);
+            rec.sigreg_variance_stddev = opt_float(i, 19, -1.0f);
             results.push_back(rec);
         }
 

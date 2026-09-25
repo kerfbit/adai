@@ -102,6 +102,54 @@ float SIGReg::compute_loss(const Matrix& embeddings) const {
     return total_loss / static_cast<float>(num_sketches_ * static_cast<int>(kFrequencies.size()));
 }
 
+SIGReg::VarianceStats SIGReg::compute_variance_stats(const Matrix& embeddings) const {
+    if (embeddings.cols != d_model_) {
+        throw std::invalid_argument(
+            "SIGReg::compute_variance_stats: embeddings.cols must equal d_model");
+    }
+    const int batch = embeddings.rows;
+    if (batch == 0) {
+        return {0.0f, 0.0f};
+    }
+
+    // Same projection compute_loss() forms internally — recomputed rather than cached, matching
+    // this class's existing no-caching style (compute_loss()/backward() each independently
+    // recompute it too).
+    Matrix projections = embeddings * directions_;
+
+    // Per-direction population variance (mean-of-squares minus square-of-mean — batch here is
+    // typically small, a handful of rows per LeJEPAEncoder::train_step() call, so this is an
+    // inherently noisy per-step estimate; averaging over many steps in a training epoch is doing
+    // real statistical work, not just cosmetic smoothing).
+    std::vector<float> per_direction_variance(num_sketches_, 0.0f);
+    for (int k = 0; k < num_sketches_; ++k) {
+        float sum = 0.0f;
+        float sum_sq = 0.0f;
+        for (int i = 0; i < batch; ++i) {
+            const float p = projections.data[i][k];
+            sum += p;
+            sum_sq += p * p;
+        }
+        const float mean = sum / static_cast<float>(batch);
+        per_direction_variance[k] = (sum_sq / static_cast<float>(batch)) - (mean * mean);
+    }
+
+    float variance_mean = 0.0f;
+    for (float v : per_direction_variance) {
+        variance_mean += v;
+    }
+    variance_mean /= static_cast<float>(num_sketches_);
+
+    float variance_sq_diff_sum = 0.0f;
+    for (float v : per_direction_variance) {
+        const float diff = v - variance_mean;
+        variance_sq_diff_sum += diff * diff;
+    }
+    const float variance_stddev = std::sqrt(variance_sq_diff_sum / static_cast<float>(num_sketches_));
+
+    return {variance_mean, variance_stddev};
+}
+
 Matrix SIGReg::backward(const Matrix& embeddings) const {
     if (embeddings.cols != d_model_) {
         throw std::invalid_argument("SIGReg::backward: embeddings.cols must equal d_model");

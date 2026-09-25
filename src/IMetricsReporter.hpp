@@ -168,6 +168,21 @@ class IMetricsReporter {
     /// @param predictor_loss Epoch-average masked-span prediction loss
     /// @param sigreg_loss    Epoch-average SIGReg (variance-collapse) regularization loss
     virtual void update_lejepa_metrics(float predictor_loss, float sigreg_loss) = 0;
+
+    /// Update epoch-average "advanced" LeJEPA diagnostics — signals with no chatbot-path
+    /// equivalent, complementary to update_lejepa_metrics()'s two loss series.
+    /// @param masking_ratio               Actual span-masking ratio applied (span_len/seq_len)
+    /// @param predictor_target_cosine_sim Cosine similarity between predicted and target
+    ///                                    embeddings at the masked span, in [-1, 1]
+    /// @param sigreg_variance_mean        Mean per-direction projected variance across SIGReg's
+    ///                                    sketch directions (~1.0 for an isotropic batch)
+    /// @param sigreg_variance_stddev      Stddev of that same per-direction variance across
+    ///                                    directions — large means collapsed in specific
+    ///                                    directions even if the mean looks healthy
+    virtual void update_lejepa_advanced_metrics(float masking_ratio,
+                                                float predictor_target_cosine_sim,
+                                                float sigreg_variance_mean,
+                                                float sigreg_variance_stddev) = 0;
 };
 
 /**
@@ -202,4 +217,8 @@ class NullMetricsReporter final : public IMetricsReporter {
     void update_generation_quality_metrics(float /*bleu4*/, float /*rouge1*/, float /*rouge2*/,
                                            float /*rougeL*/) override {}
     void update_lejepa_metrics(float /*predictor_loss*/, float /*sigreg_loss*/) override {}
+    void update_lejepa_advanced_metrics(float /*masking_ratio*/,
+                                        float /*predictor_target_cosine_sim*/,
+                                        float /*sigreg_variance_mean*/,
+                                        float /*sigreg_variance_stddev*/) override {}
 };

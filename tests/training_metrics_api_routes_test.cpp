@@ -409,6 +409,98 @@ TEST_F(TrainingMetricsAPIRoutesTest, LejepaMetricsRoundTripThroughEpochEndAndGet
         << current_res->body;
 }
 
+TEST_F(TrainingMetricsAPIRoutesTest, LejepaAdvancedMetricsRoundTripThroughEpochEndAndGet) {
+    auto client = make_client();
+
+    const std::string start_body = R"({"session_id":708,"total_epochs":1,"total_samples":10})";
+    auto start_res = client.Post("/api/sessions/lejepa2/start", start_body, "application/json");
+    ASSERT_TRUE(start_res);
+    ASSERT_EQ(start_res->status, 200);
+
+    const std::string epoch_end_body =
+        R"({"epoch":1,"loss":0,"validation_loss":0,"learning_rate":0.001,)"
+        R"("predictor_loss":0.42,"sigreg_loss":0.13,"masking_ratio":0.25,)"
+        R"("predictor_target_cosine_sim":0.7,"sigreg_variance_mean":1.02,)"
+        R"("sigreg_variance_stddev":0.11})";
+    auto post_res =
+        client.Post("/api/sessions/lejepa2/epoch/end", epoch_end_body, "application/json");
+    ASSERT_TRUE(post_res);
+    EXPECT_EQ(post_res->status, 200);
+
+    auto lejepa_res = client.Get("/api/sessions/lejepa2/metrics/lejepa");
+    ASSERT_TRUE(lejepa_res);
+    EXPECT_EQ(lejepa_res->status, 200);
+    EXPECT_NE(lejepa_res->body.find("\"current_masking_ratio\":0.250000"), std::string::npos)
+        << lejepa_res->body;
+    EXPECT_NE(
+        lejepa_res->body.find("\"current_predictor_target_cosine_sim\":0.700000"),
+        std::string::npos)
+        << lejepa_res->body;
+    EXPECT_NE(lejepa_res->body.find("\"current_sigreg_variance_mean\":1.020000"),
+             std::string::npos)
+        << lejepa_res->body;
+    EXPECT_NE(lejepa_res->body.find("\"current_sigreg_variance_stddev\":0.110000"),
+             std::string::npos)
+        << lejepa_res->body;
+    EXPECT_NE(lejepa_res->body.find("\"epoch_masking_ratios\":[0.250000]"), std::string::npos)
+        << lejepa_res->body;
+    EXPECT_NE(lejepa_res->body.find("\"epoch_predictor_target_cosine_sims\":[0.700000]"),
+             std::string::npos)
+        << lejepa_res->body;
+    EXPECT_NE(lejepa_res->body.find("\"epoch_sigreg_variance_means\":[1.020000]"),
+             std::string::npos)
+        << lejepa_res->body;
+    EXPECT_NE(lejepa_res->body.find("\"epoch_sigreg_variance_stddevs\":[0.110000]"),
+             std::string::npos)
+        << lejepa_res->body;
+
+    // Deliberate deviation from predictor_loss/sigreg_loss (which DO appear on
+    // /metrics/current, per TD-208): these four fields must NOT be duplicated there.
+    auto current_res = client.Get("/api/sessions/lejepa2/metrics/current");
+    ASSERT_TRUE(current_res);
+    EXPECT_EQ(current_res->status, 200);
+    EXPECT_EQ(current_res->body.find("current_masking_ratio"), std::string::npos)
+        << current_res->body;
+    EXPECT_EQ(current_res->body.find("current_predictor_target_cosine_sim"), std::string::npos)
+        << current_res->body;
+    EXPECT_EQ(current_res->body.find("current_sigreg_variance_mean"), std::string::npos)
+        << current_res->body;
+    EXPECT_EQ(current_res->body.find("current_sigreg_variance_stddev"), std::string::npos)
+        << current_res->body;
+}
+
+// Living regression-documentation test for the update_advanced_epoch_metrics() bundling quirk
+// (see IncrementalTrainingTool.cpp's own comment at the LeJEPA update_advanced_epoch_metrics()
+// call site): posting only compute_time_ratio (as LeJEPA does — gradient_variance/
+// weight_update_ratio have no LeJEPA-side equivalent) still causes the OTHER two fields to be
+// persisted/exposed as literal 0.0, not the -1 "not applicable" sentinel used elsewhere, because
+// TrainingMetricsAPI's gating condition fires once ANY of the three is non-zero.
+TEST_F(TrainingMetricsAPIRoutesTest, AdvancedEpochMetricsGatingQuirkSendsZeroForUnsetFields) {
+    auto client = make_client();
+
+    const std::string start_body = R"({"session_id":709,"total_epochs":1,"total_samples":10})";
+    auto start_res = client.Post("/api/sessions/lejepa3/start", start_body, "application/json");
+    ASSERT_TRUE(start_res);
+    ASSERT_EQ(start_res->status, 200);
+
+    const std::string epoch_end_body =
+        R"({"epoch":1,"loss":0,"validation_loss":0,"learning_rate":0.001,)"
+        R"("compute_time_ratio":0.85})";
+    auto post_res =
+        client.Post("/api/sessions/lejepa3/epoch/end", epoch_end_body, "application/json");
+    ASSERT_TRUE(post_res);
+    EXPECT_EQ(post_res->status, 200);
+
+    auto current_res = client.Get("/api/sessions/lejepa3/metrics/current");
+    ASSERT_TRUE(current_res);
+    EXPECT_EQ(current_res->status, 200);
+    EXPECT_NE(current_res->body.find("\"compute_time_ratio\": 0.85"), std::string::npos)
+        << current_res->body;
+    // gradient_variance is a plain 0, not -1 — the quirk being documented.
+    EXPECT_NE(current_res->body.find("\"gradient_variance\": 0"), std::string::npos)
+        << current_res->body;
+}
+
 TEST_F(TrainingMetricsAPICapacityRoutesTest, SessionStartReturns503WhenRegistryIsFull) {
     auto client = make_client();
 

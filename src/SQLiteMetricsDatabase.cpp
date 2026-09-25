@@ -124,7 +124,11 @@ void SQLiteMetricsDatabase::bootstrap_schema() {
             padding_efficiency          REAL,
             layer_gradient_norms_json   TEXT,
             predictor_loss              REAL,
-            sigreg_loss                 REAL
+            sigreg_loss                 REAL,
+            masking_ratio               REAL,
+            predictor_target_cosine_sim REAL,
+            sigreg_variance_mean        REAL,
+            sigreg_variance_stddev      REAL
         );
 
         CREATE INDEX IF NOT EXISTS idx_metrics_history_session_time
@@ -296,6 +300,41 @@ void SQLiteMetricsDatabase::bootstrap_schema() {
         sqlite3_exec(db_, "ALTER TABLE metrics_history ADD COLUMN sigreg_loss REAL;", nullptr,
                      nullptr, nullptr);
     }
+
+    // Migration: LeJEPA "advanced" diagnostic columns, added after the TD-178 columns above —
+    // its OWN independent PRAGMA table_info check, not nested inside has_predictor_loss's block:
+    // a DB already migrated for TD-178 already has predictor_loss, so reusing that gate would
+    // make these four new columns never get added to any such database (same lesson TD-178
+    // itself already learned once against has_compute_time_ratio above).
+    bool has_masking_ratio = false;
+    sqlite3_stmt* advanced_pragma_stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, "PRAGMA table_info(metrics_history);", -1, &advanced_pragma_stmt,
+                           nullptr) == SQLITE_OK) {
+        while (sqlite3_step(advanced_pragma_stmt) == SQLITE_ROW) {
+            const auto* col_name =
+                reinterpret_cast<const char*>(sqlite3_column_text(advanced_pragma_stmt, 1));
+            if (col_name && std::string(col_name) == "masking_ratio") {
+                has_masking_ratio = true;
+                break;
+            }
+        }
+    }
+    sqlite3_finalize(advanced_pragma_stmt);
+
+    if (!has_masking_ratio) {
+        adai::Logger::info(
+            "[SQLiteMetricsDB] Migrating metrics_history table: adding LeJEPA advanced "
+            "diagnostic columns");
+        sqlite3_exec(db_, "ALTER TABLE metrics_history ADD COLUMN masking_ratio REAL;", nullptr,
+                     nullptr, nullptr);
+        sqlite3_exec(db_,
+                     "ALTER TABLE metrics_history ADD COLUMN predictor_target_cosine_sim REAL;",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(db_, "ALTER TABLE metrics_history ADD COLUMN sigreg_variance_mean REAL;",
+                     nullptr, nullptr, nullptr);
+        sqlite3_exec(db_, "ALTER TABLE metrics_history ADD COLUMN sigreg_variance_stddev REAL;",
+                     nullptr, nullptr, nullptr);
+    }
 }
 
 // ============================================================================
@@ -339,8 +378,11 @@ void SQLiteMetricsDatabase::prepare_statements() {
                                      gradient_norm, perplexity, compute_time_ratio,
                                      weight_update_ratio, activation_saturation_ratio,
                                      attention_entropy, padding_efficiency,
-                                     layer_gradient_norms_json, predictor_loss, sigreg_loss)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17);
+                                     layer_gradient_norms_json, predictor_loss, sigreg_loss,
+                                     masking_ratio, predictor_target_cosine_sim,
+                                     sigreg_variance_mean, sigreg_variance_stddev)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
+                ?18, ?19, ?20, ?21);
     )SQL",
          &stmt_insert_metrics_);
 
@@ -551,6 +593,13 @@ void SQLiteMetricsDatabase::insert_metrics_record(const std::string& session_key
     }
     sqlite3_bind_double(stmt_insert_metrics_, 16, static_cast<double>(rec.predictor_loss));
     sqlite3_bind_double(stmt_insert_metrics_, 17, static_cast<double>(rec.sigreg_loss));
+    sqlite3_bind_double(stmt_insert_metrics_, 18, static_cast<double>(rec.masking_ratio));
+    sqlite3_bind_double(stmt_insert_metrics_, 19,
+                        static_cast<double>(rec.predictor_target_cosine_sim));
+    sqlite3_bind_double(stmt_insert_metrics_, 20,
+                        static_cast<double>(rec.sigreg_variance_mean));
+    sqlite3_bind_double(stmt_insert_metrics_, 21,
+                        static_cast<double>(rec.sigreg_variance_stddev));
 
     check_sqlite(sqlite3_step(stmt_insert_metrics_), db_, "insert_metrics_record");
 }
@@ -626,7 +675,9 @@ std::vector<PersistentMetricsRecord> SQLiteMetricsDatabase::query_history(
         "SELECT recorded_at, epoch, sample, loss, validation_loss, "
         "learning_rate, gradient_norm, perplexity, compute_time_ratio, "
         "weight_update_ratio, activation_saturation_ratio, attention_entropy, "
-        "padding_efficiency, layer_gradient_norms_json, predictor_loss, sigreg_loss "
+        "padding_efficiency, layer_gradient_norms_json, predictor_loss, sigreg_loss, "
+        "masking_ratio, predictor_target_cosine_sim, sigreg_variance_mean, "
+        "sigreg_variance_stddev "
         "FROM metrics_history WHERE session_key = ?";
 
     int param_idx = 2;
@@ -681,6 +732,10 @@ std::vector<PersistentMetricsRecord> SQLiteMetricsDatabase::query_history(
         }
         rec.predictor_loss = static_cast<float>(sqlite3_column_double(stmt, 14));
         rec.sigreg_loss = static_cast<float>(sqlite3_column_double(stmt, 15));
+        rec.masking_ratio = static_cast<float>(sqlite3_column_double(stmt, 16));
+        rec.predictor_target_cosine_sim = static_cast<float>(sqlite3_column_double(stmt, 17));
+        rec.sigreg_variance_mean = static_cast<float>(sqlite3_column_double(stmt, 18));
+        rec.sigreg_variance_stddev = static_cast<float>(sqlite3_column_double(stmt, 19));
         results.push_back(rec);
     }
 

@@ -60,6 +60,7 @@ class RecordingMetricsReporter final : public IMetricsReporter {
         generation_quality_call_count.fetch_add(1, std::memory_order_relaxed);
     }
     void update_lejepa_metrics(float, float) override {}
+    void update_lejepa_advanced_metrics(float, float, float, float) override {}
 };
 
 /**

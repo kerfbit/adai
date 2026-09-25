@@ -99,6 +99,14 @@ class LeJEPAEncoder {
     // call — train_step()'s own span-start draw is the only user.
     std::mt19937 span_rng_{std::random_device{}()};
 
+    // Diagnostic state set inside train_step(), valid only immediately after the most recent
+    // call (encode() does not update these) — see the getters below for what each one means.
+    float last_gradient_norm_{0.0f};
+    float last_masking_ratio_{0.0f};
+    float last_predictor_target_cosine_sim_{0.0f};
+    float last_sigreg_variance_mean_{0.0f};
+    float last_sigreg_variance_stddev_{0.0f};
+
     /** Core forward pipeline shared by encode() and train_step() — embedding, positional
      *  encoding, encoder blocks, final norm. Populates the cache above when requires_grad. */
     Matrix encode_tokens(const std::vector<int>& token_ids);
@@ -241,5 +249,47 @@ class LeJEPAEncoder {
             throw std::out_of_range("Layer index out of range");
         }
         return encoder_blocks[layer].get();
+    }
+
+    // ── Advanced diagnostics (post-TD-208 metrics work) ─────────────────────────────────────
+    // All five valid only immediately after the most recent train_step() call.
+
+    /** Combined gradient norm (sqrt of sum of squares, matching EncoderBlock::get_gradient_norm()'s
+     *  own combining convention) across train_step()'s two internal sequential updates (TD-189),
+     *  captured right before each update_weights() call zeroes it — calling optimizer_->
+     *  get_gradient_norm() from OUTSIDE train_step() after it returns always reads 0.0f, since
+     *  update_weights() already zeroed every gradient buffer by then. Returns 0.0f when no
+     *  optimizer is registered (the plain-SGD fallback path has no single combined-norm primitive
+     *  across every sub-component, and production always registers an optimizer). */
+    float get_last_gradient_norm() const {
+        return last_gradient_norm_;
+    }
+
+    /** Actual span-masking ratio applied this step (span_len / seq_len) — can deviate from the
+     *  nominal 25% for short sequences due to train_step()'s own [1, seq_len-1] clamp. */
+    float get_last_masking_ratio() const {
+        return last_masking_ratio_;
+    }
+
+    /** Cosine similarity between the predictor's output and the target-view embedding, averaged
+     *  over the masked span — isolates directional prediction quality from the MSE predictor_loss's
+     *  magnitude-conflated signal. Range [-1, 1]. */
+    float get_last_predictor_target_cosine_sim() const {
+        return last_predictor_target_cosine_sim_;
+    }
+
+    /** Mean per-direction projected variance of the target-view embeddings across sigreg's own
+     *  sketch directions (see SIGReg::compute_variance_stats()) — target ~1.0 for an appropriately
+     *  spread (isotropic) batch. Complementary to sigreg_loss: this says "how spread out overall,"
+     *  not "how close to the analytic Gaussian shape." */
+    float get_last_sigreg_variance_mean() const {
+        return last_sigreg_variance_mean_;
+    }
+
+    /** Standard deviation of that same per-direction variance across directions — near 0 means
+     *  spread is uniform across directions; large means collapsed in specific directions even if
+     *  the mean looks healthy, a distinction sigreg_loss's aggregate scalar can't make. */
+    float get_last_sigreg_variance_stddev() const {
+        return last_sigreg_variance_stddev_;
     }
 };

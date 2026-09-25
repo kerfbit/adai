@@ -151,6 +151,20 @@ data class LejepaMetricsDto(
     val current_sigreg_loss: Double = -1.0,
     val epoch_predictor_losses: List<Double> = emptyList(),
     val epoch_sigreg_losses: List<Double> = emptyList(),
+    // LeJEPA "advanced" diagnostics — no chatbot-path equivalent. masking_ratio: actual
+    // span-masking ratio applied (span_len/seq_len). predictor_target_cosine_sim: cosine
+    // similarity between predicted and target embeddings at the masked span, in [-1, 1].
+    // sigreg_variance_mean/stddev: mean/stddev of SIGReg's per-sketch-direction projected
+    // variance (mean ~1.0 = appropriately spread overall; stddev distinguishes uniform spread
+    // from collapse in specific directions).
+    val current_masking_ratio: Double = -1.0,
+    val current_predictor_target_cosine_sim: Double = -1.0,
+    val current_sigreg_variance_mean: Double = -1.0,
+    val current_sigreg_variance_stddev: Double = -1.0,
+    val epoch_masking_ratios: List<Double> = emptyList(),
+    val epoch_predictor_target_cosine_sims: List<Double> = emptyList(),
+    val epoch_sigreg_variance_means: List<Double> = emptyList(),
+    val epoch_sigreg_variance_stddevs: List<Double> = emptyList(),
 )
 
 @Serializable

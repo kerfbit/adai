@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.adai.ops.network.dto.CurrentMetricsDto
+import com.adai.ops.network.dto.LejepaMetricsDto
 import com.adai.ops.network.dto.SessionStatusDto
 import com.adai.ops.polling.PollerPhase
 import com.adai.ops.ui.common.AdminActionButton
@@ -162,6 +163,11 @@ private fun SessionDetailContent(
             }
         }
 
+        if (lejepa != null && lejepa.current_masking_ratio >= 0.0) {
+            item { HorizontalDivider() }
+            item { LejepaAdvancedSection(lejepa) }
+        }
+
         if (epochs != null && epochs.epoch_losses.size >= 2) {
             item {
                 MetricHistoryChart(
@@ -190,6 +196,18 @@ private fun SessionDetailContent(
                     validationValues = lejepa.epoch_sigreg_losses,
                     trainLabel = "Predictor loss",
                     validationLabel = "SIGReg loss",
+                )
+            }
+        }
+
+        if (lejepa != null && lejepa.epoch_sigreg_variance_means.size >= 2) {
+            item {
+                MetricHistoryChart(
+                    title = "SIGReg Per-Direction Variance (per epoch)",
+                    trainValues = lejepa.epoch_sigreg_variance_means,
+                    validationValues = lejepa.epoch_sigreg_variance_stddevs,
+                    trainLabel = "Variance mean",
+                    validationLabel = "Variance stddev",
                 )
             }
         }
@@ -281,6 +299,29 @@ private fun LejepaSection(current: CurrentMetricsDto) {
     Text("LeJEPA World-Model Pretraining", style = MaterialTheme.typography.titleLarge)
     MetricRow("Predictor loss", String.format(Locale.US, "%.4f", current.current_predictor_loss))
     MetricRow("SIGReg loss", String.format(Locale.US, "%.4f", current.current_sigreg_loss))
+}
+
+/** LeJEPA "advanced" diagnostics — signals with no chatbot-path equivalent, read from the
+ * dedicated LejepaMetricsDto (not CurrentMetricsDto — deliberately not duplicated there, unlike
+ * predictor_loss/sigreg_loss above). Only rendered once a --objective=lejepa pass has actually
+ * reported these fields (current_masking_ratio stays -1 otherwise). */
+@Composable
+private fun LejepaAdvancedSection(lejepa: LejepaMetricsDto) {
+    if (lejepa.current_masking_ratio < 0.0) return
+    Text("LeJEPA Advanced Diagnostics", style = MaterialTheme.typography.titleLarge)
+    MetricRow("Masking ratio", String.format(Locale.US, "%.4f", lejepa.current_masking_ratio))
+    MetricRow(
+        "Predictor/target cosine sim",
+        String.format(Locale.US, "%.4f", lejepa.current_predictor_target_cosine_sim),
+    )
+    MetricRow(
+        "SIGReg variance mean",
+        String.format(Locale.US, "%.4f", lejepa.current_sigreg_variance_mean),
+    )
+    MetricRow(
+        "SIGReg variance stddev",
+        String.format(Locale.US, "%.4f", lejepa.current_sigreg_variance_stddev),
+    )
 }
 
 @Composable

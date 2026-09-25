@@ -74,6 +74,27 @@ class SIGReg {
         return d_model_;
     }
 
+    /** @brief Per-direction projected variance statistics — a diagnostic distinct from
+     *  compute_loss()'s characteristic-function-based test, computed on the same projections
+     *  compute_loss() forms internally but never exposes. For a true isotropic N(0, I) batch,
+     *  every direction's projected variance should be ~1.0 (mean ~1.0) and uniform across
+     *  directions (stddev ~0) — a large stddev means variance is collapsed in specific directions
+     *  rather than spread isotropically, a distinction the aggregate compute_loss() scalar alone
+     *  cannot make: a batch could have mean variance ~1.0 while being wildly anisotropic. */
+    struct VarianceStats {
+        float mean;
+        float stddev;
+    };
+
+    /**
+     * @brief Per-direction projected variance across the batch, aggregated to a mean and stddev
+     *   over all num_sketches directions. Recomputes the projection rather than caching it,
+     *   matching compute_loss()/backward()'s own no-caching style.
+     * @param embeddings `[batch, d_model]`, same input compute_loss() would be called with.
+     * @return {0.0f, 0.0f} if `embeddings` has zero rows.
+     */
+    VarianceStats compute_variance_stats(const Matrix& embeddings) const;
+
    private:
     int d_model_;
     int num_sketches_;

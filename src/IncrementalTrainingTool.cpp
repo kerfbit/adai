@@ -382,6 +382,64 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     int samples_since_last_save = 0;
     auto last_save_time = std::chrono::steady_clock::now();
 
+    // Advanced diagnostics (activation saturation / attention entropy): mirrors
+    // ChatbotTrainer.cpp's own accumulate-via-hook/reset-per-epoch/report-then-clear pattern,
+    // adapted to this loop's flat per-sample structure (there's no gradient-accumulation window
+    // here, so the epoch is the natural reset boundary). Registered once, outside the epoch
+    // loop, since world_model's layer structure doesn't change across epochs; accumulators are
+    // reset at the start of each epoch below.
+    //
+    // Caveat: LeJEPAEncoder::train_step() calls encode_tokens() 3x per sample internally
+    // (context view, target view, re-encoded context view for its second internal update), so
+    // these hooks fire 3x per sample, blending the partially-masked context view and the
+    // unmasked target view indiscriminately — a legitimate first-cut blended signal, not
+    // view-separated.
+    float sat_sum = 0.0f;
+    int sat_count = 0;
+    float ent_sum = 0.0f;
+    int ent_count = 0;
+    auto saturation_hook = [&sat_sum, &sat_count](const Matrix& activated) {
+        const int total = activated.rows * activated.cols;
+        if (total <= 0) {
+            return;
+        }
+        int sat = 0;
+        for (int r = 0; r < activated.rows; ++r) {
+            for (int c = 0; c < activated.cols; ++c) {
+                if (std::abs(activated(r, c)) < 0.01f) {
+                    ++sat;
+                }
+            }
+        }
+        sat_sum += static_cast<float>(sat) / static_cast<float>(total);
+        ++sat_count;
+    };
+    auto entropy_hook = [&ent_sum, &ent_count](const Matrix& attn_weights) {
+        const int seq_len = attn_weights.rows;
+        if (seq_len <= 0 || attn_weights.cols <= 0) {
+            return;
+        }
+        float layer_entropy = 0.0f;
+        for (int i = 0; i < seq_len; ++i) {
+            float row_entropy = 0.0f;
+            for (int j = 0; j < attn_weights.cols; ++j) {
+                float a = attn_weights(i, j);
+                if (a > 0.0f) {
+                    row_entropy -= a * std::log(a + 1e-10f);
+                }
+            }
+            layer_entropy += row_entropy;
+        }
+        ent_sum += layer_entropy / static_cast<float>(seq_len);
+        ++ent_count;
+    };
+    const int world_model_layers = world_model.get_num_layers();
+    for (int l = 0; l < world_model_layers; ++l) {
+        world_model.get_encoder_block(l)->get_feed_forward()->set_activation_hook(
+            saturation_hook);
+        world_model.get_encoder_block(l)->get_self_attention()->set_attention_hook(entropy_hook);
+    }
+
     double predictor_loss_sum = 0.0;
     double sigreg_loss_sum = 0.0;
     size_t step_count = 0;
@@ -392,15 +450,38 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         double epoch_predictor_sum = 0.0;
         double epoch_sigreg_sum = 0.0;
         size_t epoch_step_count = 0;
+        sat_sum = 0.0f;
+        sat_count = 0;
+        ent_sum = 0.0f;
+        ent_count = 0;
+        double epoch_masking_ratio_sum = 0.0;
+        double epoch_cosine_sim_sum = 0.0;
+        double epoch_sigreg_variance_mean_sum = 0.0;
+        double epoch_sigreg_variance_stddev_sum = 0.0;
+        // compute_time_ratio here means "fraction of epoch wall time actually inside
+        // train_step() calls" (surfaces checkpoint-save/metrics-push overhead between
+        // samples) — train_step() is an indivisible forward+backward+both-optimizer-steps
+        // black box, unlike the chatbot path's own forward+backward-vs-data-loading version
+        // of this same metric.
+        long long epoch_train_step_ns = 0;
+        const auto epoch_wall_start = std::chrono::steady_clock::now();
         int sample_idx = 0;
         for (const auto& text : texts) {
             ++sample_idx;
             try {
+                const auto step_start = std::chrono::steady_clock::now();
                 auto [predictor_loss, sigreg_loss] = world_model.train_step(text);
+                epoch_train_step_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                           std::chrono::steady_clock::now() - step_start)
+                                           .count();
                 predictor_loss_sum += predictor_loss;
                 sigreg_loss_sum += sigreg_loss;
                 epoch_predictor_sum += predictor_loss;
                 epoch_sigreg_sum += sigreg_loss;
+                epoch_masking_ratio_sum += world_model.get_last_masking_ratio();
+                epoch_cosine_sim_sum += world_model.get_last_predictor_target_cosine_sim();
+                epoch_sigreg_variance_mean_sum += world_model.get_last_sigreg_variance_mean();
+                epoch_sigreg_variance_stddev_sum += world_model.get_last_sigreg_variance_stddev();
                 ++step_count;
                 ++epoch_step_count;
                 if (metrics_client) {
@@ -411,7 +492,7 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
                     // in here.
                     metrics_client->update_sample_metrics(
                         sample_idx, static_cast<float>(predictor_loss),
-                        optimizer.get_gradient_norm(),
+                        world_model.get_last_gradient_norm(),
                         static_cast<float>(svc_config.learning_rate));
                 }
 
@@ -452,16 +533,70 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
                 static_cast<float>(epoch_predictor_sum / static_cast<double>(epoch_step_count));
             const float avg_sigreg_loss =
                 static_cast<float>(epoch_sigreg_sum / static_cast<double>(epoch_step_count));
+            // These buffered-field setters must all run BEFORE end_epoch() below —
+            // MetricsPushClient::end_epoch() reads its buffers synchronously while building the
+            // /epoch/end JSON body, so a setter called after it fires would have its value land
+            // in the FOLLOWING epoch's POST instead of this one (still at this epoch's
+            // start_epoch()-reset sentinel when end_epoch() runs) — the same ordering lesson
+            // TD-208 already learned once server-side in TrainingMetricsAPI::
+            // handle_post_epoch_end(), just on the client side this time. Mirrors
+            // ChatbotTrainer.cpp's own call order (update_advanced_epoch_metrics/
+            // update_activation_saturation/update_attention_entropy all precede its end_epoch()
+            // call).
+            //
+            // TD-178: predictor_loss/sigreg_loss get their own dedicated dashboard channel —
+            // two independent series, not a train/validation pair.
+            metrics_client->update_lejepa_metrics(avg_predictor_loss, avg_sigreg_loss);
+
+            const auto epoch_wall_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                          std::chrono::steady_clock::now() - epoch_wall_start)
+                                          .count();
+            const float compute_time_ratio =
+                (epoch_wall_ns > 0)
+                    ? static_cast<float>(static_cast<double>(epoch_train_step_ns) /
+                                         static_cast<double>(epoch_wall_ns))
+                    : 0.0f;
+            // gradient_variance/weight_update_ratio have no LeJEPA-side equivalent (blocked on
+            // how train_step()'s two sequential internal optimizer updates, TD-189, should
+            // report gradients separately vs. combined — a deeper design question than this
+            // change covers) — passed as 0.0f. Both already default to 0.0f in the snapshot, so
+            // this isn't a new ambiguity; update_advanced_epoch_metrics() bundles all three
+            // fields into one call, so sending compute_time_ratio at all means these two also
+            // get persisted as literal 0.0 rather than the -1 "not applicable" sentinel used
+            // elsewhere (a pre-existing API-shape wrinkle, not introduced here).
+            metrics_client->update_advanced_epoch_metrics(0.0f, compute_time_ratio, 0.0f);
+
+            const float avg_saturation =
+                (sat_count > 0) ? (sat_sum / static_cast<float>(sat_count)) : -1.0f;
+            metrics_client->update_activation_saturation(avg_saturation);
+            const float avg_entropy =
+                (ent_count > 0) ? (ent_sum / static_cast<float>(ent_count)) : -1.0f;
+            metrics_client->update_attention_entropy(avg_entropy);
+
+            const float avg_masking_ratio = static_cast<float>(
+                epoch_masking_ratio_sum / static_cast<double>(epoch_step_count));
+            const float avg_cosine_sim = static_cast<float>(
+                epoch_cosine_sim_sum / static_cast<double>(epoch_step_count));
+            const float avg_sigreg_variance_mean = static_cast<float>(
+                epoch_sigreg_variance_mean_sum / static_cast<double>(epoch_step_count));
+            const float avg_sigreg_variance_stddev = static_cast<float>(
+                epoch_sigreg_variance_stddev_sum / static_cast<double>(epoch_step_count));
+            metrics_client->update_lejepa_advanced_metrics(
+                avg_masking_ratio, avg_cosine_sim, avg_sigreg_variance_mean,
+                avg_sigreg_variance_stddev);
+
             // No real validation split for this objective — validation_loss stays 0.0f,
             // matching ChatbotTrainer's own convention of simply not reporting it when
             // there's no validation data (rather than an N/A sentinel).
             metrics_client->end_epoch(epoch + 1, avg_predictor_loss, /*validation_loss=*/0.0f,
                                       static_cast<float>(svc_config.learning_rate),
-                                      /*perplexity=*/0.0f, optimizer.get_gradient_norm());
-            // TD-178: predictor_loss/sigreg_loss get their own dedicated dashboard
-            // channel — two independent series, not a train/validation pair.
-            metrics_client->update_lejepa_metrics(avg_predictor_loss, avg_sigreg_loss);
+                                      /*perplexity=*/0.0f, world_model.get_last_gradient_norm());
         }
+    }
+
+    for (int l = 0; l < world_model_layers; ++l) {
+        world_model.get_encoder_block(l)->get_feed_forward()->clear_activation_hook();
+        world_model.get_encoder_block(l)->get_self_attention()->clear_attention_hook();
     }
 
     const bool ok = step_count > 0;
