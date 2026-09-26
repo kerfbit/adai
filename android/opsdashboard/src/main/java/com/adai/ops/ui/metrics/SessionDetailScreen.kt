@@ -140,6 +140,16 @@ private fun SessionDetailContent(
     val epochs = state.epochs
     val lejepa = state.lejepa
 
+    // A LeJEPA world-model session (--objective=lejepa) reports predictor_loss/sigreg_loss;
+    // an ordinary chatbot (encoder+decoder) session never does — the same discriminator TD-208/
+    // TD-210's own sections already used, now promoted to branch the WHOLE metrics layout rather
+    // than bolting LeJEPA sections onto a chatbot-shaped screen. The two objectives don't share a
+    // meaningful "validation loss"/"perplexity"/generation-quality story — a LeJEPA session's
+    // validation_loss/perplexity are hardcoded 0 and its BLEU/ROUGE are permanently N/A (it never
+    // generates text), so showing those chatbot fields for it was pure noise, not just an
+    // incomplete view.
+    val isLejepaSession = current != null && current.current_predictor_loss >= 0.0
+
     LazyColumn(
         modifier = modifier.padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -151,64 +161,68 @@ private fun SessionDetailContent(
             item { HorizontalDivider() }
         }
 
-        current?.let {
-            item { MetricsSection(it) }
-            item { HorizontalDivider() }
-            item { AdvancedDiagnosticsSection(it) }
-            item { HorizontalDivider() }
-            item { GenerationQualitySection(it) }
-            if (it.current_predictor_loss >= 0.0) {
+        if (isLejepaSession) {
+            current?.let {
+                item { LejepaMetricsSection(it) }
                 item { HorizontalDivider() }
-                item { LejepaSection(it) }
+                item { LejepaDiagnosticsSection(it) }
             }
-        }
 
-        if (lejepa != null && lejepa.current_masking_ratio >= 0.0) {
-            item { HorizontalDivider() }
-            item { LejepaAdvancedSection(lejepa) }
-        }
-
-        if (epochs != null && epochs.epoch_losses.size >= 2) {
-            item {
-                MetricHistoryChart(
-                    title = "Loss History (per epoch)",
-                    trainValues = epochs.epoch_losses,
-                    validationValues = epochs.epoch_validation_losses,
-                )
+            if (lejepa != null && lejepa.current_masking_ratio >= 0.0) {
+                item { HorizontalDivider() }
+                item { LejepaAdvancedSection(lejepa) }
             }
-        }
 
-        if (epochs != null && epochs.epoch_perplexities.size >= 2) {
-            item {
-                MetricHistoryChart(
-                    title = "Perplexity History (per epoch)",
-                    trainValues = epochs.epoch_perplexities,
-                    validationValues = epochs.epoch_validation_perplexities,
-                )
+            if (lejepa != null && lejepa.epoch_predictor_losses.size >= 2) {
+                item {
+                    MetricHistoryChart(
+                        title = "LeJEPA Loss Components (per epoch)",
+                        trainValues = lejepa.epoch_predictor_losses,
+                        validationValues = lejepa.epoch_sigreg_losses,
+                        trainLabel = "Predictor loss",
+                        validationLabel = "SIGReg loss",
+                    )
+                }
             }
-        }
 
-        if (lejepa != null && lejepa.epoch_predictor_losses.size >= 2) {
-            item {
-                MetricHistoryChart(
-                    title = "LeJEPA Loss Components (per epoch)",
-                    trainValues = lejepa.epoch_predictor_losses,
-                    validationValues = lejepa.epoch_sigreg_losses,
-                    trainLabel = "Predictor loss",
-                    validationLabel = "SIGReg loss",
-                )
+            if (lejepa != null && lejepa.epoch_sigreg_variance_means.size >= 2) {
+                item {
+                    MetricHistoryChart(
+                        title = "SIGReg Per-Direction Variance (per epoch)",
+                        trainValues = lejepa.epoch_sigreg_variance_means,
+                        validationValues = lejepa.epoch_sigreg_variance_stddevs,
+                        trainLabel = "Variance mean",
+                        validationLabel = "Variance stddev",
+                    )
+                }
             }
-        }
+        } else {
+            current?.let {
+                item { MetricsSection(it) }
+                item { HorizontalDivider() }
+                item { AdvancedDiagnosticsSection(it) }
+                item { HorizontalDivider() }
+                item { GenerationQualitySection(it) }
+            }
 
-        if (lejepa != null && lejepa.epoch_sigreg_variance_means.size >= 2) {
-            item {
-                MetricHistoryChart(
-                    title = "SIGReg Per-Direction Variance (per epoch)",
-                    trainValues = lejepa.epoch_sigreg_variance_means,
-                    validationValues = lejepa.epoch_sigreg_variance_stddevs,
-                    trainLabel = "Variance mean",
-                    validationLabel = "Variance stddev",
-                )
+            if (epochs != null && epochs.epoch_losses.size >= 2) {
+                item {
+                    MetricHistoryChart(
+                        title = "Loss History (per epoch)",
+                        trainValues = epochs.epoch_losses,
+                        validationValues = epochs.epoch_validation_losses,
+                    )
+                }
+            }
+
+            if (epochs != null && epochs.epoch_perplexities.size >= 2) {
+                item {
+                    MetricHistoryChart(
+                        title = "Perplexity History (per epoch)",
+                        trainValues = epochs.epoch_perplexities,
+                        validationValues = epochs.epoch_validation_perplexities,
+                    )
+                }
             }
         }
 
@@ -274,6 +288,9 @@ private fun AdvancedDiagnosticsSection(current: CurrentMetricsDto) {
     MetricRow("Compute time ratio", String.format(Locale.US, "%.4f", current.compute_time_ratio))
     MetricRow("Weight update ratio", String.format(Locale.US, "%.3e", current.weight_update_ratio))
     MetricRow("Activation saturation", String.format(Locale.US, "%.4f", current.activation_saturation_ratio))
+    if (current.attention_entropy >= 0.0) {
+        MetricRow("Attention entropy", String.format(Locale.US, "%.4f", current.attention_entropy))
+    }
 }
 
 @Composable
@@ -290,15 +307,40 @@ private fun GenerationQualitySection(current: CurrentMetricsDto) {
     MetricRow("ROUGE-L", String.format(Locale.US, "%.4f", current.current_rougeL))
 }
 
-/** TD-178: LeJEPA world-model pretraining — only rendered when a --objective=lejepa
- * pass has actually reported these fields (current_predictor_loss stays -1 otherwise,
- * same "not applicable to this run" convention GenerationQualitySection uses above). */
+/** TD-178/TD-210: the LeJEPA-shaped replacement for MetricsSection — a world-model session has
+ * no validation split (validation_loss/perplexity/validation_accuracy stay hardcoded at their
+ * "not applicable" values, see run_lejepa_training_pass()'s own comment), so those chatbot-only
+ * fields are dropped rather than shown as misleading zeros. */
 @Composable
-private fun LejepaSection(current: CurrentMetricsDto) {
-    if (current.current_predictor_loss < 0.0) return
-    Text("LeJEPA World-Model Pretraining", style = MaterialTheme.typography.titleLarge)
+private fun LejepaMetricsSection(current: CurrentMetricsDto) {
+    Text("LeJEPA World-Model Training", style = MaterialTheme.typography.titleLarge)
     MetricRow("Predictor loss", String.format(Locale.US, "%.4f", current.current_predictor_loss))
     MetricRow("SIGReg loss", String.format(Locale.US, "%.4f", current.current_sigreg_loss))
+    MetricRow("Learning rate", String.format(Locale.US, "%.6f", current.current_learning_rate))
+    MetricRow("Gradient norm", String.format(Locale.US, "%.4f", current.current_gradient_norm))
+}
+
+/** LeJEPA-relevant subset of AdvancedDiagnosticsSection above. gradient_variance and
+ * weight_update_ratio are deliberately omitted — IncrementalTrainingTool.cpp's LeJEPA path always
+ * reports them as literal 0.0 (TrainingMetricsAPI's own bundled-3-field gating quirk, see TD-210),
+ * not the -1 "not applicable" sentinel every other N/A field in this screen uses, so showing them
+ * here would read as a genuine measured zero rather than "not computed for this objective".
+ * compute_time_ratio also means something different for LeJEPA than the chatbot-path label
+ * implies — see LeJEPAEncoder's own training-loop comment — hence the more specific label below. */
+@Composable
+private fun LejepaDiagnosticsSection(current: CurrentMetricsDto) {
+    Text("LeJEPA Diagnostics", style = MaterialTheme.typography.titleLarge)
+    MetricRow(
+        "Compute time ratio (in train_step)",
+        String.format(Locale.US, "%.4f", current.compute_time_ratio),
+    )
+    MetricRow(
+        "Activation saturation",
+        String.format(Locale.US, "%.4f", current.activation_saturation_ratio),
+    )
+    if (current.attention_entropy >= 0.0) {
+        MetricRow("Attention entropy", String.format(Locale.US, "%.4f", current.attention_entropy))
+    }
 }
 
 /** LeJEPA "advanced" diagnostics — signals with no chatbot-path equivalent, read from the

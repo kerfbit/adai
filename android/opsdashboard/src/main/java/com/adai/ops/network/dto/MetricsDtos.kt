@@ -54,6 +54,10 @@ data class CurrentMetricsDto(
     val compute_time_ratio: Double = 0.0,
     val weight_update_ratio: Double = 0.0,
     val activation_saturation_ratio: Double = 0.0,
+    // Server's to_json() has emitted this since TD-013 (TrainingMetricsService.cpp's own
+    // to_json()) but this DTO never had a field for it — kotlinx.serialization's
+    // ignoreUnknownKeys silently dropped it on every parse until now.
+    val attention_entropy: Double = -1.0,
     val current_validation_perplexity: Double = 0.0,
     val current_validation_accuracy: Double = -1.0,
     val current_bleu4: Double = -1.0,
