@@ -11,6 +11,7 @@ import com.adai.ops.network.dto.CurrentMetricsDto
 import com.adai.ops.network.dto.DbHistoryDto
 import com.adai.ops.network.dto.EpochHistoryDto
 import com.adai.ops.network.dto.GenerationQualityDto
+import com.adai.ops.network.dto.LejepaMetricsDto
 import com.adai.ops.network.dto.MetricsAdminConfigDto
 import com.adai.ops.network.dto.MetricsHealthDto
 import com.adai.ops.network.dto.PaddingEfficiencyDto
@@ -37,6 +38,7 @@ class FakeMetricsApiService(
     private val sessionStatusResponse: (String) -> SessionStatusDto = { SessionStatusDto() },
     private val currentMetricsResponse: (String) -> CurrentMetricsDto = { CurrentMetricsDto() },
     private val epochHistoryResponse: (String) -> EpochHistoryDto = { EpochHistoryDto() },
+    private val lejepaMetricsResponse: (String) -> LejepaMetricsDto = { LejepaMetricsDto() },
     private val sampleHistoryResponse: (String, Int) -> SampleHistoryDto = { _, _ -> SampleHistoryDto() },
     private val endSessionResponse: (String) -> SimpleStatusDto = { SimpleStatusDto() },
     private val getAdminConfigResponse: () -> Response<MetricsAdminConfigDto> =
@@ -55,6 +57,8 @@ class FakeMetricsApiService(
     override suspend fun sessionStatus(key: String): SessionStatusDto = sessionStatusResponse(key)
 
     override suspend fun epochHistory(key: String): EpochHistoryDto = epochHistoryResponse(key)
+
+    override suspend fun lejepaMetrics(key: String): LejepaMetricsDto = lejepaMetricsResponse(key)
 
     override suspend fun sampleHistory(key: String, maxRecords: Int): SampleHistoryDto =
         sampleHistoryResponse(key, maxRecords)
