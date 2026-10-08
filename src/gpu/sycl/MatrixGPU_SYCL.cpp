@@ -161,6 +161,7 @@ static inline float apply_activation_sycl(float x, int act) {
         case 2:  // Tanh
             return sycl::tanh(x);
         case 3:  // GELU (approximation)
+            // TODO: See TD-216 in TECHNICAL_DEBT.md - GELU constants duplicated from Activation.hpp.
             return 0.5f * x * (1.0f + sycl::tanh(0.7978845608f * (x + 0.044715f * x * x * x)));
         default:
             return x;
@@ -479,6 +480,7 @@ void matrix_softmax_backward_gpu(const float* s, const float* dout, float* din, 
 // ============================================================================
 // GELU Backward
 // GELU'(x) = 0.5*(1+tanh(u)) + 0.5*x*sech²(u)*c*(1+3*0.044715*x²)
+// TODO: See TD-216 in TECHNICAL_DEBT.md - c and a below duplicate Activation.hpp's GELU constants.
 // ============================================================================
 
 void matrix_gelu_backward_gpu(const float* pre_act, const float* dout, float* din, int size) {

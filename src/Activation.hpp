@@ -68,6 +68,10 @@ class Activation {
      *
      * Formula: For cross-entropy loss: grad_input = output * (grad_output - sum(output *
      * grad_output))
+     *
+     * TODO: See TD-215 in TECHNICAL_DEBT.md - the "For cross-entropy loss" wording above is wrong:
+     * this is the general softmax vector-Jacobian product for any upstream gradient (for
+     * softmax + cross-entropy use y - one_hot(target) directly). Shapes are not validated.
      */
     static Matrix softmax_derivative(const Matrix& output, const Matrix& grad_output);
 
@@ -164,6 +168,9 @@ class Activation {
      * @return Matrix of derivatives
      *
      * Formula: LeakyReLU'(x) = alpha if x < 0, else 1
+     *
+     * TODO: See TD-215 in TECHNICAL_DEBT.md - the formula above is wrong at x == 0: the code returns
+     * alpha there (x > 0 ? 1 : alpha), and the tests encode that.
      */
     static Matrix leaky_relu_derivative(const Matrix& input, float alpha = 0.01f);
 
@@ -191,6 +198,8 @@ class Activation {
 
    private:
     // Helper constant for GELU approximation
+    // TODO: See TD-216 in TECHNICAL_DEBT.md - the same literals are hardcoded separately in the CUDA
+    // and SYCL GELU kernels; move them to one shared header.
     static constexpr float GELU_COEF = 0.044715f;
     static constexpr float SQRT_2_OVER_PI = 0.7978845608f;  // sqrt(2/π)
 };

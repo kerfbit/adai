@@ -117,6 +117,7 @@ float RLHFTrainer::apply_policy_gradient(const std::vector<int>& prompt_tokens,
     Matrix grad(logits.rows, vocab_size);
     float pg_loss_sum = 0.0f;
     for (int t = 0; t < steps; ++t) {
+        // TODO: See TD-216 in TECHNICAL_DEBT.md - inline copy of Activation::softmax.
         float max_logit = logits(t, 0);
         for (int v = 1; v < vocab_size; ++v) {
             max_logit = std::max(max_logit, logits(t, v));
@@ -217,6 +218,7 @@ RLHFStepResult RLHFTrainer::run_iteration(const std::vector<std::string>& prompt
             const int vocab_size = model_.get_vocab_size();
             const int steps = std::min(static_cast<int>(response_tokens.size()), logits.rows);
             for (int t = 0; t < steps; ++t) {
+                // TODO: See TD-216 in TECHNICAL_DEBT.md - inline copy of Activation::softmax.
                 float max_logit = logits(t, 0);
                 for (int v = 1; v < vocab_size; ++v) {
                     max_logit = std::max(max_logit, logits(t, v));

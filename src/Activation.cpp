@@ -13,6 +13,9 @@ Matrix Activation::softmax(const Matrix& input) {
 
     for (int i = 0; i < input.rows; i++) {
         // Find max value in row for numerical stability
+        // TODO: See TD-215 in TECHNICAL_DEBT.md - input(i, 0) is out of bounds when cols == 0.
+        // TODO: See TD-216 in TECHNICAL_DEBT.md - this algorithm is re-typed inline in MultiHeadAttention,
+        // TextGenerator, EncoderDecoderModel and RLHFTrainer.
         float max_val = input(i, 0);
         for (int j = 1; j < input.cols; j++) {
             max_val = std::max(max_val, input(i, j));
@@ -85,6 +88,7 @@ Matrix Activation::gelu_derivative(const Matrix& input) {
 
 // Softmax derivative (efficient version for cross-entropy)
 Matrix Activation::softmax_derivative(const Matrix& output, const Matrix& grad_output) {
+    // TODO: See TD-215 in TECHNICAL_DEBT.md - output and grad_output shapes are not checked.
     Matrix result(output.rows, output.cols);
 
     for (int i = 0; i < output.rows; i++) {

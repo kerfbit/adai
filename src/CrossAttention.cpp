@@ -460,6 +460,7 @@ void CrossAttention::backward(const Matrix& grad_output, Matrix& grad_query_inpu
         // grad_weights_h = grad_out_h * V_h^T
         Matrix grad_weights_h = grad_out_h * V_h.transpose();
 
+        // TODO: See TD-216 in TECHNICAL_DEBT.md - inline copy of Activation::softmax_derivative.
         // Softmax backward, row-wise, for this head's own weights
         Matrix grad_scores_h(tgt_len, src_len);
         for (int i = 0; i < tgt_len; ++i) {

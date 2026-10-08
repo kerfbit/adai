@@ -121,6 +121,7 @@ float EncoderDecoderModel::compute_loss(const Matrix& logits,
 
     for (int t = 0; t < seq_length && t < static_cast<int>(target_tokens.size()); ++t) {
         // Softmax for current timestep
+        // TODO: See TD-216 in TECHNICAL_DEBT.md - inline copy of Activation::softmax.
         std::vector<float> probs(vocab_size);
         float max_logit = logits.data[t][0];
         for (int v = 1; v < vocab_size; ++v) {
@@ -155,6 +156,7 @@ Matrix EncoderDecoderModel::compute_loss_gradient(const Matrix& logits,
 
     for (int t = 0; t < seq_length && t < static_cast<int>(target_tokens.size()); ++t) {
         // Softmax
+        // TODO: See TD-216 in TECHNICAL_DEBT.md - inline copy of Activation::softmax.
         std::vector<float> probs(vocab_size);
         float max_logit = logits.data[t][0];
         for (int v = 1; v < vocab_size; ++v) {

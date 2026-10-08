@@ -125,6 +125,7 @@ std::vector<float> TextGenerator::apply_repetition_penalty(const std::vector<flo
 }
 
 // Softmax
+// TODO: See TD-216 in TECHNICAL_DEBT.md - duplicate of Activation::softmax for std::vector<float>.
 std::vector<float> TextGenerator::softmax(const std::vector<float>& logits) {
     std::vector<float> probs(logits.size());
 

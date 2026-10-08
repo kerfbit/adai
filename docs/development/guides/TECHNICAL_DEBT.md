@@ -4,14 +4,35 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** September 21, 2026
-**Total Items:** 13
+**Last Updated:** October 8, 2026
+**Total Items:** 19
 **High Priority:** 1
-**Medium Priority:** 7
-**Low Priority:** 5
+**Medium Priority:** 9
+**Low Priority:** 9
 **Future Enhancements:** 19
 **Resolved Items:** 197
 **Deferred Decisions:** 3
+
+**October 8, 2026:** Filed
+[TD-211](#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model)
+through
+[TD-214](#td-214-batched-inference-mode-generates-differently-from-the-inline-path), all found while
+writing the code-traced reference
+[BatchedInferenceEngine.md](../reference/source/BatchedInferenceEngine.md). The headline (TD-211):
+the `stable`-tagged `BatchedInferenceEngine` is a single-worker request queue that generates each
+request sequentially. Despite its comments and the `--batched-inference` flag's name, it never
+batches the model, and can't until TD-171. TD-212 covers accepted requests that can still fail or be
+abandoned (one throwing request fails its whole group; shutdown drains only one group; `submit()`
+races shutdown). TD-213 covers misleading, unexposed stats. TD-214 covers batched mode ignoring
+`strategy`/`beam_width` and sharing one fixed-seed RNG across requests. Each item is tagged in code
+with `TODO: See TD-NNN`.
+
+Same day, filed
+[TD-215](#td-215-activation-has-misleading-header-comments-and-unchecked-inputs) and
+[TD-216](#td-216-softmax-and-gelu-math-is-duplicated-across-cpu-and-gpu-code) from the code-traced
+[Activation.md](../reference/source/Activation.md): two wrong header comments plus two unchecked
+inputs in the `stable` `Activation` class (TD-215), and softmax/GELU math re-typed across CPU hot
+paths and both GPU backends, risking silent CPU/GPU drift (TD-216).
 
 **September 25, 2026:** Filed and resolved
 [TD-210](../archive/TECHNICAL_DEBT_RESOLVED.md#td-210-add-lejepa-advanced-training-diagnostics-and-fix-a-zero-gradient-norm-bug)
@@ -555,6 +576,25 @@ picked up, see that plan's interaction notes referenced from TD-180 (`RP-2a`, ph
 gates) and TD-186 (`RP-3`/`RP-6`, joint pilot) — that plan itself remains unstarted, independent
 of this tier closing.
 
+**Tier 11 — Newly filed (October 8, 2026): `BatchedInferenceEngine` honesty and robustness.**
+[TD-212](#td-212-batchedinferenceengine-can-fail-or-abandon-requests-it-already-accepted) (4-6h)
+is the only one that's a plain bug fix with no decision attached, so it can go first.
+[TD-211](#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model)
+needs an owner decision: re-scope the class as a queue now, or keep it as a placeholder for
+batching after
+[TD-171](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported).
+[TD-213](#td-213-batchedinferenceengine-stats-are-misleading-and-unused-in-production) should follow
+that decision (no point exposing stats for a class about to be renamed or trimmed).
+[TD-214](#td-214-batched-inference-mode-generates-differently-from-the-inline-path) is independent
+and small.
+
+**Tier 12 — Newly filed (October 8, 2026): `Activation` cleanup.**
+[TD-215](#td-215-activation-has-misleading-header-comments-and-unchecked-inputs) (1-2h) is a
+self-contained fix to one file and its tests.
+[TD-216](#td-216-softmax-and-gelu-math-is-duplicated-across-cpu-and-gpu-code) (4-6h) touches attention,
+generation, training and both GPU backends; the GPU half can only be compiled and checked on a host
+with the CUDA or SYCL toolchain, so it's best done alongside other GPU work.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -574,6 +614,12 @@ of this tier closing.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
+  - [TD-211: BatchedInferenceEngine Queues and Serializes Requests but Never Batches the Model](#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model)
+  - [TD-212: BatchedInferenceEngine Can Fail or Abandon Requests It Already Accepted](#td-212-batchedinferenceengine-can-fail-or-abandon-requests-it-already-accepted)
+  - [TD-213: BatchedInferenceEngine Stats Are Misleading and Unused in Production](#td-213-batchedinferenceengine-stats-are-misleading-and-unused-in-production)
+  - [TD-214: Batched-Inference Mode Generates Differently From the Inline Path](#td-214-batched-inference-mode-generates-differently-from-the-inline-path)
+  - [TD-215: Activation Has Misleading Header Comments and Unchecked Inputs](#td-215-activation-has-misleading-header-comments-and-unchecked-inputs)
+  - [TD-216: Softmax and GELU Math Is Duplicated Across CPU and GPU Code](#td-216-softmax-and-gelu-math-is-duplicated-across-cpu-and-gpu-code)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -2216,6 +2262,302 @@ another branch of one large `main()` instead of becoming its own focused binary)
 
 ---
 
+### TD-211: BatchedInferenceEngine Queues and Serializes Requests but Never Batches the Model
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open — owner decision needed | Inference / Serving | October 8, 2026 | 2-4 hours to re-scope/re-document as a queue; real batching not estimated (blocked on TD-171) |
+
+Description:
+Found while writing the code-traced reference
+[BatchedInferenceEngine.md](../reference/source/BatchedInferenceEngine.md). `src/BatchedInferenceEngine.hpp`
+is tagged `stable`. Its file and class comments advertise "continuous batching", "process entire
+batch in single model forward pass", "pad & batch", "dynamic batch sizing", and a "10-20x
+throughput improvement". None of the model-level batching exists. `process_batch()` loops over the
+collected requests and calls `TextGenerator::generate_text()` once per request, sequentially, on a
+single worker thread. There is no padding, no combined forward pass, and no length grouping. It
+can't be added locally either: the model stack has no batch dimension
+([TD-171](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)).
+
+What the engine really is: an asynchronous bounded queue with one worker thread that serializes
+generation. In `chatbot_api_server --batched-inference` that means concurrent requests wait their
+turn, which raises per-request latency rather than throughput.
+
+Related dead or placeholder surface:
+
+- `BatchedInferenceConfig::padding_strategy`, `use_dynamic_batching`, and `enable_request_stats`
+  are never read by the engine (only default-value tests reference them).
+- `max_tokens_per_batch` is checked against a fixed 100-tokens-per-request estimate in
+  `should_flush_batch()`. With defaults (4096 / 100 = 41) it can never fire before
+  `max_batch_size` (32) does.
+- `collect_batch()` computes one deadline per call, so an idle worker wakes every `timeout_ms` (20
+  times a second by default) just to return an empty group. Negligible CPU, but it's a polling
+  loop where a plain wait would do.
+- `batched_inference_benchmark` uses a sleep-based synthetic model. Any speedup it reports can't
+  come from batching, so the "10-20x" (this file) and "27.80x at batch=32"
+  (`IntegratedInferenceEngine.hpp`) claims are unsupported.
+- The **Batched Inference Engine (Priority 3)** entry under
+  [Future Improvements](#performance-optimizations) still describes the feature as unbuilt
+  "single forward pass" work.
+
+Impact: misleading documentation on a `stable` file, and an operator flag
+(`--batched-inference`) whose name promises a throughput gain it can't deliver.
+
+Action Items:
+
+- [ ] Owner decision: (a) re-scope the class honestly as a request queue (rename or re-document,
+  drop the dead config fields), or (b) keep the name and make real batching a follow-on to TD-171.
+- [ ] Either way: rewrite the file/class doc comments and `--batched-inference`'s `--help` text to
+  describe actual behaviour; remove or wire up the three unused config fields; replace the
+  100-token estimate with real token counts or remove `max_tokens_per_batch`.
+- [ ] Replace the per-call deadline polling with a wait for the first request, then a timeout
+  measured from that request's arrival.
+- [ ] Re-run `batched_inference_benchmark` and correct or remove the throughput claims.
+- [ ] Re-review the file's `@adai-status: stable` tag once the above lands.
+
+Location in code: `src/BatchedInferenceEngine.hpp` (file header, `BatchedInferenceConfig`,
+`collect_batch()`, `should_flush_batch()`, `process_batch()`); tagged `TODO: See TD-211`.
+
+Files to Modify:
+
+- `src/BatchedInferenceEngine.hpp`
+- `src/ChatbotAPIServer.cpp` (`--help` text)
+- `benchmarks/BatchedInferenceBenchmark.cpp`
+- `tests/batchedinferenceengine_test.cpp`
+- `docs/development/reference/source/BatchedInferenceEngine.md`
+
+---
+
+### TD-212: BatchedInferenceEngine Can Fail or Abandon Requests It Already Accepted
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Inference / Serving | October 8, 2026 | 4-6 hours |
+
+Description:
+Found alongside TD-211. Three paths let an accepted request end badly through no fault of its own:
+
+1. **One throwing request fails its whole group.** `process_batch()` runs every request's
+   generation inside one `try`. If request *k*'s `model_fn` or tokenizer throws, the outer `catch`
+   sets that exception on **every** promise in the group, including requests before *k* whose text
+   was already generated (and is discarded) and requests after *k* that never ran. This is the same
+   blast-radius shape as the empty-response bug fixed in the same function (see its comment block),
+   but for real generation errors instead of the stats update.
+2. **Shutdown drains only one final group.** `batch_processing_loop()` calls
+   `collect_batch_no_wait()` once, which takes at most `max_batch_size` requests. Anything else
+   still queued is destroyed with the engine, and its future throws `std::future_error`
+   (`broken_promise`). `shutdown()`'s doc comment says it "waits for pending requests to complete".
+3. **`submit()` races `shutdown()`.** `submit()` checks `running_` *before* taking
+   `queue_mutex_`. A request that passes the check and is enqueued after the worker's final drain is
+   never processed and also ends in `broken_promise`.
+
+Not hit by `chatbot_api_server` today (its engine lives for the whole process, and its
+`model_fn` rarely throws), but (1) can turn one bad request into N failed HTTP responses under
+concurrent load.
+
+Action Items:
+
+- [ ] Wrap each request's `generate_text()` call in its own `try/catch` and fail only that
+  request's promise.
+- [ ] Make shutdown drain the queue completely (loop `collect_batch_no_wait()` until empty), or
+  explicitly fail leftovers with a clear "engine shut down" exception instead of `broken_promise`.
+- [ ] Re-check `running_` under `queue_mutex_` in `submit()` so no request can be enqueued after
+  the final drain.
+- [ ] Add regression tests for all three (none exist today).
+
+Location in code: `src/BatchedInferenceEngine.hpp` (`submit()`, `shutdown()`,
+`batch_processing_loop()`, `collect_batch_no_wait()`, `process_batch()`); tagged
+`TODO: See TD-212`.
+
+Files to Modify:
+
+- `src/BatchedInferenceEngine.hpp`
+- `tests/batchedinferenceengine_test.cpp`
+
+---
+
+### TD-213: BatchedInferenceEngine Stats Are Misleading and Unused in Production
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Inference / Serving / Observability | October 8, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-211:
+
+- `BatchedInferenceStats::avg_latency_ms` is `elapsed × 1000 / total_requests`, which is the
+  inverse of throughput including idle time, not a latency. It's also unguarded against
+  `total_requests == 0`, so `get_stats()` on a fresh engine reports `+∞`.
+- `InferenceRequest::submit_time` is recorded on every request but never read, so real
+  queue-wait or end-to-end latency isn't measured anywhere.
+- `requests_timeout` / `requests_batch_full` count **groups** flushed, not requests, despite their
+  names. Groups drained at shutdown count toward neither.
+- `total_tokens_processed` is approximated by re-encoding the decoded output, and
+  `throughput_*` include idle time.
+- No production code reads `get_stats()`: there's no HTTP endpoint or metrics export, so even
+  correct stats would be invisible to an operator.
+
+Action Items:
+
+- [ ] Compute real per-request latency from `submit_time` (queue wait plus generation, ideally
+  both), and guard every derived field against a zero denominator.
+- [ ] Rename the flush counters (or count requests) so names match semantics.
+- [ ] Decide whether to expose the stats (e.g. alongside `GET /admin/profile`) or drop the unused
+  surface. Do this after TD-211's owner decision.
+- [ ] Update `BatchedInferenceStatsTest.ComputeDerivedStatsAvgLatency`, which currently encodes the
+  wall-time ÷ requests formula.
+
+Location in code: `src/BatchedInferenceEngine.hpp` (`BatchedInferenceStats`,
+`InferenceRequest::submit_time`, `get_stats()`); tagged `TODO: See TD-213`.
+
+Files to Modify:
+
+- `src/BatchedInferenceEngine.hpp`
+- `tests/batchedinferenceengine_test.cpp`
+- optionally `src/ChatbotAPI.{hpp,cpp}` / `src/ChatbotAPIServer.cpp` if exposed
+
+---
+
+### TD-214: Batched-Inference Mode Generates Differently From the Inline Path
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Inference / Serving | October 8, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-211. With `--batched-inference`, the same request can produce different output
+than the default inline path, for two reasons:
+
+- **`strategy` and `beam_width` are ignored.** `ChatbotAPI::generate_response()` maps only
+  `max_length`, `temperature`, `top_p`, and `top_k` into the engine's `GenerationConfig`. Decoding
+  is always `TextGenerator::generate()`'s combined temperature/top-k/top-p sampling (greedy only at
+  temperature 0). This is documented on `enable_batched_inference()`, but it's still a silent
+  per-request behaviour change. Mapping `beam_width` to `num_beams` would also need the
+  `InferenceRequest::model_fn` beam contract checked; it's safe today because `model_->forward()`
+  is full-recompute.
+- **One shared, fixed-seed RNG.** The constructor builds a single `TextGenerator` seeded with `0`
+  and reuses it for every request. A request's sampled output therefore depends on every request
+  generated before it. It's reproducible only for an identical request sequence, and it isn't
+  independent per request the way the inline path's fresh generator is.
+
+Action Items:
+
+- [ ] Map `strategy`/`beam_width` (or reject unsupported strategies explicitly) in the batched
+  branch of `ChatbotAPI::generate_response()`.
+- [ ] Give each request its own RNG seed (e.g. derived per request, or from an optional
+  per-request seed) instead of sharing one stream.
+- [ ] Add a test that the batched and inline paths agree for greedy decoding on the same input.
+
+Location in code: `src/BatchedInferenceEngine.hpp` (constructor), `src/ChatbotAPI.cpp` (batched
+branch of `generate_response()`), `src/ChatbotAPI.hpp` (`enable_batched_inference()` doc); tagged
+`TODO: See TD-214`.
+
+Files to Modify:
+
+- `src/BatchedInferenceEngine.hpp`
+- `src/ChatbotAPI.{hpp,cpp}`
+- `tests/chatbotapi_test.cpp`
+
+---
+
+### TD-215: Activation Has Misleading Header Comments and Unchecked Inputs
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Core Math / Activation | October 8, 2026 | 1-2 hours |
+
+Description:
+Found while writing the code-traced reference [Activation.md](../reference/source/Activation.md).
+`src/Activation.{hpp,cpp}` is tagged `stable`, but:
+
+- **Wrong comment, `softmax_derivative`.** The header says the formula is "For cross-entropy
+  loss". It's actually the general softmax vector–Jacobian product, correct for any upstream
+  gradient. For softmax + cross-entropy the right gradient is `y − one_hot(target)` directly, and
+  chaining `softmax_derivative` after it differentiates through softmax twice. The old API doc's
+  examples made exactly that mistake (corrected in the October 7 merge), so the comment has
+  already misled once.
+- **Wrong comment, `leaky_relu_derivative`.** The header says "alpha if x < 0, else 1", which gives
+  1 at `x == 0`. The code uses `x > 0 ? 1 : alpha`, so it returns `alpha` at 0, and the tests
+  encode the code's behaviour.
+- **Undefined behaviour, `softmax` on an empty row.** The row-max step reads `input(i, 0)`
+  unconditionally, which is out of bounds when `cols == 0`. No production caller passes empty rows
+  today.
+- **No shape check, `softmax_derivative`.** `output` and `grad_output` are assumed to have the same
+  shape; a smaller `grad_output` reads out of bounds.
+
+Deliberately **not** filed: the derivatives' mixed input conventions (some take the
+pre-activation input, `sigmoid_derivative`/`tanh_derivative` take the output). That's by design,
+each being the cheapest form, and it's documented per function in Activation.md.
+
+Action Items:
+
+- [ ] Fix both header comments to match the code.
+- [ ] Guard `softmax` against `cols == 0` (return the empty result) and validate shapes in
+  `softmax_derivative` (throw `std::invalid_argument`, matching `FeedForward`'s style).
+- [ ] Add tests for the two new guards.
+
+Location in code: `src/Activation.hpp` (`softmax_derivative`, `leaky_relu_derivative` doc
+comments), `src/Activation.cpp` (`softmax`, `softmax_derivative`); tagged `TODO: See TD-215`.
+
+Files to Modify:
+
+- `src/Activation.{hpp,cpp}`
+- `tests/activation_test.cpp`
+- `docs/development/reference/source/Activation.md` (§11)
+
+---
+
+### TD-216: Softmax and GELU Math Is Duplicated Across CPU and GPU Code
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Core Math / Activation | October 8, 2026 | 4-6 hours |
+
+Description:
+Found alongside TD-215. `Activation` is meant to be the reference implementation, but the same
+math is re-typed in many places, so a change in one place (a different masking convention,
+temperature, exact-`erf` GELU) silently leaves the others behind. For GELU specifically, that
+means CPU and GPU training would quietly diverge, and checkpoints trained on one path would behave
+differently on the other.
+
+Independent copies today:
+
+- **Softmax forward (CPU), max-subtracted, inline:**
+  `MultiHeadAttention::forward_parallel()` (`src/MultiHeadAttention.cpp`, the main self-attention
+  path), `TextGenerator::softmax()` (`src/TextGenerator.cpp`), two loss/gradient loops in
+  `src/EncoderDecoderModel.cpp`, and two in `src/RLHFTrainer.cpp`.
+- **Softmax backward (CPU), inline copies of `softmax_derivative`'s formula:**
+  `MultiHeadAttention::backward()` and `CrossAttention::backward()`.
+- **GELU constants (`0.044715`, `√(2/π) = 0.7978845608`), hardcoded literals:** the forward
+  activation and `gelu_backward` kernels in both `src/gpu/MatrixGPU.cu` (CUDA) and
+  `src/gpu/sycl/MatrixGPU_SYCL.cpp` (SYCL), besides `Activation`'s own private constants.
+
+The CPU copies exist for a reason: every `Activation` call allocates a new `Matrix`, and the hot
+paths avoid that by working in place or on `std::vector<float>`. So the fix is a shared,
+allocation-free primitive, not routing everything through the current API.
+
+Action Items:
+
+- [ ] Add an allocation-free row primitive (e.g. `Activation::softmax_row_inplace(float*, int)` and
+  a matching backward helper) and switch the CPU copies above to it. Verify with the existing
+  attention gradient checks and `chatbotapiTests`/`textgeneratorTests`.
+- [ ] Move the GELU constants into a small header usable from host C++, CUDA, and SYCL device code
+  (plain `constexpr float`s) and include it in all three places.
+- [ ] Add a CPU-vs-GPU GELU agreement test to the existing GPU test targets (runs only where a GPU
+  backend is built).
+
+Location in code: every site listed above, tagged `TODO: See TD-216`.
+
+Files to Modify:
+
+- `src/Activation.{hpp,cpp}`
+- `src/MultiHeadAttention.cpp`, `src/CrossAttention.cpp`
+- `src/TextGenerator.cpp`, `src/EncoderDecoderModel.cpp`, `src/RLHFTrainer.cpp`
+- `src/gpu/MatrixGPU.cu`, `src/gpu/sycl/MatrixGPU_SYCL.cpp`
+- new shared constants header under `src/` or `src/gpu/`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -2246,6 +2588,7 @@ These are lower-priority enhancements that don't currently block development:
 3. **Batched Inference Engine (Priority 3)**
    - **Priority:** Medium
    - **Effort:** Medium (estimated 2-4 days)
+   - **Status (October 8, 2026):** The class and `--batched-inference` flag exist, but the engine only queues and serializes requests; it never runs a batched forward pass. The model-level batching below is still unbuilt and blocked on TD-171. See [TD-211](#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model) before picking this up.
    - **Description:** Implement a batched inference engine to process multiple inference requests simultaneously, achieving 10-20x throughput improvement for serving/production workloads.
    - **Expected Impact:** 10-20x throughput improvement
    - **Implementation:**
@@ -2730,15 +3073,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 13 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 19 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|1|8%|
-|Medium|7|54%|
-|Low|5|38%|
+|High|1|5%|
+|Medium|9|47%|
+|Low|9|47%|
 
-**Total Active Items:** 13
+**Total Active Items:** 19
 
 ### By Component
 
@@ -2756,18 +3099,21 @@ Recomputed directly from the 13 `### TD-NNN` entries under [Active Technical Deb
 |Android / Testing|1|
 |Documentation|1|
 |Training / Deployment / Tooling|1|
+|Inference / Serving|3|
+|Inference / Serving / Observability|1|
+|Core Math / Activation|2|
 
 ### Effort Distribution
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|0|
-|2-4 hours|1|
-|4-8 hours|3|
+|0-2 hours|1|
+|2-4 hours|4|
+|4-8 hours|5|
 |8+ hours|6|
 |Not estimated|3|
 
-**Total Estimated Effort (Active Items):** 120-178 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 135-204 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

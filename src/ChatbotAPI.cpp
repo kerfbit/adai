@@ -838,6 +838,10 @@ std::string ChatbotAPI::generate_response(const std::string& input,
         // other paths' model_fns): this closure runs on a different thread after this scope may
         // already be blocked in future.get() below, and a by-value copy needs no lifetime
         // coordination beyond that block.
+        //
+        // TODO: See TD-214 in TECHNICAL_DEBT.md - config.strategy and config.beam_width are not
+        // mapped into gen_config below, so batched mode always samples (greedy only at
+        // temperature 0) regardless of the requested strategy.
         if (batched_engine_) {
             TextGenerator::GenerationConfig gen_config;
             gen_config.max_length = static_cast<int>(config.max_length);

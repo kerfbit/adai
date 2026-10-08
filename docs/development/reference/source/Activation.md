@@ -230,6 +230,7 @@ identical max-subtracted softmax instead of calling `Activation::softmax`:
 - `TextGenerator::softmax()` (`src/TextGenerator.cpp`) — operates on `std::vector<float>` for
   sampling;
 - `EncoderDecoderModel.cpp` loss/gradient loops (≈ lines 123, 157) — fused with cross-entropy;
+- `RLHFTrainer.cpp` policy-gradient loops (≈ lines 120, 220);
 - every GPU path, via `GPUMatrix::softmax_rows_inplace()` (§5).
 
 They are mathematically the same algorithm. If you ever change softmax semantics (e.g. add
@@ -756,16 +757,19 @@ activation.)
 
 ## 11. Known gaps and gotchas (summary)
 
-| Item | Impact | Notes |
-|---|---|---|
-| Inconsistent derivative input convention (§2.1) | Silent wrong gradients if misused | By design (cheapest form for each); documented per function |
-| `softmax_derivative` header says "for cross-entropy" | Misleading doc | Formula is the general VJP; for CE use `y − one_hot` directly (§7.2) |
-| `leaky_relu_derivative` header vs. code at `x == 0` | Doc mismatch only | Code returns `alpha` at 0 |
-| `softmax` with `cols == 0` | UB (reads `input(i,0)`) | No production caller passes empty rows |
-| No shape check in `softmax_derivative` | OOB read on mismatched shapes | Callers must pass equal shapes |
-| Softmax logic duplicated inline (MHA `forward_parallel`, `TextGenerator`, `EncoderDecoderModel`, GPU) | Changes must be made in several places | Grep `max_logit`/`max_score` too |
-| GELU constants duplicated in CUDA and SYCL kernels | CPU/GPU drift if only one is changed | No shared header |
-| Every call allocates a new `Matrix` | Extra allocation per layer per step on CPU | Why MHA's hot path inlines softmax |
+Items with a TD are tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and tagged in the code with
+`TODO: See TD-NNN`.
+
+| Item | Impact | Notes | Tracked as |
+|---|---|---|---|
+| Inconsistent derivative input convention (§2.1) | Silent wrong gradients if misused | By design (cheapest form for each); documented per function | — (by design, not filed) |
+| `softmax_derivative` header says "for cross-entropy" | Misleading doc | Formula is the general VJP; for CE use `y − one_hot` directly (§7.2) | [TD-215](../../guides/TECHNICAL_DEBT.md#td-215-activation-has-misleading-header-comments-and-unchecked-inputs) |
+| `leaky_relu_derivative` header vs. code at `x == 0` | Doc mismatch only | Code returns `alpha` at 0 | [TD-215](../../guides/TECHNICAL_DEBT.md#td-215-activation-has-misleading-header-comments-and-unchecked-inputs) |
+| `softmax` with `cols == 0` | UB (reads `input(i,0)`) | No production caller passes empty rows | [TD-215](../../guides/TECHNICAL_DEBT.md#td-215-activation-has-misleading-header-comments-and-unchecked-inputs) |
+| No shape check in `softmax_derivative` | OOB read on mismatched shapes | Callers must pass equal shapes | [TD-215](../../guides/TECHNICAL_DEBT.md#td-215-activation-has-misleading-header-comments-and-unchecked-inputs) |
+| Softmax logic duplicated inline (MHA `forward_parallel`, `TextGenerator`, `EncoderDecoderModel`, `RLHFTrainer`, attention backward, GPU) | Changes must be made in several places | Grep `max_logit`/`max_score` too | [TD-216](../../guides/TECHNICAL_DEBT.md#td-216-softmax-and-gelu-math-is-duplicated-across-cpu-and-gpu-code) |
+| GELU constants duplicated in CUDA and SYCL kernels | CPU/GPU drift if only one is changed | No shared header | [TD-216](../../guides/TECHNICAL_DEBT.md#td-216-softmax-and-gelu-math-is-duplicated-across-cpu-and-gpu-code) |
+| Every call allocates a new `Matrix` | Extra allocation per layer per step on CPU | Why MHA's hot path inlines softmax | — (context for [TD-216](../../guides/TECHNICAL_DEBT.md#td-216-softmax-and-gelu-math-is-duplicated-across-cpu-and-gpu-code)) |
 
 ---
 

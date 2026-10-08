@@ -8,6 +8,7 @@ This directory contains reference materials, technical specifications, and imple
 
 - **[Source file references](source/)** - Per-file, code-traced docs: every function, where it's called, and why it matters
   - [Activation](source/Activation.md) (`src/Activation.{hpp,cpp}`)
+  - [BatchedInferenceEngine](source/BatchedInferenceEngine.md) (`src/BatchedInferenceEngine.hpp`)
 
 - **[KVCache API Reference](kvcache.md)** - Complete API documentation for the Key-Value cache system
   - Single-layer and multi-layer caching

@@ -31,6 +31,10 @@
  *   Sequential: 100 requests × 50ms = 5000ms (20 req/sec)
  *   Batched: 100 requests ÷ 16 batches × 80ms = 500ms (200 req/sec) → 10x improvement
  *
+ * TODO: See TD-211 in TECHNICAL_DEBT.md - the batching described above is not implemented:
+ * process_batch() generates each request sequentially on one worker thread (no padding, no
+ * combined forward pass; blocked on TD-171), so the throughput figures above are unsupported.
+ *
  * @version 1.0
  * @date January 2026
  */
@@ -64,10 +68,17 @@ struct BatchedInferenceConfig {
     bool use_dynamic_batching = true;                          ///< Group similar-length sequences
     int max_queue_size = 1000;         ///< Maximum queued requests (backpressure)
     bool enable_request_stats = true;  ///< Track request statistics
+    // TODO: See TD-211 in TECHNICAL_DEBT.md - padding_strategy, use_dynamic_batching and
+    // enable_request_stats are never read by the engine; max_tokens_per_batch is only compared
+    // against a fixed 100-tokens-per-request estimate (see should_flush_batch()).
 };
 
 /**
  * @brief Statistics for monitoring batched inference performance
+ *
+ * TODO: See TD-213 in TECHNICAL_DEBT.md - avg_latency_ms is wall time / requests (not a latency,
+ * and +inf when total_requests == 0); requests_timeout/requests_batch_full count batches, not
+ * requests; no production code reads these stats.
  */
 struct BatchedInferenceStats {
     uint64_t total_requests = 0;          ///< Total requests processed
@@ -104,6 +115,8 @@ struct InferenceRequest {
     std::string prompt;                                 ///< Input prompt text
     std::promise<std::string> result;                   ///< Promise for async result
     std::chrono::steady_clock::time_point submit_time;  ///< Time request was submitted
+    // TODO: See TD-213 in TECHNICAL_DEBT.md - submit_time is recorded but never read, so no real
+    // per-request latency is measured.
     TextGenerator::GenerationConfig gen_config;         ///< Per-request generation config
     // TD-038: per-request model forward function — empty (the default) means "use the engine's
     // own model_fn_ set at construction", same as every request did before this field existed.
@@ -199,6 +212,8 @@ class BatchedInferenceEngine {
           running_(true),
           stats_start_time_(std::chrono::steady_clock::now()) {
         // Create text generator with seed parameter
+        // TODO: See TD-214 in TECHNICAL_DEBT.md - one fixed-seed RNG is shared by every request,
+        // so a request's sampled output depends on every request generated before it.
         generator_ = std::make_unique<TextGenerator>(default_gen_config_, 0);
 
         // Start batch processing thread
@@ -227,6 +242,9 @@ class BatchedInferenceEngine {
     std::future<std::string> submit(const std::string& prompt,
                                     const TextGenerator::GenerationConfig* gen_config = nullptr,
                                     TextGenerator::ModelForwardFn model_fn = nullptr) {
+        // TODO: See TD-212 in TECHNICAL_DEBT.md - running_ is checked before queue_mutex_ is taken,
+        // so a request enqueued after the worker's final drain is never processed
+        // (broken_promise).
         if (!running_) {
             throw std::runtime_error("Cannot submit request: engine is shutdown");
         }
@@ -276,6 +294,9 @@ class BatchedInferenceEngine {
 
     /**
      * @brief Get current statistics
+     *
+     * TODO: See TD-213 in TECHNICAL_DEBT.md - only tests call this; stats are not exposed by any
+     * endpoint or metrics export.
      */
     BatchedInferenceStats get_stats() const {
         std::lock_guard<std::mutex> lock(stats_mutex_);
@@ -314,6 +335,9 @@ class BatchedInferenceEngine {
      * @brief Gracefully shutdown the engine
      *
      * Stops accepting new requests and waits for pending requests to complete.
+     *
+     * TODO: See TD-212 in TECHNICAL_DEBT.md - only one final batch (<= max_batch_size) is drained;
+     * any further queued requests are destroyed with the engine (broken_promise).
      */
     void shutdown() {
         if (!running_.exchange(false)) {
@@ -341,6 +365,7 @@ class BatchedInferenceEngine {
         }
 
         // Process remaining requests before shutdown
+        // TODO: See TD-212 in TECHNICAL_DEBT.md - drains a single batch, not the whole queue.
         auto final_batch = collect_batch_no_wait();
         if (!final_batch.empty()) {
             process_batch(final_batch);
@@ -357,6 +382,9 @@ class BatchedInferenceEngine {
         std::vector<InferenceRequest> batch;
         std::unique_lock<std::mutex> lock(queue_mutex_);
 
+        // TODO: See TD-211 in TECHNICAL_DEBT.md - the deadline starts when collection starts, not
+        // when the first request arrives, so an idle worker wakes every timeout_ms just to return
+        // an empty batch.
         auto deadline =
             std::chrono::steady_clock::now() + std::chrono::milliseconds(config_.timeout_ms);
 
@@ -415,7 +443,8 @@ class BatchedInferenceEngine {
         }
 
         // Estimate total tokens (simplified - assumes average prompt length)
-        // In production, you'd tokenize and count actual tokens
+        // TODO: See TD-211 in TECHNICAL_DEBT.md - fixed 100-token estimate; with defaults
+        // (4096 / 100 = 41 > max_batch_size 32) this check never fires.
         size_t estimated_tokens = batch.size() * 100;  // Rough estimate
         if (estimated_tokens >= static_cast<size_t>(config_.max_tokens_per_batch)) {
             return true;
@@ -463,6 +492,12 @@ class BatchedInferenceEngine {
             // request's own model_fn (when supplied; see InferenceRequest::model_fn) must be
             // used for that request specifically, not the engine's constructor-time default
             // for every request regardless of what encoder input it actually carries.
+            //
+            // TODO: See TD-211 in TECHNICAL_DEBT.md - this loop is the whole "batch": requests are
+            // generated one at a time, never in a combined forward pass.
+            // TODO: See TD-212 in TECHNICAL_DEBT.md - a throw from any one request lands in the
+            // outer catch below and fails every request in the batch, including ones already
+            // generated; each generate_text() call needs its own try/catch.
             std::vector<std::string> results;
             results.reserve(batch.size());
             for (const auto& req : batch) {

@@ -143,6 +143,7 @@ __device__ float apply_activation(float x, int activation_type) {
         case 2: // Tanh
             return tanhf(x);
         case 3: // GELU (approximation)
+            // TODO: See TD-216 in TECHNICAL_DEBT.md - GELU constants duplicated from Activation.hpp.
             return 0.5f * x * (1.0f + tanhf(0.7978845608f * (x + 0.044715f * x * x * x)));
         default:
             return x;
@@ -649,6 +650,7 @@ void matrix_softmax_backward_gpu(const float* s, const float* dout, float* din,
 }
 
 // GELU'(x) = 0.5*(1+tanh(u)) + 0.5*x*sech^2(u)*c*(1+3*0.044715*x^2)
+// TODO: See TD-216 in TECHNICAL_DEBT.md - c and a below duplicate Activation.hpp's GELU constants.
 __global__ void gelu_backward_kernel(const float* pre_act, const float* dout, float* din, int size) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < size) {

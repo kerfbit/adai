@@ -180,6 +180,7 @@ Matrix MultiHeadAttention::forward_parallel(const Matrix& input, const Matrix* m
 
         // Softmax row-wise, in place — scores_head now holds this head's real attention
         // weights (cached below for backward()).
+        // TODO: See TD-216 in TECHNICAL_DEBT.md - inline copy of Activation::softmax.
         for (int i = 0; i < seq_len; ++i) {
             float max_score = scores_head(i, 0);
             for (int j = 1; j < seq_len; ++j) {
@@ -434,6 +435,7 @@ Matrix MultiHeadAttention::backward(const Matrix& grad_output) {
         // grad_weights_h = grad_out_h * V_h^T
         Matrix grad_weights_h = grad_out_h * V_h.transpose();
 
+        // TODO: See TD-216 in TECHNICAL_DEBT.md - inline copy of Activation::softmax_derivative.
         // Softmax backward, row-wise, for this head's own weights:
         // grad_scores_h(i,j) = weights_h(i,j) * (grad_weights_h(i,j) - sum_k weights_h(i,k)*grad_weights_h(i,k))
         Matrix grad_scores_h(q_rows, kv_rows);

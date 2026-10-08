@@ -161,6 +161,10 @@ class ChatbotAPI {
      * top-k/top-p/temperature sampling (TextGenerator::generate_text()'s only decoding path);
      * GenerationConfig::strategy ("greedy"/"beam"/etc.) is not consulted while this is enabled,
      * the same way rag_engine_/draft_model_ above each override strategy for their own reasons.
+     *
+     * TODO: See TD-211 in TECHNICAL_DEBT.md - despite the name, requests are queued and generated
+     * one at a time on a single worker thread; there is no batched forward pass.
+     * TODO: See TD-214 in TECHNICAL_DEBT.md - honor (or explicitly reject) strategy/beam_width.
      */
     void enable_batched_inference(const BatchedInferenceConfig& config = BatchedInferenceConfig());
 

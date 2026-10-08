@@ -523,6 +523,8 @@ int main(int argc, char* argv[]) {
         // TD-038: --batched-inference routes generate_response() through a background
         // queue/worker thread (BatchedInferenceEngine) instead of running inline on the HTTP
         // handler's own thread.
+        // TODO: See TD-211 in TECHNICAL_DEBT.md - the --help text's "(real batching, not
+        // per-request)" is inaccurate: the engine generates queued requests one at a time.
         if (cli.batched_inference) {
             BatchedInferenceConfig batch_config;
             batch_config.timeout_ms = cli.batch_timeout_ms;
