@@ -28,10 +28,17 @@
  * 2. Batch and pad to same length
  * 3. Process batch through model
  * 4. Unbatch outputs
+ *
+ * TODO: See TD-218 in TECHNICAL_DEBT.md - no model in this codebase accepts a padded batch
+ * (TD-171), so step 3 is not possible; the only production use is padding statistics.
  */
 
 /**
  * Batch of token sequences with padding information
+ *
+ * TODO: See TD-218 in TECHNICAL_DEBT.md - there is no original-index field, so batches produced by
+ * create_dynamic_batches() can't be mapped back to input order; the lengths/row-size invariants
+ * set by create_batch() are not enforced for hand-built batches.
  */
 struct TokenBatch {
     /**
@@ -129,6 +136,9 @@ inline TokenBatch create_batch(const std::vector<std::vector<int>>& sequences,
  * @param length_tolerance Maximum length difference within a batch
  * @param pad_token_id Token ID to use for padding (default: PAD token)
  * @return Vector of batches
+ *
+ * TODO: See TD-218 in TECHNICAL_DEBT.md - output is length-sorted and loses each sequence's input
+ * position (this caused a wrong-order bug in ChatbotAPI's /chat/batch, since fixed there).
  */
 inline std::vector<TokenBatch> create_dynamic_batches(
     const std::vector<std::vector<int>>& sequences, int max_batch_size = 32,
@@ -191,6 +201,9 @@ inline std::vector<TokenBatch> create_dynamic_batches(
  *
  * @param batch TokenBatch with padding information
  * @return Matrix [batch_size, max_length] with padding mask
+ *
+ * TODO: See TD-218 in TECHNICAL_DEBT.md - no production caller, and this shape doesn't match the
+ * per-sequence [q, k] mask MultiHeadAttention/CrossAttention take.
  */
 inline Matrix create_padding_mask(const TokenBatch& batch) {
     int batch_size = batch.batch_size();
@@ -216,6 +229,9 @@ inline Matrix create_padding_mask(const TokenBatch& batch) {
  * @param batch_output Matrix [batch_size, max_length, d_model] or [batch_size, max_length]
  * @param batch Original TokenBatch with length information
  * @return Vector of matrices, one per sequence (without padding)
+ *
+ * TODO: See TD-218 in TECHNICAL_DEBT.md - no production caller; takes one 2-D Matrix per sequence
+ * (not the 3-D input described above) and does not bounds-check batch_outputs or row counts.
  */
 inline std::vector<Matrix> unbatch_outputs(const std::vector<Matrix>& batch_outputs,
                                            const TokenBatch& batch) {
@@ -250,6 +266,7 @@ struct BatchStats {
     int num_batches = 0;          // Number of batches created
     float avg_batch_size = 0.0f;  // Average batch size
 
+    // TODO: See TD-218 in TECHNICAL_DEBT.md - writes to std::cout from library code; no src/ caller.
     void print() const {
         std::cout << "Batch Statistics:" << '\n';
         std::cout << "  Total tokens (with padding): " << total_tokens << '\n';

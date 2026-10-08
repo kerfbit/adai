@@ -1360,7 +1360,7 @@ Matrix output = inference_layer.forward(input, encoder_output, mask);
 ### Optimization & Performance
 
 - **[KVCache API](../../reference/kvcache.md)**: Key-Value caching system for inference
-- **[BatchProcessor API](../../reference/batchprocessor.md)**: Batch processing utilities
+- **[BatchProcessor API](../../reference/source/BatchProcessor.md)**: Batch processing utilities
 - **[PerformanceProfiler API](../../reference/performanceprofiler.md)**: Profiling and benchmarking
 - **[Inference Optimization Guide](../../guides/inference-optimization.md)**: Complete optimization guide
 - **[Inference Quickstart](../../guides/inference-optimization-quickstart.md)**: Quick optimization setup

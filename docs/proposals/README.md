@@ -11,6 +11,7 @@ Design proposals and planning documents for ADAI features.
 | [Lessons Coverage Expansion](lessons-coverage-expansion.md) | Proposed | 12 new lessons covering architecture design, advanced features, and fine-tuning |
 | [LeJEPA World Model + Hippocampal Memory with Gated Injection](lejepa_world_model_gated_injection_plan.md) | Proposed | Research/pilot stage — two side signals injected into the decoder via independent zero-init gated cross-attention paths, alongside (not replacing) the existing encoder: a frozen self-supervised world-model encoder, and a fast episodic memory buffer whose gate carries a bounded, gradually increasing penalty for repeatedly attending to the same stored episode |
 | [Reasoning Process (Thinking Phase)](reasoning_process_plan.md) | Proposed | `<think>`/`</think>` reasoning span with effort budgets, GRPO-based RL stage; postulates and proposes a testable phase-conditioned gate extension to the LeJEPA plan above |
+| [Real Batched Inference (v2)](real_batching_v2_plan.md) | Proposed | Real multi-request batching for `BatchProcessor`/`BatchedInferenceEngine` via stacked rows (only positional encoding and attention change); gated on a feasibility benchmark (B0). Tracks TD-171 (inference half), TD-211, TD-218 |
 
 ## Recommended Order: LeJEPA World Model + Hippocampal Memory + Reasoning Process
 

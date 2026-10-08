@@ -1007,7 +1007,7 @@ std::string response = decoder.get_token_embedding()->decode(generated);
 ### Optimization & Generation
 
 - **[KVCache API](../../reference/kvcache.md)** - Key-Value caching system for inference
-- **[BatchProcessor API](../../reference/batchprocessor.md)** - Batch processing utilities
+- **[BatchProcessor API](../../reference/source/BatchProcessor.md)** - Batch processing utilities
 - **[PerformanceProfiler API](../../reference/performanceprofiler.md)** - Profiling and benchmarking
 - **[TextGenerator](../nlp/text-generator.md)** - Generation strategies (beam search, sampling)
 - **[Inference Optimization Guide](../../guides/inference-optimization.md)** - Complete optimization guide

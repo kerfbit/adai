@@ -1342,6 +1342,7 @@ class Dataset {
      *     [&tokenizer](const std::string& text) { return tokenizer.encode(text); },
      *     [&model](const std::vector<std::vector<int>>& seqs) {
      *         // Process batch through model
+     *         // TODO: See TD-219 in TECHNICAL_DEBT.md - forward_batch() doesn't exist (TD-171).
      *         return model.forward_batch(seqs);
      *     },
      *     0
@@ -1392,6 +1393,9 @@ class Dataset {
      * std::cout << "Padding efficiency: "
      *           << (stats.efficiency_percentage * 100) << "%" << std::endl;
      * @endcode
+     *
+     * TODO: See TD-219 in TECHNICAL_DEBT.md - efficiency_percentage doesn't exist (use
+     * 1 - padding_ratio); this measures only the first batch_size samples, not the whole split.
      */
     BatchStats get_batch_statistics(
         SplitType split_type, std::function<std::vector<int>(const std::string&)> tokenizer_fn,
@@ -1425,6 +1429,7 @@ class Dataset {
         }
 
         // Create batch and compute stats
+        // TODO: See TD-219 in TECHNICAL_DEBT.md - hardcoded pad 0 instead of SpecialTokenIDs::PAD.
         TokenBatch batch = create_batch(sequences, 0);
         std::vector<TokenBatch> batch_vec = {batch};
         return compute_batch_stats(batch_vec);

@@ -1910,7 +1910,7 @@ The CrossAttention component is fully implemented, tested via DecoderBlock integ
   - Cross-attention caching in encoder-decoder models
   - Combined with self-attention cache for maximum speedup
 - **[PerformanceProfiler API](../../reference/performanceprofiler.md)** - Measure optimization impact
-- **[BatchProcessor API](../../reference/batchprocessor.md)** - Batch processing for throughput
+- **[BatchProcessor API](../../reference/source/BatchProcessor.md)** - Batch processing for throughput
 
 ### Implementation Examples
 

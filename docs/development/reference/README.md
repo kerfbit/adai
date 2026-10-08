@@ -9,20 +9,13 @@ This directory contains reference materials, technical specifications, and imple
 - **[Source file references](source/)** - Per-file, code-traced docs: every function, where it's called, and why it matters
   - [Activation](source/Activation.md) (`src/Activation.{hpp,cpp}`)
   - [BatchedInferenceEngine](source/BatchedInferenceEngine.md) (`src/BatchedInferenceEngine.hpp`)
+  - [BatchProcessor](source/BatchProcessor.md) (`src/BatchProcessor.hpp`)
 
 - **[KVCache API Reference](kvcache.md)** - Complete API documentation for the Key-Value cache system
   - Single-layer and multi-layer caching
   - Usage patterns and best practices
   - Performance characteristics
   - Integration examples
-  - Troubleshooting guide
-
-- **[BatchProcessor API Reference](batchprocessor.md)** - Complete API documentation for batch processing utilities
-  - TokenBatch and BatchStats structures
-  - Dynamic batching by sequence length
-  - Padding and masking utilities
-  - Performance optimization strategies
-  - Real-world usage patterns
   - Troubleshooting guide
 
 - **[PerformanceProfiler API Reference](performanceprofiler.md)** - Complete API documentation for profiling tools

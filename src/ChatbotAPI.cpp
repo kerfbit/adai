@@ -713,6 +713,8 @@ std::string ChatbotAPI::create_batch_json_response(const BatchResponse& batch_re
         }
 
         // Include batch statistics
+        // TODO: See TD-217 in TECHNICAL_DEBT.md - public "stats" fields are hypothetical (see
+        // generate_batch_responses()); drop or relabel as an estimate.
         oss << ",\"stats\":{" << "\"total_tokens\":" << batch_response.stats.total_tokens << ","
             << "\"actual_tokens\":" << batch_response.stats.actual_tokens << ","
             << "\"padding_ratio\":" << batch_response.stats.padding_ratio << ","
@@ -975,6 +977,8 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
 
         // Compute batch statistics (order-independent; safe to derive from
         // the length-sorted batches above).
+        // TODO: See TD-217 in TECHNICAL_DEBT.md - these stats describe padding for batches that are never
+        // used: every input below is generated on its own, unpadded.
         batch_response.stats = compute_batch_stats(batches);
 
         // Process each input in its original order.

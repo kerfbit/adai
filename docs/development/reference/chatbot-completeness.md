@@ -1112,7 +1112,7 @@ Performance Impact:
 Documentation Created:
 
 - `docs/reference/kvcache.md` (800 lines, v1.0)
-- `docs/reference/batchprocessor.md` (1,100 lines, v1.0)
+- `docs/development/reference/source/BatchProcessor.md` (1,100 lines, v1.0)
 - `docs/reference/performanceprofiler.md` (1,200 lines, v1.0)
 - Updated 4 component docs with `forward_with_cache()` methods
 - 18+ files cross-referenced throughout system

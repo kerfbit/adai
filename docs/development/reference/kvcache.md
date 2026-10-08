@@ -665,7 +665,7 @@ cache_manager.cleanup_old_caches(30);  // Remove caches older than 30 min
 ## See Also
 
 - **[Inference Optimization Guide](../guides/inference-optimization.md)** - Complete optimization guide
-- **[BatchProcessor API](batchprocessor.md)** - Batch processing for multi-sequence inference
+- **[BatchProcessor API](source/BatchProcessor.md)** - Batch processing for multi-sequence inference
 - **[PerformanceProfiler API](performanceprofiler.md)** - Profiling and benchmarking tools
 - **[Quick Start](../guides/inference-optimization-quickstart.md)** - 5-minute tutorial
 - **[CrossAttention API](../api/attention/cross-attention.md)** - Cross-attention with encoder K/V caching

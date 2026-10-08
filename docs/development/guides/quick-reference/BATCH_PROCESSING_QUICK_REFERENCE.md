@@ -279,7 +279,7 @@ std::cout << "Efficiency: " << ((1.0f - stats.padding_ratio) * 100) << "%\n";
 
 ## See Also
 
-- [BatchProcessor API Reference](docs/reference/batchprocessor.md)
+- [BatchProcessor API Reference](../../reference/source/BatchProcessor.md)
 - [Dataset API](src/Dataset.hpp)
 - [Complete Documentation](docs/api/data/dataset-batch-processing.md)
 - [Working Examples](src/DatasetBatchProcessingExample.cpp)

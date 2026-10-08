@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 8, 2026
-**Total Items:** 19
+**Total Items:** 22
 **High Priority:** 1
 **Medium Priority:** 9
-**Low Priority:** 9
+**Low Priority:** 12
 **Future Enhancements:** 19
 **Resolved Items:** 197
 **Deferred Decisions:** 3
@@ -33,6 +33,16 @@ Same day, filed
 [Activation.md](../reference/source/Activation.md): two wrong header comments plus two unchecked
 inputs in the `stable` `Activation` class (TD-215), and softmax/GELU math re-typed across CPU hot
 paths and both GPU backends, risking silent CPU/GPU drift (TD-216).
+
+Also the same day, filed
+[TD-217](#td-217-chatbatch-reports-hypothetical-batching-stats-as-if-they-were-real) through
+[TD-219](#td-219-datasets-batch-wrappers-have-wrong-doc-examples-and-a-partial-stats-helper) from
+the code-traced [BatchProcessor.md](../reference/source/BatchProcessor.md): `/chat/batch`'s public
+`stats` describe grouping that never happens (TD-217); `BatchProcessor.hpp`'s helpers have
+unused surface, lose input order, and skip input checks (TD-218); and `Dataset`'s batch wrappers
+carry wrong doc examples and a stats helper that only samples one batch (TD-219). Decisions the same day: TD-217 relabels the stats as an estimate, and TD-211/TD-218 keep
+their classes, with real batching planned as a v2 upgrade in
+[real_batching_v2_plan.md](../../proposals/real_batching_v2_plan.md).
 
 **September 25, 2026:** Filed and resolved
 [TD-210](../archive/TECHNICAL_DEBT_RESOLVED.md#td-210-add-lejepa-advanced-training-diagnostics-and-fix-a-zero-gradient-norm-bug)
@@ -580,11 +590,13 @@ of this tier closing.
 [TD-212](#td-212-batchedinferenceengine-can-fail-or-abandon-requests-it-already-accepted) (4-6h)
 is the only one that's a plain bug fix with no decision attached, so it can go first.
 [TD-211](#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model)
-needs an owner decision: re-scope the class as a queue now, or keep it as a placeholder for
-batching after
-[TD-171](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported).
-[TD-213](#td-213-batchedinferenceengine-stats-are-misleading-and-unused-in-production) should follow
-that decision (no point exposing stats for a class about to be renamed or trimmed).
+had its owner decision on October 8, 2026: keep the class and deliver real batching as a v2
+([real_batching_v2_plan.md](../../proposals/real_batching_v2_plan.md), built on
+[TD-171](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)'s
+inference half); only its v1.x honesty pass is open here.
+[TD-213](#td-213-batchedinferenceengine-stats-are-misleading-and-unused-in-production)'s latency
+fix can land in v1.x; whether to expose the stats is best decided alongside v2's phase B4, which
+replaces how they're produced.
 [TD-214](#td-214-batched-inference-mode-generates-differently-from-the-inline-path) is independent
 and small.
 
@@ -594,6 +606,16 @@ self-contained fix to one file and its tests.
 [TD-216](#td-216-softmax-and-gelu-math-is-duplicated-across-cpu-and-gpu-code) (4-6h) touches attention,
 generation, training and both GPU backends; the GPU half can only be compiled and checked on a host
 with the CUDA or SYCL toolchain, so it's best done alongside other GPU work.
+
+**Tier 13 — Newly filed (October 8, 2026): batch-padding helpers.**
+[TD-217](#td-217-chatbatch-reports-hypothetical-batching-stats-as-if-they-were-real) (1-2h) is the
+only one visible to API clients, so do it first. The decision is made (relabel as an estimate), but
+it still changes the public `/chat/batch` response, so it needs a changelog note.
+[TD-218](#td-218-batchprocessor-helpers-have-dead-surface-lost-ordering-and-unchecked-inputs) was
+decided the same day: keep the helpers as groundwork for the same v2 plan, so only its v1.x fixes
+are open here, and
+[TD-219](#td-219-datasets-batch-wrappers-have-wrong-doc-examples-and-a-partial-stats-helper) should
+follow that decision.
 
 ## Table of Contents
 
@@ -620,6 +642,9 @@ with the CUDA or SYCL toolchain, so it's best done alongside other GPU work.
   - [TD-214: Batched-Inference Mode Generates Differently From the Inline Path](#td-214-batched-inference-mode-generates-differently-from-the-inline-path)
   - [TD-215: Activation Has Misleading Header Comments and Unchecked Inputs](#td-215-activation-has-misleading-header-comments-and-unchecked-inputs)
   - [TD-216: Softmax and GELU Math Is Duplicated Across CPU and GPU Code](#td-216-softmax-and-gelu-math-is-duplicated-across-cpu-and-gpu-code)
+  - [TD-217: `/chat/batch` Reports Hypothetical Batching Stats as if They Were Real](#td-217-chatbatch-reports-hypothetical-batching-stats-as-if-they-were-real)
+  - [TD-218: BatchProcessor Helpers Have Dead Surface, Lost Ordering, and Unchecked Inputs](#td-218-batchprocessor-helpers-have-dead-surface-lost-ordering-and-unchecked-inputs)
+  - [TD-219: Dataset's Batch Wrappers Have Wrong Doc Examples and a Partial Stats Helper](#td-219-datasets-batch-wrappers-have-wrong-doc-examples-and-a-partial-stats-helper)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -1982,7 +2007,14 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open — flagged, not started | Core Model Architecture | September 14, 2026 | Not estimated (large, multi-session architecture project) |
+| LOW | Open — inference half planned as v2 (October 8, 2026); training half not started | Core Model Architecture | September 14, 2026 | Not estimated (large, multi-session architecture project) |
+
+**Update (October 8, 2026):** the inference half now has a design proposal, [real_batching_v2_plan.md](../../proposals/real_batching_v2_plan.md). It
+recommends **stacking** sequences' rows into one matrix rather than adding a batch axis: `FeedForward`,
+`LayerNorm`, `LanguageModelHead` and `TokenEmbedding` are already row-independent and need no
+change, so only `PositionalEncoding` (per-sequence offsets) and the two attention classes
+(within-sequence blocks) do. That's much smaller than the "entire model stack" scope below, but it
+still has to pass a feasibility benchmark (phase B0) first. Batched training remains out of scope.
 
 Description:
 Split off while investigating TD-170 (`TokenBatchLoader`, resolved by retirement — see the
@@ -2266,7 +2298,7 @@ another branch of one large `main()` instead of becoming its own focused binary)
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — owner decision needed | Inference / Serving | October 8, 2026 | 2-4 hours to re-scope/re-document as a queue; real batching not estimated (blocked on TD-171) |
+| MEDIUM | Open — decided October 8, 2026: real batching planned as v2; v1.x honesty pass outstanding | Inference / Serving | October 8, 2026 | 2-4 hours for the v1.x honesty pass; real batching tracked in [real_batching_v2_plan.md](../../proposals/real_batching_v2_plan.md) |
 
 Description:
 Found while writing the code-traced reference
@@ -2305,15 +2337,18 @@ Impact: misleading documentation on a `stable` file, and an operator flag
 
 Action Items:
 
-- [ ] Owner decision: (a) re-scope the class honestly as a request queue (rename or re-document,
-  drop the dead config fields), or (b) keep the name and make real batching a follow-on to TD-171.
-- [ ] Either way: rewrite the file/class doc comments and `--batched-inference`'s `--help` text to
-  describe actual behaviour; remove or wire up the three unused config fields; replace the
-  100-token estimate with real token counts or remove `max_tokens_per_batch`.
-- [ ] Replace the per-call deadline polling with a wait for the first request, then a timeout
-  measured from that request's arrival.
-- [ ] Re-run `batched_inference_benchmark` and correct or remove the throughput claims.
-- [ ] Re-review the file's `@adai-status: stable` tag once the above lands.
+- [x] Owner decision (October 8, 2026): keep the class and its name; deliver real batching as
+  **v2** (phases B3–B4 of [real_batching_v2_plan.md](../../proposals/real_batching_v2_plan.md)), not a re-scope to a plain queue.
+- [ ] v1.x honesty pass: rewrite the file/class doc comments and `--batched-inference`'s `--help`
+  text to describe today's queue-and-serialize behaviour and point at the v2 plan; document the
+  three unused config fields and `max_tokens_per_batch`'s estimate as reserved for v2 (they become
+  real inputs in B4) rather than removing them.
+- [ ] v1.x: replace the per-call deadline polling with a wait for the first request, then a
+  timeout measured from that request's arrival.
+- [ ] v1.x: remove or qualify the "10-20x" / "27.80x" throughput claims; v2's acceptance criteria
+  replace them with measured numbers.
+- [ ] v2 (B4): `process_batch()` drives a real batched decode loop with continuous batching; bump
+  the file to `@adai-version 2.0.0` and re-review its `stable` tag.
 
 Location in code: `src/BatchedInferenceEngine.hpp` (file header, `BatchedInferenceConfig`,
 `collect_batch()`, `should_flush_batch()`, `process_batch()`); tagged `TODO: See TD-211`.
@@ -2558,6 +2593,143 @@ Files to Modify:
 
 ---
 
+### TD-217: `/chat/batch` Reports Hypothetical Batching Stats as if They Were Real
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open — decided October 8, 2026: relabel as an estimate | Inference / Serving / API | October 8, 2026 | 1-2 hours |
+
+Description:
+Found while writing the code-traced reference [BatchProcessor.md](../reference/source/BatchProcessor.md).
+`ChatbotAPI::generate_batch_responses()` (behind `POST /chat/batch` and, via
+`generate_batch_session_responses()`, `POST /chat/batch-session`) calls
+`create_dynamic_batches(inputs, 32, 10, PAD)` **only** to compute `compute_batch_stats()`, then
+generates every input on its own, unpadded, in its original order. The response's `stats` object
+(`total_tokens`, `actual_tokens`, `padding_ratio`, `num_batches`, `avg_batch_size`, `efficiency`)
+therefore describes grouping that never happens.
+
+The REST docs present this as real: [rest-api.md](../api/rest-api.md) says `/chat/batch` processes
+messages "for higher throughput" with "20-60% reduction in padding overhead", and
+[batch-processing.md](../api/batch-processing.md) makes similar claims. No batched forward pass
+exists ([TD-171](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)),
+so there's no throughput gain or padding to reduce.
+
+Action Items:
+
+- [x] Owner decision (October 8, 2026): keep the figures but **relabel them as an estimate**
+  rather than dropping them.
+- [ ] Implement the relabel: emit the block as `"padding_estimate"` (same fields), and document in
+  `rest-api.md` that it estimates padding for a hypothetical grouping
+  (`max_batch_size` 32, `length_tolerance` 10) and is not a measurement of work done. Choose
+  whether to keep `"stats"` as a deprecated alias for one release; either way, note the response
+  change in the API changelog.
+- [ ] Once real batching lands (phase B5 of [real_batching_v2_plan.md](../../proposals/real_batching_v2_plan.md)), add measured figures alongside or in
+  place of the estimate.
+- [ ] Correct the throughput and padding-reduction claims in `rest-api.md` and
+  `batch-processing.md`.
+- [ ] Update `chatbotapi_test.cpp` for whichever response shape is chosen.
+
+Location in code: `src/ChatbotAPI.hpp` (`BatchResponse::stats`), `src/ChatbotAPI.cpp`
+(`generate_batch_responses()`, `create_batch_json_response()`); tagged `TODO: See TD-217`.
+
+Files to Modify:
+
+- `src/ChatbotAPI.{hpp,cpp}`
+- `tests/chatbotapi_test.cpp`
+- `docs/development/api/rest-api.md`, `docs/development/api/batch-processing.md`
+
+---
+
+### TD-218: BatchProcessor Helpers Have Dead Surface, Lost Ordering, and Unchecked Inputs
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open — decided October 8, 2026: keep as groundwork for v2 | Core / Batching | October 8, 2026 | 2-4 hours (v1.x); v2 tracked in [real_batching_v2_plan.md](../../proposals/real_batching_v2_plan.md) |
+
+Description:
+Found alongside TD-217. `src/BatchProcessor.hpp` is tagged `stable`, but:
+
+- **Its headline benefit doesn't exist.** The file comment's "Process multiple sequences in one
+  forward pass" can't happen here (TD-171). `create_padding_mask()` and `unbatch_outputs()` have
+  no production callers. The training-side consumer of this same padding model,
+  `TokenBatchLoader`, was retired for exactly this reason (TD-170).
+- **Order and identity are lost.** `create_dynamic_batches()` returns length-sorted batches, and
+  `TokenBatch` has no original-index field. This already caused a real bug: `/chat/batch` returned
+  responses in the wrong order (fixed in `ChatbotAPI` by not using the batches for generation).
+  Any future caller is set up to repeat it.
+- **Mask shape doesn't match the attention layers.** `create_padding_mask()` returns
+  `[batch_size, max_length]` key-validity rows; `MultiHeadAttention`/`CrossAttention` take a
+  per-sequence `[q, k]` mask.
+- **Unchecked inputs.** `unbatch_outputs()` assumes `batch_outputs.size() >= batch_size()` and
+  `rows >= lengths[i]`, and its doc comment describes a 3-D input `Matrix` can't represent.
+  `TokenBatch`'s invariants (`lengths.size() == batch_size()`, rows `max_length` long) aren't
+  enforced, so a hand-built batch makes the other helpers read out of bounds.
+- **`BatchStats::print()` writes to `std::cout`,** against the project's "never `std::cout` in
+  library code" rule. Nothing in `src/` calls it.
+
+Action Items:
+
+- [x] Owner decision (October 8, 2026): **keep** the helpers as groundwork for real batching,
+  delivered as v2 (phase B1 of [real_batching_v2_plan.md](../../proposals/real_batching_v2_plan.md)), rather than retiring them as TD-170 did.
+- [ ] v1.x: rewrite the file comment to describe what the helpers do today and point at the v2
+  plan; add bounds checks to `unbatch_outputs()` and fix its doc comment.
+- [ ] v2 (B1): `TokenBatch` gains `source_indices` and a packed (stacked, `offsets`) form;
+  per-sequence `[q, k]` mask builder replaces/augments `create_padding_mask()`; `print()` replaced
+  by an `adai::Logger`-based helper; file goes to `@adai-version 2.0.0`, `stable` tag re-reviewed.
+
+Location in code: `src/BatchProcessor.hpp` (file comment, `TokenBatch`,
+`create_dynamic_batches()`, `create_padding_mask()`, `unbatch_outputs()`, `BatchStats::print()`);
+tagged `TODO: See TD-218`.
+
+Files to Modify:
+
+- `src/BatchProcessor.hpp`
+- `tests/batchprocessor_test.cpp`, `tests/inference_optimization_test.cpp`
+- `examples/DatasetBatchProcessingExample.cpp` (uses `create_padding_mask()`)
+- `docs/development/reference/source/BatchProcessor.md`
+
+---
+
+### TD-219: Dataset's Batch Wrappers Have Wrong Doc Examples and a Partial Stats Helper
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / Dataset | October 8, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-217. `Dataset` (`src/Dataset.hpp`, tagged `stable`) wraps `BatchProcessor` in
+five methods (`get_batch_with_padding()`, `get_target_batch_with_padding()`,
+`get_dynamic_batches()`, `process_batch<T>()`, `get_batch_statistics()`). None has a production
+caller; they're used by tests and `DatasetBatchProcessingExample` only. Within them:
+
+- `get_batch_statistics(split, tokenizer_fn, batch_size)` only measures the **first**
+  `batch_size` samples, as one batch, not the whole split, which isn't what "statistics for a
+  split" suggests. It also hardcodes `pad_token_id = 0` instead of the class's usual
+  `SpecialTokenIDs::PAD` default (equal today, but they'd diverge if `PAD` ever changed).
+- Its doc example prints `stats.efficiency_percentage`, which doesn't exist (efficiency is
+  `1 - padding_ratio`).
+- `process_batch<T>()`'s doc example calls `model.forward_batch(seqs)`, which doesn't exist
+  (TD-171).
+
+Action Items:
+
+- [ ] Make `get_batch_statistics()` cover the whole split (e.g. via `create_dynamic_batches()`
+  with caller-supplied size/tolerance), or rename it to say it samples one batch.
+- [ ] Use `SpecialTokenIDs::PAD` instead of the literal `0`.
+- [ ] Fix both doc examples.
+- [x] Follows TD-218's decision (October 8, 2026): the wrappers stay. Fix them in v1.x, and
+  revisit their signatures when `TokenBatch` changes in v2 (B1).
+
+Location in code: `src/Dataset.hpp` (`process_batch<T>()`, `get_batch_statistics()`); tagged
+`TODO: See TD-219`.
+
+Files to Modify:
+
+- `src/Dataset.hpp`
+- `tests/dataset_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -2588,7 +2760,7 @@ These are lower-priority enhancements that don't currently block development:
 3. **Batched Inference Engine (Priority 3)**
    - **Priority:** Medium
    - **Effort:** Medium (estimated 2-4 days)
-   - **Status (October 8, 2026):** The class and `--batched-inference` flag exist, but the engine only queues and serializes requests; it never runs a batched forward pass. The model-level batching below is still unbuilt and blocked on TD-171. See [TD-211](#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model) before picking this up.
+   - **Status (October 8, 2026):** The class and `--batched-inference` flag exist, but the engine only queues and serializes requests; it never runs a batched forward pass. The model-level batching below is still unbuilt and blocked on TD-171. See [TD-211](#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model) before picking this up. **Planned as v2 (October 8, 2026):** [real_batching_v2_plan.md](../../proposals/real_batching_v2_plan.md).
    - **Description:** Implement a batched inference engine to process multiple inference requests simultaneously, achieving 10-20x throughput improvement for serving/production workloads.
    - **Expected Impact:** 10-20x throughput improvement
    - **Implementation:**
@@ -3073,15 +3245,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 19 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 22 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|1|5%|
-|Medium|9|47%|
-|Low|9|47%|
+|High|1|4%|
+|Medium|9|41%|
+|Low|12|55%|
 
-**Total Active Items:** 19
+**Total Active Items:** 22
 
 ### By Component
 
@@ -3102,18 +3274,21 @@ Recomputed directly from the 19 `### TD-NNN` entries under [Active Technical Deb
 |Inference / Serving|3|
 |Inference / Serving / Observability|1|
 |Core Math / Activation|2|
+|Inference / Serving / API|1|
+|Core / Batching|1|
+|Data / Dataset|1|
 
 ### Effort Distribution
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|1|
-|2-4 hours|4|
+|0-2 hours|3|
+|2-4 hours|5|
 |4-8 hours|5|
 |8+ hours|6|
 |Not estimated|3|
 
-**Total Estimated Effort (Active Items):** 135-204 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 139-212 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

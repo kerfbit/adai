@@ -531,6 +531,10 @@ should be treated the same way. (Not re-run while writing this doc.)
 
 ## 10. Known gaps and gotchas (summary)
 
+> **Planned (October 8, 2026):** real batching is scheduled as a v2 of this file — see
+> [real_batching_v2_plan.md](../../../proposals/real_batching_v2_plan.md). Until then the items
+> below describe current (v1.x) behaviour.
+
 Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and tagged in the code with
 `TODO: See TD-NNN`.
 

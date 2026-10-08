@@ -75,6 +75,8 @@ class ChatbotAPI {
         bool success = true;
         std::string error;
         BatchStats stats;  // Efficiency statistics
+        // TODO: See TD-217 in TECHNICAL_DEBT.md - these describe hypothetical grouping; generation never
+        // batches (see generate_batch_responses()).
     };
 
     /**
