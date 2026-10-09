@@ -6,7 +6,8 @@
 
 // TD-035: chatbot_api_server's argv parsing and required-config validation, pulled out of
 // ChatbotAPIServer.cpp so it's testable without loading a real tokenizer/model or starting a
-// real HTTP server — see ChatbotApiServerArgs_test.cpp. The actual server lifecycle (ChatbotAPI
+// real HTTP server — see ChatbotApiServerArgs_test.cpp.
+// TODO: See TD-245 in TECHNICAL_DEBT.md - the test file is actually tests/chatbot_api_server_args_test.cpp. The actual server lifecycle (ChatbotAPI
 // class, request handlers) is already covered by chatbotapiTests.
 
 #include <optional>
@@ -45,6 +46,8 @@ struct ChatbotApiServerArgsResult {
     // result" reasoning as the two flags above. At most one of batched_inference/
     // pipeline_inference/integrated_inference should be set; ChatbotAPIServer.cpp only ever
     // enables one, matching ChatbotAPI::generate_response()'s "first one wins" precedence.
+    // TODO: See TD-243 in TECHNICAL_DEBT.md - not true: the parser accepts several and main() enables
+    // every one passed; reject more than one here.
     bool integrated_inference = false;
 };
 

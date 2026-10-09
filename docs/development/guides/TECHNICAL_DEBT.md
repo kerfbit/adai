@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 8, 2026
-**Total Items:** 42
-**High Priority:** 5
-**Medium Priority:** 19
-**Low Priority:** 18
+**Total Items:** 55
+**High Priority:** 7
+**Medium Priority:** 26
+**Low Priority:** 22
 **Future Enhancements:** 19
 **Resolved Items:** 197
 **Deferred Decisions:** 3
@@ -64,6 +64,25 @@ session lock, allowing same-session races and a possible use-after-free (TD-227)
 (JSON string parsing, invalid JSON output, RAG serializing all requests, session expiry only on
 `/health`, unlimited client-chosen sessions, non-cryptographic session IDs, batch endpoints
 bypassing the dispatcher, no batch size limit) and four are LOW.
+
+Also the same day, filed [TD-240](#td-240-chatbot_api_server-silently-accepts-non-numeric-and-partial-numbers) through [TD-245](#td-245-chatbot_api_server-argument-errors-are-misleading-or-silent) from the code-traced
+[ChatbotApiServerArgs.md](../reference/source/ChatbotApiServerArgs.md) (`chatbot_api_server`'s
+command-line layer), with the parser's behaviour confirmed by running it. Four are MEDIUM:
+non-numeric and partial numbers silently become 0 or truncated values (`--port abc` binds port 0;
+TD-240); the full config validator never runs at startup, only on `SIGHUP` reload (TD-241);
+reload discards CLI generation overrides (TD-242); and `TOP_K`/`BEAM_WIDTH` are parsed but never
+applied (TD-244). Two are LOW: every engine-mode flag passed gets started (TD-243), and misleading
+or silent argument errors (TD-245).
+
+Also the same day, filed [TD-246](#td-246-chatbot_api_server-serves-a-randomly-initialized-model-when-loading-fails) through [TD-252](#td-252-chatbot_api_server-startup-log-and-usage-text-are-inaccurate) from the code-traced
+[ChatbotAPIServer.md](../reference/source/ChatbotAPIServer.md) (`chatbot_api_server`'s `main()`).
+Two are **HIGH**: a failed or missing model load silently serves randomly initialized weights while
+`/health` reports `ok` (TD-246), and RAG retrieval embeds documents and queries with an untrained
+encoder because its weights are never loaded (TD-247). Three are MEDIUM: a shutdown arriving during
+server startup is lost and the process hangs (confirmed against httplib; TD-248), the `SIGHUP`
+handler isn't async-signal-safe (TD-249), and hippocampal memory is saved only on graceful shutdown,
+with paths that can land in the working directory (TD-250). Two are LOW: reload silently ignores
+most settings (TD-251), and the startup log/usage text are inaccurate (TD-252).
 
 **September 25, 2026:** Filed and resolved
 [TD-210](../archive/TECHNICAL_DEBT_RESOLVED.md#td-210-add-lejepa-advanced-training-diagnostics-and-fix-a-zero-gradient-norm-bug)
@@ -659,6 +678,21 @@ too). [TD-227](#td-227-chatbotapi-session-pointers-are-used-outside-the-session-
 relabel. [TD-236](#td-236-chatbotapi-returns-http-200-for-validation-errors), [TD-238](#td-238-chatbotapi-returns-internal-exception-text-to-clients) and [TD-239](#td-239-chatbotapi-logging-and-dead-code-cleanup) are cleanup; TD-236 changes status codes clients may
 depend on, so check the CLI and Android clients first.
 
+**Tier 16 — Newly filed (October 8, 2026): `chatbot_api_server` startup and config.**
+[TD-240](#td-240-chatbot_api_server-silently-accepts-non-numeric-and-partial-numbers) and [TD-241](#td-241-chatbot_api_server-never-validates-its-configuration-at-startup) are small and together close the "invalid settings accepted silently" gap:
+strict number parsing, then the full validator at startup (extended with the generation fields).
+[TD-244](#td-244-chatbot_api_server-ignores-the-top_k-and-beam_width-settings) is a two-line wiring fix plus two flags. [TD-242](#td-242-sighup-reload-discards-chatbot_api_servers-cli-generation-overrides) needs a small design choice (re-apply
+argv after reload vs. tracking CLI-owned keys), so do it after the others. [TD-243](#td-243-chatbot_api_server-starts-every-engine-mode-flag-passed-not-just-one) and
+[TD-245](#td-245-chatbot_api_server-argument-errors-are-misleading-or-silent) are parser cleanup that fits in the same change as TD-240.
+
+**Tier 17 — Newly filed (October 8, 2026): `chatbot_api_server`'s `main()`.**
+[TD-246](#td-246-chatbot_api_server-serves-a-randomly-initialized-model-when-loading-fails) and [TD-247](#td-247-rag-retrieval-in-chatbot_api_server-uses-an-untrained-encoder) are HIGH and independent: each makes the service silently return worse
+answers than the operator configured, so do them first. TD-247 should refuse to enable RAG without
+a loaded model, which depends on TD-246's "model loaded" state. [TD-248](#td-248-chatbot_api_server-can-hang-if-shutdown-arrives-during-server-startup) and [TD-249](#td-249-chatbot_api_servers-sighup-handler-isnt-async-signal-safe) are small
+signal/shutdown fixes to do together. [TD-250](#td-250-hippocampal-memory-in-chatbot_api_server-is-lost-on-crash-and-can-land-in-the-working-directory) matters only once the experimental hippocampal
+memory is used in production. [TD-251](#td-251-chatbot_api_server-reload-silently-ignores-most-settings) and [TD-252](#td-252-chatbot_api_server-startup-log-and-usage-text-are-inaccurate) are operator-facing cleanup and pair
+naturally with Tier 16's reload work (TD-242).
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -707,6 +741,19 @@ depend on, so check the CLI and Android clients first.
   - [TD-237: `ChatbotAPI::running_` Is a Non-Atomic Flag Written From Two Threads](#td-237-chatbotapirunning_-is-a-non-atomic-flag-written-from-two-threads)
   - [TD-238: ChatbotAPI Returns Internal Exception Text to Clients](#td-238-chatbotapi-returns-internal-exception-text-to-clients)
   - [TD-239: ChatbotAPI Logging and Dead Code Cleanup](#td-239-chatbotapi-logging-and-dead-code-cleanup)
+  - [TD-240: `chatbot_api_server` Silently Accepts Non-Numeric and Partial Numbers](#td-240-chatbot_api_server-silently-accepts-non-numeric-and-partial-numbers)
+  - [TD-241: `chatbot_api_server` Never Validates Its Configuration at Startup](#td-241-chatbot_api_server-never-validates-its-configuration-at-startup)
+  - [TD-242: `SIGHUP` Reload Discards `chatbot_api_server`'s CLI Generation Overrides](#td-242-sighup-reload-discards-chatbot_api_servers-cli-generation-overrides)
+  - [TD-243: `chatbot_api_server` Starts Every Engine Mode Flag Passed, Not Just One](#td-243-chatbot_api_server-starts-every-engine-mode-flag-passed-not-just-one)
+  - [TD-244: `chatbot_api_server` Ignores the `TOP_K` and `BEAM_WIDTH` Settings](#td-244-chatbot_api_server-ignores-the-top_k-and-beam_width-settings)
+  - [TD-245: `chatbot_api_server` Argument Errors Are Misleading or Silent](#td-245-chatbot_api_server-argument-errors-are-misleading-or-silent)
+  - [TD-246: `chatbot_api_server` Serves a Randomly Initialized Model When Loading Fails](#td-246-chatbot_api_server-serves-a-randomly-initialized-model-when-loading-fails)
+  - [TD-247: RAG Retrieval in `chatbot_api_server` Uses an Untrained Encoder](#td-247-rag-retrieval-in-chatbot_api_server-uses-an-untrained-encoder)
+  - [TD-248: `chatbot_api_server` Can Hang If Shutdown Arrives During Server Startup](#td-248-chatbot_api_server-can-hang-if-shutdown-arrives-during-server-startup)
+  - [TD-249: `chatbot_api_server`'s `SIGHUP` Handler Isn't Async-Signal-Safe](#td-249-chatbot_api_servers-sighup-handler-isnt-async-signal-safe)
+  - [TD-250: Hippocampal Memory in `chatbot_api_server` Is Lost on Crash and Can Land in the Working Directory](#td-250-hippocampal-memory-in-chatbot_api_server-is-lost-on-crash-and-can-land-in-the-working-directory)
+  - [TD-251: `chatbot_api_server` Reload Silently Ignores Most Settings](#td-251-chatbot_api_server-reload-silently-ignores-most-settings)
+  - [TD-252: `chatbot_api_server` Startup Log and Usage Text Are Inaccurate](#td-252-chatbot_api_server-startup-log-and-usage-text-are-inaccurate)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -3439,6 +3486,399 @@ Files to Modify:
 - `src/ChatbotAPI.{hpp,cpp}`
 ---
 
+### TD-240: `chatbot_api_server` Silently Accepts Non-Numeric and Partial Numbers
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Inference / Serving / CLI | October 8, 2026 | 1-2 hours |
+
+Description:
+Found while writing the code-traced reference [ChatbotApiServerArgs.md](../reference/source/ChatbotApiServerArgs.md), and confirmed by running the real
+parser. `apply_chatbot_api_server_args()` parses every numeric flag with `std::atoi`/`std::atof`,
+which return 0 for non-numbers and stop at the first non-digit, and nothing reports either case:
+
+| Input | Applied |
+|---|---|
+| `--port abc` | `port = 0`, which the OS treats as "any free port", so the server starts somewhere unannounced |
+| `--port 8080x` | `port = 8080` |
+| `--temperature hot` | `temperature = 0`, i.e. greedy decoding |
+| `--timeout abc` / `--max-gen-len abc` / `--batch-timeout-ms abc` | 0 |
+
+The same applies to every architecture flag and `--speculative-candidates`.
+
+Action Items:
+
+- [ ] Parse with full-consumption checks (`std::from_chars` or `std::stoi`/`std::stof` plus a check that the whole string was consumed) and return `error = true` with a message naming the flag and value.
+- [ ] Tests: non-numeric and trailing-garbage values for each numeric flag are errors.
+
+Location in code: `src/ChatbotApiServerArgs.cpp` (`apply_chatbot_api_server_args()`); tagged `TODO: See TD-240`.
+
+Files to Modify:
+
+- `src/ChatbotApiServerArgs.cpp`
+- `tests/chatbot_api_server_args_test.cpp`
+
+---
+
+### TD-241: `chatbot_api_server` Never Validates Its Configuration at Startup
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Inference / Serving / CLI | October 8, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-240. `ConfigLoader::validate()` (`src/Config.cpp`, port 1–65535,
+`session_timeout >= 1`, log level and size limits, `d_model` range and more) is only called from
+`ConfigLoader::reload()`, the `SIGHUP` path. At startup `ConfigLoader::load()` doesn't call it, and
+`validate_chatbot_api_server_config()` checks only that `vocab_path` is set. So values from the
+CLI, env or file that `validate()` would reject are accepted at startup, and then the same file is
+**rejected on the next `SIGHUP`** ("keeping current configuration"). Verified with the real
+parser: `--timeout -5` is accepted, after which every session counts as expired at the next
+`/health`.
+
+`validate()` also checks none of the generation settings: `strategy` (an unknown value such as
+`--strategy bogus` is accepted and silently becomes nucleus sampling in `ChatbotAPI`),
+`temperature`, `top_p`, `max_gen_length`.
+
+Action Items:
+
+- [ ] Call `ConfigLoader::validate()` from `validate_chatbot_api_server_config()` (after CLI flags are applied) and fail startup on errors.
+- [ ] Extend `validate()` with generation settings: `strategy` in {greedy, beam, temperature, top_k, nucleus}, `temperature >= 0`, `0 < top_p <= 1`, `max_gen_length >= 1`.
+- [ ] Tests: invalid port/timeout/strategy fail validation; the default config passes.
+
+Location in code: `src/ChatbotApiServerArgs.cpp` (`validate_chatbot_api_server_config()`), `src/Config.cpp` (`ConfigLoader::validate()`); tagged `TODO: See TD-241`.
+
+Files to Modify:
+
+- `src/ChatbotApiServerArgs.cpp`
+- `src/Config.cpp`
+- `tests/chatbot_api_server_args_test.cpp`
+- `tests/config_test.cpp`
+
+---
+
+### TD-242: `SIGHUP` Reload Discards `chatbot_api_server`'s CLI Generation Overrides
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Inference / Serving / CLI | October 8, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-240. `ConfigLoader::reload()` rebuilds the config from the file and env only,
+and `ChatbotAPIServer.cpp`'s main loop then pushes `max_gen_length`, `temperature`, `top_p` and
+`strategy` from it into `ChatbotAPI::set_generation_config()`. CLI flags are never re-applied, so a
+server started with `--temperature 0.7` silently reverts to the file's temperature on the first
+`SIGHUP`, contradicting the documented precedence (CLI > env > file). Found by reading the code.
+
+Action Items:
+
+- [ ] Re-apply the original argv overrides after `reload()` (keep `argc`/`argv` or the parsed overrides), or record which keys came from the CLI and keep them fixed across reloads.
+- [ ] Log which settings changed on reload, and which were held by CLI overrides.
+- [ ] Test: CLI-set temperature survives a reload.
+
+Location in code: `src/ChatbotAPIServer.cpp` (main loop reload branch); tagged `TODO: See TD-242`.
+
+Files to Modify:
+
+- `src/ChatbotAPIServer.cpp`
+- `src/ChatbotApiServerArgs.{hpp,cpp}`
+
+---
+
+### TD-243: `chatbot_api_server` Starts Every Engine Mode Flag Passed, Not Just One
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Inference / Serving / CLI | October 8, 2026 | 1 hour |
+
+Description:
+Found alongside TD-240 and confirmed with the real parser: `--batched-inference
+--pipeline-inference --integrated-inference` sets all three with no error.
+`ChatbotApiServerArgs.hpp` says at most one should be set and that `ChatbotAPIServer.cpp` "only ever
+enables one", but `main()` checks each with an independent `if`. So all three engines are created
+(worker threads, plus the pipeline mode's encoder vocab reload) while
+`ChatbotAPI::generate_response()` silently uses only the first in its precedence order.
+
+Action Items:
+
+- [ ] Reject more than one mode flag with an error in `apply_chatbot_api_server_args()`.
+- [ ] Fix the header comment.
+- [ ] Also reject `--batch-timeout-ms` without `--batched-inference` (currently silently ignored).
+- [ ] Tests for both.
+
+Location in code: `src/ChatbotApiServerArgs.{hpp,cpp}`, `src/ChatbotAPIServer.cpp` (mode enabling); tagged `TODO: See TD-243`.
+
+Files to Modify:
+
+- `src/ChatbotApiServerArgs.{hpp,cpp}`
+- `tests/chatbot_api_server_args_test.cpp`
+
+---
+
+### TD-244: `chatbot_api_server` Ignores the `TOP_K` and `BEAM_WIDTH` Settings
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Inference / Serving / CLI | October 8, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-240. `ServiceConfig` parses `TOP_K` and `BEAM_WIDTH` from the config file and
+environment (`src/Config.cpp`), but `ChatbotAPIServer.cpp` never copies them into
+`ChatbotAPI::GenerationConfig`, either at startup or on `SIGHUP` reload, so `ChatbotAPI` always
+uses its built-in defaults (`top_k` 50, `beam_width` 4). There are no `--top-k`/`--beam-width` CLI
+flags either. Found by reading the code.
+
+Action Items:
+
+- [ ] Copy `config.top_k` and `config.beam_width` into the `GenerationConfig` at startup and on reload.
+- [ ] Add `--top-k` and `--beam-width` flags (and to `print_usage()`).
+- [ ] Tests: flags applied; config values reach `ChatbotAPI`.
+
+Location in code: `src/ChatbotAPIServer.cpp` (startup and reload `GenerationConfig` construction), `src/ChatbotApiServerArgs.cpp`; tagged `TODO: See TD-244`.
+
+Files to Modify:
+
+- `src/ChatbotAPIServer.cpp`
+- `src/ChatbotApiServerArgs.cpp`
+- `tests/chatbot_api_server_args_test.cpp`
+
+---
+
+### TD-245: `chatbot_api_server` Argument Errors Are Misleading or Silent
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Inference / Serving / CLI | October 8, 2026 | 1 hour |
+
+Description:
+Found alongside TD-240 and confirmed with the real parser:
+
+- A known flag missing its value (e.g. a trailing `--port`) is reported as
+  `Unknown argument: --port`.
+- A trailing `--config` with no value is silently ignored, and normal config discovery runs.
+- The header comment names the test file `ChatbotApiServerArgs_test.cpp`; the real file is
+  `chatbot_api_server_args_test.cpp`.
+
+Action Items:
+
+- [ ] Report "Missing value for --port" for known flags at the end of argv, including `--config`.
+- [ ] Fix the header comment's test file name.
+- [ ] Tests for the missing-value messages.
+
+Location in code: `src/ChatbotApiServerArgs.{hpp,cpp}`; tagged `TODO: See TD-245`.
+
+Files to Modify:
+
+- `src/ChatbotApiServerArgs.{hpp,cpp}`
+- `tests/chatbot_api_server_args_test.cpp`
+---
+
+### TD-246: `chatbot_api_server` Serves a Randomly Initialized Model When Loading Fails
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Inference / Serving / Server | October 8, 2026 | 2-4 hours |
+
+Description:
+Found while writing the code-traced reference [ChatbotAPIServer.md](../reference/source/ChatbotAPIServer.md). In `main()`, if
+`model->load_model(MODEL_PATH)` throws (missing file, architecture mismatch after an MNS outage
+falls back to local config, a corrupt checkpoint, or one missing its `.vocab` per TD-221), the server
+logs a warning, "Using random initialization", and **keeps serving the untrained model**. With no
+`MODEL_PATH` at all it does the same, logging only "training required". In both cases
+`GET /health` reports `{"status":"ok"}`, so clients get gibberish and monitoring sees a healthy
+service. Found by reading the code.
+
+Action Items:
+
+- [ ] Fail startup (exit 1) when the model can't be loaded, unless an explicit development opt-in (e.g. `ALLOW_UNTRAINED_MODEL=true`) is set.
+- [ ] Report model state in `/health` (`model_loaded`, model path/name), and return a non-`ok` status when serving untrained weights.
+- [ ] Test: a bad `MODEL_PATH` exits non-zero by default.
+
+Location in code: `src/ChatbotAPIServer.cpp` (model load), `src/ChatbotAPI.cpp` (`handle_health()`); tagged `TODO: See TD-246`.
+
+Files to Modify:
+
+- `src/ChatbotAPIServer.cpp`
+- `src/ChatbotAPI.{hpp,cpp}`
+- `src/Config.{hpp,cpp}` (opt-in flag)
+- `docs/operations/guides/chatbot-guide.md`
+
+---
+
+### TD-247: RAG Retrieval in `chatbot_api_server` Uses an Untrained Encoder
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Inference / Serving / Server | October 8, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-246. When `RAG_ENABLED`, `main()` builds a **new** `LLMEncoder` from the model's
+architecture and loads only the vocab into it (`load_tokenizer_vocab()`). `LLMEncoder::load_weights()`
+is never called, so `DocumentStore::addDocument()`/`retrieve()` embed every document and query with
+**randomly initialized weights**. Retrieval ranking is therefore not learned similarity (at best
+crude token overlap through random projections), while generation uses the trained model, so
+answers look plausible over poorly chosen context. The trained encoder is already available via
+`model->get_encoder()` with the same architecture. Found by reading the code.
+
+Action Items:
+
+- [ ] Embed with the trained encoder: share `model->get_encoder()` (taking care that RAG encoding and generation don't use it concurrently outside `EncoderDecoderModel`'s locking), or load the checkpoint's encoder weights into the RAG encoder.
+- [ ] If no trained model is loaded (TD-246), refuse to enable RAG.
+- [ ] Test: retrieval ranks a document containing the query's content above unrelated ones with a trained checkpoint.
+
+Location in code: `src/ChatbotAPIServer.cpp` (RAG setup); tagged `TODO: See TD-247`.
+
+Files to Modify:
+
+- `src/ChatbotAPIServer.cpp`
+- `src/DocumentStore.{hpp,cpp}` (if ownership changes)
+- `tests/rag_*`
+
+---
+
+### TD-248: `chatbot_api_server` Can Hang If Shutdown Arrives During Server Startup
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Inference / Serving / Server | October 8, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-246 and confirmed against the vendored cpp-httplib source.
+`ChatbotAPI::start()` sets its `running_` flag, then calls `httplib::Server::listen()`. httplib's
+`Server::stop()` only acts once the server is inside `listen_internal()` (`if (is_running_) {...}`).
+A `SIGTERM`/`SIGINT` that arrives after the server thread starts but before httplib is listening
+(e.g. a quick `systemctl restart`) has its `stop()` silently ignored. `listen()` then blocks
+forever, `server_thread.join()` hangs, and further signals do nothing because the shutdown flag is
+already set. Only systemd's stop timeout or `SIGKILL` ends the process, which also skips the
+hippocampal memory save (TD-250).
+
+Action Items:
+
+- [ ] After launching the server thread, wait for `httplib::Server::wait_until_ready()` before entering the main loop; or, on shutdown, call `stop()` repeatedly until the server thread exits.
+- [ ] Test: requesting shutdown immediately after start terminates promptly.
+
+Location in code: `src/ChatbotAPIServer.cpp` (server thread start, shutdown), `src/ChatbotAPI.cpp` (`start()`, `stop()`); tagged `TODO: See TD-248`.
+
+Files to Modify:
+
+- `src/ChatbotAPIServer.cpp`
+- `src/ChatbotAPI.{hpp,cpp}`
+
+---
+
+### TD-249: `chatbot_api_server`'s `SIGHUP` Handler Isn't Async-Signal-Safe
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Inference / Serving / Server | October 8, 2026 | 1 hour |
+
+Description:
+Found alongside TD-246. `signal_handler()`'s doc comment says it "is async-signal-safe and only
+sets atomic flags", but the `SIGHUP` branch also calls `adai::Logger::info()`. spdlog takes locks
+and allocates, so a `SIGHUP` delivered to a thread that's mid-log can deadlock or corrupt logger
+state. The main loop's reload branch already logs the reload, so the call isn't needed.
+
+Action Items:
+
+- [ ] Remove the logger call from the handler; log "SIGHUP received" in the main loop when it sees the flag.
+- [ ] Check the other daemons' signal handlers for the same pattern.
+
+Location in code: `src/ChatbotAPIServer.cpp` (`signal_handler()`); tagged `TODO: See TD-249`.
+
+Files to Modify:
+
+- `src/ChatbotAPIServer.cpp`
+
+---
+
+### TD-250: Hippocampal Memory in `chatbot_api_server` Is Lost on Crash and Can Land in the Working Directory
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Inference / Serving / Server | October 8, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-246. When the world model and hippocampal memory are attached
+(experimental, TD-193/194), the memory changes with every generated response, but `main()` saves it
+**only on graceful shutdown**. A crash, `SIGKILL`, OOM kill or the hang in TD-248 loses everything
+since the last clean stop. Its paths are `MODEL_PATH + ".hippocampal"`, `".hippocampal.assoc"`
+and `".hippocampal.swap"`, so with an empty `MODEL_PATH` (random-init mode) they become hidden
+files in the process's working directory.
+
+Action Items:
+
+- [ ] Save periodically (time- or write-count-based) using write-to-temp-then-rename, in addition to shutdown.
+- [ ] Add an explicit `HIPPOCAMPAL_STATE_PATH` (defaulting to the current derivation), and refuse to attach with neither it nor `MODEL_PATH` set.
+- [ ] Test: state survives a simulated crash after the periodic save.
+
+Location in code: `src/ChatbotAPIServer.cpp` (hippocampal attach, shutdown save); tagged `TODO: See TD-250`.
+
+Files to Modify:
+
+- `src/ChatbotAPIServer.cpp`
+- `src/Config.{hpp,cpp}`
+- `src/HippocampalMemory.{hpp,cpp}` (if atomic save lives there)
+
+---
+
+### TD-251: `chatbot_api_server` Reload Silently Ignores Most Settings
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Inference / Serving / Server | October 8, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-246. On `SIGHUP`, `main()` applies only the log level and four generation
+fields (`max_gen_length`, `temperature`, `top_p`, `strategy`), and warns only for a port change.
+Changes to session timeout, RAG settings, model/architecture, GPU settings and the rest are
+dropped without any message, while the log reports a successful configuration reload. Reload also
+doesn't redo MNS resolution, so the in-memory `config` reverts to local file values for model path
+and architecture (unused after startup, but wrong). Found by reading the code.
+
+Action Items:
+
+- [ ] After reload, diff old vs. new config and log every changed key that wasn't applied ("requires restart").
+- [ ] Apply what can be applied live (e.g. session timeout, via a `ChatbotAPI` setter).
+- [ ] Keep MNS-resolved fields when replacing `config`.
+
+Location in code: `src/ChatbotAPIServer.cpp` (main loop reload branch); tagged `TODO: See TD-251`.
+
+Files to Modify:
+
+- `src/ChatbotAPIServer.cpp`
+- `src/ChatbotAPI.hpp` (if adding setters)
+
+---
+
+### TD-252: `chatbot_api_server` Startup Log and Usage Text Are Inaccurate
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Inference / Serving / Server | October 8, 2026 | 1 hour |
+
+Description:
+Found alongside TD-246:
+
+- The startup banner lists only 4 of the 9 endpoints. It omits `/chat/batch`,
+  `/chat/batch-session`, `/chat/session/export` and `/chat/session/import`, and lists
+  `/admin/profile` only with `--profile`.
+- `print_usage()` presents `--d-model 512` etc. as defaults without saying MNS overrides them when
+  the model resolves.
+
+(`--batched-inference`'s "real batching" wording is already TD-211.)
+
+Action Items:
+
+- [ ] List every registered route (ideally generated from the same table the constructor registers).
+- [ ] Note in `print_usage()` that architecture flags are fallbacks overridden by MNS.
+
+Location in code: `src/ChatbotAPIServer.cpp` (startup banner, `print_usage()`); tagged `TODO: See TD-252`.
+
+Files to Modify:
+
+- `src/ChatbotAPIServer.cpp`
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -3954,15 +4394,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 42 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 55 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|5|12%|
-|Medium|19|45%|
-|Low|18|43%|
+|High|7|13%|
+|Medium|26|47%|
+|Low|22|40%|
 
-**Total Active Items:** 42
+**Total Active Items:** 55
 
 ### By Component
 
@@ -3984,6 +4424,8 @@ Recomputed directly from the 42 `### TD-NNN` entries under [Active Technical Deb
 |Inference / Serving / Observability|1|
 |Core Math / Activation|2|
 |Inference / Serving / API|15|
+|Inference / Serving / CLI|6|
+|Inference / Serving / Server|7|
 |Core / Batching|1|
 |Data / Dataset|1|
 |NLP / Tokenizer|6|
@@ -3992,13 +4434,13 @@ Recomputed directly from the 42 `### TD-NNN` entries under [Active Technical Deb
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|14|
-|2-4 hours|11|
+|0-2 hours|23|
+|2-4 hours|15|
 |4-8 hours|7|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 170-267 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 187-297 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

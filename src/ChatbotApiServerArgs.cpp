@@ -17,6 +17,9 @@ std::optional<std::string> extract_config_path_arg(int argc, char* argv[]) {
     return std::nullopt;
 }
 
+// TODO: See TD-240 in TECHNICAL_DEBT.md - numeric flags below use atoi/atof, so non-numbers become 0
+// and trailing garbage is dropped ("--port abc" -> 0, "--port 8080x" -> 8080) with no error.
+// TODO: See TD-244 in TECHNICAL_DEBT.md - no --top-k/--beam-width flags.
 ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
                                                          ServiceConfig& config) {
     ChatbotApiServerArgsResult result;
@@ -75,6 +78,10 @@ ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
         } else if (arg == "--integrated-inference") {
             result.integrated_inference = true;
         } else {
+            // TODO: See TD-245 in TECHNICAL_DEBT.md - a known flag missing its value (e.g. trailing --port)
+            // lands here and is reported as "Unknown argument".
+            // TODO: See TD-243 in TECHNICAL_DEBT.md - --batch-timeout-ms without --batched-inference and
+            // multiple engine-mode flags are accepted silently.
             result.error = true;
             result.error_message = "Unknown argument: " + arg;
             return result;
@@ -84,6 +91,8 @@ ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
     return result;
 }
 
+// TODO: See TD-241 in TECHNICAL_DEBT.md - only vocab_path is checked; ConfigLoader::validate() (port,
+// timeout, ...) runs only on SIGHUP reload, and nothing validates strategy/temperature/top_p.
 std::optional<std::string> validate_chatbot_api_server_config(const ServiceConfig& config) {
     if (config.vocab_path.empty()) {
         return "Error: Vocabulary path is required (use --vocab, VOCAB_PATH env var, or config "

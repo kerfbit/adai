@@ -345,6 +345,8 @@ std::string ChatbotAPI::handle_import_session(const std::string& request_body) {
     return oss.str();
 }
 
+// TODO: See TD-246 in TECHNICAL_DEBT.md - reports "ok" even when the server is running an untrained model;
+// include model-loaded state.
 std::string ChatbotAPI::handle_health() {
     cleanup_expired_sessions();
 

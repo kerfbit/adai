@@ -73,6 +73,8 @@ void signal_handler(int signal) {
         // Configuration hot-reload implemented
         // Set reload flag to trigger config reload in main thread
         reload_config_requested.store(true);
+        // TODO: See TD-249 in TECHNICAL_DEBT.md - logging from a signal handler isn't async-signal-safe
+        // (spdlog locks/allocates); log from the main loop instead.
         adai::Logger::info("SIGHUP received - configuration reload requested");
     }
     // TODO: See TECHNICAL_DEBT.md Future Enhancement (Configuration and Service Management #4) - Add SIGUSR1 handler for graceful model
@@ -99,6 +101,7 @@ void print_usage(const char* program_name) {
         << "  --port <number>      Port number (default: 8080)\n"
         << "  --timeout <minutes>  Session timeout in minutes (default: 30)\n"
         << "  --log-level <level>  Logging level: DEBUG, INFO, WARN, ERROR (default: INFO)\n"
+        // TODO: See TD-252 in TECHNICAL_DEBT.md - architecture defaults below are fallbacks that MNS overrides.
         << "  --d-model <number>   Model dimension (default: 512)\n"
         << "  --num-heads <number> Number of attention heads (default: 8)\n"
         << "  --d-ff <number>      Feed-forward dimension (default: 2048)\n"
@@ -370,10 +373,13 @@ int main(int argc, char* argv[]) {
                 model->load_model(config.model_path);
                 adai::Logger::info("  Model weights loaded successfully");
             } catch (const std::exception& e) {
+                // TODO: See TD-246 in TECHNICAL_DEBT.md - keeps serving random weights while /health says ok;
+                // fail startup unless an explicit development opt-in is set.
                 adai::Logger::warn("  Failed to load model weights: {}", e.what());
                 adai::Logger::warn("  Using random initialization");
             }
         } else {
+            // TODO: See TD-246 in TECHNICAL_DEBT.md - no MODEL_PATH also serves an untrained model.
             adai::Logger::info("  Using randomly initialized model (training required)");
         }
 
@@ -443,6 +449,8 @@ int main(int argc, char* argv[]) {
                     model->set_world_model(std::move(world_model));
 
                     if (config.hippocampal_memory_enabled) {
+                        // TODO: See TD-250 in TECHNICAL_DEBT.md - with an empty MODEL_PATH these land in the working
+                        // directory; add HIPPOCAMPAL_STATE_PATH and periodic atomic saves.
                         // Derived from the model checkpoint path, same suffix convention
                         // load_model()/save_model() already use for ".config"/".lm_head" etc.
                         hippocampal_state_path = config.model_path + ".hippocampal";
@@ -520,6 +528,8 @@ int main(int argc, char* argv[]) {
             adai::Logger::info("  Profiling enabled: GET /admin/profile");
         }
 
+        // TODO: See TD-243 in TECHNICAL_DEBT.md - each mode flag below is checked independently, so passing
+        // several enables all of them; only the first is ever used by generate_response().
         // TD-038: --batched-inference routes generate_response() through a background
         // queue/worker thread (BatchedInferenceEngine) instead of running inline on the HTTP
         // handler's own thread.
@@ -561,6 +571,7 @@ int main(int argc, char* argv[]) {
         }
 
         // Set generation configuration
+        // TODO: See TD-244 in TECHNICAL_DEBT.md - config.top_k and config.beam_width are never copied here.
         ChatbotAPI::GenerationConfig gen_config;
         gen_config.max_length = config.max_gen_length;
         gen_config.temperature = config.temperature;
@@ -574,6 +585,9 @@ int main(int argc, char* argv[]) {
             adai::Logger::info("");
             adai::Logger::info("[+] Initializing RAG engine...");
             try {
+                // TODO: See TD-247 in TECHNICAL_DEBT.md - this encoder is never given trained weights (no
+                // load_weights() call), so retrieval embeds with random weights; use the model's
+                // trained encoder (model->get_encoder()) instead.
                 auto rag_encoder = std::make_shared<LLMEncoder>(
                     static_cast<int>(tokenizer->get_vocab_size()), static_cast<int>(config.d_model),
                     static_cast<int>(config.num_encoder_layers), static_cast<int>(config.num_heads),
@@ -648,6 +662,7 @@ int main(int argc, char* argv[]) {
         adai::Logger::info("[4/4] Starting API server...");
         adai::Logger::info("==================================================");
         adai::Logger::info("Server starting on http://0.0.0.0:{}", config.port);
+        // TODO: See TD-252 in TECHNICAL_DEBT.md - lists only 4 of the 9 registered routes.
         adai::Logger::info("Available endpoints:");
         adai::Logger::info("  POST   /chat           - Single-turn conversation");
         adai::Logger::info("  POST   /chat/session   - Multi-turn conversation");
@@ -683,6 +698,9 @@ int main(int argc, char* argv[]) {
         adai::Logger::info("Send SIGHUP (kill -HUP {}) to reload configuration", getpid());
         adai::Logger::info("==================================================");
 
+        // TODO: See TD-248 in TECHNICAL_DEBT.md - a shutdown request before httplib is listening is lost
+        // (Server::stop() is a no-op until then) and the join below hangs; wait_until_ready()
+        // first, or retry stop() until the thread exits.
         // Start server in a background thread to allow main thread to handle signals
         std::atomic<bool> server_error{false};
         std::thread server_thread([&]() {
@@ -708,6 +726,8 @@ int main(int argc, char* argv[]) {
                 reload_config_requested.store(false);
 
                 // Reload configuration
+                // TODO: See TD-242 in TECHNICAL_DEBT.md - reload() re-reads file + env only, so CLI generation
+                // overrides (--temperature etc.) are lost here.
                 if (adai::ConfigLoader::reload(config, stored_config_path, config_mutex)) {
                     // Update logger level if changed
                     {
@@ -716,6 +736,7 @@ int main(int argc, char* argv[]) {
                     }
 
                     // Update generation configuration
+                    // TODO: See TD-244 in TECHNICAL_DEBT.md - top_k/beam_width not applied on reload either.
                     ChatbotAPI::GenerationConfig new_gen_config;
                     {
                         std::lock_guard<std::mutex> lock(config_mutex);
@@ -730,6 +751,8 @@ int main(int argc, char* argv[]) {
 
                     // Note: Some changes like port, model architecture cannot be applied
                     // without service restart. These are validated but logged as warnings.
+                    // TODO: See TD-251 in TECHNICAL_DEBT.md - only the port gets a warning; every other unapplied
+                    // change (session timeout, RAG, model, GPU...) is dropped silently.
                     {
                         std::lock_guard<std::mutex> lock(config_mutex);
                         if (config.port != original_port) {
@@ -780,6 +803,8 @@ int main(int argc, char* argv[]) {
                 adai::Logger::info("[2/3] Model state: not persisted (no model path configured)");
             }
 
+            // TODO: See TD-250 in TECHNICAL_DEBT.md - saved only here, so a crash or SIGKILL loses everything
+            // since the last clean stop.
             // TD-193: hippocampal memory DOES change while serving (every generated response
             // write()s a new episode into it, per EncoderDecoderModel::maybe_write_hippocampal_
             // memory()) — unlike the model weights above, its state is genuinely worth persisting
