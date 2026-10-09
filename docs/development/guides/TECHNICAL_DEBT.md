@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 9, 2026
-**Total Items:** 79
+**Total Items:** 85
 **High Priority:** 11
-**Medium Priority:** 36
-**Low Priority:** 32
+**Medium Priority:** 39
+**Low Priority:** 35
 **Future Enhancements:** 19
 **Resolved Items:** 197
 **Deferred Decisions:** 3
@@ -32,6 +32,14 @@ biasing validation loss low. A real run dropped it from about 3.4 to 2.5 with on
 and LR schedule restart every incremental pass (TD-269); adaptive clipping resets every epoch and can
 never activate (TD-270); a cache hit can pair with a different random split (TD-271); mid-window
 errors drop gradients and the last window is under-weighted (TD-272). Four are LOW (TD-273–276).
+
+Also October 9, 2026: filed [TD-277](#td-277-childprocess-reports-every-signal-death-as-exit-code-128) through [TD-282](#td-282-childprocess-windows-path-has-known-gaps) from the code-traced
+[ChildProcess.md](../reference/source/ChildProcess.md) (`trainer_service`'s child launcher),
+with exit-code behaviour confirmed by running the real class. Three are MEDIUM: every signal death
+is reported as 128, losing the signal number, so a GPU-driver SIGSEGV can't be told apart from an OOM
+SIGKILL (TD-277); a failed `exec` (missing binary) looks like a successful launch and leads to a
+silent retry loop (TD-278); and `request_stop()` could send `kill(-1, SIGTERM)` under the concurrent use
+its header permits (latent; TD-279). Three are LOW (orphaned passes, fork/fd hygiene, Windows gaps).
 
 **October 8, 2026:** Filed
 [TD-211](#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model)
@@ -744,6 +752,11 @@ format work, so scope it alongside the `IncrementalTrainer` reference. [TD-271](
 touch the data/accumulation paths and should get tests first. [TD-273](#td-273-chatbottrainer-quality-backfill-writes-results-nobody-can-read), [TD-274](#td-274-chatbottrainer-saves-the-best-model-to-a-fixed-file-in-the-working-directory) and [TD-276](#td-276-chatbottrainer-hygiene-dead-fields-logging-stale-test-file) are
 cleanup.
 
+**Tier 21 — Newly filed (October 9, 2026): `ChildProcess` (`trainer_service`).** [TD-277](#td-277-childprocess-reports-every-signal-death-as-exit-code-128) and
+[TD-279](#td-279-childprocessrequest_stop-can-signal-every-process-if-called-concurrently) are about an hour each; do them together. [TD-278](#td-278-childprocess-reports-a-failed-exec-as-a-successful-launch) and [TD-281](#td-281-childprocess-forks-a-multithreaded-process-and-leaks-file-descriptors) share a natural fix
+(`posix_spawn()`), so do them as one change. [TD-280](#td-280-trainer_service-passes-can-be-orphaned-if-the-supervisor-is-hard-killed) matters only outside systemd. [TD-282](#td-282-childprocess-windows-path-has-known-gaps) only
+matters if a Windows `trainer_service` is ever shipped.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -829,6 +842,12 @@ cleanup.
   - [TD-274: ChatbotTrainer Saves the Best Model to a Fixed File in the Working Directory](#td-274-chatbottrainer-saves-the-best-model-to-a-fixed-file-in-the-working-directory)
   - [TD-275: ChatbotTrainer Drops `<eos>` From Long Training Responses](#td-275-chatbottrainer-drops-eos-from-long-training-responses)
   - [TD-276: ChatbotTrainer Hygiene: Dead Fields, Logging, Stale Test File](#td-276-chatbottrainer-hygiene-dead-fields-logging-stale-test-file)
+  - [TD-277: `ChildProcess` Reports Every Signal Death as Exit Code 128](#td-277-childprocess-reports-every-signal-death-as-exit-code-128)
+  - [TD-278: `ChildProcess` Reports a Failed `exec` as a Successful Launch](#td-278-childprocess-reports-a-failed-exec-as-a-successful-launch)
+  - [TD-279: `ChildProcess::request_stop()` Can Signal Every Process if Called Concurrently](#td-279-childprocessrequest_stop-can-signal-every-process-if-called-concurrently)
+  - [TD-280: `trainer_service` Passes Can Be Orphaned if the Supervisor Is Hard-Killed](#td-280-trainer_service-passes-can-be-orphaned-if-the-supervisor-is-hard-killed)
+  - [TD-281: `ChildProcess` Forks a Multithreaded Process and Leaks File Descriptors](#td-281-childprocess-forks-a-multithreaded-process-and-leaks-file-descriptors)
+  - [TD-282: `ChildProcess` Windows Path Has Known Gaps](#td-282-childprocess-windows-path-has-known-gaps)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -4674,6 +4693,174 @@ Files to Modify:
 - `tests/chatbottrainer_test.cpp.old` (delete)
 ---
 
+### TD-277: `ChildProcess` Reports Every Signal Death as Exit Code 128
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / Service Supervisor | October 9, 2026 | 1 hour |
+
+Description:
+Found while writing the code-traced reference [ChildProcess.md](../reference/source/ChildProcess.md), and confirmed by running the real
+class: a child killed by SIGSEGV and one killed by SIGKILL both come back from `poll_exit()` as
+**128**. The header calls 128 "POSIX convention", but the shell convention is **128 + signal number**
+(139 for SIGSEGV, 137 for SIGKILL). On ai-machine the known pass-killing failure is a SIGSEGV inside
+the Intel graphics compiler ([ONEAPI_SYCL_DRIVER_SEGFAULT.md](../../operations/guides/troubleshooting/ONEAPI_SYCL_DRIVER_SEGFAULT.md)),
+and an OOM kill would be SIGKILL. `trainer_service`'s `/admin/status` `last_exit_code` can't tell them
+apart, which removes exactly the diagnosis TD-172's process isolation was meant to make possible.
+
+Action Items:
+
+- [ ] Report `128 + WTERMSIG(status)` for signal deaths (and note core dumps via `WCOREDUMP` in a log line).
+- [ ] Update the header and `TrainerServiceControlState::last_exit_code`'s comment; keep `total_passes_crashed` counting unchanged.
+- [ ] Test: SIGSEGV → 139, SIGKILL → 137.
+
+Location in code: `src/ChildProcess.{hpp,cpp}` (`poll_exit()`), `src/TrainerServiceControlState.hpp`; tagged `TODO: See TD-277`.
+
+Files to Modify:
+
+- `src/ChildProcess.{hpp,cpp}`
+- `src/TrainerServiceControlState.hpp`
+- `tests/child_process_test.cpp`
+
+---
+
+### TD-278: `ChildProcess` Reports a Failed `exec` as a Successful Launch
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / Service Supervisor | October 9, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-277 and confirmed by running the real class: with a missing binary,
+`start()` returns **true** (after `fork()`), and the failure only appears later as exit code **127**
+from `poll_exit()`. `trainer_service` counts that as a crashed pass and retries after every poll
+interval, indefinitely, without ever reporting that `incremental_trainer` couldn't be executed
+(e.g. after a bad install or a wrong path).
+
+Action Items:
+
+- [ ] Detect exec failure in `start()`: a close-on-exec pipe the child writes `errno` to before `_exit()`, or `posix_spawn()` (which reports exec errors directly on glibc).
+- [ ] Log the exec error with the path; have `trainer_service` back off (or stop) on repeated launch failures rather than retrying silently.
+- [ ] Test: `start({"/nonexistent"})` returns false.
+
+Location in code: `src/ChildProcess.cpp` (`start()`); tagged `TODO: See TD-278`.
+
+Files to Modify:
+
+- `src/ChildProcess.cpp`
+- `src/TrainerServiceMain.cpp`
+- `tests/child_process_test.cpp`
+
+---
+
+### TD-279: `ChildProcess::request_stop()` Can Signal Every Process if Called Concurrently
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / Service Supervisor | October 9, 2026 | 1 hour |
+
+Description:
+Found alongside TD-277. The header says `request_stop()` is safe to call from a signal handler's
+thread. On POSIX it checks the plain `bool running_` and then calls `kill(pid_, SIGTERM)`, but nothing
+is atomic, and `stop_and_wait()`'s give-up path sets `pid_ = -1` **before** clearing `running_`
+(compilers may also reorder the other paths' stores). A concurrent call could therefore read
+`running_ == true` and `pid_ == -1`, and `kill(-1, SIGTERM)` sends SIGTERM to **every process the user
+can signal**. It isn't reachable today (`trainer_service`'s handler only sets a flag), but the
+documented contract invites it.
+
+Action Items:
+
+- [ ] Guard `kill()` with `pid_ > 0` (and the Windows path with a non-null handle).
+- [ ] Make `running_`/`pid_` atomic, or drop the signal-handler safety claim from the header.
+
+Location in code: `src/ChildProcess.{hpp,cpp}` (`request_stop()`, `stop_and_wait()`); tagged `TODO: See TD-279`.
+
+Files to Modify:
+
+- `src/ChildProcess.{hpp,cpp}`
+
+---
+
+### TD-280: `trainer_service` Passes Can Be Orphaned if the Supervisor Is Hard-Killed
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / Service Supervisor | October 9, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-277. `ChildProcess` signals only the direct child, sets no process group, and
+uses no `PR_SET_PDEATHSIG`. Under systemd the default `KillMode=control-group` kills the whole cgroup,
+but if `trainer_service` is hard-killed outside systemd (manual `kill -9`, a crash, another
+supervisor), a running pass keeps going, still holding dataset claims and the GPU, while a
+restarted `trainer_service` launches a second pass.
+
+Action Items:
+
+- [ ] In the child before `exec`: `prctl(PR_SET_PDEATHSIG, SIGTERM)` (Linux), re-checking `getppid()` for the fork race; optionally a process group so stop requests reach grandchildren.
+- [ ] Document the systemd `KillMode` requirement in the service file.
+
+Location in code: `src/ChildProcess.cpp` (`start()`); tagged `TODO: See TD-280`.
+
+Files to Modify:
+
+- `src/ChildProcess.cpp`
+- `scripts/adai-trainer.service`
+
+---
+
+### TD-281: `ChildProcess` Forks a Multithreaded Process and Leaks File Descriptors
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / Service Supervisor | October 9, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-277. `trainer_service` runs its httplib admin proxy on other threads, so
+`start()`'s `fork()` happens in a multithreaded process. The child calls only `execvp()`, but that
+isn't on POSIX's async-signal-safe list (its PATH search may allocate), a theoretical post-fork
+deadlock. The child also inherits every descriptor not marked close-on-exec: httplib marks its
+listening socket, but accepted connections use plain `accept()`, so an admin connection in flight at
+launch time stays open in the pass until it exits.
+
+Action Items:
+
+- [ ] Use `posix_spawn()`/`posix_spawnp()` (also addresses TD-278), with an absolute path resolved before spawning.
+- [ ] Close inherited descriptors in the child (`close_range(3, ~0U, CLOSE_RANGE_CLOEXEC)` where available, or spawn file actions).
+
+Location in code: `src/ChildProcess.cpp` (`start()`); tagged `TODO: See TD-281`.
+
+Files to Modify:
+
+- `src/ChildProcess.cpp`
+
+---
+
+### TD-282: `ChildProcess` Windows Path Has Known Gaps
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / Service Supervisor | October 9, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-277; affects only Windows builds (none shipped today):
+
+- command-line quoting escapes `"` but not backslashes preceding a quote, so arguments ending in `\` break;
+- a child that genuinely exits with code 259 (`STILL_ACTIVE`) is treated as still running forever;
+- `CTRL_BREAK_EVENT` only reaches a child sharing the supervisor's console, otherwise the fallback is an immediate `TerminateProcess()`.
+
+Action Items:
+
+- [ ] Use the standard `CommandLineToArgvW`-compatible quoting algorithm.
+- [ ] Detect exit via `WaitForSingleObject(handle, 0)` instead of comparing to `STILL_ACTIVE`.
+- [ ] Document (or replace) the console-event stop mechanism.
+
+Location in code: `src/ChildProcess.cpp` (`#ifdef _WIN32` paths); tagged `TODO: See TD-282`.
+
+Files to Modify:
+
+- `src/ChildProcess.cpp`
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -5189,15 +5376,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 79 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 85 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|11|14%|
-|Medium|36|46%|
-|Low|32|40%|
+|High|11|13%|
+|Medium|39|46%|
+|Low|35|41%|
 
-**Total Active Items:** 79
+**Total Active Items:** 85
 
 ### By Component
 
@@ -5225,6 +5412,7 @@ Recomputed directly from the 79 `### TD-NNN` entries under [Active Technical Deb
 |Client / GUI|6|
 |Core Model / Generation|1|
 |Training / ChatbotTrainer|10|
+|Training / Service Supervisor|6|
 |Core / Batching|1|
 |Data / Dataset|1|
 |NLP / Tokenizer|6|
@@ -5233,13 +5421,13 @@ Recomputed directly from the 79 `### TD-NNN` entries under [Active Technical Deb
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|38|
-|2-4 hours|23|
+|0-2 hours|42|
+|2-4 hours|25|
 |4-8 hours|8|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 222-361 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 230-375 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

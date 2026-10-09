@@ -45,6 +45,7 @@ bool ChildProcess::start(const std::vector<std::string>& argv) {
     // Build one command line string, quoting each argument. Minimal quoting (wrap in double
     // quotes, escape embedded quotes) — sufficient for the config paths/model names/port numbers
     // this class is actually launched with; not a general Windows command-line-escaping library.
+    // TODO: See TD-282 in TECHNICAL_DEBT.md - quoting doesn't handle backslashes before quotes.
     std::string cmdline;
     for (size_t i = 0; i < argv.size(); ++i) {
         if (i > 0)
@@ -83,6 +84,11 @@ bool ChildProcess::start(const std::vector<std::string>& argv) {
     }
     c_argv.push_back(nullptr);
 
+    // TODO: See TD-281 in TECHNICAL_DEBT.md - fork() of a multithreaded process (httplib proxy threads) followed
+    // by execvp(), which isn't async-signal-safe; inherited fds (e.g. accepted admin connections)
+    // stay open in the child. Prefer posix_spawn().
+    // TODO: See TD-280 in TECHNICAL_DEBT.md - no process group / PR_SET_PDEATHSIG, so a hard-killed
+    // supervisor leaves the pass running.
     const pid_t pid = ::fork();
     if (pid < 0) {
         Logger::error("ChildProcess::start(): fork() failed");
@@ -90,6 +96,8 @@ bool ChildProcess::start(const std::vector<std::string>& argv) {
     }
     if (pid == 0) {
         // Child: replace this process image entirely. execvp() only returns on failure.
+        // TODO: See TD-278 in TECHNICAL_DEBT.md - an exec failure is only visible later as exit code 127;
+        // start() has already returned true to the caller.
         ::execvp(c_argv[0], c_argv.data());
         // If we get here, exec failed — this is a forked copy of the supervisor, not the
         // supervisor itself, so exit immediately rather than returning into shared logic twice.
@@ -113,6 +121,7 @@ bool ChildProcess::poll_exit(int* exit_code) {
         Logger::error("ChildProcess::poll_exit(): GetExitCodeProcess failed");
         return false;
     }
+    // TODO: See TD-282 in TECHNICAL_DEBT.md - a child exiting with code 259 looks like STILL_ACTIVE forever.
     if (code == STILL_ACTIVE) {
         return false;
     }
@@ -140,6 +149,7 @@ bool ChildProcess::poll_exit(int* exit_code) {
     running_ = false;
     pid_ = -1;
     if (exit_code) {
+        // TODO: See TD-277 in TECHNICAL_DEBT.md - should be 128 + WTERMSIG(status).
         *exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
     }
     return true;
@@ -166,6 +176,7 @@ void ChildProcess::request_stop() {
         ::TerminateProcess(static_cast<HANDLE>(process_handle_), 1);
     }
 #else
+    // TODO: See TD-279 in TECHNICAL_DEBT.md - no pid_ > 0 guard: pid_ == -1 would signal every process.
     ::kill(static_cast<pid_t>(pid_), SIGTERM);
 #endif
 }
@@ -225,6 +236,8 @@ bool ChildProcess::stop_and_wait(int timeout_ms, int* exit_code) {
         process_handle_ = nullptr;
     }
 #else
+    // TODO: See TD-279 in TECHNICAL_DEBT.md - pid_ is cleared before running_, the order that lets a
+    // concurrent request_stop() read running_ == true with pid_ == -1.
     pid_ = -1;
 #endif
     running_ = false;

@@ -26,6 +26,8 @@ namespace adai {
  * before starting the next one, which is exactly the supervisory-loop shape
  * `IncrementalTrainingTool.cpp`'s old `serve` command already used for its in-process passes.
  *
+ * TODO: See TD-279 in TECHNICAL_DEBT.md - running_/pid_ aren't atomic, so the request_stop() exception
+ * below doesn't hold: a concurrent call can see pid_ == -1 and call kill(-1, SIGTERM).
  * Not thread-safe: intended to be driven from a single supervisory loop thread; `request_stop()`
  * is the one exception (safe to call from a signal handler's own thread — POSIX `kill()` and
  * Windows console-control/`TerminateProcess()` are both safe to call concurrently with
@@ -50,6 +52,8 @@ class ChildProcess {
      * @brief Non-blocking check for whether the current child has exited.
      * @param exit_code Out-param, set only when this returns true. The child's real exit code on
      *   a clean exit; 128 (POSIX convention) if it was killed by a signal instead.
+     *   TODO: See TD-277 in TECHNICAL_DEBT.md - the convention is 128 + signal number; every signal
+     *   death currently reports 128, so SIGSEGV and SIGKILL are indistinguishable.
      * @return true exactly once per child, the first poll_exit() call after it actually exits
      *   (or immediately, if it already exited before this call). false while still running, or if
      *   no child has ever been started, or after that one true has already been consumed.

@@ -58,6 +58,8 @@ class TrainerServiceControlState {
     std::atomic<long long> total_passes_did_work{0};
     std::atomic<long long> total_passes_crashed{0};  // exit code outside {0,1}: launch failure or
                                                       // killed by signal (see ChildProcess::poll_exit())
+    // TODO: See TD-277 in TECHNICAL_DEBT.md - signal deaths all report 128 today (signal lost);
+    // TODO: See TD-278 in TECHNICAL_DEBT.md - exec failures show up here as 127 with no clear log.
 
     /**
      * @brief Wakes a sleeping `interruptible_sleep()` call immediately — called by POST
