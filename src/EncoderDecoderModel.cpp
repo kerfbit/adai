@@ -768,6 +768,8 @@ void EncoderDecoderModel::save_model(const std::string& filepath) const {
     config_file.close();
 
     // Save tokenizer vocabulary
+    // TODO: See TD-221 in TECHNICAL_DEBT.md - save_vocab() fails silently, so this checkpoint can be
+    // written without its .vocab file.
     tokenizer->save_vocab(filepath + ".vocab");
 
     // Save encoder weights

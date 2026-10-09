@@ -535,6 +535,8 @@ TEST_F(BPETokenizerTest, RepeatedBuildVocab) {
     size_t size2 = tokenizer.get_vocab_size();
 
     // Second build should replace vocabulary
+    // TODO: See TD-223 in TECHNICAL_DEBT.md - this only checks the size changed; a second build actually
+    // appends and produces duplicate IDs. Check ID uniqueness once fixed.
     EXPECT_NE(size1, size2);
 }
 

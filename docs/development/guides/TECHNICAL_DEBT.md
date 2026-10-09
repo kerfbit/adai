@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 8, 2026
-**Total Items:** 22
-**High Priority:** 1
-**Medium Priority:** 9
-**Low Priority:** 12
+**Total Items:** 28
+**High Priority:** 3
+**Medium Priority:** 11
+**Low Priority:** 14
 **Future Enhancements:** 19
 **Resolved Items:** 197
 **Deferred Decisions:** 3
@@ -43,6 +43,17 @@ unused surface, lose input order, and skip input checks (TD-218); and `Dataset`'
 carry wrong doc examples and a stats helper that only samples one batch (TD-219). Decisions the same day: TD-217 relabels the stats as an estimate, and TD-211/TD-218 keep
 their classes, with real batching planned as a v2 upgrade in
 [real_batching_v2_plan.md](../../proposals/real_batching_v2_plan.md).
+
+Also the same day, filed
+[TD-220](#td-220-bpe-merge-learning-is-corrupted-by-the--pair-key-separator) through
+[TD-225](#td-225-bpetokenizer-logging-and-api-hygiene) from the code-traced
+[BPETokenizer.md](../reference/source/BPETokenizer.md), each bug confirmed by running the real
+tokenizer. Two are **HIGH**: BPE merge learning is corrupted by its `"|||"` pair-key separator
+(pipe-heavy corpora stop learning merges or repeat a wrong rule; TD-220), and `save_vocab()` fails
+silently, so checkpoints can be written without their vocab (TD-221). Two are MEDIUM: a
+never-invalidated per-thread BPE cache (TD-222), and mutators that can leave the tokenizer gutted
+or with duplicate IDs (TD-223). Two are LOW: lossy lowercase/whitespace normalization, pending an
+owner decision (TD-224), and logging/API hygiene (TD-225).
 
 **September 25, 2026:** Filed and resolved
 [TD-210](../archive/TECHNICAL_DEBT_RESOLVED.md#td-210-add-lejepa-advanced-training-diagnostics-and-fix-a-zero-gradient-norm-bug)
@@ -617,6 +628,18 @@ are open here, and
 [TD-219](#td-219-datasets-batch-wrappers-have-wrong-doc-examples-and-a-partial-stats-helper) should
 follow that decision.
 
+**Tier 14 — Newly filed (October 8, 2026): tokenizer bugs.**
+[TD-220](#td-220-bpe-merge-learning-is-corrupted-by-the--pair-key-separator) and
+[TD-221](#td-221-bpetokenizersave_vocab-fails-silently-so-checkpoints-can-lack-their-vocab) are
+HIGH, small (1-2h each) and independent: do them first. TD-220 also needs an audit of existing
+vocab files, since any vocab it truncated is baked into checkpoints trained on it.
+[TD-222](#td-222-apply_bpes-thread-local-cache-is-never-invalidated) and
+[TD-223](#td-223-tokenizer-mutators-can-leave-it-gutted-or-with-duplicate-ids) touch the same
+mutators (`load_vocab()`/`build_vocab()`), so do them together.
+[TD-225](#td-225-bpetokenizer-logging-and-api-hygiene) is independent cleanup.
+[TD-224](#td-224-tokenizer-normalization-is-lossy-no-capitals-newlines-or-tabs) needs an owner
+decision and, if pursued, a retrain, so it's the largest by far despite its LOW label.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -645,6 +668,12 @@ follow that decision.
   - [TD-217: `/chat/batch` Reports Hypothetical Batching Stats as if They Were Real](#td-217-chatbatch-reports-hypothetical-batching-stats-as-if-they-were-real)
   - [TD-218: BatchProcessor Helpers Have Dead Surface, Lost Ordering, and Unchecked Inputs](#td-218-batchprocessor-helpers-have-dead-surface-lost-ordering-and-unchecked-inputs)
   - [TD-219: Dataset's Batch Wrappers Have Wrong Doc Examples and a Partial Stats Helper](#td-219-datasets-batch-wrappers-have-wrong-doc-examples-and-a-partial-stats-helper)
+  - [TD-220: BPE Merge Learning Is Corrupted by the `"|||"` Pair-Key Separator](#td-220-bpe-merge-learning-is-corrupted-by-the--pair-key-separator)
+  - [TD-221: `BPETokenizer::save_vocab()` Fails Silently, So Checkpoints Can Lack Their Vocab](#td-221-bpetokenizersave_vocab-fails-silently-so-checkpoints-can-lack-their-vocab)
+  - [TD-222: `apply_bpe()`'s Thread-Local Cache Is Never Invalidated](#td-222-apply_bpes-thread-local-cache-is-never-invalidated)
+  - [TD-223: Tokenizer Mutators Can Leave It Gutted or With Duplicate IDs](#td-223-tokenizer-mutators-can-leave-it-gutted-or-with-duplicate-ids)
+  - [TD-224: Tokenizer Normalization Is Lossy: No Capitals, Newlines, or Tabs](#td-224-tokenizer-normalization-is-lossy-no-capitals-newlines-or-tabs)
+  - [TD-225: BPETokenizer Logging and API Hygiene](#td-225-bpetokenizer-logging-and-api-hygiene)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -2730,6 +2759,266 @@ Files to Modify:
 
 ---
 
+### TD-220: BPE Merge Learning Is Corrupted by the `"|||"` Pair-Key Separator
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | NLP / Tokenizer | October 8, 2026 | 1-2 hours (fix) + audit of existing vocab files |
+
+Description:
+Found while writing the code-traced reference [BPETokenizer.md](../reference/source/BPETokenizer.md),
+then confirmed by running the real code. `BPETokenizer::get_most_frequent_pair()` counts pairs in a
+map keyed by `first + "|||" + second`, then recovers the pair by splitting at the **first**
+`"|||"`. When a token contains or ends with `|`, the split lands in the wrong place:
+
+- If it yields an empty `first` (e.g. pair `("|", "|")`, key `"|||||"`), `build_bpe_merges()`
+  treats that as "no more pairs" and **stops learning merges entirely**. A corpus of
+  `"|| || || ab ab"` lines asked for 52 merges and learned 0.
+- Otherwise it yields a wrong, non-empty pair. `merge_tokens()` then changes nothing, so the same
+  wrong pair wins every following round and is recorded as a merge rule **repeatedly**.
+
+Fuzzing 200 small corpora over `{|, !}`: all 200 stopped short of their target, and 9 saved files
+contained repeated merge rules. Markdown tables, `||` in code, and shell pipelines in training data
+are realistic triggers.
+
+Impact: a vocabulary is baked into every checkpoint trained on it, so a truncated or degenerate
+merge list silently degrades every model built on that vocab until it's rebuilt and the model
+retrained.
+
+Action Items:
+
+- [ ] Key the pair counts by `std::pair<std::string, std::string>` (with a hash) instead of a
+  string separator.
+- [ ] Regression tests: pipe-only corpus learns merges; no repeated merge rules; merge count
+  reaches the target when pairs remain.
+- [ ] Audit existing vocab files (`vocab.txt`, every `<checkpoint>.vocab` on ai-machine): compare
+  the `BPE_MERGES` count against the intended target and look for repeated rules. Rebuild and
+  retrain any affected vocab.
+
+Location in code: `src/BPETokenizer.cpp` (`get_most_frequent_pair()`); tagged `TODO: See TD-220`.
+
+Files to Modify:
+
+- `src/BPETokenizer.cpp`
+- `tests/tokenizer_test.cpp`
+
+---
+
+### TD-221: `BPETokenizer::save_vocab()` Fails Silently, So Checkpoints Can Lack Their Vocab
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | NLP / Tokenizer | October 8, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-220 and confirmed by running the real code. If `save_vocab()` can't open its
+file it prints to `std::cerr` and **returns normally**; write errors aren't checked at all. Saving
+to an unwritable path raised no exception.
+
+`EncoderDecoderModel::save()` calls it for every checkpoint (`<checkpoint>.vocab`), so a bad path
+or full disk produces a checkpoint with weights but no vocab, and nobody finds out until
+`load()` throws `VocabularyFileError`, possibly long after the run that wrote it.
+`IncrementalTrainer`'s vocab bootstrap and `vocab_builder` have the same exposure (a
+"successful" build that wrote nothing).
+
+Action Items:
+
+- [ ] Throw `VocabularyFileError` when the file can't be opened, and check the stream state after
+  writing (and after `close()`).
+- [ ] Write to a temporary file and rename it into place, so a failed save never leaves a
+  truncated vocab where a good one used to be.
+- [ ] Make sure `EncoderDecoderModel::save()`'s callers (checkpointing in `IncrementalTrainer`,
+  `ChatbotTrainer`) surface the error rather than logging success.
+- [ ] Tests: unwritable path throws; failed save leaves an existing file intact.
+
+Location in code: `src/BPETokenizer.cpp` (`save_vocab()`), `src/EncoderDecoderModel.cpp`
+(`save()`); tagged `TODO: See TD-221`.
+
+Files to Modify:
+
+- `src/BPETokenizer.cpp`
+- `src/EncoderDecoderModel.cpp`
+- `tests/tokenizer_test.cpp`, `tests/tokenizer_error_handling_test.cpp`
+
+---
+
+### TD-222: `apply_bpe()`'s Thread-Local Cache Is Never Invalidated
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | NLP / Tokenizer | October 8, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-220 and confirmed by running the real code. `apply_bpe()` memoizes results in a
+`thread_local` map keyed by `(tokenizer address, word)`. The cache was added for preprocessing
+speed, and its comment assumes merges never change while it's in use. But it's never invalidated:
+
+- **After `load_vocab()`** on an instance that has already encoded text, words encode with the
+  **old** merges. Verified: after reloading to a tiny vocab, `"abab"` still encoded to the old
+  single token instead of the correct four.
+- **Address reuse:** a tokenizer constructed at the same address as a destroyed one, on the same
+  thread, inherits its cached results. Verified with placement-new.
+- **Never freed:** entries for destroyed tokenizers stay for the thread's lifetime.
+  `measure_fertility()` creates a temporary tokenizer on every call, adding another entry each
+  time.
+
+Production mostly dodges this (each `trainer_service` pass is a fresh process; servers load once),
+but `--pipeline-inference`'s reload of the encoder's tokenizer and any in-process
+reload-and-retrain path are exposed. The cache comment also refers to a nonexistent
+`train_bpe()` (the real mutators are `build_vocab()`/`build_bpe_merges()`/`load_vocab()`).
+
+Action Items:
+
+- [ ] Give each tokenizer a unique, never-reused instance ID plus a generation counter bumped by
+  every mutator, and key the cache on `(instance_id, generation)`, dropping stale entries on
+  mismatch. Alternatively, move the cache into the instance behind a lock-free or sharded
+  structure.
+- [ ] Bound the cache size, and free a destroyed tokenizer's entries.
+- [ ] Fix the comment (`train_bpe()` → the real mutators).
+- [ ] Tests: reload-then-encode matches a fresh tokenizer; same-address reconstruction doesn't
+  inherit results.
+
+Location in code: `src/BPETokenizer.cpp` (`apply_bpe()`, `load_vocab()`, `measure_fertility()`);
+tagged `TODO: See TD-222`.
+
+Files to Modify:
+
+- `src/BPETokenizer.{hpp,cpp}`
+- `tests/tokenizer_test.cpp`
+
+---
+
+### TD-223: Tokenizer Mutators Can Leave It Gutted or With Duplicate IDs
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | NLP / Tokenizer | October 8, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-220 and confirmed by running the real code:
+
+- **`load_vocab()` isn't exception-safe.** It clears every table before parsing, so a malformed
+  file leaves the tokenizer gutted (a trained 12-token tokenizer had 1 token after a failed load).
+  `chatbot_api_server --pipeline-inference` catches a failed `enable_pipeline_inference()` (which
+  reloads the encoder's private tokenizer), logs a warning and keeps serving, potentially with that
+  tokenizer broken.
+- **A second `build_vocab()` corrupts IDs.** It restarts base IDs at 4 and appends to the existing
+  merges. Two calls produced 3 IDs shared by two different tokens. `tokenizer_test`'s
+  `RepeatedBuildVocab` says "Second build should replace vocabulary" but only checks that the size
+  changed, so it passes.
+
+No production caller reuses an instance for a second build today; every one constructs a fresh
+tokenizer.
+
+Action Items:
+
+- [ ] `load_vocab()`: parse into local tables, validate, then swap them in, so a failure leaves the
+  previous state untouched (strong exception guarantee).
+- [ ] `build_vocab()`: reset to the four specials first (true replacement, as the test intends), or
+  throw if the tokenizer is already trained.
+- [ ] Fix `RepeatedBuildVocab` to check ID uniqueness and that the first build's tokens are gone;
+  add a failed-load-preserves-state test.
+
+Location in code: `src/BPETokenizer.cpp` (`load_vocab()`, `build_vocab()`),
+`src/ChatbotAPIServer.cpp` (pipeline-inference catch), `tests/tokenizer_test.cpp`
+(`RepeatedBuildVocab`); tagged `TODO: See TD-223`.
+
+Files to Modify:
+
+- `src/BPETokenizer.cpp`
+- `tests/tokenizer_test.cpp`, `tests/tokenizer_error_handling_test.cpp`
+
+---
+
+### TD-224: Tokenizer Normalization Is Lossy: No Capitals, Newlines, or Tabs
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open — owner decision needed | NLP / Tokenizer | October 8, 2026 | Not estimated (requires a new vocab format version and retraining) |
+
+Description:
+Found alongside TD-220 and confirmed by running the real code. `pre_tokenize()` lowercases every
+input (all bytes in ASCII mode, ASCII bytes in Unicode mode) and replaces every whitespace run with
+a single space. `"Hello World\nSecond\tline"` round-trips as `"hello world second line"`.
+Consequences:
+
+- No model trained here can read case, line structure or indentation, or produce them: no
+  capitalized sentences, paragraphs, lists or code layout in chatbot output.
+- The vocab file's `\n`/`\t`/`\r` escaping can never fire for real tokens.
+
+This is a design property, not an accident in one line, and changing it invalidates every existing
+vocab and checkpoint.
+
+Action Items:
+
+- [ ] Owner decision: keep it (and document it as a product limitation), or move to
+  case-preserving, whitespace-preserving tokenization (GPT-2-style, typically with byte-level
+  fallback).
+- [ ] If changed: bump the vocab file format (`# BPE Tokenizer Vocabulary v2.0` plus a
+  normalization field), keep loading v1 files with the old normalization so existing checkpoints
+  stay usable, and plan a retrain.
+
+Location in code: `src/BPETokenizer.cpp` (`pre_tokenize()`); tagged `TODO: See TD-224`.
+
+Files to Modify (if changed): `src/BPETokenizer.{hpp,cpp}`, `tests/tokenizer_test.cpp`,
+`docs/development/reference/source/BPETokenizer.md`, plus a retraining plan.
+
+---
+
+### TD-225: BPETokenizer Logging and API Hygiene
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | NLP / Tokenizer | October 8, 2026 | 4-6 hours |
+
+Description:
+Found alongside TD-220. Smaller issues in the `stable`-tagged tokenizer:
+
+- **`std::cout`/`std::cerr` in library code** throughout (`build_vocab()`, `build_bpe_merges()`,
+  `pre_tokenize()`, `decode()`, `save_vocab()`, `load_vocab()`, `print_vocab_stats()`), against
+  the project's logging rule. `pre_tokenize()` prints progress for any input producing ≥ 1,000
+  matches, including long chat inputs on the server and interleaved lines from parallel
+  preprocessing threads.
+- **`decode()` skips unknown IDs** with only a `cerr` warning, so out-of-range model output is
+  silently truncated.
+- **`encode()`/`decode()` aren't `const`** though they mutate nothing. That forces
+  `measure_fertility()` to copy the whole tokenizer on every call, and blocks encoding through a
+  `const BPETokenizer&`.
+- **`get_top_tokens()` is misnamed:** it returns the lowest IDs, not the most frequent tokens (the
+  tokenizer stores no frequencies). `vocab_builder` prints its output as if it were frequency.
+- **Unportable rebuilds:** base-unit IDs and pair-count ties follow `unordered_map` iteration
+  order, so the same corpus can produce different vocabs on different standard libraries.
+- **Unchecked special IDs:** `load_vocab()` accepts any special-token IDs a file declares, while
+  `BatchProcessor`, `TextGenerator` and `Dataset` use the `adai::SpecialTokenIDs` constants
+  directly. Nothing checks that they agree.
+- **Lenient UTF-8:** `is_valid_utf8()` accepts overlong encodings, surrogates and lead bytes up to
+  `0xF7`.
+- **Stale pointer:** `DataFetcher.cpp`'s TD-006 TODO says FIM special tokens are "defined in
+  BPETokenizer.cpp"; they aren't (the tokenizer has only four specials).
+
+Action Items:
+
+- [ ] Replace console output with `adai::Logger` (progress at `debug`, or a callback).
+- [ ] Count unknown IDs in `decode()` and log once per call at `warn`, or offer a strict mode that
+  throws.
+- [ ] Mark `encode()`, `tokenize()`, `pre_tokenize()`, `apply_bpe()`, `decode()` `const` (the
+  cache is `thread_local`, so no `mutable` is needed), and drop `measure_fertility()`'s copy.
+- [ ] Rename `get_top_tokens()` (e.g. `get_tokens_by_id()`) or record merge frequencies during
+  training to make it true; update `vocab_builder`.
+- [ ] Make base-ID assignment and tie-breaking deterministic (sort by frequency, then by token).
+- [ ] Warn (or throw) in `load_vocab()` when the special IDs differ from `SpecialTokenIDs`.
+- [ ] Tighten `is_valid_utf8()` to RFC 3629.
+- [ ] Fix `DataFetcher.cpp`'s pointer to say the FIM tokens still need adding (TD-006).
+
+Location in code: `src/BPETokenizer.{hpp,cpp}`, `src/DataFetcher.cpp`; tagged `TODO: See TD-225`.
+
+Files to Modify:
+
+- `src/BPETokenizer.{hpp,cpp}`, `src/VocabBuilder.cpp`, `src/DataFetcher.cpp`
+- `tests/tokenizer_test.cpp`, `tests/vocabbuilder_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -3245,15 +3534,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 22 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 28 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|1|4%|
-|Medium|9|41%|
-|Low|12|55%|
+|High|3|11%|
+|Medium|11|39%|
+|Low|14|50%|
 
-**Total Active Items:** 22
+**Total Active Items:** 28
 
 ### By Component
 
@@ -3277,18 +3566,19 @@ Recomputed directly from the 22 `### TD-NNN` entries under [Active Technical Deb
 |Inference / Serving / API|1|
 |Core / Batching|1|
 |Data / Dataset|1|
+|NLP / Tokenizer|6|
 
 ### Effort Distribution
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|3|
-|2-4 hours|5|
-|4-8 hours|5|
+|0-2 hours|5|
+|2-4 hours|7|
+|4-8 hours|6|
 |8+ hours|6|
-|Not estimated|3|
+|Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 139-212 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 149-230 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

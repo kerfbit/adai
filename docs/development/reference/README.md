@@ -10,6 +10,7 @@ This directory contains reference materials, technical specifications, and imple
   - [Activation](source/Activation.md) (`src/Activation.{hpp,cpp}`)
   - [BatchedInferenceEngine](source/BatchedInferenceEngine.md) (`src/BatchedInferenceEngine.hpp`)
   - [BatchProcessor](source/BatchProcessor.md) (`src/BatchProcessor.hpp`)
+  - [BPETokenizer](source/BPETokenizer.md) (`src/BPETokenizer.{hpp,cpp}`)
 
 - **[KVCache API Reference](kvcache.md)** - Complete API documentation for the Key-Value cache system
   - Single-layer and multi-layer caching

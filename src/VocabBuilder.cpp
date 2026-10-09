@@ -193,6 +193,8 @@ int main(int argc, char** argv) {
 
             tokenizer.print_vocab_stats();
 
+            // TODO: See TD-225 in TECHNICAL_DEBT.md - get_top_tokens() returns the lowest IDs, not
+            // the most frequent tokens, so "Top 20" here is misleading.
             std::cout << COLOR_YELLOW << "\nTop 20 tokens:\n" << COLOR_RESET;
             auto top_tokens = tokenizer.get_top_tokens(20);
             for (size_t i = 0; i < top_tokens.size(); i++) {

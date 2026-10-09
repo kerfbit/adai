@@ -129,6 +129,8 @@ class BPETokenizer {
     // Tokenize text into subword tokens
     std::vector<std::string> tokenize(const std::string& text);
 
+    // TODO: See TD-225 in TECHNICAL_DEBT.md - encode()/decode() (and tokenize/pre_tokenize/apply_bpe)
+    // mutate nothing and should be const.
     // Convert tokens to IDs
     std::vector<int> encode(const std::string& text, bool add_special_tokens = true);
 
@@ -162,6 +164,8 @@ class BPETokenizer {
     void print_vocab_stats() const;
 
     // Get top-k most frequent tokens (for debugging)
+    // TODO: See TD-225 in TECHNICAL_DEBT.md - misnamed: returns the k lowest-ID tokens; no frequencies
+    // are stored.
     std::vector<std::pair<std::string, int>> get_top_tokens(int k = 10) const;
 
     /**

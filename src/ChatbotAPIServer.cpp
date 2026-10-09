@@ -544,6 +544,8 @@ int main(int argc, char* argv[]) {
                 pipeline_inference_enabled = true;
                 adai::Logger::info("  Pipeline inference enabled");
             } catch (const std::exception& e) {
+                // TODO: See TD-223 in TECHNICAL_DEBT.md - a load_vocab() that fails mid-parse leaves the
+                // encoder's private tokenizer gutted even though serving continues.
                 adai::Logger::warn("  Failed to enable pipeline inference: {}", e.what());
                 adai::Logger::warn("  Pipeline inference disabled for this run");
             }

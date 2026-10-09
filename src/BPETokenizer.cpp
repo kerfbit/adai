@@ -2,6 +2,9 @@
 // @adai-version: 1.0.0
 // @adai-reviewed: 2026-09-10
 
+// TODO: See TD-225 in TECHNICAL_DEBT.md - std::cout/std::cerr are used throughout this file instead of
+// adai::Logger (progress output, warnings, save/load summaries).
+
 #include "BPETokenizer.hpp"
 #include <cmath>
 #include <cstdint>
@@ -68,6 +71,7 @@ std::vector<std::string> BPETokenizer::utf8_split_codepoints(const std::string& 
 }
 
 // UTF-8 validation helper
+// TODO: See TD-225 in TECHNICAL_DEBT.md - accepts overlong encodings, surrogates and lead bytes up to 0xF7.
 bool BPETokenizer::is_valid_utf8(const std::string& text) {
     size_t i = 0;
     while (i < text.length()) {
@@ -147,6 +151,9 @@ void BPETokenizer::build_vocab(const std::vector<std::string>& texts, int vocab_
     std::cout << " (" << total_chars << " total characters)" << '\n';
 
     std::cout << "[2/3] Building base vocabulary..." << std::flush;
+    // TODO: See TD-223 in TECHNICAL_DEBT.md - a second build_vocab() on the same instance restarts IDs
+    // at 4 and appends to the existing merges, giving duplicate IDs; reset or refuse instead.
+    // TODO: See TD-225 in TECHNICAL_DEBT.md - IDs follow unordered_map iteration order (not portable).
     int current_id = 4;  // Start after special tokens
     int added_chars = 0;
     for (const auto& pair : char_freq) {
@@ -231,6 +238,8 @@ std::vector<std::string> BPETokenizer::pre_tokenize(const std::string& text) {
         throw TokenizerEncodingError("pre_tokenize(): Input text contains invalid UTF-8 sequences");
     }
 
+    // TODO: See TD-224 in TECHNICAL_DEBT.md - lowercasing here and the whitespace collapse below are
+    // lossy: models can never see or produce capitals, newlines or tabs.
     std::string lower_text = text;
     if (mode == TokenizerMode::UNICODE) {
         // Only lowercase ASCII bytes; touching continuation bytes corrupts multi-byte sequences
@@ -300,6 +309,9 @@ std::pair<std::string, std::string> BPETokenizer::get_most_frequent_pair(
         // happens to only ever push non-empty entries, but this is a public
         // static method and callers outside this file have no such guarantee.
         for (size_t i = 0; i + 1 < tokens.size(); i++) {
+            // TODO: See TD-220 in TECHNICAL_DEBT.md - splitting this key back at the first "|||" (below)
+            // mis-splits pairs containing '|', stopping merge learning or repeating a wrong rule.
+            // Key by std::pair<std::string, std::string> instead.
             std::string pair_key = tokens[i] + "|||" + tokens[i + 1];
             pair_counts[pair_key]++;
         }
@@ -352,6 +364,11 @@ std::vector<std::string> BPETokenizer::apply_bpe(const std::string& word) {
     // for the lifetime of any concurrent tokenize() calls on a given
     // instance — its only mutators (load_vocab(), train_bpe()) always run
     // single-threaded, before parallel preprocessing ever starts.
+    //
+    // TODO: See TD-222 in TECHNICAL_DEBT.md - this cache is never invalidated: load_vocab() leaves stale
+    // results, a new tokenizer at a reused address inherits them, and entries are never freed.
+    // (The comment above means build_vocab()/build_bpe_merges()/load_vocab(); there is no
+    // train_bpe().)
     thread_local std::unordered_map<const BPETokenizer*,
                                     std::unordered_map<std::string, std::vector<std::string>>>
         tls_cache;
@@ -449,6 +466,7 @@ std::string BPETokenizer::decode(const std::vector<int>& ids, bool skip_special_
             }
             result += token;
         } else {
+            // TODO: See TD-225 in TECHNICAL_DEBT.md - unknown IDs are silently dropped (cerr only).
             std::cerr << "Warning: Unknown token ID " << id << " encountered during decoding"
                       << '\n';
         }
@@ -467,6 +485,9 @@ size_t BPETokenizer::get_vocab_size() const {
 
 void BPETokenizer::save_vocab(const std::string& filename) const {
     std::ofstream file(filename);
+    // TODO: See TD-221 in TECHNICAL_DEBT.md - open and write failures don't throw, so callers (including
+    // every EncoderDecoderModel::save() checkpoint) believe the vocab was saved. Throw
+    // VocabularyFileError, check the stream after writing, and write via temp file + rename.
     if (!file.is_open()) {
         std::cerr << "Error: Could not open file for writing: " << filename << '\n';
         return;
@@ -528,6 +549,9 @@ void BPETokenizer::load_vocab(const std::string& filename) {
         throw VocabularyFileError("Could not open vocabulary file: " + filename);
     }
 
+    // TODO: See TD-223 in TECHNICAL_DEBT.md - tables are cleared before parsing, so any exception below
+    // leaves the tokenizer gutted; parse into locals and swap on success.
+    // TODO: See TD-222 in TECHNICAL_DEBT.md - reloading doesn't invalidate apply_bpe()'s cache.
     std::string line;
     vocab.clear();
     inverse_vocab.clear();
@@ -703,6 +727,8 @@ void BPETokenizer::load_vocab(const std::string& filename) {
         throw VocabularyFileError("Missing required special tokens in " + filename);
     }
 
+    // TODO: See TD-225 in TECHNICAL_DEBT.md - special IDs from the file aren't checked against
+    // adai::SpecialTokenIDs, which other code (BatchProcessor, TextGenerator, Dataset) uses directly.
     // Ensure special_tokens set is fully populated
     special_tokens.insert("<pad>");
     special_tokens.insert("<unk>");
@@ -908,6 +934,8 @@ float BPETokenizer::measure_fertility(const std::vector<std::string>& texts,
     if (vocab.empty())
         return 0.0f;
 
+    // TODO: See TD-225 in TECHNICAL_DEBT.md - make encode() const and drop this full copy.
+    // TODO: See TD-222 in TECHNICAL_DEBT.md - each probe adds a never-freed apply_bpe() cache entry.
     // encode() is non-const (validates and mutates nothing, but the signature isn't marked const).
     // Use a shallow copy that shares our vocab/merge tables via the same header-constructed state.
     BPETokenizer probe(mode);
