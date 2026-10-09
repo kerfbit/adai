@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 9, 2026
-**Total Items:** 69
-**High Priority:** 10
-**Medium Priority:** 31
-**Low Priority:** 28
+**Total Items:** 79
+**High Priority:** 11
+**Medium Priority:** 36
+**Low Priority:** 32
 **Future Enhancements:** 19
 **Resolved Items:** 197
 **Deferred Decisions:** 3
@@ -22,6 +22,16 @@ never loads a trained checkpoint, because it checks for a file at the bare model
 `RLHFTrainer` (header default 4) (TD-261). Three are MEDIUM (architecture from local config only
 and an unusable state on init failure, UI freeze during generation, launcher hardcoding Qt5/x86_64
 paths) and two LOW (prompt-format mismatch with the server, minor gaps).
+
+Also October 9, 2026: filed [TD-267](#td-267-chatbottrainer-keeps-skipped-pairs-biasing-validation-loss-low) through [TD-276](#td-276-chatbottrainer-hygiene-dead-fields-logging-stale-test-file) from the code-traced
+[ChatbotTrainer.md](../reference/source/ChatbotTrainer.md). One is **HIGH**: pairs that
+`preprocess_data()` skips (empty input/response, invalid UTF-8) stay as empty entries, so in
+training each throws and discards its accumulation window, and in validation each counts as loss 0,
+biasing validation loss low. A real run dropped it from about 3.4 to 2.5 with one empty pair
+(TD-267). Five are MEDIUM: `end_epoch()` only reported with validation data (TD-268); optimizer state
+and LR schedule restart every incremental pass (TD-269); adaptive clipping resets every epoch and can
+never activate (TD-270); a cache hit can pair with a different random split (TD-271); mid-window
+errors drop gradients and the last window is under-weighted (TD-272). Four are LOW (TD-273–276).
 
 **October 8, 2026:** Filed
 [TD-211](#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model)
@@ -726,6 +736,14 @@ RLHF results produced before the fix. [TD-262](#td-262-chatbot_gui-ignores-mns-a
 and [TD-264](#td-264-chatbot_gui-launcher-hardcodes-qt5-and-x86_64-paths) are independent. [TD-265](#td-265-chatbot_gui-and-chatbot_api_server-format-conversation-context-differently) needs a format decision shared with the server.
 [TD-266](#td-266-chatbot_gui-minor-gaps) is cleanup.
 
+**Tier 20 — Newly filed (October 9, 2026): `ChatbotTrainer`.** [TD-267](#td-267-chatbottrainer-keeps-skipped-pairs-biasing-validation-loss-low) is HIGH and small: fix
+it first, and treat validation losses (and best-epoch choices) from runs on data containing
+empty/invalid pairs as optimistic until then. [TD-268](#td-268-chatbottrainer-only-ends-metrics-epochs-when-there-is-validation-data), [TD-270](#td-270-adaptive-gradient-clipping-resets-every-epoch) and [TD-275](#td-275-chatbottrainer-drops-eos-from-long-training-responses) are small,
+independent fixes. [TD-269](#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass) needs an owner decision (run-wide vs. per-pass schedule) and checkpoint
+format work, so scope it alongside the `IncrementalTrainer` reference. [TD-271](#td-271-chatbottrainers-tokenized-cache-can-pair-with-a-different-random-split) and [TD-272](#td-272-chatbottrainer-silently-drops-gradients-on-mid-window-errors-and-under-weights-the-last-window)
+touch the data/accumulation paths and should get tests first. [TD-273](#td-273-chatbottrainer-quality-backfill-writes-results-nobody-can-read), [TD-274](#td-274-chatbottrainer-saves-the-best-model-to-a-fixed-file-in-the-working-directory) and [TD-276](#td-276-chatbottrainer-hygiene-dead-fields-logging-stale-test-file) are
+cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -801,6 +819,16 @@ and [TD-264](#td-264-chatbot_gui-launcher-hardcodes-qt5-and-x86_64-paths) are in
   - [TD-264: `chatbot_gui` Launcher Hardcodes Qt5 and x86_64 Paths](#td-264-chatbot_gui-launcher-hardcodes-qt5-and-x86_64-paths)
   - [TD-265: `chatbot_gui` and `chatbot_api_server` Format Conversation Context Differently](#td-265-chatbot_gui-and-chatbot_api_server-format-conversation-context-differently)
   - [TD-266: `chatbot_gui` Minor Gaps](#td-266-chatbot_gui-minor-gaps)
+  - [TD-267: ChatbotTrainer Keeps Skipped Pairs, Biasing Validation Loss Low](#td-267-chatbottrainer-keeps-skipped-pairs-biasing-validation-loss-low)
+  - [TD-268: ChatbotTrainer Only Ends Metrics Epochs When There Is Validation Data](#td-268-chatbottrainer-only-ends-metrics-epochs-when-there-is-validation-data)
+  - [TD-269: Optimizer State and LR Schedule Restart Every Incremental Training Pass](#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass)
+  - [TD-270: Adaptive Gradient Clipping Resets Every Epoch](#td-270-adaptive-gradient-clipping-resets-every-epoch)
+  - [TD-271: ChatbotTrainer's Tokenized Cache Can Pair With a Different Random Split](#td-271-chatbottrainers-tokenized-cache-can-pair-with-a-different-random-split)
+  - [TD-272: ChatbotTrainer Silently Drops Gradients on Mid-Window Errors and Under-Weights the Last Window](#td-272-chatbottrainer-silently-drops-gradients-on-mid-window-errors-and-under-weights-the-last-window)
+  - [TD-273: ChatbotTrainer Quality Backfill Writes Results Nobody Can Read](#td-273-chatbottrainer-quality-backfill-writes-results-nobody-can-read)
+  - [TD-274: ChatbotTrainer Saves the Best Model to a Fixed File in the Working Directory](#td-274-chatbottrainer-saves-the-best-model-to-a-fixed-file-in-the-working-directory)
+  - [TD-275: ChatbotTrainer Drops `<eos>` From Long Training Responses](#td-275-chatbottrainer-drops-eos-from-long-training-responses)
+  - [TD-276: ChatbotTrainer Hygiene: Dead Fields, Logging, Stale Test File](#td-276-chatbottrainer-hygiene-dead-fields-logging-stale-test-file)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -4350,6 +4378,302 @@ Files to Modify:
 - `src/ConversationContext.hpp`
 ---
 
+### TD-267: ChatbotTrainer Keeps Skipped Pairs, Biasing Validation Loss Low
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Training / ChatbotTrainer | October 9, 2026 | 1-2 hours |
+
+Description:
+Found while writing the code-traced reference [ChatbotTrainer.md](../reference/source/ChatbotTrainer.md), and confirmed by a real training pass.
+`preprocess_data()` skips pairs with an empty input/response (TD-188) or invalid UTF-8, logging
+"Skipped N…", but leaves each one's slot as an **empty `TokenizedPair`**. The comment says they're
+"filtered out during training"; nothing filters them:
+
+- **Training:** each empty pair reaches `model->forward()`, which throws ("Matrix index out of
+  bounds" in the test run). The catch block resets accumulation, which also **discards gradients
+  already accumulated** from earlier samples in that window.
+- **Validation:** each empty pair evaluates to loss 0 with no error but still counts in
+  `validate()`'s average (sum ÷ all pairs). In the test run, adding one empty pair to two good ones
+  dropped validation loss from about 3.4 to 2.5. Validation loss drives best-model tracking, early
+  stopping, the metrics dashboard and MNS progress.
+
+`validate()` also counts samples that throw as 0, the same bias.
+
+Action Items:
+
+- [ ] After tokenizing, compact `tokenized_*_data` (and the matching `training_data`/`validation_data`, keeping indices aligned) to drop skipped pairs, or skip empty pairs in `train_epoch()` and `validate()`.
+- [ ] In `validate()`, divide by the number of successfully evaluated samples, and report how many failed.
+- [ ] Regression tests: an empty pair changes neither validation loss nor training error count; tokenized sizes exclude skipped pairs.
+
+Location in code: `src/ChatbotTrainer.cpp` (`preprocess_data()`, `train_epoch()`, `validate()`); tagged `TODO: See TD-267`.
+
+Files to Modify:
+
+- `src/ChatbotTrainer.cpp`
+- `tests/chatbottrainer_test.cpp`
+
+---
+
+### TD-268: ChatbotTrainer Only Ends Metrics Epochs When There Is Validation Data
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / ChatbotTrainer | October 9, 2026 | 1 hour |
+
+Description:
+Found alongside TD-267. `train()` calls `metrics_reporter_->end_epoch()` only inside
+`if (!tokenized_validation_data.empty())`. A run with `validation_split = 0`, or too little data to
+split, starts epochs on the reporter (`train_epoch()` calls `start_epoch()`) but never ends them, so
+the dashboard never records epoch completion, loss or perplexity for those runs. The gradient norm
+passed to `end_epoch()` is also the last window's (`optimizer->get_gradient_norm()`), not the
+epoch average already computed in `gradient_norms.back()`.
+
+Action Items:
+
+- [ ] Call `end_epoch()` every epoch, passing a "no validation" value (as the epoch callback does with 0.0) when there's no validation data.
+- [ ] Pass `gradient_norms.back()` as the epoch gradient norm.
+- [ ] Test with a reporter mock and `validation_split = 0`.
+
+Location in code: `src/ChatbotTrainer.cpp` (`train()`); tagged `TODO: See TD-268`.
+
+Files to Modify:
+
+- `src/ChatbotTrainer.cpp`
+- `tests/chatbottrainer_test.cpp`
+
+---
+
+### TD-269: Optimizer State and LR Schedule Restart Every Incremental Training Pass
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / ChatbotTrainer | October 9, 2026 | 4-8 hours |
+
+Description:
+Found alongside TD-267. `IncrementalTrainer` constructs a **fresh `ChatbotTrainer` per pass**,
+and `ChatbotTrainer::set_model()` creates a **new `Optimizer`**. So every pass:
+
+- restarts AdamW with zero first and second moments (and bias correction from step 1);
+- restarts `global_step` at 0 and computes `total_training_steps` for just this pass, so the default
+  `WARMUP_COSINE` schedule warms up from LR 0 and decays to `min_learning_rate` **within each pass**.
+
+A long run made of many short passes never follows one coherent schedule; it repeats warmup and
+decay, and loses optimizer state each time. Optimizer state isn't saved in checkpoints, so a
+process restart loses it as well.
+
+Action Items:
+
+- [ ] Owner decision: make the schedule run-wide (pass a global step offset and the run's planned total steps from `IncrementalTrainer`), or document per-pass schedules as intended.
+- [ ] Persist optimizer state (moments and step count) with the checkpoint and restore it in `set_model()` (or a new `set_optimizer_state()`).
+- [ ] Track run-level `global_step` in the MNS/session record.
+
+Location in code: `src/ChatbotTrainer.cpp` (`set_model()`, `calculate_learning_rate()`), `src/IncrementalTrainer.cpp` (per-pass trainer construction); tagged `TODO: See TD-269`.
+
+Files to Modify:
+
+- `src/ChatbotTrainer.{hpp,cpp}`
+- `src/IncrementalTrainer.{hpp,cpp}`
+- `src/Optimizer.{hpp,cpp}` (state save/load)
+- `src/EncoderDecoderModel.cpp` (checkpoint sidecar)
+
+---
+
+### TD-270: Adaptive Gradient Clipping Resets Every Epoch
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / ChatbotTrainer | October 9, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-267. The TD-017 adaptive-clipping state (`agc_ema`, `agc_step_count`,
+`agc_spike_count`) is declared locally in `train_epoch()`, so each epoch restarts it: a new
+`gradient_clip_warmup_steps` (default 100) warmup clipped at `gradient_clip_max` (5.0), with the EMA
+re-seeded from `gradient_clip_norm`. With ≤ 100 optimizer steps per epoch (common for small passes
+or large accumulation windows) **adaptive clipping never leaves warmup**, so enabling it just clips at
+the 5.0 ceiling.
+
+Action Items:
+
+- [ ] Move the adaptive-clip state to `ChatbotTrainer` members (initialized once per `train()` call, or once per run alongside TD-269).
+- [ ] Test: the EMA and warmup counter carry across epochs.
+
+Location in code: `src/ChatbotTrainer.cpp` (`train_epoch()`); tagged `TODO: See TD-270`.
+
+Files to Modify:
+
+- `src/ChatbotTrainer.{hpp,cpp}`
+- `tests/adaptive_clipping_test.cpp`
+
+---
+
+### TD-271: ChatbotTrainer's Tokenized Cache Can Pair With a Different Random Split
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / ChatbotTrainer | October 9, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-267. `train()` runs `split_data()` (a fresh `std::random_device` shuffle)
+**before** `preprocess_data()` loads the tokenized cache. The cache holds the tokenized split from
+the run that wrote it. Counts match, so the load succeeds, but `tokenized_training_data[i]` no longer
+corresponds to `training_data[i]`, and per-index metadata writes (`meta.token_count`, quality
+backfill) land on the wrong pairs. Training still uses a valid split (the cached one). Separately,
+the split is different on every pass, so validation loss isn't measured on the same samples from
+one pass to the next. Only the misalignment depends on `cache_tokenized_data` (default off).
+
+Action Items:
+
+- [ ] Make the split deterministic (seed from the cache key or dataset checksum), or cache the split itself (indices) alongside the tokenized data.
+- [ ] Include the split seed or validation membership in the cache key.
+- [ ] Test: two `train()` calls with caching produce aligned raw/tokenized pairs.
+
+Location in code: `src/ChatbotTrainer.cpp` (`split_data()`, `preprocess_data()`); tagged `TODO: See TD-271`.
+
+Files to Modify:
+
+- `src/ChatbotTrainer.cpp`
+- `src/IncrementalTrainer.cpp` (cache key)
+- `tests/chatbottrainer_test.cpp`
+
+---
+
+### TD-272: ChatbotTrainer Silently Drops Gradients on Mid-Window Errors and Under-Weights the Last Window
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / ChatbotTrainer | October 9, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-267:
+
+- When a sample throws, or the window's gradient norm is NaN/Inf, `train_epoch()` resets
+  `accumulation_step` without stepping, so gradients accumulated from the **earlier** samples in
+  that window are zeroed at the next window start and contribute nothing.
+- The final window of an epoch is force-flushed even if it holds fewer than
+  `gradient_accumulation_steps` samples, but gradients are still scaled by
+  `1/gradient_accumulation_steps` and its reported loss divided by the same, so that update is
+  proportionally too small and its loss under-reported.
+
+Action Items:
+
+- [ ] On a per-sample error, keep the window's valid gradients: track the samples actually accumulated and step on them (rescaling), or document the drop and count dropped samples in metrics.
+- [ ] Scale the last window by its real sample count (rescale gradients before the step; divide the loss by the actual count).
+- [ ] Tests for both.
+
+Location in code: `src/ChatbotTrainer.cpp` (`train_epoch()`); tagged `TODO: See TD-272`.
+
+Files to Modify:
+
+- `src/ChatbotTrainer.cpp`
+- `tests/chatbottrainer_test.cpp`
+
+---
+
+### TD-273: ChatbotTrainer Quality Backfill Writes Results Nobody Can Read
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / ChatbotTrainer | October 9, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-267. `enable_loss_quality_backfill` and `enable_generation_quality_backfill`
+write `meta.quality` into `ChatbotTrainer`'s private `training_data`/`validation_data`, which have
+no accessor. `IncrementalTrainer` passes pairs via `add_training_pair()` (no metadata) and never
+reads them back, and neither option has a config key. The generation backfill would run a full
+generation per sample for nothing if enabled in code.
+
+Action Items:
+
+- [ ] Owner decision: remove both backfills, or wire them up (pass `SampleMeta` in, expose the updated metadata, add config keys, persist quality back to the dataset).
+
+Location in code: `src/ChatbotTrainer.cpp` (`backfill_generation_quality()`, loss backfill in `train_epoch()`/`validate()`); tagged `TODO: See TD-273`.
+
+Files to Modify:
+
+- `src/ChatbotTrainer.{hpp,cpp}`
+- `src/IncrementalTrainer.cpp`
+- `src/Config.{hpp,cpp}`
+
+---
+
+### TD-274: ChatbotTrainer Saves the Best Model to a Fixed File in the Working Directory
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / ChatbotTrainer | October 9, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-267. With early stopping and `restore_best_weights` on, `validate()` saves each
+new best to the relative path `"best_model_temp.bin"` (five sidecar files) in the process's working
+directory. It's never cleaned up, it's shared by every trainer running in that directory, and
+`train()` restores from whatever is there at the end.
+
+Action Items:
+
+- [ ] Save under the session directory (or a unique temp directory) and remove it after restoring.
+
+Location in code: `src/ChatbotTrainer.cpp` (`validate()`); tagged `TODO: See TD-274`.
+
+Files to Modify:
+
+- `src/ChatbotTrainer.cpp`
+
+---
+
+### TD-275: ChatbotTrainer Drops `<eos>` From Long Training Responses
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / ChatbotTrainer | October 9, 2026 | 1 hour |
+
+Description:
+Found alongside TD-267. `preprocess_data()` encodes responses **with** `<bos>`/`<eos>` and then
+keeps the **first** `max_seq_length` tokens. For responses longer than that, the `<eos>` is cut, so
+the model never sees those targets end, which teaches it to keep generating on long-form data.
+
+Action Items:
+
+- [ ] Truncate the content before adding specials (keep `<bos>` + first `max_seq_length − 2` tokens + `<eos>`), or decide explicitly that long targets shouldn't end.
+
+Location in code: `src/ChatbotTrainer.cpp` (`preprocess_data()`); tagged `TODO: See TD-275`.
+
+Files to Modify:
+
+- `src/ChatbotTrainer.cpp`
+- `tests/chatbottrainer_test.cpp`
+
+---
+
+### TD-276: ChatbotTrainer Hygiene: Dead Fields, Logging, Stale Test File
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / ChatbotTrainer | October 9, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-267:
+
+- `calculate_accuracy()` is tested but unused by training; `training_accuracies`/`validation_accuracies` are never filled; validation always reports accuracy −1.
+- `TrainingConfig::verbose` is deprecated and unused; `log()` sends every level to `Logger::info` (DEBUG not mapped) and ignores its colour argument; `COLOR_*` macros are redefined locally.
+- `validate_and_correct_config()` (standalone `initialize_model()` path only) silently changes `d_model`/`d_ff`, which would break compatibility with an MNS-registered architecture.
+- `tests/chatbottrainer_test.cpp.old` is an unbuilt January-2026 leftover.
+
+Action Items:
+
+- [ ] Compute token accuracy in `validate()` (or remove the dead vectors and getters).
+- [ ] Remove `verbose`; map `log()` levels to `Logger` levels.
+- [ ] Make `validate_and_correct_config()` fail instead of silently changing architecture.
+- [ ] Delete `tests/chatbottrainer_test.cpp.old`.
+
+Location in code: `src/ChatbotTrainer.{hpp,cpp}`; tagged `TODO: See TD-276`.
+
+Files to Modify:
+
+- `src/ChatbotTrainer.{hpp,cpp}`
+- `tests/chatbottrainer_test.cpp.old` (delete)
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -4865,15 +5189,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 69 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 79 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|10|14%|
-|Medium|31|45%|
-|Low|28|41%|
+|High|11|14%|
+|Medium|36|46%|
+|Low|32|40%|
 
-**Total Active Items:** 69
+**Total Active Items:** 79
 
 ### By Component
 
@@ -4900,6 +5224,7 @@ Recomputed directly from the 69 `### TD-NNN` entries under [Active Technical Deb
 |Client / CLI|7|
 |Client / GUI|6|
 |Core Model / Generation|1|
+|Training / ChatbotTrainer|10|
 |Core / Batching|1|
 |Data / Dataset|1|
 |NLP / Tokenizer|6|
@@ -4908,13 +5233,13 @@ Recomputed directly from the 69 `### TD-NNN` entries under [Active Technical Deb
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|31|
-|2-4 hours|21|
-|4-8 hours|7|
+|0-2 hours|38|
+|2-4 hours|23|
+|4-8 hours|8|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 207-333 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 222-361 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

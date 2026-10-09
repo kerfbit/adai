@@ -994,6 +994,8 @@ bool IncrementalTrainer::train_on_files(const std::vector<PendingFileRange>& fil
 
     config.base_config.tokenized_cache_key = compute_tokenized_cache_key(
         files, vocab_path_, config.base_config.tokenizer_mode, config.base_config.max_seq_length);
+    // TODO: See TD-269 in TECHNICAL_DEBT.md - a fresh trainer (and optimizer) per pass restarts AdamW state and
+    // the LR schedule every pass.
     ChatbotTrainer trainer(config.base_config);
     trainer.set_model(std::move(model));
     for (const auto& pair : all_pairs)
@@ -1061,6 +1063,8 @@ bool IncrementalTrainer::retrain_on_files(const std::vector<PendingFileRange>& f
 
     config.base_config.tokenized_cache_key = compute_tokenized_cache_key(
         files, vocab_path_, config.base_config.tokenizer_mode, config.base_config.max_seq_length);
+    // TODO: See TD-269 in TECHNICAL_DEBT.md - a fresh trainer (and optimizer) per pass restarts AdamW state and
+    // the LR schedule every pass.
     ChatbotTrainer trainer(config.base_config);
     trainer.set_model(std::move(model));
     for (const auto& pair : all_pairs)

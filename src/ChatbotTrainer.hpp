@@ -133,6 +133,7 @@ struct TrainingConfig {
     int log_every = 10;                      // Log every N samples
     LogLevel log_level = LogLevel::VERBOSE;  // Logging verbosity
     bool verbose = true;                     // Deprecated: use log_level instead
+    // TODO: See TD-276 in TECHNICAL_DEBT.md - `verbose` is unused; remove it.
 
     // Generation quality metrics (BLEU/ROUGE)
     // Disabled by default; each evaluation generates model responses which is expensive.

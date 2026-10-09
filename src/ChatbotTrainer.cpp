@@ -176,6 +176,8 @@ bool ChatbotTrainer::load_conversation_data(const std::string& filepath) {
 /**
  * @brief Split data into training and validation sets with random shuffling
  */
+// TODO: See TD-271 in TECHNICAL_DEBT.md - fresh random_device shuffle every pass (validation not comparable
+// across passes), and it runs before preprocess_data() may load a cache built from a different split.
 void ChatbotTrainer::split_data() {
     if (config.validation_split <= 0) {
         adai::Logger::warn("⚠️  No validation split, using all data for training");
@@ -215,6 +217,8 @@ void ChatbotTrainer::split_data() {
 /**
  * @brief Validate and auto-correct model architecture parameters
  */
+// TODO: See TD-276 in TECHNICAL_DEBT.md - silently changes d_model/d_ff, which would break compatibility with
+// an MNS-registered architecture; fail instead.
 void ChatbotTrainer::validate_and_correct_config() {
     bool corrected = false;
 
@@ -468,6 +472,8 @@ void ChatbotTrainer::preprocess_data() {
             ? config.tokenized_cache_dir + "/" + config.tokenized_cache_key + ".cache"
             : std::string();
 
+    // TODO: See TD-271 in TECHNICAL_DEBT.md - the cache holds the split from the run that wrote it; after
+    // split_data()'s new random split, tokenized_*_data[i] no longer matches training_data[i].
     if (!cache_path.empty() && load_tokenized_cache(cache_path)) {
         // load_tokenized_cache() only populates tokenized_training_data/
         // tokenized_validation_data — restore the two things the encode loops
@@ -544,6 +550,8 @@ void ChatbotTrainer::preprocess_data() {
         // field, so a queued file with e.g. {"input": "hello world"} and no "response" at all
         // produces exactly this pair — previously an uncaught crash, not a skip.
         if (pair.input.empty() || pair.response.empty()) {
+            // TODO: See TD-267 in TECHNICAL_DEBT.md - these empty entries are NOT filtered out: training
+            // throws on them (dropping the accumulation window) and validate() counts them as 0.
             // Leave default-constructed (empty) — filtered out during training, same as an
             // invalid-UTF-8 skip below.
             ++skipped_empty_train;
@@ -553,6 +561,8 @@ void ChatbotTrainer::preprocess_data() {
             tokenized_training_data[i] = TokenizedPair(
                 truncate_tokens_tail(
                     tokenizer->encode(truncate_text_tail(pair.input, max_chars), false), max_len),
+                // TODO: See TD-275 in TECHNICAL_DEBT.md - head truncation after adding specials drops <eos>
+                // from responses longer than max_seq_length.
                 truncate(tokenizer->encode(clip_text(pair.response), true)), pair.input,
                 pair.response);
             training_data[i].meta.token_count =
@@ -634,6 +644,7 @@ void ChatbotTrainer::shuffle_training_data() {
 /**
  * @brief Log message based on log level
  */
+// TODO: See TD-276 in TECHNICAL_DEBT.md - every level goes to Logger::info (DEBUG not mapped).
 void ChatbotTrainer::log(LogLevel level, const std::string& message, const std::string& /*color*/) {
     // color parameter accepted for API compatibility but ignored;
     // Logger handles its own coloring via spdlog level-colored sinks.
@@ -658,6 +669,7 @@ float ChatbotTrainer::calculate_perplexity(float loss) {
  * by tests/chatbottrainer_test.cpp; not currently called from the training loop itself, only
  * from tests — see TD-039 for ChatbotTrainer's general "large, still evolving" status.
  */
+// TODO: See TD-276 in TECHNICAL_DEBT.md - unused by training; training_/validation_accuracies are never filled.
 float ChatbotTrainer::calculate_accuracy(const std::vector<int>& predictions,
                                          const std::vector<int>& targets) {
     if (predictions.empty() || targets.empty() || predictions.size() != targets.size()) {
@@ -935,6 +947,8 @@ float ChatbotTrainer::train_epoch(int epoch) {
     // ── TD-017: Adaptive gradient clipping state ──────────────────────────────
     // agc_ema is seeded with the fixed gradient_clip_norm value so the first
     // warmup steps start at a sensible scale rather than zero.
+    // TODO: See TD-270 in TECHNICAL_DEBT.md - this adaptive-clip state is per-epoch: every epoch restarts the
+    // warmup (default 100 steps at the 5.0 ceiling), so with <= 100 steps/epoch it never activates.
     float agc_ema = config.gradient_clip_norm;  // running EMA of raw grad norms
     int agc_step_count = 0;                     // optimizer steps taken (for warmup)
     int agc_spike_count = 0;                    // cumulative spike steps this epoch
@@ -1108,6 +1122,8 @@ float ChatbotTrainer::train_epoch(int epoch) {
 
             // Forward + backward pass
             auto compute_t0 = std::chrono::steady_clock::now();
+            // TODO: See TD-272 in TECHNICAL_DEBT.md - the forced last window of an epoch may hold fewer samples
+            // but is still scaled (and its loss divided) by the full accumulation_steps.
             const float grad_scale = 1.0f / static_cast<float>(config.gradient_accumulation_steps);
             float loss = 0.0f;
 
@@ -1213,6 +1229,8 @@ float ChatbotTrainer::train_epoch(int epoch) {
                                          current_learning_rate);
                     }
                     // Reset accumulation and skip optimizer step
+                    // TODO: See TD-272 in TECHNICAL_DEBT.md - also discards valid gradients from earlier samples
+                    // in this window.
                     accumulation_step = 0;
                     accumulated_loss = 0.0f;
                     model->zero_grad();
@@ -1435,6 +1453,8 @@ float ChatbotTrainer::train_epoch(int epoch) {
                                  current_learning_rate);
             }
             // Reset accumulation on error
+            // TODO: See TD-272 in TECHNICAL_DEBT.md - drops the earlier samples' gradients in this window;
+            // see also TD-267 (skipped pairs land here on every epoch).
             accumulation_step = 0;
             accumulated_loss = 0.0f;
         }
@@ -1643,6 +1663,8 @@ float ChatbotTrainer::validate() {
     // Restore training mode
     model->set_training(true);
 
+    // TODO: See TD-267 in TECHNICAL_DEBT.md - num_samples includes skipped (empty) pairs and samples that
+    // threw, all counted as 0 loss, so this average is biased low.
     float validation_loss = total_loss / static_cast<float>(num_samples);
     float validation_perplexity = calculate_perplexity(validation_loss);
 
@@ -1676,6 +1698,8 @@ float ChatbotTrainer::validate() {
 
         // Save best model if early stopping is enabled
         if (config.enable_early_stopping && config.restore_best_weights) {
+            // TODO: See TD-274 in TECHNICAL_DEBT.md - fixed relative path in the working directory, shared by
+            // trainers there and never cleaned up.
             best_model_path = "best_model_temp.bin";
             try {
                 model->save_model(best_model_path);
@@ -1813,6 +1837,8 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
                                                          score.rougeL);
 }
 
+// TODO: See TD-273 in TECHNICAL_DEBT.md - writes meta.quality into private copies nobody reads (no accessor;
+// IncrementalTrainer passes pairs without metadata) and has no config key.
 void ChatbotTrainer::backfill_generation_quality() {
     if (!model) {
         return;
@@ -1923,6 +1949,9 @@ bool ChatbotTrainer::train(int num_epochs) {
                 float val_loss = validate();
 
                 // Update end_epoch with actual validation loss now that we have it (1-based epoch)
+                // TODO: See TD-268 in TECHNICAL_DEBT.md - end_epoch() is only called inside this validation branch, so
+                // runs without validation data never end epochs on the reporter; and it passes the last
+                // window's gradient norm rather than gradient_norms.back().
                 if (metrics_reporter_) {
                     metrics_reporter_->end_epoch(epoch + 1, epoch_loss, val_loss,
                                                  current_learning_rate, std::exp(epoch_loss),
@@ -1990,6 +2019,9 @@ void ChatbotTrainer::set_tokenizer(std::unique_ptr<BPETokenizer> tok) {
 
 void ChatbotTrainer::set_model(std::unique_ptr<EncoderDecoderModel> mdl) {
     model = std::move(mdl);
+
+    // TODO: See TD-269 in TECHNICAL_DEBT.md - a fresh Optimizer per ChatbotTrainer (one per incremental pass)
+    // loses AdamW moments every pass, and global_step/total_training_steps restart too.
 
     // Initialize optimizer for the model if not already done
     if (!optimizer) {
