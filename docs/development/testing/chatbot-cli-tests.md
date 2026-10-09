@@ -1692,7 +1692,7 @@ Test system limits:
 
 - **ChatbotCLI Header:** `src/ChatbotCLI.hpp`
 - **ChatbotCLI Implementation:** `src/ChatbotCLI.cpp`
-- **ChatbotCLI Context:** `docs/guides/chatbot-cli-internals.md`
+- **ChatbotCLI Reference:** [ChatbotCLI.md](../reference/source/ChatbotCLI.md)
 - **Improved Test Suite:** `tests/chatbotcli_improved_test.cpp`
 - **Legacy Test Suite:** `tests/chatbotcli_test.cpp`
 - **EncoderDecoderModel Tests:** `tests/encoderdecoder_test.cpp`

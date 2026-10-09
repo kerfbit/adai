@@ -710,7 +710,7 @@ Bot: [higher quality explanation]
 
 For developers and advanced users:
 
-- **Implementation Details:** `chatbot-cli-internals.md`
+- **Implementation Details:** [ChatbotCLI.md](../../development/reference/source/ChatbotCLI.md)
 - **Testing Documentation:** `../testing/chatbot-cli-tests.md`
 - **Header File:** `src/ChatbotCLI.hpp`
 - **Source Code:** `src/ChatbotCLI.cpp`

@@ -243,6 +243,8 @@ std::string ChatbotAPI::handle_chat_session(const std::string& request_body) {
     // Format context for model
     std::string formatted_context = session->context->format_for_model();
 
+    // TODO: See TD-254 in TECHNICAL_DEBT.md - the chatbot CLI sends max_length/temperature/top_p/
+    // top_k/beam_width/strategy in this request, but they're ignored; only server defaults apply.
     // Get generation config
     GenerationConfig config;
     {

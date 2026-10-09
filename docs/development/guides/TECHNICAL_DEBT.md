@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 8, 2026
-**Total Items:** 55
-**High Priority:** 7
-**Medium Priority:** 26
-**Low Priority:** 22
+**Total Items:** 62
+**High Priority:** 8
+**Medium Priority:** 28
+**Low Priority:** 26
 **Future Enhancements:** 19
 **Resolved Items:** 197
 **Deferred Decisions:** 3
@@ -83,6 +83,15 @@ server startup is lost and the process hangs (confirmed against httplib; TD-248)
 handler isn't async-signal-safe (TD-249), and hippocampal memory is saved only on graceful shutdown,
 with paths that can land in the working directory (TD-250). Two are LOW: reload silently ignores
 most settings (TD-251), and the startup log/usage text are inaccurate (TD-252).
+
+Also the same day, filed [TD-253](#td-253-chatbot-spins-forever-at-end-of-input) through [TD-259](#td-259-chatbot-code-hygiene-unchecked-set-values-global-helpers-heavy-header) from the code-traced
+[ChatbotCLI.md](../reference/source/ChatbotCLI.md) (the `chatbot` terminal client), confirmed by
+running the real binary against a stub server. One is **HIGH**: at end of input (Ctrl+D or piped
+stdin) the REPL loops forever, emitting 284 MB of prompts in 3 seconds and never auto-saving
+(TD-253). Two are MEDIUM: `/set` settings are sent with each request but ignored by the server
+(TD-254), and `success:false` replies are shown as empty responses (TD-255). Four are LOW: help
+banner gaps (TD-256), unescaped `session_id` (TD-257), conversation save loss/overwrite
+(TD-258), and code hygiene (TD-259).
 
 **September 25, 2026:** Filed and resolved
 [TD-210](../archive/TECHNICAL_DEBT_RESOLVED.md#td-210-add-lejepa-advanced-training-diagnostics-and-fix-a-zero-gradient-norm-bug)
@@ -693,6 +702,13 @@ signal/shutdown fixes to do together. [TD-250](#td-250-hippocampal-memory-in-cha
 memory is used in production. [TD-251](#td-251-chatbot_api_server-reload-silently-ignores-most-settings) and [TD-252](#td-252-chatbot_api_server-startup-log-and-usage-text-are-inaccurate) are operator-facing cleanup and pair
 naturally with Tier 16's reload work (TD-242).
 
+**Tier 18 — Newly filed (October 8, 2026): `chatbot` CLI client.** [TD-253](#td-253-chatbot-spins-forever-at-end-of-input) is HIGH and a
+one-line fix; do it first. [TD-254](#td-254-chatbots-set-generation-settings-have-no-effect) needs an owner decision (per-request settings in
+`ChatbotAPI`, or remove them from the CLI). Supporting them is easiest after TD-226's
+nlohmann/json switch, and it should be decided together with TD-239's misleading
+"config from request" comment. [TD-255](#td-255-chatbot-shows-server-error-replies-as-empty-responses) and [TD-257](#td-257-chatbot-sends-session_id-unescaped-in-two-requests) touch the same request/response code and can
+go together. [TD-256](#td-256-chatbots-help-banner-omits-save-load-and-stats), [TD-258](#td-258-chatbot-can-lose-or-overwrite-saved-conversations) and [TD-259](#td-259-chatbot-code-hygiene-unchecked-set-values-global-helpers-heavy-header) are independent cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -754,6 +770,13 @@ naturally with Tier 16's reload work (TD-242).
   - [TD-250: Hippocampal Memory in `chatbot_api_server` Is Lost on Crash and Can Land in the Working Directory](#td-250-hippocampal-memory-in-chatbot_api_server-is-lost-on-crash-and-can-land-in-the-working-directory)
   - [TD-251: `chatbot_api_server` Reload Silently Ignores Most Settings](#td-251-chatbot_api_server-reload-silently-ignores-most-settings)
   - [TD-252: `chatbot_api_server` Startup Log and Usage Text Are Inaccurate](#td-252-chatbot_api_server-startup-log-and-usage-text-are-inaccurate)
+  - [TD-253: `chatbot` Spins Forever at End of Input](#td-253-chatbot-spins-forever-at-end-of-input)
+  - [TD-254: `chatbot`'s `/set` Generation Settings Have No Effect](#td-254-chatbots-set-generation-settings-have-no-effect)
+  - [TD-255: `chatbot` Shows Server Error Replies as Empty Responses](#td-255-chatbot-shows-server-error-replies-as-empty-responses)
+  - [TD-256: `chatbot`'s Help Banner Omits `/save`, `/load` and `/stats`](#td-256-chatbots-help-banner-omits-save-load-and-stats)
+  - [TD-257: `chatbot` Sends `session_id` Unescaped in Two Requests](#td-257-chatbot-sends-session_id-unescaped-in-two-requests)
+  - [TD-258: `chatbot` Can Lose or Overwrite Saved Conversations](#td-258-chatbot-can-lose-or-overwrite-saved-conversations)
+  - [TD-259: `chatbot` Code Hygiene: Unchecked `/set` Values, Global Helpers, Heavy Header](#td-259-chatbot-code-hygiene-unchecked-set-values-global-helpers-heavy-header)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -3879,6 +3902,212 @@ Files to Modify:
 - `src/ChatbotAPIServer.cpp`
 ---
 
+### TD-253: `chatbot` Spins Forever at End of Input
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Client / CLI | October 8, 2026 | 1-2 hours |
+
+Description:
+Found while writing the code-traced reference [ChatbotCLI.md](../reference/source/ChatbotCLI.md), and confirmed by running the real
+`chatbot` binary against a stub server. `ChatbotCLI::run()` never checks `std::getline()`'s result.
+At EOF (Ctrl+D in a terminal, or stdin from a file or pipe running out) `getline` fails and leaves
+the line empty, the empty-line check `continue`s, and the loop prints `You: ` forever. With stdin
+at EOF it printed **18.6 million prompts (284 MB) in 3 seconds** before being killed: in a
+terminal it pins a CPU core, and with output redirected it fills the disk at about 95 MB/s. It
+also never reaches the `/exit` auto-save. The old internals doc listed Ctrl+D as an exit path.
+
+Action Items:
+
+- [ ] Break out of the loop when `std::getline()` fails (`if (!std::getline(std::cin, user_input)) break;`), running the same auto-save as `/exit`.
+- [ ] Test: `chatbot < /dev/null` against a stub server exits promptly with status 0.
+
+Location in code: `src/ChatbotCLI.cpp` (`run()`); tagged `TODO: See TD-253`.
+
+Files to Modify:
+
+- `src/ChatbotCLI.cpp`
+- `tests/chatbotcli_improved_test.cpp`
+
+---
+
+### TD-254: `chatbot`'s `/set` Generation Settings Have No Effect
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Client / CLI | October 8, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-253 and confirmed by running the real binary: after `/set temp 0.2` the next
+request body carried `"temperature":0.2`. `ChatbotCLI::generate_response()` sends `max_length`,
+`temperature`, `top_p`, `top_k`, `beam_width` and `strategy` with every message, but
+`ChatbotAPI`'s handlers ignore them and always use the server's defaults (see
+[ChatbotAPI.md](../reference/source/ChatbotAPI.md) §3). The CLI confirms each `/set` and
+`/settings` shows the new values, yet generation never changes. The strategy names also don't
+match: the CLI accepts `sampling` and `top-k`, the server uses `temperature` and `top_k`, so even a
+server that honoured them would fall back to `nucleus`. The user guide
+([chatbot-guide.md](../../operations/guides/chatbot-guide.md)) documents `/set` as working (its
+Generation Strategies section is already flagged under TD-164).
+
+Action Items:
+
+- [ ] Owner decision: support per-request generation settings in `ChatbotAPI` (validated and bounded; easiest after TD-226's nlohmann/json switch), or remove the per-request settings from the CLI.
+- [ ] If supported: align strategy names on the server's (`temperature`, `top_k`) and accept the CLI's old names as aliases.
+- [ ] If removed: make `/set` print that settings are server-side (`--strategy` etc.) and drop the fields from the request.
+- [ ] Update `chatbot-guide.md` either way.
+
+Location in code: `src/ChatbotCLI.cpp` (`handle_setting()`, `generate_response()`), `src/ChatbotAPI.cpp` (`handle_chat_session()`); tagged `TODO: See TD-254`.
+
+Files to Modify:
+
+- `src/ChatbotCLI.cpp`
+- `src/ChatbotAPI.cpp`
+- `tests/chatbotcli_test.cpp`
+- `tests/chatbotapi_test.cpp`
+- `docs/operations/guides/chatbot-guide.md`
+
+---
+
+### TD-255: `chatbot` Shows Server Error Replies as Empty Responses
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Client / CLI | October 8, 2026 | 1 hour |
+
+Description:
+Found alongside TD-253 and confirmed against a stub server. `generate_response()` treats any
+HTTP 200 reply as success and prints its `response` field. `ChatbotAPI` returns HTTP 200 with
+`{"success":false,"error":...}` for errors it returns rather than throws (TD-236). The CLI doesn't
+check `success`, so the user sees an empty `Bot:` line and the error message is lost. Thrown server
+errors (HTTP 500) are printed as the raw JSON body.
+
+Action Items:
+
+- [ ] Check `success`; on `false`, print the `error` field in `COLOR_ERROR`.
+- [ ] Print only the `error` field (not the raw JSON) for non-200 replies.
+- [ ] Test with a stub returning `success:false`.
+
+Location in code: `src/ChatbotCLI.cpp` (`generate_response()`); tagged `TODO: See TD-255`.
+
+Files to Modify:
+
+- `src/ChatbotCLI.cpp`
+- `tests/chatbotcli_improved_test.cpp`
+
+---
+
+### TD-256: `chatbot`'s Help Banner Omits `/save`, `/load` and `/stats`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Client / CLI | October 8, 2026 | 1 hour |
+
+Description:
+Found alongside TD-253. `print_welcome()` (also shown by `/help`) lists `/help`, `/clear`,
+`/settings`, `/set` and `/exit`/`/quit`, but not `/save` and `/load` (TD-053) or `/stats`, all of
+which `handle_command()` accepts. `/set` alone (no parameter) is reported as "Unknown command"
+rather than with its usage.
+
+Action Items:
+
+- [ ] List every command, including `/set` parameters and valid values.
+- [ ] Show `/set` usage for a bare `/set`.
+
+Location in code: `src/ChatbotCLI.cpp` (`print_welcome()`, `handle_command()`); tagged `TODO: See TD-256`.
+
+Files to Modify:
+
+- `src/ChatbotCLI.cpp`
+
+---
+
+### TD-257: `chatbot` Sends `session_id` Unescaped in Two Requests
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Client / CLI | October 8, 2026 | 1 hour |
+
+Description:
+Found alongside TD-253. `/clear` and `generate_response()` put `session_id` into the request
+JSON without `escape_json_string()`, while `/save` and `/load` do escape it. Server-generated IDs
+are hex, so this is safe today, but an ID containing `"` or `\` (e.g. one restored via a hand-edited
+save file, or a server accepting client-chosen IDs per TD-232) would produce malformed or
+injected request JSON.
+
+Action Items:
+
+- [ ] Escape `session_id` in every request body (or build request bodies with nlohmann/json).
+
+Location in code: `src/ChatbotCLI.cpp` (`handle_command()` `/clear`, `generate_response()`); tagged `TODO: See TD-257`.
+
+Files to Modify:
+
+- `src/ChatbotCLI.cpp`
+
+---
+
+### TD-258: `chatbot` Can Lose or Overwrite Saved Conversations
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Client / CLI | October 8, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-253:
+
+- No `SIGINT` handling: Ctrl+C kills the process without the auto-save that `/exit` performs.
+- The `/exit` auto-save always writes the same file, so starting a new conversation and exiting
+  **silently overwrites** a previously saved one.
+- Saves truncate and then write (not atomic), so a crash mid-write leaves a partial file.
+- After a server restart, the CLI keeps sending its old `session_id` and the server silently
+  creates a fresh, empty session under it (TD-232), so the history disappears with no message.
+
+Action Items:
+
+- [ ] Handle `SIGINT` by setting a flag the REPL checks, then auto-save and exit.
+- [ ] Warn (or prompt) before an auto-save would overwrite a file the current session didn't load; consider timestamped files.
+- [ ] Write saves to a temporary file and rename.
+- [ ] Detect a reset session (e.g. `message_count` from the server) and tell the user.
+
+Location in code: `src/ChatbotCLI.cpp` (`run()`, `save_conversation()`); tagged `TODO: See TD-258`.
+
+Files to Modify:
+
+- `src/ChatbotCLI.{hpp,cpp}`
+- `tests/chatbotcli_improved_test.cpp`
+
+---
+
+### TD-259: `chatbot` Code Hygiene: Unchecked `/set` Values, Global Helpers, Heavy Header
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Client / CLI | October 8, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-253:
+
+- `/set` numbers use `std::stoi`/`std::stof`, which accept partial input (`10abc` → 10), and
+  nothing range-checks them (negative length, `top_p` 5). Moot while TD-254 stands.
+- `escape_json_string()`, `unescape_json_string()` and `parse_json_value()` in `ChatbotCLI.cpp`
+  have external linkage at global scope, so another translation unit defining the same global names
+  would collide (`MetricsPushClient.cpp` is safe only because its copy is in an anonymous namespace).
+- `ChatbotCLI.hpp` includes all of `httplib.h` (via an unusual `<../external/...>` path) and
+  `#define`s the `COLOR_*` macros for every includer.
+
+Action Items:
+
+- [ ] Use full-consumption parsing and range checks for `/set` values.
+- [ ] Move the JSON helpers into an anonymous namespace (or replace them with nlohmann/json).
+- [ ] Forward-declare `httplib::Client` in the header (pimpl or `unique_ptr` to an incomplete type) and move the colour macros to `constexpr` values in the `.cpp`.
+
+Location in code: `src/ChatbotCLI.{hpp,cpp}`; tagged `TODO: See TD-259`.
+
+Files to Modify:
+
+- `src/ChatbotCLI.{hpp,cpp}`
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -4394,15 +4623,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 55 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 62 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|7|13%|
-|Medium|26|47%|
-|Low|22|40%|
+|High|8|13%|
+|Medium|28|45%|
+|Low|26|42%|
 
-**Total Active Items:** 55
+**Total Active Items:** 62
 
 ### By Component
 
@@ -4426,6 +4655,7 @@ Recomputed directly from the 55 `### TD-NNN` entries under [Active Technical Deb
 |Inference / Serving / API|15|
 |Inference / Serving / CLI|6|
 |Inference / Serving / Server|7|
+|Client / CLI|7|
 |Core / Batching|1|
 |Data / Dataset|1|
 |NLP / Tokenizer|6|
@@ -4434,13 +4664,13 @@ Recomputed directly from the 55 `### TD-NNN` entries under [Active Technical Deb
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|23|
-|2-4 hours|15|
+|0-2 hours|28|
+|2-4 hours|17|
 |4-8 hours|7|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 187-297 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 196-312 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

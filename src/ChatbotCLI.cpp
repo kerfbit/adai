@@ -12,6 +12,8 @@
 #include <sstream>
 #include <utility>
 
+// TODO: See TD-259 in TECHNICAL_DEBT.md - these three helpers have external linkage at global scope; put
+// them in an anonymous namespace.
 // Helper to escape JSON string
 std::string escape_json_string(const std::string& input) {
     std::ostringstream ss;
@@ -165,6 +167,7 @@ void ChatbotCLI::print_welcome() {
     std::cout << "║          🤖 ADAI Chatbot API Client v1.0                 ║" << '\n';
     std::cout << "╚═══════════════════════════════════════════════════════════╝" << '\n';
     std::cout << '\n';
+    // TODO: See TD-256 in TECHNICAL_DEBT.md - omits /save, /load and /stats, which handle_command() accepts.
     std::cout << COLOR_SYSTEM << "Commands:" << COLOR_RESET << '\n';
     std::cout << "  /help         - Show this help message" << '\n';
     std::cout << "  /clear        - Clear conversation history" << '\n';
@@ -197,6 +200,7 @@ void ChatbotCLI::handle_command(const std::string& command) {
         print_welcome();
     } else if (command == "/clear") {
         if (!session_id.empty()) {
+            // TODO: See TD-257 in TECHNICAL_DEBT.md - session_id is not escaped here (save/load escape it).
             std::string body = R"({"session_id":")" + session_id + "\"}";
             auto res = client->Post("/clear-session", body, "application/json");
             if (res && res->status == 200) {
@@ -224,6 +228,9 @@ void ChatbotCLI::handle_command(const std::string& command) {
     }
 }
 
+// TODO: See TD-254 in TECHNICAL_DEBT.md - these settings are sent with every request but ChatbotAPI ignores
+// them, and "sampling"/"top-k" don't match the server's "temperature"/"top_k".
+// TODO: See TD-259 in TECHNICAL_DEBT.md - stoi/stof accept partial input ("10abc") and nothing is range-checked.
 void ChatbotCLI::handle_setting(std::string_view setting) {
     size_t space_pos = setting.find(' ');
     if (space_pos == std::string_view::npos) {
@@ -301,8 +308,10 @@ std::string ChatbotCLI::generate_response(const std::string& user_input) {
     std::stringstream ss;
     ss << "{";
     if (!session_id.empty()) {
+        // TODO: See TD-257 in TECHNICAL_DEBT.md - session_id is not escaped here.
         ss << R"("session_id":")" << session_id << "\",";
     }
+    // TODO: See TD-254 in TECHNICAL_DEBT.md - the generation fields below are ignored by the server.
     ss << R"("message":")" << escape_json_string(user_input) << "\",";
     ss << "\"max_length\":" << max_response_length << ",";
     ss << "\"temperature\":" << temperature << ",";
@@ -320,6 +329,8 @@ std::string ChatbotCLI::generate_response(const std::string& user_input) {
     auto res = client->Post(endpoint, body, "application/json");
 
     if (res && res->status == 200) {
+        // TODO: See TD-255 in TECHNICAL_DEBT.md - "success" isn't checked, so a {"success":false,...} reply
+        // (which ChatbotAPI sends with HTTP 200) is shown as an empty response.
         std::string response = parse_json_value(res->body, "response");
 
         // Update session ID if provided
@@ -365,6 +376,8 @@ void ChatbotCLI::save_conversation() {
         return;
     }
 
+    // TODO: See TD-258 in TECHNICAL_DEBT.md - overwrites any previously saved conversation (including on the
+    // automatic /exit save) and isn't atomic; write to a temp file and rename.
     std::ofstream out(conversation_save_path);
     if (!out.is_open()) {
         std::cout << COLOR_ERROR << "❌ Failed to open '" << conversation_save_path
@@ -447,8 +460,11 @@ void ChatbotCLI::run() {
     std::string user_input;
     bool running = true;
 
+    // TODO: See TD-258 in TECHNICAL_DEBT.md - no SIGINT handling: Ctrl+C exits without the /exit auto-save.
     while (running) {
         std::cout << COLOR_USER << "You: " << COLOR_RESET;
+        // TODO: See TD-253 in TECHNICAL_DEBT.md - getline's result isn't checked: at EOF it fails with an empty
+        // line, the empty-line check below continues, and this loop spins forever.
         std::getline(std::cin, user_input);
 
         user_input.erase(0, user_input.find_first_not_of(" \t\n\r"));

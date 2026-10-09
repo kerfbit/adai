@@ -6,6 +6,8 @@
 // @adai-reviewed: 2026-09-13
 
 
+// TODO: See TD-259 in TECHNICAL_DEBT.md - this pulls all of httplib (and the COLOR_* macros below) into
+// every includer; forward-declare httplib::Client instead.
 #include <../external/cpp-httplib/httplib.h>
 #include <memory>
 #include <string>
