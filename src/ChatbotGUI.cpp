@@ -56,6 +56,8 @@ bool ChatbotGUI::initializeChatbot() {
         tokenizer = std::make_unique<BPETokenizer>();
         tokenizer->load_vocab(vocab_path);
 
+        // TODO: See TD-262 in TECHNICAL_DEBT.md - architecture comes only from the local config file, not MNS or
+        // the checkpoint's own .config; a mismatch makes load_model() throw below.
         // Load architecture from config (vocab/model paths still come from constructor args)
         // Discovery: ./config.chatbot.conf > /etc/adai/config.chatbot.conf
         // > ./config.conf (legacy) > /etc/adai/config.conf (legacy)
@@ -78,16 +80,22 @@ bool ChatbotGUI::initializeChatbot() {
         model->set_tokenizer(tokenizer.release());
 
         // Load pre-trained weights if available
+        // TODO: See TD-260 in TECHNICAL_DEBT.md - save_model() never writes a file at the bare model path
+        // (only .config/.vocab/.encoder/.decoder/.lm_head sidecars), so this check fails for
+        // every real checkpoint and the GUI silently runs on random weights.
         std::ifstream model_file(model_path);
         if (model_file.good()) {
             model->load_model(model_path);
         }
 
+        // TODO: See TD-266 in TECHNICAL_DEBT.md - hardcoded 480 regardless of the configured max_seq_length.
         // Create conversation context with max_tokens=480 to stay under model's max_len=512
         context = std::make_unique<ConversationContext>(20, 480);
 
         return true;
     } catch (const std::exception& e) {
+        // TODO: See TD-262 in TECHNICAL_DEBT.md - this says "random initialization" but returning false leaves
+        // context null (GUI unusable), and the constructor then shows a second, critical dialog.
         QMessageBox::warning(nullptr, "Initialization Warning",
                              QString("Error during initialization: %1\n"
                                      "Using default/random initialization.")
@@ -368,6 +376,8 @@ void ChatbotGUI::onSendMessage() {
     QApplication::processEvents();
 
     // Generate response
+    // TODO: See TD-263 in TECHNICAL_DEBT.md - runs on the GUI thread, freezing the window for the whole
+    // generation; move to a worker thread.
     std::string response = generateResponse(userMessage.toStdString());
 
     // Add bot response to display
@@ -426,6 +436,7 @@ void ChatbotGUI::onLoadConversation() {
 
                 // Display loaded messages
                 // Note: This would require ConversationContext to expose message history
+                // TODO: See TD-266 in TECHNICAL_DEBT.md - loaded messages are not redisplayed.
                 addMessage("System", "Previous conversation has been loaded into context.", false);
             }
         } catch (const std::exception& e) {
@@ -469,11 +480,15 @@ std::string ChatbotGUI::generateResponse(const std::string& user_input) {
         context->add_user_message(user_input);
 
         // Format context for model
+        // TODO: See TD-265 in TECHNICAL_DEBT.md - ChatbotAPI sessions use format_for_model() instead, so
+        // the same model sees different prompt shapes depending on the client.
         std::string formatted_context = context->format_with_special_tokens();
 
         // Generate response using the model
         std::string response = model->generate_response_with_strategy(
             formatted_context, max_response_length, generation_strategy, temperature, top_k, top_p,
+            // TODO: See TD-261 in TECHNICAL_DEBT.md - beam_width (default 5) > 1 forces beam search for every
+            // strategy; pass it only when the strategy is "beam".
             beam_width);
 
         // Add assistant response to context

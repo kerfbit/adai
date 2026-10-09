@@ -15,6 +15,7 @@ This directory contains reference materials, technical specifications, and imple
   - [ChatbotApiServerArgs](source/ChatbotApiServerArgs.md) (`src/ChatbotApiServerArgs.{hpp,cpp}`)
   - [ChatbotAPIServer](source/ChatbotAPIServer.md) (`src/ChatbotAPIServer.cpp`, `chatbot_api_server`'s `main()`)
   - [ChatbotCLI](source/ChatbotCLI.md) (`src/ChatbotCLI.{hpp,cpp}`, `src/ChatbotCLI_main.cpp`; the `chatbot` client)
+  - [ChatbotGUI](source/ChatbotGUI.md) (`src/ChatbotGUI.{hpp,cpp}`, `ChatbotGuiLogic.hpp`, `ChatbotGUI_main.cpp`, `ChatbotGUI_wrapper.cpp`; `chatbot_gui`)
 
 - **[KVCache API Reference](kvcache.md)** - Complete API documentation for the Key-Value cache system
   - Single-layer and multi-layer caching

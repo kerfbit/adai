@@ -346,6 +346,9 @@ class EncoderDecoderModel {
      * @param top_p Top-p value for nucleus sampling (default 0.9)
      * @param num_beams Number of beams for beam search (default 4)
      * @return Generated response text
+     *
+     * TODO: See TD-261 in TECHNICAL_DEBT.md - default num_beams = 4 makes every call that omits it beam
+     * search (see the num_beams > 1 check in the .cpp); the default should be 1.
      */
     std::string generate_response_with_strategy(const std::string& input_text, int max_length = 100,
                                                 const std::string& strategy = "greedy",

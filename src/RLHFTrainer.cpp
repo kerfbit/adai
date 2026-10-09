@@ -174,6 +174,8 @@ RLHFStepResult RLHFTrainer::run_iteration(const std::vector<std::string>& prompt
         // 1. Roll out a response from the CURRENT policy. Safe to call before the encoder-call
         //    ordering constraint kicks in -- generation's own internal caches are fully
         //    superseded by apply_policy_gradient()'s own authoritative forward() call below.
+        // TODO: See TD-261 in TECHNICAL_DEBT.md - num_beams is omitted, so the header default (4) forces beam
+        // search regardless of config_.generation_strategy.
         std::string response = model_.generate_response_with_strategy(
             prompt, config_.max_response_length, config_.generation_strategy, config_.temperature);
         // Checked BEFORE encode(), not after: BPETokenizer::encode() unconditionally throws

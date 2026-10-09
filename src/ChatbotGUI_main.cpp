@@ -8,6 +8,8 @@
 #include "ChatbotGUI.hpp"
 
 int main(int argc, char* argv[]) {
+    // TODO: See TD-266 in TECHNICAL_DEBT.md - QApplication is created before the --help check below, so
+    // --help needs a display.
     // Create Qt application
     QApplication app(argc, argv);
 

@@ -414,6 +414,10 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     // guard exists to prevent, reachable in one call with no leftover state from a previous one
     // required. explicit "greedy"/"sampling"/"topk"/"nucleus" below are unaffected: they call
     // TextGenerator's single-hypothesis methods directly, none of which consult num_beams.
+    // TODO: See TD-261 in TECHNICAL_DEBT.md - contrary to the comment above, this check runs before the
+    // explicit greedy/sampling/topk/nucleus branches and returns, so ANY strategy with
+    // num_beams > 1 becomes beam search (chatbot_gui passes 5 by default; RLHFTrainer gets the
+    // header default 4). Keep the guard only for "beam" and unrecognized strategies.
     if (normalized_strategy == "beam" || num_beams > 1) {
         // Update config for beam search
         TextGenerator::GenerationConfig config = generator->get_config();

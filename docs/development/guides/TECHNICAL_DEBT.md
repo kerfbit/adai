@@ -4,14 +4,24 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** October 8, 2026
-**Total Items:** 62
-**High Priority:** 8
-**Medium Priority:** 28
-**Low Priority:** 26
+**Last Updated:** October 9, 2026
+**Total Items:** 69
+**High Priority:** 10
+**Medium Priority:** 31
+**Low Priority:** 28
 **Future Enhancements:** 19
 **Resolved Items:** 197
 **Deferred Decisions:** 3
+
+**October 9, 2026:** Filed [TD-260](#td-260-chatbot_gui-never-loads-a-trained-checkpoint) through [TD-266](#td-266-chatbot_gui-minor-gaps) from the code-traced
+[ChatbotGUI.md](../reference/source/ChatbotGUI.md) (`chatbot_gui`). Two are **HIGH**: the GUI
+never loads a trained checkpoint, because it checks for a file at the bare model path, which
+`save_model()` never writes, and so silently runs on random weights (TD-260); and
+`EncoderDecoderModel::generate_response_with_strategy()` forces beam search whenever
+`num_beams > 1`, overriding the chosen strategy in the GUI (default beam width 5) and in
+`RLHFTrainer` (header default 4) (TD-261). Three are MEDIUM (architecture from local config only
+and an unusable state on init failure, UI freeze during generation, launcher hardcoding Qt5/x86_64
+paths) and two LOW (prompt-format mismatch with the server, minor gaps).
 
 **October 8, 2026:** Filed
 [TD-211](#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model)
@@ -709,6 +719,13 @@ nlohmann/json switch, and it should be decided together with TD-239's misleading
 "config from request" comment. [TD-255](#td-255-chatbot-shows-server-error-replies-as-empty-responses) and [TD-257](#td-257-chatbot-sends-session_id-unescaped-in-two-requests) touch the same request/response code and can
 go together. [TD-256](#td-256-chatbots-help-banner-omits-save-load-and-stats), [TD-258](#td-258-chatbot-can-lose-or-overwrite-saved-conversations) and [TD-259](#td-259-chatbot-code-hygiene-unchecked-set-values-global-helpers-heavy-header) are independent cleanup.
 
+**Tier 19 — Newly filed (October 9, 2026): `chatbot_gui` and strategy dispatch.** [TD-260](#td-260-chatbot_gui-never-loads-a-trained-checkpoint) is HIGH
+and about an hour: until it's fixed the GUI can't be used with any trained model. [TD-261](#td-261-generate_response_with_strategy-forces-beam-search-whenever-num_beams--1) is HIGH
+and lives in `EncoderDecoderModel`, not the GUI; it also changes RLHF rollouts, so re-check any
+RLHF results produced before the fix. [TD-262](#td-262-chatbot_gui-ignores-mns-architecture-and-becomes-unusable-on-init-failure) (architecture/init) pairs with TD-260. [TD-263](#td-263-chatbot_gui-freezes-while-generating)
+and [TD-264](#td-264-chatbot_gui-launcher-hardcodes-qt5-and-x86_64-paths) are independent. [TD-265](#td-265-chatbot_gui-and-chatbot_api_server-format-conversation-context-differently) needs a format decision shared with the server.
+[TD-266](#td-266-chatbot_gui-minor-gaps) is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -777,6 +794,13 @@ go together. [TD-256](#td-256-chatbots-help-banner-omits-save-load-and-stats), [
   - [TD-257: `chatbot` Sends `session_id` Unescaped in Two Requests](#td-257-chatbot-sends-session_id-unescaped-in-two-requests)
   - [TD-258: `chatbot` Can Lose or Overwrite Saved Conversations](#td-258-chatbot-can-lose-or-overwrite-saved-conversations)
   - [TD-259: `chatbot` Code Hygiene: Unchecked `/set` Values, Global Helpers, Heavy Header](#td-259-chatbot-code-hygiene-unchecked-set-values-global-helpers-heavy-header)
+  - [TD-260: `chatbot_gui` Never Loads a Trained Checkpoint](#td-260-chatbot_gui-never-loads-a-trained-checkpoint)
+  - [TD-261: `generate_response_with_strategy()` Forces Beam Search Whenever `num_beams > 1`](#td-261-generate_response_with_strategy-forces-beam-search-whenever-num_beams--1)
+  - [TD-262: `chatbot_gui` Ignores MNS Architecture and Becomes Unusable on Init Failure](#td-262-chatbot_gui-ignores-mns-architecture-and-becomes-unusable-on-init-failure)
+  - [TD-263: `chatbot_gui` Freezes While Generating](#td-263-chatbot_gui-freezes-while-generating)
+  - [TD-264: `chatbot_gui` Launcher Hardcodes Qt5 and x86_64 Paths](#td-264-chatbot_gui-launcher-hardcodes-qt5-and-x86_64-paths)
+  - [TD-265: `chatbot_gui` and `chatbot_api_server` Format Conversation Context Differently](#td-265-chatbot_gui-and-chatbot_api_server-format-conversation-context-differently)
+  - [TD-266: `chatbot_gui` Minor Gaps](#td-266-chatbot_gui-minor-gaps)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -4108,6 +4132,224 @@ Files to Modify:
 - `src/ChatbotCLI.{hpp,cpp}`
 ---
 
+### TD-260: `chatbot_gui` Never Loads a Trained Checkpoint
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Client / GUI | October 9, 2026 | 1 hour |
+
+Description:
+Found while writing the code-traced reference [ChatbotGUI.md](../reference/source/ChatbotGUI.md). `ChatbotGUI::initializeChatbot()`
+calls `model->load_model(model_path)` only if `std::ifstream(model_path).good()`. But
+`EncoderDecoderModel::save_model(path)` writes only sidecar files (`path.config`, `.vocab`,
+`.encoder`, `.decoder`, `.lm_head`) and **never a file at `path` itself**, so for any real
+checkpoint the check fails, `load_model()` is never called, and the GUI **silently** chats with a
+randomly initialized model. No message is shown. `IncrementalTrainer.cpp` documents this exact
+trap ("checking for that bare path here would reject every legitimately-saved checkpoint
+unconditionally") and checks the five sidecars instead. Passing an existing sidecar such as
+`model.config` doesn't help: `load_model()` appends the suffixes again and throws.
+
+Action Items:
+
+- [ ] Check for the sidecars (or just call `load_model()` and handle its exception), the same way `IncrementalTrainer` does; consider a shared `EncoderDecoderModel::checkpoint_exists(path)` helper.
+- [ ] When no checkpoint is found, show a clear warning in the chat pane that the model is untrained (matching TD-246's server-side stance).
+- [ ] Update the default/usage text (`chatbot_model.bin`) to describe a checkpoint base path.
+
+Location in code: `src/ChatbotGUI.cpp` (`initializeChatbot()`); tagged `TODO: See TD-260`.
+
+Files to Modify:
+
+- `src/ChatbotGUI.cpp`
+- `src/ChatbotGUI_main.cpp`
+- `src/EncoderDecoderModel.{hpp,cpp}` (optional helper)
+
+---
+
+### TD-261: `generate_response_with_strategy()` Forces Beam Search Whenever `num_beams > 1`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Core Model / Generation | October 9, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-260. In `EncoderDecoderModel::generate_response_with_strategy()`, the beam
+branch is taken when `normalized_strategy == "beam" || num_beams > 1`, and it returns before the
+`greedy`/`sampling`/`topk`/`nucleus` branches. The comment just above says those explicit
+strategies "are unaffected", but the code order contradicts it. So any caller passing
+`num_beams > 1` gets beam search **whatever strategy it asked for**:
+
+- `chatbot_gui` always passes its Beam Width spin box (default **5**), so choosing Nucleus, Top-k,
+  Greedy or Sampling still runs beam search unless the user sets Beam Width to 1.
+- `RLHFTrainer` (≈ line 177) omits `num_beams`, so it gets the header default of **4**: its
+  configured `generation_strategy` (e.g. sampling, which policy-gradient training relies on for
+  diverse rollouts) is silently replaced by beam search.
+- RAG passes `num_beams` from its config (default 1), so it's unaffected.
+
+The `num_beams > 1` guard exists for a real reason: an unrecognized strategy falls through to
+`TextGenerator::generate()`, which itself routes to beam search when `num_beams > 1`, and must not
+be handed the KV-cached `model_fn`.
+
+Action Items:
+
+- [ ] Take the beam branch only for `strategy == "beam"`, or for an *unrecognized* strategy with `num_beams > 1` (preserving the cache-safety guard); explicit greedy/sampling/topk/nucleus must ignore `num_beams`.
+- [ ] Change the header default `num_beams = 4` to 1 (in both overloads) so omitted arguments don't imply beam search.
+- [ ] `chatbot_gui`: pass `beam_width` only when the strategy is beam (otherwise 1). `RLHFTrainer`: pass `num_beams` explicitly.
+- [ ] Fix the misleading comment; add tests that each explicit strategy with `num_beams = 5` does not run beam search.
+
+Location in code: `src/EncoderDecoderModel.{hpp,cpp}` (`generate_response_with_strategy()`), `src/ChatbotGUI.cpp` (`generateResponse()`), `src/RLHFTrainer.cpp`; tagged `TODO: See TD-261`.
+
+Files to Modify:
+
+- `src/EncoderDecoderModel.{hpp,cpp}`
+- `src/ChatbotGUI.cpp`
+- `src/RLHFTrainer.cpp`
+- `tests/encoderdecoder_test.cpp`
+
+---
+
+### TD-262: `chatbot_gui` Ignores MNS Architecture and Becomes Unusable on Init Failure
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Client / GUI | October 9, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-260. `initializeChatbot()` takes the model architecture only from
+`config.chatbot.conf` (discovered from the working directory), not from MNS (which
+`chatbot_api_server` and the trainer treat as authoritative) or the checkpoint's own `.config`.
+A checkpoint trained under a different architecture fails to load. Any exception during init then:
+
+- shows a warning saying "Using default/random initialization", which is wrong;
+- returns `false`, so the constructor shows a **second**, critical dialog;
+- leaves `context` null, so every message answers "[Error: Chatbot not initialized]".
+
+Action Items:
+
+- [ ] Read the architecture from the checkpoint's `.config` (or resolve via MNS when `NAME_SERVICE_URL`/`MODEL_NAME` are configured), falling back to the config file.
+- [ ] Show one accurate error dialog, and keep the GUI usable (or disable Send) with a clear status.
+- [ ] Add a `--config` option instead of relying on the working directory.
+
+Location in code: `src/ChatbotGUI.cpp` (`initializeChatbot()`, constructor); tagged `TODO: See TD-262`.
+
+Files to Modify:
+
+- `src/ChatbotGUI.{hpp,cpp}`
+- `src/ChatbotGUI_main.cpp`
+
+---
+
+### TD-263: `chatbot_gui` Freezes While Generating
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Client / GUI | October 9, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-260. `onSendMessage()` calls `generateResponse()` synchronously on the GUI
+thread. One `processEvents()` beforehand lets "Generating..." paint, but the event loop is then
+blocked for the entire generation (seconds to minutes on CPU): the window can't repaint, scroll or
+close, and desktops may flag it as "not responding".
+
+Action Items:
+
+- [ ] Run generation on a worker thread (`QtConcurrent::run` + `QFutureWatcher`, or a `QThread`), posting the result back to the GUI thread; disable settings while it runs.
+- [ ] Add a cancel/stop control if the generator can support it.
+
+Location in code: `src/ChatbotGUI.cpp` (`onSendMessage()`); tagged `TODO: See TD-263`.
+
+Files to Modify:
+
+- `src/ChatbotGUI.{hpp,cpp}`
+- `src/CMakeLists.txt` (if `Qt::Concurrent` is added)
+
+---
+
+### TD-264: `chatbot_gui` Launcher Hardcodes Qt5 and x86_64 Paths
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Client / GUI | October 9, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-260. `ChatbotGUI_wrapper.cpp` always sets
+`QT_QPA_PLATFORM_PLUGIN_PATH=/usr/lib/x86_64-linux-gnu/qt5/plugins`, but CMake builds
+`chatbot_gui_binary` against **Qt6 when available** (Qt5 is only the fallback), so a Qt6 build is
+pointed at Qt5 platform plugins. Library paths are hardcoded for x86_64 Debian/Ubuntu. It also
+puts system paths **before** the user's `LD_LIBRARY_PATH` and drops it entirely if it contains
+`/snap/`.
+
+Action Items:
+
+- [ ] Pass the Qt major version and plugin directory from CMake (`configure_file` or a compile definition), or only set `QT_QPA_PLATFORM_PLUGIN_PATH` when running under snap.
+- [ ] Derive library paths from the build (or don't override them unless snap is detected).
+- [ ] Preserve the user's `LD_LIBRARY_PATH` order, removing only `/snap/` entries.
+
+Location in code: `src/ChatbotGUI_wrapper.cpp`; tagged `TODO: See TD-264`.
+
+Files to Modify:
+
+- `src/ChatbotGUI_wrapper.cpp`
+- `src/CMakeLists.txt`
+
+---
+
+### TD-265: `chatbot_gui` and `chatbot_api_server` Format Conversation Context Differently
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Client / GUI | October 9, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-260. The GUI builds each prompt with
+`ConversationContext::format_with_special_tokens()` (`<bos> [USER] … <sep>` tags, which
+`BPETokenizer` treats as ordinary characters, not special tokens). `ChatbotAPI` sessions use
+`format_for_model()` (`User: …` / `Assistant: …`). The same model sees differently shaped
+prompts depending on the client, so behaviour isn't comparable between them.
+
+Action Items:
+
+- [ ] Owner decision: pick one multi-turn format (ideally whatever the training data uses) and use it in both clients.
+
+Location in code: `src/ChatbotGUI.cpp` (`generateResponse()`); tagged `TODO: See TD-265`.
+
+Files to Modify:
+
+- `src/ChatbotGUI.cpp` and/or `src/ChatbotAPI.cpp`
+
+---
+
+### TD-266: `chatbot_gui` Minor Gaps
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Client / GUI | October 9, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-260:
+
+- The context limit is hardcoded to 480 tokens with a comment about a 512-token model,
+  regardless of `MAX_SEQ_LENGTH`.
+- Loading a conversation doesn't redisplay its messages (a code comment notes this).
+- `ChatbotGUI_main.cpp` creates the `QApplication` before checking `--help`, so `--help` needs a
+  display.
+- GPU acceleration is never initialized (no `GPU_ENABLED` handling); the GUI always runs on CPU.
+
+Action Items:
+
+- [ ] Derive the context limit from the model's `max_seq_length` minus the response budget.
+- [ ] Redisplay loaded messages (needs a message accessor on `ConversationContext`).
+- [ ] Handle `--help` before constructing `QApplication`.
+- [ ] Honour `GPU_ENABLED` the way `chatbot_api_server` does.
+
+Location in code: `src/ChatbotGUI.cpp`, `src/ChatbotGUI_main.cpp`; tagged `TODO: See TD-266`.
+
+Files to Modify:
+
+- `src/ChatbotGUI.{hpp,cpp}`
+- `src/ChatbotGUI_main.cpp`
+- `src/ConversationContext.hpp`
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -4623,15 +4865,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 62 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 69 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|8|13%|
-|Medium|28|45%|
-|Low|26|42%|
+|High|10|14%|
+|Medium|31|45%|
+|Low|28|41%|
 
-**Total Active Items:** 62
+**Total Active Items:** 69
 
 ### By Component
 
@@ -4656,6 +4898,8 @@ Recomputed directly from the 62 `### TD-NNN` entries under [Active Technical Deb
 |Inference / Serving / CLI|6|
 |Inference / Serving / Server|7|
 |Client / CLI|7|
+|Client / GUI|6|
+|Core Model / Generation|1|
 |Core / Batching|1|
 |Data / Dataset|1|
 |NLP / Tokenizer|6|
@@ -4664,13 +4908,13 @@ Recomputed directly from the 62 `### TD-NNN` entries under [Active Technical Deb
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|28|
-|2-4 hours|17|
+|0-2 hours|31|
+|2-4 hours|21|
 |4-8 hours|7|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 196-312 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 207-333 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

@@ -67,6 +67,8 @@ int main(int argc, char* argv[]) {
         unsetenv(unset_vars[i]);
     }
 
+    // TODO: See TD-264 in TECHNICAL_DEBT.md - x86_64 Debian paths are hardcoded, system paths are put before
+    // the user's LD_LIBRARY_PATH, and any LD_LIBRARY_PATH containing /snap/ is dropped entirely.
     // Set correct library paths (system libraries, not snap)
     // Preserve any existing non-snap paths
     const char* old_ld_path = getenv("LD_LIBRARY_PATH");
@@ -81,6 +83,8 @@ int main(int argc, char* argv[]) {
     setenv("LD_LIBRARY_PATH", new_ld_path.c_str(), 1);
 
     // Set Qt plugin path
+    // TODO: See TD-264 in TECHNICAL_DEBT.md - always Qt5, but CMake builds chatbot_gui_binary against Qt6
+    // when it's available.
     setenv("QT_QPA_PLATFORM_PLUGIN_PATH", "/usr/lib/x86_64-linux-gnu/qt5/plugins", 1);
 
     // Suppress GTK warnings
