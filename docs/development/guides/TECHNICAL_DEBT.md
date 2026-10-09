@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 8, 2026
-**Total Items:** 28
-**High Priority:** 3
-**Medium Priority:** 11
-**Low Priority:** 14
+**Total Items:** 42
+**High Priority:** 5
+**Medium Priority:** 19
+**Low Priority:** 18
 **Future Enhancements:** 19
 **Resolved Items:** 197
 **Deferred Decisions:** 3
@@ -54,6 +54,16 @@ silently, so checkpoints can be written without their vocab (TD-221). Two are ME
 never-invalidated per-thread BPE cache (TD-222), and mutators that can leave the tokenizer gutted
 or with duplicate IDs (TD-223). Two are LOW: lossy lowercase/whitespace normalization, pending an
 owner decision (TD-224), and logging/API hygiene (TD-225).
+
+Also the same day, filed [TD-226](#td-226-chatbatch-rejects-any-request-whose-messages-contain-) through [TD-239](#td-239-chatbotapi-logging-and-dead-code-cleanup) from the code-traced
+[ChatbotAPI.md](../reference/source/ChatbotAPI.md), one item per bug. The JSON bugs were confirmed
+by running the real helpers, and are all in `ChatbotAPI`'s own hand-written parser, not the
+vendored nlohmann/json, which handles the same inputs correctly. Two are **HIGH**: `/chat/batch`
+rejects any request whose messages contain `]` (TD-226), and session pointers are used outside the
+session lock, allowing same-session races and a possible use-after-free (TD-227). Eight are MEDIUM
+(JSON string parsing, invalid JSON output, RAG serializing all requests, session expiry only on
+`/health`, unlimited client-chosen sessions, non-cryptographic session IDs, batch endpoints
+bypassing the dispatcher, no batch size limit) and four are LOW.
 
 **September 25, 2026:** Filed and resolved
 [TD-210](../archive/TECHNICAL_DEBT_RESOLVED.md#td-210-add-lejepa-advanced-training-diagnostics-and-fix-a-zero-gradient-norm-bug)
@@ -640,6 +650,15 @@ mutators (`load_vocab()`/`build_vocab()`), so do them together.
 [TD-224](#td-224-tokenizer-normalization-is-lossy-no-capitals-newlines-or-tabs) needs an owner
 decision and, if pursued, a retrain, so it's the largest by far despite its LOW label.
 
+**Tier 15 — Newly filed (October 8, 2026): `ChatbotAPI` (`chatbot_api_server`'s HTTP layer).**
+Do [TD-226](#td-226-chatbatch-rejects-any-request-whose-messages-contain-) first. It's HIGH, user-visible, and replacing the hand-written parser with the
+already-vendored nlohmann/json also resolves [TD-228](#td-228-chatbotapiparse_json_string-mis-parses-common-json) (and [TD-229](#td-229-chatbotapi-responses-can-be-invalid-json-unescaped-control-characters) if responses are built with it
+too). [TD-227](#td-227-chatbotapi-session-pointers-are-used-outside-the-session-lock) (HIGH) is the other priority, and fits naturally with the other session items
+[TD-231](#td-231-chatbotapi-sessions-only-expire-when-get-health-is-called), [TD-232](#td-232-chatbotapi-accepts-unlimited-client-chosen-session-ids) and [TD-233](#td-233-chatbotapi-session-ids-come-from-a-non-cryptographic-generator). [TD-230](#td-230-rag-mode-serializes-every-chatbotapi-request-behind-config_mutex_) and [TD-237](#td-237-chatbotapirunning_-is-a-non-atomic-flag-written-from-two-threads) are one-line-scale fixes.
+[TD-234](#td-234-chatbotapi-batch-endpoints-bypass-the-inference-dispatcher) and [TD-235](#td-235-chatbotapi-batch-endpoints-have-no-size-limit) both touch the batch endpoints, so do them together, alongside TD-217's
+relabel. [TD-236](#td-236-chatbotapi-returns-http-200-for-validation-errors), [TD-238](#td-238-chatbotapi-returns-internal-exception-text-to-clients) and [TD-239](#td-239-chatbotapi-logging-and-dead-code-cleanup) are cleanup; TD-236 changes status codes clients may
+depend on, so check the CLI and Android clients first.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -674,6 +693,20 @@ decision and, if pursued, a retrain, so it's the largest by far despite its LOW 
   - [TD-223: Tokenizer Mutators Can Leave It Gutted or With Duplicate IDs](#td-223-tokenizer-mutators-can-leave-it-gutted-or-with-duplicate-ids)
   - [TD-224: Tokenizer Normalization Is Lossy: No Capitals, Newlines, or Tabs](#td-224-tokenizer-normalization-is-lossy-no-capitals-newlines-or-tabs)
   - [TD-225: BPETokenizer Logging and API Hygiene](#td-225-bpetokenizer-logging-and-api-hygiene)
+  - [TD-226: `/chat/batch` Rejects Any Request Whose Messages Contain `]`](#td-226-chatbatch-rejects-any-request-whose-messages-contain-)
+  - [TD-227: ChatbotAPI Session Pointers Are Used Outside the Session Lock](#td-227-chatbotapi-session-pointers-are-used-outside-the-session-lock)
+  - [TD-228: `ChatbotAPI::parse_json_string()` Mis-Parses Common JSON](#td-228-chatbotapiparse_json_string-mis-parses-common-json)
+  - [TD-229: ChatbotAPI Responses Can Be Invalid JSON (Unescaped Control Characters)](#td-229-chatbotapi-responses-can-be-invalid-json-unescaped-control-characters)
+  - [TD-230: RAG Mode Serializes Every ChatbotAPI Request Behind `config_mutex_`](#td-230-rag-mode-serializes-every-chatbotapi-request-behind-config_mutex_)
+  - [TD-231: ChatbotAPI Sessions Only Expire When `GET /health` Is Called](#td-231-chatbotapi-sessions-only-expire-when-get-health-is-called)
+  - [TD-232: ChatbotAPI Accepts Unlimited Client-Chosen Session IDs](#td-232-chatbotapi-accepts-unlimited-client-chosen-session-ids)
+  - [TD-233: ChatbotAPI Session IDs Come From a Non-Cryptographic Generator](#td-233-chatbotapi-session-ids-come-from-a-non-cryptographic-generator)
+  - [TD-234: ChatbotAPI Batch Endpoints Bypass the Inference Dispatcher](#td-234-chatbotapi-batch-endpoints-bypass-the-inference-dispatcher)
+  - [TD-235: ChatbotAPI Batch Endpoints Have No Size Limit](#td-235-chatbotapi-batch-endpoints-have-no-size-limit)
+  - [TD-236: ChatbotAPI Returns HTTP 200 for Validation Errors](#td-236-chatbotapi-returns-http-200-for-validation-errors)
+  - [TD-237: `ChatbotAPI::running_` Is a Non-Atomic Flag Written From Two Threads](#td-237-chatbotapirunning_-is-a-non-atomic-flag-written-from-two-threads)
+  - [TD-238: ChatbotAPI Returns Internal Exception Text to Clients](#td-238-chatbotapi-returns-internal-exception-text-to-clients)
+  - [TD-239: ChatbotAPI Logging and Dead Code Cleanup](#td-239-chatbotapi-logging-and-dead-code-cleanup)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -3019,6 +3052,393 @@ Files to Modify:
 
 ---
 
+### TD-226: `/chat/batch` Rejects Any Request Whose Messages Contain `]`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Inference / Serving / API | October 8, 2026 | 2-4 hours (switch request parsing to nlohmann/json; also resolves TD-228) |
+
+Description:
+Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). `ChatbotAPI::parse_json_array()` finds the array's `[` and then the **first `]` anywhere after
+it**, even inside a string value. Verified by running the real function:
+`{"messages":["see [1] here","second"]}` returns **0 items**, so `POST /chat/batch` and
+`POST /chat/batch-session` answer "Missing or empty 'messages' array" for a valid request.
+Brackets in chat text (citations, code, markdown lists) are common, so this rejects ordinary batch
+traffic. The vendored nlohmann/json (`external/nlohmann/json.hpp`, already used by
+`ModelSerializer.cpp`) parses the same body correctly (2 items).
+
+Action Items:
+
+- [ ] Replace `parse_json_array()` (and `parse_json_string()`, TD-228) with nlohmann/json parsing in every handler; reject malformed bodies with HTTP 400.
+- [ ] Regression test: messages containing `[`, `]`, `,` and escaped quotes round-trip through `/chat/batch`.
+
+Location in code: `src/ChatbotAPI.cpp` (`parse_json_array()`); tagged `TODO: See TD-226`.
+
+Files to Modify:
+
+- `src/ChatbotAPI.{hpp,cpp}`
+- `tests/chatbotapi_test.cpp`
+
+---
+
+### TD-227: ChatbotAPI Session Pointers Are Used Outside the Session Lock
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Inference / Serving / API | October 8, 2026 | 4-6 hours |
+
+Description:
+Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). `get_or_create_session()` returns a raw `Session*` after releasing `sessions_mutex_`.
+`handle_chat_session()`, `handle_import_session()` and `generate_batch_session_responses()` then
+read and mutate `session->context` (a `ConversationContext`, which has no internal locking) with no
+lock held, across a generation that can take seconds. Consequences:
+
+- two concurrent requests on the same `session_id` race on the same `ConversationContext`
+  (undefined behaviour, corrupted history);
+- `POST /clear-session` can clear the history mid-request;
+- `cleanup_expired_sessions()` (run by `GET /health`) can **erase** the session mid-request, a
+  use-after-free. That's unlikely with the default 30-minute timeout, since `last_access` is
+  refreshed when a request starts, but nothing prevents it.
+
+Found by reading the code paths.
+
+Action Items:
+
+- [ ] Hold sessions as `std::shared_ptr<Session>` so an in-flight request keeps its session alive after erasure.
+- [ ] Add a per-session mutex held for the read-modify-generate-append sequence (serializing turns within one conversation, which is also the correct conversational semantics).
+- [ ] Tests: concurrent same-session requests under TSan; cleanup during an in-flight request.
+
+Location in code: `src/ChatbotAPI.{hpp,cpp}` (`Session`, `get_or_create_session()`, `handle_chat_session()`, `handle_import_session()`, `generate_batch_session_responses()`); tagged `TODO: See TD-227`.
+
+Files to Modify:
+
+- `src/ChatbotAPI.{hpp,cpp}`
+- `tests/chatbotapi_test.cpp`
+
+---
+
+### TD-228: `ChatbotAPI::parse_json_string()` Mis-Parses Common JSON
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Inference / Serving / API | October 8, 2026 | 1-2 hours (no extra work if done with TD-226) |
+
+Description:
+Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). The hand-written key lookup in `parse_json_string()` returns wrong values for valid JSON. Verified
+by running the real function:
+
+| Input | Returned | Correct |
+|---|---|---|
+| `{"session_id":123,"message":"hi"}` → `session_id` | `"message"` (the next key's name) | reject / `""` |
+| `{"message":"path C:\\","session_id":"abc"}` → `message` | `path C:\",` (runs past the closing quote) | `path C:\` |
+| `{"message":"caf\u00e9"}` | `caf\u00e9` (escape left literal) | `café` |
+
+It also can't distinguish a missing key from an empty string. Wrong session IDs and garbled
+messages reach the model and the session map. nlohmann/json handles all of these correctly.
+
+Action Items:
+
+- [ ] Covered by TD-226's switch to nlohmann/json; add these three inputs as regression tests.
+
+Location in code: `src/ChatbotAPI.cpp` (`parse_json_string()`); tagged `TODO: See TD-228`.
+
+Files to Modify:
+
+- `src/ChatbotAPI.cpp`
+- `tests/chatbotapi_test.cpp`
+
+---
+
+### TD-229: ChatbotAPI Responses Can Be Invalid JSON (Unescaped Control Characters)
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Inference / Serving / API | October 8, 2026 | 1 hour |
+
+Description:
+Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). `escape_json_string()` (the single escaping function since TD-063) escapes only `"`, `\`, `\n`,
+`\r` and `\t`. Other characters in U+0000–U+001F pass through raw. Verified: `"a\x01b\bc"` is
+emitted with bytes `01` and `08`, which strict JSON parsers reject. Model output, exception messages
+and imported session data can all carry such bytes. nlohmann/json's `dump()` escapes them
+correctly (`"a\u0001b\bc"`).
+
+Action Items:
+
+- [ ] Escape every control character (`\b`, `\f`, and `\u00XX` for the rest), or build responses with nlohmann/json.
+- [ ] Test that every response parses with a strict JSON parser.
+
+Location in code: `src/ChatbotAPI.cpp` (`escape_json_string()`); tagged `TODO: See TD-229`.
+
+Files to Modify:
+
+- `src/ChatbotAPI.cpp`
+- `tests/chatbotapi_test.cpp`
+
+---
+
+### TD-230: RAG Mode Serializes Every ChatbotAPI Request Behind `config_mutex_`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Inference / Serving / API | October 8, 2026 | 1 hour |
+
+Description:
+Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). In `generate_response()`, the RAG path is
+`{ lock_guard(config_mutex_); if (rag_engine_) return rag_engine_->generate(input); }`, so
+`config_mutex_` is held for the **whole RAG generation**. Every handler takes that same mutex to copy
+`default_config_`, and `set_generation_config()` (including on `SIGHUP` reload) needs it too. So with
+RAG enabled, every chat, session and batch request waits at its config copy behind whichever
+generation is running. Found by reading the code.
+
+Action Items:
+
+- [ ] Copy the `rag_engine_` `shared_ptr` under the lock, release it, then generate.
+- [ ] Test: a slow fake RAG engine doesn't block a concurrent `set_generation_config()`.
+
+Location in code: `src/ChatbotAPI.cpp` (`generate_response()`); tagged `TODO: See TD-230`.
+
+Files to Modify:
+
+- `src/ChatbotAPI.cpp`
+- `tests/chatbotapi_test.cpp`
+
+---
+
+### TD-231: ChatbotAPI Sessions Only Expire When `GET /health` Is Called
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Inference / Serving / API | October 8, 2026 | 2-4 hours |
+
+Description:
+Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). `cleanup_expired_sessions()` is called only from `handle_health()`. `start()` carries a comment
+saying periodic cleanup should be a background thread, but none exists. On a server nobody
+health-checks, idle sessions are never removed, so memory grows for the process lifetime. Found by
+reading the code.
+
+Action Items:
+
+- [ ] Run expiry on a background thread (or opportunistically in `get_or_create_session()`), stopped cleanly by `stop()`/the destructor.
+- [ ] Test: sessions expire without any `/health` call.
+
+Location in code: `src/ChatbotAPI.cpp` (`start()`, `cleanup_expired_sessions()`); tagged `TODO: See TD-231`.
+
+Files to Modify:
+
+- `src/ChatbotAPI.{hpp,cpp}`
+- `tests/chatbotapi_test.cpp`
+
+---
+
+### TD-232: ChatbotAPI Accepts Unlimited Client-Chosen Session IDs
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Inference / Serving / API | October 8, 2026 | 2-4 hours |
+
+Description:
+Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). `get_or_create_session()` creates a session under any unknown non-empty `session_id` a client
+sends, with no limit on ID length, format, or the number of sessions. One request per new ID adds a
+session (with its `ConversationContext`), so any client can grow server memory without bound; with
+TD-231, nothing reclaims it unless `/health` is polled. The ChatbotCLI relies on choosing its own
+IDs, so the fix must keep that working. Found by reading the code.
+
+Action Items:
+
+- [ ] Cap total sessions (evict least-recently-used) and validate client IDs (length and character set).
+- [ ] Decide whether client-chosen IDs stay allowed or move to server-issued IDs only (needs a ChatbotCLI change).
+- [ ] Tests: cap enforcement and ID validation.
+
+Location in code: `src/ChatbotAPI.cpp` (`get_or_create_session()`); tagged `TODO: See TD-232`.
+
+Files to Modify:
+
+- `src/ChatbotAPI.{hpp,cpp}`
+- `src/ChatbotCLI.*` (if IDs become server-issued)
+- `tests/chatbotapi_test.cpp`
+
+---
+
+### TD-233: ChatbotAPI Session IDs Come From a Non-Cryptographic Generator
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Inference / Serving / API | October 8, 2026 | 1-2 hours |
+
+Description:
+Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). `create_session_id()` draws 32 hex digits from a `static std::mt19937` seeded once from
+`std::random_device`. `mt19937` is predictable once enough output is observed, yet a session ID is
+the only credential for a conversation: `POST /chat/session/export` returns the full history to
+anyone who presents it. Found by reading the code.
+
+Action Items:
+
+- [ ] Generate IDs from a CSPRNG (e.g. `getrandom()` or `/dev/urandom`).
+- [ ] Consider requiring an auth token for export/import if the server is reachable beyond localhost.
+
+Location in code: `src/ChatbotAPI.cpp` (`create_session_id()`); tagged `TODO: See TD-233`.
+
+Files to Modify:
+
+- `src/ChatbotAPI.cpp`
+
+---
+
+### TD-234: ChatbotAPI Batch Endpoints Bypass the Inference Dispatcher
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Inference / Serving / API | October 8, 2026 | 2-4 hours |
+
+Description:
+Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). `generate_batch_responses()` (behind `/chat/batch` and `/chat/batch-session`) runs its own
+`TextGenerator` loop over `model_->forward()` instead of calling `generate_response()`. So batch
+requests never use the GPU-resident decode path (TD-033), RAG, speculative decoding or the TD-038
+engines: on a GPU host they run on the slow per-matmul CPU fallback, and a server configured for
+RAG answers batch requests without retrieval. Found by reading the code.
+
+Action Items:
+
+- [ ] Generate each batch input through `generate_response()` (keeping input order), so every mode applies consistently.
+- [ ] Test: with a mode enabled (e.g. a fake RAG engine), `/chat/batch` goes through it.
+
+Location in code: `src/ChatbotAPI.cpp` (`generate_batch_responses()`); tagged `TODO: See TD-234`.
+
+Files to Modify:
+
+- `src/ChatbotAPI.cpp`
+- `tests/chatbotapi_test.cpp`
+
+---
+
+### TD-235: ChatbotAPI Batch Endpoints Have No Size Limit
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Inference / Serving / API | October 8, 2026 | 1-2 hours |
+
+Description:
+Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). `/chat/batch` and `/chat/batch-session` accept any number of messages and generate them one after
+another on the request's HTTP thread. A single large request occupies that thread (and the model)
+for as long as all its generations take. Found by reading the code.
+
+Action Items:
+
+- [ ] Add a configurable maximum batch size (reject larger requests with HTTP 413/400).
+- [ ] Document the limit in `rest-api.md`.
+
+Location in code: `src/ChatbotAPI.cpp` (`handle_batch_chat()`, `handle_batch_chat_session()`); tagged `TODO: See TD-235`.
+
+Files to Modify:
+
+- `src/ChatbotAPI.cpp`
+- `src/Config.{hpp,cpp}`
+- `docs/development/api/rest-api.md`
+
+---
+
+### TD-236: ChatbotAPI Returns HTTP 200 for Validation Errors
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Inference / Serving / API | October 8, 2026 | 1-2 hours |
+
+Description:
+Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). Handlers that *return* an error, such as "Missing 'message' field", "Session not found" or a failed
+import, send `{"success":false,...}` with status **200**. Only thrown exceptions map to 400/500.
+Clients and monitoring that key off the status code see failures as successes. Found by reading the
+code.
+
+Action Items:
+
+- [ ] Return 400 for malformed/missing input and 404 for unknown sessions; keep the JSON body shape.
+- [ ] Update `rest-api.md` and check the CLI and Android clients handle the new codes.
+
+Location in code: `src/ChatbotAPI.cpp` (route lambdas and handlers); tagged `TODO: See TD-236`.
+
+Files to Modify:
+
+- `src/ChatbotAPI.cpp`
+- `tests/chatbotapi_test.cpp`
+- `docs/development/api/rest-api.md`
+
+---
+
+### TD-237: `ChatbotAPI::running_` Is a Non-Atomic Flag Written From Two Threads
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Inference / Serving / API | October 8, 2026 | 1 hour |
+
+Description:
+Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). `chatbot_api_server` calls `start()` on a server thread (which sets and clears `running_`) and
+`stop()` from the main thread on `SIGINT`/`SIGTERM` (which reads and clears it). `running_` is a
+plain `bool`, so that's a data race (undefined behaviour, though benign on x86 in practice). Found by
+reading the code.
+
+Action Items:
+
+- [ ] Make `running_` `std::atomic<bool>`.
+
+Location in code: `src/ChatbotAPI.hpp` (`running_`), `src/ChatbotAPI.cpp` (`start()`, `stop()`); tagged `TODO: See TD-237`.
+
+Files to Modify:
+
+- `src/ChatbotAPI.{hpp,cpp}`
+
+---
+
+### TD-238: ChatbotAPI Returns Internal Exception Text to Clients
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Inference / Serving / API | October 8, 2026 | 1-2 hours |
+
+Description:
+Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). Every route lambda passes `e.what()` straight into the response, and `generate_response()` wraps
+failures as "Generation failed: <internal message>". Internal details (file paths, tokenizer and
+model errors) reach any client. Found by reading the code.
+
+Action Items:
+
+- [ ] Log the full exception server-side via `adai::Logger`; return a generic message plus a request/correlation ID.
+
+Location in code: `src/ChatbotAPI.cpp` (route lambdas, `generate_response()`); tagged `TODO: See TD-238`.
+
+Files to Modify:
+
+- `src/ChatbotAPI.cpp`
+- `tests/chatbotapi_test.cpp`
+
+---
+
+### TD-239: ChatbotAPI Logging and Dead Code Cleanup
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Inference / Serving / API | October 8, 2026 | 1-2 hours |
+
+Description:
+Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). Small hygiene issues found while tracing the class:
+
+- `std::cout`/`std::cerr` in library code (constructor, `start()`, `stop()`,
+  `cleanup_expired_sessions()`), against the logging rule.
+- `ChatbotAPI::BatchRequest` is declared but never used.
+- `handle_chat()`'s comment says it gets generation config "from request or use defaults", but
+  requests can't set it (matching `rest-api.md`, which documents server flags only).
+- `start()`'s comment about periodic cleanup describes something that doesn't exist (TD-231).
+
+Action Items:
+
+- [ ] Switch to `adai::Logger`; remove `BatchRequest`; fix both comments.
+
+Location in code: `src/ChatbotAPI.{hpp,cpp}`; tagged `TODO: See TD-239`.
+
+Files to Modify:
+
+- `src/ChatbotAPI.{hpp,cpp}`
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -3534,15 +3954,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 28 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 42 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|3|11%|
-|Medium|11|39%|
-|Low|14|50%|
+|High|5|12%|
+|Medium|19|45%|
+|Low|18|43%|
 
-**Total Active Items:** 28
+**Total Active Items:** 42
 
 ### By Component
 
@@ -3563,7 +3983,7 @@ Recomputed directly from the 28 `### TD-NNN` entries under [Active Technical Deb
 |Inference / Serving|3|
 |Inference / Serving / Observability|1|
 |Core Math / Activation|2|
-|Inference / Serving / API|1|
+|Inference / Serving / API|15|
 |Core / Batching|1|
 |Data / Dataset|1|
 |NLP / Tokenizer|6|
@@ -3572,13 +3992,13 @@ Recomputed directly from the 28 `### TD-NNN` entries under [Active Technical Deb
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|5|
-|2-4 hours|7|
-|4-8 hours|6|
+|0-2 hours|14|
+|2-4 hours|11|
+|4-8 hours|7|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 149-230 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 170-267 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

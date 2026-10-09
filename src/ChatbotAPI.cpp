@@ -31,6 +31,8 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
       server_impl_(std::make_unique<ServerImpl>()) {
     // Set up HTTP endpoints
 
+    // TODO: See TD-238 in TECHNICAL_DEBT.md - every route below returns e.what() to the client; log it
+    // server-side and return a generic message instead.
     // POST /chat - Single-turn conversation
     server_impl_->server.Post("/chat", [this](const httplib::Request& req, httplib::Response& res) {
         try {
@@ -136,6 +138,8 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
             }
         });
 
+    // TODO: See TD-239 in TECHNICAL_DEBT.md - std::cout/std::cerr in library code (here, start(), stop(),
+    // cleanup_expired_sessions()); use adai::Logger.
     std::cout << "ChatbotAPI initialized on port " << port_ << '\n';
 }
 
@@ -154,6 +158,7 @@ bool ChatbotAPI::start() {
 
     // Start periodic session cleanup (every 5 minutes)
     // Note: In production, this should be a separate background thread
+    // TODO: See TD-231 in TECHNICAL_DEBT.md - no such thread exists; sessions only expire via GET /health.
 
     bool result = server_impl_->server.listen("0.0.0.0", port_);
     running_ = false;
@@ -176,9 +181,11 @@ std::string ChatbotAPI::handle_chat(const std::string& request_body) {
     // Parse request
     std::string message = parse_json_string(request_body, "message");
     if (message.empty()) {
+        // TODO: See TD-236 in TECHNICAL_DEBT.md - returned errors like this one go out with HTTP 200.
         return create_error_response("Missing 'message' field in request");
     }
 
+    // TODO: See TD-239 in TECHNICAL_DEBT.md - requests can't set the config; this always uses the defaults.
     // Get generation config from request or use defaults
     GenerationConfig config;
     {
@@ -202,6 +209,8 @@ std::string ChatbotAPI::handle_chat_session(const std::string& request_body) {
     }
 
     // Get or create session
+    // TODO: See TD-227 in TECHNICAL_DEBT.md - this raw pointer is used below with no lock held, across
+    // generation: same-session requests race on session->context, and cleanup can erase it.
     Session* session = get_or_create_session(session_id);
 
     // TD-095 (fixed): when session_id arrives empty (every first message of a
@@ -311,6 +320,7 @@ std::string ChatbotAPI::handle_import_session(const std::string& request_body) {
         return create_error_response("Missing 'data' field in request");
     }
 
+    // TODO: See TD-227 in TECHNICAL_DEBT.md - raw Session* used outside sessions_mutex_ (see handle_chat_session()).
     Session* session = get_or_create_session(session_id);
     if (session_id.empty()) {
         std::lock_guard<std::mutex> lock(sessions_mutex_);
@@ -367,6 +377,7 @@ std::string ChatbotAPI::handle_profile() {
     return oss.str();
 }
 
+// TODO: See TD-235 in TECHNICAL_DEBT.md - no limit on the number of messages in a batch request.
 std::string ChatbotAPI::handle_batch_chat(const std::string& request_body) {
     // Parse batch request
     std::vector<std::string> messages = parse_json_array(request_body, "messages");
@@ -421,6 +432,8 @@ std::string ChatbotAPI::handle_batch_chat_session(const std::string& request_bod
 // Session Management
 // ============================================================================
 
+// TODO: See TD-233 in TECHNICAL_DEBT.md - mt19937 is not a CSPRNG, yet a session ID is the only credential
+// for POST /chat/session/export.
 std::string ChatbotAPI::create_session_id() {
     static std::random_device rd;
     static std::mt19937 gen(rd());
@@ -438,6 +451,9 @@ Session* ChatbotAPI::get_or_create_session(const std::string& session_id) {
     std::lock_guard<std::mutex> lock(sessions_mutex_);
 
     // If session_id is empty or not found, create new session
+    // TODO: See TD-232 in TECHNICAL_DEBT.md - any client-chosen ID creates a session, with no ID validation or
+    // session cap.
+    // TODO: See TD-227 in TECHNICAL_DEBT.md - returns a raw pointer that callers use after this lock is released.
     if (session_id.empty() || sessions_.find(session_id) == sessions_.end()) {
         std::string new_id = session_id.empty() ? create_session_id() : session_id;
         sessions_[new_id] = std::make_unique<Session>();
@@ -474,6 +490,8 @@ bool ChatbotAPI::is_session_expired(const Session& session) {
 // JSON Utilities (Simple parser without external dependencies)
 // ============================================================================
 
+// TODO: See TD-228 in TECHNICAL_DEBT.md - mis-parses non-string values, values ending in an escaped backslash,
+// and \uXXXX escapes; replace with nlohmann/json (external/nlohmann/json.hpp).
 std::string ChatbotAPI::parse_json_string(const std::string& json, const std::string& key) {
     // Simple JSON string parser (handles basic cases)
     // Format: {"key":"value"}
@@ -561,6 +579,8 @@ std::vector<std::string> ChatbotAPI::parse_json_array(const std::string& json,
         return result;
     }
 
+    // TODO: See TD-226 in TECHNICAL_DEBT.md - finds the first ']' anywhere, even inside a string, so any
+    // message containing ']' yields zero items; replace with nlohmann/json.
     size_t array_end = json.find(']', array_start);
     if (array_end == std::string::npos) {
         return result;
@@ -642,6 +662,8 @@ std::vector<std::string> ChatbotAPI::parse_json_array(const std::string& json,
     return result;
 }
 
+// TODO: See TD-229 in TECHNICAL_DEBT.md - other control characters (U+0000-U+001F) pass through raw,
+// producing invalid JSON.
 std::string ChatbotAPI::escape_json_string(const std::string& s) {
     std::ostringstream oss;
     for (char c : s) {
@@ -782,6 +804,8 @@ std::string ChatbotAPI::generate_response(const std::string& input,
     PROFILE_SCOPE(profiler_, "generate_response");
 
     // Route through RAG engine when enabled
+    // TODO: See TD-230 in TECHNICAL_DEBT.md - generation below runs while holding config_mutex_, so every
+    // other request waits; copy rag_engine_ under the lock and generate after releasing it.
     {
         std::lock_guard<std::mutex> lock(config_mutex_);
         if (rag_engine_) {
@@ -939,6 +963,7 @@ std::string ChatbotAPI::generate_response(const std::string& input,
         return response;
 
     } catch (const std::exception& e) {
+        // TODO: See TD-238 in TECHNICAL_DEBT.md - this internal message reaches the client via the route handler.
         throw std::runtime_error(std::string("Generation failed: ") + e.what());
     }
 }
@@ -982,6 +1007,8 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
         batch_response.stats = compute_batch_stats(batches);
 
         // Process each input in its original order.
+        // TODO: See TD-234 in TECHNICAL_DEBT.md - this loop bypasses generate_response(), so batch requests
+        // never use the GPU path, RAG, speculative decoding or the TD-038 engines.
         std::vector<std::string> all_responses;
         all_responses.reserve(inputs.size());
 
@@ -1050,6 +1077,7 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_session_responses(
 
         for (size_t i = 0; i < inputs.size(); ++i) {
             // Get or create session
+            // TODO: See TD-227 in TECHNICAL_DEBT.md - raw Session* used outside sessions_mutex_.
             std::string sid = (i < session_ids.size()) ? session_ids[i] : "";
             Session* session = get_or_create_session(sid);
 

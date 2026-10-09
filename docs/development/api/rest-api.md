@@ -4,6 +4,10 @@ ADAI Chatbot API Server
 Version 1.0.0
 Date: January 24, 2026
 
+> Implementation details, known parsing and session limitations, and the inference-mode precedence
+> behind these endpoints are in the code-traced class reference,
+> [reference/source/ChatbotAPI.md](../reference/source/ChatbotAPI.md).
+
 ---
 
 ## Overview

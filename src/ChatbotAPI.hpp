@@ -60,6 +60,7 @@ class ChatbotAPI {
     /**
      * @brief Batch request for processing multiple messages
      */
+    // TODO: See TD-239 in TECHNICAL_DEBT.md - BatchRequest is declared but never used.
     struct BatchRequest {
         std::vector<std::string> messages;
         std::vector<std::string> session_ids;  // Optional: for batch session processing
@@ -334,6 +335,8 @@ class ChatbotAPI {
     // Server configuration
     int port_;
     std::chrono::minutes session_timeout_;
+    // TODO: See TD-237 in TECHNICAL_DEBT.md - written by start() on the server thread and stop() on the main
+    // thread; make it std::atomic<bool>.
     bool running_{false};
 
     // Session storage (thread-safe)
