@@ -130,6 +130,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
         std::string key = trim(line.substr(0, pos));
         std::string value = trim(line.substr(pos + 1));
 
+        // TODO: See TD-289 in TECHNICAL_DEBT.md - inline "# comment" text is kept as part of the value.
         // Remove quotes from value if present
         if (value.size() >= 2 && ((value.front() == '"' && value.back() == '"') ||
                                   (value.front() == '\'' && value.back() == '\''))) {
@@ -165,6 +166,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
                 config.log_compress =
                     (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+                // TODO: See TD-287 in TECHNICAL_DEBT.md - stoull wraps negatives (D_MODEL=-1 -> 1.8e19) and every
+                // sto* call here accepts trailing garbage (PORT=8080x -> 8080).
             } else if (key == "D_MODEL") {
                 config.d_model = static_cast<size_t>(std::stoull(value));
             } else if (key == "NUM_HEADS") {
@@ -187,6 +190,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "GRADIENT_CLIP") {
                 config.gradient_clip = std::stof(value);
             } else if (key == "GRADIENT_CLIP_ADAPTIVE") {
+                // TODO: See TD-286 in TECHNICAL_DEBT.md - this and six other keys accept only lowercase
+                // true/1/yes; "True"/"On" are silently false (other keys are case-insensitive).
                 config.adaptive_gradient_clip = (value == "true" || value == "1" || value == "yes");
             } else if (key == "GRADIENT_CLIP_MIN") {
                 config.gradient_clip_min = std::stof(value);
@@ -326,6 +331,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.ftp_pasv_port_max = std::stoi(value);
             } else if (key == "FTP_TOKEN_TTL_MINUTES") {
                 config.ftp_token_ttl_minutes = std::stoi(value);
+                // TODO: See TD-284 in TECHNICAL_DEBT.md - FTP_SERVER_PORT, PASV range, FTP_DATA_SERVER_SECRET,
+                // FTPS_ENABLED and cert/key are parsed here but registry_server ignores them (CLI-only).
             } else if (key == "FTP_DATA_SERVER_SECRET") {
                 config.ftp_data_server_secret = value;
             } else if (key == "DOWNLOAD_DIR") {
@@ -433,12 +440,15 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "GPU_STRATEGY") {
                 config.gpu_strategy = gpu_strategy_from_string(value);
             } else if (key == "TOKENIZER_MODE") {
+                // TODO: See TD-289 in TECHNICAL_DEBT.md - any value but "unicode" (e.g. "utf8") silently means ASCII.
                 std::string lower = value;
                 std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
                 config.unicode_tokenizer = (lower == "unicode");
             } else if (key == "VOCAB_BUILD_SIZE") {
                 config.vocab_build_size = std::stoi(value);
             } else {
+                // TODO: See TD-290 in TECHNICAL_DEBT.md - HIPPOCAMPAL_COVERAGE_LOSS_WEIGHT (deliberately unread,
+                // but shipped in config.chatbot/trainer.conf) warns here on every load.
                 std::cerr << "Warning: Unknown configuration key: " << key << '\n';
             }
         } catch (const std::exception& e) {
@@ -776,6 +786,7 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env_int("FTP_MAX_SESSIONS_PER_RUN")) {
         config.ftp_max_sessions_per_run = *val;
     }
+    // TODO: See TD-286 in TECHNICAL_DEBT.md - bypasses get_env_bool(): lowercase-only, no warning.
     if (const char* v = std::getenv("FTPS_ENABLED")) {
         const std::string sv(v);
         config.ftps_enabled = (sv == "1" || sv == "true" || sv == "yes");
@@ -942,6 +953,7 @@ ServiceConfig ConfigLoader::load(const std::string& config_file_path) {
     return config;
 }
 
+// TODO: See TD-290 in TECHNICAL_DEBT.md - std::cout, and covers only server/architecture/generation/RAG.
 void ConfigLoader::print(const ServiceConfig& config) {
     std::cout << "==================================================" << '\n';
     std::cout << "         ADAI Chatbot Service Configuration" << '\n';
@@ -1040,6 +1052,8 @@ bool ConfigLoader::reload(ServiceConfig& config, const std::string& config_file_
     // Detect changes before applying new config
     std::vector<std::string> changes = detect_changes(config, new_config);
 
+    // TODO: See TD-285 in TECHNICAL_DEBT.md - detect_changes() compares only ~25 of ~110 fields, so a reload
+    // where only untracked keys changed returns success here without applying anything.
     if (changes.empty()) {
         Logger::info("No configuration changes detected");
         Logger::info("==================================================");
@@ -1067,6 +1081,9 @@ bool ConfigLoader::reload(ServiceConfig& config, const std::string& config_file_
     return true;
 }
 
+// TODO: See TD-288 in TECHNICAL_DEBT.md - no checks for gradient_accumulation_steps (0 crashes training),
+// learning_rate, gpu_memory_fraction, batch/epoch counts, clipping, ports/intervals/sizes outside
+// the server block, or FTP PASV min <= max. Only called from reload() (TD-241).
 bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string>& errors) {
     bool valid = true;
 

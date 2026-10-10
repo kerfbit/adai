@@ -1774,6 +1774,8 @@ int main(int argc, char* argv[]) {
         cli.config_path.value_or(""), "config.registry.conf");
     adai::ServiceConfig file_config = adai::ConfigLoader::load(config_path);
 
+    // TODO: See TD-284 in TECHNICAL_DEBT.md - config.registry.conf ships FTPS_ENABLED/FTP_DATA_SERVER_SECRET/
+    // FTP_SERVER_PORT/PASV keys that are ignored here; FTPS/secret set in the file silently do nothing.
     // ftp_server_port/pasv range/cert/key/ftps_enabled are CLI-only listener settings — applied
     // directly from `cli` with no file/admin-override layer, same as before.
     ftp_enabled = cli.ftp_enabled;
@@ -1823,6 +1825,8 @@ int main(int argc, char* argv[]) {
 
     Logger::init(Logger::Level::INFO, "registry_server");
 
+    // TODO: See TD-283 in TECHNICAL_DEBT.md - no SIGHUP handler, so SIGHUP terminates this process
+    // (CLAUDE.md said incremental_trainer hot-reloads on it).
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
 

@@ -28,6 +28,7 @@ enum class GPUStrategy : std::uint8_t {
 };
 
 /// Parse a GPU_STRATEGY string; warns and returns BACKGROUND on unknown input.
+// TODO: See TD-290 in TECHNICAL_DEBT.md - writes to std::cerr from library code.
 inline GPUStrategy gpu_strategy_from_string(const std::string& s) {
     if (s == "full")
         return GPUStrategy::FULL;
@@ -329,6 +330,8 @@ struct ServiceConfig {
     int ftp_token_ttl_minutes = 30;
 
     /// HMAC key used for token signing (Phase 3); change in production
+    /// TODO: See TD-284 in TECHNICAL_DEBT.md - read by no code; registry_server takes the secret
+    /// (and FTPS/port/PASV/cert/key) from its CLI flags only.
     std::string ftp_data_server_secret = "change-me-in-production";
 
     /// Trainer-owned directory for FTP downloads (default: "")
@@ -690,6 +693,9 @@ class ConfigLoader {
      *
      * This method is thread-safe and validates the new configuration
      * before applying it. If validation fails, the current config remains unchanged.
+     *
+     * TODO: See TD-285 in TECHNICAL_DEBT.md - also unchanged (but returns true) when only fields
+     * outside detect_changes()'s ~25-field list changed.
      *
      * @param config Current configuration to update
      * @param config_file_path Path to the configuration file

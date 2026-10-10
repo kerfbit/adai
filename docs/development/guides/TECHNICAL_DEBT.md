@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 9, 2026
-**Total Items:** 85
-**High Priority:** 11
-**Medium Priority:** 39
-**Low Priority:** 35
+**Total Items:** 93
+**High Priority:** 13
+**Medium Priority:** 43
+**Low Priority:** 37
 **Future Enhancements:** 19
 **Resolved Items:** 197
 **Deferred Decisions:** 3
@@ -40,6 +40,16 @@ is reported as 128, losing the signal number, so a GPU-driver SIGSEGV can't be t
 SIGKILL (TD-277); a failed `exec` (missing binary) looks like a successful launch and leads to a
 silent retry loop (TD-278); and `request_stop()` could send `kill(-1, SIGTERM)` under the concurrent use
 its header permits (latent; TD-279). Three are LOW (orphaned passes, fork/fd hygiene, Windows gaps).
+
+Also October 9, 2026: filed [TD-283](#td-283-sighup-terminates-every-binary-except-chatbot_api_server) through [TD-290](#td-290-configloader-output-hygiene) from the code-traced
+[Config.md](../reference/source/Config.md) (`ServiceConfig`/`ConfigLoader`), with parsing and reload
+behaviour confirmed by running the real loader. Two are **HIGH**: `SIGHUP` terminates every binary
+except `chatbot_api_server`, although CLAUDE.md said `incremental_trainer` hot-reloads on it (TD-283);
+and `registry_server` ignores the FTP/FTPS security keys its own config file ships with, so
+`FTPS_ENABLED=true` or a real secret in the file silently yields plaintext FTP and random passwords
+(TD-284). Four are MEDIUM: `reload()` reports success without applying untracked changes (TD-285);
+two boolean parsers (TD-286); negative/partial numbers accepted (TD-287); `validate()` gaps (TD-288).
+Two are LOW (TD-289–290).
 
 **October 8, 2026:** Filed
 [TD-211](#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model)
@@ -757,6 +767,13 @@ cleanup.
 (`posix_spawn()`), so do them as one change. [TD-280](#td-280-trainer_service-passes-can-be-orphaned-if-the-supervisor-is-hard-killed) matters only outside systemd. [TD-282](#td-282-childprocess-windows-path-has-known-gaps) only
 matters if a Windows `trainer_service` is ever shipped.
 
+**Tier 22 — Newly filed (October 9, 2026): `Config`.** [TD-283](#td-283-sighup-terminates-every-binary-except-chatbot_api_server) and [TD-284](#td-284-registry_server-ignores-the-ftpftps-security-keys-its-config-file-ships-with) are HIGH and
+operator-facing: one turns a documented reload command into a kill, the other silently ignores
+security settings. Do them first, and fix the docs (both are annotated in CLAUDE.md /
+`config.registry.conf` meanwhile). [TD-286](#td-286-configloader-parses-booleans-two-different-ways), [TD-287](#td-287-configloader-accepts-negative-and-partial-numbers) and [TD-289](#td-289-configloader-keeps-inline-comments-and-silently-accepts-enum-typos) are parser fixes that belong in one
+change with shared helpers. [TD-285](#td-285-configloaderreload-reports-success-without-applying-untracked-changes) and [TD-288](#td-288-configloadervalidate-misses-fields-that-crash-or-misbehave) pair with Tier 16's TD-241/TD-242 (validation and
+reload in `chatbot_api_server`). [TD-290](#td-290-configloader-output-hygiene) is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -848,6 +865,14 @@ matters if a Windows `trainer_service` is ever shipped.
   - [TD-280: `trainer_service` Passes Can Be Orphaned if the Supervisor Is Hard-Killed](#td-280-trainer_service-passes-can-be-orphaned-if-the-supervisor-is-hard-killed)
   - [TD-281: `ChildProcess` Forks a Multithreaded Process and Leaks File Descriptors](#td-281-childprocess-forks-a-multithreaded-process-and-leaks-file-descriptors)
   - [TD-282: `ChildProcess` Windows Path Has Known Gaps](#td-282-childprocess-windows-path-has-known-gaps)
+  - [TD-283: `SIGHUP` Terminates Every Binary Except `chatbot_api_server`](#td-283-sighup-terminates-every-binary-except-chatbot_api_server)
+  - [TD-284: `registry_server` Ignores the FTP/FTPS Security Keys Its Config File Ships With](#td-284-registry_server-ignores-the-ftpftps-security-keys-its-config-file-ships-with)
+  - [TD-285: `ConfigLoader::reload()` Reports Success Without Applying Untracked Changes](#td-285-configloaderreload-reports-success-without-applying-untracked-changes)
+  - [TD-286: `ConfigLoader` Parses Booleans Two Different Ways](#td-286-configloader-parses-booleans-two-different-ways)
+  - [TD-287: `ConfigLoader` Accepts Negative and Partial Numbers](#td-287-configloader-accepts-negative-and-partial-numbers)
+  - [TD-288: `ConfigLoader::validate()` Misses Fields That Crash or Misbehave](#td-288-configloadervalidate-misses-fields-that-crash-or-misbehave)
+  - [TD-289: `ConfigLoader` Keeps Inline Comments and Silently Accepts Enum Typos](#td-289-configloader-keeps-inline-comments-and-silently-accepts-enum-typos)
+  - [TD-290: `ConfigLoader` Output Hygiene](#td-290-configloader-output-hygiene)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -4861,6 +4886,243 @@ Files to Modify:
 - `src/ChildProcess.cpp`
 ---
 
+### TD-283: `SIGHUP` Terminates Every Binary Except `chatbot_api_server`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Config | October 9, 2026 | 2-4 hours |
+
+Description:
+Found while writing the code-traced reference [Config.md](../reference/source/Config.md). CLAUDE.md says "Client binaries
+(`chatbot_api_server`, `incremental_trainer`) additionally hot-reload their file via `SIGHUP`." Only
+`chatbot_api_server` registers a `SIGHUP` handler. `incremental_trainer`, `trainer_service`,
+`metrics_api_server`, `mns_server` and `registry_server` register only `SIGTERM`/`SIGINT`, so
+`SIGHUP` takes the default action and **terminates the process**. An operator following the docs
+(`kill -HUP <trainer pid>`) kills a training pass mid-epoch; sending it to `trainer_service` kills the
+supervisor and its admin API. Found by inspecting every `std::signal()` registration.
+
+Action Items:
+
+- [ ] Install a `SIGHUP` handler in every long-running binary: either a real reload (where `ConfigLoader::reload()` makes sense) or `SIG_IGN` with a log line saying reload isn't supported.
+- [ ] Correct CLAUDE.md's "Configuration" paragraph (annotated with this TD for now) and the operations docs.
+- [ ] Test: `SIGHUP` doesn't terminate each daemon.
+
+Location in code: `src/IncrementalTrainingTool.cpp`, `src/TrainerServiceMain.cpp`, `src/TrainingMetricsAPIServer.cpp`, `src/ModelNameServiceServer.cpp`, `src/RegistryServer.cpp` (signal registration); CLAUDE.md; tagged `TODO: See TD-283`.
+
+Files to Modify:
+
+- the five binaries above
+- `CLAUDE.md`
+- `docs/operations/...` (any reload instructions)
+
+---
+
+### TD-284: `registry_server` Ignores the FTP/FTPS Security Keys Its Config File Ships With
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Config | October 9, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-283. `registry_server` reads only `FTP_TOKEN_TTL_MINUTES` and
+`FTP_MAX_SESSIONS_PER_RUN` from its config file (`RegistryServerArgs.cpp`). The FTP listener settings
+are **CLI-only** (`--ftp-port`, `--ftp-pasv-min/max`, `--ftp-secret`, `--ftps`, `--ftp-cert`,
+`--ftp-key`), per `RegistryServer.cpp`'s own "CLI-only listener settings" comment. Yet
+`config.registry.conf` ships `FTP_SERVER_PORT`, `FTP_DATA_SERVER_SECRET=change-me-in-production` and
+`FTPS_ENABLED`, and `ConfigLoader` parses them without a word. An operator who sets
+`FTPS_ENABLED=true` or a real HMAC secret in the file silently gets **plaintext FTP and random token
+passwords**. Nothing in `src/` reads `ServiceConfig::ftp_data_server_secret`, and the PASV-range
+fields are also unread.
+
+Action Items:
+
+- [ ] Make `registry_server` honour the file keys (CLI still overriding), or remove them from `ServiceConfig` and `config.registry.conf`.
+- [ ] Warn at startup when file and CLI disagree, and when FTPS is off on a non-loopback advertise IP.
+- [ ] Until fixed, the shipped config file carries a note (annotated with this TD).
+
+Location in code: `src/Config.{hpp,cpp}` (FTP keys), `src/RegistryServer.cpp`, `src/RegistryServerArgs.cpp`, `config.registry.conf`; tagged `TODO: See TD-284`.
+
+Files to Modify:
+
+- `src/RegistryServer.cpp`
+- `src/RegistryServerArgs.{hpp,cpp}`
+- `src/Config.{hpp,cpp}`
+- `config.registry.conf`
+- `tests/registry_server_args_test.cpp`
+
+---
+
+### TD-285: `ConfigLoader::reload()` Reports Success Without Applying Untracked Changes
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Config | October 9, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-283 and confirmed by running the real loader. `reload()` returns `true`
+**without applying the new config** whenever `detect_changes()` finds nothing, but `detect_changes()`
+compares only about 25 of roughly 110 fields (paths, port, session timeout, logging, architecture, six
+generation fields). Changing only other keys (`METRICS_SERVER_URL`, `AUTO_SAVE_*`, RAG, GPU, MNS,
+hippocampal…) logs "No configuration changes detected" and keeps the old values. Verified with
+`METRICS_SERVER_URL` and `AUTO_SAVE_EVERY_MINUTES`. Conversely, if any tracked field changes, the
+whole new config (untracked fields included) is applied, but only tracked changes are logged.
+
+Action Items:
+
+- [ ] Always apply the validated new config (or compare every field, ideally via a generated field list) and log every change.
+- [ ] Separately report which changed keys the calling binary can't apply live (pairs with TD-251).
+- [ ] Test: an untracked-only change is applied and logged.
+
+Location in code: `src/Config.cpp` (`reload()`, `detect_changes()`); tagged `TODO: See TD-285`.
+
+Files to Modify:
+
+- `src/Config.{hpp,cpp}`
+- `tests/config_test.cpp`
+
+---
+
+### TD-286: `ConfigLoader` Parses Booleans Two Different Ways
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Config | October 9, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-283 and confirmed by running the real loader. Eight file keys accept
+`true/1/yes/on` case-insensitively; seven others (`GRADIENT_CLIP_ADAPTIVE`, `ENABLE_METRICS_SERVICE`,
+`METRICS_ENABLE_PERSISTENCE`, `METRICS_ENABLE_PROMETHEUS`, `METRICS_API_ALLOW_CONTROL`,
+`ENABLE_GENERATION_QUALITY_METRICS`, `FTPS_ENABLED`) accept only lowercase `true/1/yes`. Any other
+spelling is silently **false**, with no warning: `ENABLE_METRICS_SERVICE=On` and
+`METRICS_API_ALLOW_CONTROL=True` both turn the feature off. The env parser is stricter (warns on
+unknown values), except `FTPS_ENABLED`, which bypasses it.
+
+Action Items:
+
+- [ ] Use one shared boolean parser (the env one: case-insensitive, true/false sets, warn on anything else) for every file and env key.
+- [ ] Test each boolean key with `True`/`ON`/`Yes`.
+
+Location in code: `src/Config.cpp` (`load_from_file()`, `load_from_env()` `FTPS_ENABLED`); tagged `TODO: See TD-286`.
+
+Files to Modify:
+
+- `src/Config.cpp`
+- `tests/config_test.cpp`
+
+---
+
+### TD-287: `ConfigLoader` Accepts Negative and Partial Numbers
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Config | October 9, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-283 and confirmed by running the real loader. File values are parsed with
+unchecked `std::stoi`/`stof`/`stoull`/`stoul`: `PORT=8080x` gives 8080 (trailing garbage dropped),
+and `size_t` fields wrap negatives, so `D_MODEL=-1` gives **18446744073709551615**. Nothing
+range-checks at load time (TD-241), so these reach model construction and port binding directly.
+
+Action Items:
+
+- [ ] Use full-consumption parsing that rejects negatives for `size_t` fields; warn and keep the default on any rejection.
+- [ ] Tests for trailing garbage and negative sizes.
+
+Location in code: `src/Config.cpp` (`load_from_file()`, `get_env_*()` helpers); tagged `TODO: See TD-287`.
+
+Files to Modify:
+
+- `src/Config.cpp`
+- `tests/config_test.cpp`
+
+---
+
+### TD-288: `ConfigLoader::validate()` Misses Fields That Crash or Misbehave
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Config | October 9, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-283 and confirmed by running the real `validate()`: it accepts
+`gradient_accumulation_steps = 0` (`ChatbotTrainer` divides by it and takes a modulo by it),
+`learning_rate = -1` and `gpu_memory_fraction = 7.5`. It also never checks `batch_size`,
+`num_epochs`, `weight_decay`, any adaptive-clipping field, `hippocampal_association_decay`/
+`cross_reference_alpha`, any metrics/registry/FTP/MNS/trainer-admin port, interval or size,
+`FTP_PASV_PORT_MIN ≤ MAX`, or auto-save values. And `validate()` itself only runs on reload (TD-241).
+
+Action Items:
+
+- [ ] Add range checks for every numeric field used for division, allocation, ports or probabilities.
+- [ ] Run `validate()` at startup in every binary (TD-241 covers `chatbot_api_server`).
+- [ ] Tests for each new rule.
+
+Location in code: `src/Config.cpp` (`validate()`); tagged `TODO: See TD-288`.
+
+Files to Modify:
+
+- `src/Config.cpp`
+- `tests/config_test.cpp`
+
+---
+
+### TD-289: `ConfigLoader` Keeps Inline Comments and Silently Accepts Enum Typos
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Config | October 9, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-283 and confirmed by running the real loader. `#` is a comment only at the start
+of a line, so `MODEL_PATH=/models/chat # production model` stores the comment as part of the path.
+`TOKENIZER_MODE` treats anything but `unicode` (e.g. the typo `utf8`) as ASCII without a warning;
+`STRATEGY`, `LOG_LEVEL`, `METRICS_STORAGE_BACKEND` and `DATASET_KIND` aren't checked at load either.
+
+Action Items:
+
+- [ ] Strip an unquoted ` #…` suffix (or document that inline comments aren't supported, and warn when a value contains ` #`).
+- [ ] Warn on unknown enum values for `TOKENIZER_MODE`, `STRATEGY`, `LOG_LEVEL`, `METRICS_STORAGE_BACKEND`, `DATASET_KIND`.
+
+Location in code: `src/Config.cpp` (`load_from_file()`); tagged `TODO: See TD-289`.
+
+Files to Modify:
+
+- `src/Config.cpp`
+- `tests/config_test.cpp`
+
+---
+
+### TD-290: `ConfigLoader` Output Hygiene
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Config | October 9, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-283:
+
+- Load-time messages go to `std::cerr` (partly unavoidable before the logger starts), and the header's
+  inline `gpu_strategy_from_string()` writes to `std::cerr` too.
+- `print()` writes to `std::cout` and covers only server, architecture, generation and RAG settings
+  (no metrics, registry, MNS, GPU, training or world-model sections).
+- `HIPPOCAMPAL_COVERAGE_LOSS_WEIGHT` ships in `config.chatbot.conf`/`config.trainer.conf`, is
+  deliberately unread, and produces an "Unknown configuration key" warning on every load.
+
+Action Items:
+
+- [ ] Buffer pre-logger messages and replay them through `adai::Logger` once initialised.
+- [ ] Extend `print()` (or a `to_string()` used by every binary) to all sections, still redacting secrets.
+- [ ] Accept reserved keys silently (or remove the key from the shipped files).
+
+Location in code: `src/Config.{hpp,cpp}`; tagged `TODO: See TD-290`.
+
+Files to Modify:
+
+- `src/Config.{hpp,cpp}`
+- `config.chatbot.conf`
+- `config.trainer.conf`
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -5376,15 +5638,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 85 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 93 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|11|13%|
-|Medium|39|46%|
-|Low|35|41%|
+|High|13|14%|
+|Medium|43|46%|
+|Low|37|40%|
 
-**Total Active Items:** 85
+**Total Active Items:** 93
 
 ### By Component
 
@@ -5413,6 +5675,7 @@ Recomputed directly from the 85 `### TD-NNN` entries under [Active Technical Deb
 |Core Model / Generation|1|
 |Training / ChatbotTrainer|10|
 |Training / Service Supervisor|6|
+|Config|8|
 |Core / Batching|1|
 |Data / Dataset|1|
 |NLP / Tokenizer|6|
@@ -5421,13 +5684,13 @@ Recomputed directly from the 85 `### TD-NNN` entries under [Active Technical Deb
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|42|
-|2-4 hours|25|
+|0-2 hours|46|
+|2-4 hours|29|
 |4-8 hours|8|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 230-375 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 242-399 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

@@ -247,8 +247,9 @@ mirroring `dataset_manager migrate`'s/`segment`'s own exact sequencing.
 
 Config files use `KEY=VALUE` format, parsed by the single `ServiceConfig`/`ConfigLoader` in
 `src/Config.{hpp,cpp}`. Loading priority: **env vars → config file → hardcoded defaults**; explicit CLI
-flags (where a binary has them) override all three. Client binaries (`chatbot_api_server`,
-`incremental_trainer`) additionally hot-reload their file via `SIGHUP`.
+flags (where a binary has them) override all three. Only `chatbot_api_server` hot-reloads its file
+via `SIGHUP` (and only some keys — see TD-251/TD-285); **every other binary, including
+`incremental_trainer` and `trainer_service`, is terminated by `SIGHUP`** (no handler — TD-283).
 
 Configuration is split into 5 service-scoped files, each read only by the binaries that need those
 keys (non-architecture keys used by more than one binary, e.g. GPU/MNS-client settings, are duplicated
@@ -442,3 +443,5 @@ trusting a `grep TD-NNN` alone. Currently active items:
 | **TD-267** (HIGH) | Filed October 9, 2026: `ChatbotTrainer` keeps pairs that `preprocess_data()` skipped (empty/invalid UTF-8) as empty entries: training throws on each and drops its accumulation window, and validation counts each as loss 0, biasing validation loss low (verified). |
 | TD-268–TD-276 | Filed October 9, 2026: `ChatbotTrainer` `end_epoch()` only with validation data (TD-268); optimizer state and LR schedule restart every incremental pass (TD-269); adaptive clipping resets every epoch (TD-270); cache vs. random split (TD-271); mid-window/last-window gradient loss (TD-272); LOW cleanup (TD-273–276). See [ChatbotTrainer.md](docs/development/reference/source/ChatbotTrainer.md). |
 | TD-277–TD-282 | Filed October 9, 2026: `ChildProcess` (`trainer_service`) reports every signal death as 128, losing SIGSEGV vs SIGKILL (TD-277); a failed `exec` looks like a successful launch, then a silent 127 retry loop (TD-278); latent `kill(-1, SIGTERM)` under concurrent `request_stop()` (TD-279); LOW: orphaned passes, fork/fd hygiene, Windows gaps (TD-280–282). See [ChildProcess.md](docs/development/reference/source/ChildProcess.md). |
+| **TD-283, TD-284** (HIGH) | Filed October 9, 2026: `SIGHUP` terminates every binary except `chatbot_api_server` (TD-283); `registry_server` ignores the FTP/FTPS security keys `config.registry.conf` ships with (`FTPS_ENABLED`, `FTP_DATA_SERVER_SECRET`…), which are CLI-only (TD-284). |
+| TD-285–TD-290 | Filed October 9, 2026: `ConfigLoader::reload()` succeeds without applying untracked changes (TD-285); two boolean parsers (TD-286); negative/partial numbers accepted (TD-287); `validate()` gaps (TD-288); inline comments/enum typos (TD-289); output hygiene (TD-290). See [Config.md](docs/development/reference/source/Config.md). |

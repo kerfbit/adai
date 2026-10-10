@@ -109,6 +109,8 @@ int main(int argc, char* argv[]) {
     auto control = std::make_shared<adai::TrainerServiceControlState>();
     control->service_started_unix = unix_seconds();
     g_control = control.get();
+    // TODO: See TD-283 in TECHNICAL_DEBT.md - no SIGHUP handler, so SIGHUP terminates this process
+    // (CLAUDE.md said incremental_trainer hot-reloads on it).
     std::signal(SIGTERM, signal_handler);
     std::signal(SIGINT, signal_handler);
 

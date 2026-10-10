@@ -717,6 +717,8 @@ int run_training_pipeline(int argc, char* argv[], const adai::ServiceConfig& svc
 
     adai::Logger::init(adai::Logger::Level::INFO,
                        {log_path, svc_config.log_max_size_mb, svc_config.log_max_files}, "adai");
+    // TODO: See TD-283 in TECHNICAL_DEBT.md - no SIGHUP handler, so SIGHUP terminates this process
+    // (CLAUDE.md said incremental_trainer hot-reloads on it).
     std::signal(SIGTERM, signal_handler);
     std::signal(SIGINT, signal_handler);
     init_gpu_fn();
