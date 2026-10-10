@@ -1617,7 +1617,7 @@ This implementation forms the foundation for modern transformer-based architectu
 
 ### Related Components
 
-- **[CrossAttention](cross-attention.md)** - Encoder-decoder attention with KV cache
+- **[CrossAttention](../../reference/source/CrossAttention.md)** - Encoder-decoder attention with KV cache
 - **[DecoderBlock](../transformer/decoder-block.md)** - Uses MultiHeadAttention with dual caching
 - **[LLMDecoder](../transformer/decoder.md)** - Full decoder stack with multi-layer caching
 - **[LayerNorm](../normalization/layer-norm.md)** - Layer normalization

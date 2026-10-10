@@ -117,6 +117,7 @@ Matrix LLMDecoder::forward_with_encoder(const std::vector<int>& token_ids,
                                            repetition_decay, cross_reference_alpha,
                                            association_decay);
         } else {
+            // TODO: See TD-303 in TECHNICAL_DEBT.md - cross-attention still runs over this dummy input
             // Decoder-only mode: no cross-attention (pass empty encoder output)
             Matrix empty_encoder(1, d_model);  // Dummy encoder output
             x = decoder_blocks[i]->forward(x, empty_encoder, causal_mask, nullptr,
@@ -239,6 +240,7 @@ Matrix LLMDecoder::forward_with_cache(const std::vector<int>& token_ids, Decoder
                                                               &self_attn_cache, &cross_attn_cache,
                                                               nullptr, use_cache);
         } else {
+            // TODO: See TD-303 in TECHNICAL_DEBT.md - cross-attention still runs over this dummy input
             // Decoder-only mode (no cross-attention)
             Matrix empty_encoder(1, d_model);
             x = decoder_blocks[layer_idx]->forward_with_cache(x, empty_encoder, causal_mask,

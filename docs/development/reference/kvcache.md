@@ -668,7 +668,7 @@ cache_manager.cleanup_old_caches(30);  // Remove caches older than 30 min
 - **[BatchProcessor API](source/BatchProcessor.md)** - Batch processing for multi-sequence inference
 - **[PerformanceProfiler API](performanceprofiler.md)** - Profiling and benchmarking tools
 - **[Quick Start](../guides/inference-optimization-quickstart.md)** - 5-minute tutorial
-- **[CrossAttention API](../api/attention/cross-attention.md)** - Cross-attention with encoder K/V caching
+- **[CrossAttention API](source/CrossAttention.md)** - Cross-attention with encoder K/V caching
 - **[MultiHeadAttention API](../api/attention/multihead-attention.md)** - Self-attention with caching
 - **[Decoder API](../api/transformer/decoder.md)** - LLMDecoder with multi-layer cache support
 - **[DecoderBlock API](../api/transformer/decoder-block.md)** - Decoder layer with dual caches

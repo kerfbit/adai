@@ -1346,7 +1346,7 @@ Matrix output = inference_layer.forward(input, encoder_output, mask);
 ### Core Components
 
 - **[MultiHeadAttention](../attention/multi-head-attention.md)**: Self-attention with KV cache
-- **[CrossAttention](../attention/cross-attention.md)**: Encoder-decoder attention with KV cache
+- **[CrossAttention](../../reference/source/CrossAttention.md)**: Encoder-decoder attention with KV cache
 - **[FeedForward](../feedforward/feed-forward.md)**: Position-wise transformation
 - **[LayerNorm](../normalization/layer-norm.md)**: Layer normalization
 - **[EncoderBlock](encoder-block.md)**: Encoder counterpart (bidirectional)

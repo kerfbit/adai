@@ -993,7 +993,7 @@ std::string response = decoder.get_token_embedding()->decode(generated);
 
 - **[DecoderBlock](decoder-block.md)** - Individual decoder layer with self/cross-attention
 - **[MultiHeadAttention](../attention/multihead-attention.md)** - Self-attention mechanism with KV cache
-- **[CrossAttention](../attention/cross-attention.md)** - Encoder-decoder attention with KV cache
+- **[CrossAttention](../../reference/source/CrossAttention.md)** - Encoder-decoder attention with KV cache
 - **[TokenEmbedding](token-embedding.md)** - Token to vector conversion
 - **[PositionalEncoding](positional-encoding.md)** - Position information
 - **[LayerNorm](layer-norm.md)** - Layer normalization

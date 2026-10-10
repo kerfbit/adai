@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include "Activation.hpp"
 
+// TODO: See TD-299 in TECHNICAL_DEBT.md - d_k is computed before num_heads is validated; num_heads == 0 raises SIGFPE
 CrossAttention::CrossAttention(int d_model, int num_heads)
     : d_model(d_model),
       num_heads(num_heads),
@@ -317,6 +318,7 @@ Matrix CrossAttention::forward_with_cache(const Matrix& query_input, const Matri
 
     // For cross-attention, K and V from encoder are constant across all generation steps
     // Compute and cache them only once (on first call when cache is empty)
+    // TODO: See TD-300 in TECHNICAL_DEBT.md - a filled cache silently ignores a new kv_input (stale encoder K/V)
     if (kv_cache->is_empty()) {
         // First call: compute K, V from encoder and cache them
         if (kv_input.cols != d_model) {
@@ -538,12 +540,14 @@ void CrossAttention::register_parameters() {
     }
 
     // Register all four weight matrices with optimizer
+    // TODO: See TD-297 in TECHNICAL_DEBT.md - re-registering the same optimizer adds duplicate groups
     optimizer->add_parameter_group(&W_q, &W_q_grad);
     optimizer->add_parameter_group(&W_k, &W_k_grad);
     optimizer->add_parameter_group(&W_v, &W_v_grad);
     optimizer->add_parameter_group(&W_o, &W_o_grad);
 }
 
+// TODO: See TD-297 in TECHNICAL_DEBT.md - step() on a shared optimizer steps every registered layer, not just this one
 void CrossAttention::update_weights() {
     if (optimizer) {
         // Use advanced optimization (Adam, AdamW, etc.)
@@ -641,6 +645,7 @@ void CrossAttention::merge_lora() {
     }
 }
 
+// TODO: See TD-302 in TECHNICAL_DEBT.md - excludes LoRA adapter gradients
 float CrossAttention::get_gradient_norm() const {
     float sum_squares = 0.0f;
 
@@ -663,6 +668,7 @@ float CrossAttention::get_gradient_norm() const {
     return std::sqrt(sum_squares);
 }
 
+// TODO: See TD-298 in TECHNICAL_DEBT.md - writes are not checked; LoRA adapters are not saved (TD-302)
 void CrossAttention::save(const std::string& filepath) const {
     std::ofstream file(filepath, std::ios::binary);
     if (!file.is_open()) {
@@ -706,6 +712,7 @@ void CrossAttention::save(const std::string& filepath) const {
     file.close();
 }
 
+// TODO: See TD-298 in TECHNICAL_DEBT.md - reads are unchecked (truncated file -> NaN weights); learning_rate set before validation
 void CrossAttention::load(const std::string& filepath) {
     std::ifstream file(filepath, std::ios::binary);
     if (!file.is_open()) {
@@ -832,6 +839,7 @@ void ca_gpu_scatter_head_columns(adai::gpu::GPUMatrix& dst, int start,
 }
 }  // namespace
 
+// TODO: See TD-301 in TECHNICAL_DEBT.md - GPU path ignores LoRA and skips shape validation
 adai::gpu::GPUMatrix CrossAttention::gpu_forward(const adai::gpu::GPUMatrix& query,
                                                  const adai::gpu::GPUMatrix& kv,
                                                  const adai::gpu::GPUMatrix* mask) {
@@ -889,6 +897,7 @@ adai::gpu::GPUMatrix CrossAttention::gpu_forward(const adai::gpu::GPUMatrix& que
     return gpu_->cached_attn_out * gpu_->Wo;
 }
 
+// TODO: See TD-301 in TECHNICAL_DEBT.md - GPU path ignores LoRA and skips shape validation
 adai::gpu::GPUMatrix CrossAttention::gpu_forward_with_cache(const adai::gpu::GPUMatrix& query,
                                                             const adai::gpu::GPUMatrix& kv,
                                                             const adai::gpu::GPUMatrix* mask,

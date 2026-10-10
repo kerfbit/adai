@@ -61,7 +61,7 @@ The `TrainingMetricsAPI` is a separate HTTP server (default port 8081) for real-
 | File | Class | Description |
 | --- | --- | --- |
 | [attention/multihead-attention.md](attention/multihead-attention.md) | `MultiHeadAttention` | Multi-head self-attention |
-| [attention/cross-attention.md](attention/cross-attention.md) | `CrossAttention` | Encoder-decoder cross-attention |
+| [CrossAttention.md](../reference/source/CrossAttention.md) | `CrossAttention` | Encoder-decoder cross-attention (code-traced reference) |
 
 ## NLP Components
 

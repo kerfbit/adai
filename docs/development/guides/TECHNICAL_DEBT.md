@@ -5,13 +5,22 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 9, 2026
-**Total Items:** 99
+**Total Items:** 106
 **High Priority:** 15
-**Medium Priority:** 45
-**Low Priority:** 39
+**Medium Priority:** 47
+**Low Priority:** 44
 **Future Enhancements:** 19
 **Resolved Items:** 197
 **Deferred Decisions:** 3
+
+**October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
+[CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
+calls a shared optimizer's `step()`, which steps every registered layer, so the public
+`EncoderDecoderModel::train_step()` path over-steps every parameter 6–10 times per update (TD-297,
+verified; the shipped trainers call `step()` once and are unaffected); and `CrossAttention::load()`
+loads truncated files as NaN weights without error (TD-298, verified). Five are LOW (TD-299–303):
+SIGFPE on `num_heads == 0`, stale cached encoder K/V, GPU/CPU divergence, LoRA persistence, and
+decoder-only mode running cross-attention over a dummy input.
 
 **October 9, 2026:** Filed [TD-260](#td-260-chatbot_gui-never-loads-a-trained-checkpoint) through [TD-266](#td-266-chatbot_gui-minor-gaps) from the code-traced
 [ChatbotGUI.md](../reference/source/ChatbotGUI.md) (`chatbot_gui`). Two are **HIGH**: the GUI
@@ -788,6 +797,11 @@ three touch `deserialize()`/`truncate_to_limits()`). Pair them with Tier 15's se
 TD-231, TD-232). [TD-294](#td-294-conversation-token-budget-is-unrelated-to-the-models-sequence-length) needs a small `ChatbotAPI` setting and pairs with TD-266. [TD-295](#td-295-conversation-role-labels-are-spoofable-and-roles-arent-escaped) and
 [TD-296](#td-296-conversationcontext-hygiene) are cleanup.
 
+**Tier 24 — Newly filed (October 10, 2026): `CrossAttention`.** [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) is the most important:
+fix it at the model level the way TD-178 fixed `LeJEPAEncoder`, since the same pattern spans every
+layer type. [TD-298](#td-298-crossattentionload-loads-truncated-files-as-nan-weights) and [TD-299](#td-299-crossattention-crashes-with-sigfpe-when-num_heads-is-zero) are small input-hardening fixes. [TD-300](#td-300-crossattentionforward_with_cache-silently-reuses-stale-encoder-kv), [TD-301](#td-301-crossattention-gpu-path-diverges-from-the-cpu-path) and
+[TD-302](#td-302-lora-adapters-arent-persisted-or-counted-in-gradient-norms) matter mainly before LoRA or the GPU cached path get wider use; [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -893,6 +907,13 @@ TD-231, TD-232). [TD-294](#td-294-conversation-token-budget-is-unrelated-to-the-
   - [TD-294: Conversation Token Budget Is Unrelated to the Model's Sequence Length](#td-294-conversation-token-budget-is-unrelated-to-the-models-sequence-length)
   - [TD-295: Conversation Role Labels Are Spoofable and Roles Aren't Escaped](#td-295-conversation-role-labels-are-spoofable-and-roles-arent-escaped)
   - [TD-296: ConversationContext Hygiene](#td-296-conversationcontext-hygiene)
+  - [TD-297: Layer `update_weights()` Steps a Shared Optimizer Once per Layer](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer)
+  - [TD-298: `CrossAttention::load()` Loads Truncated Files as NaN Weights](#td-298-crossattentionload-loads-truncated-files-as-nan-weights)
+  - [TD-299: `CrossAttention` Crashes with SIGFPE When `num_heads` Is Zero](#td-299-crossattention-crashes-with-sigfpe-when-num_heads-is-zero)
+  - [TD-300: `CrossAttention::forward_with_cache()` Silently Reuses Stale Encoder K/V](#td-300-crossattentionforward_with_cache-silently-reuses-stale-encoder-kv)
+  - [TD-301: `CrossAttention` GPU Path Diverges from the CPU Path](#td-301-crossattention-gpu-path-diverges-from-the-cpu-path)
+  - [TD-302: LoRA Adapters Aren't Persisted or Counted in Gradient Norms](#td-302-lora-adapters-arent-persisted-or-counted-in-gradient-norms)
+  - [TD-303: Decoder-Only Mode Still Runs Cross-Attention over a Dummy Input](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -5318,6 +5339,223 @@ Files to Modify:
 - `src/ChatbotTrainer.cpp`
 ---
 
+### TD-297: Layer `update_weights()` Steps a Shared Optimizer Once per Layer
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Attention / CrossAttention | October 10, 2026 | 2-4 hours |
+
+Description:
+Found while writing the code-traced reference [CrossAttention.md](../reference/source/CrossAttention.md) and confirmed by running the real
+class. `CrossAttention::update_weights()` calls `optimizer->step()`, but `Optimizer::step()` steps
+**every** parameter group ever registered with it, not just this layer's.
+`DecoderBlock::register_parameters_with_optimizer()` registers every sub-layer with one shared
+optimizer, and `DecoderBlock::update_weights()` then calls each sub-layer's `update_weights()` in
+turn. With two `CrossAttention`s sharing an SGD optimizer, the second layer's weights moved a full
+step on the first layer's call and again on its own: two steps. A full decoder block makes 6–10
+`step()` calls per update (each also advancing Adam's step counter). `MultiHeadAttention`,
+`FeedForward`, `LayerNorm`, `TokenEmbedding` and `LanguageModelHead` follow the same pattern.
+Calling `set_optimizer()` twice with the same optimizer also registers the groups twice (verified:
+8 groups instead of 4), doubling every update.
+
+The shipped trainers (`ChatbotTrainer`, `RLHFTrainer`) call `optimizer->step()` once directly and
+are unaffected, but the public `EncoderDecoderModel::train_step()`/`update_weights()` path
+over-steps whenever an optimizer is registered. `LeJEPAEncoder` hit and fixed exactly this
+(TD-178).
+
+Action Items:
+
+- [ ] Apply TD-178's fix at the model level: when an optimizer is registered, `EncoderDecoderModel`/`LLMDecoder`/`DecoderBlock` `update_weights()` call `step()` once at the top and only zero grads below; or have layers skip `step()` when the optimizer is shared.
+- [ ] Make `set_optimizer()`/`register_parameters()` idempotent for the same optimizer (or dedupe in `Optimizer::add_parameter_group()`).
+- [ ] Test: two layers on one optimizer each move by exactly one step per `EncoderDecoderModel::update_weights()`.
+
+Location in code: `src/CrossAttention.cpp` (`update_weights()`, `register_parameters()`), `src/DecoderBlock.cpp` (`update_weights()`); tagged `TODO: See TD-297`.
+
+Files to Modify:
+
+- `src/CrossAttention.cpp`
+- `src/DecoderBlock.cpp`
+- `src/Decoder.cpp`
+- `src/EncoderDecoderModel.cpp`
+- `src/Optimizer.cpp`
+- `tests/encoderdecoder_test.cpp`
+
+---
+
+### TD-298: `CrossAttention::load()` Loads Truncated Files as NaN Weights
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Attention / CrossAttention | October 10, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-297 and confirmed by running the real class. `load()` pre-sets each value to
+`NAN` and never checks the stream, so a file cut off after `W_k` loaded **without error** with all of
+`W_v`/`W_o` NaN. `learning_rate` is read into the member before the dimension check, so a rejected
+(mismatched) file still changes the layer's learning rate. `save()` doesn't check its writes. This
+is the legacy per-block `<block>.cross_attn` format written by `DecoderBlock::save()`; the main
+checkpoint path is SafeTensors (`ModelSerializer`).
+
+Action Items:
+
+- [ ] Check the stream after every read (and the file size up front); throw on short reads.
+- [ ] Read the header into locals and assign `learning_rate` only after validation; check `save()`'s stream before returning.
+- [ ] Test: truncated and empty files throw and leave the layer unchanged.
+
+Location in code: `src/CrossAttention.cpp` (`load()`, `save()`); tagged `TODO: See TD-298`.
+
+Files to Modify:
+
+- `src/CrossAttention.cpp`
+- `tests/crossattention_test.cpp`
+
+---
+
+### TD-299: `CrossAttention` Crashes with SIGFPE When `num_heads` Is Zero
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Attention / CrossAttention | October 10, 2026 | 1 hour |
+
+Description:
+Found alongside TD-297 and confirmed by running the real class. The constructor validates
+`d_model % num_heads` in its body, but the initializer list has already computed
+`d_k(d_model / num_heads)`, so `CrossAttention(8, 0)` kills the process with SIGFPE instead of
+throwing. A negative `num_heads` that divides `d_model` is accepted with a negative `d_k`.
+`mns_server` rejects 0 at register time and `ConfigLoader::validate()` rejects values outside 1–64,
+but `chatbot_api_server` doesn't run `validate()` at startup (TD-241), so a local `NUM_HEADS=0` with
+no MNS crashes the process. `MultiHeadAttention` should be checked for the same pattern.
+
+Action Items:
+
+- [ ] Validate `d_model > 0` and `num_heads > 0` before computing `d_k` (e.g. via a static helper in the initializer list).
+- [ ] Test: `num_heads` of 0 and negative values throw `std::invalid_argument`.
+
+Location in code: `src/CrossAttention.cpp` (constructor); tagged `TODO: See TD-299`.
+
+Files to Modify:
+
+- `src/CrossAttention.cpp`
+- `src/MultiHeadAttention.cpp`
+- `tests/crossattention_test.cpp`
+
+---
+
+### TD-300: `CrossAttention::forward_with_cache()` Silently Reuses Stale Encoder K/V
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Attention / CrossAttention | October 10, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-297 and confirmed by running the real class. Once the `KVCache` is filled,
+`forward_with_cache()` ignores `kv_input` entirely. Reusing a cache with a different encoder output
+silently returned attention over the **old** encoder's K/V (identical to the first call), and a mask
+sized for the new encoder was rejected with a confusing `src_len` error. Enabling or changing LoRA
+after the cache is filled also leaves stale K/V. Production is safe today because
+`EncoderDecoderModel` builds a fresh `DecoderKVCache` per generation, but nothing documents or checks
+the contract.
+
+Action Items:
+
+- [ ] Check `kv_input.rows` against the cached K rows (when non-empty) and throw on mismatch; document that callers must `clear()` the cache for a new encoder output.
+- [ ] Test: a cache reused with a different-length encoder output throws.
+
+Location in code: `src/CrossAttention.cpp` (`forward_with_cache()`); tagged `TODO: See TD-300`.
+
+Files to Modify:
+
+- `src/CrossAttention.{hpp,cpp}`
+- `tests/crossattention_test.cpp`
+
+---
+
+### TD-301: `CrossAttention` GPU Path Diverges from the CPU Path
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Attention / CrossAttention | October 10, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-297, by inspection (no GPU in the environment it was traced in). The
+`ADAI_ENABLE_GPU` path:
+- ignores LoRA adapters entirely, with no guard or warning (the header notes it);
+- does no shape validation on `query`/`kv` widths or mask dimensions (`masked_fill_inplace` uses only
+  the element count);
+- holds weight snapshots that go stale after any CPU-side change (`update_weights()`, `load()`,
+  `set_W*()`, `merge_lora()`) until the owner calls `EncoderDecoderModel::gpu_sync_weights()`;
+- doesn't refresh `get_last_attention_weights()`.
+
+`DecoderBlock`'s GPU path also runs only the main cross-attention; the world-model and hippocampal
+instances are CPU-only.
+
+Action Items:
+
+- [ ] Throw or warn in `gpu_forward()`/`gpu_forward_with_cache()` when `has_lora()`; add the same shape checks as the CPU path.
+- [ ] Document (or track) the snapshot contract; consider a dirty flag set by CPU-side weight changes.
+
+Location in code: `src/CrossAttention.cpp` (`gpu_forward()`, `gpu_forward_with_cache()`); tagged `TODO: See TD-301`.
+
+Files to Modify:
+
+- `src/CrossAttention.{hpp,cpp}`
+- `src/MultiHeadAttention.cpp`
+
+---
+
+### TD-302: LoRA Adapters Aren't Persisted or Counted in Gradient Norms
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Attention / CrossAttention | October 10, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-297, by inspection. Neither `CrossAttention::save()` nor SafeTensors
+(`ModelSerializer`) stores LoRA adapters, so unmerged LoRA training is lost on save unless
+`merge_lora()` is called first. `get_gradient_norm()` covers only the base weights' gradients, so
+gradient clipping and norm reporting ignore adapter gradients, which matters most when only the
+adapters are trained. `MultiHeadAttention` has the same shape. LoRA has no production caller yet
+(`EncoderDecoderModel::enable_lora()` is never called outside tests), so this is latent.
+
+Action Items:
+
+- [ ] Persist adapters (e.g. extra SafeTensors entries) or document merge-before-save and enforce it.
+- [ ] Include active adapters' gradients in `get_gradient_norm()`.
+
+Location in code: `src/CrossAttention.cpp` (`get_gradient_norm()`, `save()`); tagged `TODO: See TD-302`.
+
+Files to Modify:
+
+- `src/CrossAttention.cpp`
+- `src/MultiHeadAttention.cpp`
+- `src/ModelSerializer.cpp`
+
+---
+
+### TD-303: Decoder-Only Mode Still Runs Cross-Attention over a Dummy Input
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Attention / CrossAttention | October 10, 2026 | 1 hour |
+
+Description:
+Found alongside TD-297, by inspection. With no encoder output, `LLMDecoder::forward()`/
+`forward_with_cache()` pass a zero `Matrix(1, d_model)` to every block, under a comment saying
+"no cross-attention". The cross-attention layer still runs. With `V = 0` its output and gradients are
+exactly zero, so it's wasted compute, not a correctness bug.
+
+Action Items:
+
+- [ ] Skip the cross-attention sub-layer in `DecoderBlock` when no encoder output is given (e.g. a null pointer), and fix the comment.
+
+Location in code: `src/Decoder.cpp` (decoder-only branches); tagged `TODO: See TD-303`.
+
+Files to Modify:
+
+- `src/Decoder.cpp`
+- `src/DecoderBlock.{hpp,cpp}`
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -5833,15 +6071,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 99 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 106 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|15|15%|
-|Medium|45|45%|
-|Low|39|39%|
+|High|15|14%|
+|Medium|47|44%|
+|Low|44|42%|
 
-**Total Active Items:** 99
+**Total Active Items:** 106
 
 ### By Component
 
@@ -5872,6 +6110,7 @@ Recomputed directly from the 99 `### TD-NNN` entries under [Active Technical Deb
 |Training / Service Supervisor|6|
 |Config|8|
 |NLP / ConversationContext|6|
+|Attention / CrossAttention|7|
 |Core / Batching|1|
 |Data / Dataset|1|
 |NLP / Tokenizer|6|
@@ -5880,13 +6119,13 @@ Recomputed directly from the 99 `### TD-NNN` entries under [Active Technical Deb
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|50|
-|2-4 hours|31|
+|0-2 hours|54|
+|2-4 hours|34|
 |4-8 hours|8|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 250-414 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 260-432 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

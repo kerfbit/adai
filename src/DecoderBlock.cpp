@@ -444,6 +444,7 @@ Matrix DecoderBlock::backward(const Matrix& grad_output, Matrix& grad_encoder_ou
     return grad_input;
 }
 
+// TODO: See TD-297 in TECHNICAL_DEBT.md - with a shared optimizer, each sub-layer's update_weights() calls step() again
 void DecoderBlock::update_weights() {
     self_attention->update_weights();
     cross_attention->update_weights();
