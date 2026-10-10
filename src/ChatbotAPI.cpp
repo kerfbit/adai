@@ -335,6 +335,7 @@ std::string ChatbotAPI::handle_import_session(const std::string& request_body) {
     }
 
     try {
+        // TODO: See TD-291 in TECHNICAL_DEBT.md - import adopts client-supplied limits/token counts; TD-293: a bad import wipes the session
         session->context->deserialize(data);
     } catch (const std::exception& e) {
         return create_error_response(std::string("Failed to import conversation: ") + e.what());

@@ -19,6 +19,7 @@ This directory contains reference materials, technical specifications, and imple
   - [ChatbotTrainer](source/ChatbotTrainer.md) (`src/ChatbotTrainer.{hpp,cpp}`; the supervised training pass)
   - [ChildProcess](source/ChildProcess.md) (`src/ChildProcess.{hpp,cpp}`; `trainer_service`'s child launcher)
   - [Config](source/Config.md) (`src/Config.{hpp,cpp}`; `ServiceConfig`/`ConfigLoader`)
+  - [ConversationContext](source/ConversationContext.md) (`src/ConversationContext.{hpp,cpp}`; multi-turn chat history)
 
 - **[KVCache API Reference](kvcache.md)** - Complete API documentation for the Key-Value cache system
   - Single-layer and multi-layer caching

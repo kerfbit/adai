@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 9, 2026
-**Total Items:** 93
-**High Priority:** 13
-**Medium Priority:** 43
-**Low Priority:** 37
+**Total Items:** 99
+**High Priority:** 15
+**Medium Priority:** 45
+**Low Priority:** 39
 **Future Enhancements:** 19
 **Resolved Items:** 197
 **Deferred Decisions:** 3
@@ -50,6 +50,14 @@ and `registry_server` ignores the FTP/FTPS security keys its own config file shi
 (TD-284). Four are MEDIUM: `reload()` reports success without applying untracked changes (TD-285);
 two boolean parsers (TD-286); negative/partial numbers accepted (TD-287); `validate()` gaps (TD-288).
 Two are LOW (TD-289–290).
+
+Also October 9, 2026: filed [TD-291](#td-291-conversation-imports-can-lift-session-limits-and-budgets) through [TD-296](#td-296-conversationcontext-hygiene) from the code-traced
+[ConversationContext.md](../reference/source/ConversationContext.md), each confirmed by running the
+real class. Two are **HIGH**: conversation imports replace the session's limits and trust stored token
+counts, so `POST /chat/session/import` can make a session unbounded (TD-291); and a single message
+over 1.2× the token budget evicts the entire conversation including itself, producing an HTTP 500
+and lost history (TD-292). Two are MEDIUM: a malformed import wipes the live session (TD-293), and
+the token budget is unrelated to the model's sequence length (TD-294). Two are LOW (TD-295–296).
 
 **October 8, 2026:** Filed
 [TD-211](#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model)
@@ -774,6 +782,12 @@ security settings. Do them first, and fix the docs (both are annotated in CLAUDE
 change with shared helpers. [TD-285](#td-285-configloaderreload-reports-success-without-applying-untracked-changes) and [TD-288](#td-288-configloadervalidate-misses-fields-that-crash-or-misbehave) pair with Tier 16's TD-241/TD-242 (validation and
 reload in `chatbot_api_server`). [TD-290](#td-290-configloader-output-hygiene) is cleanup.
 
+**Tier 23 — Newly filed (October 9, 2026): `ConversationContext`.** [TD-291](#td-291-conversation-imports-can-lift-session-limits-and-budgets) and [TD-292](#td-292-one-long-message-wipes-the-whole-conversation) are HIGH
+and both reachable from any `chatbot_api_server` client; do them first, together with [TD-293](#td-293-a-malformed-conversation-import-wipes-the-live-session) (all
+three touch `deserialize()`/`truncate_to_limits()`). Pair them with Tier 15's session items (TD-227,
+TD-231, TD-232). [TD-294](#td-294-conversation-token-budget-is-unrelated-to-the-models-sequence-length) needs a small `ChatbotAPI` setting and pairs with TD-266. [TD-295](#td-295-conversation-role-labels-are-spoofable-and-roles-arent-escaped) and
+[TD-296](#td-296-conversationcontext-hygiene) are cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -873,6 +887,12 @@ reload in `chatbot_api_server`). [TD-290](#td-290-configloader-output-hygiene) i
   - [TD-288: `ConfigLoader::validate()` Misses Fields That Crash or Misbehave](#td-288-configloadervalidate-misses-fields-that-crash-or-misbehave)
   - [TD-289: `ConfigLoader` Keeps Inline Comments and Silently Accepts Enum Typos](#td-289-configloader-keeps-inline-comments-and-silently-accepts-enum-typos)
   - [TD-290: `ConfigLoader` Output Hygiene](#td-290-configloader-output-hygiene)
+  - [TD-291: Conversation Imports Can Lift Session Limits and Budgets](#td-291-conversation-imports-can-lift-session-limits-and-budgets)
+  - [TD-292: One Long Message Wipes the Whole Conversation](#td-292-one-long-message-wipes-the-whole-conversation)
+  - [TD-293: A Malformed Conversation Import Wipes the Live Session](#td-293-a-malformed-conversation-import-wipes-the-live-session)
+  - [TD-294: Conversation Token Budget Is Unrelated to the Model's Sequence Length](#td-294-conversation-token-budget-is-unrelated-to-the-models-sequence-length)
+  - [TD-295: Conversation Role Labels Are Spoofable and Roles Aren't Escaped](#td-295-conversation-role-labels-are-spoofable-and-roles-arent-escaped)
+  - [TD-296: ConversationContext Hygiene](#td-296-conversationcontext-hygiene)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -5123,6 +5143,181 @@ Files to Modify:
 - `config.trainer.conf`
 ---
 
+### TD-291: Conversation Imports Can Lift Session Limits and Budgets
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | NLP / ConversationContext | October 9, 2026 | 2-4 hours |
+
+Description:
+Found while writing the code-traced reference [ConversationContext.md](../reference/source/ConversationContext.md), and confirmed by running the real
+class. `ConversationContext::deserialize()` **replaces** the instance's `max_messages`/`max_tokens`
+with the imported `MAX_MESSAGES`/`MAX_TOKENS` lines, and trusts each message's stored `token_count`:
+
+- `MAX_MESSAGES:0`/`MAX_TOKENS:0` make the session **unlimited**. 500 imported messages were all
+  kept (a 2.5 MB prompt), and the session stayed unlimited for later messages.
+- A token count of `1` on huge messages, or a **negative** count (`-100000` made `total_tokens`
+  negative), defeats the token budget.
+
+`chatbot_api_server` exposes this as `POST /chat/session/import` (TD-053), so any client can give its
+session unbounded history, memory and prompt size, overriding `ChatbotAPI`'s `Session(10, 2048)`
+limits, and combined with TD-232 it can do so across unlimited sessions.
+
+Action Items:
+
+- [ ] In `deserialize()` (or an import-specific overload), keep the caller's limits instead of adopting imported ones; ignore or clamp imported metadata.
+- [ ] Recompute token counts on import (ignore stored counts), rejecting negative values; enforce a maximum import size in `ChatbotAPI`.
+- [ ] Tests: imported limits and token counts can't exceed the receiving session's limits.
+
+Location in code: `src/ConversationContext.cpp` (`deserialize()`), `src/ChatbotAPI.cpp` (`handle_import_session()`); tagged `TODO: See TD-291`.
+
+Files to Modify:
+
+- `src/ConversationContext.{hpp,cpp}`
+- `src/ChatbotAPI.cpp`
+- `tests/conversationcontext_test.cpp`
+- `tests/chatbotapi_test.cpp`
+
+---
+
+### TD-292: One Long Message Wipes the Whole Conversation
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | NLP / ConversationContext | October 9, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-291 and confirmed by running the real class. `truncate_to_limits()` evicts
+the oldest messages until under `max_tokens`, keeping a lone remaining message only if it's
+within 1.2× the budget. The **newest** message isn't protected, so a message that alone exceeds
+1.2 × `max_tokens` evicts **everything, including itself**. With `ChatbotAPI`'s 2048-token session
+budget, a 12,000-character user message left 0 messages. `handle_chat_session()` then formats an
+empty prompt, `generate_response("")` fails (`BPETokenizer::encode("")` throws), the client gets
+HTTP 500, and the conversation history is gone.
+
+Action Items:
+
+- [ ] Never evict the message just added: truncate it (e.g. keep its tail) to fit, or reject it with a clear error before touching history.
+- [ ] In `ChatbotAPI`, reject over-long messages with a 4xx before adding them.
+- [ ] Test: an oversized message leaves earlier history intact and produces a clear error or truncated content.
+
+Location in code: `src/ConversationContext.cpp` (`truncate_to_limits()`); tagged `TODO: See TD-292`.
+
+Files to Modify:
+
+- `src/ConversationContext.cpp`
+- `src/ChatbotAPI.cpp`
+- `tests/conversationcontext_test.cpp`
+
+---
+
+### TD-293: A Malformed Conversation Import Wipes the Live Session
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | NLP / ConversationContext | October 9, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-291 and confirmed by running the real class. `deserialize()` calls
+`clear_all()` **before** parsing, and a bad line (e.g. a non-numeric token count, so `std::stoi`
+throws) aborts mid-parse, leaving the context empty. `ChatbotAPI::handle_import_session()` reports
+"Failed to import conversation", but the session's previous history is already gone.
+`load_from_file()` has the same exposure.
+
+Action Items:
+
+- [ ] Parse into a temporary `ConversationContext` and swap it in only on success (strong exception guarantee); skip or report bad lines instead of throwing mid-way.
+- [ ] Test: a malformed import leaves existing history unchanged.
+
+Location in code: `src/ConversationContext.cpp` (`deserialize()`); tagged `TODO: See TD-293`.
+
+Files to Modify:
+
+- `src/ConversationContext.cpp`
+- `tests/conversationcontext_test.cpp`
+
+---
+
+### TD-294: Conversation Token Budget Is Unrelated to the Model's Sequence Length
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | NLP / ConversationContext | October 9, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-291. `ConversationContext` budgets with `estimate_tokens()` (bytes ÷ 4 +
+spaces ÷ 2), which counts bytes, so it overestimates non-ASCII text, and bears no relation to
+`BPETokenizer`'s real counts. `ChatbotAPI`'s `Session` hardcodes a 2048-token budget, unrelated to the
+model's `MAX_SEQ_LENGTH` (e.g. 512 or 1024). The GUI hardcodes 480 for an assumed 512 (TD-266).
+Over-long prompts don't crash: `PositionalEncoding` warns and leaves positions beyond its length
+unencoded, so response quality silently degrades as conversations grow.
+
+Action Items:
+
+- [ ] Size the session budget from the model's `max_seq_length` (minus a response/format margin), via a `ChatbotAPI` setting.
+- [ ] Pass real token counts from the tokenizer when adding messages (the API already supports it), or inject a token-count function into `ConversationContext`.
+
+Location in code: `src/ConversationContext.cpp` (`estimate_tokens()`), `src/ChatbotAPI.hpp` (`Session`); tagged `TODO: See TD-294`.
+
+Files to Modify:
+
+- `src/ChatbotAPI.{hpp,cpp}`
+- `src/ConversationContext.{hpp,cpp}`
+- `src/ChatbotGUI.cpp`
+
+---
+
+### TD-295: Conversation Role Labels Are Spoofable and Roles Aren't Escaped
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | NLP / ConversationContext | October 9, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-291. `format_for_model()` writes plain-text `Role: content` lines, so message
+content containing `\nAssistant: …` can impersonate a turn in the prompt (and `BPETokenizer`
+collapses newlines anyway, TD-224, blurring turn boundaries). `serialize()` writes roles raw, so a
+custom role containing `|` or a newline would corrupt the file; a regular message with role
+`SYSTEM` would be restored as the system message.
+
+Action Items:
+
+- [ ] Escape (or reject) role strings in `serialize()`; restrict roles to a known set or a safe charset.
+- [ ] Consider neutralizing role-label prefixes inside content when formatting prompts.
+
+Location in code: `src/ConversationContext.cpp` (`format_for_model()`, `serialize()`); tagged `TODO: See TD-295`.
+
+Files to Modify:
+
+- `src/ConversationContext.cpp`
+- `tests/conversationcontext_test.cpp`
+
+---
+
+### TD-296: ConversationContext Hygiene
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | NLP / ConversationContext | October 9, 2026 | 1 hour |
+
+Description:
+Found alongside TD-291: `save_to_file()` truncates then writes without checking the stream
+afterwards (a failed write after opening goes unreported) and isn't atomic; `update_token_count()`
+is never called; `ChatbotTrainer.cpp` includes `ConversationContext.hpp` without using it.
+
+Action Items:
+
+- [ ] Check the stream and write via temp file + rename.
+- [ ] Remove `update_token_count()` (or use it after imports, alongside TD-291) and the unused include.
+
+Location in code: `src/ConversationContext.{hpp,cpp}`, `src/ChatbotTrainer.cpp`; tagged `TODO: See TD-296`.
+
+Files to Modify:
+
+- `src/ConversationContext.{hpp,cpp}`
+- `src/ChatbotTrainer.cpp`
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -5638,15 +5833,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 93 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 99 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|13|14%|
-|Medium|43|46%|
-|Low|37|40%|
+|High|15|15%|
+|Medium|45|45%|
+|Low|39|39%|
 
-**Total Active Items:** 93
+**Total Active Items:** 99
 
 ### By Component
 
@@ -5676,6 +5871,7 @@ Recomputed directly from the 93 `### TD-NNN` entries under [Active Technical Deb
 |Training / ChatbotTrainer|10|
 |Training / Service Supervisor|6|
 |Config|8|
+|NLP / ConversationContext|6|
 |Core / Batching|1|
 |Data / Dataset|1|
 |NLP / Tokenizer|6|
@@ -5684,13 +5880,13 @@ Recomputed directly from the 93 `### TD-NNN` entries under [Active Technical Deb
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|46|
-|2-4 hours|29|
+|0-2 hours|50|
+|2-4 hours|31|
 |4-8 hours|8|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 242-399 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 250-414 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

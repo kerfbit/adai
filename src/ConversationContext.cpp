@@ -113,6 +113,7 @@ void ConversationContext::add_message(const std::string& role, const std::string
     truncate_to_limits();
 }
 
+// TODO: See TD-295 in TECHNICAL_DEBT.md - plain-text role labels let message content impersonate turns
 std::string ConversationContext::format_for_model(bool include_system,
                                                   const std::string& separator) const {
     std::ostringstream oss;
@@ -241,6 +242,7 @@ void ConversationContext::truncate_to_limits() {
     if (max_tokens > 0) {
         while (total_tokens > max_tokens && !messages.empty()) {
             // Keep at least one message if possible
+            // TODO: See TD-292 in TECHNICAL_DEBT.md - the newest message isn't protected; one oversized message evicts everything, itself included
             if (messages.size() == 1 && total_tokens <= max_tokens * 1.2) {
                 break;
             }
@@ -290,12 +292,14 @@ std::string ConversationContext::serialize() const {
 
     // Write all messages
     for (const auto& msg : messages) {
+        // TODO: See TD-295 in TECHNICAL_DEBT.md - roles are written unescaped; '|' or a newline in a role corrupts the line
         oss << msg.role << "|" << msg.token_count << "|" << escape_for_line(msg.content) << "\n";
     }
 
     return oss.str();
 }
 
+// TODO: See TD-296 in TECHNICAL_DEBT.md - stream not checked after writing; not atomic (use temp file + rename)
 void ConversationContext::save_to_file(const std::string& filepath) const {
     std::ofstream file(filepath);
     if (!file.is_open()) {
@@ -307,6 +311,7 @@ void ConversationContext::save_to_file(const std::string& filepath) const {
 
 void ConversationContext::deserialize(const std::string& data) {
     // Clear current state
+    // TODO: See TD-293 in TECHNICAL_DEBT.md - clears before parsing, so a malformed import wipes the existing history
     clear_all();
 
     std::istringstream iss(data);
@@ -327,6 +332,7 @@ void ConversationContext::deserialize(const std::string& data) {
                 std::string value = line.substr(colon_pos + 1);
 
                 if (key == "MAX_MESSAGES") {
+                    // TODO: See TD-291 in TECHNICAL_DEBT.md - imported MAX_MESSAGES/MAX_TOKENS replace the caller's limits (0 = unlimited)
                     max_messages = std::stoi(value);
                 } else if (key == "MAX_TOKENS") {
                     max_tokens = std::stoi(value);
@@ -347,6 +353,7 @@ void ConversationContext::deserialize(const std::string& data) {
             }
 
             std::string role = line.substr(0, first_pipe);
+            // TODO: See TD-291 in TECHNICAL_DEBT.md - imported token counts are trusted (0/1/negative defeat the budget)
             int token_count = std::stoi(line.substr(first_pipe + 1, second_pipe - first_pipe - 1));
             std::string content = unescape_from_line(line.substr(second_pipe + 1));
 
@@ -434,6 +441,7 @@ ConversationContext ConversationContext::create_summarized(int keep_recent,
     return summarized;
 }
 
+// TODO: See TD-294 in TECHNICAL_DEBT.md - byte-based estimate, unrelated to BPETokenizer counts or the model's max_seq_length
 int ConversationContext::estimate_tokens(const std::string& content) {
     // Simple estimation: ~4 characters per token (rough BPE approximation)
     // Add some overhead for special tokens and formatting
@@ -447,6 +455,7 @@ int ConversationContext::estimate_tokens(const std::string& content) {
     return estimated;
 }
 
+// TODO: See TD-296 in TECHNICAL_DEBT.md - never called; remove or use after imports
 void ConversationContext::update_token_count() {
     total_tokens = 0;
 

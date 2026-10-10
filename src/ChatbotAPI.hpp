@@ -29,6 +29,7 @@ struct Session {
     std::unique_ptr<ConversationContext> context;
     std::chrono::steady_clock::time_point last_access;
 
+    // TODO: See TD-294 in TECHNICAL_DEBT.md - 2048-token budget is unrelated to the model's MAX_SEQ_LENGTH
     Session(size_t max_messages = 10, size_t max_tokens = 2048)
         : context(std::make_unique<ConversationContext>(max_messages, max_tokens)),
           last_access(std::chrono::steady_clock::now()) {}
