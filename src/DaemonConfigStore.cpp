@@ -26,6 +26,7 @@ std::string utc_now() {
 
 namespace adai {
 
+// TODO: See TD-304 in TECHNICAL_DEBT.md - no sqlite3_busy_timeout(), so a concurrent writer makes set() fail immediately
 DaemonConfigStore::DaemonConfigStore(const std::string& db_path) {
     if (sqlite3_open(db_path.c_str(), &db_) != SQLITE_OK) {
         const std::string err = db_ ? sqlite3_errmsg(db_) : "unknown error";
@@ -37,6 +38,7 @@ DaemonConfigStore::DaemonConfigStore(const std::string& db_path) {
     }
 
     // WAL mode: avoid blocking a long-running daemon's own reads on an admin write.
+    // TODO: See TD-307 in TECHNICAL_DEBT.md - result ignored; without WAL, readers can be blocked
     sqlite3_exec(db_, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
 
     static const char* kSchema =
@@ -69,6 +71,7 @@ std::map<std::string, std::string> DaemonConfigStore::load_all() const {
         Logger::warn("DaemonConfigStore::load_all: prepare failed: {}", sqlite3_errmsg(db_));
         return out;
     }
+    // TODO: See TD-307 in TECHNICAL_DEBT.md - a step error ends the loop silently (partial map, no warning)
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         const auto* key = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
         const auto* value = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
@@ -80,6 +83,7 @@ std::map<std::string, std::string> DaemonConfigStore::load_all() const {
     return out;
 }
 
+// TODO: See TD-305 in TECHNICAL_DEBT.md - no multi-key/transactional variant, so multi-key PUTs persist non-atomically
 void DaemonConfigStore::set(const std::string& key, const std::string& value) {
     static const char* kUpsert =
         "INSERT INTO daemon_config (key, value, updated_utc) VALUES (?, ?, ?) "

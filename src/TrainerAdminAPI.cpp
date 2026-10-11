@@ -240,6 +240,7 @@ std::pair<int, std::string> adai::TrainerAdminAPI::handle_get_config() {
     return {200, j.str()};
 }
 
+// TODO: See TD-305 in TECHNICAL_DEBT.md - applies keys before validating later ones; a 400 can still change live state
 std::pair<int, std::string> adai::TrainerAdminAPI::handle_put_config(const std::string& body) {
     // port/host/dir are baked into the already-bound listener socket and the
     // already-opened daemon_config.db handle, so changing them here would
@@ -293,6 +294,7 @@ std::pair<int, std::string> adai::TrainerAdminAPI::handle_put_config(const std::
     }
 
     if (config_store_) {
+        // TODO: See TD-305 in TECHNICAL_DEBT.md - per-key set() with no transaction
         config_store_->set("auto_save_enabled",
                            control_->auto_save_enabled.load() ? "true" : "false");
         config_store_->set("auto_save_every_samples",

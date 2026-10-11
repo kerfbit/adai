@@ -21,6 +21,7 @@ This directory contains reference materials, technical specifications, and imple
   - [Config](source/Config.md) (`src/Config.{hpp,cpp}`; `ServiceConfig`/`ConfigLoader`)
   - [ConversationContext](source/ConversationContext.md) (`src/ConversationContext.{hpp,cpp}`; multi-turn chat history)
   - [CrossAttention](source/CrossAttention.md) (`src/CrossAttention.{hpp,cpp}`; encoder-decoder attention)
+  - [DaemonConfigStore](source/DaemonConfigStore.md) (`src/DaemonConfigStore.{hpp,cpp}`; persisted `/admin/config` overrides and session counters)
 
 - **[KVCache API Reference](kvcache.md)** - Complete API documentation for the Key-Value cache system
   - Single-layer and multi-layer caching

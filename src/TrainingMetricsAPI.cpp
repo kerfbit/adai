@@ -1661,6 +1661,7 @@ std::pair<int, std::string> TrainingMetricsAPI::handle_admin_put_config(const st
 
     bool changed = false;
 
+    // TODO: See TD-306 in TECHNICAL_DEBT.md - no range checks on these tunables (negative max_live_sessions becomes a huge size_t)
     if (auto v = json_int_value(body, "max_live_sessions")) {
         session_registry_->set_max_live_sessions(static_cast<size_t>(*v));
         changed = true;
@@ -1720,6 +1721,7 @@ std::pair<int, std::string> TrainingMetricsAPI::handle_admin_put_config(const st
 
     if (config_store_) {
         const auto cfg = session_registry_->base_metrics_config();
+        // TODO: See TD-305 in TECHNICAL_DEBT.md - per-key set() with no transaction; memory already updated
         config_store_->set("max_live_sessions",
                            std::to_string(session_registry_->max_live_sessions()));
         config_store_->set("completed_ttl_seconds",

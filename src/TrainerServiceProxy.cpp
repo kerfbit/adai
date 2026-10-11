@@ -354,6 +354,7 @@ std::pair<int, std::string> adai::TrainerServiceProxy::handle_get_config_idle() 
     return {200, j.str()};
 }
 
+// TODO: See TD-305 in TECHNICAL_DEBT.md - persists keys before validating later ones; a 400 can still change the DB
 std::pair<int, std::string> adai::TrainerServiceProxy::handle_put_config_idle(
     const std::string& body) {
     // Deliberately mirrors TrainerAdminAPI::handle_put_config()'s validation for the same four

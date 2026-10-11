@@ -1947,6 +1947,7 @@ std::pair<int, std::string> adai::ModelNameService::handle_admin_put_config(
     }
 
     if (config_store_) {
+        // TODO: See TD-305 in TECHNICAL_DEBT.md - per-key set() with no transaction; memory already updated
         config_store_->set("registry_url", registry_url_);
         config_store_->set("registry_group", registry_group_);
     }

@@ -5,13 +5,22 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 9, 2026
-**Total Items:** 106
+**Total Items:** 111
 **High Priority:** 15
-**Medium Priority:** 47
-**Low Priority:** 44
+**Medium Priority:** 49
+**Low Priority:** 47
 **Future Enhancements:** 19
 **Resolved Items:** 197
 **Deferred Decisions:** 3
+
+**October 11, 2026:** Filed [TD-304](#td-304-session-counters-can-be-duplicated-and-daemonconfigstore-has-no-busy-timeout) through [TD-308](#td-308-session-counters-reuse-the-config-stores-table-and-scan-it-per-allocation) from the code-traced
+[DaemonConfigStore.md](../reference/source/DaemonConfigStore.md). Two are MEDIUM: the store has no
+SQLite busy timeout and standalone session numbers are allocated with a non-atomic read-modify-write,
+so concurrent writers fail instantly and two processes can be handed the same session number
+(TD-304, verified: 284 of 400 concurrent increments threw and 3 were lost); and a rejected or failed
+`PUT /admin/config` still partly applies, in memory or in the DB (TD-305). Three are LOW
+(TD-306–308): missing range checks on two daemons' PUTs, hidden `load_all()` read errors, and the
+counter store reusing the config table.
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -802,6 +811,11 @@ fix it at the model level the way TD-178 fixed `LeJEPAEncoder`, since the same p
 layer type. [TD-298](#td-298-crossattentionload-loads-truncated-files-as-nan-weights) and [TD-299](#td-299-crossattention-crashes-with-sigfpe-when-num_heads-is-zero) are small input-hardening fixes. [TD-300](#td-300-crossattentionforward_with_cache-silently-reuses-stale-encoder-kv), [TD-301](#td-301-crossattention-gpu-path-diverges-from-the-cpu-path) and
 [TD-302](#td-302-lora-adapters-arent-persisted-or-counted-in-gradient-norms) matter mainly before LoRA or the GPU cached path get wider use; [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) is cleanup.
 
+**Tier 25 — Newly filed (October 11, 2026): `DaemonConfigStore` and admin config.** [TD-304](#td-304-session-counters-can-be-duplicated-and-daemonconfigstore-has-no-busy-timeout)
+first: a busy timeout is a one-line change, and an atomic `increment()` fixes duplicate session
+numbers in both transports. [TD-305](#td-305-a-rejected-or-failed-put-adminconfig-still-partly-applies) pairs with it (add `set_many()` in the same change) and with
+[TD-306](#td-306-registry_server-and-metrics_api_server-admin-puts-dont-range-check-values), since all three touch the admin PUT handlers. [TD-307](#td-307-daemonconfigstoreload_all-hides-read-errors) and [TD-308](#td-308-session-counters-reuse-the-config-stores-table-and-scan-it-per-allocation) are cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -914,6 +928,11 @@ layer type. [TD-298](#td-298-crossattentionload-loads-truncated-files-as-nan-wei
   - [TD-301: `CrossAttention` GPU Path Diverges from the CPU Path](#td-301-crossattention-gpu-path-diverges-from-the-cpu-path)
   - [TD-302: LoRA Adapters Aren't Persisted or Counted in Gradient Norms](#td-302-lora-adapters-arent-persisted-or-counted-in-gradient-norms)
   - [TD-303: Decoder-Only Mode Still Runs Cross-Attention over a Dummy Input](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input)
+  - [TD-304: Session Counters Can Be Duplicated and `DaemonConfigStore` Has No Busy Timeout](#td-304-session-counters-can-be-duplicated-and-daemonconfigstore-has-no-busy-timeout)
+  - [TD-305: A Rejected or Failed `PUT /admin/config` Still Partly Applies](#td-305-a-rejected-or-failed-put-adminconfig-still-partly-applies)
+  - [TD-306: `registry_server` and `metrics_api_server` Admin PUTs Don't Range-Check Values](#td-306-registry_server-and-metrics_api_server-admin-puts-dont-range-check-values)
+  - [TD-307: `DaemonConfigStore::load_all()` Hides Read Errors](#td-307-daemonconfigstoreload_all-hides-read-errors)
+  - [TD-308: Session Counters Reuse the Config Store's Table and Scan It per Allocation](#td-308-session-counters-reuse-the-config-stores-table-and-scan-it-per-allocation)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -5556,6 +5575,165 @@ Files to Modify:
 - `src/DecoderBlock.{hpp,cpp}`
 ---
 
+### TD-304: Session Counters Can Be Duplicated and `DaemonConfigStore` Has No Busy Timeout
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Core / DaemonConfigStore | October 11, 2026 | 2-4 hours |
+
+Description:
+Found while writing the code-traced reference [DaemonConfigStore.md](../reference/source/DaemonConfigStore.md) and confirmed by running the real
+class. `DaemonConfigStore` never sets `sqlite3_busy_timeout()`, so any write while another
+connection holds the write lock fails immediately: with a second connection in a write
+transaction, `set()` threw `database is locked` after 0.1 ms.
+
+`LocalTransport::next_session()` (standalone trainers, no `REGISTRY_SERVER_URL`) allocates session
+numbers as `load_all()` → `+1` → `set()` with no transaction and no lock. Two processes each doing
+200 such increments against one `session_counters.db`:
+- 284 of 400 calls **threw** (`database is locked`);
+- the counter ended at **113** although 116 calls reported success, so 3 increments were lost (two
+  callers handed the same session number).
+
+`IncrementalTrainer::begin_run()` catches the throw and continues with an **empty** session ID.
+`registry_server`'s `handle_session_next` is safe within one process (it holds
+`g_session_store_mtx`) but would race the same way across processes. `trainer_service` and its child
+also share `TRAINER_ADMIN_DIR/daemon_config.db`, so a write overlapping a child's start or exit
+fails instead of waiting.
+
+Action Items:
+
+- [ ] Set `sqlite3_busy_timeout()` (e.g. 5 s) in the constructor.
+- [ ] Add an atomic `increment(key)` (`BEGIN IMMEDIATE` read-modify-write, or `UPDATE … RETURNING`) and use it in both `next_session()` implementations.
+- [ ] Tests: two connections writing concurrently both succeed; concurrent increments are never lost or duplicated.
+
+Location in code: `src/DaemonConfigStore.cpp` (constructor, `set()`), `src/RegistryTransport.cpp` (`LocalTransport::next_session()`), `src/RegistryServer.cpp` (`handle_session_next`); tagged `TODO: See TD-304`.
+
+Files to Modify:
+
+- `src/DaemonConfigStore.{hpp,cpp}`
+- `src/RegistryTransport.cpp`
+- `src/RegistryServer.cpp`
+- `tests/daemonconfigstore_test.cpp`
+
+---
+
+### TD-305: A Rejected or Failed `PUT /admin/config` Still Partly Applies
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Admin config API | October 11, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-304, by inspection. Two problems:
+
+- **Trainer PUTs apply keys before validating later ones.** Both `TrainerAdminAPI::handle_put_config()`
+  and `TrainerServiceProxy::handle_put_config_idle()` apply the body key by key and return 400 at the
+  first invalid value. `{"auto_save_enabled":false,"auto_save_every_samples":-5}` is rejected with 400,
+  but auto-save is already off:
+  - in a live child, in memory only, so live state and `daemon_config.db` disagree;
+  - in the idle proxy, already written to the DB, so the next pass starts with auto-save off.
+- **Multi-key persistence isn't atomic in any daemon.** `TrainerAdminAPI`, `ModelNameService`,
+  `TrainingMetricsAPI` and `registry_server` call `DaemonConfigStore::set()` once per key with no
+  transaction, after the in-memory state is already updated. If one `set()` throws (e.g. locked,
+  TD-304), earlier keys are persisted and later ones aren't, and the exception escapes the handler,
+  so the client sees an error for a change that partly applied and will partly revert on restart.
+
+Action Items:
+
+- [ ] Validate every key in the body before applying or persisting any of them.
+- [ ] Add `DaemonConfigStore::set_many()` (one transaction) and persist before (or atomically with) updating in-memory state; return a clear 500 when persistence fails.
+- [ ] Tests: a body with one invalid key changes nothing; a persistence failure leaves memory and DB consistent.
+
+Location in code: `src/TrainerAdminAPI.cpp` (`handle_put_config()`), `src/TrainerServiceProxy.cpp` (`handle_put_config_idle()`), `src/DaemonConfigStore.hpp`; tagged `TODO: See TD-305`.
+
+Files to Modify:
+
+- `src/DaemonConfigStore.{hpp,cpp}`
+- `src/TrainerAdminAPI.cpp`
+- `src/TrainerServiceProxy.cpp`
+- `src/ModelNameService.cpp`
+- `src/TrainingMetricsAPI.cpp`
+- `src/RegistryServer.cpp`
+
+---
+
+### TD-306: `registry_server` and `metrics_api_server` Admin PUTs Don't Range-Check Values
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Admin config API | October 11, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-304, by inspection. `registry_server`'s `PUT /admin/config` accepts any integer
+for `ftp_token_ttl_minutes`/`ftp_max_sessions_per_run`, and `metrics_api_server`'s accepts any
+integer for its nine tunables. Negative values are applied and persisted; a negative
+`max_live_sessions` is cast to `size_t` and becomes enormous. The trainer PUTs already validate their
+ranges.
+
+Action Items:
+
+- [ ] Add range checks matching each setting's meaning and return 400 for out-of-range values (validating all keys first, per TD-305).
+
+Location in code: `src/RegistryServer.cpp` (admin PUT handler), `src/TrainingMetricsAPI.cpp` (admin PUT handler); tagged `TODO: See TD-306`.
+
+Files to Modify:
+
+- `src/RegistryServer.cpp`
+- `src/TrainingMetricsAPI.cpp`
+
+---
+
+### TD-307: `DaemonConfigStore::load_all()` Hides Read Errors
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Core / DaemonConfigStore | October 11, 2026 | 1 hour |
+
+Description:
+Found alongside TD-304, by inspection. `load_all()` stops at the first non-`SQLITE_ROW` step result
+without checking whether it was an error, so a mid-scan failure returns a partial map with no
+warning. The `PRAGMA journal_mode=WAL` result is ignored: on filesystems without shared memory,
+SQLite falls back to rollback journalling where readers can be blocked, so a daemon's startup
+overlay can silently drop persisted overrides.
+
+Action Items:
+
+- [ ] Check the final step result and warn (or throw) on errors; log when WAL couldn't be enabled.
+
+Location in code: `src/DaemonConfigStore.cpp` (constructor, `load_all()`); tagged `TODO: See TD-307`.
+
+Files to Modify:
+
+- `src/DaemonConfigStore.cpp`
+
+---
+
+### TD-308: Session Counters Reuse the Config Store's Table and Scan It per Allocation
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Core / DaemonConfigStore | October 11, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-304, by inspection. `registry_server` and `LocalTransport` keep session counters
+in `session_counters.db` through `DaemonConfigStore`, so the file contains a table named
+`daemon_config` holding counters. Each allocation reads **every** counter ever stored via
+`load_all()` to look up one key, and the table gains a row per run forever. It's cheap at today's
+scale but confusing and O(runs) per allocation.
+
+Action Items:
+
+- [ ] Add `get(key)` (or fold this into TD-304's `increment(key)`), and consider a dedicated counter class or table name.
+
+Location in code: `src/RegistryTransport.cpp` (`LocalTransport::next_session()`), `src/RegistryServer.cpp` (`handle_session_next`); tagged `TODO: See TD-308`.
+
+Files to Modify:
+
+- `src/DaemonConfigStore.{hpp,cpp}`
+- `src/RegistryTransport.cpp`
+- `src/RegistryServer.cpp`
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -6071,15 +6249,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 106 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 111 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|15|14%|
-|Medium|47|44%|
-|Low|44|42%|
+|Medium|49|44%|
+|Low|47|42%|
 
-**Total Active Items:** 106
+**Total Active Items:** 111
 
 ### By Component
 
@@ -6111,6 +6289,8 @@ Recomputed directly from the 106 `### TD-NNN` entries under [Active Technical De
 |Config|8|
 |NLP / ConversationContext|6|
 |Attention / CrossAttention|7|
+|Core / DaemonConfigStore|3|
+|Admin config API|2|
 |Core / Batching|1|
 |Data / Dataset|1|
 |NLP / Tokenizer|6|
@@ -6119,13 +6299,13 @@ Recomputed directly from the 106 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|54|
-|2-4 hours|34|
+|0-2 hours|57|
+|2-4 hours|36|
 |4-8 hours|8|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 260-432 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 267-445 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

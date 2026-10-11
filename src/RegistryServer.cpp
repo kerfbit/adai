@@ -1621,6 +1621,7 @@ static void handle_admin_put_config(const httplib::Request& req, httplib::Respon
     bool changed = false;
 
     if (json_has_key(req.body, "ftp_token_ttl_minutes")) {
+        // TODO: See TD-306 in TECHNICAL_DEBT.md - no range check (negative values accepted and persisted)
         ftp_token_ttl_min.store(json_int(req.body, "ftp_token_ttl_minutes", ftp_token_ttl_min));
         changed = true;
     }
@@ -1644,6 +1645,7 @@ static void handle_admin_put_config(const httplib::Request& req, httplib::Respon
     }
 
     if (g_config_store) {
+        // TODO: See TD-305 in TECHNICAL_DEBT.md - per-key set() with no transaction; a failure leaves memory and DB inconsistent
         g_config_store->set("ftp_token_ttl_minutes", std::to_string(ftp_token_ttl_min.load()));
         g_config_store->set("ftp_max_sessions_per_run", std::to_string(ftp_max_sessions));
     }
@@ -1690,6 +1692,7 @@ static void handle_session_next(const httplib::Request& req, httplib::Response& 
 
     const std::string key = model_name + "|" + run_id;
     int next = 1;
+    // TODO: See TD-304 in TECHNICAL_DEBT.md - read-modify-write is atomic only within this process (TD-308: full-table scan)
     if (const auto all = g_session_store->load_all(); all.count(key)) {
         try {
             next = std::stoi(all.at(key)) + 1;
