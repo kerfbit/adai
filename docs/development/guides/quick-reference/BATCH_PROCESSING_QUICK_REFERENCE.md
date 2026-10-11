@@ -272,7 +272,7 @@ std::cout << "Efficiency: " << ((1.0f - stats.padding_ratio) * 100) << "%\n";
 ## Files Reference
 
 - **Implementation:** `src/Dataset.hpp`, `src/ParallelDataLoader.hpp`
-- **Documentation:** `docs/api/data/dataset-batch-processing.md`
+- **Documentation:** `docs/development/reference/source/Dataset.md`
 - **Examples:** `src/DatasetBatchProcessingExample.cpp`
 - **Summary:** `DATASET_BATCH_PROCESSING_SUMMARY.md`
 - **Core Utilities:** `src/BatchProcessor.hpp`
@@ -281,5 +281,5 @@ std::cout << "Efficiency: " << ((1.0f - stats.padding_ratio) * 100) << "%\n";
 
 - [BatchProcessor API Reference](../../reference/source/BatchProcessor.md)
 - [Dataset API](src/Dataset.hpp)
-- [Complete Documentation](docs/api/data/dataset-batch-processing.md)
+- [Complete Documentation](../../reference/source/Dataset.md)
 - [Working Examples](src/DatasetBatchProcessingExample.cpp)

@@ -111,6 +111,7 @@ struct DatasetStats {
  * }
  * @endcode
  */
+// TODO: See TD-315 in TECHNICAL_DEBT.md - tagged stable but no production caller (tests/examples only); retire or keep
 class Dataset {
    public:
     // Iterator support
@@ -156,6 +157,7 @@ class Dataset {
             return batch;
         }
 
+        // TODO: See TD-317 in TECHNICAL_DEBT.md - batch_size 0 makes this a no-op, so range loops never end
         BatchIterator& operator++() {
             current_pos_ += batch_size_;
             return *this;
@@ -196,6 +198,7 @@ class Dataset {
      * RESPONSE: <bot response>
      * (blank line between pairs)
      */
+    // TODO: See TD-316 in TECHNICAL_DEBT.md - pairs need blank-line separators; multi-line responses keep only line 1
     bool parse_conversation_format(std::ifstream& file) {
         std::string line;
         std::string current_input;
@@ -265,6 +268,7 @@ class Dataset {
      * Format: [{"input": "...", "target": "..."}, ...]
      * or line-delimited JSON: {"input": "...", "target": "..."}\n
      */
+    // TODO: See TD-316 in TECHNICAL_DEBT.md - ignores JSON escapes (\" truncates the value)
     bool parse_json_format(std::ifstream& file) {
         std::string line;
         std::string content;
@@ -310,6 +314,7 @@ class Dataset {
      *
      * Format: input,target\n (with optional header)
      */
+    // TODO: See TD-316 in TECHNICAL_DEBT.md - splits at the first comma, ignores quoting; header guess drops rows containing "input"
     bool parse_csv_format(std::ifstream& file, char delimiter = ',') {
         std::string line;
         size_t pair_count = 0;
@@ -454,6 +459,7 @@ class Dataset {
         }
 
         // Try to detect format from first line
+        // TODO: See TD-316 in TECHNICAL_DEBT.md - format detected from line 1 only (leading blank line or comma misdetects)
         std::string first_line;
         std::getline(file, first_line);
         file.seekg(0);  // Reset to beginning
@@ -492,6 +498,7 @@ class Dataset {
      * @param input Input text
      * @param target Target text
      */
+    // TODO: See TD-318 in TECHNICAL_DEBT.md - recomputes stats over all data per call (O(n^2)); post-split samples join no split
     void add_sample(const std::string& input, const std::string& target) {
         data_.emplace_back(input, target);
         calculate_statistics();
@@ -515,6 +522,7 @@ class Dataset {
      *
      * Note: train_ratio + val_ratio + test_ratio should equal 1.0
      */
+    // TODO: See TD-317 in TECHNICAL_DEBT.md - a zero ratio sum divides by zero (NaN -> size_t is UB)
     void split(float train_ratio = 0.8f, float val_ratio = 0.1f, float test_ratio = 0.1f) {
         if (data_.empty()) {
             std::cerr << "Warning: Cannot split empty dataset" << std::endl;
@@ -683,6 +691,7 @@ class Dataset {
     /**
      * @brief Clear all data and splits
      */
+    // TODO: See TD-317 in TECHNICAL_DEBT.md - doesn't reset num_folds_/fold_indices_; get_fold() then reads freed memory
     void clear() {
         data_.clear();
         train_indices_.clear();
@@ -698,6 +707,7 @@ class Dataset {
      * @param format "jsonl" (default), "conversation" (legacy INPUT:/RESPONSE:), or "tsv"
      * @return True if successful
      */
+    // TODO: See TD-320 in TECHNICAL_DEBT.md - write not checked; TSV/conversation output doesn't escape tabs/newlines
     bool save_to_file(const std::string& filepath, const std::string& format = "jsonl") const {
         std::ofstream file(filepath);
         if (!file.is_open()) {
@@ -919,6 +929,7 @@ class Dataset {
         test_indices_.clear();
 
         // Compute length bins
+        // TODO: See TD-317 in TECHNICAL_DEBT.md - num_bins < 1 indexes bins[-1] (segfault)
         std::vector<std::vector<size_t>> bins(num_bins);
         size_t max_len = 0;
         for (const auto& sample : data_) {
@@ -1046,6 +1057,7 @@ class Dataset {
      * @brief Apply augmentation to dataset (creates new samples)
      * @param num_augmented Number of augmented samples per original sample
      */
+    // TODO: See TD-318 in TECHNICAL_DEBT.md - augmented copies join no split; re-splitting can leak val/test copies into train
     void augment_data(int num_augmented = 1) {
         if (!augmentation_fn_) {
             std::cerr << "Warning: No augmentation function set" << std::endl;
@@ -1141,6 +1153,7 @@ class Dataset {
     /**
      * @brief Lowercase all text in dataset
      */
+    // TODO: See TD-320 in TECHNICAL_DEBT.md - ::tolower on signed char is UB for bytes >= 0x80
     void lowercase() {
         for (auto& sample : data_) {
             std::transform(sample.input.begin(), sample.input.end(), sample.input.begin(),
@@ -1482,6 +1495,7 @@ class LazyDataset {
                     line.find("\"input\"") != std::string::npos)
                     sample_positions_.push_back(pos);
             } else {
+                // TODO: See TD-319 in TECHNICAL_DEBT.md - unanchored find() indexes any line containing INPUT: (phantom samples)
                 if (line.find("INPUT:") != std::string::npos)
                     sample_positions_.push_back(pos);
             }
@@ -1568,6 +1582,7 @@ class LazyDataset {
      * @param count Number of samples to load
      * @return Vector of data samples
      */
+    // TODO: See TD-319 in TECHNICAL_DEBT.md - reopens the file once per sample
     std::vector<DataSample> load_range(size_t start, size_t count) const {
         std::vector<DataSample> samples;
         samples.reserve(count);

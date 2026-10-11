@@ -13,7 +13,7 @@ Component API documentation. See [api/README.md](api/README.md) for the full ind
 - **Attention** — `multihead-attention.md` (CrossAttention moved to [reference/source/CrossAttention.md](reference/source/CrossAttention.md))
 - **NLP** — `text-generator.md` (BPETokenizer and ConversationContext moved to [reference/source/BPETokenizer.md](reference/source/BPETokenizer.md) and [reference/source/ConversationContext.md](reference/source/ConversationContext.md))
 - **Memory / RAG** — `DocumentStore.md`, `RAGInference.md`
-- **Data** — `batch-processing.md`, `batch-processing-quickref.md`, `dataset-batch-processing.md`
+- **Data** — `batch-processing.md`, `batch-processing-quickref.md` (Dataset batch processing moved to [reference/source/Dataset.md](reference/source/Dataset.md))
 - **Advanced** — `quantization.md`, `speculative-decoding.md`, `ppo-optimizer.md`, `lora.md`, `reward-model.md`
 - **REST API** — `rest-api.md`
 

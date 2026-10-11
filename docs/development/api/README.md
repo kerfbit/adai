@@ -82,7 +82,7 @@ The `TrainingMetricsAPI` is a separate HTTP server (default port 8081) for real-
 
 | File | Description |
 | --- | --- |
-| [data/dataset-batch-processing.md](data/dataset-batch-processing.md) | Dataset batch processing integration |
+| [Dataset.md](../reference/source/Dataset.md) | `Dataset` (loading, splitting, batch processing; code-traced reference) |
 
 ## Advanced Features
 
