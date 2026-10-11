@@ -1,10 +1,20 @@
-# `Dataset` — Source File Reference
+# `Dataset` — Source File Reference (Retired)
 
-- **File:** [`src/Dataset.hpp`](../../../../src/Dataset.hpp), header-only (~1,580 lines, no `.cpp`)
+> **Retired October 11, 2026 (TD-315).** `src/Dataset.hpp`, `tests/dataset_test.cpp` and the
+> `dataset_enhanced_example`/`dataset_batch_processing_example` examples were deleted because no
+> production code used them. TD-315–TD-320 and TD-219 are closed in
+> [TECHNICAL_DEBT_RESOLVED.md](../../archive/TECHNICAL_DEBT_RESOLVED.md). This page is kept as the
+> record of what the class did and which bugs to avoid if any of it is rebuilt: the capabilities
+> with no other implementation are listed under TD-014 in
+> [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md#td-014-llm-operations-and-training-tooling-suite).
+> The last version is in git history: `git show 6a5438c:src/Dataset.hpp`. Sections below describe
+> the code as it was on that commit.
+
+- **File:** `src/Dataset.hpp` (removed), header-only (~1,580 lines, no `.cpp`)
 - **Namespace:** global (no namespace)
 - **Built into:** nothing in production; included only by tests and examples (§2)
 - **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0`, `@adai-reviewed: 2026-09-10`
-- **Tests:** [`tests/dataset_test.cpp`](../../../../tests/dataset_test.cpp) (43 tests)
+- **Tests:** `tests/dataset_test.cpp` (removed; 43 tests)
 - **Depends on:** [`BatchProcessor.hpp`](BatchProcessor.md) (`TokenBatch`, `create_batch`, …), `TrainingSampleMeta.hpp` (`SampleMeta`, JSONL helpers)
 - **Last traced against the code:** 2026-10-11
 
@@ -193,18 +203,18 @@ opens the file `n` times. `stats_` is declared but never computed.
 
 ## 6. Known gaps and gotchas (summary)
 
-Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and tagged in the code with
-`TODO: See TD-NNN`.
+Each item was closed by the retirement (TD-315) and is archived in
+[TECHNICAL_DEBT_RESOLVED.md](../../archive/TECHNICAL_DEBT_RESOLVED.md).
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Unused by production but tagged `stable` and documented as the data layer (§1) | Misleads readers; ~1,580 lines to maintain | By inspection | [TD-315](../../guides/TECHNICAL_DEBT.md#td-315-datasethpp-is-tagged-stable-but-has-no-production-caller) |
-| Parsers lose or mangle data: unseparated conversation pairs, multi-line responses, first-line-only format detection, CSV quoting, JSON escapes (§3) | Silent data loss or corruption for anyone loading real files | **Verified** | [TD-316](../../guides/TECHNICAL_DEBT.md#td-316-dataset-file-parsers-lose-or-mangle-data) |
-| `batch_size 0` loops forever; `num_bins 0` crashes; zero ratio sum is undefined; `clear()` leaves stale k-fold indices (out-of-range reads) (§3) | Hangs, crashes or undefined behaviour on bad arguments or call order | **Verified** | [TD-317](../../guides/TECHNICAL_DEBT.md#td-317-dataset-hangs-crashes-or-reads-freed-memory-on-bad-arguments-or-call-order) |
-| `add_sample()` recomputes stats each call (O(n²)); post-split additions belong to no split; augmentation before re-split leaks val/test (§3) | Slow incremental building; silent split gaps | **Verified** / by inspection | [TD-318](../../guides/TECHNICAL_DEBT.md#td-318-dataset-split-bookkeeping-and-on-add_sample) |
-| `LazyDataset` indexes any line containing `INPUT:`; reopens the file per sample; stats never computed; untested (§4) | Phantom samples; slow ranges | **Verified** | [TD-319](../../guides/TECHNICAL_DEBT.md#td-319-lazydataset-indexes-phantom-samples) |
-| `lowercase()` passes signed `char` to `::tolower`; `save_to_file()` unchecked and TSV/conversation don't escape; `std::cout`/`std::cerr` in a library header (§3) | UB on non-ASCII; silent write failures; lossy round trips | By inspection | [TD-320](../../guides/TECHNICAL_DEBT.md#td-320-dataset-hygiene-tolower-ub-unchecked-saves-console-output) |
-| Batch wrappers' wrong doc examples, one-batch stats, hardcoded pad | Already tracked | — | TD-219 |
+| Unused by production but tagged `stable` and documented as the data layer (§1) | Misleads readers; ~1,580 lines to maintain | By inspection | [TD-315](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-315-datasethpp-is-tagged-stable-but-has-no-production-caller) |
+| Parsers lose or mangle data: unseparated conversation pairs, multi-line responses, first-line-only format detection, CSV quoting, JSON escapes (§3) | Silent data loss or corruption for anyone loading real files | **Verified** | [TD-316](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-316-dataset-file-parsers-lose-or-mangle-data) |
+| `batch_size 0` loops forever; `num_bins 0` crashes; zero ratio sum is undefined; `clear()` leaves stale k-fold indices (out-of-range reads) (§3) | Hangs, crashes or undefined behaviour on bad arguments or call order | **Verified** | [TD-317](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-317-dataset-hangs-crashes-or-reads-freed-memory-on-bad-arguments-or-call-order) |
+| `add_sample()` recomputes stats each call (O(n²)); post-split additions belong to no split; augmentation before re-split leaks val/test (§3) | Slow incremental building; silent split gaps | **Verified** / by inspection | [TD-318](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-318-dataset-split-bookkeeping-and-on-add_sample) |
+| `LazyDataset` indexes any line containing `INPUT:`; reopens the file per sample; stats never computed; untested (§4) | Phantom samples; slow ranges | **Verified** | [TD-319](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-319-lazydataset-indexes-phantom-samples) |
+| `lowercase()` passes signed `char` to `::tolower`; `save_to_file()` unchecked and TSV/conversation don't escape; `std::cout`/`std::cerr` in a library header (§3) | UB on non-ASCII; silent write failures; lossy round trips | By inspection | [TD-320](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-320-dataset-hygiene-tolower-ub-unchecked-saves-console-output) |
+| Batch wrappers' wrong doc examples, one-batch stats, hardcoded pad | Closed with the retirement | — | TD-219 |
 
 ---
 

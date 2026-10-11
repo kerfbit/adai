@@ -2,8 +2,7 @@
  * @file EnhancedTrainingExample.cpp
  * @brief Example demonstrating the enhanced training pipeline
  *
- * This example shows how to use Dataset and MetricsTracker for
- * production-ready model training, plus a simple best-checkpoint-tracking
+ * This example shows how to use MetricsTracker for model training, plus a simple best-checkpoint-tracking
  * pattern (TD-168: this used to demonstrate a separate CheckpointManager
  * class, retired once it turned out to be a fully-built, tested duplicate
  * of checkpoint bookkeeping IncrementalTrainer already implements inline —
@@ -11,37 +10,53 @@
  * intentionally simple, mirroring the essence of that real implementation
  * rather than reintroducing a second reusable class nothing else calls).
  *
+ * TD-315 (October 11, 2026): this used to load and split its sample data with the
+ * `Dataset` class (src/Dataset.hpp), retired because no production code used it —
+ * see TECHNICAL_DEBT_RESOLVED.md. The data is now a small in-memory list, shuffled
+ * and split inline. The real training pipeline loads JSONL through ChatbotTrainer
+ * and DatasetRegistry.
+ *
  * Features demonstrated:
- * - Dataset loading and splitting
+ * - Simple in-memory train/validation/test split
  * - Metrics tracking with perplexity calculation
  * - Best-checkpoint tracking (simple inline pattern, no rotation)
  * - Early stopping
  * - CSV export for visualization
  *
- * @version 1.1
- * @date September 2026
+ * @version 1.2
+ * @date October 2026
  */
 
+#include <algorithm>
+#include <cmath>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
+#include <random>
 #include <sstream>
-#include "Dataset.hpp"
+#include <string>
+#include <utility>
+#include <vector>
 #include "MetricsTracker.hpp"
+
+// (input, response) pair
+using Sample = std::pair<std::string, std::string>;
 
 // Mock training functions for demonstration
 struct MockModel {
     float loss_decay = 5.0f;
     
-    float train_epoch(const std::vector<DataSample>& data, int epoch) {
+    float train_epoch(const std::vector<Sample>& data, int epoch) {
         // Simulate decreasing training loss
         float base_loss = loss_decay * std::exp(-0.15f * epoch);
         float noise = (std::rand() % 100) / 1000.0f;  // Small random noise
         return base_loss + noise;
     }
     
-    float validate(const std::vector<DataSample>& data, int epoch) {
+    float validate(const std::vector<Sample>& data, int epoch) {
         // Simulate validation loss (slightly higher than training)
         float base_loss = (loss_decay + 0.5f) * std::exp(-0.12f * epoch);
         float noise = (std::rand() % 100) / 1000.0f;
@@ -59,41 +74,21 @@ struct MockModel {
     }
 };
 
-void create_sample_data() {
-    std::ofstream file("sample_training_data.txt");
-    
-    // Create sample conversation data
-    file << "INPUT: Hello\n";
-    file << "RESPONSE: Hi there! How can I help you?\n\n";
-    
-    file << "INPUT: How are you?\n";
-    file << "RESPONSE: I'm doing great, thanks for asking!\n\n";
-    
-    file << "INPUT: What's your name?\n";
-    file << "RESPONSE: I'm an AI assistant designed to help you.\n\n";
-    
-    file << "INPUT: Tell me a joke\n";
-    file << "RESPONSE: Why did the scarecrow win an award? He was outstanding in his field!\n\n";
-    
-    file << "INPUT: What's the weather like?\n";
-    file << "RESPONSE: I don't have access to real-time weather data, but you can check a weather service.\n\n";
-    
-    file << "INPUT: How do I learn programming?\n";
-    file << "RESPONSE: Start with the basics, practice regularly, and build small projects.\n\n";
-    
-    file << "INPUT: Goodbye\n";
-    file << "RESPONSE: Goodbye! Have a great day!\n\n";
-    
-    file << "INPUT: What can you do?\n";
-    file << "RESPONSE: I can answer questions, help with tasks, and have conversations.\n\n";
-    
-    file << "INPUT: Tell me about AI\n";
-    file << "RESPONSE: AI is the simulation of human intelligence by machines.\n\n";
-    
-    file << "INPUT: What's 2+2?\n";
-    file << "RESPONSE: 2+2 equals 4.\n\n";
-    
-    file.close();
+std::vector<Sample> create_sample_data() {
+    return {
+        {"Hello", "Hi there! How can I help you?"},
+        {"How are you?", "I'm doing great, thanks for asking!"},
+        {"What's your name?", "I'm an AI assistant designed to help you."},
+        {"Tell me a joke", "Why did the scarecrow win an award? He was outstanding in his field!"},
+        {"What's the weather like?",
+         "I don't have access to real-time weather data, but you can check a weather service."},
+        {"How do I learn programming?",
+         "Start with the basics, practice regularly, and build small projects."},
+        {"Goodbye", "Goodbye! Have a great day!"},
+        {"What can you do?", "I can answer questions, help with tasks, and have conversations."},
+        {"Tell me about AI", "AI is the simulation of human intelligence by machines."},
+        {"What's 2+2?", "2+2 equals 4."},
+    };
 }
 
 int main() {
@@ -104,36 +99,22 @@ int main() {
     std::cout << "╚══════════════════════════════════════════════════════╝\n\n";
     
     // ============================================================
-    // 1. Create Sample Data
+    // 1-2. Create and Split Sample Data
     // ============================================================
-    std::cout << "Step 1: Creating sample training data...\n";
-    create_sample_data();
-    std::cout << "✓ Sample data created\n\n";
-    
-    // ============================================================
-    // 2. Load and Prepare Dataset
-    // ============================================================
-    std::cout << "Step 2: Loading and preparing dataset...\n";
-    
-    Dataset dataset(42);  // Fixed seed for reproducibility
-    
-    if (!dataset.load_from_file("sample_training_data.txt")) {
-        std::cerr << "Error: Could not load dataset\n";
-        return 1;
-    }
-    
+    std::cout << "Step 1-2: Creating and splitting sample training data...\n";
+
+    std::vector<Sample> all_data = create_sample_data();
+    std::mt19937 rng(42);  // Fixed seed for reproducibility
+    std::shuffle(all_data.begin(), all_data.end(), rng);
+
     // Split into train/val/test (70%/20%/10%)
-    dataset.split(0.7f, 0.2f, 0.1f);
-    
-    std::cout << "✓ Dataset loaded and split\n";
-    dataset.print_stats();
-    std::cout << "\n";
-    
-    // Get splits
-    auto train_data = dataset.get_split(SplitType::TRAIN);
-    auto val_data = dataset.get_split(SplitType::VALIDATION);
-    auto test_data = dataset.get_split(SplitType::TEST);
-    
+    const size_t train_end = all_data.size() * 7 / 10;
+    const size_t val_end = train_end + all_data.size() * 2 / 10;
+    std::vector<Sample> train_data(all_data.begin(), all_data.begin() + train_end);
+    std::vector<Sample> val_data(all_data.begin() + train_end, all_data.begin() + val_end);
+    std::vector<Sample> test_data(all_data.begin() + val_end, all_data.end());
+    std::cout << "✓ Sample data created and split\n\n";
+
     std::cout << "Training samples: " << train_data.size() << "\n";
     std::cout << "Validation samples: " << val_data.size() << "\n";
     std::cout << "Test samples: " << test_data.size() << "\n\n";
@@ -186,8 +167,7 @@ int main() {
         std::cout << "────────────────────────────────────────────────────────\n";
         
         // Shuffle training data
-        dataset.shuffle_split(SplitType::TRAIN);
-        train_data = dataset.get_split(SplitType::TRAIN);
+        std::shuffle(train_data.begin(), train_data.end(), rng);
         
         // Training phase
         std::cout << "Training...\n";
@@ -328,7 +308,6 @@ int main() {
     std::cout << "════════════════════════════════════════════════════════\n";
     
     std::cout << "\nGenerated files:\n";
-    std::cout << "  - sample_training_data.txt (training data)\n";
     std::cout << "  - training_metrics.csv (metrics export)\n";
     std::cout << "  - checkpoints/ (model checkpoints)\n";
     

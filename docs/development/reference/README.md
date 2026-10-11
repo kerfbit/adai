@@ -23,7 +23,7 @@ This directory contains reference materials, technical specifications, and imple
   - [CrossAttention](source/CrossAttention.md) (`src/CrossAttention.{hpp,cpp}`; encoder-decoder attention)
   - [DaemonConfigStore](source/DaemonConfigStore.md) (`src/DaemonConfigStore.{hpp,cpp}`; persisted `/admin/config` overrides and session counters)
   - [DataFetcher](source/DataFetcher.md) (`src/DataFetcher.{hpp,cpp}`; Gutenberg/HuggingFace import for `registry_server`/`dataset_manager`)
-  - [Dataset](source/Dataset.md) (`src/Dataset.hpp`; in-memory dataset container, test/example use only)
+  - [Dataset](source/Dataset.md) (`src/Dataset.hpp`, **retired** October 11, 2026; kept as a record for TD-014)
 
 - **[KVCache API Reference](kvcache.md)** - Complete API documentation for the Key-Value cache system
   - Single-layer and multi-layer caching
@@ -40,7 +40,7 @@ This directory contains reference materials, technical specifications, and imple
   - Production monitoring patterns
   - Troubleshooting guide
 
-- **[Dataset](source/Dataset.md)** - `Dataset` loading, splitting and batch processing (code-traced reference)
+- **[Dataset](source/Dataset.md)** - retired `Dataset` class (loading, splitting, batch processing), kept as a record
   - Dataset batch methods (get_batch_with_padding, get_dynamic_batches)
   - TokenBatchLoader for multi-threaded loading
   - Dynamic batching optimization (20-40% token reduction)

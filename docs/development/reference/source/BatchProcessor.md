@@ -3,8 +3,8 @@
 - **File:** [`src/BatchProcessor.hpp`](../../../../src/BatchProcessor.hpp) (header-only; free functions and two structs, no class named `BatchProcessor`)
 - **Library:** none — header-only. Depends only on `Matrix.hpp` and `SpecialTokens.hpp`, so anything linking `adai_core` can use it
 - **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0`, `@adai-reviewed: 2026-09-10`
-- **Tests:** [`tests/batchprocessor_test.cpp`](../../../../tests/batchprocessor_test.cpp) → `batchprocessorTests` (29 tests, ctest `BatchProcessorTests`); also 5 `BatchProcessorTest.*` cases in `tests/inference_optimization_test.cpp` → `inferenceOptimizationTests`, and `Dataset` wrapper coverage in `tests/dataset_test.cpp`
-- **Example / benchmark:** `examples/DatasetBatchProcessingExample.cpp` → `dataset_batch_processing_example`; `benchmarks/InferenceOptimizationBenchmark.cpp` → `inference_optimization_benchmark` (both built when `BUILD_EXAMPLES=ON`, the default)
+- **Tests:** [`tests/batchprocessor_test.cpp`](../../../../tests/batchprocessor_test.cpp) → `batchprocessorTests` (29 tests, ctest `BatchProcessorTests`); also 5 `BatchProcessorTest.*` cases in `tests/inference_optimization_test.cpp` → `inferenceOptimizationTests`; `Dataset` wrapper coverage in `tests/dataset_test.cpp` was removed with `Dataset.hpp` (TD-315, October 11, 2026)
+- **Benchmark:** `benchmarks/InferenceOptimizationBenchmark.cpp` → `inference_optimization_benchmark` (built when `BUILD_EXAMPLES=ON`, the default). The former `dataset_batch_processing_example` was removed with `Dataset.hpp` (TD-315)
 - **Last traced against the code:** 2026-10-08
 
 > Code-traced reference: every "where it's used" claim points at a real call site at the time of
@@ -82,9 +82,8 @@ was split out as TD-171.
 | `src/ChatbotAPI.cpp` — `generate_batch_session_responses()` (≈ line 1034) | Formats each session's context, calls `generate_batch_responses()`, copies its `stats` | Yes |
 | `src/ChatbotAPI.cpp` — `create_batch_json_response()` (≈ line 716) | Serializes `stats` as `{"total_tokens", "actual_tokens", "padding_ratio", "num_batches", "avg_batch_size", "efficiency"}` | Yes |
 | `src/ChatbotAPI.cpp` — routes `POST /chat/batch`, `POST /chat/batch-session` (≈ lines 113–128) → `handle_batch_chat()` / `handle_batch_chat_session()` | Entry points that reach the above | Yes |
-| `src/Dataset.hpp` — `Dataset::get_batch_with_padding()`, `get_target_batch_with_padding()`, `get_dynamic_batches()`, `process_batch<T>()`, `get_batch_statistics()` (≈ lines 1160–1432) | Thin wrappers: tokenize a split (or sample list) via a caller-supplied function, then call `create_batch()` / `create_dynamic_batches()` / `compute_batch_stats()` | No — tests and the example only |
-| `tests/batchprocessor_test.cpp`, `tests/inference_optimization_test.cpp`, `tests/dataset_test.cpp` | Unit tests | — |
-| `examples/DatasetBatchProcessingExample.cpp` | Demonstrates `create_padding_mask()` and `compute_batch_stats()` via `Dataset` | — |
+| ~~`src/Dataset.hpp`~~ — retired October 11, 2026 (TD-315) | Its five thin wrappers (`get_batch_with_padding()`, `get_dynamic_batches()`, …) were removed with it; see [Dataset.md](Dataset.md) | — |
+| `tests/batchprocessor_test.cpp`, `tests/inference_optimization_test.cpp` | Unit tests | — |
 | `benchmarks/InferenceOptimizationBenchmark.cpp` | Times `create_dynamic_batches()` | — |
 
 ### The ordering bug `ChatbotAPI` already hit
@@ -98,14 +97,9 @@ do the same, or keep its own index mapping (§5).
 
 ### `Dataset` wrapper notes
 
-- `get_batch_statistics(split, tokenizer_fn, batch_size)` only looks at the **first**
-  `batch_size` samples of the split (as one `create_batch()`), not the whole split, and hardcodes
-  `pad_token_id = 0` instead of using its usual `SpecialTokenIDs::PAD` default (the two are equal
-  today, `PAD == 0`). A real indexing bug in it was fixed earlier; `dataset_test.cpp` (≈ line 370)
-  has the regression test.
-- Its doc example prints `stats.efficiency_percentage`, which doesn't exist; efficiency is
-  `1 - padding_ratio`.
-- `process_batch<T>()`'s doc example calls `model.forward_batch(seqs)`, which doesn't exist (TD-171).
+The `Dataset` wrappers were retired with `src/Dataset.hpp` on October 11, 2026 (TD-315), closing
+TD-219. Their notes (one-batch statistics, hardcoded pad, wrong doc examples) are kept in
+[Dataset.md](Dataset.md) §3.
 
 ---
 
@@ -237,7 +231,7 @@ positions. Using it would mean expanding row *i* into a `[len, len]` (or `[q, k]
 sequence, combining it with any causal mask, and feeding padded sequences through a model that
 accepts a batch, which doesn't exist (TD-171).
 
-**Used by:** tests and `DatasetBatchProcessingExample` only. No production caller.
+**Used by:** tests only. No production caller (the former `DatasetBatchProcessingExample` was removed with `Dataset.hpp`).
 
 ---
 
@@ -312,7 +306,7 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 | `unbatch_outputs()` doc says 3-D input; no bounds checks (§7) | Misleading doc; OOB on bad input | | [TD-218](../../guides/TECHNICAL_DEBT.md#td-218-batchprocessor-helpers-have-dead-surface-lost-ordering-and-unchecked-inputs) |
 | `TokenBatch` invariants unenforced (§3) | OOB in downstream helpers for hand-built batches | | [TD-218](../../guides/TECHNICAL_DEBT.md#td-218-batchprocessor-helpers-have-dead-surface-lost-ordering-and-unchecked-inputs) |
 | `BatchStats::print()` uses `std::cout` (§8) | Violates logging convention | No `src/` caller | [TD-218](../../guides/TECHNICAL_DEBT.md#td-218-batchprocessor-helpers-have-dead-surface-lost-ordering-and-unchecked-inputs) |
-| `Dataset::get_batch_statistics()` samples only the first batch, hardcodes pad 0; doc examples use nonexistent `efficiency_percentage` / `forward_batch` (§2) | Misleading docs; partial stats | Wrappers have no production caller | [TD-219](../../guides/TECHNICAL_DEBT.md#td-219-datasets-batch-wrappers-have-wrong-doc-examples-and-a-partial-stats-helper) |
+| `Dataset::get_batch_statistics()` samples only the first batch, hardcodes pad 0; doc examples use nonexistent `efficiency_percentage` / `forward_batch` (§2) | Misleading docs; partial stats | Wrappers have no production caller | [TD-219](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-219-datasets-batch-wrappers-have-wrong-doc-examples-and-a-partial-stats-helper) (closed: `Dataset.hpp` retired) |
 
 ---
 

@@ -512,7 +512,6 @@ Message: "What's your favorite hobby?"
 
 - [CLI Guide](chatbot-guide.md) - Command-line interface
 - [Training Guide](../reference/chatbot-completeness.md) - Model training
-- [Dataset Batch Processing](BATCH_PROCESSING_QUICK_REFERENCE.md) - Data handling
 
 ## Support
 

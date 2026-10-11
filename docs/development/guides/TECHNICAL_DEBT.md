@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 9, 2026
-**Total Items:** 123
+**Total Items:** 116
 **High Priority:** 17
-**Medium Priority:** 53
-**Low Priority:** 53
+**Medium Priority:** 52
+**Low Priority:** 47
 **Future Enhancements:** 19
-**Resolved Items:** 197
+**Resolved Items:** 204
 **Deferred Decisions:** 3
 
 **October 11, 2026:** Filed [TD-304](#td-304-session-counters-can-be-duplicated-and-daemonconfigstore-has-no-busy-timeout) through [TD-308](#td-308-session-counters-reuse-the-config-stores-table-and-scan-it-per-allocation) from the code-traced
@@ -32,13 +32,21 @@ data directory (TD-310, verified). Three are MEDIUM: Gutenberg pairs are next-se
 timeouts (TD-312), and partial or concurrent HuggingFace downloads are cached as complete (TD-313).
 TD-314 is LOW.
 
-Also October 11, 2026: filed [TD-315](#td-315-datasethpp-is-tagged-stable-but-has-no-production-caller) through [TD-320](#td-320-dataset-hygiene-tolower-ub-unchecked-saves-console-output) from the code-traced
+Also October 11, 2026: filed [TD-315](../archive/TECHNICAL_DEBT_RESOLVED.md#td-315-datasethpp-is-tagged-stable-but-has-no-production-caller) through [TD-320](../archive/TECHNICAL_DEBT_RESOLVED.md#td-320-dataset-hygiene-tolower-ub-unchecked-saves-console-output) from the code-traced
 [Dataset.md](../reference/source/Dataset.md). `src/Dataset.hpp` is tagged `stable` but has no
 production caller (only tests and examples), so the owner decision in TD-315 (retire it, or keep it
 and fix the rest) comes first. The one MEDIUM item is TD-317 (verified): a zero `batch_size` loops
 forever, `num_bins = 0` segfaults, and `clear()` leaves stale k-fold indices that read freed memory.
 The rest are LOW: parsers that silently lose or mangle data (TD-316, verified), O(n²) `add_sample()`
 and split bookkeeping (TD-318), `LazyDataset` phantom samples (TD-319), and hygiene (TD-320).
+
+Later October 11, 2026, per the owner's decision on TD-315: **retired `src/Dataset.hpp`** along with
+`tests/dataset_test.cpp` and the `dataset_enhanced_example`/`dataset_batch_processing_example`
+examples (`EnhancedTrainingExample` was kept, reworked to split its sample data inline). This
+closes [TD-315](../archive/TECHNICAL_DEBT_RESOLVED.md#td-315-datasethpp-is-tagged-stable-but-has-no-production-caller) through [TD-320](../archive/TECHNICAL_DEBT_RESOLVED.md#td-320-dataset-hygiene-tolower-ub-unchecked-saves-console-output) and [TD-219](../archive/TECHNICAL_DEBT_RESOLVED.md#td-219-datasets-batch-wrappers-have-wrong-doc-examples-and-a-partial-stats-helper); all seven are in the resolved archive. The removed
+capabilities (k-fold, stratified splitting, augmentation and preprocessing hooks, multi-format
+import, lazy indexing) are recorded under [TD-014](#td-014-llm-operations-and-training-tooling-suite)
+for possible recreation in `adai-data-prep`/`adai-eval`.
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -118,7 +126,7 @@ paths and both GPU backends, risking silent CPU/GPU drift (TD-216).
 
 Also the same day, filed
 [TD-217](#td-217-chatbatch-reports-hypothetical-batching-stats-as-if-they-were-real) through
-[TD-219](#td-219-datasets-batch-wrappers-have-wrong-doc-examples-and-a-partial-stats-helper) from
+[TD-219](../archive/TECHNICAL_DEBT_RESOLVED.md#td-219-datasets-batch-wrappers-have-wrong-doc-examples-and-a-partial-stats-helper) from
 the code-traced [BatchProcessor.md](../reference/source/BatchProcessor.md): `/chat/batch`'s public
 `stats` describe grouping that never happens (TD-217); `BatchProcessor.hpp`'s helpers have
 unused surface, lose input order, and skip input checks (TD-218); and `Dataset`'s batch wrappers
@@ -744,9 +752,9 @@ only one visible to API clients, so do it first. The decision is made (relabel a
 it still changes the public `/chat/batch` response, so it needs a changelog note.
 [TD-218](#td-218-batchprocessor-helpers-have-dead-surface-lost-ordering-and-unchecked-inputs) was
 decided the same day: keep the helpers as groundwork for the same v2 plan, so only its v1.x fixes
-are open here, and
-[TD-219](#td-219-datasets-batch-wrappers-have-wrong-doc-examples-and-a-partial-stats-helper) should
-follow that decision.
+are open here.
+[TD-219](../archive/TECHNICAL_DEBT_RESOLVED.md#td-219-datasets-batch-wrappers-have-wrong-doc-examples-and-a-partial-stats-helper) was closed
+October 11, 2026, when `Dataset.hpp` was retired (TD-315).
 
 **Tier 14 — Newly filed (October 8, 2026): tokenizer bugs.**
 [TD-220](#td-220-bpe-merge-learning-is-corrupted-by-the--pair-key-separator) and
@@ -840,10 +848,9 @@ small and reachable from any client of `registry_server`'s fetch endpoints; do t
 timeouts and per-part error handling). [TD-311](#td-311-gutenberg-training-pairs-are-next-sentence-non-sequiturs) needs the user's decision on what Gutenberg data
 should teach before it's worth implementing. [TD-314](#td-314-datafetcher-source-coverage-and-hygiene-gaps) is cleanup.
 
-**Tier 27 — Newly filed (October 11, 2026): `Dataset`.** Decide [TD-315](#td-315-datasethpp-is-tagged-stable-but-has-no-production-caller) first: if `Dataset.hpp`
-is retired, [TD-316](#td-316-dataset-file-parsers-lose-or-mangle-data) through [TD-320](#td-320-dataset-hygiene-tolower-ub-unchecked-saves-console-output) (and TD-219) close with it. If it's kept, [TD-317](#td-317-dataset-hangs-crashes-or-reads-freed-memory-on-bad-arguments-or-call-order) is the
-small, worthwhile fix (hangs and crashes on bad input), then [TD-316](#td-316-dataset-file-parsers-lose-or-mangle-data); [TD-318](#td-318-dataset-split-bookkeeping-and-on-add_sample), [TD-319](#td-319-lazydataset-indexes-phantom-samples) and
-[TD-320](#td-320-dataset-hygiene-tolower-ub-unchecked-saves-console-output) are cleanup.
+**Tier 27 — Resolved (October 11, 2026): `Dataset` retired.** [TD-315](../archive/TECHNICAL_DEBT_RESOLVED.md#td-315-datasethpp-is-tagged-stable-but-has-no-production-caller) through [TD-320](../archive/TECHNICAL_DEBT_RESOLVED.md#td-320-dataset-hygiene-tolower-ub-unchecked-saves-console-output) and
+[TD-219](../archive/TECHNICAL_DEBT_RESOLVED.md#td-219-datasets-batch-wrappers-have-wrong-doc-examples-and-a-partial-stats-helper) closed with `src/Dataset.hpp`'s retirement; see the resolved archive. Anything worth
+rebuilding is listed under [TD-014](#td-014-llm-operations-and-training-tooling-suite).
 
 ## Table of Contents
 
@@ -872,7 +879,6 @@ small, worthwhile fix (hangs and crashes on bad input), then [TD-316](#td-316-da
   - [TD-216: Softmax and GELU Math Is Duplicated Across CPU and GPU Code](#td-216-softmax-and-gelu-math-is-duplicated-across-cpu-and-gpu-code)
   - [TD-217: `/chat/batch` Reports Hypothetical Batching Stats as if They Were Real](#td-217-chatbatch-reports-hypothetical-batching-stats-as-if-they-were-real)
   - [TD-218: BatchProcessor Helpers Have Dead Surface, Lost Ordering, and Unchecked Inputs](#td-218-batchprocessor-helpers-have-dead-surface-lost-ordering-and-unchecked-inputs)
-  - [TD-219: Dataset's Batch Wrappers Have Wrong Doc Examples and a Partial Stats Helper](#td-219-datasets-batch-wrappers-have-wrong-doc-examples-and-a-partial-stats-helper)
   - [TD-220: BPE Merge Learning Is Corrupted by the `"|||"` Pair-Key Separator](#td-220-bpe-merge-learning-is-corrupted-by-the--pair-key-separator)
   - [TD-221: `BPETokenizer::save_vocab()` Fails Silently, So Checkpoints Can Lack Their Vocab](#td-221-bpetokenizersave_vocab-fails-silently-so-checkpoints-can-lack-their-vocab)
   - [TD-222: `apply_bpe()`'s Thread-Local Cache Is Never Invalidated](#td-222-apply_bpes-thread-local-cache-is-never-invalidated)
@@ -968,12 +974,6 @@ small, worthwhile fix (hangs and crashes on bad input), then [TD-316](#td-316-da
   - [TD-312: `DataFetcher` Downloads Through Shell `curl` Commands](#td-312-datafetcher-downloads-through-shell-curl-commands)
   - [TD-313: HuggingFace Cache Accepts Partial Downloads and Races Concurrent Fetches](#td-313-huggingface-cache-accepts-partial-downloads-and-races-concurrent-fetches)
   - [TD-314: `DataFetcher` Source Coverage and Hygiene Gaps](#td-314-datafetcher-source-coverage-and-hygiene-gaps)
-  - [TD-315: `Dataset.hpp` Is Tagged Stable but Has No Production Caller](#td-315-datasethpp-is-tagged-stable-but-has-no-production-caller)
-  - [TD-316: `Dataset` File Parsers Lose or Mangle Data](#td-316-dataset-file-parsers-lose-or-mangle-data)
-  - [TD-317: `Dataset` Hangs, Crashes or Reads Freed Memory on Bad Arguments or Call Order](#td-317-dataset-hangs-crashes-or-reads-freed-memory-on-bad-arguments-or-call-order)
-  - [TD-318: `Dataset` Split Bookkeeping and O(n²) `add_sample()`](#td-318-dataset-split-bookkeeping-and-on-add_sample)
-  - [TD-319: `LazyDataset` Indexes Phantom Samples](#td-319-lazydataset-indexes-phantom-samples)
-  - [TD-320: `Dataset` Hygiene: `tolower` UB, Unchecked Saves, Console Output](#td-320-dataset-hygiene-tolower-ub-unchecked-saves-console-output)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -1390,6 +1390,28 @@ Action Items:
 - Develop `adai-eval` for deterministic pipeline benchmarking on standardized Q&A lists.
 - Isolate data-filtering scripts into an `adai-data-prep` tool for reproducible data hygiene.
 - Add a dedicated target in `CMakeLists.txt` for these auxiliary tools to avoid bloating main executables.
+
+**Update (October 11, 2026): capabilities removed with `src/Dataset.hpp` (TD-315).** The header was
+retired because nothing in production used it (the real pipeline is `ChatbotTrainer` +
+`DatasetRegistry` + `TrainingSampleMeta.hpp`'s JSONL helpers, all kept). These pieces have no other
+implementation in the codebase and are candidates to recreate in `adai-data-prep`/`adai-eval`, on
+top of the registry's JSONL format rather than as a standalone container. The full API and the bugs
+to avoid are recorded in [Dataset.md](../reference/source/Dataset.md) and the TD-315–320 archive
+entries; the last version is in git history (`git show 6a5438c:src/Dataset.hpp`).
+
+- **Splitting:** seeded random train/validation/test split; length-stratified split (binning by
+  total input+target length); k-fold cross-validation (`setup_k_fold()`/`get_fold()`).
+- **Transforms:** augmentation hook (`set_augmentation()`/`augment_data()`, k copies per sample),
+  preprocessing hook (`set_preprocessing()`/`apply_preprocessing()`), length and substring filters,
+  lowercasing.
+- **Import/export:** `INPUT:`/`RESPONSE:`, JSONL, JSON, CSV and TSV loading with format detection;
+  JSONL/conversation/TSV saving. Recreate with a real JSON/CSV parser (TD-316's bugs).
+- **Statistics:** sample counts per split; average and max input/target lengths.
+- **Lazy access:** `LazyDataset` (index line offsets, read samples on demand) for files too large to
+  load whole.
+- **Batch wrappers:** tokenize a split and pad (`get_batch_with_padding()`/`get_target_batch_with_padding()`),
+  length-grouped batches, padding statistics. These would only matter once the model has a batch
+  dimension (TD-171 / the real-batching v2 plan); `BatchProcessor.hpp` keeps the underlying helpers.
 
 ### TD-006: Fill-in-the-Middle (FIM) Training Data Generation
 
@@ -3014,48 +3036,7 @@ Files to Modify:
 
 - `src/BatchProcessor.hpp`
 - `tests/batchprocessor_test.cpp`, `tests/inference_optimization_test.cpp`
-- `examples/DatasetBatchProcessingExample.cpp` (uses `create_padding_mask()`)
 - `docs/development/reference/source/BatchProcessor.md`
-
----
-
-### TD-219: Dataset's Batch Wrappers Have Wrong Doc Examples and a Partial Stats Helper
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / Dataset | October 8, 2026 | 1-2 hours |
-
-Description:
-Found alongside TD-217. `Dataset` (`src/Dataset.hpp`, tagged `stable`) wraps `BatchProcessor` in
-five methods (`get_batch_with_padding()`, `get_target_batch_with_padding()`,
-`get_dynamic_batches()`, `process_batch<T>()`, `get_batch_statistics()`). None has a production
-caller; they're used by tests and `DatasetBatchProcessingExample` only. Within them:
-
-- `get_batch_statistics(split, tokenizer_fn, batch_size)` only measures the **first**
-  `batch_size` samples, as one batch, not the whole split, which isn't what "statistics for a
-  split" suggests. It also hardcodes `pad_token_id = 0` instead of the class's usual
-  `SpecialTokenIDs::PAD` default (equal today, but they'd diverge if `PAD` ever changed).
-- Its doc example prints `stats.efficiency_percentage`, which doesn't exist (efficiency is
-  `1 - padding_ratio`).
-- `process_batch<T>()`'s doc example calls `model.forward_batch(seqs)`, which doesn't exist
-  (TD-171).
-
-Action Items:
-
-- [ ] Make `get_batch_statistics()` cover the whole split (e.g. via `create_dynamic_batches()`
-  with caller-supplied size/tolerance), or rename it to say it samples one batch.
-- [ ] Use `SpecialTokenIDs::PAD` instead of the literal `0`.
-- [ ] Fix both doc examples.
-- [x] Follows TD-218's decision (October 8, 2026): the wrappers stay. Fix them in v1.x, and
-  revisit their signatures when `TokenBatch` changes in v2 (B1).
-
-Location in code: `src/Dataset.hpp` (`process_batch<T>()`, `get_batch_statistics()`); tagged
-`TODO: See TD-219`.
-
-Files to Modify:
-
-- `src/Dataset.hpp`
-- `tests/dataset_test.cpp`
 
 ---
 
@@ -5963,181 +5944,7 @@ Files to Modify:
 - `src/DataFetcher.{hpp,cpp}`
 - `src/RegistryServer.cpp`
 - `src/DatasetManagerTool.cpp`
----
 
-### TD-315: `Dataset.hpp` Is Tagged Stable but Has No Production Caller
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / Dataset | October 11, 2026 | 1-2 hours |
-
-Description:
-Found while writing the code-traced reference [Dataset.md](../reference/source/Dataset.md). `src/Dataset.hpp` (~1,580 lines,
-header-only, `@adai-status: stable`) is included only by `tests/dataset_test.cpp` and three examples
-(`DatasetEnhancedExample`, `DatasetBatchProcessingExample`, `EnhancedTrainingExample`). The real
-training path is `ChatbotTrainer`'s loader plus `DatasetRegistry`, reusing only
-`TrainingSampleMeta.hpp`'s `parse_jsonl_sample()`. `LazyDataset` has no caller at all, not even a
-test. The header advertises "lazy loading for very large datasets" and "memory-efficient
-iteration", so it reads as the training data layer, and TD-316–320's bugs only matter to whoever
-adopts it on that basis.
-
-Action Items:
-
-- [ ] Owner decision: retire `Dataset`/`LazyDataset` (with their examples and tests) the way TD-052/TD-170 retired `ParallelDataLoader`, or keep them and fix TD-316–320.
-- [ ] If kept, demote the status tag to `beta` or `experimental` until fixed, and state in the header that production training doesn't use it.
-
-Location in code: `src/Dataset.hpp` (file header, `LazyDataset`); tagged `TODO: See TD-315`.
-
-Files to Modify:
-
-- `src/Dataset.hpp`
-- `examples/Dataset*.cpp`
-- `examples/EnhancedTrainingExample.cpp`
-- `tests/dataset_test.cpp`
-
----
-
-### TD-316: `Dataset` File Parsers Lose or Mangle Data
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / Dataset | October 11, 2026 | 2-4 hours |
-
-Description:
-Found alongside TD-315 and confirmed by running the real header. `Dataset::load_from_file()`
-silently loses or corrupts samples:
-- **Conversation format:** pairs need a blank line between them. `INPUT: a / RESPONSE: b / INPUT: c /
-  RESPONSE: d` kept only `(c, d)`. A multi-line response keeps only its first line.
-- **Format detection reads line 1 only.** A JSONL file with a leading blank line loaded 0 samples.
-  A conversation file whose first line was `Chat log, exported` was parsed as CSV: one bogus pair,
-  and the real pair was lost.
-- **CSV** splits at the first comma and ignores quoting: `"Hello, there",Hi` became `"Hello` /
-  `there",Hi`. A first data row containing "input" is dropped as a header.
-- **JSON** (`"input"`/`"target"`) ignores escapes: `"say \"hi\" now"` became `say \`.
-
-Action Items:
-
-- [ ] Detect the format from the first non-empty line (or the file extension); accept `INPUT:` without blank-line separators; join continuation lines into the response.
-- [ ] Parse JSON with the vendored nlohmann/json and CSV with quote handling (or drop the CSV/JSON formats).
-- [ ] Tests for each case above.
-
-Location in code: `src/Dataset.hpp` (`load_from_file()`, `parse_conversation_format()`, `parse_json_format()`, `parse_csv_format()`); tagged `TODO: See TD-316`.
-
-Files to Modify:
-
-- `src/Dataset.hpp`
-- `tests/dataset_test.cpp`
-
----
-
-### TD-317: `Dataset` Hangs, Crashes or Reads Freed Memory on Bad Arguments or Call Order
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / Dataset | October 11, 2026 | 1-2 hours |
-
-Description:
-Found alongside TD-315 and confirmed by running the real header (with AddressSanitizer):
-- `get_batch_range(…, 0)` **loops forever**: `BatchIterator::operator++` adds 0.
-- `split_stratified(…, num_bins = 0)` **segfaults** (`bins[min(…, -1)]`).
-- `split(0, 0, 0)` divides by a zero ratio sum; the NaN → `size_t` cast is undefined behaviour.
-- `clear()` doesn't reset `num_folds_`/`fold_indices_`. After `setup_k_fold(5)` on 1,000 samples,
-  `clear()`, and adding one sample, `get_fold(0)` returned 200 "samples" read from destroyed
-  objects.
-
-Action Items:
-
-- [ ] Reject `batch_size == 0`, `num_bins < 1` and non-positive ratio sums (throw `std::invalid_argument`).
-- [ ] Reset k-fold state in `clear()` (and whenever `data_` changes); bounds-check `get_fold()`.
-- [ ] Tests for each case.
-
-Location in code: `src/Dataset.hpp` (`get_batch_iterator()`, `split()`, `split_stratified()`, `clear()`); tagged `TODO: See TD-317`.
-
-Files to Modify:
-
-- `src/Dataset.hpp`
-- `tests/dataset_test.cpp`
-
----
-
-### TD-318: `Dataset` Split Bookkeeping and O(n²) `add_sample()`
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / Dataset | October 11, 2026 | 1-2 hours |
-
-Description:
-Found alongside TD-315. Confirmed by running the header:
-- `add_sample()` recomputes statistics over the whole dataset on every call, so building
-  incrementally is O(n²). 20,000 calls took 1.08 s, against 0.02 s for one `add_samples()`.
-- Samples added after `split()` (or by `augment_data()`) belong to no split, with no warning
-  (11 samples → 8 + 2 + 0).
-
-By inspection: augmenting and then re-splitting can put augmented copies of validation/test samples
-into train (leakage).
-
-Action Items:
-
-- [ ] Update statistics incrementally in `add_sample()`.
-- [ ] Invalidate (or warn on) existing splits when samples are added; tag augmented samples with their source index so re-splits keep them together.
-
-Location in code: `src/Dataset.hpp` (`add_sample()`, `augment_data()`); tagged `TODO: See TD-318`.
-
-Files to Modify:
-
-- `src/Dataset.hpp`
-
----
-
-### TD-319: `LazyDataset` Indexes Phantom Samples
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / Dataset | October 11, 2026 | 1-2 hours |
-
-Description:
-Found alongside TD-315 and confirmed by running the header. `LazyDataset::index_file()` records
-**every line containing `INPUT:` anywhere** as a conversation sample. A 2-pair file whose second
-response contained the text `INPUT:` indexed as 3 samples, the third being `("" → "has INPUT:
-inside")`. TD-057 anchored the parsing in `get_sample()` but not the indexer. `load_range()` reopens
-the file for every sample, `stats_` is never computed, and the class has no tests or callers.
-
-Action Items:
-
-- [ ] Anchor the indexer (`rfind("INPUT:", 0) == 0`), read ranges with one open stream, compute or remove `stats_`, and add tests (or retire per TD-315).
-
-Location in code: `src/Dataset.hpp` (`LazyDataset::index_file()`, `load_range()`); tagged `TODO: See TD-319`.
-
-Files to Modify:
-
-- `src/Dataset.hpp`
-- `tests/dataset_test.cpp`
-
----
-
-### TD-320: `Dataset` Hygiene: `tolower` UB, Unchecked Saves, Console Output
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / Dataset | October 11, 2026 | 1 hour |
-
-Description:
-Found alongside TD-315, by inspection:
-- `lowercase()` passes plain `char` to `::tolower`, which is undefined behaviour for negative values
-  (every UTF-8 byte ≥ 0x80).
-- `save_to_file()` returns `true` without checking the write, and its TSV/conversation formats don't
-  escape tabs or newlines, so multi-line samples don't round-trip.
-- The header writes to `std::cout`/`std::cerr` instead of `adai::Logger`.
-
-Action Items:
-
-- [ ] Cast to `unsigned char` in `lowercase()`; check the stream in `save_to_file()`; escape or reject tabs/newlines for TSV/conversation output; switch to `Logger`.
-
-Location in code: `src/Dataset.hpp` (`lowercase()`, `save_to_file()`); tagged `TODO: See TD-320`.
-
-Files to Modify:
-
-- `src/Dataset.hpp`
 ---
 
 ## Resolved Items
@@ -6655,15 +6462,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 123 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 116 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|17|14%|
-|Medium|53|43%|
-|Low|53|43%|
+|High|17|15%|
+|Medium|52|45%|
+|Low|47|41%|
 
-**Total Active Items:** 123
+**Total Active Items:** 116
 
 ### By Component
 
@@ -6699,20 +6506,19 @@ Recomputed directly from the 123 `### TD-NNN` entries under [Active Technical De
 |Admin config API|2|
 |Data / DataFetcher|6|
 |Core / Batching|1|
-|Data / Dataset|7|
 |NLP / Tokenizer|6|
 
 ### Effort Distribution
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|64|
-|2-4 hours|39|
+|0-2 hours|58|
+|2-4 hours|38|
 |4-8 hours|10|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 288-485 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 280-470 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

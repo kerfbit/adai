@@ -4,6 +4,154 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-315: `Dataset.hpp` Is Tagged Stable but Has No Production Caller
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| October 11, 2026 | `src/Dataset.hpp` (removed) | Retirement |
+
+Summary:
+Retired per the owner's decision. Deleted `src/Dataset.hpp` (`Dataset`, `LazyDataset`, `DataSample`, `SplitType`, `DatasetStats`), `tests/dataset_test.cpp` (43 tests) and its CMake target, and the `dataset_enhanced_example`/`dataset_batch_processing_example` examples. `examples/EnhancedTrainingExample.cpp` was kept (it mainly demonstrates `MetricsTracker`), reworked to shuffle and split an in-memory sample list inline. Guides that taught the class were retired or redirected. Capabilities with no other implementation are listed under TD-014 for possible recreation. Filed October 11, 2026.
+
+Original description:
+Found while writing the code-traced reference [Dataset.md](../reference/source/Dataset.md). `src/Dataset.hpp` (~1,580 lines,
+header-only, `@adai-status: stable`) is included only by `tests/dataset_test.cpp` and three examples
+(`DatasetEnhancedExample`, `DatasetBatchProcessingExample`, `EnhancedTrainingExample`). The real
+training path is `ChatbotTrainer`'s loader plus `DatasetRegistry`, reusing only
+`TrainingSampleMeta.hpp`'s `parse_jsonl_sample()`. `LazyDataset` has no caller at all, not even a
+test. The header advertises "lazy loading for very large datasets" and "memory-efficient
+iteration", so it reads as the training data layer, and TD-316–320's bugs only matter to whoever
+adopts it on that basis.
+
+---
+
+### TD-316: `Dataset` File Parsers Lose or Mangle Data
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| October 11, 2026 | `src/Dataset.hpp` (removed) | Retirement of `Dataset.hpp` (TD-315) |
+
+Summary:
+Closed without a fix: the code was deleted when `src/Dataset.hpp` was retired (TD-315). If the capability is recreated under TD-014, avoid this bug. Filed October 11, 2026.
+
+Original description:
+Found alongside TD-315 and confirmed by running the real header. `Dataset::load_from_file()`
+silently loses or corrupts samples:
+- **Conversation format:** pairs need a blank line between them. `INPUT: a / RESPONSE: b / INPUT: c /
+  RESPONSE: d` kept only `(c, d)`. A multi-line response keeps only its first line.
+- **Format detection reads line 1 only.** A JSONL file with a leading blank line loaded 0 samples.
+  A conversation file whose first line was `Chat log, exported` was parsed as CSV: one bogus pair,
+  and the real pair was lost.
+- **CSV** splits at the first comma and ignores quoting: `"Hello, there",Hi` became `"Hello` /
+  `there",Hi`. A first data row containing "input" is dropped as a header.
+- **JSON** (`"input"`/`"target"`) ignores escapes: `"say \"hi\" now"` became `say \`.
+
+---
+
+### TD-317: `Dataset` Hangs, Crashes or Reads Freed Memory on Bad Arguments or Call Order
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| October 11, 2026 | `src/Dataset.hpp` (removed) | Retirement of `Dataset.hpp` (TD-315) |
+
+Summary:
+Closed without a fix: the code was deleted when `src/Dataset.hpp` was retired (TD-315). If the capability is recreated under TD-014, avoid this bug. Filed October 11, 2026.
+
+Original description:
+Found alongside TD-315 and confirmed by running the real header (with AddressSanitizer):
+- `get_batch_range(…, 0)` **loops forever**: `BatchIterator::operator++` adds 0.
+- `split_stratified(…, num_bins = 0)` **segfaults** (`bins[min(…, -1)]`).
+- `split(0, 0, 0)` divides by a zero ratio sum; the NaN → `size_t` cast is undefined behaviour.
+- `clear()` doesn't reset `num_folds_`/`fold_indices_`. After `setup_k_fold(5)` on 1,000 samples,
+  `clear()`, and adding one sample, `get_fold(0)` returned 200 "samples" read from destroyed
+  objects.
+
+---
+
+### TD-318: `Dataset` Split Bookkeeping and O(n²) `add_sample()`
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| October 11, 2026 | `src/Dataset.hpp` (removed) | Retirement of `Dataset.hpp` (TD-315) |
+
+Summary:
+Closed without a fix: the code was deleted when `src/Dataset.hpp` was retired (TD-315). If the capability is recreated under TD-014, avoid this bug. Filed October 11, 2026.
+
+Original description:
+Found alongside TD-315. Confirmed by running the header:
+- `add_sample()` recomputes statistics over the whole dataset on every call, so building
+  incrementally is O(n²). 20,000 calls took 1.08 s, against 0.02 s for one `add_samples()`.
+- Samples added after `split()` (or by `augment_data()`) belong to no split, with no warning
+  (11 samples → 8 + 2 + 0).
+
+By inspection: augmenting and then re-splitting can put augmented copies of validation/test samples
+into train (leakage).
+
+---
+
+### TD-319: `LazyDataset` Indexes Phantom Samples
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| October 11, 2026 | `src/Dataset.hpp` (removed) | Retirement of `Dataset.hpp` (TD-315) |
+
+Summary:
+Closed without a fix: the code was deleted when `src/Dataset.hpp` was retired (TD-315). If the capability is recreated under TD-014, avoid this bug. Filed October 11, 2026.
+
+Original description:
+Found alongside TD-315 and confirmed by running the header. `LazyDataset::index_file()` records
+**every line containing `INPUT:` anywhere** as a conversation sample. A 2-pair file whose second
+response contained the text `INPUT:` indexed as 3 samples, the third being `("" → "has INPUT:
+inside")`. TD-057 anchored the parsing in `get_sample()` but not the indexer. `load_range()` reopens
+the file for every sample, `stats_` is never computed, and the class has no tests or callers.
+
+---
+
+### TD-320: `Dataset` Hygiene: `tolower` UB, Unchecked Saves, Console Output
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| October 11, 2026 | `src/Dataset.hpp` (removed) | Retirement of `Dataset.hpp` (TD-315) |
+
+Summary:
+Closed without a fix: the code was deleted when `src/Dataset.hpp` was retired (TD-315). If the capability is recreated under TD-014, avoid this bug. Filed October 11, 2026.
+
+Original description:
+Found alongside TD-315, by inspection:
+- `lowercase()` passes plain `char` to `::tolower`, which is undefined behaviour for negative values
+  (every UTF-8 byte ≥ 0x80).
+- `save_to_file()` returns `true` without checking the write, and its TSV/conversation formats don't
+  escape tabs or newlines, so multi-line samples don't round-trip.
+- The header writes to `std::cout`/`std::cerr` instead of `adai::Logger`.
+
+---
+
+### TD-219: Dataset's Batch Wrappers Have Wrong Doc Examples and a Partial Stats Helper
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| October 11, 2026 | `src/Dataset.hpp` (removed) | Retirement of `Dataset.hpp` (TD-315) |
+
+Summary:
+Closed without a fix: the code was deleted when `src/Dataset.hpp` was retired (TD-315). If the capability is recreated under TD-014, avoid this bug. Filed October 8, 2026.
+
+Original description:
+Found alongside TD-217. `Dataset` (`src/Dataset.hpp`, tagged `stable`) wraps `BatchProcessor` in
+five methods (`get_batch_with_padding()`, `get_target_batch_with_padding()`,
+`get_dynamic_batches()`, `process_batch<T>()`, `get_batch_statistics()`). None has a production
+caller; they're used by tests and `DatasetBatchProcessingExample` only. Within them:
+
+- `get_batch_statistics(split, tokenizer_fn, batch_size)` only measures the **first**
+  `batch_size` samples, as one batch, not the whole split, which isn't what "statistics for a
+  split" suggests. It also hardcodes `pad_token_id = 0` instead of the class's usual
+  `SpecialTokenIDs::PAD` default (equal today, but they'd diverge if `PAD` ever changed).
+- Its doc example prints `stats.efficiency_percentage`, which doesn't exist (efficiency is
+  `1 - padding_ratio`).
+- `process_batch<T>()`'s doc example calls `model.forward_batch(seqs)`, which doesn't exist
+  (TD-171).
+
+---
+
 ### TD-210: Add LeJEPA Advanced Training Diagnostics and Fix a Zero-Gradient-Norm Bug
 
 | Resolution Date | Component | Resolved By |

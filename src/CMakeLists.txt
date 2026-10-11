@@ -927,10 +927,6 @@ if(BUILD_EXAMPLES)
     add_executable(enhanced_training_example ../examples/EnhancedTrainingExample.cpp)
     target_link_libraries(enhanced_training_example adai_models adai_nlp)
     
-    # Dataset Enhanced Features Example
-    add_executable(dataset_enhanced_example ../examples/DatasetEnhancedExample.cpp)
-    target_link_libraries(dataset_enhanced_example adai_core)
-    
     # Phase 5 Advanced Features Examples
     add_executable(phase5_examples ../examples/Phase5Examples.cpp)
     target_link_libraries(phase5_examples adai_core)
@@ -938,10 +934,6 @@ if(BUILD_EXAMPLES)
     # Data Pipeline Enhancement Example
     add_executable(data_pipeline_example ../examples/DataPipelineExample.cpp)
     target_link_libraries(data_pipeline_example adai_nlp)
-    
-    # Dataset Batch Processing Example
-    add_executable(dataset_batch_processing_example ../examples/DatasetBatchProcessingExample.cpp)
-    target_link_libraries(dataset_batch_processing_example adai_nlp)
     
     # GPU Acceleration Example (always build, shows status even without GPU)
     add_executable(gpu_example ../examples/GPUExample.cpp)

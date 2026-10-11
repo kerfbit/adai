@@ -13,6 +13,11 @@
 > real, current implementation. This guide's `CheckpointManager` section (usage example, API
 > reference, and the "S3CheckpointManager" extension idea near the end) has not been rewritten —
 > treat it as historical.
+>
+> **Retired (October 11, 2026):** the `Dataset` class described in "1. Dataset" below
+> (`src/Dataset.hpp`) was also retired (TD-315): nothing in production used it. The real pipeline
+> loads JSONL through `ChatbotTrainer` and `DatasetRegistry`. Its code examples are historical; the
+> capabilities worth recreating are listed under TD-014 (see [Dataset.md](../../reference/source/Dataset.md) and TD-014 in [TECHNICAL_DEBT.md](../TECHNICAL_DEBT.md)).
 
 ---
 
@@ -130,7 +135,7 @@ input,target
 "What's your name?","I'm an AI assistant."
 ```
 
-**For comprehensive v2.0 feature documentation, see:** [`dataset-enhanced-features.md`](dataset-enhanced-features.md)
+**`Dataset` was retired October 11, 2026 (TD-315)** (see [Dataset.md](../../reference/source/Dataset.md) and TD-014 in [TECHNICAL_DEBT.md](../TECHNICAL_DEBT.md)).
 
 #### API Reference (v2.0)
 

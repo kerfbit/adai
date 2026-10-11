@@ -1236,7 +1236,8 @@ Documentation Created:
 #### Tasks Completed:
 
 1. ✅ **Dataset Abstraction v2.0** (Complete - Enhanced January 2026) ✨ NEW
-   - `Dataset.hpp` class for (input, response) pairs (~1,124 lines)
+   - `Dataset.hpp` class for (input, response) pairs (~1,124 lines). **Retired October 11, 2026
+     (TD-315):** never used by production training; see [Dataset.md](source/Dataset.md) and TD-014
    - **Multiple file format support:** conversation, TSV, JSON, CSV with auto-detection
    - **Iterator interface:** begin()/end() for range-based for loops
    - **Batch iteration:** BatchIterator with configurable batch sizes
@@ -1283,7 +1284,8 @@ Documentation Created:
 
 Deliverables:
 
-- 3 production-ready header-only classes (Dataset v2.0, MetricsTracker, CheckpointManager)
+- 3 production-ready header-only classes (Dataset v2.0, MetricsTracker, CheckpointManager).
+  Dataset (TD-315) and CheckpointManager (TD-168) have since been retired as unused.
 - 77 comprehensive unit tests (100% pass rate) ✨ UPDATED
 - 130+ pages of documentation (enhanced-training-pipeline.md, dataset-enhanced-features.md)
 - Complete example programs (EnhancedTrainingExample.cpp, DatasetEnhancedExample.cpp)

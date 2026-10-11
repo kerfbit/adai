@@ -150,7 +150,7 @@ Special tokens are currently used in:
 - `src/EncoderDecoderModel.{hpp,cpp}` - Model configuration
 - `src/TextGenerator.{hpp,cpp}` - Generation configuration and termination
 - `src/BatchProcessor.hpp` - Padding operations
-- `src/Dataset.hpp` - Batch creation
+- `src/Dataset.hpp` - Batch creation (retired October 11, 2026, TD-315)
 - `src/ParallelDataLoader.hpp` - Data loading and padding
 - `src/PipelineInferenceEngine.hpp` - Inference engine
 - `src/IntegratedInferenceEngine.hpp` - Integrated inference

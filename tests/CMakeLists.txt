@@ -263,10 +263,7 @@ if(HTTPLIB_INCLUDE_DIR)
 endif()
 add_test(NAME ChatbotCLIImprovedTests COMMAND chatbotcliImprovedTests)
 
-# Dataset tests (data loading and splitting)
-add_executable(datasetTests dataset_test.cpp)
-target_link_libraries(datasetTests GTest::gtest_main)
-add_test(NAME DatasetTests COMMAND datasetTests)
+# Dataset tests retired with src/Dataset.hpp (TD-315, October 11, 2026)
 
 # MetricsTracker tests (training metrics tracking)
 add_executable(metricstrackerTests metricstracker_test.cpp)
