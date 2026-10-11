@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 9, 2026
-**Total Items:** 116
+**Total Items:** 121
 **High Priority:** 17
-**Medium Priority:** 52
-**Low Priority:** 47
+**Medium Priority:** 53
+**Low Priority:** 51
 **Future Enhancements:** 19
 **Resolved Items:** 204
 **Deferred Decisions:** 3
@@ -47,6 +47,14 @@ closes [TD-315](../archive/TECHNICAL_DEBT_RESOLVED.md#td-315-datasethpp-is-tagge
 capabilities (k-fold, stratified splitting, augmentation and preprocessing hooks, multi-format
 import, lazy indexing) are recorded under [TD-014](#td-014-llm-operations-and-training-tooling-suite)
 for possible recreation in `adai-data-prep`/`adai-eval`.
+
+Also October 11, 2026: filed [TD-321](#td-321-dataset_manager-treats---count--0-as-all) through [TD-325](#td-325-dataset_manager-huggingface-positional-arguments-shift-silently) from the code-traced
+[DatasetManagerArgs.md](../reference/source/DatasetManagerArgs.md). The one MEDIUM item is TD-321
+(verified): `dataset_manager assign`/`migrate` treat `--count` ≤ 0 as "all", so a typo like
+`--count -2` assigns or migrates the entire pending pool. The rest are LOW: unknown flags silently
+become file targets (TD-322, verified), partial and non-positive numbers are accepted (TD-323,
+verified), `segment --ranges` can overflow or overlap (TD-324, verified), and `huggingface`'s
+positional arguments shift silently (TD-325).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -852,6 +860,11 @@ should teach before it's worth implementing. [TD-314](#td-314-datafetcher-source
 [TD-219](../archive/TECHNICAL_DEBT_RESOLVED.md#td-219-datasets-batch-wrappers-have-wrong-doc-examples-and-a-partial-stats-helper) closed with `src/Dataset.hpp`'s retirement; see the resolved archive. Anything worth
 rebuilding is listed under [TD-014](#td-014-llm-operations-and-training-tooling-suite).
 
+**Tier 28 — Newly filed (October 11, 2026): `dataset_manager` argument parsing.** [TD-321](#td-321-dataset_manager-treats---count--0-as-all) first:
+it's a few lines and prevents a one-typo reassignment of the whole pending pool. [TD-322](#td-322-dataset_manager-treats-unknown-flags-as-file-targets),
+[TD-323](#td-323-dataset_manager-accepts-partial-and-out-of-range-numbers), [TD-324](#td-324-dataset_manager-segment-range-validation-gaps) and [TD-325](#td-325-dataset_manager-huggingface-positional-arguments-shift-silently) are small parser hardening, best done in the same change (a
+shared strict-integer helper also serves TD-240 and TD-287).
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -974,6 +987,11 @@ rebuilding is listed under [TD-014](#td-014-llm-operations-and-training-tooling-
   - [TD-312: `DataFetcher` Downloads Through Shell `curl` Commands](#td-312-datafetcher-downloads-through-shell-curl-commands)
   - [TD-313: HuggingFace Cache Accepts Partial Downloads and Races Concurrent Fetches](#td-313-huggingface-cache-accepts-partial-downloads-and-races-concurrent-fetches)
   - [TD-314: `DataFetcher` Source Coverage and Hygiene Gaps](#td-314-datafetcher-source-coverage-and-hygiene-gaps)
+  - [TD-321: `dataset_manager` Treats `--count` ≤ 0 as "All"](#td-321-dataset_manager-treats---count--0-as-all)
+  - [TD-322: `dataset_manager` Treats Unknown Flags as File Targets](#td-322-dataset_manager-treats-unknown-flags-as-file-targets)
+  - [TD-323: `dataset_manager` Accepts Partial and Out-of-Range Numbers](#td-323-dataset_manager-accepts-partial-and-out-of-range-numbers)
+  - [TD-324: `dataset_manager segment` Range Validation Gaps](#td-324-dataset_manager-segment-range-validation-gaps)
+  - [TD-325: `dataset_manager huggingface` Positional Arguments Shift Silently](#td-325-dataset_manager-huggingface-positional-arguments-shift-silently)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -5947,6 +5965,154 @@ Files to Modify:
 
 ---
 
+### TD-321: `dataset_manager` Treats `--count` ≤ 0 as "All"
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / dataset_manager CLI | October 11, 2026 | 1-2 hours |
+
+Description:
+Found while writing the code-traced reference [DatasetManagerArgs.md](../reference/source/DatasetManagerArgs.md) and confirmed by running the real
+parsers. `parse_assign_args()` and `parse_migrate_args()` accept any integer for `--count`, and a
+value ≤ 0 with no file targets selects **everything**:
+- `LocalTransport::assign()` and `registry_server`'s assign handler both treat "no paths and
+  `count <= 0`" as `assign_all`.
+- `dataset_manager migrate` copies `count` entries only if `count > 0`, otherwise all of them.
+
+So `dataset_manager assign my-model --count -2` (or `--count 0`) assigns **every pending file** to
+`my-model`, and `migrate chatbot --count 0` migrates every legacy entry. Assigning everything is
+only documented as "omit `--count`", so a typo silently turns "first N" into "the whole pool".
+
+Action Items:
+
+- [ ] Reject `--count` values < 1 in both parsers (keep "omit `--count`" as the only way to say all).
+- [ ] Optionally have the transports/server treat `count <= 0` with an explicit count parameter as an error rather than `assign_all`.
+- [ ] Tests: `--count 0` and `--count -2` are usage errors.
+
+Location in code: `src/DatasetManagerArgs.cpp` (`parse_assign_args()`, `parse_migrate_args()`); tagged `TODO: See TD-321`.
+
+Files to Modify:
+
+- `src/DatasetManagerArgs.cpp`
+- `src/DatasetManagerTool.cpp`
+- `tests/dataset_manager_args_test.cpp`
+
+---
+
+### TD-322: `dataset_manager` Treats Unknown Flags as File Targets
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / dataset_manager CLI | October 11, 2026 | 1 hour |
+
+Description:
+Found alongside TD-321 and confirmed by running the parsers. `assign`, `unassign`, `delete` and
+`migrate` push every argument they don't recognize into `targets`:
+- `delete f.jsonl --delete-file` (typo) deletes the entry but **keeps the file**, with no warning.
+- `unassign m --froce` silently does nothing useful.
+- A value-less `assign m --count` (or `--count=3`) targets a file named `--count`/`--count=3` and
+  reports "no matching pending files" instead of a usage error.
+
+Action Items:
+
+- [ ] Reject any argument starting with `--` that isn't a known flag, and require a value after `--count`.
+- [ ] Tests for typo'd flags and value-less `--count`.
+
+Location in code: `src/DatasetManagerArgs.cpp` (`parse_assign_args()`, `parse_unassign_args()`, `parse_delete_args()`, `parse_migrate_args()`); tagged `TODO: See TD-322`.
+
+Files to Modify:
+
+- `src/DatasetManagerArgs.cpp`
+- `tests/dataset_manager_args_test.cpp`
+
+---
+
+### TD-323: `dataset_manager` Accepts Partial and Out-of-Range Numbers
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / dataset_manager CLI | October 11, 2026 | 1 hour |
+
+Description:
+Found alongside TD-321 and confirmed by running the parsers. Every numeric argument uses bare
+`std::stoi`, so trailing garbage is dropped (`--count 3abc` → 3, `gutenberg 1342abc 500x` → 1342,
+500), and negative or zero values pass (`gutenberg -5 -10`, `huggingface x -1`,
+`gutenberg-batch 1342,0`). The registry rejects a non-positive `book_id` later; in local mode
+`DataFetcher` just writes zero pairs. Same class of bug as TD-240 and TD-287.
+
+Action Items:
+
+- [ ] Add a strict integer helper (full-string match, range check) and require `book_id > 0` and `num_pairs > 0`.
+- [ ] Tests for partial and non-positive values.
+
+Location in code: `src/DatasetManagerArgs.cpp` (all `std::stoi` call sites); tagged `TODO: See TD-323`.
+
+Files to Modify:
+
+- `src/DatasetManagerArgs.cpp`
+- `tests/dataset_manager_args_test.cpp`
+
+---
+
+### TD-324: `dataset_manager segment` Range Validation Gaps
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / dataset_manager CLI | October 11, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-321. Confirmed by running the parser:
+- `--ranges 0-2147483647` overflows `b - a + 1` (UBSan: signed integer overflow), producing a
+  segment of -2147483648 pairs.
+- Overlapping ranges (`0-9,5-14`) and a repeated `--ranges` are accepted, so the same pairs are
+  queued (and trained) twice.
+- `--count -5 --ranges 0-1` is accepted, `--count` silently ignored (the exclusivity check uses
+  `split_count > 0`).
+
+By inspection: `DatasetManagerTool.cpp` checks the file's pair count but never checks explicit
+ranges against it, so a range past the end is queued.
+
+Action Items:
+
+- [ ] Compute the count in 64-bit (or reject `B` near `INT_MAX`); reject overlapping/duplicate ranges and repeated `--ranges`; reject `--count` < 1.
+- [ ] In `DatasetManagerTool.cpp`, reject ranges that extend past `count_pairs()`.
+
+Location in code: `src/DatasetManagerArgs.cpp` (`parse_segment_args()`), `src/DatasetManagerTool.cpp` (`segment`); tagged `TODO: See TD-324`.
+
+Files to Modify:
+
+- `src/DatasetManagerArgs.cpp`
+- `src/DatasetManagerTool.cpp`
+- `tests/dataset_manager_args_test.cpp`
+
+---
+
+### TD-325: `dataset_manager huggingface` Positional Arguments Shift Silently
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / dataset_manager CLI | October 11, 2026 | 1 hour |
+
+Description:
+Found alongside TD-321, by inspection. `huggingface <dataset_id> [num_pairs] [split]
+[input_field] [output_field] [model]` is purely positional, so giving `model` requires every
+argument before it, and `huggingface ds 500 my-model` silently sets `split = "my-model"`. `add`,
+`remove` and `gutenberg` also ignore extra arguments rather than rejecting them.
+
+Action Items:
+
+- [ ] Add named flags (`--split`, `--input-field`, `--output-field`, `--model`), keeping the positional form for compatibility; reject unexpected extra arguments.
+
+Location in code: `src/DatasetManagerArgs.cpp` (`parse_huggingface_args()`, `parse_add_args()`, `parse_remove_args()`, `parse_gutenberg_args()`); tagged `TODO: See TD-325`.
+
+Files to Modify:
+
+- `src/DatasetManagerArgs.cpp`
+- `src/DatasetManagerTool.cpp`
+- `tests/dataset_manager_args_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -6462,15 +6628,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 116 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 121 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|17|15%|
-|Medium|52|45%|
-|Low|47|41%|
+|High|17|14%|
+|Medium|53|44%|
+|Low|51|42%|
 
-**Total Active Items:** 116
+**Total Active Items:** 121
 
 ### By Component
 
@@ -6505,6 +6671,7 @@ Recomputed directly from the 116 `### TD-NNN` entries under [Active Technical De
 |Core / DaemonConfigStore|3|
 |Admin config API|2|
 |Data / DataFetcher|6|
+|Data / dataset_manager CLI|5|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
 
@@ -6512,13 +6679,13 @@ Recomputed directly from the 116 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|58|
+|0-2 hours|63|
 |2-4 hours|38|
 |4-8 hours|10|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 280-470 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 285-477 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

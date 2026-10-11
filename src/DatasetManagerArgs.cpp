@@ -22,6 +22,7 @@ T make_error(std::string message) {
 }
 }  // namespace
 
+// TODO: See TD-325 in TECHNICAL_DEBT.md - extra arguments silently ignored
 AddArgs parse_add_args(const std::vector<std::string>& args) {
     if (args.empty())
         return make_error<AddArgs>("Usage: dataset_manager add <data_file>");
@@ -37,6 +38,7 @@ GutenbergArgs parse_gutenberg_args(const std::vector<std::string>& args) {
     }
     GutenbergArgs r;
     try {
+        // TODO: See TD-323 in TECHNICAL_DEBT.md - bare stoi: accepts partial ("1342abc") and non-positive values
         r.book_id = std::stoi(args[0]);
     } catch (const std::exception&) {
         return make_error<GutenbergArgs>("Invalid book_id: " + args[0]);
@@ -80,6 +82,7 @@ GutenbergBatchArgs parse_gutenberg_batch_args(const std::vector<std::string>& ar
     return r;
 }
 
+// TODO: See TD-325 in TECHNICAL_DEBT.md - purely positional optionals shift silently (e.g. model lands in split)
 HuggingfaceArgs parse_huggingface_args(const std::vector<std::string>& args) {
     if (args.empty()) {
         return make_error<HuggingfaceArgs>(
@@ -114,6 +117,7 @@ RemoveArgs parse_remove_args(const std::vector<std::string>& args) {
     return r;
 }
 
+// TODO: See TD-322 in TECHNICAL_DEBT.md - unknown flags and a value-less --count become file targets
 AssignArgs parse_assign_args(const std::vector<std::string>& args) {
     if (args.empty()) {
         return make_error<AssignArgs>(
@@ -124,6 +128,7 @@ AssignArgs parse_assign_args(const std::vector<std::string>& args) {
     for (std::size_t i = 1; i < args.size(); ++i) {
         if (args[i] == "--count" && i + 1 < args.size()) {
             try {
+                // TODO: See TD-321 in TECHNICAL_DEBT.md - count <= 0 with no targets means assign ALL pending files
                 r.count = std::stoi(args[++i]);
             } catch (const std::exception&) {
                 return make_error<AssignArgs>("Invalid --count value");
@@ -135,6 +140,7 @@ AssignArgs parse_assign_args(const std::vector<std::string>& args) {
     return r;
 }
 
+// TODO: See TD-322 in TECHNICAL_DEBT.md - typo'd flags (e.g. --froce) become file targets
 UnassignArgs parse_unassign_args(const std::vector<std::string>& args) {
     if (args.empty()) {
         return make_error<UnassignArgs>(
@@ -152,6 +158,7 @@ UnassignArgs parse_unassign_args(const std::vector<std::string>& args) {
     return r;
 }
 
+// TODO: See TD-322 in TECHNICAL_DEBT.md - typo'd flags (e.g. --delete-file) become file targets
 DeleteArgs parse_delete_args(const std::vector<std::string>& args) {
     DeleteArgs r;
     for (std::size_t i = 0; i < args.size(); ++i) {
@@ -190,6 +197,7 @@ MigrateArgs parse_migrate_args(const std::vector<std::string>& args) {
     for (std::size_t i = 1; i < args.size(); ++i) {
         if (args[i] == "--count" && i + 1 < args.size()) {
             try {
+                // TODO: See TD-321 in TECHNICAL_DEBT.md - count <= 0 with no targets means migrate ALL legacy entries
                 r.count = std::stoi(args[++i]);
             } catch (const std::exception&) {
                 return make_error<MigrateArgs>("Invalid --count value");
@@ -234,6 +242,7 @@ SegmentArgs parse_segment_args(const std::vector<std::string>& args) {
                         return make_error<SegmentArgs>(
                             "Invalid --ranges token (need 0 <= A <= B): " + token);
                     }
+                    // TODO: See TD-324 in TECHNICAL_DEBT.md - b - a + 1 overflows near INT_MAX; overlapping/duplicate ranges accepted
                     r.ranges.push_back({a, b - a + 1});
                 } catch (const std::exception&) {
                     return make_error<SegmentArgs>(
@@ -247,6 +256,7 @@ SegmentArgs parse_segment_args(const std::vector<std::string>& args) {
     if (r.split_count <= 0 && r.ranges.empty()) {
         return make_error<SegmentArgs>("Either --count N or --ranges A-B,... is required");
     }
+    // TODO: See TD-324 in TECHNICAL_DEBT.md - a non-positive --count alongside --ranges is silently ignored
     if (r.split_count > 0 && !r.ranges.empty()) {
         return make_error<SegmentArgs>("--count and --ranges are mutually exclusive");
     }

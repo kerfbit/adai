@@ -680,6 +680,7 @@ int main(int argc, char* argv[]) {
                 start += count;
             }
         } else {
+            // TODO: See TD-324 in TECHNICAL_DEBT.md - explicit ranges are not checked against total_pairs
             for (const auto& r : parsed.ranges) {
                 ranges.emplace_back(r.start, r.count);
             }
