@@ -31,6 +31,7 @@ DataFetcher::DataFetcher(FetcherConfig cfg) : config_(std::move(cfg)) {}
 // Public — Project Gutenberg
 // ============================================================================
 
+// TODO: See TD-314 in TECHNICAL_DEBT.md - re-downloads the book on every call (no cache)
 std::string DataFetcher::fetch_gutenberg(int book_id, int num_pairs) {
     if (!fs::exists(config_.gutenberg_output_dir)) {
         fs::create_directories(config_.gutenberg_output_dir);
@@ -164,6 +165,7 @@ int DataFetcher::convert_gutenberg_slice(const std::string& cached_sentences,
     SampleMeta meta;
     meta.task_type = "qa";
     meta.domain = "literature";
+    // TODO: See TD-311 in TECHNICAL_DEBT.md - language is hardcoded to "en" regardless of the book
     meta.language = "en";
 
     std::ofstream out(output_file, std::ios::trunc);
@@ -212,6 +214,7 @@ std::string DataFetcher::fetch_huggingface(const std::string& dataset_id, int nu
     std::string safe_id = dataset_id;
     std::replace(safe_id.begin(), safe_id.end(), '/', '_');
 
+    // TODO: See TD-310 in TECHNICAL_DEBT.md - split is not flattened; ".." in split escapes the output dir
     const std::string dataset_dir = config_.huggingface_output_dir + "/" + safe_id + "_" + split;
     const std::string train_file =
         config_.huggingface_output_dir + "/" + safe_id + "_" + split + "_training.jsonl";
@@ -256,9 +259,11 @@ std::string DataFetcher::ensure_huggingface_cached(const std::string& dataset_id
     std::string safe_id = dataset_id;
     std::replace(safe_id.begin(), safe_id.end(), '/', '_');
 
+    // TODO: See TD-310 in TECHNICAL_DEBT.md - split is not flattened; ".." in split escapes the output dir
     const std::string dataset_dir = config_.huggingface_output_dir + "/" + safe_id + "_" + split;
     const std::string jsonl_path = dataset_dir + "/full_dataset.jsonl";
 
+    // TODO: See TD-313 in TECHNICAL_DEBT.md - any non-empty file counts as a complete cache (partial/interrupted/concurrent downloads)
     if (fs::exists(jsonl_path) && fs::file_size(jsonl_path) > 0) {
         Logger::info("HuggingFace dataset '{}' (split={}) already cached at '{}' — skipping download",
                      dataset_id, split, jsonl_path);
@@ -314,6 +319,7 @@ int DataFetcher::convert_huggingface_slice(const std::string& cached_jsonl,
 // ============================================================================
 
 /*static*/
+// TODO: See TD-314 in TECHNICAL_DEBT.md - cache/epub/<id>/pg<id>.txt is never tried
 std::string DataFetcher::get_gutenberg_url(int book_id) {
     std::ostringstream oss;
     oss << "https://www.gutenberg.org/files/" << book_id << "/" << book_id << "-0.txt";
@@ -321,6 +327,7 @@ std::string DataFetcher::get_gutenberg_url(int book_id) {
 }
 
 /*static*/
+// TODO: See TD-312 in TECHNICAL_DEBT.md - shell curl via std::system (quoting only), no timeouts
 bool DataFetcher::download_file(const std::string& url, const std::string& output_path) {
     Logger::info("Downloading: {}", url);
 
@@ -534,6 +541,7 @@ std::vector<std::string> DataFetcher::extract_sentences(const std::string& text)
     static const std::regex decimal_regex(R"((\d)\.(\d))");
     const std::string protected_text = std::regex_replace(text, decimal_regex, "$1\x01$2");
 
+    // TODO: See TD-309 in TECHNICAL_DEBT.md - std::regex recursion segfaults on ~100k+ chars without . ! ? (crashes registry_server); TD-311: splits on Mr./Mrs./Dr.
     std::regex sentence_regex("[^.!?]+[.!?]+");
 
     auto sentences_begin =
@@ -569,6 +577,7 @@ std::string DataFetcher::generate_question_from_sentence(const std::string& sent
         "What does this mean: ", "Can you explain: ", "Tell me about: ",
         "What is this about: ",  "Explain this: ",    "What does this say: "};
 
+    // TODO: See TD-311 in TECHNICAL_DEBT.md - unseeded rand(); template questions don't match the next-sentence answer
     int idx = rand() % static_cast<int>(question_templates.size());
     return question_templates[idx] + sentence;
 }
@@ -579,6 +588,7 @@ std::string DataFetcher::generate_question_from_sentence(const std::string& sent
 //       (<|first|>/<|middle|>/<|last|>) defined first (see BPETokenizer.cpp).
 // TODO: See TD-225 in TECHNICAL_DEBT.md - BPETokenizer.cpp does not define these yet; it has only
 //       the four special tokens.
+// TODO: See TD-311 in TECHNICAL_DEBT.md - answer/summary is just the next sentence (non-sequitur pairs)
 std::vector<std::pair<std::string, std::string>> DataFetcher::create_qa_pairs_from_text(
     const std::vector<std::string>& sentences, int max_pairs, size_t start_index,
     size_t* out_next_index) {
@@ -645,6 +655,7 @@ bool DataFetcher::convert_gutenberg_to_training_data(const std::string& text_fil
     SampleMeta meta;
     meta.task_type = "qa";
     meta.domain = "literature";
+    // TODO: See TD-311 in TECHNICAL_DEBT.md - language is hardcoded to "en" regardless of the book
     meta.language = "en";
 
     for (const auto& pair : pairs) {
@@ -665,6 +676,7 @@ bool DataFetcher::convert_gutenberg_to_training_data(const std::string& text_fil
 static std::vector<std::string> hf_extract_parquet_urls(const std::string& json);
 
 /*static*/
+// TODO: See TD-312 in TECHNICAL_DEBT.md - shell curl with HF_TOKEN in argv and unvalidated HF-supplied URLs, no timeouts
 std::string DataFetcher::download_hf_full_dataset(const std::string& dataset_id,
                                                   const std::string& split,
                                                   const std::string& output_dir) {
@@ -676,6 +688,7 @@ std::string DataFetcher::download_hf_full_dataset(const std::string& dataset_id,
     {
         std::ostringstream url;
         url << "https://datasets-server.huggingface.co/parquet" << "?dataset=" << dataset_id
+            // TODO: See TD-314 in TECHNICAL_DEBT.md - only config=default is ever requested
             << "&config=default&split=" << split;
 
         std::ostringstream cmd;
@@ -726,6 +739,7 @@ std::string DataFetcher::download_hf_full_dataset(const std::string& dataset_id,
         }
         if (std::system(dl_cmd.str().c_str()) != 0 || !fs::exists(pq_file) ||
             fs::file_size(pq_file) == 0) {
+            // TODO: See TD-313 in TECHNICAL_DEBT.md - a failed part is skipped, yet the partial result is cached as complete
             Logger::error("Failed to download parquet part {}: {}", i, parquet_urls[i]);
             continue;
         }
@@ -805,6 +819,7 @@ static std::string hf_unescape(const std::string& s) {
 }
 
 /// Extract the first quoted string value for the given JSON key.
+// TODO: See TD-314 in TECHNICAL_DEBT.md - hand-rolled scanner: no \uXXXX decoding, matches the key anywhere (use nlohmann/json)
 static std::string hf_extract_string(const std::string& json, const std::string& key) {
     std::string needle = "\"" + key + "\"";
     size_t kpos = json.find(needle);

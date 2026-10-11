@@ -1319,6 +1319,7 @@ static void handle_pending_add(const httplib::Request& req, httplib::Response& r
 // dataset_id interpolated unescaped into curl/python commands, so this endpoint
 // is a remote command-injection vector unless the id is strictly allow-listed
 // before it ever reaches DataFetcher. Same allow-list applies to `split`.
+// TODO: See TD-310 in TECHNICAL_DEBT.md - allows ".." path components; split is used unflattened in paths
 static const std::regex kSafeHfIdentifier(R"(^[A-Za-z0-9._\-/]+$)");
 
 static bool is_safe_hf_identifier(const std::string& s) {

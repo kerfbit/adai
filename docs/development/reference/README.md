@@ -22,6 +22,7 @@ This directory contains reference materials, technical specifications, and imple
   - [ConversationContext](source/ConversationContext.md) (`src/ConversationContext.{hpp,cpp}`; multi-turn chat history)
   - [CrossAttention](source/CrossAttention.md) (`src/CrossAttention.{hpp,cpp}`; encoder-decoder attention)
   - [DaemonConfigStore](source/DaemonConfigStore.md) (`src/DaemonConfigStore.{hpp,cpp}`; persisted `/admin/config` overrides and session counters)
+  - [DataFetcher](source/DataFetcher.md) (`src/DataFetcher.{hpp,cpp}`; Gutenberg/HuggingFace import for `registry_server`/`dataset_manager`)
 
 - **[KVCache API Reference](kvcache.md)** - Complete API documentation for the Key-Value cache system
   - Single-layer and multi-layer caching

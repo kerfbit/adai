@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 9, 2026
-**Total Items:** 111
-**High Priority:** 15
-**Medium Priority:** 49
-**Low Priority:** 47
+**Total Items:** 117
+**High Priority:** 17
+**Medium Priority:** 52
+**Low Priority:** 48
 **Future Enhancements:** 19
 **Resolved Items:** 197
 **Deferred Decisions:** 3
@@ -21,6 +21,16 @@ so concurrent writers fail instantly and two processes can be handed the same se
 `PUT /admin/config` still partly applies, in memory or in the DB (TD-305). Three are LOW
 (TD-306–308): missing range checks on two daemons' PUTs, hidden `load_all()` read errors, and the
 counter store reusing the config table.
+
+Also October 11, 2026: filed [TD-309](#td-309-gutenberg-sentence-splitting-can-crash-registry_server) through [TD-314](#td-314-datafetcher-source-coverage-and-hygiene-gaps) from the code-traced
+[DataFetcher.md](../reference/source/DataFetcher.md). Two are **HIGH** and reachable through
+`registry_server`'s fetch endpoints: the Gutenberg sentence regex segfaults on long unpunctuated text,
+so one `fetch/gutenberg` request can crash the registry daemon (TD-309, verified at 100,000
+characters); and the HuggingFace `split` can contain `..`, so `fetch/huggingface` writes outside the
+data directory (TD-310, verified). Three are MEDIUM: Gutenberg pairs are next-sentence non-sequiturs
+(TD-311, verified), downloads go through shell `curl` commands with the HF token in argv and no
+timeouts (TD-312), and partial or concurrent HuggingFace downloads are cached as complete (TD-313).
+TD-314 is LOW.
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -816,6 +826,12 @@ first: a busy timeout is a one-line change, and an atomic `increment()` fixes du
 numbers in both transports. [TD-305](#td-305-a-rejected-or-failed-put-adminconfig-still-partly-applies) pairs with it (add `set_many()` in the same change) and with
 [TD-306](#td-306-registry_server-and-metrics_api_server-admin-puts-dont-range-check-values), since all three touch the admin PUT handlers. [TD-307](#td-307-daemonconfigstoreload_all-hides-read-errors) and [TD-308](#td-308-session-counters-reuse-the-config-stores-table-and-scan-it-per-allocation) are cleanup.
 
+**Tier 26 — Newly filed (October 11, 2026): `DataFetcher`.** [TD-309](#td-309-gutenberg-sentence-splitting-can-crash-registry_server) and [TD-310](#td-310-huggingface-split-can-write-outside-the-registry-data-directory) are HIGH,
+small and reachable from any client of `registry_server`'s fetch endpoints; do them first.
+[TD-312](#td-312-datafetcher-downloads-through-shell-curl-commands) and [TD-313](#td-313-huggingface-cache-accepts-partial-downloads-and-races-concurrent-fetches) are best done together (both rework the download path; libcurl gives
+timeouts and per-part error handling). [TD-311](#td-311-gutenberg-training-pairs-are-next-sentence-non-sequiturs) needs the user's decision on what Gutenberg data
+should teach before it's worth implementing. [TD-314](#td-314-datafetcher-source-coverage-and-hygiene-gaps) is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -933,6 +949,12 @@ numbers in both transports. [TD-305](#td-305-a-rejected-or-failed-put-adminconfi
   - [TD-306: `registry_server` and `metrics_api_server` Admin PUTs Don't Range-Check Values](#td-306-registry_server-and-metrics_api_server-admin-puts-dont-range-check-values)
   - [TD-307: `DaemonConfigStore::load_all()` Hides Read Errors](#td-307-daemonconfigstoreload_all-hides-read-errors)
   - [TD-308: Session Counters Reuse the Config Store's Table and Scan It per Allocation](#td-308-session-counters-reuse-the-config-stores-table-and-scan-it-per-allocation)
+  - [TD-309: Gutenberg Sentence Splitting Can Crash `registry_server`](#td-309-gutenberg-sentence-splitting-can-crash-registry_server)
+  - [TD-310: HuggingFace `split` Can Write Outside the Registry Data Directory](#td-310-huggingface-split-can-write-outside-the-registry-data-directory)
+  - [TD-311: Gutenberg Training Pairs Are Next-Sentence Non-Sequiturs](#td-311-gutenberg-training-pairs-are-next-sentence-non-sequiturs)
+  - [TD-312: `DataFetcher` Downloads Through Shell `curl` Commands](#td-312-datafetcher-downloads-through-shell-curl-commands)
+  - [TD-313: HuggingFace Cache Accepts Partial Downloads and Races Concurrent Fetches](#td-313-huggingface-cache-accepts-partial-downloads-and-races-concurrent-fetches)
+  - [TD-314: `DataFetcher` Source Coverage and Hygiene Gaps](#td-314-datafetcher-source-coverage-and-hygiene-gaps)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -5734,6 +5756,196 @@ Files to Modify:
 - `src/RegistryServer.cpp`
 ---
 
+### TD-309: Gutenberg Sentence Splitting Can Crash `registry_server`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Data / DataFetcher | October 11, 2026 | 1-2 hours |
+
+Description:
+Found while writing the code-traced reference [DataFetcher.md](../reference/source/DataFetcher.md) and confirmed by running the real
+code. `DataFetcher::extract_sentences()` matches `std::regex("[^.!?]+[.!?]+")` over the whole cleaned
+book. libstdc++'s regex engine recurses per character, so a long run with no `.`, `!` or `?` overflows
+the stack: 20,000 characters was fine, but **100,000 and 400,000 characters died with SIGSEGV**.
+Realistic triggers include a book in a script without ASCII sentence punctuation (e.g. Chinese, which
+uses `。`), a long poem, or a large index or table.
+
+`registry_server`'s `POST /registry/<group>/fetch/gutenberg` runs `ensure_gutenberg_cached()` →
+`extract_sentences()` in its request thread, so **one fetch request kills the registry daemon**. No
+sentence cache is written on the way, so every retry of the same book crashes it again.
+`dataset_manager`'s local `gutenberg` command crashes the same way.
+
+Action Items:
+
+- [ ] Replace the regex with a linear hand-written scanner (also the natural place for TD-311's abbreviation handling).
+- [ ] Cap the length of a candidate sentence span, and treat a book with no usable sentences as a clean failure.
+- [ ] Test: a 1 MB unpunctuated input returns without crashing.
+
+Location in code: `src/DataFetcher.cpp` (`extract_sentences()`); tagged `TODO: See TD-309`.
+
+Files to Modify:
+
+- `src/DataFetcher.cpp`
+- `tests/DataFetcherTests.cpp`
+
+---
+
+### TD-310: HuggingFace `split` Can Write Outside the Registry Data Directory
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Data / DataFetcher | October 11, 2026 | 1 hour |
+
+Description:
+Found alongside TD-309 and confirmed by running the real code. `registry_server`'s
+`fetch/huggingface` allow-lists `dataset_id` and `split` to `[A-Za-z0-9._-/]+`, which permits `..`
+and `/`. `DataFetcher` flattens `/` in `dataset_id` but concatenates `split` into the cache path
+as-is (`<dir>/<safe_id>_<split>/`), and the registry builds the training-file path from `split` the
+same way. `split = "x/../../../../ESCAPED"` made `ensure_huggingface_cached()` create `ESCAPED/`
+outside the group's data directory. With a real download, `parquet_info.json`, `parquet/` and
+`full_dataset.jsonl` would be written there, and the produced training file and pending entry would
+point there too. Any client that can reach the registry's fetch endpoint can do this.
+
+Action Items:
+
+- [ ] Reject `..` path components (or any `/`) in `split` in the registry allow-list, and flatten `split` in `DataFetcher` like `dataset_id`.
+- [ ] Test: the endpoint rejects a `split` containing `..`, and `DataFetcher` never creates paths outside its output dir.
+
+Location in code: `src/DataFetcher.cpp` (`ensure_huggingface_cached()`, `fetch_huggingface()`), `src/RegistryServer.cpp` (`kSafeHfIdentifier`); tagged `TODO: See TD-310`.
+
+Files to Modify:
+
+- `src/DataFetcher.cpp`
+- `src/RegistryServer.cpp`
+- `tests/dataset_registry_live_test.cpp`
+
+---
+
+### TD-311: Gutenberg Training Pairs Are Next-Sentence Non-Sequiturs
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / DataFetcher | October 11, 2026 | 4-8 hours |
+
+Description:
+Found alongside TD-309 and confirmed by running the real code. `create_qa_pairs_from_text()` pairs
+`"<template>" + s[i]` with `s[i+1]` and `"Summarize: " + s[i] + s[i+1]` with `s[i+2]`. The
+"answer" is just whatever the author wrote next, and the "summary" is the following sentence, so the
+model is trained to answer "Can you explain: X" with an unrelated continuation. `extract_sentences()`
+also splits on abbreviations: `Mr.`, `Mrs.` and `Dr.` end a "sentence", so `"Mr."` is dropped and
+the rest is split mid-clause (verified on Pride-and-Prejudice-style text). The template comes from
+unseeded `rand()` (same sequence every run), and every pair is tagged `language="en"` regardless of
+the book. Every Gutenberg fetch produces this data.
+
+Action Items:
+
+- [ ] Decide the intended task (the user's call). Options: plain continuation/completion pairs labelled as such (`task_type="completion"`), real QA from a better source, or dropping the QA/summary templates.
+- [ ] Handle common abbreviations in sentence splitting (fold into TD-309's scanner).
+- [ ] Use a seeded RNG (or no templates), and set `language` from the book's metadata or leave it empty.
+
+Location in code: `src/DataFetcher.cpp` (`create_qa_pairs_from_text()`, `generate_question_from_sentence()`, `extract_sentences()`); tagged `TODO: See TD-311`.
+
+Files to Modify:
+
+- `src/DataFetcher.cpp`
+- `tests/DataFetcherTests.cpp`
+
+---
+
+### TD-312: `DataFetcher` Downloads Through Shell `curl` Commands
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / DataFetcher | October 11, 2026 | 4-8 hours |
+
+Description:
+Found alongside TD-309, by inspection. Every download is `std::system("curl -L -f -s … \"<path>\"
+\"<url>\"")`. Inside double quotes, `$(…)` and backticks still expand.
+- `registry_server` allow-lists `dataset_id`/`split`, so its endpoint isn't injectable (but see
+  TD-310 for `..`).
+- `dataset_manager`'s local mode passes them unvalidated (the operator's own shell, but a pasted ID
+  containing `$(…)` runs it).
+- Parquet URLs from HuggingFace's API response are interpolated unvalidated.
+- `HF_TOKEN` is put on the curl command line, visible to other local users via `ps`.
+- `curl` runs with no `--connect-timeout`/`--max-time`, synchronously inside `registry_server`'s
+  request handler, so a stalled server holds a worker thread indefinitely.
+
+Action Items:
+
+- [ ] Download with libcurl (already an optional dependency for the FTP transport) or `posix_spawn` with an argv array, never a shell.
+- [ ] Pass the token via a header option, not argv; set connect and total timeouts; validate URLs are `https://` on expected hosts.
+
+Location in code: `src/DataFetcher.cpp` (`download_file()`, `download_hf_full_dataset()`); tagged `TODO: See TD-312`.
+
+Files to Modify:
+
+- `src/DataFetcher.cpp`
+- `src/CMakeLists.txt`
+
+---
+
+### TD-313: HuggingFace Cache Accepts Partial Downloads and Races Concurrent Fetches
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / DataFetcher | October 11, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-309, by inspection. `download_hf_full_dataset()` logs and skips any Parquet part
+that fails to download or convert, and succeeds if one part converted. `ensure_huggingface_cached()`
+then treats any non-empty `full_dataset.jsonl` as complete, so the missing parts are never retried.
+An interrupted download (a crash mid-append) likewise leaves a truncated cache that's served
+indefinitely. Two concurrent `fetch/huggingface` requests for the same dataset (different models, or a
+retry) download into the same `parquet/part_<i>.parquet` and `full_dataset.jsonl` at once, and the
+second request may see the first's half-written cache as complete.
+
+Action Items:
+
+- [ ] Download into a temp directory and rename into place only when every part succeeds; write a completion marker and check it instead of file size.
+- [ ] Serialize fetches per dataset in `registry_server` (a per-dataset mutex or lock file).
+
+Location in code: `src/DataFetcher.cpp` (`download_hf_full_dataset()`, `ensure_huggingface_cached()`); tagged `TODO: See TD-313`.
+
+Files to Modify:
+
+- `src/DataFetcher.cpp`
+- `src/RegistryServer.cpp`
+
+---
+
+### TD-314: `DataFetcher` Source Coverage and Hygiene Gaps
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / DataFetcher | October 11, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-309, by inspection:
+- Only `config=default` is ever requested, so multi-config HuggingFace datasets fail with "No parquet
+  files found" and there's no way to choose a config.
+- Only Gutenberg's `files/<id>/<id>-0.txt` and `<id>.txt` URLs are tried, not
+  `cache/epub/<id>/pg<id>.txt`; not checked against the live site.
+- `fetch_gutenberg()` re-downloads the book on every call.
+- `fetch_huggingface()`/`download_hf_full_dataset()` print with `std::cout`/`std::cerr` in library
+  code.
+- The JSON field scanners don't decode `\uXXXX` escapes and match the first `"key"` anywhere in a row,
+  including nested objects.
+
+Action Items:
+
+- [ ] Add an optional HF `config` parameter (CLI, endpoint, dashboard).
+- [ ] Add the `cache/epub` URL pattern; cache in `fetch_gutenberg()`; switch output to `Logger`.
+- [ ] Parse rows with the vendored nlohmann/json instead of the string scanners.
+
+Location in code: `src/DataFetcher.cpp` (`download_hf_full_dataset()`, `get_gutenberg_url()`, `fetch_gutenberg()`, `hf_extract_string()`); tagged `TODO: See TD-314`.
+
+Files to Modify:
+
+- `src/DataFetcher.{hpp,cpp}`
+- `src/RegistryServer.cpp`
+- `src/DatasetManagerTool.cpp`
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -6249,15 +6461,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 111 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 117 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|15|14%|
-|Medium|49|44%|
-|Low|47|42%|
+|High|17|15%|
+|Medium|52|44%|
+|Low|48|41%|
 
-**Total Active Items:** 111
+**Total Active Items:** 117
 
 ### By Component
 
@@ -6291,6 +6503,7 @@ Recomputed directly from the 111 `### TD-NNN` entries under [Active Technical De
 |Attention / CrossAttention|7|
 |Core / DaemonConfigStore|3|
 |Admin config API|2|
+|Data / DataFetcher|6|
 |Core / Batching|1|
 |Data / Dataset|1|
 |NLP / Tokenizer|6|
@@ -6299,13 +6512,13 @@ Recomputed directly from the 111 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|57|
-|2-4 hours|36|
-|4-8 hours|8|
+|0-2 hours|59|
+|2-4 hours|38|
+|4-8 hours|10|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 267-445 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 281-472 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
