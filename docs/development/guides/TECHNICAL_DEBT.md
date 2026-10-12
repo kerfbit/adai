@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 12, 2026
-**Total Items:** 163
-**High Priority:** 21
-**Medium Priority:** 69
-**Low Priority:** 73
+**Total Items:** 169
+**High Priority:** 22
+**Medium Priority:** 72
+**Low Priority:** 75
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -151,6 +151,17 @@ and bug reproductions can't be replayed (TD-368); and `load_weights()` loads a t
 an error, keeping the old weights for everything past the cut (TD-369). Two are LOW: missing argument
 and shape checks, a GPU null dereference and console output (TD-370); and an owner decision on scaling
 residual-branch output for depth, since a fresh FFN's output std is about 1.35× its input (TD-371).
+
+Also October 12, 2026: filed [TD-372](#td-372-ftp-data-connections-are-accepted-from-any-host-so-files-can-be-stolen) through [TD-377](#td-377-ftpdataserver-token-semantics-and-setup-gaps) from the code-traced
+[FtpDataServer.md](../reference/source/FtpDataServer.md), verified against a live server built from the
+header and driven by Python FTP/TLS clients. One is **HIGH**: the PASV data connection is accepted
+from any host, so a third party that connects first receives the whole file (300,000 of 300,000
+bytes), even under FTPS with `PROT P`; the token is consumed, so the real trainer's download fails
+too (TD-372). Three are MEDIUM: `--ftps` doesn't require `AUTH TLS` or `PROT P` (TD-373, verified);
+logging in twice on one connection leaks a rate-limit slot until restart (TD-374, verified); and
+there's no connection cap, idle timeout or line-length limit, and connection threads outlive `stop()`
+(TD-375). Two are LOW: `stop()` takes up to 60 s, `FEAT` is written unencrypted after `AUTH TLS`,
+and `start()` failures are only logged (TD-376, verified); token semantics and setup gaps (TD-377).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1013,6 +1024,12 @@ reproducible. Fix [TD-369](#td-369-feedforwardload_weights-loads-truncated-files
 per-layer loader. Decide [TD-371](#td-371-residual-branch-output-isnt-scaled-for-depth) alongside the open Pre-LN residual-growth investigation; it changes
 initialization only, but needs a retraining comparison. [TD-370](#td-370-feedforward-argument-checks-gpu-null-dereference-and-console-output) is cleanup.
 
+**Tier 40 — Newly filed (October 12, 2026): `FtpDataServer`.** Fix [TD-372](#td-372-ftp-data-connections-are-accepted-from-any-host-so-files-can-be-stolen) before FTP delivery is
+used on any network you don't fully trust: check the data connection's peer address against the
+control connection's. Do [TD-373](#td-373---ftps-doesnt-require-encryption) with TD-339 (client certificate verification) and TD-284 (FTPS
+config keys) as one FTPS-hardening pass. Then [TD-375](#td-375-ftpdataserver-has-no-connection-limits-or-timeouts) and [TD-374](#td-374-ftp-re-login-leaks-rate-limit-slots), both small. [TD-376](#td-376-ftpdataserver-slow-shutdown-unencrypted-feat-and-silent-start-failures) and
+[TD-377](#td-377-ftpdataserver-token-semantics-and-setup-gaps) are cleanup; TD-376's shutdown delay is a one-line condition-variable change.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1182,6 +1199,12 @@ initialization only, but needs a retraining comparison. [TD-370](#td-370-feedfor
   - [TD-369: `FeedForward::load_weights()` Loads Truncated Files as a Silent Mix of Old and New Weights](#td-369-feedforwardload_weights-loads-truncated-files-as-a-silent-mix-of-old-and-new-weights)
   - [TD-370: `FeedForward` Argument Checks, GPU Null Dereference and Console Output](#td-370-feedforward-argument-checks-gpu-null-dereference-and-console-output)
   - [TD-371: Residual-Branch Output Isn't Scaled for Depth](#td-371-residual-branch-output-isnt-scaled-for-depth)
+  - [TD-372: FTP Data Connections Are Accepted From Any Host, So Files Can Be Stolen](#td-372-ftp-data-connections-are-accepted-from-any-host-so-files-can-be-stolen)
+  - [TD-373: `--ftps` Doesn't Require Encryption](#td-373---ftps-doesnt-require-encryption)
+  - [TD-374: FTP Re-Login Leaks Rate-Limit Slots](#td-374-ftp-re-login-leaks-rate-limit-slots)
+  - [TD-375: `FtpDataServer` Has No Connection Limits or Timeouts](#td-375-ftpdataserver-has-no-connection-limits-or-timeouts)
+  - [TD-376: `FtpDataServer` Slow Shutdown, Unencrypted `FEAT` and Silent Start Failures](#td-376-ftpdataserver-slow-shutdown-unencrypted-feat-and-silent-start-failures)
+  - [TD-377: `FtpDataServer` Token Semantics and Setup Gaps](#td-377-ftpdataserver-token-semantics-and-setup-gaps)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -7591,6 +7614,190 @@ Files to Modify:
 
 ---
 
+### TD-372: FTP Data Connections Are Accepted From Any Host, So Files Can Be Stolen
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Data / FtpDataServer | October 12, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `FtpDataServer` and verified against a live server. `cmd_retr()` calls
+`accept()` on the PASV socket and takes the **first connection from any address**; it never checks
+that the peer matches the control connection's client IP. A third socket that connected to the
+advertised data port before the real client received the entire file (300,000 of 300,000 bytes), and
+the server logged `226 Transfer complete` and marked the token consumed. **The same worked under FTPS
+with `PROT P`**: the data-channel `SSL_accept()` accepts any TLS client (no session-reuse or peer
+binding), so a TLS-capable thief also received all 300,000 bytes. PASV ports come lowest-first from a
+small fixed range (default 50000–50099), so an attacker on the network only has to keep connecting
+to them. Consequences: dataset confidentiality is lost, and the real trainer's download fails while
+its token is consumed, so every download can be denied as well. The per-file token and TLS design is
+bypassed entirely at the data channel.
+
+Action Items:
+
+- [ ] Record the control connection's peer address; after `accept()` on the PASV socket, compare the data peer's address and reject (close, keep listening until the timeout) any mismatch.
+- [ ] Under `PROT P`, additionally require TLS session resumption from the control channel (as vsftpd's `require_ssl_reuse` does) or at least the peer-IP check above.
+- [ ] Don't consume the token unless the transfer went to the authenticated peer.
+- [ ] Add a live-session test: a foreign connection to the PASV port gets nothing and the real client still succeeds.
+
+Location in code: `src/FtpDataServer.hpp` (`cmd_retr()`, `ConnState`); tagged `TODO: See TD-372`.
+
+Files to Modify:
+
+- `src/FtpDataServer.hpp`
+- `tests/FtpDataServerTests.cpp`
+
+---
+
+### TD-373: `--ftps` Doesn't Require Encryption
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / FtpDataServer | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `FtpDataServer` and verified. With `--ftps` enabled, nothing requires
+`AUTH TLS` before `USER`/`PASS` or `PROT P` before `RETR`: a plaintext client logged in and downloaded
+the full file from the FTPS server. Credentials and data can therefore cross the network unencrypted
+on a server operators believe is "FTPS". `DataTransport` requests TLS (`CURLUSESSL_ALL`), so today's
+trainer is protected unless the connection is downgraded or a client is misconfigured.
+
+Action Items:
+
+- [ ] When FTPS is enabled, refuse `USER`/`PASS` with `530`/`534` until `AUTH TLS` has completed, and refuse `RETR` unless `PROT P` is set.
+- [ ] Do this together with TD-339 (client certificate verification) and TD-284 (FTPS keys from config).
+
+Location in code: `src/FtpDataServer.hpp` (`cmd_pass()`, `cmd_retr()`); tagged `TODO: See TD-373`.
+
+Files to Modify:
+
+- `src/FtpDataServer.hpp`
+- `tests/FtpDataServerTests.cpp`
+
+---
+
+### TD-374: FTP Re-Login Leaks Rate-Limit Slots
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / FtpDataServer | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `FtpDataServer` and verified. `PASS` claims a per-`run_id` rate-limit slot,
+but `USER` resets the connection's login without releasing it, and the end-of-session cleanup releases
+only the latest `run_id`. After one connection logged in twice and quit, a run with
+`max_sessions_per_run = 2` and **one** open session was refused a second (`421 Too many concurrent
+sessions`). Each such connection leaks a slot until `registry_server` restarts; after
+`max_sessions_per_run` leaks, that `run_id` can't download anything. libcurl doesn't re-login on one
+connection, so this takes a misbehaving or hostile client.
+
+Action Items:
+
+- [ ] In `cmd_user()` (and before a second successful `PASS`), release the held slot and clear the login.
+- [ ] Test: repeated `USER`/`PASS` on one connection, then quit, leaves no slots held.
+
+Location in code: `src/FtpDataServer.hpp` (`cmd_user()`, `cmd_pass()`); tagged `TODO: See TD-374`.
+
+Files to Modify:
+
+- `src/FtpDataServer.hpp`
+- `tests/FtpDataServerTests.cpp`
+
+---
+
+### TD-375: `FtpDataServer` Has No Connection Limits or Timeouts
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / FtpDataServer | October 12, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `FtpDataServer`; the read behaviour was verified, the rest is by inspection.
+`listener_loop()` spawns one **detached** thread per connection with no cap. `read_line()` reads a byte
+at a time with **no idle timeout and no length limit**: a 2 MB line with no newline was accepted and
+the connection stayed open. So any client that can reach the control port can exhaust
+`registry_server`'s threads and memory before logging in. The detached threads aren't tracked, so
+`stop()` (and the destructor) can't end them; a connection open at shutdown keeps running against a
+destroyed `FtpDataServer` (use-after-free).
+
+Action Items:
+
+- [ ] Cap concurrent connections (reply `421` beyond the cap); set a control-socket receive timeout (for example 60 s pre-auth, a few minutes after login); limit command lines to 512 bytes as RFC 959 implementations commonly do.
+- [ ] Track connection threads (or their sockets) so `stop()` can shut them down and join before destruction.
+
+Location in code: `src/FtpDataServer.hpp` (`listener_loop()`, `read_line()`, `stop()`); tagged `TODO: See TD-375`.
+
+Files to Modify:
+
+- `src/FtpDataServer.hpp`
+
+---
+
+### TD-376: `FtpDataServer` Slow Shutdown, Unencrypted `FEAT` and Silent Start Failures
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / FtpDataServer | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `FtpDataServer` and verified:
+- `sweep_loop()` sleeps a full minute between checks and `stop()` joins it, so `stop()` took 56.9 s and
+  58.1 s in two runs, delaying every `registry_server` shutdown and restart.
+- `FEAT` is always written to the raw socket, even after `AUTH TLS`, which corrupted the encrypted
+  control channel (`WRONG_VERSION_NUMBER`). libcurl doesn't send `FEAT` after `AUTH`, so trainers
+  aren't affected today.
+- `start()` reports bind, listen and TLS-setup failures only in the log; it has no return value, so
+  `registry_server` can't tell whether FTP came up.
+
+Action Items:
+
+- [ ] Replace the sleep with a condition-variable wait that `stop()` notifies.
+- [ ] Send `FEAT` through `send_reply()`-style TLS-aware output.
+- [ ] Return `bool` from `start()` and have `registry_server` exit (or report unhealthy) when FTP was requested but failed.
+
+Location in code: `src/FtpDataServer.hpp` (`sweep_loop()`, the `FEAT` branch, `start()`); tagged `TODO: See TD-376`.
+
+Files to Modify:
+
+- `src/FtpDataServer.hpp`
+- `src/RegistryServer.cpp`
+
+---
+
+### TD-377: `FtpDataServer` Token Semantics and Setup Gaps
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / FtpDataServer | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `FtpDataServer`, by inspection:
+- Token limits are looser than documented: expiry is checked only at login, so a session outlives its
+  token; a consumed token can still `RETR` again on its open connection; usernames carry 32 random
+  bits and `TokenStore::insert()` silently overwrites on a collision.
+- `PASV` advertises `127.0.0.1` when `--ftp-ip` isn't set, which no remote trainer can use.
+- The constructor doesn't validate the PASV range (`min > max` gives an empty pool).
+- An empty command line ends the session.
+- The header claims HMAC passwords make forged tokens rejectable, but random passwords are equally
+  unforgeable and the server stores the password either way; `--ftp-secret` is passed in argv, so
+  it's visible in `ps` (the config key is ignored, TD-284).
+- `ftp_detail::local_ip()` and `TokenStore::remove()` are unused.
+
+Action Items:
+
+- [ ] Re-check expiry on `RETR`; end the session after a successful `RETR` (or refuse further ones); use 64-bit usernames or refuse to overwrite.
+- [ ] Require `--ftp-ip` when FTP is enabled (or derive it), and validate constructor arguments.
+- [ ] Ignore empty lines; correct the HMAC comment; read the secret from config or a file (with TD-284); remove the unused helpers.
+
+Location in code: `src/FtpDataServer.hpp` (`TokenStore`, `cmd_pasv()`); tagged `TODO: See TD-377`.
+
+Files to Modify:
+
+- `src/FtpDataServer.hpp`
+- `src/RegistryServer.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -8107,15 +8314,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 163 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 169 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|21|13%|
-|Medium|69|42%|
-|Low|73|45%|
+|High|22|13%|
+|Medium|72|43%|
+|Low|75|44%|
 
-**Total Active Items:** 163
+**Total Active Items:** 169
 
 ### By Component
 
@@ -8160,6 +8367,7 @@ Recomputed directly from the 163 `### TD-NNN` entries under [Active Technical De
 |Models / EncoderDecoderModel|6|
 |Transformer / LLMEncoder|4|
 |Transformer / FeedForward|4|
+|Data / FtpDataServer|6|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
 
@@ -8167,13 +8375,13 @@ Recomputed directly from the 163 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|88|
-|2-4 hours|53|
+|0-2 hours|92|
+|2-4 hours|55|
 |4-8 hours|12|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 348-598 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 356-614 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

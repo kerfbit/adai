@@ -101,6 +101,7 @@ struct VirtualUser {
 
 class TokenStore {
    public:
+    // TODO: See TD-377 in TECHNICAL_DEBT.md - silently overwrites on a (32-bit) username collision
     void insert(const std::string& username, VirtualUser user) {
         std::lock_guard<std::mutex> lk(mtx_);
         users_[username] = std::move(user);
@@ -122,6 +123,8 @@ class TokenStore {
         VirtualUser& u = it->second;
         if (u.consumed)
             return false;
+        // TODO: See TD-377 in TECHNICAL_DEBT.md - expiry is only checked here, at login; an open session
+        // outlives it, and a consumed token can still RETR on its open connection
         if (std::chrono::system_clock::now() > u.expiry)
             return false;
 
@@ -404,6 +407,7 @@ class FtpDataServer {
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
 
+    // TODO: See TD-376 in TECHNICAL_DEBT.md - failures only logged; no return value for the caller
     void start() {
         if (running_.exchange(true))
             return;
@@ -594,6 +598,8 @@ class FtpDataServer {
             ::inet_ntop(AF_INET, &client_addr.sin_addr, ip_buf, sizeof(ip_buf));
             std::string client_ip = ip_buf;
 
+            // TODO: See TD-375 in TECHNICAL_DEBT.md - unlimited detached threads; they outlive stop() and
+            // use `this` after destruction
             std::thread([this, conn_fd, client_ip = std::move(client_ip)]() mutable {
                 handle_connection(conn_fd, std::move(client_ip));
             }).detach();
@@ -603,6 +609,7 @@ class FtpDataServer {
     // Periodic expired-token sweep with audit logging
     void sweep_loop() {
         while (running_.load()) {
+            // TODO: See TD-376 in TECHNICAL_DEBT.md - uninterruptible 1-minute sleep makes stop() take up to 60 s
             std::this_thread::sleep_for(std::chrono::minutes(1));
             tokens_.sweep_expired();
         }
@@ -642,6 +649,7 @@ class FtpDataServer {
         adai::send_bytes(st.fd, line.c_str(), line.size());
     }
 
+    // TODO: See TD-375 in TECHNICAL_DEBT.md - no length limit and no idle timeout (pre-auth resource exhaustion)
     static std::string read_line(ConnState& st) {
         std::string line;
         char c;
@@ -724,6 +732,7 @@ class FtpDataServer {
                 std::string resp = "211-Features:\r\n PASV\r\n211 End";
 #endif
                 resp += "\r\n";
+                // TODO: See TD-376 in TECHNICAL_DEBT.md - raw socket write corrupts the channel after AUTH TLS
                 adai::send_bytes(st.fd, resp.c_str(), resp.size());
             } else if (cmd == "PWD") {
                 send_reply(st, 257, "\"/\" is the current directory");
@@ -777,6 +786,7 @@ class FtpDataServer {
 
     // ── FTP command handlers ──────────────────────────────────────────────
 
+    // TODO: See TD-374 in TECHNICAL_DEBT.md - re-login doesn't release the rate-limit slot already held
     void cmd_user(ConnState& st, const std::string& arg) {
         st.pending_user = arg;
         st.authenticated = false;
@@ -792,6 +802,7 @@ class FtpDataServer {
             return;
         }
 
+        // TODO: See TD-373 in TECHNICAL_DEBT.md - with FTPS enabled, plaintext login (no AUTH TLS) is still accepted
         std::string ftp_path, run_id;
         if (!tokens_.authenticate(st.pending_user, arg, ftp_path, &run_id)) {
             Logger::warn("[AUDIT] Login failed: username='{}' client_ip='{}'", st.pending_user,
@@ -906,6 +917,7 @@ class FtpDataServer {
         st.pasv_listen_fd = srv;
         st.pasv_port = port;
 
+        // TODO: See TD-377 in TECHNICAL_DEBT.md - defaults to 127.0.0.1, unusable by remote trainers
         std::string ip = advertise_ip_.empty() ? "127.0.0.1" : advertise_ip_;
         std::replace(ip.begin(), ip.end(), '.', ',');
         const int p1 = port / 256;
@@ -948,6 +960,9 @@ class FtpDataServer {
 
         send_reply(st, 150, "Opening data connection.");
 
+        // TODO: See TD-372 in TECHNICAL_DEBT.md - accepts the data connection from ANY peer (no check against
+        // the control connection's client IP); a third party can steal the file, even under PROT P.
+        // TD-373: RETR doesn't require PROT P when FTPS is enabled
         adai::set_recv_timeout(st.pasv_listen_fd, 30);
         adai::socket_t data_fd = ::accept(st.pasv_listen_fd, nullptr, nullptr);
         adai::close_socket(st.pasv_listen_fd);
