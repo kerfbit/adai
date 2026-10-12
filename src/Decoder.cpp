@@ -50,6 +50,7 @@ LLMDecoder::LLMDecoder(int vocab_size, int d_model, int num_layers, int num_head
     for (int i = 0; i < num_layers; ++i) {
         bool inject_here =
             (world_model_inject_every_n_layers > 0) && (i % world_model_inject_every_n_layers == 0);
+        // TODO: See TD-344 in TECHNICAL_DEBT.md - dropout argument is never applied by DecoderBlock
         decoder_blocks.push_back(std::make_unique<DecoderBlock>(
             d_model, num_heads, d_ff, /*dropout=*/0.1f, /*enable_world_model=*/inject_here,
             /*enable_hippocampal=*/inject_here));

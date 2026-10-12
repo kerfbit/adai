@@ -11,6 +11,7 @@
 using adai::Logger;
 #include "CrossAttention.hpp"
 
+// TODO: See TD-344 in TECHNICAL_DEBT.md - dropout is stored but never applied
 DecoderBlock::DecoderBlock(int d_model, int num_heads, int d_ff, float dropout,
                            bool enable_world_model, bool enable_hippocampal)
     : d_model(d_model), num_heads(num_heads), d_ff(d_ff), dropout_rate(dropout) {
@@ -184,6 +185,7 @@ Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
         // [query_rows, n_slots]; averaged over query rows to get one per-slot increment,
         // matching the plan's own "called once per decode step" framing generalized to a
         // multi-row (e.g. teacher-forced training) call.
+        // TODO: See TD-343 in TECHNICAL_DEBT.md - mutates memory on every forward (training, validation, each beam hypothesis), not once per decode step
         memory->decay_coverage(repetition_decay);
         const Matrix& attn_weights = hippocampal_cross_attention->get_last_attention_weights();
         const float inv_rows = 1.0f / static_cast<float>(attn_weights.rows);
@@ -239,6 +241,7 @@ Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
     return residual3;
 }
 
+// TODO: See TD-342 in TECHNICAL_DEBT.md - never runs the gated world-model/hippocampal paths (KV-cached generation ignores them)
 Matrix DecoderBlock::forward_with_cache(const Matrix& input, const Matrix& encoder_output,
                                         const Matrix& self_attn_mask, KVCache* self_attn_cache,
                                         KVCache* cross_attn_cache, const Matrix* cross_attn_mask,
@@ -461,6 +464,7 @@ void DecoderBlock::update_weights() {
     if (world_model_cross_attention) {
         world_model_cross_attention->update_weights();
         norm_world->update_weights();
+        // TODO: See TD-341 in TECHNICAL_DEBT.md - the only gate update; ChatbotTrainer calls optimizer->step() instead, so this never runs
         gate -= learning_rate * gate_grad;
         gate_grad = 0.0f;
     }
@@ -619,6 +623,7 @@ void DecoderBlock::save(const std::string& filepath) {
     }
 }
 
+// TODO: See TD-345 in TECHNICAL_DEBT.md - reads unchecked (truncated file loads garbage); learning_rate set before validation
 void DecoderBlock::load(const std::string& filepath) {
     std::ifstream file(filepath, std::ios::binary);
     if (!file.is_open()) {
@@ -734,6 +739,7 @@ void DecoderBlock::load(const std::string& filepath) {
     }
 }
 
+// TODO: See TD-341 in TECHNICAL_DEBT.md - gate/gate_h not registered (plain floats), so optimizer-only training never moves them
 void DecoderBlock::register_parameters_with_optimizer(Optimizer& optimizer) {
     // Register all sub-component parameters
     self_attention->set_optimizer(&optimizer);
@@ -757,6 +763,7 @@ void DecoderBlock::register_parameters_with_optimizer(Optimizer& optimizer) {
 }
 
 #ifdef ADAI_ENABLE_GPU
+// TODO: See TD-342 in TECHNICAL_DEBT.md - GPU path covers only the core sub-layers; gated paths are never uploaded or trained
 void DecoderBlock::gpu_upload_weights() {
     self_attention->gpu_upload_weights();
     cross_attention->gpu_upload_weights();

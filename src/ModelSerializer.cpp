@@ -305,6 +305,7 @@ void ModelSerializer::export_safetensors(const EncoderDecoderModel& model,
     }
 
     // ── Decoder layers ────────────────────────────────────────────────────────
+    // TODO: See TD-345 in TECHNICAL_DEBT.md - DecoderBlock gates and gated sub-layers are not saved
     for (int j = 0; j < dec_layers; ++j) {
         DecoderBlock* blk = dec->get_decoder_block(j);
         MultiHeadAttention* sa = blk->get_self_attention();
@@ -515,6 +516,7 @@ void ModelSerializer::import_safetensors(EncoderDecoderModel& model, const std::
     }
 
     // ── Decoder layers ────────────────────────────────────────────────────────
+    // TODO: See TD-345 in TECHNICAL_DEBT.md - DecoderBlock gates and gated sub-layers are not loaded
     for (int j = 0; j < dec_layers; ++j) {
         DecoderBlock* blk = dec_ptr->get_decoder_block(j);
         MultiHeadAttention* sa = blk->get_self_attention();

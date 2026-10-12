@@ -585,7 +585,7 @@ float speedup = time_no_cache / time_with_cache;
 6. **Integration with Transformers**:
    - Used in DecoderBlock for self-attention caching
    - Each layer in decoder stack has its own KV cache
-   - See [DecoderBlock](../transformer/decoder-block.md) for multi-layer usage
+   - See [DecoderBlock](../../reference/source/DecoderBlock.md) for multi-layer usage
 
 ### When to Use
 
@@ -1618,7 +1618,7 @@ This implementation forms the foundation for modern transformer-based architectu
 ### Related Components
 
 - **[CrossAttention](../../reference/source/CrossAttention.md)** - Encoder-decoder attention with KV cache
-- **[DecoderBlock](../transformer/decoder-block.md)** - Uses MultiHeadAttention with dual caching
+- **[DecoderBlock](../../reference/source/DecoderBlock.md)** - Uses MultiHeadAttention with dual caching
 - **[LLMDecoder](../transformer/decoder.md)** - Full decoder stack with multi-layer caching
 - **[LayerNorm](../normalization/layer-norm.md)** - Layer normalization
 - **[PositionalEncoding](../embeddings/positional-encoding.md)** - Position embeddings

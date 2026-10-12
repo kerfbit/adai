@@ -1364,6 +1364,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 // ─────────────────────────────────────────────────────────────────
 
                 // Update weights via optimizer
+                // TODO: See TD-341 in TECHNICAL_DEBT.md - DecoderBlock gates aren't registered, so this step never updates them
                 optimizer->step();
 #ifdef ADAI_ENABLE_GPU
                 // Re-upload updated CPU weights to GPU mirrors

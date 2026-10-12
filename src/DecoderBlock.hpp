@@ -90,6 +90,7 @@ class DecoderBlock {
     // allocated, until training actually opens the gate (see forward()'s own doc comment).
     std::unique_ptr<CrossAttention> world_model_cross_attention;
     std::unique_ptr<LayerNorm> norm_world;
+    // TODO: See TD-341 in TECHNICAL_DEBT.md - gate/gate_h are not optimizer parameters, so ChatbotTrainer never updates them
     float gate{0.0f};
     float gate_grad{0.0f};
     bool world_model_path_active_{false};  // set by the most recent forward() call; read by
@@ -113,6 +114,7 @@ class DecoderBlock {
     int d_model;
     int num_heads;
     int d_ff;
+    // TODO: See TD-344 in TECHNICAL_DEBT.md - stored and saved but never applied in any forward path
     float dropout_rate;
 
     // Cached values for backward pass

@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 9, 2026
-**Total Items:** 136
-**High Priority:** 19
-**Medium Priority:** 58
-**Low Priority:** 59
+**Total Items:** 141
+**High Priority:** 20
+**Medium Priority:** 60
+**Low Priority:** 61
 **Future Enhancements:** 19
 **Resolved Items:** 204
 **Deferred Decisions:** 3
@@ -79,6 +79,15 @@ Also October 11, 2026: filed [TD-337](#td-337-datatransport-names-downloads-by-b
 segments of one file download it N times concurrently into one path, and same-named files collide
 (TD-337, verified); a same-name, same-size stale file is reused without checking the token checksum
 (TD-338, verified); and FTPS doesn't verify the registry's certificate (TD-339). TD-340 is LOW.
+
+Also October 11, 2026: filed [TD-341](#td-341-world-model-and-hippocampal-gates-never-train-in-production) through [TD-345](#td-345-decoderblock-persistence-gaps-for-gated-state) from the code-traced
+[DecoderBlock.md](../reference/source/DecoderBlock.md). One is **HIGH** (verified): the TD-180
+world-model/hippocampal gates aren't optimizer parameters and `ChatbotTrainer` only calls
+`optimizer->step()`, so the gates stay at 0 and the gated cross-attentions never learn. World-model
+injection and hippocampal memory are no-ops in every trained model (TD-341). Two are MEDIUM:
+KV-cached generation and the GPU path skip the gated paths (TD-342), and hippocampal memory is
+updated on every forward pass rather than once per decode step (TD-343). Two are LOW: unused dropout
+(TD-344) and gated-state persistence gaps (TD-345).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -903,6 +912,12 @@ registry, both transports, `registry_server` and the trainer's call sites; do it
 same local-file handling and belong together (and with TD-333, since all three are about segments in
 distributed training). [TD-339](#td-339-ftps-downloads-dont-verify-the-registrys-certificate) pairs with TD-284's FTPS config fix. [TD-340](#td-340-datatransport-robustness-and-header-hygiene) is cleanup.
 
+**Tier 32 — Newly filed (October 11, 2026): `DecoderBlock`.** [TD-341](#td-341-world-model-and-hippocampal-gates-never-train-in-production) is HIGH and small: until it's
+fixed, every world-model/hippocampal feature is inert in trained models. Do [TD-345](#td-345-decoderblock-persistence-gaps-for-gated-state)'s SafeTensors
+part with it, so trained gates survive checkpoints, and [TD-343](#td-343-hippocampal-memory-is-updated-on-every-forward-pass) before relying on hippocampal
+memory. [TD-342](#td-342-kv-cached-generation-and-the-gpu-path-skip-the-gated-paths) is the larger follow-up that makes the paths apply consistently across generation
+strategies and devices. [TD-344](#td-344-decoderblock-dropout-is-stored-but-never-applied) needs a decision (implement or remove dropout).
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1045,6 +1060,11 @@ distributed training). [TD-339](#td-339-ftps-downloads-dont-verify-the-registrys
   - [TD-338: `DataTransport` Reuses Same-Size Stale Files Without Checking the Checksum](#td-338-datatransport-reuses-same-size-stale-files-without-checking-the-checksum)
   - [TD-339: FTPS Downloads Don't Verify the Registry's Certificate](#td-339-ftps-downloads-dont-verify-the-registrys-certificate)
   - [TD-340: `DataTransport` Robustness and Header Hygiene](#td-340-datatransport-robustness-and-header-hygiene)
+  - [TD-341: World-Model and Hippocampal Gates Never Train in Production](#td-341-world-model-and-hippocampal-gates-never-train-in-production)
+  - [TD-342: KV-Cached Generation and the GPU Path Skip the Gated Paths](#td-342-kv-cached-generation-and-the-gpu-path-skip-the-gated-paths)
+  - [TD-343: Hippocampal Memory Is Updated on Every Forward Pass](#td-343-hippocampal-memory-is-updated-on-every-forward-pass)
+  - [TD-344: `DecoderBlock` Dropout Is Stored but Never Applied](#td-344-decoderblock-dropout-is-stored-but-never-applied)
+  - [TD-345: `DecoderBlock` Persistence Gaps for Gated State](#td-345-decoderblock-persistence-gaps-for-gated-state)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -6610,6 +6630,152 @@ Files to Modify:
 
 ---
 
+### TD-341: World-Model and Hippocampal Gates Never Train in Production
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Transformer / DecoderBlock | October 11, 2026 | 2-4 hours |
+
+Description:
+Found while writing the code-traced reference [DecoderBlock.md](../reference/source/DecoderBlock.md) and confirmed by running the real class.
+`DecoderBlock`'s TD-180 gates (`gate`, `gate_h`) are plain floats updated only by plain SGD inside
+`DecoderBlock::update_weights()`; `register_parameters_with_optimizer()` doesn't register them
+(`Optimizer` takes only `Matrix` groups). `ChatbotTrainer` never calls `update_weights()`: it
+registers the model with one optimizer and calls `optimizer->step()` directly (which is also how it
+avoids TD-297). So **nothing ever updates the gates**.
+
+A block with the world-model path enabled, trained 50 steps the way `ChatbotTrainer` does, ended at
+`gate = 0.000000` (gradients up to 34 were computed, then zeroed). With `tanh(gate) = 0` the gated
+cross-attention's own gradient is also zero, so its weights didn't change at all. The same 50 steps
+via `update_weights()` moved the gate to −1.04. World-model injection (TD-180/181/186) and
+hippocampal memory (TD-185/194) therefore remain exact no-ops in every trained model, whatever MNS
+links. Nothing reads `get_gate()` outside tests, so no metric reveals it.
+
+Action Items:
+
+- [ ] Make each gate a 1×1 `Matrix` (value + gradient) and register it in `register_parameters_with_optimizer()`; drop the plain-SGD gate step from `update_weights()` (or keep it only for the no-optimizer case).
+- [ ] Push per-layer `tanh(gate)`/`tanh(gate_h)` as a training metric so a stuck gate is visible.
+- [ ] Test: training via the trainer's optimizer-only path moves a gate off zero.
+
+Location in code: `src/DecoderBlock.cpp` (`update_weights()`, `register_parameters_with_optimizer()`), `src/DecoderBlock.hpp` (gate members); tagged `TODO: See TD-341`.
+
+Files to Modify:
+
+- `src/DecoderBlock.{hpp,cpp}`
+- `src/ChatbotTrainer.cpp` (metrics)
+- `tests/decoderblock_test.cpp`
+
+---
+
+### TD-342: KV-Cached Generation and the GPU Path Skip the Gated Paths
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Transformer / DecoderBlock | October 11, 2026 | 4-8 hours |
+
+Description:
+Found alongside TD-341, by inspection (documented in the class header). `forward_with_cache()` has no
+world-model or memory parameters, and its no-cache fallback calls `forward()` without them, so every
+KV-cached generation strategy (greedy, sampling, …) ignores an attached world model and hippocampal
+memory; only the non-cached beam branch passes them (TD-186). `gpu_forward()`,
+`gpu_forward_with_cache()` and `gpu_backward()` implement only the core sub-layers, and the GPU
+upload/download/zero helpers skip the gated sub-layers, so GPU training never trains them either.
+Once TD-341 is fixed, inference behaviour will differ by generation strategy and device.
+
+Action Items:
+
+- [ ] Thread `world_model_output`/`memory` (and the hippocampal knobs) through `forward_with_cache()` and `LLMDecoder::forward_with_cache()`, caching the world-model K/V like the encoder's.
+- [ ] Add the gated paths to the GPU forward/backward and the upload/download/zero helpers, or refuse to enable them on GPU with a clear error.
+
+Location in code: `src/DecoderBlock.cpp` (`forward_with_cache()`, GPU functions); tagged `TODO: See TD-342`.
+
+Files to Modify:
+
+- `src/DecoderBlock.{hpp,cpp}`
+- `src/Decoder.cpp`
+- `src/EncoderDecoderModel.cpp`
+
+---
+
+### TD-343: Hippocampal Memory Is Updated on Every Forward Pass
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Transformer / DecoderBlock | October 11, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-341, by inspection. When `memory` is passed, `forward()` decays and accumulates
+coverage and Hebbian associations on **every** call: training forwards, validation forwards, and one
+call per hypothesis in beam search (the only generation branch that passes memory). The design
+("called once per decode step") assumes one update per generated token, so coverage and associations
+build up several times faster than intended, strengthening the repetition penalty and cross-reference
+pull, and training passes pollute the persistent memory state that's saved on shutdown.
+
+Action Items:
+
+- [ ] Separate scoring from state update: let the caller commit coverage/association updates once per decode step (and never during training/validation unless intended).
+- [ ] Test: beam search with width k updates coverage once per step.
+
+Location in code: `src/DecoderBlock.cpp` (`forward()` hippocampal coverage/association update); tagged `TODO: See TD-343`.
+
+Files to Modify:
+
+- `src/DecoderBlock.{hpp,cpp}`
+- `src/EncoderDecoderModel.cpp`
+- `src/HippocampalMemory.{hpp,cpp}`
+
+---
+
+### TD-344: `DecoderBlock` Dropout Is Stored but Never Applied
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Transformer / DecoderBlock | October 11, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-341, by inspection. The constructor takes `dropout` (default 0.1, which
+`LLMDecoder` passes), stores it in `dropout_rate`, and `save()`/`load()` persist it, but no forward
+path applies dropout. Training gets no dropout regularization despite the parameter.
+
+Action Items:
+
+- [ ] Either implement dropout (training-mode only, on sub-layer outputs) or remove the parameter and its persistence (keeping load() compatible).
+
+Location in code: `src/DecoderBlock.cpp` (constructor); tagged `TODO: See TD-344`.
+
+Files to Modify:
+
+- `src/DecoderBlock.{hpp,cpp}`
+- `src/Decoder.cpp`
+
+---
+
+### TD-345: `DecoderBlock` Persistence Gaps for Gated State
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Transformer / DecoderBlock | October 11, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-341, by inspection. `load()` never checks the stream, so a truncated legacy
+block file loads garbage `LayerNorm` values or an unset gate rather than throwing (same class as
+TD-298), and it sets `learning_rate` from the file before validating. The main checkpoint format,
+SafeTensors via `ModelSerializer`, has no accessors for the gates or the gated cross-attention/norm
+sub-layers, so once TD-341 lets them train, their state is lost on save.
+
+Action Items:
+
+- [ ] Check reads in `load()` and validate before assigning; add SafeTensors entries (and accessors) for the gates and gated sub-layers.
+
+Location in code: `src/DecoderBlock.cpp` (`load()`); tagged `TODO: See TD-345`.
+
+Files to Modify:
+
+- `src/DecoderBlock.{hpp,cpp}`
+- `src/ModelSerializer.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -7125,15 +7291,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 136 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 141 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|19|14%|
-|Medium|58|43%|
-|Low|59|43%|
+|High|20|14%|
+|Medium|60|43%|
+|Low|61|43%|
 
-**Total Active Items:** 136
+**Total Active Items:** 141
 
 ### By Component
 
@@ -7171,6 +7337,7 @@ Recomputed directly from the 136 `### TD-NNN` entries under [Active Technical De
 |Data / dataset_manager CLI|12|
 |Data / DatasetRegistry|4|
 |Data / DataTransport|4|
+|Transformer / DecoderBlock|5|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
 
@@ -7178,13 +7345,13 @@ Recomputed directly from the 136 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|72|
-|2-4 hours|43|
-|4-8 hours|11|
+|0-2 hours|73|
+|2-4 hours|46|
+|4-8 hours|12|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 308-520 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 319-542 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

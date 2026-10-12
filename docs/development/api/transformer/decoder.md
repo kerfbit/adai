@@ -991,7 +991,7 @@ std::string response = decoder.get_token_embedding()->decode(generated);
 
 ### Core Components
 
-- **[DecoderBlock](decoder-block.md)** - Individual decoder layer with self/cross-attention
+- **[DecoderBlock](../../reference/source/DecoderBlock.md)** - Individual decoder layer with self/cross-attention
 - **[MultiHeadAttention](../attention/multihead-attention.md)** - Self-attention mechanism with KV cache
 - **[CrossAttention](../../reference/source/CrossAttention.md)** - Encoder-decoder attention with KV cache
 - **[TokenEmbedding](token-embedding.md)** - Token to vector conversion
