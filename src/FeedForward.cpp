@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include "Activation.hpp"
 
+// TODO: See TD-370 in TECHNICAL_DEBT.md - no check that d_model/d_ff are positive (0 gives an infinite scale)
 FeedForward::FeedForward(int d_model, int d_ff)
     : d_model(d_model),
       d_ff(d_ff),
@@ -27,6 +28,7 @@ FeedForward::FeedForward(int d_model, int d_ff)
     // Scale for GELU: sqrt(2 / d_model)
     float scale = std::sqrt(2.0f / static_cast<float>(d_model));
 
+    // TODO: See TD-368 in TECHNICAL_DEBT.md - unseedable; initialization can't be reproduced
     std::random_device rd;
     std::mt19937 gen(rd());
     std::normal_distribution<float> dist(0.0f, scale);
@@ -39,6 +41,7 @@ FeedForward::FeedForward(int d_model, int d_ff)
     }
 
     // Initialize W2 with scale adjusted for d_ff
+    // TODO: See TD-371 in TECHNICAL_DEBT.md - residual-branch output isn't scaled for depth (std ~1.35x input)
     float scale2 = std::sqrt(2.0f / static_cast<float>(d_ff));
     std::normal_distribution<float> dist2(0.0f, scale2);
     for (int i = 0; i < d_ff; ++i) {
@@ -105,6 +108,8 @@ Matrix FeedForward::forward(const Matrix& input) {
 
 Matrix FeedForward::backward(const Matrix& grad_output) {
     // Validate gradient dimensions
+    // TODO: See TD-370 in TECHNICAL_DEBT.md - before any forward() this passes for 0 rows and fails later with a
+    // misleading "must match for addition" error
     if (grad_output.rows != cached_input.rows || grad_output.cols != d_model) {
         throw std::invalid_argument(
             "Gradient dimensions must match forward pass output dimensions");
@@ -308,6 +313,7 @@ void FeedForward::save_weights(const std::string& filename) const {
         file.write(reinterpret_cast<const char*>(&b2(0, i)), sizeof(float));
     }
 
+    // TODO: See TD-369 in TECHNICAL_DEBT.md - write errors unchecked; TD-370: std::cout in library code
     file.close();
     std::cout << "Saved FeedForward weights to " << filename << '\n';
 }
@@ -319,6 +325,8 @@ void FeedForward::load_weights(const std::string& filename) {
     }
 
     // Read dimensions
+    // TODO: See TD-369 in TECHNICAL_DEBT.md - reads unchecked: a truncated file loads partially, keeps the old
+    // weights for the rest, and doesn't throw
     int loaded_d_model = 0, loaded_d_ff = 0;
     file.read(reinterpret_cast<char*>(&loaded_d_model), sizeof(int));
     file.read(reinterpret_cast<char*>(&loaded_d_ff), sizeof(int));
@@ -463,6 +471,7 @@ adai::gpu::GPUMatrix FeedForward::gpu_forward(const adai::gpu::GPUMatrix& input)
     adai::gpu::matrix_copy_device_to_device_gpu(gpu_->cached_hidden.device_ptr(),
                                                 gpu_->cached_act.device_ptr(), seq * d_ff);
     gpu_->cached_act.apply_activation_inplace(adai::gpu::ActivationType::GELU);
+    // TODO: See TD-370 in TECHNICAL_DEBT.md - the reduction syncs the queue once per FFN per forward
     if (gpu_activation_stats_hook_) {
         gpu_activation_stats_hook_(gpu_->cached_act.count_below_threshold(0.01f));
     }
@@ -475,6 +484,8 @@ adai::gpu::GPUMatrix FeedForward::gpu_forward(const adai::gpu::GPUMatrix& input)
     return result;
 }
 
+// TODO: See TD-370 in TECHNICAL_DEBT.md - dereferences gpu_ unchecked (null before any gpu_forward());
+// gpu_forward() doesn't check input.cols
 adai::gpu::GPUMatrix FeedForward::gpu_backward(const adai::gpu::GPUMatrix& dout) {
     const int seq = dout.rows;
 

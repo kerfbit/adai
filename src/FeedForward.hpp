@@ -195,6 +195,7 @@ class FeedForward {
     const Matrix& get_b2() const {
         return b2;
     }
+    // TODO: See TD-370 in TECHNICAL_DEBT.md - setters don't check shape or invalidate the GPU mirror
     void set_W1(const Matrix& m) {
         W1 = m;
     }

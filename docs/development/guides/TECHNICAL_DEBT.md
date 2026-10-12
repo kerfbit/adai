@@ -4,11 +4,11 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** October 9, 2026
-**Total Items:** 159
+**Last Updated:** October 12, 2026
+**Total Items:** 163
 **High Priority:** 21
-**Medium Priority:** 67
-**Low Priority:** 71
+**Medium Priority:** 69
+**Low Priority:** 73
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -142,6 +142,15 @@ it just added (TD-364); and chat input is never truncated to `max_seq_length`, s
 16-position model ran with 44 positions that had no positional encoding (TD-365). Two are LOW: serving
 encoders cache activations nobody reads (TD-366), and console output plus unchecked weight I/O (TD-367).
 TD-360 was corrected: `LLMEncoder::set_learning_rate()` exists; only `update_weights()` is missing.
+
+**October 12, 2026:** Filed [TD-368](#td-368-weight-initialization-cant-be-seeded-or-reproduced) through [TD-371](#td-371-residual-branch-output-isnt-scaled-for-depth) from the code-traced
+[FeedForward.md](../reference/source/FeedForward.md) (`backward()` itself was verified correct against
+finite differences). Two are MEDIUM and verified: weight initialization is seeded from
+`std::random_device` with no way to set a seed, here and in `Matrix::randomize()`, so training runs
+and bug reproductions can't be replayed (TD-368); and `load_weights()` loads a truncated file without
+an error, keeping the old weights for everything past the cut (TD-369). Two are LOW: missing argument
+and shape checks, a GPU null dereference and console output (TD-370); and an owner decision on scaling
+residual-branch output for depth, since a fresh FFN's output std is about 1.35× its input (TD-371).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -998,6 +1007,12 @@ decoder's over-length divergence) and TD-294 (token budget vs. `max_seq_length`)
 once, where the model tokenizes. Fix [TD-364](#td-364-llmencoderencode-input-doesnt-match-the-models-encoder-input) before anyone relies on pipeline inference.
 [TD-366](#td-366-serving-encoders-cache-activations-for-backward-dead-state-and-duplicate-api) and [TD-367](#td-367-llmencoder-console-output-and-unchecked-weight-io) are cleanup.
 
+**Tier 39 — Newly filed (October 12, 2026): `FeedForward`.** Do [TD-368](#td-368-weight-initialization-cant-be-seeded-or-reproduced) early: a seedable
+initialization is what makes CPU-vs-GPU equivalence tests (TD-358) and training regressions
+reproducible. Fix [TD-369](#td-369-feedforwardload_weights-loads-truncated-files-as-a-silent-mix-of-old-and-new-weights) with TD-298, TD-345, TD-357 and TD-367 as one pass over every legacy
+per-layer loader. Decide [TD-371](#td-371-residual-branch-output-isnt-scaled-for-depth) alongside the open Pre-LN residual-growth investigation; it changes
+initialization only, but needs a retraining comparison. [TD-370](#td-370-feedforward-argument-checks-gpu-null-dereference-and-console-output) is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1163,6 +1178,10 @@ once, where the model tokenizes. Fix [TD-364](#td-364-llmencoderencode-input-doe
   - [TD-365: Encoder Input Is Never Truncated to `max_seq_length` When Serving](#td-365-encoder-input-is-never-truncated-to-max_seq_length-when-serving)
   - [TD-366: Serving Encoders Cache Activations for Backward; Dead State and Duplicate API](#td-366-serving-encoders-cache-activations-for-backward-dead-state-and-duplicate-api)
   - [TD-367: `LLMEncoder` Console Output and Unchecked Weight I/O](#td-367-llmencoder-console-output-and-unchecked-weight-io)
+  - [TD-368: Weight Initialization Can't Be Seeded or Reproduced](#td-368-weight-initialization-cant-be-seeded-or-reproduced)
+  - [TD-369: `FeedForward::load_weights()` Loads Truncated Files as a Silent Mix of Old and New Weights](#td-369-feedforwardload_weights-loads-truncated-files-as-a-silent-mix-of-old-and-new-weights)
+  - [TD-370: `FeedForward` Argument Checks, GPU Null Dereference and Console Output](#td-370-feedforward-argument-checks-gpu-null-dereference-and-console-output)
+  - [TD-371: Residual-Branch Output Isn't Scaled for Depth](#td-371-residual-branch-output-isnt-scaled-for-depth)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -7442,6 +7461,136 @@ Files to Modify:
 
 ---
 
+### TD-368: Weight Initialization Can't Be Seeded or Reproduced
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Transformer / FeedForward | October 12, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `FeedForward` and verified. Every `FeedForward` constructor seeds a fresh
+`std::mt19937` from `std::random_device`, and `Matrix::randomize()` (used by the other layers'
+initialization) does the same with a function-static generator. Two `FeedForward(4, 8)` instances got
+different weights, and there's no seed setting anywhere in `src/` (no config key, no global seed).
+So a training run can't be replayed from initialization, a reported divergence can't be reproduced
+bit-for-bit, and a CPU-vs-GPU equivalence check (as TD-358's fix needs) must copy weights explicitly
+rather than construct two identical models.
+
+Action Items:
+
+- [ ] Add one process-wide seedable initialization RNG (for example `adai::init_rng()` with a `SEED` config key / `--seed` flag; `random_device` when unset, and log the seed actually used).
+- [ ] Route `FeedForward`, `Matrix::randomize()` and the other layer initializers through it.
+- [ ] Test: two models built with the same seed have identical weights.
+
+Location in code: `src/FeedForward.cpp` (constructor), `src/Matrix.cpp` (`randomize()`); tagged `TODO: See TD-368`.
+
+Files to Modify:
+
+- `src/FeedForward.cpp`
+- `src/Matrix.cpp`
+- `src/Config.{hpp,cpp}`
+- layer constructors that initialize weights
+
+---
+
+### TD-369: `FeedForward::load_weights()` Loads Truncated Files as a Silent Mix of Old and New Weights
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Transformer / FeedForward | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `FeedForward` and verified. `load_weights()` checks the two dimension ints but
+never checks the stream afterwards. A file cut off after 10 floats loaded **without an exception**:
+the start of `W1` came from the file, and the rest of `W1`, all of `W2` and both biases silently kept
+their previous values. This is the per-block `<block>_feedforward.bin` file that
+`EncoderDecoderModel::save_model()`/`load_model()` use through the block and encoder save paths, so a
+damaged checkpoint becomes a silent mix of old (often random) and new weights. `save_weights()`
+doesn't check its writes. Same class as TD-298, TD-345, TD-357 and TD-367.
+
+Action Items:
+
+- [ ] Check the file size up front (`8 + 4·(2·d_model·d_ff + d_ff + d_model)` bytes), read into temporaries, check the stream, and assign only on success.
+- [ ] Check `save_weights()`'s stream before returning; write each matrix in one call rather than one float at a time.
+- [ ] Test: truncated and empty files throw and leave the layer unchanged.
+
+Location in code: `src/FeedForward.cpp` (`load_weights()`, `save_weights()`); tagged `TODO: See TD-369`.
+
+Files to Modify:
+
+- `src/FeedForward.cpp`
+- `tests/feedforward_test.cpp`
+
+---
+
+### TD-370: `FeedForward` Argument Checks, GPU Null Dereference and Console Output
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Transformer / FeedForward | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `FeedForward`; the CPU items were verified, the GPU ones are by inspection:
+- The constructor doesn't validate dimensions: `FeedForward(0, 4)` constructs with an infinite init
+  scale. (`Predictor` checks its own arguments; the blocks don't.)
+- `set_W1()`…`set_b2()` don't check shape (`set_W1(3×3)` was accepted, and the next `forward()` threw
+  a multiply error), and they don't mark the GPU mirror stale.
+- `backward()` before any `forward()` fails with a misleading *"Matrix dimensions must match for
+  addition"*.
+- `gpu_backward()` dereferences `gpu_` without a check, so calling it before `gpu_forward()` crashes.
+  `gpu_forward()` doesn't check `input.cols`.
+- The GPU saturation hook's `count_below_threshold()` returns to the host, synchronizing the queue
+  once per FFN per forward while installed.
+- `save_weights()`, `load_weights()` and `print_config()` print to `std::cout`, and `print_config()`
+  uses `int` arithmetic that overflows for very large dimensions.
+
+Action Items:
+
+- [ ] Validate constructor arguments; check shapes in the setters and invalidate (or re-upload) the GPU mirror.
+- [ ] Give `backward()` and `gpu_backward()` a clear "no forward pass" error; check `input.cols` in `gpu_forward()`.
+- [ ] Batch the GPU hook's reduction per step rather than per layer, or document the cost.
+- [ ] Switch to `adai::Logger`; use `size_t` in `print_config()`.
+
+Location in code: `src/FeedForward.cpp` (constructor, `backward()`, `gpu_forward()`, `gpu_backward()`, `save_weights()`), `src/FeedForward.hpp` (setters); tagged `TODO: See TD-370`.
+
+Files to Modify:
+
+- `src/FeedForward.{hpp,cpp}`
+
+---
+
+### TD-371: Residual-Branch Output Isn't Scaled for Depth
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open — owner decision | Transformer / FeedForward | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `FeedForward` and measured. With unit-variance input (what `LayerNorm` produces),
+a freshly initialized FFN's output has a standard deviation of about 1.35 (1.38 at d=64, 1.32 at
+d=256, 1.37 at d=512, `d_ff = 4·d_model`). Every Pre-LN block adds this, plus its attention output,
+to the residual stream unscaled, so the stream's variance grows with depth from the first step.
+GPT-2-style models initialize the residual branch's output projections (`W2` here, the attention
+`W_o`) with an extra `1/√(2·num_layers)` factor to keep it bounded. This isn't a bug; it's an
+initialization choice that bears on the open hypothesis that Pre-LN residual growth caused the
+epoch-5 divergence on ai-machine.
+
+Action Items:
+
+- [ ] Decide whether to scale `W2` (and the attention output projections) by `1/√(2·num_layers)` at initialization, which needs the layer count passed down.
+- [ ] If adopted, compare a short training run against the current initialization before switching, since it changes training dynamics (existing checkpoints are unaffected).
+
+Location in code: `src/FeedForward.cpp` (constructor `W2` init); tagged `TODO: See TD-371`.
+
+Files to Modify:
+
+- `src/FeedForward.{hpp,cpp}`
+- `src/EncoderBlock.cpp`
+- `src/DecoderBlock.cpp`
+- `src/MultiHeadAttention.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -7958,15 +8107,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 159 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 163 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|21|13%|
-|Medium|67|42%|
-|Low|71|45%|
+|Medium|69|42%|
+|Low|73|45%|
 
-**Total Active Items:** 159
+**Total Active Items:** 163
 
 ### By Component
 
@@ -8010,6 +8159,7 @@ Recomputed directly from the 159 `### TD-NNN` entries under [Active Technical De
 |Transformer / EncoderBlock|2|
 |Models / EncoderDecoderModel|6|
 |Transformer / LLMEncoder|4|
+|Transformer / FeedForward|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
 
@@ -8017,13 +8167,13 @@ Recomputed directly from the 159 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|85|
-|2-4 hours|52|
+|0-2 hours|88|
+|2-4 hours|53|
 |4-8 hours|12|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 343-588 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 348-598 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

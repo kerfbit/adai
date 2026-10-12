@@ -373,6 +373,7 @@ Matrix Matrix::transpose() const {
 }
 
 // Randomize matrix with Xavier/He initialization
+// TODO: See TD-368 in TECHNICAL_DEBT.md - unseedable; initialization can't be reproduced
 void Matrix::randomize(float scale) {
     static std::random_device rd;
     static std::mt19937 gen(rd());
