@@ -1139,9 +1139,11 @@ bool IncrementalTrainer::resume_last_session() {
 
     bool ok = train_on_files(pending_ranges, config.base_config.num_epochs);
     if (ok) {
+        // TODO: See TD-334 in TECHNICAL_DEBT.md - always zero sample counts; TD-333: bare paths, so segments are recorded per file
         std::vector<int> counts(pending.size(), 0);
         reg.mark_trained(run_id, pending, counts);
     } else {
+        // TODO: See TD-333 in TECHNICAL_DEBT.md - bare paths release only whole-file entries; claimed TD-205 segments stay stuck
         reg.release_pending(run_id, pending);
     }
     return ok;

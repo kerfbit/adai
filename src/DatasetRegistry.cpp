@@ -86,6 +86,7 @@ DatasetRegistry::DatasetRegistry(DatasetConfig cfg, std::unique_ptr<RegistryTran
     : config_(std::move(cfg)), transport_(std::move(transport)) {}
 
 /*static*/
+// TODO: See TD-335 in TECHNICAL_DEBT.md - max_files_per_run and data_registry_file are never mapped
 DatasetConfig DatasetRegistry::make_config(const adai::ServiceConfig& svc) {
     DatasetConfig cfg;
     if (!svc.session_dir.empty()) {
@@ -183,6 +184,7 @@ bool DatasetRegistry::add_pending_path_unchecked(const std::string& path, int se
     return true;
 }
 
+// TODO: See TD-335 in TECHNICAL_DEBT.md - no caller outside this class
 bool DatasetRegistry::add_files(const std::vector<std::string>& paths) {
     int added = 0;
     for (const auto& file : paths) {
@@ -303,6 +305,7 @@ std::vector<std::string> DatasetRegistry::trained_files() const {
     return std::vector<std::string>(trained_set_.begin(), trained_set_.end());
 }
 
+// TODO: See TD-333 in TECHNICAL_DEBT.md - path-only: one trained segment marks the whole file trained
 bool DatasetRegistry::is_trained(const std::string& path) const {
     return trained_set_.find(path) != trained_set_.end();
 }
@@ -313,6 +316,7 @@ bool DatasetRegistry::is_trained(const std::string& path) const {
 
 // Build new DataVersion entries for each untrained path; update in-memory state.
 // Returns the newly created entries (does NOT persist — callers do that).
+// TODO: See TD-333 in TECHNICAL_DEBT.md - skips a path already in trained_set_, so later segments' samples are dropped
 static std::vector<DataVersion> build_new_versions(const std::vector<std::string>& paths,
                                                    const std::vector<int>& sample_counts,
                                                    std::vector<DataVersion>& registry_,
@@ -359,6 +363,7 @@ void DatasetRegistry::mark_trained(const std::vector<std::string>& paths,
 }
 
 // Phase 9 overload — atomic for both local (flock) and remote (POST /trained).
+// TODO: See TD-333 in TECHNICAL_DEBT.md - keyed by bare path; callers never pass segment ranges
 void DatasetRegistry::mark_trained(const std::string& run_id, const std::vector<std::string>& paths,
                                    const std::vector<int>& sample_counts) {
     const auto new_entries = build_new_versions(paths, sample_counts, registry_, trained_set_);
@@ -376,6 +381,7 @@ void DatasetRegistry::mark_trained(const std::string& run_id, const std::vector<
 // Multi-run API (Phase 9)
 // ============================================================================
 
+// TODO: See TD-335 in TECHNICAL_DEBT.md - in-memory run_id of entries already in pending_ isn't updated
 AcquireResponse DatasetRegistry::acquire_pending(const std::string& run_id, int max_files) {
     const int limit = (max_files > 0) ? max_files : config_.max_files_per_run;
     auto resp = transport_->acquire(run_id, limit, config_.model_name);
@@ -404,6 +410,7 @@ std::string DatasetRegistry::next_session(const std::string& model_name,
     return transport_->next_session(model_name, run_id);
 }
 
+// TODO: See TD-333 in TECHNICAL_DEBT.md - callers pass bare paths, which never release a claimed segment
 void DatasetRegistry::release_pending(const std::string& run_id,
                                       const std::vector<std::string>& paths,
                                       const std::vector<SegmentTarget>& segments) {
@@ -461,6 +468,7 @@ std::string DatasetRegistry::remote_upload(const std::string& local_path) {
     return path;
 }
 
+// TODO: See TD-335 in TECHNICAL_DEBT.md - no caller
 void DatasetRegistry::print_run_assignments() {
     std::vector<PendingEntry> entries;
     transport_->load_pending(entries);
@@ -564,6 +572,7 @@ int DatasetRegistry::load_conversation_pairs(const std::string& path,
 }
 
 /*static*/
+// TODO: See TD-335 in TECHNICAL_DEBT.md - materializes every pair just to count them
 int DatasetRegistry::count_pairs(const std::string& path) {
     std::vector<ConversationPair> pairs;
     return load_conversation_pairs(path, pairs);
@@ -588,6 +597,7 @@ int DatasetRegistry::load_conversation_pairs(const std::string& path,
     }
     file.seekg(0);
 
+    // TODO: See TD-336 in TECHNICAL_DEBT.md - a UTF-8 BOM before '{' makes a JSONL file parse as legacy (0 pairs)
     const bool is_jsonl = !first_line.empty() && first_line.front() == '{';
     const bool ranged = segment_start >= 0;
     if (ranged && !is_jsonl) {
@@ -653,6 +663,7 @@ int DatasetRegistry::load_conversation_pairs(const std::string& path,
                 }
                 current_input = line.substr(6);
                 current_input.erase(0, current_input.find_first_not_of(" \t"));
+            // TODO: See TD-336 in TECHNICAL_DEBT.md - only the first response line is kept; continuation lines are dropped
             } else if (line.substr(0, 9) == "RESPONSE:") {
                 current_response = line.substr(9);
                 current_response.erase(0, current_response.find_first_not_of(" \t"));
@@ -674,6 +685,7 @@ int DatasetRegistry::load_conversation_pairs(const std::string& path,
 // ============================================================================
 
 /*static*/
+// TODO: See TD-335 in TECHNICAL_DEBT.md - stored in every DataVersion but never compared
 std::string DatasetRegistry::compute_checksum(const std::string& path) {
     if (!fs::exists(path)) {
         return "MISSING";

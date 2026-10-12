@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 9, 2026
-**Total Items:** 128
-**High Priority:** 18
+**Total Items:** 132
+**High Priority:** 19
 **Medium Priority:** 55
-**Low Priority:** 55
+**Low Priority:** 58
 **Future Enhancements:** 19
 **Resolved Items:** 204
 **Deferred Decisions:** 3
@@ -64,6 +64,14 @@ which trains it twice (TD-326). Two are MEDIUM: `remove` reports success and exi
 `registry_server` while nothing changes (TD-327, verified), and only `assign` uses the MNS
 `run_group` (TD-329). The rest are LOW (TD-328, TD-330–332): relative local paths (verified),
 output hygiene, no command-level tests, and an operator guide covering 8 of 15 commands.
+
+Also October 11, 2026: filed [TD-333](#td-333-segment-claims-arent-released-on-failure-and-trained-records-ignore-segments) through [TD-336](#td-336-legacy-training-file-parser-truncates-responses-bom-breaks-jsonl-detection) from the code-traced
+[DatasetRegistry.md](../reference/source/DatasetRegistry.md). One is **HIGH** (verified): the
+training lifecycle records success and failure by bare path, so a failed pass leaves its TD-205
+segment claimed (stuck after a `retrain` or any standalone pass), and a trained segment marks the
+whole file trained while later segments' samples go unrecorded (TD-333). Three are LOW: trained
+sample counts are always 0 (TD-334), dead code and an unused checksum (TD-335), and legacy-parser
+truncation plus BOM detection (TD-336).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -879,6 +887,11 @@ anyone runs `migrate` over a segmented legacy pool; add [TD-331](#td-331-dataset
 [TD-327](#td-327-dataset_manager-remove-reports-success-in-remote-mode-without-removing-anything) and [TD-329](#td-329-dataset_manager-uses-the-mns-run_group-only-in-assign) are small and change what operators see. [TD-328](#td-328-dataset_manager-stores-relative-paths-in-the-local-pool), [TD-330](#td-330-dataset_manager-output-exit-code-and-flag-hygiene) and
 [TD-332](#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands) are cleanup (do TD-332 after TD-321 so the guide documents the fixed semantics).
 
+**Tier 30 — Newly filed (October 11, 2026): `DatasetRegistry`.** [TD-333](#td-333-segment-claims-arent-released-on-failure-and-trained-records-ignore-segments) is HIGH and spans the
+registry, both transports, `registry_server` and the trainer's call sites; do it before segments
+(TD-205) see real use, and pass real counts ([TD-334](#td-334-trained-sample-counts-are-always-zero)) in the same change since it touches the same
+`mark_trained()` calls. [TD-335](#td-335-datasetregistry-dead-code-and-unused-integrity-data) and [TD-336](#td-336-legacy-training-file-parser-truncates-responses-bom-breaks-jsonl-detection) are cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1013,6 +1026,10 @@ anyone runs `migrate` over a segmented legacy pool; add [TD-331](#td-331-dataset
   - [TD-330: `dataset_manager` Output, Exit Code and Flag Hygiene](#td-330-dataset_manager-output-exit-code-and-flag-hygiene)
   - [TD-331: `dataset_manager` Has No Tests for Its Commands](#td-331-dataset_manager-has-no-tests-for-its-commands)
   - [TD-332: Operator Guide Covers Only 8 of 15 `dataset_manager` Commands](#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands)
+  - [TD-333: Segment Claims Aren't Released on Failure and Trained Records Ignore Segments](#td-333-segment-claims-arent-released-on-failure-and-trained-records-ignore-segments)
+  - [TD-334: Trained Sample Counts Are Always Zero](#td-334-trained-sample-counts-are-always-zero)
+  - [TD-335: `DatasetRegistry` Dead Code and Unused Integrity Data](#td-335-datasetregistry-dead-code-and-unused-integrity-data)
+  - [TD-336: Legacy Training-File Parser Truncates Responses; BOM Breaks JSONL Detection](#td-336-legacy-training-file-parser-truncates-responses-bom-breaks-jsonl-detection)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -6332,6 +6349,131 @@ Files to Modify:
 
 ---
 
+### TD-333: Segment Claims Aren't Released on Failure and Trained Records Ignore Segments
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Data / DatasetRegistry | October 11, 2026 | 4-8 hours |
+
+Description:
+Found while writing the code-traced reference [DatasetRegistry.md](../reference/source/DatasetRegistry.md) and confirmed by running the real class
+against a scratch `LocalTransport` pool (one 30-pair file split into three TD-205 segments).
+`acquire_pending()` hands out segments correctly, but every production caller
+(`IncrementalTrainingTool.cpp`'s train/resume/retrain/LeJEPA paths and
+`IncrementalTrainer::resume_last_session()`) then calls `mark_trained()`/`release_pending()` with
+**bare paths** (`resp.registry_paths()`):
+
+- **Failure doesn't release segments.** Since TD-205, a bare path releases only whole-file entries.
+  `release_pending("run-A", {path})` left the segment **claimed by `run-A`**, and a pass with a
+  different `run_id` couldn't acquire it. The same `run_id` can reclaim its own claims, so an MNS
+  `resume` recovers. But after a `retrain` (new MNS run), or in standalone mode (run ID from
+  hostname + PID, new every pass), the segment stays stuck until released by hand.
+- **Success is recorded per path.** Training two segments of one file produced **one** trained
+  file with 10 samples (`build_new_versions()` skips a path already in `trained_set_`), and the whole
+  path now counts as trained, so re-queuing any segment of it is **rejected**. Segments trained in
+  separate passes can't all be recorded.
+
+`registry_server`'s release/trained handlers follow the same path-keyed rules.
+
+Action Items:
+
+- [ ] Pass `FileToken` segment ranges through as `SegmentTarget`s to `release_pending()`/`mark_trained()` from every caller.
+- [ ] Key trained records by `(path, segment_start, segment_count)` (local registry format, `DataVersion`, `registry_server`), and make `is_trained()` segment-aware.
+- [ ] Tests: acquire → fail → release frees the segment for another run; training two segments records both, with their sample counts.
+
+Location in code: `src/DatasetRegistry.cpp` (`mark_trained()`, `release_pending()`, `build_new_versions()`, `is_trained()`), callers in `src/IncrementalTrainingTool.cpp` and `src/IncrementalTrainer.cpp`; tagged `TODO: See TD-333`.
+
+Files to Modify:
+
+- `src/DatasetRegistry.{hpp,cpp}`
+- `src/RegistryTransport.{hpp,cpp}`
+- `src/RegistryServer.cpp`
+- `src/IncrementalTrainingTool.cpp`
+- `src/IncrementalTrainer.cpp`
+- `tests/DatasetRegistryTests.cpp`
+
+---
+
+### TD-334: Trained Sample Counts Are Always Zero
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / DatasetRegistry | October 11, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-333, by inspection of every production call site. Each `mark_trained()` call
+passes `std::vector<int> counts(n, 0)` (trainer, retrain, LeJEPA, `resume_last_session()`), so every
+`DataVersion::num_samples` is 0 and `total_samples_trained()` (`dataset_manager status`'s
+"Samples: N total trained") always reports 0. The trainer has the real per-file pair counts (it loads
+them in `train_on_files()`); they're just not passed back.
+
+Action Items:
+
+- [ ] Return per-file (per-segment) pair counts from `train_on_files()`/`retrain_on_files()` and pass them to `mark_trained()`.
+
+Location in code: `src/IncrementalTrainingTool.cpp` / `src/IncrementalTrainer.cpp` (`mark_trained()` calls); tagged `TODO: See TD-334`.
+
+Files to Modify:
+
+- `src/IncrementalTrainingTool.cpp`
+- `src/IncrementalTrainer.{hpp,cpp}`
+
+---
+
+### TD-335: `DatasetRegistry` Dead Code and Unused Integrity Data
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / DatasetRegistry | October 11, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-333, by inspection:
+- `compute_checksum()` (`size_mtime`) is stored in every `DataVersion` but never compared anywhere.
+- `count_pairs()` materializes every pair (all text) just to count them.
+- The private `registry_file_path()`/`pending_file_path()` are unused and ignore the TD-202 kind
+  subdirectory; `add_files()` and `print_run_assignments()` have no callers.
+- `make_config()` never copies `max_files_per_run` (always 0 = claim all) or `data_registry_file`.
+- `acquire_pending()` doesn't update the in-memory `run_id` of entries already in `pending_`.
+
+Action Items:
+
+- [ ] Use the checksum (warn when a queued/trained file changed) or drop it; count pairs without storing them; delete the unused helpers; map the missing config fields; refresh in-memory claims after acquire.
+
+Location in code: `src/DatasetRegistry.cpp` (`compute_checksum()`, `count_pairs()`, `make_config()`, `acquire_pending()`), `src/DatasetRegistry.hpp` (private helpers); tagged `TODO: See TD-335`.
+
+Files to Modify:
+
+- `src/DatasetRegistry.{hpp,cpp}`
+- `src/Config.{hpp,cpp}`
+
+---
+
+### TD-336: Legacy Training-File Parser Truncates Responses; BOM Breaks JSONL Detection
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / DatasetRegistry | October 11, 2026 | 1 hour |
+
+Description:
+Found alongside TD-333, by inspection. `load_conversation_pairs()`:
+- In the legacy `INPUT:`/`RESPONSE:` format, keeps only the **first line** of a response; continuation
+  lines are dropped.
+- Detects JSONL by the first non-empty line starting with `{`. A UTF-8 byte-order mark before it
+  makes a JSONL file parse as legacy and load 0 pairs.
+
+Action Items:
+
+- [ ] Append continuation lines to the current response; strip a leading BOM before detection; test both.
+
+Location in code: `src/DatasetRegistry.cpp` (`load_conversation_pairs()`); tagged `TODO: See TD-336`.
+
+Files to Modify:
+
+- `src/DatasetRegistry.cpp`
+- `tests/DatasetRegistryTests.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -6847,15 +6989,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 128 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 132 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|18|14%|
-|Medium|55|43%|
-|Low|55|43%|
+|High|19|14%|
+|Medium|55|42%|
+|Low|58|44%|
 
-**Total Active Items:** 128
+**Total Active Items:** 132
 
 ### By Component
 
@@ -6891,6 +7033,7 @@ Recomputed directly from the 128 `### TD-NNN` entries under [Active Technical De
 |Admin config API|2|
 |Data / DataFetcher|6|
 |Data / dataset_manager CLI|12|
+|Data / DatasetRegistry|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
 
@@ -6898,13 +7041,13 @@ Recomputed directly from the 128 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|67|
+|0-2 hours|70|
 |2-4 hours|41|
-|4-8 hours|10|
+|4-8 hours|11|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 295-495 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 302-508 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

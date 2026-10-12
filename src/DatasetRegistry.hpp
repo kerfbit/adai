@@ -415,6 +415,7 @@ class DatasetRegistry {
     std::vector<PendingEntry> pending_;
 
     /** @return Full path to the registry flat file. */
+    // TODO: See TD-335 in TECHNICAL_DEBT.md - registry_file_path()/pending_file_path() are unused and ignore the kind subdirectory
     std::string registry_file_path() const;
 
     /** @return Full path to the pending-files flat file. */
