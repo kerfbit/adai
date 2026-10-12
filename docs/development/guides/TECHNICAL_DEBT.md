@@ -10,7 +10,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 63
 **Low Priority:** 64
 **Future Enhancements:** 19
-**Resolved Items:** 204
+**Resolved Items:** 208
 **Deferred Decisions:** 3
 
 **October 11, 2026:** Filed [TD-304](#td-304-session-counters-can-be-duplicated-and-daemonconfigstore-has-no-busy-timeout) through [TD-308](#td-308-session-counters-reuse-the-config-stores-table-and-scan-it-per-allocation) from the code-traced
@@ -101,6 +101,21 @@ Also October 11, 2026: filed [TD-349](#td-349-rag-indexes-whole-files-but-embeds
 embeds only their first `max_seq_length` tokens, so later content can't be retrieved (TD-349,
 verified), and `retrieve()` isn't safe concurrently, which is a prerequisite for fixing TD-230
 (TD-350). TD-351 is LOW.
+
+Also October 11, 2026: filed [TD-352](../archive/TECHNICAL_DEBT_RESOLVED.md#td-352-parallel-data-augmentation-isnt-reproducible) through [TD-355](../archive/TECHNICAL_DEBT_RESOLVED.md#td-355-efficientbatching-is-an-unused-duplicate-of-batchprocessor) from the code-traced
+[EfficientBatching.md](../reference/source/EfficientBatching.md), all LOW because nothing in production
+calls the header: OpenMP augmentation isn't reproducible across thread counts (TD-352, verified),
+token masking inserts `EOS` (TD-353, verified), bad arguments hang or overflow the heap (TD-354,
+verified), and the header duplicates `BatchProcessor` unused (TD-355, owner decision on merge or
+retire).
+
+Later October 11, 2026, per the owner's decision on TD-355: **retired `src/EfficientBatching.hpp`**
+along with `tests/datapipeline_test.cpp`, `examples/DataPipelineExample.cpp` and
+`benchmarks/AugmentationBenchmark.cpp`, and removed `BatchedInferenceConfig`'s dead `padding_strategy`
+field (its only tie to the header; `BatchedInferenceEngine.hpp` is now `@adai-version 2.0.0`). This
+closes [TD-352](../archive/TECHNICAL_DEBT_RESOLVED.md#td-352-parallel-data-augmentation-isnt-reproducible) through [TD-355](../archive/TECHNICAL_DEBT_RESOLVED.md#td-355-efficientbatching-is-an-unused-duplicate-of-batchprocessor). The token-budget bucketing algorithm is preserved as a design note
+in [real_batching_v2_plan.md](../../proposals/real_batching_v2_plan.md) §4.1, and the augmentation
+operations are recorded under [TD-014](#td-014-llm-operations-and-training-tooling-suite).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -939,6 +954,10 @@ top-level update fix. [TD-348](#td-348-llmdecoder-dead-code-and-robustness-gaps)
 an untrained encoder, so retrieval quality is moot until it's fixed). [TD-350](#td-350-documentstoreretrieve-isnt-safe-to-call-concurrently) must land before or
 with TD-230. [TD-349](#td-349-rag-indexes-whole-files-but-embeds-only-their-first-max_seq_length-tokens) (chunking) is the main quality fix; [TD-351](#td-351-documentstore-embedding-and-housekeeping-gaps) is cleanup.
 
+**Tier 35 — Resolved (October 11, 2026): `EfficientBatching` retired.** [TD-352](../archive/TECHNICAL_DEBT_RESOLVED.md#td-352-parallel-data-augmentation-isnt-reproducible) through [TD-355](../archive/TECHNICAL_DEBT_RESOLVED.md#td-355-efficientbatching-is-an-unused-duplicate-of-batchprocessor)
+closed with the header's retirement. Its token-budget bucketing is a design note in the v2 plan (§4.1);
+augmentation is listed under [TD-014](#td-014-llm-operations-and-training-tooling-suite).
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1530,6 +1549,16 @@ entries; the last version is in git history (`git show 6a5438c:src/Dataset.hpp`)
 - **Batch wrappers:** tokenize a split and pad (`get_batch_with_padding()`/`get_target_batch_with_padding()`),
   length-grouped batches, padding statistics. These would only matter once the model has a batch
   dimension (TD-171 / the real-batching v2 plan); `BatchProcessor.hpp` keeps the underlying helpers.
+
+**Update (October 11, 2026): data augmentation removed with `src/EfficientBatching.hpp` (TD-355).**
+`EfficientBatching::apply_augmentation()` was the codebase's only training-data augmentation:
+per-token dropout (drop with probability p, keeping the original if everything would drop), token
+masking (replace with a mask token), and adjacent-token swaps, with an OpenMP-parallel variant. Nothing
+in training used it. If recreated (e.g. in `adai-data-prep`), avoid its two bugs: derive each
+sequence's RNG from `(seed, sequence index)` so output doesn't depend on thread count (TD-352), and
+mask with a real `<mask>` token, not `EOS` (TD-353). Last version: `git show e8f3580:src/EfficientBatching.hpp`.
+Its token-budget bucketing is preserved separately in
+[real_batching_v2_plan.md](../../proposals/real_batching_v2_plan.md) §4.1.
 
 ### TD-006: Fill-in-the-Middle (FIM) Training Data Generation
 
@@ -2786,8 +2815,9 @@ turn, which raises per-request latency rather than throughput.
 
 Related dead or placeholder surface:
 
-- `BatchedInferenceConfig::padding_strategy`, `use_dynamic_batching`, and `enable_request_stats`
-  are never read by the engine (only default-value tests reference them).
+- `BatchedInferenceConfig::use_dynamic_batching` and `enable_request_stats` are never read by the
+  engine (only default-value tests reference them). `padding_strategy` was the same until it was
+  removed October 11, 2026 with `EfficientBatching.hpp` (TD-355).
 - `max_tokens_per_batch` is checked against a fixed 100-tokens-per-request estimate in
   `should_flush_batch()`. With defaults (4096 / 100 = 41) it can never fire before
   `max_batch_size` (32) does.
@@ -7003,7 +7033,8 @@ These are lower-priority enhancements that don't currently block development:
    - Pre-allocate memory for common matrix sizes
    - Reduce memory fragmentation
 
-2. **Monitor Augmentation Performance** (from Priority 2 completion)
+2. **Monitor Augmentation Performance** (from Priority 2 completion) — **withdrawn October 11, 2026:** the
+   augmentation code and its benchmark were retired with `src/EfficientBatching.hpp` (TD-355).
    - **Priority:** Low
    - **Effort:** Ongoing
    - **Description:** Track real-world speedup from the parallel data augmentation implementation (Priority 2) across different hardware configurations and dataset sizes.

@@ -73,7 +73,7 @@ cd /home/rodney/Repos/adai/build
 ### Benchmarks
 
 - `benchmarks/OpenMPBenchmark.cpp` - P1 validation
-- `benchmarks/AugmentationBenchmark.cpp` - P2 validation
+- `benchmarks/AugmentationBenchmark.cpp` - P2 validation (retired October 11, 2026 with `EfficientBatching.hpp`, TD-355)
 - `benchmarks/BatchedInferenceBenchmark.cpp` - P3 validation
 - `benchmarks/AttentionHeadBenchmark.cpp` - P4 validation
 - `benchmarks/PipelineBenchmark.cpp` - P5 validation

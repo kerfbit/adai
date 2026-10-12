@@ -12,7 +12,8 @@
 > tokenizer function via constructor injection. This guide's `ParallelDataLoader`/
 > `DataLoaderConfig` code examples have not been rewritten against the new API — treat them as
 > historical. `TokenBatchLoader` itself was retired later (TD-170), and `src/Dataset.hpp`, which
-> every example here constructs, was retired October 11, 2026 (TD-315) (see [Dataset.md](../../reference/source/Dataset.md) and TD-014 in [TECHNICAL_DEBT.md](../TECHNICAL_DEBT.md)).
+> every example here constructs, was retired October 11, 2026 (TD-315), as was `src/EfficientBatching.hpp`
+> (TD-355) (see [Dataset.md](../../reference/source/Dataset.md) and TD-014 in [TECHNICAL_DEBT.md](../TECHNICAL_DEBT.md)).
 
 ---
 

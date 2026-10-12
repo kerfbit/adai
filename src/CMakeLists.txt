@@ -714,12 +714,7 @@ if(OpenMP_CXX_FOUND)
     message(STATUS "Building openmp_benchmark with OpenMP support")
 endif()
 
-# Augmentation Benchmark - Test parallel data augmentation (Priority 2 implementation)
-add_executable(augmentation_benchmark ../benchmarks/AugmentationBenchmark.cpp)
-target_link_libraries(augmentation_benchmark adai_core)
-if(OpenMP_CXX_FOUND)
-    message(STATUS "Building augmentation_benchmark with OpenMP support")
-endif()
+# Augmentation Benchmark retired with src/EfficientBatching.hpp (TD-355, October 11, 2026)
 
 # Batched Inference Benchmark - Test batched inference throughput (Priority 3 implementation)
 add_executable(batched_inference_benchmark ../benchmarks/BatchedInferenceBenchmark.cpp)
@@ -930,10 +925,6 @@ if(BUILD_EXAMPLES)
     # Phase 5 Advanced Features Examples
     add_executable(phase5_examples ../examples/Phase5Examples.cpp)
     target_link_libraries(phase5_examples adai_core)
-    
-    # Data Pipeline Enhancement Example
-    add_executable(data_pipeline_example ../examples/DataPipelineExample.cpp)
-    target_link_libraries(data_pipeline_example adai_nlp)
     
     # GPU Acceleration Example (always build, shows status even without GPU)
     add_executable(gpu_example ../examples/GPUExample.cpp)

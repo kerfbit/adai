@@ -6,7 +6,8 @@
   [TD-218](../development/guides/TECHNICAL_DEBT.md#td-218-batchprocessor-helpers-have-dead-surface-lost-ordering-and-unchecked-inputs);
   closes the loop on [TD-217](../development/guides/TECHNICAL_DEBT.md#td-217-chatbatch-reports-hypothetical-batching-stats-as-if-they-were-real)
 - **Code-traced background:** [BatchedInferenceEngine.md](../development/reference/source/BatchedInferenceEngine.md),
-  [BatchProcessor.md](../development/reference/source/BatchProcessor.md)
+  [BatchProcessor.md](../development/reference/source/BatchProcessor.md), and the retired
+  [EfficientBatching.md](../development/reference/source/EfficientBatching.md) (see §4.1)
 
 ---
 
@@ -78,11 +79,51 @@ SYCL path, before any layer changes.
 | **B1** | `BatchProcessor` v2 (`@adai-version 2.0.0`) | `TokenBatch` gains `source_indices` and a packed form (`offsets` into a stacked id vector) alongside the padded form; per-sequence `[q, k]` mask builder (causal and/or length); bounds-checked `unbatch`/`unstack`; `Logger`-based stats (`print()` removed) | B0 go | TD-218 |
 | **B2** | Stacked forward (inference only) | `PositionalEncoding` with per-sequence offsets; `MultiHeadAttention`/`CrossAttention` "stacked" forward that attends within blocks; `Encoder`/`Decoder`/`EncoderDecoderModel::forward_stacked()`. No backward | B1 | TD-171 (inference forward) |
 | **B3** | Batched decode loop | Step all active sequences together: one stacked decoder forward per step; per-sequence EOS/`max_length`; per-sequence sampling config **and RNG**; one `DecoderKVCache` per sequence, with the KV-cached step stacking only the new token rows | B2 | TD-214 (RNG) |
-| **B4** | `BatchedInferenceEngine` v2 (`@adai-version 2.0.0`) | `process_batch()` drives B3; **continuous batching** (admit queued requests between decode steps, retire finished ones); real per-request latency from `submit_time` | B3, plus v1.x TD-212 fixes already in | TD-211, TD-213 |
+| **B4** | `BatchedInferenceEngine` v2 (next MAJOR, `@adai-version 3.0.0`; 2.0.0 was used October 11, 2026 for removing the dead `padding_strategy` field) | `process_batch()` drives B3; **continuous batching** (admit queued requests between decode steps, retire finished ones); real per-request latency from `submit_time` | B3, plus v1.x TD-212 fixes already in | TD-211, TD-213 |
 | **B5** | `/chat/batch` on real batching | `generate_batch_responses()` uses B3; the `padding_estimate` block (TD-217) is replaced or joined by measured figures | B3 | TD-217 follow-up |
 | **B6** | GPU path | Stacked `GPUMatrix` forward; per-sequence attention kernels (or padded tiles using B1's padded form and masks); `GPUDecoderKVCache` per sequence. Validated on ai-machine (remote-only: needs a prepared package and run instructions) | B2–B4 | TD-171 GPU half for inference |
 
 Each phase ends with full `ctest` green and, from B2 on, the equivalence tests in §5.
+
+### 4.1 Design note: token-budget batch formation (from the retired `EfficientBatching.hpp`)
+
+`src/EfficientBatching.hpp` was retired October 11, 2026 (TD-355): it duplicated `BatchProcessor`
+and nothing in production used it. Its one piece with no equivalent elsewhere is **token-budget
+bucketing** (`create_bucketed_batches()`), which is exactly what B1/B4 need to bound the memory of a
+stacked forward. Build it into `BatchProcessor` v2 (B1) and use it for admission in B4. The last
+implementation is recoverable with `git show e8f3580:src/EfficientBatching.hpp`.
+
+**Algorithm (as it was, including its bug fix):**
+
+1. Assign each sequence to the first bucket whose length boundary is ≥ its length; anything longer
+   goes in a final overflow bucket. Boundaries must be sorted ascending (validate it; the old code
+   assumed it).
+2. Within a bucket, admit sequences in order while the batch stays under `max_tokens_per_batch`.
+   For a **padded** batch the cost is `max_len_in_batch × count`; the check must use the
+   **running maximum** over everything already admitted, including the candidate. TD-074 fixed a bug
+   where it compared against the first sequence's length: lengths `[50, 100, 30, 30, 30, 30]` with a
+   300-token budget all landed in one batch whose true padded cost was 600.
+3. A single sequence over the budget still gets a batch of its own (never drop or loop).
+
+**Adjustments for v2:**
+
+- **Packed form (§3) needs a different cost.** With stacked rows there's no padding, so the cost is
+  `Σ lengths`, not `max × count`; keep `max × count` only for padded GPU tiles (B6). Make the cost
+  function explicit rather than baking one in.
+- **Carry `source_indices` (B1)** through bucketing so results can always be mapped back to
+  requests. The old batches dropped source order (TD-218's hazard), and `std::sort` didn't even
+  preserve order among equal lengths.
+- **Deterministic ordering.** The old within-bucket shuffle was seeded from `std::random_device`.
+  For inference, don't shuffle; for any future training use, seed from config.
+- **Continuous batching (B4).** Apply the same budget per decode step to the set of active
+  sequences: admit a queued request only if the step's stacked cost stays within budget.
+- **Input checks.** Reject a zero batch size or budget, and bounds-check mask construction (the old
+  `create_attention_mask()` overflowed its buffer when the original length exceeded the padded
+  length, TD-354).
+
+**Not carried over:** `LEFT`/`CENTER` padding (the packed form needs none; add left padding only if a
+GPU decode tile needs it) and data augmentation (training-only, with reproducibility and `EOS`-masking
+bugs, TD-352/TD-353). Augmentation is recorded under TD-014 for possible recreation.
 
 ## 5. Acceptance criteria
 

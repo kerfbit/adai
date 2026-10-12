@@ -333,10 +333,7 @@ add_executable(phase5Tests phase5_test.cpp)
 target_link_libraries(phase5Tests adai_core GTest::gtest_main)
 add_test(NAME Phase5Tests COMMAND phase5Tests)
 
-# Data Pipeline tests (Efficient Batching, Parallel Data Loading)
-add_executable(datapipelineTests datapipeline_test.cpp)
-target_link_libraries(datapipelineTests adai_nlp GTest::gtest_main)
-add_test(NAME DataPipelineTests COMMAND datapipelineTests)
+# Data Pipeline tests retired with src/EfficientBatching.hpp (TD-355, October 11, 2026)
 
 # ChatbotAPI tests (REST API with batch processing)
 add_executable(chatbotapiTests chatbotapi_test.cpp)

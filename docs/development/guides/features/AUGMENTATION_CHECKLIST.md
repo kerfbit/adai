@@ -1,5 +1,12 @@
 # Priority 2: Data Augmentation Parallelization - Implementation Checklist
 
+> **Retired (October 11, 2026):** `src/EfficientBatching.hpp`, `apply_augmentation()`, the
+> `augmentation_benchmark` target and their tests were removed (TD-355). Nothing in training used
+> them, and the parallel augmentation described here was **not** reproducible across thread counts
+> (TD-352), contrary to the "same results" claim below; its token masking also inserted `EOS`
+> (TD-353). This guide is kept as history. See [EfficientBatching.md](../../reference/source/EfficientBatching.md) and TD-014 for what
+> could be recreated.
+
 ## Implementation Status: ✅ COMPLETE
 
 ---

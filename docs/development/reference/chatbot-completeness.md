@@ -697,7 +697,7 @@ Enhancement Status:
 **Current Status:** ✅ Complete - Efficient batching and parallel loading (Updated Jan 2026) ✨ NEW
 What's Working:
 
-- `EfficientBatching` class - Dynamic batching by sequence length
+- `EfficientBatching` class - Dynamic batching by sequence length (retired October 11, 2026, TD-355)
 - Bucketing strategy for wide length variations (30-70% less padding)
 - Multiple padding strategies (left, right, center)
 - Data augmentation (token dropout, masking, shuffling)
@@ -1311,7 +1311,7 @@ Documentation:
 #### Tasks Completed:
 
 1. ✅ **Efficient Batching** (Complete)
-   - `EfficientBatching` class - Dynamic batching by sequence length
+   - `EfficientBatching` class - Dynamic batching by sequence length (retired October 11, 2026, TD-355)
    - Bucketing strategy for wide length variations
    - Multiple padding strategies (left, right, center)
    - Data augmentation (token dropout, masking, shuffling)
@@ -1332,7 +1332,7 @@ Deliverables:
 
 - 2 production-ready header-only classes (980+ lines)
 - 32 comprehensive unit tests (100% pass rate)
-- Complete example program (DataPipelineExample.cpp)
+- Complete example program (DataPipelineExample.cpp; retired October 11, 2026, TD-355)
 - 50+ pages of documentation (docs/guides/data-pipeline-enhancement.md)
 - Full integration with build system
 

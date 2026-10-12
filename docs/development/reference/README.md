@@ -31,6 +31,7 @@ This directory contains reference materials, technical specifications, and imple
   - [Decoder](source/Decoder.md) (`src/Decoder.{hpp,cpp}`; `LLMDecoder` stack: embedding, blocks, final norm, KV-cache and GPU decode)
   - [DecoderBlock](source/DecoderBlock.md) (`src/DecoderBlock.{hpp,cpp}`; Pre-LN decoder layer with gated world-model/hippocampal paths)
   - [DocumentStore](source/DocumentStore.md) (`src/DocumentStore.{hpp,cpp}`; RAG retrieval index)
+  - [EfficientBatching](source/EfficientBatching.md) (`src/EfficientBatching.hpp`, **retired** October 11, 2026; bucketing kept as a v2-plan design note)
 
 - **[KVCache API Reference](kvcache.md)** - Complete API documentation for the Key-Value cache system
   - Single-layer and multi-layer caching

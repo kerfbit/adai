@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.0.1
+// @adai-version: 1.0.2
 // @adai-reviewed: 2026-09-12
 
 /**
@@ -55,6 +55,9 @@
 #include <string>
 #include <thread>
 #include <vector>
+#ifdef _OPENMP
+#include <omp.h>  // omp_set_num_threads(); previously reached transitively via EfficientBatching.hpp
+#endif
 
 #include "BPETokenizer.hpp"
 #include "BatchedInferenceEngine.hpp"

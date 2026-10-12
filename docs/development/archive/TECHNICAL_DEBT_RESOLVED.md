@@ -4,6 +4,82 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-355: `EfficientBatching` Is an Unused Duplicate of `BatchProcessor`
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| October 11, 2026 | `src/EfficientBatching.hpp` (removed) | Retirement |
+
+Summary:
+Retired per the owner's decision. Deleted `src/EfficientBatching.hpp`, `tests/datapipeline_test.cpp` (15 tests) and its CMake target, `examples/DataPipelineExample.cpp` (`data_pipeline_example`) and `benchmarks/AugmentationBenchmark.cpp` (`augmentation_benchmark`). Removed `BatchedInferenceConfig::padding_strategy` (never read, TD-211; its `PaddingStrategy` enum lived in the retired header) and its default-value test; `BatchedInferenceEngine.hpp` bumped to `@adai-version 2.0.0`. The token-budget bucketing algorithm, with its TD-074 fix and v2 adjustments, is preserved in real_batching_v2_plan.md §4.1; augmentation is recorded under TD-014. Filed October 11, 2026.
+
+Original description:
+Found alongside TD-352, by inspection. `EfficientBatching.hpp` (tagged `stable`) is a second batching
+toolkit with its own `SequenceBatch`/`BatchStatistics` types parallel to `BatchProcessor`'s
+`TokenBatch`/`BatchStats`. No production code calls it: `BatchedInferenceEngine.hpp` includes it but
+uses nothing from it (correction at retirement: it used the `PaddingStrategy` enum for one never-read
+config field, removed along with the header), leaving tests, `examples/DataPipelineExample.cpp` and
+`benchmarks/AugmentationBenchmark.cpp`. Its batches also drop source order (TD-218's hazard), and
+`create_bucketed_batches()` shuffles with a `std::random_device` seed, so it can't be reproduced.
+
+---
+
+### TD-352: Parallel Data Augmentation Isn't Reproducible
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| October 11, 2026 | `src/EfficientBatching.hpp` (removed) | Retirement of `EfficientBatching.hpp` (TD-355) |
+
+Summary:
+Closed without a fix: the code was deleted when `src/EfficientBatching.hpp` was retired (TD-355). Filed October 11, 2026.
+
+Original description:
+Found while writing the code-traced reference [EfficientBatching.md](../reference/source/EfficientBatching.md) and confirmed by running the real header.
+`EfficientBatching::apply_augmentation()`'s OpenMP path (the one every `adai_core` consumer gets,
+since `ADAI_ENABLE_OPENMP` is a public definition) seeds one `mt19937` per thread with
+`seed + thread_id` under `schedule(dynamic, 16)`, so which random stream handles which sequence
+depends on thread count and timing. On 400 sequences with `seed = 42` the output differed for 1, 2,
+4 and 8 threads, and between two runs at 4 threads; only the 1-thread run matched the sequential
+build. The augmentation guides' "zero accuracy impact – same results" holds only statistically, and
+`seed` doesn't reproduce a run. No production code calls it today.
+
+---
+
+### TD-353: Token-Masking Augmentation Inserts `EOS` Tokens
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| October 11, 2026 | `src/EfficientBatching.hpp` (removed) | Retirement of `EfficientBatching.hpp` (TD-355) |
+
+Summary:
+Closed without a fix: the code was deleted when `src/EfficientBatching.hpp` was retired (TD-355). Filed October 11, 2026.
+
+Original description:
+Found alongside TD-352 and confirmed. `AugmentationConfig::mask_token_id` defaults to `3`, which is
+`SpecialTokenIDs::EOS`; the vocabulary has only PAD/UNK/BOS/EOS (TD-225) and no MASK token. With
+token masking enabled, about 15% of tokens become `EOS` (1,153 of 8,000 in the test), which would
+teach a model to see and emit end-of-sequence mid-text.
+
+---
+
+### TD-354: `EfficientBatching` Hangs or Corrupts Memory on Bad Arguments
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| October 11, 2026 | `src/EfficientBatching.hpp` (removed) | Retirement of `EfficientBatching.hpp` (TD-355) |
+
+Summary:
+Closed without a fix: the code was deleted when `src/EfficientBatching.hpp` was retired (TD-355). Filed October 11, 2026.
+
+Original description:
+Found alongside TD-352 and confirmed. `create_dynamic_batches(…, batch_size = 0)` loops forever
+(`i += 0`). The public `create_attention_mask(original_length, padded_length, strategy)` writes past
+its buffer when `original_length > padded_length` (AddressSanitizer: heap-buffer-overflow WRITE for
+`(8, 4, RIGHT)`; `LEFT` starts at a negative index). `create_single_batch()` never triggers the
+second, but the function is public.
+
+---
+
 ### TD-315: `Dataset.hpp` Is Tagged Stable but Has No Production Caller
 
 | Resolution Date | Component | Resolved By |

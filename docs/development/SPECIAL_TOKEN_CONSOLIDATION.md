@@ -156,7 +156,7 @@ Special tokens are currently used in:
 - `src/IntegratedInferenceEngine.hpp` - Integrated inference
 - `src/SpeculativeDecoding.hpp` - Advanced generation
 - `src/ChatbotAPI.cpp` - API endpoints
-- `src/EfficientBatching.hpp` - Batching operations
+- `src/EfficientBatching.hpp` - Batching operations (retired October 11, 2026, TD-355)
 
 ## Migration Path (Optional)
 

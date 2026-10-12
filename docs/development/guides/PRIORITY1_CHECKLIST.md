@@ -201,7 +201,7 @@
 ### Short-term (Weeks 2-4)
 
 - **Priority 2:** Data Augmentation Parallelism
-  - Parallelize EfficientBatching operations
+  - Parallelize EfficientBatching operations (header retired October 11, 2026, TD-355)
   - Expected: 4-8x speedup in preprocessing
 
 ### Medium-term (Months 1-2)

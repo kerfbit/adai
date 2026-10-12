@@ -1,7 +1,7 @@
 # `BatchedInferenceEngine` — Source File Reference
 
 - **File:** [`src/BatchedInferenceEngine.hpp`](../../../../src/BatchedInferenceEngine.hpp) (header-only; no `.cpp`)
-- **Library:** none — header-only, compiled into whichever target includes it (`adai_nlp`-level dependencies: `BPETokenizer`, `TextGenerator`, `EfficientBatching`)
+- **Library:** none — header-only, compiled into whichever target includes it (`adai_nlp`-level dependencies: `BPETokenizer`, `TextGenerator`; it also included `EfficientBatching.hpp` until that header was retired October 11, 2026, TD-355)
 - **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.3`, `@adai-reviewed: 2026-09-14`
 - **Tests:** [`tests/batchedinferenceengine_test.cpp`](../../../../tests/batchedinferenceengine_test.cpp) → binary `batchedinferenceengineTests` (ctest name `BatchedInferenceEngineTests`); integration coverage in `tests/chatbotapi_test.cpp` (`BatchedInference_*`)
 - **Benchmark:** [`benchmarks/BatchedInferenceBenchmark.cpp`](../../../../benchmarks/BatchedInferenceBenchmark.cpp) → `batched_inference_benchmark`
@@ -132,7 +132,6 @@ struct BatchedInferenceConfig {
     size_t max_batch_size = 32;
     int timeout_ms = 50;
     int max_tokens_per_batch = 4096;
-    PaddingStrategy padding_strategy = PaddingStrategy::LEFT;
     bool use_dynamic_batching = true;
     int max_queue_size = 1000;
     bool enable_request_stats = true;
@@ -145,7 +144,6 @@ struct BatchedInferenceConfig {
 | `timeout_ms` | **Yes** — `collect_batch()` | How long the worker waits to fill a group, measured from when it *starts* collecting (§7.2). Set from `--batch-timeout-ms` |
 | `max_tokens_per_batch` | **Yes, but only via a fixed estimate** — `should_flush_batch()` | Flushes when `batch.size() × 100 ≥ max_tokens_per_batch`. With defaults (4096 / 100 → 41 requests) this never fires before `max_batch_size` (32) does |
 | `max_queue_size` | **Yes** — `submit()` | Back-pressure: `submit()` throws `std::runtime_error("Request queue is full")` at capacity |
-| `padding_strategy` | **No** | Unused (no padding is performed) | [TD-211](../../guides/TECHNICAL_DEBT.md#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model) |
 | `use_dynamic_batching` | **No** | Unused (no length grouping is performed) |
 | `enable_request_stats` | **No** | Unused — stats are always collected |
 
@@ -541,7 +539,7 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 | Item | Impact | Notes | Tracked as |
 |---|---|---|---|
 | No real batching: generation is sequential per request (§1, §7.4) | Header comments and "10–20×" claims are misleading; concurrency raises latency, doesn't raise throughput | Blocked on TD-171 (no batch dimension in the model stack) | [TD-211](../../guides/TECHNICAL_DEBT.md#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model) |
-| `padding_strategy`, `use_dynamic_batching`, `enable_request_stats` unused (§3) | Setting them does nothing | Only default-value tests reference them | [TD-211](../../guides/TECHNICAL_DEBT.md#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model) |
+| `use_dynamic_batching`, `enable_request_stats` unused (§3; `padding_strategy` was removed October 11, 2026, TD-355) | Setting them does nothing | Only default-value tests reference them | [TD-211](../../guides/TECHNICAL_DEBT.md#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model) |
 | `max_tokens_per_batch` uses a fixed 100-tokens-per-request estimate (§7.5) | Never fires with defaults | Placeholder per source comment | [TD-211](../../guides/TECHNICAL_DEBT.md#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model) |
 | `avg_latency_ms` is wall-time ÷ requests, and is `+∞` with zero requests (§4) | Misleading metric | `submit_time` is recorded but never used | [TD-213](../../guides/TECHNICAL_DEBT.md#td-213-batchedinferenceengine-stats-are-misleading-and-unused-in-production) |
 | `requests_timeout` / `requests_batch_full` count groups, not requests (§4) | Misleading names | | [TD-213](../../guides/TECHNICAL_DEBT.md#td-213-batchedinferenceengine-stats-are-misleading-and-unused-in-production) |

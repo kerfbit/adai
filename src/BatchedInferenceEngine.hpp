@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.3
-// @adai-reviewed: 2026-09-14
+// @adai-version: 2.0.0
+// @adai-reviewed: 2026-10-11
 
 /**
  * @file BatchedInferenceEngine.hpp
@@ -54,7 +54,6 @@
 #include <vector>
 
 #include "BPETokenizer.hpp"
-#include "EfficientBatching.hpp"
 #include "TextGenerator.hpp"
 
 /**
@@ -64,11 +63,12 @@ struct BatchedInferenceConfig {
     size_t max_batch_size = 32;       ///< Maximum requests per batch
     int timeout_ms = 50;              ///< Max wait time to collect batch (milliseconds)
     int max_tokens_per_batch = 4096;  ///< Max total tokens per batch (memory limit)
-    PaddingStrategy padding_strategy = PaddingStrategy::LEFT;  ///< How to pad sequences
-    bool use_dynamic_batching = true;                          ///< Group similar-length sequences
+    // padding_strategy (PaddingStrategy) was removed October 11, 2026 with src/EfficientBatching.hpp
+    // (TD-355): it was never read (TD-211), and its enum lived in the retired header.
+    bool use_dynamic_batching = true;  ///< Group similar-length sequences
     int max_queue_size = 1000;         ///< Maximum queued requests (backpressure)
     bool enable_request_stats = true;  ///< Track request statistics
-    // TODO: See TD-211 in TECHNICAL_DEBT.md - padding_strategy, use_dynamic_batching and
+    // TODO: See TD-211 in TECHNICAL_DEBT.md - use_dynamic_batching and
     // enable_request_stats are never read by the engine; max_tokens_per_batch is only compared
     // against a fixed 100-tokens-per-request estimate (see should_flush_batch()).
 };
