@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 9, 2026
-**Total Items:** 141
+**Total Items:** 144
 **High Priority:** 20
-**Medium Priority:** 60
-**Low Priority:** 61
+**Medium Priority:** 61
+**Low Priority:** 63
 **Future Enhancements:** 19
 **Resolved Items:** 204
 **Deferred Decisions:** 3
@@ -88,6 +88,13 @@ injection and hippocampal memory are no-ops in every trained model (TD-341). Two
 KV-cached generation and the GPU path skip the gated paths (TD-342), and hippocampal memory is
 updated on every forward pass rather than once per decode step (TD-343). Two are LOW: unused dropout
 (TD-344) and gated-state persistence gaps (TD-345).
+
+Also October 11, 2026: filed [TD-346](#td-346-llmdecoderupdate_weights-never-updates-the-final-norm) through [TD-348](#td-348-llmdecoder-dead-code-and-robustness-gaps) from the code-traced
+[Decoder.md](../reference/source/Decoder.md). One is MEDIUM (verified): the KV-cached and full decoder
+forwards diverge once a sequence passes `max_seq_length`, so over-length generation depends on the
+strategy (TD-347). Two are LOW: `update_weights()` never trains the final norm (TD-346, verified) and
+dead code/robustness gaps (TD-348). TD-343 was amended: memory is updated once per injected layer,
+not just once per forward.
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -918,6 +925,10 @@ part with it, so trained gates survive checkpoints, and [TD-343](#td-343-hippoca
 memory. [TD-342](#td-342-kv-cached-generation-and-the-gpu-path-skip-the-gated-paths) is the larger follow-up that makes the paths apply consistently across generation
 strategies and devices. [TD-344](#td-344-decoderblock-dropout-is-stored-but-never-applied) needs a decision (implement or remove dropout).
 
+**Tier 33 — Newly filed (October 11, 2026): `LLMDecoder`.** [TD-347](#td-347-cached-and-full-decoder-forwards-diverge-past-max_seq_length) first: capping generation at
+`max_seq_length` is small and removes a strategy-dependent divergence. Fold [TD-346](#td-346-llmdecoderupdate_weights-never-updates-the-final-norm) into TD-297's
+top-level update fix. [TD-348](#td-348-llmdecoder-dead-code-and-robustness-gaps) is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1065,6 +1076,9 @@ strategies and devices. [TD-344](#td-344-decoderblock-dropout-is-stored-but-neve
   - [TD-343: Hippocampal Memory Is Updated on Every Forward Pass](#td-343-hippocampal-memory-is-updated-on-every-forward-pass)
   - [TD-344: `DecoderBlock` Dropout Is Stored but Never Applied](#td-344-decoderblock-dropout-is-stored-but-never-applied)
   - [TD-345: `DecoderBlock` Persistence Gaps for Gated State](#td-345-decoderblock-persistence-gaps-for-gated-state)
+  - [TD-346: `LLMDecoder::update_weights()` Never Updates the Final Norm](#td-346-llmdecoderupdate_weights-never-updates-the-final-norm)
+  - [TD-347: Cached and Full Decoder Forwards Diverge Past `max_seq_length`](#td-347-cached-and-full-decoder-forwards-diverge-past-max_seq_length)
+  - [TD-348: `LLMDecoder` Dead Code and Robustness Gaps](#td-348-llmdecoder-dead-code-and-robustness-gaps)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -6711,6 +6725,11 @@ call per hypothesis in beam search (the only generation branch that passes memor
 build up several times faster than intended, strengthening the repetition penalty and cross-reference
 pull, and training passes pollute the persistent memory state that's saved on shutdown.
 
+**Update (October 11, 2026, from [Decoder.md](../reference/source/Decoder.md)):** `LLMDecoder` passes the
+same `memory` to every block with the gated path, and each block updates it, so one forward applies
+one decay-and-accumulate round **per injected layer** (6 with `WORLD_MODEL_INJECT_EVERY_N_LAYERS = 1`
+and 6 layers). The fix should update memory once per forward, at the decoder or model level.
+
 Action Items:
 
 - [ ] Separate scoring from state update: let the caller commit coverage/association updates once per decode step (and never during training/validation unless intended).
@@ -6773,6 +6792,94 @@ Files to Modify:
 
 - `src/DecoderBlock.{hpp,cpp}`
 - `src/ModelSerializer.cpp`
+
+---
+
+### TD-346: `LLMDecoder::update_weights()` Never Updates the Final Norm
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Transformer / Decoder | October 11, 2026 | 1 hour |
+
+Description:
+Found while writing the code-traced reference [Decoder.md](../reference/source/Decoder.md) and confirmed by running the real class.
+`update_weights(float lr)` calls the token embedding's and every block's `update_weights()`, but the
+final norm's update is commented out ("For now, we'll skip if the method doesn't exist"), although
+`LayerNorm::update_weights()` exists; the `lr` argument is ignored. Twenty steps through this path
+moved the token embeddings (L1 0.22) while the final norm's gamma and beta stayed exactly unchanged.
+`EncoderDecoderModel::update_weights()`/`train_step()` use this path; the shipped `ChatbotTrainer`
+calls `optimizer->step()` and is unaffected.
+
+Action Items:
+
+- [ ] Call `final_norm->update_weights()` (in the no-optimizer case; with an optimizer, fold into TD-297's single top-level `step()`); remove or honour the unused `lr` parameter.
+- [ ] Test: `update_weights()` changes the final norm's parameters.
+
+Location in code: `src/Decoder.cpp` (`update_weights()`); tagged `TODO: See TD-346`.
+
+Files to Modify:
+
+- `src/Decoder.{hpp,cpp}`
+- `tests/decoder_test.cpp`
+
+---
+
+### TD-347: Cached and Full Decoder Forwards Diverge Past `max_seq_length`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Transformer / Decoder | October 11, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-346 and confirmed by running the real class. Within `max_seq_length` the KV-cached
+incremental forward matches the full forward (|Δ| = 0.000002). Past it they split:
+`PositionalEncoding::forward()` leaves rows beyond `max_len` without positional encoding (stderr
+warning), while `forward_with_cache()` and `gpu_decode_step()` compute positional encoding inline for
+any position. With `max_seq_length = 4` the last token of a length-6 sequence differed by 13.6 (L1 over
+`d_model = 16`). Over-length generation therefore produces different hidden states depending on the
+strategy (KV-cached greedy/sampling vs full-recompute beam), and neither has positions the model was
+trained on.
+
+Action Items:
+
+- [ ] Cap decoder input + generated length at `max_seq_length` in generation (truncate the oldest context or stop), and make the cached paths refuse or clamp positions ≥ `max_seq_length` consistently with `PositionalEncoding`.
+- [ ] Test: generation never exceeds `max_seq_length`; cached and full forwards agree at the boundary.
+
+Location in code: `src/Decoder.cpp` (`forward_with_cache()`, `gpu_decode_step()` positional encoding); tagged `TODO: See TD-347`.
+
+Files to Modify:
+
+- `src/Decoder.cpp`
+- `src/EncoderDecoderModel.cpp`
+- `src/PositionalEncoding.cpp`
+
+---
+
+### TD-348: `LLMDecoder` Dead Code and Robustness Gaps
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Transformer / Decoder | October 11, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-346, by inspection:
+- `set_training()`'s "propagate to all components" loop has an empty body.
+- Every forward copies `cached_encoder_output`, which nothing reads.
+- `forward_with_mask()` has no production caller.
+- `load_weights()` reads the header without checking the stream.
+- The constructor validates only the injection knob (not vocab, `d_model`, layers, heads).
+- `gpu_backward()` dereferences `*grad_encoder_sum` unconditionally (undefined behaviour with zero
+  layers).
+
+Action Items:
+
+- [ ] Remove the empty loop, the unused copy and (if still unused) `forward_with_mask()`; check header reads; validate constructor arguments; guard the zero-layer case.
+
+Location in code: `src/Decoder.cpp` (`set_training()`, `forward_with_encoder()`, `load_weights()`, `gpu_backward()`); tagged `TODO: See TD-348`.
+
+Files to Modify:
+
+- `src/Decoder.{hpp,cpp}`
 
 ---
 
@@ -7291,15 +7398,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 141 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 144 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|20|14%|
-|Medium|60|43%|
-|Low|61|43%|
+|Medium|61|42%|
+|Low|63|44%|
 
-**Total Active Items:** 141
+**Total Active Items:** 144
 
 ### By Component
 
@@ -7338,6 +7445,7 @@ Recomputed directly from the 141 `### TD-NNN` entries under [Active Technical De
 |Data / DatasetRegistry|4|
 |Data / DataTransport|4|
 |Transformer / DecoderBlock|5|
+|Transformer / Decoder|3|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
 
@@ -7345,13 +7453,13 @@ Recomputed directly from the 141 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|73|
-|2-4 hours|46|
+|0-2 hours|75|
+|2-4 hours|47|
 |4-8 hours|12|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 319-542 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 323-549 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

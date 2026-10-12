@@ -47,7 +47,7 @@ The `TrainingMetricsAPI` is a separate HTTP server (default port 8081) for real-
 | --- | --- | --- |
 | [transformer/encoder.md](transformer/encoder.md) | `Encoder` | Encoder stack |
 | [transformer/encoder-block.md](transformer/encoder-block.md) | `EncoderBlock` | Single encoder layer |
-| [transformer/decoder.md](transformer/decoder.md) | `Decoder` | Decoder stack |
+| [Decoder.md](../reference/source/Decoder.md) | `LLMDecoder` | Decoder stack (code-traced reference) |
 | [DecoderBlock.md](../reference/source/DecoderBlock.md) | `DecoderBlock` | Single decoder layer (code-traced reference) |
 | [transformer/encoder-decoder-model.md](transformer/encoder-decoder-model.md) | `EncoderDecoderModel` | Full seq2seq model |
 | [transformer/feed-forward.md](transformer/feed-forward.md) | `FeedForward` | Position-wise FFN |

@@ -8,6 +8,7 @@
 using adai::Logger;
 
 // Constructor
+// TODO: See TD-348 in TECHNICAL_DEBT.md - only the injection knob is validated (not vocab/d_model/layers/heads)
 LLMDecoder::LLMDecoder(int vocab_size, int d_model, int num_layers, int num_heads, int d_ff,
                        int max_seq_length, int world_model_inject_every_n_layers)
     : vocab_size(vocab_size),
@@ -95,6 +96,7 @@ Matrix LLMDecoder::forward_with_encoder(const std::vector<int>& token_ids,
 
     // Cache inputs for backward pass
     cached_token_ids = token_ids;
+    // TODO: See TD-348 in TECHNICAL_DEBT.md - copied on every forward but never read
     cached_encoder_output = encoder_output;
     cached_decoder_outputs.clear();
 
@@ -110,6 +112,7 @@ Matrix LLMDecoder::forward_with_encoder(const std::vector<int>& token_ids,
     // 4. Pass through decoder blocks
     Matrix x = cached_pos_encoded;
 
+    // TODO: See TD-343 in TECHNICAL_DEBT.md - the same memory reaches every injected block, so it's updated once per injected layer
     for (int i = 0; i < num_layers; ++i) {
         if (encoder_output.rows > 0 && encoder_output.cols > 0) {
             // Encoder-decoder mode: use cross-attention
@@ -136,6 +139,7 @@ Matrix LLMDecoder::forward_with_encoder(const std::vector<int>& token_ids,
 }
 
 // Forward pass with custom mask
+// TODO: See TD-348 in TECHNICAL_DEBT.md - no production caller
 Matrix LLMDecoder::forward_with_mask(const std::vector<int>& token_ids, const Matrix& causal_mask,
                                      const Matrix* encoder_output) {
     int seq_length = static_cast<int>(token_ids.size());
@@ -191,6 +195,7 @@ Matrix LLMDecoder::forward_with_cache(const std::vector<int>& token_ids, Decoder
     Matrix embeddings = token_embedding->forward(token_ids);
     cached_embeddings = embeddings;
 
+    // TODO: See TD-347 in TECHNICAL_DEBT.md - encodes positions >= max_seq_length, unlike PositionalEncoding::forward() (cached vs full diverge)
     // 2. Add positional encoding (offset by current_position)
     // We need to generate positional encoding starting from current_position
     Matrix pos_encoded(num_new_tokens, d_model);
@@ -311,6 +316,7 @@ void LLMDecoder::update_weights(float learning_rate) {
         block->update_weights();
     }
 
+    // TODO: See TD-346 in TECHNICAL_DEBT.md - final_norm is never updated here, and the lr parameter is ignored
     // Update final layer norm (if it has update method)
     // LayerNorm has learnable parameters (gamma, beta) that need updating
     // For now, we'll skip if the method doesn't exist
@@ -318,6 +324,7 @@ void LLMDecoder::update_weights(float learning_rate) {
 }
 
 // Set training mode
+// TODO: See TD-348 in TECHNICAL_DEBT.md - the propagation loop below has an empty body
 void LLMDecoder::set_training(bool mode) {
     requires_grad = mode;
 
@@ -384,6 +391,7 @@ void LLMDecoder::save_weights(const std::string& filepath) const {
 }
 
 // Load weights
+// TODO: See TD-348 in TECHNICAL_DEBT.md - header reads are not checked
 void LLMDecoder::load_weights(const std::string& filepath) {
     std::ifstream file(filepath, std::ios::binary);
     if (!file.is_open()) {
@@ -520,6 +528,7 @@ adai::gpu::GPUMatrix LLMDecoder::gpu_decode_step(const std::vector<int>& new_tok
     // 1. Embed only the new tokens (CPU — fast, matches gpu_decode()'s own pattern).
     Matrix embeddings = token_embedding->forward(new_token_ids);
 
+    // TODO: See TD-347 in TECHNICAL_DEBT.md - same inline encoding past max_seq_length as forward_with_cache()
     // 2. Positional encoding offset by current_position — identical formula to
     // forward_with_cache()'s own inline reimplementation above (TD-050's own trace already
     // confirmed this is algebraically identical to PositionalEncoding.cpp's canonical formula),
@@ -581,6 +590,7 @@ std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> LLMDecoder::gpu_backward(
     // Backward through decoder blocks in reverse, summing each block's
     // encoder-side gradient contribution (GPUMatrix is move-only with no
     // default-constructible zero, so accumulate via std::optional).
+    // TODO: See TD-348 in TECHNICAL_DEBT.md - dereferenced unconditionally below (UB with zero layers)
     std::optional<adai::gpu::GPUMatrix> grad_encoder_sum;
     for (int i = static_cast<int>(decoder_blocks.size()) - 1; i >= 0; --i) {
         auto [d_input, d_enc] = decoder_blocks[i]->gpu_backward(d);

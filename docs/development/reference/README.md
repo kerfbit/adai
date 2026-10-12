@@ -28,6 +28,7 @@ This directory contains reference materials, technical specifications, and imple
   - [DatasetManagerTool](source/DatasetManagerTool.md) (`src/DatasetManagerTool.cpp`; `dataset_manager` CLI `main()`)
   - [DatasetRegistry](source/DatasetRegistry.md) (`src/DatasetRegistry.{hpp,cpp}`; pending queue, trained registry, training-file parser)
   - [DataTransport](source/DataTransport.md) (`src/DataTransport.hpp`; trainer-side FTP/FTPS download client)
+  - [Decoder](source/Decoder.md) (`src/Decoder.{hpp,cpp}`; `LLMDecoder` stack: embedding, blocks, final norm, KV-cache and GPU decode)
   - [DecoderBlock](source/DecoderBlock.md) (`src/DecoderBlock.{hpp,cpp}`; Pre-LN decoder layer with gated world-model/hippocampal paths)
 
 - **[KVCache API Reference](kvcache.md)** - Complete API documentation for the Key-Value cache system
