@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 9, 2026
-**Total Items:** 132
+**Total Items:** 136
 **High Priority:** 19
-**Medium Priority:** 55
-**Low Priority:** 58
+**Medium Priority:** 58
+**Low Priority:** 59
 **Future Enhancements:** 19
 **Resolved Items:** 204
 **Deferred Decisions:** 3
@@ -72,6 +72,13 @@ segment claimed (stuck after a `retrain` or any standalone pass), and a trained 
 whole file trained while later segments' samples go unrecorded (TD-333). Three are LOW: trained
 sample counts are always 0 (TD-334), dead code and an unused checksum (TD-335), and legacy-parser
 truncation plus BOM detection (TD-336).
+
+Also October 11, 2026: filed [TD-337](#td-337-datatransport-names-downloads-by-basename-so-segments-and-same-named-files-collide) through [TD-340](#td-340-datatransport-robustness-and-header-hygiene) from the code-traced
+[DataTransport.md](../reference/source/DataTransport.md), tested end-to-end against a local
+`registry_server` with FTP enabled. Three are MEDIUM: downloads are named by basename, so TD-205
+segments of one file download it N times concurrently into one path, and same-named files collide
+(TD-337, verified); a same-name, same-size stale file is reused without checking the token checksum
+(TD-338, verified); and FTPS doesn't verify the registry's certificate (TD-339). TD-340 is LOW.
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -892,6 +899,10 @@ registry, both transports, `registry_server` and the trainer's call sites; do it
 (TD-205) see real use, and pass real counts ([TD-334](#td-334-trained-sample-counts-are-always-zero)) in the same change since it touches the same
 `mark_trained()` calls. [TD-335](#td-335-datasetregistry-dead-code-and-unused-integrity-data) and [TD-336](#td-336-legacy-training-file-parser-truncates-responses-bom-breaks-jsonl-detection) are cleanup.
 
+**Tier 31 — Newly filed (October 11, 2026): `DataTransport`.** [TD-337](#td-337-datatransport-names-downloads-by-basename-so-segments-and-same-named-files-collide) and [TD-338](#td-338-datatransport-reuses-same-size-stale-files-without-checking-the-checksum) change the
+same local-file handling and belong together (and with TD-333, since all three are about segments in
+distributed training). [TD-339](#td-339-ftps-downloads-dont-verify-the-registrys-certificate) pairs with TD-284's FTPS config fix. [TD-340](#td-340-datatransport-robustness-and-header-hygiene) is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1030,6 +1041,10 @@ registry, both transports, `registry_server` and the trainer's call sites; do it
   - [TD-334: Trained Sample Counts Are Always Zero](#td-334-trained-sample-counts-are-always-zero)
   - [TD-335: `DatasetRegistry` Dead Code and Unused Integrity Data](#td-335-datasetregistry-dead-code-and-unused-integrity-data)
   - [TD-336: Legacy Training-File Parser Truncates Responses; BOM Breaks JSONL Detection](#td-336-legacy-training-file-parser-truncates-responses-bom-breaks-jsonl-detection)
+  - [TD-337: `DataTransport` Names Downloads by Basename, So Segments and Same-Named Files Collide](#td-337-datatransport-names-downloads-by-basename-so-segments-and-same-named-files-collide)
+  - [TD-338: `DataTransport` Reuses Same-Size Stale Files Without Checking the Checksum](#td-338-datatransport-reuses-same-size-stale-files-without-checking-the-checksum)
+  - [TD-339: FTPS Downloads Don't Verify the Registry's Certificate](#td-339-ftps-downloads-dont-verify-the-registrys-certificate)
+  - [TD-340: `DataTransport` Robustness and Header Hygiene](#td-340-datatransport-robustness-and-header-hygiene)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -6474,6 +6489,127 @@ Files to Modify:
 
 ---
 
+### TD-337: `DataTransport` Names Downloads by Basename, So Segments and Same-Named Files Collide
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / DataTransport | October 11, 2026 | 2-4 hours |
+
+Description:
+Found while writing the code-traced reference [DataTransport.md](../reference/source/DataTransport.md) and confirmed end-to-end on loopback
+(local `registry_server` with FTP enabled, a 15.8 MB file split into three TD-205 segments).
+`fetch()` saves to `download_dir / filename(token.ftp_path)`:
+
+- **Segments download the whole file N times, concurrently, to one path.** All three segment tokens
+  had the same `ftp_path` and full-file `size_bytes`; `fetch_all()` sent all three to `dl/big.jsonl`
+  in parallel, transferring the full 15.8 MB three times. The file was intact in 20 runs (identical
+  bytes), but each thread opens with `trunc` and **deletes the file on a size mismatch**, so one
+  thread's final check can delete another's in-progress download and fail the pass.
+- **Different files with the same basename collide**, e.g. `<group>/uploads/x.jsonl` vs
+  `<group>/datasets/x.jsonl`, or two kinds' sub-pools sharing one `download_dir`.
+
+The `UsesBasenameOfFtpPath` test pins the basename behaviour.
+
+Action Items:
+
+- [ ] Name local files from the full `ftp_path` (or a hash of it).
+- [ ] Deduplicate tokens by `ftp_path` in `fetch_all()` (download once, return the path for each segment token).
+- [ ] Tests: three segment tokens of one file trigger one download; same-basename files in different directories don't collide.
+
+Location in code: `src/DataTransport.hpp` (`fetch()` local path, `fetch_all()`); tagged `TODO: See TD-337`.
+
+Files to Modify:
+
+- `src/DataTransport.hpp`
+- `tests/DataTransportFtpTests.cpp`
+
+---
+
+### TD-338: `DataTransport` Reuses Same-Size Stale Files Without Checking the Checksum
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / DataTransport | October 11, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-337 and confirmed end-to-end. "Condition B" returns an existing local file
+whenever its size equals `token.size_bytes`, without downloading. A planted same-name, same-size file
+of different content (all `Z` bytes) was returned and would have been trained, although the token
+carried `checksum = "15769547_<mtime>"`, which would have caught it. The trainer's startup sweep
+keeps non-empty files, so a stale copy survives across passes. Triggers include a dataset re-uploaded
+under the same name with a size-preserving edit, and TD-337's basename collisions.
+
+Action Items:
+
+- [ ] Store the token checksum alongside each download (e.g. a sidecar file) and skip only when it matches; otherwise re-download.
+- [ ] Test: same-size different-checksum file is re-downloaded.
+
+Location in code: `src/DataTransport.hpp` (`fetch()` Condition B); tagged `TODO: See TD-338`.
+
+Files to Modify:
+
+- `src/DataTransport.hpp`
+- `tests/DataTransportFtpTests.cpp`
+
+---
+
+### TD-339: FTPS Downloads Don't Verify the Registry's Certificate
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / DataTransport | October 11, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-337, by inspection. With FTPS enabled, `fetch()` sets `CURLOPT_SSL_VERIFYPEER`
+and `CURLOPT_SSL_VERIFYHOST` to 0 to accept the registry's self-signed certificate. The control
+channel is encrypted, but anyone able to intercept the connection can impersonate `registry_server`,
+serve arbitrary training data, and collect the one-time credentials. There's no option to pin the
+server certificate or trust a private CA. This pairs with TD-284 (`registry_server` ignores the
+config file's FTPS keys).
+
+Action Items:
+
+- [ ] Add a trainer config option for a CA bundle or pinned certificate (`CURLOPT_CAINFO` / `CURLOPT_PINNEDPUBLICKEY`), enable verification when set, and warn loudly when FTPS runs unverified.
+
+Location in code: `src/DataTransport.hpp` (`fetch()` FTPS options); tagged `TODO: See TD-339`.
+
+Files to Modify:
+
+- `src/DataTransport.hpp`
+- `src/Config.{hpp,cpp}`
+- `src/IncrementalTrainingTool.cpp`
+
+---
+
+### TD-340: `DataTransport` Robustness and Header Hygiene
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / DataTransport | October 11, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-337, by inspection:
+- `curl_global_init()` is never called; implicit init from several `fetch_all()` threads at once is
+  safe only on a thread-safe-init libcurl (8.5.0 on the dev machine is; the deployed host wasn't
+  checked).
+- A final failure deletes the partial file, so resume can't help across failed passes.
+- `CURLE_COULDNT_CONNECT` isn't retried, so a registry restart mid-pass fails the pass immediately.
+- `using adai::Logger;` and `namespace fs = std::filesystem;` at global scope in a header leak into
+  every includer.
+
+Action Items:
+
+- [ ] Call `curl_global_init()` once at trainer startup; keep partial files on failure; treat `COULDNT_CONNECT` as retryable with backoff; move the `using`/alias into a namespace or the .cpp.
+
+Location in code: `src/DataTransport.hpp` (top-level `using`, retry loop, failure cleanup); tagged `TODO: See TD-340`.
+
+Files to Modify:
+
+- `src/DataTransport.hpp`
+- `src/IncrementalTrainingTool.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -6989,15 +7125,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 132 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 136 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|19|14%|
-|Medium|55|42%|
-|Low|58|44%|
+|Medium|58|43%|
+|Low|59|43%|
 
-**Total Active Items:** 132
+**Total Active Items:** 136
 
 ### By Component
 
@@ -7034,6 +7170,7 @@ Recomputed directly from the 132 `### TD-NNN` entries under [Active Technical De
 |Data / DataFetcher|6|
 |Data / dataset_manager CLI|12|
 |Data / DatasetRegistry|4|
+|Data / DataTransport|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
 
@@ -7041,13 +7178,13 @@ Recomputed directly from the 132 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|70|
-|2-4 hours|41|
+|0-2 hours|72|
+|2-4 hours|43|
 |4-8 hours|11|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 302-508 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 308-520 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

@@ -34,6 +34,7 @@
 #include <curl/curl.h>
 #endif
 
+// TODO: See TD-340 in TECHNICAL_DEBT.md - global using/namespace alias in a header leak into every includer
 using adai::Logger;
 namespace fs = std::filesystem;
 
@@ -146,6 +147,7 @@ inline std::string url_encode_ftp_path(const std::string& path) {
 // Returns true for errors that are worth retrying (transient network issues).
 // Connection refused (CURLE_COULDNT_CONNECT) and auth failures are NOT
 // transient — the server is either absent or rejected us deliberately.
+// TODO: See TD-340 in TECHNICAL_DEBT.md - CURLE_COULDNT_CONNECT isn't retried (a registry restart fails the pass)
 inline bool is_transient(CURLcode rc) {
     switch (rc) {
         case CURLE_OPERATION_TIMEDOUT:  // connect/transfer timed out — server may be recovering
@@ -166,8 +168,10 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
                                      int ftp_port, const fs::path& download_dir,
                                      std::size_t large_file_warn_bytes, bool ftps_enabled) {
     fs::create_directories(download_dir);
+    // TODO: See TD-337 in TECHNICAL_DEBT.md - basename only: segment tokens of one file share this path; same-named files collide
     const fs::path local_path = download_dir / fs::path(token.ftp_path).filename();
 
+    // TODO: See TD-338 in TECHNICAL_DEBT.md - size-only check; token.checksum ignored, so stale same-size files are reused
     // ── Condition B: file already fully downloaded — skip network call ────
     if (token.size_bytes > 0 && fs::exists(local_path)) {
         const std::size_t on_disk = fs::file_size(local_path);
@@ -238,6 +242,7 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
 
         dt_detail::WriteCtx ctx{&outfile, 0};
 
+        // TODO: See TD-340 in TECHNICAL_DEBT.md - no curl_global_init(); implicit init from parallel threads needs a thread-safe libcurl
         CURL* curl = curl_easy_init();
         if (!curl)
             throw std::runtime_error("[DataTransport] curl_easy_init() failed");
@@ -257,6 +262,7 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
         curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 60L);  // abort if < 1 byte/s for 60s
         curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
         // Phase 3: FTPS — explicit TLS via AUTH TLS on the control channel
+        // TODO: See TD-339 in TECHNICAL_DEBT.md - peer/host verification disabled; registry can be impersonated
         if (ftps_enabled) {
             curl_easy_setopt(curl, CURLOPT_USE_SSL, (long)CURLUSESSL_ALL);
             curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);  // accept self-signed certs
@@ -286,6 +292,7 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
         }
     }
 
+    // TODO: See TD-340 in TECHNICAL_DEBT.md - deletes the partial file, so resume can't help across failed passes
     if (rc != CURLE_OK) {
         fs::remove(local_path);
         throw std::runtime_error(std::string("[DataTransport] FTP transfer failed for '") +
@@ -319,6 +326,7 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
     return local_path;
 }
 
+// TODO: See TD-337 in TECHNICAL_DEBT.md - no dedup by ftp_path: N segment tokens download the same file N times concurrently
 inline std::vector<fs::path> DataTransport::fetch_all(const AcquireResponse& resp,
                                                       const fs::path& download_dir,
                                                       int max_parallel,

@@ -27,6 +27,7 @@ This directory contains reference materials, technical specifications, and imple
   - [DatasetManagerArgs](source/DatasetManagerArgs.md) (`src/DatasetManagerArgs.{hpp,cpp}`; `dataset_manager` per-command argument parsing)
   - [DatasetManagerTool](source/DatasetManagerTool.md) (`src/DatasetManagerTool.cpp`; `dataset_manager` CLI `main()`)
   - [DatasetRegistry](source/DatasetRegistry.md) (`src/DatasetRegistry.{hpp,cpp}`; pending queue, trained registry, training-file parser)
+  - [DataTransport](source/DataTransport.md) (`src/DataTransport.hpp`; trainer-side FTP/FTPS download client)
 
 - **[KVCache API Reference](kvcache.md)** - Complete API documentation for the Key-Value cache system
   - Single-layer and multi-layer caching
