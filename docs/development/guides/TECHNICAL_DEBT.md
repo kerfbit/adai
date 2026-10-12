@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 9, 2026
-**Total Items:** 121
-**High Priority:** 17
-**Medium Priority:** 53
-**Low Priority:** 51
+**Total Items:** 128
+**High Priority:** 18
+**Medium Priority:** 55
+**Low Priority:** 55
 **Future Enhancements:** 19
 **Resolved Items:** 204
 **Deferred Decisions:** 3
@@ -55,6 +55,15 @@ Also October 11, 2026: filed [TD-321](#td-321-dataset_manager-treats---count--0-
 become file targets (TD-322, verified), partial and non-positive numbers are accepted (TD-323,
 verified), `segment --ranges` can overflow or overlap (TD-324, verified), and `huggingface`'s
 positional arguments shift silently (TD-325).
+
+Also October 11, 2026: filed [TD-326](#td-326-dataset_manager-migrate-duplicates-segmented-data-across-pools) through [TD-332](#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands) from the code-traced
+[DatasetManagerTool.md](../reference/source/DatasetManagerTool.md). One is **HIGH** (verified):
+`dataset_manager migrate` drops segment ranges and ignores failed source deletes, so migrating a
+segmented file puts the whole file in the new pool while every segment stays in the legacy pool,
+which trains it twice (TD-326). Two are MEDIUM: `remove` reports success and exits 0 against
+`registry_server` while nothing changes (TD-327, verified), and only `assign` uses the MNS
+`run_group` (TD-329). The rest are LOW (TD-328, TD-330–332): relative local paths (verified),
+output hygiene, no command-level tests, and an operator guide covering 8 of 15 commands.
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -865,6 +874,11 @@ it's a few lines and prevents a one-typo reassignment of the whole pending pool.
 [TD-323](#td-323-dataset_manager-accepts-partial-and-out-of-range-numbers), [TD-324](#td-324-dataset_manager-segment-range-validation-gaps) and [TD-325](#td-325-dataset_manager-huggingface-positional-arguments-shift-silently) are small parser hardening, best done in the same change (a
 shared strict-integer helper also serves TD-240 and TD-287).
 
+**Tier 29 — Newly filed (October 11, 2026): `dataset_manager` commands.** [TD-326](#td-326-dataset_manager-migrate-duplicates-segmented-data-across-pools) first, before
+anyone runs `migrate` over a segmented legacy pool; add [TD-331](#td-331-dataset_manager-has-no-tests-for-its-commands)'s CLI-level test alongside it.
+[TD-327](#td-327-dataset_manager-remove-reports-success-in-remote-mode-without-removing-anything) and [TD-329](#td-329-dataset_manager-uses-the-mns-run_group-only-in-assign) are small and change what operators see. [TD-328](#td-328-dataset_manager-stores-relative-paths-in-the-local-pool), [TD-330](#td-330-dataset_manager-output-exit-code-and-flag-hygiene) and
+[TD-332](#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands) are cleanup (do TD-332 after TD-321 so the guide documents the fixed semantics).
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -992,6 +1006,13 @@ shared strict-integer helper also serves TD-240 and TD-287).
   - [TD-323: `dataset_manager` Accepts Partial and Out-of-Range Numbers](#td-323-dataset_manager-accepts-partial-and-out-of-range-numbers)
   - [TD-324: `dataset_manager segment` Range Validation Gaps](#td-324-dataset_manager-segment-range-validation-gaps)
   - [TD-325: `dataset_manager huggingface` Positional Arguments Shift Silently](#td-325-dataset_manager-huggingface-positional-arguments-shift-silently)
+  - [TD-326: `dataset_manager migrate` Duplicates Segmented Data Across Pools](#td-326-dataset_manager-migrate-duplicates-segmented-data-across-pools)
+  - [TD-327: `dataset_manager remove` Reports Success in Remote Mode Without Removing Anything](#td-327-dataset_manager-remove-reports-success-in-remote-mode-without-removing-anything)
+  - [TD-328: `dataset_manager` Stores Relative Paths in the Local Pool](#td-328-dataset_manager-stores-relative-paths-in-the-local-pool)
+  - [TD-329: `dataset_manager` Uses the MNS `run_group` Only in `assign`](#td-329-dataset_manager-uses-the-mns-run_group-only-in-assign)
+  - [TD-330: `dataset_manager` Output, Exit Code and Flag Hygiene](#td-330-dataset_manager-output-exit-code-and-flag-hygiene)
+  - [TD-331: `dataset_manager` Has No Tests for Its Commands](#td-331-dataset_manager-has-no-tests-for-its-commands)
+  - [TD-332: Operator Guide Covers Only 8 of 15 `dataset_manager` Commands](#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -6113,6 +6134,204 @@ Files to Modify:
 
 ---
 
+### TD-326: `dataset_manager migrate` Duplicates Segmented Data Across Pools
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Data / dataset_manager CLI | October 11, 2026 | 2-4 hours |
+
+Description:
+Found while writing the code-traced reference [DatasetManagerTool.md](../reference/source/DatasetManagerTool.md) and confirmed by running the real
+binary against a scratch local pool. `migrate` copies each legacy entry with
+`dest.add_pending_path_unchecked(entry.path)`, which **drops `segment_start`/`segment_count`**
+(TD-205), then calls `source.delete_entries({entry.path}, …)` and `dest.assign_model(…)` **without
+checking either result**.
+
+Migrating a 30-pair file split into 3 segments:
+- the `chatbot` pool got the **whole file** (all 30 pairs);
+- the other two segments failed ("already pending");
+- the source delete matched nothing (segment-aware identity), so **all 3 segments stayed in the
+  legacy pool**;
+- it printed "Migrated 1/3".
+
+Training both pools trains every pair twice. Any failed source delete (e.g. a remote error) also
+leaves an entry in both pools, and a failed `assign_model()` silently loses the model assignment.
+`migrate` is TD-202's one-time upgrade path, so operators run it over their whole legacy pool.
+
+Action Items:
+
+- [ ] Carry `segment_start`/`segment_count` into `add_pending_path_unchecked()` and match/delete source entries by `(path, segment_start, segment_count)` (TD-205's `SegmentTarget`).
+- [ ] Check `delete_entries()`/`assign_model()` results; on failure, roll back the destination add (or report clearly) and don't count the entry as migrated.
+- [ ] Test: migrating a segmented file moves exactly its segments and leaves the source empty.
+
+Location in code: `src/DatasetManagerTool.cpp` (`migrate`); tagged `TODO: See TD-326`.
+
+Files to Modify:
+
+- `src/DatasetManagerTool.cpp`
+- `src/DatasetRegistry.{hpp,cpp}`
+- tests (new CLI-level test)
+
+---
+
+### TD-327: `dataset_manager remove` Reports Success in Remote Mode Without Removing Anything
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / dataset_manager CLI | October 11, 2026 | 1 hour |
+
+Description:
+Found alongside TD-326 and confirmed against a live local `registry_server`.
+`DatasetRegistry::remove_pending()` erases the entry from its in-memory list, calls
+`save_pending_list()` and **ignores its result**. `RemoteTransport::save_pending()` is a no-op that
+returns `false`. `dataset_manager remove <path>` printed "✅ Removed from pending queue… Pending
+files: 0" and **exited 0**, yet `list-pending` still showed the file, which will still be trained.
+The usage text says `remove` is "local mode only", but nothing enforces it. `clear-pending` does
+fail in remote mode, but with the misleading "Failed to save pending list".
+
+Action Items:
+
+- [ ] Refuse `remove`/`clear-pending` in remote mode with a message pointing at `delete` (or implement them via `delete_entries()`).
+- [ ] Make `remove_pending()` return the save result.
+
+Location in code: `src/DatasetManagerTool.cpp` (`remove`, `clear-pending`), `src/DatasetRegistry.cpp` (`remove_pending()`); tagged `TODO: See TD-327`.
+
+Files to Modify:
+
+- `src/DatasetManagerTool.cpp`
+- `src/DatasetRegistry.cpp`
+
+---
+
+### TD-328: `dataset_manager` Stores Relative Paths in the Local Pool
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / dataset_manager CLI | October 11, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-326 and confirmed by running the binary. In local mode, `add data.jsonl` stored
+`data.jsonl` verbatim (`DatasetRegistry::add_file()` doesn't canonicalize), and `DataFetcher`'s local
+output dirs are relative (`gutenberg_data/`, `huggingface_data/`). A trainer whose working
+directory differs (e.g. a systemd unit with its own `WorkingDirectory`) resolves these against the
+wrong directory and can't find the files.
+
+Action Items:
+
+- [ ] Store `fs::absolute()`/`weakly_canonical()` paths in local mode (in `add_file()` or the CLI).
+
+Location in code: `src/DatasetManagerTool.cpp` (`add`, local `gutenberg`/`huggingface`); tagged `TODO: See TD-328`.
+
+Files to Modify:
+
+- `src/DatasetManagerTool.cpp`
+- `src/DatasetRegistry.cpp`
+
+---
+
+### TD-329: `dataset_manager` Uses the MNS `run_group` Only in `assign`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / dataset_manager CLI | October 11, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-326, by inspection. Only `assign` resolves the model in MNS and adopts its
+`run_group` (the MNS-authoritative standard in CLAUDE.md). `status`, `list-*`, `unassign`, `delete`,
+`migrate`, `segment` and the fetch commands all use the config file's `RUN_GROUP`. When MNS has
+given a model a different group, `assign` writes into that group while every other command reads
+or changes another, so operators see and edit the wrong pool.
+
+Action Items:
+
+- [ ] Resolve the effective `run_group` once at startup (from MNS when `NAME_SERVICE_URL` + a model are known, else config) and use it for every command; print which group is in use.
+
+Location in code: `src/DatasetManagerTool.cpp` (`assign`'s MNS block); tagged `TODO: See TD-329`.
+
+Files to Modify:
+
+- `src/DatasetManagerTool.cpp`
+
+---
+
+### TD-330: `dataset_manager` Output, Exit Code and Flag Hygiene
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / dataset_manager CLI | October 11, 2026 | 1 hour |
+
+Description:
+Found alongside TD-326, by inspection:
+- Success lines report the **requested** pair count ("Book added (500 pairs)"), not what was
+  written.
+- `models` silently falls back to `http://localhost:8083` when `NAME_SERVICE_URL` is unset, while
+  `assign` skips verification in that case.
+- There's no `--help` (it prints "Unknown command").
+- `--config`/`--kind` are stripped from anywhere in argv, and a trailing one with no value becomes
+  an ordinary argument.
+
+Action Items:
+
+- [ ] Report actual pair counts; make `models` require `NAME_SERVICE_URL`; add `--help`; only parse global flags before the command and require their values.
+
+Location in code: `src/DatasetManagerTool.cpp` (global flag loop, `models`); tagged `TODO: See TD-330`.
+
+Files to Modify:
+
+- `src/DatasetManagerTool.cpp`
+
+---
+
+### TD-331: `dataset_manager` Has No Tests for Its Commands
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / dataset_manager CLI | October 11, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-326. `main()` composes `DatasetRegistry` calls per command, but only the
+parsers (`datasetManagerArgsTests`) and `DatasetRegistry` itself are tested. TD-326 and TD-327 live
+exactly in that composition and went unnoticed. Both reproduced in seconds by running the binary
+against a scratch `SESSION_DIR` and a local `registry_server`.
+
+Action Items:
+
+- [ ] Add a CLI-level test target that runs `dataset_manager` against a scratch `SESSION_DIR` (and a local `registry_server` for remote mode), covering `migrate` with segments, `remove`, `assign --count`, `delete` and `segment`.
+
+Location in code: `src/DatasetManagerTool.cpp` (`main()`); tagged `TODO: See TD-331`.
+
+Files to Modify:
+
+- `tests/CMakeLists.txt`
+- new test file
+
+---
+
+### TD-332: Operator Guide Covers Only 8 of 15 `dataset_manager` Commands
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / dataset_manager CLI | October 11, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-326, by inspection. `docs/operations/guides/dataset-manager-guide.md` documents
+`add`, `gutenberg`, `gutenberg-batch`, `huggingface`, `status`, `list-pending`/`list-trained` and
+`clear-pending`. It doesn't cover `remove`, `assign`, `unassign`, `delete`, `migrate`, `segment`,
+`models` or the `--kind` flag, which are the commands that change pools and assignments. The usage
+text in `main()` is the only complete description.
+
+Action Items:
+
+- [ ] Add sections for the missing commands and `--kind`, including the "omit = all" semantics (TD-321) and remote/local differences.
+
+Location in code: `src/DatasetManagerTool.cpp` (usage text); tagged `TODO: See TD-332`.
+
+Files to Modify:
+
+- `docs/operations/guides/dataset-manager-guide.md`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -6628,15 +6847,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 121 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 128 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|17|14%|
-|Medium|53|44%|
-|Low|51|42%|
+|High|18|14%|
+|Medium|55|43%|
+|Low|55|43%|
 
-**Total Active Items:** 121
+**Total Active Items:** 128
 
 ### By Component
 
@@ -6671,7 +6890,7 @@ Recomputed directly from the 121 `### TD-NNN` entries under [Active Technical De
 |Core / DaemonConfigStore|3|
 |Admin config API|2|
 |Data / DataFetcher|6|
-|Data / dataset_manager CLI|5|
+|Data / dataset_manager CLI|12|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
 
@@ -6679,13 +6898,13 @@ Recomputed directly from the 121 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|63|
-|2-4 hours|38|
+|0-2 hours|67|
+|2-4 hours|41|
 |4-8 hours|10|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 285-477 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 295-495 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

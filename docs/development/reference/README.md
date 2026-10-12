@@ -25,6 +25,7 @@ This directory contains reference materials, technical specifications, and imple
   - [DataFetcher](source/DataFetcher.md) (`src/DataFetcher.{hpp,cpp}`; Gutenberg/HuggingFace import for `registry_server`/`dataset_manager`)
   - [Dataset](source/Dataset.md) (`src/Dataset.hpp`, **retired** October 11, 2026; kept as a record for TD-014)
   - [DatasetManagerArgs](source/DatasetManagerArgs.md) (`src/DatasetManagerArgs.{hpp,cpp}`; `dataset_manager` per-command argument parsing)
+  - [DatasetManagerTool](source/DatasetManagerTool.md) (`src/DatasetManagerTool.cpp`; `dataset_manager` CLI `main()`)
 
 - **[KVCache API Reference](kvcache.md)** - Complete API documentation for the Key-Value cache system
   - Single-layer and multi-layer caching

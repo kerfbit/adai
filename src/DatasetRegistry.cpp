@@ -123,6 +123,7 @@ std::string DatasetRegistry::pending_file_path() const {
 // Pending queue
 // ============================================================================
 
+// TODO: See TD-328 in TECHNICAL_DEBT.md - path stored as given; not made absolute in local mode
 bool DatasetRegistry::add_file(const std::string& path, int segment_start, int segment_count) {
     if (!fs::exists(path)) {
         Logger::error("Data file not found: {}", path);
@@ -197,6 +198,7 @@ void DatasetRegistry::clear_pending() {
     pending_.clear();
 }
 
+// TODO: See TD-327 in TECHNICAL_DEBT.md - save_pending_list() result ignored (always false on RemoteTransport)
 bool DatasetRegistry::remove_pending(const std::string& path) {
     auto it = std::find_if(pending_.begin(), pending_.end(),
                            [&](const PendingEntry& e) { return e.path == path; });

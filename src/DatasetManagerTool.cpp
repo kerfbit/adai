@@ -16,6 +16,7 @@
 #include "ModelNameClient.hpp"
 #endif
 
+// TODO: See TD-331 in TECHNICAL_DEBT.md - no tests exercise the commands (only the parsers and DatasetRegistry)
 int main(int argc, char* argv[]) {
     // -----------------------------------------------------------------------
     // Parse global --config <path> flag; build clean args list.
@@ -25,6 +26,7 @@ int main(int argc, char* argv[]) {
     std::string kind_flag;  // TD-202: --kind <encoder|decoder|world_model|chatbot>
     std::vector<std::string> args;  // args[0] = command, args[1..] = its args
 
+    // TODO: See TD-330 in TECHNICAL_DEBT.md - global flags stripped from anywhere; value-less trailing flag becomes an argument; no --help
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--config" && i + 1 < argc) {
@@ -57,6 +59,7 @@ int main(int argc, char* argv[]) {
         svc_config.dataset_kind = kind_flag;
     }
 
+    // TODO: See TD-332 in TECHNICAL_DEBT.md - the operator guide documents only 8 of these 15 commands
     if (args.empty()) {
         std::cout << "Usage: " << argv[0] << " [--config <path>] [--kind <kind>] <command> [options]\n\n";
         std::cout << "Global options:\n";
@@ -172,6 +175,7 @@ int main(int argc, char* argv[]) {
             // its data_dir, where the FTP delivery pipeline can serve them out.
             ok = !reg.remote_upload(data_file).empty();
         } else {
+            // TODO: See TD-328 in TECHNICAL_DEBT.md - stores the path as given (relative paths break trainers in another cwd)
             ok = reg.add_file(data_file);
         }
 
@@ -212,11 +216,13 @@ int main(int argc, char* argv[]) {
         } else {
             std::cout << "📚 Downloading Project Gutenberg book #" << book_id << "...\n";
             DataFetcher fetcher;
+            // TODO: See TD-328 in TECHNICAL_DEBT.md - DataFetcher writes under relative gutenberg_data/ huggingface_data/
             std::string path = fetcher.fetch_gutenberg(book_id, num_pairs);
             ok = !path.empty() && reg.add_file(path);
         }
 
         if (ok) {
+            // TODO: See TD-330 in TECHNICAL_DEBT.md - reports the requested pair count, not what was written
             std::cout << "✅ Book added to training queue (" << num_pairs << " pairs)\n";
             std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
         } else {
@@ -402,6 +408,7 @@ int main(int argc, char* argv[]) {
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_pending_list();
 
+        // TODO: See TD-327 in TECHNICAL_DEBT.md - in remote mode this only edits memory (save is a no-op) yet reports success, exit 0
         if (reg.remove_pending(target)) {
             std::cout << "✅ Removed from pending queue: " << target << "\n";
             std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
@@ -420,6 +427,7 @@ int main(int argc, char* argv[]) {
             return 0;
         }
 
+        // TODO: See TD-327 in TECHNICAL_DEBT.md - remote mode fails with a misleading "Failed to save" (should refuse up front)
         reg.clear_pending();
         if (reg.save_pending_list()) {
             std::cout << "✅ Cleared " << pending.size() << " file(s) from pending queue\n";
@@ -451,6 +459,7 @@ int main(int argc, char* argv[]) {
                 // MNS-authoritative run_group, same override as incremental_trainer's
                 // (IncrementalTrainingTool.cpp) — only when the model actually has
                 // one on record, so an unmigrated model keeps its local fallback.
+                // TODO: See TD-329 in TECHNICAL_DEBT.md - only assign adopts the MNS run_group; every other command uses config RUN_GROUP
                 if (!resolved.run_group.empty()) {
                     svc_config.run_group = resolved.run_group;
                     std::cout << "[MNS] run_group resolved from MNS: '" << resolved.run_group
@@ -596,6 +605,7 @@ int main(int argc, char* argv[]) {
         std::vector<PendingEntry> to_migrate;
         if (!parsed.targets.empty()) {
             for (const auto& t : parsed.targets) {
+                // TODO: See TD-326 in TECHNICAL_DEBT.md - matches by path only, ignoring segment ranges
                 auto it = std::find_if(source_entries.begin(), source_entries.end(),
                                        [&](const PendingEntry& e) { return e.path == t; });
                 if (it == source_entries.end()) {
@@ -619,6 +629,7 @@ int main(int argc, char* argv[]) {
 
         int migrated = 0;
         for (const auto& entry : to_migrate) {
+            // TODO: See TD-326 in TECHNICAL_DEBT.md - drops segment_start/segment_count, so a segment becomes the whole file
             if (!dest.add_pending_path_unchecked(entry.path)) {
                 std::cerr << "⚠️  Failed to add to '" << parsed.kind
                           << "' pool, skipping: " << entry.path << "\n";
@@ -628,11 +639,13 @@ int main(int argc, char* argv[]) {
             // the pending-add wire format has no model_name field, so this is the only
             // way to carry it forward without changing that shared interface.
             if (!entry.model_name.empty()) {
+                // TODO: See TD-326 in TECHNICAL_DEBT.md - result ignored; a failed assign silently loses the model assignment
                 dest.assign_model(entry.model_name, {entry.path});
             }
             // force=true: migrate is an operator-invoked one-time reorganization; leaving
             // an actively-claimed legacy entry behind would just duplicate it (it's
             // already in the destination pool at this point) rather than actually move it.
+            // TODO: See TD-326 in TECHNICAL_DEBT.md - result ignored; a failed (or segment-mismatched) delete leaves the entry in both pools
             source.delete_entries({entry.path}, /*force=*/true, /*delete_files=*/false);
             std::cout << "   " << entry.path << " -> " << parsed.kind << "\n";
             ++migrated;
@@ -715,6 +728,7 @@ int main(int argc, char* argv[]) {
 #ifdef BUILD_MNS_SERVER
         std::string mns_url = svc_config.name_service_url;
         if (mns_url.empty()) {
+            // TODO: See TD-330 in TECHNICAL_DEBT.md - silent localhost fallback (assign skips MNS when unset)
             mns_url = "http://localhost:8083";
         }
         try {
