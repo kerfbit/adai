@@ -48,6 +48,8 @@ LLMEncoder::LLMEncoder(int vocab_size, int d_model, int num_layers, int num_head
 
 Matrix LLMEncoder::encode(const std::string& text) {
     // Tokenize input text
+    // TODO: See TD-364 in TECHNICAL_DEBT.md - adds BOS/EOS unlike EncoderDecoderModel's encoder input,
+    // and the truncation below drops the EOS
     std::vector<int> token_ids = tokenizer->encode(text, true);
 
     // Truncate if necessary
@@ -55,6 +57,7 @@ Matrix LLMEncoder::encode(const std::string& text) {
         token_ids.resize(max_seq_length);
     }
 
+    // TODO: See TD-367 in TECHNICAL_DEBT.md - std::cout on every call (and in the constructor, save/load)
     std::cout << "Encoding " << token_ids.size() << " tokens..." << '\n';
 
     if (requires_grad) {
@@ -86,6 +89,7 @@ Matrix LLMEncoder::encode(const std::string& text) {
     return encoded;
 }
 
+// TODO: See TD-365 in TECHNICAL_DEBT.md - no max_seq_length check (nor in gpu_encode())
 Matrix LLMEncoder::encode_with_mask(const std::vector<int>& token_ids,
                                     const Matrix& attention_mask) {
     if (requires_grad) {
@@ -132,6 +136,7 @@ std::vector<float> LLMEncoder::get_sentence_embedding(const std::string& text) {
     return pooled;
 }
 
+// TODO: See TD-366 in TECHNICAL_DEBT.md - duplicate of get_sentence_embedding(); neither has a production caller
 std::vector<float> LLMEncoder::get_sentence_embedding_trainable(const std::string& text) {
     Matrix encoded = encode(text);
     std::vector<float> pooled(d_model);
@@ -275,6 +280,7 @@ void LLMEncoder::load_weights(const std::string& filename) {
     }
 
     // Read and verify header
+    // TODO: See TD-367 in TECHNICAL_DEBT.md - reads unchecked; max_seq_length read but not compared
     int loaded_vocab_size = 0, loaded_d_model = 0, loaded_num_layers = 0;
     int loaded_num_heads = 0, loaded_d_ff = 0, loaded_max_seq_length = 0;
 
@@ -344,6 +350,7 @@ void LLMEncoder::gpu_zero_grads() {
     final_norm->gpu_zero_grads();
 }
 
+// TODO: See TD-365 in TECHNICAL_DEBT.md - no max_seq_length check
 adai::gpu::GPUMatrix LLMEncoder::gpu_encode(const std::vector<int>& token_ids) {
     const int seq = static_cast<int>(token_ids.size());
 

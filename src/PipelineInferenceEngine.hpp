@@ -273,6 +273,8 @@ class PipelineInferenceEngine {
                 encoder_outputs.reserve(request.input_texts.size());
 
                 for (const auto& text : request.input_texts) {
+                    // TODO: See TD-364 in TECHNICAL_DEBT.md - encode() adds BOS/EOS; the model trains its
+                    // encoder without special tokens, so this input is out of distribution
                     Matrix output = encoder_->encode(text);
                     encoder_outputs.push_back(std::move(output));
                 }

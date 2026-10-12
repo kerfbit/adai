@@ -63,6 +63,9 @@ class LLMEncoder {
     // at the start of a fresh training run (ChatbotTrainer::validate() etc.
     // only ever restore it after temporarily flipping to false), so a false
     // default here left the encoder gradient-less for the entire first epoch.
+    // TODO: See TD-366 in TECHNICAL_DEBT.md - defaults to true and is never cleared for serving encoders,
+    // so every inference call fills cached_encoder_outputs (never read); cached_embeddings and
+    // cached_pos_encoded are unused
     bool requires_grad{true};
     float learning_rate{0.001f};
 

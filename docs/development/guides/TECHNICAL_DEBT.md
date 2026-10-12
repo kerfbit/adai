@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 9, 2026
-**Total Items:** 155
+**Total Items:** 159
 **High Priority:** 21
-**Medium Priority:** 65
-**Low Priority:** 69
+**Medium Priority:** 67
+**Low Priority:** 71
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -133,6 +133,15 @@ GPU generation behave differently (TD-362). Three are LOW: the no-optimizer path
 encoder (TD-360, verified), a double `BOS` in training targets (TD-361, verified), and
 clone/load/world-model-input gaps (TD-363). TD-343 was amended: training-time generation also writes
 hippocampal memory.
+
+Also October 11, 2026: filed [TD-364](#td-364-llmencoderencode-input-doesnt-match-the-models-encoder-input) through [TD-367](#td-367-llmencoder-console-output-and-unchecked-weight-io) from the code-traced
+[LLMEncoder.md](../reference/source/LLMEncoder.md). Two are MEDIUM and verified: `LLMEncoder::encode()`
+adds `BOS`/`EOS` while `EncoderDecoderModel` trains its encoder without special tokens, so pipeline
+inference feeds the trained encoder shifted, out-of-distribution input, and truncation drops the `EOS`
+it just added (TD-364); and chat input is never truncated to `max_seq_length`, so a 60-token input on a
+16-position model ran with 44 positions that had no positional encoding (TD-365). Two are LOW: serving
+encoders cache activations nobody reads (TD-366), and console output plus unchecked weight I/O (TD-367).
+TD-360 was corrected: `LLMEncoder::set_learning_rate()` exists; only `update_weights()` is missing.
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -984,6 +993,11 @@ fix it, verify on ai-machine with a CPU-vs-GPU equivalence test, and plan the re
 [TD-361](#td-361-training-targets-get-a-double-bos) (double `BOS`) into the same change, since both alter training alignment and need the same
 retraining. Then [TD-359](#td-359-generate_response-and-gpu_generate_response-ignore-max_length) (small) and [TD-362](#td-362-cpu-and-gpu-generation-paths-behave-differently). [TD-360](#td-360-encoderdecodermodel-no-optimizer-path-never-updates-the-encoder) and [TD-363](#td-363-encoderdecodermodel-clone-load-and-world-model-input-gaps) are cleanup.
 
+**Tier 38 — Newly filed (October 11, 2026): `LLMEncoder`.** Do [TD-365](#td-365-encoder-input-is-never-truncated-to-max_seq_length-when-serving) together with TD-347 (the
+decoder's over-length divergence) and TD-294 (token budget vs. `max_seq_length`): truncate or reject
+once, where the model tokenizes. Fix [TD-364](#td-364-llmencoderencode-input-doesnt-match-the-models-encoder-input) before anyone relies on pipeline inference.
+[TD-366](#td-366-serving-encoders-cache-activations-for-backward-dead-state-and-duplicate-api) and [TD-367](#td-367-llmencoder-console-output-and-unchecked-weight-io) are cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1145,6 +1159,10 @@ retraining. Then [TD-359](#td-359-generate_response-and-gpu_generate_response-ig
   - [TD-361: Training Targets Get a Double `BOS`](#td-361-training-targets-get-a-double-bos)
   - [TD-362: CPU and GPU Generation Paths Behave Differently](#td-362-cpu-and-gpu-generation-paths-behave-differently)
   - [TD-363: `EncoderDecoderModel` Clone, Load and World-Model Input Gaps](#td-363-encoderdecodermodel-clone-load-and-world-model-input-gaps)
+  - [TD-364: `LLMEncoder::encode()` Input Doesn't Match the Model's Encoder Input](#td-364-llmencoderencode-input-doesnt-match-the-models-encoder-input)
+  - [TD-365: Encoder Input Is Never Truncated to `max_seq_length` When Serving](#td-365-encoder-input-is-never-truncated-to-max_seq_length-when-serving)
+  - [TD-366: Serving Encoders Cache Activations for Backward; Dead State and Duplicate API](#td-366-serving-encoders-cache-activations-for-backward-dead-state-and-duplicate-api)
+  - [TD-367: `LLMEncoder` Console Output and Unchecked Weight I/O](#td-367-llmencoder-console-output-and-unchecked-weight-io)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -7196,13 +7214,15 @@ Files to Modify:
 Description:
 Found alongside TD-358 and confirmed. `update_weights()` and `set_learning_rate()` skip the encoder
 (the calls are commented out: "LLMEncoder doesn't have this method"), and the LM head's LR isn't set
-either. Ten `train_step()` calls with no optimizer left the encoder's weights exactly unchanged while
+either. **Corrected October 11, 2026** ([LLMEncoder.md](../reference/source/LLMEncoder.md)): that
+comment is stale for `set_learning_rate()`, which `LLMEncoder` has had since the TD-093 fix; only
+`LLMEncoder::update_weights()` is missing. Ten `train_step()` calls with no optimizer left the encoder's weights exactly unchanged while
 the decoder's moved. Combined with TD-346 (final decoder norm), `train_step()` trains only the decoder
 blocks, embeddings and head. `ChatbotTrainer` registers an optimizer and is unaffected.
 
 Action Items:
 
-- [ ] Add `LLMEncoder::update_weights()`/`set_learning_rate()` and call them; set the head's LR; fold into TD-297's single-step design for the optimizer case.
+- [ ] Add `LLMEncoder::update_weights()`, call it and the existing `LLMEncoder::set_learning_rate()`; set the head's LR; fold into TD-297's single-step design for the optimizer case.
 
 Location in code: `src/EncoderDecoderModel.cpp` (`update_weights()`, `set_learning_rate()`); tagged `TODO: See TD-360`.
 
@@ -7294,6 +7314,131 @@ Location in code: `src/EncoderDecoderModel.cpp` (`clone()`, `load_model()`, `for
 Files to Modify:
 
 - `src/EncoderDecoderModel.{hpp,cpp}`
+
+---
+
+### TD-364: `LLMEncoder::encode()` Input Doesn't Match the Model's Encoder Input
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Transformer / LLMEncoder | October 11, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `LLMEncoder` and verified. `encode(text)` tokenizes with the encoder's own
+tokenizer and `add_special_tokens = true`, so `"hello world"` becomes `[BOS, 80, 77, EOS]`.
+`EncoderDecoderModel` always tokenizes encoder input with `encode(input_text, false)` (`[80, 77]`), in
+training and in generation, so the trained encoder has never seen `BOS`/`EOS` at its input and every
+real token sits one position later under `encode()`. The first output row differed (1.398 vs 0.980).
+`PipelineInferenceEngine`'s encoder stage calls `encode()` on the trained chat encoder and hands the
+result to the decoder, so pipeline-mode answers come from out-of-distribution encoder input. For RAG
+(`DocumentStore`) it only needs to be consistent, which it is.
+
+Also verified: when `encode()` truncates to `max_seq_length` it uses `resize()`, dropping the `EOS` it
+just added (32 ids cut to 8, last id no longer `EOS`).
+
+Action Items:
+
+- [ ] Give `encode()` an `add_special_tokens` parameter (default matching the model: `false`), or have `PipelineInferenceEngine` tokenize with the model's tokenizer and call `encode_with_mask()`.
+- [ ] When truncating with special tokens, keep the final `EOS`.
+- [ ] Add a test that pipeline and plain generation produce the same encoder output for the same text.
+
+Location in code: `src/LLMEncoder.cpp` (`encode()`), `src/PipelineInferenceEngine.hpp` (encoder stage); tagged `TODO: See TD-364`.
+
+Files to Modify:
+
+- `src/LLMEncoder.cpp`
+- `src/encoder.hpp`
+- `src/PipelineInferenceEngine.hpp`
+- `tests/llmencoder_test.cpp`
+
+---
+
+### TD-365: Encoder Input Is Never Truncated to `max_seq_length` When Serving
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Transformer / LLMEncoder | October 11, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `LLMEncoder` and verified. Only `encode(text)` truncates. `encode_with_mask()` and
+`gpu_encode()` take any length, and neither `EncoderDecoderModel`'s generation entry points nor
+`ChatbotAPI` truncate the input. A 60-token input on a `max_seq_length = 16` model completed generation
+after `PositionalEncoding` warned *"Positions beyond max_len will not receive positional encodings"*, so
+44 positions had no order information. Attention cost also grows as O(n²) with no bound, so a long chat
+message costs more CPU or GPU time than the configured model size suggests. Related: TD-347 (decoder
+side past `max_seq_length`) and TD-294 (the conversation token budget isn't tied to `max_seq_length`).
+
+Action Items:
+
+- [ ] Decide on keep-the-tail truncation or rejection, and apply it once where `EncoderDecoderModel` tokenizes encoder input (CPU and GPU, training and generation).
+- [ ] Add a `max_seq_length` check (assert or throw) in `encode_with_mask()`/`gpu_encode()`.
+- [ ] Coordinate with TD-294 so the conversation context fits the encoder.
+
+Location in code: `src/EncoderDecoderModel.cpp` (input tokenization in `generate_response()`, `generate_response_with_strategy()`, both GPU generation paths), `src/LLMEncoder.cpp` (`encode_with_mask()`, `gpu_encode()`); tagged `TODO: See TD-365`.
+
+Files to Modify:
+
+- `src/EncoderDecoderModel.cpp`
+- `src/LLMEncoder.cpp`
+- `tests/llmencoder_test.cpp`
+
+---
+
+### TD-366: Serving Encoders Cache Activations for Backward; Dead State and Duplicate API
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Transformer / LLMEncoder | October 11, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `LLMEncoder`, by inspection. `requires_grad` defaults to `true` and nothing clears it
+for the serving encoders (the chat encoder in `chatbot_api_server` and the RAG encoder). So every
+inference `encode*()` call copies `(num_layers + 1) × seq × d_model` floats into
+`cached_encoder_outputs`, which `backward()` never reads (it relies on each block's own caches).
+`cached_embeddings` and `cached_pos_encoded` are declared and never used.
+`get_sentence_embedding()` and `get_sentence_embedding_trainable()` are identical, and neither has a
+production caller (`DocumentStore` pools for itself).
+
+Action Items:
+
+- [ ] Remove `cached_encoder_outputs`, `cached_embeddings` and `cached_pos_encoded`, or at least stop filling the first.
+- [ ] Clear `requires_grad` for serving instances (`EncoderDecoderModel::set_training(false)` already forwards it; make the server and RAG setup call it).
+- [ ] Merge the two sentence-embedding functions.
+
+Location in code: `src/encoder.hpp` (members), `src/LLMEncoder.cpp` (`get_sentence_embedding_trainable()`); tagged `TODO: See TD-366`.
+
+Files to Modify:
+
+- `src/encoder.hpp`
+- `src/LLMEncoder.cpp`
+- `src/ChatbotAPIServer.cpp`
+
+---
+
+### TD-367: `LLMEncoder` Console Output and Unchecked Weight I/O
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Transformer / LLMEncoder | October 11, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `LLMEncoder`, by inspection. Library code writes to `std::cout`: a 7-line banner in
+the constructor, `"Encoding N tokens..."` on **every** `encode()` call (every RAG add or search and
+every pipeline request), save/load, the tokenizer methods and `print_config()`. `load_weights()`
+doesn't check its header reads, so a short file produces a misleading "architecture mismatch"
+message, and it reads `max_seq_length` but doesn't compare it. `save_weights()` doesn't check its
+writes. Same class as TD-357 (`EncoderBlock`).
+
+Action Items:
+
+- [ ] Switch to `adai::Logger` (debug level for the per-call message).
+- [ ] Check header reads and writes, and decide whether `max_seq_length` must match (harmless for sinusoidal encoding, so a warning is enough).
+
+Location in code: `src/LLMEncoder.cpp` (constructor, `encode()`, `save_weights()`, `load_weights()`); tagged `TODO: See TD-367`.
+
+Files to Modify:
+
+- `src/LLMEncoder.cpp`
 
 ---
 
@@ -7813,15 +7958,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 155 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 159 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|21|14%|
-|Medium|65|42%|
-|Low|69|45%|
+|High|21|13%|
+|Medium|67|42%|
+|Low|71|45%|
 
-**Total Active Items:** 155
+**Total Active Items:** 159
 
 ### By Component
 
@@ -7864,6 +8009,7 @@ Recomputed directly from the 155 `### TD-NNN` entries under [Active Technical De
 |RAG / DocumentStore|3|
 |Transformer / EncoderBlock|2|
 |Models / EncoderDecoderModel|6|
+|Transformer / LLMEncoder|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
 
@@ -7871,13 +8017,13 @@ Recomputed directly from the 155 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|83|
-|2-4 hours|50|
+|0-2 hours|85|
+|2-4 hours|52|
 |4-8 hours|12|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 337-576 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 343-588 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

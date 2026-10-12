@@ -55,7 +55,7 @@ copies them from the tokenizer.
 | `set_world_model()`/`set_hippocampal_memory()` + getters | Attach the TD-182/185 components |
 | `set_hippocampal_repetition_params(…)` | Knobs passed to every gated forward |
 | `set_training(mode)` | Sets the encoder's `requires_grad` and calls `decoder->set_training()` |
-| `set_learning_rate(lr)` | **Decoder only**: the encoder call is commented out ("LLMEncoder doesn't have this method"), and the LM head isn't touched |
+| `set_learning_rate(lr)` | **Decoder only**: the encoder call is commented out ("LLMEncoder doesn't have this method"), and the LM head isn't touched. That comment is stale: `LLMEncoder::set_learning_rate()` exists (TD-093 fix); only `LLMEncoder::update_weights()` is missing ([LLMEncoder.md](LLMEncoder.md)) |
 | `get_*()` | Architecture fields, special-token IDs, the components, the generator |
 
 ---

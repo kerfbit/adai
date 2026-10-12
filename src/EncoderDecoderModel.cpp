@@ -200,6 +200,7 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
     std::lock_guard<std::mutex> lock(model_mutex_);
 
     // Encode input (no special tokens for encoder input)
+    // TODO: See TD-365 in TECHNICAL_DEBT.md - never truncated to max_seq_length
     std::vector<int> input_tokens = tokenizer->encode(input_text, false);
     int input_len = static_cast<int>(input_tokens.size());
     Matrix encoder_mask(input_len, input_len);
@@ -372,6 +373,7 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     }
 
     // Encode input (no special tokens for encoder input)
+    // TODO: See TD-365 in TECHNICAL_DEBT.md - never truncated to max_seq_length
     std::vector<int> input_tokens = tokenizer->encode(input_text, false);
     int input_len = static_cast<int>(input_tokens.size());
     Matrix encoder_mask(input_len, input_len);
@@ -636,7 +638,8 @@ void EncoderDecoderModel::set_training(bool mode) {
 // TODO: See TD-360 in TECHNICAL_DEBT.md - never reaches the encoder (or the LM head)
 void EncoderDecoderModel::set_learning_rate(float lr) {
     learning_rate = lr;
-    // encoder->set_learning_rate(lr);  // LLMEncoder doesn't have this method
+    // encoder->set_learning_rate(lr);  // stale: LLMEncoder::set_learning_rate() exists (TD-093 fix); only
+    // update_weights() is missing — see TD-360
     decoder->set_learning_rate(lr);
 }
 
@@ -1113,6 +1116,7 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
     // TODO: See TD-359 in TECHNICAL_DEBT.md - max_length is ignored
     (void)max_length;
 
+    // TODO: See TD-365 in TECHNICAL_DEBT.md - never truncated to max_seq_length
     std::vector<int> input_tokens = tokenizer->encode(input_text, false);
 
     // Encode once on GPU; read-only input to every decode step below.
@@ -1217,6 +1221,7 @@ std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
         normalized_strategy = "nucleus";
     }
 
+    // TODO: See TD-365 in TECHNICAL_DEBT.md - never truncated to max_seq_length
     std::vector<int> input_tokens = tokenizer->encode(input_text, false);
 
     // Encode once on GPU; read-only input to every decode step below.
