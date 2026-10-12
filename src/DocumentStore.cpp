@@ -38,6 +38,7 @@ float DocumentStore::cosineSimilarity(const Matrix& emb1, const Matrix& emb2) {
     return dot_product / denom;
 }
 
+// TODO: See TD-351 in TECHNICAL_DEBT.md - pools special-token rows too, compressing cosine scores
 Matrix DocumentStore::getSentenceEmbedding(const Matrix& encoder_output) {
     // Mean pooling over sequence dimension
     // encoder_output shape: [seq_len, d_model]
@@ -82,6 +83,7 @@ void DocumentStore::addDocument(const std::string& id, const std::string& text,
     doc.metadata = metadata;
 
     // Generate embedding using encoder
+    // TODO: See TD-349 in TECHNICAL_DEBT.md - encode() truncates to max_seq_length tokens; no chunking, so later text is never embedded
     Matrix encoder_output = encoder->encode(text);
     doc.embedding = getSentenceEmbedding(encoder_output);
 
@@ -113,6 +115,7 @@ bool DocumentStore::removeDocument(const std::string& id) {
     return true;
 }
 
+// TODO: See TD-350 in TECHNICAL_DEBT.md - const but not thread-safe: encode() mutates encoder state (masked today by TD-230's mutex)
 std::vector<std::pair<float, const Document*>> DocumentStore::retrieve(const std::string& query,
                                                                        int k) const {
     if (documents.empty()) {
@@ -137,6 +140,7 @@ std::vector<std::pair<float, const Document*>> DocumentStore::retrieve(const std
     }
 
     // Sort by similarity (descending)
+    // TODO: See TD-351 in TECHNICAL_DEBT.md - NaN similarities violate partial_sort's strict weak ordering
     std::partial_sort(similarities.begin(),
                       similarities.begin() + std::min(k, static_cast<int>(similarities.size())),
                       similarities.end(),

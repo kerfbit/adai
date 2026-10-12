@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 9, 2026
-**Total Items:** 144
+**Total Items:** 147
 **High Priority:** 20
-**Medium Priority:** 61
-**Low Priority:** 63
+**Medium Priority:** 63
+**Low Priority:** 64
 **Future Enhancements:** 19
 **Resolved Items:** 204
 **Deferred Decisions:** 3
@@ -95,6 +95,12 @@ forwards diverge once a sequence passes `max_seq_length`, so over-length generat
 strategy (TD-347). Two are LOW: `update_weights()` never trains the final norm (TD-346, verified) and
 dead code/robustness gaps (TD-348). TD-343 was amended: memory is updated once per injected layer,
 not just once per forward.
+
+Also October 11, 2026: filed [TD-349](#td-349-rag-indexes-whole-files-but-embeds-only-their-first-max_seq_length-tokens) through [TD-351](#td-351-documentstore-embedding-and-housekeeping-gaps) from the code-traced
+[DocumentStore.md](../reference/source/DocumentStore.md). Two are MEDIUM: RAG indexes whole files but
+embeds only their first `max_seq_length` tokens, so later content can't be retrieved (TD-349,
+verified), and `retrieve()` isn't safe concurrently, which is a prerequisite for fixing TD-230
+(TD-350). TD-351 is LOW.
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -929,6 +935,10 @@ strategies and devices. [TD-344](#td-344-decoderblock-dropout-is-stored-but-neve
 `max_seq_length` is small and removes a strategy-dependent divergence. Fold [TD-346](#td-346-llmdecoderupdate_weights-never-updates-the-final-norm) into TD-297's
 top-level update fix. [TD-348](#td-348-llmdecoder-dead-code-and-robustness-gaps) is cleanup.
 
+**Tier 34 — Newly filed (October 11, 2026): `DocumentStore`.** Do these after TD-247 (RAG embeds with
+an untrained encoder, so retrieval quality is moot until it's fixed). [TD-350](#td-350-documentstoreretrieve-isnt-safe-to-call-concurrently) must land before or
+with TD-230. [TD-349](#td-349-rag-indexes-whole-files-but-embeds-only-their-first-max_seq_length-tokens) (chunking) is the main quality fix; [TD-351](#td-351-documentstore-embedding-and-housekeeping-gaps) is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1079,6 +1089,9 @@ top-level update fix. [TD-348](#td-348-llmdecoder-dead-code-and-robustness-gaps)
   - [TD-346: `LLMDecoder::update_weights()` Never Updates the Final Norm](#td-346-llmdecoderupdate_weights-never-updates-the-final-norm)
   - [TD-347: Cached and Full Decoder Forwards Diverge Past `max_seq_length`](#td-347-cached-and-full-decoder-forwards-diverge-past-max_seq_length)
   - [TD-348: `LLMDecoder` Dead Code and Robustness Gaps](#td-348-llmdecoder-dead-code-and-robustness-gaps)
+  - [TD-349: RAG Indexes Whole Files but Embeds Only Their First `max_seq_length` Tokens](#td-349-rag-indexes-whole-files-but-embeds-only-their-first-max_seq_length-tokens)
+  - [TD-350: `DocumentStore::retrieve()` Isn't Safe to Call Concurrently](#td-350-documentstoreretrieve-isnt-safe-to-call-concurrently)
+  - [TD-351: `DocumentStore` Embedding and Housekeeping Gaps](#td-351-documentstore-embedding-and-housekeeping-gaps)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -3542,6 +3555,9 @@ Found while writing the code-traced reference [ChatbotAPI.md](../reference/sourc
 `default_config_`, and `set_generation_config()` (including on `SIGHUP` reload) needs it too. So with
 RAG enabled, every chat, session and batch request waits at its config copy behind whichever
 generation is running. Found by reading the code.
+
+**Note (October 11, 2026):** releasing the lock alone would expose `DocumentStore::retrieve()` to
+concurrent calls, which race inside the RAG encoder; see [TD-350](#td-350-documentstoreretrieve-isnt-safe-to-call-concurrently), which must land first or together.
 
 Action Items:
 
@@ -6883,6 +6899,94 @@ Files to Modify:
 
 ---
 
+### TD-349: RAG Indexes Whole Files but Embeds Only Their First `max_seq_length` Tokens
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | RAG / DocumentStore | October 11, 2026 | 2-4 hours |
+
+Description:
+Found while writing the code-traced reference [DocumentStore.md](../reference/source/DocumentStore.md) and confirmed by running the real class.
+`chatbot_api_server` adds each top-level `.txt` file under `RAG_DOCS_PATH` as **one** `DocumentStore`
+document (no chunking), and `LLMEncoder::encode()` truncates input to `max_seq_length` tokens before
+embedding. A long document is therefore represented by its opening only. With `max_seq_length = 16`,
+two documents sharing their first 16 tokens got **bit-identical embeddings** and tied on every query,
+including one matching the tail of one of them exactly. At the default `MAX_SEQ_LENGTH = 512`,
+content past roughly the first page of each file is unretrievable, yet the whole file text is what
+`RAGInference` puts in the prompt.
+
+Action Items:
+
+- [ ] Chunk documents at index time (e.g. overlapping windows within `max_seq_length` tokens), each chunk its own entry with a parent-document reference, and return chunks rather than whole files.
+- [ ] Test: content past the first window is retrievable.
+
+Location in code: `src/DocumentStore.cpp` (`addDocument()`), `src/ChatbotAPIServer.cpp` (RAG indexing loop); tagged `TODO: See TD-349`.
+
+Files to Modify:
+
+- `src/DocumentStore.{hpp,cpp}`
+- `src/ChatbotAPIServer.cpp`
+- `src/RAGInference.cpp`
+- `tests/documentstore_test.cpp`
+
+---
+
+### TD-350: `DocumentStore::retrieve()` Isn't Safe to Call Concurrently
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | RAG / DocumentStore | October 11, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-349, by inspection. `retrieve()` is `const` but calls `encoder->encode()`, which
+mutates the encoder's caches (`requires_grad` defaults to true) and prints `Encoding N tokens...` to
+stdout on every query; `DocumentStore` has no lock. Today RAG generation runs under
+`ChatbotAPI::config_mutex_` (TD-230), so requests are serialized and there's no race. Fixing TD-230
+by releasing that lock, as its own action item suggests, would expose concurrent `retrieve()` calls
+to data races inside the encoder.
+
+Action Items:
+
+- [ ] Before (or with) TD-230: give `DocumentStore` a mutex around encode+score, or put the RAG encoder in inference mode (`set_requires_grad(false)`) and make `encode()` side-effect free; drop the stdout print.
+- [ ] Test: concurrent `retrieve()` under TSan.
+
+Location in code: `src/DocumentStore.cpp` (`retrieve()`); tagged `TODO: See TD-350`.
+
+Files to Modify:
+
+- `src/DocumentStore.{hpp,cpp}`
+- `src/LLMEncoder.cpp`
+- `src/ChatbotAPIServer.cpp`
+
+---
+
+### TD-351: `DocumentStore` Embedding and Housekeeping Gaps
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | RAG / DocumentStore | October 11, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-349, by inspection:
+- Mean pooling includes the special tokens `encode(text, true)` adds, so every embedding shares
+  those rows and cosine scores bunch together (0.89 between unrelated texts with untrained weights).
+- `metadata` is stored but never read; there's no filtering API.
+- No persistence: every document is re-embedded at each server start.
+- A NaN similarity (only reachable with NaN weights, e.g. a TD-298-style corrupt load) violates
+  `partial_sort`'s strict weak ordering.
+
+Action Items:
+
+- [ ] Pool over content tokens only; add metadata filtering or drop the field; optionally cache embeddings on disk keyed by file checksum; treat NaN scores as lowest.
+
+Location in code: `src/DocumentStore.cpp` (`getSentenceEmbedding()`, `retrieve()`); tagged `TODO: See TD-351`.
+
+Files to Modify:
+
+- `src/DocumentStore.{hpp,cpp}`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -7398,15 +7502,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 144 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 147 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|20|14%|
-|Medium|61|42%|
-|Low|63|44%|
+|Medium|63|43%|
+|Low|64|44%|
 
-**Total Active Items:** 144
+**Total Active Items:** 147
 
 ### By Component
 
@@ -7446,6 +7550,7 @@ Recomputed directly from the 144 `### TD-NNN` entries under [Active Technical De
 |Data / DataTransport|4|
 |Transformer / DecoderBlock|5|
 |Transformer / Decoder|3|
+|RAG / DocumentStore|3|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
 
@@ -7453,13 +7558,13 @@ Recomputed directly from the 144 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|75|
-|2-4 hours|47|
+|0-2 hours|76|
+|2-4 hours|49|
 |4-8 hours|12|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 323-549 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 328-559 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

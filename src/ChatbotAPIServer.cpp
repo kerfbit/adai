@@ -608,6 +608,7 @@ int main(int argc, char* argv[]) {
                                     std::string text((std::istreambuf_iterator<char>(file)),
                                                      std::istreambuf_iterator<char>());
                                     if (!text.empty()) {
+                                        // TODO: See TD-349 in TECHNICAL_DEBT.md - whole file as one document; only its first max_seq_length tokens are embedded
                                         doc_store->addDocument(entry.path().stem().string(), text);
                                         doc_count++;
                                     }

@@ -30,6 +30,7 @@ This directory contains reference materials, technical specifications, and imple
   - [DataTransport](source/DataTransport.md) (`src/DataTransport.hpp`; trainer-side FTP/FTPS download client)
   - [Decoder](source/Decoder.md) (`src/Decoder.{hpp,cpp}`; `LLMDecoder` stack: embedding, blocks, final norm, KV-cache and GPU decode)
   - [DecoderBlock](source/DecoderBlock.md) (`src/DecoderBlock.{hpp,cpp}`; Pre-LN decoder layer with gated world-model/hippocampal paths)
+  - [DocumentStore](source/DocumentStore.md) (`src/DocumentStore.{hpp,cpp}`; RAG retrieval index)
 
 - **[KVCache API Reference](kvcache.md)** - Complete API documentation for the Key-Value cache system
   - Single-layer and multi-layer caching

@@ -26,6 +26,7 @@ struct Document {
     std::string id;                                         // Unique document identifier
     std::string text;                                       // Document text content
     Matrix embedding;                                       // Dense embedding vector [d_model]
+    // TODO: See TD-351 in TECHNICAL_DEBT.md - stored but never read (no metadata filtering)
     std::unordered_map<std::string, std::string> metadata;  // Optional metadata
 
     Document() = default;
