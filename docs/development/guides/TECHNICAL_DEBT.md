@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 9, 2026
-**Total Items:** 149
-**High Priority:** 20
-**Medium Priority:** 63
-**Low Priority:** 66
+**Total Items:** 155
+**High Priority:** 21
+**Medium Priority:** 65
+**Low Priority:** 69
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -122,6 +122,17 @@ Also October 11, 2026: filed [TD-356](#td-356-encoderblock-gradient-norm-and-cli
 correct): gradient norm/clipping ignore `LayerNorm` and the header still describes Post-LN (TD-356),
 and learning-rate handling, unchecked loads and console output (TD-357). TD-344 was amended: the
 encoder's `dropout` is never applied either.
+
+Also October 11, 2026: filed [TD-358](#td-358-gpu-training-feeds-unshifted-targets-teaching-the-model-to-copy-instead-of-predict) through [TD-363](#td-363-encoderdecodermodel-clone-load-and-world-model-input-gaps) from the code-traced
+[EncoderDecoderModel.md](../reference/source/EncoderDecoderModel.md). One is **HIGH** and serious
+(verified by CPU reproduction): `gpu_forward()` feeds the unshifted targets to the decoder, so **GPU
+training teaches the model to copy its input token instead of predicting the next one**. Loss looks
+excellent but generation fails, and every ai-machine (GPU) checkpoint needs retraining after the fix
+(TD-358). Two are MEDIUM: `generate_response()` ignores `max_length` (TD-359, verified), and CPU and
+GPU generation behave differently (TD-362). Three are LOW: the no-optimizer path never updates the
+encoder (TD-360, verified), a double `BOS` in training targets (TD-361, verified), and
+clone/load/world-model-input gaps (TD-363). TD-343 was amended: training-time generation also writes
+hippocampal memory.
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -967,6 +978,12 @@ augmentation is listed under [TD-014](#td-014-llm-operations-and-training-toolin
 **Tier 36 — Newly filed (October 11, 2026): `EncoderBlock`.** All cleanup: [TD-356](#td-356-encoderblock-gradient-norm-and-clipping-ignore-layernorm-header-describes-post-ln) and [TD-357](#td-357-encoderblock-learning-rate-handling-unchecked-loads-and-console-output).
 Do the dropout decision (TD-344) for both blocks at once.
 
+**Tier 37 — Newly filed (October 11, 2026): `EncoderDecoderModel`. Do [TD-358](#td-358-gpu-training-feeds-unshifted-targets-teaching-the-model-to-copy-instead-of-predict) first of everything
+in this document.** It's a small code fix, but every GPU-trained checkpoint learned the wrong task, so
+fix it, verify on ai-machine with a CPU-vs-GPU equivalence test, and plan the retraining. Fold
+[TD-361](#td-361-training-targets-get-a-double-bos) (double `BOS`) into the same change, since both alter training alignment and need the same
+retraining. Then [TD-359](#td-359-generate_response-and-gpu_generate_response-ignore-max_length) (small) and [TD-362](#td-362-cpu-and-gpu-generation-paths-behave-differently). [TD-360](#td-360-encoderdecodermodel-no-optimizer-path-never-updates-the-encoder) and [TD-363](#td-363-encoderdecodermodel-clone-load-and-world-model-input-gaps) are cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1122,6 +1139,12 @@ Do the dropout decision (TD-344) for both blocks at once.
   - [TD-351: `DocumentStore` Embedding and Housekeeping Gaps](#td-351-documentstore-embedding-and-housekeeping-gaps)
   - [TD-356: `EncoderBlock` Gradient Norm and Clipping Ignore `LayerNorm`; Header Describes Post-LN](#td-356-encoderblock-gradient-norm-and-clipping-ignore-layernorm-header-describes-post-ln)
   - [TD-357: `EncoderBlock` Learning-Rate Handling, Unchecked Loads and Console Output](#td-357-encoderblock-learning-rate-handling-unchecked-loads-and-console-output)
+  - [TD-358: GPU Training Feeds Unshifted Targets, Teaching the Model to Copy Instead of Predict](#td-358-gpu-training-feeds-unshifted-targets-teaching-the-model-to-copy-instead-of-predict)
+  - [TD-359: `generate_response()` and `gpu_generate_response()` Ignore `max_length`](#td-359-generate_response-and-gpu_generate_response-ignore-max_length)
+  - [TD-360: `EncoderDecoderModel` No-Optimizer Path Never Updates the Encoder](#td-360-encoderdecodermodel-no-optimizer-path-never-updates-the-encoder)
+  - [TD-361: Training Targets Get a Double `BOS`](#td-361-training-targets-get-a-double-bos)
+  - [TD-362: CPU and GPU Generation Paths Behave Differently](#td-362-cpu-and-gpu-generation-paths-behave-differently)
+  - [TD-363: `EncoderDecoderModel` Clone, Load and World-Model Input Gaps](#td-363-encoderdecodermodel-clone-load-and-world-model-input-gaps)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -6787,6 +6810,11 @@ same `memory` to every block with the gated path, and each block updates it, so 
 one decay-and-accumulate round **per injected layer** (6 with `WORLD_MODEL_INJECT_EVERY_N_LAYERS = 1`
 and 6 layers). The fix should update memory once per forward, at the decoder or model level.
 
+**Update (October 11, 2026, from [EncoderDecoderModel.md](../reference/source/EncoderDecoderModel.md)):**
+`generate_response()` writes the response into hippocampal memory after every CPU generation, including
+`ChatbotTrainer`'s label-backfill and generation-quality calls on the live model, so training-time
+evaluation also writes episodic memories. Only serving generations should write.
+
 Action Items:
 
 - [ ] Separate scoring from state update: let the caller commit coverage/association updates once per decode step (and never during training/validation unless intended).
@@ -7086,6 +7114,186 @@ Files to Modify:
 
 - `src/EncoderBlock.{hpp,cpp}`
 - `src/LLMEncoder.cpp`
+
+---
+
+### TD-358: GPU Training Feeds Unshifted Targets, Teaching the Model to Copy Instead of Predict
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Models / EncoderDecoderModel | October 11, 2026 | 1-2 hours (plus retraining every GPU-trained checkpoint) |
+
+Description:
+Found while writing the code-traced reference [EncoderDecoderModel.md](../reference/source/EncoderDecoderModel.md). `EncoderDecoderModel::gpu_forward()`
+calls `decoder->gpu_decode(target_tokens, …)` with the **unshifted** targets as decoder input, then
+`matrix_cross_entropy_loss_gpu()` scores row *t* against `targets[t]`. Under the causal mask,
+position *t* sees `targets[t]` itself, so the loss is minimized by copying the current input token.
+The CPU `forward()` correctly feeds `[BOS] + target[:-1]`. `gpu_backward()` and `gpu_evaluate()` use
+the same misalignment, so training and validation loss look excellent.
+
+`ChatbotTrainer` uses this path whenever `ADAI_ENABLE_GPU` is set, i.e. every `incremental_trainer`
+pass on ai-machine (SYCL). **Reproduced on the CPU** with the same model classes and the GPU path's
+exact decoder input, on a tiny echo task (150 epochs each):
+
+| Decoder input during training | Final loss | Greedy generation exactly right |
+|---|---|---|
+| `[BOS] + target[:-1]` (CPU `forward()`) | 0.0008 | 12 / 12 |
+| `target` unshifted (GPU `gpu_forward()`) | 0.0006 | **0 / 12** (`2 2 2 17 17 17 …`) |
+
+The GPU-style model reaches equally low loss but can't generate: it learned "output the token I was
+given". Every checkpoint trained on the GPU path needs retraining after the fix.
+
+Action Items:
+
+- [ ] In `gpu_forward()`, build the decoder input exactly as `forward()` does (`[BOS] + target[:-1]`, via one shared helper) while keeping `targets` as the labels.
+- [ ] Add a CPU-vs-GPU equivalence test (same weights → same logits and loss for `forward()` and `gpu_forward()`), run on ai-machine; until GPU CI exists, ship a run package for the remote host.
+- [ ] Retrain affected models; consider bumping the checkpoint format version so GPU-trained pre-fix checkpoints are flagged.
+
+Location in code: `src/EncoderDecoderModel.cpp` (`gpu_forward()`); tagged `TODO: See TD-358`.
+
+Files to Modify:
+
+- `src/EncoderDecoderModel.{hpp,cpp}`
+- `tests/encoderdecoder_test.cpp`
+
+---
+
+### TD-359: `generate_response()` and `gpu_generate_response()` Ignore `max_length`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Models / EncoderDecoderModel | October 11, 2026 | 1 hour |
+
+Description:
+Found alongside TD-358 and confirmed. Neither method forwards its `max_length` argument to
+`TextGenerator`, which uses its stored `max_length` (initially `max_seq_length`):
+`generate_response("hello world", 5)` produced 9 tokens with the generator at 64. The GPU version
+documents it ("kept for interface parity"). `ChatbotTrainer`'s generation-quality metrics
+(`generation_quality_max_tokens = 50`) and label backfill call `generate_response()`, so their
+generations can run to `max_seq_length`, slowing metric computation. The `_with_strategy` variants do
+honour `max_length`.
+
+Action Items:
+
+- [ ] Apply `max_length` for the call (temporarily set it on the generator config and restore it, or pass it through), on both CPU and GPU.
+- [ ] Test: `generate_response(…, 5)` returns at most 5 new tokens.
+
+Location in code: `src/EncoderDecoderModel.cpp` (`generate_response()`, `gpu_generate_response()`); tagged `TODO: See TD-359`.
+
+Files to Modify:
+
+- `src/EncoderDecoderModel.cpp`
+- `tests/encoderdecoder_test.cpp`
+
+---
+
+### TD-360: `EncoderDecoderModel` No-Optimizer Path Never Updates the Encoder
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Models / EncoderDecoderModel | October 11, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-358 and confirmed. `update_weights()` and `set_learning_rate()` skip the encoder
+(the calls are commented out: "LLMEncoder doesn't have this method"), and the LM head's LR isn't set
+either. Ten `train_step()` calls with no optimizer left the encoder's weights exactly unchanged while
+the decoder's moved. Combined with TD-346 (final decoder norm), `train_step()` trains only the decoder
+blocks, embeddings and head. `ChatbotTrainer` registers an optimizer and is unaffected.
+
+Action Items:
+
+- [ ] Add `LLMEncoder::update_weights()`/`set_learning_rate()` and call them; set the head's LR; fold into TD-297's single-step design for the optimizer case.
+
+Location in code: `src/EncoderDecoderModel.cpp` (`update_weights()`, `set_learning_rate()`); tagged `TODO: See TD-360`.
+
+Files to Modify:
+
+- `src/EncoderDecoderModel.cpp`
+- `src/LLMEncoder.cpp`
+- `src/encoder.hpp`
+
+---
+
+### TD-361: Training Targets Get a Double `BOS`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Models / EncoderDecoderModel | October 11, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-358 and confirmed. Targets are tokenized with `encode(response, true)` =
+`[BOS, w1…wn, EOS]` (in `train_step()` and `ChatbotTrainer`'s tokenization), and `forward()` prepends
+another `BOS`, so the decoder input is `[BOS, BOS, w1…wn]` and position 0 is trained to predict `BOS`
+from `BOS`. Generation follows suit: from `[BOS]`, a trained model first emits a second `BOS`
+(`2 2 12 23 …` in the TD-358 experiment), wasting a step and a `max_length` slot.
+
+Action Items:
+
+- [ ] Either tokenize targets without the leading `BOS` (keeping `EOS`) or stop prepending in `forward()`/the GPU fix, consistently for CPU and GPU; this changes training alignment, so do it together with TD-358's retraining.
+
+Location in code: `src/EncoderDecoderModel.cpp` (`forward()` decoder input, `train_step()`); tagged `TODO: See TD-361`.
+
+Files to Modify:
+
+- `src/EncoderDecoderModel.cpp`
+- `src/ChatbotTrainer.cpp`
+
+---
+
+### TD-362: CPU and GPU Generation Paths Behave Differently
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Models / EncoderDecoderModel | October 11, 2026 | 2-4 hours |
+
+Description:
+Found alongside TD-358, by inspection. The four generation entry points diverge:
+- Invalid-vocab masking (IDs ≥ the tokenizer's vocab) happens only in the CPU strategy path and the
+  CPU beam paths; the CPU plain cached path and every GPU path don't mask.
+- Only CPU paths write hippocampal memory or attach the world model (beam only).
+- An unknown strategy goes to `generate()` on CPU but to nucleus sampling on GPU.
+- `num_beams > 1` forces beam on CPU (TD-261) but is ignored by the GPU non-beam strategies.
+
+The same request can therefore produce different output depending on whether the server runs on a
+GPU build.
+
+Action Items:
+
+- [ ] Factor one shared model_fn/strategy-dispatch for CPU and GPU (masking, defaults, beam handling, memory write), differing only in the forward call.
+
+Location in code: `src/EncoderDecoderModel.cpp` (`generate_response()`, `gpu_generate_response()`, `gpu_generate_response_with_strategy()`); tagged `TODO: See TD-362`.
+
+Files to Modify:
+
+- `src/EncoderDecoderModel.cpp`
+
+---
+
+### TD-363: `EncoderDecoderModel` Clone, Load and World-Model Input Gaps
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Models / EncoderDecoderModel | October 11, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-358, by inspection:
+- `clone()` round-trips `save_model()`/`load_model()`, so the copy lacks the world model, hippocampal
+  memory, generation config, repetition params and LoRA adapters. `ChatbotTrainer`'s async BLEU/ROUGE
+  snapshots therefore generate differently from the live model.
+- `load_model()` doesn't check its config reads, and restores special-token IDs onto the model but not
+  into the generator's config until `sync_special_tokens()` runs.
+- `forward()` re-derives the world model's input by decoding token ids back to text, which is lossy
+  under the tokenizer's normalization (TD-224).
+
+Action Items:
+
+- [ ] Copy the extra state in `clone()` (or document the snapshot's scope); check reads and sync the generator in `load_model()`; pass the original text to the world model where available.
+
+Location in code: `src/EncoderDecoderModel.cpp` (`clone()`, `load_model()`, `forward()` world-model block); tagged `TODO: See TD-363`.
+
+Files to Modify:
+
+- `src/EncoderDecoderModel.{hpp,cpp}`
 
 ---
 
@@ -7605,15 +7813,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 149 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 155 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|20|13%|
-|Medium|63|42%|
-|Low|66|44%|
+|High|21|14%|
+|Medium|65|42%|
+|Low|69|45%|
 
-**Total Active Items:** 149
+**Total Active Items:** 155
 
 ### By Component
 
@@ -7655,6 +7863,7 @@ Recomputed directly from the 149 `### TD-NNN` entries under [Active Technical De
 |Transformer / Decoder|3|
 |RAG / DocumentStore|3|
 |Transformer / EncoderBlock|2|
+|Models / EncoderDecoderModel|6|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
 
@@ -7662,13 +7871,13 @@ Recomputed directly from the 149 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|78|
-|2-4 hours|49|
+|0-2 hours|83|
+|2-4 hours|50|
 |4-8 hours|12|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 330-563 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 337-576 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

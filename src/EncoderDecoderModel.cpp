@@ -192,6 +192,7 @@ Matrix EncoderDecoderModel::compute_loss_gradient(const Matrix& logits,
 }
 
 // Generate response
+// TODO: See TD-359 in TECHNICAL_DEBT.md - max_length is never applied; the generator's stored max_length is used instead
 std::string EncoderDecoderModel::generate_response(const std::string& input_text, int max_length) {
     // TD-156: serializes this whole (potentially multi-token) generation against any other
     // thread's forward()/backward()/generate_response()/generate_response_with_strategy() call
@@ -278,6 +279,7 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
         std::vector<int> output_tokens =
             generator->generate_beam_search(beam_model_fn, {bos_token_id});
         std::string beam_response = tokenizer->decode(output_tokens, true);
+        // TODO: See TD-343 in TECHNICAL_DEBT.md - also runs for training-time generation (backfill/quality metrics), polluting episodic memory
         maybe_write_hippocampal_memory(beam_response);  // TD-185
         return beam_response;
     }
@@ -287,6 +289,7 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
     size_t processed_length = 0;
 
     // Create model forward function with KV caching
+    // TODO: See TD-362 in TECHNICAL_DEBT.md - unlike the strategy path, this cached model_fn doesn't mask IDs beyond the tokenizer vocab
     auto model_fn = [this, &kv_cache, &processed_length](const std::vector<int>& tokens) -> Matrix {
         size_t current_length = tokens.size();
 
@@ -314,6 +317,7 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
 
     // Decode tokens to text (skip special tokens like <bos>, <eos>, <unk>, <pad>)
     std::string response = tokenizer->decode(output_tokens, true);
+    // TODO: See TD-343 in TECHNICAL_DEBT.md - also runs for training-time generation (backfill/quality metrics), polluting episodic memory
     maybe_write_hippocampal_memory(response);  // TD-185
 
     return response;
@@ -629,6 +633,7 @@ void EncoderDecoderModel::set_training(bool mode) {
 }
 
 // Set learning rate
+// TODO: See TD-360 in TECHNICAL_DEBT.md - never reaches the encoder (or the LM head)
 void EncoderDecoderModel::set_learning_rate(float lr) {
     learning_rate = lr;
     // encoder->set_learning_rate(lr);  // LLMEncoder doesn't have this method
@@ -636,6 +641,7 @@ void EncoderDecoderModel::set_learning_rate(float lr) {
 }
 
 // Update weights
+// TODO: See TD-360 in TECHNICAL_DEBT.md - never updates the encoder; TD-346 skips the final decoder norm
 void EncoderDecoderModel::update_weights() {
     // encoder->update_weights(learning_rate);  // LLMEncoder doesn't have this method
     decoder->update_weights(learning_rate);
@@ -787,6 +793,7 @@ void EncoderDecoderModel::save_model(const std::string& filepath) const {
 }
 
 // Load model
+// TODO: See TD-363 in TECHNICAL_DEBT.md - config reads unchecked; special tokens not synced into the generator config
 void EncoderDecoderModel::load_model(const std::string& filepath) {
     // Load architecture config
     std::ifstream config_file(filepath + ".config", std::ios::binary);
@@ -862,6 +869,7 @@ void EncoderDecoderModel::load_model(const std::string& filepath) {
 }
 
 // Clone (TD-023): deep-copy weights via save/load; no optimizer state is copied
+// TODO: See TD-363 in TECHNICAL_DEBT.md - the copy lacks world model, hippocampal memory, generation config and LoRA adapters
 std::unique_ptr<EncoderDecoderModel> EncoderDecoderModel::clone() const {
     namespace fs = std::filesystem;
 
@@ -925,6 +933,7 @@ Matrix EncoderDecoderModel::forward(const std::vector<int>& input_tokens,
     // `forward()` is a public, documented "custom training loops" API, so an
     // empty target_tokens is a plausible caller input, not just theoretical.
     std::vector<int> decoder_input;
+    // TODO: See TD-361 in TECHNICAL_DEBT.md - targets already start with BOS (encode(..., true)), so this doubles it
     decoder_input.push_back(bos_token_id);
     for (size_t i = 0; i + 1 < target_tokens.size(); ++i) {
         decoder_input.push_back(target_tokens[i]);
@@ -937,6 +946,7 @@ Matrix EncoderDecoderModel::forward(const std::vector<int>& input_tokens,
     Matrix world_model_encoding;
     const Matrix* world_model_output_ptr = nullptr;
     if (world_model) {
+        // TODO: See TD-363 in TECHNICAL_DEBT.md - decoding ids back to text is lossy (TD-224); the world model sees different text
         std::string decoded_input = tokenizer->decode(input_tokens, /*skip_special_tokens=*/true);
         if (!decoded_input.empty()) {
             try {
@@ -1018,6 +1028,7 @@ float EncoderDecoderModel::gpu_forward(const std::vector<int>& input_tokens,
     gpu_encoder_out_ = std::make_unique<adai::gpu::GPUMatrix>(encoder->gpu_encode(input_tokens));
 
     // Decoder (caches its block inputs/outputs for backward internally)
+    // TODO: See TD-358 in TECHNICAL_DEBT.md - CRITICAL: unshifted targets as decoder input; GPU training learns to copy, not predict. Use [BOS] + target[:-1] like forward()
     adai::gpu::GPUMatrix dec_out = decoder->gpu_decode(target_tokens, *gpu_encoder_out_);
 
     // LM head (caches dec_out internally)
@@ -1028,6 +1039,7 @@ float EncoderDecoderModel::gpu_forward(const std::vector<int>& input_tokens,
                                                     gpu_targets_dev_->get(), tgt_len, vocab_size);
 }
 
+// TODO: See TD-358 in TECHNICAL_DEBT.md - gradient uses the same misaligned targets as gpu_forward()
 void EncoderDecoderModel::gpu_backward(float scale) {
     const int tgt_len = static_cast<int>(cached_target_tokens.size());
 
@@ -1073,6 +1085,7 @@ float EncoderDecoderModel::gpu_evaluate(const std::string& input_text,
     return gpu_evaluate_tokenized(input_tokens, target_tokens);
 }
 
+// TODO: See TD-358 in TECHNICAL_DEBT.md - validation loss inherits gpu_forward()'s misalignment (looks misleadingly low)
 float EncoderDecoderModel::gpu_evaluate_tokenized(const std::vector<int>& input_tokens,
                                                   const std::vector<int>& target_tokens) {
     bool prev_mode = requires_grad;
@@ -1097,6 +1110,7 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
     // Matches generate_response(): the caller's max_length is not forwarded to
     // TextGenerator, which generates up to its own, separately configured
     // config.max_length. Kept as a parameter for interface parity.
+    // TODO: See TD-359 in TECHNICAL_DEBT.md - max_length is ignored
     (void)max_length;
 
     std::vector<int> input_tokens = tokenizer->encode(input_text, false);
@@ -1164,6 +1178,7 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
     return tokenizer->decode(output_tokens, true);
 }
 
+// TODO: See TD-362 in TECHNICAL_DEBT.md - no vocab masking, no world model/memory write, different unknown-strategy default and num_beams handling than the CPU path
 std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
     const std::string& input_text, int max_length, const std::string& strategy,
     float temperature, int top_k, float top_p, int num_beams) {

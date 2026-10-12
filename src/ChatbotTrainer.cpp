@@ -564,6 +564,7 @@ void ChatbotTrainer::preprocess_data() {
                     tokenizer->encode(truncate_text_tail(pair.input, max_chars), false), max_len),
                 // TODO: See TD-275 in TECHNICAL_DEBT.md - head truncation after adding specials drops <eos>
                 // from responses longer than max_seq_length.
+                // TODO: See TD-361 in TECHNICAL_DEBT.md - targets start with BOS, and forward() prepends another (double BOS)
                 truncate(tokenizer->encode(clip_text(pair.response), true)), pair.input,
                 pair.response);
             training_data[i].meta.token_count =
@@ -603,6 +604,7 @@ void ChatbotTrainer::preprocess_data() {
             tokenized_validation_data[i] = TokenizedPair(
                 truncate_tokens_tail(
                     tokenizer->encode(truncate_text_tail(pair.input, max_chars), false), max_len),
+                // TODO: See TD-361 in TECHNICAL_DEBT.md - targets start with BOS, and forward() prepends another (double BOS)
                 truncate(tokenizer->encode(clip_text(pair.response), true)), pair.input,
                 pair.response);
             validation_data[i].meta.token_count =
@@ -1130,6 +1132,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
 
 #ifdef ADAI_ENABLE_GPU
             // GPU path: forward + cross-entropy loss entirely on device
+            // TODO: See TD-358 in TECHNICAL_DEBT.md - gpu_forward() trains on unshifted targets (learns to copy); every GPU checkpoint is affected
             loss = model->gpu_forward(pair.input_tokens, pair.target_tokens);
 
             // Backfill quality from loss
@@ -1803,6 +1806,7 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
         references.push_back(pair.target_text);
         try {
 #ifdef ADAI_ENABLE_GPU
+            // TODO: See TD-359 in TECHNICAL_DEBT.md - generation_quality_max_tokens is ignored by (gpu_)generate_response()
             hypotheses.push_back(model->gpu_generate_response(
                 pair.input_text, config.generation_quality_max_tokens));
 #else
@@ -1853,6 +1857,7 @@ void ChatbotTrainer::backfill_generation_quality() {
         float result = 0.0f;
         try {
 #ifdef ADAI_ENABLE_GPU
+            // TODO: See TD-359 in TECHNICAL_DEBT.md - generation_backfill_max_tokens is ignored by (gpu_)generate_response()
             std::string hyp =
                 model->gpu_generate_response(input, config.generation_backfill_max_tokens);
 #else
