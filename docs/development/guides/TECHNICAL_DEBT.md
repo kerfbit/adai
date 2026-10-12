@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 9, 2026
-**Total Items:** 147
+**Total Items:** 149
 **High Priority:** 20
 **Medium Priority:** 63
-**Low Priority:** 64
+**Low Priority:** 66
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -116,6 +116,12 @@ field (its only tie to the header; `BatchedInferenceEngine.hpp` is now `@adai-ve
 closes [TD-352](../archive/TECHNICAL_DEBT_RESOLVED.md#td-352-parallel-data-augmentation-isnt-reproducible) through [TD-355](../archive/TECHNICAL_DEBT_RESOLVED.md#td-355-efficientbatching-is-an-unused-duplicate-of-batchprocessor). The token-budget bucketing algorithm is preserved as a design note
 in [real_batching_v2_plan.md](../../proposals/real_batching_v2_plan.md) §4.1, and the augmentation
 operations are recorded under [TD-014](#td-014-llm-operations-and-training-tooling-suite).
+
+Also October 11, 2026: filed [TD-356](#td-356-encoderblock-gradient-norm-and-clipping-ignore-layernorm-header-describes-post-ln) and [TD-357](#td-357-encoderblock-learning-rate-handling-unchecked-loads-and-console-output) from the code-traced
+[EncoderBlock.md](../reference/source/EncoderBlock.md), both LOW (`backward()` itself was verified
+correct): gradient norm/clipping ignore `LayerNorm` and the header still describes Post-LN (TD-356),
+and learning-rate handling, unchecked loads and console output (TD-357). TD-344 was amended: the
+encoder's `dropout` is never applied either.
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -958,6 +964,9 @@ with TD-230. [TD-349](#td-349-rag-indexes-whole-files-but-embeds-only-their-firs
 closed with the header's retirement. Its token-budget bucketing is a design note in the v2 plan (§4.1);
 augmentation is listed under [TD-014](#td-014-llm-operations-and-training-tooling-suite).
 
+**Tier 36 — Newly filed (October 11, 2026): `EncoderBlock`.** All cleanup: [TD-356](#td-356-encoderblock-gradient-norm-and-clipping-ignore-layernorm-header-describes-post-ln) and [TD-357](#td-357-encoderblock-learning-rate-handling-unchecked-loads-and-console-output).
+Do the dropout decision (TD-344) for both blocks at once.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1111,6 +1120,8 @@ augmentation is listed under [TD-014](#td-014-llm-operations-and-training-toolin
   - [TD-349: RAG Indexes Whole Files but Embeds Only Their First `max_seq_length` Tokens](#td-349-rag-indexes-whole-files-but-embeds-only-their-first-max_seq_length-tokens)
   - [TD-350: `DocumentStore::retrieve()` Isn't Safe to Call Concurrently](#td-350-documentstoreretrieve-isnt-safe-to-call-concurrently)
   - [TD-351: `DocumentStore` Embedding and Housekeeping Gaps](#td-351-documentstore-embedding-and-housekeeping-gaps)
+  - [TD-356: `EncoderBlock` Gradient Norm and Clipping Ignore `LayerNorm`; Header Describes Post-LN](#td-356-encoderblock-gradient-norm-and-clipping-ignore-layernorm-header-describes-post-ln)
+  - [TD-357: `EncoderBlock` Learning-Rate Handling, Unchecked Loads and Console Output](#td-357-encoderblock-learning-rate-handling-unchecked-loads-and-console-output)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -6802,6 +6813,10 @@ Found alongside TD-341, by inspection. The constructor takes `dropout` (default 
 `LLMDecoder` passes), stores it in `dropout_rate`, and `save()`/`load()` persist it, but no forward
 path applies dropout. Training gets no dropout regularization despite the parameter.
 
+**Update (October 11, 2026, from [EncoderBlock.md](../reference/source/EncoderBlock.md)):** `EncoderBlock`
+has the same gap: `dropout` (default 0.1) is stored, saved, loaded and printed but never applied, so
+none of the encoders (chatbot, RAG, LeJEPA world model) get dropout either. Fix both blocks together.
+
 Action Items:
 
 - [ ] Either implement dropout (training-mode only, on sub-layer outputs) or remove the parameter and its persistence (keeping load() compatible).
@@ -7014,6 +7029,63 @@ Location in code: `src/DocumentStore.cpp` (`getSentenceEmbedding()`, `retrieve()
 Files to Modify:
 
 - `src/DocumentStore.{hpp,cpp}`
+
+---
+
+### TD-356: `EncoderBlock` Gradient Norm and Clipping Ignore `LayerNorm`; Header Describes Post-LN
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Transformer / EncoderBlock | October 11, 2026 | 1-2 hours |
+
+Description:
+Found while writing the code-traced reference [EncoderBlock.md](../reference/source/EncoderBlock.md), by inspection. `get_gradient_norm()`
+combines only the attention and feed-forward norms, and `clip_gradients()` scales only those two, so
+`LayerNorm` gradients are left out of the reported norm and unscaled when clipping (which changes the
+gradient direction). `clip_gradients()` has no caller. The header's `forward()`/`backward()` doc step
+lists describe Post-LN order ("residual connection and layer norm") while the class is Pre-LN, and
+the feature list advertises "optional dropout" and "gradient accumulation and clipping".
+(`backward()` itself was verified correct against finite differences.)
+
+Action Items:
+
+- [ ] Include `LayerNorm` gradients in `get_gradient_norm()`/`clip_gradients()` (add a norm accessor to `LayerNorm`), or remove the unused `clip_gradients()`.
+- [ ] Rewrite the stale header comments to the Pre-LN steps and drop the unimplemented features.
+
+Location in code: `src/EncoderBlock.cpp` (`get_gradient_norm()`, `clip_gradients()`), `src/EncoderBlock.hpp` (class/method docs); tagged `TODO: See TD-356`.
+
+Files to Modify:
+
+- `src/EncoderBlock.{hpp,cpp}`
+- `src/LayerNorm.{hpp,cpp}`
+
+---
+
+### TD-357: `EncoderBlock` Learning-Rate Handling, Unchecked Loads and Console Output
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Transformer / EncoderBlock | October 11, 2026 | 1-2 hours |
+
+Description:
+Found alongside TD-356, by inspection. `update_weights()` copies the block's public `learning_rate`
+into all four sub-layers on every call, silently overriding anything set on them directly, and there's
+no `set_learning_rate()` (`LLMEncoder` has none either, so `EncoderDecoderModel::set_learning_rate()`
+never reaches the encoder). `load_weights()` never checks its reads, so a truncated file leaves
+garbage `LayerNorm` parameters (same class as TD-298/TD-345), and the saved dropout value is read and
+discarded. `save_weights()`, `load_weights()` and `print_config()` write to `std::cout` in library
+code.
+
+Action Items:
+
+- [ ] Add `set_learning_rate()` (propagating to sub-layers, like `DecoderBlock`'s) and stop overwriting in `update_weights()`; check reads in `load_weights()`; switch output to `Logger`.
+
+Location in code: `src/EncoderBlock.cpp` (`update_weights()`, `load_weights()`, `save_weights()`, `print_config()`); tagged `TODO: See TD-357`.
+
+Files to Modify:
+
+- `src/EncoderBlock.{hpp,cpp}`
+- `src/LLMEncoder.cpp`
 
 ---
 
@@ -7533,15 +7605,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 147 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 149 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|20|14%|
-|Medium|63|43%|
-|Low|64|44%|
+|High|20|13%|
+|Medium|63|42%|
+|Low|66|44%|
 
-**Total Active Items:** 147
+**Total Active Items:** 149
 
 ### By Component
 
@@ -7582,6 +7654,7 @@ Recomputed directly from the 147 `### TD-NNN` entries under [Active Technical De
 |Transformer / DecoderBlock|5|
 |Transformer / Decoder|3|
 |RAG / DocumentStore|3|
+|Transformer / EncoderBlock|2|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
 
@@ -7589,13 +7662,13 @@ Recomputed directly from the 147 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|76|
+|0-2 hours|78|
 |2-4 hours|49|
 |4-8 hours|12|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 328-559 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 330-563 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

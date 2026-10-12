@@ -50,6 +50,7 @@
  *   - Full backpropagation support
  *   - Gradient accumulation and clipping
  */
+// TODO: See TD-356 in TECHNICAL_DEBT.md - class doc advertises dropout and gradient clipping; neither is effectively used
 class EncoderBlock {
    private:
     // Core components
@@ -62,6 +63,7 @@ class EncoderBlock {
     int d_model;
     int num_heads;
     int d_ff;
+    // TODO: See TD-344 in TECHNICAL_DEBT.md - dropout is stored, saved and printed but never applied
     float dropout_rate;
 
     // Cached values for backward pass
@@ -98,6 +100,7 @@ class EncoderBlock {
      * @param mask Optional attention mask [seq_len x seq_len] or nullptr
      * @return Output matrix [seq_len x d_model]
      */
+    // TODO: See TD-356 in TECHNICAL_DEBT.md - the doc comment above lists Post-LN steps; the code is Pre-LN
     Matrix forward(const Matrix& input, const Matrix* mask = nullptr);
 
     /**
@@ -115,6 +118,7 @@ class EncoderBlock {
      * @param grad_output Gradient from next layer [seq_len x d_model]
      * @return Gradient w.r.t. input [seq_len x d_model]
      */
+    // TODO: See TD-356 in TECHNICAL_DEBT.md - the doc comment above lists Post-LN steps; the code is Pre-LN
     Matrix backward(const Matrix& grad_output);
 
     /**

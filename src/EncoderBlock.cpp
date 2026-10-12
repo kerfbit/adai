@@ -9,6 +9,7 @@
 #include <iostream>
 #include <stdexcept>
 
+// TODO: See TD-344 in TECHNICAL_DEBT.md - dropout is never applied
 EncoderBlock::EncoderBlock(int d_model, int num_heads, int d_ff, float dropout)
     : d_model(d_model), num_heads(num_heads), d_ff(d_ff), dropout_rate(dropout) {
     // Initialize multi-head attention
@@ -129,6 +130,7 @@ Matrix EncoderBlock::backward(const Matrix& grad_output) {
     return grad_input;
 }
 
+// TODO: See TD-357 in TECHNICAL_DEBT.md - overwrites sub-layer learning rates every call; no set_learning_rate(). TD-297: shared-optimizer over-step
 void EncoderBlock::update_weights() {
     // Update all sub-components with current learning rate
     attention->learning_rate = learning_rate;
@@ -150,6 +152,7 @@ void EncoderBlock::zero_grad() {
     norm2->zero_grad();
 }
 
+// TODO: See TD-356 in TECHNICAL_DEBT.md - excludes LayerNorm gradients
 float EncoderBlock::get_gradient_norm() const {
     float norm_sq = 0.0f;
 
@@ -166,6 +169,7 @@ float EncoderBlock::get_gradient_norm() const {
     return std::sqrt(norm_sq);
 }
 
+// TODO: See TD-356 in TECHNICAL_DEBT.md - no caller; leaves LayerNorm gradients unscaled
 void EncoderBlock::clip_gradients(float max_norm) {
     float current_norm = get_gradient_norm();
 
@@ -219,9 +223,11 @@ void EncoderBlock::save_weights(const std::string& filename) const {
     attention->save_weights(base + "_attention.bin");
     feed_forward->save_weights(base + "_feedforward.bin");
 
+    // TODO: See TD-357 in TECHNICAL_DEBT.md - std::cout in library code
     std::cout << "Saved EncoderBlock weights to " << filename << '\n';
 }
 
+// TODO: See TD-357 in TECHNICAL_DEBT.md - reads are unchecked (truncated file loads garbage)
 void EncoderBlock::load_weights(const std::string& filename) {
     std::ifstream file(filename, std::ios::binary);
     if (!file.is_open()) {
@@ -278,6 +284,7 @@ void EncoderBlock::load_weights(const std::string& filename) {
     std::cout << "Loaded EncoderBlock weights from " << filename << '\n';
 }
 
+// TODO: See TD-357 in TECHNICAL_DEBT.md - std::cout in library code
 void EncoderBlock::print_config(const std::string& name) const {
     std::cout << "\n" << name << " Configuration:" << '\n';
     std::cout << "  Model Dimension (d_model): " << d_model << '\n';

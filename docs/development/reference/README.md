@@ -32,6 +32,7 @@ This directory contains reference materials, technical specifications, and imple
   - [DecoderBlock](source/DecoderBlock.md) (`src/DecoderBlock.{hpp,cpp}`; Pre-LN decoder layer with gated world-model/hippocampal paths)
   - [DocumentStore](source/DocumentStore.md) (`src/DocumentStore.{hpp,cpp}`; RAG retrieval index)
   - [EfficientBatching](source/EfficientBatching.md) (`src/EfficientBatching.hpp`, **retired** October 11, 2026; bucketing kept as a v2-plan design note)
+  - [EncoderBlock](source/EncoderBlock.md) (`src/EncoderBlock.{hpp,cpp}`; Pre-LN encoder layer)
 
 - **[KVCache API Reference](kvcache.md)** - Complete API documentation for the Key-Value cache system
   - Single-layer and multi-layer caching
