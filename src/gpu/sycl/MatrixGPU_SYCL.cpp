@@ -213,6 +213,9 @@ static inline float subgroup_reduce_sum(sycl::sub_group sg, float val) {
 // local_id(0) == 0; other work-items' return values are unspecified.
 // `subgroup_sums` must have at least (work-group size / sub-group size)
 // elements — WG_SIZE is generous for any Intel sub-group width (16 or 32).
+// TODO: See TD-393 in TECHNICAL_DEBT.md - only sub-group 0 combines the partials, so this is correct only when
+// sub-group size >= 16 (S*S >= 256); at S = 8 (CPU device, Alchemist GPUs) 3/4 of the partials are dropped
+// (verified: 256 ones -> 64). Pin [[sycl::reqd_sub_group_size(...)]] or loop over the partials.
 static inline float workgroup_reduce_sum(sycl::nd_item<1> item,
                                           sycl::local_accessor<float, 1> subgroup_sums,
                                           float val) {
@@ -289,6 +292,8 @@ float matrix_sum_gpu(const float* data, int size) {
 // Batch Operations
 // ============================================================================
 
+// TODO: See TD-386 in TECHNICAL_DEBT.md - no callers; q.memcpy from the caller's host pointer arrays isn't waited
+// on, so a temporary array could be read after it's freed (same in matrix_batch_multiply_gpu)
 void matrix_batch_add_gpu(const float** a_batch, const float** b_batch, float** c_batch,
                           int batch_size, int size) {
     auto& q = GPUManager::get_queue();

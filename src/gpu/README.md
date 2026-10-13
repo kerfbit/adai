@@ -14,7 +14,7 @@ Code-traced references (behaviour, callers and known issues) live in
 | `MatrixGPU.cu` | CUDA kernels and cuBLAS wrappers | [MatrixGPU_cu.md](../../docs/development/reference/source/MatrixGPU_cu.md) |
 | `sycl/GPUUtils_SYCL.hpp` | SYCL `GPUManager` (in-order queue) and USM-based `GPUMemory<T>` | [GPUUtils_SYCL.md](../../docs/development/reference/source/GPUUtils_SYCL.md) |
 | `sycl/MatrixGPU_SYCL.hpp` | SYCL kernel declarations and `GPUMatrix` | — |
-| `sycl/MatrixGPU_SYCL.cpp` | SYCL kernels (oneMKL for GEMM) | — |
+| `sycl/MatrixGPU_SYCL.cpp` | SYCL kernels (oneMKL for GEMM) | [MatrixGPU_SYCL_cpp.md](../../docs/development/reference/source/MatrixGPU_SYCL_cpp.md) |
 
 ## How it's used
 

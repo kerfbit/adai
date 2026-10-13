@@ -49,7 +49,8 @@ class GPUManager {
     inline static bool low_priority_ = true;
 
     // TODO: See TD-391 in TECHNICAL_DEBT.md - collects GPUs from every platform, so one Arc card appears once per
-    // backend (Level Zero and OpenCL); GPU_DEVICE_ID then picks by platform order and the backend isn't logged
+    // backend (Level Zero and OpenCL); GPU_DEVICE_ID then picks by platform order and the backend isn't logged.
+    // TD-394: GPU-only selection also means no test can run these kernels without a GPU (add a CPU-device test mode)
     static std::vector<sycl::device> enumerate_gpu_devices() {
         std::vector<sycl::device> gpus;
         for (auto& platform : sycl::platform::get_platforms()) {

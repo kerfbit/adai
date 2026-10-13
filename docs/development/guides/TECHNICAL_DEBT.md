@@ -5,9 +5,9 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 12, 2026
-**Total Items:** 184
+**Total Items:** 186
 **High Priority:** 23
-**Medium Priority:** 78
+**Medium Priority:** 80
 **Low Priority:** 83
 **Future Enhancements:** 19
 **Resolved Items:** 208
@@ -206,6 +206,16 @@ queue: 1.35 ms per alloc/kernel/free iteration vs 0.051 ms blocking and 0.014 ms
 GPUs are collected from every SYCL platform, so one Arc card appears once per backend and
 `GPU_DEVICE_ID` silently picks by platform order (TD-391). One is LOW: `GPUMemory(0)` throws on SYCL
 but not CUDA (TD-392, verified). TD-382 and TD-383 were amended for the SYCL manager.
+
+Also October 12, 2026: filed [TD-393](#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8) and [TD-394](#td-394-gpu-kernel-tests-cant-run-without-a-gpu) from the code-traced
+[MatrixGPU_SYCL_cpp.md](../reference/source/MatrixGPU_SYCL_cpp.md), the first time any GPU kernel in
+this repository has actually been run (a scratch copy of the SYCL backend on the oneAPI CPU device).
+Both are MEDIUM: the sub-group sum reduction is correct only when the compiler picks a sub-group size
+≥ 16; at 8 (the CPU device, Arc A-series) it drops ¾ of the partials per level, so 256 ones sum to 64
+(TD-393, verified; probably latent on ai-machine's Xe2, which has no size 8); and no test can run the
+GPU kernels without a GPU, which is how this and TD-384 went unnoticed (TD-394). **TD-384 is now
+verified**: the race reproduces deterministically on the CPU device (LayerNorm forward 0.32 relative
+error) and adding the barrier fixes all four kernels. TD-385 and TD-386 were amended for SYCL.
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1099,6 +1109,11 @@ ai-machine log the selected platform (or run `sycl-ls`) to confirm it's on Level
 [TD-390](#td-390-sycl-deferred-frees-and-blocking-copies-stall-the-in-order-queue) on ai-machine (time a training step with and without a buffer pool) before rewriting the
 allocator; it's likely the largest SYCL performance item. [TD-392](#td-392-sycl-gpumemory0-throws-where-cuda-succeeds) is small.
 
+**Tier 46 — Newly filed (October 12, 2026): `MatrixGPU_SYCL.cpp`.** Do [TD-394](#td-394-gpu-kernel-tests-cant-run-without-a-gpu) first or alongside
+TD-384: a CPU-device test mode turns the harness that found both bugs into a permanent regression
+test, so TD-384's fix (and TD-358's) can be verified without ai-machine. Fix [TD-393](#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8) in the same
+change (pin the sub-group size or loop over the partials).
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1289,6 +1304,8 @@ allocator; it's likely the largest SYCL performance item. [TD-392](#td-392-sycl-
   - [TD-390: SYCL Deferred Frees and Blocking Copies Stall the In-Order Queue](#td-390-sycl-deferred-frees-and-blocking-copies-stall-the-in-order-queue)
   - [TD-391: SYCL Lists the Same GPU Once per Platform and Doesn't Log the Backend](#td-391-sycl-lists-the-same-gpu-once-per-platform-and-doesnt-log-the-backend)
   - [TD-392: SYCL `GPUMemory(0)` Throws Where CUDA Succeeds](#td-392-sycl-gpumemory0-throws-where-cuda-succeeds)
+  - [TD-393: SYCL Sub-Group Reduction Is Wrong When the Sub-Group Size Is 8](#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8)
+  - [TD-394: GPU Kernel Tests Can't Run Without a GPU](#td-394-gpu-kernel-tests-cant-run-without-a-gpu)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -8104,8 +8121,15 @@ LayerNorm centres on a variance partial, and the loss and gradient for that posi
 It's likely rare, since thread 0 must finish a full loop pass before the lagging warp's single load,
 but it's intermittent, data-dependent and affects attention, every LayerNorm and the loss in GPU
 training. **`MatrixGPU_SYCL.cpp` has the identical pattern in the same four kernels**, and ai-machine
-trains on SYCL (Intel Arc), so its runs are exposed too. It can't be reproduced on a CPU SYCL device,
-which executes a work-group's items in lockstep regions between barriers.
+trains on SYCL (Intel Arc), so its runs are exposed too.
+
+**Verified October 12, 2026** ([MatrixGPU_SYCL_cpp.md](../reference/source/MatrixGPU_SYCL_cpp.md)):
+contrary to the original note here, it **does** reproduce on the oneAPI CPU device, deterministically
+(the CPU runtime runs a work-group's sub-groups in turn, so sub-group 0 always overwrites
+`scratch[0]` first). Wrong results: softmax rows (2.5×10⁻² relative error), LayerNorm forward
+(0.32), cross-entropy loss (4×10⁻³) and grad (2×10⁻³), identical over five runs. Adding one
+`item.barrier(local_space)` after each of the four reads made all of them pass (≤ 2×10⁻⁷; LayerNorm
+backward 6.6×10⁻⁵ vs. finite differences). On a GPU it's timing-dependent rather than certain.
 
 Action Items:
 
@@ -8133,7 +8157,8 @@ Found while tracing `MatrixGPU.cu`, by inspection. `matrix_sum_gpu()` reduces re
 allocates a `GPUMemory` buffer at every level (`cudaMalloc`/`cudaFree`, both synchronizing), ending
 with a blocking one-float download. `matrix_cross_entropy_loss_gpu()` calls it every training step,
 so each step stalls the CPU on the GPU and churns the allocator. `matrix_count_below_threshold_gpu()`
-(the saturation hook) has the same shape. The SYCL port should be checked when it's traced.
+(the saturation hook) has the same shape. **SYCL (October 12, 2026):** both SYCL versions have the same
+shape plus a `.wait()` on the submit; the SYCL `count_below_threshold` also lacks a `size <= 0` guard.
 
 Action Items:
 
@@ -8165,6 +8190,9 @@ Found while tracing `MatrixGPU.cu`, by inspection:
   surface at a later, unrelated synchronizing call.
 - `matrix_batch_add_gpu`, `matrix_batch_multiply_gpu` and `matrix_add_scalar_gpu` have no callers in
   either backend.
+- **SYCL (October 12, 2026):** the SYCL batch helpers `q.memcpy` from the caller's **host** pointer
+  arrays without waiting; unlike CUDA's pageable staging, SYCL doesn't guarantee the host buffer has
+  been read when the call returns, so a temporary array could be read after it's freed.
 
 Action Items:
 
@@ -8361,6 +8389,70 @@ Location in code: `src/gpu/sycl/GPUUtils_SYCL.hpp` (`GPUMemory` constructor); ta
 Files to Modify:
 
 - `src/gpu/sycl/GPUUtils_SYCL.hpp`
+
+---
+
+### TD-393: SYCL Sub-Group Reduction Is Wrong When the Sub-Group Size Is 8
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | GPU / Kernels | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MatrixGPU_SYCL.cpp` and verified on the oneAPI CPU device.
+`workgroup_reduce_sum()` (used by `matrix_sum_gpu` and `matrix_count_below_threshold_gpu`) reduces
+within each sub-group, stores one partial per sub-group, and then has **only sub-group 0** combine the
+`256 / S` partials. That's correct only if `S ≥ 16`. No `reqd_sub_group_size` is set, so the compiler
+chooses `S`; the CPU device chose 8, so 8 of 32 partials were summed per level: 256 ones → 64,
+1,000 → 256, 1,000,000 → 65,536; the saturation count came out 427 instead of 1,667. The
+cross-entropy loss also goes through `matrix_sum_gpu`, so it's wrong once `seq_len > 64`.
+
+ai-machine's Arc B60 (Xe2/Battlemage) supports only sub-group sizes 16 and 32, so it's probably
+latent there, but nothing in the code guarantees it. Arc A-series (Alchemist) and CPU devices can use
+8, and the CUDA version (warp 32) is unaffected.
+
+Action Items:
+
+- [ ] Have sub-group 0 loop over all partials (`for (i = lane; i < num_subgroups; i += S)`), or pin `[[sycl::reqd_sub_group_size(16)]]` (or 32) on the reduction kernels.
+- [ ] Cover it with TD-394's CPU-device test mode (sizes 255, 256, 257, 1e6).
+
+Location in code: `src/gpu/sycl/MatrixGPU_SYCL.cpp` (`workgroup_reduce_sum()`); tagged `TODO: See TD-393`.
+
+Files to Modify:
+
+- `src/gpu/sycl/MatrixGPU_SYCL.cpp`
+
+---
+
+### TD-394: GPU Kernel Tests Can't Run Without a GPU
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | GPU / Testing | October 12, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `MatrixGPU_SYCL.cpp`. The GPU kernel tests (`gpuutilsTests`,
+`matrixgpuTd003Tests`, the GPU cases in `feedforward_test.cpp`/`multiheadattention_test.cpp`) skip
+whenever `GPUManager::probe()` finds no GPU, and the SYCL `GPUManager` enumerates GPU devices only. No
+development or CI environment used so far has a GPU, so **no GPU kernel had ever been run** by the
+test suite. A scratch harness that let the SYCL backend use the oneAPI CPU device ran every kernel in
+minutes and found two real bugs: TD-384 (verified deterministically) and TD-393. A CPU-device mode
+can't prove GPU timing behaviour, but it checks numerics and catches races that a sequential CPU
+schedule exposes.
+
+Action Items:
+
+- [ ] Add an opt-in CPU fallback to the SYCL `GPUManager` (for example `ADAI_SYCL_ALLOW_CPU=1`, test-only), and run `gpuutilsTests`/`matrixgpuTd003Tests` plus a kernel-vs-CPU-reference suite (every `matrix_*_gpu`) in `build/sycl-gputest`.
+- [ ] Add LayerNorm forward/backward, softmax, cross-entropy and reduction-size cases (the harness from MatrixGPU_SYCL_cpp.md §2 is a ready template).
+- [ ] Optionally add a CI job using the oneAPI CPU runtime.
+
+Location in code: `src/gpu/sycl/GPUUtils_SYCL.hpp` (`enumerate_gpu_devices()`); tagged `TD-394` alongside TD-391's TODO.
+
+Files to Modify:
+
+- `src/gpu/sycl/GPUUtils_SYCL.hpp`
+- `tests/matrixgpu_td003_test.cpp`
+- `tests/CMakeLists.txt`
 
 ---
 
@@ -8880,15 +8972,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 184 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 186 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|23|13%|
-|Medium|78|42%|
+|High|23|12%|
+|Medium|80|43%|
 |Low|83|45%|
 
-**Total Active Items:** 184
+**Total Active Items:** 186
 
 ### By Component
 
@@ -8936,7 +9028,8 @@ Recomputed directly from the 184 `### TD-NNN` entries under [Active Technical De
 |Data / FtpDataServer|6|
 |Metrics / GenerationQuality|3|
 |GPU / GPUManager|6|
-|GPU / Kernels|3|
+|GPU / Kernels|4|
+|GPU / Testing|1|
 |GPU / GPUMatrix|3|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -8945,13 +9038,13 @@ Recomputed directly from the 184 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|104|
-|2-4 hours|57|
+|0-2 hours|105|
+|2-4 hours|58|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 376-654 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 379-660 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
