@@ -4,11 +4,11 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** October 12, 2026
-**Total Items:** 187
+**Last Updated:** October 13, 2026
+**Total Items:** 190
 **High Priority:** 23
-**Medium Priority:** 80
-**Low Priority:** 84
+**Medium Priority:** 81
+**Low Priority:** 86
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -222,6 +222,14 @@ Also October 12, 2026: filed [TD-395](#td-395-gpumatrix-is-duplicated-between-th
 backend, although only `copy()`/`zero()` differ, and the SYCL `copy()` drains the queue. Running the
 SYCL `GPUMatrix` and the shared `GPUKVCache` on the oneAPI CPU device (their first run anywhere)
 verified TD-387 at the cache level and TD-389's SYCL findings; both were amended.
+
+**October 13, 2026:** Filed [TD-396](#td-396-hippocampal-memory-eviction-starves-new-memories) through [TD-398](#td-398-hippocampalmemory-per-step-copies-and-unchecked-saves) from the code-traced
+[HippocampalMemory.md](../reference/source/HippocampalMemory.md). One is MEDIUM and verified by
+simulation with the real class: least-used eviction starts new memories at coverage 0, so with
+near-uniform attention (likely while TD-341 keeps the hippocampal attention untrained) the newest
+memory is always evicted next and the buffer freezes on its first `capacity − 1` entries (TD-396).
+Two are LOW: the swap file grows without bound on a long-running server (TD-397); and per-step
+copies plus unchecked saves (TD-398).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1123,6 +1131,12 @@ change (pin the sub-group size or loop over the partials).
 **Tier 47 — Newly filed (October 12, 2026): `MatrixGPU_SYCL.hpp`.** [TD-395](#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) is a refactor; do it
 before the next `GPUMatrix` change (for example TD-389's shape checks), so that change is made once.
 
+**Tier 48 — Newly filed (October 13, 2026): `HippocampalMemory`.** Fix [TD-396](#td-396-hippocampal-memory-eviction-starves-new-memories) together with
+TD-341: while the gate is stuck at 0 the frozen memory changes nothing, but the moment TD-341 makes
+the hippocampal path live, a memory that never records anything new would be what it reads.
+[TD-397](#td-397-hippocampal-swap-file-grows-without-bound) matters for any long-running `chatbot_api_server` with hippocampal memory enabled; [TD-398](#td-398-hippocampalmemory-per-step-copies-and-unchecked-saves)
+is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1316,6 +1330,9 @@ before the next `GPUMatrix` change (for example TD-389's shape checks), so that 
   - [TD-393: SYCL Sub-Group Reduction Is Wrong When the Sub-Group Size Is 8](#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8)
   - [TD-394: GPU Kernel Tests Can't Run Without a GPU](#td-394-gpu-kernel-tests-cant-run-without-a-gpu)
   - [TD-395: `GPUMatrix` Is Duplicated Between the CUDA and SYCL Headers](#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers)
+  - [TD-396: Hippocampal Memory Eviction Starves New Memories](#td-396-hippocampal-memory-eviction-starves-new-memories)
+  - [TD-397: Hippocampal Swap File Grows Without Bound](#td-397-hippocampal-swap-file-grows-without-bound)
+  - [TD-398: `HippocampalMemory` Per-Step Copies and Unchecked Saves](#td-398-hippocampalmemory-per-step-copies-and-unchecked-saves)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -8509,6 +8526,96 @@ Files to Modify:
 
 ---
 
+### TD-396: Hippocampal Memory Eviction Starves New Memories
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Memory / HippocampalMemory | October 13, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `HippocampalMemory` and verified by simulation with the real class. TD-193's
+least-used eviction removes the slot with the lowest `coverage_`, but a newly written slot starts at
+coverage 0, while every older slot carries accumulated, decayed coverage. Under `DecoderBlock`'s
+bookkeeping (each forward step: `decay_coverage(0.95)`, then add each slot's mean attention weight),
+a new slot needs about `1/(1 − γ)` = 20 steps to approach the others. With near-uniform attention it
+never catches up before the next write, so it is the slot evicted next. Simulation (capacity 8, one
+write per "response" followed by 50 forward steps, 40 responses): with uniform attention the
+survivors were writes **0–6** plus the newest, so the first `capacity − 1` memories are permanent and
+nothing new persists. With peaked random attention turnover was normal (20, 22, 26, 33, 35, 37, 38,
+39). Near-uniform attention is the likely case in shipped models: the hippocampal cross-attention gets
+no gradient while its gate is stuck at 0 (TD-341), and keys are mean-pooled world-model embeddings of
+whole responses. The failure is masked today only because TD-341 zeroes the path's output.
+
+Action Items:
+
+- [ ] Give new slots a protection window (not evictable for N steps/writes), or start them at the current mean coverage, or evict by `coverage / age` (or LRU on last significant attention).
+- [ ] Add a test that simulates the decay-and-accumulate bookkeeping under uniform attention and asserts recent writes survive.
+- [ ] Do this together with TD-341.
+
+Location in code: `src/HippocampalMemory.cpp` (`evict_least_used()`, `insert_slot()`); tagged `TODO: See TD-396`.
+
+Files to Modify:
+
+- `src/HippocampalMemory.{hpp,cpp}`
+- `tests/hippocampalmemory_test.cpp`
+
+---
+
+### TD-397: Hippocampal Swap File Grows Without Bound
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Memory / HippocampalMemory | October 13, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `HippocampalMemory`, by inspection. With a swap path configured (as
+`chatbot_api_server` always does: `<model>.hippocampal.swap`), every eviction appends a
+`(2·d_model + 1)`-float record (about 4 KB at `d_model = 512`). Once the buffer is full, that's one
+record per generated response. Only `recall_from_swap()` ever shrinks the file, and nothing in
+production calls it, so a long-running server's swap file grows without bound next to the model
+checkpoint.
+
+Action Items:
+
+- [ ] Cap the swap file (a ring of N records, or drop the oldest records when over a size limit), make the cap configurable, and log its size at startup.
+
+Location in code: `src/HippocampalMemory.cpp` (`append_to_swap()`); tagged `TODO: See TD-397`.
+
+Files to Modify:
+
+- `src/HippocampalMemory.{hpp,cpp}`
+- `src/Config.{hpp,cpp}`
+
+---
+
+### TD-398: `HippocampalMemory` Per-Step Copies and Unchecked Saves
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Memory / HippocampalMemory | October 13, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `HippocampalMemory`, by inspection:
+- `read_all()` copies every slot into fresh `[n, d_model]` key and value matrices, and
+  `DecoderBlock::forward()` calls it on every forward pass of every injected layer.
+- `save()` and `save_associations()` don't check their writes, so a full disk produces a silently
+  truncated file (which `load()` then rejects as corrupt).
+- The main state and the association matrix are separate files saved by separate calls; if one save
+  fails or is stale, `load_associations()` rejects the mismatch (or, with a coincidentally equal
+  count, loads associations for different slots).
+
+Action Items:
+
+- [ ] Cache the packed key/value matrices and update them incrementally on write/evict; check stream state after saves; save both files atomically together (or into one file).
+
+Location in code: `src/HippocampalMemory.cpp` (`read_all()`, `save()`, `save_associations()`); tagged `TODO: See TD-398`.
+
+Files to Modify:
+
+- `src/HippocampalMemory.{hpp,cpp}`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -9025,15 +9132,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 187 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 190 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|23|12%|
-|Medium|80|43%|
-|Low|84|45%|
+|Medium|81|43%|
+|Low|86|45%|
 
-**Total Active Items:** 187
+**Total Active Items:** 190
 
 ### By Component
 
@@ -9083,6 +9190,7 @@ Recomputed directly from the 187 `### TD-NNN` entries under [Active Technical De
 |GPU / GPUManager|6|
 |GPU / Kernels|4|
 |GPU / Testing|1|
+|Memory / HippocampalMemory|3|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -9091,13 +9199,13 @@ Recomputed directly from the 187 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|105|
-|2-4 hours|59|
+|0-2 hours|107|
+|2-4 hours|60|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 381-664 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 385-672 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

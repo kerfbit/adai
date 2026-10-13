@@ -34,6 +34,7 @@ This directory contains reference materials, technical specifications, and imple
   - [EfficientBatching](source/EfficientBatching.md) (`src/EfficientBatching.hpp`, **retired** October 11, 2026; bucketing kept as a v2-plan design note)
   - [EncoderBlock](source/EncoderBlock.md) (`src/EncoderBlock.{hpp,cpp}`; Pre-LN encoder layer)
   - [EncoderDecoderModel](source/EncoderDecoderModel.md) (`src/EncoderDecoderModel.{hpp,cpp}`; full chatbot model: training, generation, checkpoints, GPU path)
+  - [HippocampalMemory](source/HippocampalMemory.md) (`src/HippocampalMemory.{hpp,cpp}`; bounded episodic memory with least-used eviction, swap file and associations)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)

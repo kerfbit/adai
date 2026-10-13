@@ -28,6 +28,9 @@ HippocampalMemory::HippocampalMemory(int d_model, int capacity, std::string swap
       d_model(require_positive(d_model, "d_model")),
       swap_filepath_(std::move(swap_filepath)) {}
 
+// TODO: See TD-396 in TECHNICAL_DEBT.md - new slots start at coverage 0 while older ones carry decayed
+// coverage, so with near-uniform attention the newest slot is always evicted next and the buffer freezes
+// on its first capacity-1 entries (verified by simulation); protect new slots or evict by coverage/age
 void HippocampalMemory::evict_least_used(std::deque<Slot>& slots, std::deque<float>& coverage,
                                           std::deque<std::deque<float>>* association) const {
     size_t evict_idx = 0;
@@ -81,6 +84,7 @@ void HippocampalMemory::write(const Matrix& key, const Matrix& value) {
     insert_slot(key, value, 0.0f);
 }
 
+// TODO: See TD-398 in TECHNICAL_DEBT.md - copies the whole memory on every forward pass of every injected layer
 std::pair<Matrix, Matrix> HippocampalMemory::read_all() const {
     const int n = static_cast<int>(slots_.size());
     Matrix keys(n, d_model);
@@ -126,6 +130,8 @@ void HippocampalMemory::clear() {
     association_.clear();
 }
 
+// TODO: See TD-397 in TECHNICAL_DEBT.md - append-only with no size cap; once full, every write appends a record
+// and nothing in production calls recall_from_swap(), so the swap file grows without bound
 void HippocampalMemory::append_to_swap(const Matrix& key, const Matrix& value,
                                         float coverage) const {
     std::error_code ec;
@@ -211,6 +217,8 @@ bool HippocampalMemory::recall_from_swap() {
     return true;
 }
 
+// TODO: See TD-398 in TECHNICAL_DEBT.md - writes unchecked (also save_associations()); main and association
+// files are saved separately and can disagree
 void HippocampalMemory::save(const std::string& filepath) const {
     std::ofstream file(filepath, std::ios::binary);
     if (!file.is_open()) {
