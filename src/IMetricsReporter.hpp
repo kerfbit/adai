@@ -17,6 +17,8 @@
  * the server-side header.  TrainingMetricsService.hpp now includes this file
  * and drops its own copy.
  */
+// TODO: See TD-399 in TECHNICAL_DEBT.md - input_text/target_text are carried untruncated into the push queue and
+// the metrics DB
 struct AbnormalSample {
     int epoch = 0;           ///< 1-based epoch number
     int sample_id = 0;       ///< 1-based sample index within the epoch
@@ -48,6 +50,8 @@ struct AbnormalSample {
  * on the concrete MetricsPushClient before/after invoking trainer.train().
  * ChatbotTrainer is only responsible for in-epoch and per-sample reporting.
  */
+// TODO: See TD-399 in TECHNICAL_DEBT.md - which methods are buffered until end_epoch() (vs pushed immediately)
+// and the "call between start_epoch() and end_epoch()" ordering rule aren't stated here
 class IMetricsReporter {
    public:
     virtual ~IMetricsReporter() = default;
@@ -191,6 +195,8 @@ class IMetricsReporter {
  * Used by IncrementalTrainer when metrics_server_url is empty or metrics
  * reporting is disabled.  All methods are no-ops; no push thread is started.
  */
+// TODO: See TD-400 in TECHNICAL_DEBT.md - non-null, so ChatbotTrainer's `if (metrics_reporter_)` "metrics
+// enabled" checks stay true and reporting-only work (hooks, layer norms, BLEU) runs anyway; add enabled()
 class NullMetricsReporter final : public IMetricsReporter {
    public:
     void start_epoch(int /*epoch*/, int /*total_samples*/) override {}

@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 13, 2026
-**Total Items:** 190
+**Total Items:** 192
 **High Priority:** 23
 **Medium Priority:** 81
-**Low Priority:** 86
+**Low Priority:** 88
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -230,6 +230,14 @@ near-uniform attention (likely while TD-341 keeps the hippocampal attention untr
 memory is always evicted next and the buffer freezes on its first `capacity − 1` entries (TD-396).
 Two are LOW: the swap file grows without bound on a long-running server (TD-397); and per-step
 copies plus unchecked saves (TD-398).
+
+Also October 13, 2026: filed [TD-399](#td-399-imetricsreporter-buffering-and-ordering-contract-is-undocumented) and [TD-400](#td-400-nullmetricsreporter-keeps-reporting-only-work-switched-on) (both LOW) from the code-traced
+[IMetricsReporter.md](../reference/source/IMetricsReporter.md): the interface doesn't say which methods
+`MetricsPushClient` buffers until `end_epoch()` or that they must be called between `start_epoch()`
+and `end_epoch()`, and `AbnormalSample` texts travel untruncated (TD-399); and `ChatbotTrainer`
+treats a non-null reporter as "metrics enabled" while `incremental_trainer` always passes one
+(`NullMetricsReporter` when there's no server), so reporting-only work still runs (TD-400; cost
+measured as negligible on a tiny model).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1137,6 +1145,10 @@ the hippocampal path live, a memory that never records anything new would be wha
 [TD-397](#td-397-hippocampal-swap-file-grows-without-bound) matters for any long-running `chatbot_api_server` with hippocampal memory enabled; [TD-398](#td-398-hippocampalmemory-per-step-copies-and-unchecked-saves)
 is cleanup.
 
+**Tier 49 — Newly filed (October 13, 2026): `IMetricsReporter`.** Both are cleanup: [TD-399](#td-399-imetricsreporter-buffering-and-ordering-contract-is-undocumented) is
+documentation plus an optional text cap; do [TD-400](#td-400-nullmetricsreporter-keeps-reporting-only-work-switched-on) together with TD-370 if GPU hook synchronization
+turns out to matter on ai-machine.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1333,6 +1345,8 @@ is cleanup.
   - [TD-396: Hippocampal Memory Eviction Starves New Memories](#td-396-hippocampal-memory-eviction-starves-new-memories)
   - [TD-397: Hippocampal Swap File Grows Without Bound](#td-397-hippocampal-swap-file-grows-without-bound)
   - [TD-398: `HippocampalMemory` Per-Step Copies and Unchecked Saves](#td-398-hippocampalmemory-per-step-copies-and-unchecked-saves)
+  - [TD-399: `IMetricsReporter` Buffering and Ordering Contract Is Undocumented](#td-399-imetricsreporter-buffering-and-ordering-contract-is-undocumented)
+  - [TD-400: `NullMetricsReporter` Keeps Reporting-Only Work Switched On](#td-400-nullmetricsreporter-keeps-reporting-only-work-switched-on)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -8616,6 +8630,68 @@ Files to Modify:
 
 ---
 
+### TD-399: `IMetricsReporter` Buffering and Ordering Contract Is Undocumented
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Metrics / Reporter | October 13, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `IMetricsReporter`, by inspection. In `MetricsPushClient`, eight of the
+interface's methods (`update_advanced_epoch_metrics`, both adaptive-clip methods,
+`update_activation_saturation`, `update_attention_entropy`, `update_padding_efficiency` and both
+LeJEPA methods) only store a value; it's sent inside the next `end_epoch()` payload, and
+`start_epoch()` resets those buffers. So they must be called between `start_epoch()` and `end_epoch()`
+of the same epoch. Both callers do this today, but the rule appears only in a call-site comment in
+`IncrementalTrainingTool.cpp`; the interface's doc comments don't say which methods are buffered or
+that ordering matters, so a new implementation or a reordered caller would lose or misattribute
+values silently. Separately, `AbnormalSample` carries full, untruncated `input_text`/`target_text` into
+the push queue and the metrics DB (capped only by `max_abnormal_samples` per epoch).
+
+Action Items:
+
+- [ ] Document per method whether it's pushed immediately or included in the next `end_epoch()`, and the ordering rule, in the interface.
+- [ ] Optionally truncate `AbnormalSample` texts (for example to 1 KB) before queuing.
+
+Location in code: `src/IMetricsReporter.hpp` (class doc, `AbnormalSample`); tagged `TODO: See TD-399`.
+
+Files to Modify:
+
+- `src/IMetricsReporter.hpp`
+- `src/MetricsPushClient.cpp`
+
+---
+
+### TD-400: `NullMetricsReporter` Keeps Reporting-Only Work Switched On
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Metrics / Reporter | October 13, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `IMetricsReporter`; cost measured. `ChatbotTrainer` uses
+`if (metrics_reporter_)` (ten places) as an "are metrics enabled?" switch, gating work that exists
+only to be reported: installing the saturation/entropy hooks on every layer (on GPU, the saturation
+hook synchronizes the queue per layer, TD-370), per-layer gradient norms, the per-epoch diagnostics,
+and BLEU/ROUGE generation when enabled. `IncrementalTrainer` always passes a reporter, a
+`NullMetricsReporter` when there's no metrics server or the session failed to start, so under
+`incremental_trainer` all of that runs with nowhere to report. On a tiny model (2 layers, d = 64, two
+epochs) the cost was within noise (5.10 s vs. 5.12 s; 5.21 s with BLEU), so it's mostly a semantic trap,
+but it scales with model size, BLEU sample size and GPU synchronization.
+
+Action Items:
+
+- [ ] Add `virtual bool enabled() const` to `IMetricsReporter` (false for `NullMetricsReporter`), and have `ChatbotTrainer` check `metrics_reporter_ && metrics_reporter_->enabled()`.
+
+Location in code: `src/IMetricsReporter.hpp` (`NullMetricsReporter`), `src/ChatbotTrainer.cpp` (the hook-installation guard and its siblings); tagged `TODO: See TD-400`.
+
+Files to Modify:
+
+- `src/IMetricsReporter.hpp`
+- `src/ChatbotTrainer.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -9132,15 +9208,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 190 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 192 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|23|12%|
-|Medium|81|43%|
-|Low|86|45%|
+|Medium|81|42%|
+|Low|88|46%|
 
-**Total Active Items:** 190
+**Total Active Items:** 192
 
 ### By Component
 
@@ -9191,6 +9267,7 @@ Recomputed directly from the 190 `### TD-NNN` entries under [Active Technical De
 |GPU / Kernels|4|
 |GPU / Testing|1|
 |Memory / HippocampalMemory|3|
+|Metrics / Reporter|2|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -9199,13 +9276,13 @@ Recomputed directly from the 190 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|107|
+|0-2 hours|109|
 |2-4 hours|60|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 385-672 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 387-676 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

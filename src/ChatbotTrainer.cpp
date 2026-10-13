@@ -980,6 +980,8 @@ float ChatbotTrainer::train_epoch(int epoch) {
     float pad_eff_sum = 0.0f;
     int pad_eff_count = 0;
     // ──────────────────────────────────────────────────────────────────────────
+    // TODO: See TD-400 in TECHNICAL_DEBT.md - always true under incremental_trainer (NullMetricsReporter when no
+    // metrics server), so these hooks and the other reporting-only blocks run with nowhere to report
     if (metrics_reporter_) {
         const int enc_layers = model->get_encoder_layers();
         const int dec_layers = model->get_decoder_layers();
