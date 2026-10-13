@@ -120,6 +120,8 @@ int main(int argc, char* argv[]) {
     // Fixed prefix for every child this process ever launches — only --admin-port's value could
     // vary in principle, but this design always uses the one fixed trainer_child_admin_port
     // (only one child runs at a time, so no per-launch port negotiation is needed).
+    // TODO: See TD-403 in TECHNICAL_DEBT.md - --objective/--dataset-kind are parsed but never forwarded, so the
+    // always-on service silently runs chatbot training only
     std::vector<std::string> child_argv = {trainer_path};
     if (cli.config_path) {
         child_argv.push_back("--config");

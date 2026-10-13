@@ -31,12 +31,20 @@ IncrementalTrainerGlobalArgs parse_incremental_trainer_global_args(int argc, cha
         } else if (a == "--foreground") {
             result.foreground = true;
         } else if (a == "--admin-port" && i + 1 < argc) {
+            // TODO: See TD-401 in TECHNICAL_DEBT.md - std::stoi outside any try in main(): "abc" aborts the process,
+            // "8084x" is accepted as 8084, no port-range check
             result.admin_port = std::stoi(argv[++i]);
         } else if (a.rfind("--objective=", 0) == 0) {
+            // TODO: See TD-401 in TECHNICAL_DEBT.md - value not validated; anything but "lejepa" (e.g. a typo)
+            // silently means chatbot training
             result.objective = a.substr(std::string("--objective=").size());
         } else if (a == "--dataset-kind" && i + 1 < argc) {
+            // TODO: See TD-402 in TECHNICAL_DEBT.md - not validated against the four kinds; LocalTransport joins it
+            // into a path (typo = new empty pool, ".." escapes session_dir)
             result.dataset_kind = argv[++i];
         } else {
+            // TODO: See TD-401 in TECHNICAL_DEBT.md - a flag missing its value (e.g. trailing --config) lands here as a
+            // positional argument instead of being rejected
             result.args.push_back(a);
         }
     }
@@ -50,6 +58,8 @@ bool incremental_trainer_command_defers_gpu_init(const std::string& command) {
     return command == "train" || command == "retrain" || command == "resume";
 }
 
+// TODO: See TD-404 in TECHNICAL_DEBT.md - 8-char hostname prefix + pid % 10000 can collide across hosts; the
+// LeJEPA path always uses this (never MNS), and run ids decide claimed-file ownership in a shared registry
 std::string derive_run_id(const std::string& configured) {
     if (!configured.empty())
         return configured;

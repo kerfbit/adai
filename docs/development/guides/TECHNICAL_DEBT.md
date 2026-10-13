@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 13, 2026
-**Total Items:** 192
+**Total Items:** 196
 **High Priority:** 23
-**Medium Priority:** 81
-**Low Priority:** 88
+**Medium Priority:** 82
+**Low Priority:** 91
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -238,6 +238,15 @@ and `end_epoch()`, and `AbnormalSample` texts travel untruncated (TD-399); and `
 treats a non-null reporter as "metrics enabled" while `incremental_trainer` always passes one
 (`NullMetricsReporter` when there's no server), so reporting-only work still runs (TD-400; cost
 measured as negligible on a tiny model).
+
+Also October 13, 2026: filed [TD-401](#td-401-incremental_trainer-flag-parsing-crashes-or-silently-misreads-bad-values) through [TD-404](#td-404-derive_run_id-can-collide-across-hosts) from the code-traced
+[IncrementalTrainerArgs.md](../reference/source/IncrementalTrainerArgs.md), checked against the built
+binary. One is MEDIUM: `--admin-port abc` aborts `incremental_trainer` (uncaught `std::stoi`),
+`8084x` is accepted, a mistyped `--objective=` silently trains the chatbot, and a flag missing its
+value becomes a positional argument (TD-401, verified). Three are LOW: `--dataset-kind` is
+unvalidated (a `LocalTransport` path can leave `session_dir`) (TD-402); `trainer_service` drops
+`--objective`/`--dataset-kind` (TD-403); `derive_run_id()` can collide across hosts and is always used
+by the LeJEPA path (TD-404).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1149,6 +1158,11 @@ is cleanup.
 documentation plus an optional text cap; do [TD-400](#td-400-nullmetricsreporter-keeps-reporting-only-work-switched-on) together with TD-370 if GPU hook synchronization
 turns out to matter on ai-machine.
 
+**Tier 50 — Newly filed (October 13, 2026): `IncrementalTrainerArgs`.** [TD-401](#td-401-incremental_trainer-flag-parsing-crashes-or-silently-misreads-bad-values) and [TD-402](#td-402---dataset-kind-is-not-validated) are one
+small validation pass over the parser (mirroring TD-321–TD-325's `dataset_manager` fixes). [TD-403](#td-403-trainer_service-drops---objective-and---dataset-kind)
+needs a decision on whether `trainer_service` should support LeJEPA; [TD-404](#td-404-derive_run_id-can-collide-across-hosts) matters only with a
+shared remote registry.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1347,6 +1361,10 @@ turns out to matter on ai-machine.
   - [TD-398: `HippocampalMemory` Per-Step Copies and Unchecked Saves](#td-398-hippocampalmemory-per-step-copies-and-unchecked-saves)
   - [TD-399: `IMetricsReporter` Buffering and Ordering Contract Is Undocumented](#td-399-imetricsreporter-buffering-and-ordering-contract-is-undocumented)
   - [TD-400: `NullMetricsReporter` Keeps Reporting-Only Work Switched On](#td-400-nullmetricsreporter-keeps-reporting-only-work-switched-on)
+  - [TD-401: `incremental_trainer` Flag Parsing Crashes or Silently Misreads Bad Values](#td-401-incremental_trainer-flag-parsing-crashes-or-silently-misreads-bad-values)
+  - [TD-402: `--dataset-kind` Is Not Validated](#td-402---dataset-kind-is-not-validated)
+  - [TD-403: `trainer_service` Drops `--objective` and `--dataset-kind`](#td-403-trainer_service-drops---objective-and---dataset-kind)
+  - [TD-404: `derive_run_id()` Can Collide Across Hosts](#td-404-derive_run_id-can-collide-across-hosts)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -8692,6 +8710,119 @@ Files to Modify:
 
 ---
 
+### TD-401: `incremental_trainer` Flag Parsing Crashes or Silently Misreads Bad Values
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / CLI | October 13, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `IncrementalTrainerArgs` and verified against `build/debug/bin/incremental_trainer`:
+- `--admin-port abc` **aborts the process**: `std::stoi` throws and `main()` calls
+  `parse_incremental_trainer_global_args()` outside any `try` (`terminate called … what(): stoi`, exit
+  134). An out-of-range value throws `out_of_range` the same way.
+- `--admin-port 8084x` is accepted as 8084, and no port range is checked.
+- `--objective=` isn't validated: `main()` only tests `== "lejepa"` and `resolve_dataset_kind()` maps
+  anything else to `chatbot`, so `--objective=lejpa` was accepted silently. With `train`, that runs
+  chatbot training (on the chatbot pool) instead of world-model pretraining. The test
+  `UnrecognizedObjectiveFallsBackToChatbot` asserts this fallback.
+- A flag missing its value (for example a trailing `--config`) is appended to the positional
+  arguments instead of rejected (`status --config` carried on); the tests specify this too.
+
+Action Items:
+
+- [ ] Parse `--admin-port` with full-string, range-checked parsing (1–65535) and report a usage error; wrap the parse in `main()`'s error handling.
+- [ ] Reject unknown `--objective` values (`chatbot`/`lejepa` only) and flags missing their value, with a clear message; update the tests that assert the permissive behaviour.
+
+Location in code: `src/IncrementalTrainerArgs.cpp` (`parse_incremental_trainer_global_args()`); tagged `TODO: See TD-401`.
+
+Files to Modify:
+
+- `src/IncrementalTrainerArgs.cpp`
+- `src/IncrementalTrainingTool.cpp`
+- `tests/incremental_trainer_args_test.cpp`
+
+---
+
+### TD-402: `--dataset-kind` Is Not Validated
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / CLI | October 13, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `IncrementalTrainerArgs`, by inspection. `--dataset-kind <k>` is stored as given
+and `resolve_dataset_kind()` returns it unchanged. With `RemoteTransport` it becomes a URL segment,
+which `registry_server` rejects (404) unless it's `encoder`/`decoder`/`world_model`/`chatbot`. With
+`LocalTransport`, `DatasetRegistry` joins it as `session_dir + "/" + kind`, so a typo silently selects
+a new, empty sub-pool ("no pending data") and a value containing `..` or `/` puts the local registry
+files outside `session_dir`.
+
+Action Items:
+
+- [ ] Validate the value against the four kinds (shared with `dataset_manager --kind` and `DATASET_KIND`) and reject anything else.
+
+Location in code: `src/IncrementalTrainerArgs.cpp` (`--dataset-kind`); tagged `TODO: See TD-402`.
+
+Files to Modify:
+
+- `src/IncrementalTrainerArgs.cpp`
+- `src/DatasetRegistry.cpp`
+
+---
+
+### TD-403: `trainer_service` Drops `--objective` and `--dataset-kind`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / CLI | October 13, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `IncrementalTrainerArgs`, by inspection. `trainer_service` parses its command
+line with the same parser but forwards only `--config`, `--model` and `--gpu-strategy` to each child
+(plus `--foreground --admin-port N resume`). `--objective` and `--dataset-kind` given to
+`trainer_service` are silently ignored, so the always-on service can only run chatbot training, never
+LeJEPA world-model pretraining.
+
+Action Items:
+
+- [ ] Decide whether `trainer_service` should support `--objective=lejepa` (forward both flags) or reject them with a clear message.
+
+Location in code: `src/TrainerServiceMain.cpp` (child argument list); tagged `TODO: See TD-403`.
+
+Files to Modify:
+
+- `src/TrainerServiceMain.cpp`
+
+---
+
+### TD-404: `derive_run_id()` Can Collide Across Hosts
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / CLI | October 13, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `IncrementalTrainerArgs`, by inspection. `derive_run_id()` returns
+`RUN_ID` if set, else the first 8 characters of the hostname plus `_` plus `pid % 10000`. The LeJEPA
+pretraining path always uses it (it never calls `begin_run()`), and `train`/`retrain` use it when MNS
+doesn't allocate a run id. With a shared remote registry, run ids decide who owns claimed files, so
+two hosts with the same 8-character prefix (for example `ai-machi…`) and a coinciding PID tail would
+share ownership.
+
+Action Items:
+
+- [ ] Use the full hostname plus PID plus a random suffix (or a UUID), or allocate LeJEPA run ids from MNS like the chatbot path.
+
+Location in code: `src/IncrementalTrainerArgs.cpp` (`derive_run_id()`); tagged `TODO: See TD-404`.
+
+Files to Modify:
+
+- `src/IncrementalTrainerArgs.cpp`
+- `src/IncrementalTrainingTool.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -9208,15 +9339,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 192 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 196 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|23|12%|
-|Medium|81|42%|
-|Low|88|46%|
+|Medium|82|42%|
+|Low|91|46%|
 
-**Total Active Items:** 192
+**Total Active Items:** 196
 
 ### By Component
 
@@ -9268,6 +9399,7 @@ Recomputed directly from the 192 `### TD-NNN` entries under [Active Technical De
 |GPU / Testing|1|
 |Memory / HippocampalMemory|3|
 |Metrics / Reporter|2|
+|Training / CLI|4|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -9276,13 +9408,13 @@ Recomputed directly from the 192 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|109|
+|0-2 hours|113|
 |2-4 hours|60|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 387-676 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 391-684 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
