@@ -1684,6 +1684,7 @@ void TrainingMetricsService::update_generation_quality_metrics(float bleu4, floa
         // DB write (TD-020)
         if (db_ && !session_key_.empty()) {
             try {
+                // TODO: See TD-379 in TECHNICAL_DEBT.md - bleu1/bleu2 are dropped here, so their DB columns are always -1
                 GenerationQualityScore score;
                 score.bleu4 = bleu4;
                 score.rouge1 = rouge1;

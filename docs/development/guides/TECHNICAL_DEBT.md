@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 12, 2026
-**Total Items:** 169
+**Total Items:** 172
 **High Priority:** 22
-**Medium Priority:** 72
-**Low Priority:** 75
+**Medium Priority:** 73
+**Low Priority:** 77
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -162,6 +162,15 @@ logging in twice on one connection leaks a rate-limit slot until restart (TD-374
 there's no connection cap, idle timeout or line-length limit, and connection threads outlive `stop()`
 (TD-375). Two are LOW: `stop()` takes up to 60 s, `FEAT` is written unencrypted after `AUTH TLS`,
 and `start()` failures are only logged (TD-376, verified); token semantics and setup gaps (TD-377).
+
+Also October 12, 2026: filed [TD-378](#td-378-bleu-smoothing-inflates-unrelated-answers-and-zeroes-correct-short-ones) through [TD-380](#td-380-generation-quality-scores-arent-comparable-or-well-sampled) from the code-traced
+[GenerationQualityMetrics.md](../reference/source/GenerationQualityMetrics.md). One is MEDIUM and
+verified: BLEU applies add-1 smoothing to every order including unigrams (mislabelled "Lin & Och
+method 1"), so an unrelated 5-word answer scores BLEU-4 0.23, a scrambled one 0.36, and an exactly
+correct 3-word answer 0.0067; the per-epoch BLEU-4 can rank outputs backwards (TD-378). Two are LOW:
+`bleu1`/`bleu2` are dropped before the metrics DB, whose columns always hold `-1` (TD-379); and the
+scores aren't comparable with published numbers or the BLEU/ROUGE lesson's 0–100 ranges, with a
+noisy 10-sample default (TD-380).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1030,6 +1039,10 @@ control connection's. Do [TD-373](#td-373---ftps-doesnt-require-encryption) with
 config keys) as one FTPS-hardening pass. Then [TD-375](#td-375-ftpdataserver-has-no-connection-limits-or-timeouts) and [TD-374](#td-374-ftp-re-login-leaks-rate-limit-slots), both small. [TD-376](#td-376-ftpdataserver-slow-shutdown-unencrypted-feat-and-silent-start-failures) and
 [TD-377](#td-377-ftpdataserver-token-semantics-and-setup-gaps) are cleanup; TD-376's shutdown delay is a one-line condition-variable change.
 
+**Tier 41 — Newly filed (October 12, 2026): `GenerationQualityMetrics`.** Fix [TD-378](#td-378-bleu-smoothing-inflates-unrelated-answers-and-zeroes-correct-short-ones) before
+reading anything into BLEU trends; it's small and self-contained. Do [TD-379](#td-379-bleu1bleu2-are-computed-but-never-stored) alongside it (same
+reporting path). [TD-380](#td-380-generation-quality-scores-arent-comparable-or-well-sampled) is documentation plus a sample-size default.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1205,6 +1218,9 @@ config keys) as one FTPS-hardening pass. Then [TD-375](#td-375-ftpdataserver-has
   - [TD-375: `FtpDataServer` Has No Connection Limits or Timeouts](#td-375-ftpdataserver-has-no-connection-limits-or-timeouts)
   - [TD-376: `FtpDataServer` Slow Shutdown, Unencrypted `FEAT` and Silent Start Failures](#td-376-ftpdataserver-slow-shutdown-unencrypted-feat-and-silent-start-failures)
   - [TD-377: `FtpDataServer` Token Semantics and Setup Gaps](#td-377-ftpdataserver-token-semantics-and-setup-gaps)
+  - [TD-378: BLEU Smoothing Inflates Unrelated Answers and Zeroes Correct Short Ones](#td-378-bleu-smoothing-inflates-unrelated-answers-and-zeroes-correct-short-ones)
+  - [TD-379: `bleu1`/`bleu2` Are Computed but Never Stored](#td-379-bleu1bleu2-are-computed-but-never-stored)
+  - [TD-380: Generation-Quality Scores Aren't Comparable or Well-Sampled](#td-380-generation-quality-scores-arent-comparable-or-well-sampled)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -7798,6 +7814,106 @@ Files to Modify:
 
 ---
 
+### TD-378: BLEU Smoothing Inflates Unrelated Answers and Zeroes Correct Short Ones
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Metrics / GenerationQuality | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `GenerationQualityMetrics` and verified against a textbook (Papineni et al.)
+BLEU. `compute_corpus_bleu()` uses `(matches + 1) / (hypothesis n-grams + 1)` for **every** order,
+including unigrams, and a fixed `log = -20` when the hypothesis has no n-grams of some order. The
+header labels this "add-1 smoothing (Lin & Och 2004, method 1)", but Lin & Och's add-one smoothing
+applies only to n ≥ 2. Single-pair results:
+
+| Case | This code BLEU-4 | Textbook BLEU-4 |
+|---|---|---|
+| Unrelated 5-word answer (no words in common) | 0.230 (BLEU-1 0.167) | 0 |
+| Same 5 words, scrambled | 0.359 | 0 |
+| Exactly correct 3-word answer | 0.0067 | 0 (no 4-grams) |
+
+So an unrelated answer's BLEU-4 exceeds its BLEU-1, and a correct short reply scores far below an
+unrelated long one. The per-epoch metric (10 pairs by default) is less distorted (0.015 for fully
+unrelated output) but still biased against short targets, which dominate conversational data such as
+daily_dialog. The per-sample backfill (TD-273) gets the full sentence-level distortion. The tests
+(`CompletelyDifferentHypothesisScoresNearZero`, `BLEU1AtLeastBLEU2AtLeastBLEU4`) pass only on their
+particular examples.
+
+Action Items:
+
+- [ ] Use unsmoothed corpus BLEU for the per-epoch metric, or a documented standard smoothing (Chen & Cherry 2014 method 1 — epsilon for zero-match orders — or add-1 for n ≥ 2 only); keep sentence-level BLEU only behind an explicitly smoothed function.
+- [ ] Handle hypotheses shorter than `n` the standard way, and fix the header's citation.
+- [ ] Add tests against known reference values (for example, sacreBLEU/NLTK outputs recorded as constants): unrelated → 0, scrambled → low, short exact match.
+
+Location in code: `src/GenerationQualityMetrics.cpp` (`compute_corpus_bleu()`), `src/GenerationQualityMetrics.hpp` (class comment); tagged `TODO: See TD-378`.
+
+Files to Modify:
+
+- `src/GenerationQualityMetrics.{hpp,cpp}`
+- `tests/generation_quality_test.cpp`
+
+---
+
+### TD-379: `bleu1`/`bleu2` Are Computed but Never Stored
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Metrics / GenerationQuality | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `GenerationQualityMetrics`, by inspection. `evaluate()` computes `bleu1` and
+`bleu2`, but `IMetricsReporter::update_generation_quality_metrics()` takes only BLEU-4 and the three
+ROUGE values. `TrainingMetricsService` then builds a fresh `GenerationQualityScore` from those four,
+so the SQLite and Postgres `bleu1`/`bleu2` columns always store `-1` for real training runs: columns
+that look like data but never hold any.
+
+Action Items:
+
+- [ ] Pass the whole `GenerationQualityScore` through the reporter interface (and the push client/API if the dashboards should show them), or drop the two fields and columns.
+
+Location in code: `src/TrainingMetricsService.cpp` (`update_generation_quality_metrics()`); tagged `TODO: See TD-379`.
+
+Files to Modify:
+
+- `src/TrainingMetricsService.{hpp,cpp}`
+- `src/ChatbotTrainer.cpp`
+- the `IMetricsReporter` interface
+
+---
+
+### TD-380: Generation-Quality Scores Aren't Comparable or Well-Sampled
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Metrics / GenerationQuality | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `GenerationQualityMetrics`, by inspection:
+- `tokenize()` drops punctuation and keeps internal apostrophes, unlike sacreBLEU's `13a` tokenizer
+  (punctuation as separate tokens) and `rouge-score` (non-alphanumerics as spaces), so these numbers
+  can't be compared with published BLEU/ROUGE.
+- Scores are on a 0–1 scale, while the lesson [Reading BLEU and ROUGE Results](../../lessons/reading-bleu-rouge.md)
+  gives interpretation ranges on the 0–100 scale for standard corpus BLEU-4.
+- `generation_quality_sample_size` defaults to 10 pairs, which makes BLEU-4 very noisy from epoch to
+  epoch.
+
+Action Items:
+
+- [ ] Document the tokenization and scale in the header, metrics API and dashboards (or report 0–100).
+- [ ] Add a note to the lesson that the training metric isn't standard corpus BLEU.
+- [ ] Raise the default sample size (or report a confidence interval) once TD-359 makes generation length bounded.
+
+Location in code: `src/GenerationQualityMetrics.hpp` (`tokenize()`), `src/ChatbotTrainer.hpp` (`generation_quality_sample_size`); tagged `TODO: See TD-380`.
+
+Files to Modify:
+
+- `src/GenerationQualityMetrics.hpp`
+- `src/ChatbotTrainer.hpp`
+- `docs/lessons/reading-bleu-rouge.md`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -8314,15 +8430,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 169 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 172 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|22|13%|
-|Medium|72|43%|
-|Low|75|44%|
+|Medium|73|42%|
+|Low|77|45%|
 
-**Total Active Items:** 169
+**Total Active Items:** 172
 
 ### By Component
 
@@ -8368,6 +8484,7 @@ Recomputed directly from the 169 `### TD-NNN` entries under [Active Technical De
 |Transformer / LLMEncoder|4|
 |Transformer / FeedForward|4|
 |Data / FtpDataServer|6|
+|Metrics / GenerationQuality|3|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
 
@@ -8375,13 +8492,13 @@ Recomputed directly from the 169 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|92|
+|0-2 hours|95|
 |2-4 hours|55|
 |4-8 hours|12|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 356-614 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 359-620 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

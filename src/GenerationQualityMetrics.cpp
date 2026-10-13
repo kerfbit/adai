@@ -115,6 +115,8 @@ float GenerationQualityEvaluator::compute_corpus_bleu(const std::vector<TokenLis
         int m = match_cnt[n - 1];
         int h = hyp_cnt[n - 1];
         // Add-1 smoothing: avoids log(0) when no n-gram matches exist
+        // TODO: See TD-378 in TECHNICAL_DEBT.md - applied to unigrams too, plus a fixed -20 for missing orders;
+        // distorts sentence- and small-corpus BLEU (unrelated 5-word answer: BLEU-4 0.23)
         float prec = (h > 0) ? static_cast<float>(m + 1) / static_cast<float>(h + 1) : 0.0f;
         log_avg += (prec > 0.0f) ? std::log(prec) : -20.0f;
     }

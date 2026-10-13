@@ -139,6 +139,7 @@ struct TrainingConfig {
     // Disabled by default; each evaluation generates model responses which is expensive.
     bool enable_generation_quality_metrics =
         false;                                // Compute BLEU/ROUGE during each validation pass
+    // TODO: See TD-380 in TECHNICAL_DEBT.md - 10 samples gives a very noisy BLEU-4
     int generation_quality_sample_size = 10;  // Max validation samples used for scoring
     int generation_quality_max_tokens = 50;   // max_length passed to generate_response()
     /// Minimum sample size to use the async parallel-scoring path (TD-023).

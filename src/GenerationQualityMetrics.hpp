@@ -29,6 +29,8 @@ struct GenerationQualityScore {
  * No external dependencies.  All methods are static.
  *
  * BLEU:  Corpus-level BLEU-N with add-1 smoothing (Lin & Och 2004, method 1).
+ *        TODO: See TD-378 in TECHNICAL_DEBT.md - mislabelled: add-1 is applied to every order incl. unigrams,
+ *        so unrelated answers score > 0 and correct short answers ~0.
  *        Brevity penalty is applied at corpus level.
  *
  * ROUGE: Macro-averaged per-sentence F1 across all reference/hypothesis pairs.
@@ -53,6 +55,8 @@ class GenerationQualityEvaluator {
      * Splits on whitespace then strips leading/trailing punctuation from each
      * token and lowercases it.  Empty tokens after stripping are discarded.
      */
+    // TODO: See TD-380 in TECHNICAL_DEBT.md - differs from sacreBLEU/rouge-score tokenization; scores aren't
+    // comparable with published numbers
     static std::vector<std::string> tokenize(const std::string& text);
 
    private:
