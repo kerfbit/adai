@@ -48,6 +48,8 @@ class GPUManager {
     /// with the same scheduling priority (GPU_STRATEGY) after a device switch.
     inline static bool low_priority_ = true;
 
+    // TODO: See TD-391 in TECHNICAL_DEBT.md - collects GPUs from every platform, so one Arc card appears once per
+    // backend (Level Zero and OpenCL); GPU_DEVICE_ID then picks by platform order and the backend isn't logged
     static std::vector<sycl::device> enumerate_gpu_devices() {
         std::vector<sycl::device> gpus;
         for (auto& platform : sycl::platform::get_platforms()) {
@@ -186,6 +188,8 @@ class GPUManager {
         return current_device_;
     }
 
+    // TODO: See TD-383 in TECHNICAL_DEBT.md - existing allocations are later freed with the new queue (UB across
+    // contexts) and the budget isn't recomputed; no caller
     static void set_device(int device) {
         if (device < 0 || device >= device_count_) {
             throw std::out_of_range("Invalid device ID: " + std::to_string(device));
@@ -319,6 +323,8 @@ class GPUMemory {
     // host_task on the same in-order queue instead guarantees it only runs
     // once every previously-submitted command on that queue has completed on
     // the device, while keeping the calling thread non-blocking (no .wait()).
+    // TODO: See TD-390 in TECHNICAL_DEBT.md - a host_task per free stalls the in-order queue (device idle during a
+    // host round trip; 1.35 ms vs 0.051 ms per op on a CPU queue); use a pooled/caching allocator
     static void defer_free(T* ptr, size_t bytes) {
         if (!ptr) {
             return;
@@ -360,6 +366,8 @@ class GPUMemory {
             GPUManager::release_memory(bytes);
             throw;
         }
+        // TODO: See TD-392 in TECHNICAL_DEBT.md - malloc_device(0) returns nullptr, so count == 0 throws here (CUDA
+        // allows zero-size allocations)
         if (!device_ptr_) {
             GPUManager::release_memory(bytes);
             throw std::runtime_error("sycl::malloc_device failed: allocation returned null");
@@ -399,6 +407,7 @@ class GPUMemory {
         return size_;
     }
 
+    // TODO: See TD-390 in TECHNICAL_DEBT.md - .wait() drains the whole queue on every upload/download
     void copy_from_host(const T* host_ptr, size_t count) {
         if (count > size_) {
             throw std::out_of_range("Copy count exceeds allocated size");

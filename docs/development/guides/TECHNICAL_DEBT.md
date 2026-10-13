@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 12, 2026
-**Total Items:** 181
+**Total Items:** 184
 **High Priority:** 23
-**Medium Priority:** 76
-**Low Priority:** 82
+**Medium Priority:** 78
+**Low Priority:** 83
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -197,6 +197,15 @@ truncated (TD-365), so a chat input longer than that throws `out_of_range` on a 
 CPU path answers (TD-387). Two are LOW: `GPUKVCache` reallocates and copies the whole populated cache
 every decode step (TD-388); and unchecked `GPUMatrix` shapes, uninitialized device memory and no tests
 for the GPU KV caches (TD-389).
+
+Also October 12, 2026: filed [TD-390](#td-390-sycl-deferred-frees-and-blocking-copies-stall-the-in-order-queue) through [TD-392](#td-392-sycl-gpumemory0-throws-where-cuda-succeeds) from the code-traced
+[GPUUtils_SYCL.md](../reference/source/GPUUtils_SYCL.md), the SYCL manager that ai-machine trains on.
+Two are MEDIUM: every `GPUMemory` destruction queues a `host_task` free, which on an in-order queue is
+a device→host→device round trip, and every upload/download drains the queue (TD-390, verified on a CPU
+queue: 1.35 ms per alloc/kernel/free iteration vs 0.051 ms blocking and 0.014 ms kernel-only); and
+GPUs are collected from every SYCL platform, so one Arc card appears once per backend and
+`GPU_DEVICE_ID` silently picks by platform order (TD-391). One is LOW: `GPUMemory(0)` throws on SYCL
+but not CUDA (TD-392, verified). TD-382 and TD-383 were amended for the SYCL manager.
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1085,6 +1094,11 @@ truncating encoder input once, where the model tokenizes, fixes both the CPU pos
 and the GPU crash. [TD-388](#td-388-gpukvcache-copies-the-whole-cache-every-decode-step) matters once GPU serving latency is measured (TD-033/TD-050's open
 benchmark). [TD-389](#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches) is cleanup, but its KV-cache tests are worth adding before that benchmark.
 
+**Tier 45 — Newly filed (October 12, 2026): `GPUUtils_SYCL`.** [TD-391](#td-391-sycl-lists-the-same-gpu-once-per-platform-and-doesnt-log-the-backend) first, as a cheap check: have
+ai-machine log the selected platform (or run `sycl-ls`) to confirm it's on Level Zero. Then measure
+[TD-390](#td-390-sycl-deferred-frees-and-blocking-copies-stall-the-in-order-queue) on ai-machine (time a training step with and without a buffer pool) before rewriting the
+allocator; it's likely the largest SYCL performance item. [TD-392](#td-392-sycl-gpumemory0-throws-where-cuda-succeeds) is small.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1272,6 +1286,9 @@ benchmark). [TD-389](#td-389-gpumatrix-shape-checks-uninitialized-memory-and-unt
   - [TD-387: GPU Generation Fails on Input Longer Than `max_seq_length`](#td-387-gpu-generation-fails-on-input-longer-than-max_seq_length)
   - [TD-388: `GPUKVCache` Copies the Whole Cache Every Decode Step](#td-388-gpukvcache-copies-the-whole-cache-every-decode-step)
   - [TD-389: `GPUMatrix` Shape Checks, Uninitialized Memory and Untested GPU KV Caches](#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches)
+  - [TD-390: SYCL Deferred Frees and Blocking Copies Stall the In-Order Queue](#td-390-sycl-deferred-frees-and-blocking-copies-stall-the-in-order-queue)
+  - [TD-391: SYCL Lists the Same GPU Once per Platform and Doesn't Log the Backend](#td-391-sycl-lists-the-same-gpu-once-per-platform-and-doesnt-log-the-backend)
+  - [TD-392: SYCL `GPUMemory(0)` Throws Where CUDA Succeeds](#td-392-sycl-gpumemory0-throws-where-cuda-succeeds)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -8016,6 +8033,11 @@ Action Items:
 - [ ] Correct the async-path comment in `ChatbotTrainer::compute_generation_quality_metrics()`.
 - [ ] Test (on a GPU host): concurrent `Matrix` multiplies from two threads keep the budget counter exact.
 
+**SYCL amendment (October 12, 2026, [GPUUtils_SYCL.md](../reference/source/GPUUtils_SYCL.md)):** the
+SYCL manager already guards `max_memory_bytes_`/`allocated_bytes_` with `memory_mutex_`, and
+`sycl::queue` is thread-safe for submission, so on SYCL (ai-machine) this item reduces to the
+cross-thread GPU use itself (the async quality thread sharing the training queue), not a counter race.
+
 Location in code: `src/gpu/GPUUtils.hpp` (`GPUManager` state), `src/Matrix.cpp` (`operator*` dispatch), `src/ChatbotTrainer.cpp` (async quality comment); tagged `TODO: See TD-382`.
 
 Files to Modify:
@@ -8047,6 +8069,12 @@ Found while tracing `GPUUtils.hpp`, by inspection:
 Action Items:
 
 - [ ] Make `set_device()` rebuild the stream, handle and budget (or remove it); have `cleanup()` refuse or warn while allocations are live; apply or reject differing arguments on repeat `initialize()`; free partial state on failure; include the CUDA error text in `probe_diagnostic()`.
+
+**SYCL amendment (October 12, 2026, [GPUUtils_SYCL.md](../reference/source/GPUUtils_SYCL.md)):** the
+SYCL `set_device()` does recreate its queue, but allocations made on the old queue are later freed
+with `sycl::free(ptr, new_queue)` (undefined across contexts) and the budget isn't recomputed;
+`cleanup()` zeroes the counter and live buffers are then never freed (by design, TD-096); repeat
+`initialize()` also ignores new arguments. Tagged in `src/gpu/sycl/GPUUtils_SYCL.hpp` too.
 
 Location in code: `src/gpu/GPUUtils.hpp` (`initialize()`, `cleanup()`, `set_device()`, `probe_diagnostic()`); tagged `TODO: See TD-383`.
 
@@ -8241,6 +8269,98 @@ Files to Modify:
 - `src/gpu/MatrixGPU.hpp`
 - `src/gpu/sycl/MatrixGPU_SYCL.hpp`
 - `tests/matrixgpu_td003_test.cpp`
+
+---
+
+### TD-390: SYCL Deferred Frees and Blocking Copies Stall the In-Order Queue
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | GPU / GPUManager | October 12, 2026 | 4-8 hours |
+
+Description:
+Found while tracing `GPUUtils_SYCL.hpp`; the pattern was verified on a CPU queue, and the GPU
+magnitude is unmeasured. `GPUMemory`'s destructor and move assignment call `defer_free()`, which
+submits a `host_task` on the in-order queue to run `sycl::free` and release the budget. That's correct
+for ordering, but on an in-order queue a `host_task` waits for every earlier command to finish, and
+nothing after it starts until the host callback returns: a device→host→device round trip with the
+device idle, **for every `GPUMatrix` temporary destroyed**. `copy_from_host`/`copy_to_host` also
+`.wait()` on the whole queue, so every upload drains it.
+
+A standalone `icpx -fsycl` program reproducing the pattern on the oneAPI CPU device (allocate, small
+kernel, `host_task` free) took **1.35 ms per iteration**, against **0.051 ms** for a blocking `wait()` +
+`free` and **0.014 ms** for the kernel alone with a reused buffer. `MultiHeadAttention.cpp` and
+`CrossAttention.cpp` alone have about 50 `GPUMatrix` uses each, so ai-machine's SYCL training and
+generation likely spend a large share of their time in these bubbles. The `allocated_bytes_` lag that
+`ChatbotTrainer` works around with periodic `gpu_synchronize()` calls is the same mechanism.
+
+Action Items:
+
+- [ ] Measure first on ai-machine: time one training step, and count `host_task`s per step (or use `onetrace`/`unitrace`).
+- [ ] Replace per-free `host_task`s with a caching allocator: keep freed blocks in a size-bucketed pool tied to the in-order queue (safe to reuse immediately, since later kernels on the same queue run after earlier ones), and return memory to USM only at `cleanup()` or under budget pressure.
+- [ ] Make uploads asynchronous where the host buffer outlives the copy (or stage through a pinned buffer), keeping `.wait()` only on downloads.
+
+Location in code: `src/gpu/sycl/GPUUtils_SYCL.hpp` (`GPUMemory::defer_free()`, `copy_from_host()`/`copy_to_host()`); tagged `TODO: See TD-390`.
+
+Files to Modify:
+
+- `src/gpu/sycl/GPUUtils_SYCL.hpp`
+- `src/ChatbotTrainer.cpp` (remove the accounting workaround syncs afterwards)
+
+---
+
+### TD-391: SYCL Lists the Same GPU Once per Platform and Doesn't Log the Backend
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | GPU / GPUManager | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `GPUUtils_SYCL.hpp`, by inspection. `enumerate_gpu_devices()` collects
+`device_type::gpu` devices from **every** SYCL platform. With both the Level Zero and OpenCL runtimes
+installed (the usual oneAPI setup, and what ai-machine's driver packages provide), one Intel Arc card
+appears once per platform, so `device_count()` is 2 and `GPU_DEVICE_ID=0` means "whichever platform
+enumerates first". The startup log prints the device name via `get_device_info()`, but not the
+platform or backend, so nobody can tell whether training runs on Level Zero (the expected, faster path
+for oneMKL) or OpenCL. Given ai-machine's driver-instability history (SIGSEGV in `libigc`, see
+[ONEAPI_SYCL_DRIVER_SEGFAULT.md](../../operations/guides/troubleshooting/ONEAPI_SYCL_DRIVER_SEGFAULT.md)), knowing the backend matters for diagnosis too.
+
+Action Items:
+
+- [ ] Prefer one backend (Level Zero first, OpenCL as fallback) and de-duplicate physical devices, or document `ONEAPI_DEVICE_SELECTOR=level_zero:gpu` in the deployment config.
+- [ ] Log the platform and backend in `get_device_info()`/the startup line.
+- [ ] Ask the user to check ai-machine's current selection (`sycl-ls`, or the new log line).
+
+Location in code: `src/gpu/sycl/GPUUtils_SYCL.hpp` (`enumerate_gpu_devices()`, `get_device_info()`); tagged `TODO: See TD-391`.
+
+Files to Modify:
+
+- `src/gpu/sycl/GPUUtils_SYCL.hpp`
+
+---
+
+### TD-392: SYCL `GPUMemory(0)` Throws Where CUDA Succeeds
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | GPU / GPUManager | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `GPUUtils_SYCL.hpp` and verified: `sycl::malloc_device<float>(0, q)` returns
+`nullptr`, which `GPUMemory`'s constructor treats as an allocation failure and throws
+(`"sycl::malloc_device failed: allocation returned null"`). CUDA's `cudaMalloc(0)` succeeds, so a
+zero-row `GPUMatrix` (for example, an empty token sequence reaching a GPU path) throws only on SYCL,
+with a misleading message.
+
+Action Items:
+
+- [ ] Treat `count == 0` as a valid empty allocation (skip `malloc_device`, keep `device_ptr_` null) in the SYCL `GPUMemory`, matching CUDA.
+
+Location in code: `src/gpu/sycl/GPUUtils_SYCL.hpp` (`GPUMemory` constructor); tagged `TODO: See TD-392`.
+
+Files to Modify:
+
+- `src/gpu/sycl/GPUUtils_SYCL.hpp`
 
 ---
 
@@ -8760,15 +8880,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 181 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 184 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|23|13%|
-|Medium|76|42%|
-|Low|82|45%|
+|Medium|78|42%|
+|Low|83|45%|
 
-**Total Active Items:** 181
+**Total Active Items:** 184
 
 ### By Component
 
@@ -8815,7 +8935,7 @@ Recomputed directly from the 181 `### TD-NNN` entries under [Active Technical De
 |Transformer / FeedForward|4|
 |Data / FtpDataServer|6|
 |Metrics / GenerationQuality|3|
-|GPU / GPUManager|3|
+|GPU / GPUManager|6|
 |GPU / Kernels|3|
 |GPU / GPUMatrix|3|
 |Core / Batching|1|
@@ -8825,13 +8945,13 @@ Recomputed directly from the 181 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|102|
+|0-2 hours|104|
 |2-4 hours|57|
-|4-8 hours|12|
+|4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 370-642 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 376-654 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
