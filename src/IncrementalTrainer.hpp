@@ -64,6 +64,7 @@ struct IncrementalConfig {
     int auto_save_every_minutes = 30;
 
     // Checkpointing
+    // TODO: See TD-410 in TECHNICAL_DEBT.md - save_incremental_checkpoints and checkpoint_dir are never read
     bool save_incremental_checkpoints = true;
     std::string checkpoint_dir = "checkpoints";
 

@@ -494,7 +494,7 @@ trainer.set_config(cfg);
 
 ## Related Documentation
 
-- **[IncrementalTrainer Internals](incremental-trainer-internals.md)** - Complete technical reference
+- **[IncrementalTrainer Internals](../../reference/source/IncrementalTrainer.md)** - Complete technical reference
 - **[Incremental Training Guide](../../operations/guides/incremental-training-guide.md)** - User guide
 - **[Building Guide](building.md)** - Compilation instructions
 

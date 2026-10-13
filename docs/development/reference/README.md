@@ -36,6 +36,7 @@ This directory contains reference materials, technical specifications, and imple
   - [EncoderDecoderModel](source/EncoderDecoderModel.md) (`src/EncoderDecoderModel.{hpp,cpp}`; full chatbot model: training, generation, checkpoints, GPU path)
   - [HippocampalMemory](source/HippocampalMemory.md) (`src/HippocampalMemory.{hpp,cpp}`; bounded episodic memory with least-used eviction, swap file and associations)
   - [IMetricsReporter](source/IMetricsReporter.md) (`src/IMetricsReporter.hpp`; trainer-side metrics interface and `NullMetricsReporter`)
+  - [IncrementalTrainer](source/IncrementalTrainer.md) (`src/IncrementalTrainer.{hpp,cpp}`; session/checkpoint manager around `ChatbotTrainer` for every training pass)
   - [IncrementalTrainerArgs](source/IncrementalTrainerArgs.md) (`src/IncrementalTrainerArgs.{hpp,cpp}`; `incremental_trainer`/`trainer_service` global flag parser and helpers)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)

@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 13, 2026
-**Total Items:** 196
-**High Priority:** 23
-**Medium Priority:** 82
-**Low Priority:** 91
+**Total Items:** 202
+**High Priority:** 26
+**Medium Priority:** 84
+**Low Priority:** 92
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -247,6 +247,17 @@ value becomes a positional argument (TD-401, verified). Three are LOW: `--datase
 unvalidated (a `LocalTransport` path can leave `session_dir`) (TD-402); `trainer_service` drops
 `--objective`/`--dataset-kind` (TD-403); `derive_run_id()` can collide across hosts and is always used
 by the LeJEPA path (TD-404).
+
+Also October 13, 2026: filed [TD-405](#td-405-each-training-pass-restarts-from-the-best-ever-checkpoint-not-the-latest) through [TD-410](#td-410-incrementaltrainer-session-bookkeeping-and-hard-coded-training-policy) from the code-traced
+[IncrementalTrainer.md](../reference/source/IncrementalTrainer.md), verified by constructing the real
+class against scratch session directories with real checkpoints. Three are **HIGH**: every pass
+restarts from the lowest validation loss across all history although each pass validates on
+different data, so later passes are discarded whenever new data validates worse (TD-405, verified);
+a paused or crashed pass's auto-save is deleted and its session dropped on the next start, and its
+in-progress best snapshot is never found (TD-406, verified); and checkpoint deletion removes only the
+top-level sidecars, 0.1 of 29.6 MB, so retention never bounds `SESSION_DIR` (TD-407, verified). Two
+are MEDIUM: the `latest`/`best` symlinks always dangle (TD-408) and the tokenized cache key has no
+preprocessing version (TD-409). One is LOW: session bookkeeping and hard-coded policy (TD-410).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1163,6 +1174,14 @@ small validation pass over the parser (mirroring TD-321–TD-325's `dataset_mana
 needs a decision on whether `trainer_service` should support LeJEPA; [TD-404](#td-404-derive_run_id-can-collide-across-hosts) matters only with a
 shared remote registry.
 
+**Tier 51 — Newly filed (October 13, 2026): `IncrementalTrainer`. Do these before the TD-358
+retraining**, or the retrained model inherits the same problems: [TD-405](#td-405-each-training-pass-restarts-from-the-best-ever-checkpoint-not-the-latest) (resume from the latest
+completed checkpoint by default; keep "best" as an explicit choice), [TD-406](#td-406-a-paused-or-crashed-passs-checkpoint-is-deleted-on-the-next-start) (find and keep the
+interrupted session's snapshots instead of deleting them), and [TD-407](#td-407-checkpoint-deletion-leaks-the-per-layer-weight-files) (delete every file
+`save_model()` writes, ideally via a shared helper that lists them). Ask the user to check
+`SESSION_DIR`'s disk use on ai-machine. [TD-408](#td-408-latestbest-checkpoint-symlinks-always-dangle) and [TD-409](#td-409-tokenized-data-cache-key-has-no-preprocessing-version) are small; clear the tokenized cache as
+part of any tokenization fix. [TD-410](#td-410-incrementaltrainer-session-bookkeeping-and-hard-coded-training-policy) is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1365,6 +1384,12 @@ shared remote registry.
   - [TD-402: `--dataset-kind` Is Not Validated](#td-402---dataset-kind-is-not-validated)
   - [TD-403: `trainer_service` Drops `--objective` and `--dataset-kind`](#td-403-trainer_service-drops---objective-and---dataset-kind)
   - [TD-404: `derive_run_id()` Can Collide Across Hosts](#td-404-derive_run_id-can-collide-across-hosts)
+  - [TD-405: Each Training Pass Restarts From the Best-Ever Checkpoint, Not the Latest](#td-405-each-training-pass-restarts-from-the-best-ever-checkpoint-not-the-latest)
+  - [TD-406: A Paused or Crashed Pass's Checkpoint Is Deleted on the Next Start](#td-406-a-paused-or-crashed-passs-checkpoint-is-deleted-on-the-next-start)
+  - [TD-407: Checkpoint Deletion Leaks the Per-Layer Weight Files](#td-407-checkpoint-deletion-leaks-the-per-layer-weight-files)
+  - [TD-408: `latest`/`best` Checkpoint Symlinks Always Dangle](#td-408-latestbest-checkpoint-symlinks-always-dangle)
+  - [TD-409: Tokenized-Data Cache Key Has No Preprocessing Version](#td-409-tokenized-data-cache-key-has-no-preprocessing-version)
+  - [TD-410: `IncrementalTrainer` Session Bookkeeping and Hard-Coded Training Policy](#td-410-incrementaltrainer-session-bookkeeping-and-hard-coded-training-policy)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -8823,6 +8848,195 @@ Files to Modify:
 
 ---
 
+### TD-405: Each Training Pass Restarts From the Best-Ever Checkpoint, Not the Latest
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Training / IncrementalTrainer | October 13, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `IncrementalTrainer` and verified with the real class. All three constructors,
+and `resume_last_session()`, load the session with the **lowest `final_validation_loss` across the
+whole history**. But each pass's validation loss comes from a validation split of that pass's own
+files, so losses from different passes aren't comparable. When a later pass trains on new data whose
+validation loss is higher, the next pass starts from the older checkpoint again and the later
+learning is discarded, while the registry has already marked those files trained. Verified: with
+session 0 (val 1.20) and a newer session 1 (val 2.00), construction logged `Best checkpoint:
+…/session_0_checkpoint.bin` and loaded it. In incremental training over a stream of datasets, the
+model can stay pinned to one old checkpoint indefinitely; this could explain apparent lack of
+progress across ai-machine passes.
+
+Action Items:
+
+- [ ] Resume from the most recent completed session by default; keep "best" selection as an explicit option (or compare losses only on a fixed, shared validation set).
+- [ ] Apply the same rule in `resume_last_session()`, and log which checkpoint was chosen and why.
+- [ ] Test: two sessions where the newer has higher validation loss → the newer is resumed.
+
+Location in code: `src/IncrementalTrainer.cpp` (three constructors' best-selection loops, `resume_last_session()`); tagged `TODO: See TD-405`.
+
+Files to Modify:
+
+- `src/IncrementalTrainer.cpp`
+- `tests/incrementaltrainer_test.cpp`
+
+---
+
+### TD-406: A Paused or Crashed Pass's Checkpoint Is Deleted on the Next Start
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Training / IncrementalTrainer | October 13, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `IncrementalTrainer` and verified with the real class. `perform_auto_save()` (sample
+cadence, forced `/admin/checkpoint`, and the `/admin/pause` drain path) writes `auto_save_session_N.bin`
+and persists session N to `session_history.txt` with `final_validation_loss = 0`. On the next
+construction:
+1. `current_session_id` becomes N+1, so the in-progress check looks for `session_<N+1>_best.bin`
+   and misses session N's best snapshot.
+2. `cleanup_dead_sessions()` deletes session N's auto-save as an "orphaned snapshot from a
+   crashed/superseded session".
+3. It drops session N from the history ("Removing broken session") because its val loss is 0.
+
+Verified: history with session 0 complete and session 1 paused (auto-save plus `session_1_best` on
+disk) → the restart loaded session 0, removed session 1 and its auto-save, and left `session_1_best`
+on disk unused forever. So TD-173's "pause drains the pass and checkpoints it" produces a checkpoint
+the next pass deletes; the released files are retrained from older weights, and crash recovery from
+auto-saves never happens.
+
+Action Items:
+
+- [ ] On startup, detect an interrupted session (val loss 0 with an existing auto-save or best snapshot) and resume from its newest snapshot instead of deleting it; keep `current_session_id` aligned or look up the snapshot by the interrupted session's id.
+- [ ] Only treat snapshots as orphaned when no history entry references their session.
+- [ ] Test: pause → restart resumes from the paused pass's snapshot.
+
+Location in code: `src/IncrementalTrainer.cpp` (`perform_auto_save()`, `resume_last_session()`, `cleanup_dead_sessions()`); tagged `TODO: See TD-406`.
+
+Files to Modify:
+
+- `src/IncrementalTrainer.cpp`
+- `tests/incremental_trainer_control_test.cpp`
+
+---
+
+### TD-407: Checkpoint Deletion Leaks the Per-Layer Weight Files
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Training / IncrementalTrainer | October 13, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `IncrementalTrainer` and measured. `EncoderDecoderModel::save_model()` writes
+the top-level sidecars (`.config`, `.vocab`, `.encoder`, `.decoder`, `.lm_head`) plus per-layer files
+(`_token_emb.bin`, `_encoder_block_<i>.bin` + `_attention.bin`/`_feedforward.bin`,
+`_decoder_block_<i>.bin` + `.self_attn`/`.cross_attn`/`.ff`, `_final_norm.bin`), and the per-layer files
+hold almost all the weights. `remove_model_files()` deletes only the five top-level sidecars plus
+`.metrics.csv`: on a d_model 256, 4 + 4 layer checkpoint it removed **0.1 of 29.6 MB (0.2%)**. Every
+retention rotation (`MAX_SESSIONS_TO_KEEP`), superseded best snapshot, broken-session cleanup and
+`reset` therefore leaves almost a whole checkpoint behind. `cleanup_dead_sessions()` and
+`reset_all()` scan for `*.bin` base files that `save_model()` never writes, so they only match
+per-layer files by accident (partially deleting snapshots) and never the attention/FF files. Disk use
+in `SESSION_DIR` grows by roughly one checkpoint per pass (plus snapshots and auto-saves) with no
+bound.
+
+Action Items:
+
+- [ ] Have `EncoderDecoderModel` expose (or return from `save_model()`) the list of files a checkpoint consists of, and delete exactly those in `remove_model_files()`, `cleanup_dead_sessions()` and `reset_all()`; or save each checkpoint into its own directory and remove the directory.
+- [ ] Add a test that save → remove leaves no files behind; offer a one-off cleanup command for existing session directories (ask the user to check ai-machine's `SESSION_DIR` size).
+
+Location in code: `src/IncrementalTrainer.cpp` (`remove_model_files()`, `cleanup_dead_sessions()`, `reset_all()`); tagged `TODO: See TD-407`.
+
+Files to Modify:
+
+- `src/IncrementalTrainer.cpp`
+- `src/EncoderDecoderModel.{hpp,cpp}`
+
+---
+
+### TD-408: `latest`/`best` Checkpoint Symlinks Always Dangle
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / IncrementalTrainer | October 13, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `IncrementalTrainer`, by inspection. `create_or_update_symlink()` links
+`latest_checkpoint.bin`/`best_checkpoint.bin` (in the working directory) to the **bare** checkpoint path,
+which `save_model()` never creates, so the links always dangle. Loading through a link looks for
+`best_checkpoint.bin.config`, which isn't a link, so neither can be used as `MODEL_PATH`. On Windows
+the fallback `copy_file()` copies the same nonexistent bare file and always fails.
+
+Action Items:
+
+- [ ] Link a checkpoint directory (see TD-407) or create links for every sidecar; or replace the links with a small text file naming the checkpoint base path that tools read.
+
+Location in code: `src/IncrementalTrainer.cpp` (`create_or_update_symlink()`); tagged `TODO: See TD-408`.
+
+Files to Modify:
+
+- `src/IncrementalTrainer.cpp`
+
+---
+
+### TD-409: Tokenized-Data Cache Key Has No Preprocessing Version
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / IncrementalTrainer | October 13, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `IncrementalTrainer`, by inspection. `compute_tokenized_cache_key()` hashes the
+files' content checksums and segment ranges, the vocab checksum, the tokenizer mode and
+`max_seq_length`, but no version of `ChatbotTrainer`'s preprocessing. A code fix that changes the cached
+token IDs (for example TD-361's double `BOS`, or TD-267's skipped pairs) would silently reuse old cached
+data for every file already cached, so the fix wouldn't take effect until the cache directory was
+cleared by hand.
+
+Action Items:
+
+- [ ] Add a `kTokenizedCacheFormatVersion` constant to the key and bump it with any preprocessing change; clear the cache as part of the TD-358/TD-361 retraining.
+
+Location in code: `src/IncrementalTrainer.cpp` (`compute_tokenized_cache_key()`); tagged `TODO: See TD-409`.
+
+Files to Modify:
+
+- `src/IncrementalTrainer.cpp`
+- `src/ChatbotTrainer.{hpp,cpp}`
+
+---
+
+### TD-410: `IncrementalTrainer` Session Bookkeeping and Hard-Coded Training Policy
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / IncrementalTrainer | October 13, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `IncrementalTrainer`, by inspection:
+- `run_training()` calls `finalize_session(…, num_epochs, …)` with the **requested** epoch count, not the
+  completed one, although early stopping is always on.
+- `make_incremental_config()` hard-codes `enable_early_stopping = true`, `patience = 5` and
+  `restore_best_weights = true`, and the config-file constructor forces `LRSchedule::WARMUP_COSINE`;
+  none is configurable.
+- `IncrementalConfig::save_incremental_checkpoints` and `checkpoint_dir` are never read.
+- `update_best_checkpoint()` returns early when symlinks are disabled, so in-process best tracking
+  isn't updated in that mode.
+- `retrain` (`reset_model_for_config()`) clears and saves an empty history, orphaning every earlier
+  checkpoint (which TD-407 then never removes).
+
+Action Items:
+
+- [ ] Pass `epochs_fully_completed`; expose early-stopping and schedule settings through `ServiceConfig`; remove the unused fields; separate best tracking from symlink updates; archive or delete old checkpoints on `retrain`.
+
+Location in code: `src/IncrementalTrainer.cpp` (`run_training()`, `make_incremental_config()`), `src/IncrementalTrainer.hpp` (`IncrementalConfig`); tagged `TODO: See TD-410`.
+
+Files to Modify:
+
+- `src/IncrementalTrainer.{hpp,cpp}`
+- `src/Config.{hpp,cpp}`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -9339,15 +9553,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 196 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 202 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|23|12%|
-|Medium|82|42%|
-|Low|91|46%|
+|High|26|13%|
+|Medium|84|42%|
+|Low|92|45%|
 
-**Total Active Items:** 196
+**Total Active Items:** 202
 
 ### By Component
 
@@ -9400,6 +9614,7 @@ Recomputed directly from the 196 `### TD-NNN` entries under [Active Technical De
 |Memory / HippocampalMemory|3|
 |Metrics / Reporter|2|
 |Training / CLI|4|
+|Training / IncrementalTrainer|6|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -9408,13 +9623,13 @@ Recomputed directly from the 196 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|113|
-|2-4 hours|60|
+|0-2 hours|117|
+|2-4 hours|62|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 391-684 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 399-700 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

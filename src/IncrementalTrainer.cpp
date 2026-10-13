@@ -59,6 +59,8 @@ int detect_pid_mod_10000() {
 // produces the same key. Hashed (not used verbatim) to keep the resulting
 // cache filename short and filesystem-safe regardless of how many files or
 // how long their paths are.
+// TODO: See TD-409 in TECHNICAL_DEBT.md - no preprocessing-format version in the key, so tokenization code fixes
+// (e.g. TD-361, TD-267) silently reuse stale cached token IDs
 std::string compute_tokenized_cache_key(std::vector<PendingFileRange> files,
                                         const std::string& vocab_path,
                                         TokenizerMode tokenizer_mode, int max_seq_length) {
@@ -290,6 +292,7 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.base_config.gradient_clip_spike_k = svc.gradient_clip_spike_k;
     cfg.base_config.batch_size = svc.batch_size;
     cfg.base_config.gradient_accumulation_steps = svc.gradient_accumulation_steps;
+    // TODO: See TD-410 in TECHNICAL_DEBT.md - early stopping/patience/restore-best hard-coded, not configurable
     cfg.base_config.enable_early_stopping = true;
     cfg.base_config.patience = 5;
     cfg.base_config.restore_best_weights = true;
@@ -405,6 +408,8 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
     build_model();
     load_session_history();
 
+    // TODO: See TD-405 in TECHNICAL_DEBT.md - picks the lowest final_validation_loss across ALL history, but each
+    // pass validates on its own files, so later passes are discarded whenever new data validates worse
     if (!session_history.empty()) {
         for (const auto& session : session_history) {
             if (is_sane_checkpoint_candidate(session) &&
@@ -486,6 +491,8 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
     load_session_history();
 
     // Initialize best checkpoint from history (TD-005)
+    // TODO: See TD-405 in TECHNICAL_DEBT.md - picks the lowest final_validation_loss across ALL history, but each
+    // pass validates on its own files, so later passes are discarded whenever new data validates worse
     if (!session_history.empty()) {
         for (const auto& session : session_history) {
             if (is_sane_checkpoint_candidate(session) &&
@@ -544,6 +551,8 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
     ensure_directories_exist();
     load_session_history();
 
+    // TODO: See TD-405 in TECHNICAL_DEBT.md - picks the lowest final_validation_loss across ALL history, but each
+    // pass validates on its own files, so later passes are discarded whenever new data validates worse
     if (!session_history.empty()) {
         for (const auto& session : session_history) {
             if (is_sane_checkpoint_candidate(session) &&
@@ -896,6 +905,7 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
 
         float final_loss = trainer.get_final_training_loss();
         float final_val_loss = trainer.get_final_validation_loss();
+        // TODO: See TD-410 in TECHNICAL_DEBT.md - records num_epochs requested, not epochs completed (early stopping)
         finalize_session(finalize_sample_count, num_epochs, final_loss, final_val_loss);
         save_session_history();
 
@@ -1097,6 +1107,8 @@ bool IncrementalTrainer::resume_last_session() {
     // bare path exactly as before.
     std::vector<PendingFileRange> pending_ranges = resp.file_ranges();
 
+    // TODO: See TD-405 in TECHNICAL_DEBT.md - best-ever across history, not the latest; TD-406: in_progress_best
+    // below uses current_session_id, which already skipped past a paused session persisted by perform_auto_save()
     std::string resume_checkpoint = best_checkpoint_path;
     int resume_session_id = -1;
 
@@ -1409,6 +1421,8 @@ void IncrementalTrainer::cleanup_dead_sessions() {
         const std::string full = path.string();
         std::string reason;
 
+        // TODO: See TD-407 in TECHNICAL_DEBT.md - save_model() never writes the bare `.bin` base file, so this scan
+        // only matches per-layer sidecars by accident (partially deleting snapshots)
         if (is_best || is_autosave) {
             // A completed session's own best-snapshot / autosave is deleted by
             // finalize_session()/cleanup_old_sessions(); any that still exist
@@ -1450,6 +1464,8 @@ void IncrementalTrainer::cleanup_dead_sessions() {
     }
 }
 
+// TODO: See TD-407 in TECHNICAL_DEBT.md - deletes only the top-level sidecars (~0.2% of a checkpoint); every
+// per-layer file (_token_emb.bin, _encoder_block_*, _decoder_block_*.{self_attn,cross_attn,ff}, ...) is leaked
 void IncrementalTrainer::remove_model_files(const std::string& base_path) {
     // TD-169: ".metrics.csv" added once run_training() started writing one alongside every
     // checkpoint (see its own comment) — without this, every rotated-out or cleaned-up
@@ -1831,6 +1847,8 @@ void IncrementalTrainer::perform_auto_save(int current_epoch, int cumulative_sam
         // left at its 0.0 default here (not known until the epoch finishes),
         // which keeps is_sane_checkpoint_candidate() correctly excluding this
         // still-in-progress entry from "best checkpoint" selection on restart.
+        // TODO: See TD-406 in TECHNICAL_DEBT.md - persisting this entry (val loss 0) makes the next start skip to
+        // session N+1, miss session_N_best.bin, and delete this auto-save as an "orphaned" broken session
         if (!session_history.empty()) {
             auto& session = session_history.back();
             session.samples_trained = cumulative_samples_trained;
@@ -1906,6 +1924,8 @@ bool IncrementalTrainer::reset_all(bool keep_data_registry) {
         }
 
         // Remove all checkpoint / autosave .bin files
+        // TODO: See TD-407 in TECHNICAL_DEBT.md - matches only per-layer `.bin` files; top-level sidecars and the
+        // attention/FF files survive a reset
         std::error_code ec;
         for (const auto& entry : fs::directory_iterator(sdir, ec)) {
             const auto& path = entry.path();
@@ -2002,6 +2022,8 @@ bool IncrementalTrainer::is_windows_platform() {
 #endif
 }
 
+// TODO: See TD-408 in TECHNICAL_DEBT.md - target is the bare checkpoint path, which save_model() never creates, so
+// the link always dangles and can't be loaded (load_model looks for <link>.config); Windows copy always fails
 bool IncrementalTrainer::create_or_update_symlink(const std::string& target,
                                                   const std::string& link_path) {
     if (!config.enable_checkpoint_symlinks) {
