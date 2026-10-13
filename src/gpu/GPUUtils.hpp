@@ -75,6 +75,8 @@ class GPUManager {
     /// Maximum bytes ADAI may allocate (set during initialize).
     inline static size_t max_memory_bytes_ = 0;
     /// Bytes currently allocated by ADAI through GPUMemory.
+    // TODO: See TD-382 in TECHNICAL_DEBT.md - no locking: this counter and the cuBLAS handle are shared by every
+    // thread that multiplies a large Matrix (e.g. ChatbotTrainer's async quality thread during training)
     inline static size_t allocated_bytes_ = 0;
 
    public:
@@ -89,6 +91,7 @@ class GPUManager {
         return (cudaGetDeviceCount(&n) == cudaSuccess) && (n > 0);
     }
 
+    // TODO: See TD-383 in TECHNICAL_DEBT.md - discards the CUDA error, so a driver failure reads as "0 device(s)"
     static std::string probe_diagnostic() {
         int n = 0;
         cudaGetDeviceCount(&n);
@@ -108,6 +111,8 @@ class GPUManager {
      * @throws std::runtime_error for unexpected CUDA errors (device present but
      *         initialisation failed).
      */
+    // TODO: See TD-383 in TECHNICAL_DEBT.md - ignores new arguments once initialized; leaks the stream if a
+    // later step throws
     static bool initialize(int device_id = 0, float memory_fraction = 0.5f,
                            bool use_low_priority = true) {
         if (initialized_)
@@ -169,6 +174,8 @@ class GPUManager {
      * Does NOT call cudaDeviceReset() — that would terminate every other
      * process sharing this GPU device.
      */
+    // TODO: See TD-383 in TECHNICAL_DEBT.md - zeroes allocated_bytes_ while GPUMemory buffers (layer GPUState
+    // mirrors) are still alive, so accounting is wrong after re-initialize()
     static void cleanup() {
         if (!initialized_)
             return;
@@ -211,6 +218,8 @@ class GPUManager {
      * multiplied by the previously configured fraction.  The caller must
      * ensure no live GPUMemory objects exist before switching devices.
      */
+    // TODO: See TD-383 in TECHNICAL_DEBT.md - doesn't reset the budget (contrary to the doc above) or rebind the
+    // stream/cuBLAS handle to the new device; no caller
     static void set_device(int device) {
         if (device < 0 || device >= device_count_) {
             throw std::out_of_range("Invalid device ID: " + std::to_string(device));

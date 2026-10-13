@@ -325,6 +325,8 @@ int main(int argc, char* argv[]) {
                 "[GPU] Attempting GPU initialisation (device {}, {:.0f}% memory budget)...",
                 config.gpu_device_id, config.gpu_memory_fraction * 100.0f);
 #ifdef ADAI_ENABLE_GPU
+            // TODO: See TD-381 in TECHNICAL_DEBT.md - GPU_STRATEGY is never passed, so the server always uses the
+            // low-priority stream even though config.chatbot.conf ships GPU_STRATEGY=full
             if (Matrix::gpu_try_initialize(config.gpu_device_id, config.gpu_memory_fraction)) {
                 adai::Logger::info("[GPU] GPU ready. {}", Matrix::gpu_info());
             } else {

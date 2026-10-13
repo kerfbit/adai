@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 12, 2026
-**Total Items:** 172
+**Total Items:** 175
 **High Priority:** 22
-**Medium Priority:** 73
-**Low Priority:** 77
+**Medium Priority:** 75
+**Low Priority:** 78
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -171,6 +171,15 @@ correct 3-word answer 0.0067; the per-epoch BLEU-4 can rank outputs backwards (T
 `bleu1`/`bleu2` are dropped before the metrics DB, whose columns always hold `-1` (TD-379); and the
 scores aren't comparable with published numbers or the BLEU/ROUGE lesson's 0–100 ranges, with a
 noisy 10-sample default (TD-380).
+
+Also October 12, 2026: filed [TD-381](#td-381-chatbot_api_server-ignores-gpu_strategy) through [TD-383](#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize) from the code-traced
+[GPUUtils.md](../reference/source/GPUUtils.md) (CUDA `GPUManager`/`GPUMemory`; no CUDA device was
+available, so all three are by inspection). Two are MEDIUM: `chatbot_api_server` never passes
+`GPU_STRATEGY` to GPU initialization, so it always uses the low-priority stream although
+`config.chatbot.conf` ships `full` (TD-381); and `GPUManager` has no locking while
+`Matrix::operator*` dispatches to the shared GPU stream from any thread, including `ChatbotTrainer`'s
+supposedly CPU-only async quality thread during training (TD-382). One is LOW: `set_device()`,
+`cleanup()`, `initialize()` and `probe_diagnostic()` lifecycle gaps (TD-383).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1043,6 +1052,12 @@ config keys) as one FTPS-hardening pass. Then [TD-375](#td-375-ftpdataserver-has
 reading anything into BLEU trends; it's small and self-contained. Do [TD-379](#td-379-bleu1bleu2-are-computed-but-never-stored) alongside it (same
 reporting path). [TD-380](#td-380-generation-quality-scores-arent-comparable-or-well-sampled) is documentation plus a sample-size default.
 
+**Tier 42 — Newly filed (October 12, 2026): `GPUUtils` (CUDA).** [TD-381](#td-381-chatbot_api_server-ignores-gpu_strategy) is a few lines; do it
+whenever `chatbot_api_server`'s GPU startup is touched. Do [TD-382](#td-382-gpu-work-from-any-thread-shares-unsynchronized-gpumanager-state) before relying on the async
+BLEU/ROUGE path on a GPU host (or with TD-378 and the TD-358 retraining runs, since both use that
+thread). [TD-383](#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize) is cleanup. Revisit all three when the SYCL `GPUUtils_SYCL.hpp` is traced, since
+ai-machine runs that backend.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1221,6 +1236,9 @@ reporting path). [TD-380](#td-380-generation-quality-scores-arent-comparable-or-
   - [TD-378: BLEU Smoothing Inflates Unrelated Answers and Zeroes Correct Short Ones](#td-378-bleu-smoothing-inflates-unrelated-answers-and-zeroes-correct-short-ones)
   - [TD-379: `bleu1`/`bleu2` Are Computed but Never Stored](#td-379-bleu1bleu2-are-computed-but-never-stored)
   - [TD-380: Generation-Quality Scores Aren't Comparable or Well-Sampled](#td-380-generation-quality-scores-arent-comparable-or-well-sampled)
+  - [TD-381: `chatbot_api_server` Ignores `GPU_STRATEGY`](#td-381-chatbot_api_server-ignores-gpu_strategy)
+  - [TD-382: GPU Work From Any Thread Shares Unsynchronized `GPUManager` State](#td-382-gpu-work-from-any-thread-shares-unsynchronized-gpumanager-state)
+  - [TD-383: `GPUManager` Lifecycle Gaps (`set_device`, `cleanup`, `initialize`)](#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -7914,6 +7932,97 @@ Files to Modify:
 
 ---
 
+### TD-381: `chatbot_api_server` Ignores `GPU_STRATEGY`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | GPU / GPUManager | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `GPUUtils.hpp`, by inspection (definite). `incremental_trainer` maps
+`GPU_STRATEGY` (`background` → low-priority stream, `full` → high) into
+`Matrix::gpu_try_initialize()`'s third argument. `chatbot_api_server` calls
+`gpu_try_initialize(config.gpu_device_id, config.gpu_memory_fraction)` with only two arguments, so it
+always gets the default low-priority stream. `config.chatbot.conf` ships `GPU_STRATEGY=full`, and
+CLAUDE.md documents the key for both binaries, but on the server it has no effect: serving GPU work
+always yields to other GPU tenants (including a trainer on the same card).
+
+Action Items:
+
+- [ ] Pass `config.gpu_strategy == GPUStrategy::BACKGROUND` as the third argument, and log the mode as `incremental_trainer` does.
+
+Location in code: `src/ChatbotAPIServer.cpp` (GPU initialization); tagged `TODO: See TD-381`.
+
+Files to Modify:
+
+- `src/ChatbotAPIServer.cpp`
+
+---
+
+### TD-382: GPU Work From Any Thread Shares Unsynchronized `GPUManager` State
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | GPU / GPUManager | October 12, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `GPUUtils.hpp`, by inspection. `GPUManager`'s state is process-wide
+`inline static` with no locking: `allocated_bytes_` is a plain `size_t`, and there's one cuBLAS handle
+and one stream. `Matrix::operator*` sends every product with inner dimensions of at least 32 to
+`multiply_gpu()` whenever `GPUManager::is_available()`, **from any thread**. `ChatbotTrainer`'s async
+BLEU/ROUGE path is commented as "deliberately still CPU-only" because it calls `generate_response()`
+on a `clone()`d model, but that model's `Matrix` products still go to cuBLAS on the shared stream,
+concurrently with the training thread's own GPU work. That means unsynchronized updates to the budget
+counter (lost updates, wrong refusals) and one cuBLAS handle used from two host threads at once, which
+NVIDIA advises against. The same applies to any other thread doing large `Matrix` multiplies while a
+model runs on the GPU. CUDA-side analysis only; the SYCL manager will be checked in its own reference.
+
+Action Items:
+
+- [ ] Decide on the threading model: either a mutex (or atomic counter plus a per-thread cuBLAS handle) in `GPUManager`, or a thread-local "CPU only" override that the async quality thread sets so its `Matrix` math really stays on the CPU.
+- [ ] Correct the async-path comment in `ChatbotTrainer::compute_generation_quality_metrics()`.
+- [ ] Test (on a GPU host): concurrent `Matrix` multiplies from two threads keep the budget counter exact.
+
+Location in code: `src/gpu/GPUUtils.hpp` (`GPUManager` state), `src/Matrix.cpp` (`operator*` dispatch), `src/ChatbotTrainer.cpp` (async quality comment); tagged `TODO: See TD-382`.
+
+Files to Modify:
+
+- `src/gpu/GPUUtils.hpp`
+- `src/gpu/sycl/GPUUtils_SYCL.hpp`
+- `src/Matrix.cpp`
+- `src/ChatbotTrainer.cpp`
+
+---
+
+### TD-383: `GPUManager` Lifecycle Gaps (`set_device`, `cleanup`, `initialize`)
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | GPU / GPUManager | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `GPUUtils.hpp`, by inspection:
+- `set_device()` says it "also resets the memory budget", but it only calls `cudaSetDevice()`; the
+  stream and cuBLAS handle stay bound to the old device. No caller exists, so it's a latent trap.
+- `cleanup()` sets `allocated_bytes_` to 0 while layers' persistent `GPUState` buffers still exist,
+  so after a re-`initialize()` the budget undercounts.
+- `initialize()` returns true without applying new arguments once initialized, and leaks the stream
+  if the cuBLAS step throws.
+- `probe_diagnostic()` discards the CUDA error, so a driver failure reads as "0 device(s)".
+- `GPUMemory`'s `count × sizeof(T)` isn't overflow-checked.
+
+Action Items:
+
+- [ ] Make `set_device()` rebuild the stream, handle and budget (or remove it); have `cleanup()` refuse or warn while allocations are live; apply or reject differing arguments on repeat `initialize()`; free partial state on failure; include the CUDA error text in `probe_diagnostic()`.
+
+Location in code: `src/gpu/GPUUtils.hpp` (`initialize()`, `cleanup()`, `set_device()`, `probe_diagnostic()`); tagged `TODO: See TD-383`.
+
+Files to Modify:
+
+- `src/gpu/GPUUtils.hpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -8430,15 +8539,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 172 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 175 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|22|13%|
-|Medium|73|42%|
-|Low|77|45%|
+|Medium|75|43%|
+|Low|78|44%|
 
-**Total Active Items:** 172
+**Total Active Items:** 175
 
 ### By Component
 
@@ -8485,6 +8594,7 @@ Recomputed directly from the 172 `### TD-NNN` entries under [Active Technical De
 |Transformer / FeedForward|4|
 |Data / FtpDataServer|6|
 |Metrics / GenerationQuality|3|
+|GPU / GPUManager|3|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
 
@@ -8492,13 +8602,13 @@ Recomputed directly from the 172 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|95|
-|2-4 hours|55|
+|0-2 hours|97|
+|2-4 hours|56|
 |4-8 hours|12|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 359-620 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 363-628 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

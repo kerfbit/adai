@@ -116,6 +116,7 @@ Matrix Matrix::operator*(const Matrix& other) const {
     // are large enough for cuBLAS SGEMM to outperform AVX2.  We do NOT gate on
     // 'rows' so that short-sequence inputs (seq_len < 32) still benefit from
     // fast weight-matrix multiplications (d_model × d_model, d_model × d_ff).
+    // TODO: See TD-382 in TECHNICAL_DEBT.md - dispatches to the shared GPU stream from any thread, unsynchronized
     if (adai::gpu::GPUManager::is_available() && cols >= 32 && other.cols >= 32) {
         return multiply_gpu(other);
     }

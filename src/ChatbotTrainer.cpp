@@ -1748,6 +1748,8 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
         // Async path (TD-023): snapshot model weights and score in a background thread
         // so the training loop can begin the next epoch without waiting.
         //
+        // TODO: See TD-382 in TECHNICAL_DEBT.md - not actually CPU-only: the clone's Matrix products still go
+        // to the shared GPU stream (Matrix::operator*) concurrently with the training thread
         // Deliberately still CPU-only (snap->generate_response(), not
         // gpu_generate_response()): clone() rebuilds the model via
         // save_model()+load_model() and never calls gpu_init_training(), so
