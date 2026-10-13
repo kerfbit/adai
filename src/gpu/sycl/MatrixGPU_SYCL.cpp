@@ -414,6 +414,8 @@ void matrix_softmax_rows_gpu(float* data, int rows, int cols) {
                                      scratch[lid] = sycl::fmax(scratch[lid], scratch[lid + s]);
                                  item.barrier(sycl::access::fence_space::local_space);
                              }
+                             // TODO: See TD-384 in TECHNICAL_DEBT.md - data race: scratch[0] is read here and then overwritten by
+                             // the next pass's scratch[lid] write with no item.barrier() in between; add one before reusing scratch
                              const float row_max = scratch[0];
 
                              // Pass 2: exp(x - max) and sum
@@ -531,6 +533,8 @@ void matrix_layer_norm_fwd_gpu(const float* input, float* output, float* out_nor
                                      scratch[lid] += scratch[lid + s];
                                  item.barrier(sycl::access::fence_space::local_space);
                              }
+                             // TODO: See TD-384 in TECHNICAL_DEBT.md - data race: scratch[0] is read here and then overwritten by
+                             // the next pass's scratch[lid] write with no item.barrier() in between; add one before reusing scratch
                              const float mean = scratch[0] * inv_cols;
                              if (lid == 0 && out_mean)
                                  out_mean[row] = mean;
@@ -704,6 +708,8 @@ float matrix_cross_entropy_loss_gpu(const float* logits, const int* targets, int
                                      scratch[lid] = sycl::fmax(scratch[lid], scratch[lid + s]);
                                  item.barrier(sycl::access::fence_space::local_space);
                              }
+                             // TODO: See TD-384 in TECHNICAL_DEBT.md - data race: scratch[0] is read here and then overwritten by
+                             // the next pass's scratch[lid] write with no item.barrier() in between; add one before reusing scratch
                              const float row_max = scratch[0];
 
                              // Sum exp
@@ -760,6 +766,8 @@ void matrix_cross_entropy_grad_gpu(const float* logits, const int* targets, floa
                                      scratch[lid] = sycl::fmax(scratch[lid], scratch[lid + s]);
                                  item.barrier(sycl::access::fence_space::local_space);
                              }
+                             // TODO: See TD-384 in TECHNICAL_DEBT.md - data race: scratch[0] is read here and then overwritten by
+                             // the next pass's scratch[lid] write with no item.barrier() in between; add one before reusing scratch
                              const float row_max = scratch[0];
 
                              // Sum exp

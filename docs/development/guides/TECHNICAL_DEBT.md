@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 12, 2026
-**Total Items:** 175
-**High Priority:** 22
+**Total Items:** 178
+**High Priority:** 23
 **Medium Priority:** 75
-**Low Priority:** 78
+**Low Priority:** 80
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -180,6 +180,15 @@ available, so all three are by inspection). Two are MEDIUM: `chatbot_api_server`
 `Matrix::operator*` dispatches to the shared GPU stream from any thread, including `ChatbotTrainer`'s
 supposedly CPU-only async quality thread during training (TD-382). One is LOW: `set_device()`,
 `cleanup()`, `initialize()` and `probe_diagnostic()` lifecycle gaps (TD-383).
+
+Also October 12, 2026: filed [TD-384](#td-384-shared-memory-race-in-gpu-softmax-layernorm-and-cross-entropy-kernels-cuda-and-sycl) through [TD-386](#td-386-gpu-kernel-input-checks-and-dead-batch-functions) from the code-traced
+[MatrixGPU_cu.md](../reference/source/MatrixGPU_cu.md) (no CUDA device available; all by inspection,
+with the training kernels' math checked by hand). One is **HIGH**: softmax, LayerNorm forward and
+cross-entropy loss/grad read `scratch[0]` and then reuse the same shared buffer for the next reduction
+without a barrier, a data race that can silently corrupt a row (possibly `NaN`) in attention,
+LayerNorm and the loss. The SYCL backend that ai-machine trains on has the identical pattern (TD-384).
+Two are LOW: `matrix_sum_gpu` allocates and synchronizes per call, every training step (TD-385); and
+unchecked kernel inputs plus uncalled batch functions (TD-386).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1058,6 +1067,11 @@ BLEU/ROUGE path on a GPU host (or with TD-378 and the TD-358 retraining runs, si
 thread). [TD-383](#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize) is cleanup. Revisit all three when the SYCL `GPUUtils_SYCL.hpp` is traced, since
 ai-machine runs that backend.
 
+**Tier 43 — Newly filed (October 12, 2026): `MatrixGPU.cu`.** Fix [TD-384](#td-384-shared-memory-race-in-gpu-softmax-layernorm-and-cross-entropy-kernels-cuda-and-sycl) together with TD-358,
+in both backends, before the TD-358 retraining runs: it's four one-line barriers per backend, and it
+removes an intermittent source of wrong rows from every GPU training step. [TD-385](#td-385-matrix_sum_gpu-allocates-and-synchronizes-on-every-call) and
+[TD-386](#td-386-gpu-kernel-input-checks-and-dead-batch-functions) are cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1239,6 +1253,9 @@ ai-machine runs that backend.
   - [TD-381: `chatbot_api_server` Ignores `GPU_STRATEGY`](#td-381-chatbot_api_server-ignores-gpu_strategy)
   - [TD-382: GPU Work From Any Thread Shares Unsynchronized `GPUManager` State](#td-382-gpu-work-from-any-thread-shares-unsynchronized-gpumanager-state)
   - [TD-383: `GPUManager` Lifecycle Gaps (`set_device`, `cleanup`, `initialize`)](#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize)
+  - [TD-384: Shared-Memory Race in GPU Softmax, LayerNorm and Cross-Entropy Kernels (CUDA and SYCL)](#td-384-shared-memory-race-in-gpu-softmax-layernorm-and-cross-entropy-kernels-cuda-and-sycl)
+  - [TD-385: `matrix_sum_gpu` Allocates and Synchronizes on Every Call](#td-385-matrix_sum_gpu-allocates-and-synchronizes-on-every-call)
+  - [TD-386: GPU Kernel Input Checks and Dead Batch Functions](#td-386-gpu-kernel-input-checks-and-dead-batch-functions)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -8023,6 +8040,102 @@ Files to Modify:
 
 ---
 
+### TD-384: Shared-Memory Race in GPU Softmax, LayerNorm and Cross-Entropy Kernels (CUDA and SYCL)
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | GPU / Kernels | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MatrixGPU.cu`, by inspection (a definite race under the CUDA and SYCL memory
+models). `softmax_rows_kernel`, `layer_norm_fwd_kernel`, `cross_entropy_loss_kernel` and
+`cross_entropy_grad_kernel` each run two tree reductions through the same shared `scratch` buffer.
+After the first reduction's final barrier, every thread reads `scratch[0]` (the row max or the mean),
+computes its next partial, and writes `scratch[lid]`, with **no barrier between the read and
+thread 0's write to `scratch[0]`**. Warps (CUDA) or sub-groups (SYCL) of a 256-thread block aren't
+scheduled in lockstep, so a lagging warp can read thread 0's partial sum instead of the max or mean.
+The result for that row is silently wrong: softmax `exp(x − wrong_max)` can overflow to `inf`/`NaN`,
+LayerNorm centres on a variance partial, and the loss and gradient for that position are wrong.
+
+It's likely rare, since thread 0 must finish a full loop pass before the lagging warp's single load,
+but it's intermittent, data-dependent and affects attention, every LayerNorm and the loss in GPU
+training. **`MatrixGPU_SYCL.cpp` has the identical pattern in the same four kernels**, and ai-machine
+trains on SYCL (Intel Arc), so its runs are exposed too. It can't be reproduced on a CPU SYCL device,
+which executes a work-group's items in lockstep regions between barriers.
+
+Action Items:
+
+- [ ] Add a barrier (`__syncthreads()` / `item.barrier(local_space)`) after each `scratch[0]` read that's followed by another reduction, in all four kernels in both backends (or reduce into a second buffer).
+- [ ] On a GPU host, run `compute-sanitizer --tool racecheck` (CUDA) over a training step to confirm no other shared-memory races remain.
+- [ ] Do this with TD-358, before the retraining runs.
+
+Location in code: `src/gpu/MatrixGPU.cu` and `src/gpu/sycl/MatrixGPU_SYCL.cpp` (softmax rows, LayerNorm forward, cross-entropy loss and grad); tagged `TODO: See TD-384` at all eight sites.
+
+Files to Modify:
+
+- `src/gpu/MatrixGPU.cu`
+- `src/gpu/sycl/MatrixGPU_SYCL.cpp`
+
+---
+
+### TD-385: `matrix_sum_gpu` Allocates and Synchronizes on Every Call
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | GPU / Kernels | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MatrixGPU.cu`, by inspection. `matrix_sum_gpu()` reduces recursively and
+allocates a `GPUMemory` buffer at every level (`cudaMalloc`/`cudaFree`, both synchronizing), ending
+with a blocking one-float download. `matrix_cross_entropy_loss_gpu()` calls it every training step,
+so each step stalls the CPU on the GPU and churns the allocator. `matrix_count_below_threshold_gpu()`
+(the saturation hook) has the same shape. The SYCL port should be checked when it's traced.
+
+Action Items:
+
+- [ ] Reduce in a single launch with a grid-stride loop and atomics (or a two-level fixed buffer reused across calls), and keep the loss on the device until it's actually needed on the host.
+
+Location in code: `src/gpu/MatrixGPU.cu` (`matrix_sum_gpu()`); tagged `TODO: See TD-385`.
+
+Files to Modify:
+
+- `src/gpu/MatrixGPU.cu`
+- `src/gpu/sycl/MatrixGPU_SYCL.cpp`
+
+---
+
+### TD-386: GPU Kernel Input Checks and Dead Batch Functions
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | GPU / Kernels | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MatrixGPU.cu`, by inspection:
+- `matrix_cross_entropy_loss_gpu`/`_grad_gpu` don't check that target IDs are in `[0, vocab_size)`,
+  so a bad ID reads out of bounds on the device.
+- The `float4` element-wise kernels require 16-byte-aligned pointers. Current callers pass
+  `cudaMalloc` base pointers, so they're fine, but nothing checks or documents it for future sliced
+  pointers.
+- No wrapper checks dimensions, and only launch errors are caught (`cudaGetLastError()`), so faults
+  surface at a later, unrelated synchronizing call.
+- `matrix_batch_add_gpu`, `matrix_batch_multiply_gpu` and `matrix_add_scalar_gpu` have no callers in
+  either backend.
+
+Action Items:
+
+- [ ] Validate targets on the host before upload (or clamp/flag on the device); document or assert alignment; add a debug-build `cudaStreamSynchronize` + check after launches.
+- [ ] Remove the uncalled batch functions, or keep them explicitly as TD-171 groundwork with a test.
+
+Location in code: `src/gpu/MatrixGPU.cu` (element-wise wrappers, cross-entropy, batch functions); tagged `TODO: See TD-386`.
+
+Files to Modify:
+
+- `src/gpu/MatrixGPU.{hpp,cu}`
+- `src/gpu/sycl/MatrixGPU_SYCL.{hpp,cpp}`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -8539,15 +8652,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 175 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 178 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|22|13%|
-|Medium|75|43%|
-|Low|78|44%|
+|High|23|13%|
+|Medium|75|42%|
+|Low|80|45%|
 
-**Total Active Items:** 175
+**Total Active Items:** 178
 
 ### By Component
 
@@ -8595,6 +8708,7 @@ Recomputed directly from the 175 `### TD-NNN` entries under [Active Technical De
 |Data / FtpDataServer|6|
 |Metrics / GenerationQuality|3|
 |GPU / GPUManager|3|
+|GPU / Kernels|3|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
 
@@ -8602,13 +8716,13 @@ Recomputed directly from the 175 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|97|
+|0-2 hours|100|
 |2-4 hours|56|
 |4-8 hours|12|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 363-628 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 366-634 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

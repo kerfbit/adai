@@ -256,6 +256,8 @@ __global__ void sum_kernel(const float* input, float* output, int size) {
 // MatrixGPU Implementation
 // ============================================================================
 
+// TODO: See TD-386 in TECHNICAL_DEBT.md - float4 kernels require 16-byte-aligned pointers (unchecked); no
+// dimension checks; only launch errors are caught here
 void matrix_add_gpu(const float* a, const float* b, float* c, int size) {
     const int threads = 256;
     const int n4   = size / 4;
@@ -379,6 +381,8 @@ void matrix_apply_activation_gpu(float* data, int size, ActivationType type) {
     }
 }
 
+// TODO: See TD-385 in TECHNICAL_DEBT.md - allocates/frees a GPUMemory buffer per recursion level and blocks on a
+// download; called every training step via matrix_cross_entropy_loss_gpu
 float matrix_sum_gpu(const float* data, int size) {
     // size == 0 (an empty tensor reaching sum()/mean() — e.g. a degenerate
     // zero-length batch or sequence) would otherwise compute blocks = 0,
@@ -457,6 +461,8 @@ __global__ void batch_add_tail_kernel(const float** a_batch, const float** b_bat
 // Batch Operations
 // ============================================================================
 
+// TODO: See TD-386 in TECHNICAL_DEBT.md - matrix_batch_add_gpu/matrix_batch_multiply_gpu (and matrix_add_scalar_gpu)
+// have no callers
 void matrix_batch_add_gpu(const float** a_batch, const float** b_batch,
                          float** c_batch, int batch_size, int size) {
     cudaStream_t stream = GPUManager::get_stream();
@@ -591,6 +597,8 @@ __global__ void softmax_rows_kernel(float* data, int cols) {
         if (lid < s) scratch[lid] = fmaxf(scratch[lid], scratch[lid + s]);
         __syncthreads();
     }
+    // TODO: See TD-384 in TECHNICAL_DEBT.md - data race: scratch[0] is read here and then overwritten by
+    // the next pass's scratch[lid] write with no __syncthreads() in between; add one before reusing scratch
     const float row_max = scratch[0];
 
     // Pass 2: exp(x - max) and sum
@@ -695,6 +703,8 @@ __global__ void layer_norm_fwd_kernel(const float* input, float* output, float* 
         if (lid < s) scratch[lid] += scratch[lid + s];
         __syncthreads();
     }
+    // TODO: See TD-384 in TECHNICAL_DEBT.md - data race: scratch[0] is read here and then overwritten by
+    // the next pass's scratch[lid] write with no __syncthreads() in between; add one before reusing scratch
     const float mean = scratch[0] * inv_cols;
     if (lid == 0 && out_mean) out_mean[row] = mean;
 
@@ -883,6 +893,8 @@ __global__ void cross_entropy_loss_kernel(const float* logits, const int* target
         if (lid < s) scratch[lid] = fmaxf(scratch[lid], scratch[lid + s]);
         __syncthreads();
     }
+    // TODO: See TD-384 in TECHNICAL_DEBT.md - data race: scratch[0] is read here and then overwritten by
+    // the next pass's scratch[lid] write with no __syncthreads() in between; add one before reusing scratch
     const float row_max = scratch[0];
 
     float my_sum = 0.0f;
@@ -901,6 +913,7 @@ __global__ void cross_entropy_loss_kernel(const float* logits, const int* target
     }
 }
 
+// TODO: See TD-386 in TECHNICAL_DEBT.md - target IDs aren't range-checked (out-of-bounds read); same in _grad_gpu
 float matrix_cross_entropy_loss_gpu(const float* logits, const int* targets,
                                      int seq_len, int vocab_size) {
     constexpr int WG = 256;
@@ -930,6 +943,8 @@ __global__ void cross_entropy_grad_kernel(const float* logits, const int* target
         if (lid < s) scratch[lid] = fmaxf(scratch[lid], scratch[lid + s]);
         __syncthreads();
     }
+    // TODO: See TD-384 in TECHNICAL_DEBT.md - data race: scratch[0] is read here and then overwritten by
+    // the next pass's scratch[lid] write with no __syncthreads() in between; add one before reusing scratch
     const float row_max = scratch[0];
 
     float my_sum = 0.0f;
