@@ -189,6 +189,7 @@ class GPUMatrix {
     GPUMemory<float> data_;  ///< row-major device buffer
 
    public:
+    // TODO: See TD-389 in TECHNICAL_DEBT.md - device memory is left uninitialized; r * c unchecked
     GPUMatrix(int r, int c) : rows(r), cols(c), data_(r * c) {}
 
     // Move-only — GPU allocations are not trivially copyable
@@ -305,6 +306,8 @@ class GPUMatrix {
                                    GPUManager::get_stream()));
     }
 
+    // TODO: See TD-389 in TECHNICAL_DEBT.md - no size check (also softmax_backward, gelu_backward, add_row_bias,
+    // masked_fill_inplace, layer_norm, layer_norm_backward)
     void add_inplace(const GPUMatrix& other) {
         matrix_add_inplace_gpu(other.data_.get(), data_.get(), size());
     }
@@ -414,6 +417,7 @@ namespace gpu {
  */
 class GPUKVCache {
    public:
+    // TODO: See TD-389 in TECHNICAL_DEBT.md - validation runs after keys_/values_ are already allocated
     GPUKVCache(int max_seq_length, int d_model)
         : max_seq_length_(max_seq_length),
           d_model_(d_model),
@@ -481,6 +485,8 @@ class GPUKVCache {
     }
 
    private:
+    // TODO: See TD-388 in TECHNICAL_DEBT.md - allocates and copies the whole populated prefix on every decode
+    // step (O(n^2) copying per generation); expose a view instead
     GPUMatrix materialize(const GPUMatrix& buffer) const {
         GPUMatrix result(current_length_, d_model_);
         if (current_length_ > 0) {
@@ -515,6 +521,8 @@ class GPUDecoderKVCache {
             // Cross-attention K/V come from the encoder output, whose length is bounded by the
             // same MAX_SEQ_LENGTH config value this codebase already applies to both encoder and
             // decoder sequences — reusing it here as a safe, simple capacity upper bound.
+            // TODO: See TD-387 in TECHNICAL_DEBT.md - encoder input isn't truncated (TD-365), so an input longer
+            // than max_seq_length makes CrossAttention's first append() throw out_of_range on GPU
             cross_attention_caches_.emplace_back(max_seq_length, d_model);
         }
     }

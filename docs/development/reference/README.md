@@ -39,6 +39,7 @@ This directory contains reference materials, technical specifications, and imple
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)
   - [GenerationQualityMetrics](source/GenerationQualityMetrics.md) (`src/GenerationQualityMetrics.{hpp,cpp}`; BLEU/ROUGE scorer for per-epoch generation quality)
   - [GPUUtils](source/GPUUtils.md) (`src/gpu/GPUUtils.hpp`; GPU backend gateway: CUDA `GPUManager`/`GPUMemory`, no-GPU stub, SYCL include)
+  - [MatrixGPU](source/MatrixGPU.md) (`src/gpu/MatrixGPU.hpp`; GPU kernel API, `GPUMatrix`, GPU KV caches)
   - [MatrixGPU.cu](source/MatrixGPU_cu.md) (`src/gpu/MatrixGPU.cu`; CUDA kernels and cuBLAS wrappers behind `GPUMatrix`)
 
 - **[KVCache API Reference](kvcache.md)** - Complete API documentation for the Key-Value cache system

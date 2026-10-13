@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 12, 2026
-**Total Items:** 178
+**Total Items:** 181
 **High Priority:** 23
-**Medium Priority:** 75
-**Low Priority:** 80
+**Medium Priority:** 76
+**Low Priority:** 82
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -189,6 +189,14 @@ without a barrier, a data race that can silently corrupt a row (possibly `NaN`) 
 LayerNorm and the loss. The SYCL backend that ai-machine trains on has the identical pattern (TD-384).
 Two are LOW: `matrix_sum_gpu` allocates and synchronizes per call, every training step (TD-385); and
 unchecked kernel inputs plus uncalled batch functions (TD-386).
+
+Also October 12, 2026: filed [TD-387](#td-387-gpu-generation-fails-on-input-longer-than-max_seq_length) through [TD-389](#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches) from the code-traced
+[MatrixGPU.md](../reference/source/MatrixGPU.md) (by inspection; no GPU available). One is MEDIUM:
+GPU generation sizes its cross-attention KV cache at `max_seq_length`, but encoder input isn't
+truncated (TD-365), so a chat input longer than that throws `out_of_range` on a GPU server while the
+CPU path answers (TD-387). Two are LOW: `GPUKVCache` reallocates and copies the whole populated cache
+every decode step (TD-388); and unchecked `GPUMatrix` shapes, uninitialized device memory and no tests
+for the GPU KV caches (TD-389).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1072,6 +1080,11 @@ in both backends, before the TD-358 retraining runs: it's four one-line barriers
 removes an intermittent source of wrong rows from every GPU training step. [TD-385](#td-385-matrix_sum_gpu-allocates-and-synchronizes-on-every-call) and
 [TD-386](#td-386-gpu-kernel-input-checks-and-dead-batch-functions) are cleanup.
 
+**Tier 44 — Newly filed (October 12, 2026): `MatrixGPU.hpp`.** Fix [TD-387](#td-387-gpu-generation-fails-on-input-longer-than-max_seq_length) together with TD-365:
+truncating encoder input once, where the model tokenizes, fixes both the CPU positional-encoding gap
+and the GPU crash. [TD-388](#td-388-gpukvcache-copies-the-whole-cache-every-decode-step) matters once GPU serving latency is measured (TD-033/TD-050's open
+benchmark). [TD-389](#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches) is cleanup, but its KV-cache tests are worth adding before that benchmark.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1256,6 +1269,9 @@ removes an intermittent source of wrong rows from every GPU training step. [TD-3
   - [TD-384: Shared-Memory Race in GPU Softmax, LayerNorm and Cross-Entropy Kernels (CUDA and SYCL)](#td-384-shared-memory-race-in-gpu-softmax-layernorm-and-cross-entropy-kernels-cuda-and-sycl)
   - [TD-385: `matrix_sum_gpu` Allocates and Synchronizes on Every Call](#td-385-matrix_sum_gpu-allocates-and-synchronizes-on-every-call)
   - [TD-386: GPU Kernel Input Checks and Dead Batch Functions](#td-386-gpu-kernel-input-checks-and-dead-batch-functions)
+  - [TD-387: GPU Generation Fails on Input Longer Than `max_seq_length`](#td-387-gpu-generation-fails-on-input-longer-than-max_seq_length)
+  - [TD-388: `GPUKVCache` Copies the Whole Cache Every Decode Step](#td-388-gpukvcache-copies-the-whole-cache-every-decode-step)
+  - [TD-389: `GPUMatrix` Shape Checks, Uninitialized Memory and Untested GPU KV Caches](#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -8136,6 +8152,98 @@ Files to Modify:
 
 ---
 
+### TD-387: GPU Generation Fails on Input Longer Than `max_seq_length`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | GPU / GPUMatrix | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MatrixGPU.hpp`, by inspection (definite). `gpu_generate_response()` and
+`gpu_generate_response_with_strategy()` build a `GPUDecoderKVCache(decoder_layers, max_seq_length,
+d_model)`, whose cross-attention caches hold at most `max_seq_length` rows. On the first decode step,
+`CrossAttention::gpu_forward_with_cache()` appends the **entire encoder output** to that cache, but
+encoder input is never truncated to `max_seq_length` (TD-365). So any chat input longer than
+`max_seq_length` tokens makes `GPUKVCache::append()` throw `out_of_range`, and the request fails on a
+GPU server (the TD-033 serving path), while the CPU path answers the same request (with the TD-365
+positional-encoding gap). The self-attention cache has the same cap but isn't reachable today:
+`TextGenerator` stops at `max_length = max_seq_length` generated tokens, which fills it exactly.
+
+Action Items:
+
+- [ ] Truncate encoder input once where the model tokenizes (TD-365), which removes the overflow; or size the cross-attention caches from the actual encoder length.
+- [ ] Test (on a GPU host): an over-length prompt generates without throwing and matches the CPU path.
+
+Location in code: `src/gpu/MatrixGPU.hpp` (`GPUDecoderKVCache` constructor), `src/EncoderDecoderModel.cpp` (both GPU generation paths); tagged `TODO: See TD-387`.
+
+Files to Modify:
+
+- `src/EncoderDecoderModel.cpp`
+- `src/gpu/MatrixGPU.hpp`
+
+---
+
+### TD-388: `GPUKVCache` Copies the Whole Cache Every Decode Step
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | GPU / GPUMatrix | October 12, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `MatrixGPU.hpp`, by inspection. `GPUKVCache::get_keys()`/`get_values()` allocate a
+new `GPUMatrix` and copy the whole populated prefix on every call. Cached self-attention and
+cross-attention call them once per layer per decode step, so a generation of `n` tokens copies
+O(n²·d_model) floats per layer and performs two allocations per layer per step. That works against
+TD-050's goal (no per-step device malloc/free churn) and will show up in TD-033/TD-050's still-open
+GPU latency benchmark.
+
+Action Items:
+
+- [ ] Return a non-owning view (pointer, rows, cols) of the populated prefix and have attention consume it directly (cuBLAS/oneMKL take a leading dimension, so no copy is needed).
+
+Location in code: `src/gpu/MatrixGPU.hpp` (`GPUKVCache::materialize()`); tagged `TODO: See TD-388`.
+
+Files to Modify:
+
+- `src/gpu/MatrixGPU.hpp`
+- `src/MultiHeadAttention.cpp`
+- `src/CrossAttention.cpp`
+
+---
+
+### TD-389: `GPUMatrix` Shape Checks, Uninitialized Memory and Untested GPU KV Caches
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | GPU / GPUMatrix | October 12, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MatrixGPU.hpp`, by inspection:
+- `GPUMatrix::add_inplace`, `softmax_backward`, `gelu_backward`, `add_row_bias`,
+  `masked_fill_inplace`, `layer_norm` and `layer_norm_backward` don't check shapes (the arithmetic
+  operators do), so a caller's shape bug becomes silent device memory corruption or a fault.
+- `GPUMatrix(r, c)` leaves device memory uninitialized (unlike CPU `Matrix`), and a short `upload()`
+  leaves the rest as garbage; `r × c` is unchecked.
+- `count_below_threshold()` on an empty matrix returns `NaN`.
+- `GPUKVCache` validates its sizes only after allocating, and `GPUDecoderKVCache` doesn't
+  bounds-check layer indices.
+- **`GPUKVCache`/`GPUDecoderKVCache` have no tests at all**, not even GPU-gated ones.
+
+Action Items:
+
+- [ ] Add shape checks to the unchecked operations; zero (or document) new allocations; validate before allocating; check layer indices.
+- [ ] Add GPU-gated tests for the KV caches (append, capacity, materialize, clear) mirroring `KVCache`'s CPU tests.
+
+Location in code: `src/gpu/MatrixGPU.hpp` (`GPUMatrix` constructor and unchecked operations, `GPUKVCache` constructor); tagged `TODO: See TD-389`.
+
+Files to Modify:
+
+- `src/gpu/MatrixGPU.hpp`
+- `src/gpu/sycl/MatrixGPU_SYCL.hpp`
+- `tests/matrixgpu_td003_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -8652,15 +8760,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 178 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 181 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|23|13%|
-|Medium|75|42%|
-|Low|80|45%|
+|Medium|76|42%|
+|Low|82|45%|
 
-**Total Active Items:** 178
+**Total Active Items:** 181
 
 ### By Component
 
@@ -8709,6 +8817,7 @@ Recomputed directly from the 178 `### TD-NNN` entries under [Active Technical De
 |Metrics / GenerationQuality|3|
 |GPU / GPUManager|3|
 |GPU / Kernels|3|
+|GPU / GPUMatrix|3|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
 
@@ -8716,13 +8825,13 @@ Recomputed directly from the 178 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|100|
-|2-4 hours|56|
+|0-2 hours|102|
+|2-4 hours|57|
 |4-8 hours|12|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 366-634 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 370-642 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

@@ -1152,6 +1152,7 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
     // every-step gpu_decode() call. Mirrors generate_response()'s own CPU cached model_fn:
     // tracks processed_length, slices only the new tokens each call, threads one
     // GPUDecoderKVCache across the whole generation.
+    // TODO: See TD-387 in TECHNICAL_DEBT.md - input longer than max_seq_length throws from the cross-attention cache
     adai::gpu::GPUDecoderKVCache gpu_kv_cache(decoder_layers, max_seq_length, d_model);
     size_t processed_length = 0;
     auto model_fn = [this, &gpu_encoder_out, &gpu_kv_cache,
@@ -1248,6 +1249,7 @@ std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
         return last_logits;
     };
 
+    // TODO: See TD-387 in TECHNICAL_DEBT.md - input longer than max_seq_length throws from the cross-attention cache
     adai::gpu::GPUDecoderKVCache gpu_kv_cache(decoder_layers, max_seq_length, d_model);
     size_t processed_length = 0;
     auto model_fn = [this, &gpu_encoder_out, &gpu_kv_cache,
