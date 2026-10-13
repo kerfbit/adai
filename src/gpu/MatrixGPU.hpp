@@ -159,6 +159,7 @@ void matrix_download_gpu(const float* device_ptr, float* host_ptr, int count);
 
 // ============================================================================
 // GPUMatrix — persistent GPU-resident matrix (TD-003)
+// TODO: See TD-395 in TECHNICAL_DEBT.md - duplicated in sycl/MatrixGPU_SYCL.hpp; merge into one definition
 // ============================================================================
 
 /**

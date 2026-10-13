@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 12, 2026
-**Total Items:** 186
+**Total Items:** 187
 **High Priority:** 23
 **Medium Priority:** 80
-**Low Priority:** 83
+**Low Priority:** 84
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -216,6 +216,12 @@ Both are MEDIUM: the sub-group sum reduction is correct only when the compiler p
 GPU kernels without a GPU, which is how this and TD-384 went unnoticed (TD-394). **TD-384 is now
 verified**: the race reproduces deterministically on the CPU device (LayerNorm forward 0.32 relative
 error) and adding the barrier fixes all four kernels. TD-385 and TD-386 were amended for SYCL.
+
+Also October 12, 2026: filed [TD-395](#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) (LOW) from the code-traced
+[MatrixGPU_SYCL.md](../reference/source/MatrixGPU_SYCL.md): `GPUMatrix` is maintained twice, once per
+backend, although only `copy()`/`zero()` differ, and the SYCL `copy()` drains the queue. Running the
+SYCL `GPUMatrix` and the shared `GPUKVCache` on the oneAPI CPU device (their first run anywhere)
+verified TD-387 at the cache level and TD-389's SYCL findings; both were amended.
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1114,6 +1120,9 @@ TD-384: a CPU-device test mode turns the harness that found both bugs into a per
 test, so TD-384's fix (and TD-358's) can be verified without ai-machine. Fix [TD-393](#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8) in the same
 change (pin the sub-group size or loop over the partials).
 
+**Tier 47 — Newly filed (October 12, 2026): `MatrixGPU_SYCL.hpp`.** [TD-395](#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) is a refactor; do it
+before the next `GPUMatrix` change (for example TD-389's shape checks), so that change is made once.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1306,6 +1315,7 @@ change (pin the sub-group size or loop over the partials).
   - [TD-392: SYCL `GPUMemory(0)` Throws Where CUDA Succeeds](#td-392-sycl-gpumemory0-throws-where-cuda-succeeds)
   - [TD-393: SYCL Sub-Group Reduction Is Wrong When the Sub-Group Size Is 8](#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8)
   - [TD-394: GPU Kernel Tests Can't Run Without a GPU](#td-394-gpu-kernel-tests-cant-run-without-a-gpu)
+  - [TD-395: `GPUMatrix` Is Duplicated Between the CUDA and SYCL Headers](#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -8230,6 +8240,10 @@ Action Items:
 - [ ] Truncate encoder input once where the model tokenizes (TD-365), which removes the overflow; or size the cross-attention caches from the actual encoder length.
 - [ ] Test (on a GPU host): an over-length prompt generates without throwing and matches the CPU path.
 
+**Verified October 12, 2026** ([MatrixGPU_SYCL.md](../reference/source/MatrixGPU_SYCL.md)): on the
+oneAPI CPU device, appending a 12-row encoder output to a `GPUDecoderKVCache(2, max_seq_length = 8,
+4)` cross-attention cache throws `"GPUKVCache::append: exceeds max_seq_length capacity"`.
+
 Location in code: `src/gpu/MatrixGPU.hpp` (`GPUDecoderKVCache` constructor), `src/EncoderDecoderModel.cpp` (both GPU generation paths); tagged `TODO: See TD-387`.
 
 Files to Modify:
@@ -8289,6 +8303,12 @@ Action Items:
 
 - [ ] Add shape checks to the unchecked operations; zero (or document) new allocations; validate before allocating; check layer indices.
 - [ ] Add GPU-gated tests for the KV caches (append, capacity, materialize, clear) mirroring `KVCache`'s CPU tests.
+
+**Verified on SYCL, October 12, 2026** ([MatrixGPU_SYCL.md](../reference/source/MatrixGPU_SYCL.md)):
+on the oneAPI CPU device, `big(4×4).add_inplace(small(2×2))` was accepted with no error (reading past
+`small`'s buffer), and a fresh `GPUMatrix` held garbage (`6.6×10⁻³⁷`). The `GPUKVCache` itself ran
+correctly (offsets, materialize, clear), its first run anywhere; the tests above should still be added
+(TD-394's CPU-device mode makes that possible without a GPU).
 
 Location in code: `src/gpu/MatrixGPU.hpp` (`GPUMatrix` constructor and unchecked operations, `GPUKVCache` constructor); tagged `TODO: See TD-389`.
 
@@ -8453,6 +8473,39 @@ Files to Modify:
 - `src/gpu/sycl/GPUUtils_SYCL.hpp`
 - `tests/matrixgpu_td003_test.cpp`
 - `tests/CMakeLists.txt`
+
+---
+
+### TD-395: `GPUMatrix` Is Duplicated Between the CUDA and SYCL Headers
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | GPU / GPUMatrix | October 12, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `MatrixGPU_SYCL.hpp`, by inspection. `GPUMatrix` is defined twice: in the CUDA
+block of `src/gpu/MatrixGPU.hpp` and again in `src/gpu/sycl/MatrixGPU_SYCL.hpp`. The two are the same
+member for member except `copy()` (CUDA: async device copy; SYCL: `q.memcpy(...).wait()`) and `zero()`
+(`cudaMemsetAsync` vs. `q.memset`). Every `GPUMatrix` change has to be made twice, and a missed one
+makes the backends diverge silently. `GPUKVCache` already shows the alternative: one definition after
+the backend split, using only the shared API. The SYCL `copy()`'s `.wait()` is also an unnecessary
+full-queue drain on an in-order queue, against CLAUDE.md's "no `.wait()` on intermediate work" rule
+(compare TD-390). The SYCL header's status note ("capped by TD-050") is stale, since TD-050 is mostly
+resolved.
+
+Action Items:
+
+- [ ] Add a backend `matrix_zero_gpu()` (and use `matrix_copy_device_to_device_gpu()` for `copy()`), then move `GPUMatrix` below the backend split in `MatrixGPU.hpp` as a single definition and delete the SYCL copy.
+- [ ] Drop the `.wait()` from `copy()`; refresh the SYCL header's status note.
+
+Location in code: `src/gpu/MatrixGPU.hpp` and `src/gpu/sycl/MatrixGPU_SYCL.hpp` (`GPUMatrix`); tagged `TODO: See TD-395`.
+
+Files to Modify:
+
+- `src/gpu/MatrixGPU.hpp`
+- `src/gpu/sycl/MatrixGPU_SYCL.hpp`
+- `src/gpu/MatrixGPU.cu`
+- `src/gpu/sycl/MatrixGPU_SYCL.cpp`
 
 ---
 
@@ -8972,15 +9025,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 186 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 187 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|23|12%|
 |Medium|80|43%|
-|Low|83|45%|
+|Low|84|45%|
 
-**Total Active Items:** 186
+**Total Active Items:** 187
 
 ### By Component
 
@@ -9030,7 +9083,7 @@ Recomputed directly from the 186 `### TD-NNN` entries under [Active Technical De
 |GPU / GPUManager|6|
 |GPU / Kernels|4|
 |GPU / Testing|1|
-|GPU / GPUMatrix|3|
+|GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
 
@@ -9039,12 +9092,12 @@ Recomputed directly from the 186 `### TD-NNN` entries under [Active Technical De
 |Effort Range|Count|
 |--------------|-------|
 |0-2 hours|105|
-|2-4 hours|58|
+|2-4 hours|59|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 379-660 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 381-664 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

@@ -40,6 +40,7 @@ This directory contains reference materials, technical specifications, and imple
   - [GenerationQualityMetrics](source/GenerationQualityMetrics.md) (`src/GenerationQualityMetrics.{hpp,cpp}`; BLEU/ROUGE scorer for per-epoch generation quality)
   - [GPUUtils](source/GPUUtils.md) (`src/gpu/GPUUtils.hpp`; GPU backend gateway: CUDA `GPUManager`/`GPUMemory`, no-GPU stub, SYCL include)
   - [GPUUtils_SYCL](source/GPUUtils_SYCL.md) (`src/gpu/sycl/GPUUtils_SYCL.hpp`; SYCL `GPUManager` (in-order queue) and USM `GPUMemory`)
+  - [MatrixGPU_SYCL](source/MatrixGPU_SYCL.md) (`src/gpu/sycl/MatrixGPU_SYCL.hpp`; SYCL kernel declarations and the SYCL `GPUMatrix`)
   - [MatrixGPU_SYCL.cpp](source/MatrixGPU_SYCL_cpp.md) (`src/gpu/sycl/MatrixGPU_SYCL.cpp`; SYCL/oneMKL kernels, run and verified on a oneAPI CPU device)
   - [MatrixGPU](source/MatrixGPU.md) (`src/gpu/MatrixGPU.hpp`; GPU kernel API, `GPUMatrix`, GPU KV caches)
   - [MatrixGPU.cu](source/MatrixGPU_cu.md) (`src/gpu/MatrixGPU.cu`; CUDA kernels and cuBLAS wrappers behind `GPUMatrix`)

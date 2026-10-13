@@ -56,6 +56,8 @@ void matrix_row_entropy_gpu(const float* data, float* out_row_entropy, int rows,
 void matrix_copy_device_to_device_gpu(const float* src, float* dst, int count);
 void matrix_download_gpu(const float* device_ptr, float* host_ptr, int count);
 
+// TODO: See TD-395 in TECHNICAL_DEBT.md - a second hand-maintained copy of MatrixGPU.hpp's CUDA GPUMatrix; only
+// copy()/zero() differ, so define it once after the backend split (as GPUKVCache already is)
 class GPUMatrix {
    public:
     int rows = 0;
@@ -90,6 +92,7 @@ class GPUMatrix {
         data_.copy_to_host(host_ptr, static_cast<size_t>(count));
     }
 
+    // TODO: See TD-395 in TECHNICAL_DEBT.md - the .wait() below drains the in-order queue unnecessarily
     GPUMatrix copy() const {
         GPUMatrix result(rows, cols);
         auto& q = GPUManager::get_queue();
