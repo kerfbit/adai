@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 221
+**Total Items:** 223
 **High Priority:** 28
-**Medium Priority:** 94
-**Low Priority:** 99
+**Medium Priority:** 95
+**Low Priority:** 100
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -306,6 +306,13 @@ skip the `Predictor`, so every resumed `--objective=lejepa` pass starts with a r
 0.0017 trained → 2.05 after reload) whose gradients disturb the resumed encoder (TD-427). Two are LOW:
 `train_step()`'s two sequential updates rest on a TD-189 rationale that TD-195 made obsolete (TD-428);
 an escaping exception type, console output and unchecked loads (TD-429).
+
+Also October 14, 2026: filed [TD-430](#td-430-logger-lazy-initialization-races-and-can-throw-from-a-log-call) and [TD-431](#td-431-trainer-processes-share-one-rotating-log-file-and-ignore-log_level) from the code-traced
+[Logger.md](../reference/source/Logger.md). One is MEDIUM and verified: with `LOG_FILE_PATH` empty,
+`trainer_service` and every `incremental_trainer` pass it launches fall back to the same
+`chatbot_server.log` and rotate it from two processes, retaining about 27% less history than configured,
+and the trainer binaries ignore `LOG_LEVEL` (TD-431). One is LOW and verified: unsynchronized lazy
+initialization makes concurrent first-use log calls throw `spdlog_ex` (TD-430).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1254,6 +1261,11 @@ TD-298, TD-345, TD-357, TD-367, TD-369 and [TD-426](#td-426-layernorm-silent-set
 world-model pretraining run (save/load the predictor with the encoder). Do [TD-428](#td-428-lejepa-two-update-workaround-is-obsolete-after-td-195) with a short
 before/after comparison since it changes the optimization; [TD-429](#td-429-lejepaencoder-exception-escape-console-output-and-unchecked-loads) is cleanup.
 
+**Tier 57 — Newly filed (October 14, 2026): `Logger`.** [TD-431](#td-431-trainer-processes-share-one-rotating-log-file-and-ignore-log_level) is a quick win for debugging
+ai-machine: give `trainer_service` and its children distinct log files (or console-only when
+`LOG_FILE_PATH` is empty, per LOG_FILE_STANDARDS.md) and honour `LOG_LEVEL`. [TD-430](#td-430-logger-lazy-initialization-races-and-can-throw-from-a-log-call) is a small
+`std::call_once`/mutex change.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1481,6 +1493,8 @@ before/after comparison since it changes the optimization; [TD-429](#td-429-leje
   - [TD-427: LeJEPA `Predictor` Is Never Saved, So Each Pass Restarts It](#td-427-lejepa-predictor-is-never-saved-so-each-pass-restarts-it)
   - [TD-428: LeJEPA Two-Update Workaround Is Obsolete After TD-195](#td-428-lejepa-two-update-workaround-is-obsolete-after-td-195)
   - [TD-429: `LeJEPAEncoder` Exception Escape, Console Output and Unchecked Loads](#td-429-lejepaencoder-exception-escape-console-output-and-unchecked-loads)
+  - [TD-430: `Logger` Lazy Initialization Races and Can Throw From a Log Call](#td-430-logger-lazy-initialization-races-and-can-throw-from-a-log-call)
+  - [TD-431: Trainer Processes Share One Rotating Log File and Ignore `LOG_LEVEL`](#td-431-trainer-processes-share-one-rotating-log-file-and-ignore-log_level)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -9683,6 +9697,69 @@ Files to Modify:
 
 ---
 
+### TD-430: `Logger` Lazy Initialization Races and Can Throw From a Log Call
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Core / Logger | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `Logger` and verified. `Logger::get()` lazily calls `init(INFO)` when `logger_` is
+null, without synchronization, and `logger_` is a plain static `shared_ptr`. When several threads log
+before `init()`, more than one calls `init()`, and `spdlog::stderr_color_mt()` throws
+`spdlog_ex("logger with name 'adai' already exists")` from inside the logging call: 3 of 8 threads threw
+in a fresh process (every one of 200 forked trials saw a throw). The concurrent `shared_ptr` reads and
+writes are a data race, and calling `init()` again while other threads log is unsafe the same way. The
+binaries call `init()` early in `main()`, so tests and code that logs from threads during startup are
+what's exposed. Also: `init(level, name)` drops only the **new** name (a logger registered under a
+previous name lingers), `FileConfig::compress` only changes startup log lines, and `Level::ERROR`
+collides with the Windows `<wingdi.h>` `ERROR` macro.
+
+Action Items:
+
+- [ ] Guard initialization with `std::call_once` (or a mutex) and make `logger_` an atomic `shared_ptr`/`spdlog::default_logger()`; never throw from a log call; drop the previous logger's own name on re-init; rename `Level::ERROR` (or `#undef` guard).
+
+Location in code: `src/Logger.{hpp,cpp}` (`get()`, `init()`, `Level`); tagged `TODO: See TD-430`.
+
+Files to Modify:
+
+- `src/Logger.{hpp,cpp}`
+- `tests/logger_test.cpp`
+
+---
+
+### TD-431: Trainer Processes Share One Rotating Log File and Ignore `LOG_LEVEL`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Core / Logger | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `Logger` and verified. When `LOG_FILE_PATH` is empty, `trainer_service`
+(`TrainerServiceMain.cpp`) and `incremental_trainer`'s `train`/`retrain`/`resume` fall back to
+`chatbot_server.log` in the working directory, so `trainer_service` and every child pass it launches write
+the **same file through separate `rotating_file_sink_mt`s**. spdlog's rotating sink isn't multi-process
+safe: each process rotates on its own size count and renames files out from under the other. Two processes
+writing 30,000 lines each to a 1 MB × 3 log retained 34,162 lines (2.80 MB), against 47,031 lines (3.85 MB)
+for one process writing the same 60,000 lines, about 27% less history than configured (no corrupted
+lines). This contradicts LOG_FILE_STANDARDS.md (empty path should mean console-only), and the name
+suggests the chatbot server's log. Separately, both trainer binaries always initialize at `INFO`; only
+`chatbot_api_server` applies `LOG_LEVEL`.
+
+Action Items:
+
+- [ ] Give each process its own file (for example `<LOG_FILE_PATH>.child` or `incremental_trainer.log`), or log the children to stderr and let `trainer_service` capture it; use console-only when `LOG_FILE_PATH` is empty.
+- [ ] Apply `LOG_LEVEL` in both trainer binaries.
+
+Location in code: `src/TrainerServiceMain.cpp` (log path), `src/IncrementalTrainingTool.cpp` (`run_training_pipeline()`'s `Logger::init`); tagged `TODO: See TD-431`.
+
+Files to Modify:
+
+- `src/TrainerServiceMain.cpp`
+- `src/IncrementalTrainingTool.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -10199,15 +10276,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 221 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 223 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|28|13%|
-|Medium|94|42%|
-|Low|99|45%|
+|High|28|12%|
+|Medium|95|43%|
+|Low|100|45%|
 
-**Total Active Items:** 221
+**Total Active Items:** 223
 
 ### By Component
 
@@ -10267,6 +10344,7 @@ Recomputed directly from the 221 `### TD-NNN` entries under [Active Technical De
 |Models / LanguageModelHead|3|
 |Layers / LayerNorm|1|
 |World Model / LeJEPAEncoder|3|
+|Core / Logger|2|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -10275,13 +10353,13 @@ Recomputed directly from the 221 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|132|
+|0-2 hours|134|
 |2-4 hours|66|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 422-746 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 424-750 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

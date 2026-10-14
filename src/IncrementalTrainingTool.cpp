@@ -727,6 +727,8 @@ int run_training_pipeline(int argc, char* argv[], const adai::ServiceConfig& svc
     if (child_pid < 0)
         adai::Logger::warn("[background] fork failed — running in foreground");
 
+    // TODO: See TD-431 in TECHNICAL_DEBT.md - log_path falls back to chatbot_server.log (shared with trainer_service);
+    // level always INFO (LOG_LEVEL ignored)
     adai::Logger::init(adai::Logger::Level::INFO,
                        {log_path, svc_config.log_max_size_mb, svc_config.log_max_files}, "adai");
     // TODO: See TD-283 in TECHNICAL_DEBT.md - no SIGHUP handler, so SIGHUP terminates this process

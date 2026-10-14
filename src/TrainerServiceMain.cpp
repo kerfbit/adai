@@ -103,6 +103,8 @@ int main(int argc, char* argv[]) {
 
     const std::string log_path =
         svc_config.log_file_path.empty() ? "chatbot_server.log" : svc_config.log_file_path;
+    // TODO: See TD-431 in TECHNICAL_DEBT.md - every child incremental_trainer pass falls back to the SAME file, so two
+    // processes rotate it (~27% less retained history, verified); empty LOG_FILE_PATH should mean console-only
     adai::Logger::init(adai::Logger::Level::INFO,
                        {log_path, svc_config.log_max_size_mb, svc_config.log_max_files}, "adai");
 

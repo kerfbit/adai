@@ -21,6 +21,7 @@ namespace adai {
 std::shared_ptr<spdlog::logger> Logger::logger_ = nullptr;
 
 void Logger::init(Level level, const std::string& name) {
+    // TODO: See TD-430 in TECHNICAL_DEBT.md - drops only the NEW name; re-init while other threads log is unsafe
     // Drop existing logger if re-initializing
     if (logger_) {
         spdlog::drop(name);
@@ -158,6 +159,8 @@ void Logger::set_level(Level level) {
     }
 }
 
+// TODO: See TD-430 in TECHNICAL_DEBT.md - unsynchronized lazy init: concurrent first use makes a log call throw
+// spdlog_ex("logger with name 'adai' already exists") (verified); logger_ itself is a racy static shared_ptr
 std::shared_ptr<spdlog::logger> Logger::get() {
     if (!logger_) {
         init(Level::INFO);

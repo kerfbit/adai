@@ -31,6 +31,7 @@ class Logger {
     /**
      * @brief Logging levels
      */
+    // TODO: See TD-430 in TECHNICAL_DEBT.md - ERROR collides with the Windows <wingdi.h> macro
     enum class Level : std::uint8_t { DEBUG, INFO, WARN, ERROR };
 
     /**
