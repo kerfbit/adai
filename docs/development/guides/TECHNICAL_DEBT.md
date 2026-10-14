@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 13, 2026
-**Total Items:** 202
-**High Priority:** 26
-**Medium Priority:** 84
-**Low Priority:** 92
+**Total Items:** 208
+**High Priority:** 28
+**Medium Priority:** 87
+**Low Priority:** 93
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -258,6 +258,17 @@ in-progress best snapshot is never found (TD-406, verified); and checkpoint dele
 top-level sidecars, 0.1 of 29.6 MB, so retention never bounds `SESSION_DIR` (TD-407, verified). Two
 are MEDIUM: the `latest`/`best` symlinks always dangle (TD-408) and the tokenized cache key has no
 preprocessing version (TD-409). One is LOW: session bookkeeping and hard-coded policy (TD-410).
+
+Also October 13, 2026: filed [TD-411](#td-411-resume-every-trainer_service-pass-never-downloads-over-ftp) through [TD-416](#td-416-incremental_trainer-command-hygiene) from the code-traced
+[IncrementalTrainingTool.md](../reference/source/IncrementalTrainingTool.md), checked against the built
+`incremental_trainer`/`dataset_manager`. Two are **HIGH**: `resume`, the command `trainer_service` runs
+every pass, never downloads over FTP and uses registry-host paths (TD-411); and a pass that loads zero
+samples returns success, so its files are marked trained (TD-412, verified). Together, an always-on
+service on a remote FTP registry would mark every claimed file trained without training. Three are
+MEDIUM: the standalone pre-check reads the root pending list instead of the `<kind>` sub-pool, so
+`train` reports "No pending data" (TD-413, verified); the first-run vocab bootstrap is unreachable, so
+`train`/`status`/`history` abort without a vocab (TD-414, verified); the LeJEPA pass ignores segment
+ranges and strands claims after a crash (TD-415). One is LOW: command hygiene (TD-416).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1182,6 +1193,12 @@ interrupted session's snapshots instead of deleting them), and [TD-407](#td-407-
 `SESSION_DIR`'s disk use on ai-machine. [TD-408](#td-408-latestbest-checkpoint-symlinks-always-dangle) and [TD-409](#td-409-tokenized-data-cache-key-has-no-preprocessing-version) are small; clear the tokenized cache as
 part of any tokenization fix. [TD-410](#td-410-incrementaltrainer-session-bookkeeping-and-hard-coded-training-policy) is cleanup.
 
+**Tier 52 — Newly filed (October 13, 2026): `IncrementalTrainingTool`.** Fix [TD-412](#td-412-a-training-pass-that-loads-zero-samples-marks-its-files-trained) immediately (a
+one-line "zero samples = failure" guard), then [TD-411](#td-411-resume-every-trainer_service-pass-never-downloads-over-ftp) (share `train`'s download step with
+`resume_last_session()`). Ask the user whether ai-machine's `trainer_service` uses a remote FTP
+registry; if so, files marked trained since it went live may need re-queuing. [TD-414](#td-414-first-run-vocabulary-bootstrap-is-unreachable-from-the-cli) and
+[TD-413](#td-413-standalone-trainretrain-pre-check-reads-the-wrong-pending-pool) fix standalone first-run use; [TD-415](#td-415-lejepa-pass-ignores-segment-ranges-and-strands-claims-after-a-crash) with TD-404; [TD-416](#td-416-incremental_trainer-command-hygiene) is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1390,6 +1407,12 @@ part of any tokenization fix. [TD-410](#td-410-incrementaltrainer-session-bookke
   - [TD-408: `latest`/`best` Checkpoint Symlinks Always Dangle](#td-408-latestbest-checkpoint-symlinks-always-dangle)
   - [TD-409: Tokenized-Data Cache Key Has No Preprocessing Version](#td-409-tokenized-data-cache-key-has-no-preprocessing-version)
   - [TD-410: `IncrementalTrainer` Session Bookkeeping and Hard-Coded Training Policy](#td-410-incrementaltrainer-session-bookkeeping-and-hard-coded-training-policy)
+  - [TD-411: `resume` (Every `trainer_service` Pass) Never Downloads Over FTP](#td-411-resume-every-trainer_service-pass-never-downloads-over-ftp)
+  - [TD-412: A Training Pass That Loads Zero Samples Marks Its Files Trained](#td-412-a-training-pass-that-loads-zero-samples-marks-its-files-trained)
+  - [TD-413: Standalone `train`/`retrain` Pre-Check Reads the Wrong Pending Pool](#td-413-standalone-trainretrain-pre-check-reads-the-wrong-pending-pool)
+  - [TD-414: First-Run Vocabulary Bootstrap Is Unreachable From the CLI](#td-414-first-run-vocabulary-bootstrap-is-unreachable-from-the-cli)
+  - [TD-415: LeJEPA Pass Ignores Segment Ranges and Strands Claims After a Crash](#td-415-lejepa-pass-ignores-segment-ranges-and-strands-claims-after-a-crash)
+  - [TD-416: `incremental_trainer` Command Hygiene](#td-416-incremental_trainer-command-hygiene)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -9037,6 +9060,184 @@ Files to Modify:
 
 ---
 
+### TD-411: `resume` (Every `trainer_service` Pass) Never Downloads Over FTP
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Training / IncrementalTrainingTool | October 13, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `IncrementalTrainingTool`, by inspection (definite). `trainer_service` runs
+`incremental_trainer --foreground --admin-port N resume` for every pass, and `resume` calls
+`IncrementalTrainer::resume_last_session()`. That function acquires pending files and then trains on
+`resp.registry_paths()` directly, under the comment "resume_last_session runs on the same machine as
+the registry … ftp_server_host is always empty here". That's only true for a local registry. With
+`REGISTRY_SERVER_URL` pointing at a remote `registry_server` that delivers files over FTP (TD-040's
+transport), these are the registry host's paths; the `DataTransport::fetch_all()` download that `train`
+performs never happens, so the trainer can't open the files. With TD-412 the pass then "succeeds" and
+marks them trained.
+
+Action Items:
+
+- [ ] Factor `train`'s acquire → (FTP download) → train → mark/release → cleanup sequence into one function and use it from `resume_last_session()` (with the segment ranges).
+- [ ] Ask the user whether ai-machine's `trainer_service` uses a remote FTP registry; if so, audit and re-queue files marked trained since it went live.
+
+Location in code: `src/IncrementalTrainer.cpp` (`resume_last_session()`), `src/IncrementalTrainingTool.cpp` (`resume` command); tagged `TODO: See TD-411`.
+
+Files to Modify:
+
+- `src/IncrementalTrainer.cpp`
+- `src/IncrementalTrainingTool.cpp`
+
+---
+
+### TD-412: A Training Pass That Loads Zero Samples Marks Its Files Trained
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Training / IncrementalTrainingTool | October 13, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `IncrementalTrainingTool` and verified with `IncrementalTrainer` in a scratch
+program. `ChatbotTrainer::train()` has no empty-data check, and neither do `train_on_files()` or
+`retrain_on_files()`. Given a nonexistent file, the pass logged `Cannot open file`, `Total samples
+loaded: 0`, `Training for 2 epochs...` and `Incremental training session completed successfully`, and
+`train_on_files()` **returned `true`**. Every caller then calls `mark_trained()`, so a missing,
+unreadable or empty file (or every file in a TD-411 remote-FTP `resume` pass) is recorded as trained
+without any training, and a zero-sample session is added to the history.
+
+Action Items:
+
+- [ ] Treat zero loaded (or zero tokenized) samples as failure in `train_on_files()`/`retrain_on_files()` (and guard in `ChatbotTrainer::train()`), so callers release the files; log which files failed to load.
+- [ ] Test: a nonexistent file → `false` → released, not marked trained.
+
+Location in code: `src/IncrementalTrainer.cpp` (`train_on_files()`, `retrain_on_files()`), `src/ChatbotTrainer.cpp` (`train()`); tagged `TODO: See TD-412`.
+
+Files to Modify:
+
+- `src/IncrementalTrainer.cpp`
+- `src/ChatbotTrainer.cpp`
+- `tests/incrementaltrainer_test.cpp`
+
+---
+
+### TD-413: Standalone `train`/`retrain` Pre-Check Reads the Wrong Pending Pool
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / IncrementalTrainingTool | October 13, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `IncrementalTrainingTool` and verified with the built binaries. Without
+`REGISTRY_SERVER_URL`, `train`'s pre-fork check (and `retrain`'s count) reads
+`SESSION_DIR/pending_files.txt`. But `incremental_trainer` always sets `DATASET_KIND` (TD-204), so
+`LocalTransport` keeps the pool in `SESSION_DIR/<kind>/pending_files.txt` (TD-202). After `dataset_manager
+--kind chatbot add d.jsonl`, `incremental_trainer train 1` printed "No pending data. Use DatasetManager to
+queue training data." Queuing without `--kind` passes the check, but the child's acquire looks in the
+kind pool and finds nothing. Standalone training can't start from a correctly queued pool.
+
+Action Items:
+
+- [ ] Do the pre-check through `DatasetRegistry` (which applies the kind) in both modes, counting only files this model/kind can acquire.
+
+Location in code: `src/IncrementalTrainingTool.cpp` (`train` pre-fork check, `retrain` count); tagged `TODO: See TD-413`.
+
+Files to Modify:
+
+- `src/IncrementalTrainingTool.cpp`
+
+---
+
+### TD-414: First-Run Vocabulary Bootstrap Is Unreachable From the CLI
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / IncrementalTrainingTool | October 13, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `IncrementalTrainingTool` and verified with the built binary. Every command
+constructs `IncrementalTrainer(vocab, model, cfg)`, whose three-argument constructor calls
+`build_model()` → `load_vocab()` unconditionally. The first-run vocabulary bootstrap
+(`pending_vocab_build_` → `bootstrap_vocab()`) exists only in the config-file constructor, which
+`main()` never uses. On a fresh `SESSION_DIR` with data queued and no `vocab.txt`, `train 1` aborted
+with `terminate called … VocabularyFileError: Could not open vocabulary file: vocab.txt` (exit 134), and
+so did `status` and `history`. A vocabulary has to be built separately first (`vocab_builder`), which
+the usage text doesn't mention; this matches the "missing `VOCAB_PATH`" crash from ai-machine's first
+deployment.
+
+Action Items:
+
+- [ ] Move the missing-vocab handling into the three-argument constructor (defer `build_model()` until `bootstrap_vocab()`), and make `status`/`history` work without a model.
+- [ ] Catch exceptions in `main()`'s command dispatch with a clear message.
+
+Location in code: `src/IncrementalTrainingTool.cpp` (`train` construction, `status`), `src/IncrementalTrainer.cpp` (constructors); tagged `TODO: See TD-414`.
+
+Files to Modify:
+
+- `src/IncrementalTrainer.cpp`
+- `src/IncrementalTrainingTool.cpp`
+
+---
+
+### TD-415: LeJEPA Pass Ignores Segment Ranges and Strands Claims After a Crash
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / IncrementalTrainingTool | October 13, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `IncrementalTrainingTool`, by inspection. `run_lejepa_training_pass()` loads each
+acquired file with `load_conversation_pairs(path, pairs)`, without the TD-205 segment range the chatbot
+path passes, so a file queued as N segments is loaded in full N times when its segments are claimed.
+Its run id is always `derive_run_id()` (hostname prefix + PID tail, TD-404), never MNS-allocated, and
+claimed files are only reclaimable by the same run id. After a crash, kill, or SIGTERM (whose handler
+exits without releasing, TD-416), the claimed files stay claimed by a run id no later process will have,
+until released by hand.
+
+Action Items:
+
+- [ ] Pass `file_ranges()` through the LeJEPA loader; allocate a stable run id for the world model (MNS, or a persisted one per world-model directory) so a restarted pass can reclaim its own files.
+
+Location in code: `src/IncrementalTrainingTool.cpp` (`run_lejepa_training_pass()`); tagged `TODO: See TD-415`.
+
+Files to Modify:
+
+- `src/IncrementalTrainingTool.cpp`
+
+---
+
+### TD-416: `incremental_trainer` Command Hygiene
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / IncrementalTrainingTool | October 13, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `IncrementalTrainingTool`; the first item verified:
+- `train abc`/`retrain abc`: the epoch argument goes through an uncaught `std::stoi`, so the process
+  aborts (exit 134).
+- The SIGTERM/SIGINT handler logs through spdlog and calls `std::exit(0)` (not async-signal-safe; runs
+  static destructors under the training thread), doesn't checkpoint or release claimed files, and exits
+  0.
+- `init` and `retrain` override `AUTO_SAVE_*` with hard-coded 30 min / 1,000 samples.
+- The LeJEPA path's tokenizer is always ASCII (`TOKENIZER_MODE` ignored).
+- `status`/`history` build a full `IncrementalTrainer`, which loads the best checkpoint and runs the
+  deleting `cleanup_dead_sessions()` (TD-406/TD-407), just to print.
+- The interactive MNS model pick reads stdin (EOF under systemd, which is the intended failure but
+  undocumented).
+
+Action Items:
+
+- [ ] Parse epochs with validation; have the signal handler only set a flag that the training loop polls (then checkpoint, release, exit non-zero); use the configured auto-save values; thread `TOKENIZER_MODE` to LeJEPA; give `status`/`history` a read-only path.
+
+Location in code: `src/IncrementalTrainingTool.cpp` (`signal_handler()`, `train`/`retrain`/`init`/`status`, LeJEPA vocab probe); tagged `TODO: See TD-416`.
+
+Files to Modify:
+
+- `src/IncrementalTrainingTool.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -9553,15 +9754,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 202 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 208 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|26|13%|
-|Medium|84|42%|
-|Low|92|45%|
+|High|28|13%|
+|Medium|87|42%|
+|Low|93|45%|
 
-**Total Active Items:** 202
+**Total Active Items:** 208
 
 ### By Component
 
@@ -9615,6 +9816,7 @@ Recomputed directly from the 202 `### TD-NNN` entries under [Active Technical De
 |Metrics / Reporter|2|
 |Training / CLI|4|
 |Training / IncrementalTrainer|6|
+|Training / IncrementalTrainingTool|6|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -9623,13 +9825,13 @@ Recomputed directly from the 202 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|117|
-|2-4 hours|62|
+|0-2 hours|121|
+|2-4 hours|64|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 399-700 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 407-716 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

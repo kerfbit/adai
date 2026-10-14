@@ -53,6 +53,8 @@ static constexpr const char* COLOR_INFO = "\033[1;36m";
 // old process exited via SIGTERM or was hard-killed. This exists purely so
 // `systemctl stop`/restart produces a clean, prompt exit and a clear log line
 // instead of relying on the OS default SIGTERM action.
+// TODO: See TD-416 in TECHNICAL_DEBT.md - spdlog + std::exit(0) from a signal handler (not async-signal-safe); no
+// checkpoint or release of claimed files, and exit code 0
 void signal_handler(int sig) {
     if (sig == SIGTERM || sig == SIGINT) {
         // Logger's underlying spdlog sink is not strictly async-signal-safe,
@@ -223,6 +225,7 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     // TokenEmbedding to match. LeJEPAEncoder::load_tokenizer_vocab() itself does not resize
     // anything (a pre-existing gap in that method, not introduced here — flagged separately),
     // so the constructor's own vocab_size must already be correct before that call.
+    // TODO: See TD-416 in TECHNICAL_DEBT.md - TOKENIZER_MODE ignored (always ASCII) on the LeJEPA path
     BPETokenizer vocab_probe;  // ASCII mode — matches LeJEPAEncoder's own hardcoded tokenizer
                                // mode (TD-177); TOKENIZER_MODE is not yet threaded through it.
     vocab_probe.load_vocab(default_vocab);
@@ -264,6 +267,8 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     Optimizer optimizer(OptimizerType::ADAM, svc_config.learning_rate);
     world_model.register_parameters_with_optimizer(optimizer);
 
+    // TODO: See TD-415 in TECHNICAL_DEBT.md - PID-based run id (never MNS): after a crash/SIGTERM the claimed files
+    // stay claimed by a run id no later process has (claims are only reclaimable by the same run id)
     std::string run_id = adai::derive_run_id(svc_config.run_id);
 
     DatasetConfig dcfg = DatasetRegistry::make_config(svc_config);
@@ -303,6 +308,7 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     std::vector<std::string> texts;
     for (const auto& path : local_paths) {
         std::vector<ConversationPair> pairs;
+        // TODO: See TD-415 in TECHNICAL_DEBT.md - ignores TD-205 segment ranges: each claimed segment loads the whole file
         DatasetRegistry::load_conversation_pairs(path, pairs);
         for (const auto& pair : pairs) {
             if (!pair.input.empty())
@@ -1015,6 +1021,7 @@ int main(int argc, char* argv[]) {
 
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
+        // TODO: See TD-416 in TECHNICAL_DEBT.md - hard-coded auto-save overrides AUTO_SAVE_* (also in retrain)
         config.auto_save_enabled = true;
         config.auto_save_every_minutes = 30;
         config.auto_save_every_samples = 1000;
@@ -1031,6 +1038,7 @@ int main(int argc, char* argv[]) {
                   << "  max_seq=" << config.base_config.max_seq_length << "\n";
 
     } else if (command == "train") {
+        // TODO: See TD-416 in TECHNICAL_DEBT.md - uncaught std::stoi: `train abc` aborts (same in retrain)
         int epochs = (args.size() >= 2) ? std::stoi(args[1]) : svc_config.num_epochs;
 
         size_t pre_fork_pending_count = 0;
@@ -1039,6 +1047,8 @@ int main(int argc, char* argv[]) {
             reg.load_pending_list();
             pre_fork_pending_count = reg.pending_files().size();
         } else {
+            // TODO: See TD-413 in TECHNICAL_DEBT.md - LocalTransport's pool is SESSION_DIR/<DATASET_KIND>/ (always set
+            // by this binary), not SESSION_DIR/ (same in retrain's count below)
             std::ifstream pf(svc_config.session_dir + "/pending_files.txt");
             std::string line;
             while (std::getline(pf, line))
@@ -1087,6 +1097,8 @@ int main(int argc, char* argv[]) {
                 IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
                 config.base_config.num_epochs = epochs;
                 config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
+                // TODO: See TD-414 in TECHNICAL_DEBT.md - this 3-arg constructor builds the model unconditionally, so with
+                // no vocab it throws VocabularyFileError; the first-run vocab bootstrap is only in the config-file ctor
                 IncrementalTrainer trainer(default_vocab, default_model, config);
 
                 // MNS is the definitive source for run_id (continuing the
@@ -1431,6 +1443,8 @@ int main(int argc, char* argv[]) {
                 // local hostname+pid/RUN_ID-derived value inside
                 // resume_last_session() when MNS isn't configured.
                 trainer.begin_run(/*is_retrain=*/false);
+                // TODO: See TD-411 in TECHNICAL_DEBT.md - trainer_service's command: resume_last_session() never downloads
+                // over FTP, so a remote FTP registry's paths can't be read here
                 const bool did_work = trainer.resume_last_session();
 
 #ifdef BUILD_TRAINER_ADMIN
@@ -1449,6 +1463,8 @@ int main(int argc, char* argv[]) {
             foreground);
 
     } else if (command == "status") {
+        // TODO: See TD-414 in TECHNICAL_DEBT.md - aborts without a vocab; TD-416: a read-only command that builds the
+        // model, loads a checkpoint and runs the deleting cleanup_dead_sessions() (also history)
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         IncrementalTrainer trainer(default_vocab, default_model, config);
         trainer.print_training_summary();

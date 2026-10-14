@@ -989,6 +989,8 @@ bool IncrementalTrainer::train_on_files(const std::vector<PendingFileRange>& fil
     const int expected_val_size = (val_split > 0) ? (total_loaded / val_split) : 0;
     const int expected_train_size = total_loaded - expected_val_size;
     Logger::info("Total samples loaded: {}", total_loaded);
+    // TODO: See TD-412 in TECHNICAL_DEBT.md - zero loaded samples still trains "successfully" and returns true, so
+    // the caller marks the files trained (same in retrain_on_files)
     Logger::info("Expected split — training: {}, validation: {}", expected_train_size,
                  expected_val_size);
 
@@ -1099,6 +1101,8 @@ bool IncrementalTrainer::resume_last_session() {
         Logger::warn("No pending data files to resume training on");
         return false;
     }
+    // TODO: See TD-411 in TECHNICAL_DEBT.md - false with a remote registry_server + FTP: these are registry-host
+    // paths and no DataTransport download happens here (train does one)
     // resume_last_session runs on the same machine as the registry (localhost path);
     // ftp_server_host is always empty here.  Use registry paths directly.
     std::vector<std::string> pending = resp.registry_paths();

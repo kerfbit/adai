@@ -1926,6 +1926,8 @@ bool ChatbotTrainer::train(int num_epochs) {
 
         // Preprocess data (tokenize split datasets)
         preprocess_data();
+        // TODO: See TD-412 in TECHNICAL_DEBT.md - no empty-data check: zero tokenized samples still "trains" and
+        // returns true
 
         // Calculate total steps
         int samples_per_update = config.gradient_accumulation_steps;
