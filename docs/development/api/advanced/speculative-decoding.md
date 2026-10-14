@@ -493,7 +493,7 @@ if (stats.average_speedup < 1.5f) {
 ## See Also
 
 - [Text Generator](../nlp/text-generator.md) - Required for draft/target models
-- [KV Cache](../../reference/kvcache.md) - Combine for maximum speedup
+- [KV Cache](../../reference/source/KVCache.md) - Combine for maximum speedup
 - [Phase 5 Guide](../../guides/phase5-advanced-features.md) - Complete speculative decoding tutorial
 
 ---

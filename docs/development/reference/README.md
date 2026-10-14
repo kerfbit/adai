@@ -40,6 +40,7 @@ This directory contains reference materials, technical specifications, and imple
   - [IncrementalTrainerArgs](source/IncrementalTrainerArgs.md) (`src/IncrementalTrainerArgs.{hpp,cpp}`; `incremental_trainer`/`trainer_service` global flag parser and helpers)
   - [IncrementalTrainingTool](source/IncrementalTrainingTool.md) (`src/IncrementalTrainingTool.cpp`; `incremental_trainer` main: commands, fork-to-background, LeJEPA pass)
   - [IntegratedInferenceEngine](source/IntegratedInferenceEngine.md) (`src/IntegratedInferenceEngine.hpp`; `--integrated-inference` three-thread request pipeline)
+  - [KVCache](source/KVCache.md) (`src/KVCache.hpp`; CPU key/value cache for incremental decoding)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)
@@ -51,7 +52,7 @@ This directory contains reference materials, technical specifications, and imple
   - [MatrixGPU](source/MatrixGPU.md) (`src/gpu/MatrixGPU.hpp`; GPU kernel API, `GPUMatrix`, GPU KV caches)
   - [MatrixGPU.cu](source/MatrixGPU_cu.md) (`src/gpu/MatrixGPU.cu`; CUDA kernels and cuBLAS wrappers behind `GPUMatrix`)
 
-- **[KVCache API Reference](kvcache.md)** - Complete API documentation for the Key-Value cache system
+- **[KVCache Reference](source/KVCache.md)** - Code-traced reference for the CPU key/value cache
   - Single-layer and multi-layer caching
   - Usage patterns and best practices
   - Performance characteristics
@@ -98,7 +99,7 @@ This directory contains reference materials, technical specifications, and imple
 
 - [Inference Optimization Guide](../guides/inference-optimization.md) - Complete optimization guide
 - [Quick Start](../guides/inference-optimization-quickstart.md) - 5-minute tutorial
-- [KVCache API](kvcache.md) - Detailed cache API reference
+- [KVCache API](source/KVCache.md) - Detailed cache API reference
 
 ### For Development
 

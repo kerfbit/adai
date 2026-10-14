@@ -44,7 +44,7 @@ Developer guides and implementation documentation:
 
 Technical reference documentation. See [reference/README.md](reference/README.md) for the full index.
 
-- [kvcache.md](reference/kvcache.md) — KV cache implementation details
+- [kvcache.md](reference/source/KVCache.md) — KV cache implementation details
 - [source/BatchProcessor.md](reference/source/BatchProcessor.md) — Batch padding/grouping utilities (code-traced)
 - [performanceprofiler.md](reference/performanceprofiler.md) — Performance profiler API
 - [GRADIENT_OPERATIONS_WITHOUT_OPTIMIZER.md](reference/GRADIENT_OPERATIONS_WITHOUT_OPTIMIZER.md) — Gradient operations reference

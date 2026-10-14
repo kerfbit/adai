@@ -84,6 +84,9 @@ struct KVCache {
      * @param new_keys Keys for new position(s) [num_new_positions, d_model]
      * @param new_values Values for new position(s) [num_new_positions, d_model]
      */
+    // TODO: See TD-421 in TECHNICAL_DEBT.md - no shape checks: wider rows overflow on write, fewer value rows than
+    // key rows overflow on read (ASan-verified), and an inconsistent first append is accepted silently.
+    // TD-422: reallocates and copies the whole cache on every append (O(n^2 * d) per generation)
     void append(const Matrix& new_keys, const Matrix& new_values) {
         if (is_empty()) {
             // Initialize cache with first keys/values
@@ -191,6 +194,7 @@ struct DecoderKVCache {
     /**
      * Get cache for specific layer's self-attention
      */
+    // TODO: See TD-421 in TECHNICAL_DEBT.md - layer_idx unchecked (also get_cross_attention_cache)
     KVCache& get_self_attention_cache(int layer_idx) {
         return self_attention_caches[layer_idx];
     }

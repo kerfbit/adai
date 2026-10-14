@@ -1302,7 +1302,7 @@ make
 ## See Also
 
 - **[Inference Optimization Guide](../guides/inference-optimization.md)** - Complete optimization guide
-- **[KVCache API](kvcache.md)** - KV cache performance measurement examples
+- **[KVCache API](source/KVCache.md)** - KV cache performance measurement examples
 - **[BatchProcessor API](source/BatchProcessor.md)** - Batch processing benchmarks
 - **[Quick Start](../guides/inference-optimization-quickstart.md)** - 5-minute tutorial
 

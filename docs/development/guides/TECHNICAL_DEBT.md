@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 13, 2026
-**Total Items:** 212
+**Total Items:** 214
 **High Priority:** 28
-**Medium Priority:** 90
-**Low Priority:** 94
+**Medium Priority:** 91
+**Low Priority:** 95
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -279,6 +279,13 @@ exception in the encoder/decoder worker threads terminates `chatbot_api_server`,
 queued requests with broken promises (TD-418, shutdown verified); and the engine drives the model
 without `model_mutex_` while `/chat/batch` uses it under the mutex (TD-419). One is LOW: unbatched
 despite "50–100×"/"Production Ready" claims, dead config and fictional stats (TD-420).
+
+Also October 13, 2026: filed [TD-421](#td-421-kvcacheappend-has-no-shape-checks) and [TD-422](#td-422-kvcache-copies-the-whole-cache-on-every-append) from the code-traced
+[KVCache.md](../reference/source/KVCache.md), which merges and replaces the old `kvcache.md`. One is
+MEDIUM: every `append()` reallocates and copies the whole cache, so CPU cached generation spends
+O(n²·d) on copying (255 ms per cache for 512 steps at d_model 512; about 6 s for a 24-layer decoder)
+(TD-422, verified). One is LOW: `append()` has no shape checks, so mismatched input overflows the heap
+(ASan-verified write and read), and layer indices are unchecked (TD-421).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1214,6 +1221,11 @@ keep `--integrated-inference` at all: it batches nothing (TD-211's gap), so v1.x
 `/chat` through the normal path and retire the engine with the v2 real-batching work. If kept, do
 [TD-418](#td-418-integratedinferenceengine-worker-exceptions-terminate-the-server-shutdown-drops-requests) and [TD-419](#td-419-integratedinferenceengine-uses-the-model-without-its-mutex) (small, prevent crashes and races), then [TD-417](#td-417---integrated-inference-answers-differ-from-normal-chat); [TD-420](#td-420-integratedinferenceengine-claims-dead-config-and-fictional-stats) is documentation.
 
+**Tier 54 — Newly filed (October 13, 2026): `KVCache`.** [TD-422](#td-422-kvcache-copies-the-whole-cache-on-every-append): pre-allocate to `max_seq_length`
+like `GPUKVCache` and expose views, ideally together with TD-388 (the GPU cache's per-step copy) and
+TD-398 (`HippocampalMemory::read_all()`'s copy), the same pattern three times. [TD-421](#td-421-kvcacheappend-has-no-shape-checks) is a few
+checks to add in the same change.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1432,6 +1444,8 @@ keep `--integrated-inference` at all: it batches nothing (TD-211's gap), so v1.x
   - [TD-418: `IntegratedInferenceEngine` Worker Exceptions Terminate the Server; Shutdown Drops Requests](#td-418-integratedinferenceengine-worker-exceptions-terminate-the-server-shutdown-drops-requests)
   - [TD-419: `IntegratedInferenceEngine` Uses the Model Without Its Mutex](#td-419-integratedinferenceengine-uses-the-model-without-its-mutex)
   - [TD-420: `IntegratedInferenceEngine` Claims, Dead Config and Fictional Stats](#td-420-integratedinferenceengine-claims-dead-config-and-fictional-stats)
+  - [TD-421: `KVCache::append()` Has No Shape Checks](#td-421-kvcacheappend-has-no-shape-checks)
+  - [TD-422: `KVCache` Copies the Whole Cache on Every Append](#td-422-kvcache-copies-the-whole-cache-on-every-append)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -9376,6 +9390,68 @@ Files to Modify:
 
 ---
 
+### TD-421: `KVCache::append()` Has No Shape Checks
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Inference / KVCache | October 13, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `KVCache` and verified under AddressSanitizer. `KVCache::append()` never compares
+`new_keys` with `new_values`, or the new columns with the cached ones:
+- Appending wider rows (`Matrix(1,8)` onto a cache of width 4) writes 8 columns into 4-column rows:
+  **heap-buffer-overflow WRITE**.
+- Appending fewer value rows than key rows (`append(Matrix(3,4), Matrix(1,4))`) indexes `new_values` by
+  `new_keys.rows`: **heap-buffer-overflow READ**.
+- An inconsistent first append (`keys 3×4`, `values 1×8`) is accepted silently.
+
+Today's callers always pass matching shapes, so this is latent, but the failure mode is memory
+corruption. `DecoderKVCache::get_self_attention_cache()`/`get_cross_attention_cache()` don't
+bounds-check the layer index, and `current_length()` reads only layer 0.
+
+Action Items:
+
+- [ ] Validate shapes in `append()` (throw `invalid_argument`), bounds-check layer indices, and add a direct `KVCache` test file.
+
+Location in code: `src/KVCache.hpp` (`append()`, `get_*_cache()`); tagged `TODO: See TD-421`.
+
+Files to Modify:
+
+- `src/KVCache.hpp`
+- `tests/` (new KVCache test)
+
+---
+
+### TD-422: `KVCache` Copies the Whole Cache on Every Append
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Inference / KVCache | October 13, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `KVCache` and measured. `append()` allocates new `[current_length + new_rows ×
+d]` matrices and copies the old contents on every call. Self-attention caches get one append per decode
+step per layer, so a generation of *n* tokens does O(n²·d) copying per layer before any attention work.
+Measured for one cache at d_model 512, one row per step: 128 steps 15.6 ms, 256 steps 53.8 ms, 512 steps
+255 ms (quadratic), which is about 6 s of pure copying for a 24-layer decoder generating 512 tokens on the
+CPU serving path. `GPUKVCache` already pre-allocates to `max_seq_length`; this one doesn't. (The old
+`kvcache.md` claimed O(d²) per cached step.)
+
+Action Items:
+
+- [ ] Pre-allocate `keys`/`values` to `max_seq_length` (or grow geometrically) and track the populated length; give `MultiHeadAttention`/`CrossAttention` a view of the populated rows instead of a full copy.
+- [ ] Do this with TD-388 and TD-398, which have the same per-step copy pattern.
+
+Location in code: `src/KVCache.hpp` (`append()`); tagged `TODO: See TD-422`.
+
+Files to Modify:
+
+- `src/KVCache.hpp`
+- `src/MultiHeadAttention.cpp`
+- `src/CrossAttention.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -9892,15 +9968,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 212 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 214 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|13%|
-|Medium|90|43%|
-|Low|94|44%|
+|Medium|91|43%|
+|Low|95|44%|
 
-**Total Active Items:** 212
+**Total Active Items:** 214
 
 ### By Component
 
@@ -9956,6 +10032,7 @@ Recomputed directly from the 212 `### TD-NNN` entries under [Active Technical De
 |Training / IncrementalTrainer|6|
 |Training / IncrementalTrainingTool|6|
 |Inference / IntegratedInferenceEngine|4|
+|Inference / KVCache|2|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -9964,13 +10041,13 @@ Recomputed directly from the 212 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|124|
-|2-4 hours|65|
+|0-2 hours|125|
+|2-4 hours|66|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 412-726 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 415-732 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

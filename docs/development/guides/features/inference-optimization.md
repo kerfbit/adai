@@ -17,7 +17,7 @@ This guide covers the inference optimization features implemented in Phase 3, Pa
 
 Quick Links:
 
-- **[KVCache API Reference](../reference/kvcache.md)** - Detailed API documentation for KV cache
+- **[KVCache API Reference](../../reference/source/KVCache.md)** - Detailed API documentation for KV cache
 - **[BatchProcessor API Reference](../../reference/source/BatchProcessor.md)** - Detailed API documentation for batch processing
 - **[PerformanceProfiler API Reference](../reference/performanceprofiler.md)** - Detailed API documentation for profiling tools
 - **[Quick Start](inference-optimization-quickstart.md)** - Get started in 5 minutes
@@ -859,7 +859,7 @@ The inference optimizations provide significant performance improvements:
 For questions or issues, refer to:
 
 - API Reference (above)
-- **[KVCache API Reference](../reference/kvcache.md)** - Detailed KV cache API documentation
+- **[KVCache API Reference](../../reference/source/KVCache.md)** - Detailed KV cache API documentation
 - **[BatchProcessor API Reference](../../reference/source/BatchProcessor.md)** - Detailed batch processing API documentation
 - **[PerformanceProfiler API Reference](../reference/performanceprofiler.md)** - Detailed profiling tools API documentation
 - **[Quick Start Guide](inference-optimization-quickstart.md)** - 5-minute tutorial

@@ -59,7 +59,7 @@ Changes:
 
 ```markdown
 ### Optimization
-- **[KV Cache](reference/kvcache.md)** - Key-Value caching for inference optimization (2-3x speedup)
+- **[KV Cache](../reference/source/KVCache.md)** - Key-Value caching for inference optimization (2-3x speedup)
 
 ### Performance Optimization
 - **[Inference Optimization Guide](guides/inference-optimization.md)** - Complete optimization guide
@@ -80,13 +80,13 @@ Changes:
 
 ```markdown
 Quick Links:
-- **[KVCache API Reference](../reference/kvcache.md)** - Detailed API documentation
+- **[KVCache API Reference](../reference/source/KVCache.md)** - Detailed API documentation
 - **[Quick Start](inference-optimization-quickstart.md)** - Get started in 5 minutes
 
 ...
 
 For questions or issues, refer to:
-- **[KVCache API Reference](../reference/kvcache.md)** - Detailed API documentation
+- **[KVCache API Reference](../reference/source/KVCache.md)** - Detailed API documentation
 - **[Quick Start Guide](inference-optimization-quickstart.md)** - 5-minute tutorial
 ```
 
@@ -103,7 +103,7 @@ Changes:
 ```markdown
 ## Next Steps
 
-- **[KVCache API Reference](../reference/kvcache.md)** - Complete API documentation
+- **[KVCache API Reference](../reference/source/KVCache.md)** - Complete API documentation
 - **[Full Optimization Guide](inference-optimization.md)** - Complete guide
 ```
 
@@ -262,15 +262,15 @@ KVCache API Reference
 
 1. **New Users:**
    - Start with [Quick Start Guide](inference-optimization-quickstart.md)
-   - Then read [KVCache API Reference](kvcache.md) for details
+   - Then read [KVCache API Reference](../reference/source/KVCache.md) for details
 
 2. **Implementing KV Cache:**
-   - Read [KVCache API Reference](kvcache.md)
+   - Read [KVCache API Reference](../reference/source/KVCache.md)
    - Check usage patterns section
    - Review best practices
 
 3. **Debugging Issues:**
-   - Check troubleshooting section in [KVCache API Reference](kvcache.md)
+   - Check troubleshooting section in [KVCache API Reference](../reference/source/KVCache.md)
    - Review debugging examples
    - Check test suite: `tests/inference_optimization_test.cpp`
 

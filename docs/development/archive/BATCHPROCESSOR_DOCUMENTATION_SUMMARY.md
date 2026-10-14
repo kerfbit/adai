@@ -136,7 +136,7 @@ Changes:
 
 ```markdown
 ### Optimization
-- **[KV Cache](reference/kvcache.md)** - Key-Value caching (2-3x speedup)
+- **[KV Cache](../reference/source/KVCache.md)** - Key-Value caching (2-3x speedup)
 - **[Batch Processor](reference/batchprocessor.md)** - Batch processing (2-4x throughput) [NEW]
 ```
 
@@ -483,7 +483,7 @@ The complete optimization documentation now includes:
 
 1. Start: [Quick Start Guide](../guides/inference-optimization-quickstart.md)
 2. Learn basics: Simple examples
-3. Deep dive: [BatchProcessor API](batchprocessor.md) or [KVCache API](kvcache.md)
+3. Deep dive: [BatchProcessor API](batchprocessor.md) or [KVCache API](../reference/source/KVCache.md)
 4. Advanced: [Full Optimization Guide](../guides/inference-optimization.md)
 
 ### API Reference Path
