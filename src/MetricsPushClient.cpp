@@ -42,6 +42,7 @@ struct ParsedUrl {
         if (s.rfind(http_prefix, 0) == 0) {
             s = s.substr(http_prefix.size());
         } else if (s.rfind(https_prefix, 0) == 0) {
+            // TODO: See TD-444 in TECHNICAL_DEBT.md - attempt_post() still uses a plain httplib::Client, so https:// can't work
             s = s.substr(https_prefix.size());
             result.port = 443;
         }
@@ -193,6 +194,7 @@ int MetricsPushClient::start_session(int session_id, int total_epochs, int total
     return rc;
 }
 
+// TODO: See TD-442 in TECHNICAL_DEBT.md - drains every queued event at ~1.2 s+ each when the server is down (20-70 min for a full queue)
 void MetricsPushClient::end_session() {
     enqueue({EventPriority::Session, "/end", "{}"});
     {
@@ -236,6 +238,7 @@ void MetricsPushClient::end_epoch(int epoch, float loss, float validation_loss, 
                                   double epoch_time_seconds) {
     const float stored_perplexity = (perplexity > 0.0f) ? perplexity : std::exp(loss);
 
+    // TODO: See TD-443 in TECHNICAL_DEBT.md - std::fixed turns values < 5e-7 into 0; NaN/inf written as nan/inf (invalid JSON); adaptive-clip buffers never written
     std::ostringstream json;
     json << std::fixed;
     json << "{\"epoch\":" << epoch << ",\"loss\":" << loss
@@ -323,6 +326,7 @@ void MetricsPushClient::flag_abnormal_sample(const AbnormalSample& sample) {
 // IMetricsReporter — Adaptive gradient clipping (TD-017)
 // ============================================================================
 
+// TODO: See TD-443 in TECHNICAL_DEBT.md - buffered but never sent: end_epoch() omits buf_adaptive_clip_*
 void MetricsPushClient::update_adaptive_clip_metrics(float effective_clip_threshold,
                                                      int cumulative_spike_count) {
     // State-only: buffer for inclusion in end_epoch payload.
@@ -477,6 +481,7 @@ void MetricsPushClient::push_loop() {
         if (have_event) {
             const int rc = attempt_post(event.endpoint, event.body);
 
+            // TODO: See TD-444 in TECHNICAL_DEBT.md - every status other than 404 is ignored (only debug-logged)
             // Session lost (server restart or eviction) — re-register and retry once.
             // Skip lifecycle endpoints: /start is already a registration, /end is a teardown.
             if (rc == 404 && !reconnect_body_.empty() && event.endpoint != "/start" &&
@@ -535,6 +540,7 @@ int MetricsPushClient::attempt_post(const std::string& endpoint, const std::stri
         }
 
         try {
+            // TODO: See TD-444 in TECHNICAL_DEBT.md - a new TCP connection per attempt, including per optimizer step
             httplib::Client client(parsed.host, parsed.port);
             client.set_connection_timeout(0, static_cast<long>(timeout_ms_) * 1000);
             client.set_read_timeout(timeout_ms_ / 1000,

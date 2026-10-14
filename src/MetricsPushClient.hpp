@@ -56,6 +56,7 @@ inline std::string sanitize_session_key(const std::string& raw) {
     return out;
 }
 
+// TODO: See TD-444 in TECHNICAL_DEBT.md - 8-character cut makes ai-machine/ai-machine2 share session keys
 inline std::string detect_hostname_fragment() {
     std::string host = "host";
 #ifdef _WIN32

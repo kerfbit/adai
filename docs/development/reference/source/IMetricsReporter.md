@@ -43,9 +43,9 @@ Every training metric on the dashboards, the metrics DB and the ops app goes thr
 | `update_sample_metrics(sample, loss, grad_norm, lr)` | Per optimizer step | Pushed, lossy under backpressure | Both |
 | `update_validation_metrics(loss, accuracy, perplexity)` | Validation results (accuracy −1 = not computed; `ChatbotTrainer` always passes −1) | Pushed | `ChatbotTrainer` |
 | `update_best_metrics(loss, epoch)` | Best validation so far | Pushed | `ChatbotTrainer` |
-| `update_advanced_epoch_metrics(var, compute_ratio, update_ratio)` | TD-013 diagnostics (running values per step, final at epoch end) | **Buffered** | Both |
+| `update_advanced_epoch_metrics(var, compute_ratio, update_ratio)` | TD-013 diagnostics (running values per step, final at epoch end) | **Buffered** for `end_epoch()` **and** pushed every call (`/metrics/advanced`, lossy) | Both |
 | `flag_abnormal_sample(sample)` | Outlier sample | Pushed (`/metrics/abnormal`), capped by `max_abnormal_samples` per epoch; the texts are **not truncated** | `ChatbotTrainer` |
-| `update_adaptive_clip_metrics(threshold, spikes)` / `update_adaptive_clip_epoch(avg, total)` | Adaptive clipping (TD-017) | **Buffered** | `ChatbotTrainer` |
+| `update_adaptive_clip_metrics(threshold, spikes)` / `update_adaptive_clip_epoch(avg, total)` | Adaptive clipping (TD-017) | Buffered but **never sent**: `end_epoch()` omits it (see [MetricsPushClient.md](MetricsPushClient.md)) | `ChatbotTrainer` |
 | `update_activation_saturation(ratio)`, `update_attention_entropy(h)` | Hook diagnostics (−1 = not computed) | **Buffered** | Both |
 | `update_layer_gradient_norms(enc, dec)` | Per-layer gradient norms | Pushed | `ChatbotTrainer` |
 | `update_padding_efficiency(eff)` | Padding efficiency | **Buffered** | `ChatbotTrainer` |

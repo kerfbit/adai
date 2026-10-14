@@ -2063,6 +2063,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
+            // TODO: See TD-443 in TECHNICAL_DEBT.md - stof accepts nan/inf, which the /epochs output then re-emits as invalid JSON
             loss = std::stof(body.substr(pos + 1));
         }
     }

@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 233
+**Total Items:** 236
 **High Priority:** 28
-**Medium Priority:** 99
-**Low Priority:** 106
+**Medium Priority:** 101
+**Low Priority:** 107
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -354,6 +354,16 @@ bound; the per-step `gradient_variance_history` and the `generation_quality` tab
 never read (TD-440). One is LOW: the gradient-variance step counter restarts per service instance,
 `query_history()`'s `limit` keeps the oldest rows, compare/export read whole histories, and the interface
 contract is undocumented (TD-441).
+
+Also October 14, 2026: filed [TD-442](#td-442-metricspushclientend_session-drain-can-delay-a-passs-final-save-by-an-hour) through [TD-444](#td-444-metricspushclient-transport-gaps-no-https-a-connection-per-event-silent-failures) from the code-traced
+[MetricsPushClient.md](../reference/source/MetricsPushClient.md). Two are MEDIUM and verified: `end_session()`
+drains every queued event at about 1.2 s per failed event (13.2 s for 11 events with the server down, so
+roughly 20–70 minutes for a full 1,024-event queue) and `IncrementalTrainer` calls it before the final
+checkpoint and `mark_trained()`, so a metrics outage delays a pass's results and a stop in that window loses
+them (TD-442); and push payloads send NaN/inf as `nan`/`inf`, which the server stores and re-emits as invalid
+JSON, `end_epoch()`'s `std::fixed` turns values below 5e-7 (a 1e-7 learning rate) into 0, and adaptive-clipping
+metrics are buffered but never sent (TD-443). One is LOW: `https://` URLs send plain HTTP, a new connection per
+event, silent non-404 failures, and a small race (TD-444).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1328,6 +1338,11 @@ TD-240 (the same `atoi` pattern in `chatbot_api_server`) using one shared checke
 decision (how long to keep history, and whether the write-only tables should get readers or be dropped)
 before implementing retention; check the metrics host's disk usage first. [TD-441](#td-441-imetricsdatabase-contract-gaps-step-counter-limit-order-unbounded-reads) is cleanup.
 
+**Tier 63 — Newly filed (October 14, 2026): `MetricsPushClient`.** Do [TD-442](#td-442-metricspushclientend_session-drain-can-delay-a-passs-final-save-by-an-hour) before relying on the
+always-on trainer with a metrics server that may restart (a bounded drain plus saving before `end_session()` is a
+small change). [TD-443](#td-443-metrics-push-payloads-send-naninf-round-small-values-to-0-and-omit-adaptive-clipping) should fix both ends (client serialization and the server's `stof` parsing/output)
+so diverging runs stay visible. [TD-444](#td-444-metricspushclient-transport-gaps-no-https-a-connection-per-event-silent-failures) matters only if metrics move behind TLS or the Cloudflare tunnel.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1567,6 +1582,9 @@ before implementing retention; check the metrics host's disk usage first. [TD-44
   - [TD-439: `metrics_api_server` Backend Name and Admin-Store Location Gaps](#td-439-metrics_api_server-backend-name-and-admin-store-location-gaps)
   - [TD-440: Metrics Storage Has No Retention and `max_records_on_disk` Is Never Applied](#td-440-metrics-storage-has-no-retention-and-max_records_on_disk-is-never-applied)
   - [TD-441: `IMetricsDatabase` Contract Gaps: Step Counter, `limit` Order, Unbounded Reads](#td-441-imetricsdatabase-contract-gaps-step-counter-limit-order-unbounded-reads)
+  - [TD-442: `MetricsPushClient::end_session()` Drain Can Delay a Pass's Final Save by an Hour](#td-442-metricspushclientend_session-drain-can-delay-a-passs-final-save-by-an-hour)
+  - [TD-443: Metrics Push Payloads Send `nan`/`inf`, Round Small Values to 0 and Omit Adaptive Clipping](#td-443-metrics-push-payloads-send-naninf-round-small-values-to-0-and-omit-adaptive-clipping)
+  - [TD-444: `MetricsPushClient` Transport Gaps: No HTTPS, a Connection per Event, Silent Failures](#td-444-metricspushclient-transport-gaps-no-https-a-connection-per-event-silent-failures)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -10188,6 +10206,113 @@ Files to Modify:
 
 ---
 
+### TD-442: `MetricsPushClient::end_session()` Drain Can Delay a Pass's Final Save by an Hour
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Metrics / Push Client | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MetricsPushClient` and verified. `end_session()` enqueues `/end`, sets the stop flag and
+joins the push thread, which first sends **every** queued event. Each failing event costs up to 3 attempts plus
+1.2 s of back-off (plus `timeout_ms` per attempt when the connection times out rather than being refused). With
+the server down (connection refused), 10 queued epoch events plus `/end` took **13.2 s**. If the server goes
+away mid-pass the queue fills to 1,024 step events, so the drain takes about 20 minutes (refused) or about 70
+minutes (timeouts, default 1 s). The destructor drains the same way.
+
+`IncrementalTrainer` calls `push_client_->end_session()` **before** saving the final checkpoint and calling
+`mark_trained()`, so a metrics outage near the end of a chatbot pass delays its results by that long, and a stop
+in that window (`systemctl stop`, `trainer_service`'s 10 s SIGKILL escalation, a GPU-driver crash) loses the
+final save and leaves the files claimed. (`run_lejepa_training_pass()` saves first and is only delayed.)
+
+Action Items:
+
+- [ ] Bound the drain: a deadline for `end_session()`, and once stopping, drop `Sample` events and skip retries/back-off.
+- [ ] In `IncrementalTrainer`, save the final checkpoint and `mark_trained()` before `end_session()`.
+- [ ] Add a test: `end_session()` with the server down returns within the deadline.
+
+Location in code: `src/MetricsPushClient.cpp` (`end_session()`, `push_loop()`); `src/IncrementalTrainer.cpp` (`end_session()` before the final save); tagged `TODO: See TD-442`.
+
+Files to Modify:
+
+- `src/MetricsPushClient.{hpp,cpp}`
+- `src/IncrementalTrainer.cpp`
+- `tests/metrics_push_client_test.cpp`
+
+---
+
+### TD-443: Metrics Push Payloads Send `nan`/`inf`, Round Small Values to 0 and Omit Adaptive Clipping
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Metrics / Push Client | October 14, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `MetricsPushClient` and verified against a real `metrics_api_server`:
+- **Non-finite values.** Payloads are built with `operator<<`, so NaN/infinity are sent as `nan`/`inf` (not
+  JSON). The server's hand-written parser (`std::stof`) accepts them and its output re-emits them: after pushing
+  an epoch with a NaN loss and an infinite validation loss, `GET /api/sessions/{key}/epochs` returned
+  `"epoch_losses":[nan,2.5],"epoch_validation_losses":[inf,2.6]`, which Python's `json` rejects. The epoch view
+  breaks exactly when a run diverges. `end_epoch()`'s derived perplexity `exp(loss)` is `inf` above loss ≈ 88.
+- **Rounding.** `end_epoch()` uses `std::fixed` (6 decimals): a learning rate of 1e-7 was stored as **0**
+  (`"epoch_learning_rates":[0,0]`), as are epoch `gradient_variance`/`weight_update_ratio` below 5e-7 (typical
+  update ratios are 1e-4–1e-6). `update_generation_quality_metrics()` also uses `std::fixed` (harmless there).
+- **Adaptive clipping never sent.** `update_adaptive_clip_metrics()`/`update_adaptive_clip_epoch()` store into
+  `buf_adaptive_clip_*`, which `end_epoch()` never writes, and no server endpoint accepts them; the probe
+  session's `epoch_adaptive_clip_thresholds` was `[]`, as it is for every pushed session.
+
+Action Items:
+
+- [ ] Serialize floats with a helper that writes non-finite values as `null` (or a documented sentinel) and uses enough significant digits (`std::defaultfloat` with `max_digits10`, or `%.9g`).
+- [ ] Make the server reject or normalize non-finite input and never emit `nan`/`inf`.
+- [ ] Add the adaptive-clip fields to the `end_epoch` payload and its server handler.
+- [ ] Tests for NaN/inf/tiny values and adaptive-clip fields, end to end.
+
+Location in code: `src/MetricsPushClient.cpp` (`end_epoch()`, `update_adaptive_clip_*()`); `src/TrainingMetricsAPI.cpp` (`/epoch/end` parsing); tagged `TODO: See TD-443`.
+
+Files to Modify:
+
+- `src/MetricsPushClient.cpp`
+- `src/TrainingMetricsAPI.cpp`
+- `tests/metrics_push_client_test.cpp`
+
+---
+
+### TD-444: `MetricsPushClient` Transport Gaps: No HTTPS, a Connection per Event, Silent Failures
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Metrics / Push Client | October 14, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `MetricsPushClient`, by inspection:
+- **No HTTPS.** `ParsedUrl` recognizes `https://` and switches to port 443, but `attempt_post()` always uses a
+  plain `httplib::Client` (no `CPPHTTPLIB_OPENSSL_SUPPORT`), so it sends plain HTTP to a TLS port and
+  `start_session()` returns 0; the run trains without metrics. There's no way to add headers (Cloudflare Access
+  tokens), so metrics can't go through the tunnel. Today's `config.trainer.conf` uses a LAN `http://` URL.
+- **A connection per event.** A new `httplib::Client` (TCP connection) per attempt, including per optimizer step
+  for `/metrics/sample` and `/metrics/advanced`.
+- **Silent failures.** `push_loop()` ignores every status except 404 (e.g. a 400 for a malformed body, a 503
+  "server full"); failures are logged at debug level only.
+- **Race and naming.** `reconnect_body_` is written by `start_session()` while the push thread runs (read only after
+  a 404); the heartbeat can fire before `start_session()`. `detect_hostname_fragment()` cuts hostnames to 8
+  characters, so `ai-machine`/`ai-machine2` share keys (409 retry handles it, with confusing keys).
+
+Action Items:
+
+- [ ] Support `https://` (`httplib::SSLClient` with OpenSSL) and configurable extra headers, or reject `https://` with a clear error.
+- [ ] Reuse one keep-alive client in the push thread.
+- [ ] Log non-2xx results at warn (rate-limited); guard `reconnect_body_`; consider a longer host fragment or a hash suffix.
+
+Location in code: `src/MetricsPushClient.cpp` (`ParsedUrl`, `attempt_post()`, `push_loop()`); `src/MetricsPushClient.hpp` (`detect_hostname_fragment()`, `reconnect_body_`); tagged `TODO: See TD-444`.
+
+Files to Modify:
+
+- `src/MetricsPushClient.{hpp,cpp}`
+- `src/CMakeLists.txt`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -10704,15 +10829,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 233 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 236 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|12%|
-|Medium|99|42%|
-|Low|106|46%|
+|Medium|101|43%|
+|Low|107|45%|
 
-**Total Active Items:** 233
+**Total Active Items:** 236
 
 ### By Component
 
@@ -10778,6 +10903,7 @@ Recomputed directly from the 233 `### TD-NNN` entries under [Active Technical De
 |Build / SIMD|2|
 |Metrics / Server CLI|2|
 |Metrics / Database|2|
+|Metrics / Push Client|3|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -10786,13 +10912,13 @@ Recomputed directly from the 233 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|142|
-|2-4 hours|68|
+|0-2 hours|143|
+|2-4 hours|70|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 436-774 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 441-784 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

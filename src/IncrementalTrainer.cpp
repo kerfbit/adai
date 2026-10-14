@@ -871,6 +871,7 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
         }
     }
 
+    // TODO: See TD-442 in TECHNICAL_DEBT.md - runs before the final save/mark_trained; a metrics outage delays (or, if stopped, loses) them
     if (push_client_) {
         push_client_->end_session();
         push_client_ = nullptr;
