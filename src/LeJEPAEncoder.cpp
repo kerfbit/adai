@@ -237,6 +237,8 @@ std::pair<float, float> LeJEPAEncoder::train_step(const std::string& text) {
             }
         }
 
+        // TODO: See TD-428 in TECHNICAL_DEBT.md - stale: TD-195 made these backward()s accumulate, so the two
+        // sequential update_weights() below (two optimizer steps per sample) are no longer needed
         // TD-189: LayerNorm::backward()/FeedForward::backward()/MultiHeadAttention::backward()
         // (used inside encoder_blocks/final_norm) OVERWRITE their own gradient members on every
         // call rather than accumulating — only TokenEmbedding::backward() actually accumulates
@@ -333,6 +335,8 @@ void LeJEPAEncoder::register_parameters_with_optimizer(Optimizer& optimizer) {
     // doc) — nothing to register for it.
 }
 
+// TODO: See TD-427 in TECHNICAL_DEBT.md - the Predictor is never saved (nor loaded), so every resumed pass starts
+// with a random predictor (verified: predictor loss 0.0017 trained -> 2.05 after save/load)
 void LeJEPAEncoder::save(const std::string& directory) const {
     std::filesystem::create_directories(directory);
 
@@ -367,6 +371,8 @@ void LeJEPAEncoder::load(const std::string& directory) {
         throw std::runtime_error("Failed to open file for reading: " + config_path);
     }
 
+    // TODO: See TD-429 in TECHNICAL_DEBT.md - reads unchecked, max_seq_length not compared; std::cout here and in
+    // the constructor/save/tokenizer methods
     int loaded_vocab_size = 0, loaded_d_model = 0, loaded_num_layers = 0;
     int loaded_num_heads = 0, loaded_d_ff = 0, loaded_max_seq_length = 0;
 

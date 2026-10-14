@@ -529,6 +529,8 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
                     }
                 }
             } catch (const std::invalid_argument& e) {
+                // TODO: See TD-429 in TECHNICAL_DEBT.md - TokenizerEncodingError (a runtime_error) escapes this catch
+                // and ends the whole pass
                 // Text tokenized to fewer than 2 tokens — too short for span masking. Skip
                 // rather than aborting the whole pass over one bad sample.
                 adai::Logger::warn("[lejepa] Skipping sample ({})", e.what());

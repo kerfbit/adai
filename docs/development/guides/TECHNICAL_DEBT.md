@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 218
+**Total Items:** 221
 **High Priority:** 28
-**Medium Priority:** 93
-**Low Priority:** 97
+**Medium Priority:** 94
+**Low Priority:** 99
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -299,6 +299,13 @@ Also October 14, 2026: filed [TD-426](#td-426-layernorm-silent-setters-missing-s
 [LayerNorm.md](../reference/source/LayerNorm.md), which verified the CPU backward pass against finite
 differences (4.6×10⁻⁵): `set_gamma()`/`set_beta()` silently ignore shape mismatches (verified), shapes
 aren't checked in `forward()`/`backward()`, and `load_weights()` doesn't check its reads.
+
+Also October 14, 2026: filed [TD-427](#td-427-lejepa-predictor-is-never-saved-so-each-pass-restarts-it) through [TD-429](#td-429-lejepaencoder-exception-escape-console-output-and-unchecked-loads) from the code-traced
+[LeJEPAEncoder.md](../reference/source/LeJEPAEncoder.md). One is MEDIUM and verified: `save()`/`load()`
+skip the `Predictor`, so every resumed `--objective=lejepa` pass starts with a random predictor (loss
+0.0017 trained → 2.05 after reload) whose gradients disturb the resumed encoder (TD-427). Two are LOW:
+`train_step()`'s two sequential updates rest on a TD-189 rationale that TD-195 made obsolete (TD-428);
+an escaping exception type, console output and unchecked loads (TD-429).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1243,6 +1250,10 @@ checks to add in the same change.
 TD-298, TD-345, TD-357, TD-367, TD-369 and [TD-426](#td-426-layernorm-silent-setters-missing-shape-checks-and-unchecked-loads) (every legacy per-layer loader). [TD-424](#td-424-uncached-generation-projects-every-position-through-the-lm-head) is a small
 "project only the last row" change in the generation callbacks; [TD-425](#td-425-languagemodelhead-hygiene) is cleanup.
 
+**Tier 56 — Newly filed (October 14, 2026): `LeJEPAEncoder`.** Fix [TD-427](#td-427-lejepa-predictor-is-never-saved-so-each-pass-restarts-it) before the next
+world-model pretraining run (save/load the predictor with the encoder). Do [TD-428](#td-428-lejepa-two-update-workaround-is-obsolete-after-td-195) with a short
+before/after comparison since it changes the optimization; [TD-429](#td-429-lejepaencoder-exception-escape-console-output-and-unchecked-loads) is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1467,6 +1478,9 @@ TD-298, TD-345, TD-357, TD-367, TD-369 and [TD-426](#td-426-layernorm-silent-set
   - [TD-424: Uncached Generation Projects Every Position Through the LM Head](#td-424-uncached-generation-projects-every-position-through-the-lm-head)
   - [TD-425: `LanguageModelHead` Hygiene](#td-425-languagemodelhead-hygiene)
   - [TD-426: `LayerNorm` Silent Setters, Missing Shape Checks and Unchecked Loads](#td-426-layernorm-silent-setters-missing-shape-checks-and-unchecked-loads)
+  - [TD-427: LeJEPA `Predictor` Is Never Saved, So Each Pass Restarts It](#td-427-lejepa-predictor-is-never-saved-so-each-pass-restarts-it)
+  - [TD-428: LeJEPA Two-Update Workaround Is Obsolete After TD-195](#td-428-lejepa-two-update-workaround-is-obsolete-after-td-195)
+  - [TD-429: `LeJEPAEncoder` Exception Escape, Console Output and Unchecked Loads](#td-429-lejepaencoder-exception-escape-console-output-and-unchecked-loads)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -9586,6 +9600,89 @@ Files to Modify:
 
 ---
 
+### TD-427: LeJEPA `Predictor` Is Never Saved, So Each Pass Restarts It
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | World Model / LeJEPAEncoder | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `LeJEPAEncoder` and verified. `save()` writes `config.bin`, the token embedding,
+the encoder blocks and the final norm, but not the `Predictor` (which has no save/load of its own).
+`incremental_trainer --objective=lejepa` resumes the encoder from `<SESSION_DIR>/world_model` every pass
+(TD-184) but constructs a fresh, randomly initialized predictor. After 60 epochs, the trained instance's
+predictor loss was 0.0017; the same weights reloaded through `save()`/`load()` gave 2.053. Each pass
+re-learns the predictor from scratch, and until it does, the random predictor's gradients flow into the
+resumed encoder through the context view, disturbing the learned representation. The dashboard's
+predictor-loss curve (stable `lejepa-<model>` session) restarts from about 2.0 each pass for this reason.
+
+Action Items:
+
+- [ ] Add `Predictor::save()/load()` (it's a `FeedForward`) and include it in `LeJEPAEncoder::save()/load()`, tolerating its absence in older checkpoints with a warning.
+- [ ] Test: predictor loss is unchanged across save/load.
+
+Location in code: `src/LeJEPAEncoder.cpp` (`save()`, `load()`); tagged `TODO: See TD-427`.
+
+Files to Modify:
+
+- `src/LeJEPAEncoder.cpp`
+- `src/Predictor.{hpp,cpp}`
+- `tests/lejepaencoder_test.cpp`
+
+---
+
+### TD-428: LeJEPA Two-Update Workaround Is Obsolete After TD-195
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | World Model / LeJEPAEncoder | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `LeJEPAEncoder`, by inspection. `train_step()` applies the target-view gradient
+and the context-view gradient as two separate `backward()` + `update_weights()` pairs, re-running the
+context forward pass in between. The in-code TD-189 comment justifies this by saying
+`LayerNorm`/`FeedForward`/`MultiHeadAttention::backward()` overwrite their gradient members, but TD-195
+made all three accumulate. The workaround now only costs: Adam's step counter advances twice per sample,
+every registered parameter (including the predictor, whose gradient is zero during step 1) is moved by
+momentum twice, and the objective is optimized as two sequential half-steps.
+
+Action Items:
+
+- [ ] Accumulate both views' gradients (target backward, then a context re-forward and backward) and call `update_weights()` once; update the stale comment; compare a short pretraining run before and after.
+
+Location in code: `src/LeJEPAEncoder.cpp` (`train_step()`); tagged `TODO: See TD-428`.
+
+Files to Modify:
+
+- `src/LeJEPAEncoder.cpp`
+
+---
+
+### TD-429: `LeJEPAEncoder` Exception Escape, Console Output and Unchecked Loads
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | World Model / LeJEPAEncoder | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `LeJEPAEncoder`, by inspection: `TokenizerEncodingError` derives from
+`runtime_error`, so it escapes `run_lejepa_training_pass()`'s `catch (const std::invalid_argument&)` and
+ends the whole pass; the constructor, save/load and tokenizer methods print to `std::cout`; `load()`
+doesn't compare `max_seq_length` and inherits the sub-loaders' unchecked reads (TD-357/TD-426 class).
+
+Action Items:
+
+- [ ] Catch tokenizer exceptions per sample in the LeJEPA loop; switch to `adai::Logger`; validate `max_seq_length` and check reads on load.
+
+Location in code: `src/LeJEPAEncoder.cpp` (`load()`), `src/IncrementalTrainingTool.cpp` (LeJEPA sample loop); tagged `TODO: See TD-429`.
+
+Files to Modify:
+
+- `src/LeJEPAEncoder.cpp`
+- `src/IncrementalTrainingTool.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -10102,15 +10199,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 218 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 221 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|13%|
-|Medium|93|43%|
-|Low|97|44%|
+|Medium|94|42%|
+|Low|99|45%|
 
-**Total Active Items:** 218
+**Total Active Items:** 221
 
 ### By Component
 
@@ -10169,6 +10266,7 @@ Recomputed directly from the 218 `### TD-NNN` entries under [Active Technical De
 |Inference / KVCache|2|
 |Models / LanguageModelHead|3|
 |Layers / LayerNorm|1|
+|World Model / LeJEPAEncoder|3|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -10177,13 +10275,13 @@ Recomputed directly from the 218 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|129|
+|0-2 hours|132|
 |2-4 hours|66|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 419-740 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 422-746 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

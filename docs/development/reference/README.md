@@ -43,6 +43,7 @@ This directory contains reference materials, technical specifications, and imple
   - [KVCache](source/KVCache.md) (`src/KVCache.hpp`; CPU key/value cache for incremental decoding)
   - [LanguageModelHead](source/LanguageModelHead.md) (`src/LanguageModelHead.{hpp,cpp}`; output projection to vocabulary logits)
   - [LayerNorm](source/LayerNorm.md) (`src/LayerNorm.{hpp,cpp}`; per-token layer normalization)
+  - [LeJEPAEncoder](source/LeJEPAEncoder.md) (`src/LeJEPAEncoder.{hpp,cpp}`; LeJEPA world-model encoder: pretraining step, save/load)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)
