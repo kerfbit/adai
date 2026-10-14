@@ -38,6 +38,9 @@
  *
  * Target: 50-100x improvement over naive sequential processing
  *
+ * TODO: See TD-420 in TECHNICAL_DEBT.md - nothing is batched through the model (per-request encode and
+ * per-request greedy decode without KV cache); these speedup claims don't describe this code
+ *
  * @version 1.0
  * @date January 2026
  */
@@ -81,6 +84,8 @@ struct IntegratedInferenceConfig {
     int max_tokens_per_batch = 4096;  ///< Max total tokens per batch
 
     // Pipeline configuration (Priority 5)
+    // TODO: See TD-420 in TECHNICAL_DEBT.md - enable_pipeline, parallel_attention, max_tokens_per_batch and
+    // enable_stats are never read; use_openmp only gates omp_set_num_threads()
     bool enable_pipeline = true;     ///< Enable two-stage pipeline
     size_t encoder_queue_size = 50;  ///< Encoder input queue capacity
     size_t decoder_queue_size = 50;  ///< Encoder→decoder queue capacity
@@ -122,6 +127,7 @@ struct IntegratedInferenceStats {
     double pipeline_efficiency = 0.0;  ///< Speedup from pipelining
 
     // Parallelism statistics (Priority 1, 4)
+    // TODO: See TD-420 in TECHNICAL_DEBT.md - the speedup fields, avg_queue_depth and requests_dropped are never set
     double avg_openmp_speedup = 0.0;
     double avg_attention_speedup = 0.0;
 
@@ -376,6 +382,8 @@ class IntegratedInferenceEngine {
                 tokenizable_requests.reserve(batch.requests.size());
                 for (auto& req : batch.requests) {
                     try {
+                        // TODO: See TD-417 in TECHNICAL_DEBT.md - encode() adds BOS/EOS; the model trains its encoder
+                        // without special tokens (TD-364's mismatch)
                         batch.tokenized_inputs.push_back(tokenizer_->encode(req.input_text));
                         tokenizable_requests.push_back(std::move(req));
                     } catch (const std::exception&) {
@@ -434,6 +442,8 @@ class IntegratedInferenceEngine {
                 // Create square attention mask (all ones = full attention, no padding masking)
                 Matrix att_mask(static_cast<int>(tokens.size()), static_cast<int>(tokens.size()));
                 att_mask.fill(1.0f);
+                // TODO: See TD-418 in TECHNICAL_DEBT.md - no try/catch: an exception here escapes the worker thread
+                // (std::terminate) and the batch's promises are never fulfilled
                 encoder_outputs.push_back(encoder_->encode_with_mask(tokens, att_mask));
             }
 
@@ -608,6 +618,9 @@ class IntegratedInferenceEngine {
     /**
      * Generate text from encoder output (simplified for integration)
      */
+    // TODO: See TD-417 in TECHNICAL_DEBT.md - always greedy (strategy/sampling ignored), no vocab masking or
+    // repetition handling, max_length not capped at max_seq_length; differs from the model's own generation.
+    // TD-418: exceptions in here also terminate the process
     std::string generate_from_encoder_output(const Matrix& encoder_output, int max_length,
                                              const std::string& strategy) {
         // Simplified generation - in production would use TextGenerator with cross-attention
@@ -654,6 +667,8 @@ class IntegratedInferenceEngine {
     /**
      * Constructor
      */
+    // TODO: See TD-419 in TECHNICAL_DEBT.md - drives the model's components without
+    // EncoderDecoderModel::model_mutex_, while /chat/batch uses them under it (shared layer caches race)
     IntegratedInferenceEngine(LLMEncoder* encoder, LLMDecoder* decoder, LanguageModelHead* lm_head,
                               BPETokenizer* tokenizer,
                               const IntegratedInferenceConfig& config = IntegratedInferenceConfig())
@@ -672,6 +687,7 @@ class IntegratedInferenceEngine {
 // Set OpenMP thread count if configured
 #ifdef _OPENMP
         if (config_.use_openmp && config_.num_threads > 0) {
+            // TODO: See TD-420 in TECHNICAL_DEBT.md - process-wide setting
             omp_set_num_threads(config_.num_threads);
         }
 #endif
@@ -722,6 +738,8 @@ class IntegratedInferenceEngine {
     /**
      * Shutdown the engine gracefully
      */
+    // TODO: See TD-418 in TECHNICAL_DEBT.md - queued and in-flight requests are dropped with unfulfilled
+    // promises (callers get broken_promise)
     void shutdown() {
         if (!shutdown_.exchange(true)) {
             // Signal shutdown to all queues
