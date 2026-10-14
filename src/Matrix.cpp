@@ -55,6 +55,7 @@ Matrix& Matrix::operator=(Matrix&& other) noexcept {
 }
 
 // Constructor with dimensions
+// TODO: See TD-435 in TECHNICAL_DEBT.md - negative sizes throw length_error/bad_alloc, not a dimension error
 Matrix::Matrix(int r, int c) : rows(r), cols(c) {
     data.resize(rows, std::vector<float>(cols, 0.0f));
 }
@@ -78,6 +79,7 @@ Matrix::Matrix(const std::vector<std::vector<float>>& d)
 }
 
 // Element access (non-const)
+// TODO: See TD-435 in TECHNICAL_DEBT.md - out-of-line and bounds-checked, 2.4x slower than data[i][j] in hot loops
 float& Matrix::operator()(int i, int j) {
     if (i < 0 || i >= rows || j < 0 || j >= cols) {
         throw std::out_of_range("Matrix index out of bounds");
@@ -146,6 +148,7 @@ Matrix Matrix::operator*(const Matrix& other) const {
 #endif  // ADAI_ENABLE_BLAS
 
 #if defined(ADAI_SIMD_AVX2)
+    // TODO: See TD-434 in TECHNICAL_DEBT.md - rows > 64 gate leaves short-sequence products single-threaded; AVX2 is compile-time only, so portable builds skip this path
     // ikj loop order with AVX2 FMA: broadcasts A[i][k], processes 8 floats of
     // row k of B simultaneously into row i of C.  B rows are contiguous so
     // cache-friendly; each inner loop touches only one row of C (good locality).
@@ -182,6 +185,7 @@ Matrix Matrix::operator*(const Matrix& other) const {
     }
 
 #elif defined(ADAI_SIMD_NEON)
+    // TODO: See TD-434 in TECHNICAL_DEBT.md - rows > 64 gate leaves short-sequence products single-threaded
     // ikj loop order with ARM NEON 4-wide FMA
 #ifdef ADAI_ENABLE_OPENMP
 #pragma omp parallel for schedule(dynamic, 16) if (rows > 64)
@@ -204,6 +208,7 @@ Matrix Matrix::operator*(const Matrix& other) const {
     }
 
 #elif defined(ADAI_ENABLE_OPENMP)
+// TODO: See TD-434 in TECHNICAL_DEBT.md - the path portable builds take: no SIMD, strided reads, 7-10x slower than AVX2
 // Parallel version with OpenMP — 5-8x speedup on multi-core CPUs
 #pragma omp parallel for collapse(2) schedule(dynamic, 32) if (rows > 64 && other.cols > 64)
     for (int i = 0; i < rows; i++) {
@@ -375,6 +380,7 @@ Matrix Matrix::transpose() const {
 
 // Randomize matrix with Xavier/He initialization
 // TODO: See TD-368 in TECHNICAL_DEBT.md - unseedable; initialization can't be reproduced
+// TODO: See TD-435 in TECHNICAL_DEBT.md - the static generator is shared across threads without locking
 void Matrix::randomize(float scale) {
     static std::random_device rd;
     static std::mt19937 gen(rd());
@@ -591,6 +597,7 @@ void Matrix::fill(float value) {
 }
 
 // Sum of all elements — SIMD horizontal reduction
+// TODO: See TD-435 in TECHNICAL_DEBT.md - accumulates in float (2.2% error at 16.8M elements)
 float Matrix::sum() const {
     float total = 0.0f;
 

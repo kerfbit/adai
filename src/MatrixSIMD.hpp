@@ -20,6 +20,7 @@
 
 // ===== Compile-time SIMD capability detection =====
 
+// TODO: See TD-434 in TECHNICAL_DEBT.md - compile-time only; portable (-march=x86-64) builds get no SIMD matmul, add runtime dispatch
 #if defined(__AVX2__)
 #define ADAI_SIMD_AVX2
 #include <immintrin.h>

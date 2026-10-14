@@ -28,6 +28,7 @@
  */
 class Matrix {
    public:
+    // TODO: See TD-435 in TECHNICAL_DEBT.md - public and mutable, so nothing keeps data/rows/cols consistent
     std::vector<std::vector<float>> data;
     int rows, cols;
 

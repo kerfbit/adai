@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 225
+**Total Items:** 227
 **High Priority:** 28
-**Medium Priority:** 95
-**Low Priority:** 102
+**Medium Priority:** 96
+**Low Priority:** 103
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -320,6 +320,15 @@ differences). `LoRAAdapter::load()` silently adopts the file's dimensions, rank 
 initialization uses the unseeded global `rand()`, `update()` doesn't zero gradients, and `dropout`/
 `apply_to_ffn` are unused (TD-433). `src/LoRA.hpp` was re-tagged `@adai-status: experimental`: nothing
 outside tests calls `enable_lora()`, and adapters aren't persisted with checkpoints (TD-302).
+
+Also October 14, 2026: filed [TD-434](#td-434-matrixoperator-runs-short-products-single-threaded-and-portable-builds-have-no-simd) and [TD-435](#td-435-matrix-accessor-cost-sum-accuracy-randomize-race-and-api-hygiene) from the code-traced
+[Matrix.md](../reference/source/Matrix.md), which verified every CPU `operator*` path correct (≤ 1.1×10⁻⁵
+relative error). One is MEDIUM and verified by timing: `operator*` only parallelizes when `rows > 64`, so
+the ≤ 64-row products that training samples and decode steps produce run on one thread (2–6× slower than a
+work-based gate on this 8-core machine), and `portable` builds have no SIMD multiply at all because AVX2 is
+selected only at compile time (7–10× slower) (TD-434). One is LOW: the out-of-line, bounds-checked
+`operator()` costs 2.4× in hot loops (verified), `sum()` accumulates in `float` (2.2% error at 16.8M
+elements, verified), `randomize()`'s static generator isn't thread-safe, and API hygiene (TD-435).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1277,6 +1286,11 @@ ai-machine: give `trainer_service` and its children distinct log files (or conso
 feature: do [TD-432](#td-432-loraadapterload-silently-adopts-the-files-shape) and [TD-433](#td-433-lora-initialization-update-and-config-gaps) together with TD-302 if LoRA gets a real entry point (for example an
 `incremental_trainer` fine-tuning mode); otherwise leave them parked.
 
+**Tier 59 — Newly filed (October 14, 2026): `Matrix`.** [TD-434](#td-434-matrixoperator-runs-short-products-single-threaded-and-portable-builds-have-no-simd) is a cheap, high-leverage CPU
+speedup (a one-line OpenMP gate change, verified 2–6× on the common shapes) plus runtime AVX2 dispatch for
+`portable` binaries; re-run `matrixTests`/`matrix_simd_test` and a CPU training smoke test after it.
+[TD-435](#td-435-matrix-accessor-cost-sum-accuracy-randomize-race-and-api-hygiene) is cleanup; fold the `randomize()` part into TD-368's seeding fix.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1508,6 +1522,8 @@ feature: do [TD-432](#td-432-loraadapterload-silently-adopts-the-files-shape) an
   - [TD-431: Trainer Processes Share One Rotating Log File and Ignore `LOG_LEVEL`](#td-431-trainer-processes-share-one-rotating-log-file-and-ignore-log_level)
   - [TD-432: `LoRAAdapter::load()` Silently Adopts the File's Shape](#td-432-loraadapterload-silently-adopts-the-files-shape)
   - [TD-433: `LoRA` Initialization, Update and Config Gaps](#td-433-lora-initialization-update-and-config-gaps)
+  - [TD-434: `Matrix::operator*` Runs Short Products Single-Threaded and Portable Builds Have No SIMD](#td-434-matrixoperator-runs-short-products-single-threaded-and-portable-builds-have-no-simd)
+  - [TD-435: `Matrix` Accessor Cost, `sum()` Accuracy, `randomize()` Race and API Hygiene](#td-435-matrix-accessor-cost-sum-accuracy-randomize-race-and-api-hygiene)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -9829,6 +9845,80 @@ Files to Modify:
 
 ---
 
+### TD-434: `Matrix::operator*` Runs Short Products Single-Threaded and Portable Builds Have No SIMD
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Core / Matrix | October 14, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `Matrix` and verified by timing (8-core dev machine, AVX2 build):
+- **Threading gate on `rows` only.** The AVX2 and NEON paths use `#pragma omp parallel for
+  schedule(dynamic, 16) if (rows > 64)` (and the OpenMP fallback `rows > 64 && other.cols > 64`). Training
+  samples and decode steps usually have ≤ 64 rows, so their weight-matrix products run on one thread however
+  large the inner and output dimensions are. A work-based gate (`rows·cols·other.cols > 2¹⁸`, static
+  schedule) measured 64×512×512: ~3 → ~0.8 ms; 64×512×2048: ~16 → ~7.5 ms; 8×512×8000 (LM head, decode):
+  ~12.5 → ~2.2 ms; already-parallel 300×512×2048 unchanged or slightly faster. Callers already inside an
+  OpenMP region (`MultiHeadAttention`'s per-head loop) get a serialized inner region under the default
+  `OMP_MAX_ACTIVE_LEVELS`, so this doesn't oversubscribe.
+- **No SIMD in `portable` builds.** `ADAI_SIMD_AVX2` comes from the compiler's `__AVX2__`
+  (`MatrixSIMD.hpp`), which the `portable` preset (`-march=x86-64`) deliberately doesn't set, so
+  `operator*` falls to the strided OpenMP ijk loop: 7–10× slower (64×512×2048: 162 ms vs 16 ms;
+  8×512×8000: 93 ms vs 12.7 ms). CLAUDE.md recommends `portable` for binaries deployed to other machines;
+  that's harmless for the daemons but costly for a CPU `chatbot_api_server` or trainer.
+
+Action Items:
+
+- [ ] Replace the `rows > 64` gates in `operator*` with a work-based threshold (and a static schedule); benchmark before/after on a CPU training pass.
+- [ ] Add runtime ISA dispatch for the multiply (an AVX2/FMA kernel compiled with `__attribute__((target("avx2,fma")))`, selected once via the existing `adai::simd` CPUID helpers), so `portable` binaries use it on capable CPUs; extend the same to the element-wise ops if worthwhile.
+- [ ] Add a test that runs the multiply with OpenMP threads on a ≤ 64-row shape and compares against the scalar reference.
+
+Location in code: `src/Matrix.cpp` (`operator*`'s OpenMP pragmas); `src/MatrixSIMD.hpp` (compile-time detection); tagged `TODO: See TD-434`.
+
+Files to Modify:
+
+- `src/Matrix.cpp`
+- `src/MatrixSIMD.hpp`
+- `tests/matrix_simd_test.cpp`
+
+---
+
+### TD-435: `Matrix` Accessor Cost, `sum()` Accuracy, `randomize()` Race and API Hygiene
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Core / Matrix | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `Matrix`:
+- **Accessor cost (verified).** `operator()(i, j)` is bounds-checked and defined out-of-line in
+  `Matrix.cpp`, so without LTO it can't be inlined: 5.2M reads took 16.7 ms vs 6.9 ms through `data[i][j]`
+  (2.4×). About 80 sites in `MultiHeadAttention.cpp` use it in loops.
+- **`sum()` accuracy (verified).** It accumulates in `float` (8 AVX2 lanes plus a scalar tail): 16.8M
+  copies of 1e-4 summed to 1714.48 vs the exact 1677.72 (2.2%). Few callers today.
+- **`randomize()` race (by inspection).** Its function-static `mt19937` is shared without locking, so two
+  threads initializing layers at once race on it (seeding itself is TD-368).
+- **Hygiene (by inspection).** `data`/`rows`/`cols` are public and mutable, so nothing keeps them
+  consistent; negative sizes throw `length_error`/`bad_alloc` instead of a dimension error; `print()` writes
+  to `std::cout`; the `*_gpu()` wrappers (other than `multiply_gpu()` via `operator*`) have no production
+  caller and fall back to the CPU silently.
+
+Action Items:
+
+- [ ] Inline `operator()` in the header (keep the bounds check under a debug macro, or offer an unchecked accessor) and measure the attention loops.
+- [ ] Accumulate `sum()` in `double` (or pairwise/Kahan).
+- [ ] Make `randomize()` take a generator (with TD-368) or guard the static one.
+- [ ] Reject negative sizes in the constructor; decide whether to keep the unused `*_gpu()` wrappers.
+
+Location in code: `src/Matrix.cpp` (`operator()`, `sum()`, `randomize()`, `Matrix(int, int)`); `src/Matrix.hpp` (public members); tagged `TODO: See TD-435`.
+
+Files to Modify:
+
+- `src/Matrix.hpp`
+- `src/Matrix.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -10345,15 +10435,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 225 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 227 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|28|13%|
-|Medium|95|42%|
-|Low|102|45%|
+|High|28|12%|
+|Medium|96|42%|
+|Low|103|46%|
 
-**Total Active Items:** 225
+**Total Active Items:** 227
 
 ### By Component
 
@@ -10415,6 +10505,7 @@ Recomputed directly from the 225 `### TD-NNN` entries under [Active Technical De
 |World Model / LeJEPAEncoder|3|
 |Core / Logger|2|
 |Attention / LoRA|2|
+|Core / Matrix|2|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -10423,13 +10514,13 @@ Recomputed directly from the 225 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|136|
-|2-4 hours|66|
+|0-2 hours|137|
+|2-4 hours|67|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 426-754 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 429-760 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
