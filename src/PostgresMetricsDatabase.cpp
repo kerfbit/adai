@@ -737,6 +737,7 @@ std::vector<PersistentMetricsRecord> PostgresMetricsDatabase::query_history(
             param_strs.push_back(to_str);
         }
 
+        // TODO: See TD-441 in TECHNICAL_DEBT.md - ASC then LIMIT returns the oldest N, not the latest
         sql += " ORDER BY recorded_at ASC";
         if (limit > 0) {
             sql += " LIMIT " + std::to_string(limit);

@@ -893,6 +893,7 @@ void TrainingMetricsService::persist_metrics() {
 
     try {
         ensure_parent_directory(config_.metrics_file);
+        // TODO: See TD-440 in TECHNICAL_DEBT.md - appended forever, never rotated or trimmed
         std::ofstream file(config_.metrics_file, std::ios::app);
         if (!file.is_open()) {
             adai::Logger::warn("Failed to open metrics file: {}", config_.metrics_file);
@@ -1576,6 +1577,7 @@ void TrainingMetricsService::update_advanced_epoch_metrics(float gradient_varian
         // this doesn't reuse the throttled insert_metrics_record() path).
         if (db_ && !session_key_.empty()) {
             try {
+                // TODO: See TD-441 in TECHNICAL_DEBT.md - counter restarts at 0 when this service is recreated
                 db_->insert_gradient_variance_sample(session_key_, ++gradient_variance_step_counter_,
                                                      current_snapshot_.current_epoch,
                                                      gradient_variance);

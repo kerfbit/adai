@@ -203,6 +203,7 @@ struct MetricsServiceConfig {
 
     // Data retention
     int max_records_in_memory = 10000;
+    // TODO: See TD-440 in TECHNICAL_DEBT.md - max_records_on_disk and compress_old_records are never read
     int max_records_on_disk = 100000;
     bool compress_old_records = false;
 

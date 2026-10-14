@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 231
+**Total Items:** 233
 **High Priority:** 28
-**Medium Priority:** 98
-**Low Priority:** 105
+**Medium Priority:** 99
+**Low Priority:** 106
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -345,6 +345,15 @@ and `--sweep-interval-seconds 0` disables eviction; saved admin overrides have t
 argument exits 0, so systemd doesn't treat it as a failure (TD-438). One is LOW: an unknown
 `--storage-backend` is accepted (file-only fallback), and the admin store is located from the file's
 `db_path` rather than `--db-path` (TD-439).
+
+Also October 14, 2026: filed [TD-440](#td-440-metrics-storage-has-no-retention-and-max_records_on_disk-is-never-applied) and [TD-441](#td-441-imetricsdatabase-contract-gaps-step-counter-limit-order-unbounded-reads) from the code-traced
+[MetricsDatabase.md](../reference/source/MetricsDatabase.md). One is MEDIUM and verified by search: nothing
+deletes metrics rows or rotates the JSONL file, and `max_records_on_disk` (a CLI flag, config key and
+admin-mutable setting) is read by no persistence code, so `metrics_api_server`'s storage grows without
+bound; the per-step `gradient_variance_history` and the `generation_quality` table are also written but
+never read (TD-440). One is LOW: the gradient-variance step counter restarts per service instance,
+`query_history()`'s `limit` keeps the oldest rows, compare/export read whole histories, and the interface
+contract is undocumented (TD-441).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1315,6 +1324,10 @@ before/after. [TD-437](#td-437-simd-self-check-test-never-compiles-and-no-startu
 TD-240 (the same `atoi` pattern in `chatbot_api_server`) using one shared checked-integer helper, and
 [TD-439](#td-439-metrics_api_server-backend-name-and-admin-store-location-gaps) alongside TD-306.
 
+**Tier 62 — Newly filed (October 14, 2026): `MetricsDatabase`.** [TD-440](#td-440-metrics-storage-has-no-retention-and-max_records_on_disk-is-never-applied) needs a short owner
+decision (how long to keep history, and whether the write-only tables should get readers or be dropped)
+before implementing retention; check the metrics host's disk usage first. [TD-441](#td-441-imetricsdatabase-contract-gaps-step-counter-limit-order-unbounded-reads) is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1552,6 +1565,8 @@ TD-240 (the same `atoi` pattern in `chatbot_api_server`) using one shared checke
   - [TD-437: SIMD Self-Check Test Never Compiles and No Startup CPU Check](#td-437-simd-self-check-test-never-compiles-and-no-startup-cpu-check)
   - [TD-438: `metrics_api_server` Accepts Invalid Numbers and Exits 0 on Bad Arguments](#td-438-metrics_api_server-accepts-invalid-numbers-and-exits-0-on-bad-arguments)
   - [TD-439: `metrics_api_server` Backend Name and Admin-Store Location Gaps](#td-439-metrics_api_server-backend-name-and-admin-store-location-gaps)
+  - [TD-440: Metrics Storage Has No Retention and `max_records_on_disk` Is Never Applied](#td-440-metrics-storage-has-no-retention-and-max_records_on_disk-is-never-applied)
+  - [TD-441: `IMetricsDatabase` Contract Gaps: Step Counter, `limit` Order, Unbounded Reads](#td-441-imetricsdatabase-contract-gaps-step-counter-limit-order-unbounded-reads)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -10094,6 +10109,85 @@ Files to Modify:
 
 ---
 
+### TD-440: Metrics Storage Has No Retention and `max_records_on_disk` Is Never Applied
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Metrics / Database | October 14, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `MetricsDatabase` and verified by search:
+- **No retention.** `IMetricsDatabase` has no delete/prune operation, and neither `SQLiteMetricsDatabase`
+  nor `PostgresMetricsDatabase` deletes rows except while renaming them in `archive_session()`. The JSONL
+  file (`TrainingMetricsService::persist_metrics()`, `std::ios::app`) is never rotated or trimmed.
+- **A dead setting.** `MetricsServiceConfig::max_records_on_disk` (default 100,000; `--max-disk-records`,
+  `config.metrics.conf`, admin-mutable via `PUT /admin/config`, reported by `GET /admin/config`) is read by
+  no persistence code; only `max_records_in_memory` is enforced (on the in-memory ring buffer).
+  `compress_old_records` is likewise never read. TRAINING_METRICS_API.md documents "Max records on disk" as
+  a real limit.
+- **Write-only tables.** `gradient_variance_history` (one row per optimizer step per session, unthrottled)
+  and `generation_quality` have insert methods but no query method; no C++ code or repository tool reads
+  them (`tools/abnormal_review/` reads only `abnormal_samples`). The dashboards use the in-memory snapshot.
+
+So the metrics host's DB and JSONL grow for as long as `metrics_api_server` runs, fastest in the table
+nothing reads.
+
+Action Items:
+
+- [ ] Owner decision: retention policy (per-session row cap, age, or both) and whether `gradient_variance_history`/`generation_quality` get readers (an API endpoint) or are dropped/throttled.
+- [ ] Add a prune operation to `IMetricsDatabase` (both backends) and apply `max_records_on_disk` (per session) on persist or in the registry sweep; trim or rotate the JSONL to match.
+- [ ] Remove `compress_old_records` or implement it; correct TRAINING_METRICS_API.md.
+
+Location in code: `src/MetricsDatabase.hpp` (`IMetricsDatabase`); `src/TrainingMetricsService.hpp` (`max_records_on_disk`, `compress_old_records`); `src/TrainingMetricsService.cpp` (JSONL append); tagged `TODO: See TD-440`.
+
+Files to Modify:
+
+- `src/MetricsDatabase.hpp`
+- `src/SQLiteMetricsDatabase.{hpp,cpp}`
+- `src/PostgresMetricsDatabase.{hpp,cpp}`
+- `src/TrainingMetricsService.{hpp,cpp}`
+- `docs/development/TRAINING_METRICS_API.md`
+
+---
+
+### TD-441: `IMetricsDatabase` Contract Gaps: Step Counter, `limit` Order, Unbounded Reads
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Metrics / Database | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MetricsDatabase`, by inspection:
+- **Step counter restarts.** `insert_gradient_variance_sample()`'s `step` is `TrainingMetricsService`'s
+  `gradient_variance_step_counter_`, which starts at 0 whenever a session's service is recreated (server
+  restart, restored session), giving duplicate `(session_key, step)` pairs; the interface comment calls it
+  "monotonic".
+- **`limit` keeps the oldest rows.** Both backends' `query_history()` sort `recorded_at ASC` then apply
+  `LIMIT`, so `GET .../metrics/db-history?limit=500` returns a run's first 500 records, not the latest.
+- **Unbounded reads.** `TrainingMetricsAPI`'s compare and export call `query_history()` with no limit,
+  materializing whole histories per request; the interface has no paging.
+- **Undocumented contract.** Throwing on error, thread safety, ascending order, `limit = 0` = all, and the
+  `FLT_MAX` "no best loss" sentinel are only discoverable from the implementations;
+  `MetricsDatabaseFactory::create()` is declared here but defined in `SQLiteMetricsDatabase.cpp`.
+
+Action Items:
+
+- [ ] Seed the step counter from the DB (`MAX(step)`) on restore, or drop the "monotonic" claim.
+- [ ] Add an order/"latest N" option to `query_history()` and use it for `db-history`; document `limit`.
+- [ ] Cap or page compare/export reads; document the interface contract; move the factory to its own file.
+
+Location in code: `src/MetricsDatabase.hpp`; `src/TrainingMetricsService.cpp` (step counter); `src/SQLiteMetricsDatabase.cpp`/`src/PostgresMetricsDatabase.cpp` (`query_history()`); tagged `TODO: See TD-441`.
+
+Files to Modify:
+
+- `src/MetricsDatabase.hpp`
+- `src/TrainingMetricsService.cpp`
+- `src/SQLiteMetricsDatabase.cpp`
+- `src/PostgresMetricsDatabase.cpp`
+- `src/TrainingMetricsAPI.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -10610,15 +10704,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 231 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 233 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|12%|
-|Medium|98|42%|
-|Low|105|46%|
+|Medium|99|42%|
+|Low|106|46%|
 
-**Total Active Items:** 231
+**Total Active Items:** 233
 
 ### By Component
 
@@ -10683,6 +10777,7 @@ Recomputed directly from the 231 `### TD-NNN` entries under [Active Technical De
 |Core / Matrix|2|
 |Build / SIMD|2|
 |Metrics / Server CLI|2|
+|Metrics / Database|2|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -10691,13 +10786,13 @@ Recomputed directly from the 231 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|141|
-|2-4 hours|67|
+|0-2 hours|142|
+|2-4 hours|68|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 433-768 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 436-774 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

@@ -39,6 +39,8 @@ struct SessionRecord {
     float final_validation_loss = 0.0f;
 };
 
+// TODO: See TD-440 in TECHNICAL_DEBT.md - no prune/retention operation; nothing ever deletes rows
+// TODO: See TD-441 in TECHNICAL_DEBT.md - contract (throws, thread safety, ASC order, limit 0 = all) undocumented
 class IMetricsDatabase {
    public:
     virtual ~IMetricsDatabase() = default;
@@ -63,12 +65,15 @@ class IMetricsDatabase {
     // so it gets its own table written on every TrainingMetricsService::
     // update_advanced_epoch_metrics() call instead. `step` is a server-side
     // monotonic counter (not the trainer's sample index).
+    // TODO: See TD-440 in TECHNICAL_DEBT.md - write-only: nothing reads gradient_variance_history
+    // TODO: See TD-441 in TECHNICAL_DEBT.md - step restarts at 0 per TrainingMetricsService instance
     virtual void insert_gradient_variance_sample(const std::string& session_key, int step,
                                                  int epoch, float value) = 0;
 
     virtual void insert_abnormal_sample(const std::string& session_key,
                                         const AbnormalSample& sample) = 0;
 
+    // TODO: See TD-440 in TECHNICAL_DEBT.md - write-only: nothing reads generation_quality
     virtual void insert_generation_quality(const std::string& session_key, int epoch,
                                            const GenerationQualityScore& score) = 0;
 

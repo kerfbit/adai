@@ -692,6 +692,7 @@ std::vector<PersistentMetricsRecord> SQLiteMetricsDatabase::query_history(
         sql += " AND recorded_at <= ?" + std::to_string(param_idx++);
     }
 
+    // TODO: See TD-441 in TECHNICAL_DEBT.md - ASC then LIMIT returns the oldest N, not the latest
     sql += " ORDER BY recorded_at ASC";
 
     if (limit > 0) {
