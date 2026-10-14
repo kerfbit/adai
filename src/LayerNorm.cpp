@@ -31,6 +31,8 @@ LayerNorm::LayerNorm(int dim, float epsilon) : eps(epsilon) {
     learning_rate = 0.001f;
 }
 
+// TODO: See TD-426 in TECHNICAL_DEBT.md - no input.cols == dim check (and none in backward() against the cached
+// forward); mismatches surface as Matrix's generic out_of_range
 Matrix LayerNorm::forward(const Matrix& input) {
     int batch_size = input.rows;
     int dim = input.cols;
@@ -175,6 +177,8 @@ void LayerNorm::zero_grad() {
     }
 }
 
+// TODO: See TD-426 in TECHNICAL_DEBT.md - a shape mismatch only prints to std::cerr and returns (no exception);
+// also set_beta(). Neither refreshes the GPU mirror
 void LayerNorm::set_gamma(const Matrix& new_gamma) {
     if (new_gamma.rows != 1 || new_gamma.cols != gamma.cols) {
         std::cerr << "Error: gamma dimensions mismatch. Expected [1, " << gamma.cols << "], got ["
@@ -257,6 +261,8 @@ void LayerNorm::load_weights(const std::string& filename) {
         throw std::runtime_error("Failed to open file for reading: " + filename);
     }
 
+    // TODO: See TD-426 in TECHNICAL_DEBT.md - reads unchecked (truncated file keeps old values), file eps discarded,
+    // std::cout in save/load
     // Read and verify dimensions
     int loaded_dim = 0;
     float loaded_eps = NAN;
@@ -327,6 +333,7 @@ adai::gpu::GPUMatrix LayerNorm::gpu_forward(const adai::gpu::GPUMatrix& input) {
     return input.layer_norm(gpu_->gamma_g, gpu_->beta_g, eps, gpu_->normed, gpu_->mean, gpu_->rstd);
 }
 
+// TODO: See TD-426 in TECHNICAL_DEBT.md - dereferences gpu_ unchecked (null before any gpu_forward())
 adai::gpu::GPUMatrix LayerNorm::gpu_backward(const adai::gpu::GPUMatrix& dout) {
     return dout.layer_norm_backward(gpu_->normed, gpu_->gamma_g, gpu_->mean, gpu_->rstd,
                                     gpu_->dgamma, gpu_->dbeta);

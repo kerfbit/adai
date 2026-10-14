@@ -53,7 +53,7 @@ The `TrainingMetricsAPI` is a separate HTTP server (default port 8081) for real-
 | [FeedForward.md](../reference/source/FeedForward.md) | `FeedForward` | Position-wise FFN (code-traced reference) |
 | [transformer/positional-encoding.md](transformer/positional-encoding.md) | `PositionalEncoding` | Sinusoidal position encoding |
 | [transformer/token-embedding.md](transformer/token-embedding.md) | `TokenEmbedding` | Token embedding layer |
-| [transformer/layer-norm.md](transformer/layer-norm.md) | `LayerNorm` | Layer normalization |
+| [LayerNorm.md](../reference/source/LayerNorm.md) | `LayerNorm` | Layer normalization (code-traced reference) |
 | [LanguageModelHead.md](../reference/source/LanguageModelHead.md) | `LanguageModelHead` | Output projection to vocabulary logits (code-traced reference) |
 
 ## Attention

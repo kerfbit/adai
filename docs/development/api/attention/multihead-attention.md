@@ -1620,7 +1620,7 @@ This implementation forms the foundation for modern transformer-based architectu
 - **[CrossAttention](../../reference/source/CrossAttention.md)** - Encoder-decoder attention with KV cache
 - **[DecoderBlock](../../reference/source/DecoderBlock.md)** - Uses MultiHeadAttention with dual caching
 - **[LLMDecoder](../../reference/source/Decoder.md)** - Full decoder stack with multi-layer caching
-- **[LayerNorm](../normalization/layer-norm.md)** - Layer normalization
+- **[LayerNorm](../../reference/source/LayerNorm.md)** - Layer normalization
 - **[PositionalEncoding](../embeddings/positional-encoding.md)** - Position embeddings
 - **[TokenEmbedding](../embeddings/token-embedding.md)** - Token to vector conversion
 

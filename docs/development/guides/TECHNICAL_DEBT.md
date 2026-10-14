@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 217
+**Total Items:** 218
 **High Priority:** 28
 **Medium Priority:** 93
-**Low Priority:** 96
+**Low Priority:** 97
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -294,6 +294,11 @@ truncated `.lm_head` checkpoint sidecar loads without error with `NaN` weights, 
 `ChatbotAPI`'s CPU `model_fn`, `/chat/batch`) project every position through the LM head each step
 although only the last row is used, about 30× the work at 100 tokens (TD-424). One is LOW: hygiene
 (TD-425).
+
+Also October 14, 2026: filed [TD-426](#td-426-layernorm-silent-setters-missing-shape-checks-and-unchecked-loads) (LOW) from the code-traced
+[LayerNorm.md](../reference/source/LayerNorm.md), which verified the CPU backward pass against finite
+differences (4.6×10⁻⁵): `set_gamma()`/`set_beta()` silently ignore shape mismatches (verified), shapes
+aren't checked in `forward()`/`backward()`, and `load_weights()` doesn't check its reads.
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1234,8 +1239,8 @@ like `GPUKVCache` and expose views, ideally together with TD-388 (the GPU cache'
 TD-398 (`HippocampalMemory::read_all()`'s copy), the same pattern three times. [TD-421](#td-421-kvcacheappend-has-no-shape-checks) is a few
 checks to add in the same change.
 
-**Tier 55 — Newly filed (October 14, 2026): `LanguageModelHead`.** Fix [TD-423](#td-423-a-truncated-lm_head-file-loads-as-all-nan-logits) in the same pass as
-TD-298, TD-345, TD-357, TD-367 and TD-369 (every legacy per-layer loader). [TD-424](#td-424-uncached-generation-projects-every-position-through-the-lm-head) is a small
+**Tier 55 — Newly filed (October 14, 2026): `LanguageModelHead`, `LayerNorm`.** Fix [TD-423](#td-423-a-truncated-lm_head-file-loads-as-all-nan-logits) in the same pass as
+TD-298, TD-345, TD-357, TD-367, TD-369 and [TD-426](#td-426-layernorm-silent-setters-missing-shape-checks-and-unchecked-loads) (every legacy per-layer loader). [TD-424](#td-424-uncached-generation-projects-every-position-through-the-lm-head) is a small
 "project only the last row" change in the generation callbacks; [TD-425](#td-425-languagemodelhead-hygiene) is cleanup.
 
 ## Table of Contents
@@ -1461,6 +1466,7 @@ TD-298, TD-345, TD-357, TD-367 and TD-369 (every legacy per-layer loader). [TD-4
   - [TD-423: A Truncated `.lm_head` File Loads as All-`NaN` Logits](#td-423-a-truncated-lm_head-file-loads-as-all-nan-logits)
   - [TD-424: Uncached Generation Projects Every Position Through the LM Head](#td-424-uncached-generation-projects-every-position-through-the-lm-head)
   - [TD-425: `LanguageModelHead` Hygiene](#td-425-languagemodelhead-hygiene)
+  - [TD-426: `LayerNorm` Silent Setters, Missing Shape Checks and Unchecked Loads](#td-426-layernorm-silent-setters-missing-shape-checks-and-unchecked-loads)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -9548,6 +9554,38 @@ Files to Modify:
 
 ---
 
+### TD-426: `LayerNorm` Silent Setters, Missing Shape Checks and Unchecked Loads
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Layers / LayerNorm | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `LayerNorm`; the first two items verified:
+- `set_gamma()`/`set_beta()` print to `std::cerr` and **return without changing anything** on a shape
+  mismatch: `set_gamma(1×5)` on a dim-4 norm left γ at 1 with no exception. `ModelSerializer` validates
+  sizes first (`require()`), so it's latent there, but callers can't detect a failed set. Neither setter
+  refreshes the GPU mirror.
+- `forward()` doesn't check `input.cols == dim`, and `backward()` doesn't check its row count against the
+  cached forward (or that a forward happened). Both surface as `std::out_of_range("Matrix index out of
+  bounds")` from `Matrix::operator()`, not a clear dimension error.
+- `load_weights()` doesn't check its reads (a truncated file keeps the old values for the rest), reads the
+  saved ε and discards it, and `save_weights()` doesn't check its writes; both print to `std::cout`, as
+  does `print_config()` (no production caller).
+- `gpu_backward()` dereferences `gpu_` without a check.
+
+Action Items:
+
+- [ ] Throw `invalid_argument` from the setters and on shape mismatches; check reads and writes (with the other legacy loaders, Tier 55); switch to `adai::Logger`; guard `gpu_backward()`; refresh the GPU mirror in the setters.
+
+Location in code: `src/LayerNorm.cpp` (`forward()`, `set_gamma()`/`set_beta()`, `load_weights()`, `gpu_backward()`); tagged `TODO: See TD-426`.
+
+Files to Modify:
+
+- `src/LayerNorm.{hpp,cpp}`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -10064,15 +10102,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 217 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 218 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|13%|
 |Medium|93|43%|
-|Low|96|44%|
+|Low|97|44%|
 
-**Total Active Items:** 217
+**Total Active Items:** 218
 
 ### By Component
 
@@ -10130,6 +10168,7 @@ Recomputed directly from the 217 `### TD-NNN` entries under [Active Technical De
 |Inference / IntegratedInferenceEngine|4|
 |Inference / KVCache|2|
 |Models / LanguageModelHead|3|
+|Layers / LayerNorm|1|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -10138,13 +10177,13 @@ Recomputed directly from the 217 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|128|
+|0-2 hours|129|
 |2-4 hours|66|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 418-738 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 419-740 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
