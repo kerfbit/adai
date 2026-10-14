@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 245
+**Total Items:** 247
 **High Priority:** 28
-**Medium Priority:** 104
-**Low Priority:** 113
+**Medium Priority:** 105
+**Low Priority:** 114
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -399,6 +399,13 @@ Also October 14, 2026: filed [TD-452](#td-452-mnsjsonhelpers-parsing-gaps-and-a-
 match only compact JSON, fall back to any array, and escape only `"`, `\` and `\n` (verified); its register body has no
 `kind`/`run_group`/`connection`, so the GUI can't manage TD-196 records (TD-452). The same hand-written JSON escaping and
 scanning is duplicated across six MNS/metrics files with different coverage while `nlohmann/json` is vendored (TD-453).
+
+Also October 14, 2026: filed [TD-454](#td-454-mns-manager-guis-training--candidate-workflow-fails-against-server-allocated-run-ids) and [TD-455](#td-455-mns-manager-gui-error-detection-ui-thread-http-and-register-defaults) from the code-traced
+[MnsManagerGUI.md](../reference/source/MnsManagerGUI.md). One is MEDIUM and verified against a real `mns_server` with the
+GUI's exact request bodies: Set Training sends a typed `run_id` the server ignores (it allocates `run-01`) and never sends
+`new_run`, so Set Candidate with the typed ID gets `409 … superseded` and the GUI can't start a new run; the GUI guide
+documents this failing flow (TD-454). One is LOW: success is judged by the substring `"error"` rather than the HTTP status,
+all HTTP runs on the UI thread, and the Register tab's defaults (128/4/512, layer minimum 1) match neither config (TD-455).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1397,6 +1404,10 @@ registration (make `register` require explicit architecture or read the trainer'
 metrics code onto the vendored `nlohmann/json` fixes the escaping parts of TD-443, TD-449 and [TD-452](#td-452-mnsjsonhelpers-parsing-gaps-and-a-gui-register-body-without-td-196-fields) in one
 place; do it with TD-226. TD-452's GUI register fields are separate and only matter if the GUI is used.
 
+**Tier 69 — Newly filed (October 14, 2026): `MnsManagerGUI`.** [TD-454](#td-454-mns-manager-guis-training--candidate-workflow-fails-against-server-allocated-run-ids) is a small fix (drop the run-ID
+requirement, add a "new run" checkbox, use the run ID from the record for Set Candidate) plus a guide correction; do it
+with TD-452 if the GUI is in use. [TD-455](#td-455-mns-manager-gui-error-detection-ui-thread-http-and-register-defaults) is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1648,6 +1659,8 @@ place; do it with TD-226. TD-452's GUI register fields are separate and only mat
   - [TD-451: `mns_cli` Has No HTTPS and Minor Option Handling Gaps](#td-451-mns_cli-has-no-https-and-minor-option-handling-gaps)
   - [TD-452: `MnsJsonHelpers` Parsing Gaps and a GUI Register Body Without TD-196 Fields](#td-452-mnsjsonhelpers-parsing-gaps-and-a-gui-register-body-without-td-196-fields)
   - [TD-453: Hand-Written JSON Duplicated Across MNS and Metrics Code](#td-453-hand-written-json-duplicated-across-mns-and-metrics-code)
+  - [TD-454: MNS Manager GUI's Training → Candidate Workflow Fails Against Server-Allocated Run IDs](#td-454-mns-manager-guis-training--candidate-workflow-fails-against-server-allocated-run-ids)
+  - [TD-455: MNS Manager GUI Error Detection, UI-Thread HTTP and Register Defaults](#td-455-mns-manager-gui-error-detection-ui-thread-http-and-register-defaults)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -10680,6 +10693,78 @@ Files to Modify:
 
 ---
 
+### TD-454: MNS Manager GUI's Training → Candidate Workflow Fails Against Server-Allocated Run IDs
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | MNS / Manager GUI | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MnsManagerGUI` and verified by sending the GUI's exact request bodies to a real `mns_server`.
+`onSetTraining()` requires a typed run ID and sends `{"state":"training","run_id":"…"}`. Since run IDs became
+server-allocated (CLAUDE.md, "MNS/registry-authoritative run and session numbering"), the server ignores a client
+`run_id` for this transition, allocates `run-NN`, and reads `new_run` to decide whether to start a fresh run:
+
+```text
+Set Training,  run ID "my-run"   → state training, run_id "run-01"
+Set Candidate, run ID "my-run"   → 409 "run_id does not match the active run; this trainer's run has been superseded"
+Set Training,  run ID "my-run-2" → run_id still "run-01" (the GUI never sends new_run)
+```
+
+So the typed run ID is silently discarded, Set Candidate fails with a misleading "superseded" error unless the user copies
+the allocated `run-NN` out of the detail panel, and the GUI can't start a new run. `docs/operations/guides/mns-manager-gui-guide.md`'s
+walkthrough (enter `run-42`, Set Training, Set Candidate) follows exactly this path, and its `mns_cli` table shows
+`set-training <name> <run-id>`, a form `mns_cli` no longer has.
+
+Action Items:
+
+- [ ] Set Training: drop the run-ID requirement, add a "start a new run" checkbox (`new_run`), and show the allocated `run_id` from the reply.
+- [ ] Set Candidate: default the run ID to the selected record's `run_id`.
+- [ ] Correct the GUI guide's field table, walkthrough and `mns_cli` equivalence table.
+
+Location in code: `src/MnsManagerGUI.cpp` (`onSetTraining()`, `onSetCandidate()`); tagged `TODO: See TD-454`.
+
+Files to Modify:
+
+- `src/MnsManagerGUI.cpp`
+- `docs/operations/guides/mns-manager-gui-guide.md`
+
+---
+
+### TD-455: MNS Manager GUI Error Detection, UI-Thread HTTP and Register Defaults
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | MNS / Manager GUI | October 14, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `MnsManagerGUI`, by inspection:
+- **Error detection.** Every action treats an empty body as "Connection failed" and a body containing the text `"error"` as
+  failure; the `http*()` helpers return only the body, so the HTTP status is never consulted. A non-2xx reply without that
+  key reads as success; a successful reply containing that text (a tag or label) reads as failure.
+- **UI-thread HTTP.** Every request is a synchronous `httplib` call (connect 5 s, read 10 s) on the UI thread, so a slow or
+  unreachable server freezes the window on every selection or filter change (same class as TD-263).
+- **Register defaults.** The spin boxes start at d_model 128, 4 heads, d_ff 512, 6/6 layers, max sequence 1024, matching
+  neither `config.mns.conf` (512/8) nor `config.trainer.conf` (768/12), for an immutable architecture; the layer minimum of 1
+  prevents standalone encoder/decoder records (plus TD-452's missing fields).
+- **Minor.** The role filter is never populated from `/roles`; typed filter values aren't URL-encoded; `#ifndef` guard;
+  four duplicated `http*()` helpers.
+
+Action Items:
+
+- [ ] Return status and body from the HTTP helpers and judge success by status.
+- [ ] Run requests off the UI thread (`QtConcurrent`/`QNetworkAccessManager`).
+- [ ] Load Register defaults from a chosen config (or leave them blank and required); allow 0 layers per kind.
+- [ ] Populate the role filter from `/roles`; URL-encode filter values.
+
+Location in code: `src/MnsManagerGUI.cpp` (`http*()`, action slots, `createRegisterTab()`, `createModelsTab()`); tagged `TODO: See TD-455`.
+
+Files to Modify:
+
+- `src/MnsManagerGUI.{hpp,cpp}`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -11196,15 +11281,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 245 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 247 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|11%|
-|Medium|104|43%|
-|Low|113|46%|
+|Medium|105|43%|
+|Low|114|46%|
 
-**Total Active Items:** 245
+**Total Active Items:** 247
 
 ### By Component
 
@@ -11274,7 +11359,7 @@ Recomputed directly from the 245 `### TD-NNN` entries under [Active Technical De
 |Metrics / Session Registry|2|
 |Training / MetricsTracker|1|
 |MNS / CLI|4|
-|MNS / Manager GUI|1|
+|MNS / Manager GUI|3|
 |Core / JSON|1|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
@@ -11284,13 +11369,13 @@ Recomputed directly from the 245 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|148|
-|2-4 hours|73|
+|0-2 hours|149|
+|2-4 hours|74|
 |4-8 hours|14|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 456-814 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 459-820 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

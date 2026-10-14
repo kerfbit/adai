@@ -2,7 +2,7 @@
 
 - **File:** [`src/MnsJsonHelpers.hpp`](../../../../src/MnsJsonHelpers.hpp) (header-only, 291 lines)
 - **Namespace:** `mns_gui`
-- **Used by:** `MnsManagerGUI` only (the Qt `mns_manager_gui`, built with `BUILD_GUI=ON` and Qt). `ModelNameClient.cpp` mentions it in comments but carries its own copies (`find_string_end_client()`, `json_escape_client()`)
+- **Used by:** `MnsManagerGUI` only (the Qt `mns_manager_gui`, built whenever `BUILD_GUI` (default `ON`) and Qt are available). `ModelNameClient.cpp` mentions it in comments but carries its own copies (`find_string_end_client()`, `json_escape_client()`)
 - **Status tag:** `@adai-status: stable`, `@adai-version: 1.1.0`, `@adai-reviewed: 2026-09-13`
 - **Tests:** [`tests/mnsjsonhelpers_test.cpp`](../../../../tests/mnsjsonhelpers_test.cpp) (37 tests); also exercised by [`tests/mns_manager_gui_test.cpp`](../../../../tests/mns_manager_gui_test.cpp) (44)
 - **Last traced against the code:** 2026-10-14

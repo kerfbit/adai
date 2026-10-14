@@ -43,6 +43,7 @@ void MnsManagerGUI::parseUrl() {
 // HTTP helpers
 // ============================================================================
 
+// TODO: See TD-455 in TECHNICAL_DEBT.md - synchronous on the UI thread (up to 15 s freeze); returns body only, so callers judge success by searching for "error"
 std::string MnsManagerGUI::httpGet(const std::string& path) {
     httplib::Client c(host_, port_);
     c.set_connection_timeout(5, 0);
@@ -164,6 +165,7 @@ QWidget* MnsManagerGUI::createModelsTab() {
     filterLay->addWidget(new QLabel("Role:"));
     roleFilter_ = new QComboBox();
     roleFilter_->setEditable(true);
+    // TODO: See TD-455 in TECHNICAL_DEBT.md - never populated from /roles; typed values aren't URL-encoded
     roleFilter_->addItem("(all)");
     connect(roleFilter_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             [this](int) { onRefreshModels(); });
@@ -242,6 +244,7 @@ QWidget* MnsManagerGUI::createRegisterTab() {
         return spin;
     };
 
+    // TODO: See TD-455 in TECHNICAL_DEBT.md - defaults match neither config (immutable architecture); layer minimum 1 blocks standalone kinds
     regDModel_ = addSpin("d_model:", 128, 16, 4096);
     regHeads_ = addSpin("num_heads:", 4, 1, 64);
     regDff_ = addSpin("d_ff:", 512, 16, 16384);
@@ -449,6 +452,7 @@ void MnsManagerGUI::onSetTraining() {
         return;
     }
 
+    // TODO: See TD-454 in TECHNICAL_DEBT.md - the server ignores this run_id (allocates run-NN) and new_run is never sent
     std::string body = "{\"state\":\"training\",\"run_id\":\"" + json_escape(run_id) + "\"}";
     auto resp = httpPut("/models/" + selectedModel_.toStdString() + "/state", body);
     if (resp.empty()) {
@@ -472,6 +476,7 @@ void MnsManagerGUI::onSetCandidate() {
     std::string run_id = actionRunId_->text().toStdString();
     std::string art_path = actionArtifactPath_->text().toStdString();
 
+    // TODO: See TD-454 in TECHNICAL_DEBT.md - the typed run ID isn't the server-allocated one, so this gets 409 "superseded"
     std::string body = build_set_candidate_body(run_id, art_path);
 
     auto resp = httpPut("/models/" + selectedModel_.toStdString() + "/state", body);

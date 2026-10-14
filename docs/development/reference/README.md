@@ -56,6 +56,7 @@ This directory contains reference materials, technical specifications, and imple
   - [MnsCliCommands](source/MnsCliCommands.md) (`src/MnsCliCommands.{hpp,cpp}`; `mns_cli`'s argument parsing and request building)
   - [MnsCliTool](source/MnsCliTool.md) (`src/MnsCliTool.cpp`; `mns_cli`'s `main()`: options, config, dispatch, HTTP)
   - [MnsJsonHelpers](source/MnsJsonHelpers.md) (`src/MnsJsonHelpers.hpp`; the MNS Manager GUI's minimal JSON reader/writer and request bodies)
+  - [MnsManagerGUI](source/MnsManagerGUI.md) (`src/MnsManagerGUI.{hpp,cpp}`, `MnsManagerGUI_main.cpp`; the optional Qt MNS manager)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)
