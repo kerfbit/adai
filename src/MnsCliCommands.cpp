@@ -30,6 +30,7 @@ ParsedUrl parse_url(const std::string& raw) {
     return p;
 }
 
+// TODO: See TD-449 in TECHNICAL_DEBT.md - other control characters (< 0x20) pass through raw, producing invalid JSON
 std::string json_escape(const std::string& s) {
     std::string out;
     for (unsigned char c : s) {
@@ -66,6 +67,8 @@ MnsCliRequest make_error(std::string message) {
 }
 }  // namespace
 
+// TODO: See TD-448 in TECHNICAL_DEBT.md - every builder silently ignores unknown flags; numbers via unchecked stoi/stoul/stof
+// TODO: See TD-449 in TECHNICAL_DEBT.md - path segments and query values aren't URL-encoded
 MnsCliRequest build_list_request(const std::vector<std::string>& args) {
     std::string state, role, kind;
     int limit = 0;
@@ -138,6 +141,7 @@ MnsCliRequest build_register_request(const std::vector<std::string>& args,
     float sigreg_lambda = 1.0f;
     size_t sigreg_num_sketches = 64;
 
+    // TODO: See TD-448 in TECHNICAL_DEBT.md - a typo like --dmodel is ignored, registering the config default (immutable) architecture
     for (size_t i = 2; i < args.size(); ++i) {
         if (args[i] == "--kind" && i + 1 < args.size())
             kind = args[++i];
@@ -190,6 +194,7 @@ MnsCliRequest build_register_request(const std::vector<std::string>& args,
             "(legacy inline architecture)");
     }
 
+    // TODO: See TD-449 in TECHNICAL_DEBT.md - without --num-layers both config layer counts are sent; the server rejects it
     if (kind == "encoder" || kind == "decoder" || kind == "world_model") {
         if (num_layers_set) {
             if (kind == "decoder") {
@@ -291,6 +296,7 @@ MnsCliRequest build_link_world_model_request(const std::vector<std::string>& arg
     if (!world_model_set)
         return make_error("Usage: link-world-model <chatbot-name> --world-model <name> [...]");
 
+    // TODO: See TD-449 in TECHNICAL_DEBT.md - always sends all eight fields; omitted flags reset hippocampal settings on relink
     std::ostringstream body;
     body << "{\"world_model_name\":\"" << json_escape(world_model_name) << "\""
          << ",\"world_model_inject_every_n_layers\":" << inject_every_n_layers
@@ -344,6 +350,7 @@ MnsCliRequest build_set_training_request(const std::vector<std::string>& args) {
         if (args[i] == "--new-run")
             new_run = true;
         else
+            // TODO: See TD-448 in TECHNICAL_DEBT.md - any stray argument (e.g. --new_run) becomes the session key
             session_key = args[i];
     }
 

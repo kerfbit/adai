@@ -259,6 +259,7 @@ static int cmd_health(const ParsedUrl& u) {
 // Main
 // ============================================================================
 
+// TODO: See TD-448 in TECHNICAL_DEBT.md - no try/catch: a malformed number (--d-model abc) aborts with a core dump
 int main(int argc, char* argv[]) {
     std::string server_url;
     std::string config_path;

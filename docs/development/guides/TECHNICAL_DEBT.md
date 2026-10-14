@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 239
+**Total Items:** 241
 **High Priority:** 28
-**Medium Priority:** 102
-**Low Priority:** 109
+**Medium Priority:** 103
+**Low Priority:** 110
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -378,6 +378,14 @@ Also October 14, 2026: filed [TD-447](#td-447-metricstracker-printer-state-leak-
 overfitting warning; the verified gaps are in the rest: `print_summary()`/`print_history()` leave `std::cout` in
 fixed 4-decimal mode, `is_converging()` needs `window + 1` epochs, a zero smoothing window gives `NaN`, and the
 smoothed validation curve skips epochs without validation.
+
+Also October 14, 2026: filed [TD-448](#td-448-mns_cli-ignores-unknown-flags-misreads-set-training-arguments-and-aborts-on-bad-numbers) and [TD-449](#td-449-mns_cli-request-building-gaps-layer-counts-relink-resets-encoding) from the code-traced
+[MnsCliCommands.md](../reference/source/MnsCliCommands.md). One is MEDIUM and verified: every `mns_cli` command
+silently ignores unknown flags, so `register m chat --dmodel 256` permanently registers the config default
+architecture (immutable after registration); `set-training m --new_run` continues the current run with metrics key
+`--new_run`; and a malformed number aborts the process with a core dump while `-1` wraps to 2⁶⁴−1 (TD-448). One is
+LOW: a standalone kind without `--num-layers` sends both layer counts, relinking a world model resets the hippocampal
+settings, and names/queries aren't URL-encoded (TD-449).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1364,6 +1372,10 @@ with TD-442. [TD-446](#td-446-metricssessionregistry-sweep-interval-changes-miss
 **Tier 65 — Newly filed (October 14, 2026): `MetricsTracker`.** [TD-447](#td-447-metricstracker-printer-state-leak-convergence-off-by-one-and-smoothing-gaps) is cleanup with no training
 impact; do it whenever the header is next touched.
 
+**Tier 66 — Newly filed (October 14, 2026): `MnsCliCommands`.** Do [TD-448](#td-448-mns_cli-ignores-unknown-flags-misreads-set-training-arguments-and-aborts-on-bad-numbers) before the next model
+registration (strict flag parsing is a small change with a large payoff, since registration is irreversible);
+[TD-449](#td-449-mns_cli-request-building-gaps-layer-counts-relink-resets-encoding) alongside it.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1609,6 +1621,8 @@ impact; do it whenever the header is next touched.
   - [TD-445: Finished Metrics Sessions Hold `max_live_sessions` Slots for an Hour](#td-445-finished-metrics-sessions-hold-max_live_sessions-slots-for-an-hour)
   - [TD-446: `MetricsSessionRegistry` Sweep-Interval Changes, Miss Logging and Lock-Held I/O](#td-446-metricssessionregistry-sweep-interval-changes-miss-logging-and-lock-held-io)
   - [TD-447: `MetricsTracker` Printer State Leak, Convergence Off-by-One and Smoothing Gaps](#td-447-metricstracker-printer-state-leak-convergence-off-by-one-and-smoothing-gaps)
+  - [TD-448: `mns_cli` Ignores Unknown Flags, Misreads `set-training` Arguments and Aborts on Bad Numbers](#td-448-mns_cli-ignores-unknown-flags-misreads-set-training-arguments-and-aborts-on-bad-numbers)
+  - [TD-449: `mns_cli` Request-Building Gaps: Layer Counts, Relink Resets, Encoding](#td-449-mns_cli-request-building-gaps-layer-counts-relink-resets-encoding)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -10443,6 +10457,78 @@ Files to Modify:
 
 ---
 
+### TD-448: `mns_cli` Ignores Unknown Flags, Misreads `set-training` Arguments and Aborts on Bad Numbers
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | MNS / CLI | October 14, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `MnsCliCommands` and verified (scratch program against the builders, and the real `mns_cli`):
+- **Unknown flags ignored.** Every `build_*_request()` skips arguments it doesn't recognize, and a value-taking flag
+  at the end of the line is dropped. `register m chat --dmodel 256` built a request with the config file's
+  `d_model` (512) and no error. Architecture is immutable after `register` (CLAUDE.md), so the only fix is delete
+  and re-register. `list`, `link-world-model` and `set-candidate` behave the same way.
+- **`set-training`'s stray arguments.** Anything other than `--new-run` becomes the metrics session key:
+  `set-training m --new_run` built `{"state":"training","new_run":false,"metrics_session_key":"--new_run"}`,
+  continuing the current run and linking a bogus metrics session.
+- **Unchecked numbers.** `std::stoul`/`std::stoi`/`std::stof` exceptions are caught nowhere (not in the builders,
+  not in `MnsCliTool.cpp`'s `main()`): `mns_cli register foo chatbot --d-model abc` printed `terminate called after
+  throwing an instance of 'std::invalid_argument'` and aborted with a core dump (exit 134). `--d-model -1` was sent as
+  18,446,744,073,709,551,615 (`stoul` wraps); `512x` → 512.
+
+Action Items:
+
+- [ ] Reject unknown flags and flags missing their value with a usage error in every builder.
+- [ ] `set-training`: accept at most one positional session key and reject `-`-prefixed unknowns.
+- [ ] Parse numbers with a checked helper (whole string, positive, in range), returning `make_error()`; catch any remaining exception in `main()` with exit 2.
+- [ ] Tests for misspelled flags, stray `set-training` arguments, malformed/negative numbers.
+
+Location in code: `src/MnsCliCommands.cpp` (every builder's flag loop, `build_set_training_request()`); `src/MnsCliTool.cpp` (`main()`); tagged `TODO: See TD-448`.
+
+Files to Modify:
+
+- `src/MnsCliCommands.cpp`
+- `src/MnsCliTool.cpp`
+- `tests/mns_cli_commands_test.cpp`
+
+---
+
+### TD-449: `mns_cli` Request-Building Gaps: Layer Counts, Relink Resets, Encoding
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | MNS / CLI | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MnsCliCommands`:
+- **Layer counts (verified).** For `--kind encoder`/`decoder`/`world_model`, the own-kind layer field is set and the other
+  zeroed only when `--num-layers` is given; without it the request carries the config's `num_encoder_layers` **and**
+  `num_decoder_layers` (6/6), which `mns_server` rejects with a layer-count error instead of a usage message.
+- **Relink resets (by inspection).** `link-world-model` always sends all eight connection fields with defaults for
+  omitted flags, and `handle_link_world_model()` replaces the whole connection, so re-running it to change
+  `--inject-every-n-layers` turns hippocampal memory off and resets its tuning.
+- **Encoding (verified).** Names and query values aren't URL-encoded: `get a/state` requested `/models/a/state`;
+  `list --role "a b&c"` built `/models?role=a b&c`. `json_escape()` escapes only `"`, `\`, `\n`, `\r`, `\t`, so other
+  control characters (e.g. `\x01` in a tag) produce invalid JSON.
+- **Minor.** `--sigreg-*` silently ignored for kinds other than `world_model`; `update` requires the exact order
+  `<name> --run-group <value>`; `parse_url()` accepts `https://` though `mns_cli` connects with plain HTTP.
+
+Action Items:
+
+- [ ] Require `--num-layers` for standalone kinds (or derive it from the config's matching field and zero the other).
+- [ ] Make `link-world-model` send only the fields given (server-side merge), or document full replacement in its usage.
+- [ ] URL-encode path segments and query values; escape all control characters as `\u00XX`; reject `--sigreg-*` for other kinds.
+
+Location in code: `src/MnsCliCommands.cpp` (`build_register_request()`, `build_link_world_model_request()`, `json_escape()`, path builders); tagged `TODO: See TD-449`.
+
+Files to Modify:
+
+- `src/MnsCliCommands.cpp`
+- `tests/mns_cli_commands_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -10959,15 +11045,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 239 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 241 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|28|12%|
-|Medium|102|43%|
-|Low|109|45%|
+|High|28|11%|
+|Medium|103|43%|
+|Low|110|46%|
 
-**Total Active Items:** 239
+**Total Active Items:** 241
 
 ### By Component
 
@@ -11036,6 +11122,7 @@ Recomputed directly from the 239 `### TD-NNN` entries under [Active Technical De
 |Metrics / Push Client|3|
 |Metrics / Session Registry|2|
 |Training / MetricsTracker|1|
+|MNS / CLI|2|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -11044,13 +11131,13 @@ Recomputed directly from the 239 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|146|
-|2-4 hours|70|
+|0-2 hours|147|
+|2-4 hours|71|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 444-790 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 447-796 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
