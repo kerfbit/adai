@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 248
+**Total Items:** 251
 **High Priority:** 28
-**Medium Priority:** 106
-**Low Priority:** 114
+**Medium Priority:** 108
+**Low Priority:** 115
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -411,6 +411,14 @@ Also October 14, 2026: filed [TD-456](#td-456-mns_server-treats-a-mistyped---adm
 [MnsServerArgs.md](../reference/source/MnsServerArgs.md): an unrecognized `--admin-enabled` value falls back to `true`, so
 `--admin-enabled flase` left `PUT /admin/config` open (an unauthenticated request repointed `registry_group`); and `--port`
 isn't range-checked (`99999` listened on 34463, `8083x` → 8083, `0` → random).
+
+Also October 14, 2026: filed [TD-457](#td-457-modelnameclient-retries-non-idempotent-requests-after-a-timeout) through [TD-459](#td-459-modelnameclient-validation-unescaping-and-slow-failure-gaps) from the code-traced
+[ModelNameClient.md](../reference/source/ModelNameClient.md). Two are MEDIUM and verified: timeouts and 5xx are retried for
+non-idempotent requests, so one `set_training(new_run = true)` reached a slow mock server twice (on `mns_server`, a `retrain`
+then skips a run number) and `register_model()` would throw after succeeding (TD-457); and a NaN epoch loss pushed by
+`push_progress()` is stored and re-emitted as `nan` by `mns_server`, making both the model's record and the whole
+`GET /models` list invalid JSON, and later archiving it into `training_history` (TD-458). One is LOW: unvalidated
+architecture fields, no unescaping, ~16 s per call when MNS doesn't answer, no URL encoding (TD-459).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1416,6 +1424,10 @@ with TD-452 if the GUI is in use. [TD-455](#td-455-mns-manager-gui-error-detecti
 **Tier 70 — Newly filed (October 14, 2026): `MnsServerArgs`.** Fix [TD-456](#td-456-mns_server-treats-a-mistyped---admin-enabled-as-true-and-doesnt-range-check---port) together with TD-438 and TD-240 using one
 shared checked port/boolean parser for all the daemons.
 
+**Tier 71 — Newly filed (October 14, 2026): `ModelNameClient`.** Fix [TD-458](#td-458-a-nan-training-loss-makes-mnss-json-unparseable) with TD-443 (shared non-finite
+handling on both ends) before relying on MNS's JSON from any strict client; [TD-457](#td-457-modelnameclient-retries-non-idempotent-requests-after-a-timeout) is a small change (retry only
+idempotent requests); [TD-459](#td-459-modelnameclient-validation-unescaping-and-slow-failure-gaps) is cleanup, its architecture validation the most useful part.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1670,6 +1682,9 @@ shared checked port/boolean parser for all the daemons.
   - [TD-454: MNS Manager GUI's Training → Candidate Workflow Fails Against Server-Allocated Run IDs](#td-454-mns-manager-guis-training--candidate-workflow-fails-against-server-allocated-run-ids)
   - [TD-455: MNS Manager GUI Error Detection, UI-Thread HTTP and Register Defaults](#td-455-mns-manager-gui-error-detection-ui-thread-http-and-register-defaults)
   - [TD-456: `mns_server` Treats a Mistyped `--admin-enabled` as `true` and Doesn't Range-Check `--port`](#td-456-mns_server-treats-a-mistyped---admin-enabled-as-true-and-doesnt-range-check---port)
+  - [TD-457: `ModelNameClient` Retries Non-Idempotent Requests After a Timeout](#td-457-modelnameclient-retries-non-idempotent-requests-after-a-timeout)
+  - [TD-458: A NaN Training Loss Makes MNS's JSON Unparseable](#td-458-a-nan-training-loss-makes-mnss-json-unparseable)
+  - [TD-459: `ModelNameClient` Validation, Unescaping and Slow-Failure Gaps](#td-459-modelnameclient-validation-unescaping-and-slow-failure-gaps)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -10809,6 +10824,103 @@ Files to Modify:
 
 ---
 
+### TD-457: `ModelNameClient` Retries Non-Idempotent Requests After a Timeout
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | MNS / Client | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `ModelNameClient` and verified with a mock server. `http_post()`/`http_put()` retry up to 3 times on a
+network error, **timeout** or 5xx, even when the server already processed the request. With a mock that answered the first
+`PUT` after 1.5 s and a 1 s client timeout, one `set_training("m", true)` call reached the server **twice** and returned
+the second reply. Against `mns_server`:
+- `set_training(new_run = true)` (`incremental_trainer retrain`) increments `current_run_number` on each delivery, so a slow
+  MNS skips a run number (nothing is ever recorded under the first allocation).
+- `register_model()`'s retry gets `409` (the name now exists) and throws although registration succeeded (no production
+  caller today).
+- `set_training(new_run = false)`, `set_candidate()` and `push_progress()` are idempotent enough to repeat.
+
+Action Items:
+
+- [ ] Retry only idempotent requests (GETs, and PUTs explicitly marked safe), or add an idempotency key the server deduplicates for `new_run` allocation and registration.
+- [ ] Add a test with a slow mock server asserting a single delivery for non-idempotent calls.
+
+Location in code: `src/ModelNameClient.cpp` (`http_post()`, `http_put()`, `set_training()`, `register_model()`); tagged `TODO: See TD-457`.
+
+Files to Modify:
+
+- `src/ModelNameClient.{hpp,cpp}`
+- `tests/modelnameclient_test.cpp`
+
+---
+
+### TD-458: A NaN Training Loss Makes MNS's JSON Unparseable
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | MNS / Client | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `ModelNameClient` and verified end to end with a real `mns_server`. `push_progress()` writes the loss with
+`operator<<`, so a diverged epoch's NaN is sent as `nan`. `ModelNameService::handle_progress_update()` accepts it
+(`json_double()` → `stod`) and the record serializer writes it back verbatim: `GET /models/{name}` returned
+`"progress":{…,"loss":nan,…}`, and both that record and the entire `GET /models` list were rejected by Python's `json` module.
+It persists (SQLite) until the next progress push for that model, and when the run is superseded the snapshot is archived into
+`training_history` with `final_loss` NaN permanently. Any strict JSON client of the MNS API breaks for every model when one run
+diverges, the moment monitoring matters most. Same class as TD-443 (metrics).
+
+Action Items:
+
+- [ ] Client: send non-finite values as `null` (or omit them).
+- [ ] Server: reject or normalize non-finite numbers on input, and never emit `nan`/`inf` (write `null`).
+- [ ] Repair any stored NaN `progress_loss`/`training_history.final_loss` rows on startup.
+
+Location in code: `src/ModelNameClient.cpp` (`push_progress()`); `src/ModelNameService.cpp` (`handle_progress_update()`, the record serializer's `progress` and history output); tagged `TODO: See TD-458`.
+
+Files to Modify:
+
+- `src/ModelNameClient.cpp`
+- `src/ModelNameService.cpp`
+- `tests/modelnameclient_test.cpp`
+
+---
+
+### TD-459: `ModelNameClient` Validation, Unescaping and Slow-Failure Gaps
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | MNS / Client | October 14, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `ModelNameClient`, by inspection:
+- **Unvalidated architecture.** `ChatbotAPIServer` and `IncrementalTrainingTool` copy `get_architecture()`'s six fields into their
+  config without checks. A missing field parses as 0 (`json_int_client()`), and a `MODEL_NAME` pointing at a standalone
+  `encoder`/`world_model` record yields `num_decoder_layers = 0`, building a decoderless model instead of failing clearly.
+- **No unescaping.** `json_string_client()` returns JSON escapes intact; `resolve_model().artifact.path` (used to load weights)
+  would keep `\\` for a backslash.
+- **Slow failure.** Each call can take 3 × `timeout_ms` + 1.2 s (~16 s at the default 5 s) when MNS doesn't answer; startup
+  makes several in sequence, so a routable-but-down MNS delays `chatbot_api_server`/trainer startup by about a minute before
+  the local-config fallback.
+- **Minor.** No URL encoding of names/roles/query values; `https://` sets port 443 but uses a plain `httplib::Client` (TD-444/TD-451);
+  a new client per attempt.
+
+Action Items:
+
+- [ ] Validate architecture (all fields > 0, kind compatible with the caller) and fail clearly otherwise.
+- [ ] Unescape JSON strings (or adopt TD-453's library).
+- [ ] Fail fast after the first unanswered call in a startup sequence (or use one shorter startup timeout); URL-encode path/query parts.
+
+Location in code: `src/ModelNameClient.cpp` (`json_string_client()`, `get_architecture()`, `list_models()`); `src/ChatbotAPIServer.cpp` (architecture copy); tagged `TODO: See TD-459`.
+
+Files to Modify:
+
+- `src/ModelNameClient.cpp`
+- `src/ChatbotAPIServer.cpp`
+- `src/IncrementalTrainingTool.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -11325,15 +11437,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 248 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 251 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|11%|
-|Medium|106|43%|
-|Low|114|46%|
+|Medium|108|43%|
+|Low|115|46%|
 
-**Total Active Items:** 248
+**Total Active Items:** 251
 
 ### By Component
 
@@ -11405,6 +11517,7 @@ Recomputed directly from the 248 `### TD-NNN` entries under [Active Technical De
 |MNS / CLI|4|
 |MNS / Manager GUI|3|
 |MNS / Server CLI|1|
+|MNS / Client|3|
 |Core / JSON|1|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
@@ -11414,13 +11527,13 @@ Recomputed directly from the 248 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|150|
-|2-4 hours|74|
+|0-2 hours|152|
+|2-4 hours|75|
 |4-8 hours|14|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 460-822 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 464-830 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

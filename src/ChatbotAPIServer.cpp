@@ -225,6 +225,7 @@ int main(int argc, char* argv[]) {
                 // MNS is the authoritative source for architecture — see CLAUDE.md
                 // "Configuration". Falls back to config.chatbot.conf's D_MODEL etc.
                 // when the lookup fails.
+                // TODO: See TD-459 in TECHNICAL_DEBT.md - copied without validation (zero/missing fields build a broken model)
                 if (auto arch = mns_client.get_architecture(resolved.model_name)) {
                     config.d_model = arch->d_model;
                     config.num_heads = arch->num_heads;

@@ -1592,6 +1592,7 @@ std::pair<int, std::string> adai::ModelNameService::handle_progress_update(
 
     r.progress_session_id = json_string(body, "session_id");
     r.progress_epoch = json_int(body, "epoch", r.progress_epoch);
+    // TODO: See TD-458 in TECHNICAL_DEBT.md - accepts nan/inf, which the record serializer then emits as invalid JSON
     r.progress_loss = json_double(body, "loss", r.progress_loss);
     r.progress_best_loss = json_double(body, "best_loss", r.progress_best_loss);
     r.progress_updated_utc = utc_now();

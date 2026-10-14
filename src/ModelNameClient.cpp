@@ -116,6 +116,7 @@ size_t find_string_end_client(const std::string& body, size_t start) {
     return std::string::npos;
 }
 
+// TODO: See TD-459 in TECHNICAL_DEBT.md - returns JSON escapes intact (no unescaping)
 std::string json_string_client(const std::string& body, const std::string& key) {
     const std::string needle = "\"" + key + "\":\"";
     const auto pos = body.find(needle);
@@ -213,6 +214,8 @@ adai::ClientModelConnection parse_connection_from_record(const std::string& reco
 
 #ifdef BUILD_MNS_SERVER
 
+// TODO: See TD-457 in TECHNICAL_DEBT.md - POST/PUT retried after a timeout even if processed (set_training(new_run) allocates twice)
+// TODO: See TD-459 in TECHNICAL_DEBT.md - ~16 s per call when MNS doesn't answer; startup chains several
 static constexpr int kBackoffMs[] = {0, 200, 1000};
 static constexpr int kMaxAttempts = 3;
 
@@ -393,6 +396,7 @@ void adai::ModelNameClient::push_progress(const std::string& model_name, const s
                                           double best_loss) {
     std::ostringstream body;
     body << "{\"run_id\":\"" << json_escape_client(run_id) << "\"" << ",\"session_id\":\""
+         // TODO: See TD-458 in TECHNICAL_DEBT.md - NaN loss sent as nan; mns_server stores and re-emits it as invalid JSON
          << json_escape_client(session_id) << "\"" << ",\"epoch\":" << epoch << ",\"loss\":" << loss
          << ",\"best_loss\":" << best_loss << "}";
 
@@ -480,6 +484,7 @@ adai::ResolvedModel adai::ModelNameClient::resolve_model(const std::string& mode
     return rm;
 }
 
+// TODO: See TD-459 in TECHNICAL_DEBT.md - fields aren't validated (missing -> 0; an encoder-kind record gives 0 decoder layers)
 std::optional<adai::ModelArchitecture> adai::ModelNameClient::get_architecture(
     const std::string& model_name) {
     std::string out;
