@@ -17,6 +17,7 @@ endif()
 option(PORTABLE_BUILD "Disable -march=native for cross-machine deployment" OFF)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    # TODO: See TD-436 in TECHNICAL_DEBT.md - icpx reports IntelLLVM, so the sycl preset gets none of these flags
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         # -ffast-math enables many fp optimisations but also implies
         # -ffinite-math-only, which tells the compiler to assume NaN and

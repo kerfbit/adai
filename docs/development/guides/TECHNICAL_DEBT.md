@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 227
+**Total Items:** 229
 **High Priority:** 28
-**Medium Priority:** 96
-**Low Priority:** 103
+**Medium Priority:** 97
+**Low Priority:** 104
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -329,6 +329,13 @@ work-based gate on this 8-core machine), and `portable` builds have no SIMD mult
 selected only at compile time (7–10× slower) (TD-434). One is LOW: the out-of-line, bounds-checked
 `operator()` costs 2.4× in hot loops (verified), `sum()` accumulates in `float` (2.2% error at 16.8M
 elements, verified), `randomize()`'s static generator isn't thread-safe, and API hygiene (TD-435).
+
+Also October 14, 2026: filed [TD-436](#td-436-sycl-icpx-builds-get-no--march-or-simd-flags) and [TD-437](#td-437-simd-self-check-test-never-compiles-and-no-startup-cpu-check) from the code-traced
+[MatrixSIMD.md](../reference/source/MatrixSIMD.md). One is MEDIUM and verified: both CMake checks that add
+`-march=native` and `-mavx2 -mfma` match only `"GNU|Clang"`, and oneAPI's `icpx` reports `IntelLLVM`, so the
+`sycl` preset (ai-machine's trainer) compiles `Matrix.cpp` with no SIMD at all, a 6–8× slower CPU multiply
+(TD-436). One is LOW: the only compile-time vs. runtime SIMD test never compiles (verified), nothing checks
+the CPU at startup, and `has_avx2()`/`has_fma()` skip the OS-support check (TD-437).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1291,6 +1298,10 @@ speedup (a one-line OpenMP gate change, verified 2–6× on the common shapes) p
 `portable` binaries; re-run `matrixTests`/`matrix_simd_test` and a CPU training smoke test after it.
 [TD-435](#td-435-matrix-accessor-cost-sum-accuracy-randomize-race-and-api-hygiene) is cleanup; fold the `randomize()` part into TD-368's seeding fix.
 
+**Tier 60 — Newly filed (October 14, 2026): `MatrixSIMD`.** [TD-436](#td-436-sycl-icpx-builds-get-no--march-or-simd-flags) is a one-line CMake fix
+for ai-machine's build; ship it with the next ai-machine deployment and compare a pass's wall time
+before/after. [TD-437](#td-437-simd-self-check-test-never-compiles-and-no-startup-cpu-check) is cleanup; do its detection fix before TD-434's runtime dispatch relies on it.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1524,6 +1535,8 @@ speedup (a one-line OpenMP gate change, verified 2–6× on the common shapes) p
   - [TD-433: `LoRA` Initialization, Update and Config Gaps](#td-433-lora-initialization-update-and-config-gaps)
   - [TD-434: `Matrix::operator*` Runs Short Products Single-Threaded and Portable Builds Have No SIMD](#td-434-matrixoperator-runs-short-products-single-threaded-and-portable-builds-have-no-simd)
   - [TD-435: `Matrix` Accessor Cost, `sum()` Accuracy, `randomize()` Race and API Hygiene](#td-435-matrix-accessor-cost-sum-accuracy-randomize-race-and-api-hygiene)
+  - [TD-436: SYCL (`icpx`) Builds Get No `-march` or SIMD Flags](#td-436-sycl-icpx-builds-get-no--march-or-simd-flags)
+  - [TD-437: SIMD Self-Check Test Never Compiles and No Startup CPU Check](#td-437-simd-self-check-test-never-compiles-and-no-startup-cpu-check)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -9919,6 +9932,77 @@ Files to Modify:
 
 ---
 
+### TD-436: SYCL (`icpx`) Builds Get No `-march` or SIMD Flags
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Build / SIMD | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MatrixSIMD` and verified. The top-level release flags (`-march=native -mtune=native`,
+or `-march=x86-64` for `PORTABLE_BUILD`) and `src/CMakeLists.txt`'s `ENABLE_SIMD` block (`-mavx2 -mfma`)
+both test `CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"`. oneAPI's `icpx` reports `IntelLLVM`, so the `sycl`
+preset gets neither: `build/sycl`'s `compile_commands.json` shows `Matrix.cpp` compiled with only
+`-O3 -DNDEBUG -std=gnu++17 -fsycl -fiopenmp`, and `icpx`'s default target defines `__SSE2__` but not
+`__AVX2__`. `ADAI_SIMD_AVX2` is therefore undefined and ai-machine's trainer runs every CPU-side `Matrix`
+operation on the non-SIMD paths. Timing the real `Matrix.cpp` built with `icpx` (dev machine, 8 threads):
+64×512×2048 took 136.9 ms as configured vs 16.7 ms with `-march=native`; 8×512×8000 89.8 vs 12.9 ms (6–8×).
+Most products on ai-machine go to the GPU (`cols ≥ 32 && other.cols ≥ 32`), so the impact is on the
+CPU-side remainder (small products, element-wise ops, GPU-unavailable fallback); how much of a pass that is
+hasn't been measured on ai-machine. The release-mode `-ffast-math -fno-finite-math-only -funroll-loops` set
+is skipped for `icpx` too.
+
+Action Items:
+
+- [ ] Add `IntelLLVM` to both compiler-ID checks (or use `-march=native` for it), keeping the `-fno-finite-math-only` guard; confirm with the `SIMD:` configure message and `compile_commands.json`.
+- [ ] Measure a training pass's wall time on ai-machine before/after.
+- [ ] Mind that `-march=native` ties the binary to the build host's CPU (TD-437's startup check); build on ai-machine or pick an explicit `-march`.
+
+Location in code: `CMakeLists.txt` (release flags), `src/CMakeLists.txt` (`ENABLE_SIMD` block); tagged `TODO: See TD-436`.
+
+Files to Modify:
+
+- `CMakeLists.txt`
+- `src/CMakeLists.txt`
+
+---
+
+### TD-437: SIMD Self-Check Test Never Compiles and No Startup CPU Check
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Build / SIMD | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MatrixSIMD`:
+- **Dead test (verified).** `-mavx2 -mfma` are `PRIVATE` to `adai_core`, so `ADAI_SIMD_AVX2` is defined in
+  `Matrix.cpp` but not in other files including `Matrix.hpp`. `MatrixSIMDCPUDetect.CompileTimeAVX2MatchesRuntime`
+  sits behind `#if defined(ADAI_SIMD_AVX2)` in the test file, so it never compiles in the debug build
+  (`--gtest_list_tests` lists only the two always-passing "ReturnsBool" tests).
+- **No startup check (by inspection).** `has_avx2()`/`has_fma()` have no production caller, so a
+  `-march=native`/`-mavx2` binary run on an older CPU dies with `SIGILL` and no explanation.
+- **Incomplete detection (by inspection).** They check only CPUID feature bits, not `OSXSAVE`/`XGETBV`
+  (OS support for YMM state); `__builtin_cpu_supports("avx2")` handles this. Matters once TD-434's runtime
+  dispatch relies on them.
+- **Hygiene.** `ADAI_SIMD_SSE4` is defined but never used; `<immintrin.h>` is pulled into every file
+  including `Matrix.hpp`.
+
+Action Items:
+
+- [ ] Expose what `Matrix.cpp` was compiled with (e.g. `adai::simd::compiled_with_avx2()` defined in `Matrix.cpp`) and test that against `has_avx2()`.
+- [ ] Check the CPU once at startup (or in `Matrix.cpp`'s static init) and fail with a clear message instead of `SIGILL`.
+- [ ] Add the `OSXSAVE`/`XGETBV` check (or use `__builtin_cpu_supports`); drop `ADAI_SIMD_SSE4` or use it.
+
+Location in code: `src/MatrixSIMD.hpp` (`has_avx2()`, `has_fma()`, macros); `tests/matrix_simd_test.cpp` (`CompileTimeAVX2MatchesRuntime`); tagged `TODO: See TD-437`.
+
+Files to Modify:
+
+- `src/MatrixSIMD.hpp`
+- `src/Matrix.cpp`
+- `tests/matrix_simd_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -10435,15 +10519,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 227 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 229 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|12%|
-|Medium|96|42%|
-|Low|103|46%|
+|Medium|97|42%|
+|Low|104|46%|
 
-**Total Active Items:** 227
+**Total Active Items:** 229
 
 ### By Component
 
@@ -10506,6 +10590,7 @@ Recomputed directly from the 227 `### TD-NNN` entries under [Active Technical De
 |Core / Logger|2|
 |Attention / LoRA|2|
 |Core / Matrix|2|
+|Build / SIMD|2|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -10514,13 +10599,13 @@ Recomputed directly from the 227 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|137|
+|0-2 hours|139|
 |2-4 hours|67|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 429-760 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 431-764 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

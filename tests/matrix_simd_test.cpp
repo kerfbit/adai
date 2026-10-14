@@ -66,6 +66,7 @@ TEST(MatrixSIMDCPUDetect, HasFMAReturnsBool) {
     EXPECT_TRUE(result == true || result == false);
 }
 
+// TODO: See TD-437 in TECHNICAL_DEBT.md - never compiles: the -mavx2 flags are PRIVATE to adai_core, so this file never sees ADAI_SIMD_AVX2
 #if defined(ADAI_SIMD_AVX2)
 TEST(MatrixSIMDCPUDetect, CompileTimeAVX2MatchesRuntime) {
     // When ADAI_SIMD_AVX2 is defined at compile time the CPU should actually

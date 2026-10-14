@@ -47,6 +47,7 @@ This directory contains reference materials, technical specifications, and imple
   - [Logger](source/Logger.md) (`src/Logger.{hpp,cpp}`; the spdlog wrapper every binary logs through)
   - [LoRA](source/LoRA.md) (`src/LoRA.hpp`; low-rank adapters for the attention projections)
   - [Matrix](source/Matrix.md) (`src/Matrix.{hpp,cpp}`; the dense float matrix: `operator*` dispatch, SIMD/OpenMP/BLAS/GPU paths)
+  - [MatrixSIMD](source/MatrixSIMD.md) (`src/MatrixSIMD.hpp`; compile-time SIMD macros, CPUID detection, reduction helpers; which presets actually get AVX2)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)

@@ -1,6 +1,6 @@
 # `Matrix` — Source File Reference
 
-- **Files:** [`src/Matrix.hpp`](../../../../src/Matrix.hpp), [`src/Matrix.cpp`](../../../../src/Matrix.cpp) (1,349 lines together); SIMD detection in [`src/MatrixSIMD.hpp`](../../../../src/MatrixSIMD.hpp)
+- **Files:** [`src/Matrix.hpp`](../../../../src/Matrix.hpp), [`src/Matrix.cpp`](../../../../src/Matrix.cpp) (1,349 lines together); SIMD detection in [`src/MatrixSIMD.hpp`](../../../../src/MatrixSIMD.hpp) ([MatrixSIMD.md](MatrixSIMD.md))
 - **Namespace:** global
 - **Built into:** `adai_core`; the numeric type of every layer, optimizer, trainer and inference engine
 - **Status tag:** `@adai-status: beta` ("capped by TD-033"), `@adai-version: 0.9.0`, `@adai-reviewed: 2026-09-10`

@@ -27,6 +27,7 @@
 #if defined(__FMA__)
 #define ADAI_SIMD_FMA
 #endif
+// TODO: See TD-437 in TECHNICAL_DEBT.md - ADAI_SIMD_SSE4 is never used
 #elif defined(__SSE4_1__)
 #define ADAI_SIMD_SSE4
 #include <smmintrin.h>
@@ -72,6 +73,7 @@ inline void cpuid_query(int info[4], int leaf, int subleaf = 0) {
 #endif
 
 /// Returns true when the executing CPU supports AVX2 (CPUID leaf 7, EBX bit 5).
+// TODO: See TD-437 in TECHNICAL_DEBT.md - no OSXSAVE/XGETBV check, and nothing calls this at startup
 inline bool has_avx2() {
     // NOLINTBEGIN(modernize-avoid-c-arrays,cppcoreguidelines-init-variables)
     int info0[4] = {};

@@ -168,6 +168,7 @@ endif()
 # SIGILLs on any CPU without AVX2.
 # ============================================================================
 if(ENABLE_SIMD AND NOT PORTABLE_BUILD)
+    # TODO: See TD-436 in TECHNICAL_DEBT.md - icpx reports IntelLLVM, so the sycl preset never gets -mavx2/-mfma
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         include(CheckCXXCompilerFlag)
         check_cxx_compiler_flag("-mavx2" ADAI_HAVE_AVX2)
