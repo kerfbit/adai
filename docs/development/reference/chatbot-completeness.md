@@ -533,7 +533,7 @@ LoRAConfig:
 
 Documentation:
 
-- [LoRA API Reference](../api/advanced/lora.md) - Complete API documentation with examples
+- [LoRA API Reference](source/LoRA.md) - Complete API documentation with examples
 
 **Completeness:** 100% - Industry-standard LoRA implementation
 

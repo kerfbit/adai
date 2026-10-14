@@ -1,9 +1,9 @@
 #ifndef LORA_HPP
 #define LORA_HPP
 
-// @adai-status: beta        (TD-038 — now genuinely wired into MultiHeadAttention/CrossAttention; TD-195 backward() grad_A_/grad_B_ now accumulate, not overwrite, across calls)
+// @adai-status: experimental        (no production entry point: nothing calls enable_lora() outside tests, and adapters aren't persisted with checkpoints (TD-302); see TD-432/TD-433)
 // @adai-version: 0.8.1
-// @adai-reviewed: 2026-09-18
+// @adai-reviewed: 2026-10-14
 
 
 #include <algorithm>
@@ -73,6 +73,7 @@ class LoRAAdapter {
         // Initialize A with Gaussian noise
         float std_dev = 1.0f / std::sqrt(rank_);
         A_ = Matrix(rank_, input_dim_);
+        // TODO: See TD-433 in TECHNICAL_DEBT.md - global C rand(): unseeded (same every run), not thread-safe
         for (int r = 0; r < rank_; r++) {
             for (int c = 0; c < input_dim_; c++) {
                 A_(r, c) = ((float)rand() / RAND_MAX - 0.5f) * 2.0f * std_dev;
@@ -234,6 +235,7 @@ class LoRAAdapter {
      *
      * @param learning_rate Learning rate
      */
+    // TODO: See TD-433 in TECHNICAL_DEBT.md - doesn't zero gradients afterwards (unlike every layer's update)
     void update(float learning_rate) {
         // Update A
         for (int r = 0; r < rank_; r++) {
@@ -362,6 +364,8 @@ class LoRAAdapter {
     /**
      * @brief Load LoRA adapter from file
      */
+    // TODO: See TD-432 in TECHNICAL_DEBT.md - adopts the file's dims/rank/alpha without validating them against this
+    // adapter (verified: a 64x64 rank-8 file silently reshaped a 6x5 rank-2 adapter); reads/writes unchecked
     void load(const std::string& filepath) {
         std::ifstream file(filepath, std::ios::binary);
         if (!file) {
@@ -421,6 +425,7 @@ class LoRAAdapter {
 struct LoRAConfig {
     int rank = 8;                 // LoRA rank (common: 4, 8, 16)
     float alpha = 16.0f;          // LoRA alpha (often 2*rank)
+    // TODO: See TD-433 in TECHNICAL_DEBT.md - dropout and apply_to_ffn are never applied/used
     float dropout = 0.0f;         // LoRA dropout (0.0 = no dropout)
     bool apply_to_query = true;   // Apply to query projection
     bool apply_to_key = true;     // Apply to key projection

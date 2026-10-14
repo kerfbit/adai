@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 223
+**Total Items:** 225
 **High Priority:** 28
 **Medium Priority:** 95
-**Low Priority:** 100
+**Low Priority:** 102
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -313,6 +313,13 @@ Also October 14, 2026: filed [TD-430](#td-430-logger-lazy-initialization-races-a
 `chatbot_server.log` and rotate it from two processes, retaining about 27% less history than configured,
 and the trainer binaries ignore `LOG_LEVEL` (TD-431). One is LOW and verified: unsynchronized lazy
 initialization makes concurrent first-use log calls throw `spdlog_ex` (TD-430).
+
+Also October 14, 2026: filed [TD-432](#td-432-loraadapterload-silently-adopts-the-files-shape) and [TD-433](#td-433-lora-initialization-update-and-config-gaps) (both LOW) from the code-traced
+[LoRA.md](../reference/source/LoRA.md), which verified the adapter's gradients (1.7×10⁻⁴ vs. finite
+differences). `LoRAAdapter::load()` silently adopts the file's dimensions, rank and α (TD-432, verified);
+initialization uses the unseeded global `rand()`, `update()` doesn't zero gradients, and `dropout`/
+`apply_to_ffn` are unused (TD-433). `src/LoRA.hpp` was re-tagged `@adai-status: experimental`: nothing
+outside tests calls `enable_lora()`, and adapters aren't persisted with checkpoints (TD-302).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1266,6 +1273,10 @@ ai-machine: give `trainer_service` and its children distinct log files (or conso
 `LOG_FILE_PATH` is empty, per LOG_FILE_STANDARDS.md) and honour `LOG_LEVEL`. [TD-430](#td-430-logger-lazy-initialization-races-and-can-throw-from-a-log-call) is a small
 `std::call_once`/mutex change.
 
+**Tier 58 — Newly filed (October 14, 2026): `LoRA`.** Both are cleanup for an experimental, test-only
+feature: do [TD-432](#td-432-loraadapterload-silently-adopts-the-files-shape) and [TD-433](#td-433-lora-initialization-update-and-config-gaps) together with TD-302 if LoRA gets a real entry point (for example an
+`incremental_trainer` fine-tuning mode); otherwise leave them parked.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1495,6 +1506,8 @@ ai-machine: give `trainer_service` and its children distinct log files (or conso
   - [TD-429: `LeJEPAEncoder` Exception Escape, Console Output and Unchecked Loads](#td-429-lejepaencoder-exception-escape-console-output-and-unchecked-loads)
   - [TD-430: `Logger` Lazy Initialization Races and Can Throw From a Log Call](#td-430-logger-lazy-initialization-races-and-can-throw-from-a-log-call)
   - [TD-431: Trainer Processes Share One Rotating Log File and Ignore `LOG_LEVEL`](#td-431-trainer-processes-share-one-rotating-log-file-and-ignore-log_level)
+  - [TD-432: `LoRAAdapter::load()` Silently Adopts the File's Shape](#td-432-loraadapterload-silently-adopts-the-files-shape)
+  - [TD-433: `LoRA` Initialization, Update and Config Gaps](#td-433-lora-initialization-update-and-config-gaps)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -9760,6 +9773,62 @@ Files to Modify:
 
 ---
 
+### TD-432: `LoRAAdapter::load()` Silently Adopts the File's Shape
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Attention / LoRA | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `LoRA` and verified. `LoRAAdapter::load()` reads `input_dim`, `output_dim`, `rank`
+and `alpha` from the file and **replaces** the adapter's own values with them, reallocating `A`/`B`,
+without checking them against the adapter (or the attention layer) it's loading into. Loading a 64×64
+rank-8 file into a 6×5 rank-2 adapter succeeded silently (now rank 8, `A` 8×64), and the next
+`forward()` failed with "Matrix dimensions incompatible for multiplication". A corrupt file's zero or
+negative rank isn't rejected, and neither `save()` nor `load()` checks the stream. (LoRA is test-only
+today; adapters aren't saved with checkpoints at all, TD-302.)
+
+Action Items:
+
+- [ ] Validate the file's shape against the adapter (throw on mismatch, leaving it unchanged), reject non-positive rank/dims, and check reads and writes.
+
+Location in code: `src/LoRA.hpp` (`LoRAAdapter::load()`, `save()`); tagged `TODO: See TD-432`.
+
+Files to Modify:
+
+- `src/LoRA.hpp`
+
+---
+
+### TD-433: `LoRA` Initialization, Update and Config Gaps
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Attention / LoRA | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `LoRA`, by inspection:
+- `A` is initialized with the C `rand()`: process-global, unseeded (identical values every run),
+  not thread-safe, and separate from the project's other RNGs (TD-368).
+- `update(lr)` (plain SGD) doesn't zero the gradients afterwards, unlike every layer's `update_weights()`.
+- `LoRAConfig::dropout` is never applied and `apply_to_ffn` has no implementation (the attention
+  classes call it "not applicable").
+- `LoRAConfig::reduction_ratio()` divides by the adapter parameter count (infinite when every
+  `apply_to_*` is false).
+- `forward(x, W_output)`'s second parameter is the base layer's **output**, not a weight.
+
+Action Items:
+
+- [ ] Use the project RNG (TD-368) for initialization; zero gradients in `update()` (or document); implement or remove `dropout`/`apply_to_ffn`; guard the ratio; rename the parameter.
+
+Location in code: `src/LoRA.hpp` (`initialize()`, `update()`, `LoRAConfig`); tagged `TODO: See TD-433`.
+
+Files to Modify:
+
+- `src/LoRA.hpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -10276,15 +10345,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 223 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 225 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|28|12%|
-|Medium|95|43%|
-|Low|100|45%|
+|High|28|13%|
+|Medium|95|42%|
+|Low|102|45%|
 
-**Total Active Items:** 223
+**Total Active Items:** 225
 
 ### By Component
 
@@ -10345,6 +10414,7 @@ Recomputed directly from the 223 `### TD-NNN` entries under [Active Technical De
 |Layers / LayerNorm|1|
 |World Model / LeJEPAEncoder|3|
 |Core / Logger|2|
+|Attention / LoRA|2|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -10353,13 +10423,13 @@ Recomputed directly from the 223 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|134|
+|0-2 hours|136|
 |2-4 hours|66|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 424-750 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 426-754 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

@@ -407,7 +407,7 @@ qmat.save("model_lora_int8.bin");
 
 ## See Also
 
-- [LoRA](lora.md) - Combine for maximum efficiency
+- [LoRA](../../reference/source/LoRA.md) - Combine for maximum efficiency
 - [Phase 5 Guide](../../guides/phase5-advanced-features.md) - Complete quantization tutorial
 - [Chatbot Completeness](../../reference/chatbot-completeness.md) - Integration details
 
