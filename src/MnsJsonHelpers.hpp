@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+// TODO: See TD-453 in TECHNICAL_DEBT.md - one of six hand-written JSON helpers (vendored nlohmann/json is unused here)
 namespace mns_gui {
 
 // TD-068 (fixed): find the closing quote of a JSON string literal starting
@@ -28,6 +29,7 @@ inline size_t find_string_end(const std::string& body, size_t start) {
     return std::string::npos;
 }
 
+// TODO: See TD-452 in TECHNICAL_DEBT.md - no unescaping; matches only compact "key": (no spaces); object values return fragments
 inline std::string json_value(const std::string& body, const std::string& key) {
     const std::string needle = "\"" + key + "\":";
     auto pos = body.find(needle);
@@ -61,6 +63,7 @@ inline std::vector<std::string> json_array_objects(const std::string& body,
     std::string needle = "\"" + key + "\":[";
     auto pos = body.find(needle);
     if (pos == std::string::npos) {
+        // TODO: See TD-452 in TECHNICAL_DEBT.md - falls back to whatever array appears first (e.g. in an error body)
         pos = body.find('[');
         if (pos == std::string::npos)
             return result;
@@ -94,6 +97,7 @@ inline std::vector<std::string> json_array_objects(const std::string& body,
     return result;
 }
 
+// TODO: See TD-452 in TECHNICAL_DEBT.md - escapes only ", \\ and \\n; tabs/CR/other control chars produce invalid JSON
 inline std::string json_escape(const std::string& s) {
     std::string out;
     for (unsigned char c : s) {
@@ -217,6 +221,7 @@ struct RegisterModelArch {
 
 // TD-037: builds POST /models's JSON body — extracted verbatim from onRegisterModel() (the
 // tags-parsing loop now lives in parse_tags() above).
+// TODO: See TD-452 in TECHNICAL_DEBT.md - no kind/run_group/connection: the GUI can only register legacy chatbots
 inline std::string build_register_model_body(const std::string& name, const std::string& role,
                                              const RegisterModelArch& arch,
                                              const std::string& tags_str) {

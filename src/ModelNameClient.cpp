@@ -70,6 +70,7 @@ adai::ModelNameClient::ModelNameClient(std::string server_url, int timeout_ms)
 
 namespace {
 
+// TODO: See TD-453 in TECHNICAL_DEBT.md - duplicated hand-written JSON helpers; consolidate on nlohmann/json
 std::string json_escape_client(const std::string& s) {
     std::string out;
     for (unsigned char c : s) {

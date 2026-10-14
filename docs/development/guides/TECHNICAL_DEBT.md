@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 243
+**Total Items:** 245
 **High Priority:** 28
 **Medium Priority:** 104
-**Low Priority:** 111
+**Low Priority:** 113
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -393,6 +393,12 @@ file, `D_MODEL=512`/`NUM_HEADS=8`), so a flagless `register` permanently sets th
 `config.trainer.conf`'s 768/12, and mns-cli-guide.md still says the defaults come from `config.conf` and match the
 trainer (TD-450). One is LOW: `https://` URLs connect with plain HTTP to port 8083 (verified), `--help` works only
 as the first word (verified), and minor hygiene (TD-451).
+
+Also October 14, 2026: filed [TD-452](#td-452-mnsjsonhelpers-parsing-gaps-and-a-gui-register-body-without-td-196-fields) and [TD-453](#td-453-hand-written-json-duplicated-across-mns-and-metrics-code) (both LOW) from the code-traced
+[MnsJsonHelpers.md](../reference/source/MnsJsonHelpers.md). The MNS Manager GUI's helpers don't unescape string values,
+match only compact JSON, fall back to any array, and escape only `"`, `\` and `\n` (verified); its register body has no
+`kind`/`run_group`/`connection`, so the GUI can't manage TD-196 records (TD-452). The same hand-written JSON escaping and
+scanning is duplicated across six MNS/metrics files with different coverage while `nlohmann/json` is vendored (TD-453).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1387,6 +1393,10 @@ registration (strict flag parsing is a small change with a large payoff, since r
 registration (make `register` require explicit architecture or read the trainer's config, and fix the guide).
 [TD-451](#td-451-mns_cli-has-no-https-and-minor-option-handling-gaps) only matters if `mns_cli` must go through the tunnel; pair its HTTPS work with TD-444.
 
+**Tier 68 — Newly filed (October 14, 2026): `MnsJsonHelpers`.** [TD-453](#td-453-hand-written-json-duplicated-across-mns-and-metrics-code) is the umbrella: moving the MNS and
+metrics code onto the vendored `nlohmann/json` fixes the escaping parts of TD-443, TD-449 and [TD-452](#td-452-mnsjsonhelpers-parsing-gaps-and-a-gui-register-body-without-td-196-fields) in one
+place; do it with TD-226. TD-452's GUI register fields are separate and only matter if the GUI is used.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1636,6 +1646,8 @@ registration (make `register` require explicit architecture or read the trainer'
   - [TD-449: `mns_cli` Request-Building Gaps: Layer Counts, Relink Resets, Encoding](#td-449-mns_cli-request-building-gaps-layer-counts-relink-resets-encoding)
   - [TD-450: `mns_cli register` Takes Architecture Defaults from `config.mns.conf`, Not the Trainer's Config](#td-450-mns_cli-register-takes-architecture-defaults-from-configmnsconf-not-the-trainers-config)
   - [TD-451: `mns_cli` Has No HTTPS and Minor Option Handling Gaps](#td-451-mns_cli-has-no-https-and-minor-option-handling-gaps)
+  - [TD-452: `MnsJsonHelpers` Parsing Gaps and a GUI Register Body Without TD-196 Fields](#td-452-mnsjsonhelpers-parsing-gaps-and-a-gui-register-body-without-td-196-fields)
+  - [TD-453: Hand-Written JSON Duplicated Across MNS and Metrics Code](#td-453-hand-written-json-duplicated-across-mns-and-metrics-code)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -10608,6 +10620,66 @@ Files to Modify:
 
 ---
 
+### TD-452: `MnsJsonHelpers` Parsing Gaps and a GUI Register Body Without TD-196 Fields
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | MNS / Manager GUI | October 14, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `MnsJsonHelpers` (used only by the optional Qt `mns_manager_gui`):
+- **Verified.** `json_value()` doesn't unescape string values (`C:\\models\\v3.bin`, `caf\u00e9 \"x\"` displayed as-is);
+  it matches only `"key":` with no space (`"state" : "training"` → empty) and returns a fragment for object values;
+  `json_array_objects()` falls back to the first other array when the key is absent (e.g. an error body);
+  `json_escape()` escapes only `"`, `\` and `\n`, so tabs, carriage returns and other control characters produce
+  invalid JSON; `json_pretty()` renders `{}`/`[]` as three-line blocks.
+- **By inspection.** `build_register_model_body()` has no `kind`, `run_group` or `connection`, so the GUI can register
+  only legacy bundled `chatbot` records, not encoders, decoders, world models or linked pairs (TD-196), and can't set a
+  run group. `ParsedUrl` accepts `https://` with port 8083 (as TD-451).
+
+Action Items:
+
+- [ ] Unescape string values; return `nullopt` for a missing array key; complete `json_escape()` (or adopt TD-453's shared library).
+- [ ] Add kind, run group and encoder/decoder/world-model fields to the GUI's Register tab and body.
+
+Location in code: `src/MnsJsonHelpers.hpp` (`json_value()`, `json_array_objects()`, `json_escape()`, `build_register_model_body()`); tagged `TODO: See TD-452`.
+
+Files to Modify:
+
+- `src/MnsJsonHelpers.hpp`
+- `src/MnsManagerGUI.{hpp,cpp}`
+- `tests/mnsjsonhelpers_test.cpp`
+
+---
+
+### TD-453: Hand-Written JSON Duplicated Across MNS and Metrics Code
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Core / JSON | October 14, 2026 | 4-8 hours |
+
+Description:
+Found while tracing `MnsJsonHelpers`, by inspection. Hand-written JSON escaping and string-search parsing is implemented
+separately in at least `MnsJsonHelpers.hpp`, `MnsCliCommands.cpp`, `ModelNameClient.cpp` (`json_escape_client()`,
+`find_string_end_client()`, explicitly "duplicated here"), `ModelNameService.cpp`, `MetricsPushClient.cpp`
+(`escape_json_string()`) and `TrainingMetricsAPI.cpp` (`escape_json()`), each with different escaping coverage and
+parsing rules. That's the root of several filed defects: non-finite numbers emitted and accepted (TD-443), incomplete
+escaping (TD-449, TD-452), and `ChatbotAPI`'s parser rejecting `]` (TD-226). The repository already vendors
+`external/nlohmann` and uses it in `ModelSerializer`, `ChatbotAPI` and `DataFetcher`.
+
+Action Items:
+
+- [ ] Move the MNS (server, client, CLI, GUI) and metrics (server, push client) request/response code to `nlohmann/json`, one file at a time behind the existing tests.
+- [ ] Delete the per-file escape/scan helpers once their callers are migrated.
+
+Location in code: the helpers listed above; tagged `TODO: See TD-453`.
+
+Files to Modify:
+
+- `src/MnsJsonHelpers.hpp`, `src/MnsCliCommands.cpp`, `src/ModelNameClient.cpp`, `src/ModelNameService.cpp`, `src/MetricsPushClient.cpp`, `src/TrainingMetricsAPI.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -11124,15 +11196,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 243 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 245 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|11%|
 |Medium|104|43%|
-|Low|111|46%|
+|Low|113|46%|
 
-**Total Active Items:** 243
+**Total Active Items:** 245
 
 ### By Component
 
@@ -11202,6 +11274,8 @@ Recomputed directly from the 243 `### TD-NNN` entries under [Active Technical De
 |Metrics / Session Registry|2|
 |Training / MetricsTracker|1|
 |MNS / CLI|4|
+|MNS / Manager GUI|1|
+|Core / JSON|1|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -11211,12 +11285,12 @@ Recomputed directly from the 243 `### TD-NNN` entries under [Active Technical De
 |Effort Range|Count|
 |--------------|-------|
 |0-2 hours|148|
-|2-4 hours|72|
-|4-8 hours|13|
+|2-4 hours|73|
+|4-8 hours|14|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 450-802 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 456-814 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

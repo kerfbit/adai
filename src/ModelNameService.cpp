@@ -43,6 +43,7 @@ class adai::ModelNameService::ServerImpl {
 
 namespace {
 
+// TODO: See TD-453 in TECHNICAL_DEBT.md - duplicated hand-written JSON helpers; consolidate on nlohmann/json
 std::string json_escape(const std::string& s) {
     std::string out;
     out.reserve(s.size() + 8);

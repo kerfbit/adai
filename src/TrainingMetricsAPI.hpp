@@ -161,6 +161,7 @@ class TrainingMetricsAPI {
 
     // Helper functions
     static std::string create_error_response(const std::string& error_message);
+    // TODO: See TD-453 in TECHNICAL_DEBT.md - duplicated hand-written JSON helpers; consolidate on nlohmann/json
     static std::string escape_json(const std::string& s);
     static int parse_query_param_int(const std::string& query, const std::string& param,
                                      int default_value);

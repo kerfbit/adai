@@ -83,6 +83,7 @@ struct ParsedUrl {
  * @brief Minimal JSON string escaping: handles the characters that must be
  *        escaped inside a JSON string literal.
  */
+// TODO: See TD-453 in TECHNICAL_DEBT.md - duplicated hand-written JSON helpers; consolidate on nlohmann/json
 std::string escape_json_string(const std::string& s) {
     std::string out;
     out.reserve(s.size() + 8);
