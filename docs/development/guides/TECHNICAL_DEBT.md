@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 229
+**Total Items:** 231
 **High Priority:** 28
-**Medium Priority:** 97
-**Low Priority:** 104
+**Medium Priority:** 98
+**Low Priority:** 105
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -336,6 +336,15 @@ Also October 14, 2026: filed [TD-436](#td-436-sycl-icpx-builds-get-no--march-or-
 `sycl` preset (ai-machine's trainer) compiles `Matrix.cpp` with no SIMD at all, a 6–8× slower CPU multiply
 (TD-436). One is LOW: the only compile-time vs. runtime SIMD test never compiles (verified), nothing checks
 the CPU at startup, and `has_avx2()`/`has_fma()` skip the OS-support check (TD-437).
+
+Also October 14, 2026: filed [TD-438](#td-438-metrics_api_server-accepts-invalid-numbers-and-exits-0-on-bad-arguments) and [TD-439](#td-439-metrics_api_server-backend-name-and-admin-store-location-gaps) from the code-traced
+[MetricsApiServerArgs.md](../reference/source/MetricsApiServerArgs.md). One is MEDIUM and verified with the
+real server: numeric flags go through `atoi`/`strtoul` unchecked, so `--port abc` listens on a random
+ephemeral port while printing `:0`, `--port 99999` listens on 34463, `--max-live-sessions -1` removes the cap
+and `--sweep-interval-seconds 0` disables eviction; saved admin overrides have the same gaps; and a bad
+argument exits 0, so systemd doesn't treat it as a failure (TD-438). One is LOW: an unknown
+`--storage-backend` is accepted (file-only fallback), and the admin store is located from the file's
+`db_path` rather than `--db-path` (TD-439).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1302,6 +1311,10 @@ speedup (a one-line OpenMP gate change, verified 2–6× on the common shapes) p
 for ai-machine's build; ship it with the next ai-machine deployment and compare a pass's wall time
 before/after. [TD-437](#td-437-simd-self-check-test-never-compiles-and-no-startup-cpu-check) is cleanup; do its detection fix before TD-434's runtime dispatch relies on it.
 
+**Tier 61 — Newly filed (October 14, 2026): `MetricsApiServerArgs`.** Do [TD-438](#td-438-metrics_api_server-accepts-invalid-numbers-and-exits-0-on-bad-arguments) together with
+TD-240 (the same `atoi` pattern in `chatbot_api_server`) using one shared checked-integer helper, and
+[TD-439](#td-439-metrics_api_server-backend-name-and-admin-store-location-gaps) alongside TD-306.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1537,6 +1550,8 @@ before/after. [TD-437](#td-437-simd-self-check-test-never-compiles-and-no-startu
   - [TD-435: `Matrix` Accessor Cost, `sum()` Accuracy, `randomize()` Race and API Hygiene](#td-435-matrix-accessor-cost-sum-accuracy-randomize-race-and-api-hygiene)
   - [TD-436: SYCL (`icpx`) Builds Get No `-march` or SIMD Flags](#td-436-sycl-icpx-builds-get-no--march-or-simd-flags)
   - [TD-437: SIMD Self-Check Test Never Compiles and No Startup CPU Check](#td-437-simd-self-check-test-never-compiles-and-no-startup-cpu-check)
+  - [TD-438: `metrics_api_server` Accepts Invalid Numbers and Exits 0 on Bad Arguments](#td-438-metrics_api_server-accepts-invalid-numbers-and-exits-0-on-bad-arguments)
+  - [TD-439: `metrics_api_server` Backend Name and Admin-Store Location Gaps](#td-439-metrics_api_server-backend-name-and-admin-store-location-gaps)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -10003,6 +10018,82 @@ Files to Modify:
 
 ---
 
+### TD-438: `metrics_api_server` Accepts Invalid Numbers and Exits 0 on Bad Arguments
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Metrics / Server CLI | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MetricsApiServerArgs` and verified (scratch program against the real parser, and the
+real `metrics_api_server`):
+- **Unchecked numbers.** `parse_metrics_api_server_args()` uses `std::atoi`/`std::strtoul` with no range
+  checks. `--port abc` → 0, and **the real server listened on a random ephemeral port** (39915) while
+  printing `Server starting on http://0.0.0.0:0`; `--port 99999` printed `:99999` and **listened on 34463**
+  (mod 65536). `--max-live-sessions -1` wraps to 18,446,744,073,709,551,615 (no cap);
+  `--sweep-interval-seconds 0` disables `MetricsSessionRegistry`'s eviction sweep; `--persist-seconds 1e3`
+  → 1 and `8081x` → 8081 (truncated); negative ports, pool sizes and intervals are accepted.
+- **Saved admin overrides.** `apply_metrics_admin_overrides()` re-applies `daemon_config.db` values at
+  startup with the same gaps (`stoull("-1")` wraps; `"50abc"` → 50; negative TTLs applied), so a bad
+  `PUT /admin/config` (TD-306) persists across restarts.
+- **Exit code.** `main()` prints usage and **exits 0** on any parse error (verified with `--bogus`), so a
+  mistyped flag in a unit's `ExecStart` looks like a clean stop and `Restart=on-failure` doesn't retry. A
+  value-taking flag with no value is reported as "Unknown option".
+
+Action Items:
+
+- [ ] Parse numbers with a checked helper (whole string, in range: port 1–65535, counts and intervals ≥ 1 or a documented 0 meaning) shared with TD-240; reject with a clear message.
+- [ ] Validate the saved admin overrides the same way (skip and warn on out-of-range values).
+- [ ] Exit non-zero on parse errors; report "missing value for --flag".
+- [ ] Add tests for non-numeric, partial, negative and out-of-range values.
+
+Location in code: `src/MetricsApiServerArgs.cpp` (`parse_metrics_api_server_args()`, `apply_metrics_admin_overrides()`); `src/TrainingMetricsAPIServer.cpp` (`main()`'s error exit); tagged `TODO: See TD-438`.
+
+Files to Modify:
+
+- `src/MetricsApiServerArgs.cpp`
+- `src/TrainingMetricsAPIServer.cpp`
+- `tests/metrics_api_server_args_test.cpp`
+
+---
+
+### TD-439: `metrics_api_server` Backend Name and Admin-Store Location Gaps
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Metrics / Server CLI | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MetricsApiServerArgs`:
+- **Unknown backend accepted (verified in the parser).** `--storage-backend postgress` (or `postgres` in a
+  build without `ADAI_ENABLE_POSTGRES`) is accepted; `MetricsDatabaseFactory::create()` logs a warning and
+  returns no database, so the server runs file-only while startup prints `Storage backend: postgress`.
+- **Admin store location (by inspection).** `main()` puts `daemon_config.db` in the directory of the
+  **file-configured** `db_path`, computed before CLI flags. With `scripts/install_metrics_service.sh`'s
+  defaults that's the same directory as `--db-path`, but with a custom `--metrics-dir` it's
+  `<install>/training_sessions`, which the unit's `ProtectSystem=strict` + `ReadWritePaths=<metrics dir>`
+  makes read-only, so the store fails to open and admin settings can't persist.
+- **Precedence (by inspection).** CLI flags beat saved admin settings, so an admin-mutable flag added to
+  `ExecStart` would silently undo every `PUT /admin/config` on restart. Latent with the installer's flags.
+- **Hygiene.** The header names the test `MetricsApiServerArgs_test.cpp` (it's
+  `metrics_api_server_args_test.cpp`).
+
+Action Items:
+
+- [ ] Validate `--storage-backend` against the compiled-in backends and fail at startup on an unknown one.
+- [ ] Locate the admin store from the final `db_path` (or a dedicated `--admin-dir`), and warn when a CLI flag overrides a saved admin value.
+- [ ] Fix the header comment.
+
+Location in code: `src/MetricsApiServerArgs.{hpp,cpp}`; `src/TrainingMetricsAPIServer.cpp` (`admin_config_db_dir`); tagged `TODO: See TD-439`.
+
+Files to Modify:
+
+- `src/MetricsApiServerArgs.hpp`
+- `src/MetricsApiServerArgs.cpp`
+- `src/TrainingMetricsAPIServer.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -10519,15 +10610,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 229 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 231 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|12%|
-|Medium|97|42%|
-|Low|104|46%|
+|Medium|98|42%|
+|Low|105|46%|
 
-**Total Active Items:** 229
+**Total Active Items:** 231
 
 ### By Component
 
@@ -10591,6 +10682,7 @@ Recomputed directly from the 229 `### TD-NNN` entries under [Active Technical De
 |Attention / LoRA|2|
 |Core / Matrix|2|
 |Build / SIMD|2|
+|Metrics / Server CLI|2|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -10599,13 +10691,13 @@ Recomputed directly from the 229 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|139|
+|0-2 hours|141|
 |2-4 hours|67|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 431-764 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 433-768 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

@@ -32,6 +32,7 @@ MetricsApiServerConfig seed_metrics_server_config_from_file(const ServiceConfig&
     return config;
 }
 
+// TODO: See TD-438 in TECHNICAL_DEBT.md - no range checks; "-1" wraps, "50abc" becomes 50
 void apply_metrics_admin_overrides(MetricsApiServerConfig& config,
                                    const std::map<std::string, std::string>& overrides) {
     auto apply_int = [&](const char* key, int& field) {
@@ -63,6 +64,7 @@ void apply_metrics_admin_overrides(MetricsApiServerConfig& config,
     }
 }
 
+// TODO: See TD-438 in TECHNICAL_DEBT.md - atoi/strtoul unchecked: --port abc binds a random port, -1 sessions wraps to unlimited
 MetricsApiServerArgsResult parse_metrics_api_server_args(int argc, char* argv[],
                                                          MetricsApiServerConfig& config) {
     MetricsApiServerArgsResult result;
@@ -112,6 +114,7 @@ MetricsApiServerArgsResult parse_metrics_api_server_args(int argc, char* argv[],
         } else if (arg == "--no-name-service") {
             config.name_service_url.clear();
         } else if (arg == "--storage-backend" && i + 1 < argc) {
+            // TODO: See TD-439 in TECHNICAL_DEBT.md - unknown backend accepted; registry falls back to file-only
             config.storage_backend = argv[++i];
         } else if (arg == "--db-path" && i + 1 < argc) {
             config.db_path = argv[++i];

@@ -136,6 +136,7 @@ int main(int argc, char* argv[]) {
     // directory only needs to be *a* stable location — it's never itself
     // admin-mutable, so deriving it from the file-configured db_path here,
     // before CLI parsing, avoids a chicken-and-egg dependency on parse_args).
+    // TODO: See TD-439 in TECHNICAL_DEBT.md - ignores --db-path; read-only under the installer's unit with a custom --metrics-dir
     const std::string admin_config_db_dir =
         std::filesystem::path(server_config.db_path).parent_path().empty()
             ? "."
@@ -161,6 +162,7 @@ int main(int argc, char* argv[]) {
     if (cli.error) {
         std::cerr << cli.error_message << '\n';
         print_usage(argv[0]);
+        // TODO: See TD-438 in TECHNICAL_DEBT.md - exit 0 on bad arguments; systemd sees a clean stop
         return 0;  // Matches original parse_args() behavior: invalid args exit 0, not 1.
     }
 

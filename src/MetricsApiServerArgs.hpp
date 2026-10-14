@@ -7,6 +7,7 @@
 // TD-035: metrics_api_server's config-precedence resolution (file < persisted admin overrides <
 // CLI flags) and argv parsing, pulled out of TrainingMetricsAPIServer.cpp so it's testable
 // without starting a real MetricsSessionRegistry/HTTP server — see MetricsApiServerArgs_test.cpp.
+// TODO: See TD-439 in TECHNICAL_DEBT.md - the test file is actually metrics_api_server_args_test.cpp
 // TrainingMetricsAPI's own request-handling is already covered by
 // TrainingMetricsAPIRoutesTests/TrainingMetricsAPILiveTests.
 
