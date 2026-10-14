@@ -54,6 +54,7 @@ This directory contains reference materials, technical specifications, and imple
   - [MetricsSessionRegistry](source/MetricsSessionRegistry.md) (`src/MetricsSessionRegistry.hpp`; the metrics server's session map: cap, TTL eviction, archiving)
   - [MetricsTracker](source/MetricsTracker.md) (`src/MetricsTracker.hpp`; per-pass epoch history, CSV sidecar and overfitting warning)
   - [MnsCliCommands](source/MnsCliCommands.md) (`src/MnsCliCommands.{hpp,cpp}`; `mns_cli`'s argument parsing and request building)
+  - [MnsCliTool](source/MnsCliTool.md) (`src/MnsCliTool.cpp`; `mns_cli`'s `main()`: options, config, dispatch, HTTP)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)

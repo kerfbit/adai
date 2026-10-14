@@ -24,6 +24,7 @@
 #include <vector>
 #include "Config.hpp"
 #include "MnsCliCommands.hpp"
+// TODO: See TD-451 in TECHNICAL_DEBT.md - unused include; the file comment above still says config.conf
 #include "ModelNameClient.hpp"
 
 using adai::HttpMethod;
@@ -35,6 +36,7 @@ using adai::parse_url;
 // HTTP helper — issues GET/POST/PUT/DELETE and prints the response
 // ============================================================================
 
+// TODO: See TD-451 in TECHNICAL_DEBT.md - always plain HTTP; https:// URLs connect to port 8083 unencrypted
 static httplib::Client make_http(const ParsedUrl& u) {
     httplib::Client c(u.host, u.port);
     c.set_connection_timeout(5, 0);
@@ -279,6 +281,7 @@ int main(int argc, char* argv[]) {
     // Load config for arch defaults and NAME_SERVICE_URL fallback.
     // Discovery: --config > ./config.mns.conf > /etc/adai/config.mns.conf
     // > ./config.conf (legacy) > /etc/adai/config.conf (legacy).
+    // TODO: See TD-450 in TECHNICAL_DEBT.md - register's architecture defaults come from the daemon's config.mns.conf (512/8), not the trainer's config (768/12)
     config_path = adai::ConfigLoader::discover_config_path(config_path, "config.mns.conf");
     adai::ServiceConfig svc_config = adai::ConfigLoader::load(config_path);
 
@@ -290,6 +293,7 @@ int main(int argc, char* argv[]) {
         server_url = "http://localhost:8083";
     }
 
+    // TODO: See TD-451 in TECHNICAL_DEBT.md - --help only as the first word; `list --help` sends a request
     if (args.empty() || args[0] == "--help" || args[0] == "-h") {
         print_usage(argv[0]);
         return 0;

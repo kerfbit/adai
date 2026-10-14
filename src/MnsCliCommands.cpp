@@ -12,6 +12,7 @@ ParsedUrl parse_url(const std::string& raw) {
     std::string s = raw;
     if (s.rfind("http://", 0) == 0)
         s = s.substr(7);
+    // TODO: See TD-451 in TECHNICAL_DEBT.md - https:// is accepted but keeps port 8083 and mns_cli connects with plain HTTP
     if (s.rfind("https://", 0) == 0)
         s = s.substr(8);
     auto slash = s.find('/');

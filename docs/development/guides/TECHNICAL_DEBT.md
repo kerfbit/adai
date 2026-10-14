@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 241
+**Total Items:** 243
 **High Priority:** 28
-**Medium Priority:** 103
-**Low Priority:** 110
+**Medium Priority:** 104
+**Low Priority:** 111
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -386,6 +386,13 @@ architecture (immutable after registration); `set-training m --new_run` continue
 `--new_run`; and a malformed number aborts the process with a core dump while `-1` wraps to 2⁶⁴−1 (TD-448). One is
 LOW: a standalone kind without `--num-layers` sends both layer counts, relinking a world model resets the hippocampal
 settings, and names/queries aren't URL-encoded (TD-449).
+
+Also October 14, 2026: filed [TD-450](#td-450-mns_cli-register-takes-architecture-defaults-from-configmnsconf-not-the-trainers-config) and [TD-451](#td-451-mns_cli-has-no-https-and-minor-option-handling-gaps) from the code-traced
+[MnsCliTool.md](../reference/source/MnsCliTool.md). One is MEDIUM: `mns_cli` loads `config.mns.conf` (the daemon's
+file, `D_MODEL=512`/`NUM_HEADS=8`), so a flagless `register` permanently sets that architecture rather than
+`config.trainer.conf`'s 768/12, and mns-cli-guide.md still says the defaults come from `config.conf` and match the
+trainer (TD-450). One is LOW: `https://` URLs connect with plain HTTP to port 8083 (verified), `--help` works only
+as the first word (verified), and minor hygiene (TD-451).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1376,6 +1383,10 @@ impact; do it whenever the header is next touched.
 registration (strict flag parsing is a small change with a large payoff, since registration is irreversible);
 [TD-449](#td-449-mns_cli-request-building-gaps-layer-counts-relink-resets-encoding) alongside it.
 
+**Tier 67 — Newly filed (October 14, 2026): `MnsCliTool`.** Do [TD-450](#td-450-mns_cli-register-takes-architecture-defaults-from-configmnsconf-not-the-trainers-config) with TD-448 before the next
+registration (make `register` require explicit architecture or read the trainer's config, and fix the guide).
+[TD-451](#td-451-mns_cli-has-no-https-and-minor-option-handling-gaps) only matters if `mns_cli` must go through the tunnel; pair its HTTPS work with TD-444.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1623,6 +1634,8 @@ registration (strict flag parsing is a small change with a large payoff, since r
   - [TD-447: `MetricsTracker` Printer State Leak, Convergence Off-by-One and Smoothing Gaps](#td-447-metricstracker-printer-state-leak-convergence-off-by-one-and-smoothing-gaps)
   - [TD-448: `mns_cli` Ignores Unknown Flags, Misreads `set-training` Arguments and Aborts on Bad Numbers](#td-448-mns_cli-ignores-unknown-flags-misreads-set-training-arguments-and-aborts-on-bad-numbers)
   - [TD-449: `mns_cli` Request-Building Gaps: Layer Counts, Relink Resets, Encoding](#td-449-mns_cli-request-building-gaps-layer-counts-relink-resets-encoding)
+  - [TD-450: `mns_cli register` Takes Architecture Defaults from `config.mns.conf`, Not the Trainer's Config](#td-450-mns_cli-register-takes-architecture-defaults-from-configmnsconf-not-the-trainers-config)
+  - [TD-451: `mns_cli` Has No HTTPS and Minor Option Handling Gaps](#td-451-mns_cli-has-no-https-and-minor-option-handling-gaps)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -10529,6 +10542,72 @@ Files to Modify:
 
 ---
 
+### TD-450: `mns_cli register` Takes Architecture Defaults from `config.mns.conf`, Not the Trainer's Config
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | MNS / CLI | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MnsCliTool`, by inspection of the code, config files and guide. `main()` loads
+`discover_config_path(--config, "config.mns.conf")`, the `mns_server` daemon's file, and `register` fills every
+architecture field not given as a flag from it. The repository's `config.mns.conf` has `D_MODEL=512`, `NUM_HEADS=8`,
+`D_FF=2048`, `MAX_SEQ_LENGTH=1024`; `config.trainer.conf`'s fallback block has `D_MODEL=768`, `NUM_HEADS=12`. So
+`mns_cli register my-model chatbot` without architecture flags permanently registers 512/8, and since MNS is
+authoritative (and architecture immutable), the trainer silently adopts it instead of the 768/12 its own config shows.
+The usage text doesn't say where the defaults come from; `docs/operations/guides/mns-cli-guide.md` says they come
+from `config.conf` (the pre-split file, now a fallback after `config.mns.conf`) "so registration stays consistent with
+what the trainer will use", which the split configuration no longer guarantees.
+
+Action Items:
+
+- [ ] Require explicit architecture flags for `register` (or a `--from-config <file>` that names the trainer's config), and print the architecture being registered before sending.
+- [ ] Decide whether `config.mns.conf` should keep an architecture block at all.
+- [ ] Update `mns_cli`'s usage text and mns-cli-guide.md.
+
+Location in code: `src/MnsCliTool.cpp` (`main()`'s config loading, `cmd_register()`); tagged `TODO: See TD-450`.
+
+Files to Modify:
+
+- `src/MnsCliTool.cpp`
+- `src/MnsCliCommands.cpp`
+- `config.mns.conf`
+- `docs/operations/guides/mns-cli-guide.md`
+
+---
+
+### TD-451: `mns_cli` Has No HTTPS and Minor Option Handling Gaps
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | MNS / CLI | October 14, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `MnsCliTool`:
+- **No HTTPS (verified).** `parse_url()` strips `https://` but keeps the default port 8083, and `make_http()` always
+  builds a plain `httplib::Client`: `mns_cli --url https://127.0.0.1 health` reported `connection to 127.0.0.1:8083
+  failed`. `mns_cli` can't reach MNS through a TLS endpoint (the Cloudflare tunnel) and can't send Access headers.
+  Same gap as TD-444 (`MetricsPushClient`).
+- **`--help` (verified).** Only recognized as the first word; `mns_cli list --help` sent a `list` request.
+- **By inspection.** `--url`/`--config` are taken from anywhere on the line, so they can't be command argument values;
+  `ModelNameClient.hpp` is included but unused; the file comment still mentions `config.conf`; the four `http_*()`
+  helpers are duplicates.
+
+Action Items:
+
+- [ ] Support `https://` (`httplib::SSLClient`, port 443 by default) and optional extra headers (shared helper with TD-444), or reject `https://` clearly.
+- [ ] Recognize `--help` per command; stop global-option parsing at the command word.
+- [ ] Remove the unused include, fix the comment, fold the `http_*()` helpers into one.
+
+Location in code: `src/MnsCliTool.cpp` (`make_http()`, `main()`); `src/MnsCliCommands.cpp` (`parse_url()`); tagged `TODO: See TD-451`.
+
+Files to Modify:
+
+- `src/MnsCliTool.cpp`
+- `src/MnsCliCommands.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -11045,15 +11124,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 241 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 243 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|11%|
-|Medium|103|43%|
-|Low|110|46%|
+|Medium|104|43%|
+|Low|111|46%|
 
-**Total Active Items:** 241
+**Total Active Items:** 243
 
 ### By Component
 
@@ -11122,7 +11201,7 @@ Recomputed directly from the 241 `### TD-NNN` entries under [Active Technical De
 |Metrics / Push Client|3|
 |Metrics / Session Registry|2|
 |Training / MetricsTracker|1|
-|MNS / CLI|2|
+|MNS / CLI|4|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -11131,13 +11210,13 @@ Recomputed directly from the 241 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|147|
-|2-4 hours|71|
+|0-2 hours|148|
+|2-4 hours|72|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 447-796 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 450-802 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
