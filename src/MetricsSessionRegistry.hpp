@@ -77,6 +77,7 @@ class MetricsSessionRegistry {
                                     e.what());
             }
         }
+        // TODO: See TD-446 in TECHNICAL_DEBT.md - a later set_sweep_interval_seconds(>0) never starts the thread
         if (sweep_interval_seconds_ > 0) {
             sweep_thread_ = std::thread(&MetricsSessionRegistry::sweep_loop, this);
         }
@@ -107,6 +108,7 @@ class MetricsSessionRegistry {
             }
         }
 
+        // TODO: See TD-445 in TECHNICAL_DEBT.md - counts finished/stale sessions until their TTL; nothing evicts one to make room
         if (sessions_.size() >= max_live_sessions_) {
             return nullptr;
         }
@@ -151,6 +153,7 @@ class MetricsSessionRegistry {
             }
         }
 
+        // TODO: See TD-445 in TECHNICAL_DEBT.md - counts finished/stale sessions until their TTL; nothing evicts one to make room
         if (sessions_.size() >= max_live_sessions_) {
             return SessionStartResult{nullptr, false};
         }
@@ -168,6 +171,7 @@ class MetricsSessionRegistry {
         std::shared_lock<std::shared_mutex> lock(registry_mutex_);
         auto existing = sessions_.find(key);
         if (existing == sessions_.end()) {
+            // TODO: See TD-446 in TECHNICAL_DEBT.md - one warning line per live key on every miss (Prometheus aggregate amplifies it)
             adai::Logger::warn("[get_session] key='{}' (len={}) not found; map has {} entries:",
                                key, key.size(), sessions_.size());
             for (const auto& [k, _] : sessions_) {
@@ -289,6 +293,7 @@ class MetricsSessionRegistry {
     // wait_for(), which re-reads sweep_interval_seconds_ fresh on the next loop
     // iteration (see sweep_loop()) rather than being stuck on the duration it
     // was constructed with.
+    // TODO: See TD-446 in TECHNICAL_DEBT.md - <= 0 makes sweep_loop() spin; 0 -> positive has no effect
     void set_sweep_interval_seconds(int seconds) {
         {
             std::lock_guard<std::mutex> lock(sweep_mutex_);
@@ -443,6 +448,7 @@ class MetricsSessionRegistry {
 
     // Archives (renames in the DB and on disk) a session that is leaving the live map,
     // then erases it. Must be called with registry_mutex_ held exclusively.
+    // TODO: See TD-446 in TECHNICAL_DEBT.md - DB transaction and file renames run under the exclusive registry lock
     void archive_and_remove_locked(std::unordered_map<std::string, SessionEntry>::iterator it) {
         const std::string key = it->first;
         const auto service = it->second.service;

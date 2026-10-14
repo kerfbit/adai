@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 236
+**Total Items:** 238
 **High Priority:** 28
-**Medium Priority:** 101
-**Low Priority:** 107
+**Medium Priority:** 102
+**Low Priority:** 108
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -364,6 +364,14 @@ them (TD-442); and push payloads send NaN/inf as `nan`/`inf`, which the server s
 JSON, `end_epoch()`'s `std::fixed` turns values below 5e-7 (a 1e-7 learning rate) into 0, and adaptive-clipping
 metrics are buffered but never sent (TD-443). One is LOW: `https://` URLs send plain HTTP, a new connection per
 event, silent non-404 failures, and a small race (TD-444).
+
+Also October 14, 2026: filed [TD-445](#td-445-finished-metrics-sessions-hold-max_live_sessions-slots-for-an-hour) and [TD-446](#td-446-metricssessionregistry-sweep-interval-changes-miss-logging-and-lock-held-io) from the code-traced
+[MetricsSessionRegistry.md](../reference/source/MetricsSessionRegistry.md). One is MEDIUM and verified:
+`max_live_sessions` counts finished and stale sessions until their TTL (3,600 s as shipped) and nothing evicts
+one to make room, so with the cap of 16, more than 16 trainer passes an hour (each registers a new key) get
+`503 metrics_server_full` and train without metrics (TD-445). One is LOW: a runtime sweep interval ≤ 0 spins the
+sweep thread (0.51 CPU-s per 2 s, verified) and 0 → positive never starts it (verified), unknown-key lookups log
+one line per live session, and archiving I/O runs under the registry lock (TD-446).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1343,6 +1351,10 @@ always-on trainer with a metrics server that may restart (a bounded drain plus s
 small change). [TD-443](#td-443-metrics-push-payloads-send-naninf-round-small-values-to-0-and-omit-adaptive-clipping) should fix both ends (client serialization and the server's `stof` parsing/output)
 so diverging runs stay visible. [TD-444](#td-444-metricspushclient-transport-gaps-no-https-a-connection-per-event-silent-failures) matters only if metrics move behind TLS or the Cloudflare tunnel.
 
+**Tier 64 — Newly filed (October 14, 2026): `MetricsSessionRegistry`.** [TD-445](#td-445-finished-metrics-sessions-hold-max_live_sessions-slots-for-an-hour) is a small fix with a
+direct effect on the always-on trainer's visibility (evict the oldest finished session before refusing); do it
+with TD-442. [TD-446](#td-446-metricssessionregistry-sweep-interval-changes-miss-logging-and-lock-held-io) is cleanup; its sweep-interval part goes with TD-306/TD-438's range checks.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1585,6 +1597,8 @@ so diverging runs stay visible. [TD-444](#td-444-metricspushclient-transport-gap
   - [TD-442: `MetricsPushClient::end_session()` Drain Can Delay a Pass's Final Save by an Hour](#td-442-metricspushclientend_session-drain-can-delay-a-passs-final-save-by-an-hour)
   - [TD-443: Metrics Push Payloads Send `nan`/`inf`, Round Small Values to 0 and Omit Adaptive Clipping](#td-443-metrics-push-payloads-send-naninf-round-small-values-to-0-and-omit-adaptive-clipping)
   - [TD-444: `MetricsPushClient` Transport Gaps: No HTTPS, a Connection per Event, Silent Failures](#td-444-metricspushclient-transport-gaps-no-https-a-connection-per-event-silent-failures)
+  - [TD-445: Finished Metrics Sessions Hold `max_live_sessions` Slots for an Hour](#td-445-finished-metrics-sessions-hold-max_live_sessions-slots-for-an-hour)
+  - [TD-446: `MetricsSessionRegistry` Sweep-Interval Changes, Miss Logging and Lock-Held I/O](#td-446-metricssessionregistry-sweep-interval-changes-miss-logging-and-lock-held-io)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -10313,6 +10327,77 @@ Files to Modify:
 
 ---
 
+### TD-445: Finished Metrics Sessions Hold `max_live_sessions` Slots for an Hour
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Metrics / Session Registry | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MetricsSessionRegistry` and verified with the real registry. `start_session_or_conflict()`
+(and `create_or_get_session()`) refuse a new key when `sessions_.size() >= max_live_sessions_`, and the map holds
+**every** session, including ones that completed normally or went stale. A finished session leaves only when
+idle for `completed_ttl_seconds` (3,600 in `config.metrics.conf`) or when its own key is reused; nothing evicts
+one to make room. With a cap of 2, two started-and-ended sessions left the registry full and a third key got no
+service (the API answers `503 metrics_server_full`).
+
+Every chatbot pass registers a new key (`<session_id>-<host>`; the session number increments per pass), and
+`trainer_service` launches the next pass immediately after one that did work; crashed passes' stale sessions count
+too. So with the shipped cap of 16, more than 16 passes within an hour fills the server, and later passes log
+"training will proceed WITHOUT metrics reporting" until the oldest finished session ages out.
+
+Action Items:
+
+- [ ] Before refusing, evict (archive) the least recently updated finished or stale session; count only live sessions against the cap.
+- [ ] Add a test: cap N, N finished sessions, a new key still starts.
+- [ ] Update TRAINING_METRICS_API.md's capacity note.
+
+Location in code: `src/MetricsSessionRegistry.hpp` (`start_session_or_conflict()`, `create_or_get_session()`); tagged `TODO: See TD-445`.
+
+Files to Modify:
+
+- `src/MetricsSessionRegistry.hpp`
+- `tests/metrics_session_registry_test.cpp`
+- `docs/development/TRAINING_METRICS_API.md`
+
+---
+
+### TD-446: `MetricsSessionRegistry` Sweep-Interval Changes, Miss Logging and Lock-Held I/O
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Metrics / Session Registry | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MetricsSessionRegistry`:
+- **Runtime sweep interval (verified).** `set_sweep_interval_seconds()` (reachable via `PUT /admin/config`, no range
+  check, TD-306) to ≤ 0 while the thread runs makes `sweep_loop()`'s `wait_for(0)` return immediately, so it spins:
+  0.51 CPU-seconds in 2 s with an empty registry, taking the exclusive registry lock each iteration. Going from 0
+  (thread never started by the constructor) to a positive value does nothing; a finished session with a 1 s TTL
+  was still present after 3 s while `GET /admin/config` reported the new interval.
+- **Miss logging (by inspection).** `get_session()` logs a warning plus one line per live key for every unknown key.
+  `handle_prometheus_aggregate()` calls it for each session in `list_sessions()`, which includes DB-only completed
+  sessions, so each aggregate request logs `(DB sessions) × (1 + live)` lines; any 404 for a completed key does too.
+- **I/O under the lock (by inspection).** Eviction archiving (a DB transaction and file renames) runs under the
+  exclusive registry lock on every start and sweep; `list_sessions()` queries the DB under the shared lock.
+- **Late writes (by inspection).** An evicted service still referenced by an in-flight request can persist after its
+  files were renamed, recreating them under the original key, which a new session with that key then shares.
+
+Action Items:
+
+- [ ] Reject or clamp intervals ≤ 0 in the setter (or treat as "disabled" without spinning); start the thread when moving from 0 to positive.
+- [ ] Log misses at debug (or once), without listing every key.
+- [ ] Do archiving I/O and DB listing outside the registry lock; mark evicted services so late persists are dropped.
+
+Location in code: `src/MetricsSessionRegistry.hpp` (`sweep_loop()`, `set_sweep_interval_seconds()`, constructor, `get_session()`, `archive_and_remove_locked()`, `list_sessions()`); tagged `TODO: See TD-446`.
+
+Files to Modify:
+
+- `src/MetricsSessionRegistry.hpp`
+- `tests/metrics_session_registry_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -10829,15 +10914,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 236 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 238 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|12%|
-|Medium|101|43%|
-|Low|107|45%|
+|Medium|102|43%|
+|Low|108|45%|
 
-**Total Active Items:** 236
+**Total Active Items:** 238
 
 ### By Component
 
@@ -10904,6 +10989,7 @@ Recomputed directly from the 236 `### TD-NNN` entries under [Active Technical De
 |Metrics / Server CLI|2|
 |Metrics / Database|2|
 |Metrics / Push Client|3|
+|Metrics / Session Registry|2|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -10912,13 +10998,13 @@ Recomputed directly from the 236 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|143|
+|0-2 hours|145|
 |2-4 hours|70|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 441-784 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 443-788 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
