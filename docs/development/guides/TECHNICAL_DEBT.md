@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 238
+**Total Items:** 239
 **High Priority:** 28
 **Medium Priority:** 102
-**Low Priority:** 108
+**Low Priority:** 109
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -372,6 +372,12 @@ one to make room, so with the cap of 16, more than 16 trainer passes an hour (ea
 `503 metrics_server_full` and train without metrics (TD-445). One is LOW: a runtime sweep interval ≤ 0 spins the
 sweep thread (0.51 CPU-s per 2 s, verified) and 0 → positive never starts it (verified), unknown-key lookups log
 one line per live session, and archiving I/O runs under the registry lock (TD-446).
+
+Also October 14, 2026: filed [TD-447](#td-447-metricstracker-printer-state-leak-convergence-off-by-one-and-smoothing-gaps) (LOW) from the code-traced
+[MetricsTracker.md](../reference/source/MetricsTracker.md). Production only uses its CSV export and final-epoch
+overfitting warning; the verified gaps are in the rest: `print_summary()`/`print_history()` leave `std::cout` in
+fixed 4-decimal mode, `is_converging()` needs `window + 1` epochs, a zero smoothing window gives `NaN`, and the
+smoothed validation curve skips epochs without validation.
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1355,6 +1361,9 @@ so diverging runs stay visible. [TD-444](#td-444-metricspushclient-transport-gap
 direct effect on the always-on trainer's visibility (evict the oldest finished session before refusing); do it
 with TD-442. [TD-446](#td-446-metricssessionregistry-sweep-interval-changes-miss-logging-and-lock-held-io) is cleanup; its sweep-interval part goes with TD-306/TD-438's range checks.
 
+**Tier 65 — Newly filed (October 14, 2026): `MetricsTracker`.** [TD-447](#td-447-metricstracker-printer-state-leak-convergence-off-by-one-and-smoothing-gaps) is cleanup with no training
+impact; do it whenever the header is next touched.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1599,6 +1608,7 @@ with TD-442. [TD-446](#td-446-metricssessionregistry-sweep-interval-changes-miss
   - [TD-444: `MetricsPushClient` Transport Gaps: No HTTPS, a Connection per Event, Silent Failures](#td-444-metricspushclient-transport-gaps-no-https-a-connection-per-event-silent-failures)
   - [TD-445: Finished Metrics Sessions Hold `max_live_sessions` Slots for an Hour](#td-445-finished-metrics-sessions-hold-max_live_sessions-slots-for-an-hour)
   - [TD-446: `MetricsSessionRegistry` Sweep-Interval Changes, Miss Logging and Lock-Held I/O](#td-446-metricssessionregistry-sweep-interval-changes-miss-logging-and-lock-held-io)
+  - [TD-447: `MetricsTracker` Printer State Leak, Convergence Off-by-One and Smoothing Gaps](#td-447-metricstracker-printer-state-leak-convergence-off-by-one-and-smoothing-gaps)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -10398,6 +10408,41 @@ Files to Modify:
 
 ---
 
+### TD-447: `MetricsTracker` Printer State Leak, Convergence Off-by-One and Smoothing Gaps
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / MetricsTracker | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MetricsTracker`. Production (`ChatbotTrainer`/`IncrementalTrainer`) uses only
+`record_epoch()`, `export_csv()` and `is_overfitting()`; nothing here affects training.
+- **Printer state leak (verified).** `print_summary()`/`print_history()` set `std::fixed` and `setprecision(4)` on
+  `std::cout` and never restore them: `0.123456789` printed `0.123457` before and `0.1235` after.
+- **Convergence off by one (verified).** `is_converging(window)` returns `false` unless `history_.size() >= window + 1`;
+  five identical epochs with `window = 5` reported not converging.
+- **Smoothing gaps (verified).** `MetricsTracker(0)` gives a `-nan` smoothed loss (0/0); a negative window wraps through
+  the `int`/`size_t` comparison; epochs with `val = 0` are skipped, so `get_smoothed_validation_loss()` is shorter than
+  the history (2 vs 3) and its indexes don't match epochs.
+- **By inspection.** `is_overfitting()` checks only the final epoch against a fixed 0.5-nat (≈1.65× perplexity) gap
+  and inherits TD-267's low validation bias; `calculate_moving_average()` is dead; the header uses an `#ifndef` guard
+  and `std::cout`/`std::cerr` (CLAUDE.md conventions); CSV epochs are 0-based while the metrics server's are 1-based.
+
+Action Items:
+
+- [ ] Save and restore stream flags in the printers (or route them through `Logger`).
+- [ ] Fix the `is_converging()` size check; validate the smoothing window; keep validation smoothing aligned with epochs (NaN placeholder or paired epoch numbers).
+- [ ] Remove `calculate_moving_average()`; switch to `#pragma once`; document the 0-based CSV epochs.
+
+Location in code: `src/MetricsTracker.hpp`; tagged `TODO: See TD-447`.
+
+Files to Modify:
+
+- `src/MetricsTracker.hpp`
+- `tests/metricstracker_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -10914,15 +10959,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 238 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 239 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|12%|
 |Medium|102|43%|
-|Low|108|45%|
+|Low|109|45%|
 
-**Total Active Items:** 238
+**Total Active Items:** 239
 
 ### By Component
 
@@ -10990,6 +11035,7 @@ Recomputed directly from the 238 `### TD-NNN` entries under [Active Technical De
 |Metrics / Database|2|
 |Metrics / Push Client|3|
 |Metrics / Session Registry|2|
+|Training / MetricsTracker|1|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -10998,13 +11044,13 @@ Recomputed directly from the 238 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|145|
+|0-2 hours|146|
 |2-4 hours|70|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 443-788 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 444-790 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

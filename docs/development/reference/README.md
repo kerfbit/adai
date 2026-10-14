@@ -52,6 +52,7 @@ This directory contains reference materials, technical specifications, and imple
   - [MetricsDatabase](source/MetricsDatabase.md) (`src/MetricsDatabase.hpp`; the metrics server's storage interface and backend factory)
   - [MetricsPushClient](source/MetricsPushClient.md) (`src/MetricsPushClient.{hpp,cpp}`; the trainer's queued HTTP push to `metrics_api_server`, plus the session-key helpers)
   - [MetricsSessionRegistry](source/MetricsSessionRegistry.md) (`src/MetricsSessionRegistry.hpp`; the metrics server's session map: cap, TTL eviction, archiving)
+  - [MetricsTracker](source/MetricsTracker.md) (`src/MetricsTracker.hpp`; per-pass epoch history, CSV sidecar and overfitting warning)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)

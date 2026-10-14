@@ -1,3 +1,4 @@
+// TODO: See TD-447 in TECHNICAL_DEBT.md - #ifndef guard and std::cout/std::cerr against project conventions
 #ifndef METRICS_TRACKER_HPP
 #define METRICS_TRACKER_HPP
 
@@ -112,6 +113,7 @@ class MetricsTracker {
     /**
      * @brief Calculate moving average
      */
+    // TODO: See TD-447 in TECHNICAL_DEBT.md - never called
     float calculate_moving_average(const std::vector<float>& values, size_t window) const {
         if (values.empty())
             return 0.0f;
@@ -124,6 +126,7 @@ class MetricsTracker {
     /**
      * @brief Update smoothed metrics
      */
+    // TODO: See TD-447 in TECHNICAL_DEBT.md - window <= 0 gives NaN; skipped val=0 epochs misalign the validation curve
     void update_smoothed_metrics() {
         std::vector<float> train_losses;
         std::vector<float> val_losses;
@@ -307,6 +310,7 @@ class MetricsTracker {
      * @param threshold Maximum change threshold
      * @return True if loss change is below threshold
      */
+    // TODO: See TD-447 in TECHNICAL_DEBT.md - requires window + 1 epochs, not window
     bool is_converging(size_t window = 5, float threshold = 0.001f) const {
         if (history_.size() < window + 1)
             return false;
@@ -377,6 +381,7 @@ class MetricsTracker {
     /**
      * @brief Print current metrics summary
      */
+    // TODO: See TD-447 in TECHNICAL_DEBT.md - leaves std::cout in std::fixed/setprecision(4) (print_history() too)
     void print_summary() const {
         if (history_.empty()) {
             std::cout << "No metrics recorded yet.\n";
