@@ -7,6 +7,7 @@
 
 namespace adai {
 
+// TODO: See TD-456 in TECHNICAL_DEBT.md - unrecognized text returns the default, so --admin-enabled flase stays enabled
 bool parse_bool_flag(const std::string& value, bool default_value) {
     std::string lower = value;
     for (auto& c : lower)
@@ -26,6 +27,7 @@ MnsServerArgs parse_mns_server_args(int argc, char* argv[]) {
         if (arg == "--config" && i + 1 < argc) {
             result.config_path = argv[++i];
         } else if ((arg == "--port" || arg == "-p") && i + 1 < argc) {
+            // TODO: See TD-456 in TECHNICAL_DEBT.md - no range/whole-string check: 99999 binds 34463, 8083x -> 8083, 0 -> random
             try {
                 result.port = std::stoi(argv[++i]);
             } catch (...) {

@@ -5,9 +5,9 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 247
+**Total Items:** 248
 **High Priority:** 28
-**Medium Priority:** 105
+**Medium Priority:** 106
 **Low Priority:** 114
 **Future Enhancements:** 19
 **Resolved Items:** 208
@@ -406,6 +406,11 @@ GUI's exact request bodies: Set Training sends a typed `run_id` the server ignor
 `new_run`, so Set Candidate with the typed ID gets `409 … superseded` and the GUI can't start a new run; the GUI guide
 documents this failing flow (TD-454). One is LOW: success is judged by the substring `"error"` rather than the HTTP status,
 all HTTP runs on the UI thread, and the Register tab's defaults (128/4/512, layer minimum 1) match neither config (TD-455).
+
+Also October 14, 2026: filed [TD-456](#td-456-mns_server-treats-a-mistyped---admin-enabled-as-true-and-doesnt-range-check---port) (MEDIUM, verified with the real `mns_server`) from the code-traced
+[MnsServerArgs.md](../reference/source/MnsServerArgs.md): an unrecognized `--admin-enabled` value falls back to `true`, so
+`--admin-enabled flase` left `PUT /admin/config` open (an unauthenticated request repointed `registry_group`); and `--port`
+isn't range-checked (`99999` listened on 34463, `8083x` → 8083, `0` → random).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1408,6 +1413,9 @@ place; do it with TD-226. TD-452's GUI register fields are separate and only mat
 requirement, add a "new run" checkbox, use the run ID from the record for Set Candidate) plus a guide correction; do it
 with TD-452 if the GUI is in use. [TD-455](#td-455-mns-manager-gui-error-detection-ui-thread-http-and-register-defaults) is cleanup.
 
+**Tier 70 — Newly filed (October 14, 2026): `MnsServerArgs`.** Fix [TD-456](#td-456-mns_server-treats-a-mistyped---admin-enabled-as-true-and-doesnt-range-check---port) together with TD-438 and TD-240 using one
+shared checked port/boolean parser for all the daemons.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1661,6 +1669,7 @@ with TD-452 if the GUI is in use. [TD-455](#td-455-mns-manager-gui-error-detecti
   - [TD-453: Hand-Written JSON Duplicated Across MNS and Metrics Code](#td-453-hand-written-json-duplicated-across-mns-and-metrics-code)
   - [TD-454: MNS Manager GUI's Training → Candidate Workflow Fails Against Server-Allocated Run IDs](#td-454-mns-manager-guis-training--candidate-workflow-fails-against-server-allocated-run-ids)
   - [TD-455: MNS Manager GUI Error Detection, UI-Thread HTTP and Register Defaults](#td-455-mns-manager-gui-error-detection-ui-thread-http-and-register-defaults)
+  - [TD-456: `mns_server` Treats a Mistyped `--admin-enabled` as `true` and Doesn't Range-Check `--port`](#td-456-mns_server-treats-a-mistyped---admin-enabled-as-true-and-doesnt-range-check---port)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -10765,6 +10774,41 @@ Files to Modify:
 
 ---
 
+### TD-456: `mns_server` Treats a Mistyped `--admin-enabled` as `true` and Doesn't Range-Check `--port`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | MNS / Server CLI | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MnsServerArgs` and verified with the real `mns_server`:
+- **Admin flag typo.** `parse_bool_flag()` returns the default for unrecognized text, and `--admin-enabled`'s default is `true`.
+  Started with `--admin-enabled flase`, the server kept `PUT /admin/config` enabled; an unauthenticated
+  `PUT {"registry_group":"hijacked"}` returned 200 and the server logged `admin config updated`. The admin settings
+  (`registry_url`/`registry_group`) control where MNS proxies dataset-registry requests. (MNS has no authentication on any
+  endpoint; this is about honouring an explicit operator choice.)
+- **Port.** `std::stoi` with no range check: `--port 99999` logged `listening on port 99999` and listened on **34463**
+  (mod 65536); `8083x` → 8083; `0` → a random port; negatives accepted. Clients using `NAME_SERVICE_URL` then can't find MNS
+  and fall back to local architecture.
+- **Minor (by inspection).** A value-taking flag with no value is reported as "Unknown argument"; `--admin-enabled` has no
+  config key (unlike `metrics_api_server`'s `METRICS_API_ALLOW_CONTROL`); the header names the test
+  `MnsServerArgs_test.cpp` (it's `mns_server_args_test.cpp`).
+
+Action Items:
+
+- [ ] Make an explicit but unrecognized `--admin-enabled` value an error (keep the lenient default only when the flag is absent).
+- [ ] Parse `--port` with the shared checked helper (whole string, 1–65535) from TD-438/TD-240.
+- [ ] Report "missing value for --flag"; consider an `MNS_ADMIN_ENABLED` config key; fix the header comment.
+
+Location in code: `src/MnsServerArgs.cpp` (`parse_bool_flag()`, `parse_mns_server_args()`); tagged `TODO: See TD-456`.
+
+Files to Modify:
+
+- `src/MnsServerArgs.{hpp,cpp}`
+- `tests/mns_server_args_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -11281,15 +11325,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 247 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 248 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|11%|
-|Medium|105|43%|
+|Medium|106|43%|
 |Low|114|46%|
 
-**Total Active Items:** 247
+**Total Active Items:** 248
 
 ### By Component
 
@@ -11360,6 +11404,7 @@ Recomputed directly from the 247 `### TD-NNN` entries under [Active Technical De
 |Training / MetricsTracker|1|
 |MNS / CLI|4|
 |MNS / Manager GUI|3|
+|MNS / Server CLI|1|
 |Core / JSON|1|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
@@ -11369,13 +11414,13 @@ Recomputed directly from the 247 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|149|
+|0-2 hours|150|
 |2-4 hours|74|
 |4-8 hours|14|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 459-820 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 460-822 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
