@@ -31,6 +31,7 @@ LanguageModelHead::LanguageModelHead(int d_model, int vocab_size)
     W_output_grad.fill(0.0f);
     bias_grad.fill(0.0f);
 
+    // TODO: See TD-425 in TECHNICAL_DEBT.md - std::cout in library code; int parameter count can overflow
     std::cout << "LanguageModelHead initialized:" << '\n';
     std::cout << "  Input dimension: " << d_model << '\n';
     std::cout << "  Vocabulary size: " << vocab_size << '\n';
@@ -54,6 +55,7 @@ Matrix LanguageModelHead::forward(const Matrix& input) {
     return output;
 }
 
+// TODO: See TD-425 in TECHNICAL_DEBT.md - no production caller
 std::vector<float> LanguageModelHead::get_probabilities(const std::vector<float>& logits) {
     // Convert vector to matrix for softmax
     Matrix logits_matrix(1, static_cast<int>(logits.size()));
@@ -157,6 +159,8 @@ void LanguageModelHead::load(const std::string& filepath) {
         throw std::runtime_error("Dimension mismatch in saved model");
     }
 
+    // TODO: See TD-423 in TECHNICAL_DEBT.md - reads unchecked: a truncated .lm_head loads silently with NaN weights
+    // (all-NaN logits); save() doesn't check its writes either
     // Load W_output
     for (int i = 0; i < W_output.rows; ++i) {
         for (int j = 0; j < W_output.cols; ++j) {
@@ -259,6 +263,7 @@ adai::gpu::GPUMatrix LanguageModelHead::gpu_forward(const adai::gpu::GPUMatrix& 
     return result;
 }
 
+// TODO: See TD-425 in TECHNICAL_DEBT.md - dereferences gpu_ unchecked (null before any gpu_forward())
 adai::gpu::GPUMatrix LanguageModelHead::gpu_backward(const adai::gpu::GPUMatrix& dout) {
     // dW += input^T * dout
     gpu_->dW.add_inplace(gpu_->cached_input.transpose() * dout);

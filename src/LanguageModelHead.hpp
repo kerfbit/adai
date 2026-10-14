@@ -156,6 +156,7 @@ class LanguageModelHead {
     const Matrix& get_bias() const {
         return bias;
     }
+    // TODO: See TD-425 in TECHNICAL_DEBT.md - setters don't check shapes or refresh the GPU mirror
     void set_W_output(const Matrix& m) {
         W_output = m;
     }

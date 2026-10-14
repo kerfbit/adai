@@ -4,11 +4,11 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** October 13, 2026
-**Total Items:** 214
+**Last Updated:** October 14, 2026
+**Total Items:** 217
 **High Priority:** 28
-**Medium Priority:** 91
-**Low Priority:** 95
+**Medium Priority:** 93
+**Low Priority:** 96
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -286,6 +286,14 @@ MEDIUM: every `append()` reallocates and copies the whole cache, so CPU cached g
 O(n²·d) on copying (255 ms per cache for 512 steps at d_model 512; about 6 s for a 24-layer decoder)
 (TD-422, verified). One is LOW: `append()` has no shape checks, so mismatched input overflows the heap
 (ASan-verified write and read), and layer indices are unchecked (TD-421).
+
+**October 14, 2026:** Filed [TD-423](#td-423-a-truncated-lm_head-file-loads-as-all-nan-logits) through [TD-425](#td-425-languagemodelhead-hygiene) from the code-traced
+[LanguageModelHead.md](../reference/source/LanguageModelHead.md). Two are MEDIUM and verified: a
+truncated `.lm_head` checkpoint sidecar loads without error with `NaN` weights, so every logit is `NaN`
+(TD-423, the TD-298 defect in a file every checkpoint has); and uncached generation paths (beam,
+`ChatbotAPI`'s CPU `model_fn`, `/chat/batch`) project every position through the LM head each step
+although only the last row is used, about 30× the work at 100 tokens (TD-424). One is LOW: hygiene
+(TD-425).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1226,6 +1234,10 @@ like `GPUKVCache` and expose views, ideally together with TD-388 (the GPU cache'
 TD-398 (`HippocampalMemory::read_all()`'s copy), the same pattern three times. [TD-421](#td-421-kvcacheappend-has-no-shape-checks) is a few
 checks to add in the same change.
 
+**Tier 55 — Newly filed (October 14, 2026): `LanguageModelHead`.** Fix [TD-423](#td-423-a-truncated-lm_head-file-loads-as-all-nan-logits) in the same pass as
+TD-298, TD-345, TD-357, TD-367 and TD-369 (every legacy per-layer loader). [TD-424](#td-424-uncached-generation-projects-every-position-through-the-lm-head) is a small
+"project only the last row" change in the generation callbacks; [TD-425](#td-425-languagemodelhead-hygiene) is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1446,6 +1458,9 @@ checks to add in the same change.
   - [TD-420: `IntegratedInferenceEngine` Claims, Dead Config and Fictional Stats](#td-420-integratedinferenceengine-claims-dead-config-and-fictional-stats)
   - [TD-421: `KVCache::append()` Has No Shape Checks](#td-421-kvcacheappend-has-no-shape-checks)
   - [TD-422: `KVCache` Copies the Whole Cache on Every Append](#td-422-kvcache-copies-the-whole-cache-on-every-append)
+  - [TD-423: A Truncated `.lm_head` File Loads as All-`NaN` Logits](#td-423-a-truncated-lm_head-file-loads-as-all-nan-logits)
+  - [TD-424: Uncached Generation Projects Every Position Through the LM Head](#td-424-uncached-generation-projects-every-position-through-the-lm-head)
+  - [TD-425: `LanguageModelHead` Hygiene](#td-425-languagemodelhead-hygiene)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -9452,6 +9467,87 @@ Files to Modify:
 
 ---
 
+### TD-423: A Truncated `.lm_head` File Loads as All-`NaN` Logits
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Models / LanguageModelHead | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `LanguageModelHead` and verified. `load()` checks the two dimension ints, then
+pre-fills each weight and bias value with `NaN` and reads without checking the stream. A `.lm_head`
+file cut in half **loaded without error**: 751 of 1,600 weights were `NaN`, and all 100 logits of a
+forward pass were `NaN`. Every checkpoint written by `EncoderDecoderModel::save_model()` has this
+sidecar and `load_model()` reads it, so a checkpoint damaged by a full disk or a crash during save
+produces a server that generates garbage instead of refusing to load. `save()` doesn't check its writes.
+Same defect as TD-298 (`CrossAttention::load()`).
+
+Action Items:
+
+- [ ] Check the file size (or the stream after each read) and throw on short files, leaving the head unchanged; check `save()`'s stream.
+- [ ] Do this with the other legacy loaders (TD-298, TD-345, TD-357, TD-367, TD-369).
+
+Location in code: `src/LanguageModelHead.cpp` (`load()`, `save()`); tagged `TODO: See TD-423`.
+
+Files to Modify:
+
+- `src/LanguageModelHead.cpp`
+- `tests/languagemodelhead_test.cpp`
+
+---
+
+### TD-424: Uncached Generation Projects Every Position Through the LM Head
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Models / LanguageModelHead | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `LanguageModelHead` and measured. The uncached generation callbacks run
+`lm_head->forward(decoder_out)` over the **whole** decoder output every step: `EncoderDecoderModel`'s
+beam `beam_model_fn` (two sites, commented "last position of output"), and `ChatbotAPI`'s CPU
+`model_fn`/`/chat/batch`, which call `EncoderDecoderModel::forward()`. `TextGenerator` uses only the last
+row. At d_model 512, vocab 8,000 and 100 positions, the projection takes 147 ms for all positions against
+4.9 ms for the last one, about 30× the LM-head work per step (and per beam hypothesis). The KV-cached
+path and the pipeline/integrated engines already project only what they need.
+
+Action Items:
+
+- [ ] In generation callbacks, project only the last decoder row (keep `forward()`'s full projection for training/loss), and fix the misleading comment.
+
+Location in code: `src/EncoderDecoderModel.cpp` (both beam `beam_model_fn`s, `forward()`); tagged `TODO: See TD-424`.
+
+Files to Modify:
+
+- `src/EncoderDecoderModel.cpp`
+- `src/ChatbotAPI.cpp`
+
+---
+
+### TD-425: `LanguageModelHead` Hygiene
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Models / LanguageModelHead | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `LanguageModelHead`, by inspection: the constructor prints four lines to
+`std::cout` (library code) and computes its parameter count in `int`; `forward()` doesn't check
+`input.cols`; `set_W_output()`/`set_bias()` don't check shapes or refresh the GPU mirror; `gpu_backward()`
+dereferences `gpu_` without a check; `get_probabilities()` has no production caller.
+
+Action Items:
+
+- [ ] Switch to `adai::Logger`; add shape checks; invalidate the GPU mirror in the setters; guard `gpu_backward()`; remove or test `get_probabilities()`.
+
+Location in code: `src/LanguageModelHead.{hpp,cpp}`; tagged `TODO: See TD-425`.
+
+Files to Modify:
+
+- `src/LanguageModelHead.{hpp,cpp}`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -9968,15 +10064,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 214 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 217 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|13%|
-|Medium|91|43%|
-|Low|95|44%|
+|Medium|93|43%|
+|Low|96|44%|
 
-**Total Active Items:** 214
+**Total Active Items:** 217
 
 ### By Component
 
@@ -10033,6 +10129,7 @@ Recomputed directly from the 214 `### TD-NNN` entries under [Active Technical De
 |Training / IncrementalTrainingTool|6|
 |Inference / IntegratedInferenceEngine|4|
 |Inference / KVCache|2|
+|Models / LanguageModelHead|3|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
@@ -10041,13 +10138,13 @@ Recomputed directly from the 214 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|125|
+|0-2 hours|128|
 |2-4 hours|66|
 |4-8 hours|13|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 415-732 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 418-738 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

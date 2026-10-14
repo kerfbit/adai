@@ -54,7 +54,7 @@ The `TrainingMetricsAPI` is a separate HTTP server (default port 8081) for real-
 | [transformer/positional-encoding.md](transformer/positional-encoding.md) | `PositionalEncoding` | Sinusoidal position encoding |
 | [transformer/token-embedding.md](transformer/token-embedding.md) | `TokenEmbedding` | Token embedding layer |
 | [transformer/layer-norm.md](transformer/layer-norm.md) | `LayerNorm` | Layer normalization |
-| [transformer/language-model-head.md](transformer/language-model-head.md) | `LanguageModelHead` | Output projection and softmax |
+| [LanguageModelHead.md](../reference/source/LanguageModelHead.md) | `LanguageModelHead` | Output projection to vocabulary logits (code-traced reference) |
 
 ## Attention
 

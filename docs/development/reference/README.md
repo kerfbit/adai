@@ -41,6 +41,7 @@ This directory contains reference materials, technical specifications, and imple
   - [IncrementalTrainingTool](source/IncrementalTrainingTool.md) (`src/IncrementalTrainingTool.cpp`; `incremental_trainer` main: commands, fork-to-background, LeJEPA pass)
   - [IntegratedInferenceEngine](source/IntegratedInferenceEngine.md) (`src/IntegratedInferenceEngine.hpp`; `--integrated-inference` three-thread request pipeline)
   - [KVCache](source/KVCache.md) (`src/KVCache.hpp`; CPU key/value cache for incremental decoding)
+  - [LanguageModelHead](source/LanguageModelHead.md) (`src/LanguageModelHead.{hpp,cpp}`; output projection to vocabulary logits)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)

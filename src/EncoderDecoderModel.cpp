@@ -263,6 +263,8 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
                 tokens, cached_encoder_output, world_model_output_ptr, hippocampal_memory.get(),
                 hippocampal_repetition_alpha_, hippocampal_repetition_decay_,
                 hippocampal_cross_reference_alpha_, hippocampal_association_decay_);
+            // TODO: See TD-424 in TECHNICAL_DEBT.md - projects every position; only the last row is used (~30x the
+            // LM-head work per step and per beam hypothesis)
             Matrix logits = lm_head->forward(decoder_out);
 
             // Mask out invalid token IDs beyond actual vocabulary size, same as
@@ -445,6 +447,8 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
                 hippocampal_cross_reference_alpha_, hippocampal_association_decay_);
 
             // Project to vocabulary (last position of output)
+            // TODO: See TD-424 in TECHNICAL_DEBT.md - projects every position; only the last row is used (~30x the
+            // LM-head work per step and per beam hypothesis)
             Matrix logits = lm_head->forward(decoder_out);
 
             // Mask out invalid token IDs beyond actual vocabulary size
@@ -971,6 +975,8 @@ Matrix EncoderDecoderModel::forward(const std::vector<int>& input_tokens,
                 hippocampal_cross_reference_alpha_, hippocampal_association_decay_);
 
     // Project to vocabulary
+    // TODO: See TD-424 in TECHNICAL_DEBT.md - full projection is needed for training, but ChatbotAPI's CPU
+    // generation model_fn and /chat/batch also call forward() per step and use only the last row
     Matrix logits = lm_head->forward(cached_decoder_output);
 
     return logits;
