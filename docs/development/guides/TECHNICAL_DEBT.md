@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 251
+**Total Items:** 254
 **High Priority:** 28
-**Medium Priority:** 108
-**Low Priority:** 115
+**Medium Priority:** 110
+**Low Priority:** 116
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -419,6 +419,15 @@ then skips a run number) and `register_model()` would throw after succeeding (TD
 `push_progress()` is stored and re-emitted as `nan` by `mns_server`, making both the model's record and the whole
 `GET /models` list invalid JSON, and later archiving it into `training_history` (TD-458). One is LOW: unvalidated
 architecture fields, no unescaping, ~16 s per call when MNS doesn't answer, no URL encoding (TD-459).
+
+Also October 14, 2026: filed [TD-460](#td-460-mns-retirement-leaves-role-mappings-and-is-undone-by-running-trainers) through [TD-462](#td-462-modelnameservice-dead-datasets-proxy-admin-settings-race-and-swallowed-persistence-errors) from the code-traced
+[ModelNameService.md](../reference/source/ModelNameService.md) (its 62 live tests all pass against a local `mns_server`). Two
+are MEDIUM and verified against a real server: retiring a role's production model leaves `roles_` pointing at it (so
+`MODEL_ROLE` keeps resolving a retired model), and a model retired mid-pass is revived by the trainer's normal `set_candidate()`
+because `retired → candidate` skips the run ownership check (TD-460); a legacy chatbot registers with no architecture (all
+zeros) and no kind checks `d_model % num_heads`, permanently registering unbuildable models (TD-461). One is LOW: a dead
+datasets proxy (no `model_id` is ever recorded), an unlocked admin-settings data race, swallowed persistence errors, compact-only
+JSON parsing, a stale role after promoting to a new role (TD-462).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1428,6 +1437,10 @@ shared checked port/boolean parser for all the daemons.
 handling on both ends) before relying on MNS's JSON from any strict client; [TD-457](#td-457-modelnameclient-retries-non-idempotent-requests-after-a-timeout) is a small change (retry only
 idempotent requests); [TD-459](#td-459-modelnameclient-validation-unescaping-and-slow-failure-gaps) is cleanup, its architecture validation the most useful part.
 
+**Tier 72 — Newly filed (October 14, 2026): `ModelNameService`.** [TD-460](#td-460-mns-retirement-leaves-role-mappings-and-is-undone-by-running-trainers) and [TD-461](#td-461-mns-accepts-unbuildable-architectures-at-registration) are small
+server-side checks with direct operational effect (role resolution and irreversible registration); do them with TD-448/TD-450
+before the next registration or promotion. [TD-462](#td-462-modelnameservice-dead-datasets-proxy-admin-settings-race-and-swallowed-persistence-errors) is cleanup; its JSON part goes with TD-453.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1685,6 +1698,9 @@ idempotent requests); [TD-459](#td-459-modelnameclient-validation-unescaping-and
   - [TD-457: `ModelNameClient` Retries Non-Idempotent Requests After a Timeout](#td-457-modelnameclient-retries-non-idempotent-requests-after-a-timeout)
   - [TD-458: A NaN Training Loss Makes MNS's JSON Unparseable](#td-458-a-nan-training-loss-makes-mnss-json-unparseable)
   - [TD-459: `ModelNameClient` Validation, Unescaping and Slow-Failure Gaps](#td-459-modelnameclient-validation-unescaping-and-slow-failure-gaps)
+  - [TD-460: MNS Retirement Leaves Role Mappings and Is Undone by Running Trainers](#td-460-mns-retirement-leaves-role-mappings-and-is-undone-by-running-trainers)
+  - [TD-461: MNS Accepts Unbuildable Architectures at Registration](#td-461-mns-accepts-unbuildable-architectures-at-registration)
+  - [TD-462: `ModelNameService` Dead Datasets Proxy, Admin-Settings Race and Swallowed Persistence Errors](#td-462-modelnameservice-dead-datasets-proxy-admin-settings-race-and-swallowed-persistence-errors)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -10921,6 +10937,102 @@ Files to Modify:
 
 ---
 
+### TD-460: MNS Retirement Leaves Role Mappings and Is Undone by Running Trainers
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | MNS / Server | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `ModelNameService` and verified against a real `mns_server`:
+- **Stale role.** `retired` is reachable from any state via `PUT /models/{n}/state`, but only `handle_promote()`/`handle_delete()`
+  update `roles_`, and `handle_resolve_role()` doesn't check state. After promoting `prod-a` to `chatbot` and retiring it,
+  `GET /roles/chatbot/production` still returned `prod-a` (`"state":"retired"`, with its artifact), so a `chatbot_api_server`
+  with `MODEL_ROLE=chatbot` keeps loading the retired model.
+- **Revival by a running trainer.** `candidate` may be entered from `retired` ("revival"), and the `run_id` ownership check
+  applies only when leaving `training`. Retiring a model during `run-01`, then sending the trainer's normal
+  `{"state":"candidate","run_id":"run-01",…}` returned 200 and state `candidate`: the operator's retirement is silently undone
+  at the end of the pass.
+
+Action Items:
+
+- [ ] On `→ retired`, remove any role mapping to the model (or refuse to retire a `production` model without a replacement); make `resolve_role` return 404/409 for a non-`production` record.
+- [ ] Require an explicit flag (or no `run_id`) for `retired → candidate` revival, and reject a trainer's `run_id`-bearing candidate call when the model isn't `training`.
+- [ ] Live tests for both.
+
+Location in code: `src/ModelNameService.cpp` (`handle_state_transition()`, `handle_resolve_role()`); tagged `TODO: See TD-460`.
+
+Files to Modify:
+
+- `src/ModelNameService.cpp`
+- `tests/model_name_service_live_test.cpp`
+
+---
+
+### TD-461: MNS Accepts Unbuildable Architectures at Registration
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | MNS / Server | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `ModelNameService` and verified against a real `mns_server`. Architecture is immutable after
+registration, but `handle_register()` validates it only for standalone `encoder`/`decoder`/`world_model` kinds (positive
+fields, correct layer field). A legacy (inline) `chatbot` gets **no validation**: `POST /models {"model_name":"noarch","role":"chatbot"}`
+returned 201 and stored every architecture field as 0 (which `ModelNameClient::get_architecture()` then hands to the trainer and chat
+server, TD-459). No kind checks divisibility: `d_model 100, num_heads 8` returned 201 although `MultiHeadAttention`'s constructor
+rejects `d_model % num_heads != 0`, so the model can never be built. The only remedy is delete and re-register.
+
+Action Items:
+
+- [ ] Require all six fields positive for a legacy chatbot, and `d_model % num_heads == 0` for every kind; return 400 with the offending field.
+- [ ] Live tests for missing arch and non-divisible heads.
+
+Location in code: `src/ModelNameService.cpp` (`handle_register()`); tagged `TODO: See TD-461`.
+
+Files to Modify:
+
+- `src/ModelNameService.cpp`
+- `tests/model_name_service_live_test.cpp`
+
+---
+
+### TD-462: `ModelNameService` Dead Datasets Proxy, Admin-Settings Race and Swallowed Persistence Errors
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | MNS / Server | October 14, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `ModelNameService`:
+- **Compact JSON only (verified).** The request parsers search for `"key":"`/`"key":` without whitespace; a standard spaced body
+  (`{"model_name": "spaced", "role": "chatbot"}`, as Python's `json.dumps()` emits) returned 400 "model_name required". In-repo
+  clients send compact JSON. `json_string()` also turns `\u00e9` into `u00e9`. (Umbrella fix: TD-453.)
+- **Dead datasets proxy (by inspection).** `handle_datasets()` filters `registry_server`'s `/history` by `model_id`, but
+  `RemoteTransport::mark_trained()` never sends one, so the result is always empty; it also uses MNS's global `registry_group_`
+  rather than the model's own `run_group`, and has no TD-202 kind segment. No client calls it.
+- **Data race (by inspection).** `handle_admin_put_config()` writes `registry_url_`/`registry_group_` without a lock while
+  `handle_datasets()` reads them on another httplib thread (undefined behaviour).
+- **Swallowed persistence errors (by inspection).** `persist_model()`, `persist_roles()` and `handle_delete()` log or ignore SQLite
+  failures and still return success, so memory and disk can diverge until restart.
+- **Stale role (by inspection).** Promoting a model to a new role rewrites its `role` but leaves the old role's mapping to it.
+
+Action Items:
+
+- [ ] Fix or remove the datasets proxy (record `model_id` on mark-trained, use the model's `run_group` and kind).
+- [ ] Guard the registry settings with a mutex.
+- [ ] Return 500 (and roll back the in-memory change) when persistence fails.
+- [ ] Remove the old role mapping when a model is promoted to a different role.
+
+Location in code: `src/ModelNameService.cpp` (`json_string()`, `handle_datasets()`, `handle_admin_put_config()`, `persist_model()`, `handle_promote()`); tagged `TODO: See TD-462`.
+
+Files to Modify:
+
+- `src/ModelNameService.{hpp,cpp}`
+- `src/RegistryTransport.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -11437,15 +11549,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 251 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 254 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|11%|
-|Medium|108|43%|
-|Low|115|46%|
+|Medium|110|43%|
+|Low|116|46%|
 
-**Total Active Items:** 251
+**Total Active Items:** 254
 
 ### By Component
 
@@ -11518,6 +11630,7 @@ Recomputed directly from the 251 `### TD-NNN` entries under [Active Technical De
 |MNS / Manager GUI|3|
 |MNS / Server CLI|1|
 |MNS / Client|3|
+|MNS / Server|3|
 |Core / JSON|1|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
@@ -11527,13 +11640,13 @@ Recomputed directly from the 251 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|152|
-|2-4 hours|75|
+|0-2 hours|154|
+|2-4 hours|76|
 |4-8 hours|14|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 464-830 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 468-838 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

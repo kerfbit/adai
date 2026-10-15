@@ -79,6 +79,7 @@ std::string json_escape(const std::string& s) {
 
 // Find the value of a string field in a flat JSON body.
 // Does NOT handle values that span nested objects — use extract_object() first.
+// TODO: See TD-462 in TECHNICAL_DEBT.md - compact JSON only ("key": "v" with a space isn't found); \uXXXX not decoded
 std::string json_string(const std::string& body, const std::string& key) {
     const std::string needle = "\"" + key + "\":\"";
     const auto pos = body.find(needle);
@@ -1150,6 +1151,7 @@ void adai::ModelNameService::persist_model(const ModelRecord& rec) {
     const std::string connection_j = serialize_connection(rec.connection);
     sqlite3_bind_text(st, 28, connection_j.c_str(), -1, SQLITE_TRANSIENT);
     if (sqlite3_step(st) != SQLITE_DONE) {
+        // TODO: See TD-462 in TECHNICAL_DEBT.md - failure only logged; the request still reports success
         Logger::warn("ModelNameService: persist_model step failed: {}", sqlite3_errmsg(db));
     }
     sqlite3_finalize(st);
@@ -1286,6 +1288,7 @@ std::pair<int, std::string> adai::ModelNameService::handle_register(const std::s
     r.created_utc = utc_now();
     r.updated_utc = r.created_utc;
 
+    // TODO: See TD-461 in TECHNICAL_DEBT.md - legacy chatbots get no arch validation (missing arch -> all zeros); no d_model % num_heads check for any kind
     const auto arch = extract_object(body, "arch");
     if (arch != "{}") {
         r.d_model = static_cast<size_t>(json_int(arch, "d_model"));
@@ -1461,8 +1464,10 @@ std::pair<int, std::string> adai::ModelNameService::handle_state_transition(
     } else if (new_state == "candidate") {
         // Normal completion of training; also allows imported models (initializing→candidate)
         // and revival of retired models
+        // TODO: See TD-460 in TECHNICAL_DEBT.md - retired -> candidate skips the run_id check, so a running trainer revives a retired model
         valid = (cur == "training" || cur == "initializing" || cur == "retired");
     } else if (new_state == "retired") {
+        // TODO: See TD-460 in TECHNICAL_DEBT.md - retiring a production model leaves roles_ pointing at it
         valid = (cur != "retired");
     } else {
         return {400,
@@ -1755,6 +1760,7 @@ std::pair<int, std::string> adai::ModelNameService::handle_list_roles() {
 // Handler: GET /roles/{role}/production
 // ============================================================================
 
+// TODO: See TD-460 in TECHNICAL_DEBT.md - returns the mapped model even when it's retired
 std::pair<int, std::string> adai::ModelNameService::handle_resolve_role(const std::string& role) {
     std::shared_lock lock(mutex_);
     const auto rit = roles_.find(role);
@@ -1799,6 +1805,7 @@ std::pair<int, std::string> adai::ModelNameService::handle_promote(const std::st
     }
 
     it->second.state = "production";
+    // TODO: See TD-462 in TECHNICAL_DEBT.md - a previous role's mapping to this model is left in place
     it->second.role = role;
     it->second.updated_utc = utc_now();
     roles_[role] = model_name;
@@ -1834,6 +1841,7 @@ std::pair<int, std::string> adai::ModelNameService::handle_health() {
 // Handler: GET /models/{name}/datasets  (Phase 2 — proxies to registry /history)
 // ============================================================================
 
+// TODO: See TD-462 in TECHNICAL_DEBT.md - always empty (no client records model_id); global group, no kind; reads registry_*_ unlocked
 std::pair<int, std::string> adai::ModelNameService::handle_datasets(const std::string& name) {
     if (registry_url_.empty())
         return {
@@ -1933,6 +1941,7 @@ std::pair<int, std::string> adai::ModelNameService::handle_admin_put_config(
     }
 
     bool changed = false;
+    // TODO: See TD-462 in TECHNICAL_DEBT.md - written without a lock while handle_datasets() reads them
     if (json_has_string_key(body, "registry_url")) {
         registry_url_ = json_string(body, "registry_url");
         changed = true;
