@@ -17,6 +17,7 @@
 #endif
 
 MultiHeadAttention::MultiHeadAttention(int d_model, int num_heads)
+    // TODO: See TD-467 in TECHNICAL_DEBT.md - num_heads == 0 divides by zero here (SIGFPE) before the check below
     : d_model(d_model),
       num_heads(num_heads),
       d_k(d_model / num_heads),
@@ -142,6 +143,7 @@ Matrix MultiHeadAttention::forward_parallel(const Matrix& input, const Matrix* m
     // Written as raw indexed loops (not Matrix::operator*) so each head's block below
     // can run in its own OpenMP thread without nesting into operator*'s own internal
     // #pragma omp parallel for.
+    // TODO: See TD-467 in TECHNICAL_DEBT.md - hot loops use the bounds-checked operator() (TD-435) and walk V column-wise
     auto compute_head = [&](int h) {
         int start_dim = h * d_k;
         Matrix& scores_head = head_weights[h];
@@ -690,6 +692,7 @@ void MultiHeadAttention::load_weights(const std::string& filename) {
             std::to_string(d_model) + ", num_heads=" + std::to_string(num_heads));
     }
 
+    // TODO: See TD-467 in TECHNICAL_DEBT.md - reads aren't checked: a truncated file loads silently, leaving old weights
     // Read weight matrices
     for (int i = 0; i < d_model; ++i) {
         for (int j = 0; j < d_model; ++j) {

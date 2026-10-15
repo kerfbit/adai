@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 258
+**Total Items:** 259
 **High Priority:** 28
 **Medium Priority:** 112
-**Low Priority:** 118
+**Low Priority:** 119
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -441,6 +441,12 @@ export writes only the encoder's token embedding and import copies it into the d
 round trip changed logits by up to 1.05 (TD-465). One is LOW: the "HuggingFace T5" format isn't T5 (no relative bias,
 LayerNorm with bias, GELU vs "relu", biases), so exports don't work in `transformers` and real T5 checkpoints can never be
 imported; dtype ignored, no header validation, partial imports (TD-466).
+
+Also October 14, 2026: filed [TD-467](#td-467-multiheadattention-unchecked-loads-num_heads--0-sigfpe-and-hot-loop-overhead) (LOW) from the code-traced
+[MultiHeadAttention.md](../reference/source/MultiHeadAttention.md), which verified the per-head backward against finite differences
+(error norm 2.5–8×10⁻⁵ of the gradient's). `load_weights()` doesn't check its reads, so a half-truncated file loaded silently with
+`W_o` still at its random init (verified), and `num_heads == 0` crashes with SIGFPE before validation (verified); the hot loops use
+the bounds-checked accessor.
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1462,6 +1468,9 @@ to compare outputs) before anything starts using SafeTensors export. [TD-466](#t
 the format T5-faithful, which needs a T5-style architecture variant (RMSNorm, bias-free linears, relative position bias, shared
 embedding) as well as serializer changes; do the export-side mappings and relabelling first.
 
+**Tier 75 — Newly filed (October 14, 2026): `MultiHeadAttention`.** Fold [TD-467](#td-467-multiheadattention-unchecked-loads-num_heads--0-sigfpe-and-hot-loop-overhead)'s loader fix into Tier 55's pass over
+every legacy per-layer loader, and its `num_heads == 0` check into TD-299's (same defect in `CrossAttention`).
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1726,6 +1735,7 @@ embedding) as well as serializer changes; do the export-side mappings and relabe
   - [TD-464: `mns_server` Startup Crash, Early-SIGTERM Hang and Fixed Log Level](#td-464-mns_server-startup-crash-early-sigterm-hang-and-fixed-log-level)
   - [TD-465: SafeTensors Round Trip Replaces the Decoder Embedding](#td-465-safetensors-round-trip-replaces-the-decoder-embedding)
   - [TD-466: `ModelSerializer` Claims T5 Compatibility It Doesn't Have and Skips Input Validation](#td-466-modelserializer-claims-t5-compatibility-it-doesnt-have-and-skips-input-validation)
+  - [TD-467: `MultiHeadAttention` Unchecked Loads, `num_heads == 0` SIGFPE and Hot-Loop Overhead](#td-467-multiheadattention-unchecked-loads-num_heads--0-sigfpe-and-hot-loop-overhead)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -11202,6 +11212,38 @@ Files to Modify:
 
 ---
 
+### TD-467: `MultiHeadAttention` Unchecked Loads, `num_heads == 0` SIGFPE and Hot-Loop Overhead
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Attention / MultiHeadAttention | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `MultiHeadAttention` (whose per-head backward was verified correct against finite differences):
+- **Unchecked loads (verified).** `load_weights()` checks `d_model`/`num_heads` but not its matrix reads: a file truncated to half
+  loaded with no error and all 256 entries of a 16-wide layer's `W_o` were still its random initialization. A damaged checkpoint
+  sidecar silently yields a corrupted layer. Same class as TD-298, TD-369, TD-423, TD-426.
+- **SIGFPE (verified).** `MultiHeadAttention(8, 0)` dies with SIGFPE: `d_k(d_model / num_heads)` in the initializer list runs before
+  the divisibility check that would throw. Same as TD-299 (`CrossAttention`); MNS doesn't validate architectures (TD-461).
+- **By inspection.** The per-head score/softmax/value loops index through the bounds-checked, out-of-line `Matrix::operator()`
+  (TD-435) and walk `V` column-wise; parallelism is over heads only. A fully masked row becomes a uniform distribution over masked
+  positions (no current caller produces one). `save_weights()`/`load_weights()`/`print_config()` print to `std::cout`.
+
+Action Items:
+
+- [ ] Check every read in `load_weights()` (and writes in `save_weights()`), throwing on a short file; do it with Tier 55's shared loader fix.
+- [ ] Validate `num_heads > 0` before computing `d_k`.
+- [ ] Use raw row pointers in the per-head loops (or per-head GEMMs); replace console output with `Logger`.
+
+Location in code: `src/MultiHeadAttention.cpp` (constructor, `forward_parallel()`, `load_weights()`); tagged `TODO: See TD-467`.
+
+Files to Modify:
+
+- `src/MultiHeadAttention.{hpp,cpp}`
+- `tests/multiheadattention_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -11718,15 +11760,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 258 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 259 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|11%|
 |Medium|112|43%|
-|Low|118|46%|
+|Low|119|46%|
 
-**Total Active Items:** 258
+**Total Active Items:** 259
 
 ### By Component
 
@@ -11789,6 +11831,7 @@ Recomputed directly from the 258 `### TD-NNN` entries under [Active Technical De
 |World Model / LeJEPAEncoder|3|
 |Core / Logger|2|
 |Attention / LoRA|2|
+|Attention / MultiHeadAttention|1|
 |Core / Matrix|2|
 |Build / SIMD|2|
 |Metrics / Server CLI|2|
@@ -11810,13 +11853,13 @@ Recomputed directly from the 258 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|157|
+|0-2 hours|158|
 |2-4 hours|76|
 |4-8 hours|14|
 |8+ hours|7|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 487-868 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 488-870 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
