@@ -43,6 +43,7 @@ static std::atomic<bool> shutdown_requested{false};
 static adai::ModelNameService* g_service = nullptr;
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
+// TODO: See TD-464 in TECHNICAL_DEBT.md - stop() from signal context; SIGTERM before listen() hangs main() in join()
 static void signal_handler(int) {
     shutdown_requested.store(true);
     if (g_service)
@@ -121,6 +122,7 @@ int main(int argc, char* argv[]) {
     std::string registry_group = effective.registry_group;
     const bool admin_enabled = effective.admin_enabled;
 
+    // TODO: See TD-464 in TECHNICAL_DEBT.md - LOG_LEVEL ignored; --help/file comment endpoint lists are stale
     adai::Logger::init(adai::Logger::Level::INFO, "mns_server");
 
     // TODO: See TD-283 in TECHNICAL_DEBT.md - no SIGHUP handler, so SIGHUP terminates this process

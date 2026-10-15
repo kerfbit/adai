@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 254
+**Total Items:** 256
 **High Priority:** 28
-**Medium Priority:** 110
-**Low Priority:** 116
+**Medium Priority:** 111
+**Low Priority:** 117
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -428,6 +428,12 @@ because `retired → candidate` skips the run ownership check (TD-460); a legacy
 zeros) and no kind checks `d_model % num_heads`, permanently registering unbuildable models (TD-461). One is LOW: a dead
 datasets proxy (no `model_id` is ever recorded), an unlocked admin-settings data race, swallowed persistence errors, compact-only
 JSON parsing, a stale role after promoting to a new role (TD-462).
+
+Also October 14, 2026: filed [TD-463](#td-463-mns_server-runs-in-memory-and-reports-healthy-when-modelsdb-cant-be-opened) and [TD-464](#td-464-mns_server-startup-crash-early-sigterm-hang-and-fixed-log-level) from the code-traced
+[ModelNameServiceServer.md](../reference/source/ModelNameServiceServer.md). One is MEDIUM and verified: when `models.db` can't be
+opened, `mns_server` logs one error and runs in memory, reporting `/health` ok and accepting registrations that vanish on restart
+(TD-463). One is LOW and verified: an unusable data directory aborts with a core dump (uncaught exception on the server thread),
+SIGTERM before `listen()` hung 1 of 30 early-stop trials, and `LOG_LEVEL` is ignored (TD-464).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1441,6 +1447,9 @@ idempotent requests); [TD-459](#td-459-modelnameclient-validation-unescaping-and
 server-side checks with direct operational effect (role resolution and irreversible registration); do them with TD-448/TD-450
 before the next registration or promotion. [TD-462](#td-462-modelnameservice-dead-datasets-proxy-admin-settings-race-and-swallowed-persistence-errors) is cleanup; its JSON part goes with TD-453.
 
+**Tier 73 — Newly filed (October 14, 2026): `ModelNameServiceServer`.** [TD-463](#td-463-mns_server-runs-in-memory-and-reports-healthy-when-modelsdb-cant-be-opened) is a few lines (fail startup, or
+report persistence in `/health`) protecting the system of record; [TD-464](#td-464-mns_server-startup-crash-early-sigterm-hang-and-fixed-log-level) goes with TD-248/TD-249's shutdown fixes.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1701,6 +1710,8 @@ before the next registration or promotion. [TD-462](#td-462-modelnameservice-dea
   - [TD-460: MNS Retirement Leaves Role Mappings and Is Undone by Running Trainers](#td-460-mns-retirement-leaves-role-mappings-and-is-undone-by-running-trainers)
   - [TD-461: MNS Accepts Unbuildable Architectures at Registration](#td-461-mns-accepts-unbuildable-architectures-at-registration)
   - [TD-462: `ModelNameService` Dead Datasets Proxy, Admin-Settings Race and Swallowed Persistence Errors](#td-462-modelnameservice-dead-datasets-proxy-admin-settings-race-and-swallowed-persistence-errors)
+  - [TD-463: `mns_server` Runs In-Memory and Reports Healthy When `models.db` Can't Be Opened](#td-463-mns_server-runs-in-memory-and-reports-healthy-when-modelsdb-cant-be-opened)
+  - [TD-464: `mns_server` Startup Crash, Early-SIGTERM Hang and Fixed Log Level](#td-464-mns_server-startup-crash-early-sigterm-hang-and-fixed-log-level)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -11033,6 +11044,66 @@ Files to Modify:
 
 ---
 
+### TD-463: `mns_server` Runs In-Memory and Reports Healthy When `models.db` Can't Be Opened
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | MNS / Server | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `ModelNameServiceServer` and verified with the real `mns_server`. `ModelNameService::init_db()` logs
+`cannot open SQLite DB …` and returns with no database handle; every `persist_*()` then returns early, and neither `start()` nor
+`main()` treats it as fatal. With `<data_dir>/models.db` made unopenable, the server started, `/health` returned
+`{"status":"ok"}`, and `POST /models` returned 201; after a restart the model was gone (`404`, `model_count: 0`). Architecture,
+run numbering and roles, everything MNS is authoritative for, silently stop surviving restarts.
+
+Action Items:
+
+- [ ] Make a failed `init_db()` (and a failed schema creation) fatal at startup with a clear message and non-zero exit.
+- [ ] Optionally report persistence status in `/health`.
+
+Location in code: `src/ModelNameService.cpp` (`init_db()`, `start()`); tagged `TODO: See TD-463`.
+
+Files to Modify:
+
+- `src/ModelNameService.cpp`
+- `src/ModelNameServiceServer.cpp`
+
+---
+
+### TD-464: `mns_server` Startup Crash, Early-SIGTERM Hang and Fixed Log Level
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | MNS / Server | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `ModelNameServiceServer`:
+- **Crash (verified).** `main()` catches its own `create_directories()` failure and only warns, but `ModelNameService::start()`
+  repeats it on the server thread with no handler: `--data-dir /proc/mnsx` aborted with `terminate called after throwing an
+  instance of 'std::filesystem::…::filesystem_error'` (exit 134, core dumped).
+- **Early-SIGTERM hang (verified).** If SIGTERM arrives before the server thread reaches `listen()`, both `stop()` calls (the
+  handler's and `main()`'s) happen before there's anything to stop; the thread then listens and `main()` blocks in `join()`.
+  In 30 trials sending SIGTERM 0–90 ms after launch, 1 was still running 2 s later and needed SIGKILL. Same class as TD-248. The
+  handler also calls `httplib::Server::stop()` from signal context (not async-signal-safe; TD-249's class).
+- **By inspection.** `LOG_LEVEL` is ignored (`Logger::init(INFO)`, as TD-431); the file comment and `--help` omit
+  `PUT …/progress`, `PUT …/run_group` and `POST …/link-world-model`.
+
+Action Items:
+
+- [ ] Fail startup cleanly when the data directory can't be created (catch in `start()` or check in `main()` and exit 1).
+- [ ] Only set a flag in the signal handler; after `stop()`, re-check the flag once `listen()` has started (or use `wait_until_ready()` before stopping).
+- [ ] Honour `LOG_LEVEL`; update the endpoint lists.
+
+Location in code: `src/ModelNameServiceServer.cpp` (`signal_handler()`, `main()`); `src/ModelNameService.cpp` (`start()`); tagged `TODO: See TD-464`.
+
+Files to Modify:
+
+- `src/ModelNameServiceServer.cpp`
+- `src/ModelNameService.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -11549,15 +11620,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 254 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 256 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|11%|
-|Medium|110|43%|
-|Low|116|46%|
+|Medium|111|43%|
+|Low|117|46%|
 
-**Total Active Items:** 254
+**Total Active Items:** 256
 
 ### By Component
 
@@ -11630,7 +11701,7 @@ Recomputed directly from the 254 `### TD-NNN` entries under [Active Technical De
 |MNS / Manager GUI|3|
 |MNS / Server CLI|1|
 |MNS / Client|3|
-|MNS / Server|3|
+|MNS / Server|5|
 |Core / JSON|1|
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
@@ -11640,13 +11711,13 @@ Recomputed directly from the 254 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|154|
+|0-2 hours|156|
 |2-4 hours|76|
 |4-8 hours|14|
 |8+ hours|6|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 468-838 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 470-842 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

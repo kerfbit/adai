@@ -689,6 +689,7 @@ adai::ModelNameService::~ModelNameService() {
 // ============================================================================
 
 bool adai::ModelNameService::start() {
+    // TODO: See TD-464 in TECHNICAL_DEBT.md - throws on the server thread with no handler (std::terminate, core dump)
     fs::create_directories(data_dir_);
     init_db();
     load_from_disk();
@@ -753,6 +754,7 @@ void adai::ModelNameService::init_db() {
     const std::string db_path = data_dir_ + "/models.db";
     sqlite3* db = nullptr;
     if (sqlite3_open(db_path.c_str(), &db) != SQLITE_OK) {
+        // TODO: See TD-463 in TECHNICAL_DEBT.md - not fatal: MNS keeps running in memory, /health ok, data lost on restart
         Logger::error("ModelNameService: cannot open SQLite DB {}: {}", db_path,
                       sqlite3_errmsg(db));
         if (db)
