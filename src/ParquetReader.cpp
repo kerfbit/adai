@@ -191,12 +191,14 @@ bool skip_value(Cursor& c, int compact_type) {
             std::uint64_t size;
             if (!read_list_header(c, elem_type, size))
                 return false;
+            // TODO: See TD-470 in TECHNICAL_DEBT.md - size from a varint and BOOL elements consume no bytes here: a 26-byte file loops forever
             for (std::uint64_t i = 0; i < size; ++i) {
                 if (!skip_value(c, elem_type))
                     return false;
             }
             return true;
         }
+        // TODO: See TD-470 in TECHNICAL_DEBT.md - unbounded recursion: a deeply nested footer overflows the stack (SIGSEGV)
         case 12: {  // STRUCT
             int last_field_id = 0;
             while (true) {
@@ -680,6 +682,7 @@ bool snappy_raw_uncompress(const std::uint8_t* src, std::size_t src_len, std::st
     if (!read_varint(c, uncompressed_len))
         return false;
     out.clear();
+    // TODO: See TD-471 in TECHNICAL_DEBT.md - declared uncompressed length trusted for reserve()
     out.reserve(static_cast<std::size_t>(uncompressed_len));
 
     while (out.size() < uncompressed_len) {
@@ -997,6 +1000,7 @@ bool read_page_body(std::ifstream& file, std::int64_t body_offset, std::int32_t 
     std::string compressed;
     file.clear();
     file.seekg(body_offset, std::ios::beg);
+    // TODO: See TD-471 in TECHNICAL_DEBT.md - compressed_size not validated (negative int32 -> huge size_t -> length_error)
     compressed.resize(static_cast<std::size_t>(compressed_size));
     file.read(&compressed[0], compressed_size);
     if (file.gcount() != compressed_size) {
@@ -1091,6 +1095,7 @@ bool decode_column_chunk(std::ifstream& file, const std::string& path_for_errors
         const std::uint8_t* page = reinterpret_cast<const std::uint8_t*>(page_str.data());
         const std::size_t page_len = page_str.size();
         std::size_t page_pos = 0;
+        // TODO: See TD-471 in TECHNICAL_DEBT.md - dp_num_values trusted (negative -> huge; 2^31 -> 8 GB of def levels from a few bytes)
         const std::size_t page_num_values = static_cast<std::size_t>(ph.dp_num_values);
 
         std::vector<std::uint32_t> def_levels;
@@ -1272,6 +1277,7 @@ void append_cell_json(const Cell& cell, std::string& out) {
 // ParquetReader::convert_to_jsonl
 // ============================================================================
 
+// TODO: See TD-472 in TECHNICAL_DEBT.md - throws on allocation failures despite the "returns -1" contract; buffers the whole part in memory
 long long ParquetReader::convert_to_jsonl(const std::string& parquet_path,
                                           const std::string& out_jsonl_path, bool append) {
     std::ifstream file(parquet_path, std::ios::binary);

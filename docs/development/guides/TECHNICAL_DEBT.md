@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 261
-**High Priority:** 28
-**Medium Priority:** 113
-**Low Priority:** 120
+**Total Items:** 264
+**High Priority:** 29
+**Medium Priority:** 114
+**Low Priority:** 121
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -454,6 +454,13 @@ Also October 14, 2026: filed [TD-468](#td-468-gpu-training-round-trips-every-gra
 downloads every gradient, steps on the CPU and re-uploads every weight on each optimizer step, an estimated ~2.4 s of CPU AdamW and
 ~2.3 GB of transfers per step at `config.trainer.conf`'s size (TD-468). One is LOW: one global weight decay applied to norms, biases and
 embeddings, unused `amsgrad`, no duplicate-registration check (TD-469).
+
+Also October 14, 2026: filed [TD-470](#td-470-malformed-parquet-footers-hang-or-crash-registry_server) through [TD-472](#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps) from the code-traced
+[ParquetReader.md](../reference/source/ParquetReader.md), whose bounds handling held up under 25,000 ASan/UBSan fuzz mutations. One is
+**HIGH** and verified: its Thrift `skip_value()` lets a 26-byte HuggingFace part spin at 100% CPU forever (bool-list elements consume
+nothing, list size from a varint) and a deeply nested footer crash `registry_server` with SIGSEGV (unbounded recursion) (TD-470). One is
+MEDIUM: declared sizes are trusted for allocations (62 escaped `length_error`s in fuzzing; a 2³¹-value page would fill 8 GB) and nothing
+catches the exceptions (TD-471). One is LOW: the "returns −1" contract, whole-part memory use, and test coverage (TD-472).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1482,6 +1489,11 @@ every legacy per-layer loader, and its `num_heads == 0` check into TD-299's (sam
 and the GPU path's host step; the larger part (a GPU-resident AdamW keeping weights, gradients and moments on the device) should be measured
 on ai-machine first and done together with TD-436 and TD-269. [TD-469](#td-469-optimizer-global-weight-decay-unused-amsgrad-and-duplicate-registration) is small.
 
+**Tier 77 — Newly filed (October 14, 2026): `ParquetReader`.** Fix [TD-470](#td-470-malformed-parquet-footers-hang-or-crash-registry_server) (a recursion depth limit, consume one byte per
+bool list element, cap list sizes against the remaining bytes) with TD-309, since both let one fetch request crash `registry_server`;
+[TD-471](#td-471-parquetreader-trusts-declared-sizes-for-allocations) (validate declared sizes before allocating, catch at the `DataFetcher` boundary) in the same pass; [TD-472](#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps)
+adds the adversarial tests.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1749,6 +1761,9 @@ on ai-machine first and done together with TD-436 and TD-269. [TD-469](#td-469-o
   - [TD-467: `MultiHeadAttention` Unchecked Loads, `num_heads == 0` SIGFPE and Hot-Loop Overhead](#td-467-multiheadattention-unchecked-loads-num_heads--0-sigfpe-and-hot-loop-overhead)
   - [TD-468: GPU Training Round-Trips Every Gradient and Weight Through a 3× Slow CPU Optimizer](#td-468-gpu-training-round-trips-every-gradient-and-weight-through-a-3-slow-cpu-optimizer)
   - [TD-469: `Optimizer` Global Weight Decay, Unused `amsgrad` and Duplicate Registration](#td-469-optimizer-global-weight-decay-unused-amsgrad-and-duplicate-registration)
+  - [TD-470: Malformed Parquet Footers Hang or Crash `registry_server`](#td-470-malformed-parquet-footers-hang-or-crash-registry_server)
+  - [TD-471: `ParquetReader` Trusts Declared Sizes for Allocations](#td-471-parquetreader-trusts-declared-sizes-for-allocations)
+  - [TD-472: `ParquetReader` Contract, Memory Use and Test Coverage Gaps](#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -11323,6 +11338,100 @@ Files to Modify:
 
 ---
 
+### TD-470: Malformed Parquet Footers Hang or Crash `registry_server`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open | Data / ParquetReader | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `ParquetReader` and verified with hand-crafted files. `skip_value()` (the Thrift compact-protocol skipper for footer and
+page-header fields the reader doesn't parse) has two unbounded paths:
+- **Infinite loop.** A list's size comes from a varint, and skipping a `BOOL` element (types 1/2) consumes **no bytes**: that's the
+  struct-field form, but in the compact protocol each list element is one byte. A **26-byte** file whose footer holds one unknown field with
+  a bool list of size ~2⁶² made `convert_to_jsonl()` spin at 100% CPU until killed (20 s timeout).
+- **Unbounded recursion.** Nested structs recurse once per byte; a footer with 400,000 nested struct fields crashed with **SIGSEGV** (stack
+  overflow).
+
+`ParquetReader` runs inside `registry_server` on every HuggingFace part fetched through `POST /registry/<group>/fetch/huggingface` (and the
+dashboard's fetch dialog), so a malicious or corrupt dataset part ties up a request thread forever or **kills the registry daemon** (a
+segfault can't be caught). Same class as TD-309. (25,000 random mutations under ASan/UBSan found no memory errors; these needed crafted input.)
+
+Action Items:
+
+- [ ] Consume one byte per bool element when skipping a list; reject list sizes larger than the remaining bytes.
+- [ ] Add a recursion depth limit (e.g. 64) to `skip_value()` and the struct parsers.
+- [ ] Regression tests with the two crafted footers.
+
+Location in code: `src/ParquetReader.cpp` (`skip_value()`, `read_list_header()`); tagged `TODO: See TD-470`.
+
+Files to Modify:
+
+- `src/ParquetReader.cpp`
+- `tests/parquet_reader_test.cpp`
+
+---
+
+### TD-471: `ParquetReader` Trusts Declared Sizes for Allocations
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / ParquetReader | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `ParquetReader`. Sizes read from the file drive allocations before being checked against the bytes actually present:
+`read_page_body()`'s `compressed.resize(compressed_page_size)` (a negative `int32` becomes a huge `size_t`), Snappy's declared
+uncompressed length (`out.reserve()`), a page's `dp_num_values` (`int32` → `size_t`, then `def_levels.assign()`/`reserve()`), and
+`decode_column_chunk()`'s `reserve(num_rows)`.
+- **Verified:** 25,000 fuzz mutations produced **62 escaped `std::length_error`s** (`vector::reserve`, `string::resize`). Nothing in
+  `ParquetReader` or `DataFetcher` catches them; `httplib` converts them to HTTP 500, so `registry_server` survives, but partially
+  downloaded parts aren't cleaned up (compounding TD-313).
+- **By inspection:** a plausible lie is worse than an absurd one: a page claiming 2³¹ values in a `REQUIRED` column allocates and fills 8 GB
+  of definition levels from a few bytes (one RLE run can expand to `num_values` entries), pushing the host toward the OOM killer.
+
+Action Items:
+
+- [ ] Validate every declared size before allocating: non-negative, bounded by the file size / remaining bytes, page `num_values` ≤ the column chunk's remaining values, Snappy length ≤ the page's `uncompressed_page_size` (and a sane cap).
+- [ ] Catch exceptions in `convert_to_jsonl()` (return −1) and clean up in `DataFetcher` on failure.
+
+Location in code: `src/ParquetReader.cpp` (`read_page_body()`, `snappy_raw_uncompress()`, `decode_column_chunk()`); `src/DataFetcher.cpp` (the `convert_to_jsonl()` call); tagged `TODO: See TD-471`.
+
+Files to Modify:
+
+- `src/ParquetReader.cpp`
+- `src/DataFetcher.cpp`
+- `tests/parquet_reader_test.cpp`
+
+---
+
+### TD-472: `ParquetReader` Contract, Memory Use and Test Coverage Gaps
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / ParquetReader | October 14, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `ParquetReader`, by inspection:
+- The header promises "returns −1 on any unsupported/corrupt input", but allocation failures throw (TD-471).
+- Every row of a part is decoded into memory before writing; very large parts cost their full decoded size in RAM.
+- The only end-to-end comparison with pyarrow (`DISABLED_TinyStoriesPartsMatchPythonReference`) is disabled; the only malformed-input test
+  is one "corrupt file" case. pyarrow is available in the dev environment (`tests/fixtures/parquet/generate_fixtures.py`).
+
+Action Items:
+
+- [ ] Add adversarial tests (the TD-470 footers, oversized declared sizes, negative sizes) and a small committed fuzz corpus or a libFuzzer target.
+- [ ] Re-enable the pyarrow comparison on generated fixtures (no network).
+- [ ] Stream rows per row group instead of buffering the whole part (keeping the "nothing written on failure" guarantee via a temp file + rename).
+
+Location in code: `src/ParquetReader.{hpp,cpp}`; `tests/parquet_reader_test.cpp`; tagged `TODO: See TD-472`.
+
+Files to Modify:
+
+- `src/ParquetReader.{hpp,cpp}`
+- `tests/parquet_reader_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -11839,15 +11948,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 261 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 264 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|28|11%|
-|Medium|113|43%|
-|Low|120|46%|
+|High|29|11%|
+|Medium|114|43%|
+|Low|121|46%|
 
-**Total Active Items:** 261
+**Total Active Items:** 264
 
 ### By Component
 
@@ -11893,6 +12002,7 @@ Recomputed directly from the 261 `### TD-NNN` entries under [Active Technical De
 |Transformer / LLMEncoder|4|
 |Transformer / FeedForward|4|
 |Data / FtpDataServer|6|
+|Data / ParquetReader|3|
 |Metrics / GenerationQuality|3|
 |GPU / GPUManager|6|
 |GPU / Kernels|4|
@@ -11933,13 +12043,13 @@ Recomputed directly from the 261 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|159|
-|2-4 hours|76|
+|0-2 hours|161|
+|2-4 hours|77|
 |4-8 hours|14|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 497-888 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 501-896 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

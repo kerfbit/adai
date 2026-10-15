@@ -747,6 +747,7 @@ std::string DataFetcher::download_hf_full_dataset(const std::string& dataset_id,
         // Convert to JSONL — first successful part truncates jsonl_path, subsequent
         // parts append, so a failure on part 0 never leaves a stale file from a
         // previous run behind.
+        // TODO: See TD-471 in TECHNICAL_DEBT.md - convert_to_jsonl() can throw (length_error); nothing catches or cleans up here
         const long long rows = ParquetReader::convert_to_jsonl(pq_file, jsonl_path,
                                                                 /*append=*/converted > 0);
         if (rows < 0) {
