@@ -95,6 +95,7 @@ ModelSerializer::TensorDescriptor make_td_1d(const std::string& name, const Matr
     return td;
 }
 
+// TODO: See TD-466 in TECHNICAL_DEBT.md - no-op and unused
 // Emit a JSON string where all special characters are escaped.
 std::string json_escape(const std::string& s) {
     // nlohmann handles this during serialization; this is only for metadata values.
@@ -206,6 +207,7 @@ std::map<std::string, ModelSerializer::TensorDescriptor> ModelSerializer::read_s
 
         TensorDescriptor td;
         td.name = key;
+        // TODO: See TD-466 in TECHNICAL_DEBT.md - dtype ignored (read as F32); offsets/header size not validated
         td.dtype = entry.value("dtype", "F32");
 
         for (auto& s : entry.at("shape")) {
@@ -261,6 +263,7 @@ void ModelSerializer::export_safetensors(const EncoderDecoderModel& model,
     std::vector<TensorDescriptor> tensors;
 
     // ── Shared embedding ──────────────────────────────────────────────────────
+    // TODO: See TD-465 in TECHNICAL_DEBT.md - they don't share it: the decoder's separately trained embedding is never exported
     // encoder and decoder share the same token embedding; use encoder's.
     // Shape: [vocab_size, d_model] — no transpose needed.
     {
@@ -374,6 +377,7 @@ void ModelSerializer::export_safetensors(const EncoderDecoderModel& model,
     cfg["decoder_start_token_id"] = model.get_bos_token_id();
     cfg["eos_token_id"] = model.get_eos_token_id();
     cfg["pad_token_id"] = model.get_pad_token_id();
+    // TODO: See TD-466 in TECHNICAL_DEBT.md - FFN is GELU; the "T5" layout/config doesn't match ADAI's architecture
     cfg["feed_forward_proj"] = "relu";
     cfg["torch_dtype"] = "float32";
 
@@ -472,6 +476,7 @@ void ModelSerializer::import_safetensors(EncoderDecoderModel& model, const std::
         Matrix emb = from_flat(require("model.shared.weight", vocab_size * d_model).data,
                                vocab_size, d_model);
         enc->get_token_embedding()->set_embeddings(emb);
+        // TODO: See TD-465 in TECHNICAL_DEBT.md - overwrites the decoder's own embedding with the encoder's (round trip changes outputs)
         // Decoder uses its own embedding; set it to the same values.
         if (dec_ptr->get_token_embedding()) {
             dec_ptr->get_token_embedding()->set_embeddings(emb);

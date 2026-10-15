@@ -21,6 +21,9 @@ class Matrix;
  * format and the HuggingFace SafeTensors ecosystem.
  *
  * Tensor naming follows the T5ForConditionalGeneration convention.
+ * TODO: See TD-466 in TECHNICAL_DEBT.md - names only: the architecture isn't T5, so exports don't load in transformers
+ * and real T5 checkpoints can't be imported (required bias tensors are absent from T5).
+ * Decision (2026-10-14): make it T5-faithful (needs a T5-style architecture variant, see TD-466).
  * Weight matrices are transposed on both export and import because ADAI stores
  * them as right-multiplied operands (output = input @ W) while HuggingFace /
  * PyTorch uses the transposed convention (output = F.linear(input, W) = input @ W.T).

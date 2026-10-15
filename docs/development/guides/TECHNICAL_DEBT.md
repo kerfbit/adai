@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 256
+**Total Items:** 258
 **High Priority:** 28
-**Medium Priority:** 111
-**Low Priority:** 117
+**Medium Priority:** 112
+**Low Priority:** 118
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -434,6 +434,13 @@ Also October 14, 2026: filed [TD-463](#td-463-mns_server-runs-in-memory-and-repo
 opened, `mns_server` logs one error and runs in memory, reporting `/health` ok and accepting registrations that vanish on restart
 (TD-463). One is LOW and verified: an unusable data directory aborts with a core dump (uncaught exception on the server thread),
 SIGTERM before `listen()` hung 1 of 30 early-stop trials, and `LOG_LEVEL` is ignored (TD-464).
+
+Also October 14, 2026: filed [TD-465](#td-465-safetensors-round-trip-replaces-the-decoder-embedding) and [TD-466](#td-466-modelserializer-claims-t5-compatibility-it-doesnt-have-and-skips-input-validation) from the code-traced
+[ModelSerializer.md](../reference/source/ModelSerializer.md) (no production caller; tests only). One is MEDIUM and verified:
+export writes only the encoder's token embedding and import copies it into the decoder's separately trained embedding, so a
+round trip changed logits by up to 1.05 (TD-465). One is LOW: the "HuggingFace T5" format isn't T5 (no relative bias,
+LayerNorm with bias, GELU vs "relu", biases), so exports don't work in `transformers` and real T5 checkpoints can never be
+imported; dtype ignored, no header validation, partial imports (TD-466).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1450,6 +1457,11 @@ before the next registration or promotion. [TD-462](#td-462-modelnameservice-dea
 **Tier 73 — Newly filed (October 14, 2026): `ModelNameServiceServer`.** [TD-463](#td-463-mns_server-runs-in-memory-and-reports-healthy-when-modelsdb-cant-be-opened) is a few lines (fail startup, or
 report persistence in `/health`) protecting the system of record; [TD-464](#td-464-mns_server-startup-crash-early-sigterm-hang-and-fixed-log-level) goes with TD-248/TD-249's shutdown fixes.
 
+**Tier 74 — Newly filed (October 14, 2026): `ModelSerializer`.** Fix [TD-465](#td-465-safetensors-round-trip-replaces-the-decoder-embedding) (and extend the round-trip test
+to compare outputs) before anything starts using SafeTensors export. [TD-466](#td-466-modelserializer-claims-t5-compatibility-it-doesnt-have-and-skips-input-validation): owner decided (October 14, 2026) to make
+the format T5-faithful, which needs a T5-style architecture variant (RMSNorm, bias-free linears, relative position bias, shared
+embedding) as well as serializer changes; do the export-side mappings and relabelling first.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1712,6 +1724,8 @@ report persistence in `/health`) protecting the system of record; [TD-464](#td-4
   - [TD-462: `ModelNameService` Dead Datasets Proxy, Admin-Settings Race and Swallowed Persistence Errors](#td-462-modelnameservice-dead-datasets-proxy-admin-settings-race-and-swallowed-persistence-errors)
   - [TD-463: `mns_server` Runs In-Memory and Reports Healthy When `models.db` Can't Be Opened](#td-463-mns_server-runs-in-memory-and-reports-healthy-when-modelsdb-cant-be-opened)
   - [TD-464: `mns_server` Startup Crash, Early-SIGTERM Hang and Fixed Log Level](#td-464-mns_server-startup-crash-early-sigterm-hang-and-fixed-log-level)
+  - [TD-465: SafeTensors Round Trip Replaces the Decoder Embedding](#td-465-safetensors-round-trip-replaces-the-decoder-embedding)
+  - [TD-466: `ModelSerializer` Claims T5 Compatibility It Doesn't Have and Skips Input Validation](#td-466-modelserializer-claims-t5-compatibility-it-doesnt-have-and-skips-input-validation)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -11104,6 +11118,90 @@ Files to Modify:
 
 ---
 
+### TD-465: SafeTensors Round Trip Replaces the Decoder Embedding
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Models / ModelSerializer | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `ModelSerializer` and verified. `LLMEncoder` and `LLMDecoder` each own a separately trained `TokenEmbedding`
+(the decoder's is updated in `LLMDecoder::backward()`/`update_weights()`). `export_safetensors()` writes only the encoder's as
+`model.shared.weight` ("encoder and decoder share the same token embedding" — they don't), and `import_safetensors()` copies it into
+both. Probe: the original model's two embeddings differed by up to 0.85; after export → import into a fresh model the decoder
+embedding equalled the encoder's and the logits for the same input differed by up to **1.05**. `FullModelRoundTrip` passes because it
+compares only three weight matrices. (No production caller today, so no shipped artifact is affected.)
+
+Action Items:
+
+- [ ] Export the decoder embedding as its own tensor (e.g. `decoder.embed_tokens.weight`) and import it when present.
+- [ ] Extend `FullModelRoundTrip` to compare both embeddings and the model's forward output.
+
+Location in code: `src/ModelSerializer.cpp` (`export_safetensors()`, `import_safetensors()` shared-embedding blocks); tagged `TODO: See TD-465`.
+
+Files to Modify:
+
+- `src/ModelSerializer.cpp`
+- `tests/model_serializer_test.cpp`
+
+---
+
+### TD-466: `ModelSerializer` Claims T5 Compatibility It Doesn't Have and Skips Input Validation
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open (decision: make it T5-faithful) | Models / ModelSerializer | October 14, 2026 | 16-24 hours |
+
+Description:
+Found while tracing `ModelSerializer`, by inspection:
+- **Not T5.** Tensor names and `config.json` (`architectures: T5ForConditionalGeneration`, `model_type: t5`) claim HuggingFace T5, but
+  ADAI uses sinusoidal positions (T5: learned, bucketed relative attention bias, which `transformers` would initialize randomly),
+  LayerNorm with bias and mean-centering (T5: weight-only RMSNorm), a GELU FFN with biases (config says `feed_forward_proj: "relu"`;
+  T5 linears have no biases), 1/√d_k attention scaling (T5: none), separate encoder/decoder embeddings (T5: one shared embedding) and
+  an untied, biased LM head. Exports don't load meaningfully into `transformers`; importing a real T5 checkpoint always fails because
+  `require()` demands bias tensors T5 doesn't have. The header's "unknown keys ignored (e.g. T5 position biases)" case is unreachable.
+  (Embeddings aren't scaled in the forward pass, which already matches T5.)
+- **Validation.** `read_safetensors()` ignores `dtype` (F16/BF16 fail later as "size mismatch in from_flat"); a huge/corrupt header
+  length or `data_offsets` with `end < start` become giant allocations; offsets aren't checked against the file size. Import sets
+  weights as it goes, so a missing tensor leaves the model half-overwritten.
+- **Hygiene.** `json_escape()` is a no-op and unused; the files are tagged `stable` with no production caller.
+
+**Decision (October 14, 2026):** owner chose to make the format **T5-faithful** (an export loads in `transformers`'
+`T5ForConditionalGeneration` and produces the same outputs; real T5 checkpoints import), rather than relabelling it as an
+ADAI-specific format. Only part of the gap can be closed in the serializer; the rest is a model-architecture change:
+
+- *Mappable at export/import, no model change:* fold the 1/√d_k attention scale into the exported `q.weight` (and unfold on
+  import); `tie_word_embeddings: false` for the untied LM head; `feed_forward_proj: "gelu"` (non-gated GELU) instead of `"relu"`;
+  correct special-token IDs and `d_kv`.
+- *Not representable in T5, so they require a T5-style architecture variant of `EncoderDecoderModel`:* RMSNorm without bias
+  (`T5LayerNorm`) instead of `LayerNorm`; bias-free Q/K/V/O, FFN and LM head; bucketed relative position bias (per head, computed in
+  layer 0 and shared) instead of sinusoidal positional encoding; one embedding shared by encoder and decoder; and, if the LM head is
+  tied, T5's `d_model^-0.5` rescale before it. Existing checkpoints can't be converted exactly, so this is a new variant (selected
+  per model, e.g. an MNS architecture flag, since architecture is immutable) trained from scratch or imported from a real T5
+  checkpoint. Optionally support T5 v1.1's gated GELU (`wi_0`/`wi_1`).
+- For the current (non-T5) architecture, TD-465's fix still applies: export the decoder embedding separately. Until the variant
+  exists, the current export should stop claiming `T5ForConditionalGeneration`.
+
+Action Items:
+
+- [ ] Implement the export-side mappings above; stop labelling non-T5 models as `T5ForConditionalGeneration`.
+- [ ] Add the T5-style architecture variant (RMSNorm, bias-free linears, relative position bias, shared embedding) and its MNS/config selection.
+- [ ] Map T5 tensor names both ways for the variant, including `relative_attention_bias`; import a real `t5-small` checkpoint.
+- [ ] Verify against `transformers` (encoder output and logits within tolerance for the same input); add that comparison as a test or script (needs `transformers`/`torch` in the dev environment).
+- [ ] Validate dtype (accept F16/BF16 with conversion), header size and offsets; load into temporaries and apply only after all tensors validate.
+- [ ] Remove `json_escape()`; reconsider the `stable` tag.
+
+Location in code: `src/ModelSerializer.{hpp,cpp}` (class comment, `config.json` writer, `read_safetensors()`, `import_safetensors()`); the model classes for the variant; tagged `TODO: See TD-466`.
+
+Files to Modify:
+
+- `src/ModelSerializer.{hpp,cpp}`
+- `src/EncoderDecoderModel.{hpp,cpp}`, `src/LayerNorm.*` (or a new RMSNorm), `src/MultiHeadAttention.*`, `src/CrossAttention.*`, `src/FeedForward.*`, `src/LanguageModelHead.*`, positional encoding
+- `src/ModelNameService.cpp`, `src/ModelNameClient.cpp` (architecture variant flag)
+- `tests/model_serializer_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -11620,15 +11718,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 256 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 258 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|11%|
-|Medium|111|43%|
-|Low|117|46%|
+|Medium|112|43%|
+|Low|118|46%|
 
-**Total Active Items:** 256
+**Total Active Items:** 258
 
 ### By Component
 
@@ -11686,6 +11784,7 @@ Recomputed directly from the 256 `### TD-NNN` entries under [Active Technical De
 |Inference / IntegratedInferenceEngine|4|
 |Inference / KVCache|2|
 |Models / LanguageModelHead|3|
+|Models / ModelSerializer|2|
 |Layers / LayerNorm|1|
 |World Model / LeJEPAEncoder|3|
 |Core / Logger|2|
@@ -11711,13 +11810,13 @@ Recomputed directly from the 256 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|156|
+|0-2 hours|157|
 |2-4 hours|76|
 |4-8 hours|14|
-|8+ hours|6|
+|8+ hours|7|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 470-842 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 487-868 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
