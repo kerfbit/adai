@@ -8,7 +8,7 @@ Coding and development documentation for the ADAI project.
 
 Component API documentation. See [api/README.md](api/README.md) for the full index.
 
-- **Core** — `optimizer.md` (Activation and Matrix moved to [reference/source/Activation.md](reference/source/Activation.md) and [reference/source/Matrix.md](reference/source/Matrix.md))
+- **Core** — moved to [reference/source/Activation.md](reference/source/Activation.md), [reference/source/Matrix.md](reference/source/Matrix.md) and [reference/source/Optimizer.md](reference/source/Optimizer.md)
 - **Transformer** — encoder, decoder, encoder-decoder model, attention heads, feed-forward, positional encoding, token embedding, layer norm, language model head
 - **Attention** — moved to [reference/source/MultiHeadAttention.md](reference/source/MultiHeadAttention.md) and [reference/source/CrossAttention.md](reference/source/CrossAttention.md)
 - **NLP** — `text-generator.md` (BPETokenizer and ConversationContext moved to [reference/source/BPETokenizer.md](reference/source/BPETokenizer.md) and [reference/source/ConversationContext.md](reference/source/ConversationContext.md))

@@ -1209,6 +1209,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 // and clip_gradients() would otherwise see the all-zero CPU
                 // buffers left by zero_grad() at the top of this accumulation
                 // window — silently skipping clipping every step.
+                // TODO: See TD-468 in TECHNICAL_DEBT.md - every gradient to the host, CPU optimizer step, every weight back each step
                 model->gpu_download_grads();
 #endif
 

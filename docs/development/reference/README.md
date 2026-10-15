@@ -63,6 +63,7 @@ This directory contains reference materials, technical specifications, and imple
   - [ModelNameServiceServer](source/ModelNameServiceServer.md) (`src/ModelNameServiceServer.cpp`; `mns_server`'s `main()`)
   - [ModelSerializer](source/ModelSerializer.md) (`src/ModelSerializer.{hpp,cpp}`; SafeTensors export/import with T5 tensor names)
   - [MultiHeadAttention](source/MultiHeadAttention.md) (`src/MultiHeadAttention.{hpp,cpp}`; per-head self-attention, KV-cached decode, LoRA hooks)
+  - [Optimizer](source/Optimizer.md) (`src/Optimizer.{hpp,cpp}`; SGD/momentum/Adam/AdamW over parameter groups, clipping)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)

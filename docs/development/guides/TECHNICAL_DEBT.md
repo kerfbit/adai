@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 14, 2026
-**Total Items:** 259
+**Total Items:** 261
 **High Priority:** 28
-**Medium Priority:** 112
-**Low Priority:** 119
+**Medium Priority:** 113
+**Low Priority:** 120
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -447,6 +447,13 @@ Also October 14, 2026: filed [TD-467](#td-467-multiheadattention-unchecked-loads
 (error norm 2.5–8×10⁻⁵ of the gradient's). `load_weights()` doesn't check its reads, so a half-truncated file loaded silently with
 `W_o` still at its random init (verified), and `num_heads == 0` crashes with SIGFPE before validation (verified); the hot loops use
 the bounds-checked accessor.
+
+Also October 14, 2026: filed [TD-468](#td-468-gpu-training-round-trips-every-gradient-and-weight-through-a-3-slow-cpu-optimizer) and [TD-469](#td-469-optimizer-global-weight-decay-unused-amsgrad-and-duplicate-registration) from the code-traced
+[Optimizer.md](../reference/source/Optimizer.md). One is MEDIUM: the update loops go through the bounds-checked accessor (an AdamW
+`step()` took 45.0 ms vs 14.2 ms with raw pointers on 5.24M parameters, verified), and because the optimizer is CPU-only, GPU training
+downloads every gradient, steps on the CPU and re-uploads every weight on each optimizer step, an estimated ~2.4 s of CPU AdamW and
+~2.3 GB of transfers per step at `config.trainer.conf`'s size (TD-468). One is LOW: one global weight decay applied to norms, biases and
+embeddings, unused `amsgrad`, no duplicate-registration check (TD-469).
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1471,6 +1478,10 @@ embedding) as well as serializer changes; do the export-side mappings and relabe
 **Tier 75 — Newly filed (October 14, 2026): `MultiHeadAttention`.** Fold [TD-467](#td-467-multiheadattention-unchecked-loads-num_heads--0-sigfpe-and-hot-loop-overhead)'s loader fix into Tier 55's pass over
 every legacy per-layer loader, and its `num_heads == 0` check into TD-299's (same defect in `CrossAttention`).
 
+**Tier 76 — Newly filed (October 14, 2026): `Optimizer`.** [TD-468](#td-468-gpu-training-round-trips-every-gradient-and-weight-through-a-3-slow-cpu-optimizer)'s raw-pointer rewrite is a quick 3× win for CPU training
+and the GPU path's host step; the larger part (a GPU-resident AdamW keeping weights, gradients and moments on the device) should be measured
+on ai-machine first and done together with TD-436 and TD-269. [TD-469](#td-469-optimizer-global-weight-decay-unused-amsgrad-and-duplicate-registration) is small.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1736,6 +1747,8 @@ every legacy per-layer loader, and its `num_heads == 0` check into TD-299's (sam
   - [TD-465: SafeTensors Round Trip Replaces the Decoder Embedding](#td-465-safetensors-round-trip-replaces-the-decoder-embedding)
   - [TD-466: `ModelSerializer` Claims T5 Compatibility It Doesn't Have and Skips Input Validation](#td-466-modelserializer-claims-t5-compatibility-it-doesnt-have-and-skips-input-validation)
   - [TD-467: `MultiHeadAttention` Unchecked Loads, `num_heads == 0` SIGFPE and Hot-Loop Overhead](#td-467-multiheadattention-unchecked-loads-num_heads--0-sigfpe-and-hot-loop-overhead)
+  - [TD-468: GPU Training Round-Trips Every Gradient and Weight Through a 3× Slow CPU Optimizer](#td-468-gpu-training-round-trips-every-gradient-and-weight-through-a-3-slow-cpu-optimizer)
+  - [TD-469: `Optimizer` Global Weight Decay, Unused `amsgrad` and Duplicate Registration](#td-469-optimizer-global-weight-decay-unused-amsgrad-and-duplicate-registration)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -11244,6 +11257,72 @@ Files to Modify:
 
 ---
 
+### TD-468: GPU Training Round-Trips Every Gradient and Weight Through a 3× Slow CPU Optimizer
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Core / Optimizer | October 14, 2026 | 8-16 hours |
+
+Description:
+Found while tracing `Optimizer`:
+- **Slow update loops (verified).** `step_sgd/…/step_adamw()`, the norm and clipping loops all index through `Matrix::operator()`
+  (out-of-line, bounds-checked, TD-435); an AdamW step makes about six accessor calls per parameter. On 5.24M parameters (20 × 512²,
+  `-O3 -march=native`, 8 threads) `Optimizer::step()` took **45.0 ms vs 14.2 ms** for the same AdamW over raw row pointers (3.2×);
+  `get_gradient_norm()` adds 6.4 ms.
+- **GPU training uses it on the host (by inspection, with an estimate).** The optimizer is CPU-only, so each optimizer step in
+  `ChatbotTrainer`'s GPU path does `gpu_download_grads()` (every gradient to the host), `Optimizer::step()` on the CPU, then
+  `gpu_sync_weights()` (every weight back to the device). For `config.trainer.conf`'s fallback architecture (d_model 768, d_ff 3072,
+  8 + 24 layers ≈ 283M parameters before embeddings; MNS's record may differ) that's an estimated ~2.4 s of CPU AdamW at the measured
+  rate (~0.8 s with raw pointers) plus ~2.3 GB of host↔device copies per optimizer step (every 32 samples with
+  `GRADIENT_ACCUMULATION_STEPS=32`), on a SYCL build compiled without SIMD flags (TD-436). Not yet measured on ai-machine.
+
+Action Items:
+
+- [ ] Rewrite the update, norm and clip loops over raw row pointers (vectorizable); re-measure.
+- [ ] Measure the per-step download/step/upload time on ai-machine.
+- [ ] Add a GPU-resident optimizer (AdamW kernels for CUDA and SYCL) keeping weights, gradients and moments on the device, so GPU training skips the round trip; keep the CPU optimizer for CPU training.
+
+Location in code: `src/Optimizer.cpp` (update/norm/clip loops); `src/ChatbotTrainer.cpp` (`gpu_download_grads()`/`gpu_sync_weights()` around `optimizer->step()`); tagged `TODO: See TD-468`.
+
+Files to Modify:
+
+- `src/Optimizer.{hpp,cpp}`
+- `src/ChatbotTrainer.cpp`
+- `src/gpu/MatrixGPU.{hpp,cu}`, `src/gpu/sycl/MatrixGPU_SYCL.{hpp,cpp}`
+
+---
+
+### TD-469: `Optimizer` Global Weight Decay, Unused `amsgrad` and Duplicate Registration
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Core / Optimizer | October 14, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `Optimizer`, by inspection:
+- **Global weight decay.** One `weight_decay` applies to every group, including LayerNorm `gamma`/`beta`, biases and token embeddings,
+  which are conventionally excluded. Production uses AdamW with `WEIGHT_DECAY=0.01`, `lr = 1e-4`: a `1 − 1e-6` shrink per step on
+  everything, so norm gains drift toward 0 unless gradients counter it. No per-group control exists.
+- **Unused `amsgrad`** member.
+- **No duplicate check.** `add_parameter_group()` accepts a matrix already registered, which then updates twice per `step()` (TD-297's
+  layer paths can register twice).
+- **Minor.** Groups hold raw pointers into layer members (stable today via `unique_ptr`); norms accumulate in `float` over very large
+  counts; `get_weight_norm()`'s debug counter is an unsynchronized static.
+
+Action Items:
+
+- [ ] Per-group weight decay (e.g. a flag at registration), with norms, biases and embeddings excluded by default.
+- [ ] Remove `amsgrad` or implement it; reject (or ignore) duplicate registration; accumulate norms in `double`.
+
+Location in code: `src/Optimizer.{hpp,cpp}` (`add_parameter_group()`, `step_*()`, `amsgrad`); tagged `TODO: See TD-469`.
+
+Files to Modify:
+
+- `src/Optimizer.{hpp,cpp}`
+- the layers' `register_parameters()`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -11760,15 +11839,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 259 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 261 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|28|11%|
-|Medium|112|43%|
-|Low|119|46%|
+|Medium|113|43%|
+|Low|120|46%|
 
-**Total Active Items:** 259
+**Total Active Items:** 261
 
 ### By Component
 
@@ -11833,6 +11912,7 @@ Recomputed directly from the 259 `### TD-NNN` entries under [Active Technical De
 |Attention / LoRA|2|
 |Attention / MultiHeadAttention|1|
 |Core / Matrix|2|
+|Core / Optimizer|2|
 |Build / SIMD|2|
 |Metrics / Server CLI|2|
 |Metrics / Database|2|
@@ -11853,13 +11933,13 @@ Recomputed directly from the 259 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|158|
+|0-2 hours|159|
 |2-4 hours|76|
 |4-8 hours|14|
-|8+ hours|7|
+|8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 488-870 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 497-888 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

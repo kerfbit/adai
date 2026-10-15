@@ -38,7 +38,7 @@ The `TrainingMetricsAPI` is a separate HTTP server (default port 8081) for real-
 | File | Class | Description |
 | --- | --- | --- |
 | [../reference/source/Matrix.md](../reference/source/Matrix.md) | `Matrix` | Matrix operations and linear algebra |
-| [core/optimizer.md](core/optimizer.md) | `Optimizer` | SGD, Adam, and optimizer base |
+| [../reference/source/Optimizer.md](../reference/source/Optimizer.md) | `Optimizer` | SGD, Adam, and optimizer base |
 | [../reference/source/Activation.md](../reference/source/Activation.md) | Activations | ReLU, GELU, softmax functions |
 
 ## Transformer Components

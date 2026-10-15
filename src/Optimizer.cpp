@@ -37,6 +37,7 @@ bool is_all_zero(const Matrix& m) {
 Optimizer::Optimizer(OptimizerType opt_type, float lr) : type(opt_type), learning_rate(lr) {}
 
 // Add parameter group
+// TODO: See TD-469 in TECHNICAL_DEBT.md - no duplicate check (a matrix registered twice updates twice per step); weight decay is global, not per group
 void Optimizer::add_parameter_group(Matrix* weights, Matrix* gradients) {
     if (!weights || !gradients) {
         throw std::runtime_error("Cannot add null parameter group");
@@ -304,6 +305,7 @@ void Optimizer::step_adam(ParameterGroup& param) {
     }
 }
 
+// TODO: See TD-468 in TECHNICAL_DEBT.md - every update/norm/clip loop goes through bounds-checked operator() (3.2x slower than raw pointers)
 // AdamW update
 void Optimizer::step_adamw(ParameterGroup& param) {
     param.step++;

@@ -69,6 +69,7 @@ class Optimizer {
     float beta2{0.999f};        // Adam second moment decay (default: 0.999)
     float epsilon{1e-8f};       // Small constant for numerical stability (default: 1e-8)
     float weight_decay{0.0f};   // L2 regularization / weight decay (default: 0.0)
+    // TODO: See TD-469 in TECHNICAL_DEBT.md - declared but never used
     bool amsgrad{false};        // Use AMSGrad variant of Adam (default: false)
 
     // Gradient clipping
