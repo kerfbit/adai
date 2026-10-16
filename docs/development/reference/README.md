@@ -65,6 +65,7 @@ This directory contains reference materials, technical specifications, and imple
   - [MultiHeadAttention](source/MultiHeadAttention.md) (`src/MultiHeadAttention.{hpp,cpp}`; per-head self-attention, KV-cached decode, LoRA hooks)
   - [Optimizer](source/Optimizer.md) (`src/Optimizer.{hpp,cpp}`; SGD/momentum/Adam/AdamW over parameter groups, clipping)
   - [ParquetReader](source/ParquetReader.md) (`src/ParquetReader.{hpp,cpp}`; dependency-free Parquet → JSONL for HuggingFace fetches)
+  - [PerformanceProfiler](source/PerformanceProfiler.md) (`src/PerformanceProfiler.hpp`; timers, `Profiler`, `PROFILE_SCOPE`, `Benchmark`)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)
@@ -83,7 +84,7 @@ This directory contains reference materials, technical specifications, and imple
   - Integration examples
   - Troubleshooting guide
 
-- **[PerformanceProfiler API Reference](performanceprofiler.md)** - Complete API documentation for profiling tools
+- **[PerformanceProfiler](source/PerformanceProfiler.md)** - Timing and profiling utilities (code-traced reference)
   - Timer, ScopedTimer, and Profiler classes
   - Statistical analysis (mean, median, percentiles)
   - Automated benchmarking

@@ -46,7 +46,7 @@ Technical reference documentation. See [reference/README.md](reference/README.md
 
 - [kvcache.md](reference/source/KVCache.md) — KV cache implementation details
 - [source/BatchProcessor.md](reference/source/BatchProcessor.md) — Batch padding/grouping utilities (code-traced)
-- [performanceprofiler.md](reference/performanceprofiler.md) — Performance profiler API
+- [PerformanceProfiler.md](reference/source/PerformanceProfiler.md) — Performance profiler API
 - [GRADIENT_OPERATIONS_WITHOUT_OPTIMIZER.md](reference/GRADIENT_OPERATIONS_WITHOUT_OPTIMIZER.md) — Gradient operations reference
 - [VOCAB_TRAINING_ANALYSIS.md](reference/VOCAB_TRAINING_ANALYSIS.md) — Vocabulary training analysis
 - [chatbot-completeness.md](reference/chatbot-completeness.md) — Component completeness tracking

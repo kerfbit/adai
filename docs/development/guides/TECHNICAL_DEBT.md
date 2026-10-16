@@ -4,11 +4,11 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** October 14, 2026
-**Total Items:** 264
+**Last Updated:** October 15, 2026
+**Total Items:** 265
 **High Priority:** 29
 **Medium Priority:** 114
-**Low Priority:** 121
+**Low Priority:** 122
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -461,6 +461,12 @@ Also October 14, 2026: filed [TD-470](#td-470-malformed-parquet-footers-hang-or-
 nothing, list size from a varint) and a deeply nested footer crash `registry_server` with SIGSEGV (unbounded recursion) (TD-470). One is
 MEDIUM: declared sizes are trusted for allocations (62 escaped `length_error`s in fuzzing; a 2³¹-value page would fill 8 GB) and nothing
 catches the exceptions (TD-471). One is LOW: the "returns −1" contract, whole-part memory use, and test coverage (TD-472).
+
+**October 15, 2026:** Filed [TD-473](#td-473-profiler-keeps-every-timing-forever-sorts-under-its-lock-and-uses-the-wall-clock) (LOW) from the code-traced
+[PerformanceProfiler.md](../reference/source/PerformanceProfiler.md): `ChatbotAPI` times every response whether or not profiling is enabled,
+and `ProfileStats` keeps every sample forever (16 MB after 2M requests, verified); `get_stats()` sorts a full copy under the profiler's
+mutex (72 ms at 2M, plus 107 ms for the percentiles), stalling in-flight requests' timers; and `Timer` uses `high_resolution_clock`, which is
+`system_clock` here, so clock steps produce wrong or negative durations.
 
 **October 10, 2026:** Filed [TD-297](#td-297-layer-update_weights-steps-a-shared-optimizer-once-per-layer) through [TD-303](#td-303-decoder-only-mode-still-runs-cross-attention-over-a-dummy-input) from the code-traced
 [CrossAttention.md](../reference/source/CrossAttention.md). Two are MEDIUM: layer `update_weights()`
@@ -1494,6 +1500,9 @@ bool list element, cap list sizes against the remaining bytes) with TD-309, sinc
 [TD-471](#td-471-parquetreader-trusts-declared-sizes-for-allocations) (validate declared sizes before allocating, catch at the `DataFetcher` boundary) in the same pass; [TD-472](#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps)
 adds the adversarial tests.
 
+**Tier 78 — Newly filed (October 15, 2026): `PerformanceProfiler`.** [TD-473](#td-473-profiler-keeps-every-timing-forever-sorts-under-its-lock-and-uses-the-wall-clock) is small: `steady_clock`, and a bounded
+reservoir or histogram instead of the unbounded vector.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1764,6 +1773,7 @@ adds the adversarial tests.
   - [TD-470: Malformed Parquet Footers Hang or Crash `registry_server`](#td-470-malformed-parquet-footers-hang-or-crash-registry_server)
   - [TD-471: `ParquetReader` Trusts Declared Sizes for Allocations](#td-471-parquetreader-trusts-declared-sizes-for-allocations)
   - [TD-472: `ParquetReader` Contract, Memory Use and Test Coverage Gaps](#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps)
+  - [TD-473: `Profiler` Keeps Every Timing Forever, Sorts Under Its Lock and Uses the Wall Clock](#td-473-profiler-keeps-every-timing-forever-sorts-under-its-lock-and-uses-the-wall-clock)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -11432,6 +11442,41 @@ Files to Modify:
 
 ---
 
+### TD-473: `Profiler` Keeps Every Timing Forever, Sorts Under Its Lock and Uses the Wall Clock
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Inference / Profiler | October 15, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `PerformanceProfiler`:
+- **Unbounded samples (verified).** `ChatbotAPI::generate_response()` is always wrapped in `PROFILE_SCOPE` (`--profile` only gates
+  `GET /admin/profile`'s output), and `ProfileStats::timings` keeps every sample: after 2,000,000 simulated requests it held 2M entries
+  (16 MB), 8 bytes per request for the life of `chatbot_api_server`.
+- **Sorting under the lock (verified).** `Profiler::get_stats()` copies and sorts the vector (`compute_median()`) while holding the profiler's
+  mutex, which every in-flight `generate_response()` needs for `start()`/`stop()`: 72 ms at 2M samples. `handle_profile()` then sorts two more
+  copies for p95/p99 (107 ms).
+- **Wall clock (verified).** `Timer` uses `std::chrono::high_resolution_clock`, which in libstdc++ is `system_clock` (`is_steady == false`); an
+  NTP step or manual change during a request records a wrong or negative duration.
+- **By inspection.** `ScopedTimer`, `print()`, `print_all()`, `compare()` and `Benchmark::compare()` write to `std::cout` (test-only); percentiles
+  use the floor index; `compare()` divides by `optimized.mean_time` unchecked.
+
+Action Items:
+
+- [ ] Use `std::chrono::steady_clock`.
+- [ ] Replace the unbounded vector with a fixed-size reservoir or log-bucket histogram (constant memory, no sorting), and copy only summary values under the lock.
+- [ ] Guard `compare()`'s division; route output through `Logger`.
+
+Location in code: `src/PerformanceProfiler.hpp` (`Timer`, `ProfileStats`, `Profiler::get_stats()`); tagged `TODO: See TD-473`.
+
+Files to Modify:
+
+- `src/PerformanceProfiler.hpp`
+- `src/ChatbotAPI.cpp` (`handle_profile()`)
+- `tests/inference_optimization_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -11948,15 +11993,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 264 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 265 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|29|11%|
 |Medium|114|43%|
-|Low|121|46%|
+|Low|122|46%|
 
-**Total Active Items:** 264
+**Total Active Items:** 265
 
 ### By Component
 
@@ -12014,6 +12059,7 @@ Recomputed directly from the 264 `### TD-NNN` entries under [Active Technical De
 |Training / IncrementalTrainingTool|6|
 |Inference / IntegratedInferenceEngine|4|
 |Inference / KVCache|2|
+|Inference / Profiler|1|
 |Models / LanguageModelHead|3|
 |Models / ModelSerializer|2|
 |Layers / LayerNorm|1|
@@ -12043,13 +12089,13 @@ Recomputed directly from the 264 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|161|
+|0-2 hours|162|
 |2-4 hours|77|
 |4-8 hours|14|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 501-896 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 502-898 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

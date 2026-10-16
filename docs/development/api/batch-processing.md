@@ -492,7 +492,7 @@ Recommended for:
 
 - [BatchProcessor API Reference](../reference/source/BatchProcessor.md)
 - [ChatbotAPI Documentation](rest-api.md)
-- [Performance Profiling](../reference/performanceprofiler.md)
+- [Performance Profiling](../reference/source/PerformanceProfiler.md)
 - [Example Client Code](../../scripts/batch_api_client.py)
 
 ---

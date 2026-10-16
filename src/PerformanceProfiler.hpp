@@ -34,6 +34,7 @@
  */
 class Timer {
    private:
+    // TODO: See TD-473 in TECHNICAL_DEBT.md - high_resolution_clock is system_clock in libstdc++ (not steady)
     using Clock = std::chrono::high_resolution_clock;
     using TimePoint = std::chrono::time_point<Clock>;
 
@@ -112,6 +113,7 @@ class ScopedTimer {
  */
 struct ProfileStats {
     std::string name;
+    // TODO: See TD-473 in TECHNICAL_DEBT.md - unbounded: one entry per generate_response() call forever
     std::vector<double> timings;  // All recorded timings (ms)
     int call_count;
     double total_time;
@@ -288,6 +290,7 @@ class Profiler {
         }
 
         ProfileStats& stats = profiles[name];
+        // TODO: See TD-473 in TECHNICAL_DEBT.md - copies and sorts every sample while holding the mutex request timers need
         stats.compute_median();
         return stats;
     }

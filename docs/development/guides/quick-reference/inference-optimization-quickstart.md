@@ -230,7 +230,7 @@ for (auto& batch : batches) {
 
 - **[KVCache API Reference](../../reference/source/KVCache.md)** - Complete API documentation with all methods and usage patterns
 - **[BatchProcessor API Reference](../../reference/source/BatchProcessor.md)** - Complete API documentation for batch processing
-- **[PerformanceProfiler API Reference](../reference/performanceprofiler.md)** - Complete API documentation for profiling tools
+- **[PerformanceProfiler API Reference](../../reference/source/PerformanceProfiler.md)** - Complete API documentation for profiling tools
 - **[Full Optimization Guide](inference-optimization.md)** - Complete guide with advanced topics
 - Run tests: `make inference_optimization_test && ./inference_optimization_test`
 - Check examples: `src/InferenceOptimizationBenchmark.cpp`
