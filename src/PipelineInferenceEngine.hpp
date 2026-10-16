@@ -5,6 +5,7 @@
 /**
  * Pipeline Parallelism for Encoder-Decoder Models
  * Priority 5: Achieve 2-3x throughput improvement
+ * TODO: See TD-475 in TECHNICAL_DEBT.md - not achievable: only the encoder overlaps decoding (1.017x best case measured)
  *
  * This implementation creates a multi-stage pipeline where:
  * - Stage 1 (Encoder): Processes input batches through encoder
@@ -51,6 +52,8 @@ class ThreadSafeQueue {
    public:
     explicit ThreadSafeQueue(size_t max_size = 100) : shutdown_(false), max_size_(max_size) {}
 
+    // TODO: See TD-474 in TECHNICAL_DEBT.md - after shutdown the item is silently dropped (caller's future breaks)
+    // TODO: See TD-475 in TECHNICAL_DEBT.md - one cv + notify_one for producers and consumer can wake the wrong waiter
     // Push item into queue (blocks if full)
     void push(T item) {
         std::unique_lock<std::mutex> lock(mutex_);
@@ -335,6 +338,7 @@ class PipelineInferenceEngine {
                     // Generate text autoregressively
                     std::vector<int> generated_tokens = {bos_token_id_};
 
+                    // TODO: See TD-475 in TECHNICAL_DEBT.md - greedy only, no KV cache (full decoder pass over all tokens every step)
                     for (int step = 0; step < enc_output.max_length; ++step) {
                         // Forward pass through decoder (fixed: this called a method,
                         // forward_with_cross_attention(tokens, encoder_output, nullptr), that
@@ -522,6 +526,7 @@ class PipelineInferenceEngine {
     /**
      * Shutdown pipeline and wait for completion
      */
+    // TODO: See TD-474 in TECHNICAL_DEBT.md - queued requests stay in the queues with live promises; their futures never resolve
     void shutdown() {
         running_ = false;
 

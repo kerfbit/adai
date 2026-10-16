@@ -894,6 +894,7 @@ std::string ChatbotAPI::generate_response(const std::string& input,
         // it itself, tokenizing internally via the encoder's own tokenizer (see
         // enable_pipeline_inference()'s doc comment for why that must have been loaded with this
         // same run's vocabulary). Always greedy decoding — see that same doc comment.
+        // TODO: See TD-474 in TECHNICAL_DEBT.md - runs the model without model_mutex_ while /chat/batch holds it
         if (pipeline_engine_) {
             auto future = pipeline_engine_->submit(input, static_cast<int>(config.max_length));
             return future.get();
