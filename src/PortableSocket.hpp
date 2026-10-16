@@ -65,6 +65,7 @@ class WinsockGuard {
    public:
     WinsockGuard() {
 #ifdef _WIN32
+        // TODO: See TD-476 in TECHNICAL_DEBT.md - WSAStartup() failure ignored (and WSACleanup() still called)
         WSADATA wsa_data;
         WSAStartup(MAKEWORD(2, 2), &wsa_data);
 #endif
@@ -107,6 +108,7 @@ inline void set_reuse_addr(socket_t s) {
  * silently sets a nonsense timeout instead of failing loudly, exactly the "compiles fine, wrong
  * at runtime" trap this TD's own writeup calls out for sockets generally.
  */
+// TODO: See TD-476 in TECHNICAL_DEBT.md - setsockopt() result ignored; Winsock doesn't apply SO_RCVTIMEO to accept()
 inline void set_recv_timeout(socket_t s, int seconds) {
 #ifdef _WIN32
     DWORD timeout_ms = static_cast<DWORD>(seconds) * 1000;
@@ -127,6 +129,7 @@ inline void set_recv_timeout(socket_t s, int seconds) {
  * (prevents a `SIGPIPE` on a peer that closed its read side mid-write); Windows' `send()` never
  * raises that signal in the first place, so no equivalent flag is needed there.
  */
+// TODO: See TD-476 in TECHNICAL_DEBT.md - returns short writes (signal mid-send); callers need a send_all() loop with EINTR retry
 inline long send_bytes(socket_t s, const char* data, std::size_t len) {
 #ifdef _WIN32
     return ::send(s, data, static_cast<int>(len), 0);
@@ -135,6 +138,7 @@ inline long send_bytes(socket_t s, const char* data, std::size_t len) {
 #endif
 }
 
+// TODO: See TD-476 in TECHNICAL_DEBT.md - no EINTR retry
 inline long recv_bytes(socket_t s, char* data, std::size_t len) {
 #ifdef _WIN32
     return ::recv(s, data, static_cast<int>(len), 0);

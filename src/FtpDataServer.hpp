@@ -1026,6 +1026,7 @@ class FtpDataServer {
             } else
 #endif
             {
+                // TODO: See TD-476 in TECHNICAL_DEBT.md - a short write (sent < n) is counted as the full chunk: silent truncation
                 long sent = adai::send_bytes(data_fd, buf.data(), static_cast<std::size_t>(n));
                 if (sent < 0) {
                     ok = false;

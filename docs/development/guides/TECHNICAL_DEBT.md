@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 16, 2026
-**Total Items:** 267
+**Total Items:** 268
 **High Priority:** 29
 **Medium Priority:** 115
-**Low Priority:** 123
+**Low Priority:** 124
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -461,6 +461,11 @@ Also October 14, 2026: filed [TD-470](#td-470-malformed-parquet-footers-hang-or-
 nothing, list size from a varint) and a deeply nested footer crash `registry_server` with SIGSEGV (unbounded recursion) (TD-470). One is
 MEDIUM: declared sizes are trusted for allocations (62 escaped `length_error`s in fuzzing; a 2³¹-value page would fill 8 GB) and nothing
 catches the exceptions (TD-471). One is LOW: the "returns −1" contract, whole-part memory use, and test coverage (TD-472).
+
+Also October 16, 2026: filed [TD-476](#td-476-portablesocket-short-writes-truncate-ftp-transfers-unchecked-socket-setup) (LOW) from the code-traced
+[PortableSocket.md](../reference/source/PortableSocket.md): `send_bytes()` passes short writes through (a signal mid-send returned 219,264 of
+8 MiB, verified) and `FtpDataServer`'s `RETR` loop counts the full chunk as sent, so a transfer can be silently truncated; `WSAStartup()`/
+`setsockopt()` results are ignored, Winsock doesn't bound `accept()` with `SO_RCVTIMEO`, and nothing retries `EINTR`.
 
 **October 16, 2026:** Filed [TD-474](#td-474-pipelineinferenceengine-strands-queued-requests-on-shutdown-and-skips-model_mutex_) and [TD-475](#td-475-pipelineinferenceengine-throughput-claims-greedy-uncached-decoding-and-stats) from the code-traced
 [PipelineInferenceEngine.md](../reference/source/PipelineInferenceEngine.md) (`--pipeline-inference`). One is MEDIUM: `shutdown()` leaves queued
@@ -1514,6 +1519,9 @@ reservoir or histogram instead of the unbounded vector.
 identical shutdown and mutex gaps). [TD-475](#td-475-pipelineinferenceengine-throughput-claims-greedy-uncached-decoding-and-stats) feeds the same decision as TD-420 and the real-batching v2 plan: whether these engines stay,
 given they're no faster than the plain path.
 
+**Tier 80 — Newly filed (October 16, 2026): `PortableSocket`.** Add a `send_all()` (loop + `EINTR` retry) and use it in `FtpDataServer`
+([TD-476](#td-476-portablesocket-short-writes-truncate-ftp-transfers-unchecked-socket-setup)), together with TD-375's connection-handling fixes.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1787,6 +1795,7 @@ given they're no faster than the plain path.
   - [TD-473: `Profiler` Keeps Every Timing Forever, Sorts Under Its Lock and Uses the Wall Clock](#td-473-profiler-keeps-every-timing-forever-sorts-under-its-lock-and-uses-the-wall-clock)
   - [TD-474: `PipelineInferenceEngine` Strands Queued Requests on Shutdown and Skips `model_mutex_`](#td-474-pipelineinferenceengine-strands-queued-requests-on-shutdown-and-skips-model_mutex_)
   - [TD-475: `PipelineInferenceEngine` Throughput Claims, Greedy Uncached Decoding and Stats](#td-475-pipelineinferenceengine-throughput-claims-greedy-uncached-decoding-and-stats)
+  - [TD-476: `PortableSocket` Short Writes Truncate FTP Transfers; Unchecked Socket Setup](#td-476-portablesocket-short-writes-truncate-ftp-transfers-unchecked-socket-setup)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -11557,6 +11566,38 @@ Files to Modify:
 
 ---
 
+### TD-476: `PortableSocket` Short Writes Truncate FTP Transfers; Unchecked Socket Setup
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Platform / PortableSocket | October 16, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `PortableSocket`:
+- **Short writes (verified).** A blocking `send()` returns a partial count when a signal interrupts it after queuing some data, even with
+  `SA_RESTART`: sending 8 MiB over a socket pair with a slow reader and one signal mid-send returned **219,264 bytes**. `send_bytes()` passes that
+  through, and `FtpDataServer`'s `RETR` loop checks only `sent < 0` before adding the full chunk to `bytes_sent`, so the transfer is silently
+  truncated while the server reports success (the client then fails on size, or reuses a same-size stale file, TD-338). Control replies ignore the
+  result. Needs a signal during a transfer, rare in `registry_server` today.
+- **By inspection.** `WinsockGuard` ignores a failed `WSAStartup()` (and still calls `WSACleanup()`); `set_reuse_addr()`/`set_recv_timeout()` ignore
+  `setsockopt()` failures; Winsock doesn't apply `SO_RCVTIMEO` to `accept()`, so the PASV wait is unbounded on Windows (Linux returns `EAGAIN` after the
+  timeout, verified); `last_socket_error()` reads `errno` late; `recv_bytes()` doesn't retry `EINTR`; no tests, and the MinGW build has never been run.
+
+Action Items:
+
+- [ ] Add `send_all()` (loop until written, retry `EINTR`) and use it for every `FtpDataServer` send; retry `EINTR` in `recv_bytes()`.
+- [ ] Check and report `WSAStartup()`/`setsockopt()` results; bound PASV `accept()` with `select()`/`poll()` so it works on both platforms.
+- [ ] Unit tests (socket pairs) for short writes and timeouts.
+
+Location in code: `src/PortableSocket.hpp` (`send_bytes()`, `recv_bytes()`, `WinsockGuard`, `set_recv_timeout()`); `src/FtpDataServer.hpp` (`RETR` send loop); tagged `TODO: See TD-476`.
+
+Files to Modify:
+
+- `src/PortableSocket.hpp`
+- `src/FtpDataServer.hpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -12073,15 +12114,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 267 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 268 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|29|11%|
 |Medium|115|43%|
-|Low|123|46%|
+|Low|124|46%|
 
-**Total Active Items:** 267
+**Total Active Items:** 268
 
 ### By Component
 
@@ -12127,6 +12168,7 @@ Recomputed directly from the 267 `### TD-NNN` entries under [Active Technical De
 |Transformer / LLMEncoder|4|
 |Transformer / FeedForward|4|
 |Data / FtpDataServer|6|
+|Platform / PortableSocket|1|
 |Data / ParquetReader|3|
 |Metrics / GenerationQuality|3|
 |GPU / GPUManager|6|
@@ -12170,13 +12212,13 @@ Recomputed directly from the 267 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|163|
+|0-2 hours|164|
 |2-4 hours|78|
 |4-8 hours|14|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 505-904 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 506-906 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
