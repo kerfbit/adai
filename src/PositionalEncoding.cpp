@@ -29,6 +29,7 @@ PositionalEncoding::PositionalEncoding(int max_len, int d_model)
     }
 }
 
+// TODO: See TD-478 in TECHNICAL_DEBT.md - no input.cols == d_model check; over-length warning to std::cerr on every call
 Matrix PositionalEncoding::forward(const Matrix& input) {
     // Create a copy of the input
     Matrix result = input;

@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 269
+**Total Items:** 270
 **High Priority:** 29
 **Medium Priority:** 115
-**Low Priority:** 125
+**Low Priority:** 126
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -466,6 +466,11 @@ Also October 16, 2026: filed [TD-476](#td-476-portablesocket-short-writes-trunca
 [PortableSocket.md](../reference/source/PortableSocket.md): `send_bytes()` passes short writes through (a signal mid-send returned 219,264 of
 8 MiB, verified) and `FtpDataServer`'s `RETR` loop counts the full chunk as sent, so a transfer can be silently truncated; `WSAStartup()`/
 `setsockopt()` results are ignored, Winsock doesn't bound `accept()` with `SO_RCVTIMEO`, and nothing retries `EINTR`.
+
+Also October 17, 2026: filed [TD-478](#td-478-positionalencoding-width-check-warning-spam-and-duplicated-formula) (LOW) from the code-traced [PositionalEncoding.md](../reference/source/PositionalEncoding.md),
+which verified the encoding (within 3.1×10⁻⁵ of a double reference) and the decoder's two inline copies (bit-identical): `forward()` doesn't check
+input width (770-wide threw `out_of_range`, 100-wide was silently partial, verified), the over-length warning goes to `std::cerr` on every call, and
+the formula exists in three places.
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1530,6 +1535,9 @@ given they're no faster than the plain path.
 **Tier 81 — Newly filed (October 17, 2026): `PortableTime`.** [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions): one `parse_iso8601_utc()` here (returns failure; handles
 fractions and offsets) replacing the three copies, with `db-history` answering 400 on a bad bound.
 
+**Tier 82 — Newly filed (October 17, 2026): `PositionalEncoding`.** [TD-478](#td-478-positionalencoding-width-check-warning-spam-and-duplicated-formula) is cleanup; expose `encoding_at(pos)` and have the decoder's
+cached paths use it, alongside TD-347.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1805,6 +1813,7 @@ fractions and offsets) replacing the three copies, with `db-history` answering 4
   - [TD-475: `PipelineInferenceEngine` Throughput Claims, Greedy Uncached Decoding and Stats](#td-475-pipelineinferenceengine-throughput-claims-greedy-uncached-decoding-and-stats)
   - [TD-476: `PortableSocket` Short Writes Truncate FTP Transfers; Unchecked Socket Setup](#td-476-portablesocket-short-writes-truncate-ftp-transfers-unchecked-socket-setup)
   - [TD-477: Timestamp Parsing Turns Bad Input Into 1899, Ignores Offsets and Misreads Fractions](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions)
+  - [TD-478: `PositionalEncoding` Width Check, Warning Spam and Duplicated Formula](#td-478-positionalencoding-width-check-warning-spam-and-duplicated-formula)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -11641,6 +11650,38 @@ Files to Modify:
 
 ---
 
+### TD-478: `PositionalEncoding` Width Check, Warning Spam and Duplicated Formula
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Layers / PositionalEncoding | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `PositionalEncoding` (encoding verified within 3.1×10⁻⁵ of a double reference; the decoder's inline copies verified bit-identical):
+- **No width check (verified).** `forward()` doesn't compare `input.cols` with `d_model`: a 770-wide input into a 768 encoding threw
+  `std::out_of_range("Matrix index out of bounds")`; a 100-wide input was accepted with only its first 100 dimensions encoded.
+- **Warning spam (by inspection).** Inputs longer than `max_len` print a warning to `std::cerr` (not `Logger`) on every call, so once per decode step
+  on the uncached generation paths.
+- **Duplicated formula (by inspection).** `LLMDecoder::forward_with_cache()` and the GPU incremental decode path re-type the formula inline (offset by
+  `current_position`); identical today, but a change has to be made in three places (as TD-216 for softmax/GELU).
+- **Console output** in `print_config()`/`visualize()`.
+
+Action Items:
+
+- [ ] Throw `invalid_argument` when `input.cols != d_model`.
+- [ ] Log the over-length warning once (via `Logger`).
+- [ ] Add `encoding_at(absolute_pos, out_row)` (or `forward(input, start_pos)`) and use it in both decoder paths (with TD-347's max-length policy).
+
+Location in code: `src/PositionalEncoding.cpp` (`forward()`); `src/Decoder.cpp` (inline copies); tagged `TODO: See TD-478`.
+
+Files to Modify:
+
+- `src/PositionalEncoding.{hpp,cpp}`
+- `src/Decoder.cpp`
+- `tests/positionalencoding_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -12157,15 +12198,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 269 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 270 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|29|11%|
-|Medium|115|43%|
-|Low|125|46%|
+|Medium|115|42%|
+|Low|126|47%|
 
-**Total Active Items:** 269
+**Total Active Items:** 270
 
 ### By Component
 
@@ -12230,6 +12271,7 @@ Recomputed directly from the 269 `### TD-NNN` entries under [Active Technical De
 |Models / LanguageModelHead|3|
 |Models / ModelSerializer|2|
 |Layers / LayerNorm|1|
+|Layers / PositionalEncoding|1|
 |World Model / LeJEPAEncoder|3|
 |Core / Logger|2|
 |Attention / LoRA|2|
@@ -12256,13 +12298,13 @@ Recomputed directly from the 269 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|165|
+|0-2 hours|166|
 |2-4 hours|78|
 |4-8 hours|14|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 507-908 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 508-910 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

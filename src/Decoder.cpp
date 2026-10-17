@@ -196,6 +196,7 @@ Matrix LLMDecoder::forward_with_cache(const std::vector<int>& token_ids, Decoder
     cached_embeddings = embeddings;
 
     // TODO: See TD-347 in TECHNICAL_DEBT.md - encodes positions >= max_seq_length, unlike PositionalEncoding::forward() (cached vs full diverge)
+    // TODO: See TD-478 in TECHNICAL_DEBT.md - inline copy of PositionalEncoding's formula (identical today; three copies to keep in sync)
     // 2. Add positional encoding (offset by current_position)
     // We need to generate positional encoding starting from current_position
     Matrix pos_encoded(num_new_tokens, d_model);
@@ -529,6 +530,7 @@ adai::gpu::GPUMatrix LLMDecoder::gpu_decode_step(const std::vector<int>& new_tok
     Matrix embeddings = token_embedding->forward(new_token_ids);
 
     // TODO: See TD-347 in TECHNICAL_DEBT.md - same inline encoding past max_seq_length as forward_with_cache()
+    // TODO: See TD-478 in TECHNICAL_DEBT.md - second inline copy of the formula
     // 2. Positional encoding offset by current_position — identical formula to
     // forward_with_cache()'s own inline reimplementation above (TD-050's own trace already
     // confirmed this is algebraically identical to PositionalEncoding.cpp's canonical formula),
