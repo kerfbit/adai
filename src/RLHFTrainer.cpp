@@ -253,6 +253,7 @@ RLHFStepResult RLHFTrainer::run_iteration(const std::vector<std::string>& prompt
         //    call count) -- correct because nothing has changed the policy between step 3 and
         //    this call, so ratio == 1 for this rollout's own data; real ratio-based clipping
         //    activates once a later rollout is scored against an already-diverged policy.
+        // TODO: See TD-482 in TECHNICAL_DEBT.md - returns the rollout's own old log-probs, so the PPO ratio is always 1 (no clipping, KL 0)
         size_t log_prob_call_count = 0;
         auto log_prob_fn = [&](const std::vector<float>&, int) -> float {
             size_t idx = steps > 0 ? (log_prob_call_count % static_cast<size_t>(steps)) : 0;
@@ -262,6 +263,7 @@ RLHFStepResult RLHFTrainer::run_iteration(const std::vector<std::string>& prompt
         total_ppo_diag_loss += ppo_.update(traj, log_prob_fn);
 
         // 6. The real policy update -- see apply_policy_gradient()'s own doc comment.
+        // TODO: See TD-481 in TECHNICAL_DEBT.md - these advantages are normalized within this one response
         std::vector<float> advantages = ppo_.compute_advantages(traj);
         total_pg_loss += apply_policy_gradient(prompt_tokens, response_tokens, advantages) *
                         static_cast<float>(steps);

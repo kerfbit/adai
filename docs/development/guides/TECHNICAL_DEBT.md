@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 272
+**Total Items:** 274
 **High Priority:** 29
 **Medium Priority:** 116
-**Low Priority:** 127
+**Low Priority:** 129
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -478,6 +478,12 @@ and verified through the real `TrainingMetricsService`: the session row is writt
 per-step gradient-variance rows, so those inserts violate their foreign keys, are retried 3× (~0.5 s stalls each) and dropped; a fresh session ended with
 its row but 0 history and 0 gradient-variance rows (TD-479). One is LOW: schema bootstrap only on a successful first connection, reconnects under the pool
 mutex with no timeouts, and non-idempotent/non-retryable retries (TD-480).
+
+Also October 17, 2026: filed [TD-481](#td-481-ppo-advantages-are-normalized-within-each-response) and [TD-482](#td-482-ppooptimizer-never-updates-the-policy-and-its-ratio-is-always-1) (both LOW; RLHF has no production entry point, and the owner
+will plan its use later) from the code-traced [PPOOptimizer.md](../reference/source/PPOOptimizer.md). Verified: advantages are normalized within each
+single response, so a reward of +100 gives the same update as +1, the early tokens of a well-rewarded response are pushed down, and one-token responses
+learn nothing (TD-481); `PPOOptimizer::update()` never updates the policy, and `RLHFTrainer` feeds it the rollout's own log-probs so the ratio is always
+1 (no clipping, KL ≡ 0, reported loss 0.000000); the real update is an unclipped policy gradient (TD-482).
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1549,6 +1555,9 @@ cached paths use it, alongside TD-347.
 `TrainingMetricsService` (upsert the session row at `start_session()`); do it before anyone deploys `--storage-backend postgres`.
 [TD-480](#td-480-postgresmetricsdatabase-one-time-schema-bootstrap-reconnects-under-lock-and-unsafe-retries) is robustness cleanup.
 
+**Tier 84 — Newly filed (October 17, 2026): `PPOOptimizer`.** Deferred with RLHF itself (owner, October 17, 2026: RLHF's use will be
+planned later). Fix [TD-481](#td-481-ppo-advantages-are-normalized-within-each-response) and [TD-482](#td-482-ppooptimizer-never-updates-the-policy-and-its-ratio-is-always-1) before RLHF gets a real entry point; TD-481 first, since it inverts part of the learning signal.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1827,6 +1836,8 @@ cached paths use it, alongside TD-347.
   - [TD-478: `PositionalEncoding` Width Check, Warning Spam and Duplicated Formula](#td-478-positionalencoding-width-check-warning-spam-and-duplicated-formula)
   - [TD-479: Postgres Backend Drops Each Session's First History Batch on Foreign-Key Violations](#td-479-postgres-backend-drops-each-sessions-first-history-batch-on-foreign-key-violations)
   - [TD-480: `PostgresMetricsDatabase` One-Time Schema Bootstrap, Reconnects Under Lock and Unsafe Retries](#td-480-postgresmetricsdatabase-one-time-schema-bootstrap-reconnects-under-lock-and-unsafe-retries)
+  - [TD-481: PPO Advantages Are Normalized Within Each Response](#td-481-ppo-advantages-are-normalized-within-each-response)
+  - [TD-482: `PPOOptimizer` Never Updates the Policy and Its Ratio Is Always 1](#td-482-ppooptimizer-never-updates-the-policy-and-its-ratio-is-always-1)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -11759,6 +11770,69 @@ Files to Modify:
 
 ---
 
+### TD-481: PPO Advantages Are Normalized Within Each Response
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open (deferred with RLHF) | RLHF / PPOOptimizer | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `PPOOptimizer` and verified. `compute_gae()` normalizes each trajectory's (one response's) advantages to mean 0 and unit standard
+deviation, and `RLHFTrainer::apply_policy_gradient()` weights each token's log-probability gradient by those advantages. With the reward on the last
+token (as `RLHFTrainer` assigns it) and value estimates of 0:
+- reward +1 → advantages −1.370, −0.727, −0.043, +0.684, +1.457; reward **+100 → identical**;
+- reward −1 → the same with signs flipped;
+- a one-token response with reward +5 → advantage **0.000**.
+
+So the update ignores the reward's magnitude, pushes **down** the early tokens of a well-rewarded response (and up those of a badly rewarded one), and
+learns nothing from one-token responses. RLHF has no production entry point (owner, October 17, 2026: its use will be planned later).
+
+Action Items:
+
+- [ ] Normalize advantages across a batch of rollouts (or not at all, relying on the value baseline), not within one response.
+- [ ] Test: a positive reward gives non-negative advantages for every token under a zero baseline; magnitude scales the update.
+
+Location in code: `src/PPOOptimizer.hpp` (`compute_gae()`); `src/RLHFTrainer.cpp` (use of `compute_advantages()`); tagged `TODO: See TD-481`.
+
+Files to Modify:
+
+- `src/PPOOptimizer.hpp`
+- `src/RLHFTrainer.cpp`
+- `tests/phase5_test.cpp`, `tests/rlhftrainer_test.cpp`
+
+---
+
+### TD-482: `PPOOptimizer` Never Updates the Policy and Its Ratio Is Always 1
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open (deferred with RLHF) | RLHF / PPOOptimizer | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `PPOOptimizer`:
+- **No policy update (by inspection).** `update()` computes the clipped surrogate `−min(r·A, clip(r)·A)` and an approximate KL, trains only its
+  `ValueFunction`, and returns the loss; nothing differentiates it into the policy. The real update is `RLHFTrainer::apply_policy_gradient()`, an
+  unclipped policy gradient.
+- **Ratio always 1 (verified).** `RLHFTrainer` passes a callback returning the rollout's own old log-probs, so `r = 1` on every call: no clipping, KL ≡ 0
+  (the `1.5 × kl_target` early stop never fires) and a reported loss of 0.000000 (`−mean(A)` of normalized advantages).
+- **Unused configuration (by inspection).** `entropy_coef`, `value_coef`, `max_grad_norm` and the private `clip_gradients()` are never used;
+  `reward_model_` is stored but never read; minibatches aren't shuffled; `ValueFunction` uses the unseeded C `rand()`.
+- The header and the replaced API doc promise "stable policy updates via the clipped surrogate objective" and KL monitoring.
+
+Action Items:
+
+- [ ] Apply the clipped objective to the policy (compute new log-probs with the live model each PPO epoch and backpropagate the clipped loss, with KL early stopping), or rename this to what it is (value function + GAE) and make `RLHFTrainer`'s update the documented REINFORCE-with-baseline.
+- [ ] Wire `entropy_coef`/`max_grad_norm`/`value_coef` or remove them; drop the unused `reward_model_`; seed/shuffle properly.
+
+Location in code: `src/PPOOptimizer.hpp` (`update()`, `PPOConfig`); `src/RLHFTrainer.cpp` (the `log_prob_fn` callback, `apply_policy_gradient()`); tagged `TODO: See TD-482`.
+
+Files to Modify:
+
+- `src/PPOOptimizer.hpp`
+- `src/RLHFTrainer.{hpp,cpp}`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -12275,15 +12349,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 272 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 274 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|29|11%|
 |Medium|116|42%|
-|Low|127|47%|
+|Low|129|47%|
 
-**Total Active Items:** 272
+**Total Active Items:** 274
 
 ### By Component
 
@@ -12353,6 +12427,7 @@ Recomputed directly from the 272 `### TD-NNN` entries under [Active Technical De
 |Core / Logger|2|
 |Attention / LoRA|2|
 |Attention / MultiHeadAttention|1|
+|RLHF / PPOOptimizer|2|
 |Core / Matrix|2|
 |Core / Optimizer|2|
 |Build / SIMD|2|
@@ -12375,13 +12450,13 @@ Recomputed directly from the 272 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|167|
-|2-4 hours|79|
+|0-2 hours|168|
+|2-4 hours|80|
 |4-8 hours|14|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 511-916 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 514-922 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

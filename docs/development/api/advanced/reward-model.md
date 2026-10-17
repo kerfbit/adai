@@ -412,7 +412,7 @@ float policy_loss = ppo.update(traj);
 
 ## See Also
 
-- [PPO Optimizer](ppo-optimizer.md) - Policy optimization
+- [PPO Optimizer](../../reference/source/PPOOptimizer.md) - Value function, GAE and the (unapplied) clipped objective
 - [Phase 5 Advanced Features Guide](../../guides/phase5-advanced-features.md) - Complete RLHF guide
 - [Chatbot Completeness](../../reference/chatbot-completeness.md) - Architecture overview
 

@@ -78,6 +78,7 @@ struct PPOConfig {
     float gamma = 0.99f;          // Discount factor
     float gae_lambda = 0.95f;     // GAE lambda parameter
     float value_coef = 0.5f;      // Value loss coefficient
+    // TODO: See TD-482 in TECHNICAL_DEBT.md - entropy_coef, value_coef and max_grad_norm are never used
     float entropy_coef = 0.01f;   // Entropy bonus coefficient
     int num_epochs = 4;           // PPO optimization epochs per rollout
     int batch_size = 64;          // Minibatch size for updates
@@ -364,6 +365,7 @@ class PPOOptimizer {
             advantages[t] = gae;
         }
 
+        // TODO: See TD-481 in TECHNICAL_DEBT.md - per-trajectory normalization: reward magnitude lost, early tokens of good responses get negative advantages, 1-token responses get 0
         // Normalize advantages
         float mean = 0.0f, var = 0.0f;
         for (float adv : advantages)
@@ -456,6 +458,7 @@ class PPOOptimizer {
      *   callback rather than a stored model reference.
      * @return Average policy loss
      */
+    // TODO: See TD-482 in TECHNICAL_DEBT.md - trains only the value function; the clipped objective never reaches the policy
     float update(Trajectory& trajectory, const PolicyLogProbFn& current_policy_log_prob) {
         if (trajectory.length() == 0) {
             throw std::invalid_argument("Empty trajectory");
