@@ -32,6 +32,7 @@ PostgresMetricsDatabase::PostgresMetricsDatabase(const std::string& connection_u
         entry.in_use = false;
     }
 
+    // TODO: See TD-480 in TECHNICAL_DEBT.md - schema bootstrapped only if the first connection succeeded at construction
     if (!pool_.empty() && pool_[0].conn) {
         bootstrap_schema(pool_[0].conn);
     }
@@ -103,6 +104,7 @@ PGconn* PostgresMetricsDatabase::acquire_connection() {
     for (auto& entry : pool_) {
         if (!entry.in_use) {
             entry.in_use = true;
+            // TODO: See TD-480 in TECHNICAL_DEBT.md - blocking PQconnectdb() while holding pool_mutex_
             if (!ensure_connection(entry.conn)) {
                 // A failed (re)connect must not leave this slot permanently marked in_use — a
                 // caller who gets nullptr back never calls release_connection() (see
@@ -135,6 +137,7 @@ void PostgresMetricsDatabase::release_connection(PGconn* conn) {
     pool_cv_.notify_one();
 }
 
+// TODO: See TD-480 in TECHNICAL_DEBT.md - retries non-retryable errors and non-idempotent inserts; reconnects under pool_mutex_
 bool PostgresMetricsDatabase::execute_with_retry(const char* context,
                                                  std::function<bool(PGconn*)> operation) {
     for (int attempt = 0; attempt < RETRY_COUNT; ++attempt) {
@@ -554,6 +557,7 @@ void PostgresMetricsDatabase::mark_session_ended(const std::string& key) {
 // Metrics Record Operations
 // ============================================================================
 
+// TODO: See TD-479 in TECHNICAL_DEBT.md - FK violation (no session row yet) is retried 3x (~0.5 s) then dropped
 void PostgresMetricsDatabase::insert_metrics_record(const std::string& session_key,
                                                     const PersistentMetricsRecord& rec) {
     execute_with_retry("insert_metrics_record", [&](PGconn* conn) -> bool {
@@ -610,6 +614,7 @@ void PostgresMetricsDatabase::insert_metrics_record(const std::string& session_k
     });
 }
 
+// TODO: See TD-479 in TECHNICAL_DEBT.md - per-step rows before the first persist all hit the FK and are dropped
 void PostgresMetricsDatabase::insert_gradient_variance_sample(const std::string& session_key,
                                                                int step, int epoch, float value) {
     execute_with_retry("insert_gradient_variance_sample", [&](PGconn* conn) -> bool {

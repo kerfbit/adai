@@ -70,6 +70,7 @@ This directory contains reference materials, technical specifications, and imple
   - [PortableSocket](source/PortableSocket.md) (`src/PortableSocket.hpp`; POSIX/Winsock socket shim for `FtpDataServer`)
   - [PortableTime](source/PortableTime.md) (`src/PortableTime.hpp`; portable UTC `gmtime`/`timegm`/`strptime`)
   - [PositionalEncoding](source/PositionalEncoding.md) (`src/PositionalEncoding.{hpp,cpp}`; fixed sinusoidal position encoding)
+  - [PostgresMetricsDatabase](source/PostgresMetricsDatabase.md) (`src/PostgresMetricsDatabase.{hpp,cpp}`; PostgreSQL metrics backend, opt-in build)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)

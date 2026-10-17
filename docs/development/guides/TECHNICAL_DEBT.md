@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 270
+**Total Items:** 272
 **High Priority:** 29
-**Medium Priority:** 115
-**Low Priority:** 126
+**Medium Priority:** 116
+**Low Priority:** 127
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -471,6 +471,13 @@ Also October 17, 2026: filed [TD-478](#td-478-positionalencoding-width-check-war
 which verified the encoding (within 3.1×10⁻⁵ of a double reference) and the decoder's two inline copies (bit-identical): `forward()` doesn't check
 input width (770-wide threw `out_of_range`, 100-wide was silently partial, verified), the over-length warning goes to `std::cerr` on every call, and
 the formula exists in three places.
+
+Also October 17, 2026: filed [TD-479](#td-479-postgres-backend-drops-each-sessions-first-history-batch-on-foreign-key-violations) and [TD-480](#td-480-postgresmetricsdatabase-one-time-schema-bootstrap-reconnects-under-lock-and-unsafe-retries) from the code-traced
+[PostgresMetricsDatabase.md](../reference/source/PostgresMetricsDatabase.md) (opt-in backend; its 18 live tests pass on PostgreSQL 16). One is MEDIUM
+and verified through the real `TrainingMetricsService`: the session row is written only by `persist_summary()`, after the first history batch and the
+per-step gradient-variance rows, so those inserts violate their foreign keys, are retried 3× (~0.5 s stalls each) and dropped; a fresh session ended with
+its row but 0 history and 0 gradient-variance rows (TD-479). One is LOW: schema bootstrap only on a successful first connection, reconnects under the pool
+mutex with no timeouts, and non-idempotent/non-retryable retries (TD-480).
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1538,6 +1545,10 @@ fractions and offsets) replacing the three copies, with `db-history` answering 4
 **Tier 82 — Newly filed (October 17, 2026): `PositionalEncoding`.** [TD-478](#td-478-positionalencoding-width-check-warning-spam-and-duplicated-formula) is cleanup; expose `encoding_at(pos)` and have the decoder's
 cached paths use it, alongside TD-347.
 
+**Tier 83 — Newly filed (October 17, 2026): `PostgresMetricsDatabase`.** [TD-479](#td-479-postgres-backend-drops-each-sessions-first-history-batch-on-foreign-key-violations) is a small ordering fix in
+`TrainingMetricsService` (upsert the session row at `start_session()`); do it before anyone deploys `--storage-backend postgres`.
+[TD-480](#td-480-postgresmetricsdatabase-one-time-schema-bootstrap-reconnects-under-lock-and-unsafe-retries) is robustness cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1814,6 +1825,8 @@ cached paths use it, alongside TD-347.
   - [TD-476: `PortableSocket` Short Writes Truncate FTP Transfers; Unchecked Socket Setup](#td-476-portablesocket-short-writes-truncate-ftp-transfers-unchecked-socket-setup)
   - [TD-477: Timestamp Parsing Turns Bad Input Into 1899, Ignores Offsets and Misreads Fractions](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions)
   - [TD-478: `PositionalEncoding` Width Check, Warning Spam and Duplicated Formula](#td-478-positionalencoding-width-check-warning-spam-and-duplicated-formula)
+  - [TD-479: Postgres Backend Drops Each Session's First History Batch on Foreign-Key Violations](#td-479-postgres-backend-drops-each-sessions-first-history-batch-on-foreign-key-violations)
+  - [TD-480: `PostgresMetricsDatabase` One-Time Schema Bootstrap, Reconnects Under Lock and Unsafe Retries](#td-480-postgresmetricsdatabase-one-time-schema-bootstrap-reconnects-under-lock-and-unsafe-retries)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -11682,6 +11695,70 @@ Files to Modify:
 
 ---
 
+### TD-479: Postgres Backend Drops Each Session's First History Batch on Foreign-Key Violations
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Metrics / Database | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `PostgresMetricsDatabase` and verified on a real PostgreSQL 16 cluster through the real `TrainingMetricsService`. The Postgres schema
+has `session_key REFERENCES sessions(key)` on `metrics_history`, `gradient_variance_history`, `generation_quality` and `abnormal_samples` (SQLite doesn't
+enforce foreign keys, so its backend is unaffected). `TrainingMetricsService` writes the session row only in `persist_summary()`, which runs **after**
+`persist_metrics()` at each periodic persist and at `end_session()`; gradient-variance rows are inserted on every optimizer step from the start. Until the
+first persist, every child insert fails with `violates foreign key constraint … Key (session_key)=(…) is not present in table "sessions"`, is retried 3
+times by `execute_with_retry()` (~0.5 s of sleeps, blocking the ingest handler) and is dropped. With a fresh key and `persist_every_samples = 5`, the run
+ended with the session row present but **0 history rows and 0 gradient-variance rows**. At the defaults every session loses its first persist batch and every
+gradient-variance row before the first persist (100 steps or 30 s), and the trainer's per-step `/metrics/advanced` pushes stall 0.5 s each meanwhile; short
+sessions can lose everything. The backend's own tests always upsert the session first.
+
+Action Items:
+
+- [ ] Upsert the session row in `TrainingMetricsService::start_session()` (and/or run `persist_summary()` before `persist_metrics()`).
+- [ ] Don't retry constraint violations (check the SQLSTATE class) in `execute_with_retry()`.
+- [ ] Add a live test that writes child rows through `TrainingMetricsService` without a prior upsert.
+
+Location in code: `src/TrainingMetricsService.cpp` (`start_session()`, `persist_metrics()`/`persist_summary()` order); `src/PostgresMetricsDatabase.cpp` (child inserts, `execute_with_retry()`); tagged `TODO: See TD-479`.
+
+Files to Modify:
+
+- `src/TrainingMetricsService.cpp`
+- `src/PostgresMetricsDatabase.cpp`
+- `tests/postgres_metrics_database_test.cpp`
+
+---
+
+### TD-480: `PostgresMetricsDatabase` One-Time Schema Bootstrap, Reconnects Under Lock and Unsafe Retries
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Metrics / Database | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `PostgresMetricsDatabase`, by inspection:
+- **One-time bootstrap.** `bootstrap_schema()` runs only in the constructor and only if `pool_[0]` connected; if PostgreSQL is down when
+  `metrics_api_server` starts, later reconnects succeed but a fresh database never gets its tables, so every statement fails until restart.
+- **Blocking under the lock.** `acquire_connection()` calls `ensure_connection()` (a blocking `PQconnectdb()`) while holding `pool_mutex_`, and
+  `execute_with_retry()` reconnects under it too, so one slow reconnect stalls every caller; no `connect_timeout`/`statement_timeout` unless the URL sets one.
+- **Unsafe retries.** An insert whose result was lost with its connection (committed but unacknowledged) is re-executed, duplicating the row; non-retryable
+  errors (constraint, syntax) are retried with full back-off.
+- **Archive collision.** `archive_session()` inserts under `archived_key` with plain `INSERT`; an existing row with that key aborts the transaction (unlikely:
+  keys carry a millisecond timestamp and counter).
+
+Action Items:
+
+- [ ] Bootstrap the schema on the first successful connection (any time), not just at construction.
+- [ ] Reconnect outside `pool_mutex_`; set `connect_timeout` and `statement_timeout` defaults.
+- [ ] Classify errors (retry only connection failures); make inserts idempotent where retried (e.g. client-side IDs with `ON CONFLICT DO NOTHING`).
+
+Location in code: `src/PostgresMetricsDatabase.cpp` (constructor, `acquire_connection()`, `execute_with_retry()`, `archive_session()`); tagged `TODO: See TD-480`.
+
+Files to Modify:
+
+- `src/PostgresMetricsDatabase.{hpp,cpp}`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -12198,15 +12275,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 270 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 272 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|29|11%|
-|Medium|115|42%|
-|Low|126|47%|
+|Medium|116|42%|
+|Low|127|47%|
 
-**Total Active Items:** 270
+**Total Active Items:** 272
 
 ### By Component
 
@@ -12280,7 +12357,7 @@ Recomputed directly from the 270 `### TD-NNN` entries under [Active Technical De
 |Core / Optimizer|2|
 |Build / SIMD|2|
 |Metrics / Server CLI|2|
-|Metrics / Database|2|
+|Metrics / Database|4|
 |Metrics / Push Client|3|
 |Metrics / Session Registry|2|
 |Training / MetricsTracker|1|
@@ -12298,13 +12375,13 @@ Recomputed directly from the 270 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|166|
-|2-4 hours|78|
+|0-2 hours|167|
+|2-4 hours|79|
 |4-8 hours|14|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 508-910 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 511-916 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

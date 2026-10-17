@@ -96,6 +96,8 @@ TrainingMetricsService::~TrainingMetricsService() {
     adai::Logger::info("TrainingMetricsService shutdown");
 }
 
+// TODO: See TD-479 in TECHNICAL_DEBT.md - the DB session row isn't written here, only in persist_summary() after the first history batch;
+// on Postgres every child insert before that violates its foreign key and is dropped
 void TrainingMetricsService::start_session(int session_id, int total_epochs, int total_samples,
                                            const std::string& label,
                                            const std::string& config_snapshot, bool reset_best) {
