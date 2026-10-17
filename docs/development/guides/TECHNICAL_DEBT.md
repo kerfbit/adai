@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 286
+**Total Items:** 290
 **High Priority:** 30
-**Medium Priority:** 123
-**Low Priority:** 133
+**Medium Priority:** 126
+**Low Priority:** 134
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -510,6 +510,13 @@ against the real binary. One is **HIGH**: the URL's `<group>` is used unvalidate
 still answered `added:true` (TD-492); `trained` from a different run recorded another run's claimed file, and the real run's later `trained` recorded
 nothing (TD-493). One is LOW: bind failure exits 0, startup SIGTERM lost, no claim leases, fetches block the thread pool, unbounded uploads, compact-only
 JSON (TD-494).
+
+Also October 17, 2026: filed [TD-495](#td-495-localtransport-saves-truncate-the-queue-when-a-write-fails) through [TD-498](#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene) from the code-traced [RegistryTransport.md](../reference/source/RegistryTransport.md). Three
+are MEDIUM and verified: `LocalTransport` saves truncate and rewrite in place, so a failed write (simulated disk full) left 114 of 2,001 queue entries,
+and `registry_server` stores every group this way (TD-495); the space-separated registry format turned `/data/my file.jsonl` into an untrained record for
+`/data/my` (TD-496); `RemoteTransport` cuts objects at the next `}`, hiding `/data/a}b.jsonl` from `load_pending()`, and neither side unescapes, so
+`C:\data\w.jsonl` came back with every backslash quadrupled (TD-497). One is LOW: duplicate local commits, inconsistent `add_pending` results, unparsed
+segment results, unlocked registry writes, a never-sent `model_id`, `https://` sent as HTTP (TD-498).
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1600,6 +1607,10 @@ running `registry_server`, and the fix is small (validate `<group>` like model n
 alongside TD-309/TD-310/TD-470, the other request-reachable registry crashes and escapes. Then [TD-493](#td-493-registry-trained-ignores-claim-ownership-and-records-each-path-once) and [TD-492](#td-492-registry-upload-silently-replaces-pending-or-claimed-files) (they corrupt what was trained),
 [TD-491](#td-491-concurrent-registry-fetches-serve-and-overwrite-the-same-slice), and [TD-494](#td-494-registry_server-startup-lease-thread-pool-and-parsing-gaps) as cleanup.
 
+**Tier 89 — Newly filed (October 17, 2026): `RegistryTransport`.** [TD-495](#td-495-localtransport-saves-truncate-the-queue-when-a-write-fails) first (write to a temporary file and rename; small and protects every
+queue `registry_server` holds), then [TD-496](#td-496-registry-flat-file-formats-break-on-spaces-tabs-and-newlines-in-paths) (a format change needing a migration path) and [TD-497](#td-497-remotetransport-hides-paths-with--and-multiplies-backslashes) (replace the substring parsing with the
+vendored `nlohmann/json`, together with TD-494's server side and TD-453). [TD-498](#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene) is cleanup; its commit-ownership part goes with TD-493.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1892,6 +1903,10 @@ alongside TD-309/TD-310/TD-470, the other request-reachable registry crashes and
   - [TD-492: Registry Upload Silently Replaces Pending or Claimed Files](#td-492-registry-upload-silently-replaces-pending-or-claimed-files)
   - [TD-493: Registry `trained` Ignores Claim Ownership and Records Each Path Once](#td-493-registry-trained-ignores-claim-ownership-and-records-each-path-once)
   - [TD-494: `registry_server` Startup, Lease, Thread-Pool and Parsing Gaps](#td-494-registry_server-startup-lease-thread-pool-and-parsing-gaps)
+  - [TD-495: `LocalTransport` Saves Truncate the Queue When a Write Fails](#td-495-localtransport-saves-truncate-the-queue-when-a-write-fails)
+  - [TD-496: Registry Flat-File Formats Break on Spaces, Tabs and Newlines in Paths](#td-496-registry-flat-file-formats-break-on-spaces-tabs-and-newlines-in-paths)
+  - [TD-497: `RemoteTransport` Hides Paths With `}` and Multiplies Backslashes](#td-497-remotetransport-hides-paths-with--and-multiplies-backslashes)
+  - [TD-498: `LocalTransport`/`RemoteTransport` Divergence, Dead `model_id` and Client Hygiene](#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -12250,6 +12265,124 @@ Files to Modify:
 
 ---
 
+### TD-495: `LocalTransport` Saves Truncate the Queue When a Write Fails
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / RegistryTransport | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `RegistryTransport.cpp` (see [RegistryTransport.md](../reference/source/RegistryTransport.md)); verified with a scratch program.
+`LocalTransport::save_pending()`/`save_registry()` open the file with a truncating `std::ofstream` and rewrite it in place. A write that fails part-way
+(disk full, quota) or a process killed mid-write leaves the file truncated. With `RLIMIT_FSIZE` = 4 KiB, rewriting a 2,001-entry pending file (74,890
+bytes) returned false and left **114 of 2,001 entries**. `registry_server` stores every group's queue and trained registry through `LocalTransport`
+and ignores the return value, so a full disk silently cuts queues short; trained files dropped from the registry can be re-queued and trained again.
+
+Action Items:
+
+- [ ] Write to `<file>.tmp`, flush/fsync, then `rename()` over the original (and fsync the directory).
+- [ ] Have `registry_server` handlers check the save result and return 500 instead of reporting success.
+- [ ] Test with a size-limited write.
+
+Location in code: `src/RegistryTransport.cpp` (`LocalTransport::save_pending()`, `save_registry()`, `add_pending()`'s append); tagged `TODO: See TD-495`.
+
+Files to Modify:
+
+- `src/RegistryTransport.cpp`
+- `src/RegistryServer.cpp`
+- `tests/RegistryTransportTests.cpp`
+
+---
+
+### TD-496: Registry Flat-File Formats Break on Spaces, Tabs and Newlines in Paths
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / RegistryTransport | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `RegistryTransport.cpp`; verified. The trained registry is space-separated and read with `>>`: a record for
+`/data/my file.jsonl` loaded back as `data_file='/data/my'`, `checksum='file.jsonl'`, `num_samples=0`, `trained=false`. `registry_server`'s upload accepts
+filenames with spaces, so such files are recorded as untrained records that `delete` and `trained`'s dedupe can't match. The pending file is
+tab-separated, so a path containing a tab or newline (also accepted by upload) breaks it the same way (by inspection).
+
+Action Items:
+
+- [ ] Switch both files to an escaped or structured format (JSON Lines), reading the old formats for migration.
+- [ ] Until then, reject paths containing whitespace control characters at `add_pending`/upload, and spaces in upload names.
+
+Location in code: `src/RegistryTransport.cpp` (`LocalTransport::load_registry()`/`save_registry()`, `load_pending()`/`save_pending()`); tagged `TODO: See TD-496`.
+
+Files to Modify:
+
+- `src/RegistryTransport.cpp`
+- `src/RegistryServer.cpp`
+- `tests/RegistryTransportTests.cpp`
+
+---
+
+### TD-497: `RemoteTransport` Hides Paths With `}` and Multiplies Backslashes
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / RegistryTransport | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `RegistryTransport.cpp`; verified against a local `registry_server`. `RemoteTransport` parses responses by slicing each object at
+the next `}` and reading strings up to the next `"`, with no unescaping (the server doesn't unescape requests either, TD-494):
+- After `add_pending("/data/a}b.jsonl")`, `load_pending()` (what `dataset_manager status` shows) returned 2 of 3 entries. The legacy acquire response still
+  listed it, but the FTP acquire response is parsed as objects, so with FTP on the server would claim the file and the client drop it, stranding the claim
+  (by inspection).
+- `add_pending("C:\data\w.jsonl")` was stored with doubled backslashes and came back from `load_pending()`/`acquire()` with each backslash quadrupled, a
+  path that doesn't exist; Windows trainers (TD-160) can't use a remote registry with native paths. A `"` in a path truncates it.
+
+Action Items:
+
+- [ ] Parse responses (and build requests) with the vendored `nlohmann/json`, together with TD-494's server-side parsing and TD-453.
+- [ ] Live tests with `}`, `{`, `\`, `"` and non-ASCII paths.
+
+Location in code: `src/RegistryTransport.cpp` (anonymous-namespace JSON helpers; `RemoteTransport::load_registry()`, `load_pending()`, `acquire()`, `delete_paths()`); tagged `TODO: See TD-497`.
+
+Files to Modify:
+
+- `src/RegistryTransport.cpp`
+- `tests/dataset_registry_live_test.cpp`
+
+---
+
+### TD-498: `LocalTransport`/`RemoteTransport` Divergence, Dead `model_id` and Client Hygiene
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / RegistryTransport | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `RegistryTransport.{hpp,cpp}`:
+- **Verified:** `LocalTransport::commit_trained()` appends without dedupe or claim checks: committing the same file from run `other` (claimed by `r1`) and
+  then from `r1` left two registry rows. `LocalTransport::add_pending()` returns true for an already-queued entry; `RemoteTransport` returns false, as the
+  header documents.
+- **By inspection:** `RemoteTransport::assign()`/`unassign()` don't parse the response's `segments`, so `result.segments` is empty while the counts include
+  them; `commit_trained()`/`delete_paths()` rewrite the local registry outside the lock; `RemoteTransport::commit_trained()` never sends `model_id`, and
+  nothing sets `DataVersion::model_id`, so `history?model_id=` (Android dashboard) never matches; `parse_host_port()` strips `https://` and sends plain HTTP
+  to 8082; `run_group`/`dataset_kind` aren't URL-encoded or validated; `LocalTransport::release()` logs the requested count; `upload_file()` reads the whole
+  file into memory.
+
+Action Items:
+
+- [ ] Make `LocalTransport::commit_trained()` match the server (and TD-493's ownership rule); make `add_pending()` return false for duplicates.
+- [ ] Parse `segments` in remote assign/unassign; lock registry rewrites.
+- [ ] Set and send `model_id` (or remove it and the history filter); reject `https://` until supported; encode the group; stream uploads.
+
+Location in code: `src/RegistryTransport.cpp` (`LocalTransport::commit_trained()`/`add_pending()`/`release()`/`delete_paths()`, `RemoteTransport::commit_trained()`/`assign()`/`unassign()`, `parse_host_port()`); tagged `TODO: See TD-498`.
+
+Files to Modify:
+
+- `src/RegistryTransport.{hpp,cpp}`
+- `src/DatasetRegistry.cpp`
+- `tests/RegistryTransportTests.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -12766,15 +12899,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 286 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 290 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|30|10%|
-|Medium|123|43%|
-|Low|133|47%|
+|Medium|126|44%|
+|Low|134|46%|
 
-**Total Active Items:** 286
+**Total Active Items:** 290
 
 ### By Component
 
@@ -12849,6 +12982,7 @@ Recomputed directly from the 286 `### TD-NNN` entries under [Active Technical De
 |RAG / RAGInference|4|
 |Data / Registry Server CLI|2|
 |Data / Registry Server|5|
+|Data / RegistryTransport|4|
 |Core / Matrix|2|
 |Core / Optimizer|2|
 |Build / SIMD|2|
@@ -12871,13 +13005,13 @@ Recomputed directly from the 286 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|172|
-|2-4 hours|88|
+|0-2 hours|173|
+|2-4 hours|91|
 |4-8 hours|14|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 534-962 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 541-976 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

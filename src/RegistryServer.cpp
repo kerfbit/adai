@@ -122,6 +122,8 @@ static std::string group_dir(const std::string& group, const std::string& kind) 
     return kind.empty() ? data_dir + "/" + group : data_dir + "/" + group + "/" + kind;
 }
 
+// TODO: See TD-495 in TECHNICAL_DEBT.md - every handler ignores LocalTransport's save_*() result, so a failed
+// (truncating) write is reported as success.
 static GroupState& get_group(const std::string& group, const std::string& kind) {
     std::lock_guard<std::mutex> lock(groups_mtx);
     const std::string map_key = kind.empty() ? group : group + "/" + kind;

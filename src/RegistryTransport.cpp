@@ -60,6 +60,7 @@ bool LocalTransport::load_registry(std::vector<DataVersion>& out) {
         std::istringstream iss(line);
         DataVersion dv;
         int trained_int = 0;
+        // TODO: See TD-496 in TECHNICAL_DEBT.md - '/data/my file.jsonl' loads as data_file '/data/my', trained=false.
         iss >> dv.data_file >> dv.checksum >> dv.num_samples >> trained_int;
         dv.trained = (trained_int == 1);
 
@@ -82,6 +83,8 @@ bool LocalTransport::load_registry(std::vector<DataVersion>& out) {
     return true;
 }
 
+// TODO: See TD-495 in TECHNICAL_DEBT.md - truncate-and-rewrite in place; a failed write leaves a partial file.
+// TODO: See TD-496 in TECHNICAL_DEBT.md - space-separated columns: a path with a space corrupts the record.
 bool LocalTransport::save_registry(const std::vector<DataVersion>& entries) {
     fs::create_directories(fs::path(registry_path_).parent_path());
 
@@ -179,6 +182,8 @@ bool LocalTransport::load_pending(std::vector<PendingEntry>& out) {
     return true;
 }
 
+// TODO: See TD-495 in TECHNICAL_DEBT.md - truncate-and-rewrite in place (simulated disk full kept 114 of 2,001
+// entries); write a temp file and rename. TD-496: tab/newline in a path breaks the format.
 bool LocalTransport::save_pending(const std::vector<PendingEntry>& entries) {
     fs::create_directories(fs::path(pending_path_).parent_path());
 
@@ -332,6 +337,8 @@ void LocalTransport::release(const std::string& run_id, const std::vector<std::s
     unlock_pending(lock_fd);
 }
 
+// TODO: See TD-498 in TECHNICAL_DEBT.md - appends without dedupe or claim check (duplicate rows, verified); the
+// registry rewrite runs outside the lock.
 void LocalTransport::commit_trained(const std::string& run_id,
                                     const std::vector<DataVersion>& new_entries,
                                     const std::vector<std::string>& trained_paths) {
@@ -378,6 +385,7 @@ bool LocalTransport::add_pending(const std::string& path, int segment_start, int
     for (const auto& e : entries) {
         if (segment_matches(e, path, segment_start, segment_count)) {
             unlock_pending(lock_fd);
+            // TODO: See TD-498 in TECHNICAL_DEBT.md - header (and RemoteTransport) say false for a duplicate.
             return true;  // already queued
         }
     }
@@ -746,6 +754,8 @@ std::string json_escape(const std::string& s) {
     return out;
 }
 
+// TODO: See TD-497 in TECHNICAL_DEBT.md - no unescaping (backslashes multiply per round trip) and objects are cut at
+// the next '}' even inside strings (a path with '}' disappears); use nlohmann/json.
 // Extract the value of a simple JSON string key: "key":"value"
 // Returns empty string if not found.
 std::string json_string(const std::string& body, const std::string& key) {
@@ -876,6 +886,7 @@ std::string json_segments_array(const std::vector<SegmentTarget>& v) {
     return out;
 }
 
+// TODO: See TD-498 in TECHNICAL_DEBT.md - https:// is stripped and plain HTTP is sent (default port 8082).
 // Parse URL "http://host[:port]" → {host, port}
 std::pair<std::string, int> parse_host_port(const std::string& url) {
     std::string s = url;
@@ -1232,6 +1243,7 @@ void RemoteTransport::commit_trained(const std::string& run_id,
     cli.set_connection_timeout(0, timeout_ms_ * 1000);
     cli.set_read_timeout(0, timeout_ms_ * 1000);
 
+    // TODO: See TD-498 in TECHNICAL_DEBT.md - model_id is never sent (and never set), so history?model_id= never matches.
     // Build files and samples arrays from new_entries
     std::vector<std::string> files;
     std::vector<int> samples;
@@ -1344,6 +1356,7 @@ AssignResult RemoteTransport::assign(const std::string& model_name,
                       host_, port_, group_prefix_ + "/assign");
         return result;
     }
+    // TODO: See TD-498 in TECHNICAL_DEBT.md - response "segments" not parsed; result.segments stays empty.
     result.assigned = json_int(res->body, "assigned");
     result.paths = json_string_array(res->body, "paths");
     Logger::info("RemoteTransport: assigned {} files to model '{}'", result.assigned, model_name);
