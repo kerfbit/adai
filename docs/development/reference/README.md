@@ -74,6 +74,7 @@ This directory contains reference materials, technical specifications, and imple
   - [PPOOptimizer](source/PPOOptimizer.md) (`src/PPOOptimizer.hpp`; RLHF value function, GAE and clipped objective)
   - [Predictor](source/Predictor.md) (`src/Predictor.{hpp,cpp}`; LeJEPA embedding-space predictor)
   - [Quantization](source/Quantization.md) (`src/Quantization.hpp`; INT8/INT4 per-tensor quantization, not used in production)
+  - [RAGInference](source/RAGInference.md) (`src/RAGInference.{hpp,cpp}`; retrieval-augmented generation for `chatbot_api_server`'s `RAG_ENABLED` path)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)

@@ -12,7 +12,7 @@ Component API documentation. See [api/README.md](api/README.md) for the full ind
 - **Transformer** — encoder, decoder, encoder-decoder model, attention heads, feed-forward, positional encoding, token embedding, layer norm, language model head
 - **Attention** — moved to [reference/source/MultiHeadAttention.md](reference/source/MultiHeadAttention.md) and [reference/source/CrossAttention.md](reference/source/CrossAttention.md)
 - **NLP** — `text-generator.md` (BPETokenizer and ConversationContext moved to [reference/source/BPETokenizer.md](reference/source/BPETokenizer.md) and [reference/source/ConversationContext.md](reference/source/ConversationContext.md))
-- **Memory / RAG** — `RAGInference.md` (DocumentStore moved to [reference/source/DocumentStore.md](reference/source/DocumentStore.md))
+- **Memory / RAG** — moved to [reference/source/RAGInference.md](reference/source/RAGInference.md) and [reference/source/DocumentStore.md](reference/source/DocumentStore.md)
 - **Data** — `batch-processing.md`, `batch-processing-quickref.md` (`Dataset` retired; record in [reference/source/Dataset.md](reference/source/Dataset.md))
 - **Advanced** — `speculative-decoding.md`, `reward-model.md` (PPOOptimizer, LoRA and Quantization moved to [reference/source/PPOOptimizer.md](reference/source/PPOOptimizer.md), [reference/source/LoRA.md](reference/source/LoRA.md) and [reference/source/Quantization.md](reference/source/Quantization.md))
 - **REST API** — `rest-api.md`

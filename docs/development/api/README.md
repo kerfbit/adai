@@ -76,7 +76,7 @@ The `TrainingMetricsAPI` is a separate HTTP server (default port 8081) for real-
 | File | Class | Description |
 | --- | --- | --- |
 | [DocumentStore.md](../reference/source/DocumentStore.md) | `DocumentStore` | Document storage for RAG (code-traced reference) |
-| [memory/RAGInference.md](memory/RAGInference.md) | `RAGInference` | Retrieval-augmented generation inference |
+| [../reference/source/RAGInference.md](../reference/source/RAGInference.md) | `RAGInference` | Retrieval-augmented generation inference |
 
 ## Data
 

@@ -252,6 +252,8 @@ std::string ChatbotAPI::handle_chat_session(const std::string& request_body) {
         config = default_config_;
     }
 
+    // TODO: See TD-485 in TECHNICAL_DEBT.md - with RAG enabled, this whole conversation becomes the retrieval
+    // query; pass the latest user message for retrieval instead.
     // Generate response
     std::string response = generate_response(formatted_context, config);
 
@@ -808,6 +810,8 @@ std::string ChatbotAPI::generate_response(const std::string& input,
     // stats are already warm the moment profiling is turned on rather than starting from zero.
     PROFILE_SCOPE(profiler_, "generate_response");
 
+    // TODO: See TD-486 in TECHNICAL_DEBT.md - the RAG branch ignores `config` (strategy, reloaded values) and
+    // skips the GPU path below.
     // Route through RAG engine when enabled
     // TODO: See TD-230 in TECHNICAL_DEBT.md - generation below runs while holding config_mutex_, so every
     // other request waits; copy rag_engine_ under the lock and generate after releasing it.

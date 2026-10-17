@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 275
+**Total Items:** 279
 **High Priority:** 29
-**Medium Priority:** 116
-**Low Priority:** 130
+**Medium Priority:** 119
+**Low Priority:** 131
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -489,6 +489,13 @@ Also October 17, 2026: filed [TD-483](#td-483-quantization-asymmetric-range-mode
 verified: asymmetric modes clamp the zero point instead of including 0 in the range, so data in [5, 10] round-trips as all 5.000; a saved
 `ASYMMETRIC_INT8` matrix reloaded with a default `Quantizer` decodes 15/20 as −5.1/−0.08 (TD-075's corruption, since the mode isn't saved); INT4 is unpacked
 (3.98×, not the promised 8×); per-channel and MSE calibration are advertised but absent.
+
+Also October 17, 2026: filed [TD-484](#td-484-rag-prompt-budget-lets-the-question-fall-past-max_seq_length) through [TD-487](#td-487-raginference-misconfiguration-and-observability-gaps) from the code-traced [RAGInference.md](../reference/source/RAGInference.md) (`chatbot_api_server`'s
+`RAG_ENABLED` path). Three are MEDIUM: the context budget alone equals `max_seq_length` at the shipped values and the query is added outside it, so the
+question lands past the model's positional range (TD-484, verified: a 512-"token" context was 1,150 real tokens and the prompt 1,178, 2.3× `max_seq_length`);
+`/chat/session` retrieves with the first `max_seq_length` tokens of the whole conversation, so long conversations ignore the latest question (TD-485); and
+RAG always passes an empty strategy, copies its generation settings once at startup and generates on the CPU, so `STRATEGY`, reloads and the GPU path are
+lost while it's on (TD-486). One is LOW: `RAG_NUM_DOCS ≤ 0` fails every request, a threshold can silently empty the context, and nothing logs retrieval (TD-487).
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1566,6 +1573,11 @@ planned later). Fix [TD-481](#td-481-ppo-advantages-are-normalized-within-each-r
 **Tier 85 — Newly filed (October 17, 2026): `Quantization`.** [TD-483](#td-483-quantization-asymmetric-range-mode-less-files-and-unpacked-int4) waits on TD-014's quantization tool; fix it before that tool
 uses this header.
 
+**Tier 86 — Newly filed (October 17, 2026): `RAGInference`.** RAG is off by default (`RAG_ENABLED=false`), and its retrieval is meaningless until
+TD-247 loads trained encoder weights, so do these with or after TD-247. [TD-484](#td-484-rag-prompt-budget-lets-the-question-fall-past-max_seq_length) first (token-aware budget for the whole prompt, sized from
+`max_seq_length`; pairs with TD-365's input truncation), then [TD-485](#td-485-rag-session-retrieval-uses-the-start-of-the-conversation) (retrieve with the latest user message) and [TD-486](#td-486-rag-path-bypasses-strategy-reloaded-settings-and-gpu-generation) (pass the server's
+`GenerationConfig` through and use the GPU path; pairs with TD-230's lock fix). [TD-487](#td-487-raginference-misconfiguration-and-observability-gaps) is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1847,6 +1859,10 @@ uses this header.
   - [TD-481: PPO Advantages Are Normalized Within Each Response](#td-481-ppo-advantages-are-normalized-within-each-response)
   - [TD-482: `PPOOptimizer` Never Updates the Policy and Its Ratio Is Always 1](#td-482-ppooptimizer-never-updates-the-policy-and-its-ratio-is-always-1)
   - [TD-483: `Quantization` Asymmetric Range, Mode-Less Files and Unpacked INT4](#td-483-quantization-asymmetric-range-mode-less-files-and-unpacked-int4)
+  - [TD-484: RAG Prompt Budget Lets the Question Fall Past `max_seq_length`](#td-484-rag-prompt-budget-lets-the-question-fall-past-max_seq_length)
+  - [TD-485: RAG Session Retrieval Uses the Start of the Conversation](#td-485-rag-session-retrieval-uses-the-start-of-the-conversation)
+  - [TD-486: RAG Path Bypasses Strategy, Reloaded Settings and GPU Generation](#td-486-rag-path-bypasses-strategy-reloaded-settings-and-gpu-generation)
+  - [TD-487: `RAGInference` Misconfiguration and Observability Gaps](#td-487-raginference-misconfiguration-and-observability-gaps)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -11875,6 +11891,130 @@ Files to Modify:
 
 ---
 
+### TD-484: RAG Prompt Budget Lets the Question Fall Past `max_seq_length`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | RAG / RAGInference | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `RAGInference.cpp` (see [RAGInference.md](../reference/source/RAGInference.md)). `truncateContext()` converts
+`max_context_length` to characters at 4 per token, and only the retrieved context is budgeted: `context_prefix`, `query_prefix` and the query are added
+afterwards. The shipped values are `RAG_MAX_CONTEXT_LENGTH=512` and `MAX_SEQ_LENGTH=512`, so even with an exact estimate the context alone fills every
+position and the question lands after position 512, where the encoder adds no positional encoding (the input isn't truncated, TD-365).
+- **Verified:** with a vocabulary built by this repo's `BPETokenizer` from the project's guides, a 2,048-character context of three of those documents was
+  **1,150 tokens** (1.8 characters per token) and the full prompt **1,178 tokens**, 2.3× `max_seq_length`. (That vocabulary had 402 entries; a production
+  one compresses better, but not to 4 characters per token for this kind of text.)
+- **By inspection:** the character cut can split a UTF-8 sequence before the `...`.
+
+Action Items:
+
+- [ ] Budget the whole prompt in real tokens (the model's tokenizer): `max_seq_length` minus the query and prefixes, the rest for context.
+- [ ] Truncate documents at token (or at least UTF-8 character) boundaries; prefer dropping whole lower-ranked documents first.
+- [ ] Clamp `RAG_MAX_CONTEXT_LENGTH` to the model's `max_seq_length` and document the relationship in `config.chatbot.conf`.
+- [ ] Test: the augmented prompt never exceeds `max_seq_length` tokens.
+
+Location in code: `src/RAGInference.cpp` (`truncateContext()`, `generateWithRetrieval()` step 3); tagged `TODO: See TD-484`.
+
+Files to Modify:
+
+- `src/RAGInference.{hpp,cpp}`
+- `config.chatbot.conf`
+- `tests/raginference_test.cpp`
+
+---
+
+### TD-485: RAG Session Retrieval Uses the Start of the Conversation
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | RAG / RAGInference | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `RAGInference.cpp` (by inspection). For `/chat/session`, `ChatbotAPI` passes the whole formatted conversation
+(`ConversationContext::format_for_model()`, `"User: …\nAssistant: …"`) to `generate_response()`, and the RAG branch hands that string to `RAGInference::generate()`
+as the query. `DocumentStore::retrieve()` embeds it with `LLMEncoder::encode()`, which keeps only the **first** `max_seq_length` tokens, so once a
+conversation is longer than that, retrieval is chosen by the system message and the oldest turns, and the latest question doesn't take part. The same
+string then becomes the "Question:" after the context, compounding TD-484.
+
+Action Items:
+
+- [ ] Pass the latest user message to RAG as the retrieval query, separately from the conversation history.
+- [ ] Build the prompt as context + (budgeted) history + latest question.
+- [ ] Test retrieval in a multi-turn session longer than `max_seq_length`.
+
+Location in code: `src/ChatbotAPI.cpp` (`handle_chat_session()` → `generate_response()`'s RAG branch), `src/RAGInference.cpp` (`generateWithRetrieval()`); tagged `TODO: See TD-485`.
+
+Files to Modify:
+
+- `src/ChatbotAPI.cpp`
+- `src/RAGInference.{hpp,cpp}`
+- `tests/raginference_test.cpp`
+
+---
+
+### TD-486: RAG Path Bypasses Strategy, Reloaded Settings and GPU Generation
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | RAG / RAGInference | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `RAGInference.cpp` (by inspection). When RAG is enabled, `ChatbotAPI::generate_response()` returns
+`rag_engine_->generate(input)` before any other path, and:
+- **Strategy:** `generateWithRetrieval()` always passes `strategy = ""` (the default combined sampling branch), so `STRATEGY=nucleus` (shipped) and
+  `BEAM_WIDTH` have no effect. `gen_config.num_beams` stays 1, so TD-261 isn't reached from the server, but any caller setting it above 1 gets beam search.
+- **Settings copied once:** `ChatbotAPIServer.cpp` copies `MAX_GEN_LENGTH`/`TEMPERATURE`/`TOP_P`/`TOP_K` into `RAGConfig::gen_config` at startup. A `SIGHUP`
+  reload updates `ChatbotAPI`'s `default_config_`, which RAG bypasses, and per-request values never reach it either (TD-254).
+- **CPU only:** `EncoderDecoderModel::generate_response_with_strategy()` is the CPU path, so on a GPU server enabling RAG moves every request off TD-033's GPU
+  decode path.
+
+Action Items:
+
+- [ ] Give `RAGInference` a way to build the augmented prompt only, and let `ChatbotAPI` generate from it through its normal path (strategy, config, GPU).
+- [ ] Or pass the request's `GenerationConfig` (strategy included) into `generate()`.
+- [ ] Test that RAG honours `strategy` and reloaded settings.
+
+Location in code: `src/RAGInference.cpp` (`generateWithRetrieval()` step 5), `src/ChatbotAPI.cpp` (`generate_response()`'s RAG branch), `src/ChatbotAPIServer.cpp` (`rag_config` setup); tagged `TODO: See TD-486`.
+
+Files to Modify:
+
+- `src/RAGInference.{hpp,cpp}`
+- `src/ChatbotAPI.cpp`
+- `src/ChatbotAPIServer.cpp`
+
+---
+
+### TD-487: `RAGInference` Misconfiguration and Observability Gaps
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | RAG / RAGInference | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `RAGInference.cpp` (by inspection):
+- **`RAG_NUM_DOCS ≤ 0`** isn't validated; once any document is indexed, `DocumentStore::retrieve()` throws `"k must be positive"` on every request, so every
+  chat request fails (an empty store returns before the check).
+- **`RAG_THRESHOLD`** can remove every retrieved document silently: the prompt loses its `Context:` section and nothing is logged.
+- **No retrieval logging:** nothing records which documents were used or their scores; the server calls `generate()`, discarding
+  `generateWithRetrieval()`'s list.
+- **`getConfig()`/`setConfig()`** are unsynchronized (no production caller of `setConfig()` today).
+
+Action Items:
+
+- [ ] Validate `RAG_NUM_DOCS > 0` and `RAG_MAX_CONTEXT_LENGTH > 0` at startup (with TD-241/TD-288).
+- [ ] Log retrieved document IDs and scores at debug level, and warn when the threshold empties the context.
+
+Location in code: `src/RAGInference.cpp` (`generateWithRetrieval()` steps 1–2), `src/ChatbotAPIServer.cpp` (`rag_config` setup); tagged `TODO: See TD-487`.
+
+Files to Modify:
+
+- `src/RAGInference.cpp`
+- `src/ChatbotAPIServer.cpp`
+- `src/Config.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -12391,15 +12531,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 275 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 279 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|29|11%|
-|Medium|116|42%|
-|Low|130|47%|
+|High|29|10%|
+|Medium|119|43%|
+|Low|131|47%|
 
-**Total Active Items:** 275
+**Total Active Items:** 279
 
 ### By Component
 
@@ -12471,6 +12611,7 @@ Recomputed directly from the 275 `### TD-NNN` entries under [Active Technical De
 |Attention / MultiHeadAttention|1|
 |RLHF / PPOOptimizer|2|
 |Advanced / Quantization|1|
+|RAG / RAGInference|4|
 |Core / Matrix|2|
 |Core / Optimizer|2|
 |Build / SIMD|2|
@@ -12493,13 +12634,13 @@ Recomputed directly from the 275 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|168|
-|2-4 hours|81|
+|0-2 hours|169|
+|2-4 hours|84|
 |4-8 hours|14|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 516-926 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 523-940 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

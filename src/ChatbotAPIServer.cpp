@@ -628,6 +628,8 @@ int main(int argc, char* argv[]) {
                     adai::Logger::warn("  RAG_DOCS_PATH not set - no documents indexed");
                 }
 
+                // TODO: See TD-486/TD-487 in TECHNICAL_DEBT.md - copied once (SIGHUP reloads never reach RAG);
+                // rag_num_docs/rag_max_context_length aren't validated (<= 0 breaks every request).
                 RAGInference::RAGConfig rag_config;
                 rag_config.num_retrieved_docs = config.rag_num_docs;
                 rag_config.retrieval_threshold = config.rag_threshold;

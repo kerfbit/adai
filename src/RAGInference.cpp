@@ -65,6 +65,8 @@ std::string RAGInference::truncateContext(const std::string& context, int max_to
     // Simple truncation by character count
     // In a production system, you'd want to truncate by actual token count
     // For now, we use a rough approximation: ~4 chars per token
+    // TODO: See TD-484 in TECHNICAL_DEBT.md - 4 chars/token estimate (measured 1.8); only the context is
+    // budgeted, so at the shipped 512/512 the query lands past max_seq_length. Byte cut can split UTF-8.
     int max_chars = max_tokens * 4;
 
     // max_tokens <= 0 leaves no room for any content at all.
@@ -97,6 +99,8 @@ std::string RAGInference::generate(const std::string& query) {
 
 std::string RAGInference::generateWithRetrieval(
     const std::string& query, std::vector<std::pair<float, const Document*>>& retrieved_docs) {
+    // TODO: See TD-487 in TECHNICAL_DEBT.md - num_retrieved_docs <= 0 throws on every request; a threshold that
+    // removes every document is silent; retrieved IDs/scores are never logged.
     // Step 1: Retrieve relevant documents
     retrieved_docs = doc_store->retrieve(query, config.num_retrieved_docs);
 
@@ -111,12 +115,16 @@ std::string RAGInference::generateWithRetrieval(
     // Step 2: Format retrieved documents into context
     std::string context = formatContext(retrieved_docs);
 
+    // TODO: See TD-485 in TECHNICAL_DEBT.md - for /chat/session `query` is the whole conversation, so retrieval
+    // embeds only its first max_seq_length tokens (oldest turns), not the latest question.
     // Step 3: Truncate context if needed
     context = truncateContext(context, config.max_context_length);
 
     // Step 4: Build augmented prompt
     std::string augmented_prompt = buildAugmentedPrompt(query, context);
 
+    // TODO: See TD-486 in TECHNICAL_DEBT.md - strategy is always "" (STRATEGY/BEAM_WIDTH ignored), gen_config is
+    // copied once at startup (no reload/per-request values), and this is the CPU-only path even on a GPU server.
     // Step 5: Generate response using the model
     //
     // TD-101 (fixed): this used to call generate_response(), whose max_length
