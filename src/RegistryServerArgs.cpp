@@ -10,6 +10,9 @@ namespace adai {
 RegistryServerArgs parse_registry_server_args(int argc, char* argv[]) {
     RegistryServerArgs result;
 
+    // TODO: See TD-488 in TECHNICAL_DEBT.md - bare std::stoi ("abc" aborts, "8090x" -> 8090, 99999 binds 34463, no
+    // ranges); a value flag with no value is dropped silently (bare --admin-enabled leaves admin open);
+    // unknown arguments are ignored.
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--config" && i + 1 < argc) {

@@ -1782,6 +1782,7 @@ int main(int argc, char* argv[]) {
     // FTP_SERVER_PORT/PASV keys that are ignored here; FTPS/secret set in the file silently do nothing.
     // ftp_server_port/pasv range/cert/key/ftps_enabled are CLI-only listener settings — applied
     // directly from `cli` with no file/admin-override layer, same as before.
+    // TODO: See TD-489 in TECHNICAL_DEBT.md - FTP/FTPS flags without --ftp-enabled are ignored without a warning.
     ftp_enabled = cli.ftp_enabled;
     ftp_port = cli.ftp_port;
     ftp_advertise_ip = cli.ftp_advertise_ip;

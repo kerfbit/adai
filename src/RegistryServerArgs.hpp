@@ -25,6 +25,8 @@ struct RegistryServerArgs {
     std::optional<int> port;
     std::optional<std::string> data_dir;
 
+    // TODO: See TD-489 in TECHNICAL_DEBT.md - stale: config.registry.conf ships these keys (TD-284); they also do
+    // nothing, silently, without --ftp-enabled.
     // FTP listener settings — CLI-only by design (see RegistryServer.cpp's own comment: these
     // are immutable-at-runtime listener settings, not worth threading through the config file).
     // Kept as plain fields with the same defaults the file-scope globals already use, rather than
@@ -39,6 +41,7 @@ struct RegistryServerArgs {
     std::string ftp_cert_file;
     std::string ftp_key_file;
 
+    // TODO: See TD-489 in TECHNICAL_DEBT.md - admin_enabled has no file/admin layer (CLI, else true).
     // Admin-mutable FTP settings — DO get the full file/admin-override/CLI precedence treatment
     // (see resolve_registry_server_config() below), so these stay optional<>: unset means "this
     // run didn't pass the flag," not "use the CLI default."
@@ -49,6 +52,7 @@ struct RegistryServerArgs {
     bool help = false;
 };
 
+// TODO: See TD-488 in TECHNICAL_DEBT.md - silently ignoring unknown arguments hides typos (--portt -> 8082).
 // Parses argv[1..]. Note this preserves the original inline loop's own behavior exactly,
 // including one quirk worth flagging rather than silently changing: an unrecognized argument is
 // simply ignored (no error, no message) — unlike every sibling daemon's argv parser in this

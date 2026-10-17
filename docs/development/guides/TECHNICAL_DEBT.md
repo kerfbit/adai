@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 279
+**Total Items:** 281
 **High Priority:** 29
-**Medium Priority:** 119
-**Low Priority:** 131
+**Medium Priority:** 120
+**Low Priority:** 132
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -496,6 +496,12 @@ question lands past the model's positional range (TD-484, verified: a 512-"token
 `/chat/session` retrieves with the first `max_seq_length` tokens of the whole conversation, so long conversations ignore the latest question (TD-485); and
 RAG always passes an empty strategy, copies its generation settings once at startup and generates on the CPU, so `STRATEGY`, reloads and the GPU path are
 lost while it's on (TD-486). One is LOW: `RAG_NUM_DOCS ≤ 0` fails every request, a threshold can silently empty the context, and nothing logs retrieval (TD-487).
+
+Also October 17, 2026: filed [TD-488](#td-488-registry_server-accepts-malformed-numbers-valueless-flags-and-unknown-arguments) (MEDIUM) and [TD-489](#td-489-registry_server-cli-hygiene-ignored-ftp-flags-stale-comments-and---help) (LOW) from the code-traced
+[RegistryServerArgs.md](../reference/source/RegistryServerArgs.md). Verified with the real binary: `--port abc` aborts with a core dump, `8090x` → 8090,
+`99999` binds 34463 while logging 99999; a value flag at the end of the command line is silently dropped, so a bare `--admin-enabled` left
+`PUT /admin/config` open (200); unknown arguments are ignored (`--portt 8091` → 8082). TTL, session and PASV values aren't range-checked (TD-488).
+FTP-only flags without `--ftp-enabled`, stale header comments and `--help` handling are cleanup (TD-489).
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1578,6 +1584,9 @@ TD-247 loads trained encoder weights, so do these with or after TD-247. [TD-484]
 `max_seq_length`; pairs with TD-365's input truncation), then [TD-485](#td-485-rag-session-retrieval-uses-the-start-of-the-conversation) (retrieve with the latest user message) and [TD-486](#td-486-rag-path-bypasses-strategy-reloaded-settings-and-gpu-generation) (pass the server's
 `GenerationConfig` through and use the GPU path; pairs with TD-230's lock fix). [TD-487](#td-487-raginference-misconfiguration-and-observability-gaps) is cleanup.
 
+**Tier 87 — Newly filed (October 17, 2026): `RegistryServerArgs`.** Fix [TD-488](#td-488-registry_server-accepts-malformed-numbers-valueless-flags-and-unknown-arguments) together with its siblings TD-240, TD-438 and TD-456 (one shared
+checked-integer/boolean helper and an "unknown argument" error for every daemon); [TD-489](#td-489-registry_server-cli-hygiene-ignored-ftp-flags-stale-comments-and---help) goes with it.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1863,6 +1872,8 @@ TD-247 loads trained encoder weights, so do these with or after TD-247. [TD-484]
   - [TD-485: RAG Session Retrieval Uses the Start of the Conversation](#td-485-rag-session-retrieval-uses-the-start-of-the-conversation)
   - [TD-486: RAG Path Bypasses Strategy, Reloaded Settings and GPU Generation](#td-486-rag-path-bypasses-strategy-reloaded-settings-and-gpu-generation)
   - [TD-487: `RAGInference` Misconfiguration and Observability Gaps](#td-487-raginference-misconfiguration-and-observability-gaps)
+  - [TD-488: `registry_server` Accepts Malformed Numbers, Valueless Flags and Unknown Arguments](#td-488-registry_server-accepts-malformed-numbers-valueless-flags-and-unknown-arguments)
+  - [TD-489: `registry_server` CLI Hygiene: Ignored FTP Flags, Stale Comments and `--help`](#td-489-registry_server-cli-hygiene-ignored-ftp-flags-stale-comments-and---help)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -12015,6 +12026,67 @@ Files to Modify:
 
 ---
 
+### TD-488: `registry_server` Accepts Malformed Numbers, Valueless Flags and Unknown Arguments
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / Registry Server CLI | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `RegistryServerArgs.cpp` (see [RegistryServerArgs.md](../reference/source/RegistryServerArgs.md)); verified with the real
+`registry_server` binary:
+- **Numbers:** every numeric flag uses bare `std::stoi`. `--port abc` threw an uncaught `std::invalid_argument` (abort, core dump, exit 134); `--port 8090x`
+  was accepted as 8090; `--port 99999` logged "listening on port 99999" but bound 34463. By inspection, nothing is range-checked: `--ftp-ttl 0` or negative
+  issues already-expired FTP tokens, `--ftp-max-sessions 0` makes every FTP login fail with 421, `--ftp-pasv-min > --ftp-pasv-max` empties the PASV pool (425).
+- **Valueless flags:** a value flag is matched only when a value follows, so a trailing one is dropped silently. A bare `--admin-enabled` left
+  `PUT /admin/config` open (HTTP 200); a trailing `--ftp-secret` leaves the key random, a trailing `--port` falls back to 8082. (Unknown values such as
+  `flase` fail closed, 403, unlike TD-456.)
+- **Unknown arguments:** ignored without a message (`--portt 8091` started on 8082), so typos such as `--ftp-enable` leave features off. The header documents
+  this as preserved legacy behaviour and a test asserts it.
+
+Action Items:
+
+- [ ] Parse numbers with full-string checks and ranges (ports 1–65535, TTL and sessions > 0, PASV min ≤ max); report errors and exit non-zero instead of aborting.
+- [ ] Treat a value flag with no value, and any unknown argument, as an error with usage; update `UnrecognizedArgumentIsSilentlyIgnored`.
+- [ ] Share the helper with TD-240/TD-438/TD-456.
+
+Location in code: `src/RegistryServerArgs.cpp` (`parse_registry_server_args()`); tagged `TODO: See TD-488`.
+
+Files to Modify:
+
+- `src/RegistryServerArgs.{hpp,cpp}`
+- `src/RegistryServer.cpp`
+- `tests/registry_server_args_test.cpp`
+
+---
+
+### TD-489: `registry_server` CLI Hygiene: Ignored FTP Flags, Stale Comments and `--help`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / Registry Server CLI | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `RegistryServerArgs.{hpp,cpp}` (by inspection):
+- `--ftps`, `--ftp-cert`, `--ftp-key`, `--ftp-secret` and the FTP port flags do nothing, silently, without `--ftp-enabled`.
+- Stale header comments: the FTP listener settings are called "not worth threading through the config file" while `config.registry.conf` ships them (TD-284),
+  and `admin_enabled` is described as getting file/admin-override precedence though it has no file key (CLI, else `true`).
+- `--help` is honoured only up to its position and bad arguments never print usage.
+
+Action Items:
+
+- [ ] Warn (or error) when FTP-only flags are given without `--ftp-enabled`.
+- [ ] Correct the header comments (or add a config key for `admin_enabled`, with TD-284).
+
+Location in code: `src/RegistryServerArgs.hpp` (header comments), `src/RegistryServer.cpp` (`main()`'s FTP setup); tagged `TODO: See TD-489`.
+
+Files to Modify:
+
+- `src/RegistryServerArgs.hpp`
+- `src/RegistryServer.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -12531,15 +12603,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 279 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 281 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|29|10%|
-|Medium|119|43%|
-|Low|131|47%|
+|Medium|120|43%|
+|Low|132|47%|
 
-**Total Active Items:** 279
+**Total Active Items:** 281
 
 ### By Component
 
@@ -12612,6 +12684,7 @@ Recomputed directly from the 279 `### TD-NNN` entries under [Active Technical De
 |RLHF / PPOOptimizer|2|
 |Advanced / Quantization|1|
 |RAG / RAGInference|4|
+|Data / Registry Server CLI|2|
 |Core / Matrix|2|
 |Core / Optimizer|2|
 |Build / SIMD|2|
@@ -12634,13 +12707,13 @@ Recomputed directly from the 279 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|169|
-|2-4 hours|84|
+|0-2 hours|170|
+|2-4 hours|85|
 |4-8 hours|14|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 523-940 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 526-946 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
