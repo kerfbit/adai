@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 300
+**Total Items:** 303
 **High Priority:** 31
-**Medium Priority:** 129
-**Low Priority:** 140
+**Medium Priority:** 131
+**Low Priority:** 141
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -546,6 +546,12 @@ One is **HIGH** and reaches beyond that file: every `ChatbotAPI` CPU generation 
 generated 0/12 sequences correctly that way and 12/12 with an aligned `model_fn` (TD-506). One is MEDIUM: the speculative decoder's rejection residual is
 wrong (target (0.5, 0.3, 0.2) came out (0.40, 0.40, 0.20)), greedy mode accepted the draft's argmax 41% of the time, every candidate costs its own target
 pass (41 tokens, 41 target passes), and the draft model has the target's architecture (TD-507). One is LOW: a "speedup" formula that is always below 1 (TD-508).
+
+Also October 17, 2026: filed [TD-509](#td-509-sqlitemetricsdatabaseget_session-blocks-wal-checkpoints) through [TD-511](#td-511-sqlitemetricsdatabase-busy-timeout-transactions-and-setup-gaps) from the code-traced [SQLiteMetricsDatabase.md](../reference/source/SQLiteMetricsDatabase.md)
+(`metrics_api_server`'s default store). Two are MEDIUM and verified: a found `get_session()` leaves its statement active, holding a read snapshot that
+blocks WAL checkpoints (20,000 inserts: 254 MB WAL and a 4 KB main file, vs 4 MB without it) (TD-509); a NaN loss is stored as NULL and reads back as
+0, so diverged runs look perfect (TD-510). One is LOW: no busy timeout (an insert failed in 0.3 ms against another writer), per-row transactions,
+ignored migration errors, missing default directory (TD-511).
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1658,6 +1664,9 @@ estimator) before the next world-model (re)training, since SIGReg is the only th
 Do it before judging any checkpoint's quality on a CPU server. [TD-507](#td-507-speculative-decoding-isnt-target-distributed-greedy-or-faster) needs a real redesign (parallel verification, full residual, a smaller draft);
 until then, document `--draft-model` as experimental. [TD-508](#td-508-speculative-decoding-speedup-statistic-and-hygiene) goes with it.
 
+**Tier 95 — Newly filed (October 17, 2026): `SQLiteMetricsDatabase`.** [TD-509](#td-509-sqlitemetricsdatabaseget_session-blocks-wal-checkpoints) is a one-line fix (`sqlite3_reset()` after reading) with a large
+disk impact; do it first. [TD-510](#td-510-sqlite-metrics-store-reads-nan-losses-back-as-0) goes with the other NaN-handling items (TD-443, TD-458). [TD-511](#td-511-sqlitemetricsdatabase-busy-timeout-transactions-and-setup-gaps) with TD-304's busy-timeout fix.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1964,6 +1973,9 @@ until then, document `--draft-model` as experimental. [TD-508](#td-508-speculati
   - [TD-506: CPU Chat Generation Is Off by One Because `model_fn` Uses the Training Forward](#td-506-cpu-chat-generation-is-off-by-one-because-model_fn-uses-the-training-forward)
   - [TD-507: Speculative Decoding Isn't Target-Distributed, Greedy or Faster](#td-507-speculative-decoding-isnt-target-distributed-greedy-or-faster)
   - [TD-508: Speculative Decoding Speedup Statistic and Hygiene](#td-508-speculative-decoding-speedup-statistic-and-hygiene)
+  - [TD-509: `SQLiteMetricsDatabase::get_session()` Blocks WAL Checkpoints](#td-509-sqlitemetricsdatabaseget_session-blocks-wal-checkpoints)
+  - [TD-510: SQLite Metrics Store Reads NaN Losses Back as 0](#td-510-sqlite-metrics-store-reads-nan-losses-back-as-0)
+  - [TD-511: `SQLiteMetricsDatabase` Busy Timeout, Transactions and Setup Gaps](#td-511-sqlitemetricsdatabase-busy-timeout-transactions-and-setup-gaps)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -12747,6 +12759,89 @@ Files to Modify:
 
 ---
 
+### TD-509: `SQLiteMetricsDatabase::get_session()` Blocks WAL Checkpoints
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Metrics / SQLite Database | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `SQLiteMetricsDatabase.cpp` (see [SQLiteMetricsDatabase.md](../reference/source/SQLiteMetricsDatabase.md)); verified.
+`get_session()` steps its prepared statement and returns on `SQLITE_ROW` without `sqlite3_reset()`, so the statement keeps a read snapshot open until
+the next `get_session()` call. In WAL mode that stops checkpoints: 20,000 `insert_metrics_record()` calls after one found `get_session()` left a
+**254 MB WAL and a 4 KB main database** (all data only in the WAL), against a 4 MB WAL and 2.1 MB database without it. In production,
+`TrainingMetricsService::restore_from_summary()` calls it at service construction; for an existing key (`0-default` after a restart, or a trainer
+re-registering after a `metrics_api_server` restart mid-pass) the snapshot stays open until a service with a new key is constructed, while every write
+(including one gradient-variance row per optimizer step) grows the WAL.
+
+Action Items:
+
+- [ ] `sqlite3_reset()` the statement after copying the row (and on every return path), e.g. with a scope guard.
+- [ ] Test that the WAL stays bounded after a found `get_session()`.
+
+Location in code: `src/SQLiteMetricsDatabase.cpp` (`get_session()`); tagged `TODO: See TD-509`.
+
+Files to Modify:
+
+- `src/SQLiteMetricsDatabase.cpp`
+- `tests/MetricsDatabaseTest.cpp`
+
+---
+
+### TD-510: SQLite Metrics Store Reads NaN Losses Back as 0
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Metrics / SQLite Database | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `SQLiteMetricsDatabase.cpp`; verified. SQLite stores a bound NaN as NULL, and `sqlite3_column_double()` reads NULL as 0.0. A
+history row with NaN `loss` and `validation_loss` read back as 0 and 0, and a session's NaN `final_loss` as 0, so a diverged run looks perfect in
+`db-history`, comparisons and exports. Only `best_validation_loss` is guarded (reads NULL as `FLT_MAX`); `final_loss`/`final_validation_loss` NULLs in
+pre-migration rows also read as 0. Infinity round-trips correctly.
+
+Action Items:
+
+- [ ] Read every nullable float with a NULL check and return NaN (or an explicit missing marker) instead of 0; decide how the JSON layer reports it (with TD-443/TD-458's NaN-as-invalid-JSON fixes).
+- [ ] Test NaN round trips.
+
+Location in code: `src/SQLiteMetricsDatabase.cpp` (`query_history()`, `list_sessions()`, `get_session()` column reads); tagged `TODO: See TD-510`.
+
+Files to Modify:
+
+- `src/SQLiteMetricsDatabase.cpp`
+- `tests/MetricsDatabaseTest.cpp`
+
+---
+
+### TD-511: `SQLiteMetricsDatabase` Busy Timeout, Transactions and Setup Gaps
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Metrics / SQLite Database | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `SQLiteMetricsDatabase.cpp`:
+- **No busy timeout (verified):** with another connection holding a write transaction, an insert threw `database is locked` after 0.3 ms; callers log
+  and drop the row (as TD-304 for `DaemonConfigStore`).
+- **Missing directory (verified):** the default `training_sessions/metrics.db` fails to open (`unable to open database file`) if the directory doesn't
+  exist.
+- **By inspection:** every write is its own autocommit transaction (many tiny transactions for per-step rows); `PRAGMA` and `ALTER TABLE` migration
+  errors are ignored; `schema_version` is written but never read.
+
+Action Items:
+
+- [ ] `sqlite3_busy_timeout()` (a few seconds); create the parent directory; check PRAGMA/migration results.
+- [ ] Batch per-step inserts in transactions; use or drop `schema_version`.
+
+Location in code: `src/SQLiteMetricsDatabase.cpp` (constructor, `bootstrap_schema()`, insert methods); tagged `TODO: See TD-511`.
+
+Files to Modify:
+
+- `src/SQLiteMetricsDatabase.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -13263,15 +13358,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 300 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 303 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|31|10%|
-|Medium|129|43%|
-|Low|140|47%|
+|Medium|131|43%|
+|Low|141|47%|
 
-**Total Active Items:** 300
+**Total Active Items:** 303
 
 ### By Component
 
@@ -13356,6 +13451,7 @@ Recomputed directly from the 300 `### TD-NNN` entries under [Active Technical De
 |Build / SIMD|2|
 |Metrics / Server CLI|2|
 |Metrics / Database|4|
+|Metrics / SQLite Database|3|
 |Metrics / Push Client|3|
 |Metrics / Session Registry|2|
 |Training / MetricsTracker|1|
@@ -13374,13 +13470,13 @@ Recomputed directly from the 300 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|179|
+|0-2 hours|182|
 |2-4 hours|93|
 |4-8 hours|16|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 559-1012 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 562-1018 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

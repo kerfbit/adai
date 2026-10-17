@@ -53,6 +53,8 @@ SQLiteMetricsDatabase::SQLiteMetricsDatabase(const std::string& db_path) {
         throw std::runtime_error(msg);
     }
 
+    // TODO: See TD-511 in TECHNICAL_DEBT.md - no sqlite3_busy_timeout() (writes fail instantly under contention);
+    // PRAGMA/migration errors ignored; parent directory not created.
     char* err = nullptr;
     sqlite3_exec(db_, "PRAGMA journal_mode = WAL;", nullptr, nullptr, &err);
     if (err) {
@@ -718,6 +720,7 @@ std::vector<PersistentMetricsRecord> SQLiteMetricsDatabase::query_history(
         rec.timestamp = parse_timestamp(ts_text ? ts_text : "");
         rec.epoch = sqlite3_column_int(stmt, 1);
         rec.sample = sqlite3_column_int(stmt, 2);
+        // TODO: See TD-510 in TECHNICAL_DEBT.md - NaN is stored as NULL and reads back as 0 for every unguarded column.
         rec.loss = static_cast<float>(sqlite3_column_double(stmt, 3));
         rec.validation_loss = static_cast<float>(sqlite3_column_double(stmt, 4));
         rec.learning_rate = static_cast<float>(sqlite3_column_double(stmt, 5));
@@ -804,6 +807,8 @@ std::optional<SessionRecord> SQLiteMetricsDatabase::get_session(const std::strin
     sqlite3_reset(stmt_get_session_);
     sqlite3_bind_text(stmt_get_session_, 1, key.c_str(), -1, SQLITE_TRANSIENT);
 
+    // TODO: See TD-509 in TECHNICAL_DEBT.md - on SQLITE_ROW the statement is never reset, so its read snapshot blocks
+    // WAL checkpoints until the next call (254 MB WAL after 20k inserts, verified).
     if (sqlite3_step(stmt_get_session_) != SQLITE_ROW) {
         return std::nullopt;
     }
