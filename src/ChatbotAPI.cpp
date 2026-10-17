@@ -833,6 +833,9 @@ std::string ChatbotAPI::generate_response(const std::string& input,
         // string. The draft/target model_fns are otherwise identical to the plain path's below
         // (same input_tokens capture, same forward() signature) — only which model each one
         // calls into differs.
+        // TODO: See TD-506 in TECHNICAL_DEBT.md - forward() is the training forward ([BOS] + tokens[:-1]), so the last
+        // row predicts the last context token, not the next (0/12 vs 12/12 on a trained toy model). Applies to every
+        // model_fn in this file. TD-507: speculative decoding itself is not target-distributed or faster.
         if (draft_model_) {
             auto draft_model_fn =
                 [this, &input_tokens](const std::vector<int>& decoder_tokens) -> Matrix {
@@ -884,6 +887,7 @@ std::string ChatbotAPI::generate_response(const std::string& input,
             gen_config.top_p = config.top_p;
             gen_config.top_k = static_cast<int>(config.top_k);
 
+            // TODO: See TD-506 in TECHNICAL_DEBT.md - training forward: last row predicts the last context token.
             auto request_model_fn = [this, input_tokens](const std::vector<int>& decoder_tokens)
                 -> Matrix { return model_->forward(input_tokens, decoder_tokens); };
 
@@ -944,6 +948,8 @@ std::string ChatbotAPI::generate_response(const std::string& input,
 
         // Create model forward function (uses encoder-decoder model). CPU fallback for when no
         // GPU is available (see the GPU-resident branch above).
+        // TODO: See TD-506 in TECHNICAL_DEBT.md - CPU chat generation is off by one: forward() feeds [BOS] + tokens[:-1],
+        // so the last row predicts the last generated token, not the next.
         auto model_fn = [this, &input_tokens](const std::vector<int>& decoder_tokens) -> Matrix {
             // For encoder-decoder model: encode input once, then use decoder
             // This is a simplified version - in practice, you might cache encoder output
@@ -1034,6 +1040,7 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
 
             TextGenerator generator(gen_config, 0);
 
+            // TODO: See TD-506 in TECHNICAL_DEBT.md - same off-by-one training-forward model_fn as generate_response().
             // Model forward function
             auto model_fn = [this, &input_tokens](const std::vector<int>& decoder_tokens) -> Matrix {
                 return model_->forward(input_tokens, decoder_tokens);

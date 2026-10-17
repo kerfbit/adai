@@ -395,6 +395,7 @@ int main(int argc, char* argv[]) {
         if (!config.draft_model_path.empty()) {
             adai::Logger::info("  Loading draft model weights from: {}", config.draft_model_path);
             try {
+                // TODO: See TD-507 in TECHNICAL_DEBT.md - the draft has the target's architecture, so it can't be faster.
                 draft_model = std::make_shared<EncoderDecoderModel>(
                     tokenizer->get_vocab_size(), config.d_model, config.num_encoder_layers,
                     config.num_decoder_layers, config.num_heads, config.d_ff,

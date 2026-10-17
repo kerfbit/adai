@@ -594,7 +594,7 @@ SpeculativeDecodingConfig:
 
 Documentation:
 
-- [Speculative Decoding API Reference](../api/advanced/speculative-decoding.md) - Complete algorithm description and benchmarks
+- [Speculative Decoding source reference](source/SpeculativeDecoding.md) - What the implementation actually does (see its known gaps)
 
 **Completeness:** 100% - Mathematically equivalent to standard sampling
 

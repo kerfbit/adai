@@ -53,6 +53,7 @@ struct SpeculativeDecodingConfig {
     int num_candidates = 4;             // K: Number of tokens to propose (typical: 4-8)
     float temperature = 1.0f;           // Sampling temperature
     int max_length = 100;               // Maximum sequence length
+    // TODO: See TD-508 in TECHNICAL_DEBT.md - never read.
     float acceptance_threshold = 0.0f;  // Minimum acceptance probability
     bool use_greedy = false;            // Use greedy sampling instead of probabilistic
 
@@ -201,6 +202,8 @@ class SpeculativeDecoder {
         int num_accepted = 0;
 
         for (size_t i = 0; i < proposals.size(); i++) {
+            // TODO: See TD-507 in TECHNICAL_DEBT.md - one target pass per candidate (no parallel verification, no bonus
+            // token); greedy mode still accepts randomly; draft_prob is pre-temperature.
             // Get target model probabilities for current context
             std::vector<float> target_probs =
                 target_generator_->get_next_token_probs(extended_context);
@@ -225,6 +228,8 @@ class SpeculativeDecoder {
                 total_proposals_++;
                 accepted_proposals_++;
             } else {
+                // TODO: See TD-507 in TECHNICAL_DEBT.md - residual must subtract the whole draft distribution, not just the
+                // rejected token's probability (target (0.5,0.3,0.2) came out (0.40,0.40,0.20), verified).
                 // Reject proposal - resample from adjusted distribution
                 // Adjusted distribution: max(0, p_target - p_draft) / Z
                 std::vector<float> adjusted_probs(target_probs.size());
@@ -389,6 +394,7 @@ class SpeculativeDecoder {
      * Speedup = K * acceptance_rate / (K + 1)
      * where K is number of candidates
      */
+    // TODO: See TD-508 in TECHNICAL_DEBT.md - K*a/(K+1) is < 1 for every acceptance rate; not a speedup.
     float get_speedup() const {
         float acc_rate = get_acceptance_rate();
         float K = config_.num_candidates;

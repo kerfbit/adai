@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 297
-**High Priority:** 30
-**Medium Priority:** 128
-**Low Priority:** 139
+**Total Items:** 300
+**High Priority:** 31
+**Medium Priority:** 129
+**Low Priority:** 140
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -539,6 +539,13 @@ Also October 17, 2026: filed [TD-505](#td-505-special-token-ids-arent-enforced-a
 accepts non-standard special-token IDs (PAD=5, UNK=4, BOS=1, EOS=0 encoded `ab` as `1 2 3 0`) and duplicates (BOS = EOS = 3 made every target `3 … 3`),
 while `PipelineInferenceEngine`, `ChatbotAPI`'s batch padding and `BatchProcessor` use the fixed constants; `SpecialTokenConfig::validate()` is never
 called. Shipped vocabularies all use 0–3. Seven of eight helpers are unused outside tests.
+
+Also October 17, 2026: filed [TD-506](#td-506-cpu-chat-generation-is-off-by-one-because-model_fn-uses-the-training-forward) through [TD-508](#td-508-speculative-decoding-speedup-statistic-and-hygiene) from the code-traced [SpeculativeDecoding.md](../reference/source/SpeculativeDecoding.md).
+One is **HIGH** and reaches beyond that file: every `ChatbotAPI` CPU generation path (plain default, speculative, batched, `/chat/batch`) builds its
+`model_fn` on the training `forward()`, whose last row predicts the last context token, not the next one; a tiny model trained to near-zero loss
+generated 0/12 sequences correctly that way and 12/12 with an aligned `model_fn` (TD-506). One is MEDIUM: the speculative decoder's rejection residual is
+wrong (target (0.5, 0.3, 0.2) came out (0.40, 0.40, 0.20)), greedy mode accepted the draft's argmax 41% of the time, every candidate costs its own target
+pass (41 tokens, 41 target passes), and the draft model has the target's architecture (TD-507). One is LOW: a "speedup" formula that is always below 1 (TD-508).
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1646,6 +1653,11 @@ estimator) before the next world-model (re)training, since SIGReg is the only th
 **Tier 93 — Newly filed (October 17, 2026): `SpecialTokens`.** [TD-505](#td-505-special-token-ids-arent-enforced-and-most-specialtokens-helpers-are-unused) is latent (every shipped vocabulary uses 0–3); do it with TD-223's
 `load_vocab()` hardening.
 
+**Tier 94 — Newly filed (October 17, 2026): `SpeculativeDecoding` / CPU generation.** Fix [TD-506](#td-506-cpu-chat-generation-is-off-by-one-because-model_fn-uses-the-training-forward) immediately for any CPU-served
+`chatbot_api_server`: it makes every correctly trained model answer wrongly there, and the fix is small (a forward that takes decoder input directly).
+Do it before judging any checkpoint's quality on a CPU server. [TD-507](#td-507-speculative-decoding-isnt-target-distributed-greedy-or-faster) needs a real redesign (parallel verification, full residual, a smaller draft);
+until then, document `--draft-model` as experimental. [TD-508](#td-508-speculative-decoding-speedup-statistic-and-hygiene) goes with it.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1949,6 +1961,9 @@ estimator) before the next world-model (re)training, since SIGReg is the only th
   - [TD-503: SIGReg Loss Has a Sequence-Length-Dependent Floor](#td-503-sigreg-loss-has-a-sequence-length-dependent-floor)
   - [TD-504: `SIGReg` Frequency Grid, NaN Inputs and Repeated Projections](#td-504-sigreg-frequency-grid-nan-inputs-and-repeated-projections)
   - [TD-505: Special-Token IDs Aren't Enforced and Most `SpecialTokens` Helpers Are Unused](#td-505-special-token-ids-arent-enforced-and-most-specialtokens-helpers-are-unused)
+  - [TD-506: CPU Chat Generation Is Off by One Because `model_fn` Uses the Training Forward](#td-506-cpu-chat-generation-is-off-by-one-because-model_fn-uses-the-training-forward)
+  - [TD-507: Speculative Decoding Isn't Target-Distributed, Greedy or Faster](#td-507-speculative-decoding-isnt-target-distributed-greedy-or-faster)
+  - [TD-508: Speculative Decoding Speedup Statistic and Hygiene](#td-508-speculative-decoding-speedup-statistic-and-hygiene)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -12640,6 +12655,98 @@ Files to Modify:
 
 ---
 
+### TD-506: CPU Chat Generation Is Off by One Because `model_fn` Uses the Training Forward
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| HIGH | Open | Inference / Serving / API | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `SpeculativeDecoding.hpp` (see [SpeculativeDecoding.md](../reference/source/SpeculativeDecoding.md)); verified.
+`EncoderDecoderModel::forward(input, targets)` is the training forward: it feeds `[BOS] + targets[:-1]` to the decoder, so its last logits row predicts
+`targets.back()`, the last token already in the context. `TextGenerator` (and `SpeculativeDecoder`) read the last row as the next-token prediction.
+`ChatbotAPI` builds every CPU generation `model_fn` as `model_->forward(input_tokens, decoder_tokens)`: the plain path (the default on a server without a
+GPU), speculative decoding, `--batched-inference` and `/chat/batch`.
+
+Reproduced with a tiny `EncoderDecoderModel` trained on the CPU (`forward()`, loss ≈ 0) to echo 12 five-token sequences: greedy generation through
+`ChatbotAPI`'s `model_fn` got **0/12** exactly right (`2 2 15 24 31 30 26 3` for `15 31 24 30 4`); with an aligned `model_fn` (decoder input =
+the generated tokens) **12/12**; speculative decoding likewise 0/12 vs 12/12. So a correctly trained model answers wrongly on a CPU
+`chatbot_api_server`. The GPU path, `generate_response()`'s cached path, and the RAG, pipeline and integrated engines are aligned and unaffected.
+
+Action Items:
+
+- [ ] Add an inference forward that takes the decoder input directly (e.g. `forward_decoder(input_tokens, decoder_input)`) and use it in all four `ChatbotAPI` `model_fn`s.
+- [ ] Add a regression test: a model trained on an echo task must generate it exactly through `ChatbotAPI::generate_response()` on the CPU.
+
+Location in code: `src/ChatbotAPI.cpp` (`generate_response()` plain, speculative and batched `model_fn`s; `handle_batch_chat()`); tagged `TODO: See TD-506`.
+
+Files to Modify:
+
+- `src/ChatbotAPI.cpp`
+- `src/EncoderDecoderModel.{hpp,cpp}`
+- `tests/chatbotapi_test.cpp`
+
+---
+
+### TD-507: Speculative Decoding Isn't Target-Distributed, Greedy or Faster
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Inference / SpeculativeDecoding | October 17, 2026 | 4-8 hours |
+
+Description:
+Found while tracing `SpeculativeDecoding.hpp`; verified with toy fixed-distribution `TextGenerator`s:
+- **Wrong residual:** on rejection it samples from `max(0, p_target − p_draft)` with `p_draft` non-zero only for the rejected token. With target
+  (0.5, 0.3, 0.2) and draft (0.2, 0.3, 0.5), 40,000 first tokens were (0.40, 0.40, 0.20), not the target distribution the header promises.
+- **Greedy isn't greedy:** acceptance stays random (`p_t/p_d`), so 41% of "greedy" first tokens were the draft's argmax rather than the target's.
+- **Never faster:** each candidate gets its own target `get_next_token_probs()` call (no parallel verification, no bonus token): 41 tokens took 41 target
+  passes plus draft passes; `generate_tokens(…, 40)` returned 41 tokens. `chatbot_api_server` builds the draft with the target's own architecture, so
+  even a correct algorithm couldn't save time.
+- **By inspection:** candidates are sampled from the temperature-scaled draft distribution but accepted with unscaled draft/target probabilities.
+
+Action Items:
+
+- [ ] Verify all K candidates in one target forward (logits for every position), use the full draft distribution in the residual `max(0, p − q)`, sample a bonus token when all K are accepted, and cap output at `max_new_tokens`.
+- [ ] Greedy mode: accept iff the candidate equals the target argmax.
+- [ ] Apply temperature consistently to both distributions; allow a smaller draft architecture (`DRAFT_*` config) in `chatbot_api_server`.
+- [ ] Test the output distribution and greedy equivalence.
+
+Location in code: `src/SpeculativeDecoding.hpp` (`generate_candidates()`, `verify_candidates()`, `sample_token()`, `generate_tokens()`), `src/ChatbotAPIServer.cpp` (draft model construction); tagged `TODO: See TD-507`.
+
+Files to Modify:
+
+- `src/SpeculativeDecoding.hpp`
+- `src/ChatbotAPIServer.cpp`
+- `tests/speculativedecoding_test.cpp`
+
+---
+
+### TD-508: Speculative Decoding Speedup Statistic and Hygiene
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Inference / SpeculativeDecoding | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `SpeculativeDecoding.hpp`: `get_speedup()`/`calculate_theoretical_speedup()` return `K·α/(K+1)`, which is below 1 for every
+acceptance rate (verified: 0.6 at 80% acceptance, 0.8 at 100%) and isn't a speedup (expected tokens per target pass is `(1 − α^(K+1))/(1 − α)`, before
+costs); the tests assert this formula and the replaced doc promised "2–3×". By inspection: `acceptance_threshold` is never read; `print_stats()`/
+`print_speedup_table()` use `std::cout`; `generate()` uses `goto`; the RNG is unseeded (TD-368's class).
+
+Action Items:
+
+- [ ] Report tokens per target pass (and measured time if available) instead; update the tests.
+- [ ] Remove or implement `acceptance_threshold`; route output through `Logger`; seedable RNG.
+
+Location in code: `src/SpeculativeDecoding.hpp` (`get_speedup()`, `calculate_theoretical_speedup()`, `SpeculativeDecodingConfig`); tagged `TODO: See TD-508`.
+
+Files to Modify:
+
+- `src/SpeculativeDecoding.hpp`
+- `tests/speculativedecoding_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -13156,15 +13263,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 297 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 300 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|30|10%|
-|Medium|128|43%|
-|Low|139|47%|
+|High|31|10%|
+|Medium|129|43%|
+|Low|140|47%|
 
-**Total Active Items:** 297
+**Total Active Items:** 300
 
 ### By Component
 
@@ -13185,7 +13292,7 @@ Recomputed directly from the 297 `### TD-NNN` entries under [Active Technical De
 |Inference / Serving|3|
 |Inference / Serving / Observability|1|
 |Core Math / Activation|2|
-|Inference / Serving / API|15|
+|Inference / Serving / API|16|
 |Inference / Serving / CLI|6|
 |Inference / Serving / Server|7|
 |Client / CLI|7|
@@ -13226,6 +13333,7 @@ Recomputed directly from the 297 `### TD-NNN` entries under [Active Technical De
 |Inference / KVCache|2|
 |Inference / Profiler|1|
 |Inference / PipelineInferenceEngine|2|
+|Inference / SpeculativeDecoding|2|
 |Models / LanguageModelHead|3|
 |Models / ModelSerializer|2|
 |Layers / LayerNorm|1|
@@ -13266,13 +13374,13 @@ Recomputed directly from the 297 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|178|
-|2-4 hours|92|
-|4-8 hours|15|
+|0-2 hours|179|
+|2-4 hours|93|
+|4-8 hours|16|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 552-998 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 559-1012 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
