@@ -68,7 +68,7 @@ The `TrainingMetricsAPI` is a separate HTTP server (default port 8081) for real-
 | File | Class | Description |
 | --- | --- | --- |
 | [../reference/source/BPETokenizer.md](../reference/source/BPETokenizer.md) | `BPETokenizer` | Byte-pair encoding tokenizer |
-| [nlp/text-generator.md](nlp/text-generator.md) | `TextGenerator` | Inference and decoding strategies |
+| [../reference/source/TextGenerator.md](../reference/source/TextGenerator.md) | `TextGenerator` | Inference and decoding strategies |
 | [../reference/source/ConversationContext.md](../reference/source/ConversationContext.md) | `ConversationContext` | Session and conversation management |
 
 ## Memory / RAG

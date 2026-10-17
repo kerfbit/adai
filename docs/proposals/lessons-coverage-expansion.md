@@ -60,7 +60,7 @@ These fill the gap between the high-level training lessons and the low-level `co
 - Repetition penalties and length normalization
 - Choosing a strategy by use case (chatbot vs translation vs code)
 
-**ADAI reference:** `src/TextGenerator.hpp` implements all five strategies. `docs/development/api/nlp/text-generator.md` documents the API.
+**ADAI reference:** `src/TextGenerator.hpp` implements all five strategies. [TextGenerator.md](../development/reference/source/TextGenerator.md) documents the API.
 
 #### 4. `kv-cache-and-inference-memory.md`
 **Summary:** How KV caching eliminates redundant computation during autoregressive generation, its memory implications, and techniques to manage cache size — MQA, GQA, paged attention, and quantized caches.

@@ -21,6 +21,8 @@ TextGenerator::TextGenerator(const GenerationConfig& config, unsigned int seed)
 // Apply temperature scaling
 std::vector<float> TextGenerator::apply_temperature(const std::vector<float>& logits,
                                                     float temperature) {
+    // TODO: See TD-515 in TECHNICAL_DEBT.md - returning logits unchanged for T <= 0 is only right when the caller then
+    // takes the argmax; generate_top_k()/generate_nucleus() sample at T=1 instead (33/50 distinct at T=0, verified).
     if (temperature <= 0.0f || temperature == 1.0f) {
         return logits;
     }
@@ -150,6 +152,8 @@ std::vector<float> TextGenerator::softmax(const std::vector<float>& logits) {
 }
 
 // Sample from probability distribution
+// TODO: See TD-516 in TECHNICAL_DEBT.md - NaN logits pick token 0 (PAD = stop) silently; min_length is never
+// read; early_stopping has no effect; max_length counts BOS/prompt; penalty applied after top-k/top-p.
 int TextGenerator::sample_token(const std::vector<float>& probabilities) {
     std::discrete_distribution<int> dist(probabilities.begin(), probabilities.end());
     return dist(rng);
@@ -231,6 +235,7 @@ std::vector<int> TextGenerator::generate_beam_search(const ModelForwardFn& model
         return generate_greedy(model_fn, prompt_tokens);
     }
 
+    // TODO: See TD-514 in TECHNICAL_DEBT.md - num_beams <= 0 is unchecked: 0 segfaults, negative throws length_error.
     // Initialize beams
     std::vector<BeamHypothesis> beams(num_beams);
     beams[0].tokens = prompt_tokens;

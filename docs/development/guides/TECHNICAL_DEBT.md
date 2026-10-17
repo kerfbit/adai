@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 305
+**Total Items:** 308
 **High Priority:** 32
-**Medium Priority:** 131
-**Low Priority:** 142
+**Medium Priority:** 133
+**Low Priority:** 143
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -557,6 +557,12 @@ Also October 17, 2026: filed [TD-512](#td-512-startup-sweep-deletes-every-downlo
 Verified: every `startup_sweep()` call site (`train`, `retrain`, LeJEPA) builds a fresh `DatasetRegistry` and calls only `load_registry()`, so
 `pending_files()` is empty and every file in `DOWNLOAD_DIR` matches the "orphaned" condition: a partial download, a complete download and an
 operator's `notes.txt` were all deleted (all kept after `load_pending_list()`). Every pass discards its downloads, and FTP resume/reuse never runs.
+
+Also October 17, 2026: filed [TD-514](#td-514-textgenerator-beam-width-of-zero-or-less-crashes-the-process) through [TD-516](#td-516-textgenerator-ignored-min_lengthearly_stopping-silent-nan-output-and-config-semantics) from the code-traced [TextGenerator.md](../reference/source/TextGenerator.md). Two are
+MEDIUM and verified: `generate_beam_search()` with width 0 segfaults and with a negative width aborts, reachable as `BEAM_WIDTH=0` + `STRATEGY=beam`
+since `validate()` only runs on reload (TD-514); temperature 0 is ignored by top-k and nucleus sampling, so 50 "deterministic" runs gave 33 distinct
+nucleus outputs (TD-515). One is LOW: `min_length` and `early_stopping` do nothing, NaN logits silently produce an empty response, `max_length` counts
+BOS/prompt, filter order (TD-516).
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1676,6 +1682,9 @@ disk impact; do it first. [TD-510](#td-510-sqlite-metrics-store-reads-nan-losses
 skips deletion when the registry couldn't be loaded; it currently deletes every download on every pass (with TD-411/TD-412 on the same FTP path).
 [TD-513](#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) with TD-337's download naming.
 
+**Tier 97 — Newly filed (October 17, 2026): `TextGenerator`.** [TD-514](#td-514-textgenerator-beam-width-of-zero-or-less-crashes-the-process) and [TD-515](#td-515-temperature-0-isnt-greedy-for-top-k-and-nucleus-sampling) are small guards (validate the width; argmax at temperature ≤ 0 in
+every strategy); do them with TD-241 (run `validate()` at startup). [TD-516](#td-516-textgenerator-ignored-min_lengthearly_stopping-silent-nan-output-and-config-semantics) is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1987,6 +1996,9 @@ skips deletion when the registry couldn't be loaded; it currently deletes every 
   - [TD-511: `SQLiteMetricsDatabase` Busy Timeout, Transactions and Setup Gaps](#td-511-sqlitemetricsdatabase-busy-timeout-transactions-and-setup-gaps)
   - [TD-512: Startup Sweep Deletes Every Download Because the Pending List Is Never Loaded](#td-512-startup-sweep-deletes-every-download-because-the-pending-list-is-never-loaded)
   - [TD-513: `startup_sweep()` Basename Matching and Unchecked Filesystem Calls](#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls)
+  - [TD-514: `TextGenerator` Beam Width of Zero or Less Crashes the Process](#td-514-textgenerator-beam-width-of-zero-or-less-crashes-the-process)
+  - [TD-515: Temperature 0 Isn't Greedy for Top-k and Nucleus Sampling](#td-515-temperature-0-isnt-greedy-for-top-k-and-nucleus-sampling)
+  - [TD-516: `TextGenerator` Ignored `min_length`/`early_stopping`, Silent NaN Output and Config Semantics](#td-516-textgenerator-ignored-min_lengthearly_stopping-silent-nan-output-and-config-semantics)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -12915,6 +12927,88 @@ Files to Modify:
 
 ---
 
+### TD-514: `TextGenerator` Beam Width of Zero or Less Crashes the Process
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | NLP / TextGenerator | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `TextGenerator.cpp` (see [TextGenerator.md](../reference/source/TextGenerator.md)); verified under AddressSanitizer.
+`generate_beam_search()` builds `std::vector<BeamHypothesis> beams(num_beams)` and writes `beams[0]` without checking: width 0 is a SEGV
+(`vector::capacity()`), a negative width an uncaught `std::length_error` (`terminate`). `ChatbotAPI` passes `BEAM_WIDTH` straight in for `STRATEGY=beam`
+(and in `/chat/batch`), and `ConfigLoader::validate()`, which rejects widths outside 1–16, runs only on `SIGHUP` reload (TD-241), so `BEAM_WIDTH=0` with the
+beam strategy crashes `chatbot_api_server` on its first chat request.
+
+Action Items:
+
+- [ ] Reject (throw `invalid_argument`) or clamp `num_beams < 1` in `generate_beam_search()`; validate config at startup (TD-241).
+- [ ] Test widths 0 and −1.
+
+Location in code: `src/TextGenerator.cpp` (`generate_beam_search()`); tagged `TODO: See TD-514`.
+
+Files to Modify:
+
+- `src/TextGenerator.cpp`
+- `tests/textgenerator_test.cpp`
+
+---
+
+### TD-515: Temperature 0 Isn't Greedy for Top-k and Nucleus Sampling
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | NLP / TextGenerator | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `TextGenerator.cpp`; verified. `apply_temperature()` returns the logits unchanged for `temperature <= 0`, which is only correct where
+the caller then takes the argmax (`generate()`, `generate_sampling()`). `generate_top_k()` and `generate_nucleus()` sample instead, at an effective
+temperature of 1: with temperature 0, 50 runs gave 33 distinct nucleus outputs and 17 distinct top-k outputs (`generate()`: 1). `STRATEGY=nucleus` is the
+shipped default, so `TEMPERATURE=0` (allowed by `validate()`) doesn't make chat deterministic. Negative temperatures behave the same.
+
+Action Items:
+
+- [ ] Take the argmax at `temperature <= 0` in every sampling strategy (or reject negative temperatures).
+- [ ] Test determinism at temperature 0 for each strategy.
+
+Location in code: `src/TextGenerator.cpp` (`apply_temperature()`, `generate_top_k()`, `generate_nucleus()`); tagged `TODO: See TD-515`.
+
+Files to Modify:
+
+- `src/TextGenerator.cpp`
+- `tests/textgenerator_test.cpp`
+
+---
+
+### TD-516: `TextGenerator` Ignored `min_length`/`early_stopping`, Silent NaN Output and Config Semantics
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | NLP / TextGenerator | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `TextGenerator.{hpp,cpp}`:
+- **Verified:** `min_length` is never read (with `min_length = 4` and an EOS-preferring model, greedy and `generate()` stopped after one token: an empty
+  response); all-NaN logits pick token 0 (PAD, a stop token), so a broken model (e.g. TD-423) silently returns an empty response
+  (`std::discrete_distribution` over NaN is also undefined); `max_length` counts the starting BOS and prompt (`max_length = 6` → 5 new tokens).
+- **By inspection:** `early_stopping` has no effect (both branches break only when no beams remain) and beam search never stops once the best finished
+  beam is unbeatable; the repetition penalty runs after top-k/top-p, so penalized tokens stay in the nucleus; `top_p <= 0` disables filtering; beam search
+  calls the model once per beam per step; seed 0 means random.
+
+Action Items:
+
+- [ ] Implement `min_length` (mask EOS/PAD until reached) and real early stopping, or remove both fields.
+- [ ] Detect non-finite logits and report an error; define `max_length` as new tokens; apply the penalty before filtering; treat `top_p <= 0` as top-1.
+
+Location in code: `src/TextGenerator.cpp` (generation loops, `generate_beam_search()`, `sample_token()`), `src/TextGenerator.hpp` (`GenerationConfig`); tagged `TODO: See TD-516`.
+
+Files to Modify:
+
+- `src/TextGenerator.{hpp,cpp}`
+- `tests/textgenerator_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -13431,15 +13525,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 305 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 308 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|32|10%|
-|Medium|131|43%|
-|Low|142|47%|
+|Medium|133|43%|
+|Low|143|47%|
 
-**Total Active Items:** 305
+**Total Active Items:** 308
 
 ### By Component
 
@@ -13539,18 +13633,19 @@ Recomputed directly from the 305 `### TD-NNN` entries under [Active Technical De
 |Core / Batching|1|
 |NLP / Tokenizer|6|
 |NLP / SpecialTokens|1|
+|NLP / TextGenerator|3|
 
 ### Effort Distribution
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|184|
-|2-4 hours|93|
+|0-2 hours|186|
+|2-4 hours|94|
 |4-8 hours|16|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 564-1022 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 568-1030 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
