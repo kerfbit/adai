@@ -84,6 +84,7 @@ This directory contains reference materials, technical specifications, and imple
   - [SpecialTokens](source/SpecialTokens.md) (`src/SpecialTokens.hpp`; PAD/UNK/BOS/EOS constants and helpers)
   - [SpeculativeDecoding](source/SpeculativeDecoding.md) (`src/SpeculativeDecoding.hpp`; draft/verify generation behind `--draft-model`)
   - [SQLiteMetricsDatabase](source/SQLiteMetricsDatabase.md) (`src/SQLiteMetricsDatabase.{hpp,cpp}`; default metrics store and backend factory)
+  - [StartupSweep](source/StartupSweep.md) (`src/StartupSweep.hpp`; `incremental_trainer`'s stale-download cleanup)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)

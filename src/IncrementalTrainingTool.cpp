@@ -274,6 +274,8 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     DatasetConfig dcfg = DatasetRegistry::make_config(svc_config);
     DatasetRegistry reg(dcfg);
     reg.load_registry();
+    // TODO: See TD-512 in TECHNICAL_DEBT.md - load_pending_list() is never called, so pending_files() is empty
+    // and the sweep deletes every download as orphaned (verified).
     startup_sweep(reg, run_id, dcfg.download_dir);
 
     auto resp = reg.acquire_pending(run_id);
@@ -1119,6 +1121,8 @@ int main(int argc, char* argv[]) {
                 reg.load_registry();
 
                 // Startup stale-file sweep (conditions A-expired, B, C, D, G)
+                // TODO: See TD-512 in TECHNICAL_DEBT.md - load_pending_list() is never called, so pending_files() is empty
+                // and the sweep deletes every download as orphaned (verified).
                 startup_sweep(reg, run_id, dcfg.download_dir);
 
                 auto resp = reg.acquire_pending(run_id);
@@ -1236,6 +1240,8 @@ int main(int argc, char* argv[]) {
                 DatasetRegistry reg(dcfg);
                 reg.load_registry();
 
+                // TODO: See TD-512 in TECHNICAL_DEBT.md - load_pending_list() is never called, so pending_files() is empty
+                // and the sweep deletes every download as orphaned (verified).
                 startup_sweep(reg, run_id, dcfg.download_dir);
 
                 auto trained_fs = reg.trained_files();

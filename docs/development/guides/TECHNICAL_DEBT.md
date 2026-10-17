@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 303
-**High Priority:** 31
+**Total Items:** 305
+**High Priority:** 32
 **Medium Priority:** 131
-**Low Priority:** 141
+**Low Priority:** 142
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -552,6 +552,11 @@ Also October 17, 2026: filed [TD-509](#td-509-sqlitemetricsdatabaseget_session-b
 blocks WAL checkpoints (20,000 inserts: 254 MB WAL and a 4 KB main file, vs 4 MB without it) (TD-509); a NaN loss is stored as NULL and reads back as
 0, so diverged runs look perfect (TD-510). One is LOW: no busy timeout (an insert failed in 0.3 ms against another writer), per-row transactions,
 ignored migration errors, missing default directory (TD-511).
+
+Also October 17, 2026: filed [TD-512](#td-512-startup-sweep-deletes-every-download-because-the-pending-list-is-never-loaded) (**HIGH**) and [TD-513](#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) (LOW) from the code-traced [StartupSweep.md](../reference/source/StartupSweep.md).
+Verified: every `startup_sweep()` call site (`train`, `retrain`, LeJEPA) builds a fresh `DatasetRegistry` and calls only `load_registry()`, so
+`pending_files()` is empty and every file in `DOWNLOAD_DIR` matches the "orphaned" condition: a partial download, a complete download and an
+operator's `notes.txt` were all deleted (all kept after `load_pending_list()`). Every pass discards its downloads, and FTP resume/reuse never runs.
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1667,6 +1672,10 @@ until then, document `--draft-model` as experimental. [TD-508](#td-508-speculati
 **Tier 95 — Newly filed (October 17, 2026): `SQLiteMetricsDatabase`.** [TD-509](#td-509-sqlitemetricsdatabaseget_session-blocks-wal-checkpoints) is a one-line fix (`sqlite3_reset()` after reading) with a large
 disk impact; do it first. [TD-510](#td-510-sqlite-metrics-store-reads-nan-losses-back-as-0) goes with the other NaN-handling items (TD-443, TD-458). [TD-511](#td-511-sqlitemetricsdatabase-busy-timeout-transactions-and-setup-gaps) with TD-304's busy-timeout fix.
 
+**Tier 96 — Newly filed (October 17, 2026): `StartupSweep`.** Fix [TD-512](#td-512-startup-sweep-deletes-every-download-because-the-pending-list-is-never-loaded) now: a one-line `load_pending_list()` at each call site plus a guard that
+skips deletion when the registry couldn't be loaded; it currently deletes every download on every pass (with TD-411/TD-412 on the same FTP path).
+[TD-513](#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) with TD-337's download naming.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1976,6 +1985,8 @@ disk impact; do it first. [TD-510](#td-510-sqlite-metrics-store-reads-nan-losses
   - [TD-509: `SQLiteMetricsDatabase::get_session()` Blocks WAL Checkpoints](#td-509-sqlitemetricsdatabaseget_session-blocks-wal-checkpoints)
   - [TD-510: SQLite Metrics Store Reads NaN Losses Back as 0](#td-510-sqlite-metrics-store-reads-nan-losses-back-as-0)
   - [TD-511: `SQLiteMetricsDatabase` Busy Timeout, Transactions and Setup Gaps](#td-511-sqlitemetricsdatabase-busy-timeout-transactions-and-setup-gaps)
+  - [TD-512: Startup Sweep Deletes Every Download Because the Pending List Is Never Loaded](#td-512-startup-sweep-deletes-every-download-because-the-pending-list-is-never-loaded)
+  - [TD-513: `startup_sweep()` Basename Matching and Unchecked Filesystem Calls](#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -12842,6 +12853,68 @@ Files to Modify:
 
 ---
 
+### TD-512: Startup Sweep Deletes Every Download Because the Pending List Is Never Loaded
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| HIGH | Open | Training / StartupSweep | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `StartupSweep.hpp` (see [StartupSweep.md](../reference/source/StartupSweep.md)); verified with the real classes.
+`startup_sweep()` classifies `DOWNLOAD_DIR` files against `reg.pending_files()`, which returns `DatasetRegistry`'s in-memory `pending_` filled only by
+`load_pending_list()`. All three call sites in `IncrementalTrainingTool.cpp` (`train`, `retrain`, `--objective=lejepa`) construct a fresh
+`DatasetRegistry`, call **only `load_registry()`**, then sweep. Reproducing that sequence with two queued files (one partially, one fully downloaded) and
+an operator's `notes.txt` in `downloads/`: the sweep saw 0 pending files and deleted all three as "orphaned" (condition G); with `load_pending_list()`
+both downloads were kept. So conditions A/B/C never run: every pass deletes every completed and partial download (re-downloaded in full; resume never
+happens) and anything else in `DOWNLOAD_DIR`. By inspection, a registry that can't be reached gives the same empty state and the same wipe. The tests
+populate the pending list on the instance they sweep, so they pass.
+
+Action Items:
+
+- [ ] Call `reg.load_pending_list()` before `startup_sweep()` at all three call sites (or have `startup_sweep()` load it).
+- [ ] Skip all deletion when either load fails.
+- [ ] Add a test that sweeps a freshly constructed registry, as production does.
+
+Location in code: `src/IncrementalTrainingTool.cpp` (three `startup_sweep()` call sites), `src/StartupSweep.hpp`; tagged `TODO: See TD-512`.
+
+Files to Modify:
+
+- `src/IncrementalTrainingTool.cpp`
+- `src/StartupSweep.hpp`
+- `tests/StartupSweepTests.cpp`
+
+---
+
+### TD-513: `startup_sweep()` Basename Matching and Unchecked Filesystem Calls
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / StartupSweep | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `StartupSweep.hpp` (by inspection):
+- **Basename matching:** condition D (trained) is checked first, so a pending file's download is deleted whenever any trained file anywhere shares its
+  basename (`train.jsonl`); two pending files with one basename collapse to one map entry, so condition A can release the wrong one (the sweep side of
+  TD-337).
+- **Throwing filesystem calls:** `fs::file_size()`/`fs::remove()` (throwing overloads) and `directory_iterator` can throw on permission or race
+  errors, uncaught around the sweep.
+- **Whole-file release:** condition A calls `release_pending(run_id, {path})`, which doesn't release a TD-205 segment (TD-333) and is a no-op if another
+  run holds the claim.
+
+Action Items:
+
+- [ ] Match by the full download path DataTransport would use (after TD-337), not basename; check pending before trained.
+- [ ] Use the `std::error_code` overloads and log failures; release segment-aware.
+
+Location in code: `src/StartupSweep.hpp` (lookup maps, condition D, condition A, filesystem calls); tagged `TODO: See TD-513`.
+
+Files to Modify:
+
+- `src/StartupSweep.hpp`
+- `tests/StartupSweepTests.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -13358,15 +13431,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 303 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 305 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|31|10%|
+|High|32|10%|
 |Medium|131|43%|
-|Low|141|47%|
+|Low|142|47%|
 
-**Total Active Items:** 303
+**Total Active Items:** 305
 
 ### By Component
 
@@ -13424,6 +13497,7 @@ Recomputed directly from the 303 `### TD-NNN` entries under [Active Technical De
 |Training / CLI|4|
 |Training / IncrementalTrainer|6|
 |Training / IncrementalTrainingTool|6|
+|Training / StartupSweep|2|
 |Inference / IntegratedInferenceEngine|4|
 |Inference / KVCache|2|
 |Inference / Profiler|1|
@@ -13470,13 +13544,13 @@ Recomputed directly from the 303 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|182|
+|0-2 hours|184|
 |2-4 hours|93|
 |4-8 hours|16|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 562-1018 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 564-1022 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

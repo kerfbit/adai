@@ -32,6 +32,8 @@ inline void startup_sweep(DatasetRegistry& reg, const std::string& run_id,
     if (download_dir.empty() || !fs::exists(download_dir))
         return;
 
+    // TODO: See TD-512 in TECHNICAL_DEBT.md - callers never load the pending list, and a failed registry load also
+    // leaves both sets empty; skip deletion unless the state was actually loaded.
     // Build O(1) lookup structures from registry state.
     // filename → registry_path for files currently in the pending list.
     std::unordered_map<std::string, std::string> assigned_by_filename;
@@ -51,6 +53,8 @@ inline void startup_sweep(DatasetRegistry& reg, const std::string& run_id,
         const fs::path local_path = entry.path();
         const std::string filename = local_path.filename().string();
 
+        // TODO: See TD-513 in TECHNICAL_DEBT.md - basename matching (trained-name collisions delete pending downloads);
+        // throwing fs calls; condition A's release is whole-file only.
         // Condition D: already trained — stale local copy
         if (trained_filenames.count(filename)) {
             adai::Logger::info(
