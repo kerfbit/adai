@@ -16,6 +16,7 @@ namespace {
 // distribution that only matches a standard normal's first couple of moments but not its overall
 // shape still gets penalized. Shared across every SIGReg instance as fixed, non-learnable
 // configuration — no reason for it to be per-instance state.
+// TODO: See TD-504 in TECHNICAL_DEBT.md - unweighted 4-point grid instead of a Gaussian-weighted integral.
 const std::vector<float> kFrequencies = {0.5f, 1.0f, 1.5f, 2.0f};
 
 // Validates and passes through in one expression, used directly inside the member-initializer
@@ -37,6 +38,8 @@ SIGReg::SIGReg(int d_model, int num_sketches)
     : d_model_(require_positive(d_model, "d_model")),
       num_sketches_(require_positive(num_sketches, "num_sketches")),
       directions_(d_model_, num_sketches_) {
+    // TODO: See TD-502 in TECHNICAL_DEBT.md - fixed directions constrain only num_sketches of d_model dimensions
+    // (collapse in 704 of 768 dims scored identically, verified); resample per call from a seedable RNG.
     // Random directions, fixed for this instance's whole lifetime (see the class doc comment).
     // Sampling each component i.i.d. standard normal then normalizing to unit length gives a
     // direction uniformly distributed on the unit sphere in R^d_model.
@@ -95,6 +98,8 @@ float SIGReg::compute_loss(const Matrix& embeddings) const {
             const float d_real = mean_cos - target_real;
             const float d_imag = mean_sin;
 
+            // TODO: See TD-503 in TECHNICAL_DEBT.md - biased: E[loss] has a 1/n floor (true N(0,I) at n=8 scores 0.079
+            // vs 0.343 collapsed), and n is one text's token count.
             total_loss += d_real * d_real + d_imag * d_imag;
         }
     }
@@ -159,6 +164,7 @@ Matrix SIGReg::backward(const Matrix& embeddings) const {
         return Matrix(0, d_model_);
     }
 
+    // TODO: See TD-504 in TECHNICAL_DEBT.md - third recomputation of X*D per step; no non-finite input check.
     Matrix projections = embeddings * directions_;  // [batch, num_sketches]
     const float norm_factor =
         1.0f / static_cast<float>(num_sketches_ * static_cast<int>(kFrequencies.size()));

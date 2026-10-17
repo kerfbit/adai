@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 293
+**Total Items:** 296
 **High Priority:** 30
-**Medium Priority:** 126
-**Low Priority:** 137
+**Medium Priority:** 128
+**Low Priority:** 138
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -528,6 +528,12 @@ Also October 17, 2026: filed [TD-500](#td-500-rlhf-rollouts-never-explore-and-up
 `num_beams`, TD-261 turns every "sampling" rollout into beam search (1 distinct response in 6; 6 in 6 with `num_beams = 1`); the update re-encodes the
 prompt with BOS/EOS (3 encoder tokens instead of generation's 1, log-probability −69.2 → −68.2) and the response with BOS/EOS actions generation never
 took (TD-500). By inspection: no KL penalty, one optimizer step per prompt, one encoder pass per response token for value states (TD-501).
+
+Also October 17, 2026: filed [TD-502](#td-502-sigregs-fixed-sketch-directions-leave-most-dimensions-unregularized) through [TD-504](#td-504-sigreg-frequency-grid-nan-inputs-and-repeated-projections) from the code-traced [SIGReg.md](../reference/source/SIGReg.md) (used by every
+`--objective=lejepa` world-model step; gradient verified against finite differences). Two are MEDIUM and verified: the 64 sketch directions are fixed per
+process, so a batch collapsed in 704 of 768 dimensions gave the identical loss (0.00265) and variance diagnostic (1.004) as the full-rank batch, while a
+fresh set of directions saw variance 0.086 and loss 0.245 (TD-502); and the loss is biased with a 1/n floor while being applied to one text's tokens, so
+a true N(0, I) set of 8 tokens scores 0.079 (23% of the collapsed 0.343) and the logged loss tracks text length (TD-503). One is LOW (TD-504).
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1629,6 +1635,9 @@ loaders) before RLHF gets a real entry point.
 [TD-500](#td-500-rlhf-rollouts-never-explore-and-updates-train-on-a-different-sequence) first (rollouts must explore, and the update must train on the tokens actually generated), then TD-481/TD-482 and [TD-501](#td-501-rlhftrainer-lacks-a-kl-penalty-batch-updates-and-efficient-value-states) (KL penalty and
 batch updates) as part of that design.
 
+**Tier 92 — Newly filed (October 17, 2026): `SIGReg`.** Fix [TD-502](#td-502-sigregs-fixed-sketch-directions-leave-most-dimensions-unregularized) (resample directions per call; tiny change) and [TD-503](#td-503-sigreg-loss-has-a-sequence-length-dependent-floor) (debias the
+estimator) before the next world-model (re)training, since SIGReg is the only thing preventing LeJEPA collapse; [TD-504](#td-504-sigreg-frequency-grid-nan-inputs-and-repeated-projections) is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1928,6 +1937,9 @@ batch updates) as part of that design.
   - [TD-499: `RewardModel` Unchecked Loading, Invalid Widths and Non-He Initialization](#td-499-rewardmodel-unchecked-loading-invalid-widths-and-non-he-initialization)
   - [TD-500: RLHF Rollouts Never Explore and Updates Train on a Different Sequence](#td-500-rlhf-rollouts-never-explore-and-updates-train-on-a-different-sequence)
   - [TD-501: `RLHFTrainer` Lacks a KL Penalty, Batch Updates and Efficient Value States](#td-501-rlhftrainer-lacks-a-kl-penalty-batch-updates-and-efficient-value-states)
+  - [TD-502: SIGReg's Fixed Sketch Directions Leave Most Dimensions Unregularized](#td-502-sigregs-fixed-sketch-directions-leave-most-dimensions-unregularized)
+  - [TD-503: SIGReg Loss Has a Sequence-Length-Dependent Floor](#td-503-sigreg-loss-has-a-sequence-length-dependent-floor)
+  - [TD-504: `SIGReg` Frequency Grid, NaN Inputs and Repeated Projections](#td-504-sigreg-frequency-grid-nan-inputs-and-repeated-projections)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -12502,6 +12514,88 @@ Files to Modify:
 
 ---
 
+### TD-502: SIGReg's Fixed Sketch Directions Leave Most Dimensions Unregularized
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | World Model / SIGReg | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `SIGReg.cpp` (see [SIGReg.md](../reference/source/SIGReg.md)); verified. The `num_sketches` projection directions are drawn
+once in the constructor (`std::random_device` seed) and reused for every call, so the loss only constrains their K-dimensional span: 64 of 768 dimensions
+at the shipped `WORLD_MODEL_SIGREG_NUM_SKETCHES=64`. A 256-row Gaussian batch and the same batch projected onto that span (collapsed in 704 of 768
+dimensions) gave identical loss (0.00265) and variance mean (1.004); through a fresh set of directions the collapsed batch showed variance 0.086 and loss
+0.245. Within a pass, LeJEPA's encoder can collapse outside the sketched subspace with no penalty and nothing in the logged metrics. New directions each
+process partly mask this across `trainer_service` passes but make runs irreproducible.
+
+Action Items:
+
+- [ ] Resample the directions on every `compute_loss()`/`backward()` pair (share one draw between the two within a step), from a seedable RNG.
+- [ ] Add a test that a subspace-collapsed batch is penalized.
+
+Location in code: `src/SIGReg.cpp` (constructor), `src/SIGReg.hpp` (`directions_`); tagged `TODO: See TD-502`.
+
+Files to Modify:
+
+- `src/SIGReg.{hpp,cpp}`
+- `src/LeJEPAEncoder.cpp`
+- `tests/sigreg_test.cpp`
+
+---
+
+### TD-503: SIGReg Loss Has a Sequence-Length-Dependent Floor
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | World Model / SIGReg | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `SIGReg.cpp`; verified. The squared characteristic-function gap is a biased estimator with an expected floor ∝ 1/n, and
+`LeJEPAEncoder::train_step()` applies SIGReg to one text's token embeddings (n = token count). A true N(0, I) set scores 0.0785 at n = 8, 0.0331 at 20,
+0.0225 at 32, 0.0057 at 128 and 0.0003 at 2,048; fully collapsed is 0.343. Short texts are pushed away from a target they already meet (the small-n
+minimizer isn't Gaussian), and the logged `sigreg_loss` mostly reflects text length, so it can't be compared across datasets or over training. (The paper
+applies SIGReg across a batch of samples; per-sequence application is a deliberate deviation that makes the bias matter.)
+
+Action Items:
+
+- [ ] Use the unbiased estimator of |φ̂(t) − φ(t)|² (remove the (1 − |φ̂|²)/n-style self-term), or scale and document the n-dependence.
+- [ ] Consider applying SIGReg across a batch of sequences' pooled embeddings, as the paper does.
+
+Location in code: `src/SIGReg.cpp` (`compute_loss()`, `backward()`), `src/LeJEPAEncoder.cpp` (`train_step()`); tagged `TODO: See TD-503`.
+
+Files to Modify:
+
+- `src/SIGReg.cpp`
+- `src/LeJEPAEncoder.cpp`
+- `tests/sigreg_test.cpp`
+
+---
+
+### TD-504: `SIGReg` Frequency Grid, NaN Inputs and Repeated Projections
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | World Model / SIGReg | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `SIGReg.{hpp,cpp}` (by inspection): four equally weighted frequencies (0.5, 1, 1.5, 2) replace the paper's/Epps–Pulley's
+Gaussian-weighted integral, limiting sensitivity to distribution shape; non-finite embeddings aren't detected (a NaN propagates into the loss and
+gradient); `compute_loss()`, `compute_variance_stats()` and `backward()` each recompute `X · D` and the characteristic-function sums (three projections
+per step).
+
+Action Items:
+
+- [ ] Use a weighted quadrature over t; check for non-finite inputs; compute loss, gradient and diagnostics in one pass.
+
+Location in code: `src/SIGReg.cpp` (`kFrequencies`, `compute_loss()`, `compute_variance_stats()`, `backward()`); tagged `TODO: See TD-504`.
+
+Files to Modify:
+
+- `src/SIGReg.{hpp,cpp}`
+- `src/LeJEPAEncoder.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -13018,15 +13112,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 293 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 296 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|30|10%|
-|Medium|126|43%|
-|Low|137|47%|
+|Medium|128|43%|
+|Low|138|47%|
 
-**Total Active Items:** 293
+**Total Active Items:** 296
 
 ### By Component
 
@@ -13093,6 +13187,7 @@ Recomputed directly from the 293 `### TD-NNN` entries under [Active Technical De
 |Layers / LayerNorm|1|
 |Layers / PositionalEncoding|1|
 |World Model / LeJEPAEncoder|3|
+|World Model / SIGReg|3|
 |Core / Logger|2|
 |Attention / LoRA|2|
 |Attention / MultiHeadAttention|1|
@@ -13126,13 +13221,13 @@ Recomputed directly from the 293 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|175|
-|2-4 hours|91|
+|0-2 hours|177|
+|2-4 hours|92|
 |4-8 hours|15|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 547-988 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 551-996 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
