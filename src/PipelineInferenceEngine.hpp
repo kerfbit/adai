@@ -444,6 +444,7 @@ class PipelineInferenceEngine {
           total_encoder_time_ms_(0.0),
           total_decoder_time_ms_(0.0),
           total_latency_ms_(0.0),
+          // TODO: See TD-505 in TECHNICAL_DEBT.md - constants, not the tokenizer's (possibly non-standard) IDs.
           bos_token_id_(adai::SpecialTokenIDs::BOS),
           eos_token_id_(adai::SpecialTokenIDs::EOS),
           pad_token_id_(adai::SpecialTokenIDs::PAD) {

@@ -119,6 +119,7 @@ struct SpecialTokenConfig {
         return eos_token_id;
     }
 
+    // TODO: See TD-505 in TECHNICAL_DEBT.md - never called; load_vocab() accepts non-standard and duplicate IDs.
     /**
      * @brief Validate that token IDs are non-negative and unique
      * @throws std::invalid_argument if validation fails

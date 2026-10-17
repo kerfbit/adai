@@ -1007,6 +1007,7 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
             create_dynamic_batches(input_token_sequences,
                                    32,                         // max_batch_size
                                    10,                         // length_tolerance
+                                   // TODO: See TD-505 in TECHNICAL_DEBT.md - constant, not the tokenizer's PAD ID.
                                    adai::SpecialTokenIDs::PAD  // pad_token_id
             );
 

@@ -81,6 +81,7 @@ This directory contains reference materials, technical specifications, and imple
   - [RewardModel](source/RewardModel.md) (`src/RewardModel.hpp`; Bradley–Terry RLHF reward MLP, no production entry point)
   - [RLHFTrainer](source/RLHFTrainer.md) (`src/RLHFTrainer.{hpp,cpp}`; RLHF rollout, reward scoring and policy-gradient step, no production entry point)
   - [SIGReg](source/SIGReg.md) (`src/SIGReg.{hpp,cpp}`; LeJEPA's sketched isotropic-Gaussian regularizer)
+  - [SpecialTokens](source/SpecialTokens.md) (`src/SpecialTokens.hpp`; PAD/UNK/BOS/EOS constants and helpers)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)

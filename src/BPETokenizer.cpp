@@ -617,6 +617,8 @@ void BPETokenizer::load_vocab(const std::string& filename) {
             continue;
         }
 
+        // TODO: See TD-505 in TECHNICAL_DEBT.md - IDs accepted unchecked (non-standard or duplicate, verified), while
+        // several components hard-code 0-3.
         if (section == "SPECIAL_TOKENS") {
             size_t space_pos = line.find(' ');
             if (space_pos == std::string::npos) {

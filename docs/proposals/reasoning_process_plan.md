@@ -26,7 +26,7 @@ scratch.
 
 | Need | Existing ADAI component |
 |---|---|
-| Extensible special-token registry | `SpecialTokens.hpp` — `SpecialTokenConfig` already supports custom token IDs beyond the base 4 (see `docs/development/SPECIAL_TOKEN_CONSOLIDATION.md`, "Custom Configurations") |
+| Extensible special-token registry | `SpecialTokens.hpp` — `SpecialTokenConfig` lets the base 4 tokens take custom IDs, but has no slots for additional special tokens; a registry would need to be added (see [SpecialTokens.md](../development/reference/source/SpecialTokens.md)) |
 | Stop-condition machinery in the generation loop | `TextGenerator` + `is_stop_token()` — already the place EOS is checked; a second stop condition (`</think>`) is additive, not a redesign |
 | Multi-turn context with role-tagged messages | `ConversationContext::Message` — natural place to add a `reasoning_content` field, mirroring Qwen3.8's `preserve_thinking` |
 | Reward scoring for RL | `RewardModel` (`src/RewardModel.hpp`) — Bradley-Terry preference model, already implemented |

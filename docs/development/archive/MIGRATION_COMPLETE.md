@@ -169,7 +169,7 @@ Future improvements could include:
 ## Files Reference
 
 - **Header Library**: [src/SpecialTokens.hpp](src/SpecialTokens.hpp)
-- **Documentation**: [SPECIAL_TOKEN_CONSOLIDATION.md](SPECIAL_TOKEN_CONSOLIDATION.md)
+- **Documentation**: [SpecialTokens.md](../reference/source/SpecialTokens.md)
 - **Test Suite**: [test_special_tokens_header.cpp](test_special_tokens_header.cpp)
 - **Migration Test**: [test_migration.cpp](test_migration.cpp)
 

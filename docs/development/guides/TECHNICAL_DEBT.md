@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 296
+**Total Items:** 297
 **High Priority:** 30
 **Medium Priority:** 128
-**Low Priority:** 138
+**Low Priority:** 139
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -534,6 +534,11 @@ Also October 17, 2026: filed [TD-502](#td-502-sigregs-fixed-sketch-directions-le
 process, so a batch collapsed in 704 of 768 dimensions gave the identical loss (0.00265) and variance diagnostic (1.004) as the full-rank batch, while a
 fresh set of directions saw variance 0.086 and loss 0.245 (TD-502); and the loss is biased with a 1/n floor while being applied to one text's tokens, so
 a true N(0, I) set of 8 tokens scores 0.079 (23% of the collapsed 0.343) and the logged loss tracks text length (TD-503). One is LOW (TD-504).
+
+Also October 17, 2026: filed [TD-505](#td-505-special-token-ids-arent-enforced-and-most-specialtokens-helpers-are-unused) (LOW) from the code-traced [SpecialTokens.md](../reference/source/SpecialTokens.md). Verified: `load_vocab()`
+accepts non-standard special-token IDs (PAD=5, UNK=4, BOS=1, EOS=0 encoded `ab` as `1 2 3 0`) and duplicates (BOS = EOS = 3 made every target `3 … 3`),
+while `PipelineInferenceEngine`, `ChatbotAPI`'s batch padding and `BatchProcessor` use the fixed constants; `SpecialTokenConfig::validate()` is never
+called. Shipped vocabularies all use 0–3. Seven of eight helpers are unused outside tests.
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1638,6 +1643,9 @@ batch updates) as part of that design.
 **Tier 92 — Newly filed (October 17, 2026): `SIGReg`.** Fix [TD-502](#td-502-sigregs-fixed-sketch-directions-leave-most-dimensions-unregularized) (resample directions per call; tiny change) and [TD-503](#td-503-sigreg-loss-has-a-sequence-length-dependent-floor) (debias the
 estimator) before the next world-model (re)training, since SIGReg is the only thing preventing LeJEPA collapse; [TD-504](#td-504-sigreg-frequency-grid-nan-inputs-and-repeated-projections) is cleanup.
 
+**Tier 93 — Newly filed (October 17, 2026): `SpecialTokens`.** [TD-505](#td-505-special-token-ids-arent-enforced-and-most-specialtokens-helpers-are-unused) is latent (every shipped vocabulary uses 0–3); do it with TD-223's
+`load_vocab()` hardening.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1940,6 +1948,7 @@ estimator) before the next world-model (re)training, since SIGReg is the only th
   - [TD-502: SIGReg's Fixed Sketch Directions Leave Most Dimensions Unregularized](#td-502-sigregs-fixed-sketch-directions-leave-most-dimensions-unregularized)
   - [TD-503: SIGReg Loss Has a Sequence-Length-Dependent Floor](#td-503-sigreg-loss-has-a-sequence-length-dependent-floor)
   - [TD-504: `SIGReg` Frequency Grid, NaN Inputs and Repeated Projections](#td-504-sigreg-frequency-grid-nan-inputs-and-repeated-projections)
+  - [TD-505: Special-Token IDs Aren't Enforced and Most `SpecialTokens` Helpers Are Unused](#td-505-special-token-ids-arent-enforced-and-most-specialtokens-helpers-are-unused)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -12596,6 +12605,41 @@ Files to Modify:
 
 ---
 
+### TD-505: Special-Token IDs Aren't Enforced and Most `SpecialTokens` Helpers Are Unused
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | NLP / SpecialTokens | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `SpecialTokens.hpp` (see [SpecialTokens.md](../reference/source/SpecialTokens.md)). The header declares PAD/UNK/BOS/EOS = 0/1/2/3
+standardized and "must not be changed", but:
+- **Verified:** `BPETokenizer::load_vocab()` takes the IDs from the file's `SPECIAL_TOKENS` section without checks. A vocabulary with PAD=5, UNK=4, BOS=1,
+  EOS=0 loaded and encoded `ab` as `1 2 3 0`; one with BOS = EOS = 3 loaded and every target became `3 … 3` (starting with the stop token).
+  `SpecialTokenConfig::validate()` (which rejects duplicates) is never called.
+- **By inspection:** the tokenizer and `EncoderDecoderModel::sync_special_tokens()` follow the file, but `PipelineInferenceEngine` (BOS/EOS/PAD),
+  `ChatbotAPI`'s `/chat/batch` padding and `BatchProcessor`'s defaults use the constants, so a non-standard vocabulary would pad with the wrong token and
+  start/stop pipeline generation on the wrong IDs. `vocab_builder` always writes 0–3, so shipped vocabularies are unaffected.
+- **Unused API:** of the helpers, only `is_stop_token()` is used outside tests; `BPETokenizer.cpp` repeats the strings as literals; the vocabulary-format
+  example omits `TOKENIZER_MODE` and `BPE_MERGES`.
+
+Action Items:
+
+- [ ] In `load_vocab()`, reject special-token IDs other than 0–3 (the header's rule) or at least call `validate()`.
+- [ ] Or make the constant-using components take IDs from the tokenizer.
+- [ ] Remove the unused helpers or use them (strings in `BPETokenizer.cpp`); fix the format example.
+
+Location in code: `src/SpecialTokens.hpp` (`validate()`, format example), `src/BPETokenizer.cpp` (`load_vocab()` SPECIAL_TOKENS section), `src/PipelineInferenceEngine.hpp`, `src/ChatbotAPI.cpp` (batch padding); tagged `TODO: See TD-505`.
+
+Files to Modify:
+
+- `src/SpecialTokens.hpp`
+- `src/BPETokenizer.cpp`
+- `src/PipelineInferenceEngine.hpp`
+- `src/ChatbotAPI.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -13112,15 +13156,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 296 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 297 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|30|10%|
 |Medium|128|43%|
-|Low|138|47%|
+|Low|139|47%|
 
-**Total Active Items:** 296
+**Total Active Items:** 297
 
 ### By Component
 
@@ -13216,18 +13260,19 @@ Recomputed directly from the 296 `### TD-NNN` entries under [Active Technical De
 |GPU / GPUMatrix|4|
 |Core / Batching|1|
 |NLP / Tokenizer|6|
+|NLP / SpecialTokens|1|
 
 ### Effort Distribution
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|177|
+|0-2 hours|178|
 |2-4 hours|92|
 |4-8 hours|15|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 551-996 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 552-998 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
