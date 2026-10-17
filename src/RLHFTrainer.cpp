@@ -146,6 +146,8 @@ float RLHFTrainer::apply_policy_gradient(const std::vector<int>& prompt_tokens,
         pg_loss_sum += -advantages[t] * log_prob;
     }
 
+    // TODO: See TD-501 in TECHNICAL_DEBT.md - one optimizer step per prompt, no KL penalty against a reference
+    // policy; training mode is left on afterwards.
     model_.backward_pass(grad);
     optimizer_.step();
 
@@ -169,6 +171,8 @@ RLHFStepResult RLHFTrainer::run_iteration(const std::vector<std::string>& prompt
     int total_response_tokens = 0;
 
     for (const auto& prompt : prompts) {
+        // TODO: See TD-500 in TECHNICAL_DEBT.md - generation encodes the prompt without special tokens; the
+        // forward() calls below use this BOS/EOS-wrapped version instead.
         std::vector<int> prompt_tokens = tok->encode(prompt, true);
 
         // 1. Roll out a response from the CURRENT policy. Safe to call before the encoder-call
@@ -176,6 +180,8 @@ RLHFStepResult RLHFTrainer::run_iteration(const std::vector<std::string>& prompt
         //    superseded by apply_policy_gradient()'s own authoritative forward() call below.
         // TODO: See TD-261 in TECHNICAL_DEBT.md - num_beams is omitted, so the header default (4) forces beam
         // search regardless of config_.generation_strategy.
+        // TODO: See TD-500 in TECHNICAL_DEBT.md - so "sampling" rollouts are deterministic beam search (1 distinct
+        // response in 6, verified); train on the generated token IDs, not re-encoded text.
         std::string response = model_.generate_response_with_strategy(
             prompt, config_.max_response_length, config_.generation_strategy, config_.temperature);
         // Checked BEFORE encode(), not after: BPETokenizer::encode() unconditionally throws
@@ -189,6 +195,7 @@ RLHFStepResult RLHFTrainer::run_iteration(const std::vector<std::string>& prompt
         if (response.empty()) {
             continue;  // nothing to learn from an empty response
         }
+        // TODO: See TD-500 in TECHNICAL_DEBT.md - adds BOS/EOS actions generation never took.
         std::vector<int> response_tokens = tok->encode(response, true);
         if (response_tokens.empty()) {
             continue;  // encode() can still tokenize a non-empty string to nothing in principle
@@ -204,6 +211,7 @@ RLHFStepResult RLHFTrainer::run_iteration(const std::vector<std::string>& prompt
         //    build the Trajectory. Also must happen before step 5.
         std::vector<std::vector<float>> states;
         states.reserve(response_tokens.size());
+        // TODO: See TD-501 in TECHNICAL_DEBT.md - one encoder pass per response token.
         std::vector<int> growing_context = prompt_tokens;
         for (int action : response_tokens) {
             growing_context.push_back(action);

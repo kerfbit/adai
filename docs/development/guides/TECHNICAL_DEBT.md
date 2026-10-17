@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 291
+**Total Items:** 293
 **High Priority:** 30
 **Medium Priority:** 126
-**Low Priority:** 135
+**Low Priority:** 137
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -522,6 +522,12 @@ Also October 17, 2026: filed [TD-499](#td-499-rewardmodel-unchecked-loading-inva
 [RewardModel.md](../reference/source/RewardModel.md). The backward pass was verified correct against finite differences and the model learns a toy
 preference task. Verified gaps: a half-truncated file loads and the next prediction throws a dimension error; `load()` silently adopts the file's
 architecture; `{0, 1}` layer widths give a model whose reward is always 0; initialization has a third of He's variance and uses unseeded `rand()`.
+
+Also October 17, 2026: filed [TD-500](#td-500-rlhf-rollouts-never-explore-and-updates-train-on-a-different-sequence) and [TD-501](#td-501-rlhftrainer-lacks-a-kl-penalty-batch-updates-and-efficient-value-states) (both LOW; deferred with RLHF) from the code-traced
+[RLHFTrainer.md](../reference/source/RLHFTrainer.md). Teacher forcing was verified correctly aligned. Verified: because `run_iteration()` omits
+`num_beams`, TD-261 turns every "sampling" rollout into beam search (1 distinct response in 6; 6 in 6 with `num_beams = 1`); the update re-encodes the
+prompt with BOS/EOS (3 encoder tokens instead of generation's 1, log-probability −69.2 → −68.2) and the response with BOS/EOS actions generation never
+took (TD-500). By inspection: no KL penalty, one optimizer step per prompt, one encoder pass per response token for value states (TD-501).
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1619,6 +1625,10 @@ vendored `nlohmann/json`, together with TD-494's server side and TD-453). [TD-49
 **Tier 90 — Newly filed (October 17, 2026): `RewardModel`.** Deferred with RLHF itself, like Tier 84; fix [TD-499](#td-499-rewardmodel-unchecked-loading-invalid-widths-and-non-he-initialization) (with Tier 55's other unchecked
 loaders) before RLHF gets a real entry point.
 
+**Tier 91 — Newly filed (October 17, 2026): `RLHFTrainer`.** Deferred with RLHF itself (Tiers 84 and 90). When RLHF is planned, fix TD-261 and
+[TD-500](#td-500-rlhf-rollouts-never-explore-and-updates-train-on-a-different-sequence) first (rollouts must explore, and the update must train on the tokens actually generated), then TD-481/TD-482 and [TD-501](#td-501-rlhftrainer-lacks-a-kl-penalty-batch-updates-and-efficient-value-states) (KL penalty and
+batch updates) as part of that design.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1916,6 +1926,8 @@ loaders) before RLHF gets a real entry point.
   - [TD-497: `RemoteTransport` Hides Paths With `}` and Multiplies Backslashes](#td-497-remotetransport-hides-paths-with--and-multiplies-backslashes)
   - [TD-498: `LocalTransport`/`RemoteTransport` Divergence, Dead `model_id` and Client Hygiene](#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene)
   - [TD-499: `RewardModel` Unchecked Loading, Invalid Widths and Non-He Initialization](#td-499-rewardmodel-unchecked-loading-invalid-widths-and-non-he-initialization)
+  - [TD-500: RLHF Rollouts Never Explore and Updates Train on a Different Sequence](#td-500-rlhf-rollouts-never-explore-and-updates-train-on-a-different-sequence)
+  - [TD-501: `RLHFTrainer` Lacks a KL Penalty, Batch Updates and Efficient Value States](#td-501-rlhftrainer-lacks-a-kl-penalty-batch-updates-and-efficient-value-states)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -12425,6 +12437,71 @@ Files to Modify:
 
 ---
 
+### TD-500: RLHF Rollouts Never Explore and Updates Train on a Different Sequence
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | RLHF / RLHFTrainer | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `RLHFTrainer.cpp` (see [RLHFTrainer.md](../reference/source/RLHFTrainer.md); no production entry point). Verified with the tests'
+tiny model:
+- **No exploration:** `run_iteration()` calls `generate_response_with_strategy(prompt, max_len, strategy, temperature)` without `num_beams`, so the
+  header default (4) forces beam search (TD-261). With `"sampling"` at temperature 1.0, six rollouts of one prompt gave 1 distinct response; with
+  `num_beams = 1`, 6. The policy gradient only ever sees the current mode. The tests use `"greedy"`, so they don't notice.
+- **Different sequence:** generation encodes the prompt without special tokens, but the old-log-prob and update `forward()` calls use
+  `encode(prompt, true)` (3 encoder tokens instead of 1 for `"hello"`; response log-probability −69.2 → −68.2; the TD-364 mismatch). The response is decoded
+  and re-encoded with `encode(response, true)`, so `response_tokens` begin with BOS (id 2) and end with EOS (id 3): actions generation never takes (EOS
+  is also added to responses cut off at `max_response_length`) receive advantage-weighted gradient, and with TD-361 the first row trains "BOS after BOS".
+  Re-tokenizing decoded text can also differ from the sampled IDs (TD-224).
+
+Action Items:
+
+- [ ] Pass `num_beams = 1` (with TD-261's fix) and test that sampling rollouts differ.
+- [ ] Return the generated token IDs from generation and train on exactly those, with the same encoder input generation used (no special tokens).
+
+Location in code: `src/RLHFTrainer.cpp` (`run_iteration()`: generation call, prompt/response encoding); tagged `TODO: See TD-500`.
+
+Files to Modify:
+
+- `src/RLHFTrainer.cpp`
+- `src/EncoderDecoderModel.{hpp,cpp}` (a token-returning generation entry point)
+- `tests/rlhftrainer_test.cpp`
+
+---
+
+### TD-501: `RLHFTrainer` Lacks a KL Penalty, Batch Updates and Efficient Value States
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | RLHF / RLHFTrainer | October 17, 2026 | 4-8 hours |
+
+Description:
+Found while tracing `RLHFTrainer.cpp` (by inspection):
+- **No KL penalty** against a frozen reference (SFT) policy, the standard RLHF guard against reward hacking and drift; with TD-482's ratio ≡ 1 there is
+  no step-size control at all.
+- **One optimizer step per prompt** (`apply_policy_gradient()` steps inside the per-prompt loop), so updates are single-sample REINFORCE; rewards
+  aren't normalized across the batch (TD-481 normalizes within a response instead).
+- **Value states cost one encoder pass per response token** over a growing context (64 passes for a 64-token response), on top of beam generation,
+  scoring and two forwards.
+- `set_training(true)` is left on after the update; TD-341's gates aren't optimizer parameters, so they don't learn here either.
+
+Action Items:
+
+- [ ] Add a KL penalty (per-token reward shaping against a frozen reference model's log-probs).
+- [ ] Accumulate gradients over the batch and step once; normalize rewards/advantages across the batch (with TD-481).
+- [ ] Derive value states from one encoder/decoder pass; restore the previous training mode.
+
+Location in code: `src/RLHFTrainer.cpp` (`run_iteration()` value-state loop, `apply_policy_gradient()`); tagged `TODO: See TD-501`.
+
+Files to Modify:
+
+- `src/RLHFTrainer.{hpp,cpp}`
+- `src/PPOOptimizer.hpp`
+- `tests/rlhftrainer_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -12941,15 +13018,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 291 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 293 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|30|10%|
 |Medium|126|43%|
-|Low|135|47%|
+|Low|137|47%|
 
-**Total Active Items:** 291
+**Total Active Items:** 293
 
 ### By Component
 
@@ -13021,6 +13098,7 @@ Recomputed directly from the 291 `### TD-NNN` entries under [Active Technical De
 |Attention / MultiHeadAttention|1|
 |RLHF / PPOOptimizer|2|
 |RLHF / RewardModel|1|
+|RLHF / RLHFTrainer|2|
 |Advanced / Quantization|1|
 |RAG / RAGInference|4|
 |Data / Registry Server CLI|2|
@@ -13048,13 +13126,13 @@ Recomputed directly from the 291 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|174|
+|0-2 hours|175|
 |2-4 hours|91|
-|4-8 hours|14|
+|4-8 hours|15|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 542-978 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 547-988 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
