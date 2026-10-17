@@ -14,7 +14,7 @@ Component API documentation. See [api/README.md](api/README.md) for the full ind
 - **NLP** — `text-generator.md` (BPETokenizer and ConversationContext moved to [reference/source/BPETokenizer.md](reference/source/BPETokenizer.md) and [reference/source/ConversationContext.md](reference/source/ConversationContext.md))
 - **Memory / RAG** — `RAGInference.md` (DocumentStore moved to [reference/source/DocumentStore.md](reference/source/DocumentStore.md))
 - **Data** — `batch-processing.md`, `batch-processing-quickref.md` (`Dataset` retired; record in [reference/source/Dataset.md](reference/source/Dataset.md))
-- **Advanced** — `quantization.md`, `speculative-decoding.md`, `reward-model.md` (PPOOptimizer and LoRA moved to [reference/source/PPOOptimizer.md](reference/source/PPOOptimizer.md) and [reference/source/LoRA.md](reference/source/LoRA.md))
+- **Advanced** — `speculative-decoding.md`, `reward-model.md` (PPOOptimizer, LoRA and Quantization moved to [reference/source/PPOOptimizer.md](reference/source/PPOOptimizer.md), [reference/source/LoRA.md](reference/source/LoRA.md) and [reference/source/Quantization.md](reference/source/Quantization.md))
 - **REST API** — `rest-api.md`
 
 ### [architecture/](architecture/)

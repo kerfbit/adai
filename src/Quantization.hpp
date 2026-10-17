@@ -31,6 +31,7 @@
  *    - Min-Max: Use observed min/max values
  *    - Percentile: Clip outliers for better range
  *
+ * TODO: See TD-483 in TECHNICAL_DEBT.md - per-channel and MSE calibration aren't implemented; INT4 is unpacked (4x, not 8x)
  * 3. Per-tensor vs Per-channel quantization
  *    - Per-tensor: Single scale/zero-point for entire tensor
  *    - Per-channel: Different scale/zero-point per output channel
@@ -164,6 +165,7 @@ class Quantizer {
     // undoes the storage-time wraparound and recovers the true value; other
     // modes (SYMMETRIC_INT8's [-127,127], both INT4 ranges) already fit
     // within int8_t so sign-extension is already correct for them.
+    // TODO: See TD-483 in TECHNICAL_DEBT.md - decodes by the caller's mode, which isn't saved with a QuantizedMatrix
     int decode_stored_value(int8_t stored) const {
         const bool is_asymmetric_int8 = (mode_ == QuantizationMode::ASYMMETRIC_INT8);
         if (is_asymmetric_int8) {
@@ -222,6 +224,7 @@ class Quantizer {
             params.scale = abs_max / qmax;
             params.zero_point = 0;
         } else {
+            // TODO: See TD-483 in TECHNICAL_DEBT.md - range doesn't include 0, so the clamp below collapses data like [5,10] to one value
             // Asymmetric quantization
             params.scale = (max_val - min_val) / (qmax - qmin);
             params.zero_point = qmin - static_cast<int>(std::round(min_val / params.scale));
@@ -418,6 +421,7 @@ class QuantizedMatrix {
     /**
      * @brief Save to file
      */
+    // TODO: See TD-483 in TECHNICAL_DEBT.md - mode not saved; load() checks no reads and doesn't validate size
     void save(const std::string& filepath) const {
         std::ofstream file(filepath, std::ios::binary);
         if (!file) {

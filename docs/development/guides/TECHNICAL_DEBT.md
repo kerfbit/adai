@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 274
+**Total Items:** 275
 **High Priority:** 29
 **Medium Priority:** 116
-**Low Priority:** 129
+**Low Priority:** 130
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -484,6 +484,11 @@ will plan its use later) from the code-traced [PPOOptimizer.md](../reference/sou
 single response, so a reward of +100 gives the same update as +1, the early tokens of a well-rewarded response are pushed down, and one-token responses
 learn nothing (TD-481); `PPOOptimizer::update()` never updates the policy, and `RLHFTrainer` feeds it the rollout's own log-probs so the ratio is always
 1 (no clipping, KL ≡ 0, reported loss 0.000000); the real update is an unclipped policy gradient (TD-482).
+
+Also October 17, 2026: filed [TD-483](#td-483-quantization-asymmetric-range-mode-less-files-and-unpacked-int4) (LOW; no production use) from the code-traced [Quantization.md](../reference/source/Quantization.md),
+verified: asymmetric modes clamp the zero point instead of including 0 in the range, so data in [5, 10] round-trips as all 5.000; a saved
+`ASYMMETRIC_INT8` matrix reloaded with a default `Quantizer` decodes 15/20 as −5.1/−0.08 (TD-075's corruption, since the mode isn't saved); INT4 is unpacked
+(3.98×, not the promised 8×); per-channel and MSE calibration are advertised but absent.
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1558,6 +1563,9 @@ cached paths use it, alongside TD-347.
 **Tier 84 — Newly filed (October 17, 2026): `PPOOptimizer`.** Deferred with RLHF itself (owner, October 17, 2026: RLHF's use will be
 planned later). Fix [TD-481](#td-481-ppo-advantages-are-normalized-within-each-response) and [TD-482](#td-482-ppooptimizer-never-updates-the-policy-and-its-ratio-is-always-1) before RLHF gets a real entry point; TD-481 first, since it inverts part of the learning signal.
 
+**Tier 85 — Newly filed (October 17, 2026): `Quantization`.** [TD-483](#td-483-quantization-asymmetric-range-mode-less-files-and-unpacked-int4) waits on TD-014's quantization tool; fix it before that tool
+uses this header.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1838,6 +1846,7 @@ planned later). Fix [TD-481](#td-481-ppo-advantages-are-normalized-within-each-r
   - [TD-480: `PostgresMetricsDatabase` One-Time Schema Bootstrap, Reconnects Under Lock and Unsafe Retries](#td-480-postgresmetricsdatabase-one-time-schema-bootstrap-reconnects-under-lock-and-unsafe-retries)
   - [TD-481: PPO Advantages Are Normalized Within Each Response](#td-481-ppo-advantages-are-normalized-within-each-response)
   - [TD-482: `PPOOptimizer` Never Updates the Policy and Its Ratio Is Always 1](#td-482-ppooptimizer-never-updates-the-policy-and-its-ratio-is-always-1)
+  - [TD-483: `Quantization` Asymmetric Range, Mode-Less Files and Unpacked INT4](#td-483-quantization-asymmetric-range-mode-less-files-and-unpacked-int4)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -11833,6 +11842,39 @@ Files to Modify:
 
 ---
 
+### TD-483: `Quantization` Asymmetric Range, Mode-Less Files and Unpacked INT4
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Advanced / Quantization | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `Quantization.hpp` (no production use: tests and examples only; a quantization tool is deferred under TD-014):
+- **Asymmetric range (verified).** `calibrate()` clamps `zero_point` to `[qmin, qmax]` instead of widening the calibration range to include 0. For data
+  in [5, 10], `zero_point = −255` was clamped to 0, every value quantized to 255, and the round trip returned 5.000 for all of 5, 6, 7.5, 9, 10. Any all-positive
+  (e.g. post-ReLU) or all-negative tensor collapses to one value.
+- **Mode not saved (verified).** `QuantizedMatrix::save()` stores scale/zero point/qmin/qmax but not the mode, and `dequantize()` decides signed vs unsigned
+  decoding from the caller's `Quantizer`. An `ASYMMETRIC_INT8` matrix of 0/5/15/20, reloaded and dequantized with a default `Quantizer`, gave 0, 5.02, −5.10,
+  −0.08 (TD-075's corruption).
+- **INT4 unpacked (verified).** One value per byte: `memory_reduction()` reported 3.98× for `SYMMETRIC_INT4`; the header and the replaced API doc promise 8×.
+- **By inspection.** Per-channel quantization is described but not implemented; `CalibrationMethod::MSE` silently falls back to min/max; `load()` checks no
+  reads and doesn't validate `size` against `rows × cols`; `memory_reduction()` uses `int` byte counts; `print_quantization_stats()` writes to `std::cout`.
+
+Action Items:
+
+- [ ] Asymmetric calibration: `min = min(min, 0)`, `max = max(max, 0)` (standard), then compute `zero_point` without clamping away the range.
+- [ ] Decode from the saved `qmin`/`qmax` (or save the mode); validate `load()`.
+- [ ] Pack INT4 two per byte (or correct the claims); implement or remove per-channel and MSE calibration.
+
+Location in code: `src/Quantization.hpp` (`calibrate()`, `decode_stored_value()`, `QuantizedMatrix::save()/load()/memory_reduction()`, header comment); tagged `TODO: See TD-483`.
+
+Files to Modify:
+
+- `src/Quantization.hpp`
+- `tests/quantization_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -12349,15 +12391,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 274 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 275 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|29|11%|
 |Medium|116|42%|
-|Low|129|47%|
+|Low|130|47%|
 
-**Total Active Items:** 274
+**Total Active Items:** 275
 
 ### By Component
 
@@ -12428,6 +12470,7 @@ Recomputed directly from the 274 `### TD-NNN` entries under [Active Technical De
 |Attention / LoRA|2|
 |Attention / MultiHeadAttention|1|
 |RLHF / PPOOptimizer|2|
+|Advanced / Quantization|1|
 |Core / Matrix|2|
 |Core / Optimizer|2|
 |Build / SIMD|2|
@@ -12451,12 +12494,12 @@ Recomputed directly from the 274 `### TD-NNN` entries under [Active Technical De
 |Effort Range|Count|
 |--------------|-------|
 |0-2 hours|168|
-|2-4 hours|80|
+|2-4 hours|81|
 |4-8 hours|14|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 514-922 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 516-926 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

@@ -90,7 +90,7 @@ Lessons for features implemented in ADAI that extend the base transformer.
 - When to quantize and expected accuracy impact
 - ADAI's quantization modes and calibration API
 
-**ADAI reference:** `src/Quantization.hpp` implements multiple quantization modes. `docs/development/api/advanced/quantization.md` documents the API.
+**ADAI reference:** `src/Quantization.hpp` implements multiple quantization modes. [docs/development/reference/source/Quantization.md](../development/reference/source/Quantization.md) documents the API.
 
 #### 6. `lora-and-efficient-finetuning.md`
 **Summary:** LoRA (Low-Rank Adaptation) and the principle of parameter-efficient fine-tuning — adding small trainable adapters instead of updating all parameters.

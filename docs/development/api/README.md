@@ -88,7 +88,7 @@ The `TrainingMetricsAPI` is a separate HTTP server (default port 8081) for real-
 
 | File | Class | Description |
 | --- | --- | --- |
-| [advanced/quantization.md](advanced/quantization.md) | `Quantization` | INT8/INT4 weight quantization |
+| [../reference/source/Quantization.md](../reference/source/Quantization.md) | `Quantization` | INT8/INT4 weight quantization |
 | [advanced/speculative-decoding.md](advanced/speculative-decoding.md) | `SpeculativeDecoder` | Draft-model speculative decoding |
 | [../reference/source/PPOOptimizer.md](../reference/source/PPOOptimizer.md) | `PPOOptimizer` | Proximal Policy Optimization |
 | [LoRA.md](../reference/source/LoRA.md) | `LoRA` | Low-rank adaptation (code-traced reference) |
