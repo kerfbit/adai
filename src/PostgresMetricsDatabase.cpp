@@ -383,6 +383,7 @@ std::chrono::system_clock::time_point PostgresMetricsDatabase::parse_timestamp(
 
     std::tm tm{};
     int ms = 0;
+    // TODO: See TD-477 in TECHNICAL_DEBT.md - parse failure falls through to 1899; atoi() misreads fractions (.12 -> 12 ms); offsets ignored
     if (auto* end = adai::strptime_utc(s.c_str(), 'T', &tm)) {
         if (*end == '.') {
             ms = std::atoi(end + 1);

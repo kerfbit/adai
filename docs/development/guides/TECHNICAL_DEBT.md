@@ -4,11 +4,11 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** October 16, 2026
-**Total Items:** 268
+**Last Updated:** October 17, 2026
+**Total Items:** 269
 **High Priority:** 29
 **Medium Priority:** 115
-**Low Priority:** 124
+**Low Priority:** 125
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -466,6 +466,11 @@ Also October 16, 2026: filed [TD-476](#td-476-portablesocket-short-writes-trunca
 [PortableSocket.md](../reference/source/PortableSocket.md): `send_bytes()` passes short writes through (a signal mid-send returned 219,264 of
 8 MiB, verified) and `FtpDataServer`'s `RETR` loop counts the full chunk as sent, so a transfer can be silently truncated; `WSAStartup()`/
 `setsockopt()` results are ignored, Winsock doesn't bound `accept()` with `SO_RCVTIMEO`, and nothing retries `EINTR`.
+
+**October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
+verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
+`from`/`to` silently return everything or nothing), UTC offsets are ignored, out-of-range fields roll over, and all three callers parse fractions
+with `atoi()` (`.12` → 12 ms, microseconds → +2 minutes), so PostgreSQL timestamps read back up to ~0.9 s early.
 
 **October 16, 2026:** Filed [TD-474](#td-474-pipelineinferenceengine-strands-queued-requests-on-shutdown-and-skips-model_mutex_) and [TD-475](#td-475-pipelineinferenceengine-throughput-claims-greedy-uncached-decoding-and-stats) from the code-traced
 [PipelineInferenceEngine.md](../reference/source/PipelineInferenceEngine.md) (`--pipeline-inference`). One is MEDIUM: `shutdown()` leaves queued
@@ -1522,6 +1527,9 @@ given they're no faster than the plain path.
 **Tier 80 — Newly filed (October 16, 2026): `PortableSocket`.** Add a `send_all()` (loop + `EINTR` retry) and use it in `FtpDataServer`
 ([TD-476](#td-476-portablesocket-short-writes-truncate-ftp-transfers-unchecked-socket-setup)), together with TD-375's connection-handling fixes.
 
+**Tier 81 — Newly filed (October 17, 2026): `PortableTime`.** [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions): one `parse_iso8601_utc()` here (returns failure; handles
+fractions and offsets) replacing the three copies, with `db-history` answering 400 on a bad bound.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1796,6 +1804,7 @@ given they're no faster than the plain path.
   - [TD-474: `PipelineInferenceEngine` Strands Queued Requests on Shutdown and Skips `model_mutex_`](#td-474-pipelineinferenceengine-strands-queued-requests-on-shutdown-and-skips-model_mutex_)
   - [TD-475: `PipelineInferenceEngine` Throughput Claims, Greedy Uncached Decoding and Stats](#td-475-pipelineinferenceengine-throughput-claims-greedy-uncached-decoding-and-stats)
   - [TD-476: `PortableSocket` Short Writes Truncate FTP Transfers; Unchecked Socket Setup](#td-476-portablesocket-short-writes-truncate-ftp-transfers-unchecked-socket-setup)
+  - [TD-477: Timestamp Parsing Turns Bad Input Into 1899, Ignores Offsets and Misreads Fractions](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -11598,6 +11607,40 @@ Files to Modify:
 
 ---
 
+### TD-477: Timestamp Parsing Turns Bad Input Into 1899, Ignores Offsets and Misreads Fractions
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Platform / PortableTime | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `PortableTime` and verified by running `strptime_utc()` through the callers' exact logic (`TrainingMetricsAPI::parse_iso8601()`,
+`SQLiteMetricsDatabase::parse_timestamp()`, `PostgresMetricsDatabase::parse_timestamp()`), which all do
+`tm{}; if (strptime_utc(...)) { if (*end == '.') ms = atoi(end + 1); } return timegm_utc(&tm) + ms;`:
+- **Failure isn't reported.** `not-a-date` and a date-only `2026-10-15` both became `1899-12-31T00:00:00` (the zeroed `tm`). For
+  `GET …/metrics/db-history`, a bad `from` silently means "since 1899" (everything) and a bad `to` "until 1899" (nothing), with HTTP 200.
+- **Offsets ignored.** `2026-10-15T12:00:00+02:00` parsed as 12:00 UTC (two hours wrong).
+- **No range checks.** `2026-13-45T25:61:99` became `2027-02-15T02:02:39` (`timegm()` normalizes); `%d` also accepts whitespace and signs, and has
+  undefined behaviour on overflow.
+- **Fractions.** `atoi()` reads the digits as an integer: `.12` → 12 ms, `.1` → 1 ms, `.123456` → 123,456 ms (+2 min). PostgreSQL prints its
+  `TIMESTAMPTZ` columns without trailing zeros (`.12`), so the Postgres backend's `recorded_at`/`created_at`/`last_update_at` read back up to ~0.9 s early.
+  (SQLite stores a fixed `.mmm` and is unaffected.)
+
+Action Items:
+
+- [ ] Add `parse_iso8601_utc()` returning `std::optional<time_point>`: strict digits and ranges, fractional seconds by digit position, `Z`/`±HH:MM` offsets, optional date-only form.
+- [ ] Replace the three callers' copies; make `db-history` return 400 for an unparsable bound.
+- [ ] Unit tests for the table above.
+
+Location in code: `src/PortableTime.hpp` (`strptime_utc()`); `src/TrainingMetricsAPI.cpp`, `src/SQLiteMetricsDatabase.cpp`, `src/PostgresMetricsDatabase.cpp` (`parse_*`); tagged `TODO: See TD-477`.
+
+Files to Modify:
+
+- `src/PortableTime.hpp`
+- `src/TrainingMetricsAPI.cpp`, `src/SQLiteMetricsDatabase.cpp`, `src/PostgresMetricsDatabase.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -12114,15 +12157,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 268 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 269 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|29|11%|
 |Medium|115|43%|
-|Low|124|46%|
+|Low|125|46%|
 
-**Total Active Items:** 268
+**Total Active Items:** 269
 
 ### By Component
 
@@ -12169,6 +12212,7 @@ Recomputed directly from the 268 `### TD-NNN` entries under [Active Technical De
 |Transformer / FeedForward|4|
 |Data / FtpDataServer|6|
 |Platform / PortableSocket|1|
+|Platform / PortableTime|1|
 |Data / ParquetReader|3|
 |Metrics / GenerationQuality|3|
 |GPU / GPUManager|6|
@@ -12212,13 +12256,13 @@ Recomputed directly from the 268 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|164|
+|0-2 hours|165|
 |2-4 hours|78|
 |4-8 hours|14|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 506-906 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 507-908 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

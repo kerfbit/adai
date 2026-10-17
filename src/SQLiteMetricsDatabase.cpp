@@ -458,6 +458,7 @@ std::chrono::system_clock::time_point SQLiteMetricsDatabase::parse_timestamp(con
     int ms = 0;
 
     // Parse "YYYY-MM-DDTHH:MM:SS.mmmZ" or "YYYY-MM-DDTHH:MM:SS"
+    // TODO: See TD-477 in TECHNICAL_DEBT.md - parse failure falls through to 1899; atoi() misreads fractions (.12 -> 12 ms); offsets ignored
     if (auto* end = adai::strptime_utc(s.c_str(), 'T', &tm)) {
         if (*end == '.') {
             ms = std::atoi(end + 1);

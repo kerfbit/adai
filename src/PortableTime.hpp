@@ -64,6 +64,7 @@ inline std::time_t timegm_utc(std::tm* tm) {
  * parsing implementation to verify instead of real strptime diverging from this replacement on
  * whatever edge case someone eventually hits.
  */
+// TODO: See TD-477 in TECHNICAL_DEBT.md - no range checks; %d accepts whitespace/signs; offsets and fractions left to callers, who mishandle them
 inline const char* strptime_utc(const char* s, char separator, std::tm* tm) {
     int year = 0, mon = 0, day = 0, hour = 0, min = 0, sec = 0, consumed = 0;
     char fmt[32];
