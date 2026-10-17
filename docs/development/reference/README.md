@@ -78,6 +78,7 @@ This directory contains reference materials, technical specifications, and imple
   - [RegistryServerArgs](source/RegistryServerArgs.md) (`src/RegistryServerArgs.{hpp,cpp}`; `registry_server` argument parsing and config precedence)
   - [RegistryServer](source/RegistryServer.md) (`src/RegistryServer.cpp`; `registry_server` endpoints, storage and `main()`)
   - [RegistryTransport](source/RegistryTransport.md) (`src/RegistryTransport.{hpp,cpp}`; queue/registry storage: `LocalTransport` flat files and `RemoteTransport` HTTP client)
+  - [RewardModel](source/RewardModel.md) (`src/RewardModel.hpp`; Bradley–Terry RLHF reward MLP, no production entry point)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)

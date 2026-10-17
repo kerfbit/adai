@@ -5,7 +5,7 @@
 - **Used by:** `RLHFTrainer` only, which has **no production entry point** (no binary, flag or endpoint runs RLHF); tests and `examples/Phase5Examples.cpp`
 - **Status tag:** `@adai-status: experimental` ("TD-038 — now driven for real by RLHFTrainer"), `@adai-version: 0.4.0`, `@adai-reviewed: 2026-09-13`
 - **Tests:** in [`tests/phase5_test.cpp`](../../../../tests/phase5_test.cpp) (10 tests: `PPOOptimizerTest`, `ValueFunctionTest`); exercised end to end by `rlhftrainer_test.cpp`
-- **Related:** [RewardModel](../../api/advanced/reward-model.md) (scores rollouts), `RLHFTrainer` (the real policy update)
+- **Related:** [RewardModel](RewardModel.md) (scores rollouts), `RLHFTrainer` (the real policy update)
 - **Last traced against the code:** 2026-10-17
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with a scratch program using the real header.

@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 290
+**Total Items:** 291
 **High Priority:** 30
 **Medium Priority:** 126
-**Low Priority:** 134
+**Low Priority:** 135
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -517,6 +517,11 @@ and `registry_server` stores every group this way (TD-495); the space-separated 
 `/data/my` (TD-496); `RemoteTransport` cuts objects at the next `}`, hiding `/data/a}b.jsonl` from `load_pending()`, and neither side unescapes, so
 `C:\data\w.jsonl` came back with every backslash quadrupled (TD-497). One is LOW: duplicate local commits, inconsistent `add_pending` results, unparsed
 segment results, unlocked registry writes, a never-sent `model_id`, `https://` sent as HTTP (TD-498).
+
+Also October 17, 2026: filed [TD-499](#td-499-rewardmodel-unchecked-loading-invalid-widths-and-non-he-initialization) (LOW; deferred with RLHF, which has no production entry point) from the code-traced
+[RewardModel.md](../reference/source/RewardModel.md). The backward pass was verified correct against finite differences and the model learns a toy
+preference task. Verified gaps: a half-truncated file loads and the next prediction throws a dimension error; `load()` silently adopts the file's
+architecture; `{0, 1}` layer widths give a model whose reward is always 0; initialization has a third of He's variance and uses unseeded `rand()`.
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1611,6 +1616,9 @@ alongside TD-309/TD-310/TD-470, the other request-reachable registry crashes and
 queue `registry_server` holds), then [TD-496](#td-496-registry-flat-file-formats-break-on-spaces-tabs-and-newlines-in-paths) (a format change needing a migration path) and [TD-497](#td-497-remotetransport-hides-paths-with--and-multiplies-backslashes) (replace the substring parsing with the
 vendored `nlohmann/json`, together with TD-494's server side and TD-453). [TD-498](#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene) is cleanup; its commit-ownership part goes with TD-493.
 
+**Tier 90 — Newly filed (October 17, 2026): `RewardModel`.** Deferred with RLHF itself, like Tier 84; fix [TD-499](#td-499-rewardmodel-unchecked-loading-invalid-widths-and-non-he-initialization) (with Tier 55's other unchecked
+loaders) before RLHF gets a real entry point.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1907,6 +1915,7 @@ vendored `nlohmann/json`, together with TD-494's server side and TD-453). [TD-49
   - [TD-496: Registry Flat-File Formats Break on Spaces, Tabs and Newlines in Paths](#td-496-registry-flat-file-formats-break-on-spaces-tabs-and-newlines-in-paths)
   - [TD-497: `RemoteTransport` Hides Paths With `}` and Multiplies Backslashes](#td-497-remotetransport-hides-paths-with--and-multiplies-backslashes)
   - [TD-498: `LocalTransport`/`RemoteTransport` Divergence, Dead `model_id` and Client Hygiene](#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene)
+  - [TD-499: `RewardModel` Unchecked Loading, Invalid Widths and Non-He Initialization](#td-499-rewardmodel-unchecked-loading-invalid-widths-and-non-he-initialization)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -12383,6 +12392,39 @@ Files to Modify:
 
 ---
 
+### TD-499: `RewardModel` Unchecked Loading, Invalid Widths and Non-He Initialization
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | RLHF / RewardModel | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `RewardModel.hpp` (see [RewardModel.md](../reference/source/RewardModel.md); used only by `RLHFTrainer`, which has no production
+entry point). The backward pass is correct (finite differences: median relative error 1e-4) and the model learns a toy preference task (200/200).
+- **Unchecked `load()` (verified):** a file truncated to half loaded without error, and the next `predict_reward()` threw `Matrix dimensions incompatible
+  for multiplication: [1x5] * [6x5]`; a `(6, {5, 4, 1})` model loading a `(10, {3, 1})` file silently became the file's architecture (as TD-432); a negative
+  layer count throws `std::length_error`. No check that each layer's rows/cols match `layer_dims`.
+- **Invalid widths (verified):** `RewardModel(4, {0, 1})` constructs and always returns 0; `input_dim` isn't validated.
+- **Initialization (verified):** uniform on ±√(2/fan_in) has a third of He's variance (std 0.026 vs 0.045 at fan-in 1,000), despite the "He" comment;
+  unseeded global `rand()` (TD-368's class).
+- **By inspection:** `backward()` recomputes the forward pass `train_on_batch()` just ran (four forwards per pair; 7.0 s per 100-pair batch at
+  `(1536, {512, 256, 128, 1})`); no regularization or clipping; `forward()` writes caches, so it isn't thread-safe.
+
+Action Items:
+
+- [ ] Check every read in `load()`, validate counts and per-layer shapes, and reject a file whose architecture differs from the constructed one.
+- [ ] Validate `input_dim` and every width > 0.
+- [ ] Use a seedable normal He initialization; reuse the forward caches in `backward()`.
+
+Location in code: `src/RewardModel.hpp` (constructor, `initialize_weights()`, `backward()`, `load()`); tagged `TODO: See TD-499`.
+
+Files to Modify:
+
+- `src/RewardModel.hpp`
+- `tests/phase5_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -12899,15 +12941,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 290 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 291 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|30|10%|
-|Medium|126|44%|
-|Low|134|46%|
+|Medium|126|43%|
+|Low|135|47%|
 
-**Total Active Items:** 290
+**Total Active Items:** 291
 
 ### By Component
 
@@ -12978,6 +13020,7 @@ Recomputed directly from the 290 `### TD-NNN` entries under [Active Technical De
 |Attention / LoRA|2|
 |Attention / MultiHeadAttention|1|
 |RLHF / PPOOptimizer|2|
+|RLHF / RewardModel|1|
 |Advanced / Quantization|1|
 |RAG / RAGInference|4|
 |Data / Registry Server CLI|2|
@@ -13005,13 +13048,13 @@ Recomputed directly from the 290 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|173|
+|0-2 hours|174|
 |2-4 hours|91|
 |4-8 hours|14|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 541-976 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 542-978 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

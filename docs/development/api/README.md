@@ -92,7 +92,7 @@ The `TrainingMetricsAPI` is a separate HTTP server (default port 8081) for real-
 | [advanced/speculative-decoding.md](advanced/speculative-decoding.md) | `SpeculativeDecoder` | Draft-model speculative decoding |
 | [../reference/source/PPOOptimizer.md](../reference/source/PPOOptimizer.md) | `PPOOptimizer` | Proximal Policy Optimization |
 | [LoRA.md](../reference/source/LoRA.md) | `LoRA` | Low-rank adaptation (code-traced reference) |
-| [advanced/reward-model.md](advanced/reward-model.md) | `RewardModel` | RLHF reward model |
+| [../reference/source/RewardModel.md](../reference/source/RewardModel.md) | `RewardModel` | RLHF reward model |
 
 ## Quick Reference
 

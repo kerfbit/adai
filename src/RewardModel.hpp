@@ -125,6 +125,7 @@ class RewardModel {
         for (size_t i = 0; i < layer_dims_.size(); i++) {
             int curr_dim = layer_dims_[i];
 
+            // TODO: See TD-499 in TECHNICAL_DEBT.md - uniform on +/-sqrt(2/fan_in) has 1/3 of He's variance; unseeded rand().
             // He initialization: sqrt(2 / fan_in)
             float std_dev = std::sqrt(2.0f / prev_dim);
             Matrix w(prev_dim, curr_dim);
@@ -152,6 +153,7 @@ class RewardModel {
      */
     RewardModel(int input_dim, const std::vector<int>& layer_dims)
         : input_dim_(input_dim), layer_dims_(layer_dims) {
+        // TODO: See TD-499 in TECHNICAL_DEBT.md - input_dim and widths <= 0 aren't rejected ({0, 1} always returns 0).
         if (layer_dims.empty()) {
             throw std::invalid_argument("Must specify at least one layer");
         }
@@ -331,6 +333,7 @@ class RewardModel {
      */
     void backward(const std::vector<float>& input, float output_grad,
                   std::vector<Matrix>& weight_grads, std::vector<std::vector<float>>& bias_grads) {
+        // TODO: See TD-499 in TECHNICAL_DEBT.md - redoes the forward pass train_on_batch() just ran (4 forwards per pair).
         // Recompute forward pass to get activations
         forward(input);
 
@@ -422,6 +425,8 @@ class RewardModel {
             throw std::runtime_error("Cannot open file for reading: " + filepath);
         }
 
+        // TODO: See TD-499 in TECHNICAL_DEBT.md - no read checks (truncated files load), file architecture adopted silently,
+        // per-layer shapes not validated.
         // Read dimensions
         file.read(reinterpret_cast<char*>(&input_dim_), sizeof(int));
         int num_layers;

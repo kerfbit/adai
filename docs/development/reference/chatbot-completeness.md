@@ -502,7 +502,7 @@ Capabilities:
 Documentation:
 
 - [Phase 5 Advanced Features Guide](../guides/phase5-advanced-features.md) - 60+ pages comprehensive guide
-- [Reward Model API Reference](../api/advanced/reward-model.md)
+- [Reward Model API Reference](source/RewardModel.md)
 - [PPO Optimizer API Reference](../api/advanced/ppo-optimizer.md)
 
 **Completeness:** 100% - Production-ready RLHF implementation
