@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 281
-**High Priority:** 29
-**Medium Priority:** 120
-**Low Priority:** 132
+**Total Items:** 286
+**High Priority:** 30
+**Medium Priority:** 123
+**Low Priority:** 133
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -502,6 +502,14 @@ Also October 17, 2026: filed [TD-488](#td-488-registry_server-accepts-malformed-
 `99999` binds 34463 while logging 99999; a value flag at the end of the command line is silently dropped, so a bare `--admin-enabled` left
 `PUT /admin/config` open (200); unknown arguments are ignored (`--portt 8091` → 8082). TTL, session and PASV values aren't range-checked (TD-488).
 FTP-only flags without `--ftp-enabled`, stale header comments and `--help` handling are cleanup (TD-489).
+
+Also October 17, 2026: filed [TD-490](#td-490-registry_server-group-names-escape-data_dir-letting-delete-unlink-outside-it) through [TD-494](#td-494-registry_server-startup-lease-thread-pool-and-parsing-gaps) from the code-traced [RegistryServer.md](../reference/source/RegistryServer.md), all verified
+against the real binary. One is **HIGH**: the URL's `<group>` is used unvalidated in paths, so `/registry/../…` works on `data_dir`'s parent, and
+`pending/add` + `delete` with `delete_files:true` through group `..` deleted a file outside the data tree (TD-490). Three are MEDIUM: eight concurrent
+`fetch/huggingface` calls all served row 0, reporting 8,000 pairs while queuing one 1,000-pair file (TD-491); `upload` replaced a claimed file's bytes and
+still answered `added:true` (TD-492); `trained` from a different run recorded another run's claimed file, and the real run's later `trained` recorded
+nothing (TD-493). One is LOW: bind failure exits 0, startup SIGTERM lost, no claim leases, fetches block the thread pool, unbounded uploads, compact-only
+JSON (TD-494).
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1587,6 +1595,11 @@ TD-247 loads trained encoder weights, so do these with or after TD-247. [TD-484]
 **Tier 87 — Newly filed (October 17, 2026): `RegistryServerArgs`.** Fix [TD-488](#td-488-registry_server-accepts-malformed-numbers-valueless-flags-and-unknown-arguments) together with its siblings TD-240, TD-438 and TD-456 (one shared
 checked-integer/boolean helper and an "unknown argument" error for every daemon); [TD-489](#td-489-registry_server-cli-hygiene-ignored-ftp-flags-stale-comments-and---help) goes with it.
 
+**Tier 88 — Newly filed (October 17, 2026): `RegistryServer`.** Fix [TD-490](#td-490-registry_server-group-names-escape-data_dir-letting-delete-unlink-outside-it) first and soon: it is an unauthenticated file deletion on any host
+running `registry_server`, and the fix is small (validate `<group>` like model names and check every derived path against `data_dir`); do it
+alongside TD-309/TD-310/TD-470, the other request-reachable registry crashes and escapes. Then [TD-493](#td-493-registry-trained-ignores-claim-ownership-and-records-each-path-once) and [TD-492](#td-492-registry-upload-silently-replaces-pending-or-claimed-files) (they corrupt what was trained),
+[TD-491](#td-491-concurrent-registry-fetches-serve-and-overwrite-the-same-slice), and [TD-494](#td-494-registry_server-startup-lease-thread-pool-and-parsing-gaps) as cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1874,6 +1887,11 @@ checked-integer/boolean helper and an "unknown argument" error for every daemon)
   - [TD-487: `RAGInference` Misconfiguration and Observability Gaps](#td-487-raginference-misconfiguration-and-observability-gaps)
   - [TD-488: `registry_server` Accepts Malformed Numbers, Valueless Flags and Unknown Arguments](#td-488-registry_server-accepts-malformed-numbers-valueless-flags-and-unknown-arguments)
   - [TD-489: `registry_server` CLI Hygiene: Ignored FTP Flags, Stale Comments and `--help`](#td-489-registry_server-cli-hygiene-ignored-ftp-flags-stale-comments-and---help)
+  - [TD-490: `registry_server` Group Names Escape `data_dir`, Letting Delete Unlink Outside It](#td-490-registry_server-group-names-escape-data_dir-letting-delete-unlink-outside-it)
+  - [TD-491: Concurrent Registry Fetches Serve and Overwrite the Same Slice](#td-491-concurrent-registry-fetches-serve-and-overwrite-the-same-slice)
+  - [TD-492: Registry Upload Silently Replaces Pending or Claimed Files](#td-492-registry-upload-silently-replaces-pending-or-claimed-files)
+  - [TD-493: Registry `trained` Ignores Claim Ownership and Records Each Path Once](#td-493-registry-trained-ignores-claim-ownership-and-records-each-path-once)
+  - [TD-494: `registry_server` Startup, Lease, Thread-Pool and Parsing Gaps](#td-494-registry_server-startup-lease-thread-pool-and-parsing-gaps)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -12087,6 +12105,151 @@ Files to Modify:
 
 ---
 
+### TD-490: `registry_server` Group Names Escape `data_dir`, Letting Delete Unlink Outside It
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| HIGH | Open | Data / Registry Server | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `RegistryServer.cpp` (see [RegistryServer.md](../reference/source/RegistryServer.md)); verified with the real binary. The route
+regex captures `<group>` as `[^/]+` and every handler uses it unvalidated in `data_dir + "/" + group` (`group_dir()`, `get_group()`, `handle_delete()`'s
+`group_root`). httplib accepts both `/registry/../…` and `/registry/%2e%2e/…`:
+- `upload?filename=t1.jsonl` through group `..` wrote `<data_dir>/../uploads/t1.jsonl` (and a `pending_files.txt` in `data_dir`'s parent).
+- **File deletion:** with `<parent>/models/checkpoint.bin` present, `pending/add` + `delete {"delete_files":true}` through group `g` refused to unlink it,
+  but through group `..` the containment root became the parent and the file was **deleted** (`file_deleted:true`).
+With the default relative `REGISTRY_DATA_DIR=registry_sessions`, the parent is the working directory (checkpoints, configs, binaries). The server has no
+authentication (trusted-LAN design), so any LAN host, or anyone past Cloudflare Access, can delete files there with two requests. By inspection, group `.`
+maps to `data_dir` itself, reaching `daemon_config.db`, `session_counters.db` and other groups' files.
+
+Action Items:
+
+- [ ] Validate `<group>` against a strict pattern (e.g. `[A-Za-z0-9_-][A-Za-z0-9._-]*`, never `.`/`..`) in every route, returning 400.
+- [ ] Check `group_dir()` results resolve under `data_dir` (canonicalized) before use.
+- [ ] Add live tests for `..`, `%2e%2e` and `.` groups.
+
+Location in code: `src/RegistryServer.cpp` (`group_dir()`, `get_group()`, `handle_delete()`); tagged `TODO: See TD-490`.
+
+Files to Modify:
+
+- `src/RegistryServer.cpp`
+- `tests/dataset_registry_live_test.cpp`
+
+---
+
+### TD-491: Concurrent Registry Fetches Serve and Overwrite the Same Slice
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / Registry Server | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `RegistryServer.cpp`; verified. `handle_fetch_huggingface()`/`handle_fetch_gutenberg()` read the per-(source, model) cursor, write
+`…_row<offset>_training.jsonl` and write the cursor back **without holding any lock** (the group mutex is taken only to queue the result). Eight
+concurrent `fetch/huggingface` requests for 1,000 pairs each, against a pre-cached 20,000-row dataset, all returned `served_from_row: 0` and
+`added: true`; one file was queued and the cursor advanced to 1,000. Callers were told 8,000 pairs were added; 1,000 were, written by eight writers into the
+same file at once. After a wrap-around a fetch also rewrites an earlier `_row<offset>` file that may still be pending or claimed.
+
+Action Items:
+
+- [ ] Serialize cursor read → write → advance per cursor (a per-cursor mutex, or the group mutex around the slice step).
+- [ ] Make output names unique (e.g. include a sequence number) and report `added:false` when nothing new was queued.
+- [ ] Test concurrent fetches.
+
+Location in code: `src/RegistryServer.cpp` (`handle_fetch_gutenberg()`, `handle_fetch_huggingface()`); tagged `TODO: See TD-491`.
+
+Files to Modify:
+
+- `src/RegistryServer.cpp`
+- `tests/dataset_registry_live_test.cpp`
+
+---
+
+### TD-492: Registry Upload Silently Replaces Pending or Claimed Files
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / Registry Server | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `RegistryServer.cpp`; verified. `handle_upload()` truncates and rewrites `<group_dir>/uploads/<filename>` whatever its queue state.
+Uploading `d.jsonl`, claiming it as run `r1`, then uploading different content under the same name returned `added: true`, replaced the bytes under the
+claim, and queued nothing new (`add_pending_path_locked()` returned false; its result is ignored). A trainer then trains, or downloads over FTP, data
+that is not what was queued, and a trained file's recorded checksum no longer matches.
+
+Action Items:
+
+- [ ] Refuse (409) an upload whose target is pending, claimed or trained, unless an explicit `overwrite` is given and the entry is unclaimed.
+- [ ] Write to a temporary name and rename; report `added:false` when the path was already queued.
+
+Location in code: `src/RegistryServer.cpp` (`handle_upload()`); tagged `TODO: See TD-492`.
+
+Files to Modify:
+
+- `src/RegistryServer.cpp`
+- `tests/dataset_registry_live_test.cpp`
+
+---
+
+### TD-493: Registry `trained` Ignores Claim Ownership and Records Each Path Once
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / Registry Server | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `RegistryServer.cpp`; verified. `handle_trained()` adds a registry record for every listed file not already in the registry,
+regardless of `run_id`; only the pending removal checks the claim. With `d.jsonl` claimed by `r1`, `trained` from run `other` returned `trained: 1` and
+recorded it, while the entry stayed pending and claimed by `r1`; `r1`'s own `trained` then returned `trained: 0` (path already recorded) but removed the
+pending entry, so `r1`'s sample count and `model_id` were never recorded. Because the registry is deduplicated by bare path, a file re-queued and trained
+again is never recorded again either (TD-333 covers segments).
+
+Action Items:
+
+- [ ] Record a file only when it is pending and claimed by the calling `run_id` (or an explicit force), and report rejected files.
+- [ ] Key registry records by (path, segment, run) or append history instead of skipping already-recorded paths.
+
+Location in code: `src/RegistryServer.cpp` (`handle_trained()`); tagged `TODO: See TD-493`.
+
+Files to Modify:
+
+- `src/RegistryServer.cpp`
+- `src/RegistryTransport.cpp` (`LocalTransport` equivalent)
+- `tests/dataset_registry_live_test.cpp`
+
+---
+
+### TD-494: `registry_server` Startup, Lease, Thread-Pool and Parsing Gaps
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / Registry Server | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `RegistryServer.cpp`:
+- **Bind failure exits 0 (verified):** with the port in use, `listen()` returns false and the server logs "registry_server stopped" and exits 0, so
+  restart-on-failure never fires.
+- **Compact-only JSON (verified):** `{"run_id": "r2"}` (space after the colon) gave `400 run_id required`; incoming strings aren't unescaped and
+  `json_int_array()` turns bad values into 0.
+- **By inspection:** SIGTERM before `listen()` is lost (as TD-464); claims have no lease, so a crashed trainer's files stay claimed until released by
+  hand; fetch downloads run in the request thread and can occupy httplib's pool (8 threads on small hosts), stalling `acquire`/`trained`; upload bodies
+  are unbounded and held in memory; `session/next` keys on `model_name|run_id` with `model_name` unvalidated; `/health` is ok even without
+  `session_counters.db`.
+
+Action Items:
+
+- [ ] Log and exit non-zero when `listen()` fails; handle a stop requested before `listen()`.
+- [ ] Parse request bodies with the vendored `nlohmann/json` (with TD-453).
+- [ ] Consider claim leases (expiry + renewal) or an explicit stale-claim report; run fetches off the request pool; cap upload size.
+
+Location in code: `src/RegistryServer.cpp` (`main()`, JSON helpers, `handle_session_next()`); tagged `TODO: See TD-494`.
+
+Files to Modify:
+
+- `src/RegistryServer.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -12603,15 +12766,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 281 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 286 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|29|10%|
-|Medium|120|43%|
-|Low|132|47%|
+|High|30|10%|
+|Medium|123|43%|
+|Low|133|47%|
 
-**Total Active Items:** 281
+**Total Active Items:** 286
 
 ### By Component
 
@@ -12685,6 +12848,7 @@ Recomputed directly from the 281 `### TD-NNN` entries under [Active Technical De
 |Advanced / Quantization|1|
 |RAG / RAGInference|4|
 |Data / Registry Server CLI|2|
+|Data / Registry Server|5|
 |Core / Matrix|2|
 |Core / Optimizer|2|
 |Build / SIMD|2|
@@ -12707,13 +12871,13 @@ Recomputed directly from the 281 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|170|
-|2-4 hours|85|
+|0-2 hours|172|
+|2-4 hours|88|
 |4-8 hours|14|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 526-946 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 534-962 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

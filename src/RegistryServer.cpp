@@ -116,6 +116,8 @@ static std::string data_dir = "registry_sessions";
 // group working untouched after this upgrade. Shared by get_group() and every path builder below
 // that (like the Gutenberg/HuggingFace fetch-cursor and dataset-output paths) doesn't go through
 // get_group() at all but still needs to land inside the same kind-scoped sub-directory.
+// TODO: See TD-490 in TECHNICAL_DEBT.md - `group` is unvalidated: ".." (or %2e%2e) resolves to data_dir's parent and
+// "." to data_dir itself; validate it like model names and check the result stays under data_dir.
 static std::string group_dir(const std::string& group, const std::string& kind) {
     return kind.empty() ? data_dir + "/" + group : data_dir + "/" + group + "/" + kind;
 }
@@ -198,6 +200,7 @@ static std::string json_escape(const std::string& s) {
     return out;
 }
 
+// TODO: See TD-494 in TECHNICAL_DEBT.md - compact-JSON-only substring parsing, no unescaping; use nlohmann/json.
 static std::string json_string(const std::string& body, const std::string& key) {
     const std::string needle = "\"" + key + "\":\"";
     const auto pos = body.find(needle);
@@ -946,6 +949,8 @@ static void handle_delete(const httplib::Request& req, httplib::Response& res,
     fs::path group_root;
     bool have_root = false;
     try {
+        // TODO: See TD-490 in TECHNICAL_DEBT.md - with group ".." this root is data_dir's parent, so delete_files
+        // unlinks files outside the data tree (verified).
         group_root = fs::weakly_canonical(fs::path(data_dir) / group);
         have_root = true;
     } catch (...) {
@@ -1088,6 +1093,8 @@ static void handle_trained(const httplib::Request& req, httplib::Response& res,
     for (const auto& dv : reg)
         existing.insert(dv.data_file);
 
+    // TODO: See TD-493 in TECHNICAL_DEBT.md - records files regardless of which run_id claimed them, and skips any
+    // path already recorded, so the owning run's later report records nothing.
     int trained = 0;
     for (std::size_t i = 0; i < files.size(); ++i) {
         if (!existing.count(files[i])) {
@@ -1423,6 +1430,8 @@ static void handle_fetch_gutenberg(const httplib::Request& req, httplib::Respons
         return;
     }
 
+    // TODO: See TD-491 in TECHNICAL_DEBT.md - cursor read/convert/write run without a lock; concurrent fetches serve
+    // and write the same offset-named slice.
     const std::string cursor_path = gutenberg_cursor_path(group, kind, book_id, model_name);
     const int offset = read_cursor(cursor_path);
 
@@ -1506,6 +1515,8 @@ static void handle_fetch_huggingface(const httplib::Request& req, httplib::Respo
         return;
     }
 
+    // TODO: See TD-491 in TECHNICAL_DEBT.md - cursor read/convert/write run without a lock (8 concurrent calls all
+    // served row 0, verified).
     const std::string cursor_path = hf_cursor_path(group, kind, dataset_id, split, model_name);
     const int offset = read_cursor(cursor_path);
 
@@ -1562,6 +1573,7 @@ static void handle_upload(const httplib::Request& req, httplib::Response& res,
     fs::create_directories(dir);
     const std::string path = dir + "/" + filename;
 
+    // TODO: See TD-492 in TECHNICAL_DEBT.md - overwrites a pending/claimed/trained file and still reports added:true.
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     if (!out.is_open() || !(out << req.body) || !out.good()) {
         res.status = 500;
@@ -1691,6 +1703,7 @@ static void handle_session_next(const httplib::Request& req, httplib::Response& 
         return;
     }
 
+    // TODO: See TD-494 in TECHNICAL_DEBT.md - model_name is unvalidated, so a '|' in it can collide.
     const std::string key = model_name + "|" + run_id;
     int next = 1;
     // TODO: See TD-304 in TECHNICAL_DEBT.md - read-modify-write is atomic only within this process (TD-308: full-table scan)
@@ -1930,6 +1943,7 @@ int main(int argc, char* argv[]) {
                      ftp_pasv_max);
     }
 
+    // TODO: See TD-494 in TECHNICAL_DEBT.md - a failed listen() (port in use) exits 0; a stop() before listen() is lost.
     svr.listen("0.0.0.0", port);
 
     if (g_ftp_server)

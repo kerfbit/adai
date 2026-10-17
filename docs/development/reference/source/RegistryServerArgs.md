@@ -114,4 +114,4 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Unknown arguments ignored (`--portt` → 8082) (§2) | Typos go unnoticed | **Verified** | [TD-488](../../guides/TECHNICAL_DEBT.md#td-488-registry_server-accepts-malformed-numbers-valueless-flags-and-unknown-arguments) |
 | FTP-only flags without `--ftp-enabled` ignored; stale header comments; `--help` positional (§2) | Confusion | By inspection | [TD-489](../../guides/TECHNICAL_DEBT.md#td-489-registry_server-cli-hygiene-ignored-ftp-flags-stale-comments-and---help) |
 | FTP security keys in `config.registry.conf` ignored; config/admin values unchecked | Already tracked | — | TD-284, TD-287, TD-306 |
-| Bind failure exits 0 | Belongs to `RegistryServer.cpp` | **Verified** | RegistryServer.md (next) |
+| Bind failure exits 0 | Belongs to `RegistryServer.cpp` | **Verified** | [RegistryServer.md](RegistryServer.md) |

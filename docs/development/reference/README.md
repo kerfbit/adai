@@ -76,6 +76,7 @@ This directory contains reference materials, technical specifications, and imple
   - [Quantization](source/Quantization.md) (`src/Quantization.hpp`; INT8/INT4 per-tensor quantization, not used in production)
   - [RAGInference](source/RAGInference.md) (`src/RAGInference.{hpp,cpp}`; retrieval-augmented generation for `chatbot_api_server`'s `RAG_ENABLED` path)
   - [RegistryServerArgs](source/RegistryServerArgs.md) (`src/RegistryServerArgs.{hpp,cpp}`; `registry_server` argument parsing and config precedence)
+  - [RegistryServer](source/RegistryServer.md) (`src/RegistryServer.cpp`; `registry_server` endpoints, storage and `main()`)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)
