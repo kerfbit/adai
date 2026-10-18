@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-17
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-18
 
 #include "Optimizer.hpp"
 #include <cmath>
@@ -221,6 +221,26 @@ float Optimizer::clip_gradients(float max_norm, float precomputed_norm) {
     }
 
     return precomputed_norm;
+}
+
+void Optimizer::scale_gradients(float factor) {
+    if (factor == 1.0f) {
+        return;
+    }
+    for (auto& param : parameter_groups) {
+        if (param.gradients) {
+            const int rows = param.gradients->rows;
+            const int cols = param.gradients->cols;
+#ifdef ADAI_ENABLE_OPENMP
+#pragma omp parallel for collapse(2) schedule(static) if (rows * cols > 4096)
+#endif
+            for (int i = 0; i < rows; i++) {
+                for (int j = 0; j < cols; j++) {
+                    (*param.gradients)(i, j) *= factor;
+                }
+            }
+        }
+    }
 }
 
 // SGD update

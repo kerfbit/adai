@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <numeric>
 #include "../src/TrainingSampleMeta.hpp"
 
 // ============================================================================
@@ -820,6 +821,24 @@ TEST_F(MetricsTest, Perplexity_VeryLargeLoss) {
 // actually continues — severing the input/target relationship.
 // ============================================================================
 
+// TD-275: targets keep their head and still end on <eos> after truncation.
+TEST(TruncateTargetTest, ShortTargetIsUnchanged) {
+    const std::vector<int> ids = {2, 10, 11, 3};  // <bos> a b <eos>
+    EXPECT_EQ(ChatbotTrainer::truncate_target_keep_eos(ids, 8, 3), ids);
+    EXPECT_EQ(ChatbotTrainer::truncate_target_keep_eos(ids, 4, 3), ids);  // exactly max_len
+}
+
+TEST(TruncateTargetTest, LongTargetKeepsHeadAndEndsOnEos) {
+    const std::vector<int> ids = {2, 10, 11, 12, 13, 14, 3};
+    EXPECT_EQ(ChatbotTrainer::truncate_target_keep_eos(ids, 5, 3),
+              (std::vector<int>{2, 10, 11, 12, 3}));
+}
+
+TEST(TruncateTargetTest, NonPositiveLimitLeavesTargetAlone) {
+    const std::vector<int> ids = {2, 10, 3};
+    EXPECT_EQ(ChatbotTrainer::truncate_target_keep_eos(ids, 0, 3), ids);
+}
+
 TEST(TruncateTailTest, TextShorterThanLimit_ReturnsUnchanged) {
     std::string s = "short text";
     EXPECT_EQ(ChatbotTrainer::truncate_text_tail(s, 100), s);
@@ -982,6 +1001,31 @@ class ChatbotTrainerCacheTest : public ::testing::Test {
     static int EpochsWithoutImprovement(const ChatbotTrainer& t) {
         return t.epochs_without_improvement;
     }
+    // TD-272 hooks
+    static float TrainEpoch(ChatbotTrainer& t, int epoch) {
+        return t.train_epoch(epoch);
+    }
+    static void AppendTraining(ChatbotTrainer& t, ConversationPair raw, TokenizedPair tok) {
+        t.training_data.push_back(std::move(raw));
+        t.tokenized_training_data.push_back(std::move(tok));
+        t.training_indices.resize(t.tokenized_training_data.size());
+        std::iota(t.training_indices.begin(), t.training_indices.end(), 0);
+    }
+
+    static TrainingConfig tiny_training_config(int accumulation_steps) {
+        TrainingConfig cfg = quiet_config();
+        cfg.d_model = 16;
+        cfg.num_heads = 2;
+        cfg.d_ff = 32;
+        cfg.num_encoder_layers = 1;
+        cfg.num_decoder_layers = 1;
+        cfg.max_seq_length = 16;
+        cfg.validation_split = 0;
+        cfg.enable_early_stopping = false;
+        cfg.gradient_accumulation_steps = accumulation_steps;
+        cfg.enable_loss_quality_backfill = true;  // exposes each sample's loss as exp(-loss)
+        return cfg;
+    }
 
     static TrainingConfig quiet_config() {
         TrainingConfig cfg;
@@ -1063,6 +1107,95 @@ TEST_F(ChatbotTrainerCacheTest, SkippedAndFailingPairsDontBiasValidationLoss) {
     EXPECT_NEAR(Validate(t), with_failure, 1e-6f);
     EXPECT_EQ(t.get_validation_losses().size(), recorded);
     EXPECT_EQ(EpochsWithoutImprovement(t), before + 1);
+}
+
+// TD-275, end to end: a response longer than max_seq_length is tokenized to exactly
+// max_seq_length ids and still ends with <eos>.
+TEST_F(ChatbotTrainerCacheTest, LongResponseTargetEndsWithEos) {
+    Matrix::gpu_try_initialize();
+    TrainingConfig cfg = quiet_config();
+    cfg.d_model = 16;
+    cfg.num_heads = 2;
+    cfg.d_ff = 32;
+    cfg.num_encoder_layers = 1;
+    cfg.num_decoder_layers = 1;
+    cfg.max_seq_length = 8;
+    cfg.validation_split = 0;
+    cfg.enable_early_stopping = false;
+    ChatbotTrainer t(cfg);
+    std::filesystem::create_directories(cache_dir);
+    ASSERT_TRUE(t.build_vocabulary({"hello world", "how are you", "I am fine", "thank you"}, 100,
+                                   cache_dir + "/vocab.txt"));
+    t.add_training_pair("hello world",
+                        "how are you I am fine thank you how are you I am fine thank you");
+    t.add_training_pair("hi", "thank you");
+    ASSERT_TRUE(t.train(1));
+
+    const auto& tok = GetTokenizedTraining(t);
+    ASSERT_EQ(tok.size(), 2u);
+    const int eos = 3;  // adai::SpecialTokenIDs::EOS
+    EXPECT_EQ(tok[0].target_tokens.size(), 8u);
+    EXPECT_EQ(tok[0].target_tokens.front(), 2);  // <bos>
+    EXPECT_EQ(tok[0].target_tokens.back(), eos);
+    EXPECT_EQ(tok[1].target_tokens.back(), eos);  // short target: unchanged, already ends on <eos>
+}
+
+// TD-272: a window holding fewer samples than gradient_accumulation_steps (here the epoch's only,
+// 1-sample window with accumulation 4) reports the mean loss of the samples it holds, not a
+// quarter of it, and its gradients are rescaled to match.
+TEST_F(ChatbotTrainerCacheTest, ShortLastWindowUsesItsRealSampleCount) {
+    Matrix::gpu_try_initialize();
+    ChatbotTrainer t(tiny_training_config(4));
+    std::filesystem::create_directories(cache_dir);
+    ASSERT_TRUE(t.build_vocabulary({"hello world", "how are you", "I am fine", "thank you"}, 100,
+                                   cache_dir + "/vocab.txt"));
+    t.add_training_pair("hello world", "how are you");
+    ASSERT_TRUE(t.train(1));
+
+    std::vector<float> step_losses;
+    t.set_sample_callback([&](int, int, float, float step_loss, float grad_norm, float) {
+        if (grad_norm > 0.0f)
+            step_losses.push_back(step_loss);
+    });
+    TrainEpoch(t, 1);
+    ASSERT_EQ(step_losses.size(), 1u);
+    const float sample_loss = -std::log(GetTrainingData(t)[0].meta.quality);
+    EXPECT_NEAR(step_losses[0], sample_loss, 1e-4f * std::max(1.0f, sample_loss));
+}
+
+// TD-272: a sample that fails before its backward pass no longer throws away the gradients the
+// window already holds. With 4 good samples, 1 failing one and accumulation 4, every epoch takes
+// exactly one step over the 4 good samples, wherever the shuffle puts the failing one. (Before,
+// a failure mid-window discarded the earlier samples and the last window stepped on whatever was
+// left.)
+TEST_F(ChatbotTrainerCacheTest, FailedSampleKeepsTheWindowsEarlierGradients) {
+    Matrix::gpu_try_initialize();
+    ChatbotTrainer t(tiny_training_config(4));
+    std::filesystem::create_directories(cache_dir);
+    ASSERT_TRUE(t.build_vocabulary({"hello world", "how are you", "I am fine", "thank you"}, 100,
+                                   cache_dir + "/vocab.txt"));
+    t.add_training_pair("hello world", "how are you");
+    t.add_training_pair("how are you", "I am fine");
+    t.add_training_pair("I am fine", "thank you");
+    t.add_training_pair("thank you", "hello world");
+    ASSERT_TRUE(t.train(1));
+    AppendTraining(t, ConversationPair("broken", "broken"),
+                   TokenizedPair({999999}, {999999}, "broken", "broken"));
+
+    for (int epoch = 1; epoch <= 4; ++epoch) {
+        std::vector<float> step_losses;
+        t.set_sample_callback([&](int, int, float, float step_loss, float grad_norm, float) {
+            if (grad_norm > 0.0f)
+                step_losses.push_back(step_loss);
+        });
+        TrainEpoch(t, epoch);
+        ASSERT_EQ(step_losses.size(), 1u) << "epoch " << epoch;
+        float mean = 0.0f;
+        for (int k = 0; k < 4; ++k)
+            mean += -std::log(GetTrainingData(t)[k].meta.quality);
+        mean /= 4.0f;
+        EXPECT_NEAR(step_losses[0], mean, 1e-4f * std::max(1.0f, mean)) << "epoch " << epoch;
+    }
 }
 
 TEST_F(ChatbotTrainerCacheTest, RoundTripSavesAndLoadsCorrectly) {

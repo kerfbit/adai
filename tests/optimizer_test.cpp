@@ -280,6 +280,27 @@ TEST(OptimizerGradientClipTest, ClippingWhenAboveThreshold) {
     EXPECT_NEAR(new_norm, 2.5f, 1e-4f);
 }
 
+// TD-272: scale_gradients() multiplies every registered gradient, across parameter groups.
+TEST(OptimizerGradientClipTest, ScaleGradientsMultipliesEveryGroup) {
+    Optimizer opt(OptimizerType::ADAMW, 0.001f);
+    Matrix w1(1, 2), g1(1, 2), w2(2, 1), g2(2, 1);
+    g1(0, 0) = 1.0f;
+    g1(0, 1) = -2.0f;
+    g2(0, 0) = 0.5f;
+    g2(1, 0) = 3.0f;
+    opt.add_parameter_group(&w1, &g1);
+    opt.add_parameter_group(&w2, &g2);
+    const float before = opt.get_gradient_norm();
+
+    opt.scale_gradients(4.0f);
+    EXPECT_FLOAT_EQ(g1(0, 0), 4.0f);
+    EXPECT_FLOAT_EQ(g1(0, 1), -8.0f);
+    EXPECT_FLOAT_EQ(g2(0, 0), 2.0f);
+    EXPECT_FLOAT_EQ(g2(1, 0), 12.0f);
+    EXPECT_NEAR(opt.get_gradient_norm(), 4.0f * before, 1e-4f);
+    EXPECT_FLOAT_EQ(w1(0, 0), 0.0f);  // weights untouched
+}
+
 TEST(OptimizerGradientClipTest, ClipWithCustomNorm) {
     Optimizer opt(OptimizerType::SGD, 0.01f);
 

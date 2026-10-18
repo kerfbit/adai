@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.10.3
+// @adai-version: 0.10.5
 // @adai-reviewed: 2026-10-18
 
 #include "ChatbotTrainer.hpp"
@@ -562,14 +562,10 @@ void ChatbotTrainer::preprocess_data() {
         }
         return s.substr(0, i);
     };
-    auto truncate = [max_len](std::vector<int> ids) -> std::vector<int> {
-        if (static_cast<int>(ids.size()) > max_len) {
-            ids.resize(max_len);
-        }
-        return ids;
-    };
-    // Input-side truncation uses truncate_text_tail()/truncate_tokens_tail() instead
-    // of clip_text()/truncate() — see their doc comments in ChatbotTrainer.hpp for why.
+    const int eos_id = tokenizer->get_eos_token_id();
+    // Input-side truncation uses truncate_text_tail()/truncate_tokens_tail() instead of the
+    // head-keeping clip_text()/truncate_target_keep_eos() used for targets — see their doc
+    // comments in ChatbotTrainer.hpp for why.
 
     // Tokenize training data — parallel BPE encoding (tokenizer is read-only after load)
     const int n_train = static_cast<int>(training_data.size());
@@ -601,11 +597,10 @@ void ChatbotTrainer::preprocess_data() {
             tokenized_training_data[i] = TokenizedPair(
                 truncate_tokens_tail(
                     tokenizer->encode(truncate_text_tail(pair.input, max_chars), false), max_len),
-                // TODO: See TD-275 in TECHNICAL_DEBT.md - head truncation after adding specials drops <eos>
-                // from responses longer than max_seq_length.
                 // TODO: See TD-361 in TECHNICAL_DEBT.md - targets start with BOS, and forward() prepends another (double BOS)
-                truncate(tokenizer->encode(clip_text(pair.response), true)), pair.input,
-                pair.response);
+                truncate_target_keep_eos(tokenizer->encode(clip_text(pair.response), true), max_len,
+                                         eos_id),
+                pair.input, pair.response);
             training_data[i].meta.token_count =
                 static_cast<int>(tokenized_training_data[i].input_tokens.size() +
                                  tokenized_training_data[i].target_tokens.size());
@@ -644,8 +639,9 @@ void ChatbotTrainer::preprocess_data() {
                 truncate_tokens_tail(
                     tokenizer->encode(truncate_text_tail(pair.input, max_chars), false), max_len),
                 // TODO: See TD-361 in TECHNICAL_DEBT.md - targets start with BOS, and forward() prepends another (double BOS)
-                truncate(tokenizer->encode(clip_text(pair.response), true)), pair.input,
-                pair.response);
+                truncate_target_keep_eos(tokenizer->encode(clip_text(pair.response), true), max_len,
+                                         eos_id),
+                pair.input, pair.response);
             validation_data[i].meta.token_count =
                 static_cast<int>(tokenized_validation_data[i].input_tokens.size() +
                                  tokenized_validation_data[i].target_tokens.size());
@@ -745,6 +741,18 @@ std::string ChatbotTrainer::truncate_text_tail(const std::string& s, size_t max_
 std::vector<int> ChatbotTrainer::truncate_tokens_tail(std::vector<int> ids, int max_len) {
     if (static_cast<int>(ids.size()) > max_len) {
         ids.erase(ids.begin(), ids.end() - max_len);
+    }
+    return ids;
+}
+
+std::vector<int> ChatbotTrainer::truncate_target_keep_eos(std::vector<int> ids, int max_len,
+                                                          int eos_id) {
+    // TD-275: keep the head, but make the last kept token <eos>. Cutting the encoded
+    // [<bos>] + content + [<eos>] sequence to its first max_len ids used to drop the <eos>, so
+    // the model never saw a long target end.
+    if (max_len > 0 && static_cast<int>(ids.size()) > max_len) {
+        ids.resize(max_len);
+        ids.back() = eos_id;
     }
     return ids;
 }
@@ -1126,6 +1134,266 @@ float ChatbotTrainer::train_epoch(int epoch) {
     }
     // ─────────────────────────────────────────────────────────────────────────
 
+    // TD-272: the optimizer step for the current accumulation window (accumulation_step samples).
+    // A lambda so both the normal path and the error path (an epoch whose last sample throws
+    // still steps on the window's earlier samples) can run it. `i` is the sample index the step
+    // is attributed to in logs and callbacks.
+    int dropped_samples = 0;  // samples that contributed no gradient this epoch
+    auto apply_update = [&](int i) {
+        // Compute padding efficiency for this accumulation window
+        if (pad_win_count > 0 && (pad_win_max_input + pad_win_max_target) > 0) {
+            int padded = (pad_win_max_input + pad_win_max_target) * pad_win_count;
+            float win_eff = static_cast<float>(pad_win_actual) / static_cast<float>(padded);
+            pad_eff_sum += win_eff;
+            ++pad_eff_count;
+        }
+
+#ifdef ADAI_ENABLE_GPU
+        // Pull the GPU-resident gradient accumulators into the CPU grad
+        // buffers *before* anything below reads them. gpu_backward() only
+        // ever writes to device-resident buffers, so get_gradient_norm()
+        // and clip_gradients() would otherwise see the all-zero CPU
+        // buffers left by zero_grad() at the top of this accumulation
+        // window — silently skipping clipping every step.
+        // TODO: See TD-468 in TECHNICAL_DEBT.md - every gradient to the host, CPU optimizer step, every weight back each step
+        model->gpu_download_grads();
+#endif
+
+        // TD-272: each sample's gradient was scaled by 1/gradient_accumulation_steps, so a
+        // window holding fewer samples (the epoch's last one, or the last sample having failed)
+        // is rescaled to the mean over the samples it actually holds, and its loss divided by
+        // that count. It used to step with a proportionally smaller update and report a smaller
+        // loss.
+        const int window_samples = accumulation_step;
+        if (window_samples > 0 && window_samples < config.gradient_accumulation_steps) {
+            optimizer->scale_gradients(static_cast<float>(config.gradient_accumulation_steps) /
+                                       static_cast<float>(window_samples));
+        }
+
+        // Get gradient norm before clipping
+        float grad_norm = optimizer->get_gradient_norm();
+
+        // Save step-level metrics here so sample callback can fire even on NaN
+        float step_loss_for_cb =
+            (window_samples > 0) ? accumulated_loss / static_cast<float>(window_samples)
+                                 : accumulated_loss;
+
+        // Safety check for NaN/Inf gradients
+        if (std::isnan(grad_norm) || std::isinf(grad_norm)) {
+            adai::Logger::error(
+                "  ⚠️  WARNING: NaN or Inf gradient detected at sample {}! Skipping update.",
+                (i + 1));
+            // Still fire sample callback so the dashboard shows progress
+            if (sample_callback_) {
+                float running_avg = (update_count > 0)
+                                        ? total_loss / static_cast<float>(update_count)
+                                        : 0.0f;
+                sample_callback_(i + 1, num_samples, running_avg, step_loss_for_cb, 0.0f,
+                                 current_learning_rate);
+            }
+            // Reset accumulation and skip optimizer step. A non-finite norm can't be traced to
+            // one sample, so the whole window is dropped, and counted (TD-272).
+            dropped_samples += window_samples;
+            accumulation_step = 0;
+            accumulated_loss = 0.0f;
+            model->zero_grad();
+#ifdef ADAI_ENABLE_GPU
+            model->gpu_zero_grads();
+#endif
+            return;
+        }
+
+        total_grad_norm += grad_norm;
+
+        // ── TD-013: per-step Welford updates, outlier detection, weight-update ratio ──
+        {
+            // Welford update: gradient norm variance
+            gn_w_count++;
+            float gn_delta = grad_norm - gn_w_mean;
+            gn_w_mean += gn_delta / gn_w_count;
+            gn_w_M2 += gn_delta * (grad_norm - gn_w_mean);
+
+            // Welford update: per-step loss (for outlier z-score)
+            ls_w_count++;
+            float ls_delta = step_loss_for_cb - ls_w_mean;
+            ls_w_mean += ls_delta / ls_w_count;
+            ls_w_M2 += ls_delta * (step_loss_for_cb - ls_w_mean);
+
+            // Weight-update ratio approximation: (lr * ||g||) / ||w||)
+            // Throttled to every 10 steps: weight norm changes slowly and
+            // get_weight_norm() is an O(n_params) traversal.
+            if (optimizer && (update_count % 10 == 0)) {
+                float w_norm = optimizer->get_weight_norm();
+                if (w_norm > 1e-10f) {
+                    wu_ratio_sum += current_learning_rate * grad_norm / w_norm;
+                    ++wu_count;
+                }
+            }
+
+            // Outlier detection — flag samples with extreme grad_norm or loss z-score
+            if (metrics_reporter_) {
+                bool grad_outlier = grad_norm > config.grad_norm_outlier_threshold;
+                bool loss_outlier = false;
+                if (ls_w_count >= 10.0f) {
+                    float ls_std =
+                        (ls_w_M2 > 0.0f) ? std::sqrt(ls_w_M2 / ls_w_count) : 0.0f;
+                    float ls_z =
+                        (ls_std > 1e-7f) ? (step_loss_for_cb - ls_w_mean) / ls_std : 0.0f;
+                    loss_outlier = (ls_z > config.loss_outlier_z_threshold);
+                }
+                if (grad_outlier || loss_outlier) {
+                    AbnormalSample ab;
+                    ab.epoch = epoch + 1;
+                    ab.sample_id = i + 1;
+                    ab.loss = step_loss_for_cb;
+                    ab.grad_norm = grad_norm;
+                    ab.input_text = tokenized_training_data[training_indices[i]].input_text;
+                    ab.target_text =
+                        tokenized_training_data[training_indices[i]].target_text;
+                    ab.timestamp = std::chrono::system_clock::now();
+                    if (grad_outlier && loss_outlier) {
+                        ab.reason = "grad_norm_and_loss_outlier";
+                    } else if (grad_outlier) {
+                        ab.reason = "grad_norm_outlier";
+                    } else {
+                        ab.reason = "loss_outlier";
+                    }
+                    if (abnormal_sample_count_ < config.max_abnormal_samples) {
+                        metrics_reporter_->flag_abnormal_sample(ab);
+                        ++abnormal_sample_count_;
+                    }
+                }
+            }
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
+        // ── TD-013: emit running advanced metrics every optimizer step ─────────
+        if (metrics_reporter_) {
+            float running_gv = (gn_w_count >= 2.0f) ? (gn_w_M2 / gn_w_count) : 0.0f;
+            auto elapsed_wall_ns = static_cast<double>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() - epoch_td013_start)
+                    .count());
+            float running_ctr = (elapsed_wall_ns > 0.0)
+                                    ? static_cast<float>(total_compute_ns / elapsed_wall_ns)
+                                    : 0.0f;
+            float running_wur =
+                (wu_count > 0) ? (wu_ratio_sum / static_cast<float>(wu_count)) : 0.0f;
+            metrics_reporter_->update_advanced_epoch_metrics(running_gv, running_ctr,
+                                                             running_wur);
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
+        // ── TD-017: Adaptive gradient clipping ────────────────────────────────
+        float effective_clip = config.gradient_clip_norm;  // legacy fallback
+
+        if (agc_active) {
+            ++agc_step_count;
+            const bool in_warmup = (agc_step_count <= config.gradient_clip_warmup_steps);
+
+            if (in_warmup) {
+                // Warmup: clip at ceiling to protect; still update EMA
+                agc_ema = config.gradient_clip_ema_decay * grad_norm +
+                          (1.0f - config.gradient_clip_ema_decay) * agc_ema;
+                effective_clip = config.gradient_clip_max;
+            } else {
+                const bool is_spike = (agc_ema > 0.0f) &&
+                                      (grad_norm > config.gradient_clip_spike_k * agc_ema);
+                if (!is_spike) {
+                    // Normal step — update EMA
+                    agc_ema = config.gradient_clip_ema_decay * grad_norm +
+                              (1.0f - config.gradient_clip_ema_decay) * agc_ema;
+                } else {
+                    ++agc_spike_count;
+                }
+                float candidate = agc_ema * config.gradient_clip_headroom;
+                effective_clip = std::clamp(candidate, config.gradient_clip_min,
+                                            config.gradient_clip_max);
+            }
+            agc_clip_sum += effective_clip;
+            ++agc_clip_count;
+        }
+
+        if (effective_clip > 0.0f) {
+            optimizer->clip_gradients(effective_clip, grad_norm);
+        }
+
+        // Push adaptive clip state to metrics service
+        if (metrics_reporter_ && agc_active) {
+            metrics_reporter_->update_adaptive_clip_metrics(effective_clip,
+                                                            agc_spike_count);
+        }
+        // ─────────────────────────────────────────────────────────────────
+
+        // Update weights via optimizer
+        // TODO: See TD-341 in TECHNICAL_DEBT.md - DecoderBlock gates aren't registered, so this step never updates them
+        optimizer->step();
+#ifdef ADAI_ENABLE_GPU
+        // Re-upload updated CPU weights to GPU mirrors
+        model->gpu_sync_weights();
+#endif
+
+        // step_loss_for_cb (not accumulated_loss) — accumulated_loss is the raw SUM
+        // of this window's per-sample losses; total_loss is later divided by
+        // num_updates (a count of windows, not samples), so summing the unscaled
+        // window total here inflated the epoch-end average by roughly the
+        // accumulation window size (e.g. ~32x with GRADIENT_ACCUMULATION_STEPS=32),
+        // which is exactly what produced the "loss" ≈ 200 / perplexity=inf spike
+        // logged once per epoch via end_epoch(). step_loss_for_cb is already
+        // properly scaled by config.gradient_accumulation_steps.
+        total_loss += step_loss_for_cb;
+        global_step++;
+
+        // Log progress
+        // TD-062 (fixed): num_updates used to be derived from
+        // `global_step - epoch*(num_samples/accum_steps)`, which assumes every
+        // epoch has exactly `num_samples/accum_steps` (integer-divided) updates.
+        // The last, partial accumulation window is always force-flushed at
+        // i==num_samples-1 regardless of its size, so whenever num_samples isn't
+        // an exact multiple of gradient_accumulation_steps, each epoch actually
+        // has one MORE update than that floor division — an error the formula
+        // never corrected for, so it drifted by +1 every epoch (confirmed by
+        // simulating the exact loop: epoch 5 of a 100-sample/32-step run computed
+        // 9 "updates" for an epoch that only ever did 4). update_count is already
+        // an exact, directly-incremented count of updates so far this epoch (see
+        // ++update_count below) — using it instead needs no epoch-boundary math
+        // at all. +1 here because this fires before update_count's own increment.
+        if ((i + 1) % (config.log_every * config.gradient_accumulation_steps) == 0 ||
+            i == num_samples - 1) {
+            int num_updates = update_count + 1;
+            float avg_loss = total_loss / static_cast<float>(num_updates);
+            float avg_grad_norm = total_grad_norm / static_cast<float>(num_updates);
+
+            log(LogLevel::VERBOSE,
+                "  Sample " + std::to_string(i + 1) + "/" + std::to_string(num_samples) +
+                    " (Update " + std::to_string(num_updates) + ")" +
+                    " - Loss: " + std::to_string(accumulated_loss) +
+                    " - Avg: " + std::to_string(avg_loss) +
+                    " - LR: " + std::to_string(current_learning_rate) +
+                    " - GradNorm: " + std::to_string(avg_grad_norm),
+                COLOR_INFO);
+        }
+
+        // Reset accumulation state
+        accumulation_step = 0;
+        accumulated_loss = 0.0f;
+        ++update_count;
+
+        // Per-sample callback: fire after every optimizer step
+        if (sample_callback_) {
+            float running_avg =
+                (update_count > 0) ? total_loss / static_cast<float>(update_count) : 0.0f;
+            sample_callback_(i + 1, num_samples, running_avg, step_loss_for_cb, grad_norm,
+                             current_learning_rate);
+        }
+
+        // Update metrics service with sample-level metrics
+        if (metrics_reporter_) {
+            metrics_reporter_->update_sample_metrics(i + 1, step_loss_for_cb, grad_norm,
+                                                     current_learning_rate);
+        }
+    };
+
     for (int i = 0; i < num_samples; i++) {
         // Cooperative abort (serve's /admin/pause) — only honored at an
         // optimizer-step boundary, never mid-accumulation-window, so a pause
@@ -1142,6 +1410,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
             update_learning_rate();
         }
 
+        bool backward_started = false;  // TD-272: has this sample started writing gradients?
         try {
             // Zero gradients at the start of accumulation cycle
             if (accumulation_step == 0) {
@@ -1168,8 +1437,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
 
             // Forward + backward pass
             auto compute_t0 = std::chrono::steady_clock::now();
-            // TODO: See TD-272 in TECHNICAL_DEBT.md - the forced last window of an epoch may hold fewer samples
-            // but is still scaled (and its loss divided) by the full accumulation_steps.
+            // A short window is rescaled to its real sample count in apply_update() (TD-272).
             const float grad_scale = 1.0f / static_cast<float>(config.gradient_accumulation_steps);
             float loss = 0.0f;
 
@@ -1186,6 +1454,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
             accumulated_loss += loss;
 
             // GPU backward with accumulation scale baked in
+            backward_started = true;
             model->gpu_backward(grad_scale);
 
             // Drain the queue before the next sample: temporaries created above
@@ -1219,6 +1488,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 }
             }
 
+            backward_started = true;
             model->backward_pass(grad_loss);
 #endif
 
@@ -1235,248 +1505,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
                                  (i == num_samples - 1);  // Last sample in epoch
 
             if (should_update) {
-                // Compute padding efficiency for this accumulation window
-                if (pad_win_count > 0 && (pad_win_max_input + pad_win_max_target) > 0) {
-                    int padded = (pad_win_max_input + pad_win_max_target) * pad_win_count;
-                    float win_eff = static_cast<float>(pad_win_actual) / static_cast<float>(padded);
-                    pad_eff_sum += win_eff;
-                    ++pad_eff_count;
-                }
-
-#ifdef ADAI_ENABLE_GPU
-                // Pull the GPU-resident gradient accumulators into the CPU grad
-                // buffers *before* anything below reads them. gpu_backward() only
-                // ever writes to device-resident buffers, so get_gradient_norm()
-                // and clip_gradients() would otherwise see the all-zero CPU
-                // buffers left by zero_grad() at the top of this accumulation
-                // window — silently skipping clipping every step.
-                // TODO: See TD-468 in TECHNICAL_DEBT.md - every gradient to the host, CPU optimizer step, every weight back each step
-                model->gpu_download_grads();
-#endif
-
-                // Get gradient norm before clipping
-                float grad_norm = optimizer->get_gradient_norm();
-
-                // Save step-level metrics here so sample callback can fire even on NaN
-                float step_loss_for_cb =
-                    (config.gradient_accumulation_steps > 0)
-                        ? accumulated_loss / static_cast<float>(config.gradient_accumulation_steps)
-                        : accumulated_loss;
-
-                // Safety check for NaN/Inf gradients
-                if (std::isnan(grad_norm) || std::isinf(grad_norm)) {
-                    adai::Logger::error(
-                        "  ⚠️  WARNING: NaN or Inf gradient detected at sample {}! Skipping update.",
-                        (i + 1));
-                    // Still fire sample callback so the dashboard shows progress
-                    if (sample_callback_) {
-                        float running_avg = (update_count > 0)
-                                                ? total_loss / static_cast<float>(update_count)
-                                                : 0.0f;
-                        sample_callback_(i + 1, num_samples, running_avg, step_loss_for_cb, 0.0f,
-                                         current_learning_rate);
-                    }
-                    // Reset accumulation and skip optimizer step
-                    // TODO: See TD-272 in TECHNICAL_DEBT.md - also discards valid gradients from earlier samples
-                    // in this window.
-                    accumulation_step = 0;
-                    accumulated_loss = 0.0f;
-                    model->zero_grad();
-#ifdef ADAI_ENABLE_GPU
-                    model->gpu_zero_grads();
-#endif
-                    continue;
-                }
-
-                total_grad_norm += grad_norm;
-
-                // ── TD-013: per-step Welford updates, outlier detection, weight-update ratio ──
-                {
-                    // Welford update: gradient norm variance
-                    gn_w_count++;
-                    float gn_delta = grad_norm - gn_w_mean;
-                    gn_w_mean += gn_delta / gn_w_count;
-                    gn_w_M2 += gn_delta * (grad_norm - gn_w_mean);
-
-                    // Welford update: per-step loss (for outlier z-score)
-                    ls_w_count++;
-                    float ls_delta = step_loss_for_cb - ls_w_mean;
-                    ls_w_mean += ls_delta / ls_w_count;
-                    ls_w_M2 += ls_delta * (step_loss_for_cb - ls_w_mean);
-
-                    // Weight-update ratio approximation: (lr * ||g||) / ||w||)
-                    // Throttled to every 10 steps: weight norm changes slowly and
-                    // get_weight_norm() is an O(n_params) traversal.
-                    if (optimizer && (update_count % 10 == 0)) {
-                        float w_norm = optimizer->get_weight_norm();
-                        if (w_norm > 1e-10f) {
-                            wu_ratio_sum += current_learning_rate * grad_norm / w_norm;
-                            ++wu_count;
-                        }
-                    }
-
-                    // Outlier detection — flag samples with extreme grad_norm or loss z-score
-                    if (metrics_reporter_) {
-                        bool grad_outlier = grad_norm > config.grad_norm_outlier_threshold;
-                        bool loss_outlier = false;
-                        if (ls_w_count >= 10.0f) {
-                            float ls_std =
-                                (ls_w_M2 > 0.0f) ? std::sqrt(ls_w_M2 / ls_w_count) : 0.0f;
-                            float ls_z =
-                                (ls_std > 1e-7f) ? (step_loss_for_cb - ls_w_mean) / ls_std : 0.0f;
-                            loss_outlier = (ls_z > config.loss_outlier_z_threshold);
-                        }
-                        if (grad_outlier || loss_outlier) {
-                            AbnormalSample ab;
-                            ab.epoch = epoch + 1;
-                            ab.sample_id = i + 1;
-                            ab.loss = step_loss_for_cb;
-                            ab.grad_norm = grad_norm;
-                            ab.input_text = tokenized_training_data[training_indices[i]].input_text;
-                            ab.target_text =
-                                tokenized_training_data[training_indices[i]].target_text;
-                            ab.timestamp = std::chrono::system_clock::now();
-                            if (grad_outlier && loss_outlier) {
-                                ab.reason = "grad_norm_and_loss_outlier";
-                            } else if (grad_outlier) {
-                                ab.reason = "grad_norm_outlier";
-                            } else {
-                                ab.reason = "loss_outlier";
-                            }
-                            if (abnormal_sample_count_ < config.max_abnormal_samples) {
-                                metrics_reporter_->flag_abnormal_sample(ab);
-                                ++abnormal_sample_count_;
-                            }
-                        }
-                    }
-                }
-                // ─────────────────────────────────────────────────────────────────────
-
-                // ── TD-013: emit running advanced metrics every optimizer step ─────────
-                if (metrics_reporter_) {
-                    float running_gv = (gn_w_count >= 2.0f) ? (gn_w_M2 / gn_w_count) : 0.0f;
-                    auto elapsed_wall_ns = static_cast<double>(
-                        std::chrono::duration_cast<std::chrono::nanoseconds>(
-                            std::chrono::steady_clock::now() - epoch_td013_start)
-                            .count());
-                    float running_ctr = (elapsed_wall_ns > 0.0)
-                                            ? static_cast<float>(total_compute_ns / elapsed_wall_ns)
-                                            : 0.0f;
-                    float running_wur =
-                        (wu_count > 0) ? (wu_ratio_sum / static_cast<float>(wu_count)) : 0.0f;
-                    metrics_reporter_->update_advanced_epoch_metrics(running_gv, running_ctr,
-                                                                     running_wur);
-                }
-                // ─────────────────────────────────────────────────────────────────────
-
-                // ── TD-017: Adaptive gradient clipping ────────────────────────────────
-                float effective_clip = config.gradient_clip_norm;  // legacy fallback
-
-                if (agc_active) {
-                    ++agc_step_count;
-                    const bool in_warmup = (agc_step_count <= config.gradient_clip_warmup_steps);
-
-                    if (in_warmup) {
-                        // Warmup: clip at ceiling to protect; still update EMA
-                        agc_ema = config.gradient_clip_ema_decay * grad_norm +
-                                  (1.0f - config.gradient_clip_ema_decay) * agc_ema;
-                        effective_clip = config.gradient_clip_max;
-                    } else {
-                        const bool is_spike = (agc_ema > 0.0f) &&
-                                              (grad_norm > config.gradient_clip_spike_k * agc_ema);
-                        if (!is_spike) {
-                            // Normal step — update EMA
-                            agc_ema = config.gradient_clip_ema_decay * grad_norm +
-                                      (1.0f - config.gradient_clip_ema_decay) * agc_ema;
-                        } else {
-                            ++agc_spike_count;
-                        }
-                        float candidate = agc_ema * config.gradient_clip_headroom;
-                        effective_clip = std::clamp(candidate, config.gradient_clip_min,
-                                                    config.gradient_clip_max);
-                    }
-                    agc_clip_sum += effective_clip;
-                    ++agc_clip_count;
-                }
-
-                if (effective_clip > 0.0f) {
-                    optimizer->clip_gradients(effective_clip, grad_norm);
-                }
-
-                // Push adaptive clip state to metrics service
-                if (metrics_reporter_ && agc_active) {
-                    metrics_reporter_->update_adaptive_clip_metrics(effective_clip,
-                                                                    agc_spike_count);
-                }
-                // ─────────────────────────────────────────────────────────────────
-
-                // Update weights via optimizer
-                // TODO: See TD-341 in TECHNICAL_DEBT.md - DecoderBlock gates aren't registered, so this step never updates them
-                optimizer->step();
-#ifdef ADAI_ENABLE_GPU
-                // Re-upload updated CPU weights to GPU mirrors
-                model->gpu_sync_weights();
-#endif
-
-                // step_loss_for_cb (not accumulated_loss) — accumulated_loss is the raw SUM
-                // of this window's per-sample losses; total_loss is later divided by
-                // num_updates (a count of windows, not samples), so summing the unscaled
-                // window total here inflated the epoch-end average by roughly the
-                // accumulation window size (e.g. ~32x with GRADIENT_ACCUMULATION_STEPS=32),
-                // which is exactly what produced the "loss" ≈ 200 / perplexity=inf spike
-                // logged once per epoch via end_epoch(). step_loss_for_cb is already
-                // properly scaled by config.gradient_accumulation_steps.
-                total_loss += step_loss_for_cb;
-                global_step++;
-
-                // Log progress
-                // TD-062 (fixed): num_updates used to be derived from
-                // `global_step - epoch*(num_samples/accum_steps)`, which assumes every
-                // epoch has exactly `num_samples/accum_steps` (integer-divided) updates.
-                // The last, partial accumulation window is always force-flushed at
-                // i==num_samples-1 regardless of its size, so whenever num_samples isn't
-                // an exact multiple of gradient_accumulation_steps, each epoch actually
-                // has one MORE update than that floor division — an error the formula
-                // never corrected for, so it drifted by +1 every epoch (confirmed by
-                // simulating the exact loop: epoch 5 of a 100-sample/32-step run computed
-                // 9 "updates" for an epoch that only ever did 4). update_count is already
-                // an exact, directly-incremented count of updates so far this epoch (see
-                // ++update_count below) — using it instead needs no epoch-boundary math
-                // at all. +1 here because this fires before update_count's own increment.
-                if ((i + 1) % (config.log_every * config.gradient_accumulation_steps) == 0 ||
-                    i == num_samples - 1) {
-                    int num_updates = update_count + 1;
-                    float avg_loss = total_loss / static_cast<float>(num_updates);
-                    float avg_grad_norm = total_grad_norm / static_cast<float>(num_updates);
-
-                    log(LogLevel::VERBOSE,
-                        "  Sample " + std::to_string(i + 1) + "/" + std::to_string(num_samples) +
-                            " (Update " + std::to_string(num_updates) + ")" +
-                            " - Loss: " + std::to_string(accumulated_loss) +
-                            " - Avg: " + std::to_string(avg_loss) +
-                            " - LR: " + std::to_string(current_learning_rate) +
-                            " - GradNorm: " + std::to_string(avg_grad_norm),
-                        COLOR_INFO);
-                }
-
-                // Reset accumulation state
-                accumulation_step = 0;
-                accumulated_loss = 0.0f;
-                ++update_count;
-
-                // Per-sample callback: fire after every optimizer step
-                if (sample_callback_) {
-                    float running_avg =
-                        (update_count > 0) ? total_loss / static_cast<float>(update_count) : 0.0f;
-                    sample_callback_(i + 1, num_samples, running_avg, step_loss_for_cb, grad_norm,
-                                     current_learning_rate);
-                }
-
-                // Update metrics service with sample-level metrics
-                if (metrics_reporter_) {
-                    metrics_reporter_->update_sample_metrics(i + 1, step_loss_for_cb, grad_norm,
-                                                             current_learning_rate);
-                }
+                apply_update(i);
             }
         } catch (const std::exception& e) {
             adai::Logger::error("  ❌ Error training sample {}: {}", (i + 1), e.what());
@@ -1501,11 +1530,42 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 sample_callback_(i + 1, num_samples, running_avg, 0.0f, 0.0f,
                                  current_learning_rate);
             }
-            // Reset accumulation on error
-            // TODO: See TD-272 in TECHNICAL_DEBT.md - drops the earlier samples' gradients in this window.
-            accumulation_step = 0;
-            accumulated_loss = 0.0f;
+            // TD-272: a sample that failed before its backward pass wrote no gradients, so the
+            // window keeps the earlier samples' gradients and simply continues; accumulation_step
+            // counts only samples that completed. One that failed during backward may have
+            // written part of its gradients, so that window has to be dropped.
+            if (backward_started) {
+                dropped_samples += accumulation_step + 1;
+                adai::Logger::warn(
+                    "  Discarding this accumulation window ({} earlier sample(s)): sample {} "
+                    "failed during backward",
+                    accumulation_step, (i + 1));
+                accumulation_step = 0;
+                accumulated_loss = 0.0f;
+                model->zero_grad();
+#ifdef ADAI_ENABLE_GPU
+                model->gpu_zero_grads();
+#endif
+            } else {
+                ++dropped_samples;
+            }
+            // The epoch's last sample failed: still step on the window's earlier samples rather
+            // than letting the next epoch's zero_grad() throw them away.
+            if (i == num_samples - 1 && accumulation_step > 0) {
+                try {
+                    apply_update(i);
+                } catch (const std::exception& flush_err) {
+                    adai::Logger::error("  ❌ Final optimizer step of the epoch failed: {}",
+                                        flush_err.what());
+                }
+            }
         }
+    }
+
+    if (dropped_samples > 0) {
+        adai::Logger::warn("  {} of {} training samples contributed no gradient this epoch "
+                           "(failed, or discarded with their window)",
+                           dropped_samples, num_samples);
     }
 
     // Divide by number of actual updates, not num_samples — total_loss only

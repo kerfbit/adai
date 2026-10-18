@@ -28,7 +28,7 @@ state (`momentum`, `velocity`, `step`).
 `step()` skips a group whose gradient is **exactly all zero** when `wd == 0` (so a group with no signal this step isn't nudged
 by stale momentum; added for LeJEPA's predictor, TD-190). Clipping: `clip_gradients()` (configured `max_grad_norm`),
 `clip_gradients(max)`, and `clip_gradients(max, precomputed_norm)` scale every group by `max / (norm + 1e-6)` when the global L2 norm
-exceeds `max`. `get_gradient_norm()`/`get_weight_norm()` (the latter for TD-013's update ratio), `zero_grad()`, `reset_state()`,
+exceeds `max`. `scale_gradients(factor)` (added October 17, 2026 for TD-272) multiplies every gradient by `factor`; `ChatbotTrainer` uses it to turn a short accumulation window's sum into a mean. `get_gradient_norm()`/`get_weight_norm()` (the latter for TD-013's update ratio), `zero_grad()`, `reset_state()`,
 `total_parameters()`, `get_optimizer_name()`.
 
 ### How production uses it

@@ -142,8 +142,10 @@ Uses the model's tokenizer (ownership moved there in `initialize_model()`/by the
      tokens (`truncate_tokens_tail()`). The tail is kept because pairs are documents split at a
      midpoint, so the end of the input is what the target continues from;
    - **response:** keep the **head** at about `5 × max_seq_length` characters, encode **with**
-     `<bos>`/`<eos>`, keep the **first** `max_seq_length` tokens. Responses longer than that lose
-     their `<eos>`, so the model never sees those targets end;
+     `<bos>`/`<eos>`, keep the **first** `max_seq_length` tokens. Responses longer than that used to
+     lose their `<eos>`, so the model never saw those targets end. Since TD-275's fix (October 17, 2026),
+     `truncate_target_keep_eos()` makes the last kept token `<eos>`: `<bos>` + the first
+     `max_seq_length − 2` content tokens + `<eos>`, as standard seq2seq tokenizers truncate;
    - **empty input or response** (TD-188) and **invalid UTF-8** are counted and logged as
      "Skipped", and their slot is **left as an empty `TokenizedPair`**.
 3. Saves the cache if enabled. Since TD-267's fix this comes before compaction, so the cache's counts still match the raw data. Then
@@ -238,9 +240,12 @@ Per sample (in shuffled order):
    - GPU: `gpu_forward` (fused loss), `gpu_backward(scale)`, `gpu_synchronize()`. The sync drains
      SYCL deferred frees, the fix for the budget-exhaustion spiral.
    - Optional `exp(-loss)` quality backfill.
-4. When the window is full **or it's the last sample**:
+4. When the window is full **or it's the last sample**, the `apply_update()` lambda runs:
    - padding efficiency: actual tokens ÷ (max input + max target) × window size;
    - GPU: `gpu_download_grads()` first, so clipping sees real gradients;
+   - since TD-272's fix, a window holding fewer than `gradient_accumulation_steps` samples is
+     rescaled (`Optimizer::scale_gradients()`) to the mean over its samples, and its step loss is
+     divided by that count;
    - gradient norm, and **NaN/Inf guard**: log, fire the callback, zero, skip the update;
    - TD-013 Welford statistics (gradient-norm variance, loss z-score), weight-update ratio every
      10 steps, outlier flagging up to `max_abnormal_samples`, running advanced metrics;
@@ -249,7 +254,12 @@ Per sample (in shuffled order):
      (`> k × EMA`) out of the EMA;
    - `optimizer->step()` (GPU: `gpu_sync_weights()`), `total_loss += step loss`, `global_step++`,
      periodic log line (TD-062 counting fix), sample callback, `update_sample_metrics`.
-5. **Exception:** log, GPU sync, callback, reset accumulation.
+5. **Exception:** log, GPU sync, callback. Since TD-272's fix:
+   - a sample that failed **before** its backward pass leaves the window's gradients untouched and
+     the window continues (`accumulation_step` counts completed samples only);
+   - one that failed **during** backward drops the window, since its gradients may be half-written;
+   - if the epoch's last sample fails, the pending window still steps;
+   - samples that contributed nothing are counted and logged at epoch end.
 
 At epoch end: average loss and gradient norm over updates, perplexity = exp(loss), append to the
 history vectors, and report advanced metrics, saturation, entropy, per-layer gradient norms,
@@ -260,13 +270,24 @@ padding efficiency and adaptive-clip averages.
 > ≤ 100 optimizer steps per epoch (common with small passes or large accumulation) **adaptive
 > clipping never activates at all**.
 
-> **An error or NaN mid-window drops the whole window.** Both paths reset `accumulation_step`
-> without stepping, so gradients already accumulated from earlier samples in the window are
-> zeroed at the next window start: those samples contribute nothing.
+> **An error or NaN mid-window dropped the whole window** (fixed October 17, 2026, TD-272). Both
+> paths reset `accumulation_step` without stepping, so gradients already accumulated from earlier
+> samples in the window were zeroed at the next window start, and those samples contributed
+> nothing.
+>
+> Now only a failure during backward, or a non-finite gradient norm (which can't be traced to one
+> sample), drops the window, and the dropped samples are counted. If the epoch's last sample failed,
+> the window's earlier samples were lost too; that window now steps.
 
-> **The last, partial window is under-weighted.** Gradients are always scaled by
-> `1/accumulation_steps`, and the step loss is divided by the same, even when the final window
-> holds fewer samples. Its update and reported loss are proportionally too small.
+> **The last, partial window was under-weighted** (fixed October 17, 2026, TD-272). Gradients were
+> always scaled by `1/accumulation_steps`, and the step loss divided by the same, even when the
+> final window held fewer samples, so its update and reported loss were proportionally too small.
+> Short windows are now rescaled to their real sample count.
+>
+> New tests (both fail on the old code):
+> - `ShortLastWindowUsesItsRealSampleCount`;
+> - `FailedSampleKeepsTheWindowsEarlierGradients`: 4 good samples plus 1 failing one at
+>   accumulation 4 take exactly one 4-sample step per epoch, wherever the failing one lands.
 
 ---
 
@@ -338,9 +359,9 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 | Optimizer state and LR schedule restart every incremental pass (§7) | No coherent schedule across a long run; Adam moments lost | By inspection (`IncrementalTrainer` + `set_model()`) | [TD-269](../../guides/TECHNICAL_DEBT.md#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass) |
 | Adaptive clipping state resets every epoch; never activates with ≤ 100 steps/epoch (§8) | TD-017 often has no effect | By inspection | [TD-270](../../guides/TECHNICAL_DEBT.md#td-270-adaptive-gradient-clipping-resets-every-epoch) |
 | Cache hit loaded after a fresh random split misaligns per-index metadata; split differs every pass (§6) | Wrong metadata; validation not comparable across passes | By inspection (cache off by default) | [TD-271](../../guides/TECHNICAL_DEBT.md#td-271-chatbottrainers-tokenized-cache-can-pair-with-a-different-random-split) |
-| Error/NaN mid-window drops prior samples' gradients; partial last window under-weighted (§8) | Silent loss of training signal | By inspection | [TD-272](../../guides/TECHNICAL_DEBT.md#td-272-chatbottrainer-silently-drops-gradients-on-mid-window-errors-and-under-weights-the-last-window) |
+| Error/NaN mid-window drops prior samples' gradients; partial last window under-weighted (§8) | Silent loss of training signal | By inspection; **fixed in code October 17, 2026** | [TD-272](../../guides/TECHNICAL_DEBT.md#td-272-chatbottrainer-silently-drops-gradients-on-mid-window-errors-and-under-weights-the-last-window) |
 | Quality backfill writes to unreachable copies; no config keys (§10) | Dead feature; wasted compute if enabled | By inspection | [TD-273](../../guides/TECHNICAL_DEBT.md#td-273-chatbottrainer-quality-backfill-writes-results-nobody-can-read) |
 | `best_model_temp.bin` in the working directory, shared and never cleaned (§9) | Collisions; stray files | By inspection | [TD-274](../../guides/TECHNICAL_DEBT.md#td-274-chatbottrainer-saves-the-best-model-to-a-fixed-file-in-the-working-directory) |
-| Long responses lose `<eos>` on head truncation (§6) | Model never sees long targets end | By inspection | [TD-275](../../guides/TECHNICAL_DEBT.md#td-275-chatbottrainer-drops-eos-from-long-training-responses) |
+| Long responses lose `<eos>` on head truncation (§6) | Model never sees long targets end | By inspection; **fixed in code October 17, 2026** (`truncate_target_keep_eos()`) | [TD-275](../../guides/TECHNICAL_DEBT.md#td-275-chatbottrainer-drops-eos-from-long-training-responses) |
 | Hygiene: unused accuracy/`verbose`, `log()` level mapping, `end_epoch` reports last-window gradient norm rather than the epoch average, stale `chatbottrainer_test.cpp.old`, `validate_and_correct_config()` silently changes architecture (standalone path) | Minor | By inspection | [TD-276](../../guides/TECHNICAL_DEBT.md#td-276-chatbottrainer-hygiene-dead-fields-logging-stale-test-file) |
 | Whole class capped below `stable` | Already TD-039 | — | TD-039 |

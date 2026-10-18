@@ -5858,7 +5858,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / ChatbotTrainer | October 9, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 17, 2026 | Training / ChatbotTrainer | October 9, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-267:
@@ -5871,13 +5871,28 @@ Found alongside TD-267:
   `1/gradient_accumulation_steps` and its reported loss divided by the same, so that update is
   proportionally too small and its loss under-reported.
 
+**Fix landed October 17, 2026:** the step code now lives in an `apply_update()` lambda inside `train_epoch()`.
+- **Short windows:** a window with fewer than `gradient_accumulation_steps` samples is rescaled with the new `Optimizer::scale_gradients()` to the
+  mean over its samples, and its step loss is divided by that count.
+- **Failure before backward:** the window keeps its gradients and continues, because `accumulation_step` counts only completed samples. A
+  `backward_started` flag tells the two kinds of failure apart.
+- **Failure during backward:** the window is dropped, since its gradients may be half-written.
+- **Non-finite gradient norm:** the window is dropped, since the bad sample can't be identified.
+- **Last sample fails:** the pending window still steps; before, it was lost to the next epoch's `zero_grad()`.
+- **Reporting:** samples that contributed nothing are counted and logged at epoch end.
+
+New tests (both fail on the old code in 3/3 runs):
+- `ShortLastWindowUsesItsRealSampleCount`;
+- `FailedSampleKeepsTheWindowsEarlierGradients` (exactly one 4-sample step per epoch over 4 shuffled epochs);
+- `OptimizerGradientClipTest.ScaleGradientsMultipliesEveryGroup`.
+
 Action Items:
 
-- [ ] On a per-sample error, keep the window's valid gradients: track the samples actually accumulated and step on them (rescaling), or document the drop and count dropped samples in metrics.
-- [ ] Scale the last window by its real sample count (rescale gradients before the step; divide the loss by the actual count).
-- [ ] Tests for both.
+- [x] On a per-sample error, keep the window's valid gradients: track the samples actually accumulated and step on them (rescaling), or document the drop and count dropped samples in metrics. (Kept when the failure precedes backward; otherwise dropped and counted in the log. Not yet a metrics field.)
+- [x] Scale the last window by its real sample count (rescale gradients before the step; divide the loss by the actual count).
+- [x] Tests for both.
 
-Location in code: `src/ChatbotTrainer.cpp` (`train_epoch()`); tagged `TODO: See TD-272`.
+Location in code: `src/ChatbotTrainer.cpp` (`train_epoch()`, `apply_update()`), `src/Optimizer.{hpp,cpp}` (`scale_gradients()`); the `TODO: See TD-272` tags are now fix comments.
 
 Files to Modify:
 
@@ -5941,7 +5956,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / ChatbotTrainer | October 9, 2026 | 1 hour |
+| LOW | Open — code fix landed October 17, 2026 | Training / ChatbotTrainer | October 9, 2026 | 1 hour |
 
 Description:
 Found alongside TD-267. `preprocess_data()` encodes responses **with** `<bos>`/`<eos>` and then
@@ -5950,9 +5965,18 @@ the model never sees those targets end, which teaches it to keep generating on l
 
 Action Items:
 
-- [ ] Truncate the content before adding specials (keep `<bos>` + first `max_seq_length − 2` tokens + `<eos>`), or decide explicitly that long targets shouldn't end.
+**Fix landed October 17, 2026:** `ChatbotTrainer::truncate_target_keep_eos()` cuts an encoded target to `max_seq_length` and makes the last kept
+token `<eos>`. A long target becomes `<bos>` + its first `max_seq_length − 2` content tokens + `<eos>`, for both training and validation. This is
+standard seq2seq truncation (Hugging Face/T5 tokenizers keep the end marker), chosen over leaving long targets unended.
 
-Location in code: `src/ChatbotTrainer.cpp` (`preprocess_data()`); tagged `TODO: See TD-275`.
+The tokenized-data cache key now includes `ChatbotTrainer::kPreprocessFormatVersion` (TD-409), set to 2, so caches built before this fix are not
+reused. New tests (2 of the 4 fail without the fix):
+- `TruncateTargetTest` (short, exact-length, long, non-positive limit);
+- `ChatbotTrainerCacheTest.LongResponseTargetEndsWithEos` (end to end at `max_seq_length = 8`).
+
+- [x] Truncate the content before adding specials (keep `<bos>` + first `max_seq_length − 2` tokens + `<eos>`), or decide explicitly that long targets shouldn't end.
+
+Location in code: `src/ChatbotTrainer.cpp` (`preprocess_data()`, `truncate_target_keep_eos()`); the `TODO: See TD-275` tag is now a fix comment.
 
 Files to Modify:
 
@@ -8246,6 +8270,7 @@ from `BOS`. Generation follows suit: from `[BOS]`, a trained model first emits a
 Action Items:
 
 - [ ] Either tokenize targets without the leading `BOS` (keeping `EOS`) or stop prepending in `forward()`/the GPU fix, consistently for CPU and GPU; this changes training alignment, so do it together with TD-358's retraining.
+- [ ] If targets are tokenized differently, bump `ChatbotTrainer::kPreprocessFormatVersion` (TD-409) so cached token IDs are rebuilt; `truncate_target_keep_eos()` (TD-275) assumes a target ends with `EOS`.
 
 Location in code: `src/EncoderDecoderModel.cpp` (`forward()` decoder input, `train_step()`); tagged `TODO: See TD-361`.
 
@@ -9789,7 +9814,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / IncrementalTrainer | October 13, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 17, 2026 | Training / IncrementalTrainer | October 13, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `IncrementalTrainer`, by inspection. `compute_tokenized_cache_key()` hashes the
@@ -9801,9 +9826,14 @@ cleared by hand.
 
 Action Items:
 
-- [ ] Add a `kTokenizedCacheFormatVersion` constant to the key and bump it with any preprocessing change; clear the cache as part of the TD-358/TD-361 retraining.
+**Fix landed October 17, 2026 (with TD-275):** `ChatbotTrainer::kPreprocessFormatVersion` (now 2) is part of the key (`pp:2`). Its comment says
+to bump it whenever preprocessing output changes for the same input. Version 2 covers TD-531/TD-532's JSONL decoding and TD-275's target truncation,
+so every cache built before them misses and is rebuilt. Old cache files are no longer read, but they aren't deleted either; clear
+`tokenized_cache_dir` to reclaim the space.
 
-Location in code: `src/IncrementalTrainer.cpp` (`compute_tokenized_cache_key()`); tagged `TODO: See TD-409`.
+- [x] Add a `kTokenizedCacheFormatVersion` constant to the key and bump it with any preprocessing change; clear the cache as part of the TD-358/TD-361 retraining. (Named `kPreprocessFormatVersion`; remember to bump it again for TD-361.)
+
+Location in code: `src/IncrementalTrainer.cpp` (`compute_tokenized_cache_key()`), `src/ChatbotTrainer.hpp` (`kPreprocessFormatVersion`); the `TODO: See TD-409` tag is now a fix comment.
 
 Files to Modify:
 

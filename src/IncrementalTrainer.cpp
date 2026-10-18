@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.10.2
+// @adai-version: 0.10.3
 // @adai-reviewed: 2026-10-18
 
 #include "IncrementalTrainer.hpp"
@@ -59,8 +59,8 @@ int detect_pid_mod_10000() {
 // produces the same key. Hashed (not used verbatim) to keep the resulting
 // cache filename short and filesystem-safe regardless of how many files or
 // how long their paths are.
-// TODO: See TD-409 in TECHNICAL_DEBT.md - no preprocessing-format version in the key, so tokenization code fixes
-// (e.g. TD-361, TD-267) silently reuse stale cached token IDs
+// TD-409: ChatbotTrainer::kPreprocessFormatVersion is part of the key, so bumping it with any
+// change to preprocessing output invalidates caches built by older code.
 std::string compute_tokenized_cache_key(std::vector<PendingFileRange> files,
                                         const std::string& vocab_path,
                                         TokenizerMode tokenizer_mode, int max_seq_length) {
@@ -80,7 +80,8 @@ std::string compute_tokenized_cache_key(std::vector<PendingFileRange> files,
             << ':' << f.segment_count << '|';
     }
     oss << "vocab:" << DatasetRegistry::compute_checksum(vocab_path) << '|'
-        << "mode:" << static_cast<int>(tokenizer_mode) << '|' << "maxlen:" << max_seq_length;
+        << "mode:" << static_cast<int>(tokenizer_mode) << '|' << "maxlen:" << max_seq_length
+        << '|' << "pp:" << ChatbotTrainer::kPreprocessFormatVersion;
 
     std::ostringstream hex;
     hex << std::hex << std::hash<std::string>{}(oss.str());

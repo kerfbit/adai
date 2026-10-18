@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-17
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-18
 
 
 #include <algorithm>
@@ -199,6 +199,12 @@ class Optimizer {
      * @return                  @p precomputed_norm (unchanged)
      */
     float clip_gradients(float max_norm, float precomputed_norm);
+
+    /**
+     * @brief Multiply every registered gradient by @p factor (TD-272: used to turn a short
+     *        accumulation window's sum of 1/accumulation_steps-scaled gradients into a mean).
+     */
+    void scale_gradients(float factor);
 
     /**
      * @brief Perform optimization step
