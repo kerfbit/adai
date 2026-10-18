@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added)
-// @adai-version: 0.11.0
+// @adai-version: 0.11.1
 // @adai-reviewed: 2026-10-18
 
 
@@ -441,17 +441,18 @@ class ChatbotTrainer {
     static std::vector<int> truncate_tokens_tail(std::vector<int> ids, int max_len);
 
     /**
-     * @brief Truncate an encoded target ([<bos>] + content + [<eos>]) to at most max_len ids,
-     *        keeping the HEAD and ending on <eos> (TD-275): a too-long target becomes
-     *        <bos> + its first max_len - 2 content ids + <eos>, so the model still learns where
+     * @brief Truncate an encoded target (content + [<eos>]; no leading <bos> since TD-361) to at
+     *        most max_len ids, keeping the HEAD and ending on <eos> (TD-275): a too-long target
+     *        becomes its first max_len - 1 content ids + <eos>, so the model still learns where
      *        long targets end (standard seq2seq truncation). Shorter targets are unchanged.
      */
     static std::vector<int> truncate_target_keep_eos(std::vector<int> ids, int max_len, int eos_id);
 
     /// Bump whenever preprocess_data()'s tokenization output changes for the same input, so
     /// on-disk tokenized caches built by older code are not reused (TD-409). History:
-    /// 2 = TD-531/TD-532 JSONL decoding, TD-275 target truncation (October 2026).
-    static constexpr int kPreprocessFormatVersion = 2;
+    /// 2 = TD-531/TD-532 JSONL decoding, TD-275 target truncation (October 2026);
+    /// 3 = TD-361 targets without the leading <bos> (October 2026).
+    static constexpr int kPreprocessFormatVersion = 3;
 
     /**
      * @brief Calculate token-level accuracy (fraction of positions where predictions match targets)

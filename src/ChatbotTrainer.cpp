@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.10.5
+// @adai-version: 0.10.6
 // @adai-reviewed: 2026-10-18
 
 #include "ChatbotTrainer.hpp"
@@ -563,6 +563,11 @@ void ChatbotTrainer::preprocess_data() {
         return s.substr(0, i);
     };
     const int eos_id = tokenizer->get_eos_token_id();
+    // Targets are [w1 ... wn, EOS]: the decoder input adds the one BOS (TD-361).
+    auto encode_target = [&](const std::string& response) {
+        return EncoderDecoderModel::strip_leading_bos(tokenizer->encode(clip_text(response), true),
+                                                      tokenizer->get_bos_token_id());
+    };
     // Input-side truncation uses truncate_text_tail()/truncate_tokens_tail() instead of the
     // head-keeping clip_text()/truncate_target_keep_eos() used for targets — see their doc
     // comments in ChatbotTrainer.hpp for why.
@@ -597,9 +602,7 @@ void ChatbotTrainer::preprocess_data() {
             tokenized_training_data[i] = TokenizedPair(
                 truncate_tokens_tail(
                     tokenizer->encode(truncate_text_tail(pair.input, max_chars), false), max_len),
-                // TODO: See TD-361 in TECHNICAL_DEBT.md - targets start with BOS, and forward() prepends another (double BOS)
-                truncate_target_keep_eos(tokenizer->encode(clip_text(pair.response), true), max_len,
-                                         eos_id),
+                truncate_target_keep_eos(encode_target(pair.response), max_len, eos_id),
                 pair.input, pair.response);
             training_data[i].meta.token_count =
                 static_cast<int>(tokenized_training_data[i].input_tokens.size() +
@@ -638,9 +641,7 @@ void ChatbotTrainer::preprocess_data() {
             tokenized_validation_data[i] = TokenizedPair(
                 truncate_tokens_tail(
                     tokenizer->encode(truncate_text_tail(pair.input, max_chars), false), max_len),
-                // TODO: See TD-361 in TECHNICAL_DEBT.md - targets start with BOS, and forward() prepends another (double BOS)
-                truncate_target_keep_eos(tokenizer->encode(clip_text(pair.response), true), max_len,
-                                         eos_id),
+                truncate_target_keep_eos(encode_target(pair.response), max_len, eos_id),
                 pair.input, pair.response);
             validation_data[i].meta.token_count =
                 static_cast<int>(tokenized_validation_data[i].input_tokens.size() +

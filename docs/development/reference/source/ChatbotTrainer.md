@@ -142,10 +142,11 @@ Uses the model's tokenizer (ownership moved there in `initialize_model()`/by the
      tokens (`truncate_tokens_tail()`). The tail is kept because pairs are documents split at a
      midpoint, so the end of the input is what the target continues from;
    - **response:** keep the **head** at about `5 × max_seq_length` characters, encode **with**
-     `<bos>`/`<eos>`, keep the **first** `max_seq_length` tokens. Responses longer than that used to
+     `<bos>`/`<eos>`, drop the leading `<bos>` (TD-361, `strip_leading_bos()`; the decoder input
+     supplies it), keep the **first** `max_seq_length` tokens. Responses longer than that used to
      lose their `<eos>`, so the model never saw those targets end. Since TD-275's fix (October 17, 2026),
-     `truncate_target_keep_eos()` makes the last kept token `<eos>`: `<bos>` + the first
-     `max_seq_length − 2` content tokens + `<eos>`, as standard seq2seq tokenizers truncate;
+     `truncate_target_keep_eos()` makes the last kept token `<eos>`: the first
+     `max_seq_length − 1` content tokens + `<eos>`, as standard seq2seq tokenizers truncate;
    - **empty input or response** (TD-188) and **invalid UTF-8** are counted and logged as
      "Skipped", and their slot is **left as an empty `TokenizedPair`**.
 3. Saves the cache if enabled. Since TD-267's fix this comes before compaction, so the cache's counts still match the raw data. Then

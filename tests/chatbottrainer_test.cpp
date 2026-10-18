@@ -829,9 +829,9 @@ TEST(TruncateTargetTest, ShortTargetIsUnchanged) {
 }
 
 TEST(TruncateTargetTest, LongTargetKeepsHeadAndEndsOnEos) {
-    const std::vector<int> ids = {2, 10, 11, 12, 13, 14, 3};
-    EXPECT_EQ(ChatbotTrainer::truncate_target_keep_eos(ids, 5, 3),
-              (std::vector<int>{2, 10, 11, 12, 3}));
+    const std::vector<int> ids = {10, 11, 12, 13, 14, 3};  // targets carry no <bos> (TD-361)
+    EXPECT_EQ(ChatbotTrainer::truncate_target_keep_eos(ids, 4, 3),
+              (std::vector<int>{10, 11, 12, 3}));
 }
 
 TEST(TruncateTargetTest, NonPositiveLimitLeavesTargetAlone) {
@@ -1110,7 +1110,7 @@ TEST_F(ChatbotTrainerCacheTest, SkippedAndFailingPairsDontBiasValidationLoss) {
 }
 
 // TD-275, end to end: a response longer than max_seq_length is tokenized to exactly
-// max_seq_length ids and still ends with <eos>.
+// max_seq_length ids and still ends with <eos>; targets have no leading <bos> (TD-361).
 TEST_F(ChatbotTrainerCacheTest, LongResponseTargetEndsWithEos) {
     Matrix::gpu_try_initialize();
     TrainingConfig cfg = quiet_config();
@@ -1135,7 +1135,8 @@ TEST_F(ChatbotTrainerCacheTest, LongResponseTargetEndsWithEos) {
     ASSERT_EQ(tok.size(), 2u);
     const int eos = 3;  // adai::SpecialTokenIDs::EOS
     EXPECT_EQ(tok[0].target_tokens.size(), 8u);
-    EXPECT_EQ(tok[0].target_tokens.front(), 2);  // <bos>
+    EXPECT_NE(tok[0].target_tokens.front(), 2);  // no leading <bos> (TD-361)
+    EXPECT_NE(tok[1].target_tokens.front(), 2);
     EXPECT_EQ(tok[0].target_tokens.back(), eos);
     EXPECT_EQ(tok[1].target_tokens.back(), eos);  // short target: unchanged, already ends on <eos>
 }

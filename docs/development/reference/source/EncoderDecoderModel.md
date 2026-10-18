@@ -85,6 +85,17 @@ copies them from the tokenizer.
 > emits a second `BOS` (seen in the §4 experiment: `2 2 12 23 …`), spending one step and one slot of
 > `max_length`. It's harmless to output text (decode skips specials), but wasteful and easy to
 > misread.
+>
+> **Fixed in code October 17, 2026 (TD-361):** training targets are now `[w1…wn, EOS]`.
+> `strip_leading_bos()` drops the tokenizer's `BOS` in `train_step()`, `evaluate()`,
+> `gpu_evaluate()` and `ChatbotTrainer`'s tokenization, so `make_decoder_input()`'s `BOS` is the
+> only one, and the decoder input is `[BOS, w1…wn]` on both CPU and GPU.
+>
+> New test `TrainedModelsFirstPredictionIsTheFirstWordNotBos` trains a tiny model on three pairs.
+> Its first prediction after `[BOS]` is each target's first word on 6/6 runs. With the old targets
+> the first prediction was `BOS` (token 2) on 3/3 runs. `ChatbotTrainer::kPreprocessFormatVersion`
+> is now 3, so cached token IDs are rebuilt. This changes training alignment, so it belongs to the
+> TD-358 retraining like everything else here.
 
 ---
 
@@ -235,7 +246,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `gpu_forward()`/`gpu_backward()`/`gpu_evaluate()` use unshifted targets as decoder input (§4) | **GPU-trained models learn to copy instead of predict**: near-zero loss, unusable generation; every GPU checkpoint needs retraining | **Verified** (CPU reproduction of the same alignment); **code fix landed October 17, 2026** (on-device run and retraining remain) | [TD-358](../../guides/TECHNICAL_DEBT.md#td-358-gpu-training-feeds-unshifted-targets-teaching-the-model-to-copy-instead-of-predict) |
 | `generate_response()`/`gpu_generate_response()` ignore `max_length` (§5) | Trainer quality metrics/backfill generate up to `max_seq_length`; caller limits silently ignored | **Verified** | [TD-359](../../guides/TECHNICAL_DEBT.md#td-359-generate_response-and-gpu_generate_response-ignore-max_length) |
 | No-optimizer path never updates (or sets the LR of) the encoder (§3) | `train_step()`/`update_weights()` train only decoder + head | **Verified** | [TD-360](../../guides/TECHNICAL_DEBT.md#td-360-encoderdecodermodel-no-optimizer-path-never-updates-the-encoder) |
-| Double `BOS` in training targets (§3) | Wasted step and `max_length` slot in every generation | **Verified** | [TD-361](../../guides/TECHNICAL_DEBT.md#td-361-training-targets-get-a-double-bos) |
+| Double `BOS` in training targets (§3) | Wasted step and `max_length` slot in every generation | **Verified**; **fixed in code October 17, 2026** | [TD-361](../../guides/TECHNICAL_DEBT.md#td-361-training-targets-get-a-double-bos) |
 | CPU vs GPU generation inconsistencies; invalid-vocab masking missing on some paths; hippocampal writes from training-time generation; lossy world-model input via decode (§5) | Different output by path/device; memory pollution | By inspection | [TD-362](../../guides/TECHNICAL_DEBT.md#td-362-cpu-and-gpu-generation-paths-behave-differently), [TD-343](../../guides/TECHNICAL_DEBT.md#td-343-hippocampal-memory-is-updated-on-every-forward-pass) (amended) |
 | `clone()` drops world model/memory/gen config; `load_model()` unchecked reads and generator special tokens not synced (§6) | Async metric snapshots differ from the live model; truncated configs load garbage | By inspection | [TD-363](../../guides/TECHNICAL_DEBT.md#td-363-encoderdecodermodel-clone-load-and-world-model-input-gaps) |
 | Beam forced by `num_beams > 1` (CPU) | Already tracked | — | TD-261 |

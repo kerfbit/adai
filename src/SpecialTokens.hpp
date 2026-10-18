@@ -2,8 +2,8 @@
 #define SPECIAL_TOKENS_HPP
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-10-18
 
 
 #include <stdexcept>
@@ -275,10 +275,12 @@ inline std::unordered_map<int, std::string> create_inverse_special_token_map(
  * auto input_tokens = tokenizer->encode(input_text, false);
  * @endcode
  *
- * Decoder target (with special tokens for teacher forcing):
+ * Decoder training target (EOS kept, leading BOS dropped, TD-361; the model's teacher-forcing
+ * decoder input [BOS] + target[:-1] supplies the BOS):
  * @code
- * auto target_tokens = tokenizer->encode(target_text, true);
- * // Result: [BOS, token1, token2, ..., EOS]
+ * auto target_tokens = EncoderDecoderModel::strip_leading_bos(
+ *     tokenizer->encode(target_text, true), tokenizer->get_bos_token_id());
+ * // Result: [token1, token2, ..., EOS]
  * @endcode
  */
 

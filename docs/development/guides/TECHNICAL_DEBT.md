@@ -5966,7 +5966,7 @@ the model never sees those targets end, which teaches it to keep generating on l
 Action Items:
 
 **Fix landed October 17, 2026:** `ChatbotTrainer::truncate_target_keep_eos()` cuts an encoded target to `max_seq_length` and makes the last kept
-token `<eos>`. A long target becomes `<bos>` + its first `max_seq_length − 2` content tokens + `<eos>`, for both training and validation. This is
+token `<eos>`. A long target becomes `<bos>` + its first `max_seq_length − 2` content tokens + `<eos>` (since TD-361, targets have no `<bos>`, so it's the first `max_seq_length − 1` content tokens + `<eos>`), for both training and validation. This is
 standard seq2seq truncation (Hugging Face/T5 tokenizers keep the end marker), chosen over leaving long targets unended.
 
 The tokenized-data cache key now includes `ChatbotTrainer::kPreprocessFormatVersion` (TD-409), set to 2, so caches built before this fix are not
@@ -8258,7 +8258,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Models / EncoderDecoderModel | October 11, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 17, 2026 | Models / EncoderDecoderModel | October 11, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-358 and confirmed. Targets are tokenized with `encode(response, true)` =
@@ -8269,10 +8269,24 @@ from `BOS`. Generation follows suit: from `[BOS]`, a trained model first emits a
 
 Action Items:
 
-- [ ] Either tokenize targets without the leading `BOS` (keeping `EOS`) or stop prepending in `forward()`/the GPU fix, consistently for CPU and GPU; this changes training alignment, so do it together with TD-358's retraining.
-- [ ] If targets are tokenized differently, bump `ChatbotTrainer::kPreprocessFormatVersion` (TD-409) so cached token IDs are rebuilt; `truncate_target_keep_eos()` (TD-275) assumes a target ends with `EOS`.
+**Fix landed October 17, 2026:** chose the first option. `EncoderDecoderModel::strip_leading_bos()` drops the tokenizer's leading `BOS`
+from training targets, so targets are `[w1…wn, EOS]` and `make_decoder_input()` supplies the only `BOS`. It's used in `train_step()`,
+`evaluate()`, `gpu_evaluate()` and `ChatbotTrainer::preprocess_data()` (training and validation). CPU and GPU share `make_decoder_input()`,
+so both are consistent. `truncate_target_keep_eos()` now keeps the first `max_seq_length − 1` content tokens plus `EOS`.
 
-Location in code: `src/EncoderDecoderModel.cpp` (`forward()` decoder input, `train_step()`); tagged `TODO: See TD-361`.
+`kPreprocessFormatVersion` was bumped to 3, and the `SpecialTokens.hpp` example was updated.
+
+New tests:
+- `StripLeadingBosOnlyRemovesALeadingBos`.
+- `TrainedModelsFirstPredictionIsTheFirstWordNotBos`: after 300 `train_step()` rounds on three pairs, the first prediction after `[BOS]` is each
+  target's first word on 6/6 runs. With the old targets it was `BOS` (token 2) on 3/3 runs.
+
+RLHF's own response encoding (TD-500) is unchanged; that subsystem is deferred.
+
+- [x] Either tokenize targets without the leading `BOS` (keeping `EOS`) or stop prepending in `forward()`/the GPU fix, consistently for CPU and GPU; this changes training alignment, so do it together with TD-358's retraining.
+- [x] If targets are tokenized differently, bump `ChatbotTrainer::kPreprocessFormatVersion` (TD-409) so cached token IDs are rebuilt; `truncate_target_keep_eos()` (TD-275) assumes a target ends with `EOS`.
+
+Location in code: `src/EncoderDecoderModel.cpp` (`strip_leading_bos()`, `make_decoder_input()`, `train_step()`, `evaluate()`, `gpu_evaluate()`), `src/ChatbotTrainer.cpp` (`preprocess_data()`); the `TODO: See TD-361` tags are now fix comments.
 
 Files to Modify:
 

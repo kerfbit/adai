@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.18.1
-// @adai-reviewed: 2026-10-17
+// @adai-version: 0.19.0
+// @adai-reviewed: 2026-10-18
 
 #include <functional>
 #include <iostream>
@@ -218,6 +218,16 @@ class EncoderDecoderModel {
     void maybe_write_hippocampal_memory(const std::string& response_text);
 
    public:
+    /**
+     * @brief Training-target ids from `encode(text, true)` output: drops a leading `bos_id` (TD-361).
+     *
+     * Training targets are `[w1 ... wn, EOS]`. The decoder input built from them,
+     * `[BOS] + target[:-1]`, supplies the single `BOS`. Targets that kept the `BOS` the tokenizer
+     * adds gave the decoder `[BOS, BOS, w1 ...]`, so the first position learned to predict `BOS`
+     * and generation from `[BOS]` emitted a second `BOS` first.
+     */
+    static std::vector<int> strip_leading_bos(std::vector<int> ids, int bos_id);
+
     /**
      * Constructor
      *

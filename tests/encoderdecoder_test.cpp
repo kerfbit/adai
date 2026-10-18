@@ -616,6 +616,44 @@ TEST(EncoderDecoderModelTest, SimpleTrainingLoop) {
     SUCCEED();
 }
 
+// TD-361: training targets carry no leading BOS, so the decoder input is [BOS, w1 ...] and the
+// first position learns to predict the first word. With the old [BOS, w1 ..., EOS] targets the
+// decoder input was [BOS, BOS, w1 ...] and a trained model's first prediction was another BOS.
+TEST(EncoderDecoderModelTest, StripLeadingBosOnlyRemovesALeadingBos) {
+    EXPECT_EQ(EncoderDecoderModel::strip_leading_bos({2, 7, 8, 3}, 2), (std::vector<int>{7, 8, 3}));
+    EXPECT_EQ(EncoderDecoderModel::strip_leading_bos({7, 2, 3}, 2), (std::vector<int>{7, 2, 3}));
+    EXPECT_TRUE(EncoderDecoderModel::strip_leading_bos({}, 2).empty());
+}
+
+TEST(EncoderDecoderModelTest, TrainedModelsFirstPredictionIsTheFirstWordNotBos) {
+    EncoderDecoderModel model(64, 32, 1, 1, 2, 64, 32);
+    BPETokenizer* tok = model.get_tokenizer();
+    tok->build_vocab({"the cat sat on the mat", "a dog ran far away home", "big red ball"}, 64);
+    model.set_training(true);
+    model.set_learning_rate(0.05f);
+    const std::vector<std::pair<std::string, std::string>> pairs = {
+        {"the cat sat", "on the mat"}, {"a dog ran", "far away home"}, {"big red", "ball"}};
+    for (int iter = 0; iter < 300; ++iter)
+        for (const auto& [input, target] : pairs) model.train_step(input, target);
+
+    model.set_training(false);
+    const int bos = model.get_bos_token_id();
+    for (const auto& [input, target] : pairs) {
+        const std::vector<int> in = tok->encode(input, false);
+        const std::vector<int> tgt = EncoderDecoderModel::strip_leading_bos(tok->encode(target, true), bos);
+        ASSERT_FALSE(tgt.empty());
+        // forward() with a 1-token target feeds the decoder just [BOS]; row 0 is the first
+        // prediction.
+        const Matrix logits = model.forward(in, {tgt[0]});
+        int best = 0;
+        for (int j = 1; j < logits.cols; ++j)
+            if (logits(0, j) > logits(0, best))
+                best = j;
+        EXPECT_NE(best, bos) << "first prediction for '" << input << "' is a second BOS";
+        EXPECT_EQ(best, tgt[0]) << "first prediction for '" << input << "'";
+    }
+}
+
 // ============================================================================
 // Evaluation Tests
 // ============================================================================

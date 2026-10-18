@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.18.2
+// @adai-version: 0.19.0
 // @adai-reviewed: 2026-10-18
 
 #include "EncoderDecoderModel.hpp"
@@ -550,8 +550,9 @@ float EncoderDecoderModel::train_step(const std::string& input_text,
                                       const std::string& target_text) {
     std::vector<int> input_tokens =
         tokenizer->encode(input_text, false);  // Encoder: no special tokens
+    // Decoder targets: [w1 ... wn, EOS], without the tokenizer's leading BOS (TD-361)
     std::vector<int> target_tokens =
-        tokenizer->encode(target_text, true);  // Decoder: with special tokens
+        strip_leading_bos(tokenizer->encode(target_text, true), bos_token_id);
 
     return train_step_tokenized(input_tokens, target_tokens);
 }
@@ -589,8 +590,9 @@ float EncoderDecoderModel::evaluate(const std::string& input_text, const std::st
     // with already-truncated ids whenever they're available.
     std::vector<int> input_tokens =
         tokenizer->encode(input_text, false);  // Encoder: no special tokens
+    // Decoder targets: [w1 ... wn, EOS], without the tokenizer's leading BOS (TD-361)
     std::vector<int> target_tokens =
-        tokenizer->encode(target_text, true);  // Decoder: with special tokens
+        strip_leading_bos(tokenizer->encode(target_text, true), bos_token_id);
 
     return evaluate_tokenized(input_tokens, target_tokens);
 }
@@ -910,11 +912,17 @@ std::unique_ptr<EncoderDecoderModel> EncoderDecoderModel::clone() const {
     return copy;
 }
 
+std::vector<int> EncoderDecoderModel::strip_leading_bos(std::vector<int> ids, int bos_id) {
+    if (!ids.empty() && ids.front() == bos_id) {
+        ids.erase(ids.begin());
+    }
+    return ids;
+}
+
 std::vector<int> EncoderDecoderModel::make_decoder_input(
     const std::vector<int>& target_tokens) const {
     // TD-060: `i + 1 < size()` rather than `i < size() - 1`, which underflows for an empty target.
-    // TODO: See TD-361 in TECHNICAL_DEBT.md - targets already start with BOS (encode(..., true)),
-    // so this doubles it
+    // Targets carry no leading BOS (TD-361, strip_leading_bos()), so this BOS is the only one.
     std::vector<int> decoder_input;
     decoder_input.reserve(target_tokens.size());
     decoder_input.push_back(bos_token_id);
@@ -1107,8 +1115,9 @@ float EncoderDecoderModel::gpu_evaluate(const std::string& input_text,
     // budget during validation.
     std::vector<int> input_tokens =
         tokenizer->encode(input_text, false);  // Encoder: no special tokens
+    // Decoder targets: [w1 ... wn, EOS], without the tokenizer's leading BOS (TD-361)
     std::vector<int> target_tokens =
-        tokenizer->encode(target_text, true);  // Decoder: with special tokens
+        strip_leading_bos(tokenizer->encode(target_text, true), bos_token_id);
 
     return gpu_evaluate_tokenized(input_tokens, target_tokens);
 }
