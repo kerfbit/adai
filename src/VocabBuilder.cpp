@@ -74,6 +74,8 @@ int main(int argc, char** argv) {
     // Parse command line arguments
     std::vector<std::string> input_files;
     std::string output_file;
+    // TODO: See TD-534 in TECHNICAL_DEBT.md - default plain on JSONL training data learns JSON syntax as tokens (verified);
+    // `pairs` is the JSONL reader but the help calls it INPUT/RESPONSE only.
     std::string format = "plain";
     int vocab_size = 5000;
     int threshold = 1;
@@ -92,6 +94,7 @@ int main(int argc, char** argv) {
         } else if (arg == "--output" && i + 1 < argc) {
             output_file = argv[++i];
         } else if (arg == "--vocab-size" && i + 1 < argc) {
+            // TODO: See TD-535 in TECHNICAL_DEBT.md - uncaught stoi (abc aborts), trailing garbage and ranges unchecked.
             vocab_size = std::stoi(argv[++i]);
         } else if (arg == "--threshold" && i + 1 < argc) {
             threshold = std::stoi(argv[++i]);
@@ -180,6 +183,7 @@ int main(int argc, char** argv) {
 
         // Save vocabulary
         std::cout << COLOR_BLUE << "\n💾 Saving vocabulary...\n" << COLOR_RESET;
+        // TODO: See TD-535 in TECHNICAL_DEBT.md - a failed save still prints success and exits 0 (TD-221).
         tokenizer.save_vocab(output_file);
 
         std::cout << COLOR_GREEN << "✅ Vocabulary saved successfully!\n" << COLOR_RESET;

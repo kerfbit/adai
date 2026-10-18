@@ -97,6 +97,7 @@ inline std::vector<std::string> load_pairs_format(const std::string& filename) {
  * Load text from JSON array format (expects ["text1", "text2", ...]).
  * Uses a simple quote-scanning parser — not a full JSON library.
  */
+// TODO: See TD-536 in TECHNICAL_DEBT.md - takes every quoted string (keys too) and doesn't unescape.
 inline std::vector<std::string> load_json_format(const std::string& filename) {
     std::vector<std::string> texts;
     std::ifstream file(filename);

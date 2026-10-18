@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 325
+**Total Items:** 328
 **High Priority:** 34
-**Medium Priority:** 139
-**Low Priority:** 152
+**Medium Priority:** 141
+**Low Priority:** 153
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -608,6 +608,11 @@ Also October 17, 2026: filed [TD-531](#td-531-jsonl-training-reader-doesnt-decod
 on lines written by Python's `json.dumps`: `\uXXXX` escapes aren't decoded, so `"Caf\u00e9"` trains as `Cafu00e9` and an emoji as `ud83dude00` (any
 dataset prepared with standard tooling, which escapes non-ASCII by default) (TD-531); the first `"input"` anywhere in the line wins, so a nested
 `{"meta":{"input":"WRONG"}}` was read instead of the real field (TD-532); `sample_to_jsonl()` writes control characters raw, which Python rejects (TD-533).
+
+Also October 17, 2026: filed [TD-534](#td-534-vocab_builder-defaults-to-plain-text-turning-jsonl-syntax-into-vocabulary) and [TD-535](#td-535-vocab_builder-reports-a-failed-save-as-success-and-aborts-on-malformed-numbers) (MEDIUM) and [TD-536](#td-536-vocab_builder-json-loader-and-operator-documentation-drift) (LOW) from the code-traced [VocabBuilder.md](../reference/source/VocabBuilder.md).
+Verified with the real binary: the default `--format plain` on JSONL training data put JSON syntax (`{`, `{"`, `input`, `response`) into the vocabulary,
+while `--format pairs` (the JSONL reader, described in the help only as INPUT/RESPONSE) didn't (TD-534); a save to a missing directory printed "Vocabulary
+saved successfully!" and exited 0 with no file (TD-221's cause), and `--vocab-size abc` aborted with a core dump (TD-535).
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1757,6 +1762,9 @@ diverging); [TD-530](#td-530-trainingmetricsservice-dead-push-path-partial-jsonl
 hand-written scanner with the vendored `nlohmann/json` (with TD-314's HuggingFace scanner and TD-453), then check queued datasets for `\u` escapes,
 since any trained on so far learned the corrupted text. [TD-533](#td-533-sample_to_jsonl-writes-raw-control-characters-unused-sample-metadata) goes with it.
 
+**Tier 107 — Newly filed (October 17, 2026): `VocabBuilder`.** Fix [TD-534](#td-534-vocab_builder-defaults-to-plain-text-turning-jsonl-syntax-into-vocabulary) and [TD-535](#td-535-vocab_builder-reports-a-failed-save-as-success-and-aborts-on-malformed-numbers) (with TD-221) before building the vocabulary for the TD-358
+retraining, so the new vocabulary isn't polluted or silently missing; [TD-536](#td-536-vocab_builder-json-loader-and-operator-documentation-drift) goes with them.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -2088,6 +2096,9 @@ since any trained on so far learned the corrupted text. [TD-533](#td-533-sample_
   - [TD-531: JSONL Training Reader Doesn't Decode `\uXXXX`, Corrupting Non-ASCII Text](#td-531-jsonl-training-reader-doesnt-decode-uxxxx-corrupting-non-ascii-text)
   - [TD-532: JSONL Training Reader Matches Keys Anywhere in the Line](#td-532-jsonl-training-reader-matches-keys-anywhere-in-the-line)
   - [TD-533: `sample_to_jsonl()` Writes Raw Control Characters; Unused Sample Metadata](#td-533-sample_to_jsonl-writes-raw-control-characters-unused-sample-metadata)
+  - [TD-534: `vocab_builder` Defaults to Plain Text, Turning JSONL Syntax Into Vocabulary](#td-534-vocab_builder-defaults-to-plain-text-turning-jsonl-syntax-into-vocabulary)
+  - [TD-535: `vocab_builder` Reports a Failed Save as Success and Aborts on Malformed Numbers](#td-535-vocab_builder-reports-a-failed-save-as-success-and-aborts-on-malformed-numbers)
+  - [TD-536: `vocab_builder` JSON Loader and Operator Documentation Drift](#td-536-vocab_builder-json-loader-and-operator-documentation-drift)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -13597,6 +13608,85 @@ Files to Modify:
 
 ---
 
+### TD-534: `vocab_builder` Defaults to Plain Text, Turning JSONL Syntax Into Vocabulary
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Tooling / vocab_builder | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `VocabBuilder.cpp` (see [VocabBuilder.md](../reference/source/VocabBuilder.md)); verified. Training data is JSONL, but `--format`
+defaults to `plain`, which takes each line as raw text; the help describes `pairs` (the loader that actually parses JSONL, by a leading `{`) only as
+"INPUT/RESPONSE format". On a small JSONL corpus, `--format plain` produced JSON-syntax tokens (`{`, `{"`, `input`, `response`: 6 of 99 entries) that
+never appear in the text the trainer tokenizes (it parses the JSONL first); `--format pairs` produced none. On real data the wasted merges grow with
+escapes and key names.
+
+Action Items:
+
+- [ ] Default to (or auto-detect) JSONL; describe `pairs` as "JSONL or INPUT:/RESPONSE: training files" in the help.
+- [ ] Warn when `plain` input looks like JSONL.
+
+Location in code: `src/VocabBuilder.cpp` (`main()` format default, `print_usage()`); tagged `TODO: See TD-534`.
+
+Files to Modify:
+
+- `src/VocabBuilder.cpp`
+- `docs/operations/OPERATIONS_MANUAL.md`
+
+---
+
+### TD-535: `vocab_builder` Reports a Failed Save as Success and Aborts on Malformed Numbers
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Tooling / vocab_builder | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `VocabBuilder.cpp`; verified:
+- **False success:** with `--output /nonexistent/dir/v.txt` the tokenizer logged "Could not open file for writing", and the tool still printed
+  "Vocabulary saved successfully!"/"completed successfully" and exited **0**, with no file (`BPETokenizer::save_vocab()` fails silently, TD-221).
+- **Number parsing:** `--vocab-size abc` threw an uncaught `std::invalid_argument` from `stoi` (outside the `try`): abort, core dump, exit 134; `8000x`
+  is accepted; zero/negative sizes aren't rejected (the TD-401/TD-488 class).
+
+Action Items:
+
+- [ ] Check the save result (after TD-221 makes it report failure, or by verifying the file) and exit non-zero.
+- [ ] Parse numbers with full-string and range checks, reporting errors with exit 1.
+
+Location in code: `src/VocabBuilder.cpp` (argument loop, `save_vocab()` call); tagged `TODO: See TD-535`.
+
+Files to Modify:
+
+- `src/VocabBuilder.cpp`
+- `src/BPETokenizer.cpp` (TD-221)
+
+---
+
+### TD-536: `vocab_builder` JSON Loader and Operator Documentation Drift
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Tooling / vocab_builder | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `VocabBuilder.cpp`/`VocabBuilderHelpers.hpp` (by inspection): the `json` loader collects every quoted string in the file,
+object keys included, without unescaping (`\"` ends a string early, `\n` stays two characters); OPERATIONS_MANUAL.md §4 says `--output` defaults to
+`vocab.txt` (it's required), `--vocab-size` to 10,000 (5,000), and lists `--min-frequency`, `--num-merges` and `--special-tokens`, which don't exist (the
+frequency flag is `--threshold`, default 1); the JSONL loader inherits TD-531/TD-532.
+
+Action Items:
+
+- [ ] Parse `json` input with `nlohmann/json` (string array only); fix OPERATIONS_MANUAL.md §4 from `--help`.
+
+Location in code: `src/VocabBuilderHelpers.hpp` (`load_json_format()`); tagged `TODO: See TD-536`.
+
+Files to Modify:
+
+- `src/VocabBuilderHelpers.hpp`
+- `docs/operations/OPERATIONS_MANUAL.md`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -14113,15 +14203,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 325 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 328 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|34|10%|
-|Medium|139|43%|
-|Low|152|47%|
+|Medium|141|43%|
+|Low|153|47%|
 
-**Total Active Items:** 325
+**Total Active Items:** 328
 
 ### By Component
 
@@ -14131,6 +14221,7 @@ Recomputed directly from the 325 `### TD-NNN` entries under [Active Technical De
 |GPU / Inference / Training|1|
 |GPU / Inference / Performance|1|
 |Tooling / Toolchain|1|
+|Tooling / vocab_builder|3|
 |Training / Data Generation|1|
 |GUI / Testing|1|
 |Advanced Features / Integration|1|
@@ -14232,13 +14323,13 @@ Recomputed directly from the 325 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|199|
+|0-2 hours|202|
 |2-4 hours|98|
 |4-8 hours|16|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 589-1072 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 592-1078 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
