@@ -146,7 +146,9 @@ Uses the model's tokenizer (ownership moved there in `initialize_model()`/by the
      their `<eos>`, so the model never sees those targets end;
    - **empty input or response** (TD-188) and **invalid UTF-8** are counted and logged as
      "Skipped", and their slot is **left as an empty `TokenizedPair`**.
-3. Builds `training_indices`, then saves the cache if enabled.
+3. Saves the cache if enabled. Since TD-267's fix this comes before compaction, so the cache's counts still match the raw data. Then
+   `drop_skipped_pairs()` removes the skipped pairs from `training_data`/`validation_data` and the tokenized vectors together, keeping indices
+   aligned. A cache hit runs the same compaction. Finally it builds `training_indices`.
 
 > **"Skipped" pairs are not removed (verified).** The comment says they're "filtered out during
 > training", but nothing filters them: `tokenized_training_data` keeps an empty entry per skipped
@@ -158,6 +160,15 @@ Uses the model's tokenizer (ownership moved there in `initialize_model()`/by the
 >   **validation loss is biased low** by the share of skipped pairs. In the test run, adding one
 >   empty pair to two good ones dropped validation loss from about 3.4 to 2.5. Validation loss
 >   drives best-model selection, early stopping and the dashboard.
+
+**Fixed in code October 17, 2026 (TD-267):** skipped pairs are now dropped after tokenizing, as described in step 3, so they reach neither training
+nor validation. `get_tokenized_*_size()` counts only real pairs.
+
+New tests:
+- `ChatbotTrainerCacheTest.DropSkippedPairsKeepsRawAndTokenizedAligned`;
+- `SkippedAndFailingPairsDontBiasValidationLoss`, which trains with one empty pair in each set.
+
+Both fail on the old code.
 
 ### Tokenized-data cache format
 
@@ -270,8 +281,12 @@ If loss < best − `min_delta`: record the best epoch, report `update_best_metri
 stopping and `restore_best_weights` are both on**, `save_model("best_model_temp.bin")` and fire
 the best-model callback. Otherwise `epochs_without_improvement++`.
 
-> **Two validation-loss gotchas:** samples that throw contribute 0 but are still counted, and
-> skipped pairs count as 0 (§6). Either way validation loss reads low.
+> **Two validation-loss gotchas (both fixed October 17, 2026, TD-267):** samples that throw used to contribute 0 but still be counted, and
+> skipped pairs counted as 0 (§6). Either way validation loss read low.
+>
+> Now skipped pairs are dropped before validation, and the average divides by the samples that actually evaluated. A warning reports how many
+> failed. If every sample fails, no loss is recorded, the epoch counts as no improvement, and `validate()` returns the previous validation loss
+> rather than 0.
 
 > **`best_model_temp.bin` is a fixed relative path.** It's written to the current working
 > directory (as five sidecar files), never cleaned up, and shared by any trainers running in the
@@ -318,7 +333,7 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Skipped (empty / invalid-UTF-8) pairs stay as empty entries: training throws per pair and drops the window; validation counts them as loss 0 (§6, §9) | Validation loss biased low (drives best model and early stopping); noisy errors; lost gradients | **Verified** (3.4 → 2.5 with one empty pair; "Matrix index out of bounds") | [TD-267](../../guides/TECHNICAL_DEBT.md#td-267-chatbottrainer-keeps-skipped-pairs-biasing-validation-loss-low) |
+| Skipped (empty / invalid-UTF-8) pairs stay as empty entries: training throws per pair and drops the window; validation counts them as loss 0 (§6, §9) | Validation loss biased low (drives best model and early stopping); noisy errors; lost gradients | **Verified** (3.4 → 2.5 with one empty pair; "Matrix index out of bounds"); **fixed in code October 17, 2026** | [TD-267](../../guides/TECHNICAL_DEBT.md#td-267-chatbottrainer-keeps-skipped-pairs-biasing-validation-loss-low) |
 | Reporter `end_epoch()` is only called when validation data exists (§5) | Runs without a validation split never close epochs on the dashboard | By inspection | [TD-268](../../guides/TECHNICAL_DEBT.md#td-268-chatbottrainer-only-ends-metrics-epochs-when-there-is-validation-data) |
 | Optimizer state and LR schedule restart every incremental pass (§7) | No coherent schedule across a long run; Adam moments lost | By inspection (`IncrementalTrainer` + `set_model()`) | [TD-269](../../guides/TECHNICAL_DEBT.md#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass) |
 | Adaptive clipping state resets every epoch; never activates with ≤ 100 steps/epoch (§8) | TD-017 often has no effect | By inspection | [TD-270](../../guides/TECHNICAL_DEBT.md#td-270-adaptive-gradient-clipping-resets-every-epoch) |

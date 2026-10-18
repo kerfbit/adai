@@ -5686,7 +5686,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Training / ChatbotTrainer | October 9, 2026 | 1-2 hours |
+| **HIGH** | Open — code fix landed October 17, 2026 | Training / ChatbotTrainer | October 9, 2026 | 1-2 hours |
 
 Description:
 Found while writing the code-traced reference [ChatbotTrainer.md](../reference/source/ChatbotTrainer.md), and confirmed by a real training pass.
@@ -5704,13 +5704,25 @@ Found while writing the code-traced reference [ChatbotTrainer.md](../reference/s
 
 `validate()` also counts samples that throw as 0, the same bias.
 
+**Fix landed October 17, 2026:** `drop_skipped_pairs()` removes untokenized pairs from both the raw and the tokenized vectors together, keeping
+indices aligned for quality backfill and token counts. It runs after tokenizing and also on a cache hit. The cache is saved before compaction, so its
+counts still match the raw data on the next run.
+
+`validate()` now divides by the number of samples that evaluated and warns how many failed. If all of them fail, it records nothing, counts the
+epoch as no improvement, and returns the previous loss.
+
+New tests in `chatbottrainer_test.cpp`, both failing on the old code:
+- `DropSkippedPairsKeepsRawAndTokenizedAligned`.
+- `SkippedAndFailingPairsDontBiasValidationLoss`: trains with an empty pair in each set, then checks that the tokenized sizes exclude them, the
+  loss is unchanged when a throwing sample is added, and the all-failed case.
+
 Action Items:
 
-- [ ] After tokenizing, compact `tokenized_*_data` (and the matching `training_data`/`validation_data`, keeping indices aligned) to drop skipped pairs, or skip empty pairs in `train_epoch()` and `validate()`.
-- [ ] In `validate()`, divide by the number of successfully evaluated samples, and report how many failed.
-- [ ] Regression tests: an empty pair changes neither validation loss nor training error count; tokenized sizes exclude skipped pairs.
+- [x] After tokenizing, compact `tokenized_*_data` (and the matching `training_data`/`validation_data`, keeping indices aligned) to drop skipped pairs, or skip empty pairs in `train_epoch()` and `validate()`.
+- [x] In `validate()`, divide by the number of successfully evaluated samples, and report how many failed.
+- [x] Regression tests: an empty pair changes neither validation loss nor training error count; tokenized sizes exclude skipped pairs.
 
-Location in code: `src/ChatbotTrainer.cpp` (`preprocess_data()`, `train_epoch()`, `validate()`); tagged `TODO: See TD-267`.
+Location in code: `src/ChatbotTrainer.cpp` (`preprocess_data()`, `drop_skipped_pairs()`, `validate()`); the `TODO: See TD-267` tags are now fix comments.
 
 Files to Modify:
 

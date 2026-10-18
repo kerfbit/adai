@@ -957,6 +957,31 @@ class ChatbotTrainerCacheTest : public ::testing::Test {
     static const std::vector<TokenizedPair>& GetTokenizedValidation(const ChatbotTrainer& t) {
         return t.tokenized_validation_data;
     }
+    // TD-267 hooks
+    static void DropSkipped(ChatbotTrainer& t) {
+        t.drop_skipped_pairs();
+    }
+    static const std::vector<ConversationPair>& GetTrainingData(const ChatbotTrainer& t) {
+        return t.training_data;
+    }
+    static const std::vector<ConversationPair>& GetValidationData(const ChatbotTrainer& t) {
+        return t.validation_data;
+    }
+    static float Validate(ChatbotTrainer& t) {
+        return t.validate();
+    }
+    static void AppendValidation(ChatbotTrainer& t, ConversationPair raw, TokenizedPair tok) {
+        t.validation_data.push_back(std::move(raw));
+        t.tokenized_validation_data.push_back(std::move(tok));
+    }
+    static void SetTokenizedValidationOnly(ChatbotTrainer& t, std::vector<ConversationPair> raw,
+                                           std::vector<TokenizedPair> tok) {
+        t.validation_data = std::move(raw);
+        t.tokenized_validation_data = std::move(tok);
+    }
+    static int EpochsWithoutImprovement(const ChatbotTrainer& t) {
+        return t.epochs_without_improvement;
+    }
 
     static TrainingConfig quiet_config() {
         TrainingConfig cfg;
@@ -964,6 +989,81 @@ class ChatbotTrainerCacheTest : public ::testing::Test {
         return cfg;
     }
 };
+
+// TD-267: pairs that tokenization skips are removed from the raw and tokenized vectors together.
+TEST_F(ChatbotTrainerCacheTest, DropSkippedPairsKeepsRawAndTokenizedAligned) {
+    ChatbotTrainer t(quiet_config());
+    SetTrainingData(t, {ConversationPair("q1", "a1"), ConversationPair("", "skipped"),
+                        ConversationPair("q3", "a3"), ConversationPair("bad utf8", "x")});
+    SetValidationData(t, {ConversationPair("v1", ""), ConversationPair("v2", "b2")});
+    SetTokenized(t,
+                 {TokenizedPair({1}, {2}, "q1", "a1"), TokenizedPair(),
+                  TokenizedPair({3}, {4}, "q3", "a3"), TokenizedPair()},
+                 {TokenizedPair(), TokenizedPair({5}, {6}, "v2", "b2")});
+    DropSkipped(t);
+
+    const auto& raw = GetTrainingData(t);
+    const auto& tok = GetTokenizedTraining(t);
+    ASSERT_EQ(raw.size(), 2u);
+    ASSERT_EQ(tok.size(), 2u);
+    EXPECT_EQ(raw[0].input, "q1");
+    EXPECT_EQ(tok[0].input_text, "q1");
+    EXPECT_EQ(raw[1].input, "q3");
+    EXPECT_EQ(tok[1].input_text, "q3");
+    ASSERT_EQ(GetValidationData(t).size(), 1u);
+    ASSERT_EQ(GetTokenizedValidation(t).size(), 1u);
+    EXPECT_EQ(GetValidationData(t)[0].input, "v2");
+}
+
+// TD-267, end to end: skipped pairs never reach training or validation, and a validation sample
+// that throws is excluded from the average instead of counting as loss 0.
+TEST_F(ChatbotTrainerCacheTest, SkippedAndFailingPairsDontBiasValidationLoss) {
+    Matrix::gpu_try_initialize();
+    TrainingConfig cfg = quiet_config();
+    cfg.d_model = 16;
+    cfg.num_heads = 2;
+    cfg.d_ff = 32;
+    cfg.num_encoder_layers = 1;
+    cfg.num_decoder_layers = 1;
+    cfg.max_seq_length = 16;
+    cfg.validation_split = 0;
+    cfg.enable_early_stopping = false;
+    ChatbotTrainer t(cfg);
+    std::filesystem::create_directories(cache_dir);
+    ASSERT_TRUE(t.build_vocabulary({"hello world", "how are you", "I am fine", "thank you"}, 100,
+                                   cache_dir + "/vocab.txt"));
+    t.add_training_pair("hello world", "how are you");
+    t.add_training_pair("I am fine", "");  // skipped: empty response
+    t.add_training_pair("I am fine", "thank you");
+    t.add_validation_pair("hello world", "thank you");
+    t.add_validation_pair("", "how are you");  // skipped: empty input
+    t.add_validation_pair("how are you", "I am fine");
+
+    ASSERT_TRUE(t.train(1));
+    EXPECT_EQ(t.get_tokenized_training_size(), 2u);
+    EXPECT_EQ(t.get_tokenized_validation_size(), 2u);
+    ASSERT_EQ(GetTrainingData(t).size(), 2u);
+    for (std::size_t i = 0; i < GetTrainingData(t).size(); ++i)
+        EXPECT_EQ(GetTrainingData(t)[i].input, GetTokenizedTraining(t)[i].input_text);
+
+    const float clean = Validate(t);
+    ASSERT_GT(clean, 0.0f);
+
+    // A sample whose evaluation throws (token id far outside the vocabulary).
+    AppendValidation(t, ConversationPair("broken", "broken"),
+                     TokenizedPair({999999}, {999999}, "broken", "broken"));
+    const float with_failure = Validate(t);
+    EXPECT_NEAR(with_failure, clean, 1e-5f) << "a failed sample must not pull the average down";
+
+    // Every sample failing records nothing and returns the previous loss, not 0.
+    const int before = EpochsWithoutImprovement(t);
+    const std::size_t recorded = t.get_validation_losses().size();
+    SetTokenizedValidationOnly(t, {ConversationPair("broken", "broken")},
+                               {TokenizedPair({999999}, {999999}, "broken", "broken")});
+    EXPECT_NEAR(Validate(t), with_failure, 1e-6f);
+    EXPECT_EQ(t.get_validation_losses().size(), recorded);
+    EXPECT_EQ(EpochsWithoutImprovement(t), before + 1);
+}
 
 TEST_F(ChatbotTrainerCacheTest, RoundTripSavesAndLoadsCorrectly) {
     ChatbotTrainer writer(quiet_config());

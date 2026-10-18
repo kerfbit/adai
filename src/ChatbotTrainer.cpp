@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.10.2
-// @adai-reviewed: 2026-10-17
+// @adai-version: 0.10.3
+// @adai-reviewed: 2026-10-18
 
 #include "ChatbotTrainer.hpp"
 #include <algorithm>
@@ -455,6 +455,43 @@ void ChatbotTrainer::save_tokenized_cache(const std::string& cache_path) const {
     }
 }
 
+namespace {
+// TD-267: remove pairs that tokenization skipped (empty input/response, invalid UTF-8), which are
+// left as empty TokenizedPairs, from both the raw and the tokenized vectors together so index i
+// still refers to the same pair in each (quality backfill and token counts rely on that).
+// Returns the number removed. A pair that tokenized always has non-empty input and target ids.
+template <typename RawPair>
+std::size_t drop_untokenized(std::vector<RawPair>& raw, std::vector<TokenizedPair>& tokenized) {
+    const std::size_t n = std::min(raw.size(), tokenized.size());
+    std::size_t kept = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (tokenized[i].input_tokens.empty() || tokenized[i].target_tokens.empty())
+            continue;
+        if (kept != i) {
+            raw[kept] = std::move(raw[i]);
+            tokenized[kept] = std::move(tokenized[i]);
+        }
+        ++kept;
+    }
+    const std::size_t dropped = n - kept;
+    raw.erase(raw.begin() + static_cast<std::ptrdiff_t>(kept), raw.end());
+    tokenized.erase(tokenized.begin() + static_cast<std::ptrdiff_t>(kept), tokenized.end());
+    return dropped;
+}
+}  // namespace
+
+/**
+ * @brief Drop skipped (untokenized) pairs from the training and validation sets (TD-267)
+ */
+void ChatbotTrainer::drop_skipped_pairs() {
+    const std::size_t dropped_train = drop_untokenized(training_data, tokenized_training_data);
+    const std::size_t dropped_val = drop_untokenized(validation_data, tokenized_validation_data);
+    if (dropped_train > 0 || dropped_val > 0) {
+        adai::Logger::info("Dropped {} training and {} validation pairs that couldn't be tokenized",
+                           dropped_train, dropped_val);
+    }
+}
+
 /**
  * @brief Preprocess and tokenize all training and validation data
  */
@@ -491,6 +528,9 @@ void ChatbotTrainer::preprocess_data() {
                 static_cast<int>(tokenized_validation_data[i].input_tokens.size() +
                                  tokenized_validation_data[i].target_tokens.size());
         }
+        // The cache keeps skipped pairs as empty placeholders (it's written before
+        // compaction so its counts match the raw data on the next run); drop them here too.
+        drop_skipped_pairs();
         training_indices.resize(tokenized_training_data.size());
         std::iota(training_indices.begin(), training_indices.end(), 0);
 
@@ -552,10 +592,8 @@ void ChatbotTrainer::preprocess_data() {
         // field, so a queued file with e.g. {"input": "hello world"} and no "response" at all
         // produces exactly this pair — previously an uncaught crash, not a skip.
         if (pair.input.empty() || pair.response.empty()) {
-            // TODO: See TD-267 in TECHNICAL_DEBT.md - these empty entries are NOT filtered out: training
-            // throws on them (dropping the accumulation window) and validate() counts them as 0.
-            // Leave default-constructed (empty) — filtered out during training, same as an
-            // invalid-UTF-8 skip below.
+            // Leave default-constructed (empty); drop_skipped_pairs() removes it after tokenizing
+            // (TD-267), same as an invalid-UTF-8 skip below.
             ++skipped_empty_train;
             continue;
         }
@@ -572,7 +610,7 @@ void ChatbotTrainer::preprocess_data() {
                 static_cast<int>(tokenized_training_data[i].input_tokens.size() +
                                  tokenized_training_data[i].target_tokens.size());
         } catch (const TokenizerEncodingError&) {
-            // Leave default-constructed (empty) — filtered out during training
+            // Leave default-constructed (empty); removed by drop_skipped_pairs()
             ++skipped_train;
         }
     }
@@ -623,6 +661,12 @@ void ChatbotTrainer::preprocess_data() {
                            skipped_empty_val);
     }
 
+    // Save the cache before compaction, so its counts match the raw data it's checked against.
+    if (!cache_path.empty()) {
+        save_tokenized_cache(cache_path);
+    }
+    drop_skipped_pairs();
+
     // Initialize shuffling indices
     training_indices.resize(tokenized_training_data.size());
     std::iota(training_indices.begin(), training_indices.end(), 0);
@@ -630,10 +674,6 @@ void ChatbotTrainer::preprocess_data() {
     adai::Logger::info("✅ Data preprocessed:");
     adai::Logger::info("  Training samples: {}", tokenized_training_data.size());
     adai::Logger::info("  Validation samples: {}", tokenized_validation_data.size());
-
-    if (!cache_path.empty()) {
-        save_tokenized_cache(cache_path);
-    }
 }
 
 /**
@@ -1462,8 +1502,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
                                  current_learning_rate);
             }
             // Reset accumulation on error
-            // TODO: See TD-272 in TECHNICAL_DEBT.md - drops the earlier samples' gradients in this window;
-            // see also TD-267 (skipped pairs land here on every epoch).
+            // TODO: See TD-272 in TECHNICAL_DEBT.md - drops the earlier samples' gradients in this window.
             accumulation_step = 0;
             accumulated_loss = 0.0f;
         }
@@ -1625,6 +1664,7 @@ float ChatbotTrainer::validate() {
 
     float total_loss = 0.0f;
     int num_samples = static_cast<int>(tokenized_validation_data.size());
+    int num_evaluated = 0;  // TD-267: samples that threw are excluded from the average
 
     for (int i = 0; i < num_samples; i++) {
         const auto& pair = tokenized_validation_data[i];
@@ -1650,6 +1690,7 @@ float ChatbotTrainer::validate() {
             float loss = model->evaluate_tokenized(pair.input_tokens, pair.target_tokens);
 #endif
             total_loss += loss;
+            ++num_evaluated;
             if (config.enable_loss_quality_backfill) {
                 validation_data[i].meta.quality = std::exp(-loss);
             }
@@ -1672,9 +1713,21 @@ float ChatbotTrainer::validate() {
     // Restore training mode
     model->set_training(true);
 
-    // TODO: See TD-267 in TECHNICAL_DEBT.md - num_samples includes skipped (empty) pairs and samples that
-    // threw, all counted as 0 loss, so this average is biased low.
-    float validation_loss = total_loss / static_cast<float>(num_samples);
+    // TD-267: average over the samples that evaluated. Skipped pairs were already dropped in
+    // preprocess_data(); a sample that throws used to count as loss 0, biasing this low.
+    const int num_failed = num_samples - num_evaluated;
+    if (num_failed > 0) {
+        adai::Logger::warn("  Validation: {} of {} samples failed and are excluded from the loss",
+                           num_failed, num_samples);
+    }
+    if (num_evaluated == 0) {
+        // Nothing to average: record no loss and no new best, count the epoch as no improvement,
+        // and return the previous validation loss rather than a misleading 0.
+        adai::Logger::error("  ❌ Validation failed for all {} samples", num_samples);
+        epochs_without_improvement++;
+        return validation_losses.empty() ? 0.0f : validation_losses.back();
+    }
+    float validation_loss = total_loss / static_cast<float>(num_evaluated);
     float validation_perplexity = calculate_perplexity(validation_loss);
 
     validation_losses.push_back(validation_loss);

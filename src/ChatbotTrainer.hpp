@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added)
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-09-13
+// @adai-version: 0.10.1
+// @adai-reviewed: 2026-10-18
 
 
 #include <atomic>
@@ -303,6 +303,7 @@ class ChatbotTrainer {
     void validate_and_correct_config();
     void split_data();
     void preprocess_data();
+    void drop_skipped_pairs();  // TD-267: called by preprocess_data()
     void shuffle_training_data();
     /**
      * @brief Loads tokenized_training_data/tokenized_validation_data from
