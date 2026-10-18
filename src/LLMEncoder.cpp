@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-18
 
 #include <algorithm>
 #include <cassert>
@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #include "EncoderBlock.hpp"
+#include "Logger.hpp"
 #include "FeedForward.hpp"
 #include "MultiHeadAttention.hpp"
 #include "TokenEmbedding.hpp"
@@ -260,15 +261,19 @@ void LLMEncoder::save_weights(const std::string& filename) {
 
     file.close();
 
-    // Save component weights to separate files
+    // Save component weights to separate files.
+    // TD-538: the token embedding and final norm use encoder-specific names. EncoderDecoderModel
+    // saves the encoder as <path>.encoder and the decoder as <path>.decoder, so both strip to
+    // the same base, and the old shared "_token_emb.bin"/"_final_norm.bin" names were then
+    // overwritten by the decoder's: every checkpoint lost the encoder's embedding and final norm.
     std::string base = filename.substr(0, filename.find_last_of('.'));
-    token_embedding->save_weights(base + "_token_emb.bin");
+    token_embedding->save_weights(base + "_encoder_token_emb.bin");
 
     for (size_t i = 0; i < encoder_blocks.size(); ++i) {
         encoder_blocks[i]->save_weights(base + "_encoder_block_" + std::to_string(i) + ".bin");
     }
 
-    final_norm->save_weights(base + "_final_norm.bin");
+    final_norm->save_weights(base + "_encoder_final_norm.bin");
 
     std::cout << "Saved Encoder weights to " << filename << '\n';
 }
@@ -305,15 +310,28 @@ void LLMEncoder::load_weights(const std::string& filename) {
 
     file.close();
 
-    // Load component weights from separate files
+    // Load component weights from separate files. TD-538: files saved before the
+    // encoder-specific names have only the shared "_token_emb.bin"/"_final_norm.bin", which in an
+    // EncoderDecoderModel checkpoint hold the decoder's weights (the encoder's were overwritten).
+    // Fall back to them, as the old code always loaded, so those checkpoints load unchanged.
     std::string base = filename.substr(0, filename.find_last_of('.'));
-    token_embedding->load_weights(base + "_token_emb.bin");
+    auto component_path = [&base](const std::string& name) {
+        const std::string current = base + "_encoder_" + name;
+        if (std::ifstream(current).good()) {
+            return current;
+        }
+        adai::Logger::warn("Encoder checkpoint has no {}; loading the legacy shared file {} "
+                           "(pre-TD-538 checkpoints hold the decoder's copy there)",
+                           current, base + "_" + name);
+        return base + "_" + name;
+    };
+    token_embedding->load_weights(component_path("token_emb.bin"));
 
     for (size_t i = 0; i < encoder_blocks.size(); ++i) {
         encoder_blocks[i]->load_weights(base + "_encoder_block_" + std::to_string(i) + ".bin");
     }
 
-    final_norm->load_weights(base + "_final_norm.bin");
+    final_norm->load_weights(component_path("final_norm.bin"));
 
     std::cout << "Loaded Encoder weights from " << filename << '\n';
 }

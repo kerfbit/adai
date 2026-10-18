@@ -4,9 +4,9 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** October 17, 2026
-**Total Items:** 329
-**High Priority:** 34
+**Last Updated:** October 18, 2026
+**Total Items:** 331
+**High Priority:** 36
 **Medium Priority:** 141
 **Low Priority:** 154
 **Future Enhancements:** 19
@@ -617,6 +617,13 @@ saved successfully!" and exited 0 with no file (TD-221's cause), and `--vocab-si
 Also October 17, 2026: filed [TD-537](#td-537-vocab_builder-legacy-loader-reads-different-text-from-the-trainer) (LOW) from the code-traced [VocabBuilderHelpers.md](../reference/source/VocabBuilderHelpers.md), the last file of
 the `src/` pass. Verified: on a CRLF legacy file the vocabulary loader returned samples with a leading space and trailing `\r` and dropped an indented
 pair's input, where the trainer trims lines, accepts indentation and keeps only complete pairs.
+
+**October 18, 2026:** filed [TD-538](#td-538-encoder-token-embedding-and-final-norm-are-overwritten-in-every-checkpoint) and [TD-539](#td-539-incrementaltrainer-constructors-never-load-a-checkpoint) (both HIGH), found while fixing TD-405 and
+fixed in the same change. Both verified:
+- **TD-538:** an `EncoderDecoderModel` save/load round trip changed the logits by up to 1.54, because the encoder's token embedding and final norm
+  share file names with the decoder's and are overwritten by them.
+- **TD-539:** `IncrementalTrainer`'s constructors tested `fs::exists(<checkpoint path>)`, a file `save_model()` never writes. A trainer built over
+  real checkpoints loaded neither of them, so `incremental_trainer train`/`retrain` started every pass from fresh weights.
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1771,6 +1778,10 @@ retraining, so the new vocabulary isn't polluted or silently missing; [TD-536](#
 
 **Tier 108 — Newly filed (October 17, 2026): `VocabBuilderHelpers`.** [TD-537](#td-537-vocab_builder-legacy-loader-reads-different-text-from-the-trainer) goes with TD-534–TD-536 (share one JSONL/legacy parser with the trainer).
 
+**Tier 109 — Newly filed and fixed in code (October 18, 2026): checkpoint loading.** [TD-538](#td-538-encoder-token-embedding-and-final-norm-are-overwritten-in-every-checkpoint) and [TD-539](#td-539-incrementaltrainer-constructors-never-load-a-checkpoint) landed with TD-405.
+Every existing checkpoint lacks the encoder's own embedding and final norm, and every `train`/`retrain` pass so far started from fresh weights, so
+the planned TD-358 retraining should start from scratch rather than from any existing checkpoint.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -2106,6 +2117,8 @@ retraining, so the new vocabulary isn't polluted or silently missing; [TD-536](#
   - [TD-535: `vocab_builder` Reports a Failed Save as Success and Aborts on Malformed Numbers](#td-535-vocab_builder-reports-a-failed-save-as-success-and-aborts-on-malformed-numbers)
   - [TD-536: `vocab_builder` JSON Loader and Operator Documentation Drift](#td-536-vocab_builder-json-loader-and-operator-documentation-drift)
   - [TD-537: `vocab_builder` Legacy Loader Reads Different Text From the Trainer](#td-537-vocab_builder-legacy-loader-reads-different-text-from-the-trainer)
+  - [TD-538: Encoder Token Embedding and Final Norm Are Overwritten in Every Checkpoint](#td-538-encoder-token-embedding-and-final-norm-are-overwritten-in-every-checkpoint)
+  - [TD-539: `IncrementalTrainer` Constructors Never Load a Checkpoint](#td-539-incrementaltrainer-constructors-never-load-a-checkpoint)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -9698,7 +9711,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Training / IncrementalTrainer | October 13, 2026 | 2-4 hours |
+| **HIGH** | Open — code fix landed October 18, 2026 | Training / IncrementalTrainer | October 13, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `IncrementalTrainer` and verified with the real class. All three constructors,
@@ -9714,11 +9727,24 @@ progress across ai-machine passes.
 
 Action Items:
 
-- [ ] Resume from the most recent completed session by default; keep "best" selection as an explicit option (or compare losses only on a fixed, shared validation set).
-- [ ] Apply the same rule in `resume_last_session()`, and log which checkpoint was chosen and why.
-- [ ] Test: two sessions where the newer has higher validation loss → the newer is resumed.
+**Fix landed October 18, 2026:** `select_resume_checkpoint()` returns the most recent completed session whose checkpoint passes
+`is_sane_checkpoint_candidate()`. The new `RESUME_FROM_BEST_CHECKPOINT` key (`config.trainer.conf`, env, `IncrementalConfig`; default false)
+selects the lowest-validation-loss session instead.
 
-Location in code: `src/IncrementalTrainer.cpp` (three constructors' best-selection loops, `resume_last_session()`); tagged `TODO: See TD-405`.
+The constructors (through `init_from_session_history()`) and `resume_last_session()` both use it, and log the chosen checkpoint and the reason.
+`best_checkpoint_path` is still tracked for the best symlink. Two more bugs turned up while testing, both fixed in the same change:
+- [TD-539](#td-539-incrementaltrainer-constructors-never-load-a-checkpoint): the constructors never actually loaded any checkpoint.
+- [TD-538](#td-538-encoder-token-embedding-and-final-norm-are-overwritten-in-every-checkpoint): checkpoints lost the encoder's embedding and final norm.
+
+New test `ResumesFromMostRecentSessionNotLowestValidationLoss` uses real `save_model()` checkpoints. Session 1 is newer with validation loss 2.0,
+session 0 older with 1.2; a new trainer matches session 1's weights by default and session 0's with the option set. On the old code it matched
+neither.
+
+- [x] Resume from the most recent completed session by default; keep "best" selection as an explicit option (or compare losses only on a fixed, shared validation set).
+- [x] Apply the same rule in `resume_last_session()`, and log which checkpoint was chosen and why.
+- [x] Test: two sessions where the newer has higher validation loss → the newer is resumed.
+
+Location in code: `src/IncrementalTrainer.cpp` (`select_resume_checkpoint()`, `init_from_session_history()`, `resume_last_session()`), `src/Config.{hpp,cpp}` (`RESUME_FROM_BEST_CHECKPOINT`); the `TODO: See TD-405` tags are now fix comments.
 
 Files to Modify:
 
@@ -13899,6 +13925,80 @@ Files to Modify:
 
 ---
 
+### TD-538: Encoder Token Embedding and Final Norm Are Overwritten in Every Checkpoint
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open — code fix landed October 18, 2026 | Transformer / LLMEncoder | October 18, 2026 | 1-2 hours (plus retraining) |
+
+Description:
+Found while fixing TD-405; verified. `EncoderDecoderModel::save_model(path)` saves the encoder as `<path>.encoder` and the decoder as
+`<path>.decoder`. `LLMEncoder` and `LLMDecoder` both derive their component file names by stripping the last extension, so both use the base
+`<path>`. Both then wrote `<path>_token_emb.bin` and `<path>_final_norm.bin`. The decoder saves second, so the encoder's embedding and final
+LayerNorm were overwritten in every checkpoint, and every load gave the encoder the decoder's copies.
+
+Verified: a save/load round trip changed the logits by up to 1.54, and the reloaded encoder embedding differed by up to 5.08 while the decoder's
+embedding and the LM head matched exactly. Every resumed training pass, every `clone()` (TD-363) and every `chatbot_api_server` that loads
+`MODEL_PATH` ran its encoder on the decoder's embedding and norm.
+
+**Fix landed October 18, 2026:** `LLMEncoder` now writes `<path>_encoder_token_emb.bin` and `<path>_encoder_final_norm.bin`; the decoder keeps
+the old names. On load, if the encoder-specific files are missing (any checkpoint saved before the fix), the encoder falls back to the old shared
+files with a warning. That is exactly what old checkpoints always loaded, so they load unchanged.
+
+New tests: `EncoderDecoderModelTest.SaveLoadRoundTripReproducesLogits` (failed with a 1.54 logit difference before the fix) and
+`LegacyCheckpointWithoutEncoderSpecificFilesStillLoads`.
+
+Action Items:
+
+- [x] Give the encoder's embedding and final norm their own file names, with a fallback for old checkpoints.
+- [x] Test that a round trip reproduces the logits exactly.
+- [ ] Retrain rather than continuing from an existing checkpoint: none has the encoder's own embedding or norm (with TD-358).
+- [ ] `IncrementalTrainer::remove_model_files()` (TD-407) should delete the new file names too.
+
+Location in code: `src/LLMEncoder.cpp` (`save_weights()`, `load_weights()`).
+
+Files to Modify:
+
+- `src/LLMEncoder.cpp`
+- `tests/encoderdecoder_test.cpp`
+
+---
+
+### TD-539: `IncrementalTrainer` Constructors Never Load a Checkpoint
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open — code fix landed October 18, 2026 | Training / IncrementalTrainer | October 18, 2026 | 1 hour |
+
+Description:
+Found while fixing TD-405; verified. All three `IncrementalTrainer` constructors chose a checkpoint from session history and then loaded it only
+`if (fs::exists(best_checkpoint_path))`. That tests the bare checkpoint path, which `EncoderDecoderModel::save_model()` never writes (only
+`<path>.config`, `.vocab`, `.encoder`, `.decoder`, `.lm_head`; see TD-408). So with real checkpoints the constructors never loaded anything.
+
+`resume_last_session()` checks `<path>.config` and does load, so `trainer_service` passes resumed (from the best-ever checkpoint, TD-405). But
+`incremental_trainer train`/`retrain` call `train_on_files()`, which doesn't load either, so every such pass trained from freshly initialized
+weights. The existing tests didn't notice because their stand-in checkpoints also create the bare file.
+
+Verified with the real class and real `save_model()` checkpoints: a trainer constructed over two sessions matched neither checkpoint's weights.
+
+**Fix landed October 18, 2026 (with TD-405):** the constructors share `init_from_session_history()`, which loads `select_resume_checkpoint()`.
+That only returns sessions whose sidecars all exist (`is_sane_checkpoint_candidate()`). The new test
+`IncrementalTrainerTest.ResumesFromMostRecentSessionNotLowestValidationLoss` uses real checkpoints, which have no bare file.
+
+Action Items:
+
+- [x] Load checkpoints in the constructors using the sidecar files, not the bare path.
+- [x] Test with real `save_model()` checkpoints.
+
+Location in code: `src/IncrementalTrainer.cpp` (constructors, `init_from_session_history()`).
+
+Files to Modify:
+
+- `src/IncrementalTrainer.{hpp,cpp}`
+- `tests/incrementaltrainer_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -14415,15 +14515,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 329 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 331 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|34|10%|
+|High|36|11%|
 |Medium|141|43%|
-|Low|154|47%|
+|Low|154|46%|
 
-**Total Active Items:** 329
+**Total Active Items:** 331
 
 ### By Component
 
@@ -14468,7 +14568,7 @@ Recomputed directly from the 329 `### TD-NNN` entries under [Active Technical De
 |RAG / DocumentStore|3|
 |Transformer / EncoderBlock|2|
 |Models / EncoderDecoderModel|6|
-|Transformer / LLMEncoder|4|
+|Transformer / LLMEncoder|5|
 |Transformer / FeedForward|4|
 |Data / FtpDataServer|6|
 |Platform / PortableSocket|1|
@@ -14481,7 +14581,7 @@ Recomputed directly from the 329 `### TD-NNN` entries under [Active Technical De
 |Memory / HippocampalMemory|3|
 |Metrics / Reporter|2|
 |Training / CLI|4|
-|Training / IncrementalTrainer|6|
+|Training / IncrementalTrainer|7|
 |Training / IncrementalTrainingTool|6|
 |Training / StartupSweep|2|
 |Training / Admin API|4|

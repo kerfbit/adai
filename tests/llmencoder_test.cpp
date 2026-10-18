@@ -411,10 +411,12 @@ TEST_F(LLMEncoderTest, SaveWeights) {
 
     // Check that main file and component files were created
     EXPECT_TRUE(fs::exists(weights_file));
-    EXPECT_TRUE(fs::exists(temp_dir + "/encoder_weights_token_emb.bin"));
+    // TD-538: encoder-specific names, so an EncoderDecoderModel checkpoint's decoder (which uses
+    // _token_emb.bin/_final_norm.bin on the same base) can't overwrite them.
+    EXPECT_TRUE(fs::exists(temp_dir + "/encoder_weights_encoder_token_emb.bin"));
     EXPECT_TRUE(fs::exists(temp_dir + "/encoder_weights_encoder_block_0.bin"));
     EXPECT_TRUE(fs::exists(temp_dir + "/encoder_weights_encoder_block_1.bin"));
-    EXPECT_TRUE(fs::exists(temp_dir + "/encoder_weights_final_norm.bin"));
+    EXPECT_TRUE(fs::exists(temp_dir + "/encoder_weights_encoder_final_norm.bin"));
 }
 
 TEST_F(LLMEncoderTest, LoadWeights) {

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.10.1
-// @adai-reviewed: 2026-09-21
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-10-18
 
 
 #include <chrono>
@@ -62,6 +62,10 @@ struct IncrementalConfig {
     bool auto_save_enabled = true;
     int auto_save_every_samples = 1000;
     int auto_save_every_minutes = 30;
+
+    // TD-405: false (default) continues each pass from the most recent completed session; true
+    // uses the lowest validation loss, which is only meaningful with a fixed validation set.
+    bool resume_from_best_checkpoint = false;
 
     // Checkpointing
     // TODO: See TD-410 in TECHNICAL_DEBT.md - save_incremental_checkpoints and checkpoint_dir are never read
@@ -419,6 +423,16 @@ class IncrementalTrainer {
     // non-finite/non-positive losses (NaN/Inf from a diverged or crashed run,
     // or a stray exact 0.0), and checkpoints missing from disk.
     static bool is_sane_checkpoint_candidate(const TrainingSession& session);
+
+    // TD-405: the checkpoint a new pass continues from. The most recent completed session with a
+    // loadable checkpoint, or the lowest validation loss when config.resume_from_best_checkpoint
+    // is set. `reason` (if given) receives a short explanation for the log. "" if none.
+    std::string select_resume_checkpoint(std::string* reason = nullptr) const;
+
+    // TD-405: shared by the constructors. Seeds best_checkpoint_path/best_validation_loss from
+    // session_history (for best tracking and the best symlink) and loads
+    // select_resume_checkpoint(). Returns the loaded checkpoint path, or "" if none was loaded.
+    std::string init_from_session_history();
 
     // Symlink management helpers (TD-005)
     void update_checkpoint_symlinks(const std::string& checkpoint_path);

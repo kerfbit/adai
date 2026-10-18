@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.3.1
-// @adai-reviewed: 2026-09-20
+// @adai-version: 1.4.0
+// @adai-reviewed: 2026-10-18
 
 
 #include <cstdint>
@@ -578,6 +578,11 @@ struct ServiceConfig {
 
     /// Enable periodic auto-save checkpoints during a training pass (default: true).
     bool auto_save_enabled = true;
+
+    /// TD-405: start each pass from the session with the lowest validation loss instead of the
+    /// most recent one (default: false). Each pass validates on its own files, so losses from
+    /// different passes usually aren't comparable; only enable this with a fixed validation set.
+    bool resume_from_best_checkpoint = false;
 
     /// Auto-save every N samples; 0 = disabled by sample count (default: 1000).
     int auto_save_every_samples = 1000;

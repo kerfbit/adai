@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.10.3
+// @adai-version: 0.11.0
 // @adai-reviewed: 2026-10-18
 
 #include "IncrementalTrainer.hpp"
@@ -328,6 +328,7 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     // Auto-save / checkpoint retention — previously always used the
     // hardcoded IncrementalConfig defaults regardless of config.conf.
     cfg.auto_save_enabled = svc.auto_save_enabled;
+    cfg.resume_from_best_checkpoint = svc.resume_from_best_checkpoint;
     cfg.auto_save_every_samples = svc.auto_save_every_samples;
     cfg.auto_save_every_minutes = svc.auto_save_every_minutes;
     cfg.max_sessions_to_keep = svc.max_sessions_to_keep;
@@ -414,29 +415,7 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
     build_model();
     load_session_history();
 
-    // TODO: See TD-405 in TECHNICAL_DEBT.md - picks the lowest final_validation_loss across ALL history, but each
-    // pass validates on its own files, so later passes are discarded whenever new data validates worse
-    if (!session_history.empty()) {
-        for (const auto& session : session_history) {
-            if (is_sane_checkpoint_candidate(session) &&
-                session.final_validation_loss < best_validation_loss) {
-                best_validation_loss = session.final_validation_loss;
-                best_checkpoint_path = session.checkpoint_path;
-            }
-        }
-        if (!best_checkpoint_path.empty()) {
-            Logger::info("Best checkpoint: {} (val loss: {})", best_checkpoint_path,
-                         best_validation_loss);
-            if (fs::exists(best_checkpoint_path)) {
-                try {
-                    model->load_model(best_checkpoint_path);
-                    Logger::info("Resumed from best checkpoint: {}", best_checkpoint_path);
-                } catch (...) {
-                    Logger::warn("Could not load best checkpoint, keeping current model weights");
-                }
-            }
-        }
-    }
+    const std::string resumed_checkpoint = init_from_session_history();
 
     // Check for an in-progress best snapshot from an interrupted session.
     // If session_{current_session_id}_best.bin exists and is newer than the
@@ -448,10 +427,10 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
         std::string in_progress_best = in_progress_oss.str();
 
         if (fs::exists(in_progress_best + ".config")) {
-            bool prefer_in_progress = best_checkpoint_path.empty();
+            bool prefer_in_progress = resumed_checkpoint.empty();
 
-            if (!prefer_in_progress && fs::exists(best_checkpoint_path + ".config")) {
-                auto best_mtime = fs::last_write_time(best_checkpoint_path + ".config");
+            if (!prefer_in_progress && fs::exists(resumed_checkpoint + ".config")) {
+                auto best_mtime = fs::last_write_time(resumed_checkpoint + ".config");
                 auto in_prog_mtime = fs::last_write_time(in_progress_best + ".config");
                 prefer_in_progress = (in_prog_mtime > best_mtime);
             }
@@ -497,29 +476,7 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
     load_session_history();
 
     // Initialize best checkpoint from history (TD-005)
-    // TODO: See TD-405 in TECHNICAL_DEBT.md - picks the lowest final_validation_loss across ALL history, but each
-    // pass validates on its own files, so later passes are discarded whenever new data validates worse
-    if (!session_history.empty()) {
-        for (const auto& session : session_history) {
-            if (is_sane_checkpoint_candidate(session) &&
-                session.final_validation_loss < best_validation_loss) {
-                best_validation_loss = session.final_validation_loss;
-                best_checkpoint_path = session.checkpoint_path;
-            }
-        }
-        if (!best_checkpoint_path.empty()) {
-            Logger::info("Best checkpoint: {} (val loss: {})", best_checkpoint_path,
-                         best_validation_loss);
-            if (fs::exists(best_checkpoint_path)) {
-                try {
-                    model->load_model(best_checkpoint_path);
-                    Logger::info("Resumed from best checkpoint: {}", best_checkpoint_path);
-                } catch (...) {
-                    Logger::warn("Could not load best checkpoint, keeping current model weights");
-                }
-            }
-        }
-    }
+    init_from_session_history();
 
     cleanup_dead_sessions();
 
@@ -557,29 +514,7 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
     ensure_directories_exist();
     load_session_history();
 
-    // TODO: See TD-405 in TECHNICAL_DEBT.md - picks the lowest final_validation_loss across ALL history, but each
-    // pass validates on its own files, so later passes are discarded whenever new data validates worse
-    if (!session_history.empty()) {
-        for (const auto& session : session_history) {
-            if (is_sane_checkpoint_candidate(session) &&
-                session.final_validation_loss < best_validation_loss) {
-                best_validation_loss = session.final_validation_loss;
-                best_checkpoint_path = session.checkpoint_path;
-            }
-        }
-        if (!best_checkpoint_path.empty()) {
-            Logger::info("Best checkpoint: {} (val loss: {})", best_checkpoint_path,
-                         best_validation_loss);
-            if (fs::exists(best_checkpoint_path)) {
-                try {
-                    model->load_model(best_checkpoint_path);
-                    Logger::info("Resumed from best checkpoint: {}", best_checkpoint_path);
-                } catch (...) {
-                    Logger::warn("Could not load best checkpoint, keeping current model weights");
-                }
-            }
-        }
-    }
+    init_from_session_history();
 
     cleanup_dead_sessions();
 
@@ -1131,9 +1066,11 @@ bool IncrementalTrainer::resume_last_session() {
     // bare path exactly as before.
     std::vector<PendingFileRange> pending_ranges = resp.file_ranges();
 
-    // TODO: See TD-405 in TECHNICAL_DEBT.md - best-ever across history, not the latest; TD-406: in_progress_best
-    // below uses current_session_id, which already skipped past a paused session persisted by perform_auto_save()
-    std::string resume_checkpoint = best_checkpoint_path;
+    // TD-405: the same rule the constructors use (most recent completed session by default).
+    // TODO: See TD-406 in TECHNICAL_DEBT.md - in_progress_best below uses current_session_id, which already
+    // skipped past a paused session persisted by perform_auto_save()
+    std::string resume_reason;
+    std::string resume_checkpoint = select_resume_checkpoint(&resume_reason);
     int resume_session_id = -1;
 
     if (!session_history.empty()) {
@@ -1146,8 +1083,10 @@ bool IncrementalTrainer::resume_last_session() {
 
     if (fs::exists(in_progress_best + ".config")) {
         resume_checkpoint = in_progress_best;
+        resume_reason = "in-progress best snapshot of an interrupted session";
     } else if (resume_checkpoint.empty() && !session_history.empty()) {
         resume_checkpoint = session_history.back().checkpoint_path;
+        resume_reason = "last history entry (no session passed the sanity checks)";
     }
 
     if (resume_checkpoint.empty()) {
@@ -1162,10 +1101,11 @@ bool IncrementalTrainer::resume_last_session() {
         }
 
         if (resume_session_id >= 0) {
-            Logger::info("Resuming training from session #{} using checkpoint {}",
-                         resume_session_id, resume_checkpoint);
+            Logger::info("Resuming training from session #{} using checkpoint {} ({})",
+                         resume_session_id, resume_checkpoint, resume_reason);
         } else {
-            Logger::info("Resuming training using checkpoint {}", resume_checkpoint);
+            Logger::info("Resuming training using checkpoint {} ({})", resume_checkpoint,
+                         resume_reason);
         }
 
         if (!load_model(resume_checkpoint)) {
@@ -1350,6 +1290,72 @@ TrainingSession IncrementalTrainer::get_current_session() {
 
 std::vector<TrainingSession> IncrementalTrainer::get_session_history() const {
     return session_history;
+}
+
+std::string IncrementalTrainer::select_resume_checkpoint(std::string* reason) const {
+    if (config.resume_from_best_checkpoint) {
+        const TrainingSession* best = nullptr;
+        for (const auto& session : session_history) {
+            if (is_sane_checkpoint_candidate(session) &&
+                (!best || session.final_validation_loss < best->final_validation_loss)) {
+                best = &session;
+            }
+        }
+        if (best) {
+            if (reason) {
+                *reason = "lowest validation loss (" + std::to_string(best->final_validation_loss) +
+                          ", session #" + std::to_string(best->session_id) +
+                          "; RESUME_FROM_BEST_CHECKPOINT=true)";
+            }
+            return best->checkpoint_path;
+        }
+        return "";
+    }
+    // Default: continue from the most recent completed session. Each pass's validation loss comes
+    // from that pass's own files, so "lowest across history" compares unrelated numbers and used
+    // to pin training to an old checkpoint, discarding every later pass (TD-405).
+    for (auto it = session_history.rbegin(); it != session_history.rend(); ++it) {
+        if (is_sane_checkpoint_candidate(*it)) {
+            if (reason) {
+                *reason = "most recent completed session (#" + std::to_string(it->session_id) + ")";
+            }
+            return it->checkpoint_path;
+        }
+    }
+    return "";
+}
+
+std::string IncrementalTrainer::init_from_session_history() {
+    for (const auto& session : session_history) {
+        if (is_sane_checkpoint_candidate(session) &&
+            session.final_validation_loss < best_validation_loss) {
+            best_validation_loss = session.final_validation_loss;
+            best_checkpoint_path = session.checkpoint_path;
+        }
+    }
+    if (!best_checkpoint_path.empty()) {
+        Logger::info("Best checkpoint: {} (val loss: {})", best_checkpoint_path,
+                     best_validation_loss);
+    }
+
+    std::string reason;
+    const std::string resume = select_resume_checkpoint(&reason);
+    if (resume.empty()) {
+        return "";
+    }
+    // save_model() writes only sidecars (<path>.config, .vocab, ...), never <path> itself, so
+    // this used to test fs::exists(<path>), which is always false: the constructors never loaded
+    // a checkpoint, and `train`/`retrain` started every pass from fresh weights (found with
+    // TD-405). select_resume_checkpoint() only returns checkpoints whose sidecars all exist.
+    try {
+        model->load_model(resume);
+        Logger::info("Resumed from checkpoint {}: {}", resume, reason);
+        return resume;
+    } catch (const std::exception& e) {
+        Logger::warn("Could not load checkpoint {} ({}), keeping current model weights", resume,
+                     e.what());
+        return "";
+    }
 }
 
 bool IncrementalTrainer::is_sane_checkpoint_candidate(const TrainingSession& session) {

@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <stdexcept>
@@ -928,6 +929,56 @@ TEST(EncoderDecoderModelTest, SaveLoadRoundTrip) {
     std::remove((filepath + ".vocab").c_str());
     std::remove((filepath + ".encoder").c_str());
     std::remove((filepath + ".decoder").c_str());
+}
+
+// TD-538: a save/load round trip must restore every weight, so the reloaded model gives the same
+// logits. The encoder's token embedding and final norm used to share file names with the
+// decoder's and were overwritten by them (max logit difference 1.54 here before the fix).
+TEST(EncoderDecoderModelTest, SaveLoadRoundTripReproducesLogits) {
+    const std::string dir = std::filesystem::temp_directory_path() / "adai_ed_roundtrip_logits";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    EncoderDecoderModel a(100, 32, 2, 2, 2, 64, 32);
+    build_test_vocab(a.get_tokenizer(), 100);
+    a.set_training(false);
+    const Matrix before = a.forward({4, 5, 6, 7}, {8, 9, 10});
+    const Matrix again = a.forward({4, 5, 6, 7}, {8, 9, 10});
+    ASSERT_TRUE(matrices_equal(before, again, 1e-6f)) << "forward() isn't deterministic";
+    a.save_model(dir + "/cp.bin");
+
+    EncoderDecoderModel b(100, 32, 2, 2, 2, 64, 32);
+    build_test_vocab(b.get_tokenizer(), 100);
+    b.load_model(dir + "/cp.bin");
+    b.set_training(false);
+    const Matrix after = b.forward({4, 5, 6, 7}, {8, 9, 10});
+    float max_diff = 0.0f;
+    for (int i = 0; i < before.rows; ++i)
+        for (int j = 0; j < before.cols; ++j)
+            max_diff = std::max(max_diff, std::abs(before(i, j) - after(i, j)));
+    EXPECT_LT(max_diff, 1e-5f);
+    std::filesystem::remove_all(dir);
+}
+
+// TD-538: a checkpoint saved before the encoder-specific file names (only the shared
+// _token_emb.bin/_final_norm.bin, holding the decoder's copies) still loads, as it always did.
+TEST(EncoderDecoderModelTest, LegacyCheckpointWithoutEncoderSpecificFilesStillLoads) {
+    const std::string dir = std::filesystem::temp_directory_path() / "adai_ed_legacy_names";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    EncoderDecoderModel a(100, 32, 2, 2, 2, 64, 32);
+    build_test_vocab(a.get_tokenizer(), 100);
+    a.save_model(dir + "/cp.bin");
+    std::filesystem::remove(dir + "/cp.bin_encoder_token_emb.bin");
+    std::filesystem::remove(dir + "/cp.bin_encoder_final_norm.bin");
+
+    EncoderDecoderModel b(100, 32, 2, 2, 2, 64, 32);
+    build_test_vocab(b.get_tokenizer(), 100);
+    ASSERT_NO_THROW(b.load_model(dir + "/cp.bin"));
+    // The legacy file is the decoder's embedding, which is what old checkpoints always loaded.
+    const Matrix& enc = b.get_encoder()->get_token_embedding()->get_embeddings();
+    const Matrix& dec = a.get_decoder()->get_token_embedding()->get_embeddings();
+    EXPECT_TRUE(matrices_equal(enc, dec, 1e-7f));
+    std::filesystem::remove_all(dir);
 }
 
 // ============================================================================

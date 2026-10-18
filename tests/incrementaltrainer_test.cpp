@@ -163,6 +163,70 @@ class IncrementalTrainerTest : public ::testing::Test {
 // Construction and Configuration Tests
 // ============================================================================
 
+namespace {
+// Logits for a fixed input/target, as a fingerprint of a model's weights.
+Matrix fingerprint(EncoderDecoderModel* model) {
+    model->set_training(false);
+    return model->forward({4, 5, 6, 7}, {8, 9, 10});
+}
+
+float max_abs_diff(const Matrix& a, const Matrix& b) {
+    float d = 0.0f;
+    for (int i = 0; i < a.rows; ++i)
+        for (int j = 0; j < a.cols; ++j) d = std::max(d, std::abs(a(i, j) - b(i, j)));
+    return d;
+}
+}  // namespace
+
+// TD-405: with real checkpoints (save_model() writes only sidecars, never the bare path), a new
+// trainer continues from the most recent completed session even when an older one has a lower
+// validation loss -- each pass validates on its own files, so those losses aren't comparable.
+// Before the fix the constructors chose the lowest loss and also tested fs::exists(<bare path>),
+// so with real checkpoints they loaded nothing at all.
+TEST_F(IncrementalTrainerTest, ResumesFromMostRecentSessionNotLowestValidationLoss) {
+    IncrementalConfig config;
+    config.session_dir = session_dir.string();
+    config.enable_checkpoint_symlinks = false;
+    config.base_config.d_model = 32;
+    config.base_config.num_heads = 2;
+    config.base_config.d_ff = 64;
+    config.base_config.num_encoder_layers = 1;
+    config.base_config.num_decoder_layers = 1;
+    config.base_config.max_seq_length = 16;
+
+    const std::string cp0 = session_dir.string() + "/session_0_checkpoint.bin";
+    const std::string cp1 = session_dir.string() + "/session_1_checkpoint.bin";
+    Matrix weights0(1, 1), weights1(1, 1);
+    {
+        IncrementalTrainer a(vocab_file.string(), model_file.string(), config);
+        a.get_model()->save_model(cp0);
+        weights0 = fingerprint(a.get_model());
+    }
+    {
+        IncrementalTrainer b(vocab_file.string(), model_file.string(), config);
+        b.get_model()->save_model(cp1);
+        weights1 = fingerprint(b.get_model());
+    }
+    ASSERT_FALSE(fs::exists(cp0));  // only sidecars, as in production
+    ASSERT_GT(max_abs_diff(weights0, weights1), 1e-3f) << "two random inits should differ";
+    {
+        std::ofstream file(session_dir.string() + "/session_history.txt");
+        file << "# session_id samples_trained epochs final_loss final_val_loss checkpoint_path\n";
+        file << "0 100 5 0.8 1.2 " << cp0 << "\n";  // older, lower validation loss
+        file << "1 100 5 0.9 2.0 " << cp1 << "\n";  // newer, validated on harder data
+    }
+
+    IncrementalTrainer latest(vocab_file.string(), model_file.string(), config);
+    EXPECT_LT(max_abs_diff(fingerprint(latest.get_model()), weights1), 1e-5f)
+        << "should continue from the newer session 1";
+    EXPECT_EQ(best_checkpoint_path_of(latest), cp0) << "best tracking itself is unchanged";
+
+    config.resume_from_best_checkpoint = true;
+    IncrementalTrainer best(vocab_file.string(), model_file.string(), config);
+    EXPECT_LT(max_abs_diff(fingerprint(best.get_model()), weights0), 1e-5f)
+        << "RESUME_FROM_BEST_CHECKPOINT=true should load the lowest-loss session 0";
+}
+
 TEST_F(IncrementalTrainerTest, ConstructorWithDefaultConfig) {
     IncrementalTrainer trainer(vocab_file.string(), model_file.string());
 

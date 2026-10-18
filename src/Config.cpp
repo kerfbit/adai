@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-09-19
+// @adai-version: 1.4.0
+// @adai-reviewed: 2026-10-18
 
 #include "Config.hpp"
 #include <algorithm>
@@ -420,6 +420,11 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 std::string lower = value;
                 std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
                 config.auto_save_enabled =
+                    (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+            } else if (key == "RESUME_FROM_BEST_CHECKPOINT") {
+                std::string lower = value;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                config.resume_from_best_checkpoint =
                     (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
             } else if (key == "AUTO_SAVE_EVERY_SAMPLES") {
                 config.auto_save_every_samples = std::stoi(value);
@@ -887,6 +892,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     // Auto-save / checkpoint retention
     if (auto val = get_env_bool("AUTO_SAVE_ENABLED")) {
         config.auto_save_enabled = *val;
+    }
+    if (auto val = get_env_bool("RESUME_FROM_BEST_CHECKPOINT")) {
+        config.resume_from_best_checkpoint = *val;
     }
     if (auto val = get_env_int("AUTO_SAVE_EVERY_SAMPLES")) {
         config.auto_save_every_samples = *val;
