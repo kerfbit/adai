@@ -117,6 +117,14 @@ are what `ChatbotTrainer` uses whenever `ADAI_ENABLE_GPU` is set. That means **e
 >
 > **Every checkpoint trained on the GPU path is affected** and needs retraining after the fix: shift
 > the decoder input in `gpu_forward()` exactly as `forward()` does.
+>
+> **Fixed in code October 17, 2026 (TD-358):** `forward()` and `gpu_forward()` now build the decoder
+> input with one shared helper, `make_decoder_input()` (`[BOS] + target[:-1]`); `gpu_forward()` rejects
+> an empty target. Verified on the oneAPI CPU SYCL device with the real classes: before the change,
+> `gpu_forward()`'s loss equalled the unshifted-input CPU loss exactly (e.g. 4.879566 vs a shifted
+> 4.751482); after it, it equals the CPU `forward()` loss exactly (0.000000 difference on three pairs).
+> `EncoderDecoderGPUTest.GpuForwardLossMatchesCpuForwardTeacherForcing` guards it (it also needs the
+> TD-384 kernel fix to pass). The on-device run on ai-machine and the retraining remain.
 
 ---
 
@@ -224,7 +232,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `gpu_forward()`/`gpu_backward()`/`gpu_evaluate()` use unshifted targets as decoder input (§4) | **GPU-trained models learn to copy instead of predict**: near-zero loss, unusable generation; every GPU checkpoint needs retraining | **Verified** (CPU reproduction of the same alignment) | [TD-358](../../guides/TECHNICAL_DEBT.md#td-358-gpu-training-feeds-unshifted-targets-teaching-the-model-to-copy-instead-of-predict) |
+| `gpu_forward()`/`gpu_backward()`/`gpu_evaluate()` use unshifted targets as decoder input (§4) | **GPU-trained models learn to copy instead of predict**: near-zero loss, unusable generation; every GPU checkpoint needs retraining | **Verified** (CPU reproduction of the same alignment); **code fix landed October 17, 2026** (on-device run and retraining remain) | [TD-358](../../guides/TECHNICAL_DEBT.md#td-358-gpu-training-feeds-unshifted-targets-teaching-the-model-to-copy-instead-of-predict) |
 | `generate_response()`/`gpu_generate_response()` ignore `max_length` (§5) | Trainer quality metrics/backfill generate up to `max_seq_length`; caller limits silently ignored | **Verified** | [TD-359](../../guides/TECHNICAL_DEBT.md#td-359-generate_response-and-gpu_generate_response-ignore-max_length) |
 | No-optimizer path never updates (or sets the LR of) the encoder (§3) | `train_step()`/`update_weights()` train only decoder + head | **Verified** | [TD-360](../../guides/TECHNICAL_DEBT.md#td-360-encoderdecodermodel-no-optimizer-path-never-updates-the-encoder) |
 | Double `BOS` in training targets (§3) | Wasted step and `max_length` slot in every generation | **Verified** | [TD-361](../../guides/TECHNICAL_DEBT.md#td-361-training-targets-get-a-double-bos) |

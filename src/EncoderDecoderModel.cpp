@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.18.0
-// @adai-reviewed: 2026-09-18
+// @adai-version: 0.18.1
+// @adai-reviewed: 2026-10-17
 
 #include "EncoderDecoderModel.hpp"
 #include <algorithm>
@@ -910,6 +910,20 @@ std::unique_ptr<EncoderDecoderModel> EncoderDecoderModel::clone() const {
     return copy;
 }
 
+std::vector<int> EncoderDecoderModel::make_decoder_input(
+    const std::vector<int>& target_tokens) const {
+    // TD-060: `i + 1 < size()` rather than `i < size() - 1`, which underflows for an empty target.
+    // TODO: See TD-361 in TECHNICAL_DEBT.md - targets already start with BOS (encode(..., true)),
+    // so this doubles it
+    std::vector<int> decoder_input;
+    decoder_input.reserve(target_tokens.size());
+    decoder_input.push_back(bos_token_id);
+    for (size_t i = 0; i + 1 < target_tokens.size(); ++i) {
+        decoder_input.push_back(target_tokens[i]);
+    }
+    return decoder_input;
+}
+
 // Forward pass
 Matrix EncoderDecoderModel::forward(const std::vector<int>& input_tokens,
                                     const std::vector<int>& target_tokens) {
@@ -939,12 +953,7 @@ Matrix EncoderDecoderModel::forward(const std::vector<int>& input_tokens,
     // out-of-bounds read that crashes immediately — confirmed via ASan (SEGV).
     // `forward()` is a public, documented "custom training loops" API, so an
     // empty target_tokens is a plausible caller input, not just theoretical.
-    std::vector<int> decoder_input;
-    // TODO: See TD-361 in TECHNICAL_DEBT.md - targets already start with BOS (encode(..., true)), so this doubles it
-    decoder_input.push_back(bos_token_id);
-    for (size_t i = 0; i + 1 < target_tokens.size(); ++i) {
-        decoder_input.push_back(target_tokens[i]);
-    }
+    std::vector<int> decoder_input = make_decoder_input(target_tokens);
 
     // TD-186: gated world-model / hippocampal cross-attention wiring — see this method's own
     // doc comment (EncoderDecoderModel.hpp) for the full rationale. Both remain no-ops when not
@@ -1023,6 +1032,11 @@ void EncoderDecoderModel::gpu_zero_grads() {
 
 float EncoderDecoderModel::gpu_forward(const std::vector<int>& input_tokens,
                                        const std::vector<int>& target_tokens) {
+    // The decoder input has one row per target (TD-358), so an empty target has nothing to score
+    // and the logits/label row counts the GPU loss and gradient rely on would disagree.
+    if (target_tokens.empty()) {
+        throw std::invalid_argument("EncoderDecoderModel::gpu_forward: empty target sequence");
+    }
     cached_target_tokens = target_tokens;
     const int tgt_len = static_cast<int>(target_tokens.size());
 
@@ -1036,9 +1050,13 @@ float EncoderDecoderModel::gpu_forward(const std::vector<int>& input_tokens,
     // Encoder
     gpu_encoder_out_ = std::make_unique<adai::gpu::GPUMatrix>(encoder->gpu_encode(input_tokens));
 
-    // Decoder (caches its block inputs/outputs for backward internally)
-    // TODO: See TD-358 in TECHNICAL_DEBT.md - CRITICAL: unshifted targets as decoder input; GPU training learns to copy, not predict. Use [BOS] + target[:-1] like forward()
-    adai::gpu::GPUMatrix dec_out = decoder->gpu_decode(target_tokens, *gpu_encoder_out_);
+    // Decoder (caches its block inputs/outputs for backward internally). TD-358: teacher forcing
+    // feeds `[BOS] + target[:-1]` (exactly what forward() feeds) while `target_tokens` stay the
+    // labels below, so logits row t predicts target[t] from the targets before it. Feeding the
+    // targets themselves let position t see the token it was scored against, so GPU training
+    // learned to copy its input instead of predicting the next token.
+    const std::vector<int> decoder_input = make_decoder_input(target_tokens);
+    adai::gpu::GPUMatrix dec_out = decoder->gpu_decode(decoder_input, *gpu_encoder_out_);
 
     // LM head (caches dec_out internally)
     gpu_logits_ = std::make_unique<adai::gpu::GPUMatrix>(lm_head->gpu_forward(dec_out));
@@ -1048,7 +1066,8 @@ float EncoderDecoderModel::gpu_forward(const std::vector<int>& input_tokens,
                                                     gpu_targets_dev_->get(), tgt_len, vocab_size);
 }
 
-// TODO: See TD-358 in TECHNICAL_DEBT.md - gradient uses the same misaligned targets as gpu_forward()
+// TD-358: labels are `target_tokens` (cached by gpu_forward()), aligned with the shifted decoder
+// input.
 void EncoderDecoderModel::gpu_backward(float scale) {
     const int tgt_len = static_cast<int>(cached_target_tokens.size());
 
@@ -1094,7 +1113,6 @@ float EncoderDecoderModel::gpu_evaluate(const std::string& input_text,
     return gpu_evaluate_tokenized(input_tokens, target_tokens);
 }
 
-// TODO: See TD-358 in TECHNICAL_DEBT.md - validation loss inherits gpu_forward()'s misalignment (looks misleadingly low)
 float EncoderDecoderModel::gpu_evaluate_tokenized(const std::vector<int>& input_tokens,
                                                   const std::vector<int>& target_tokens) {
     bool prev_mode = requires_grad;

@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.18.0
-// @adai-reviewed: 2026-09-18
-
+// @adai-version: 0.18.1
+// @adai-reviewed: 2026-10-17
 
 #include <functional>
 #include <iostream>
@@ -123,6 +122,13 @@ class EncoderDecoderModel {
     Matrix cached_decoder_output;
     std::vector<int> cached_input_tokens;
     std::vector<int> cached_target_tokens;
+
+    // TD-358: the teacher-forcing decoder input for `target_tokens` — `[BOS] + target[:-1]`, so
+    // decoder position t sees only targets before t and its logits row is scored against
+    // target[t]. Shared by forward() and gpu_forward() so the CPU and GPU training paths can't
+    // drift apart again (gpu_forward() used to feed the targets unshifted, teaching the model to
+    // copy its input). Returns just `[BOS]` for an empty target.
+    std::vector<int> make_decoder_input(const std::vector<int>& target_tokens) const;
 
     // TD-156: forward()/backward()/generate_response()/generate_response_with_strategy() all
     // read and write the four cached_* members above with no synchronization of their own.

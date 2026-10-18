@@ -1134,7 +1134,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
 
 #ifdef ADAI_ENABLE_GPU
             // GPU path: forward + cross-entropy loss entirely on device
-            // TODO: See TD-358 in TECHNICAL_DEBT.md - gpu_forward() trains on unshifted targets (learns to copy); every GPU checkpoint is affected
+            // TD-358: gpu_forward() teacher-forces with [BOS] + target[:-1], like the CPU forward().
             loss = model->gpu_forward(pair.input_tokens, pair.target_tokens);
 
             // Backfill quality from loss

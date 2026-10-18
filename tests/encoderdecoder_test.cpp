@@ -2063,6 +2063,51 @@ TEST(EncoderDecoderModelWorldModelTest, GenerateResponseWritesToHippocampalMemor
     }
 }
 
+#ifdef ADAI_ENABLE_GPU
+// ============================================================================
+// TD-358: gpu_forward() must teacher-force exactly like the CPU forward()
+// ([BOS] + target[:-1] as decoder input, target as labels). It used to feed the
+// targets unshifted, so GPU training learned to copy its input. Same weights must
+// give the same loss on both paths. Skips without a GPU device (ai-machine runs it).
+// ============================================================================
+
+TEST(EncoderDecoderGPUTest, GpuForwardLossMatchesCpuForwardTeacherForcing) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
+    EncoderDecoderModel model(64, 32, 1, 1, 2, 64, 32);
+    model.get_tokenizer()->build_vocab(
+        {"the cat sat on the mat", "a dog ran far away home", "big red ball and happy girl"}, 64);
+    BPETokenizer* tok = model.get_tokenizer();
+    model.set_training(true);
+    model.gpu_init_training();
+
+    const std::vector<std::pair<std::string, std::string>> pairs = {{"the cat sat", "on the mat"},
+                                                                    {"a dog ran", "far away home"},
+                                                                    {"big red ball", "happy girl"}};
+    for (const auto& [input, target] : pairs) {
+        const std::vector<int> in = tok->encode(input, false);
+        const std::vector<int> tgt = tok->encode(target, true);
+        const float cpu_loss = model.compute_loss_for_training(model.forward(in, tgt), tgt);
+        const float gpu_loss = model.gpu_forward(in, tgt);
+        EXPECT_NEAR(gpu_loss, cpu_loss, 1e-3f) << "target '" << target << "'";
+    }
+}
+
+TEST(EncoderDecoderGPUTest, GpuForwardRejectsEmptyTarget) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
+    EncoderDecoderModel model(64, 32, 1, 1, 2, 64, 32);
+    model.gpu_init_training();
+    EXPECT_THROW(model.gpu_forward({4, 5}, {}), std::invalid_argument);
+}
+#endif  // ADAI_ENABLE_GPU
+
 // ============================================================================
 // Main
 // ============================================================================

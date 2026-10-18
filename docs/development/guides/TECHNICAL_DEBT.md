@@ -8082,7 +8082,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Models / EncoderDecoderModel | October 11, 2026 | 1-2 hours (plus retraining every GPU-trained checkpoint) |
+| **HIGH** | Open — code fix landed October 17, 2026 | Models / EncoderDecoderModel | October 11, 2026 | 1-2 hours (plus retraining every GPU-trained checkpoint) |
 
 Description:
 Found while writing the code-traced reference [EncoderDecoderModel.md](../reference/source/EncoderDecoderModel.md). `EncoderDecoderModel::gpu_forward()`
@@ -8104,10 +8104,19 @@ exact decoder input, on a tiny echo task (150 epochs each):
 The GPU-style model reaches equally low loss but can't generate: it learned "output the token I was
 given". Every checkpoint trained on the GPU path needs retraining after the fix.
 
+**Fix landed October 17, 2026:** `EncoderDecoderModel::make_decoder_input()` builds `[BOS] + target[:-1]` and both `forward()` and
+`gpu_forward()` use it (`target_tokens` stay the labels, so `gpu_backward()` needed no change); `gpu_forward()` now throws
+`invalid_argument` for an empty target. Verified on the oneAPI CPU SYCL device (scratch build with CPU devices enabled): pre-fix
+`gpu_forward()` loss matched the unshifted CPU reference exactly (4.879566, against the shifted 4.751482); post-fix it matches the CPU
+`forward()` loss exactly on three pairs. New tests `EncoderDecoderGPUTest.GpuForwardLossMatchesCpuForwardTeacherForcing` (failed
+before the fix, passes after) and `GpuForwardRejectsEmptyTarget` run on any GPU build with a device; the first also fails while the
+TD-384 kernel race is present, so the two land together. Remaining: run the tests on ai-machine, then retrain.
+
 Action Items:
 
-- [ ] In `gpu_forward()`, build the decoder input exactly as `forward()` does (`[BOS] + target[:-1]`, via one shared helper) while keeping `targets` as the labels.
-- [ ] Add a CPU-vs-GPU equivalence test (same weights → same logits and loss for `forward()` and `gpu_forward()`), run on ai-machine; until GPU CI exists, ship a run package for the remote host.
+- [x] In `gpu_forward()`, build the decoder input exactly as `forward()` does (`[BOS] + target[:-1]`, via one shared helper) while keeping `targets` as the labels.
+- [x] Add a CPU-vs-GPU equivalence test (same weights → same logits and loss for `forward()` and `gpu_forward()`).
+- [ ] Run it on ai-machine (with TD-384's fix); until GPU CI exists, ship a run package for the remote host.
 - [ ] Retrain affected models; consider bumping the checkpoint format version so GPU-trained pre-fix checkpoints are flagged.
 
 Location in code: `src/EncoderDecoderModel.cpp` (`gpu_forward()`); tagged `TODO: See TD-358`.
