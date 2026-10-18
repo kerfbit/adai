@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-033 — GPU dispatch still round-trips per op, see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.1
-// @adai-reviewed: 2026-09-12
+// @adai-version: 0.9.2
+// @adai-reviewed: 2026-10-17
 
 #include "Matrix.hpp"
 #include <iomanip>
@@ -118,8 +118,10 @@ Matrix Matrix::operator*(const Matrix& other) const {
     // are large enough for cuBLAS SGEMM to outperform AVX2.  We do NOT gate on
     // 'rows' so that short-sequence inputs (seq_len < 32) still benefit from
     // fast weight-matrix multiplications (d_model × d_model, d_model × d_ff).
-    // TODO: See TD-382 in TECHNICAL_DEBT.md - dispatches to the shared GPU stream from any thread, unsynchronized
-    if (adai::gpu::GPUManager::is_available() && cols >= 32 && other.cols >= 32) {
+    // TD-382: a thread holding adai::gpu::ScopedCpuOnly (e.g. the async quality scorer) stays on
+    // the CPU instead of sharing the training thread's GPU stream/queue.
+    if (adai::gpu::GPUManager::is_available() && adai::gpu::implicit_gpu_dispatch_allowed() &&
+        cols >= 32 && other.cols >= 32) {
         return multiply_gpu(other);
     }
 #endif  // ADAI_ENABLE_GPU
@@ -862,8 +864,8 @@ Matrix Matrix::multiply_gpu(const Matrix& other) const {
         throw std::invalid_argument("Matrix dimensions incompatible for multiplication");
     }
 
-    if (!gpu_available()) {
-        // CPU fallback
+    if (!gpu_available() || !adai::gpu::implicit_gpu_dispatch_allowed()) {
+        // CPU fallback (also for a thread holding ScopedCpuOnly, TD-382)
         return (*this) * other;
     }
 

@@ -53,7 +53,7 @@ All state is `inline static`, so there's one manager per process and **no lockin
 | `set_device(d)` | Bounds-checks and calls `cudaSetDevice(d)`. Its doc says it "also resets the memory budget to the new device's capacity", but **it doesn't**. It also doesn't recreate the stream or cuBLAS handle, which stay bound to the old device, so any GPU work after switching would fail or run on the old device's stream. **No caller exists** |
 | `get_cublas_handle()`, `get_stream()` | Throw before `initialize()` |
 | `get_memory_limit_bytes()`, `get_used_memory_bytes()`, `get_available_memory_bytes()` | Budget getters. Tests only |
-| `reserve_memory(bytes)` / `release_memory(bytes)` | Called by `GPUMemory`. Reserve throws when the budget would be exceeded (budget 0 = unlimited, which is the state before `initialize()`). Release clamps at 0. **`allocated_bytes_` is a plain `size_t`**, so concurrent allocations from different threads race (see §4) |
+| `reserve_memory(bytes)` / `release_memory(bytes)` | Called by `GPUMemory`. Reserve throws when the budget would be exceeded (budget 0 = unlimited, which is the state before `initialize()`). Release clamps at 0. Guarded by `memory_mutex_` since TD-382's fix (it used to be an unlocked `size_t`; see §4) |
 | `get_device_info(device = -1)` | Device name, compute capability, memory, SMs, threads per block, and the ADAI budget for the current device. Throws `out_of_range` for an invalid or never-initialized device. Used by `Matrix::gpu_info()` for the startup log |
 | `synchronize()` | `cudaStreamSynchronize` on ADAI's stream only. Used by `EncoderDecoderModel::gpu_synchronize()` |
 
@@ -88,6 +88,16 @@ go to cuBLAS on the shared stream, concurrently with the training thread. The sh
 The budget counter can lose updates, and NVIDIA recommends against sharing one cuBLAS handle across
 concurrently running host threads.
 
+**Fixed in code October 17, 2026 (TD-382):**
+- The budget counter and limit are now guarded by `memory_mutex_`, as in the SYCL manager.
+- cuBLAS calls hold `GPUManager::cublas_mutex()`. They only enqueue work, so the lock is brief.
+- A thread can opt out of `Matrix::operator*`'s implicit GPU dispatch with `adai::gpu::ScopedCpuOnly`,
+  which is per-thread and nestable and is defined in every build. The async BLEU/ROUGE thread now
+  holds one, so it really is CPU-only.
+
+Explicit GPU calls (`GPUMatrix`, `gpu_forward()`) don't check the scope. Other threads that multiply
+large matrices still share the stream, but no longer race on the counter or the handle.
+
 ---
 
 ## 5. Tests
@@ -110,7 +120,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
 | `chatbot_api_server` ignores `GPU_STRATEGY` (always low priority) although its config ships `full` (§4) | The documented serving GPU mode doesn't take effect | By inspection (definite) | [TD-381](../../guides/TECHNICAL_DEBT.md#td-381-chatbot_api_server-ignores-gpu_strategy) |
-| No locking: `allocated_bytes_` and the cuBLAS handle are shared by every thread, and `Matrix::operator*` uses the GPU from any thread, including the "CPU-only" async quality thread (§2, §4) | Lost budget updates; unsupported concurrent cuBLAS handle use during training | By inspection | [TD-382](../../guides/TECHNICAL_DEBT.md#td-382-gpu-work-from-any-thread-shares-unsynchronized-gpumanager-state) |
+| No locking: `allocated_bytes_` and the cuBLAS handle are shared by every thread, and `Matrix::operator*` uses the GPU from any thread, including the "CPU-only" async quality thread (§2, §4) | Lost budget updates; unsupported concurrent cuBLAS handle use during training | By inspection; **fixed in code October 17, 2026** | [TD-382](../../guides/TECHNICAL_DEBT.md#td-382-gpu-work-from-any-thread-shares-unsynchronized-gpumanager-state) |
 | `set_device()` doesn't rebind the stream or cuBLAS handle and doesn't reset the budget, contrary to its doc; no caller (§2) | A latent trap for multi-GPU use | By inspection | [TD-383](../../guides/TECHNICAL_DEBT.md#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize) |
 | `cleanup()` zeroes the budget while `GPUMemory` buffers still exist; `initialize()` ignores new arguments once initialized and leaks the stream on partial failure; `probe_diagnostic()` hides the error; unchecked `count × sizeof(T)` (§2–3) | Wrong accounting after re-init; confusing diagnostics | By inspection | [TD-383](../../guides/TECHNICAL_DEBT.md#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize) |
 | Nothing runs on a real CUDA device in any environment used so far | All device paths unverified | — | — (needs a CUDA host) |

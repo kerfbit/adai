@@ -2,6 +2,8 @@
 #include <../gtest/gtest.h>
 #include <cmath>
 #include <stdexcept>
+#include <thread>
+#include "../src/gpu/GPUUtils.hpp"
 
 // ============================================================================
 // Constructor Tests
@@ -759,4 +761,50 @@ TEST(MatrixEdgeCaseTest, LargeMatrix) {
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+
+// TD-382: ScopedCpuOnly is a per-thread, nestable opt-out of Matrix::operator*'s implicit GPU
+// dispatch. It must not leak to other threads, must unwind with nesting, and must not change
+// results (on a GPU build the products below would otherwise go to the GPU).
+TEST(MatrixTest, ScopedCpuOnlyIsPerThreadAndNestable) {
+    EXPECT_TRUE(adai::gpu::implicit_gpu_dispatch_allowed());
+    {
+        const adai::gpu::ScopedCpuOnly outer;
+        EXPECT_FALSE(adai::gpu::implicit_gpu_dispatch_allowed());
+        {
+            const adai::gpu::ScopedCpuOnly inner;
+            EXPECT_FALSE(adai::gpu::implicit_gpu_dispatch_allowed());
+        }
+        EXPECT_FALSE(adai::gpu::implicit_gpu_dispatch_allowed());
+
+        bool other_thread_allowed = false;
+        std::thread t([&] { other_thread_allowed = adai::gpu::implicit_gpu_dispatch_allowed(); });
+        t.join();
+        EXPECT_TRUE(other_thread_allowed);
+    }
+    EXPECT_TRUE(adai::gpu::implicit_gpu_dispatch_allowed());
+}
+
+TEST(MatrixTest, ScopedCpuOnlyMultiplyMatchesUnscoped) {
+    // On a GPU build with a device, the unscoped product goes to the GPU and the scoped one stays
+    // on the CPU; elsewhere both are CPU products.
+    const bool gpu = adai::gpu::GPUManager::probe() && adai::gpu::GPUManager::initialize(0, 0.5f);
+    Matrix a(40, 48), b(48, 64);
+    for (int i = 0; i < a.rows; ++i)
+        for (int j = 0; j < a.cols; ++j) a(i, j) = std::sin(0.1f * static_cast<float>(i * 7 + j));
+    for (int i = 0; i < b.rows; ++i)
+        for (int j = 0; j < b.cols; ++j) b(i, j) = std::cos(0.2f * static_cast<float>(i + 3 * j));
+    const Matrix expected = a * b;
+    Matrix scoped(1, 1);
+    std::thread t([&] {
+        const adai::gpu::ScopedCpuOnly cpu_only;
+        scoped = a * b;
+    });
+    t.join();
+    ASSERT_EQ(scoped.rows, expected.rows);
+    ASSERT_EQ(scoped.cols, expected.cols);
+    for (int i = 0; i < expected.rows; ++i)
+        for (int j = 0; j < expected.cols; ++j)
+            EXPECT_NEAR(scoped(i, j), expected(i, j), 1e-4f);
+    if (gpu) adai::gpu::GPUManager::cleanup();
 }

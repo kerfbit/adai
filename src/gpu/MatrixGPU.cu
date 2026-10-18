@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-061 resolved — layer_norm_bwd's math bug fixed and verified analytically/numerically; most kernels still have no dedicated test and need real GPU hardware to verify, see TECHNICAL_DEBT_RESOLVED.md)
-// @adai-version: 0.9.1
+// @adai-version: 0.9.2
 // @adai-reviewed: 2026-10-17
 
 #ifdef ADAI_ENABLE_GPU
@@ -8,6 +8,7 @@
 #include "GPUUtils.hpp"
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
+#include <mutex>
 
 namespace adai {
 namespace gpu {
@@ -347,6 +348,8 @@ void matrix_multiply_gpu(const float* a, const float* b, float* c,
                         int m, int k, int n) {
     // cuBLAS handle is already bound to the low-priority ADAI stream.
     cublasHandle_t handle = GPUManager::get_cublas_handle();
+    // TD-382: the handle is shared by every host thread; cublasSgemm only enqueues work.
+    std::lock_guard<std::mutex> lock(GPUManager::cublas_mutex());
 
     const float alpha = 1.0f;
     const float beta  = 0.0f;
@@ -540,6 +543,8 @@ void matrix_batch_multiply_gpu(const float** a_batch, const float** b_batch,
     // cuBLAS uses column-major storage; our matrices are row-major.
     // By swapping A and B (computing B×A in column-major == A×B in row-major)
     // we obtain the correct result without any explicit transpose.
+    {
+    std::lock_guard<std::mutex> lock(GPUManager::cublas_mutex());  // TD-382
     CUBLAS_CHECK(cublasSgemmBatched(handle,
                                      CUBLAS_OP_N, CUBLAS_OP_N,
                                      n, m, k,
@@ -549,6 +554,7 @@ void matrix_batch_multiply_gpu(const float** a_batch, const float** b_batch,
                                      &beta,
                                      d_c, n,
                                      batch_size));
+    }
 
     // Stream-ordered frees: these execute after cublasSgemmBatched finishes
     // on the device, so the pointer arrays remain valid for the full GEMM.

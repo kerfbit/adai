@@ -8839,7 +8839,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | GPU / GPUManager | October 12, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 17, 2026 | GPU / GPUManager | October 12, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `GPUUtils.hpp`, by inspection. `GPUManager`'s state is process-wide
@@ -8855,16 +8855,34 @@ model runs on the GPU. CUDA-side analysis only; the SYCL manager will be checked
 
 Action Items:
 
-- [ ] Decide on the threading model: either a mutex (or atomic counter plus a per-thread cuBLAS handle) in `GPUManager`, or a thread-local "CPU only" override that the async quality thread sets so its `Matrix` math really stays on the CPU.
-- [ ] Correct the async-path comment in `ChatbotTrainer::compute_generation_quality_metrics()`.
-- [ ] Test (on a GPU host): concurrent `Matrix` multiplies from two threads keep the budget counter exact.
+- [x] Decide on the threading model: either a mutex (or atomic counter plus a per-thread cuBLAS handle) in `GPUManager`, or a thread-local "CPU only" override that the async quality thread sets so its `Matrix` math really stays on the CPU.
+- [x] Correct the async-path comment in `ChatbotTrainer::compute_generation_quality_metrics()`.
+- [x] Test (on a GPU host): concurrent `Matrix` multiplies from two threads keep the budget counter exact. Covered by `ConcurrentReserveReleaseKeepsCounterExact`, verified on the oneAPI CPU device; a CUDA run is still pending.
 
 **SYCL amendment (October 12, 2026, [GPUUtils_SYCL.md](../reference/source/GPUUtils_SYCL.md)):** the
 SYCL manager already guards `max_memory_bytes_`/`allocated_bytes_` with `memory_mutex_`, and
 `sycl::queue` is thread-safe for submission, so on SYCL (ai-machine) this item reduces to the
 cross-thread GPU use itself (the async quality thread sharing the training queue), not a counter race.
 
-Location in code: `src/gpu/GPUUtils.hpp` (`GPUManager` state), `src/Matrix.cpp` (`operator*` dispatch), `src/ChatbotTrainer.cpp` (async quality comment); tagged `TODO: See TD-382`.
+**Fix landed October 17, 2026:** both options, since they address different threads.
+- `adai::gpu::ScopedCpuOnly` (in `GPUUtils.hpp`, defined in every build) is a per-thread, nestable
+  opt-out that `Matrix::operator*` and `multiply_gpu()` check before dispatching. The async quality
+  thread holds one for its whole run, so its clone's products stay on the CPU and its comment is now
+  true.
+- The CUDA manager guards `max_memory_bytes_`/`allocated_bytes_` with `memory_mutex_`, like SYCL.
+- Both cuBLAS call sites hold `GPUManager::cublas_mutex()` while enqueuing, which covers any other
+  thread (e.g. `chatbot_api_server` request threads) that still multiplies on the GPU.
+
+Verified on the oneAPI CPU device (scratch build, device selection widened):
+- the new `GPUManagerTest.ConcurrentReserveReleaseKeepsCounterExact` (8 threads × 20,000
+  reserve/release pairs) passes;
+- the new `MatrixTest.ScopedCpuOnlyMultiplyMatchesUnscoped` passes, and a temporary probe in
+  `multiply_gpu()` showed exactly one GPU dispatch (the unscoped product), none from the scoped thread.
+
+`ScopedCpuOnlyIsPerThreadAndNestable` also runs in the debug build. The CUDA changes compile
+(`cuda-gputest`) but haven't been run, since no CUDA device is available.
+
+Location in code: `src/gpu/GPUUtils.hpp` (`GPUManager` state), `src/Matrix.cpp` (`operator*` dispatch), `src/ChatbotTrainer.cpp` (async quality comment); the `TODO: See TD-382` tags are now `TD-382:` fix comments.
 
 Files to Modify:
 

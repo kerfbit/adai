@@ -23,7 +23,7 @@ The GPU is enabled at process startup by `Matrix::gpu_try_initialize()`, called 
 `GPU_MEMORY_FRACTION` and (trainer only, TD-381) `GPU_STRATEGY`. Once initialized:
 
 - `Matrix::operator*` sends any product whose inner dimensions are both at least 32 to the GPU
-  (`multiply_gpu()`), from any thread (see TD-382).
+  (`multiply_gpu()`), from any thread unless that thread holds `adai::gpu::ScopedCpuOnly` (TD-382).
 - Each layer has a persistent GPU path (`gpu_upload_weights()`, `gpu_forward()`,
   `gpu_backward()`, …) that works in `GPUMatrix` and keeps weights and activations on the device.
 - `EncoderDecoderModel` uses those paths for GPU training (`gpu_forward()`/`gpu_backward()`) and for
@@ -88,6 +88,6 @@ CPU SYCL devices are ignored.
   CUDA and SYCL builds compile, and GPU-gated tests skip without a device. ai-machine runs the SYCL
   backend in production training.
 - Open items are tracked in [TECHNICAL_DEBT.md](../../docs/development/guides/TECHNICAL_DEBT.md),
-  notably TD-384 (a shared-memory race in the softmax, LayerNorm and cross-entropy kernels, in both
-  backends), TD-358 (GPU training feeds unshifted targets), TD-382 (no locking across threads) and
+  notably TD-384 (kernel shared-memory race), TD-358 (unshifted GPU training targets) and TD-382
+  (cross-thread GPU use), all fixed in code October 17, 2026 but not yet run on ai-machine, and
   TD-387 (over-length input fails GPU generation).

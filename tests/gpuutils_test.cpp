@@ -21,6 +21,7 @@
 
 #include <gtest/gtest.h>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 #include "../src/gpu/GPUUtils.hpp"
 
@@ -239,4 +240,29 @@ TEST_F(GPUManagerTest, GPUMemoryOutOfRangeCopyThrows) {
     std::vector<float> host(8, 0.0f);
     EXPECT_THROW(mem.copy_from_host(host.data(), host.size()), std::out_of_range);
     EXPECT_THROW(mem.copy_to_host(host.data(), host.size()), std::out_of_range);
+}
+
+// TD-382: GPUMemory (and so the budget counter) is used from more than one host thread -- the
+// training thread plus any thread doing large Matrix products -- so concurrent reserve/release
+// must not lose updates.
+TEST_F(GPUManagerTest, ConcurrentReserveReleaseKeepsCounterExact) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f));
+    const size_t before = GPUManager::get_used_memory_bytes();
+    constexpr int kThreads = 8, kIters = 20000;
+    std::vector<std::thread> threads;
+    for (int t = 0; t < kThreads; ++t) {
+        threads.emplace_back([] {
+            for (int i = 0; i < kIters; ++i) {
+                GPUManager::reserve_memory(64);
+                GPUManager::release_memory(64);
+            }
+            GPUManager::reserve_memory(1);
+        });
+    }
+    for (auto& th : threads) th.join();
+    EXPECT_EQ(GPUManager::get_used_memory_bytes(), before + kThreads);
+    GPUManager::release_memory(kThreads);
 }

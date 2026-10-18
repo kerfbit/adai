@@ -120,7 +120,9 @@ and select it with the existing `adai::simd` CPUID helpers in `MatrixSIMD.hpp`.
 - `const` operations are safe to call concurrently on the same matrix; mutation isn't (no locking,
   as for `std::vector`).
 - `randomize()` races on its static generator (§2).
-- The GPU auto-dispatch from any thread shares one unsynchronized stream (TD-382).
+- The GPU auto-dispatch runs from any thread on the shared stream. Since TD-382's fix (October 17, 2026),
+  a thread holding `adai::gpu::ScopedCpuOnly` stays on the CPU, and the CUDA budget counter and cuBLAS
+  handle are locked.
 - The block comment at the top of `Matrix.cpp` documents ThreadSanitizer reports inside the OpenMP
   regions as a GCC-libgomp + TSan false positive (libgomp isn't TSan-instrumented); that analysis
   still matches the code.

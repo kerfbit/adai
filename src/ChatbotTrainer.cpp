@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.10.1
-// @adai-reviewed: 2026-09-17
+// @adai-version: 0.10.2
+// @adai-reviewed: 2026-10-17
 
 #include "ChatbotTrainer.hpp"
 #include <algorithm>
@@ -20,6 +20,7 @@
 #include "ConversationContext.hpp"
 #include "GenerationQualityMetrics.hpp"
 #include "Logger.hpp"
+#include "gpu/GPUUtils.hpp"
 #ifdef ADAI_ENABLE_OPENMP
 #include <omp.h>
 #endif
@@ -1751,15 +1752,15 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
         // Async path (TD-023): snapshot model weights and score in a background thread
         // so the training loop can begin the next epoch without waiting.
         //
-        // TODO: See TD-382 in TECHNICAL_DEBT.md - not actually CPU-only: the clone's Matrix products still go
-        // to the shared GPU stream (Matrix::operator*) concurrently with the training thread
-        // Deliberately still CPU-only (snap->generate_response(), not
+        // Deliberately CPU-only (snap->generate_response(), not
         // gpu_generate_response()): clone() rebuilds the model via
         // save_model()+load_model() and never calls gpu_init_training(), so
         // the clone's GPU-resident weight mirrors are never populated.
         // Wiring this up would also mean a background thread submitting
         // kernels to the same shared GPUManager queue concurrently with the
         // main training thread — needs its own validation before enabling.
+        // TD-382: the thread holds a ScopedCpuOnly, because otherwise the clone's large
+        // Matrix products would still go to the shared GPU stream via Matrix::operator*.
         std::unique_ptr<EncoderDecoderModel> snapshot = model->clone();
 
         std::vector<std::string> refs, inputs;
@@ -1776,6 +1777,7 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
         generation_quality_thread_.emplace([snap = std::move(snapshot), refs = std::move(refs),
                                             inputs = std::move(inputs), max_tokens,
                                             reporter]() mutable {
+            const adai::gpu::ScopedCpuOnly cpu_only;  // TD-382
             snap->set_training(false);
             std::vector<std::string> hypotheses;
             hypotheses.reserve(inputs.size());

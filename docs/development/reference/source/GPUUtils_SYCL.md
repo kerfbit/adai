@@ -29,7 +29,7 @@ ordering") is about this queue.
 | Aspect | CUDA ([GPUUtils.md](GPUUtils.md)) | SYCL (this file) |
 |---|---|---|
 | Ordering | Non-blocking stream | **In-order queue** |
-| Budget counters | Unlocked (TD-382) | Guarded by `memory_mutex_` (a ThreadSanitizer-confirmed race fixed earlier) |
+| Budget counters | Guarded by `memory_mutex_` since TD-382's fix (October 17, 2026) | Guarded by `memory_mutex_` (a ThreadSanitizer-confirmed race fixed earlier) |
 | Freeing | `cudaFree` (synchronous) | **Deferred**: a `host_task` on the queue calls `sycl::free` and releases the budget |
 | Uploads/downloads | Async upload; download synchronizes the stream | **Both** `.wait()` on the queue (full drain) |
 | `set_device()` | Doesn't rebuild anything (TD-383) | Recreates the queue (but see §2) |
@@ -99,5 +99,5 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | GPUs enumerated across all platforms, so one Arc card appears twice (Level Zero and OpenCL); `GPU_DEVICE_ID` picks by platform order and the chosen backend isn't logged (§2) | The trainer may run on the OpenCL backend instead of Level Zero without anyone knowing | By inspection | [TD-391](../../guides/TECHNICAL_DEBT.md#td-391-sycl-lists-the-same-gpu-once-per-platform-and-doesnt-log-the-backend) |
 | `GPUMemory(0)` throws on SYCL but not CUDA (§3) | Zero-size `GPUMatrix` (empty sequences) fails only on SYCL | **Verified** (`malloc_device(0)` → `nullptr`) | [TD-392](../../guides/TECHNICAL_DEBT.md#td-392-sycl-gpumemory0-throws-where-cuda-succeeds) |
 | `set_device()` frees old-context allocations with the new queue and doesn't recompute the budget; `cleanup()` leaks live buffers by design and zeroes the counter; `initialize()` ignores new arguments when already initialized (§2) | Latent traps for multi-GPU and re-initialization | By inspection | [TD-383](../../guides/TECHNICAL_DEBT.md#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize) (amended) |
-| Unlike CUDA, the budget is locked; the queue itself is thread-safe for submission | TD-382 is milder on SYCL | By inspection | [TD-382](../../guides/TECHNICAL_DEBT.md#td-382-gpu-work-from-any-thread-shares-unsynchronized-gpumanager-state) (amended) |
+| Unlike CUDA, the budget is locked; the queue itself is thread-safe for submission | TD-382 is milder on SYCL; the shared fix (`ScopedCpuOnly` for the async quality thread) covers it | By inspection; **fixed in code October 17, 2026** | [TD-382](../../guides/TECHNICAL_DEBT.md#td-382-gpu-work-from-any-thread-shares-unsynchronized-gpumanager-state) (amended) |
 | Nothing has run on a real Intel GPU in the development environment | — | — | — |

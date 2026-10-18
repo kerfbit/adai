@@ -2,13 +2,42 @@
 #define GPU_UTILS_HPP
 
 // @adai-status: beta        (TD-041 resolved — dedicated tests added; real-device paths still unverified by an actual run, see below)
-// @adai-version: 0.9.2
-// @adai-reviewed: 2026-09-13
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-10-17
 
 
 #include <cstddef>
 #include <stdexcept>
 #include <string>
+
+namespace adai {
+namespace gpu {
+
+// TD-382: per-thread opt-out of implicit GPU dispatch. Matrix::operator* sends large products to
+// the GPU from whatever thread calls it, sharing the process-wide stream/queue (and, on CUDA, the
+// cuBLAS handle) with the training thread. A thread that must stay off the GPU -- e.g.
+// ChatbotTrainer's async BLEU/ROUGE scorer, which runs a clone()d model concurrently with
+// training -- holds a ScopedCpuOnly for its lifetime. Explicit GPU calls (GPUMatrix, gpu_forward())
+// are unaffected; only the implicit Matrix dispatch checks this. Defined in every build (the
+// stub GPUManager build included) so callers need no #ifdef.
+inline thread_local int cpu_only_depth = 0;
+
+/** @brief True unless the calling thread holds a ScopedCpuOnly. */
+inline bool implicit_gpu_dispatch_allowed() {
+    return cpu_only_depth == 0;
+}
+
+/** @brief RAII guard: keeps the calling thread's Matrix math on the CPU while alive. Nestable. */
+class ScopedCpuOnly {
+   public:
+    ScopedCpuOnly() { ++cpu_only_depth; }
+    ~ScopedCpuOnly() { --cpu_only_depth; }
+    ScopedCpuOnly(const ScopedCpuOnly&) = delete;
+    ScopedCpuOnly& operator=(const ScopedCpuOnly&) = delete;
+};
+
+}  // namespace gpu
+}  // namespace adai
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -18,6 +47,7 @@
 
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
+#include <mutex>
 
 // CUDA error checking macro
 #define CUDA_CHECK(call)                                                                       \
@@ -75,9 +105,17 @@ class GPUManager {
     /// Maximum bytes ADAI may allocate (set during initialize).
     inline static size_t max_memory_bytes_ = 0;
     /// Bytes currently allocated by ADAI through GPUMemory.
-    // TODO: See TD-382 in TECHNICAL_DEBT.md - no locking: this counter and the cuBLAS handle are shared by every
-    // thread that multiplies a large Matrix (e.g. ChatbotTrainer's async quality thread during training)
     inline static size_t allocated_bytes_ = 0;
+    /// TD-382: guards max_memory_bytes_/allocated_bytes_ (GPUMemory can be created and destroyed on
+    /// any thread), matching the SYCL manager's memory_mutex_.
+    inline static std::mutex memory_mutex_;
+    /// TD-382: serializes use of the one shared cuBLAS handle across host threads.
+    inline static std::mutex cublas_mutex_;
+
+    /// Remaining budget; caller holds memory_mutex_.
+    static size_t available_bytes_locked() {
+        return (max_memory_bytes_ > allocated_bytes_) ? (max_memory_bytes_ - allocated_bytes_) : 0;
+    }
 
    public:
     /**
@@ -140,8 +178,12 @@ class GPUManager {
         size_t free_bytes = 0;
         size_t total_bytes = 0;
         CUDA_CHECK(cudaMemGetInfo(&free_bytes, &total_bytes));
-        max_memory_bytes_ = static_cast<size_t>(static_cast<double>(total_bytes) * memory_fraction);
-        allocated_bytes_ = 0;
+        {
+            std::lock_guard<std::mutex> lock(memory_mutex_);
+            max_memory_bytes_ =
+                static_cast<size_t>(static_cast<double>(total_bytes) * memory_fraction);
+            allocated_bytes_ = 0;
+        }
 
         // ----------------------------------------------------------------
         // Low-priority stream: ADAI kernels run at the lowest priority so
@@ -192,7 +234,10 @@ class GPUManager {
             cublas_handle_ = nullptr;
         }
 
-        allocated_bytes_ = 0;
+        {
+            std::lock_guard<std::mutex> lock(memory_mutex_);
+            allocated_bytes_ = 0;
+        }
         initialized_ = false;
     }
 
@@ -237,6 +282,15 @@ class GPUManager {
     }
 
     /**
+     * @brief Mutex to hold while issuing calls on get_cublas_handle() (TD-382).
+     *
+     * cuBLAS calls only enqueue work on the stream, so the lock is held briefly.
+     */
+    static std::mutex& cublas_mutex() {
+        return cublas_mutex_;
+    }
+
+    /**
      * @brief The dedicated low-priority CUDA stream for all ADAI operations.
      *
      * Pass this stream to every CUDA kernel and memcpy call so that work is
@@ -256,17 +310,20 @@ class GPUManager {
      * Set to (total_device_memory × memory_fraction) at initialisation time.
      */
     static size_t get_memory_limit_bytes() {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
         return max_memory_bytes_;
     }
 
     /** @brief Bytes currently live-allocated by ADAI through GPUMemory. */
     static size_t get_used_memory_bytes() {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
         return allocated_bytes_;
     }
 
     /** @brief Remaining headroom within the ADAI memory budget. */
     static size_t get_available_memory_bytes() {
-        return (max_memory_bytes_ > allocated_bytes_) ? (max_memory_bytes_ - allocated_bytes_) : 0;
+        std::lock_guard<std::mutex> lock(memory_mutex_);
+        return available_bytes_locked();
     }
 
     /**
@@ -275,11 +332,12 @@ class GPUManager {
      * Called by GPUMemory on allocation; throws if the budget would be exceeded.
      */
     static void reserve_memory(size_t bytes) {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
         if (max_memory_bytes_ > 0 && (allocated_bytes_ + bytes) > max_memory_bytes_) {
             throw std::runtime_error(
                 "ADAI GPU memory budget exceeded: requested " +
                 std::to_string(bytes / (1024 * 1024)) + " MB, " +
-                std::to_string(get_available_memory_bytes() / (1024 * 1024)) + " MB available of " +
+                std::to_string(available_bytes_locked() / (1024 * 1024)) + " MB available of " +
                 std::to_string(max_memory_bytes_ / (1024 * 1024)) + " MB limit");
         }
         allocated_bytes_ += bytes;
@@ -287,6 +345,7 @@ class GPUManager {
 
     /** @brief Release bytes back to the ADAI memory budget. */
     static void release_memory(size_t bytes) {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
         allocated_bytes_ = (bytes <= allocated_bytes_) ? (allocated_bytes_ - bytes) : 0;
     }
 
@@ -327,6 +386,7 @@ class GPUManager {
                            "\n  Max Threads per Block: " + std::to_string(prop.maxThreadsPerBlock);
 
         if (initialized_ && device == current_device_) {
+            std::lock_guard<std::mutex> lock(memory_mutex_);
             info += "\n  ADAI Memory Budget: " + std::to_string(max_memory_bytes_ / (1024 * 1024)) +
                     " MB" + " (used: " + std::to_string(allocated_bytes_ / (1024 * 1024)) + " MB)";
         }
