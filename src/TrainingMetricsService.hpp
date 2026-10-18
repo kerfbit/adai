@@ -496,6 +496,7 @@ class MetricsSessionRegistry;
  * instance().start_session(id, ...) call-site API didn't need to change everywhere
  * it's used.
  */
+// TODO: See TD-530 in TECHNICAL_DEBT.md - only tests call this; compress_old_records/push config are unused too.
 class GlobalMetricsService {
    public:
     static TrainingMetricsService& instance();

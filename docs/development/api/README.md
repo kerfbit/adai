@@ -14,7 +14,7 @@ Component and REST API reference documentation for the ADAI project.
 The `TrainingMetricsAPI` is a separate HTTP server (default port 8081) for real-time monitoring of training jobs. Full reference documentation lives alongside the service:
 
 - [../TRAINING_METRICS_API.md](../TRAINING_METRICS_API.md) — Full REST API reference (12 endpoints, request/response schemas, CLI flags, integration examples)
-- [../TRAINING_METRICS_SERVICE.md](../TRAINING_METRICS_SERVICE.md) — `TrainingMetricsService` C++ API, configuration, export formats, and integration guide
+- [../reference/source/TrainingMetricsService.md](../reference/source/TrainingMetricsService.md) — `TrainingMetricsService` C++ API, configuration, export formats (replaces TRAINING_METRICS_SERVICE.md)
 
 ### Metrics API Quick Reference
 

@@ -94,6 +94,7 @@ This directory contains reference materials, technical specifications, and imple
   - [TrainerServiceProxy](source/TrainerServiceProxy.md) (`src/TrainerServiceProxy.{hpp,cpp}`; `trainer_service`'s public admin listener and child proxy)
   - [TrainingMetricsAPI](source/TrainingMetricsAPI.md) (`src/TrainingMetricsAPI.{hpp,cpp}`; `metrics_api_server`'s HTTP layer; endpoint catalogue in [TRAINING_METRICS_API.md](../TRAINING_METRICS_API.md))
   - [TrainingMetricsAPIServer](source/TrainingMetricsAPIServer.md) (`src/TrainingMetricsAPIServer.cpp`; `metrics_api_server` startup and shutdown)
+  - [TrainingMetricsService](source/TrainingMetricsService.md) (`src/TrainingMetricsService.{hpp,cpp}`; per-session metrics state and persistence)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)

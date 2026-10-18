@@ -897,6 +897,8 @@ void TrainingMetricsService::persist_metrics() {
         ensure_parent_directory(config_.metrics_file);
         // TODO: See TD-440 in TECHNICAL_DEBT.md - appended forever, never rotated or trimmed
         std::ofstream file(config_.metrics_file, std::ios::app);
+        // TODO: See TD-529 in TECHNICAL_DEBT.md - returning here skips persisted_up_to_ after the DB inserts above, so the
+        // next persist re-inserts every pending row (3 records -> 9 DB rows, verified).
         if (!file.is_open()) {
             adai::Logger::warn("Failed to open metrics file: {}", config_.metrics_file);
             return;
@@ -1472,6 +1474,7 @@ std::string TrainingMetricsService::build_push_url(const std::string& endpoint) 
     return url + endpoint_path;
 }
 
+// TODO: See TD-530 in TECHNICAL_DEBT.md - dead: enable_push is never set (trainers use MetricsPushClient).
 void TrainingMetricsService::push_to_api(const std::string& endpoint,
                                          const std::string& json_body) {
     std::string request_url;

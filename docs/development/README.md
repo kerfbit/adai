@@ -81,7 +81,7 @@ Historical documentation, completed phase summaries, and implementation reports.
 | [configuration_guide.md](configuration_guide.md) | Configuration guide (includes parameter order and service script usage) |
 | [LOG_FILE_STANDARDS.md](LOG_FILE_STANDARDS.md) | Log file standards |
 | [TRAINING_METRICS_API.md](TRAINING_METRICS_API.md) | Training metrics REST API |
-| [TRAINING_METRICS_SERVICE.md](TRAINING_METRICS_SERVICE.md) | Training metrics service internals |
+| [reference/source/TrainingMetricsService.md](reference/source/TrainingMetricsService.md) | Training metrics service internals (replaces TRAINING_METRICS_SERVICE.md) |
 | [reference/source/SpecialTokens.md](reference/source/SpecialTokens.md) | Special token constants and helpers (replaces SPECIAL_TOKEN_CONSOLIDATION.md) |
 | [TEST_COVERAGE_IMPROVEMENTS.md](TEST_COVERAGE_IMPROVEMENTS.md) | Test coverage improvement tracker |
 | [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) | Generated per-file status dashboard — see [file-status-standard.md](guides/file-status-standard.md) |
