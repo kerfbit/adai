@@ -13729,7 +13729,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Tooling / vocab_builder | October 17, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 17, 2026 | Tooling / vocab_builder | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `VocabBuilder.cpp` (see [VocabBuilder.md](../reference/source/VocabBuilder.md)); verified. Training data is JSONL, but `--format`
@@ -13738,12 +13738,22 @@ defaults to `plain`, which takes each line as raw text; the help describes `pair
 never appear in the text the trainer tokenizes (it parses the JSONL first); `--format pairs` produced none. On real data the wasted merges grow with
 escapes and key names.
 
+**Fix landed October 17, 2026:** `--format` defaults to `auto`. `detect_input_format()` in `VocabBuilderHelpers.hpp` picks `pairs` for a file whose
+first non-blank line starts with `{` or `INPUT:`/`RESPONSE:` (a UTF-8 BOM is skipped), `json` for `[`, and `plain` otherwise. The help describes
+`pairs` as JSONL or `INPUT:`/`RESPONSE:` training data, and an explicit `--format plain` on such a file prints a warning.
+
+On 300 TinyStories JSONL lines at `--vocab-size 400`:
+- `auto` learned no `{`, `input` or `response` tokens (the 5 quote tokens left come from dialogue in the stories);
+- `plain` learned 18 JSON-ish tokens.
+
+5 new `DetectInputFormatTest` cases. OPERATIONS_MANUAL.md §4 is rewritten from `--help`.
+
 Action Items:
 
-- [ ] Default to (or auto-detect) JSONL; describe `pairs` as "JSONL or INPUT:/RESPONSE: training files" in the help.
-- [ ] Warn when `plain` input looks like JSONL.
+- [x] Default to (or auto-detect) JSONL; describe `pairs` as "JSONL or INPUT:/RESPONSE: training files" in the help.
+- [x] Warn when `plain` input looks like JSONL.
 
-Location in code: `src/VocabBuilder.cpp` (`main()` format default, `print_usage()`); tagged `TODO: See TD-534`.
+Location in code: `src/VocabBuilder.cpp` (`main()` format default, `print_usage()`), `src/VocabBuilderHelpers.hpp` (`detect_input_format()`); the `TODO: See TD-534` tag is now a fix comment.
 
 Files to Modify:
 
@@ -13756,7 +13766,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Tooling / vocab_builder | October 17, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 17, 2026 | Tooling / vocab_builder | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `VocabBuilder.cpp`; verified:
@@ -13768,9 +13778,9 @@ Found while tracing `VocabBuilder.cpp`; verified:
 Action Items:
 
 - [x] Check the save result (after TD-221 makes it report failure, or by verifying the file) and exit non-zero. Done by TD-221's fix (October 17, 2026): `save_vocab()` throws and `main()`'s catch exits 1.
-- [ ] Parse numbers with full-string and range checks, reporting errors with exit 1.
+- [x] Parse numbers with full-string and range checks, reporting errors with exit 1. Done October 17, 2026 with `parse_int_in_range()` (`VocabBuilderHelpers.hpp`). It requires the whole string to be a decimal integer (no leading space or `+`, no trailing characters, no overflow) within range: `--vocab-size` 1–10,000,000, `--threshold` ≥ 1. A value flag with no value and an unknown `--format` also exit 1. Verified with the real binary for `abc`, `8000x`, `0`, `-5`, `--threshold 0`, `--format xml` and a trailing `--vocab-size`; 2 new `ParseIntInRangeTest` cases.
 
-Location in code: `src/VocabBuilder.cpp` (argument loop, `save_vocab()` call); tagged `TODO: See TD-535`.
+Location in code: `src/VocabBuilder.cpp` (argument loop, `save_vocab()` call); the `TODO: See TD-535` tags are now fix comments.
 
 Files to Modify:
 
@@ -13793,7 +13803,7 @@ frequency flag is `--threshold`, default 1); the JSONL loader inherits TD-531/TD
 
 Action Items:
 
-- [ ] Parse `json` input with `nlohmann/json` (string array only); fix OPERATIONS_MANUAL.md §4 from `--help`.
+- [ ] Parse `json` input with `nlohmann/json` (string array only). The other half, fixing OPERATIONS_MANUAL.md §4 from `--help`, was done with TD-534 (October 17, 2026); the JSONL loader's TD-531/TD-532 gaps are fixed too.
 
 Location in code: `src/VocabBuilderHelpers.hpp` (`load_json_format()`); tagged `TODO: See TD-536`.
 

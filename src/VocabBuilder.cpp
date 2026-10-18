@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.0.1
+// @adai-version: 1.1.0
 // @adai-reviewed: 2026-10-18
 
 /**
@@ -11,6 +11,7 @@
  */
 
 #include <algorithm>
+#include <climits>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -41,17 +42,27 @@ void print_usage(const char* program_name) {
     std::cout << "Optional:\n";
     std::cout << "  --vocab-size <N>     Target vocabulary size (default: 5000)\n";
     std::cout << "  --threshold <N>      Minimum character frequency (default: 1)\n";
-    std::cout << "  --format <type>      Input format: 'plain', 'pairs', 'json' (default: plain)\n";
+    std::cout << "  --format <type>      Input format: 'auto', 'pairs', 'plain', 'json' (default: "
+                 "auto)\n";
     std::cout << "  --unicode            Use UTF-8 code-point tokenization (default: ASCII/byte)\n";
     std::cout << "  --stats              Show vocabulary statistics after building\n";
     std::cout << "  --help               Show this help message\n\n";
 
     std::cout << "Input Formats:\n";
-    std::cout << "  plain   - One sentence per line\n";
-    std::cout << "  pairs   - INPUT/RESPONSE format (for chatbot training)\n";
+    std::cout << "  auto    - Per file, from its first non-blank line: '{' or INPUT:/RESPONSE: -> "
+                 "pairs,\n";
+    std::cout << "            '[' -> json, anything else -> plain\n";
+    std::cout
+        << "  pairs   - Training data: JSONL (input/response fields, as the trainer reads it)\n";
+    std::cout << "            or legacy INPUT:/RESPONSE: lines\n";
+    std::cout << "  plain   - One sentence per line (raw text, not training data)\n";
     std::cout << "  json    - JSON array of text strings\n\n";
 
     std::cout << "Examples:\n";
+    std::cout << "  # Build vocabulary from JSONL training data (format auto-detected)\n";
+    std::cout << "  " << program_name
+              << " --input training.jsonl --output vocab.txt --vocab-size 8000\n\n";
+
     std::cout << "  # Build vocabulary from plain text\n";
     std::cout << "  " << program_name
               << " --input data.txt --output vocab.txt --vocab-size 10000\n\n";
@@ -60,7 +71,7 @@ void print_usage(const char* program_name) {
     std::cout << "  " << program_name << " --input file1.txt --input file2.txt \\\n";
     std::cout << "              --output vocab.txt --stats\n\n";
 
-    std::cout << "  # Build from chatbot training data\n";
+    std::cout << "  # Force the training-data loader\n";
     std::cout << "  " << program_name << " --input training.txt --output vocab.txt \\\n";
     std::cout << "              --format pairs --vocab-size 8000\n\n";
 }
@@ -74,9 +85,9 @@ int main(int argc, char** argv) {
     // Parse command line arguments
     std::vector<std::string> input_files;
     std::string output_file;
-    // TODO: See TD-534 in TECHNICAL_DEBT.md - default plain on JSONL training data learns JSON syntax as tokens (verified);
-    // `pairs` is the JSONL reader but the help calls it INPUT/RESPONSE only.
-    std::string format = "plain";
+    // TD-534: "auto" picks the loader per file; the old "plain" default read JSONL training data
+    // as raw text and learned JSON syntax and key names as tokens.
+    std::string format = "auto";
     int vocab_size = 5000;
     int threshold = 1;
     bool show_stats = false;
@@ -89,17 +100,40 @@ int main(int argc, char** argv) {
             print_usage(argv[0]);
             return 0;
         }
+        const bool takes_value = arg == "--input" || arg == "--output" || arg == "--vocab-size" ||
+                                 arg == "--threshold" || arg == "--format";
+        if (takes_value && i + 1 >= argc) {
+            std::cerr << COLOR_RED << "Error: " << arg << " needs a value\n" << COLOR_RESET;
+            return 1;
+        }
         if (arg == "--input" && i + 1 < argc) {
             input_files.emplace_back(argv[++i]);
         } else if (arg == "--output" && i + 1 < argc) {
             output_file = argv[++i];
         } else if (arg == "--vocab-size" && i + 1 < argc) {
-            // TODO: See TD-535 in TECHNICAL_DEBT.md - uncaught stoi (abc aborts), trailing garbage and ranges unchecked.
-            vocab_size = std::stoi(argv[++i]);
+            // TD-535: whole-string, range-checked parse (std::stoi aborted on "abc" and accepted
+            // "8000x" and non-positive sizes).
+            if (!parse_int_in_range(argv[++i], 1, 10000000, vocab_size)) {
+                std::cerr << COLOR_RED
+                          << "Error: --vocab-size must be an integer from 1 to 10000000, got '"
+                          << argv[i] << "'\n"
+                          << COLOR_RESET;
+                return 1;
+            }
         } else if (arg == "--threshold" && i + 1 < argc) {
-            threshold = std::stoi(argv[++i]);
+            if (!parse_int_in_range(argv[++i], 1, INT_MAX, threshold)) {
+                std::cerr << COLOR_RED << "Error: --threshold must be a positive integer, got '"
+                          << argv[i] << "'\n"
+                          << COLOR_RESET;
+                return 1;
+            }
         } else if (arg == "--format" && i + 1 < argc) {
             format = argv[++i];
+            if (format != "auto" && format != "pairs" && format != "plain" && format != "json") {
+                std::cerr << COLOR_RED << "Error: Unknown format: " << format << COLOR_RESET
+                          << "\n";
+                return 1;
+            }
         } else if (arg == "--unicode") {
             unicode_mode = true;
         } else if (arg == "--stats") {
@@ -134,12 +168,24 @@ int main(int argc, char** argv) {
     for (const auto& file : input_files) {
         std::cout << COLOR_BLUE << "📂 Loading: " << COLOR_RESET << file << "\n";
 
+        std::string file_format = format;
+        if (format == "auto") {
+            file_format = detect_input_format(file);
+            std::cout << "  Format (auto-detected): " << file_format << "\n";
+        } else if (format == "plain" && detect_input_format(file) == "pairs") {
+            std::cout << COLOR_YELLOW
+                      << "  ⚠ This file looks like training data (JSONL or INPUT:/RESPONSE:), but "
+                         "--format plain reads it as raw text, so JSON syntax and key names become "
+                         "tokens. Use --format pairs (or auto).\n"
+                      << COLOR_RESET;
+        }
+
         std::vector<std::string> texts;
-        if (format == "plain") {
+        if (file_format == "plain") {
             texts = load_plain_text(file);
-        } else if (format == "pairs") {
+        } else if (file_format == "pairs") {
             texts = load_pairs_format(file);
-        } else if (format == "json") {
+        } else if (file_format == "json") {
             texts = load_json_format(file);
         } else {
             std::cerr << COLOR_RED << "Error: Unknown format: " << format << COLOR_RESET << "\n";

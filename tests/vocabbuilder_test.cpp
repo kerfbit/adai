@@ -58,6 +58,69 @@ static const std::vector<std::string> kCorpus = {
 // ============================================================================
 // load_plain_text Tests
 // ============================================================================
+// TD-534: detect_input_format(); TD-535: parse_int_in_range()
+// ============================================================================
+
+TEST(DetectInputFormatTest, JsonlTrainingDataIsPairs) {
+    const auto path = tmp_path("detect_jsonl.jsonl");
+    write_file(path, "\n  \n{\"input\":\"hi\",\"response\":\"hello\"}\n");
+    EXPECT_EQ(detect_input_format(path), "pairs");
+    std::remove(path.c_str());
+}
+
+TEST(DetectInputFormatTest, LegacyInputResponseIsPairs) {
+    const auto path = tmp_path("detect_legacy.txt");
+    write_file(path, "INPUT: hi\nRESPONSE: hello\n");
+    EXPECT_EQ(detect_input_format(path), "pairs");
+    write_file(path, "  RESPONSE: first\n");
+    EXPECT_EQ(detect_input_format(path), "pairs");
+    std::remove(path.c_str());
+}
+
+TEST(DetectInputFormatTest, BomBeforeJsonlIsPairs) {
+    const auto path = tmp_path("detect_bom.jsonl");
+    write_file(path, "\xEF\xBB\xBF{\"input\":\"hi\",\"response\":\"x\"}\n");
+    EXPECT_EQ(detect_input_format(path), "pairs");
+    std::remove(path.c_str());
+}
+
+TEST(DetectInputFormatTest, JsonArrayIsJson) {
+    const auto path = tmp_path("detect_array.json");
+    write_file(path, "[\"one\", \"two\"]\n");
+    EXPECT_EQ(detect_input_format(path), "json");
+    std::remove(path.c_str());
+}
+
+TEST(DetectInputFormatTest, OtherTextAndMissingFilesArePlain) {
+    const auto path = tmp_path("detect_plain.txt");
+    write_file(path, "Once upon a time.\n{not first}\n");
+    EXPECT_EQ(detect_input_format(path), "plain");
+    write_file(path, "");
+    EXPECT_EQ(detect_input_format(path), "plain");
+    std::remove(path.c_str());
+    EXPECT_EQ(detect_input_format(tmp_path("does_not_exist")), "plain");
+}
+
+TEST(ParseIntInRangeTest, AcceptsWholeNumbersInRange) {
+    int v = -1;
+    EXPECT_TRUE(parse_int_in_range("8000", 1, 10000000, v));
+    EXPECT_EQ(v, 8000);
+    EXPECT_TRUE(parse_int_in_range("1", 1, 10, v));
+    EXPECT_EQ(v, 1);
+    EXPECT_TRUE(parse_int_in_range("10", 1, 10, v));
+    EXPECT_EQ(v, 10);
+}
+
+TEST(ParseIntInRangeTest, RejectsMalformedAndOutOfRangeValues) {
+    int v = 42;
+    for (const char* bad :
+         {"", "abc", "8000x", " 8", "+8", "0", "-5", "11", "99999999999999999999"}) {
+        EXPECT_FALSE(parse_int_in_range(bad, 1, 10, v)) << "'" << bad << "'";
+    }
+    EXPECT_EQ(v, 42);  // unchanged on failure
+}
+
+// ============================================================================
 
 TEST(LoadPlainTextTest, NonExistentFileReturnsEmpty) {
     auto result = load_plain_text("/tmp/this_file_does_not_exist_ever.txt");

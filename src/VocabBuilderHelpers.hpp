@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-18
 
 /**
  * @file VocabBuilderHelpers.hpp
@@ -12,11 +12,57 @@
 
 #pragma once
 
+#include <cerrno>
+#include <climits>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
 #include "TrainingSampleMeta.hpp"
+
+/**
+ * TD-534: pick a loader for `filename` from its first non-blank line: `{` (JSONL training data)
+ * or `INPUT:`/`RESPONSE:` (legacy training data) -> "pairs", `[` -> "json", anything else (or an
+ * unreadable/empty file) -> "plain". Training data is JSONL, and reading it as "plain" puts JSON
+ * syntax and key names into the vocabulary.
+ */
+inline std::string detect_input_format(const std::string& filename) {
+    std::ifstream file(filename);
+    std::string line;
+    while (std::getline(file, line)) {
+        if (line.compare(0, 3, "\xEF\xBB\xBF") == 0)
+            line.erase(0, 3);  // UTF-8 BOM
+        const size_t start = line.find_first_not_of(" \t\r\n");
+        if (start == std::string::npos)
+            continue;
+        if (line[start] == '{' || line.compare(start, 6, "INPUT:") == 0 ||
+            line.compare(start, 9, "RESPONSE:") == 0)
+            return "pairs";
+        if (line[start] == '[')
+            return "json";
+        return "plain";
+    }
+    return "plain";
+}
+
+/**
+ * TD-535: parse a whole-string decimal integer in [min_value, max_value]. Returns false (leaving
+ * `out` unchanged) for empty input, trailing characters ("8000x"), overflow or out-of-range values.
+ */
+inline bool parse_int_in_range(const std::string& text, long min_value, long max_value, int& out) {
+    // strtol() would skip leading whitespace and accept a '+'; require a digit or '-' first.
+    if (text.empty() || !(text[0] == '-' || (text[0] >= '0' && text[0] <= '9')))
+        return false;
+    errno = 0;
+    char* end = nullptr;
+    const long value = std::strtol(text.c_str(), &end, 10);
+    if (errno == ERANGE || end != text.c_str() + text.size() || value < min_value ||
+        value > max_value || value < INT_MIN || value > INT_MAX)
+        return false;
+    out = static_cast<int>(value);
+    return true;
+}
 
 /**
  * Load text from plain text file (one non-empty line per sample).

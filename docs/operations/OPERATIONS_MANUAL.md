@@ -200,21 +200,41 @@ The `vocab_builder` creates a BPE (Byte Pair Encoding) tokenizer vocabulary from
 
 ```bash
 ./build/bin/vocab_builder \
-    --input training_data.txt \
+    --input training_data.jsonl \
     --output vocab.txt \
     --vocab-size 10000
 ```
 
+Build the vocabulary from the same JSONL files the trainer reads. The input format is detected per
+file, so the vocabulary is learned from the `input`/`response` text rather than the JSON syntax
+around it.
+
 ### Full Option Reference
+
+This matches `vocab_builder --help`.
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `--input FILE` | required | Input text corpus |
-| `--output FILE` | `vocab.txt` | Output vocabulary file |
-| `--vocab-size N` | `10000` | Target vocabulary size |
-| `--min-frequency N` | `2` | Minimum token frequency to include |
-| `--num-merges N` | `vocab-size` | Number of BPE merge operations |
-| `--special-tokens` | `<pad>,<unk>,<bos>,<eos>` | Special tokens to always include |
+| `--input FILE` | required | Input file; repeat for several files |
+| `--output FILE` | required | Output vocabulary file (written atomically; a failed save exits 1) |
+| `--vocab-size N` | `5000` | Target vocabulary size, 1 to 10,000,000 |
+| `--threshold N` | `1` | Minimum character frequency, at least 1 |
+| `--format TYPE` | `auto` | `auto`, `pairs`, `plain` or `json`; see below |
+| `--unicode` | off | UTF-8 code-point tokenization instead of ASCII/byte |
+| `--stats` | off | Print vocabulary statistics after building |
+
+Input formats:
+- `auto` picks a format per file from its first non-blank line: `{` or `INPUT:`/`RESPONSE:` means
+  `pairs`, `[` means `json`, and anything else means `plain`.
+- `pairs` is training data: JSONL with `input`/`response` fields, parsed exactly as the trainer
+  parses it, or legacy `INPUT:`/`RESPONSE:` lines.
+- `plain` takes each line as raw text. It isn't meant for training data, and warns if a file looks
+  like it.
+- `json` is a JSON array of strings.
+
+A malformed number (`--vocab-size abc`, `8000x`, `0`) or a missing value is reported with exit 1.
+Before October 17, 2026 the default was `plain`, a malformed number aborted with a core dump, and a
+failed save still printed success (TD-534, TD-535, TD-221).
 
 ### Vocabulary Size Guidelines
 
