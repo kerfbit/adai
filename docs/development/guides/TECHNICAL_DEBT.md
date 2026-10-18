@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 310
+**Total Items:** 313
 **High Priority:** 33
-**Medium Priority:** 133
-**Low Priority:** 144
+**Medium Priority:** 135
+**Low Priority:** 145
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -569,6 +569,11 @@ Also October 17, 2026: filed [TD-517](#td-517-token-embeddings-arent-scaled-by-s
 at `d_model = 768`, and they are added with no √d_model scaling, so at initialization two different tokens at one position had cosine similarity
 0.997, higher than the same token at adjacent positions (0.973). The owner decided the same day that this must be fixed (TD-517). A half-truncated
 embedding file loads with its later rows left random (TD-518).
+
+Also October 17, 2026: filed [TD-519](#td-519-trainer-admin-put-reads-a-spaced-true-as-false-and-disables-auto-save) through [TD-521](#td-521-traineradminapi-stale-header-unbounded-wait_ms-and-checkpoint-accounting) from the code-traced [TrainerAdminAPI.md](../reference/source/TrainerAdminAPI.md). Two are
+MEDIUM and verified against the real server: `PUT /admin/config` with `{"auto_save_enabled": true}` (a space after the colon, Python's default) turned
+auto-save **off** and persisted it, here and in `trainer_service`'s idle handler (TD-519); a NaN `last_loss` produced `"last_loss":nan` in
+`/admin/status`, invalid JSON (TD-520). One is LOW: a stale `serve` header, unbounded `wait_ms`, counter-based checkpoint completion (TD-521).
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1695,6 +1700,9 @@ every strategy); do them with TD-241 (run `validate()` at startup). [TD-516](#td
 scale, so land it **before the TD-358 retraining** together with TD-358/TD-384 (and decide TD-371 at the same time, since both concern activation scale
 in the residual stream); every existing checkpoint is retrained anyway. [TD-518](#td-518-tokenembedding-unchecked-loading-full-matrix-updates-and-validation-gaps) goes with Tier 55's loader hardening.
 
+**Tier 99 — Newly filed (October 17, 2026): `TrainerAdminAPI`.** [TD-519](#td-519-trainer-admin-put-reads-a-spaced-true-as-false-and-disables-auto-save) silently disables checkpointing for every later pass, so fix it soon
+(parse with `nlohmann/json`, with TD-453); [TD-520](#td-520-trainer-admin-status-emits-nan-losses-as-invalid-json) goes with the other NaN-in-JSON items (TD-443, TD-458, TD-510); [TD-521](#td-521-traineradminapi-stale-header-unbounded-wait_ms-and-checkpoint-accounting) is cleanup.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -2011,6 +2019,9 @@ in the residual stream); every existing checkpoint is retrained anyway. [TD-518]
   - [TD-516: `TextGenerator` Ignored `min_length`/`early_stopping`, Silent NaN Output and Config Semantics](#td-516-textgenerator-ignored-min_lengthearly_stopping-silent-nan-output-and-config-semantics)
   - [TD-517: Token Embeddings Aren't Scaled by sqrt(d_model), So Position Swamps Content](#td-517-token-embeddings-arent-scaled-by-sqrtd_model-so-position-swamps-content)
   - [TD-518: `TokenEmbedding` Unchecked Loading, Full-Matrix Updates and Validation Gaps](#td-518-tokenembedding-unchecked-loading-full-matrix-updates-and-validation-gaps)
+  - [TD-519: Trainer Admin PUT Reads a Spaced `true` as False and Disables Auto-Save](#td-519-trainer-admin-put-reads-a-spaced-true-as-false-and-disables-auto-save)
+  - [TD-520: Trainer Admin Status Emits NaN Losses as Invalid JSON](#td-520-trainer-admin-status-emits-nan-losses-as-invalid-json)
+  - [TD-521: `TrainerAdminAPI` Stale Header, Unbounded `wait_ms` and Checkpoint Accounting](#td-521-traineradminapi-stale-header-unbounded-wait_ms-and-checkpoint-accounting)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -13083,6 +13094,87 @@ Files to Modify:
 
 ---
 
+### TD-519: Trainer Admin PUT Reads a Spaced `true` as False and Disables Auto-Save
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / Admin API | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `TrainerAdminAPI.cpp` (see [TrainerAdminAPI.md](../reference/source/TrainerAdminAPI.md)); verified against the real server.
+`json_bool()` compares the four characters immediately after `"auto_save_enabled":` with `true`, so a space after the colon reads as false.
+`PUT /admin/config {"auto_save_enabled": true}` (Python `json.dumps`' default formatting, and common in hand-typed `curl` bodies) answered
+`"auto_save_enabled":false` and persisted that to `daemon_config.db`, so every later pass runs without auto-save; the compact form works.
+`TrainerServiceProxy::handle_put_config_idle()` copies the same helper, so the request has the same effect when no child is running. (The integer keys
+work: `stoi` skips leading whitespace. The Android dashboard sends compact JSON.)
+
+Action Items:
+
+- [ ] Parse request bodies with the vendored `nlohmann/json` (with TD-453), rejecting non-boolean values with 400.
+- [ ] Test whitespace and pretty-printed bodies, in both handlers.
+
+Location in code: `src/TrainerAdminAPI.cpp` (`json_bool()`, `handle_put_config()`), `src/TrainerServiceProxy.cpp` (`json_bool()`, `handle_put_config_idle()`); tagged `TODO: See TD-519`.
+
+Files to Modify:
+
+- `src/TrainerAdminAPI.cpp`
+- `src/TrainerServiceProxy.cpp`
+- `tests/trainer_admin_api_test.cpp`
+
+---
+
+### TD-520: Trainer Admin Status Emits NaN Losses as Invalid JSON
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / Admin API | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `TrainerAdminAPI.cpp`; verified. `handle_status()` streams `last_loss`/`best_loss` as raw doubles; with `last_loss = NaN` (a
+diverged pass) the body contained `"last_loss":nan` and `json.load` failed at that character, so the dashboard loses the entire status during exactly
+the event an operator needs to see (the TD-443/TD-458/TD-510 class). `best_loss` starts at `0.0`, which reads as a perfect loss until validation runs.
+`TrainerServiceProxy` forwards the child's body unchanged.
+
+Action Items:
+
+- [ ] Emit non-finite losses as `null` (or a string), and `best_loss` as `null` until a validation loss exists.
+- [ ] Test with NaN and infinity.
+
+Location in code: `src/TrainerAdminAPI.cpp` (`handle_status()`); tagged `TODO: See TD-520`.
+
+Files to Modify:
+
+- `src/TrainerAdminAPI.cpp`
+- `src/TrainerControlState.hpp`
+- `tests/trainer_admin_api_test.cpp`
+
+---
+
+### TD-521: `TrainerAdminAPI` Stale Header, Unbounded `wait_ms` and Checkpoint Accounting
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / Admin API | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `TrainerAdminAPI.{hpp,cpp}` (by inspection): the header still calls the class the "always-on HTTP admin daemon for
+`incremental_trainer serve`" (removed by TD-172; it now lives for one child pass behind `trainer_service`'s proxy); `POST /admin/checkpoint?wait_ms=N`
+holds an httplib worker for any N, so a few long waits can exhaust the pool; completion is judged by `checkpoints_written` increasing, so an auto-save
+landing during the wait is reported as the requested checkpoint; persisted overrides loaded in `start()` aren't range-checked (only `PUT` validates).
+
+Action Items:
+
+- [ ] Rewrite the header for the TD-172 design; cap `wait_ms` (e.g. 60 s); track forced checkpoints separately; validate overrides on load.
+
+Location in code: `src/TrainerAdminAPI.hpp` (class comment), `src/TrainerAdminAPI.cpp` (checkpoint route, `start()`); tagged `TODO: See TD-521`.
+
+Files to Modify:
+
+- `src/TrainerAdminAPI.{hpp,cpp}`
+- `src/TrainerControlState.hpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -13599,15 +13691,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 310 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 313 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|33|11%|
-|Medium|133|43%|
-|Low|144|46%|
+|Medium|135|43%|
+|Low|145|46%|
 
-**Total Active Items:** 310
+**Total Active Items:** 313
 
 ### By Component
 
@@ -13666,6 +13758,7 @@ Recomputed directly from the 310 `### TD-NNN` entries under [Active Technical De
 |Training / IncrementalTrainer|6|
 |Training / IncrementalTrainingTool|6|
 |Training / StartupSweep|2|
+|Training / Admin API|3|
 |Inference / IntegratedInferenceEngine|4|
 |Inference / KVCache|2|
 |Inference / Profiler|1|
@@ -13714,13 +13807,13 @@ Recomputed directly from the 310 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|187|
+|0-2 hours|190|
 |2-4 hours|95|
 |4-8 hours|16|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 571-1036 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 574-1042 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

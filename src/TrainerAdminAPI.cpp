@@ -72,6 +72,8 @@ int json_int(const std::string& body, const std::string& key, int def = 0) {
     }
 }
 
+// TODO: See TD-519 in TECHNICAL_DEBT.md - '"auto_save_enabled": true' (space after the colon) reads as false, so
+// a normal JSON PUT disables auto-save and persists it (verified).
 // Bare-literal boolean (true/false, no quotes).
 bool json_bool(const std::string& body, const std::string& key, bool def = false) {
     const std::string needle = "\"" + key + "\":";
@@ -134,6 +136,8 @@ adai::TrainerAdminAPI::TrainerAdminAPI(std::shared_ptr<TrainerControlState> cont
     });
 
     svr.Post("/admin/checkpoint", [this](const httplib::Request& req, httplib::Response& res) {
+        // TODO: See TD-521 in TECHNICAL_DEBT.md - wait_ms is unbounded (ties up a worker); completion is judged by
+        // the checkpoint counter, so an auto-save in the window counts.
         int wait_ms = 0;
         if (req.has_param("wait_ms")) {
             try {
@@ -326,6 +330,7 @@ std::pair<int, std::string> adai::TrainerAdminAPI::handle_status() {
       << ",\"current_epoch\":" << control_->current_epoch.load()
       << ",\"total_epochs\":" << control_->total_epochs.load()
       << ",\"samples_trained_this_pass\":" << control_->samples_trained_this_pass.load()
+      // TODO: See TD-520 in TECHNICAL_DEBT.md - NaN is streamed as `nan` (invalid JSON); best_loss starts at 0.
       << ",\"last_loss\":" << control_->last_loss.load()
       << ",\"best_loss\":" << control_->best_loss.load()
       << ",\"checkpoints_written\":" << control_->checkpoints_written.load()

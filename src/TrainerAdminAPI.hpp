@@ -15,6 +15,8 @@ namespace adai {
 
 class DaemonConfigStore;
 
+// TODO: See TD-521 in TECHNICAL_DEBT.md - stale: `serve` was removed by TD-172; this now runs per child pass behind
+// trainer_service's TrainerServiceProxy.
 /**
  * @brief Always-on HTTP admin daemon for `incremental_trainer serve`.
  *

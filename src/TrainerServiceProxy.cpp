@@ -67,6 +67,7 @@ int json_int(const std::string& body, const std::string& key, int def = 0) {
     }
 }
 
+// TODO: See TD-519 in TECHNICAL_DEBT.md - same whitespace bug as TrainerAdminAPI's copy: a spaced `true` reads false.
 bool json_bool(const std::string& body, const std::string& key, bool def = false) {
     const std::string needle = "\"" + key + "\":";
     const auto pos = body.find(needle);

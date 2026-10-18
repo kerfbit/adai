@@ -87,6 +87,7 @@ This directory contains reference materials, technical specifications, and imple
   - [StartupSweep](source/StartupSweep.md) (`src/StartupSweep.hpp`; `incremental_trainer`'s stale-download cleanup)
   - [TextGenerator](source/TextGenerator.md) (`src/TextGenerator.{hpp,cpp}`; greedy, sampling, top-k, nucleus and beam decoding)
   - [TokenEmbedding](source/TokenEmbedding.md) (`src/TokenEmbedding.{hpp,cpp}`; learnable token lookup table)
+  - [TrainerAdminAPI](source/TrainerAdminAPI.md) (`src/TrainerAdminAPI.{hpp,cpp}`; per-pass admin HTTP API behind `trainer_service`)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)
