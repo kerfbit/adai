@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.11.0
+// @adai-version: 0.11.1
 // @adai-reviewed: 2026-10-18
 
 #include "IncrementalTrainer.hpp"
@@ -1067,8 +1067,8 @@ bool IncrementalTrainer::resume_last_session() {
     std::vector<PendingFileRange> pending_ranges = resp.file_ranges();
 
     // TD-405: the same rule the constructors use (most recent completed session by default).
-    // TODO: See TD-406 in TECHNICAL_DEBT.md - in_progress_best below uses current_session_id, which already
-    // skipped past a paused session persisted by perform_auto_save()
+    // TD-406: an interrupted session found at construction wins; current_session_id was set back
+    // to its id, so in_progress_best below also refers to that session.
     std::string resume_reason;
     std::string resume_checkpoint = select_resume_checkpoint(&resume_reason);
     int resume_session_id = -1;
@@ -1081,7 +1081,11 @@ bool IncrementalTrainer::resume_last_session() {
     in_progress_oss << get_session_dir() << "/session_" << current_session_id << "_best.bin";
     const std::string in_progress_best = in_progress_oss.str();
 
-    if (fs::exists(in_progress_best + ".config")) {
+    if (!interrupted_resume_checkpoint_.empty()) {
+        resume_checkpoint = interrupted_resume_checkpoint_;
+        resume_reason = "newest snapshot of interrupted session #" +
+                        std::to_string(current_session_id);
+    } else if (fs::exists(in_progress_best + ".config")) {
         resume_checkpoint = in_progress_best;
         resume_reason = "in-progress best snapshot of an interrupted session";
     } else if (resume_checkpoint.empty() && !session_history.empty()) {
@@ -1326,6 +1330,11 @@ std::string IncrementalTrainer::select_resume_checkpoint(std::string* reason) co
 }
 
 std::string IncrementalTrainer::init_from_session_history() {
+    // TD-406: an interrupted pass's own snapshot outranks every completed session. It used to be
+    // skipped (current_session_id had moved past it), then deleted as "orphaned" and its history
+    // entry dropped for having no validation loss, so a paused pass's work was thrown away.
+    interrupted_resume_checkpoint_ = take_interrupted_session();
+
     for (const auto& session : session_history) {
         if (is_sane_checkpoint_candidate(session) &&
             session.final_validation_loss < best_validation_loss) {
@@ -1339,7 +1348,11 @@ std::string IncrementalTrainer::init_from_session_history() {
     }
 
     std::string reason;
-    const std::string resume = select_resume_checkpoint(&reason);
+    std::string resume = select_resume_checkpoint(&reason);
+    if (!interrupted_resume_checkpoint_.empty()) {
+        resume = interrupted_resume_checkpoint_;
+        reason = "newest snapshot of interrupted session #" + std::to_string(current_session_id);
+    }
     if (resume.empty()) {
         return "";
     }
@@ -1378,17 +1391,57 @@ bool IncrementalTrainer::is_sane_checkpoint_candidate(const TrainingSession& ses
     // legitimately-saved checkpoint unconditionally. load_model() requires
     // all five to succeed (see EncoderDecoderModel.cpp), so check all five,
     // not just .config.
-    if (session.checkpoint_path.empty()) {
+    return checkpoint_files_exist(session.checkpoint_path);
+}
+
+bool IncrementalTrainer::checkpoint_files_exist(const std::string& base_path) {
+    if (base_path.empty()) {
         return false;
     }
     static const std::array<const char*, 5> required_sidecars = {".config", ".vocab", ".encoder",
                                                                   ".decoder", ".lm_head"};
     for (const char* ext : required_sidecars) {
-        if (!fs::exists(session.checkpoint_path + ext)) {
+        if (!fs::exists(base_path + ext)) {
             return false;
         }
     }
     return true;
+}
+
+std::string IncrementalTrainer::take_interrupted_session() {
+    if (session_history.empty()) {
+        return "";
+    }
+    const TrainingSession& last = session_history.back();
+    const std::string name = fs::path(last.checkpoint_path).filename().string();
+    if (name.rfind("auto_save_session_", 0) != 0) {
+        return "";  // a finalized session ("session_N_checkpoint.bin"), not an interrupted one
+    }
+    const int id = last.session_id;
+    const std::string best = get_session_dir() + "/session_" + std::to_string(id) + "_best.bin";
+
+    std::string chosen;
+    fs::file_time_type chosen_time{};
+    for (const std::string& candidate : {last.checkpoint_path, best}) {
+        if (!checkpoint_files_exist(candidate)) {
+            continue;
+        }
+        std::error_code ec;
+        const auto t = fs::last_write_time(candidate + ".config", ec);
+        if (!ec && (chosen.empty() || t > chosen_time)) {
+            chosen = candidate;
+            chosen_time = t;
+        }
+    }
+    if (chosen.empty()) {
+        return "";  // nothing loadable: leave the entry for cleanup_dead_sessions() as before
+    }
+    Logger::info("Session #{} was interrupted (paused or crashed mid-pass); resuming from its "
+                 "newest snapshot {}",
+                 id, chosen);
+    current_session_id = id;
+    session_history.pop_back();
+    return chosen;
 }
 
 void IncrementalTrainer::cleanup_dead_sessions() {
@@ -1877,8 +1930,8 @@ void IncrementalTrainer::perform_auto_save(int current_epoch, int cumulative_sam
         // left at its 0.0 default here (not known until the epoch finishes),
         // which keeps is_sane_checkpoint_candidate() correctly excluding this
         // still-in-progress entry from "best checkpoint" selection on restart.
-        // TODO: See TD-406 in TECHNICAL_DEBT.md - persisting this entry (val loss 0) makes the next start skip to
-        // session N+1, miss session_N_best.bin, and delete this auto-save as an "orphaned" broken session
+        // TD-406: the next start recognizes this entry as an interrupted session by its
+        // auto_save_session_N checkpoint path and resumes from it (take_interrupted_session()).
         if (!session_history.empty()) {
             auto& session = session_history.back();
             session.samples_trained = cumulative_samples_trained;

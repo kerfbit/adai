@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.11.0
+// @adai-version: 0.12.0
 // @adai-reviewed: 2026-10-18
 
 
@@ -333,6 +333,9 @@ class IncrementalTrainer {
     // Best checkpoint tracking (TD-005)
     float best_validation_loss;
     std::string best_checkpoint_path;
+    // TD-406: the newest snapshot of an interrupted (paused or crashed) session found at
+    // construction, which this trainer resumed from; "" if none.
+    std::string interrupted_resume_checkpoint_;
 
     // Metrics reporter (TD-021)
     std::unique_ptr<IMetricsReporter> metrics_reporter_;  ///< active reporter (Null or Push)
@@ -433,6 +436,16 @@ class IncrementalTrainer {
     // session_history (for best tracking and the best symlink) and loads
     // select_resume_checkpoint(). Returns the loaded checkpoint path, or "" if none was loaded.
     std::string init_from_session_history();
+
+    // TD-406: if the last history entry is an interrupted session (its checkpoint is still the
+    // auto_save_session_N.bin that perform_auto_save() recorded, not a finalized checkpoint),
+    // returns the newer of its auto-save and session_N_best snapshots that has all its files,
+    // sets current_session_id back to N (so cleanup_dead_sessions() keeps those snapshots) and
+    // removes the interim entry, which the resumed pass recreates. Returns "" otherwise.
+    std::string take_interrupted_session();
+
+    // All five files EncoderDecoderModel::save_model() writes exist for `base_path`.
+    static bool checkpoint_files_exist(const std::string& base_path);
 
     // Symlink management helpers (TD-005)
     void update_checkpoint_symlinks(const std::string& checkpoint_path);

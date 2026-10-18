@@ -1114,6 +1114,23 @@ rather than assumed from the proposal doc's own bullet order.
 
 ## Recommended Execution Order
 
+**Training-fix run (October 17–18, 2026).** These are the open items with a direct effect on training, fixed in this order, each as its own commit.
+Done:
+- TD-358, TD-384, TD-393, TD-382 (GPU training correctness);
+- TD-517, TD-531/532, TD-220/221, TD-534/535, TD-267, TD-275/409, TD-272, TD-361 (training data and math);
+- TD-405 with the newly found TD-538/539, then TD-406 (checkpoint continuity).
+
+Remaining, re-ordered on October 18 because TD-539 means checkpoints now actually carry over between passes:
+1. TD-412, then TD-411 (passes that train nothing still mark files trained; `resume` never downloads);
+2. TD-512 (the startup sweep deletes `DOWNLOAD_DIR`);
+3. TD-407 and TD-408 (checkpoint files: cleanup leaks per-layer files and must learn TD-538's names; the bare-path symlinks and backup in
+   `cleanup_old_sessions()`/`reset_all()` dangle);
+4. TD-269/270 (optimizer state and clipping restart every pass);
+5. TD-333/326 and TD-523/519.
+
+Every fix here is verified on CPU, or on the oneAPI CPU device for the SYCL kernels. Still needed: an on-device run on ai-machine, then
+retraining from scratch, since no existing checkpoint has correct GPU-trained weights (TD-358) or the encoder's own embedding (TD-538).
+
 Analyzed September 12, 2026 to sequence the active items by dependency and risk rather than
 just priority label — several depend on each other or on a single owner decision, and the
 "Medium/Low" labels alone don't capture that. Re-derive this ordering rather than trusting it
@@ -9757,7 +9774,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Training / IncrementalTrainer | October 13, 2026 | 2-4 hours |
+| **HIGH** | Open — code fix landed October 18, 2026 | Training / IncrementalTrainer | October 13, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `IncrementalTrainer` and verified with the real class. `perform_auto_save()` (sample
@@ -9778,11 +9795,24 @@ auto-saves never happens.
 
 Action Items:
 
-- [ ] On startup, detect an interrupted session (val loss 0 with an existing auto-save or best snapshot) and resume from its newest snapshot instead of deleting it; keep `current_session_id` aligned or look up the snapshot by the interrupted session's id.
-- [ ] Only treat snapshots as orphaned when no history entry references their session.
-- [ ] Test: pause → restart resumes from the paused pass's snapshot.
+**Fix landed October 18, 2026:** `take_interrupted_session()` runs at construction, from `init_from_session_history()`. It recognizes an
+interrupted session by its history entry still pointing at `auto_save_session_N.bin` rather than a finalized `session_N_checkpoint.bin`. Then it:
+1. picks the newer (by `.config` mtime) of that auto-save and `session_N_best.bin` among those with all five files;
+2. sets `current_session_id` back to N, so `cleanup_dead_sessions()` keeps both snapshots;
+3. removes the interim entry, which the resumed pass recreates.
 
-Location in code: `src/IncrementalTrainer.cpp` (`perform_auto_save()`, `resume_last_session()`, `cleanup_dead_sessions()`); tagged `TODO: See TD-406`.
+The trainer loads that snapshot, and `resume_last_session()` (every `trainer_service` pass) uses it ahead of the TD-405 rule. Pause therefore
+produces a checkpoint the next pass actually continues from, and crash recovery from auto-saves works. A session with no loadable snapshot is left
+to the old cleanup.
+
+New test `IncrementalTrainerTest.InterruptedSessionResumesFromItsNewestSnapshot` uses real `save_model()` snapshots and covers both newest-snapshot
+orders. Against the old code it loaded the wrong weights, moved to session 2 and deleted the auto-save.
+
+- [x] On startup, detect an interrupted session (val loss 0 with an existing auto-save or best snapshot) and resume from its newest snapshot instead of deleting it; keep `current_session_id` aligned or look up the snapshot by the interrupted session's id.
+- [x] Only treat snapshots as orphaned when no history entry references their session. (Achieved by keeping `current_session_id` at the interrupted session's id.)
+- [x] Test: pause → restart resumes from the paused pass's snapshot. (Restart from a paused pass's persisted state; the pause drain itself is covered by the existing control tests.)
+
+Location in code: `src/IncrementalTrainer.cpp` (`take_interrupted_session()`, `init_from_session_history()`, `resume_last_session()`, `perform_auto_save()`); the `TODO: See TD-406` tags are now fix comments.
 
 Files to Modify:
 

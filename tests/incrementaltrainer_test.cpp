@@ -145,6 +145,9 @@ class IncrementalTrainerTest : public ::testing::Test {
     static std::string best_checkpoint_path_of(IncrementalTrainer& trainer) {
         return trainer.get_best_checkpoint_path();
     }
+    static int current_session_id_of(const IncrementalTrainer& trainer) {
+        return trainer.current_session_id;
+    }
 
     // Creates a checkpoint base file plus the full realistic set of sidecar
     // files EncoderDecoderModel::save_model() writes, so
@@ -183,6 +186,66 @@ float max_abs_diff(const Matrix& a, const Matrix& b) {
 // validation loss -- each pass validates on its own files, so those losses aren't comparable.
 // Before the fix the constructors chose the lowest loss and also tested fs::exists(<bare path>),
 // so with real checkpoints they loaded nothing at all.
+// TD-406: a paused or crashed pass leaves session_history pointing at its auto_save_session_N
+// checkpoint (val loss 0). The next start must resume from that session's newest snapshot (the
+// auto-save or session_N_best, whichever is newer) and keep both, instead of loading an older
+// session, deleting the auto-save as "orphaned" and dropping the entry as broken.
+TEST_F(IncrementalTrainerTest, InterruptedSessionResumesFromItsNewestSnapshot) {
+    IncrementalConfig config;
+    config.session_dir = session_dir.string();
+    config.enable_checkpoint_symlinks = false;
+    config.base_config.d_model = 32;
+    config.base_config.num_heads = 2;
+    config.base_config.d_ff = 64;
+    config.base_config.num_encoder_layers = 1;
+    config.base_config.num_decoder_layers = 1;
+    config.base_config.max_seq_length = 16;
+
+    const std::string cp0 = session_dir.string() + "/session_0_checkpoint.bin";
+    const std::string autosave1 = session_dir.string() + "/auto_save_session_1.bin";
+    const std::string best1 = session_dir.string() + "/session_1_best.bin";
+    Matrix w_cp0(1, 1), w_autosave(1, 1), w_best(1, 1);
+    // Build the snapshots with trainers on a separate staging directory: a trainer on
+    // session_dir would run cleanup_dead_sessions() over the snapshots already written.
+    IncrementalConfig staging = config;
+    staging.session_dir = (test_dir / "staging").string();
+    for (auto [path, out] : {std::pair<const std::string*, Matrix*>{&cp0, &w_cp0},
+                             {&autosave1, &w_autosave},
+                             {&best1, &w_best}}) {
+        IncrementalTrainer t(vocab_file.string(), model_file.string(), staging);
+        t.get_model()->save_model(*path);
+        *out = fingerprint(t.get_model());
+    }
+    {
+        std::ofstream file(session_dir.string() + "/session_history.txt");
+        file << "# session_id samples_trained epochs final_loss final_val_loss checkpoint_path\n";
+        file << "0 100 5 0.8 1.2 " << cp0 << "\n";
+        file << "1 40 1 0 0 " << autosave1 << "\n";  // as perform_auto_save() persists it
+    }
+    auto set_newer = [](const std::string& newer, const std::string& older) {
+        const auto t = fs::last_write_time(older + ".config");
+        fs::last_write_time(newer + ".config", t + std::chrono::seconds(10));
+    };
+
+    set_newer(autosave1, best1);
+    {
+        IncrementalTrainer t(vocab_file.string(), model_file.string(), config);
+        EXPECT_LT(max_abs_diff(fingerprint(t.get_model()), w_autosave), 1e-5f)
+            << "should resume from the interrupted session's newer auto-save";
+        EXPECT_EQ(current_session_id_of(t), 1) << "the resumed pass keeps the interrupted id";
+        EXPECT_TRUE(fs::exists(autosave1 + ".config")) << "auto-save must not be deleted";
+        EXPECT_TRUE(fs::exists(best1 + ".config")) << "best snapshot must not be deleted";
+        EXPECT_TRUE(fs::exists(cp0 + ".config"));
+    }
+
+    set_newer(best1, autosave1);
+    {
+        IncrementalTrainer t(vocab_file.string(), model_file.string(), config);
+        EXPECT_LT(max_abs_diff(fingerprint(t.get_model()), w_best), 1e-5f)
+            << "should resume from session_1_best when it is newer";
+    }
+}
+
 TEST_F(IncrementalTrainerTest, ResumesFromMostRecentSessionNotLowestValidationLoss) {
     IncrementalConfig config;
     config.session_dir = session_dir.string();
