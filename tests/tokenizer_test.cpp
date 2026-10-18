@@ -1,6 +1,15 @@
 #include <../gtest/gtest.h>
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
+#include <random>
+#include <set>
+#include <sstream>
+#include <string>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <utility>
+#include <vector>
 #include "../src/BPETokenizer.hpp"
 
 // Helper function to create a test vocabulary file
@@ -761,6 +770,138 @@ TEST_F(BPETokenizerTest, GetMostFrequentPairIgnoresEmptyWordEntries) {
     EXPECT_NO_THROW(result = BPETokenizer::get_most_frequent_pair(word_tokens));
     EXPECT_EQ(result.first, "a");
     EXPECT_EQ(result.second, "b");
+}
+
+// ============================================================================
+// TD-220: pair counts keyed by the pair, not by first + "|||" + second
+// ============================================================================
+
+namespace {
+// The BPE_MERGES section of a saved vocab file, unescaped only as far as these tests need
+// (pipes and '!' aren't escaped).
+std::vector<std::pair<std::string, std::string>> saved_merges(const BPETokenizer& tok,
+                                                               const std::string& path) {
+    tok.save_vocab(path);
+    std::ifstream in(path);
+    std::string line;
+    std::vector<std::pair<std::string, std::string>> merges;
+    bool in_merges = false;
+    while (std::getline(in, line)) {
+        if (line.rfind("BPE_MERGES ", 0) == 0) {
+            in_merges = true;
+            continue;
+        }
+        if (!in_merges)
+            continue;
+        const size_t tab = line.find('\t');
+        if (tab != std::string::npos)
+            merges.emplace_back(line.substr(0, tab), line.substr(tab + 1));
+    }
+    std::remove(path.c_str());
+    return merges;
+}
+}  // namespace
+
+TEST_F(BPETokenizerTest, GetMostFrequentPairHandlesPipeTokens) {
+    // Key "|||||" used to split into ("", "||"), which build_bpe_merges() read as "no pairs".
+    std::vector<std::vector<std::string>> word_tokens = {{"|", "|"}, {"|", "|"}, {"a", "b"}};
+    const auto best = BPETokenizer::get_most_frequent_pair(word_tokens);
+    EXPECT_EQ(best.first, "|");
+    EXPECT_EQ(best.second, "|");
+
+    word_tokens = {{"a|", "|b"}, {"a|", "|b"}};
+    const auto best2 = BPETokenizer::get_most_frequent_pair(word_tokens);
+    EXPECT_EQ(best2.first, "a|");
+    EXPECT_EQ(best2.second, "|b");
+}
+
+TEST_F(BPETokenizerTest, GetMostFrequentPairBreaksTiesDeterministically) {
+    const std::vector<std::vector<std::string>> word_tokens = {{"y", "z"}, {"b", "c"}, {"m", "n"}};
+    const auto best = BPETokenizer::get_most_frequent_pair(word_tokens);
+    EXPECT_EQ(best.first, "b");
+    EXPECT_EQ(best.second, "c");
+}
+
+TEST_F(BPETokenizerTest, PipeHeavyCorpusStillLearnsMerges) {
+    // Asked for 52 merges and learned 0 before the fix.
+    std::vector<std::string> texts(20, "|| || || ab ab");
+    BPETokenizer tok;
+    tok.build_vocab(texts, 300, 1);
+    const auto merges = saved_merges(tok, "test_td220_pipes.vocab");
+    EXPECT_FALSE(merges.empty());
+    EXPECT_NE(std::find(merges.begin(), merges.end(), std::make_pair(std::string("|"),
+                                                                     std::string("|"))),
+              merges.end());
+}
+
+TEST_F(BPETokenizerTest, RandomPipeCorporaNeverRepeatAMergeRule) {
+    // Fuzzing corpora over {|, !} used to record the same wrong pair as a rule repeatedly.
+    std::mt19937 rng(220);
+    std::uniform_int_distribution<int> coin(0, 1), word_len(1, 6), words(3, 12);
+    for (int trial = 0; trial < 40; ++trial) {
+        std::vector<std::string> texts;
+        for (int line = 0; line < 8; ++line) {
+            std::string text;
+            for (int w = words(rng); w > 0; --w) {
+                for (int c = word_len(rng); c > 0; --c) text += coin(rng) ? '|' : '!';
+                text += ' ';
+            }
+            texts.push_back(text);
+        }
+        BPETokenizer tok;
+        tok.build_vocab(texts, 300, 1);
+        const auto merges = saved_merges(tok, "test_td220_fuzz.vocab");
+        std::set<std::pair<std::string, std::string>> unique(merges.begin(), merges.end());
+        ASSERT_EQ(unique.size(), merges.size()) << "repeated merge rule in trial " << trial;
+        ASSERT_FALSE(merges.empty()) << "no merges learned in trial " << trial;
+    }
+}
+
+// ============================================================================
+// TD-221: save_vocab() throws on failure and replaces the file atomically
+// ============================================================================
+
+TEST_F(BPETokenizerTest, SaveVocabToUnwritablePathThrows) {
+    BPETokenizer tok;
+    tok.build_vocab({"hello world"}, 300, 1);
+    EXPECT_THROW(tok.save_vocab("/nonexistent_dir_td221/sub/vocab.txt"), VocabularyFileError);
+    EXPECT_THROW(tok.save_vocab(""), VocabularyFileError);
+}
+
+TEST_F(BPETokenizerTest, SaveVocabLeavesNoTempFileOnSuccess) {
+    BPETokenizer tok;
+    tok.build_vocab({"hello world"}, 300, 1);
+    const std::string path = "test_td221_ok.vocab";
+    ASSERT_NO_THROW(tok.save_vocab(path));
+    EXPECT_TRUE(std::ifstream(path).good());
+    EXPECT_FALSE(std::ifstream(path + ".tmp").good());
+    std::remove(path.c_str());
+}
+
+TEST_F(BPETokenizerTest, FailedSaveVocabLeavesExistingFileIntact) {
+    if (geteuid() == 0) {
+        GTEST_SKIP() << "root ignores directory permissions";
+    }
+    const std::string dir = "test_td221_ro_dir";
+    const std::string path = dir + "/model.vocab";
+    ::mkdir(dir.c_str(), 0755);
+    {
+        std::ofstream good(path);
+        good << "previous good vocab\n";
+    }
+    ::chmod(dir.c_str(), 0555);  // can't create the temp file next to it
+
+    BPETokenizer tok;
+    tok.build_vocab({"hello world"}, 300, 1);
+    EXPECT_THROW(tok.save_vocab(path), VocabularyFileError);
+
+    ::chmod(dir.c_str(), 0755);
+    std::ifstream in(path);
+    std::string content;
+    std::getline(in, content);
+    EXPECT_EQ(content, "previous good vocab");
+    std::remove(path.c_str());
+    ::rmdir(dir.c_str());
 }
 
 int main(int argc, char** argv) {

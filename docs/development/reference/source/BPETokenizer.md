@@ -207,6 +207,18 @@ the key back at the **first** `"|||"`. Hardened against empty word entries in TD
 > all realistic triggers. Any pair whose split lands inside the separator is affected, not just
 > pipes-only ones.
 
+**Fixed in code October 17, 2026 (TD-220):** counts are keyed by the `std::pair` itself (with a
+small hash), so nothing is split back. Ties now go to the lexicographically smallest pair, so the
+learned merges no longer depend on hash-table iteration order.
+
+New tests:
+- the pipe corpus above learns merges, including `("|", "|")`;
+- 40 random corpora over `{|, !}` all learn merges with no repeated rule;
+- direct `get_most_frequent_pair()` checks for pipe tokens and ties.
+
+Vocabularies built before the fix may be damaged. Check them with `scripts/audit_vocab_merges.py`,
+which flags duplicate rules and, given `--expected-merges N`, short merge lists.
+
 ### `merge_tokens(word_tokens, first, second)` (static)
 
 Left-to-right, non-overlapping replacement of `first, second` with `first+second` in every word.
@@ -318,6 +330,16 @@ Writes the format above and logs a summary to `std::cout`.
 > bad path yields a checkpoint with weights but **no `.vocab`**, which then fails at `load()`.
 > `IncrementalTrainer`'s vocab bootstrap and `vocab_builder` have the same exposure.
 
+**Fixed in code October 17, 2026 (TD-221):** `save_vocab()` writes `<filename>.tmp`, checks the
+stream after flushing and closing, then renames it into place. It throws `VocabularyFileError` if
+the name is empty or if opening, writing or renaming fails, removing the temp file first, so a
+failed save never replaces a good vocab with a truncated one. How the callers now behave:
+- `EncoderDecoderModel::save_model()` lets the exception through.
+- `IncrementalTrainer` treats an end-of-pass checkpoint that fails to save as a failed pass: no
+  session is recorded, no MNS candidate is reported, and the claimed files are released, not marked
+  trained. Its vocab bootstrap returns false.
+- `vocab_builder` reaches its error path and exits 1 instead of printing success.
+
 ### `load_vocab(filename)`
 
 1. Throws `VocabularyFileError` for an empty filename or unopenable file.
@@ -399,9 +421,9 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 
 | Item | Impact | Verified | Tracked as |
 |---|---|---|---|
-| `"|||"` pair separator: pairs whose split lands in the separator (e.g. `("|","|")`) stop merge learning (§5) | Pipe-heavy corpora get few or no merges | Yes: 0 of 52 merges learned | [TD-220](../../guides/TECHNICAL_DEBT.md#td-220-bpe-merge-learning-is-corrupted-by-the--pair-key-separator) |
+| `"|||"` pair separator: pairs whose split lands in the separator (e.g. `("|","|")`) stop merge learning (§5) | Pipe-heavy corpora get few or no merges | Yes: 0 of 52 merges learned; **fixed in code October 17, 2026** | [TD-220](../../guides/TECHNICAL_DEBT.md#td-220-bpe-merge-learning-is-corrupted-by-the--pair-key-separator) |
 | `apply_bpe()` thread-local cache never invalidated; keyed by address; never freed (§6) | Stale tokenization after `load_vocab()` or address reuse; slow memory growth | Yes, both cases | [TD-222](../../guides/TECHNICAL_DEBT.md#td-222-apply_bpes-thread-local-cache-is-never-invalidated) |
-| `save_vocab()` fails silently (§8) | Checkpoints can be written without their `.vocab` | Yes | [TD-221](../../guides/TECHNICAL_DEBT.md#td-221-bpetokenizersave_vocab-fails-silently-so-checkpoints-can-lack-their-vocab) |
+| `save_vocab()` fails silently (§8) | Checkpoints can be written without their `.vocab` | Yes; **fixed in code October 17, 2026** | [TD-221](../../guides/TECHNICAL_DEBT.md#td-221-bpetokenizersave_vocab-fails-silently-so-checkpoints-can-lack-their-vocab) |
 | `load_vocab()` not exception-safe (§8) | Failed load leaves a gutted tokenizer | Yes: 12 → 1 tokens | [TD-223](../../guides/TECHNICAL_DEBT.md#td-223-tokenizer-mutators-can-leave-it-gutted-or-with-duplicate-ids) |
 | Second `build_vocab()` corrupts IDs; `RepeatedBuildVocab` test doesn't catch it (§5) | Duplicate IDs if an instance is reused | Yes: 3 shared IDs | [TD-223](../../guides/TECHNICAL_DEBT.md#td-223-tokenizer-mutators-can-leave-it-gutted-or-with-duplicate-ids) |
 | Lowercasing and whitespace collapsing are lossy (§6) | Models can't see or produce capitals, newlines, tabs | Yes | [TD-224](../../guides/TECHNICAL_DEBT.md#td-224-tokenizer-normalization-is-lossy-no-capitals-newlines-or-tabs) |

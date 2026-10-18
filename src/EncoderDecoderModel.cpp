@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.18.1
-// @adai-reviewed: 2026-10-17
+// @adai-version: 0.18.2
+// @adai-reviewed: 2026-10-18
 
 #include "EncoderDecoderModel.hpp"
 #include <algorithm>
@@ -785,8 +785,8 @@ void EncoderDecoderModel::save_model(const std::string& filepath) const {
     config_file.close();
 
     // Save tokenizer vocabulary
-    // TODO: See TD-221 in TECHNICAL_DEBT.md - save_vocab() fails silently, so this checkpoint can be
-    // written without its .vocab file.
+    // Throws VocabularyFileError if the vocab can't be written (TD-221), so a checkpoint is never
+    // reported as saved without its .vocab.
     tokenizer->save_vocab(filepath + ".vocab");
 
     // Save encoder weights

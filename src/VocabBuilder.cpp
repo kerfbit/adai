@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-10-18
 
 /**
  * @file VocabBuilder.cpp
@@ -183,7 +183,8 @@ int main(int argc, char** argv) {
 
         // Save vocabulary
         std::cout << COLOR_BLUE << "\n💾 Saving vocabulary...\n" << COLOR_RESET;
-        // TODO: See TD-535 in TECHNICAL_DEBT.md - a failed save still prints success and exits 0 (TD-221).
+        // save_vocab() throws on failure (TD-221), so a failed save reaches the catch below and
+        // exits 1 instead of printing success (TD-535's save half).
         tokenizer.save_vocab(output_file);
 
         std::cout << COLOR_GREEN << "✅ Vocabulary saved successfully!\n" << COLOR_RESET;

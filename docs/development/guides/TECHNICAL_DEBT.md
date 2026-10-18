@@ -4187,7 +4187,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | NLP / Tokenizer | October 8, 2026 | 1-2 hours (fix) + audit of existing vocab files |
+| **HIGH** | Open — code fix landed October 17, 2026 (vocab audit remains) | NLP / Tokenizer | October 8, 2026 | 1-2 hours (fix) + audit of existing vocab files |
 
 Description:
 Found while writing the code-traced reference [BPETokenizer.md](../reference/source/BPETokenizer.md),
@@ -4209,17 +4209,31 @@ Impact: a vocabulary is baked into every checkpoint trained on it, so a truncate
 merge list silently degrades every model built on that vocab until it's rebuilt and the model
 retrained.
 
+**Fix landed October 17, 2026:** pair counts are keyed by `std::pair<std::string, std::string>`
+(`StringPairHash`), so nothing is split back. Ties go to the lexicographically smallest pair, which
+makes vocab builds reproducible; previously the order depended on hash-table iteration.
+
+New tests in `tokenizer_test.cpp` (6 of the 7 new tokenizer tests fail on the old code; 60 pass in
+total):
+- `GetMostFrequentPairHandlesPipeTokens` and `GetMostFrequentPairBreaksTiesDeterministically`;
+- `PipeHeavyCorpusStillLearnsMerges` (the 0-of-52 corpus);
+- `RandomPipeCorporaNeverRepeatAMergeRule` (40 random `{|, !}` corpora).
+
+New script `scripts/audit_vocab_merges.py` checks saved vocab files for duplicate rules and, with
+`--expected-merges N`, short merge lists; it exits 1 if any file looks damaged. There are no vocab
+files on the dev machine, so the audit has to run on ai-machine.
+
 Action Items:
 
-- [ ] Key the pair counts by `std::pair<std::string, std::string>` (with a hash) instead of a
+- [x] Key the pair counts by `std::pair<std::string, std::string>` (with a hash) instead of a
   string separator.
-- [ ] Regression tests: pipe-only corpus learns merges; no repeated merge rules; merge count
+- [x] Regression tests: pipe-only corpus learns merges; no repeated merge rules; merge count
   reaches the target when pairs remain.
-- [ ] Audit existing vocab files (`vocab.txt`, every `<checkpoint>.vocab` on ai-machine): compare
+- [ ] Audit existing vocab files (run `scripts/audit_vocab_merges.py` on ai-machine) (`vocab.txt`, every `<checkpoint>.vocab` on ai-machine): compare
   the `BPE_MERGES` count against the intended target and look for repeated rules. Rebuild and
   retrain any affected vocab.
 
-Location in code: `src/BPETokenizer.cpp` (`get_most_frequent_pair()`); tagged `TODO: See TD-220`.
+Location in code: `src/BPETokenizer.cpp` (`get_most_frequent_pair()`); the `TODO: See TD-220` tag is now a fix comment.
 
 Files to Modify:
 
@@ -4232,7 +4246,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | NLP / Tokenizer | October 8, 2026 | 1-2 hours |
+| **HIGH** | Open — code fix landed October 17, 2026 | NLP / Tokenizer | October 8, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-220 and confirmed by running the real code. If `save_vocab()` can't open its
@@ -4245,18 +4259,36 @@ or full disk produces a checkpoint with weights but no vocab, and nobody finds o
 `IncrementalTrainer`'s vocab bootstrap and `vocab_builder` have the same exposure (a
 "successful" build that wrote nothing).
 
+**Fix landed October 17, 2026:** `save_vocab()` writes `<filename>.tmp`, checks the stream after
+flushing and closing, and renames the file into place. It throws `VocabularyFileError` if the name
+is empty or if opening, writing or renaming fails, removing the temp file first.
+
+Callers:
+- `EncoderDecoderModel::save_model()` propagates the error.
+- `IncrementalTrainer::run_training()` used to ignore `save_model()`'s result. A checkpoint that
+  fails to save now fails the pass: no session is recorded, no MNS candidate is reported, and the
+  claimed files are released rather than marked trained. `bootstrap_vocab()` returns false.
+- `ChatbotTrainer::build_vocabulary()` and its best-model save already caught exceptions.
+- `vocab_builder` now exits 1 (half of TD-535).
+
+New tests: `SaveVocabToUnwritablePathThrows`, `SaveVocabLeavesNoTempFileOnSuccess`, and
+`FailedSaveVocabLeavesExistingFileIntact`. In the last one, the old code overwrote the file in a
+read-only directory, because opening an existing file doesn't need write permission on its
+directory.
+
 Action Items:
 
-- [ ] Throw `VocabularyFileError` when the file can't be opened, and check the stream state after
+- [x] Throw `VocabularyFileError` when the file can't be opened, and check the stream state after
   writing (and after `close()`).
-- [ ] Write to a temporary file and rename it into place, so a failed save never leaves a
+- [x] Write to a temporary file and rename it into place, so a failed save never leaves a
   truncated vocab where a good one used to be.
-- [ ] Make sure `EncoderDecoderModel::save()`'s callers (checkpointing in `IncrementalTrainer`,
+- [x] Make sure `EncoderDecoderModel::save()`'s callers (checkpointing in `IncrementalTrainer`,
   `ChatbotTrainer`) surface the error rather than logging success.
-- [ ] Tests: unwritable path throws; failed save leaves an existing file intact.
+- [x] Tests: unwritable path throws; failed save leaves an existing file intact.
 
 Location in code: `src/BPETokenizer.cpp` (`save_vocab()`), `src/EncoderDecoderModel.cpp`
-(`save()`); tagged `TODO: See TD-221`.
+(`save()`), `src/IncrementalTrainer.cpp` (`run_training()`, `bootstrap_vocab()`); the
+`TODO: See TD-221` tags are now fix comments.
 
 Files to Modify:
 
@@ -13735,7 +13767,7 @@ Found while tracing `VocabBuilder.cpp`; verified:
 
 Action Items:
 
-- [ ] Check the save result (after TD-221 makes it report failure, or by verifying the file) and exit non-zero.
+- [x] Check the save result (after TD-221 makes it report failure, or by verifying the file) and exit non-zero. Done by TD-221's fix (October 17, 2026): `save_vocab()` throws and `main()`'s catch exits 1.
 - [ ] Parse numbers with full-string and range checks, reporting errors with exit 1.
 
 Location in code: `src/VocabBuilder.cpp` (argument loop, `save_vocab()` call); tagged `TODO: See TD-535`.

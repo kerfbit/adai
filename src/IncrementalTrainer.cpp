@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.10.1
-// @adai-reviewed: 2026-09-21
+// @adai-version: 0.10.2
+// @adai-reviewed: 2026-10-18
 
 #include "IncrementalTrainer.hpp"
 #include <algorithm>
@@ -246,7 +246,12 @@ bool IncrementalTrainer::bootstrap_vocab(const std::vector<ConversationPair>& pa
 
     BPETokenizer tok(config.base_config.tokenizer_mode);
     tok.build_vocab(texts, target_size);
-    tok.save_vocab(vocab_path_);
+    try {
+        tok.save_vocab(vocab_path_);  // throws on failure (TD-221)
+    } catch (const std::exception& e) {
+        Logger::error("Cannot save vocabulary to '{}': {}", vocab_path_, e.what());
+        return false;
+    }
 
     // Measure and report fertility so users can judge quality.
     float fertility = tok.measure_fertility(texts);
@@ -878,9 +883,22 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
     }
     metrics_reporter_ = std::make_unique<NullMetricsReporter>();
 
+    std::string checkpoint_path;
     if (success && !aborted) {
-        std::string checkpoint_path = generate_session_checkpoint_path();
-        save_model(checkpoint_path);
+        checkpoint_path = generate_session_checkpoint_path();
+        // TD-221: a pass whose checkpoint (weights or .vocab) can't be written is a failed pass:
+        // don't record the session or report a candidate, and return false so the caller
+        // releases its files instead of marking them trained.
+        if (!save_model(checkpoint_path)) {
+            success = false;
+            if (control_) {
+                control_->log(adai::TrainerLogLevel::Error,
+                              "Training pass finished but its checkpoint could not be saved to " +
+                                  checkpoint_path);
+            }
+        }
+    }
+    if (success && !aborted) {
 
         // TD-169: export this pass's per-epoch metrics (loss/perplexity/LR/gradient-norm/
         // duration) as a CSV sidecar next to the checkpoint, and log an overfitting warning

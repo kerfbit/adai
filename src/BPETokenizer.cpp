@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-18
 
 // TODO: See TD-225 in TECHNICAL_DEBT.md - std::cout/std::cerr are used throughout this file instead of
 // adai::Logger (progress output, warnings, save/load summaries).
@@ -8,7 +8,11 @@
 #include "BPETokenizer.hpp"
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <functional>
 #include <iomanip>
+#include <iterator>
+#include <utility>
 
 // Pre-tokenization regex patterns
 // ASCII: every byte is one token unit; only ASCII letter/digit classes used.
@@ -298,9 +302,23 @@ std::vector<std::string> BPETokenizer::pre_tokenize(const std::string& text) {
 // BPE application
 // ============================================================================
 
+namespace {
+// TD-220: pair counts are keyed by the pair itself. They used to be keyed by
+// first + "|||" + second and split back at the first "|||", which mis-split any pair
+// containing '|' (an empty first token stopped merge learning; a wrong non-empty pair was
+// re-recorded as a merge rule every round).
+struct StringPairHash {
+    size_t operator()(const std::pair<std::string, std::string>& p) const {
+        const size_t h1 = std::hash<std::string>{}(p.first);
+        const size_t h2 = std::hash<std::string>{}(p.second);
+        return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6) + (h1 >> 2));
+    }
+};
+}  // namespace
+
 std::pair<std::string, std::string> BPETokenizer::get_most_frequent_pair(
     const std::vector<std::vector<std::string>>& word_tokens) {
-    std::unordered_map<std::string, int> pair_counts;
+    std::unordered_map<std::pair<std::string, std::string>, int, StringPairHash> pair_counts;
 
     for (const auto& tokens : word_tokens) {
         // `i + 1 < tokens.size()` rather than `i < tokens.size() - 1` (TD-058,
@@ -309,11 +327,7 @@ std::pair<std::string, std::string> BPETokenizer::get_most_frequent_pair(
         // happens to only ever push non-empty entries, but this is a public
         // static method and callers outside this file have no such guarantee.
         for (size_t i = 0; i + 1 < tokens.size(); i++) {
-            // TODO: See TD-220 in TECHNICAL_DEBT.md - splitting this key back at the first "|||" (below)
-            // mis-splits pairs containing '|', stopping merge learning or repeating a wrong rule.
-            // Key by std::pair<std::string, std::string> instead.
-            std::string pair_key = tokens[i] + "|||" + tokens[i + 1];
-            pair_counts[pair_key]++;
+            pair_counts[{tokens[i], tokens[i + 1]}]++;
         }
     }
 
@@ -321,12 +335,14 @@ std::pair<std::string, std::string> BPETokenizer::get_most_frequent_pair(
         return {"", ""};
     }
 
-    auto max_pair =
-        std::max_element(pair_counts.begin(), pair_counts.end(),
-                         [](const auto& a, const auto& b) { return a.second < b.second; });
-
-    size_t sep_pos = max_pair->first.find("|||");
-    return {max_pair->first.substr(0, sep_pos), max_pair->first.substr(sep_pos + 3)};
+    // Highest count wins; ties go to the lexicographically smallest pair, so the learned merges
+    // don't depend on hash-table iteration order.
+    auto best = pair_counts.begin();
+    for (auto it = std::next(pair_counts.begin()); it != pair_counts.end(); ++it) {
+        if (it->second > best->second || (it->second == best->second && it->first < best->first))
+            best = it;
+    }
+    return best->first;
 }
 
 void BPETokenizer::merge_tokens(std::vector<std::vector<std::string>>& word_tokens,
@@ -484,13 +500,17 @@ size_t BPETokenizer::get_vocab_size() const {
 }
 
 void BPETokenizer::save_vocab(const std::string& filename) const {
-    std::ofstream file(filename);
-    // TODO: See TD-221 in TECHNICAL_DEBT.md - open and write failures don't throw, so callers (including
-    // every EncoderDecoderModel::save() checkpoint) believe the vocab was saved. Throw
-    // VocabularyFileError, check the stream after writing, and write via temp file + rename.
+    // TD-221: write to a temporary file next to the target and rename it into place, throwing
+    // VocabularyFileError on any failure, so callers (every EncoderDecoderModel::save_model()
+    // checkpoint, vocab_builder, the trainer's vocab bootstrap) can't believe a failed save
+    // succeeded, and a failed save never leaves a truncated vocab where a good one used to be.
+    if (filename.empty()) {
+        throw VocabularyFileError("Vocabulary filename is empty");
+    }
+    const std::string tmp_filename = filename + ".tmp";
+    std::ofstream file(tmp_filename, std::ios::trunc);
     if (!file.is_open()) {
-        std::cerr << "Error: Could not open file for writing: " << filename << '\n';
-        return;
+        throw VocabularyFileError("Could not open vocabulary file for writing: " + tmp_filename);
     }
 
     file << "# BPE Tokenizer Vocabulary v1.0\n";
@@ -532,7 +552,17 @@ void BPETokenizer::save_vocab(const std::string& filename) const {
         file << escape(merge.first) << "\t" << escape(merge.second) << "\n";
     }
 
+    file.flush();
+    const bool write_ok = static_cast<bool>(file);
     file.close();
+    if (!write_ok || file.fail()) {
+        std::remove(tmp_filename.c_str());
+        throw VocabularyFileError("Failed writing vocabulary file: " + tmp_filename);
+    }
+    if (std::rename(tmp_filename.c_str(), filename.c_str()) != 0) {
+        std::remove(tmp_filename.c_str());
+        throw VocabularyFileError("Could not move vocabulary file into place: " + filename);
+    }
     std::cout << "[BPE Tokenizer] Vocabulary saved to " << filename << '\n';
     std::cout << "  - Mode: " << (mode == TokenizerMode::UNICODE ? "Unicode" : "ASCII") << '\n';
     std::cout << "  - Vocabulary size: " << vocab.size() << '\n';
