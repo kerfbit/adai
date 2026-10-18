@@ -44,6 +44,7 @@ void signal_handler(int signal) {
 /**
  * @brief Print usage information
  */
+// TODO: See TD-528 in TECHNICAL_DEBT.md - lists unenforced --max-disk-records and only the legacy flat routes.
 void print_usage(const char* program_name) {
     std::cout << "Training Metrics REST API Server\n";
     std::cout << "Usage: " << program_name << " [OPTIONS]\n\n";
@@ -186,6 +187,7 @@ int main(int argc, char* argv[]) {
             metrics_config, server_config.max_live_sessions, server_config.completed_ttl_seconds,
             server_config.sweep_interval_seconds, server_config.storage_backend,
             server_config.db_path, server_config.db_url, server_config.db_pool_size);
+        // TODO: See TD-528 in TECHNICAL_DEBT.md - 0-default counts toward max_live_sessions (one fewer slot for trainers).
         auto metrics_service = session_registry->create_or_get_session("0-default");
         if (!metrics_service) {
             std::cerr << "Error: Unable to initialize default metrics session\n";
@@ -295,6 +297,8 @@ int main(int argc, char* argv[]) {
             std::cout << "==================================================\n";
 
             std::cout << "[1/2] Stopping API server...\n";
+            // TODO: See TD-528 in TECHNICAL_DEBT.md - stop() is a no-op until start() has set running_ on the server
+            // thread, so a SIGTERM in that window leaves join() waiting forever.
             if (g_api_server) {
                 g_api_server->stop();
             }

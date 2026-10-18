@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 319
+**Total Items:** 320
 **High Priority:** 33
 **Medium Priority:** 137
-**Low Priority:** 149
+**Low Priority:** 150
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -594,6 +594,10 @@ Verified against the real `metrics_api_server`: with `Origin: http://evil.exampl
 `POST …/control/clear` returned 200 and cleared the history and a fake `loss` of 99 was recorded; every response carries `Access-Control-Allow-Origin: *`,
 so any web page in an operator's browser can write to the server and read everything, including abnormal samples' training text (TD-526). Each
 `metrics/current` poll logs an INFO line (TD-527).
+
+Also October 17, 2026: filed [TD-528](#td-528-metrics_api_server-stopstart-race-stale-help-text-and-default-session-slot) (LOW) from the code-traced [TrainingMetricsAPIServer.md](../reference/source/TrainingMetricsAPIServer.md) (no defects of
+its own; 40 SIGTERMs during startup all exited): a narrow stop/start race, help/banner text listing an unenforced flag and few of the real routes, and the
+startup `0-default` session occupying one live-session slot.
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1734,6 +1738,8 @@ supervisor: idle, did work, failed, crashed) so `/admin/status` can show a faili
 `application/json` on every write (a preflight), the same change for `mns_server`/`registry_server` if their browser exposure is confirmed; [TD-527](#td-527-trainingmetricsapi-per-poll-logging-parsing-and-unbounded-history-queries) is
 cleanup (with TD-453's JSON consolidation).
 
+**Tier 104 — Newly filed (October 17, 2026): `TrainingMetricsAPIServer`.** [TD-528](#td-528-metrics_api_server-stopstart-race-stale-help-text-and-default-session-slot) is cleanup; do it with TD-438/TD-439 and TD-445.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -2059,6 +2065,7 @@ cleanup (with TD-453's JSON consolidation).
   - [TD-525: `TrainerServiceProxy` Misreports Long Checkpoint Waits and Idle Config](#td-525-trainerserviceproxy-misreports-long-checkpoint-waits-and-idle-config)
   - [TD-526: Metrics API Accepts Cross-Origin Writes and Reads From Any Web Page](#td-526-metrics-api-accepts-cross-origin-writes-and-reads-from-any-web-page)
   - [TD-527: `TrainingMetricsAPI` Per-Poll Logging, Parsing and Unbounded History Queries](#td-527-trainingmetricsapi-per-poll-logging-parsing-and-unbounded-history-queries)
+  - [TD-528: `metrics_api_server` Stop/Start Race, Stale Help Text and Default-Session Slot](#td-528-metrics_api_server-stopstart-race-stale-help-text-and-default-session-slot)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -13400,6 +13407,39 @@ Files to Modify:
 
 ---
 
+### TD-528: `metrics_api_server` Stop/Start Race, Stale Help Text and Default-Session Slot
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Metrics / Server CLI | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `TrainingMetricsAPIServer.cpp` (see [TrainingMetricsAPIServer.md](../reference/source/TrainingMetricsAPIServer.md)); by inspection
+(40 SIGTERMs sent 0–90 ms after start all exited, so the race below wasn't reproduced):
+- **Stop/start race:** `TrainingMetricsAPI::stop()` returns early unless `running_` is set, which `start()` does on the server thread; a SIGTERM after the
+  handlers are installed but before `start()` runs makes `stop()` a no-op and the shutdown `join()` waits for a server that then runs forever (the
+  `mns_server` TD-464 race).
+- **Help/banner drift:** `--help` lists `--max-disk-records` (unenforced, TD-440); both endpoint lists (help and startup banner) show the legacy flat
+  routes and omit most session-scoped, compare, export, db-history, LeJEPA and admin routes.
+- **Default-session slot:** the `0-default` session created at startup counts toward `max_live_sessions`, so trainers get one fewer slot than configured
+  (relevant to TD-445).
+
+Action Items:
+
+- [ ] Make `stop()` effective before `listen()` (e.g. set `running_` before spawning the thread, or have `start()` check a stop flag first).
+- [ ] Generate or trim the endpoint lists (point to TRAINING_METRICS_API.md); drop `--max-disk-records` from help until TD-440 implements it.
+- [ ] Exempt `0-default` from the live-session cap (or stop creating it when no legacy client uses it).
+
+Location in code: `src/TrainingMetricsAPIServer.cpp` (`print_usage()`, startup banner, shutdown sequence, `0-default` creation); tagged `TODO: See TD-528`.
+
+Files to Modify:
+
+- `src/TrainingMetricsAPIServer.cpp`
+- `src/TrainingMetricsAPI.cpp`
+- `src/MetricsSessionRegistry.hpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -13916,15 +13956,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 319 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 320 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|33|10%|
 |Medium|137|43%|
-|Low|149|47%|
+|Low|150|47%|
 
-**Total Active Items:** 319
+**Total Active Items:** 320
 
 ### By Component
 
@@ -14010,7 +14050,7 @@ Recomputed directly from the 319 `### TD-NNN` entries under [Active Technical De
 |Core / Matrix|2|
 |Core / Optimizer|2|
 |Build / SIMD|2|
-|Metrics / Server CLI|2|
+|Metrics / Server CLI|3|
 |Metrics / API|2|
 |Metrics / Database|4|
 |Metrics / SQLite Database|3|
@@ -14033,13 +14073,13 @@ Recomputed directly from the 319 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|194|
+|0-2 hours|195|
 |2-4 hours|97|
 |4-8 hours|16|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 582-1058 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 583-1060 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
