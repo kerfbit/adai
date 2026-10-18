@@ -1464,6 +1464,7 @@ int main(int argc, char* argv[]) {
                 }
 #endif
 
+                // TODO: See TD-523 in TECHNICAL_DEBT.md - same exit code for "nothing pending" and for failures.
                 if (!did_work)
                     return 1;
                 adai::Logger::info("Resumed from last session; latest checkpoint: {}",

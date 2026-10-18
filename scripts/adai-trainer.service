@@ -99,6 +99,7 @@ RestartSec=45
 
 ProtectSystem=strict
 ProtectHome=yes
+# TODO: See TD-524 in TECHNICAL_DEBT.md - /opt/adai/downloads (default DOWNLOAD_DIR) is not writable here.
 ReadWritePaths=/var/log/adai /opt/adai/models /opt/adai/training_sessions /opt/adai/tokenized_cache /opt/adai/trainer_admin
 
 NoNewPrivileges=true

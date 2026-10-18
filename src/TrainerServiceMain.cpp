@@ -64,6 +64,7 @@ void signal_handler(int sig) {
 // bare name, letting execvp()/CreateProcessA's own PATH search find it (matches how this process
 // itself was presumably invoked, e.g. via a systemd unit's absolute ExecStart or a bare name on
 // an operator's PATH).
+// TODO: See TD-524 in TECHNICAL_DEBT.md - bare-name fallback can launch a different incremental_trainer from PATH.
 std::string resolve_incremental_trainer_path(const std::string& argv0) {
 #ifdef _WIN32
     const std::string name = "incremental_trainer.exe";
@@ -137,6 +138,7 @@ int main(int argc, char* argv[]) {
         child_argv.push_back("--gpu-strategy");
         child_argv.push_back(*cli.gpu_strategy);
     }
+    // TODO: See TD-524 in TECHNICAL_DEBT.md - --admin-port is passed even with TRAINER_ADMIN_ENABLED=false.
     child_argv.push_back("--foreground");
     child_argv.push_back("--admin-port");
     child_argv.push_back(admin_port_str);
@@ -220,6 +222,8 @@ int main(int argc, char* argv[]) {
             break;
         }
 
+        // TODO: See TD-523 in TECHNICAL_DEBT.md - `resume` exits 1 both when idle and when it failed (missing checkpoint,
+        // load/training failure), so failures look idle here and retry every 45 s unreported (verified).
         const bool did_work = (exit_code == 0);
         if (did_work) {
             control->total_passes_did_work.fetch_add(1);
