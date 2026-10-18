@@ -17,7 +17,7 @@ The learnable `[vocab_size, d_model]` lookup table that turns token IDs into vec
 
 | Member | Behaviour |
 |---|---|
-| `TokenEmbedding(vocab, d_model)` | `Matrix::randomize(1/√d_model)` (a **normal** distribution with that standard deviation, from `Matrix`'s shared unseeded RNG, TD-368/TD-435) and a zeroed gradient matrix of the same size. Sizes aren't validated |
+| `TokenEmbedding(vocab, d_model)` | `Matrix::randomize(kInitStd)` with `kInitStd = 1` since TD-517's fix (before: 1/√d_model); a **normal** distribution with that standard deviation, from `Matrix`'s shared unseeded RNG, TD-368/TD-435) and a zeroed gradient matrix of the same size. Sizes aren't validated |
 | `forward(ids)` | Row lookup into `[len, d_model]`; throws `out_of_range` for an ID outside `[0, vocab)`; caches the IDs (`cached_token_ids`, never read) |
 | `backward(ids, grad)` | Checks shapes and IDs, then adds each gradient row into its token's row (repeated tokens accumulate) |
 | `set_optimizer(opt)` / `register_parameters()` | Registers the matrix and its gradient with the optimizer (no duplicate check, TD-469) |
@@ -42,6 +42,16 @@ content, and the model must first learn to grow every embedding about 20×, agai
 This is a training-dynamics and architecture choice rather than a crash; the owner decided on October 17, 2026 that it must be fixed. Changing it
 alters every checkpoint's input scale, so it lands with the TD-358 retraining. It may also be relevant to the open Pre-LN residual-growth question (TD-371).
 
+**Fixed in code October 17, 2026:** the table is initialized from N(0, 1) (`TokenEmbedding::kInitStd`), and the lookup stays unscaled. This is the
+T5 convention, rather than the original Transformer's small init with a √d_model multiply in `forward()`. Rows now have norm ≈ √d_model (27.7 at
+768), against 19.6 for positional rows. At initialization, different tokens at one position measure 0.334 cosine and the same token at adjacent
+positions 0.991, compared with 0.997 and 0.973 before. The new test `TokenIdentityNotSwampedByPositionAtInit` checks this and fails with the old init.
+
+Why the initialization rather than a forward-pass multiply:
+- `forward()`/`backward()` and the saved format are unchanged, so an existing checkpoint loads and behaves exactly as before. No format-version bump
+  is needed, and nothing is silently rescaled; pre-fix checkpoints need retraining anyway (TD-358).
+- SafeTensors/T5 exports keep meaning the raw table, which matches TD-466's decision to make the export T5-faithful.
+
 ### `load_pretrained()` accepts truncated files (verified)
 
 Reads aren't checked. A file cut to half its size loaded without error, and the rows past the cut kept their random initialization (row 999 unchanged).
@@ -61,7 +71,7 @@ The same class as TD-467/TD-369 for the other layers' loaders.
 `tokenembedding_test.cpp` (60): construction, forward lookups and bounds, backward accumulation and shape checks, SGD and optimizer updates, gradient norm
 and clipping, save/load round trips and mismatch rejection, constant and re-initialization, and accessors.
 
-**Not covered:** truncated files, the scale relationship with positional encoding.
+**Not covered:** truncated files. The scale relationship with positional encoding is covered since TD-517's fix (`TokenIdentityNotSwampedByPositionAtInit`, 61 tests).
 
 ---
 
@@ -72,7 +82,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Embedding norm ≈ 1 vs positional norm ≈ 19.6, no √d_model scaling (§2) | Different tokens at one position are 0.997-similar at init; content must grow 20× under weight decay | **Verified** (owner: must fix) | [TD-517](../../guides/TECHNICAL_DEBT.md#td-517-token-embeddings-arent-scaled-by-sqrtd_model-so-position-swamps-content) |
+| Embedding norm ≈ 1 vs positional norm ≈ 19.6, no √d_model scaling (§2) | Different tokens at one position are 0.997-similar at init; content must grow 20× under weight decay | **Verified** (owner: must fix); **fixed in code October 17, 2026** (N(0, 1) init) | [TD-517](../../guides/TECHNICAL_DEBT.md#td-517-token-embeddings-arent-scaled-by-sqrtd_model-so-position-swamps-content) |
 | `load_pretrained()` doesn't check reads (§2) | Truncated checkpoints load with random rows | **Verified** | [TD-518](../../guides/TECHNICAL_DEBT.md#td-518-tokenembedding-unchecked-loading-full-matrix-updates-and-validation-gaps) |
 | Full-matrix zeroing/updates; no size/shape validation; unused cache; console output (§2) | Cost and hygiene | By inspection | [TD-518](../../guides/TECHNICAL_DEBT.md#td-518-tokenembedding-unchecked-loading-full-matrix-updates-and-validation-gaps) |
 | Shared-optimizer stepping; duplicate registration; unseeded init; float sums | Already tracked | — | TD-297, TD-469, TD-368, TD-435 |

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-17
 
 
 #include <string>
@@ -22,7 +22,7 @@
  * - Efficient lookup for batch of token IDs
  * - Gradient computation for backpropagation
  * - Support for pre-trained embeddings
- * - Xavier initialization for stable training
+ * - N(0, 1) initialization, so token identity isn't swamped by positional encoding (TD-517)
  *
  * Mathematical Operation:
  * For token ID t, the embedding is simply a row lookup:
@@ -53,15 +53,21 @@ class TokenEmbedding {
     Optimizer* optimizer{nullptr};  // Optional optimizer (nullptr = simple gradient descent)
 
    public:
+    /// Standard deviation of the initial embedding values (TD-517). With unit-variance entries a
+    /// row has norm ~sqrt(d_model), on the same scale as a sinusoidal positional row
+    /// (sqrt(d_model / 2)), which the encoder/decoder add to it unscaled.
+    static constexpr float kInitStd = 1.0f;
+
     float learning_rate{
         0.001f};  // Learning rate for gradient updates (used when optimizer is nullptr)
 
     /**
      * Constructor
      *
-     * Initializes embedding matrix with Xavier/Glorot initialization:
-     *   scale = sqrt(1 / d_model)
-     * This ensures gradients have appropriate magnitude during early training.
+     * Initializes the embedding matrix from N(0, kInitStd^2) = N(0, 1) (TD-517). The lookup in
+     * forward() is unscaled, so this is what keeps a token's embedding on the same scale as the
+     * positional encoding added to it (the T5 convention; the original Transformer instead
+     * initializes small and multiplies the lookup by sqrt(d_model)).
      *
      * @param vocab_size Size of the vocabulary
      * @param d_model Dimension of embedding vectors
@@ -209,9 +215,9 @@ class TokenEmbedding {
     void initialize_constant(float value);
 
     /**
-     * Reinitialize embeddings with Xavier initialization
+     * Reinitialize embeddings
      *
-     * Resets embeddings to random values with Xavier scaling.
+     * Resets embeddings to random N(0, 1) values, as in the constructor.
      * Useful for restarting training or testing initialization impact.
      */
     void reinitialize();

@@ -13167,7 +13167,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| HIGH | Open | Layers / TokenEmbedding | October 17, 2026 | 2-4 hours |
+| HIGH | Open — code fix landed October 17, 2026 | Layers / TokenEmbedding | October 17, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `TokenEmbedding.cpp` (see [TokenEmbedding.md](../reference/source/TokenEmbedding.md)); verified with the real `TokenEmbedding`
@@ -13180,14 +13180,29 @@ must first grow every embedding row ~20×, against the global weight decay that 
 
 **Owner decision (October 17, 2026): must fix.** It changes the input scale of every checkpoint, so it lands with the planned retraining (TD-358).
 
+**Fix landed October 17, 2026:** chose the second option. The table is initialized from N(0, 1) (`TokenEmbedding::kInitStd`, used by the
+constructor and `reinitialize()`), and `forward()`/`backward()` stay unscaled (the T5 convention).
+- Rows now have norm ≈ 27.7 at `d_model = 768`, against 19.6 for positional rows.
+- At initialization, different tokens at one position measure 0.334 cosine and the same token at adjacent positions 0.991 (before: 0.997 and 0.973).
+- New test `TokenEmbeddingConstructorTest.TokenIdentityNotSwampedByPositionAtInit` fails with the old init; the variance test now expects 1.
+
+Why not the √d_model multiply: it would change what every saved table means. Old checkpoints would load silently rescaled (hence the version bump
+this entry proposed), and SafeTensors exports would stop matching T5 (TD-466). With the init change, saved files and their meaning are unchanged, so
+no format bump is needed: pre-fix checkpoints behave exactly as before and are retired by the TD-358 retraining.
+
+TD-371 revisited: with token rows around norm 34 after adding position (they were about 20), the residual stream starts larger. Each Pre-LN
+sublayer reads a normalized input, so its output is relatively smaller against that stream, which moves away from the residual-growth risk rather
+than towards it. No residual scaling is added in this change; TD-371 stays an owner decision, best judged from the first retraining's per-layer
+residual norms. TD-469 (weight decay on embeddings) applies proportionally at either scale and stays separate.
+
 Action Items:
 
-- [ ] Scale the embedding output by √d_model in `TokenEmbedding::forward()` (and the gradient by the same factor in `backward()`), or equivalently initialize with standard deviation 1 and keep the lookup unscaled; pick one and document it.
-- [ ] Bump the checkpoint format/version so pre-fix checkpoints aren't silently loaded with the new scaling (they need retraining anyway, TD-358).
-- [ ] Add a test that token identity isn't swamped at initialization (e.g. cross-token cosine at one position well below same-token adjacent-position cosine).
-- [ ] Revisit TD-371 (residual-branch scaling) in the same change.
+- [x] Scale the embedding output by √d_model in `TokenEmbedding::forward()` (and the gradient by the same factor in `backward()`), or equivalently initialize with standard deviation 1 and keep the lookup unscaled; pick one and document it.
+- [x] ~~Bump the checkpoint format/version so pre-fix checkpoints aren't silently loaded with the new scaling (they need retraining anyway, TD-358).~~ Not needed with the init-based fix: loading isn't rescaled.
+- [x] Add a test that token identity isn't swamped at initialization (e.g. cross-token cosine at one position well below same-token adjacent-position cosine).
+- [x] Revisit TD-371 (residual-branch scaling) in the same change. Revisited; no change, see above.
 
-Location in code: `src/TokenEmbedding.cpp` (`forward()`, `backward()`, constructor initialization); tagged `TODO: See TD-517`.
+Location in code: `src/TokenEmbedding.cpp` (constructor and `reinitialize()`), `src/TokenEmbedding.hpp` (`kInitStd`); the `TODO: See TD-517` tags are now `TD-517:` fix comments.
 
 Files to Modify:
 

@@ -6,6 +6,7 @@
 #include <vector>
 #include "../src/Matrix.hpp"
 #include "../src/Optimizer.hpp"
+#include "../src/PositionalEncoding.hpp"
 
 // ============================================================================
 // Constructor Tests
@@ -38,7 +39,7 @@ TEST(TokenEmbeddingConstructorTest, LargeVocabulary) {
     EXPECT_EQ(embeddings.get_embedding_dim(), 512);
 }
 
-TEST(TokenEmbeddingConstructorTest, XavierInitialization) {
+TEST(TokenEmbeddingConstructorTest, UnitVarianceInitialization) {
     TokenEmbedding embeddings(100, 64);
     const Matrix& emb_matrix = embeddings.get_embeddings();
 
@@ -59,12 +60,45 @@ TEST(TokenEmbeddingConstructorTest, XavierInitialization) {
     double mean = sum / count;
     double variance = (sum_sq / count) - (mean * mean);
 
-    // Xavier initialization should have mean close to 0
-    EXPECT_NEAR(mean, 0.0, 0.1);
+    EXPECT_NEAR(mean, 0.0, 0.05);
 
-    // Variance should be approximately 1/d_model
-    double expected_variance = 1.0 / 64.0;
-    EXPECT_NEAR(variance, expected_variance, 0.05);
+    // TD-517: unit variance (it was 1/d_model, which let positional encoding swamp the tokens)
+    EXPECT_NEAR(variance, 1.0, 0.05);
+}
+
+// TD-517: at initialization, token identity must survive adding the positional encoding. With
+// the old N(0, 1/d_model) init, two different tokens at one position had cosine 0.997 at
+// d_model = 768 -- more similar than the same token at adjacent positions (0.973).
+TEST(TokenEmbeddingConstructorTest, TokenIdentityNotSwampedByPositionAtInit) {
+    const int vocab = 200, d_model = 768, pos = 10;
+    TokenEmbedding embeddings(vocab, d_model);
+    PositionalEncoding pe(64, d_model);
+    const Matrix& table = embeddings.get_embeddings();
+    const Matrix& enc = pe.get_encoding();
+
+    auto cosine = [&](int tok_a, int pos_a, int tok_b, int pos_b) {
+        double dot = 0.0, na = 0.0, nb = 0.0;
+        for (int j = 0; j < d_model; ++j) {
+            const double a = table(tok_a, j) + enc(pos_a, j);
+            const double b = table(tok_b, j) + enc(pos_b, j);
+            dot += a * b;
+            na += a * a;
+            nb += b * b;
+        }
+        return dot / std::sqrt(na * nb);
+    };
+
+    double cross_token = 0.0, same_token_adjacent = 0.0;
+    const int pairs = 50;
+    for (int k = 0; k < pairs; ++k) {
+        cross_token += cosine(2 * k, pos, 2 * k + 1, pos);
+        same_token_adjacent += cosine(2 * k, pos, 2 * k, pos + 1);
+    }
+    cross_token /= pairs;
+    same_token_adjacent /= pairs;
+
+    EXPECT_LT(cross_token, 0.5) << "different tokens at one position look alike";
+    EXPECT_GT(same_token_adjacent, cross_token + 0.4);
 }
 
 // ============================================================================

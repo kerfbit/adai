@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-17
 
 #include "TokenEmbedding.hpp"
 #include <cmath>
@@ -14,10 +14,10 @@ TokenEmbedding::TokenEmbedding(int vocab_size, int d_model)
       embedding_grad(vocab_size, d_model),
       vocab_size(vocab_size),
       d_model(d_model) {
-    // Xavier/Glorot initialization
-    // Scale by sqrt(1/d_model) for stable gradients
-    float scale = std::sqrt(1.0f / static_cast<float>(d_model));
-    embedding_matrix.randomize(scale);
+    // TD-517: N(0, 1) so each row has norm ~sqrt(d_model), comparable to a sinusoidal
+    // positional row (sqrt(d_model / 2)). The old N(0, 1/d_model) gave norm ~1, so position
+    // swamped content (two different tokens at one position: cosine 0.997 at d_model = 768).
+    embedding_matrix.randomize(kInitStd);
 
     // Initialize gradients to zero
     for (int i = 0; i < vocab_size; ++i) {
@@ -34,10 +34,9 @@ Matrix TokenEmbedding::forward(const std::vector<int>& token_ids) {
     // Cache token IDs for backward pass
     cached_token_ids = token_ids;
 
-    // TODO: See TD-517 in TECHNICAL_DEBT.md - owner decision: must fix. Rows have norm ~1 but positional rows ~sqrt(d/2)
-    // (19.6 at 768), so position swamps content (cross-token cosine 0.997 at init); scale by sqrt(d_model) here and in
-    // backward(), with the TD-358 retraining.
-    // Lookup embeddings for each token
+    // Lookup embeddings for each token. Deliberately unscaled (no sqrt(d_model) factor, TD-517):
+    // the scale comes from the N(0, 1) initialization instead, so saved tables mean the same
+    // thing to every loader and exporter.
     for (int i = 0; i < seq_len; ++i) {
         int token_id = token_ids[i];
 
@@ -66,7 +65,6 @@ void TokenEmbedding::backward(const std::vector<int>& token_ids, const Matrix& g
         throw std::invalid_argument("Gradient output columns must match d_model");
     }
 
-    // TODO: See TD-517 in TECHNICAL_DEBT.md - scale with forward() once the sqrt(d_model) factor is added.
     // Accumulate gradients for each token
     for (size_t i = 0; i < token_ids.size(); ++i) {
         int token_id = token_ids[i];
@@ -215,9 +213,7 @@ void TokenEmbedding::initialize_constant(float value) {
 }
 
 void TokenEmbedding::reinitialize() {
-    // Xavier initialization
-    float scale = std::sqrt(1.0f / static_cast<float>(d_model));
-    embedding_matrix.randomize(scale);
+    embedding_matrix.randomize(kInitStd);  // same as the constructor (TD-517)
     zero_grad();
 }
 
