@@ -1,13 +1,15 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-17
 
 
 #include <cctype>
 #include <sstream>
 #include <string>
+#include <utility>
+#include <vector>
 
 /**
  * @brief Optional metadata attached to a training sample.
@@ -57,81 +59,221 @@ inline std::string json_esc(const std::string& s) {
     return o;
 }
 
-// TODO: See TD-531 in TECHNICAL_DEBT.md - \uXXXX (and \b \f \/) not decoded: "Caf\u00e9" -> "Cafu00e9" (verified).
-// TODO: See TD-532 in TECHNICAL_DEBT.md - first occurrence anywhere in the line, not a top-level key.
-inline std::string json_str(const std::string& json, const std::string& key) {
-    const std::string needle = "\"" + key + "\"";
-    size_t kpos = json.find(needle);
-    if (kpos == std::string::npos)
-        return "";
-    size_t colon = json.find(':', kpos + needle.size());
-    if (colon == std::string::npos)
-        return "";
-    size_t vpos = colon + 1;
-    while (vpos < json.size() && std::isspace(static_cast<unsigned char>(json[vpos])))
-        ++vpos;
-    if (vpos >= json.size() || json[vpos] != '"')
-        return "";
-    std::string raw;
-    for (++vpos; vpos < json.size() && json[vpos] != '"'; ++vpos) {
-        if (json[vpos] == '\\' && vpos + 1 < json.size()) {
-            ++vpos;
-            switch (json[vpos]) {
-                case 'n':
-                    raw += '\n';
-                    break;
-                case 't':
-                    raw += '\t';
-                    break;
-                case 'r':
-                    raw += '\r';
-                    break;
-                default:
-                    raw += json[vpos];
-                    break;
-            }
-        } else {
-            raw += json[vpos];
-        }
+// TD-531/TD-532: a small JSON object reader for one JSONL line. It returns only top-level
+// members (nested objects/arrays are skipped, so {"meta":{"input":"x"},"input":"y"} reads "y"),
+// decodes every JSON escape including \uXXXX and surrogate pairs to UTF-8, and is deliberately
+// lenient where strict parsers aren't: raw control characters and invalid UTF-8 inside strings
+// pass through unchanged (sample_to_jsonl() writes raw control characters, TD-533), and a
+// malformed line keeps the members read before the error. A repeated key keeps its last value,
+// as Python's json and nlohmann/json do.
+struct JsonMember {
+    bool is_string = false;  ///< true: `value` is the decoded string; false: the raw token
+    std::string value;       ///< number/true/false/null token; empty for a skipped object/array
+};
+
+inline void append_utf8(std::string& out, unsigned cp) {
+    if (cp < 0x80) {
+        out += static_cast<char>(cp);
+    } else if (cp < 0x800) {
+        out += static_cast<char>(0xC0 | (cp >> 6));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+    } else if (cp < 0x10000) {
+        out += static_cast<char>(0xE0 | (cp >> 12));
+        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+    } else {
+        out += static_cast<char>(0xF0 | (cp >> 18));
+        out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
     }
-    return raw;
 }
 
-inline float json_flt(const std::string& json, const std::string& key, float def) {
-    const std::string needle = "\"" + key + "\"";
-    size_t kpos = json.find(needle);
-    if (kpos == std::string::npos)
-        return def;
-    size_t colon = json.find(':', kpos + needle.size());
-    if (colon == std::string::npos)
-        return def;
-    size_t vpos = colon + 1;
-    while (vpos < json.size() && std::isspace(static_cast<unsigned char>(json[vpos])))
-        ++vpos;
-    if (vpos >= json.size())
+/// Reads 4 hex digits at s[pos]; returns false if they aren't all hex.
+inline bool read_hex4(const std::string& s, size_t pos, unsigned& out) {
+    if (pos + 4 > s.size())
+        return false;
+    out = 0;
+    for (size_t i = pos; i < pos + 4; ++i) {
+        const char c = s[i];
+        out <<= 4;
+        if (c >= '0' && c <= '9')
+            out |= static_cast<unsigned>(c - '0');
+        else if (c >= 'a' && c <= 'f')
+            out |= static_cast<unsigned>(c - 'a' + 10);
+        else if (c >= 'A' && c <= 'F')
+            out |= static_cast<unsigned>(c - 'A' + 10);
+        else
+            return false;
+    }
+    return true;
+}
+
+/// Parses the string starting at s[pos] == '"'; on success sets pos past the closing quote.
+inline bool parse_string(const std::string& s, size_t& pos, std::string& out) {
+    out.clear();
+    for (size_t i = pos + 1; i < s.size(); ++i) {
+        const char c = s[i];
+        if (c == '"') {
+            pos = i + 1;
+            return true;
+        }
+        if (c != '\\') {
+            out += c;
+            continue;
+        }
+        if (++i >= s.size())
+            return false;
+        switch (s[i]) {
+            case '"': out += '"'; break;
+            case '\\': out += '\\'; break;
+            case '/': out += '/'; break;
+            case 'b': out += '\b'; break;
+            case 'f': out += '\f'; break;
+            case 'n': out += '\n'; break;
+            case 'r': out += '\r'; break;
+            case 't': out += '\t'; break;
+            case 'u': {
+                unsigned cp = 0;
+                if (!read_hex4(s, i + 1, cp)) {
+                    out += "\\u";  // not a valid escape: keep it literally
+                    break;
+                }
+                i += 4;
+                if (cp >= 0xD800 && cp <= 0xDBFF) {
+                    unsigned lo = 0;
+                    if (i + 2 < s.size() && s[i + 1] == '\\' && s[i + 2] == 'u' &&
+                        read_hex4(s, i + 3, lo) && lo >= 0xDC00 && lo <= 0xDFFF) {
+                        cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                        i += 6;
+                    } else {
+                        cp = 0xFFFD;  // unpaired high surrogate
+                    }
+                } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
+                    cp = 0xFFFD;  // unpaired low surrogate
+                }
+                append_utf8(out, cp);
+                break;
+            }
+            default:
+                out += s[i];  // unknown escape: keep the character, as before
+                break;
+        }
+    }
+    return false;  // unterminated
+}
+
+inline void skip_ws(const std::string& s, size_t& pos) {
+    while (pos < s.size() && std::isspace(static_cast<unsigned char>(s[pos])))
+        ++pos;
+}
+
+/// Skips a nested object/array starting at s[pos] ('{' or '['), honouring strings.
+inline bool skip_container(const std::string& s, size_t& pos) {
+    int depth = 0;
+    std::string scratch;
+    while (pos < s.size()) {
+        const char c = s[pos];
+        if (c == '"') {
+            if (!parse_string(s, pos, scratch))
+                return false;
+            continue;
+        }
+        if (c == '{' || c == '[') {
+            ++depth;
+        } else if (c == '}' || c == ']') {
+            if (--depth == 0) {
+                ++pos;
+                return true;
+            }
+        }
+        ++pos;
+    }
+    return false;
+}
+
+/// Top-level members of the JSON object on `line`, in order (later duplicates override earlier
+/// ones on lookup, see find_member()).
+inline std::vector<std::pair<std::string, JsonMember>> parse_object_members(
+    const std::string& line) {
+    std::vector<std::pair<std::string, JsonMember>> members;
+    size_t pos = 0;
+    skip_ws(line, pos);
+    if (pos >= line.size() || line[pos] != '{')
+        return members;
+    ++pos;
+    std::string key;
+    while (true) {
+        skip_ws(line, pos);
+        if (pos >= line.size() || line[pos] == '}')
+            return members;
+        if (line[pos] != '"' || !parse_string(line, pos, key))
+            return members;
+        skip_ws(line, pos);
+        if (pos >= line.size() || line[pos] != ':')
+            return members;
+        ++pos;
+        skip_ws(line, pos);
+        if (pos >= line.size())
+            return members;
+        JsonMember m;
+        const char c = line[pos];
+        if (c == '"') {
+            if (!parse_string(line, pos, m.value))
+                return members;
+            m.is_string = true;
+        } else if (c == '{' || c == '[') {
+            if (!skip_container(line, pos))
+                return members;
+        } else {
+            const size_t begin = pos;
+            while (pos < line.size() && line[pos] != ',' && line[pos] != '}' &&
+                   !std::isspace(static_cast<unsigned char>(line[pos])))
+                ++pos;
+            m.value = line.substr(begin, pos - begin);
+        }
+        members.emplace_back(key, std::move(m));
+        skip_ws(line, pos);
+        if (pos < line.size() && line[pos] == ',')
+            ++pos;
+        else
+            return members;
+    }
+}
+
+inline const JsonMember* find_member(
+    const std::vector<std::pair<std::string, JsonMember>>& members, const std::string& key) {
+    for (auto it = members.rbegin(); it != members.rend(); ++it)
+        if (it->first == key)
+            return &it->second;
+    return nullptr;
+}
+
+inline std::string member_str(const std::vector<std::pair<std::string, JsonMember>>& members,
+                              const std::string& key) {
+    const JsonMember* m = find_member(members, key);
+    return (m && m->is_string) ? m->value : std::string();
+}
+
+inline float member_flt(const std::vector<std::pair<std::string, JsonMember>>& members,
+                        const std::string& key, float def) {
+    const JsonMember* m = find_member(members, key);
+    if (!m || m->is_string || m->value.empty())
         return def;
     try {
-        return std::stof(json.substr(vpos));
+        return std::stof(m->value);
     } catch (...) {
         return def;
     }
 }
 
-inline int json_inum(const std::string& json, const std::string& key, int def) {
-    const std::string needle = "\"" + key + "\"";
-    size_t kpos = json.find(needle);
-    if (kpos == std::string::npos)
-        return def;
-    size_t colon = json.find(':', kpos + needle.size());
-    if (colon == std::string::npos)
-        return def;
-    size_t vpos = colon + 1;
-    while (vpos < json.size() && std::isspace(static_cast<unsigned char>(json[vpos])))
-        ++vpos;
-    if (vpos >= json.size())
+inline int member_inum(const std::vector<std::pair<std::string, JsonMember>>& members,
+                       const std::string& key, int def) {
+    const JsonMember* m = find_member(members, key);
+    if (!m || m->is_string || m->value.empty())
         return def;
     try {
-        return std::stoi(json.substr(vpos));
+        return std::stoi(m->value);
     } catch (...) {
         return def;
     }
@@ -181,19 +323,20 @@ inline std::string sample_to_jsonl(const std::string& input, const std::string& 
  */
 inline bool parse_jsonl_sample(const std::string& line, std::string& input, std::string& response,
                                SampleMeta& meta) {
-    using tsm_detail::json_flt;
-    using tsm_detail::json_inum;
-    using tsm_detail::json_str;
-    input = json_str(line, "input");
-    response = json_str(line, "response");
+    using tsm_detail::member_flt;
+    using tsm_detail::member_inum;
+    using tsm_detail::member_str;
+    const auto members = tsm_detail::parse_object_members(line);
+    input = member_str(members, "input");
+    response = member_str(members, "response");
     if (input.empty())
         return false;
-    meta.domain = json_str(line, "domain");
-    meta.task_type = json_str(line, "task_type");
-    meta.language = json_str(line, "language");
-    meta.split = json_str(line, "split");
-    meta.quality = json_flt(line, "quality", -1.0f);
-    meta.weight = json_flt(line, "weight", 1.0f);
-    meta.token_count = json_inum(line, "token_count", -1);
+    meta.domain = member_str(members, "domain");
+    meta.task_type = member_str(members, "task_type");
+    meta.language = member_str(members, "language");
+    meta.split = member_str(members, "split");
+    meta.quality = member_flt(members, "quality", -1.0f);
+    meta.weight = member_flt(members, "weight", 1.0f);
+    meta.token_count = member_inum(members, "token_count", -1);
     return true;
 }

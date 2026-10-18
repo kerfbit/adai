@@ -13601,7 +13601,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| HIGH | Open | Data / JSONL Format | October 17, 2026 | 2-4 hours |
+| HIGH | Open — code fix landed October 17, 2026 (dataset scan remains) | Data / JSONL Format | October 17, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `TrainingSampleMeta.hpp` (see [TrainingSampleMeta.md](../reference/source/TrainingSampleMeta.md)); verified. `tsm_detail::json_str()`,
@@ -13613,12 +13613,26 @@ and queued through `dataset_manager add`/upload therefore trains (and builds voc
 apostrophe (`don’t` → `donu2019t`), dash or emoji, silently. `\b`, `\f`, `\/` are mis-decoded too. (DataFetcher's own output is raw UTF-8; its
 HuggingFace input scanner has the same gap, TD-314.)
 
+**Fix landed October 17, 2026:** `parse_jsonl_sample()` now uses `tsm_detail::parse_object_members()`, a small top-level JSON object reader. It
+decodes every escape, including `\uXXXX` and surrogate pairs (unpaired surrogates become U+FFFD), and also fixes TD-532.
+
+It is hand-written rather than `nlohmann/json`. `nlohmann` would reject lines `sample_to_jsonl()` itself writes (raw control characters, TD-533),
+silently dropping those pairs, and the header reaches many files through `ChatbotTrainer.hpp`. Correctness is checked against `nlohmann` instead.
+
+Tests (`training_sample_meta_test.cpp`, 20 → 32):
+- `\u` escapes, surrogate pairs, every standard escape, nested keys, raw control characters, repeated keys and malformed lines;
+- `MatchesNlohmannOnEscapedUnicode`, 500 random lines written by `nlohmann` with `ensure_ascii`, which must decode identically;
+- 9 of the new tests fail against the old reader.
+
+The local TinyStories training file (2,119,719 lines, 0 with `\u` escapes) parses identically with the old and new readers.
+
 Action Items:
 
-- [ ] Parse JSONL lines with the vendored `nlohmann/json` (full escape and surrogate-pair handling), with TD-314 and TD-453.
-- [ ] Add tests with `\u` escapes, surrogate pairs and every standard escape; scan queued datasets for `\u` and re-tokenize affected ones before retraining.
+- [x] Parse JSONL lines with full escape and surrogate-pair handling. Done with a hand-written top-level reader, cross-checked against `nlohmann/json`, for the reasons above; TD-314 and TD-453 remain open.
+- [x] Add tests with `\u` escapes, surrogate pairs and every standard escape.
+- [ ] Scan queued datasets for `\u` before retraining, and drop tokenized caches built from affected files so they re-tokenize. A pending file needs nothing else; re-reading it decodes correctly. Check with: `grep -lE '\\u[0-9a-fA-F]{4}' <registry data dir>/**/*.jsonl`. The local TinyStories copy has none.
 
-Location in code: `src/TrainingSampleMeta.hpp` (`tsm_detail::json_str()`, `parse_jsonl_sample()`); tagged `TODO: See TD-531`.
+Location in code: `src/TrainingSampleMeta.hpp` (`tsm_detail::parse_object_members()`, `parse_jsonl_sample()`); the `TODO: See TD-531` tag is now a fix comment.
 
 Files to Modify:
 
@@ -13631,7 +13645,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / JSONL Format | October 17, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 17, 2026 | Data / JSONL Format | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `TrainingSampleMeta.hpp`; verified. `json_str()`/`json_flt()`/`json_inum()` take the first `"key"` occurrence anywhere in the line, not
@@ -13640,9 +13654,11 @@ in exported HuggingFace rows) read the wrong field.
 
 Action Items:
 
-- [ ] Read top-level keys only (solved by the TD-531 parser change); add a nested-key test.
+**Fixed October 17, 2026** by TD-531's reader: only top-level members are read, and nested objects/arrays are skipped whole.
 
-Location in code: `src/TrainingSampleMeta.hpp` (`tsm_detail` helpers); tagged `TODO: See TD-532`.
+- [x] Read top-level keys only (solved by the TD-531 parser change); add a nested-key test. Done: `ReadsTopLevelKeysNotNestedOnes`, `KeyTextInsideAValueIsNotAKey`.
+
+Location in code: `src/TrainingSampleMeta.hpp` (`tsm_detail` helpers); the `TODO: See TD-532` tag is now a fix comment.
 
 Files to Modify:
 

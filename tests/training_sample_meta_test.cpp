@@ -5,6 +5,8 @@
 #include <gtest/gtest.h>
 #include <cmath>
 #include <string>
+#include <random>
+#include "../external/nlohmann/json.hpp"
 #include "../src/TrainingSampleMeta.hpp"
 
 // ============================================================================
@@ -168,6 +170,129 @@ TEST(ParseJsonlSampleTest, MissingOptionalFieldsUseSentinels) {
     EXPECT_LT(meta.quality, 0.0f);       // sentinel
     EXPECT_FLOAT_EQ(meta.weight, 1.0f);  // default
     EXPECT_LT(meta.token_count, 0);      // sentinel
+}
+
+// ============================================================================
+// TD-531: escape decoding; TD-532: top-level keys only
+// ============================================================================
+
+namespace {
+std::string parse_input(const std::string& line) {
+    std::string in, resp;
+    SampleMeta meta;
+    parse_jsonl_sample(line, in, resp, meta);
+    return in;
+}
+}  // namespace
+
+// The \u escapes below are in ordinary string literals with a doubled backslash on purpose: GCC
+// turns \uXXXX inside a raw string literal into the character itself at compile time, so the
+// decoder would never see an escape.
+TEST(ParseJsonlSampleTest, DecodesUnicodeEscapes) {
+    // Python json.dumps / pandas to_json escape non-ASCII by default.
+    EXPECT_EQ(parse_input("{\"input\":\"Caf\\u00e9 au lait?\",\"response\":\"x\"}"),
+              "Caf\xC3\xA9 au lait?");
+    EXPECT_EQ(parse_input("{\"input\":\"don\\u2019t\",\"response\":\"x\"}"),
+              "don\xE2\x80\x99t");
+    EXPECT_EQ(parse_input("{\"input\":\"\\u00E9\\u00e9\",\"response\":\"x\"}"),
+              "\xC3\xA9\xC3\xA9");
+}
+
+TEST(ParseJsonlSampleTest, DecodesSurrogatePairs) {
+    EXPECT_EQ(parse_input("{\"input\":\"smile \\ud83d\\ude00!\",\"response\":\"x\"}"),
+              "smile \xF0\x9F\x98\x80!");
+}
+
+TEST(ParseJsonlSampleTest, UnpairedSurrogatesBecomeReplacementCharacter) {
+    EXPECT_EQ(parse_input("{\"input\":\"a\\ud83db\",\"response\":\"x\"}"),
+              "a\xEF\xBF\xBD" "b");
+    EXPECT_EQ(parse_input("{\"input\":\"a\\ude00b\",\"response\":\"x\"}"),
+              "a\xEF\xBF\xBD" "b");
+}
+
+TEST(ParseJsonlSampleTest, DecodesEveryStandardEscape) {
+    EXPECT_EQ(parse_input(R"({"input":"q\" b\\ s\/ \b\f\n\r\t","response":"x"})"),
+              "q\" b\\ s/ \b\f\n\r\t");
+}
+
+TEST(ParseJsonlSampleTest, InvalidUnicodeEscapeIsKeptLiterally) {
+    EXPECT_EQ(parse_input("{\"input\":\"bad \\u12G4 end\",\"response\":\"x\"}"),
+              "bad \\u12G4 end");
+}
+
+TEST(ParseJsonlSampleTest, ReadsTopLevelKeysNotNestedOnes) {
+    const std::string line =
+        R"({"meta":{"input":"WRONG","response":"WRONG","quality":0.1},"input":"right",)"
+        R"("tags":["input","response"],"response":"also right","quality":0.9})";
+    std::string in, resp;
+    SampleMeta meta;
+    ASSERT_TRUE(parse_jsonl_sample(line, in, resp, meta));
+    EXPECT_EQ(in, "right");
+    EXPECT_EQ(resp, "also right");
+    EXPECT_NEAR(meta.quality, 0.9f, 1e-6f);
+}
+
+TEST(ParseJsonlSampleTest, KeyTextInsideAValueIsNotAKey) {
+    const std::string line = R"({"note":"\"input\":\"WRONG\"","input":"right","response":"r"})";
+    EXPECT_EQ(parse_input(line), "right");
+}
+
+TEST(ParseJsonlSampleTest, ToleratesWhitespaceAndRawControlCharacters) {
+    // sample_to_jsonl() writes other control characters raw (TD-533); keep reading them.
+    const std::string line = "  { \"input\" :\t\"a\x01" "b\" , \"response\" : \"c\" }  ";
+    std::string in, resp;
+    SampleMeta meta;
+    ASSERT_TRUE(parse_jsonl_sample(line, in, resp, meta));
+    EXPECT_EQ(in, "a\x01" "b");
+    EXPECT_EQ(resp, "c");
+}
+
+TEST(ParseJsonlSampleTest, RepeatedKeyKeepsLastValue) {
+    EXPECT_EQ(parse_input(R"({"input":"first","input":"second","response":"r"})"), "second");
+}
+
+TEST(ParseJsonlSampleTest, NonStringInputIsRejected) {
+    EXPECT_EQ(parse_input(R"({"input":42,"response":"r"})"), "");
+    EXPECT_EQ(parse_input(R"({"input":{"text":"x"},"response":"r"})"), "");
+}
+
+TEST(ParseJsonlSampleTest, MalformedLineKeepsMembersBeforeTheError) {
+    std::string in, resp;
+    SampleMeta meta;
+    EXPECT_TRUE(parse_jsonl_sample(R"({"input":"kept","response":"r", oops})", in, resp, meta));
+    EXPECT_EQ(in, "kept");
+    EXPECT_EQ(resp, "r");
+    EXPECT_FALSE(parse_jsonl_sample(R"({"input":"unterminated)", in, resp, meta));
+    EXPECT_FALSE(parse_jsonl_sample("[\"input\",\"x\"]", in, resp, meta));
+}
+
+// Differential check against the vendored nlohmann/json on standard (ensure_ascii-style) JSON:
+// random strings over ASCII, accented letters, CJK and emoji, serialized with every non-ASCII
+// character escaped, must decode to the same text.
+TEST(ParseJsonlSampleTest, MatchesNlohmannOnEscapedUnicode) {
+    const std::vector<std::string> pieces = {
+        "a", "Z", " ", "\"", "\\", "/", "\n", "\t", "\xC3\xA9", "\xC3\xB1", "\xE2\x80\x94",
+        "\xE2\x80\x99", "\xE4\xB8\xAD", "\xF0\x9F\x98\x80", "\xF0\x9F\x91\x8D", "{", "}", ":", ","};
+    std::mt19937 rng(531);
+    std::uniform_int_distribution<size_t> pick(0, pieces.size() - 1), len(0, 40);
+    for (int trial = 0; trial < 500; ++trial) {
+        std::string input, response;
+        for (size_t n = len(rng); n > 0; --n) input += pieces[pick(rng)];
+        for (size_t n = len(rng); n > 0; --n) response += pieces[pick(rng)];
+        if (input.empty()) input = "x";
+        nlohmann::json obj;
+        obj["meta"] = {{"input", "nested"}};
+        obj["input"] = input;
+        obj["response"] = response;
+        const std::string line = obj.dump(-1, ' ', /*ensure_ascii=*/true);
+
+        std::string in, resp;
+        SampleMeta meta;
+        ASSERT_TRUE(parse_jsonl_sample(line, in, resp, meta)) << line;
+        const auto ref = nlohmann::json::parse(line);
+        ASSERT_EQ(in, ref["input"].get<std::string>()) << line;
+        ASSERT_EQ(resp, ref["response"].get<std::string>()) << line;
+    }
 }
 
 // ============================================================================
