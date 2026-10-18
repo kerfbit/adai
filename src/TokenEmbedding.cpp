@@ -34,6 +34,9 @@ Matrix TokenEmbedding::forward(const std::vector<int>& token_ids) {
     // Cache token IDs for backward pass
     cached_token_ids = token_ids;
 
+    // TODO: See TD-517 in TECHNICAL_DEBT.md - owner decision: must fix. Rows have norm ~1 but positional rows ~sqrt(d/2)
+    // (19.6 at 768), so position swamps content (cross-token cosine 0.997 at init); scale by sqrt(d_model) here and in
+    // backward(), with the TD-358 retraining.
     // Lookup embeddings for each token
     for (int i = 0; i < seq_len; ++i) {
         int token_id = token_ids[i];
@@ -63,6 +66,7 @@ void TokenEmbedding::backward(const std::vector<int>& token_ids, const Matrix& g
         throw std::invalid_argument("Gradient output columns must match d_model");
     }
 
+    // TODO: See TD-517 in TECHNICAL_DEBT.md - scale with forward() once the sqrt(d_model) factor is added.
     // Accumulate gradients for each token
     for (size_t i = 0; i < token_ids.size(); ++i) {
         int token_id = token_ids[i];
@@ -113,6 +117,7 @@ void TokenEmbedding::update_weights() {
     zero_grad();
 }
 
+// TODO: See TD-518 in TECHNICAL_DEBT.md - full vocab x d_model pass every step; only touched rows need zeroing.
 void TokenEmbedding::zero_grad() {
     for (int i = 0; i < vocab_size; ++i) {
         for (int j = 0; j < d_model; ++j) {
@@ -166,6 +171,7 @@ void TokenEmbedding::load_pretrained(const std::string& filename) {
                                  std::to_string(vocab_size) + ", " + std::to_string(d_model) + ")");
     }
 
+    // TODO: See TD-518 in TECHNICAL_DEBT.md - reads unchecked: a truncated file loads with later rows left random.
     // Read embedding matrix
     for (int i = 0; i < vocab_size; ++i) {
         for (int j = 0; j < d_model; ++j) {

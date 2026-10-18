@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 308
-**High Priority:** 32
+**Total Items:** 310
+**High Priority:** 33
 **Medium Priority:** 133
-**Low Priority:** 143
+**Low Priority:** 144
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -563,6 +563,12 @@ MEDIUM and verified: `generate_beam_search()` with width 0 segfaults and with a 
 since `validate()` only runs on reload (TD-514); temperature 0 is ignored by top-k and nucleus sampling, so 50 "deterministic" runs gave 33 distinct
 nucleus outputs (TD-515). One is LOW: `min_length` and `early_stopping` do nothing, NaN logits silently produce an empty response, `max_length` counts
 BOS/prompt, filter order (TD-516).
+
+Also October 17, 2026: filed [TD-517](#td-517-token-embeddings-arent-scaled-by-sqrtd_model-so-position-swamps-content) (**HIGH**, owner decision: must fix) and [TD-518](#td-518-tokenembedding-unchecked-loading-full-matrix-updates-and-validation-gaps) (LOW) from the code-traced
+[TokenEmbedding.md](../reference/source/TokenEmbedding.md). Verified: embedding rows have norm ≈ 0.97 while positional-encoding rows have norm ≈ 19.6
+at `d_model = 768`, and they are added with no √d_model scaling, so at initialization two different tokens at one position had cosine similarity
+0.997, higher than the same token at adjacent positions (0.973). The owner decided the same day that this must be fixed (TD-517). A half-truncated
+embedding file loads with its later rows left random (TD-518).
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1685,6 +1691,10 @@ skips deletion when the registry couldn't be loaded; it currently deletes every 
 **Tier 97 — Newly filed (October 17, 2026): `TextGenerator`.** [TD-514](#td-514-textgenerator-beam-width-of-zero-or-less-crashes-the-process) and [TD-515](#td-515-temperature-0-isnt-greedy-for-top-k-and-nucleus-sampling) are small guards (validate the width; argmax at temperature ≤ 0 in
 every strategy); do them with TD-241 (run `validate()` at startup). [TD-516](#td-516-textgenerator-ignored-min_lengthearly_stopping-silent-nan-output-and-config-semantics) is cleanup.
 
+**Tier 98 — Newly filed (October 17, 2026): `TokenEmbedding`.** [TD-517](#td-517-token-embeddings-arent-scaled-by-sqrtd_model-so-position-swamps-content) is required (owner, October 17, 2026). It changes every checkpoint's input
+scale, so land it **before the TD-358 retraining** together with TD-358/TD-384 (and decide TD-371 at the same time, since both concern activation scale
+in the residual stream); every existing checkpoint is retrained anyway. [TD-518](#td-518-tokenembedding-unchecked-loading-full-matrix-updates-and-validation-gaps) goes with Tier 55's loader hardening.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -1999,6 +2009,8 @@ every strategy); do them with TD-241 (run `validate()` at startup). [TD-516](#td
   - [TD-514: `TextGenerator` Beam Width of Zero or Less Crashes the Process](#td-514-textgenerator-beam-width-of-zero-or-less-crashes-the-process)
   - [TD-515: Temperature 0 Isn't Greedy for Top-k and Nucleus Sampling](#td-515-temperature-0-isnt-greedy-for-top-k-and-nucleus-sampling)
   - [TD-516: `TextGenerator` Ignored `min_length`/`early_stopping`, Silent NaN Output and Config Semantics](#td-516-textgenerator-ignored-min_lengthearly_stopping-silent-nan-output-and-config-semantics)
+  - [TD-517: Token Embeddings Aren't Scaled by sqrt(d_model), So Position Swamps Content](#td-517-token-embeddings-arent-scaled-by-sqrtd_model-so-position-swamps-content)
+  - [TD-518: `TokenEmbedding` Unchecked Loading, Full-Matrix Updates and Validation Gaps](#td-518-tokenembedding-unchecked-loading-full-matrix-updates-and-validation-gaps)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -13009,6 +13021,68 @@ Files to Modify:
 
 ---
 
+### TD-517: Token Embeddings Aren't Scaled by sqrt(d_model), So Position Swamps Content
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| HIGH | Open | Layers / TokenEmbedding | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `TokenEmbedding.cpp` (see [TokenEmbedding.md](../reference/source/TokenEmbedding.md)); verified with the real `TokenEmbedding`
+and `PositionalEncoding`. Embeddings are initialized N(0, 1/d_model), so each row has norm ≈ 1 (0.97 measured at `d_model = 768`), while each
+sinusoidal positional row has norm √(d_model/2) (19.6 measured). `LLMEncoder`, `LLMDecoder` (full, cached and GPU paths) and `LeJEPAEncoder` add the two
+directly; nothing multiplies the embedding by √d_model as the original Transformer does. At initialization, two **different** tokens at the same position
+had cosine similarity **0.997**, higher than the **same** token at adjacent positions (0.973): the model input is dominated by position, and the network
+must first grow every embedding row ~20×, against the global weight decay that also applies to embeddings (TD-469). Every forward path goes through
+`TokenEmbedding::forward()`, so the fix can live in one place.
+
+**Owner decision (October 17, 2026): must fix.** It changes the input scale of every checkpoint, so it lands with the planned retraining (TD-358).
+
+Action Items:
+
+- [ ] Scale the embedding output by √d_model in `TokenEmbedding::forward()` (and the gradient by the same factor in `backward()`), or equivalently initialize with standard deviation 1 and keep the lookup unscaled; pick one and document it.
+- [ ] Bump the checkpoint format/version so pre-fix checkpoints aren't silently loaded with the new scaling (they need retraining anyway, TD-358).
+- [ ] Add a test that token identity isn't swamped at initialization (e.g. cross-token cosine at one position well below same-token adjacent-position cosine).
+- [ ] Revisit TD-371 (residual-branch scaling) in the same change.
+
+Location in code: `src/TokenEmbedding.cpp` (`forward()`, `backward()`, constructor initialization); tagged `TODO: See TD-517`.
+
+Files to Modify:
+
+- `src/TokenEmbedding.{hpp,cpp}`
+- `src/ModelSerializer.cpp` (format version)
+- `tests/tokenembedding_test.cpp`
+
+---
+
+### TD-518: `TokenEmbedding` Unchecked Loading, Full-Matrix Updates and Validation Gaps
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Layers / TokenEmbedding | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `TokenEmbedding.cpp`:
+- **Verified:** `load_pretrained()`/`load_weights()` don't check reads: a file cut to half its size loaded without error and the rows past the cut kept
+  their random initialization (the TD-467/TD-369 class).
+- **By inspection:** `zero_grad()` and the no-optimizer update loop over all `vocab × d_model` entries every step (24.6 M floats at 32k × 768) though
+  only a few rows have gradients; `get_gradient_norm()` sums in `float` (TD-435); `vocab_size`/`d_model` aren't validated (0 gives an infinite init
+  scale) nor is `set_embeddings()`'s shape; `cached_token_ids` is never read; load/save/`print_config()` write to `std::cout`.
+
+Action Items:
+
+- [ ] Check every read and the file size in `load_pretrained()`; validate sizes and `set_embeddings()`'s shape.
+- [ ] Zero/update only touched rows (track them in `backward()`); use `Logger`; drop the unused cache.
+
+Location in code: `src/TokenEmbedding.cpp` (`load_pretrained()`, `zero_grad()`, `update_weights()`, constructor, `set_embeddings()`); tagged `TODO: See TD-518`.
+
+Files to Modify:
+
+- `src/TokenEmbedding.{hpp,cpp}`
+- `tests/tokenembedding_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -13525,15 +13599,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 308 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 310 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|32|10%|
+|High|33|11%|
 |Medium|133|43%|
-|Low|143|47%|
+|Low|144|46%|
 
-**Total Active Items:** 308
+**Total Active Items:** 310
 
 ### By Component
 
@@ -13601,6 +13675,7 @@ Recomputed directly from the 308 `### TD-NNN` entries under [Active Technical De
 |Models / ModelSerializer|2|
 |Layers / LayerNorm|1|
 |Layers / PositionalEncoding|1|
+|Layers / TokenEmbedding|2|
 |World Model / LeJEPAEncoder|3|
 |World Model / SIGReg|3|
 |Core / Logger|2|
@@ -13639,13 +13714,13 @@ Recomputed directly from the 308 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|186|
-|2-4 hours|94|
+|0-2 hours|187|
+|2-4 hours|95|
 |4-8 hours|16|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 568-1030 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 571-1036 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

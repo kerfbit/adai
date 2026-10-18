@@ -9,7 +9,7 @@ Coding and development documentation for the ADAI project.
 Component API documentation. See [api/README.md](api/README.md) for the full index.
 
 - **Core** — moved to [reference/source/Activation.md](reference/source/Activation.md), [reference/source/Matrix.md](reference/source/Matrix.md) and [reference/source/Optimizer.md](reference/source/Optimizer.md)
-- **Transformer** — encoder, decoder, encoder-decoder model, attention heads, feed-forward, positional encoding, token embedding, layer norm, language model head
+- **Transformer** — all moved to [reference/source/](reference/README.md): [LLMEncoder](reference/source/LLMEncoder.md), [Decoder](reference/source/Decoder.md), [EncoderDecoderModel](reference/source/EncoderDecoderModel.md), [FeedForward](reference/source/FeedForward.md), [PositionalEncoding](reference/source/PositionalEncoding.md), [TokenEmbedding](reference/source/TokenEmbedding.md), [LayerNorm](reference/source/LayerNorm.md), [LanguageModelHead](reference/source/LanguageModelHead.md)
 - **Attention** — moved to [reference/source/MultiHeadAttention.md](reference/source/MultiHeadAttention.md) and [reference/source/CrossAttention.md](reference/source/CrossAttention.md)
 - **NLP** — all moved: TextGenerator, BPETokenizer and ConversationContext to [reference/source/TextGenerator.md](reference/source/TextGenerator.md), [reference/source/BPETokenizer.md](reference/source/BPETokenizer.md) and [reference/source/ConversationContext.md](reference/source/ConversationContext.md)
 - **Memory / RAG** — moved to [reference/source/RAGInference.md](reference/source/RAGInference.md) and [reference/source/DocumentStore.md](reference/source/DocumentStore.md)
