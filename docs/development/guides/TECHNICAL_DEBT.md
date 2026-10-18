@@ -8914,7 +8914,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | GPU / Kernels | October 12, 2026 | 1-2 hours |
+| **HIGH** | Open — code fix landed October 17, 2026 | GPU / Kernels | October 12, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `MatrixGPU.cu`, by inspection (a definite race under the CUDA and SYCL memory
@@ -8940,13 +8940,24 @@ contrary to the original note here, it **does** reproduce on the oneAPI CPU devi
 `item.barrier(local_space)` after each of the four reads made all of them pass (≤ 2×10⁻⁷; LayerNorm
 backward 6.6×10⁻⁵ vs. finite differences). On a GPU it's timing-dependent rather than certain.
 
+**Fix landed October 17, 2026:** all eight sites now wait after reading `scratch[0]`
+(`__syncthreads()` in CUDA, `item.barrier(local_space)` in SYCL). These are the only `scratch[0]`
+reads followed by another reduction; the rest are each kernel's last use of the buffer. Verified on
+the oneAPI CPU device (scratch build with device selection widened to `device_type::all`):
+- new tests `MatrixGPUTD003Test.SoftmaxWideRowsMatchHost` (64 × 300) and `LayerNormWideRowsMatchHost`
+  (32 × 768, 5 trials each) pass, and so does `EncoderDecoderGPUTest.GpuForwardLossMatchesCpuForwardTeacherForcing`;
+- all three fail on every run without the barriers, even with TD-393 fixed.
+
+The CUDA change compiles (`gpu` preset) but hasn't been run, since no CUDA device is available.
+Remaining: a racecheck on real hardware, and the on-device run on ai-machine together with TD-358.
+
 Action Items:
 
-- [ ] Add a barrier (`__syncthreads()` / `item.barrier(local_space)`) after each `scratch[0]` read that's followed by another reduction, in all four kernels in both backends (or reduce into a second buffer).
+- [x] Add a barrier (`__syncthreads()` / `item.barrier(local_space)`) after each `scratch[0]` read that's followed by another reduction, in all four kernels in both backends (or reduce into a second buffer).
 - [ ] On a GPU host, run `compute-sanitizer --tool racecheck` (CUDA) over a training step to confirm no other shared-memory races remain.
-- [ ] Do this with TD-358, before the retraining runs.
+- [x] Do this with TD-358, before the retraining runs.
 
-Location in code: `src/gpu/MatrixGPU.cu` and `src/gpu/sycl/MatrixGPU_SYCL.cpp` (softmax rows, LayerNorm forward, cross-entropy loss and grad); tagged `TODO: See TD-384` at all eight sites.
+Location in code: `src/gpu/MatrixGPU.cu` and `src/gpu/sycl/MatrixGPU_SYCL.cpp` (softmax rows, LayerNorm forward, cross-entropy loss and grad); previously tagged `TODO: See TD-384` at all eight sites; now marked with `TD-384:` fix comments.
 
 Files to Modify:
 
@@ -9215,7 +9226,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | GPU / Kernels | October 12, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 17, 2026 | GPU / Kernels | October 12, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `MatrixGPU_SYCL.cpp` and verified on the oneAPI CPU device.
@@ -9230,12 +9241,21 @@ ai-machine's Arc B60 (Xe2/Battlemage) supports only sub-group sizes 16 and 32, s
 latent there, but nothing in the code guarantees it. Arc A-series (Alchemist) and CPU devices can use
 8, and the CUDA version (warp 32) is unaffected.
 
+**Fix landed October 17, 2026:** sub-group 0 now loops over all partials
+(`for (i = lane; i < num_subgroups; i += S)`) before its final sub-group reduction, so the sum is
+exact for any `S`. Verified on the oneAPI CPU device (`S = 8`):
+- the new `MatrixGPUTD003Test.SumIsExactAcrossWorkGroupBoundaries` (1 to 100,000 ones, including
+  255/256/257) and `CountBelowThresholdIsExactForFullWorkGroup` pass;
+- the existing `CountBelowThresholdLargeMatrixMultiBlock` now passes too (it failed before).
+
+These tests skip without a device, so CI coverage still depends on TD-394.
+
 Action Items:
 
-- [ ] Have sub-group 0 loop over all partials (`for (i = lane; i < num_subgroups; i += S)`), or pin `[[sycl::reqd_sub_group_size(16)]]` (or 32) on the reduction kernels.
-- [ ] Cover it with TD-394's CPU-device test mode (sizes 255, 256, 257, 1e6).
+- [x] Have sub-group 0 loop over all partials (`for (i = lane; i < num_subgroups; i += S)`), or pin `[[sycl::reqd_sub_group_size(16)]]` (or 32) on the reduction kernels.
+- [ ] Cover it with TD-394's CPU-device test mode (sizes 255, 256, 257, 1e6). The tests exist in `tests/matrixgpu_td003_test.cpp`; only the device-less CI mode is missing.
 
-Location in code: `src/gpu/sycl/MatrixGPU_SYCL.cpp` (`workgroup_reduce_sum()`); tagged `TODO: See TD-393`.
+Location in code: `src/gpu/sycl/MatrixGPU_SYCL.cpp` (`workgroup_reduce_sum()`); previously tagged `TODO: See TD-393`, now a `TD-393:` fix comment.
 
 Files to Modify:
 

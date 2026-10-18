@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.10.1
+// @adai-reviewed: 2026-10-17
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -213,9 +213,9 @@ static inline float subgroup_reduce_sum(sycl::sub_group sg, float val) {
 // local_id(0) == 0; other work-items' return values are unspecified.
 // `subgroup_sums` must have at least (work-group size / sub-group size)
 // elements — WG_SIZE is generous for any Intel sub-group width (16 or 32).
-// TODO: See TD-393 in TECHNICAL_DEBT.md - only sub-group 0 combines the partials, so this is correct only when
-// sub-group size >= 16 (S*S >= 256); at S = 8 (CPU device, Alchemist GPUs) 3/4 of the partials are dropped
-// (verified: 256 ones -> 64). Pin [[sycl::reqd_sub_group_size(...)]] or loop over the partials.
+// TD-393: sub-group 0 combines all (work-group size / sub-group size) partials by striding
+// over them, so the result is correct for any sub-group size the compiler picks (it used to
+// read one partial per lane, dropping 3/4 of them at size 8: 256 ones summed to 64).
 static inline float workgroup_reduce_sum(sycl::nd_item<1> item,
                                           sycl::local_accessor<float, 1> subgroup_sums,
                                           float val) {
@@ -233,16 +233,19 @@ static inline float workgroup_reduce_sum(sycl::nd_item<1> item,
     // Step 3: ONE barrier to make all sub-group results visible.
     item.barrier(sycl::access::fence_space::local_space);
 
-    // Step 4: the first sub-group reduces the per-sub-group partial sums.
-    //         Lanes beyond that count contribute 0.
-    const int num_subgroups =
-        static_cast<int>(item.get_local_range(0) / sg.get_local_linear_range());
-    const int local_id = static_cast<int>(item.get_local_id(0));
-    val = (local_id < num_subgroups) ? subgroup_sums[local_id] : 0.0f;
+    // Step 4: the first sub-group reduces the per-sub-group partial sums. Each lane strides over
+    //         the partials (TD-393), so all of them are included even when there are more partials
+    //         than lanes (sub-group size < 16 with a 256-item work-group).
+    const int sg_size = static_cast<int>(sg.get_local_linear_range());
+    const int num_subgroups = static_cast<int>(item.get_local_range(0)) / sg_size;
+    float total = 0.0f;
     if (sg_id == 0) {
-        val = subgroup_reduce_sum(sg, val);
+        for (int i = static_cast<int>(sg.get_local_linear_id()); i < num_subgroups; i += sg_size) {
+            total += subgroup_sums[i];
+        }
+        total = subgroup_reduce_sum(sg, total);
     }
-    return val;
+    return total;
 }
 
 float matrix_sum_gpu(const float* data, int size) {
@@ -419,9 +422,10 @@ void matrix_softmax_rows_gpu(float* data, int rows, int cols) {
                                      scratch[lid] = sycl::fmax(scratch[lid], scratch[lid + s]);
                                  item.barrier(sycl::access::fence_space::local_space);
                              }
-                             // TODO: See TD-384 in TECHNICAL_DEBT.md - data race: scratch[0] is read here and then overwritten by
-                             // the next pass's scratch[lid] write with no item.barrier() in between; add one before reusing scratch
+                             // TD-384: every work-item must finish reading scratch[0] before
+                             // the next reduction below overwrites scratch.
                              const float row_max = scratch[0];
+                             item.barrier(sycl::access::fence_space::local_space);
 
                              // Pass 2: exp(x - max) and sum
                              float my_sum = 0.0f;
@@ -538,9 +542,10 @@ void matrix_layer_norm_fwd_gpu(const float* input, float* output, float* out_nor
                                      scratch[lid] += scratch[lid + s];
                                  item.barrier(sycl::access::fence_space::local_space);
                              }
-                             // TODO: See TD-384 in TECHNICAL_DEBT.md - data race: scratch[0] is read here and then overwritten by
-                             // the next pass's scratch[lid] write with no item.barrier() in between; add one before reusing scratch
+                             // TD-384: every work-item must finish reading scratch[0] before
+                             // the next reduction below overwrites scratch.
                              const float mean = scratch[0] * inv_cols;
+                             item.barrier(sycl::access::fence_space::local_space);
                              if (lid == 0 && out_mean)
                                  out_mean[row] = mean;
 
@@ -713,9 +718,10 @@ float matrix_cross_entropy_loss_gpu(const float* logits, const int* targets, int
                                      scratch[lid] = sycl::fmax(scratch[lid], scratch[lid + s]);
                                  item.barrier(sycl::access::fence_space::local_space);
                              }
-                             // TODO: See TD-384 in TECHNICAL_DEBT.md - data race: scratch[0] is read here and then overwritten by
-                             // the next pass's scratch[lid] write with no item.barrier() in between; add one before reusing scratch
+                             // TD-384: every work-item must finish reading scratch[0] before
+                             // the next reduction below overwrites scratch.
                              const float row_max = scratch[0];
+                             item.barrier(sycl::access::fence_space::local_space);
 
                              // Sum exp
                              float my_sum = 0.0f;
@@ -771,9 +777,10 @@ void matrix_cross_entropy_grad_gpu(const float* logits, const int* targets, floa
                                      scratch[lid] = sycl::fmax(scratch[lid], scratch[lid + s]);
                                  item.barrier(sycl::access::fence_space::local_space);
                              }
-                             // TODO: See TD-384 in TECHNICAL_DEBT.md - data race: scratch[0] is read here and then overwritten by
-                             // the next pass's scratch[lid] write with no item.barrier() in between; add one before reusing scratch
+                             // TD-384: every work-item must finish reading scratch[0] before
+                             // the next reduction below overwrites scratch.
                              const float row_max = scratch[0];
+                             item.barrier(sycl::access::fence_space::local_space);
 
                              // Sum exp
                              float my_sum = 0.0f;

@@ -26,6 +26,7 @@
 // nothing skipped) but nothing in this file had ever called initialize().
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cmath>
 #include <vector>
 #include "../src/gpu/MatrixGPU.hpp"
@@ -254,4 +255,104 @@ TEST(MatrixGPUTD003Test, SumRowsReducesColumnwise) {
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+
+// ============================================================================
+// TD-393 / TD-384 regressions. The work-group reductions must be exact for any
+// sub-group size (TD-393: at size 8, 256 ones summed to 64), and the two-pass
+// row kernels (max/mean, then sum) must not race on their shared scratch buffer
+// (TD-384). Rows wider than one work-group and many rows make the race likely.
+// ============================================================================
+
+TEST(MatrixGPUTD003Test, SumIsExactAcrossWorkGroupBoundaries) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
+    for (int n : {1, 7, 64, 65, 255, 256, 257, 1000, 4096, 100000}) {
+        GPUMatrix m = upload(std::vector<float>(static_cast<size_t>(n), 1.0f), 1, n);
+        EXPECT_FLOAT_EQ(m.sum(), static_cast<float>(n)) << "n = " << n;
+    }
+}
+
+TEST(MatrixGPUTD003Test, CountBelowThresholdIsExactForFullWorkGroup) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
+    GPUMatrix m = upload(std::vector<float>(256, 0.0f), 1, 256);
+    EXPECT_FLOAT_EQ(m.count_below_threshold(0.01f), 1.0f);
+}
+
+TEST(MatrixGPUTD003Test, SoftmaxWideRowsMatchHost) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
+    const int rows = 64, cols = 300;
+    std::vector<float> host(static_cast<size_t>(rows) * cols);
+    for (int r = 0; r < rows; ++r)
+        for (int c = 0; c < cols; ++c)
+            host[static_cast<size_t>(r) * cols + c] =
+                std::sin(0.37f * static_cast<float>(c) + static_cast<float>(r)) * 4.0f +
+                static_cast<float>(r % 5);
+    for (int trial = 0; trial < 5; ++trial) {
+        GPUMatrix m = upload(host, rows, cols);
+        m.softmax_rows_inplace();
+        std::vector<float> out = download(m);
+        for (int r = 0; r < rows; ++r) {
+            const float* x = &host[static_cast<size_t>(r) * cols];
+            float mx = x[0];
+            for (int c = 1; c < cols; ++c) mx = std::max(mx, x[c]);
+            double denom = 0.0;
+            for (int c = 0; c < cols; ++c) denom += std::exp(static_cast<double>(x[c] - mx));
+            for (int c = 0; c < cols; ++c) {
+                const double want = std::exp(static_cast<double>(x[c] - mx)) / denom;
+                ASSERT_NEAR(out[static_cast<size_t>(r) * cols + c], want, 1e-5)
+                    << "trial " << trial << " row " << r << " col " << c;
+            }
+        }
+    }
+}
+
+TEST(MatrixGPUTD003Test, LayerNormWideRowsMatchHost) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
+    const int rows = 32, cols = 768;
+    const float eps = 1e-5f;
+    std::vector<float> host(static_cast<size_t>(rows) * cols);
+    for (int r = 0; r < rows; ++r)
+        for (int c = 0; c < cols; ++c)
+            host[static_cast<size_t>(r) * cols + c] =
+                std::cos(0.11f * static_cast<float>(c) * static_cast<float>(r + 1)) * 3.0f +
+                static_cast<float>(r);
+    GPUMatrix gamma = upload(std::vector<float>(cols, 1.0f), 1, cols);
+    GPUMatrix beta = upload(std::vector<float>(cols, 0.0f), 1, cols);
+    for (int trial = 0; trial < 5; ++trial) {
+        GPUMatrix x = upload(host, rows, cols);
+        GPUMatrix normed(rows, cols), mean(rows, 1), rstd(rows, 1);
+        GPUMatrix y = x.layer_norm(gamma, beta, eps, normed, mean, rstd);
+        std::vector<float> out = download(y);
+        std::vector<float> means = download(mean);
+        for (int r = 0; r < rows; ++r) {
+            const float* v = &host[static_cast<size_t>(r) * cols];
+            double mu = 0.0;
+            for (int c = 0; c < cols; ++c) mu += v[c];
+            mu /= cols;
+            double var = 0.0;
+            for (int c = 0; c < cols; ++c) var += (v[c] - mu) * (v[c] - mu);
+            var /= cols;
+            const double rs = 1.0 / std::sqrt(var + eps);
+            ASSERT_NEAR(means[r], mu, 1e-3) << "trial " << trial << " row " << r;
+            for (int c = 0; c < cols; ++c)
+                ASSERT_NEAR(out[static_cast<size_t>(r) * cols + c], (v[c] - mu) * rs, 1e-3)
+                    << "trial " << trial << " row " << r << " col " << c;
+        }
+    }
 }

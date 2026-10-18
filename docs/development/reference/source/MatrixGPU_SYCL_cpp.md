@@ -68,6 +68,13 @@ is probably latent there, but it isn't guaranteed by the code. Intel Arc A-serie
 other Xe-LP/HPG parts support `S = 8`, and the oneAPI CPU device uses it, so the same build would
 compute wrong losses and sums on them. The CUDA version (`warp = 32`, 8 warps) is unaffected.
 
+**Fixed in code October 17, 2026:** in sub-group 0, each lane now adds up every
+`num_subgroups / S`-th partial before the final `subgroup_reduce_sum`, so all `256 / S` partials
+count for any `S`. Verified on the CPU device (`S = 8`):
+- the new `MatrixGPUTD003Test.SumIsExactAcrossWorkGroupBoundaries` (1 to 100,000 ones) and
+  `CountBelowThresholdIsExactForFullWorkGroup` pass;
+- the existing `CountBelowThresholdLargeMatrixMultiBlock` now passes too (it failed before the fix).
+
 ---
 
 ## 4. TD-384's shared-memory race reproduces (verified)
@@ -86,6 +93,10 @@ after another between barriers, so sub-group 0 always overwrites `scratch[0]` be
 read it. On a GPU, sub-groups run concurrently, so it's timing-dependent, but the race is no longer
 theoretical. This corrects the earlier claim (in TD-384 and [MatrixGPU_cu.md](MatrixGPU_cu.md)) that
 a CPU SYCL device can't reproduce it.
+
+**Fixed in code October 17, 2026:** the barrier is now in the repository version of all four
+kernels, and in the CUDA kernels too. New regression tests (`SoftmaxWideRowsMatchHost`,
+`LayerNormWideRowsMatchHost`) fail on every run without the barriers and pass with them.
 
 ---
 
@@ -121,7 +132,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `workgroup_reduce_sum()` assumes sub-group size ≥ 16; at 8 it drops ¾ of the partials per level (§3) | Wrong sums, saturation fractions and (for `seq_len > 64`) losses on Alchemist-class GPUs and CPU devices; probably latent on ai-machine's Xe2 | **Verified** (CPU device, `S = 8`) | [TD-393](../../guides/TECHNICAL_DEBT.md#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8) |
-| TD-384 race reproduces deterministically on the CPU device and disappears with the barrier fix (§4) | Confirms TD-384; its "can't reproduce on CPU" note is wrong | **Verified** | [TD-384](../../guides/TECHNICAL_DEBT.md#td-384-shared-memory-race-in-gpu-softmax-layernorm-and-cross-entropy-kernels-cuda-and-sycl) (now verified) |
+| `workgroup_reduce_sum()` assumes sub-group size ≥ 16; at 8 it drops ¾ of the partials per level (§3) | Wrong sums, saturation fractions and (for `seq_len > 64`) losses on Alchemist-class GPUs and CPU devices; probably latent on ai-machine's Xe2 | **Verified** (CPU device, `S = 8`); **fixed in code October 17, 2026** | [TD-393](../../guides/TECHNICAL_DEBT.md#td-393-sycl-sub-group-reduction-is-wrong-when-the-sub-group-size-is-8) |
+| TD-384 race reproduces deterministically on the CPU device and disappears with the barrier fix (§4) | Confirms TD-384; its "can't reproduce on CPU" note is wrong | **Verified**; **fixed in code October 17, 2026** | [TD-384](../../guides/TECHNICAL_DEBT.md#td-384-shared-memory-race-in-gpu-softmax-layernorm-and-cross-entropy-kernels-cuda-and-sycl) |
 | No way to run the GPU kernel tests without a GPU (§6) | Both bugs above went undetected | **Verified** (harness) | [TD-394](../../guides/TECHNICAL_DEBT.md#td-394-gpu-kernel-tests-cant-run-without-a-gpu) |
 | Batch helpers read host pointer arrays asynchronously; per-call allocation/waits in reductions; unchecked inputs (§5) | Latent use-after-free in dead code; stalls; out-of-bounds on bad input | By inspection (overlaps TD-385, TD-386, TD-390) | TD-385, TD-386 (amended), TD-390 |

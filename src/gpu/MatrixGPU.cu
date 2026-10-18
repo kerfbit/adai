@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-061 resolved — layer_norm_bwd's math bug fixed and verified analytically/numerically; most kernels still have no dedicated test and need real GPU hardware to verify, see TECHNICAL_DEBT_RESOLVED.md)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-14
+// @adai-version: 0.9.1
+// @adai-reviewed: 2026-10-17
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -597,9 +597,10 @@ __global__ void softmax_rows_kernel(float* data, int cols) {
         if (lid < s) scratch[lid] = fmaxf(scratch[lid], scratch[lid + s]);
         __syncthreads();
     }
-    // TODO: See TD-384 in TECHNICAL_DEBT.md - data race: scratch[0] is read here and then overwritten by
-    // the next pass's scratch[lid] write with no __syncthreads() in between; add one before reusing scratch
+    // TD-384: every work-item must finish reading scratch[0] before the next reduction
+    // below overwrites scratch (thread 0 writes scratch[0] first).
     const float row_max = scratch[0];
+    __syncthreads();
 
     // Pass 2: exp(x - max) and sum
     float my_sum = 0.0f;
@@ -703,9 +704,10 @@ __global__ void layer_norm_fwd_kernel(const float* input, float* output, float* 
         if (lid < s) scratch[lid] += scratch[lid + s];
         __syncthreads();
     }
-    // TODO: See TD-384 in TECHNICAL_DEBT.md - data race: scratch[0] is read here and then overwritten by
-    // the next pass's scratch[lid] write with no __syncthreads() in between; add one before reusing scratch
+    // TD-384: every work-item must finish reading scratch[0] before the next reduction
+    // below overwrites scratch (thread 0 writes scratch[0] first).
     const float mean = scratch[0] * inv_cols;
+    __syncthreads();
     if (lid == 0 && out_mean) out_mean[row] = mean;
 
     // Variance
@@ -893,9 +895,10 @@ __global__ void cross_entropy_loss_kernel(const float* logits, const int* target
         if (lid < s) scratch[lid] = fmaxf(scratch[lid], scratch[lid + s]);
         __syncthreads();
     }
-    // TODO: See TD-384 in TECHNICAL_DEBT.md - data race: scratch[0] is read here and then overwritten by
-    // the next pass's scratch[lid] write with no __syncthreads() in between; add one before reusing scratch
+    // TD-384: every work-item must finish reading scratch[0] before the next reduction
+    // below overwrites scratch (thread 0 writes scratch[0] first).
     const float row_max = scratch[0];
+    __syncthreads();
 
     float my_sum = 0.0f;
     for (int j = lid; j < vocab_size; j += WG) my_sum += expf(row_ptr[j] - row_max);
@@ -943,9 +946,10 @@ __global__ void cross_entropy_grad_kernel(const float* logits, const int* target
         if (lid < s) scratch[lid] = fmaxf(scratch[lid], scratch[lid + s]);
         __syncthreads();
     }
-    // TODO: See TD-384 in TECHNICAL_DEBT.md - data race: scratch[0] is read here and then overwritten by
-    // the next pass's scratch[lid] write with no __syncthreads() in between; add one before reusing scratch
+    // TD-384: every work-item must finish reading scratch[0] before the next reduction
+    // below overwrites scratch (thread 0 writes scratch[0] first).
     const float row_max = scratch[0];
+    __syncthreads();
 
     float my_sum = 0.0f;
     for (int j = lid; j < vocab_size; j += WG) my_sum += expf(row_logits[j] - row_max);

@@ -112,6 +112,15 @@ shape and haven't been run.
 The fix is one barrier after each read of `scratch[0]` that's followed by another reduction (or
 reading into a register before a barrier), in both backends.
 
+**Fixed in code October 17, 2026:** each of the four kernels now has a `__syncthreads()` right after
+its `scratch[0]` read, and the SYCL kernels have the matching `item.barrier(local_space)`. These are
+the only reads followed by another reduction; the other `scratch[0]` reads are each kernel's last
+use of the buffer. The CUDA change builds (`gpu` preset) but hasn't been run, since no CUDA device
+is available. The SYCL change is verified on the oneAPI CPU device by the new
+`MatrixGPUTD003Test.SoftmaxWideRowsMatchHost`/`LayerNormWideRowsMatchHost` and by
+`EncoderDecoderGPUTest.GpuForwardLossMatchesCpuForwardTeacherForcing`. All three fail every run
+without the barriers, even with TD-393 fixed.
+
 ---
 
 ## 4. Who calls what
@@ -133,7 +142,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Shared-memory race between consecutive reductions in softmax, LayerNorm forward and cross-entropy loss/grad, in **both** CUDA and SYCL (§3) | Intermittent silently wrong rows (possible `NaN`) in attention, LayerNorm and the loss during GPU training | CUDA by inspection; the identical SYCL kernels **verified** on a CPU SYCL device | [TD-384](../../guides/TECHNICAL_DEBT.md#td-384-shared-memory-race-in-gpu-softmax-layernorm-and-cross-entropy-kernels-cuda-and-sycl) |
+| Shared-memory race between consecutive reductions in softmax, LayerNorm forward and cross-entropy loss/grad, in **both** CUDA and SYCL (§3) | Intermittent silently wrong rows (possible `NaN`) in attention, LayerNorm and the loss during GPU training | CUDA by inspection; the identical SYCL kernels **verified** on a CPU SYCL device; **fixed in code October 17, 2026** in both backends | [TD-384](../../guides/TECHNICAL_DEBT.md#td-384-shared-memory-race-in-gpu-softmax-layernorm-and-cross-entropy-kernels-cuda-and-sycl) |
 | `matrix_sum_gpu` allocates and frees device memory at every recursion level and synchronizes; the loss calls it every step (§2) | A CPU–GPU stall plus allocator traffic per training step | By inspection | [TD-385](../../guides/TECHNICAL_DEBT.md#td-385-matrix_sum_gpu-allocates-and-synchronizes-on-every-call) |
 | Cross-entropy doesn't check target IDs; `float4` kernels require 16-byte-aligned pointers; no dimension checks anywhere; only `cudaGetLastError()` after launches (§1–2) | Out-of-bounds reads or faults on bad input, reported late and far from the cause | By inspection | [TD-386](../../guides/TECHNICAL_DEBT.md#td-386-gpu-kernel-input-checks-and-dead-batch-functions) |
 | `matrix_batch_add_gpu`, `matrix_batch_multiply_gpu` and `matrix_add_scalar_gpu` have no callers (§4) | Unexercised code to maintain in two backends | By inspection | [TD-386](../../guides/TECHNICAL_DEBT.md#td-386-gpu-kernel-input-checks-and-dead-batch-functions) |
