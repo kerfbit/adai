@@ -144,6 +144,8 @@ adai::TrainerServiceProxy::TrainerServiceProxy(std::string host, int port,
     });
 
     svr.Post("/admin/checkpoint", [this](const httplib::Request& req, httplib::Response& res) {
+        // TODO: See TD-525 in TECHNICAL_DEBT.md - proxy read timeout is 5 s regardless of wait_ms (an accepted checkpoint
+        // came back as 503 "starting or exiting", verified); wait_ms is re-inserted unencoded.
         std::string path = "/admin/checkpoint";
         if (req.has_param("wait_ms")) {
             path += "?wait_ms=" + req.get_param_value("wait_ms");
@@ -314,6 +316,7 @@ std::pair<int, std::string> adai::TrainerServiceProxy::handle_get_config_idle() 
     // overlaid with whatever a previous pass (or a previous idle PUT, see below) persisted to the
     // shared daemon_config.db — mirrors TrainerAdminAPI::start()'s own overlay-on-construction
     // logic, just performed directly here instead of via a live TrainerControlState.
+    // TODO: See TD-525 in TECHNICAL_DEBT.md - hardcoded defaults, not config.trainer.conf's values the next child uses.
     bool auto_save_enabled = true;
     int auto_save_every_samples = 1000;
     int auto_save_every_minutes = 30;

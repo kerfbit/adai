@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 316
+**Total Items:** 317
 **High Priority:** 33
 **Medium Priority:** 136
-**Low Priority:** 147
+**Low Priority:** 148
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -583,6 +583,11 @@ Also October 17, 2026: filed [TD-523](#td-523-trainer_service-cant-tell-a-failin
 Verified with the real `trainer_service` and a stub child that logged an error and exited 1: `/admin/status` reported `idle`, 0 crashes, exit code 1,
 identical to a healthy idle service, because `incremental_trainer resume` exits 1 both for "nothing pending" and for a missing checkpoint, a failed model
 load or a failed training run; a permanently failing trainer retries every 45 s, claiming and releasing files, while looking idle (TD-523).
+
+Also October 17, 2026: filed [TD-525](#td-525-trainerserviceproxy-misreports-long-checkpoint-waits-and-idle-config) (LOW) from the code-traced [TrainerServiceProxy.md](../reference/source/TrainerServiceProxy.md). Verified with the
+real proxy in front of a real child `TrainerAdminAPI`: `POST /admin/checkpoint?wait_ms=8000` returned 503 "training pass is starting or exiting" (the
+proxy's read timeout is 5 s) although the child accepted the checkpoint; idle `GET /admin/config` reported the hardcoded 1000 while a child seeded from
+the config file reported 250.
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1717,6 +1722,8 @@ in the residual stream); every existing checkpoint is retrained anyway. [TD-518]
 **Tier 101 — Newly filed (October 17, 2026): `TrainerServiceMain`.** Fix [TD-523](#td-523-trainer_service-cant-tell-a-failing-pass-from-an-idle-one) with TD-277/TD-278 (one exit-code contract between child and
 supervisor: idle, did work, failed, crashed) so `/admin/status` can show a failing trainer; [TD-524](#td-524-trainer_service-child-port-binary-resolution-backoff-and-unit-write-paths) goes with it.
 
+**Tier 102 — Newly filed (October 17, 2026): `TrainerServiceProxy`.** [TD-525](#td-525-trainerserviceproxy-misreports-long-checkpoint-waits-and-idle-config) goes with TD-521 (cap `wait_ms`) and TD-523.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -2039,6 +2046,7 @@ supervisor: idle, did work, failed, crashed) so `/admin/status` can show a faili
   - [TD-522: `TrainerControlState` Stale Design Text, Unused `Pausing` Phase and Dead Wake Logic](#td-522-trainercontrolstate-stale-design-text-unused-pausing-phase-and-dead-wake-logic)
   - [TD-523: `trainer_service` Can't Tell a Failing Pass From an Idle One](#td-523-trainer_service-cant-tell-a-failing-pass-from-an-idle-one)
   - [TD-524: `trainer_service` Child Port, Binary Resolution, Backoff and Unit Write Paths](#td-524-trainer_service-child-port-binary-resolution-backoff-and-unit-write-paths)
+  - [TD-525: `TrainerServiceProxy` Misreports Long Checkpoint Waits and Idle Config](#td-525-trainerserviceproxy-misreports-long-checkpoint-waits-and-idle-config)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -13288,6 +13296,39 @@ Files to Modify:
 
 ---
 
+### TD-525: `TrainerServiceProxy` Misreports Long Checkpoint Waits and Idle Config
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / Service Supervisor | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `TrainerServiceProxy.cpp` (see [TrainerServiceProxy.md](../reference/source/TrainerServiceProxy.md)); verified with the real proxy and
+a real child `TrainerAdminAPI`:
+- **Checkpoint waits:** proxied requests use a 5 s read timeout while the child honours any `wait_ms`. `POST /admin/checkpoint?wait_ms=8000` returned
+  **503 "training pass is starting or exiting; try again shortly"** (after 10 s, with httplib retrying once) although the child had set
+  `checkpoint_requested`; a retry requests another checkpoint. The same 503 text is returned for every request when the child's admin API failed to bind.
+- **Idle config:** with no child, `GET /admin/config` overlays `daemon_config.db` onto hardcoded defaults and never reads `config.trainer.conf`, which the
+  child seeds from; a child seeded with 250 samples reported 250, the idle proxy 1000. The shipped config matches the hardcoded defaults, which hides it.
+- **By inspection:** `wait_ms` is re-inserted into the proxied path unencoded; `paused` in `/admin/status` is the child's flag during a pass and the
+  supervisor's when idle; a new client per request; pause/resume proxy failures ignored.
+
+Action Items:
+
+- [ ] Set the checkpoint proxy's read timeout from `wait_ms` (capped, with TD-521); return a distinct error for a timeout vs a refused connection.
+- [ ] Pass the loaded `ServiceConfig` tunables to the proxy as the idle defaults.
+- [ ] Encode `wait_ms` (or parse it as an integer); log failed pause/resume proxies.
+
+Location in code: `src/TrainerServiceProxy.cpp` (checkpoint route, `proxy_post()`, `handle_get_config_idle()`); tagged `TODO: See TD-525`.
+
+Files to Modify:
+
+- `src/TrainerServiceProxy.{hpp,cpp}`
+- `src/TrainerServiceMain.cpp`
+- `tests/trainer_service_proxy_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -13804,15 +13845,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 316 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 317 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|33|10%|
 |Medium|136|43%|
-|Low|147|47%|
+|Low|148|47%|
 
-**Total Active Items:** 316
+**Total Active Items:** 317
 
 ### By Component
 
@@ -13840,7 +13881,7 @@ Recomputed directly from the 316 `### TD-NNN` entries under [Active Technical De
 |Client / GUI|6|
 |Core Model / Generation|1|
 |Training / ChatbotTrainer|10|
-|Training / Service Supervisor|8|
+|Training / Service Supervisor|9|
 |Config|8|
 |NLP / ConversationContext|6|
 |Attention / CrossAttention|7|
@@ -13920,13 +13961,13 @@ Recomputed directly from the 316 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|192|
+|0-2 hours|193|
 |2-4 hours|96|
 |4-8 hours|16|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 578-1050 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 579-1052 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

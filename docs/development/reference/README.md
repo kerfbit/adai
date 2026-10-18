@@ -91,6 +91,7 @@ This directory contains reference materials, technical specifications, and imple
   - [TrainerControlState](source/TrainerControlState.md) (`src/TrainerControlState.hpp`; per-pass state shared by the trainer and its admin API)
   - [TrainerServiceControlState](source/TrainerServiceControlState.md) (`src/TrainerServiceControlState.hpp`; `trainer_service`'s process-lifetime pause/stop state)
   - [TrainerServiceMain](source/TrainerServiceMain.md) (`src/TrainerServiceMain.cpp`; `trainer_service` supervisory loop)
+  - [TrainerServiceProxy](source/TrainerServiceProxy.md) (`src/TrainerServiceProxy.{hpp,cpp}`; `trainer_service`'s public admin listener and child proxy)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)
