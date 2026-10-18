@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 317
+**Total Items:** 319
 **High Priority:** 33
-**Medium Priority:** 136
-**Low Priority:** 148
+**Medium Priority:** 137
+**Low Priority:** 149
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -588,6 +588,12 @@ Also October 17, 2026: filed [TD-525](#td-525-trainerserviceproxy-misreports-lon
 real proxy in front of a real child `TrainerAdminAPI`: `POST /admin/checkpoint?wait_ms=8000` returned 503 "training pass is starting or exiting" (the
 proxy's read timeout is 5 s) although the child accepted the checkpoint; idle `GET /admin/config` reported the hardcoded 1000 while a child seeded from
 the config file reported 250.
+
+Also October 17, 2026: filed [TD-526](#td-526-metrics-api-accepts-cross-origin-writes-and-reads-from-any-web-page) (MEDIUM) and [TD-527](#td-527-trainingmetricsapi-per-poll-logging-parsing-and-unbounded-history-queries) (LOW) from the code-traced [TrainingMetricsAPI.md](../reference/source/TrainingMetricsAPI.md).
+Verified against the real `metrics_api_server`: with `Origin: http://evil.example` and `Content-Type: text/plain` (a CORS simple request, no preflight),
+`POST …/control/clear` returned 200 and cleared the history and a fake `loss` of 99 was recorded; every response carries `Access-Control-Allow-Origin: *`,
+so any web page in an operator's browser can write to the server and read everything, including abnormal samples' training text (TD-526). Each
+`metrics/current` poll logs an INFO line (TD-527).
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1724,6 +1730,10 @@ supervisor: idle, did work, failed, crashed) so `/admin/status` can show a faili
 
 **Tier 102 — Newly filed (October 17, 2026): `TrainerServiceProxy`.** [TD-525](#td-525-trainerserviceproxy-misreports-long-checkpoint-waits-and-idle-config) goes with TD-521 (cap `wait_ms`) and TD-523.
 
+**Tier 103 — Newly filed (October 17, 2026): `TrainingMetricsAPI`.** [TD-526](#td-526-metrics-api-accepts-cross-origin-writes-and-reads-from-any-web-page): restrict CORS to the dashboard origins and require
+`application/json` on every write (a preflight), the same change for `mns_server`/`registry_server` if their browser exposure is confirmed; [TD-527](#td-527-trainingmetricsapi-per-poll-logging-parsing-and-unbounded-history-queries) is
+cleanup (with TD-453's JSON consolidation).
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -2047,6 +2057,8 @@ supervisor: idle, did work, failed, crashed) so `/admin/status` can show a faili
   - [TD-523: `trainer_service` Can't Tell a Failing Pass From an Idle One](#td-523-trainer_service-cant-tell-a-failing-pass-from-an-idle-one)
   - [TD-524: `trainer_service` Child Port, Binary Resolution, Backoff and Unit Write Paths](#td-524-trainer_service-child-port-binary-resolution-backoff-and-unit-write-paths)
   - [TD-525: `TrainerServiceProxy` Misreports Long Checkpoint Waits and Idle Config](#td-525-trainerserviceproxy-misreports-long-checkpoint-waits-and-idle-config)
+  - [TD-526: Metrics API Accepts Cross-Origin Writes and Reads From Any Web Page](#td-526-metrics-api-accepts-cross-origin-writes-and-reads-from-any-web-page)
+  - [TD-527: `TrainingMetricsAPI` Per-Poll Logging, Parsing and Unbounded History Queries](#td-527-trainingmetricsapi-per-poll-logging-parsing-and-unbounded-history-queries)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -13329,6 +13341,65 @@ Files to Modify:
 
 ---
 
+### TD-526: Metrics API Accepts Cross-Origin Writes and Reads From Any Web Page
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Metrics / API | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `TrainingMetricsAPI.cpp` (see [TrainingMetricsAPI.md](../reference/source/TrainingMetricsAPI.md)); verified against the real
+`metrics_api_server`. A post-routing handler adds `Access-Control-Allow-Origin: *` to every response, there is no authentication, and push/control
+routes parse any body regardless of `Content-Type`. A `POST` with `Content-Type: text/plain` is a CORS simple request that browsers send without a
+preflight. With `Origin: http://evil.example`: `POST /api/sessions/{key}/control/clear` → 200 "Metrics history cleared"; `POST …/metrics/sample`
+`{"sample":5,"loss":99.0}` → 200, recorded. Any web page opened in a browser on the LAN (or by a Cloudflare-Access-authenticated operator for
+`metrics.kerfbit.dev`) can therefore clear histories, inject fake metrics or end sessions (`PUT /admin/config` needs a preflight and is blocked), and, because the wildcard
+origin permits reading responses, read every endpoint, including `metrics/abnormal`'s raw `input_text`/`target_text`. TRAINING_METRICS_API.md's
+"add a reverse proxy" advice doesn't help against a browser already inside it.
+
+Action Items:
+
+- [ ] Replace the wildcard with a configured allow-list of dashboard origins (or no CORS for write routes).
+- [ ] Reject write/control requests whose `Content-Type` isn't `application/json` (forcing a preflight); consider a shared token for writes.
+- [ ] Update TRAINING_METRICS_API.md's security notes; check `mns_server`/`registry_server` for the same exposure.
+
+Location in code: `src/TrainingMetricsAPI.cpp` (post-routing CORS handler, `OPTIONS` route, push/control routes); tagged `TODO: See TD-526`.
+
+Files to Modify:
+
+- `src/TrainingMetricsAPI.cpp`
+- `docs/development/TRAINING_METRICS_API.md`
+- `tests/training_metrics_api_routes_test.cpp`
+
+---
+
+### TD-527: `TrainingMetricsAPI` Per-Poll Logging, Parsing and Unbounded History Queries
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Metrics / API | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `TrainingMetricsAPI.cpp`:
+- **Verified:** `GET /api/sessions/{key}/metrics/current` logs `[metrics/current] matched key='…' len=…` at INFO on every request (five polls, five
+  lines); dashboards poll it continuously, so it crowds the log and speeds rotation (TD-430/TD-431).
+- **By inspection:** pushes find keys by substring and parse with `stoi`/`stof` (malformed numbers → 400 with the bare exception text, `stof`);
+  `GET …/metrics/history?max_records=N` is uncapped; history timestamps are whole seconds; `handle_session_status()` switches the stream to fixed
+  precision part-way, rounding `samples_per_second` to 2 decimals; every route repeats the same try/catch boilerplate (2,760 lines, TD-039).
+
+Action Items:
+
+- [ ] Drop the per-request log line (or make it DEBUG); cap `max_records`; emit millisecond timestamps.
+- [ ] Parse bodies with `nlohmann/json` (TD-453) and return field-specific errors; factor the per-route boilerplate.
+
+Location in code: `src/TrainingMetricsAPI.cpp` (`metrics/current` route, `handle_metrics_history()`, push handlers); tagged `TODO: See TD-527`.
+
+Files to Modify:
+
+- `src/TrainingMetricsAPI.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -13845,15 +13916,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 317 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 319 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|33|10%|
-|Medium|136|43%|
-|Low|148|47%|
+|Medium|137|43%|
+|Low|149|47%|
 
-**Total Active Items:** 317
+**Total Active Items:** 319
 
 ### By Component
 
@@ -13940,6 +14011,7 @@ Recomputed directly from the 317 `### TD-NNN` entries under [Active Technical De
 |Core / Optimizer|2|
 |Build / SIMD|2|
 |Metrics / Server CLI|2|
+|Metrics / API|2|
 |Metrics / Database|4|
 |Metrics / SQLite Database|3|
 |Metrics / Push Client|3|
@@ -13961,13 +14033,13 @@ Recomputed directly from the 317 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|193|
-|2-4 hours|96|
+|0-2 hours|194|
+|2-4 hours|97|
 |4-8 hours|16|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 579-1052 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 582-1058 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

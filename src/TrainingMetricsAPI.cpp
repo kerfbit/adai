@@ -181,6 +181,7 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
         [this](const httplib::Request& req, httplib::Response& res) {
             try {
                 const std::string& matched_key = req.matches[1];
+                // TODO: See TD-527 in TECHNICAL_DEBT.md - INFO log line on every dashboard poll.
                 adai::Logger::info("[metrics/current] matched key='{}' len={}", matched_key,
                                    matched_key.size());
                 std::string response = handle_current_metrics(matched_key);
@@ -1062,6 +1063,8 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
         res.status = 200;
     });
 
+    // TODO: See TD-526 in TECHNICAL_DEBT.md - wildcard origin + no auth + writes accepting text/plain: any web page in an
+    // operator's browser can clear/inject metrics (verified) and read every response, incl. abnormal-sample training text.
     // Add CORS headers to all responses
     server_impl_->server.set_post_routing_handler(
         [](const httplib::Request&, httplib::Response& res) {
@@ -1126,6 +1129,7 @@ std::string TrainingMetricsAPI::handle_metrics_history(const std::string& sessio
                                                        const std::string& query_params) {
     auto service = resolve_session_service(session_key, false);
     // Parse query parameters
+    // TODO: See TD-527 in TECHNICAL_DEBT.md - max_records is uncapped; timestamps below are whole seconds.
     int max_records = parse_query_param_int(query_params, "max_records", 1000);
     int session_id = parse_query_param_int(query_params, "session_id", -1);
 
