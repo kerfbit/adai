@@ -18,6 +18,7 @@
 
 namespace adai {
 
+// TODO: See TD-522 in TECHNICAL_DEBT.md - stale since TD-172 (serve removed; per-pass state now), and Pausing is never set.
 /**
  * @brief Lifecycle phase of the `incremental_trainer serve` supervisory loop,
  *        surfaced verbatim by GET /admin/status.
@@ -165,6 +166,8 @@ class TrainerControlState {
     /// otherwise make the very next sleep run the full interval instead of
     /// returning immediately, defeating /admin/resume's documented
     /// "wake the idle-poll sleep so pending work is checked immediately".
+    // TODO: See TD-522 in TECHNICAL_DEBT.md - unused in the per-pass child (nothing sleeps); duplicated in
+    // TrainerServiceControlState.
     void wake() {
         std::lock_guard<std::mutex> lock(wake_mutex_);
         wake_requested_ = true;
@@ -224,6 +227,7 @@ class TrainerControlState {
      *        Android ops dashboard's activity log never needs to remember to
      *        also log normally, and vice versa. Safe to call from any thread.
      */
+    // TODO: See TD-522 in TECHNICAL_DEBT.md - stores Debug entries the logger filters out; messages unbounded.
     void log(TrainerLogLevel level, const std::string& message) {
         {
             std::lock_guard<std::mutex> lock(log_mutex_);

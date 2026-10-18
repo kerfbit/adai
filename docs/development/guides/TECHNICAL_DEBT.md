@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 313
+**Total Items:** 314
 **High Priority:** 33
 **Medium Priority:** 135
-**Low Priority:** 145
+**Low Priority:** 146
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -574,6 +574,10 @@ Also October 17, 2026: filed [TD-519](#td-519-trainer-admin-put-reads-a-spaced-t
 MEDIUM and verified against the real server: `PUT /admin/config` with `{"auto_save_enabled": true}` (a space after the colon, Python's default) turned
 auto-save **off** and persisted it, here and in `trainer_service`'s idle handler (TD-519); a NaN `last_loss` produced `"last_loss":nan` in
 `/admin/status`, invalid JSON (TD-520). One is LOW: a stale `serve` header, unbounded `wait_ms`, counter-based checkpoint completion (TD-521).
+
+Also October 17, 2026: filed [TD-522](#td-522-trainercontrolstate-stale-design-text-unused-pausing-phase-and-dead-wake-logic) (LOW) from the code-traced [TrainerControlState.md](../reference/source/TrainerControlState.md) (no defects of its
+own; its one-writer-per-field contract holds): stale `serve` design comments, a `Pausing` phase that is never set although CLAUDE.md documents it, unused
+wake/sleep logic in the per-pass state, and a log ring that keeps Debug entries the logger filters out.
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1703,6 +1707,8 @@ in the residual stream); every existing checkpoint is retrained anyway. [TD-518]
 **Tier 99 — Newly filed (October 17, 2026): `TrainerAdminAPI`.** [TD-519](#td-519-trainer-admin-put-reads-a-spaced-true-as-false-and-disables-auto-save) silently disables checkpointing for every later pass, so fix it soon
 (parse with `nlohmann/json`, with TD-453); [TD-520](#td-520-trainer-admin-status-emits-nan-losses-as-invalid-json) goes with the other NaN-in-JSON items (TD-443, TD-458, TD-510); [TD-521](#td-521-traineradminapi-stale-header-unbounded-wait_ms-and-checkpoint-accounting) is cleanup.
 
+**Tier 100 — Newly filed (October 17, 2026): `TrainerControlState`.** [TD-522](#td-522-trainercontrolstate-stale-design-text-unused-pausing-phase-and-dead-wake-logic) is documentation/cleanup; do it with TD-521.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -2022,6 +2028,7 @@ in the residual stream); every existing checkpoint is retrained anyway. [TD-518]
   - [TD-519: Trainer Admin PUT Reads a Spaced `true` as False and Disables Auto-Save](#td-519-trainer-admin-put-reads-a-spaced-true-as-false-and-disables-auto-save)
   - [TD-520: Trainer Admin Status Emits NaN Losses as Invalid JSON](#td-520-trainer-admin-status-emits-nan-losses-as-invalid-json)
   - [TD-521: `TrainerAdminAPI` Stale Header, Unbounded `wait_ms` and Checkpoint Accounting](#td-521-traineradminapi-stale-header-unbounded-wait_ms-and-checkpoint-accounting)
+  - [TD-522: `TrainerControlState` Stale Design Text, Unused `Pausing` Phase and Dead Wake Logic](#td-522-trainercontrolstate-stale-design-text-unused-pausing-phase-and-dead-wake-logic)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -13175,6 +13182,39 @@ Files to Modify:
 
 ---
 
+### TD-522: `TrainerControlState` Stale Design Text, Unused `Pausing` Phase and Dead Wake Logic
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / Admin API | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `TrainerControlState.hpp` (see [TrainerControlState.md](../reference/source/TrainerControlState.md)); by inspection:
+- **Stale design text:** the class and enum comments describe the always-on `incremental_trainer serve` loop; since TD-172 the state lives for one child
+  pass and `trainer_service` keeps its own `TrainerServiceControlState`.
+- **`TrainerPhase::Pausing` is never set** anywhere, though the enum comment and CLAUDE.md's admin-API table list `pausing` as a reported phase; a draining
+  pass reports `training`/`checkpointing` then `idle`.
+- **`wake()`/`interruptible_sleep()` are dead in the child** (nothing sleeps; `/admin/resume`'s `wake()` reaches no waiter); the supervisor's
+  `TrainerServiceControlState` duplicates the mechanism.
+- **Log ring vs log file:** `log()` stores Debug entries the logger filters out (contradicting "the same messages"), the API ignores `recent_logs()`'s
+  `limit`, and messages are unbounded.
+- **Phase isn't reset on an exception** in `IncrementalTrainer` (only normal and pause paths set `Idle`).
+
+Action Items:
+
+- [ ] Update the comments for the TD-172 design; set `Pausing` while draining (or remove it from the enum and CLAUDE.md).
+- [ ] Remove or share the wake/sleep code; skip ring entries below the logger level; cap message length; reset the phase on exceptions.
+
+Location in code: `src/TrainerControlState.hpp` (class/enum comments, `wake()`, `log()`); tagged `TODO: See TD-522`.
+
+Files to Modify:
+
+- `src/TrainerControlState.hpp`
+- `src/IncrementalTrainer.cpp`
+- `CLAUDE.md`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -13691,15 +13731,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 313 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 314 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|33|11%|
 |Medium|135|43%|
-|Low|145|46%|
+|Low|146|46%|
 
-**Total Active Items:** 313
+**Total Active Items:** 314
 
 ### By Component
 
@@ -13758,7 +13798,7 @@ Recomputed directly from the 313 `### TD-NNN` entries under [Active Technical De
 |Training / IncrementalTrainer|6|
 |Training / IncrementalTrainingTool|6|
 |Training / StartupSweep|2|
-|Training / Admin API|3|
+|Training / Admin API|4|
 |Inference / IntegratedInferenceEngine|4|
 |Inference / KVCache|2|
 |Inference / Profiler|1|
@@ -13807,13 +13847,13 @@ Recomputed directly from the 313 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|190|
+|0-2 hours|191|
 |2-4 hours|95|
 |4-8 hours|16|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 574-1042 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 575-1044 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 
