@@ -97,6 +97,7 @@ This directory contains reference materials, technical specifications, and imple
   - [TrainingMetricsService](source/TrainingMetricsService.md) (`src/TrainingMetricsService.{hpp,cpp}`; per-session metrics state and persistence)
   - [TrainingSampleMeta](source/TrainingSampleMeta.md) (`src/TrainingSampleMeta.hpp`; the JSONL training-pair format reader/writer)
   - [VocabBuilder](source/VocabBuilder.md) (`src/VocabBuilder.cpp`; `vocab_builder` BPE vocabulary tool)
+  - [VocabBuilderHelpers](source/VocabBuilderHelpers.md) (`src/VocabBuilderHelpers.hpp`; `vocab_builder`'s corpus loaders)
   - [LLMEncoder](source/LLMEncoder.md) (`src/encoder.hpp`, `src/LLMEncoder.cpp`; encoder stack: embedding, blocks, final norm; chat, pipeline and RAG encoders)
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)

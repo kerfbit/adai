@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 328
+**Total Items:** 329
 **High Priority:** 34
 **Medium Priority:** 141
-**Low Priority:** 153
+**Low Priority:** 154
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -613,6 +613,10 @@ Also October 17, 2026: filed [TD-534](#td-534-vocab_builder-defaults-to-plain-te
 Verified with the real binary: the default `--format plain` on JSONL training data put JSON syntax (`{`, `{"`, `input`, `response`) into the vocabulary,
 while `--format pairs` (the JSONL reader, described in the help only as INPUT/RESPONSE) didn't (TD-534); a save to a missing directory printed "Vocabulary
 saved successfully!" and exited 0 with no file (TD-221's cause), and `--vocab-size abc` aborted with a core dump (TD-535).
+
+Also October 17, 2026: filed [TD-537](#td-537-vocab_builder-legacy-loader-reads-different-text-from-the-trainer) (LOW) from the code-traced [VocabBuilderHelpers.md](../reference/source/VocabBuilderHelpers.md), the last file of
+the `src/` pass. Verified: on a CRLF legacy file the vocabulary loader returned samples with a leading space and trailing `\r` and dropped an indented
+pair's input, where the trainer trims lines, accepts indentation and keeps only complete pairs.
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1765,6 +1769,8 @@ since any trained on so far learned the corrupted text. [TD-533](#td-533-sample_
 **Tier 107 — Newly filed (October 17, 2026): `VocabBuilder`.** Fix [TD-534](#td-534-vocab_builder-defaults-to-plain-text-turning-jsonl-syntax-into-vocabulary) and [TD-535](#td-535-vocab_builder-reports-a-failed-save-as-success-and-aborts-on-malformed-numbers) (with TD-221) before building the vocabulary for the TD-358
 retraining, so the new vocabulary isn't polluted or silently missing; [TD-536](#td-536-vocab_builder-json-loader-and-operator-documentation-drift) goes with them.
 
+**Tier 108 — Newly filed (October 17, 2026): `VocabBuilderHelpers`.** [TD-537](#td-537-vocab_builder-legacy-loader-reads-different-text-from-the-trainer) goes with TD-534–TD-536 (share one JSONL/legacy parser with the trainer).
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -2099,6 +2105,7 @@ retraining, so the new vocabulary isn't polluted or silently missing; [TD-536](#
   - [TD-534: `vocab_builder` Defaults to Plain Text, Turning JSONL Syntax Into Vocabulary](#td-534-vocab_builder-defaults-to-plain-text-turning-jsonl-syntax-into-vocabulary)
   - [TD-535: `vocab_builder` Reports a Failed Save as Success and Aborts on Malformed Numbers](#td-535-vocab_builder-reports-a-failed-save-as-success-and-aborts-on-malformed-numbers)
   - [TD-536: `vocab_builder` JSON Loader and Operator Documentation Drift](#td-536-vocab_builder-json-loader-and-operator-documentation-drift)
+  - [TD-537: `vocab_builder` Legacy Loader Reads Different Text From the Trainer](#td-537-vocab_builder-legacy-loader-reads-different-text-from-the-trainer)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -13687,6 +13694,35 @@ Files to Modify:
 
 ---
 
+### TD-537: `vocab_builder` Legacy Loader Reads Different Text From the Trainer
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Tooling / vocab_builder | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `VocabBuilderHelpers.hpp` (see [VocabBuilderHelpers.md](../reference/source/VocabBuilderHelpers.md)); verified.
+`ChatbotTrainer::load_conversation_data()` trims legacy `INPUT:`/`RESPONSE:` lines (spaces and `\r`), accepts indented prefixes and keeps only complete
+pairs; `load_pairs_format()` does none of this. On a CRLF file with one indented pair it returned `[ hello there\r]`, `[ hi friend\r]`,
+`[ indented answer\r]`: a leading space and trailing `\r` on every sample (the tokenizer turns `\r` into a space) and the indented pair's input dropped
+while its response was kept; `load_plain_text()` also keeps CRLF's `\r`. The vocabulary is learned from slightly different text than training
+tokenizes (merges spent on edge whitespace).
+
+Action Items:
+
+- [ ] Share one training-file parser between `ChatbotTrainer` and `vocab_builder` (JSONL and legacy), and strip `\r` in the plain loader.
+- [ ] Add CRLF and indentation tests.
+
+Location in code: `src/VocabBuilderHelpers.hpp` (`load_pairs_format()`, `load_plain_text()`); tagged `TODO: See TD-537`.
+
+Files to Modify:
+
+- `src/VocabBuilderHelpers.hpp`
+- `src/ChatbotTrainer.cpp`
+- `tests/vocabbuilder_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -14203,15 +14239,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 328 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 329 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|34|10%|
 |Medium|141|43%|
-|Low|153|47%|
+|Low|154|47%|
 
-**Total Active Items:** 328
+**Total Active Items:** 329
 
 ### By Component
 
@@ -14221,7 +14257,7 @@ Recomputed directly from the 328 `### TD-NNN` entries under [Active Technical De
 |GPU / Inference / Training|1|
 |GPU / Inference / Performance|1|
 |Tooling / Toolchain|1|
-|Tooling / vocab_builder|3|
+|Tooling / vocab_builder|4|
 |Training / Data Generation|1|
 |GUI / Testing|1|
 |Advanced Features / Integration|1|
@@ -14323,13 +14359,13 @@ Recomputed directly from the 328 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|202|
+|0-2 hours|203|
 |2-4 hours|98|
 |4-8 hours|16|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 592-1078 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 593-1080 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

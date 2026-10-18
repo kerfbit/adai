@@ -21,6 +21,7 @@
 /**
  * Load text from plain text file (one non-empty line per sample).
  */
+// TODO: See TD-537 in TECHNICAL_DEBT.md - keeps the \r of CRLF lines.
 inline std::vector<std::string> load_plain_text(const std::string& filename) {
     std::vector<std::string> texts;
     std::ifstream file(filename);
@@ -45,6 +46,8 @@ inline std::vector<std::string> load_plain_text(const std::string& filename) {
  * Load text from a training data file (JSONL or legacy INPUT:/RESPONSE: format).
  * Returns the concatenated input and response texts for vocabulary building.
  */
+// TODO: See TD-537 in TECHNICAL_DEBT.md - legacy branch keeps leading spaces and \r, skips indented lines and keeps
+// unpaired texts, unlike ChatbotTrainer's parser (verified).
 inline std::vector<std::string> load_pairs_format(const std::string& filename) {
     std::vector<std::string> texts;
     std::ifstream file(filename);
