@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 17, 2026
-**Total Items:** 322
-**High Priority:** 33
-**Medium Priority:** 138
-**Low Priority:** 151
+**Total Items:** 325
+**High Priority:** 34
+**Medium Priority:** 139
+**Low Priority:** 152
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -602,6 +602,12 @@ startup `0-default` session occupying one live-session slot.
 Also October 17, 2026: filed [TD-529](#td-529-metrics-service-re-inserts-db-rows-when-the-jsonl-file-cant-be-written) (MEDIUM) and [TD-530](#td-530-trainingmetricsservice-dead-push-path-partial-jsonl-rows-and-undocumented-sampling) (LOW) from the code-traced [TrainingMetricsService.md](../reference/source/TrainingMetricsService.md).
 Verified with a real SQLite store: when the JSONL metrics file can't be opened, `persist_metrics()` returns after the DB inserts but before advancing
 `persisted_up_to_`, so every persist re-inserts all pending rows; 3 history records became 9 `metrics_history` rows, growing quadratically (TD-529).
+
+Also October 17, 2026: filed [TD-531](#td-531-jsonl-training-reader-doesnt-decode-uxxxx-corrupting-non-ascii-text) (**HIGH**), [TD-532](#td-532-jsonl-training-reader-matches-keys-anywhere-in-the-line) (MEDIUM) and [TD-533](#td-533-sample_to_jsonl-writes-raw-control-characters-unused-sample-metadata) (LOW) from the code-traced
+[TrainingSampleMeta.md](../reference/source/TrainingSampleMeta.md), the JSONL reader behind all training, pair counting and vocabulary building. Verified
+on lines written by Python's `json.dumps`: `\uXXXX` escapes aren't decoded, so `"Caf\u00e9"` trains as `Cafu00e9` and an emoji as `ud83dude00` (any
+dataset prepared with standard tooling, which escapes non-ASCII by default) (TD-531); the first `"input"` anywhere in the line wins, so a nested
+`{"meta":{"input":"WRONG"}}` was read instead of the real field (TD-532); `sample_to_jsonl()` writes control characters raw, which Python rejects (TD-533).
 
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
@@ -1747,6 +1753,10 @@ cleanup (with TD-453's JSON consolidation).
 **Tier 105 — Newly filed (October 17, 2026): `TrainingMetricsService`.** [TD-529](#td-529-metrics-service-re-inserts-db-rows-when-the-jsonl-file-cant-be-written) with TD-479 (both are about the DB and file persistence markers
 diverging); [TD-530](#td-530-trainingmetricsservice-dead-push-path-partial-jsonl-rows-and-undocumented-sampling) is cleanup.
 
+**Tier 106 — Newly filed (October 17, 2026): `TrainingSampleMeta`.** Fix [TD-531](#td-531-jsonl-training-reader-doesnt-decode-uxxxx-corrupting-non-ascii-text) and [TD-532](#td-532-jsonl-training-reader-matches-keys-anywhere-in-the-line) together **before the TD-358 retraining**: replace the
+hand-written scanner with the vendored `nlohmann/json` (with TD-314's HuggingFace scanner and TD-453), then check queued datasets for `\u` escapes,
+since any trained on so far learned the corrupted text. [TD-533](#td-533-sample_to_jsonl-writes-raw-control-characters-unused-sample-metadata) goes with it.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -2075,6 +2085,9 @@ diverging); [TD-530](#td-530-trainingmetricsservice-dead-push-path-partial-jsonl
   - [TD-528: `metrics_api_server` Stop/Start Race, Stale Help Text and Default-Session Slot](#td-528-metrics_api_server-stopstart-race-stale-help-text-and-default-session-slot)
   - [TD-529: Metrics Service Re-Inserts DB Rows When the JSONL File Can't Be Written](#td-529-metrics-service-re-inserts-db-rows-when-the-jsonl-file-cant-be-written)
   - [TD-530: `TrainingMetricsService` Dead Push Path, Partial JSONL Rows and Undocumented Sampling](#td-530-trainingmetricsservice-dead-push-path-partial-jsonl-rows-and-undocumented-sampling)
+  - [TD-531: JSONL Training Reader Doesn't Decode `\uXXXX`, Corrupting Non-ASCII Text](#td-531-jsonl-training-reader-doesnt-decode-uxxxx-corrupting-non-ascii-text)
+  - [TD-532: JSONL Training Reader Matches Keys Anywhere in the Line](#td-532-jsonl-training-reader-matches-keys-anywhere-in-the-line)
+  - [TD-533: `sample_to_jsonl()` Writes Raw Control Characters; Unused Sample Metadata](#td-533-sample_to_jsonl-writes-raw-control-characters-unused-sample-metadata)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -13504,6 +13517,86 @@ Files to Modify:
 
 ---
 
+### TD-531: JSONL Training Reader Doesn't Decode `\uXXXX`, Corrupting Non-ASCII Text
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| HIGH | Open | Data / JSONL Format | October 17, 2026 | 2-4 hours |
+
+Description:
+Found while tracing `TrainingSampleMeta.hpp` (see [TrainingSampleMeta.md](../reference/source/TrainingSampleMeta.md)); verified. `tsm_detail::json_str()`,
+used by `parse_jsonl_sample()` for every training pair (`ChatbotTrainer::load_conversation_data()`, `DatasetRegistry::count_pairs()`/segments,
+`VocabBuilderHelpers::load_pairs_format()`), decodes only `\n`, `\t`, `\r`; every other escape becomes the character after the backslash. JSON writers
+escape non-ASCII by default (Python `json.dumps` `ensure_ascii=True`, pandas `to_json` `force_ascii=True`): `"Caf\u00e9 au lait?"` parsed as
+`Cafu00e9 au lait?` and `"Oui \u2014 tr\u00e8s bon \ud83d\ude00"` as `Oui u2014 tru00e8s bon ud83dude00`. Any dataset prepared with standard tooling
+and queued through `dataset_manager add`/upload therefore trains (and builds vocabularies) on garbage wherever it has an accented letter, curly
+apostrophe (`don’t` → `donu2019t`), dash or emoji, silently. `\b`, `\f`, `\/` are mis-decoded too. (DataFetcher's own output is raw UTF-8; its
+HuggingFace input scanner has the same gap, TD-314.)
+
+Action Items:
+
+- [ ] Parse JSONL lines with the vendored `nlohmann/json` (full escape and surrogate-pair handling), with TD-314 and TD-453.
+- [ ] Add tests with `\u` escapes, surrogate pairs and every standard escape; scan queued datasets for `\u` and re-tokenize affected ones before retraining.
+
+Location in code: `src/TrainingSampleMeta.hpp` (`tsm_detail::json_str()`, `parse_jsonl_sample()`); tagged `TODO: See TD-531`.
+
+Files to Modify:
+
+- `src/TrainingSampleMeta.hpp`
+- `tests/training_sample_meta_test.cpp`
+
+---
+
+### TD-532: JSONL Training Reader Matches Keys Anywhere in the Line
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / JSONL Format | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `TrainingSampleMeta.hpp`; verified. `json_str()`/`json_flt()`/`json_inum()` take the first `"key"` occurrence anywhere in the line, not
+a top-level key: `{"meta":{"input":"WRONG"},"input":"right","response":"x"}` parsed `input` as `WRONG`. Datasets with nested metadata objects (common
+in exported HuggingFace rows) read the wrong field.
+
+Action Items:
+
+- [ ] Read top-level keys only (solved by the TD-531 parser change); add a nested-key test.
+
+Location in code: `src/TrainingSampleMeta.hpp` (`tsm_detail` helpers); tagged `TODO: See TD-532`.
+
+Files to Modify:
+
+- `src/TrainingSampleMeta.hpp`
+- `tests/training_sample_meta_test.cpp`
+
+---
+
+### TD-533: `sample_to_jsonl()` Writes Raw Control Characters; Unused Sample Metadata
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / JSONL Format | October 17, 2026 | 1-2 hours |
+
+Description:
+Found while tracing `TrainingSampleMeta.hpp`:
+- **Verified:** `sample_to_jsonl()` escapes only `"`, `\`, `\n`, `\r`, `\t`; `\x01`/`\x08` are written raw, and Python's `json.loads` rejected the line
+  ("Invalid control character"), so registry-produced JSONL (Gutenberg/HuggingFace via DataFetcher) can be unreadable by other tools.
+- **By inspection:** `weight` and `split` look like sampling/split controls but nothing reads them (`quality` only goes to private copies, TD-273);
+  numbers use locale-dependent `stof`/`stoi` (trailing garbage accepted) and default 6-digit output; a NaN `quality` is written as `nan`.
+
+Action Items:
+
+- [ ] Escape every control character (`\u00XX`) and non-finite numbers; drop or implement `weight`/`split`.
+
+Location in code: `src/TrainingSampleMeta.hpp` (`tsm_detail::json_esc()`, `sample_to_jsonl()`, `SampleMeta`); tagged `TODO: See TD-533`.
+
+Files to Modify:
+
+- `src/TrainingSampleMeta.hpp`
+- `tests/training_sample_meta_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -14020,15 +14113,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 322 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 325 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|33|10%|
-|Medium|138|43%|
-|Low|151|47%|
+|High|34|10%|
+|Medium|139|43%|
+|Low|152|47%|
 
-**Total Active Items:** 322
+**Total Active Items:** 325
 
 ### By Component
 
@@ -14066,6 +14159,7 @@ Recomputed directly from the 322 `### TD-NNN` entries under [Active Technical De
 |Data / dataset_manager CLI|12|
 |Data / DatasetRegistry|4|
 |Data / DataTransport|4|
+|Data / JSONL Format|3|
 |Transformer / DecoderBlock|5|
 |Transformer / Decoder|3|
 |RAG / DocumentStore|3|
@@ -14138,13 +14232,13 @@ Recomputed directly from the 322 `### TD-NNN` entries under [Active Technical De
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|197|
-|2-4 hours|97|
+|0-2 hours|199|
+|2-4 hours|98|
 |4-8 hours|16|
 |8+ hours|8|
 |Not estimated|4|
 
-**Total Estimated Effort (Active Items):** 585-1064 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
+**Total Estimated Effort (Active Items):** 589-1072 hours (excludes TD-014, TD-039, TD-171, and TD-224, which have no effort estimate, and TD-211's real-batching option, which is blocked on TD-171; TD-211 is counted at its 2-4 hour re-scope estimate. The entire TD-174 through TD-186 LeJEPA world-model batch is now resolved — see Tier 10 in the Recommended Execution Order above — so it no longer contributes to this total at all.)
 
 ### Future Enhancements Summary
 

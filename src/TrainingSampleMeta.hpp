@@ -29,6 +29,7 @@ struct SampleMeta {
 // ── Internal helpers ──────────────────────────────────────────────────────────
 namespace tsm_detail {
 
+// TODO: See TD-533 in TECHNICAL_DEBT.md - other control characters are written raw (invalid JSON for standard parsers).
 inline std::string json_esc(const std::string& s) {
     std::string o;
     o.reserve(s.size());
@@ -56,6 +57,8 @@ inline std::string json_esc(const std::string& s) {
     return o;
 }
 
+// TODO: See TD-531 in TECHNICAL_DEBT.md - \uXXXX (and \b \f \/) not decoded: "Caf\u00e9" -> "Cafu00e9" (verified).
+// TODO: See TD-532 in TECHNICAL_DEBT.md - first occurrence anywhere in the line, not a top-level key.
 inline std::string json_str(const std::string& json, const std::string& key) {
     const std::string needle = "\"" + key + "\"";
     size_t kpos = json.find(needle);
