@@ -1,11 +1,12 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.15.0
+// @adai-version: 0.16.0
 // @adai-reviewed: 2026-10-19
 
 
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -37,6 +38,16 @@ struct TrainingSession {
     float final_loss = 0.0f;
     float final_validation_loss = 0.0f;
     std::string checkpoint_path;
+
+    /// TD-541: final_validation_loss of a completed pass that had no validation data (for
+    /// example VALIDATION_SPLIT=0, or fewer pairs than the split ratio needs). 0.0 still means
+    /// "not recorded yet" (an in-progress session).
+    static constexpr float kNoValidationLoss = -1.0f;
+    /// true when final_validation_loss is a real measurement, so the session can take part in
+    /// lowest-validation-loss selection.
+    bool has_validation_loss() const {
+        return std::isfinite(final_validation_loss) && final_validation_loss > 0.0f;
+    }
     std::chrono::system_clock::time_point timestamp;
     std::chrono::system_clock::time_point start_time;
     std::chrono::system_clock::time_point end_time;

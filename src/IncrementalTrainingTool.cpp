@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.16.0
+// @adai-version: 0.17.0
 // @adai-reviewed: 2026-10-19
 
 #include <array>
@@ -74,8 +74,12 @@ void print_session_history(const std::vector<TrainingSession>& sessions) {
     for (const auto& s : sessions) {
         std::cout << std::setw(7) << s.session_id << " | " << std::setw(7) << s.samples_trained
                   << " | " << std::setw(6) << s.epochs_completed << " | " << std::setw(6)
-                  << std::fixed << std::setprecision(3) << s.final_loss << " | " << std::setw(8)
-                  << s.final_validation_loss << " | " << s.checkpoint_path << '\n';
+                  << std::fixed << std::setprecision(3) << s.final_loss << " | " << std::setw(8);
+        if (s.final_validation_loss == TrainingSession::kNoValidationLoss)
+            std::cout << "n/a";  // TD-541: pass had no validation data
+        else
+            std::cout << s.final_validation_loss;
+        std::cout << " | " << s.checkpoint_path << '\n';
     }
 }
 

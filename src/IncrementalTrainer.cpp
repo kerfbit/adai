@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.15.0
+// @adai-version: 0.16.0
 // @adai-reviewed: 2026-10-19
 
 #include "IncrementalTrainer.hpp"
@@ -868,7 +868,11 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
         }
 
         float final_loss = trainer.get_final_training_loss();
-        float final_val_loss = trainer.get_final_validation_loss();
+        // TD-541: a pass with no validation data used to record 0 here, which the sanity check
+        // reads as "never measured", so its checkpoint was never resumed and was deleted.
+        const float final_val_loss = trainer.get_validation_losses().empty()
+                                         ? TrainingSession::kNoValidationLoss
+                                         : trainer.get_final_validation_loss();
         // TODO: See TD-410 in TECHNICAL_DEBT.md - records num_epochs requested, not epochs completed (early stopping)
         finalize_session(finalize_sample_count, num_epochs, final_loss, final_val_loss);
         save_session_history();
@@ -879,10 +883,12 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
             adai::ArtifactLocation artifact;
             artifact.path = checkpoint_path;
             artifact.format = "adai-native";
-            const std::map<std::string, std::string> summary = {
+            std::map<std::string, std::string> summary = {
                 {"final_loss", std::to_string(static_cast<double>(final_loss))},
-                {"final_val_loss", std::to_string(static_cast<double>(final_val_loss))},
                 {"epochs", std::to_string(num_epochs)}};
+            if (final_val_loss != TrainingSession::kNoValidationLoss) {
+                summary["final_val_loss"] = std::to_string(static_cast<double>(final_val_loss));
+            }
             try {
                 mns_client_->set_candidate(config.mns_model_name, current_run_id_, artifact,
                                           summary);
@@ -1355,7 +1361,7 @@ std::string IncrementalTrainer::select_resume_checkpoint(std::string* reason) co
     if (config.resume_from_best_checkpoint) {
         const TrainingSession* best = nullptr;
         for (const auto& session : session_history) {
-            if (is_sane_checkpoint_candidate(session) &&
+            if (is_sane_checkpoint_candidate(session) && session.has_validation_loss() &&
                 (!best || session.final_validation_loss < best->final_validation_loss)) {
                 best = &session;
             }
@@ -1391,7 +1397,7 @@ std::string IncrementalTrainer::init_from_session_history() {
     interrupted_resume_checkpoint_ = take_interrupted_session();
 
     for (const auto& session : session_history) {
-        if (is_sane_checkpoint_candidate(session) &&
+        if (is_sane_checkpoint_candidate(session) && session.has_validation_loss() &&
             session.final_validation_loss < best_validation_loss) {
             best_validation_loss = session.final_validation_loss;
             best_checkpoint_path = session.checkpoint_path;
@@ -1435,8 +1441,12 @@ bool IncrementalTrainer::is_sane_checkpoint_candidate(const TrainingSession& ses
     }
     // NaN/Inf means the run diverged (or crashed mid-computation) before
     // producing a usable loss; an exact 0.0 is not an achievable cross-entropy
-    // loss and indicates the value was never actually written.
-    if (!std::isfinite(session.final_validation_loss) || session.final_validation_loss <= 0.0f) {
+    // loss and indicates the value was never actually written. TD-541: a
+    // completed pass without validation data records kNoValidationLoss and is
+    // still a valid checkpoint; has_validation_loss() keeps it out of
+    // lowest-loss selection.
+    if (session.final_validation_loss != TrainingSession::kNoValidationLoss &&
+        !session.has_validation_loss()) {
         return false;
     }
     // A checkpoint whose required sidecar files have been deleted (or never
@@ -1711,6 +1721,7 @@ void IncrementalTrainer::cleanup_old_sessions() {
             for (size_t j = to_remove; j < session_history.size(); ++j) {
                 const auto& remaining_session = session_history[j];
                 if (is_sane_checkpoint_candidate(remaining_session) &&
+                    remaining_session.has_validation_loss() &&
                     remaining_session.final_validation_loss < best_validation_loss) {
                     best_validation_loss = remaining_session.final_validation_loss;
                     best_checkpoint_path = remaining_session.checkpoint_path;
@@ -1833,8 +1844,13 @@ void IncrementalTrainer::print_training_summary() const {
     }
 
     for (const auto& s : session_history) {
-        Logger::info("  Session #{}  samples={}  epochs={}  loss={:.4f}  val={:.4f}", s.session_id,
-                     s.samples_trained, s.epochs_completed, s.final_loss, s.final_validation_loss);
+        std::ostringstream val;
+        if (s.final_validation_loss == TrainingSession::kNoValidationLoss)
+            val << "n/a";  // TD-541: pass had no validation data
+        else
+            val << std::fixed << std::setprecision(4) << s.final_validation_loss;
+        Logger::info("  Session #{}  samples={}  epochs={}  loss={:.4f}  val={}", s.session_id,
+                     s.samples_trained, s.epochs_completed, s.final_loss, val.str());
         Logger::info("    checkpoint: {}", s.checkpoint_path);
 
         if (!s.per_epoch_losses.empty()) {
@@ -2313,8 +2329,13 @@ void IncrementalTrainer::update_best_checkpoint(float validation_loss,
 
     // Check if this is the best validation loss so far
     bool is_best = false;
+    // TD-541: a pass without validation data (kNoValidationLoss) has nothing to compare, so it
+    // only takes "best" when there is no best yet, and never records -1 as the loss to beat.
+    const bool measured = std::isfinite(validation_loss) && validation_loss > 0.0f;
 
-    if (session_history.size() <= 1) {
+    if (!measured) {
+        is_best = best_checkpoint_path.empty();
+    } else if (session_history.size() <= 1) {
         // First session - always best
         is_best = true;
     } else {
@@ -2325,7 +2346,9 @@ void IncrementalTrainer::update_best_checkpoint(float validation_loss,
     }
 
     if (is_best) {
-        best_validation_loss = validation_loss;
+        if (measured) {
+            best_validation_loss = validation_loss;
+        }
         best_checkpoint_path = checkpoint_path;
 
         std::string best_link = config.best_symlink_name;

@@ -230,8 +230,8 @@ std::int64_t saved_global_step(const std::string& path) {
 // as each trainer_service pass is a separate process), instead of restarting at step 0.
 TEST_F(IncrementalTrainerTest, TrainingStateContinuesIntoTheNextPass) {
     const IncrementalConfig config = tiny_local_config(session_dir);
-    // Enough pairs for a validation split: a pass with no validation records loss 0, which the
-    // checkpoint sanity check treats as unusable.
+    // Enough pairs for a validation split (a pass without one is covered by
+    // PassWithoutValidationIsResumedAndSurvivesCleanup).
     const std::string data = (test_dir / "pairs.jsonl").string();
     {
         std::ofstream out(data);
@@ -489,6 +489,38 @@ TEST_F(IncrementalTrainerTest, InterruptedSessionResumesFromItsNewestSnapshot) {
         EXPECT_LT(max_abs_diff(fingerprint(t.get_model()), w_best), 1e-5f)
             << "should resume from session_1_best when it is newer";
     }
+}
+
+// TD-541: a pass with no validation data (here 2 pairs, fewer than VALIDATION_SPLIT needs)
+// used to record validation loss 0. The sanity check read that as "never measured", so the next
+// start dropped the session from history, deleted its checkpoint and started from fresh weights.
+TEST_F(IncrementalTrainerTest, PassWithoutValidationIsResumedAndSurvivesCleanup) {
+    IncrementalConfig config = tiny_local_config(session_dir);
+    PendingFileRange file;
+    file.path = data_file1.string();
+    std::string cp;
+    Matrix trained(1, 1);
+    {
+        IncrementalTrainer pass1(vocab_file.string(), model_file.string(), config);
+        ASSERT_TRUE(pass1.train_on_files({file}, 1));
+        const auto session = pass1.get_session_history().back();
+        EXPECT_EQ(session.final_validation_loss, TrainingSession::kNoValidationLoss);
+        EXPECT_FALSE(session.has_validation_loss());
+        cp = session.checkpoint_path;
+        trained = fingerprint(pass1.get_model());
+    }
+
+    IncrementalTrainer next(vocab_file.string(), model_file.string(), config);
+    ASSERT_EQ(next.get_session_history().size(), 1u) << "the session survives startup cleanup";
+    EXPECT_EQ(next.get_session_history().back().checkpoint_path, cp);
+    EXPECT_TRUE(fs::exists(cp + ".config")) << "its checkpoint isn't deleted";
+    EXPECT_LT(max_abs_diff(fingerprint(next.get_model()), trained), 1e-5f)
+        << "the next pass continues from it";
+
+    // It still can't be picked as the lowest-validation-loss checkpoint.
+    config.resume_from_best_checkpoint = true;
+    IncrementalTrainer best(vocab_file.string(), model_file.string(), config);
+    EXPECT_GT(max_abs_diff(fingerprint(best.get_model()), trained), 1e-3f);
 }
 
 TEST_F(IncrementalTrainerTest, ResumesFromMostRecentSessionNotLowestValidationLoss) {

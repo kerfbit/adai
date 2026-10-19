@@ -189,3 +189,7 @@ fetching lives in `DataFetcher`/`registry_server`. The old doc's claim that `ret
 random weights is still true (`reset_model_for_config()`). Its file-layout diagram (session history,
 checkpoints, auto-saves, symlinks) is kept and corrected in §2–3. The operator-facing
 [quick reference](../../guides/quick-reference/incremental-trainer-quick-reference.md) is unchanged.
+
+## Addendum (October 19, 2026): passes without validation data (TD-541)
+
+A completed pass with no validation data now records `final_validation_loss = TrainingSession::kNoValidationLoss` (-1) instead of 0. `is_sane_checkpoint_candidate()` accepts it, so the next pass resumes from that checkpoint and startup cleanup keeps it. `TrainingSession::has_validation_loss()` excludes it from every lowest-loss choice: `RESUME_FROM_BEST_CHECKPOINT`, the best-checkpoint tracking, and `update_best_checkpoint()`. 0 still marks an in-progress session, and NaN a diverged one.

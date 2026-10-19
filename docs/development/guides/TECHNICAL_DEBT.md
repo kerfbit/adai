@@ -1149,8 +1149,9 @@ Done:
 
 - TD-523 and TD-519 (failing passes counted, logged and backed off; admin config PUT parsed as JSON).
 
-Remaining, re-ordered on October 18 because TD-539 means checkpoints now actually carry over between passes:
-1. TD-541 (found October 19: a pass without validation data has its checkpoint discarded).
+- TD-541 (a pass without validation data keeps its checkpoint and is resumed).
+
+Nothing remains in this run's list.
 
 Every fix here is verified on CPU, or on the oneAPI CPU device for the SYCL kernels. Still needed: an on-device run on ai-machine, then
 retraining from scratch, since no existing checkpoint has correct GPU-trained weights (TD-358) or the encoder's own embedding (TD-538).
@@ -14284,7 +14285,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / IncrementalTrainer | October 19, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 19, 2026 | Training / IncrementalTrainer | October 19, 2026 | 1-2 hours |
 
 Description:
 Found while testing TD-269 (a one-pair pass's checkpoint wasn't resumed from). `ChatbotTrainer` reports a validation loss of 0 when there is no
@@ -14295,9 +14296,27 @@ training is lost, while its files are already marked trained.
 
 Action Items:
 
-- [ ] Record "no validation" explicitly (for example NaN or a flag in the session record) instead of 0, and treat such a session as resumable
+- [x] Record "no validation" explicitly (for example NaN or a flag in the session record) instead of 0, and treat such a session as resumable
   under the most-recent rule; keep excluding it only from lowest-loss selection.
-- [ ] Test: a pass with no validation split is resumed by the next pass and survives cleanup.
+- [x] Test: a pass with no validation split is resumed by the next pass and survives cleanup.
+
+**Fix (October 19, 2026).** A completed pass whose `ChatbotTrainer` recorded no validation loss now stores `TrainingSession::kNoValidationLoss`
+(-1) instead of 0. The value round-trips through `session_history.txt` unchanged. 0 still means an in-progress session, and NaN still means a
+diverged one.
+- `is_sane_checkpoint_candidate()` accepts -1, so the session is resumed under the most-recent rule and survives `cleanup_dead_sessions()`.
+- `has_validation_loss()` keeps it out of every lowest-loss choice: `RESUME_FROM_BEST_CHECKPOINT`, the best checkpoint picked at startup and
+  after cleanup, and `update_best_checkpoint()`. That last one now takes an unmeasured pass as "best" only when no best exists yet, and never
+  records -1 as the loss to beat.
+- Other changes:
+  - the MNS candidate summary leaves out `final_val_loss` for such a pass;
+  - `history` and the trainer summary show "n/a" instead of a loss.
+
+Verified: the new `PassWithoutValidationIsResumedAndSurvivesCleanup` test, a 2-pair pass, failed against the old code. Its validation loss was
+0, and the next trainer's history was empty. With the fix it passes, and with `RESUME_FROM_BEST_CHECKPOINT=true` the session is still not
+picked.
+
+Not changed: the per-epoch callback still records 0 for the validation loss of an epoch without validation data, in the per-epoch arrays and
+the MNS progress `best_loss`. These are reporting values only; they don't affect checkpoint selection.
 
 Location in code: `src/IncrementalTrainer.cpp` (`is_sane_checkpoint_candidate()`, `finalize_session()`), `src/ChatbotTrainer.cpp` (validation
 loss with no validation data).
