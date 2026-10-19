@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-09-20
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-10-18
 
 
 #include <cstddef>
@@ -210,6 +210,19 @@ struct DeleteResult {
     std::vector<Detail> details;
 };
 
+/// Result of requeue_trained(): trained registry entries moved back to the pending queue.
+struct RequeueResult {
+    struct Detail {
+        std::string path;
+        std::string status;  ///< "requeued" | "already_pending" | "not_found"
+    };
+    int requeued = 0;
+    int already_pending = 0;
+    int not_found = 0;
+    bool ok = true;  ///< false if the request itself failed (e.g. registry_server unreachable)
+    std::vector<Detail> details;
+};
+
 // ============================================================================
 // Abstract transport interface
 // ============================================================================
@@ -403,6 +416,21 @@ class RegistryTransport {
      * @return Registry-relative path of the newly queued file, or "" on failure.
      */
     virtual std::string upload_file(const std::string& local_path) = 0;
+
+    /**
+     * @brief Move trained registry entries back to the pending queue, so the next passes
+     *        train on them again (e.g. before retraining a model from scratch).
+     *
+     * Targets the trained entries for @p paths, or every trained entry when @p all is true.
+     * Each one is removed from the trained registry and queued as a whole-file pending entry
+     * (the trained registry has no segment concept), keeping its source/added time/checksum. If
+     * a pending entry for that path already exists, only the trained record is removed
+     * ("already_pending"). A non-empty @p model_name assigns the re-queued entries to that model;
+     * empty leaves them unassigned. Works against registry_server too (POST .../requeue), so it
+     * re-queues where the data actually lives.
+     */
+    virtual RequeueResult requeue_trained(const std::vector<std::string>& paths, bool all,
+                                          const std::string& model_name = "") = 0;
 };
 
 // ============================================================================
@@ -475,6 +503,8 @@ class LocalTransport : public RegistryTransport {
                                   const std::string& output_field,
                                   const std::string& model_name) override;
     std::string upload_file(const std::string& local_path) override;
+    RequeueResult requeue_trained(const std::vector<std::string>& paths, bool all,
+                                  const std::string& model_name = "") override;
 
    private:
     std::string registry_path_;
@@ -555,6 +585,8 @@ class RemoteTransport final : public RegistryTransport {
                                   const std::string& output_field,
                                   const std::string& model_name) override;
     std::string upload_file(const std::string& local_path) override;
+    RequeueResult requeue_trained(const std::vector<std::string>& paths, bool all,
+                                  const std::string& model_name = "") override;
 
    private:
     std::string host_;

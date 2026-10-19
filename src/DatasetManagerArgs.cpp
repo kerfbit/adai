@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.3.0
-// @adai-reviewed: 2026-09-20
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-10-18
 
 // Calling convention note: every parse_*_args() here takes the command's OWN argument slice —
 // NOT including the command name itself (main() strips that off before dispatching, the same
@@ -173,6 +173,31 @@ DeleteArgs parse_delete_args(const std::vector<std::string>& args) {
     if (r.targets.empty()) {
         return make_error<DeleteArgs>(
             "Usage: dataset_manager delete <file1> [file2 ...] [--force] [--delete-files]");
+    }
+    return r;
+}
+
+RequeueArgs parse_requeue_args(const std::vector<std::string>& args) {
+    static const char* usage =
+        "Usage: dataset_manager requeue (--all | <file1> [file2 ...]) [--model <name>]";
+    RequeueArgs r;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        if (args[i] == "--all") {
+            r.all = true;
+        } else if (args[i] == "--model") {
+            if (i + 1 >= args.size() || args[i + 1].rfind("--", 0) == 0) {
+                return make_error<RequeueArgs>(std::string("--model needs a value. ") + usage);
+            }
+            r.model_name = args[++i];
+        } else if (args[i].rfind("--", 0) == 0) {
+            return make_error<RequeueArgs>("Unknown option " + args[i] + ". " + usage);
+        } else {
+            r.targets.push_back(args[i]);
+        }
+    }
+    if (r.all == !r.targets.empty()) {
+        return make_error<RequeueArgs>(std::string("Give either --all or file(s), not both. ") +
+                                       usage);
     }
     return r;
 }

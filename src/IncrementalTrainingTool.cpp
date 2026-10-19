@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.13.4
-// @adai-reviewed: 2026-09-24
+// @adai-version: 0.14.1
+// @adai-reviewed: 2026-10-18
 
 #include <array>
 #include <chrono>
@@ -166,6 +166,61 @@ long long launch_background(int argc, char* argv[]) {
 
 // ── Download directory helpers ────────────────────────────────────────────────
 
+// TD-411: the "acquired files -> local files" step shared by train, retrain and resume. When the
+// registry hands out an FTP host (a remote registry_server), the files are downloaded into
+// dcfg.download_dir; otherwise the registry's own paths are used directly. `ranges` gets one
+// entry per resp.files entry, in order, with its TD-205 segment range; `downloaded` gets the
+// files to delete after the pass. Returns false (logged) if a download failed; the caller then
+// releases the files.
+static bool resolve_pass_files(const AcquireResponse& resp, const DatasetConfig& dcfg,
+                               std::vector<PendingFileRange>& ranges,
+                               std::vector<fs::path>& downloaded) {
+    std::vector<std::string> local_paths;
+    // Remote first: whenever the registry serves files over FTP, download them. An unset
+    // DOWNLOAD_DIR used to silently fall back to the registry host's paths, which don't exist
+    // on a separate trainer host; use <SESSION_DIR>/downloads instead.
+    const bool use_ftp = !resp.ftp_server_host.empty();
+    if (use_ftp) {
+        std::string download_dir = dcfg.download_dir;
+        if (download_dir.empty()) {
+            download_dir = (fs::path(dcfg.session_dir) / "downloads").string();
+            adai::Logger::warn("DOWNLOAD_DIR is not set; downloading registry files to {}",
+                               download_dir);
+        }
+        std::error_code mk_ec;
+        fs::create_directories(download_dir, mk_ec);
+        const std::size_t warn_bytes =
+            static_cast<std::size_t>(dcfg.large_file_warn_threshold_mb) * 1024ULL * 1024ULL;
+        try {
+            DataTransport dt;
+            downloaded =
+                dt.fetch_all(resp, download_dir, dcfg.max_parallel_downloads, warn_bytes);
+            for (const auto& p : downloaded)
+                local_paths.push_back(p.string());
+        } catch (const std::exception& ex) {
+            adai::Logger::error("[DataTransport] Download failed: {}", ex.what());
+            return false;
+        }
+    } else {
+        for (const auto& f : resp.files)
+            local_paths.push_back(f.registry_path);
+    }
+    // local_paths[i] corresponds 1:1 with resp.files[i] in both branches (fetch_all() fills its
+    // result by index) -- zip each with its entry's segment range.
+    ranges.clear();
+    ranges.reserve(local_paths.size());
+    for (std::size_t i = 0; i < local_paths.size(); ++i) {
+        PendingFileRange r;
+        r.path = local_paths[i];
+        if (i < resp.files.size()) {
+            r.segment_start = resp.files[i].segment_start;
+            r.segment_count = resp.files[i].segment_count;
+        }
+        ranges.push_back(std::move(r));
+    }
+    return true;
+}
+
 static void cleanup_downloads(const std::vector<fs::path>& local_paths) {
     for (const auto& p : local_paths) {
         if (!p.empty() && fs::exists(p)) {
@@ -274,9 +329,7 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     DatasetConfig dcfg = DatasetRegistry::make_config(svc_config);
     DatasetRegistry reg(dcfg);
     reg.load_registry();
-    // TODO: See TD-512 in TECHNICAL_DEBT.md - load_pending_list() is never called, so pending_files() is empty
-    // and the sweep deletes every download as orphaned (verified).
-    startup_sweep(reg, run_id, dcfg.download_dir);
+    startup_sweep(reg, run_id, dcfg.download_dir);  // loads the pending list itself (TD-512)
 
     auto resp = reg.acquire_pending(run_id);
     if (resp.files.empty()) {
@@ -1121,9 +1174,7 @@ int main(int argc, char* argv[]) {
                 reg.load_registry();
 
                 // Startup stale-file sweep (conditions A-expired, B, C, D, G)
-                // TODO: See TD-512 in TECHNICAL_DEBT.md - load_pending_list() is never called, so pending_files() is empty
-                // and the sweep deletes every download as orphaned (verified).
-                startup_sweep(reg, run_id, dcfg.download_dir);
+                startup_sweep(reg, run_id, dcfg.download_dir);  // loads the pending list (TD-512)
 
                 auto resp = reg.acquire_pending(run_id);
                 if (resp.files.empty()) {
@@ -1131,45 +1182,13 @@ int main(int argc, char* argv[]) {
                     return 1;
                 }
 
-                // Resolve local file paths — FTP download or direct access
-                std::vector<std::string> local_paths;
-                std::vector<fs::path> downloaded_paths;
-                const bool use_ftp = !resp.ftp_server_host.empty() && !dcfg.download_dir.empty();
-                if (use_ftp) {
-                    const std::size_t warn_bytes =
-                        static_cast<std::size_t>(dcfg.large_file_warn_threshold_mb) * 1024ULL *
-                        1024ULL;
-                    try {
-                        DataTransport dt;
-                        downloaded_paths = dt.fetch_all(resp, dcfg.download_dir,
-                                                        dcfg.max_parallel_downloads, warn_bytes);
-                        for (const auto& p : downloaded_paths)
-                            local_paths.push_back(p.string());
-                    } catch (const std::exception& ex) {
-                        adai::Logger::error("[DataTransport] Download failed: {}", ex.what());
-                        // TODO: See TD-333 in TECHNICAL_DEBT.md - bare paths release only whole-file entries; claimed TD-205 segments stay stuck
-                        reg.release_pending(run_id, resp.registry_paths());
-                        return 1;
-                    }
-                } else {
-                    for (const auto& f : resp.files)
-                        local_paths.push_back(f.registry_path);
-                }
-
-                // TD-205: local_paths[i] corresponds 1:1 with resp.files[i] in both branches
-                // above (DataTransport::fetch_all() fills its result vector by index, and the
-                // direct-access branch iterates resp.files in the same order) — zip each local
-                // path with its originating entry's segment range.
+                // Resolve local file paths — FTP download or direct access (TD-205 ranges kept)
                 std::vector<PendingFileRange> local_ranges;
-                local_ranges.reserve(local_paths.size());
-                for (std::size_t i = 0; i < local_paths.size(); ++i) {
-                    PendingFileRange r;
-                    r.path = local_paths[i];
-                    if (i < resp.files.size()) {
-                        r.segment_start = resp.files[i].segment_start;
-                        r.segment_count = resp.files[i].segment_count;
-                    }
-                    local_ranges.push_back(std::move(r));
+                std::vector<fs::path> downloaded_paths;
+                if (!resolve_pass_files(resp, dcfg, local_ranges, downloaded_paths)) {
+                    // TODO: See TD-333 in TECHNICAL_DEBT.md - bare paths release only whole-file entries; claimed TD-205 segments stay stuck
+                    reg.release_pending(run_id, resp.registry_paths());
+                    return 1;
                 }
 
                 const bool ok = trainer.train_on_files(local_ranges, epochs);
@@ -1185,8 +1204,7 @@ int main(int argc, char* argv[]) {
                     reg.release_pending(run_id, reg_paths);
                 }
 
-                if (use_ftp)
-                    cleanup_downloads(downloaded_paths);
+                cleanup_downloads(downloaded_paths);
                 return ok ? 0 : 1;
             },
             foreground);
@@ -1240,9 +1258,7 @@ int main(int argc, char* argv[]) {
                 DatasetRegistry reg(dcfg);
                 reg.load_registry();
 
-                // TODO: See TD-512 in TECHNICAL_DEBT.md - load_pending_list() is never called, so pending_files() is empty
-                // and the sweep deletes every download as orphaned (verified).
-                startup_sweep(reg, run_id, dcfg.download_dir);
+                startup_sweep(reg, run_id, dcfg.download_dir);  // loads the pending list (TD-512)
 
                 auto trained_fs = reg.trained_files();
                 auto pending_resp = reg.acquire_pending(run_id);
@@ -1251,62 +1267,34 @@ int main(int argc, char* argv[]) {
                 // live on the registry machine which already trained them, so no FTP
                 // needed for the trained portion).  Only newly acquired pending files
                 // may need FTP download.
-                std::vector<std::string> local_paths(trained_fs.begin(), trained_fs.end());
+                // TD-205: trained files come from the trained DataVersion registry, which has
+                // no segment concept — always whole-file.
+                // TODO: See TD-411 in TECHNICAL_DEBT.md - trained files are read by registry path, never downloaded, so
+                // retrain against a remote FTP registry can't read them (only pending files are fetched)
+                std::vector<PendingFileRange> local_ranges;
+                for (const auto& path : trained_fs) {
+                    PendingFileRange r;
+                    r.path = path;
+                    local_ranges.push_back(std::move(r));
+                }
                 std::vector<fs::path> downloaded_paths;
-                const bool use_ftp =
-                    !pending_resp.ftp_server_host.empty() && !dcfg.download_dir.empty();
-
                 if (!pending_resp.files.empty()) {
-                    if (use_ftp) {
-                        const std::size_t warn_bytes =
-                            static_cast<std::size_t>(dcfg.large_file_warn_threshold_mb) * 1024ULL *
-                            1024ULL;
-                        try {
-                            DataTransport dt;
-                            downloaded_paths =
-                                dt.fetch_all(pending_resp, dcfg.download_dir,
-                                             dcfg.max_parallel_downloads, warn_bytes);
-                            for (const auto& p : downloaded_paths)
-                                local_paths.push_back(p.string());
-                        } catch (const std::exception& ex) {
-                            adai::Logger::error("[DataTransport] Download failed: {}", ex.what());
-                            // TODO: See TD-333 in TECHNICAL_DEBT.md - bare paths release only whole-file entries; claimed TD-205 segments stay stuck
-                            reg.release_pending(run_id, pending_resp.registry_paths());
-                            return 1;
-                        }
-                    } else {
-                        for (const auto& f : pending_resp.files)
-                            local_paths.push_back(f.registry_path);
+                    std::vector<PendingFileRange> pending_ranges;
+                    if (!resolve_pass_files(pending_resp, dcfg, pending_ranges,
+                                            downloaded_paths)) {
+                        // TODO: See TD-333 in TECHNICAL_DEBT.md - bare paths release only whole-file entries; claimed TD-205 segments stay stuck
+                        reg.release_pending(run_id, pending_resp.registry_paths());
+                        return 1;
                     }
+                    local_ranges.insert(local_ranges.end(), pending_ranges.begin(),
+                                        pending_ranges.end());
                 }
 
-                if (local_paths.empty()) {
+                if (local_ranges.empty()) {
                     adai::Logger::warn("No data files to retrain on");
                     return 1;
                 }
-                adai::Logger::info("Starting full retrain on {} data file(s)", local_paths.size());
-
-                // TD-205: local_paths[0..trained_fs.size()) came from the trained DataVersion
-                // registry, which has no segment concept — always whole-file. The remainder
-                // came from pending_resp, 1:1 by index (same guarantee as the train_on_files
-                // call site above).
-                std::vector<PendingFileRange> local_ranges;
-                local_ranges.reserve(local_paths.size());
-                for (std::size_t i = 0; i < trained_fs.size(); ++i) {
-                    PendingFileRange r;
-                    r.path = local_paths[i];
-                    local_ranges.push_back(std::move(r));
-                }
-                for (std::size_t i = trained_fs.size(); i < local_paths.size(); ++i) {
-                    const std::size_t pi = i - trained_fs.size();
-                    PendingFileRange r;
-                    r.path = local_paths[i];
-                    if (pi < pending_resp.files.size()) {
-                        r.segment_start = pending_resp.files[pi].segment_start;
-                        r.segment_count = pending_resp.files[pi].segment_count;
-                    }
-                    local_ranges.push_back(std::move(r));
-                }
+                adai::Logger::info("Starting full retrain on {} data file(s)", local_ranges.size());
 
                 const bool ok = trainer.retrain_on_files(local_ranges, epochs);
                 const auto pending_reg_paths = pending_resp.registry_paths();
@@ -1325,8 +1313,7 @@ int main(int argc, char* argv[]) {
                     std::cerr << "❌ Full retrain failed\n";
                 }
 
-                if (use_ftp)
-                    cleanup_downloads(downloaded_paths);
+                cleanup_downloads(downloaded_paths);
                 return ok ? 0 : 1;
             },
             foreground);
@@ -1452,10 +1439,25 @@ int main(int argc, char* argv[]) {
                 // the model's current run (not a retrain); falls back to the
                 // local hostname+pid/RUN_ID-derived value inside
                 // resume_last_session() when MNS isn't configured.
-                trainer.begin_run(/*is_retrain=*/false);
-                // TODO: See TD-411 in TECHNICAL_DEBT.md - trainer_service's command: resume_last_session() never downloads
-                // over FTP, so a remote FTP registry's paths can't be read here
-                const bool did_work = trainer.resume_last_session();
+                const std::string resume_run_id = trainer.begin_run(/*is_retrain=*/false);
+                // TD-411: resume_last_session() (every trainer_service pass) gets the same FTP
+                // download step as train; it used to train on the registry host's own paths,
+                // which a remote FTP registry's trainer can't open.
+                const DatasetConfig resume_dcfg = DatasetRegistry::make_config(svc_config);
+                {
+                    // Same stale-download sweep train runs (TD-512), now that resume downloads.
+                    DatasetRegistry sweep_reg(resume_dcfg);
+                    startup_sweep(sweep_reg,
+                                  resume_run_id.empty() ? adai::derive_run_id(svc_config.run_id)
+                                                        : resume_run_id,
+                                  resume_dcfg.download_dir);
+                }
+                std::vector<fs::path> resume_downloads;
+                const bool did_work = trainer.resume_last_session(
+                    [&](const AcquireResponse& resp, std::vector<PendingFileRange>& ranges) {
+                        return resolve_pass_files(resp, resume_dcfg, ranges, resume_downloads);
+                    });
+                cleanup_downloads(resume_downloads);
 
 #ifdef BUILD_TRAINER_ADMIN
                 if (admin_api) {

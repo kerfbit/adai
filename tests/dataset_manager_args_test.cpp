@@ -304,3 +304,22 @@ TEST(ParseSegmentArgs, RejectsUnrecognizedArgument) {
     auto r = parse_segment_args({"data.jsonl", "--bogus"});
     EXPECT_TRUE(r.error);
 }
+
+// requeue (--all | <file> ...) [--model <name>]
+TEST(DatasetManagerArgsTest, RequeueArgs) {
+    auto all = parse_requeue_args({"--all", "--model", "chat-1"});
+    ASSERT_FALSE(all.error) << all.error_message;
+    EXPECT_TRUE(all.all);
+    EXPECT_EQ(all.model_name, "chat-1");
+    EXPECT_TRUE(all.targets.empty());
+
+    auto files = parse_requeue_args({"a.jsonl", "b.jsonl"});
+    ASSERT_FALSE(files.error) << files.error_message;
+    EXPECT_EQ(files.targets, (std::vector<std::string>{"a.jsonl", "b.jsonl"}));
+    EXPECT_FALSE(files.all);
+
+    EXPECT_TRUE(parse_requeue_args({}).error) << "needs --all or files";
+    EXPECT_TRUE(parse_requeue_args({"--all", "a.jsonl"}).error) << "not both";
+    EXPECT_TRUE(parse_requeue_args({"--all", "--model"}).error) << "--model needs a value";
+    EXPECT_TRUE(parse_requeue_args({"--all", "--modle", "x"}).error) << "unknown flag";
+}

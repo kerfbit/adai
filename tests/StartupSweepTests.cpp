@@ -76,6 +76,7 @@ TEST(StartupSweepTest, ConditionD_TrainedFileIsDeleted) {
 
     DatasetRegistry reg(make_cfg(sess));
     reg.mark_trained({reg_path}, {1});
+    reg.save_pending_list();  // an existing (empty) pending list — TD-512: the sweep needs one
 
     startup_sweep(reg, "test-run", dl_dir.string());
 
@@ -96,8 +97,10 @@ TEST(StartupSweepTest, ConditionG_OrphanedFileIsDeleted) {
     fs::create_directories(sess);
     fs::create_directories(dl);
 
-    // No files registered at all
+    // No files registered at all: an empty (but existing) pending list, so the sweep knows
+    // nothing is pending (TD-512: with no pending list at all it skips deleting).
     DatasetRegistry reg(make_cfg(sess));
+    reg.save_pending_list();
 
     const fs::path orphan = dl / "orphan.bin";
     touch(orphan);
@@ -212,5 +215,56 @@ TEST(StartupSweepTest, EmptyDownloadDirStringIsNoop) {
     DatasetRegistry reg(make_cfg(sess));
     EXPECT_NO_THROW(startup_sweep(reg, "test-run", ""));
 
+    fs::remove_all(base);
+}
+
+// ============================================================================
+// TD-512: production call sequence — a freshly constructed registry that has loaded only the
+// trained registry (as every caller did). The sweep must load the pending list itself.
+// ============================================================================
+
+TEST(StartupSweepTest, FreshRegistryKeepsQueuedDownloads) {
+    const auto base = make_base("fresh");
+    const fs::path sess = base / "sessions";
+    const fs::path src = base / "registry";
+    const fs::path dl = base / "downloads";
+    fs::create_directories(sess);
+    const std::string queued_a = (src / "a.jsonl").string();
+    const std::string queued_b = (src / "b.jsonl").string();
+    touch(queued_a);
+    touch(queued_b);
+    {
+        DatasetRegistry setup(make_cfg(sess));
+        setup.load_pending_list();
+        ASSERT_TRUE(setup.add_file(queued_a));
+        ASSERT_TRUE(setup.add_file(queued_b));
+    }
+    const fs::path partial = dl / "a.jsonl";   // partly downloaded
+    const fs::path complete = dl / "b.jsonl";  // fully downloaded
+    touch(partial, "half");
+    touch(complete, "the whole file");
+
+    DatasetRegistry reg(make_cfg(sess));
+    reg.load_registry();  // exactly what the call sites did, and nothing more
+    startup_sweep(reg, "test-run", dl.string());
+
+    EXPECT_TRUE(fs::exists(partial)) << "a queued partial download must be kept for resume";
+    EXPECT_TRUE(fs::exists(complete)) << "a queued complete download must be kept for reuse";
+
+    fs::remove_all(base);
+}
+
+TEST(StartupSweepTest, UnreadablePendingListDeletesNothing) {
+    const auto base = make_base("unreadable");
+    const fs::path sess = base / "sessions";
+    const fs::path dl = base / "downloads";
+    fs::create_directories(sess);  // no pending list on disk at all
+    const fs::path file = dl / "something.jsonl";
+    touch(file);
+
+    DatasetRegistry reg(make_cfg(sess));
+    startup_sweep(reg, "test-run", dl.string());
+
+    EXPECT_TRUE(fs::exists(file)) << "no pending state: nothing may be called orphaned";
     fs::remove_all(base);
 }

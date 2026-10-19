@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.10.6
+// @adai-version: 0.10.7
 // @adai-reviewed: 2026-10-18
 
 #include "ChatbotTrainer.hpp"
@@ -2043,8 +2043,12 @@ bool ChatbotTrainer::train(int num_epochs) {
 
         // Preprocess data (tokenize split datasets)
         preprocess_data();
-        // TODO: See TD-412 in TECHNICAL_DEBT.md - no empty-data check: zero tokenized samples still "trains" and
-        // returns true
+        // TD-412: nothing to train on (no pairs, or every pair skipped during tokenization) is a
+        // failure, not a successful zero-sample run.
+        if (tokenized_training_data.empty()) {
+            adai::Logger::error("❌ No training samples after preprocessing; nothing to train");
+            return false;
+        }
 
         // Calculate total steps
         int samples_per_update = config.gradient_accumulation_steps;

@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.11.1
+// @adai-version: 0.12.1
 // @adai-reviewed: 2026-10-18
 
 #include "IncrementalTrainer.hpp"
@@ -902,6 +902,46 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
     return success && !aborted;
 }
 
+std::vector<ConversationPair> IncrementalTrainer::load_training_pairs(
+    const std::vector<PendingFileRange>& files) {
+    // Load files in parallel, then merge in submission order (deterministic dataset ordering).
+    const int n_files = static_cast<int>(files.size());
+    std::vector<std::vector<ConversationPair>> per_file(n_files);
+#ifdef ADAI_ENABLE_OPENMP
+#pragma omp parallel for schedule(dynamic)
+#endif
+    for (int fi = 0; fi < n_files; ++fi)
+        DatasetRegistry::load_conversation_pairs(files[fi].path, per_file[fi],
+                                                 files[fi].segment_start, files[fi].segment_count);
+
+    std::vector<ConversationPair> all_pairs;
+    for (int fi = 0; fi < n_files; ++fi) {
+        if (per_file[fi].empty()) {
+            // TD-412: say which file contributed nothing (missing, unreadable, empty, or a
+            // segment past its end) instead of letting the pass quietly train on less.
+            Logger::warn("No training pairs loaded from {}", files[fi].path);
+        }
+        all_pairs.insert(all_pairs.end(), per_file[fi].begin(), per_file[fi].end());
+    }
+    return all_pairs;
+}
+
+bool IncrementalTrainer::fail_empty_pass(std::size_t file_count) {
+    // TD-412: a pass that loaded nothing used to "train" for N epochs on zero samples and return
+    // true, so its caller marked every file trained. Returning false makes the caller release
+    // them instead.
+    const std::string msg = "Training pass loaded 0 samples from " + std::to_string(file_count) +
+                            " file(s); treating it as failed so the files are released, not "
+                            "marked trained";
+    if (control_) {
+        control_->log(adai::TrainerLogLevel::Error, msg);
+        control_->phase = adai::TrainerPhase::Idle;
+    } else {
+        Logger::error("{}", msg);
+    }
+    return false;
+}
+
 bool IncrementalTrainer::train_on_files(const std::vector<PendingFileRange>& files,
                                         int num_epochs) {
     const std::string start_message = "Starting incremental training session #" +
@@ -912,29 +952,15 @@ bool IncrementalTrainer::train_on_files(const std::vector<PendingFileRange>& fil
     } else {
         Logger::info("{}", start_message);
     }
-    initialize_session();
-
-    // Load files in parallel, then merge in submission order. Do NOT pre-split here:
-    // ChatbotTrainer::train() performs its own validation split internally
-    // (split_data(), called once per train() invocation whenever validation_data is
-    // empty). Pre-splitting here as well used to carve out a second, redundant
-    // validation set from what was left after this split — silently discarding the
-    // first split's validation_pairs (never fed to the trainer) and leaving only
-    // ~81% of the loaded data actually used for training.
-    std::vector<ConversationPair> all_pairs;
-    {
-        const int n_files = static_cast<int>(files.size());
-        std::vector<std::vector<ConversationPair>> per_file(n_files);
-#ifdef ADAI_ENABLE_OPENMP
-#pragma omp parallel for schedule(dynamic)
-#endif
-        for (int fi = 0; fi < n_files; ++fi)
-            DatasetRegistry::load_conversation_pairs(files[fi].path, per_file[fi],
-                                                     files[fi].segment_start,
-                                                     files[fi].segment_count);
-
-        for (int fi = 0; fi < n_files; ++fi)
-            all_pairs.insert(all_pairs.end(), per_file[fi].begin(), per_file[fi].end());
+    // Do NOT pre-split here: ChatbotTrainer::train() performs its own validation split
+    // internally (split_data(), called once per train() invocation whenever validation_data is
+    // empty). Pre-splitting here as well used to carve out a second, redundant validation set
+    // from what was left after this split — silently discarding the first split's
+    // validation_pairs (never fed to the trainer) and leaving only ~81% of the loaded data
+    // actually used for training.
+    std::vector<ConversationPair> all_pairs = load_training_pairs(files);
+    if (all_pairs.empty()) {
+        return fail_empty_pass(files.size());  // TD-412
     }
 
     // Mirrors ChatbotTrainer::split_data()'s arithmetic so the metrics session is told
@@ -944,8 +970,6 @@ bool IncrementalTrainer::train_on_files(const std::vector<PendingFileRange>& fil
     const int expected_val_size = (val_split > 0) ? (total_loaded / val_split) : 0;
     const int expected_train_size = total_loaded - expected_val_size;
     Logger::info("Total samples loaded: {}", total_loaded);
-    // TODO: See TD-412 in TECHNICAL_DEBT.md - zero loaded samples still trains "successfully" and returns true, so
-    // the caller marks the files trained (same in retrain_on_files)
     Logger::info("Expected split — training: {}, validation: {}", expected_train_size,
                  expected_val_size);
 
@@ -958,6 +982,11 @@ bool IncrementalTrainer::train_on_files(const std::vector<PendingFileRange>& fil
         build_model();
         load_session_history();
     }
+
+    // After loading and the vocab bootstrap: a pass that fails before this point leaves no
+    // zero-sample entry behind (TD-412), and bootstrap_vocab()'s load_session_history() can't
+    // discard this pass's entry.
+    initialize_session();
 
     config.base_config.tokenized_cache_key = compute_tokenized_cache_key(
         files, vocab_path_, config.base_config.tokenizer_mode, config.base_config.max_seq_length);
@@ -992,25 +1021,11 @@ bool IncrementalTrainer::retrain_on_files(const std::vector<PendingFileRange>& f
     } else {
         Logger::info("{}", start_message);
     }
-    initialize_session();
-
-    // Load files in parallel, then merge in order for deterministic dataset ordering.
-    std::vector<ConversationPair> all_pairs;
-    {
-        const int n_files = static_cast<int>(files.size());
-        std::vector<std::vector<ConversationPair>> per_file(n_files);
-#ifdef ADAI_ENABLE_OPENMP
-#pragma omp parallel for schedule(dynamic)
-#endif
-        for (int fi = 0; fi < n_files; ++fi)
-            DatasetRegistry::load_conversation_pairs(files[fi].path, per_file[fi],
-                                                     files[fi].segment_start,
-                                                     files[fi].segment_count);
-
-        for (int fi = 0; fi < n_files; ++fi)
-            all_pairs.insert(all_pairs.end(), per_file[fi].begin(), per_file[fi].end());
-    }
+    std::vector<ConversationPair> all_pairs = load_training_pairs(files);
     Logger::info("Total samples: {}", all_pairs.size());
+    if (all_pairs.empty()) {
+        return fail_empty_pass(files.size());  // TD-412
+    }
 
     // First-run vocabulary bootstrap.
     if (pending_vocab_build_) {
@@ -1025,8 +1040,14 @@ bool IncrementalTrainer::retrain_on_files(const std::vector<PendingFileRange>& f
     // Validation split is handled inside ChatbotTrainer; compute the training
     // count here only to report an accurate sample count to the metrics server.
     const int total = static_cast<int>(all_pairs.size());
-    const int val_size = total / config.base_config.validation_split;
+    const int val_size =
+        (config.base_config.validation_split > 0) ? total / config.base_config.validation_split : 0;
     const int training_sample_count = total - val_size;
+
+    // After loading and the vocab bootstrap: a pass that fails before this point leaves no
+    // zero-sample entry behind (TD-412), and bootstrap_vocab()'s load_session_history() can't
+    // discard this pass's entry.
+    initialize_session();
 
     config.base_config.tokenized_cache_key = compute_tokenized_cache_key(
         files, vocab_path_, config.base_config.tokenizer_mode, config.base_config.max_seq_length);
@@ -1041,7 +1062,7 @@ bool IncrementalTrainer::retrain_on_files(const std::vector<PendingFileRange>& f
                         /*enable_best_model_snapshot=*/true, /*reset_best_tracking=*/true);
 }
 
-bool IncrementalTrainer::resume_last_session() {
+bool IncrementalTrainer::resume_last_session(const PassFileResolver& resolve_files) {
     DatasetRegistry reg(dataset_config_);
     // Prefer the MNS-allocated run_id (set by begin_run(), called by the
     // caller before resume_last_session()) so dataset-registry file ownership
@@ -1056,15 +1077,30 @@ bool IncrementalTrainer::resume_last_session() {
         Logger::warn("No pending data files to resume training on");
         return false;
     }
-    // TODO: See TD-411 in TECHNICAL_DEBT.md - false with a remote registry_server + FTP: these are registry-host
-    // paths and no DataTransport download happens here (train does one)
-    // resume_last_session runs on the same machine as the registry (localhost path);
-    // ftp_server_host is always empty here.  Use registry paths directly.
     std::vector<std::string> pending = resp.registry_paths();
-    // TD-205: file_ranges() is registry_paths() with each entry's segment range attached —
-    // only train_on_files() needs the range; mark_trained()/release_pending() still key by
-    // bare path exactly as before.
-    std::vector<PendingFileRange> pending_ranges = resp.file_ranges();
+    // TD-411: local files to train on. A caller-supplied resolver (incremental_trainer's
+    // resume command) downloads over FTP when the registry hands out an FTP host, as `train`
+    // does. Without one, the registry's own paths are used, which only works for a local
+    // registry, so an FTP registry with no resolver fails the pass instead of training on
+    // paths that don't exist here. TD-205: ranges carry each entry's segment;
+    // mark_trained()/release_pending() still key by bare path.
+    std::vector<PendingFileRange> pending_ranges;
+    if (resolve_files) {
+        if (!resolve_files(resp, pending_ranges)) {
+            // TODO: See TD-333 in TECHNICAL_DEBT.md - bare paths release only whole-file entries; claimed TD-205 segments stay stuck
+            reg.release_pending(run_id, pending);
+            return false;
+        }
+    } else if (!resp.ftp_server_host.empty()) {
+        Logger::error("Registry delivers files over FTP ({}), but no download step was "
+                      "provided; releasing the {} file(s) instead of training on registry-host "
+                      "paths",
+                      resp.ftp_server_host, pending.size());
+        reg.release_pending(run_id, pending);
+        return false;
+    } else {
+        pending_ranges = resp.file_ranges();
+    }
 
     // TD-405: the same rule the constructors use (most recent completed session by default).
     // TD-406: an interrupted session found at construction wins; current_session_id was set back
@@ -1101,6 +1137,7 @@ bool IncrementalTrainer::resume_last_session() {
         // Check if checkpoint files exist (check for .config which should always be present)
         if (!fs::exists(resume_checkpoint + ".config")) {
             Logger::error("Checkpoint file not found: {}.config", resume_checkpoint);
+            reg.release_pending(run_id, pending);  // don't leave the batch claimed (TD-411)
             return false;
         }
 
@@ -1113,6 +1150,7 @@ bool IncrementalTrainer::resume_last_session() {
         }
 
         if (!load_model(resume_checkpoint)) {
+            reg.release_pending(run_id, pending);  // don't leave the batch claimed (TD-411)
             return false;
         }
     }
@@ -2032,20 +2070,20 @@ bool IncrementalTrainer::reset_all(bool keep_data_registry) {
                 Logger::info("Data registry removed");
             }
         } else {
-            // Re-queue all previously trained files as pending so the next run
-            // picks them all up (equivalent to "mark all untrained").
+            // Re-queue all previously trained files as pending so the next run picks them all
+            // up (equivalent to "mark all untrained"). Through the registry transport, so with
+            // REGISTRY_SERVER_URL set this happens on registry_server, where the data lives; it
+            // used to delete a local data_registry.txt and re-add files by local path, which
+            // re-queued nothing on a remote registry.
             DatasetRegistry reg(dataset_config_);
-            reg.load_registry();
-            auto previously_trained = reg.trained_files();
-            std::error_code ec2;
-            fs::remove(registry_file, ec2);  // clear trained-status on disk
-            if (!previously_trained.empty()) {
-                DatasetRegistry fresh(dataset_config_);
-                fresh.add_files(previously_trained);
-                Logger::info("Data registry preserved; {} entries re-queued as pending",
-                             previously_trained.size());
+            const RequeueResult requeued =
+                reg.requeue_trained({}, /*all=*/true, dataset_config_.model_name);
+            if (!requeued.ok) {
+                Logger::error("Could not re-queue trained entries (registry request failed)");
             } else {
-                Logger::info("Data registry preserved; no trained entries to re-queue");
+                Logger::info("Data registry preserved; {} entries re-queued as pending ({} "
+                             "already pending)",
+                             requeued.requeued, requeued.already_pending);
             }
         }
     }

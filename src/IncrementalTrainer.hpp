@@ -1,11 +1,12 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.12.0
+// @adai-version: 0.13.0
 // @adai-reviewed: 2026-10-18
 
 
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <set>
 #include <string>
@@ -236,8 +237,17 @@ class IncrementalTrainer {
     bool train_on_files(const std::vector<PendingFileRange>& files, int num_epochs);
     bool retrain_on_files(const std::vector<PendingFileRange>& files, int num_epochs);
 
+    // TD-411: turns an acquired batch into local files to train on (one PendingFileRange per
+    // resp.files entry, in order, with segment ranges), e.g. by downloading over FTP. Returns
+    // false if that failed; the files are then released.
+    using PassFileResolver =
+        std::function<bool(const AcquireResponse&, std::vector<PendingFileRange>&)>;
+
     // Session management
-    bool resume_last_session();
+    // `resolve_files` defaults to using the registry's own paths, which only works when the
+    // registry is local; with a registry that delivers over FTP and no resolver, the pass fails
+    // and releases its files rather than training on paths it can't read (TD-411).
+    bool resume_last_session(const PassFileResolver& resolve_files = nullptr);
     bool load_session_history();
     bool save_session_history();
     TrainingSession get_current_session();
@@ -446,6 +456,14 @@ class IncrementalTrainer {
 
     // All five files EncoderDecoderModel::save_model() writes exist for `base_path`.
     static bool checkpoint_files_exist(const std::string& base_path);
+
+    // Loads every file's pairs (in parallel, merged in order), warning about each file that
+    // yields none (TD-412).
+    std::vector<ConversationPair> load_training_pairs(const std::vector<PendingFileRange>& files);
+
+    // TD-412: logs that a pass loaded no samples and returns false, so the caller releases its
+    // files instead of marking them trained.
+    bool fail_empty_pass(std::size_t file_count);
 
     // Symlink management helpers (TD-005)
     void update_checkpoint_symlinks(const std::string& checkpoint_path);

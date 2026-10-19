@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.10.1
-// @adai-reviewed: 2026-09-20
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-10-18
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) is hardened to
@@ -38,6 +38,8 @@
  *   POST /registry/<group>[/<kind>]/delete    — purge entries from pending and/or registry by
  *                                       path, optionally unlinking the file (Phase 16)
  *   POST /registry/<group>[/<kind>]/trained   — mark files trained and remove from queue
+ *   POST /registry/<group>[/<kind>]/requeue   — move trained entries back to the pending queue
+ *                                       (listed paths or all), e.g. before retraining
  *   GET  /registry/<group>[/<kind>]/registry  — full data registry
  *   GET  /registry/<group>[/<kind>]/runs      — files currently assigned per run_id
  *   POST /registry/<group>[/<kind>]/fetch/gutenberg   — download a Gutenberg book server-side (Phase 11)
@@ -1067,6 +1069,45 @@ static void handle_delete(const httplib::Request& req, httplib::Response& res,
                 group, deleted, skipped, not_found, force, delete_files);
 }
 
+// POST /registry/<group>/requeue  {"paths":[...],"all":bool,"model_name":"..."}
+//
+// Moves trained DataVersion entries back to the pending queue as whole-file entries, so the
+// next passes train on them again (e.g. before retraining a model from scratch). Either `paths`
+// or `all:true` is required. `model_name`, if non-empty, assigns the re-queued entries to that
+// model. A path already pending only loses its trained record ("already_pending").
+static void handle_requeue(const httplib::Request& req, httplib::Response& res,
+                           const std::string& group, const std::string& kind) {
+    const std::vector<std::string> paths = json_string_array(req.body, "paths");
+    const bool all = json_bool(req.body, "all", false);
+    const std::string model_name = json_string(req.body, "model_name");
+    if (paths.empty() && !all) {
+        res.status = 400;
+        res.set_content("{\"error\":\"paths or all:true required\"}", "application/json");
+        Logger::warn("[{}] requeue: rejected — no paths and all=false", group);
+        return;
+    }
+
+    auto& gs = get_group(group, kind);
+    std::lock_guard<std::mutex> lock(gs.mtx);
+    const RequeueResult result = gs.transport->requeue_trained(paths, all, model_name);
+
+    std::ostringstream json;
+    json << "{\"requeued\":" << result.requeued
+         << ",\"already_pending\":" << result.already_pending
+         << ",\"not_found\":" << result.not_found << ",\"details\":[";
+    for (std::size_t i = 0; i < result.details.size(); ++i) {
+        if (i)
+            json << ",";
+        json << "{\"path\":\"" << json_escape(result.details[i].path) << "\",\"status\":\""
+             << result.details[i].status << "\"}";
+    }
+    json << "]}";
+    res.set_content(json.str(), "application/json");
+    Logger::info("[{}] requeue: {} requeued, {} already pending, {} not found (all={}, model='{}')",
+                 group, result.requeued, result.already_pending, result.not_found, all,
+                 model_name);
+}
+
 // POST /registry/<group>/trained  {"run_id":"...","files":[...],"samples":[...],"model_id":"..."}
 static void handle_trained(const httplib::Request& req, httplib::Response& res,
                            const std::string& group, const std::string& kind) {
@@ -1766,6 +1807,8 @@ static void print_usage(const char* prog) {
            "{\"paths\":[...],\"force\":bool,\"delete_files\":bool}\n"
         << "  POST /registry/<group>/trained  "
            "{\"run_id\":\"...\",\"files\":[...],\"samples\":[...]}\n"
+        << "  POST /registry/<group>/requeue  "
+           "{\"paths\":[...],\"all\":bool,\"model_name\":\"...\"}\n"
         << "  GET  /registry/<group>/registry\n"
         << "  GET  /registry/<group>/runs\n"
         << "  GET  /registry/<group>/history[?model_id=<uuid>]\n"
@@ -1897,6 +1940,10 @@ int main(int argc, char* argv[]) {
     svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/delete)",
              [](const httplib::Request& r, httplib::Response& res) {
                  handle_delete(r, res, r.matches[1], r.matches[2]);
+             });
+    svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/requeue)",
+             [](const httplib::Request& r, httplib::Response& res) {
+                 handle_requeue(r, res, r.matches[1], r.matches[2]);
              });
     svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/trained)",
              [](const httplib::Request& r, httplib::Response& res) {

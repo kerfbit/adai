@@ -151,3 +151,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | No tests for command composition (§5) | Bugs above went unnoticed | By inspection | [TD-331](../../guides/TECHNICAL_DEBT.md#td-331-dataset_manager-has-no-tests-for-its-commands) |
 | Operator guide covers 8 of 15 commands (§6) | Pool-changing commands undocumented for operators | By inspection | [TD-332](../../guides/TECHNICAL_DEBT.md#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands) |
 | Parser issues; unchecked `segment` ranges | Already tracked | — | TD-321–325 |
+
+## Addendum (October 18, 2026): `requeue`
+
+`dataset_manager requeue (--all | <file> ...) [--model <name>]` calls `DatasetRegistry::requeue_trained()`. With `REGISTRY_SERVER_URL` set, that goes to `registry_server`. The command prints a status per file and exits 1 if nothing was re-queued or the request failed. Its arguments are parsed by `parse_requeue_args()`, which rejects unknown flags. The operator guide documents it.

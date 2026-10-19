@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.1
-// @adai-reviewed: 2026-09-20
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-10-18
 
 #include "DatasetRegistry.hpp"
 #include <algorithm>
@@ -269,6 +269,14 @@ UnassignResult DatasetRegistry::unassign_model(const std::string& model_name,
             }
         }
     }
+    return result;
+}
+
+RequeueResult DatasetRegistry::requeue_trained(const std::vector<std::string>& paths, bool all,
+                                               const std::string& model_name) {
+    RequeueResult result = transport_->requeue_trained(paths, all, model_name);
+    load_registry();
+    load_pending_list();
     return result;
 }
 

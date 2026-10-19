@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-09-19
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-10-18
 
 #include "RegistryTransport.hpp"
 #include <fcntl.h>  // open(), O_RDWR
@@ -717,6 +717,80 @@ std::string LocalTransport::upload_file(const std::string& /*local_path*/) {
         "LocalTransport::upload_file — not supported in local mode; use "
         "DatasetRegistry::add_file() directly");
     return "";
+}
+
+RequeueResult LocalTransport::requeue_trained(const std::vector<std::string>& paths, bool all,
+                                              const std::string& model_name) {
+    RequeueResult result;
+    if (paths.empty() && !all) {
+        Logger::warn("LocalTransport::requeue_trained — no-op: no paths and all=false");
+        return result;
+    }
+
+    std::vector<DataVersion> registry;
+    load_registry(registry);
+
+    const int lock_fd = lock_pending();
+    if (lock_fd < 0) {
+        Logger::error("LocalTransport::requeue_trained — failed to acquire pending lock");
+        result.ok = false;
+        return result;
+    }
+    std::vector<PendingEntry> pending;
+    load_pending(pending);
+
+    std::vector<std::string> targets = paths;
+    if (all) {
+        targets.clear();
+        for (const auto& dv : registry)
+            targets.push_back(dv.data_file);
+    }
+
+    bool changed = false;
+    for (const auto& path : targets) {
+        RequeueResult::Detail detail;
+        detail.path = path;
+        auto rit = std::find_if(registry.begin(), registry.end(),
+                                [&](const DataVersion& dv) { return dv.data_file == path; });
+        if (rit == registry.end()) {
+            detail.status = "not_found";
+            ++result.not_found;
+            result.details.push_back(std::move(detail));
+            continue;
+        }
+        const bool already_pending =
+            std::any_of(pending.begin(), pending.end(),
+                        [&](const PendingEntry& e) { return segment_matches(e, path, -1, -1); });
+        if (already_pending) {
+            detail.status = "already_pending";
+            ++result.already_pending;
+        } else {
+            PendingEntry e;
+            e.path = path;
+            e.model_name = model_name;
+            e.source = rit->source;
+            e.added_utc = rit->added_utc;
+            e.checksum = rit->checksum;
+            pending.push_back(std::move(e));
+            detail.status = "requeued";
+            ++result.requeued;
+        }
+        registry.erase(rit);
+        changed = true;
+        result.details.push_back(std::move(detail));
+    }
+
+    if (changed) {
+        save_pending(pending);
+    }
+    unlock_pending(lock_fd);
+    if (changed) {
+        save_registry(registry);
+    }
+    Logger::info("LocalTransport::requeue_trained — {} requeued, {} already pending, {} not "
+                 "found",
+                 result.requeued, result.already_pending, result.not_found);
+    return result;
 }
 
 // ============================================================================
@@ -1563,4 +1637,55 @@ std::string RemoteTransport::upload_file(const std::string& local_path) {
     Logger::error("RemoteTransport::upload_file — not compiled");
     return "";
 #endif
+}
+
+RequeueResult RemoteTransport::requeue_trained(const std::vector<std::string>& paths, bool all,
+                                               const std::string& model_name) {
+    RequeueResult result;
+#ifdef BUILD_METRICS_API_SERVER
+    httplib::Client cli(host_, port_);
+    cli.set_connection_timeout(0, timeout_ms_ * 1000);
+    cli.set_read_timeout(0, timeout_ms_ * 1000);
+
+    std::ostringstream body;
+    body << "{\"paths\":" << json_array(paths) << ",\"all\":" << (all ? "true" : "false")
+         << ",\"model_name\":\"" << json_escape(model_name) << "\"}";
+    const auto res =
+        cli.Post((group_prefix_ + "/requeue").c_str(), body.str(), "application/json");
+    if (!res || res->status != 200) {
+        Logger::error("RemoteTransport::requeue_trained — HTTP {} from {}:{}{}",
+                      res ? res->status : -1, host_, port_, group_prefix_ + "/requeue");
+        result.ok = false;
+        return result;
+    }
+    const std::string& b = res->body;
+    result.requeued = json_int(b, "requeued");
+    result.already_pending = json_int(b, "already_pending");
+    result.not_found = json_int(b, "not_found");
+    auto cur = b.find("\"details\":[");
+    if (cur != std::string::npos) {
+        cur += 11;
+        while (cur < b.size()) {
+            const auto obj_start = b.find('{', cur);
+            if (obj_start == std::string::npos)
+                break;
+            const auto obj_end = b.find('}', obj_start);
+            if (obj_end == std::string::npos)
+                break;
+            const std::string obj = b.substr(obj_start, obj_end - obj_start + 1);
+            RequeueResult::Detail detail;
+            detail.path = json_string(obj, "path");
+            detail.status = json_string(obj, "status");
+            result.details.push_back(std::move(detail));
+            cur = obj_end + 1;
+        }
+    }
+#else
+    (void)paths;
+    (void)all;
+    (void)model_name;
+    Logger::error("RemoteTransport::requeue_trained — built without HTTP support");
+    result.ok = false;
+#endif
+    return result;
 }

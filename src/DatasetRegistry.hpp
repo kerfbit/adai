@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.1
-// @adai-reviewed: 2026-09-20
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-10-18
 
 
 #include <memory>
@@ -207,6 +207,16 @@ class DatasetRegistry {
     DeleteResult delete_entries(const std::vector<std::string>& paths, bool force = false,
                                 bool delete_files = false,
                                 const std::vector<SegmentTarget>& segments = {});
+
+    /**
+     * @brief Move trained entries (@p paths, or every one when @p all) back to the pending
+     *        queue, optionally assigned to @p model_name. Delegates to
+     *        transport_->requeue_trained(), so with REGISTRY_SERVER_URL set it re-queues on
+     *        registry_server, where the data lives. Reloads this object's in-memory registry and
+     *        pending lists afterwards.
+     */
+    RequeueResult requeue_trained(const std::vector<std::string>& paths, bool all,
+                                  const std::string& model_name = "");
 
     /** @return Copy of the current in-memory pending-file paths. */
     std::vector<std::string> pending_files() const;

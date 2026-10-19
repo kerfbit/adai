@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.1
-// @adai-reviewed: 2026-09-20
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-10-18
 
 #include <algorithm>
 #include <fstream>
@@ -113,6 +113,11 @@ int main(int argc, char* argv[]) {
         std::cout << "  delete <file> [...] [--force] [--delete-files]\n";
         std::cout << "                               Permanently purge file(s) from the pending "
                      "queue and registry\n";
+        std::cout << "  requeue (--all | <file> ...) [--model <name>]\n";
+        std::cout << "                               Move trained file(s) back to the pending "
+                     "queue (on the\n";
+        std::cout << "                               registry server when configured), e.g. "
+                     "before retraining\n";
         std::cout << "  migrate <kind> [file ...] [--count N]\n";
         std::cout << "                               One-time move of legacy (unkinded) pending "
                      "file(s) into\n";
@@ -559,6 +564,32 @@ int main(int argc, char* argv[]) {
             std::cout << "\n";
         }
         if (result.deleted == 0) {
+            return 1;
+        }
+
+    } else if (command == "requeue") {
+        auto parsed = adai::parse_requeue_args(cmd_args);
+        if (parsed.error) {
+            std::cerr << parsed.error_message << "\n";
+            std::cerr << "  Moves trained entries back to the pending queue so they are trained\n";
+            std::cerr << "  again; --model assigns them to that model.\n";
+            return 1;
+        }
+        DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
+        reg.load_registry();
+        reg.load_pending_list();
+        const RequeueResult result =
+            reg.requeue_trained(parsed.targets, parsed.all, parsed.model_name);
+        if (!result.ok) {
+            std::cerr << "❌ Requeue failed (see log)\n";
+            return 1;
+        }
+        std::cout << "✅ " << result.requeued << " requeued, " << result.already_pending
+                  << " already pending, " << result.not_found << " not found\n";
+        for (const auto& d : result.details) {
+            std::cout << "   " << d.path << ": " << d.status << "\n";
+        }
+        if (result.requeued + result.already_pending == 0) {
             return 1;
         }
 

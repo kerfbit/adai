@@ -164,3 +164,9 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `trained` ignores claim ownership; registry dedupes by bare path (§2) | Stale runs mark others' files trained; real results unrecorded | **Verified** | [TD-493](../../guides/TECHNICAL_DEBT.md#td-493-registry-trained-ignores-claim-ownership-and-records-each-path-once) |
 | Bind failure exits 0; startup SIGTERM lost; no claim leases; fetches block the thread pool; unbounded uploads; compact-only JSON; `session/next` key and `/health` (§2) | Robustness | **Verified** (exit 0, JSON); by inspection | [TD-494](../../guides/TECHNICAL_DEBT.md#td-494-registry_server-startup-lease-thread-pool-and-parsing-gaps) |
 | No authentication | By design (trusted LAN, Cloudflare Access) | — | — |
+
+## Addendum (October 18, 2026): `POST /registry/<group>[/<kind>]/requeue`
+
+The body is `{"paths":[...],"all":bool,"model_name":"..."}`. Either `paths` or `all:true` is required; otherwise the server returns 400. Under the group mutex, `handle_requeue()` calls the group's `LocalTransport::requeue_trained()`. It responds with `{"requeued":N,"already_pending":N,"not_found":N,"details":[{"path":...,"status":...}]}`.
+
+It was checked end to end: two trained files were re-queued with `dataset_manager requeue --all --model chat-x`, came back unclaimed and assigned, and the trained registry was emptied. The `<group>` validation gap (TD-490) applies here as it does to every route.

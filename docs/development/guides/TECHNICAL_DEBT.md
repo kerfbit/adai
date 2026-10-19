@@ -5,9 +5,9 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 18, 2026
-**Total Items:** 331
+**Total Items:** 332
 **High Priority:** 36
-**Medium Priority:** 141
+**Medium Priority:** 142
 **Low Priority:** 154
 **Future Enhancements:** 19
 **Resolved Items:** 208
@@ -625,6 +625,11 @@ fixed in the same change. Both verified:
 - **TD-539:** `IncrementalTrainer`'s constructors tested `fs::exists(<checkpoint path>)`, a file `save_model()` never writes. A trainer built over
   real checkpoints loaded neither of them, so `incremental_trainer train`/`retrain` started every pass from fresh weights.
 
+Also October 18, 2026: filed [TD-540](#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM) and fixed it in the same change, found while applying the owner's rule that the trainer
+always takes its data and configuration from the remote services first. `incremental_trainer reset --keep-data` re-queued trained files by
+editing a local `data_registry.txt`, so against `registry_server` it re-queued nothing. A new server-side re-queue
+(`POST /registry/<group>[/<kind>]/requeue`, `dataset_manager requeue`, `RegistryTransport::requeue_trained()`) replaces it.
+
 **October 17, 2026:** Filed [TD-477](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions) (LOW) from the code-traced [PortableTime.md](../reference/source/PortableTime.md),
 verified with the callers' exact parsing logic: a date-only or malformed timestamp becomes `1899-12-31` instead of an error (so `db-history`'s
 `from`/`to` silently return everything or nothing), UTC offsets are ignored, out-of-range fields roll over, and all three callers parse fractions
@@ -1118,15 +1123,15 @@ rather than assumed from the proposal doc's own bullet order.
 Done:
 - TD-358, TD-384, TD-393, TD-382 (GPU training correctness);
 - TD-517, TD-531/532, TD-220/221, TD-534/535, TD-267, TD-275/409, TD-272, TD-361 (training data and math);
-- TD-405 with the newly found TD-538/539, then TD-406 (checkpoint continuity).
+- TD-405 with the newly found TD-538/539, then TD-406 (checkpoint continuity);
+- TD-412 and TD-411 (empty passes, `resume` downloading), with TD-540's server-side re-queue (the owner's remote-first rule), then TD-512 (the
+  startup sweep).
 
 Remaining, re-ordered on October 18 because TD-539 means checkpoints now actually carry over between passes:
-1. TD-412, then TD-411 (passes that train nothing still mark files trained; `resume` never downloads);
-2. TD-512 (the startup sweep deletes `DOWNLOAD_DIR`);
-3. TD-407 and TD-408 (checkpoint files: cleanup leaks per-layer files and must learn TD-538's names; the bare-path symlinks and backup in
+1. TD-407 and TD-408 (checkpoint files: cleanup leaks per-layer files and must learn TD-538's names; the bare-path symlinks and backup in
    `cleanup_old_sessions()`/`reset_all()` dangle);
-4. TD-269/270 (optimizer state and clipping restart every pass);
-5. TD-333/326 and TD-523/519.
+2. TD-269/270 (optimizer state and clipping restart every pass);
+3. TD-333/326 and TD-523/519.
 
 Every fix here is verified on CPU, or on the oneAPI CPU device for the SYCL kernels. Still needed: an on-device run on ai-machine, then
 retraining from scratch, since no existing checkpoint has correct GPU-trained weights (TD-358) or the encoder's own embedding (TD-538).
@@ -2136,6 +2141,7 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-537: `vocab_builder` Legacy Loader Reads Different Text From the Trainer](#td-537-vocab_builder-legacy-loader-reads-different-text-from-the-trainer)
   - [TD-538: Encoder Token Embedding and Final Norm Are Overwritten in Every Checkpoint](#td-538-encoder-token-embedding-and-final-norm-are-overwritten-in-every-checkpoint)
   - [TD-539: `IncrementalTrainer` Constructors Never Load a Checkpoint](#td-539-incrementaltrainer-constructors-never-load-a-checkpoint)
+  - [TD-540: `incremental_trainer reset` Re-queues Trained Files Locally, Not on the Registry Server](#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -9948,7 +9954,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Training / IncrementalTrainingTool | October 13, 2026 | 2-4 hours |
+| **HIGH** | Open — code fix landed October 18, 2026 | Training / IncrementalTrainingTool | October 13, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `IncrementalTrainingTool`, by inspection (definite). `trainer_service` runs
@@ -9963,10 +9969,23 @@ marks them trained.
 
 Action Items:
 
-- [ ] Factor `train`'s acquire → (FTP download) → train → mark/release → cleanup sequence into one function and use it from `resume_last_session()` (with the segment ranges).
-- [ ] Ask the user whether ai-machine's `trainer_service` uses a remote FTP registry; if so, audit and re-queue files marked trained since it went live.
+**Fix landed October 18, 2026:** the FTP-or-direct download step is now `resolve_pass_files()` in `IncrementalTrainingTool.cpp`, shared by
+`train`, `retrain` (its pending files) and `resume`. It keeps TD-205 segment ranges. `IncrementalTrainer::resume_last_session()` takes an optional
+`PassFileResolver`, which the `resume` command passes, and the downloads are cleaned up after the pass. Without a resolver, a registry that hands
+out an FTP host fails the pass and releases its files instead of training on paths it can't read. The pass also now releases its batch when the
+resume checkpoint is missing or fails to load; before, those returns left the files claimed.
 
-Location in code: `src/IncrementalTrainer.cpp` (`resume_last_session()`), `src/IncrementalTrainingTool.cpp` (`resume` command); tagged `TODO: See TD-411`.
+New test `ResumeTrainsOnResolvedFilesAndReleasesOnResolverFailure`: a failed resolver releases the file, and a successful one trains on the resolved
+local path and marks the registry entry trained. The old code failed it.
+
+Still open: `retrain` reads its already-trained files by registry path (only pending ones are fetched), so a full retrain against a remote FTP
+registry can't read them. That needs a download path for trained files.
+
+- [x] Factor `train`'s acquire → (FTP download) → train → mark/release → cleanup sequence into one function and use it from `resume_last_session()` (with the segment ranges). (The download step is shared; acquire/mark/release stay in each caller.)
+- [x] Ask the user whether ai-machine's `trainer_service` uses a remote FTP registry; if so, audit and re-queue files marked trained since it went live. Answered October 18, 2026: the trainer always takes its data from the remote services. The affected files can't be told apart (TD-334), so re-queue everything before the retraining with `dataset_manager requeue --all --model <name>` (TD-540).
+- [ ] Download already-trained files for `retrain` against a remote registry.
+
+Location in code: `src/IncrementalTrainer.cpp` (`resume_last_session()`), `src/IncrementalTrainingTool.cpp` (`resolve_pass_files()`; `train`, `retrain`, `resume` commands); the `TODO: See TD-411` tags are now fix comments except `retrain`'s trained-files one.
 
 Files to Modify:
 
@@ -9979,7 +9998,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Training / IncrementalTrainingTool | October 13, 2026 | 1-2 hours |
+| **HIGH** | Open — code fix landed October 18, 2026 | Training / IncrementalTrainingTool | October 13, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `IncrementalTrainingTool` and verified with `IncrementalTrainer` in a scratch
@@ -9992,10 +10011,22 @@ without any training, and a zero-sample session is added to the history.
 
 Action Items:
 
-- [ ] Treat zero loaded (or zero tokenized) samples as failure in `train_on_files()`/`retrain_on_files()` (and guard in `ChatbotTrainer::train()`), so callers release the files; log which files failed to load.
-- [ ] Test: a nonexistent file → `false` → released, not marked trained.
+**Fix landed October 18, 2026:** both `train_on_files()` and `retrain_on_files()` now load through `load_training_pairs()`, which warns about each
+file that yields no pairs. If nothing loaded, they return false through `fail_empty_pass()`, which logs the failure and, under the admin API, sets
+the phase back to idle; the callers then release the files. `ChatbotTrainer::train()` also returns false when nothing survives tokenization.
 
-Location in code: `src/IncrementalTrainer.cpp` (`train_on_files()`, `retrain_on_files()`), `src/ChatbotTrainer.cpp` (`train()`); tagged `TODO: See TD-412`.
+Two related changes:
+- `initialize_session()` now runs after loading and the first-run vocab bootstrap. A failed pass leaves no zero-sample session, and
+  `bootstrap_vocab()`'s `load_session_history()` no longer discards the pass's own entry.
+- `retrain_on_files()` no longer divides by zero when `VALIDATION_SPLIT=0`.
+
+New test `PassThatLoadsNothingFails` covers a missing file, an empty file and a retrain over both; it fails on the old code, which returned true
+three times and recorded a zero-sample session.
+
+- [x] Treat zero loaded (or zero tokenized) samples as failure in `train_on_files()`/`retrain_on_files()` (and guard in `ChatbotTrainer::train()`), so callers release the files; log which files failed to load.
+- [x] Test: a nonexistent file → `false` → released, not marked trained.
+
+Location in code: `src/IncrementalTrainer.cpp` (`load_training_pairs()`, `fail_empty_pass()`, `train_on_files()`, `retrain_on_files()`), `src/ChatbotTrainer.cpp` (`train()`); the `TODO: See TD-412` tags are now fix comments.
 
 Files to Modify:
 
@@ -13167,7 +13198,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| HIGH | Open | Training / StartupSweep | October 17, 2026 | 1-2 hours |
+| HIGH | Open — code fix landed October 18, 2026 | Training / StartupSweep | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `StartupSweep.hpp` (see [StartupSweep.md](../reference/source/StartupSweep.md)); verified with the real classes.
@@ -13181,11 +13212,22 @@ populate the pending list on the instance they sweep, so they pass.
 
 Action Items:
 
-- [ ] Call `reg.load_pending_list()` before `startup_sweep()` at all three call sites (or have `startup_sweep()` load it).
-- [ ] Skip all deletion when either load fails.
-- [ ] Add a test that sweeps a freshly constructed registry, as production does.
+**Fix landed October 18, 2026:** `startup_sweep()` now loads the pending list and the trained registry itself.
+- **Pending list can't be loaded** (unreachable registry, or no pending list yet): it skips the sweep entirely, because without that list every
+  file would look orphaned.
+- **Trained registry can't be loaded:** it continues with an empty trained set, so nothing is deleted as already trained on missing information.
 
-Location in code: `src/IncrementalTrainingTool.cpp` (three `startup_sweep()` call sites), `src/StartupSweep.hpp`; tagged `TODO: See TD-512`.
+The `resume` command (every `trainer_service` pass, which downloads since TD-411) now runs the sweep too. New tests:
+- `FreshRegistryKeepsQueuedDownloads`: production's call sequence, with a partial and a complete queued download kept;
+- `UnreadablePendingListDeletesNothing`.
+
+Both fail with the old sweep. The condition D/G tests now create an empty pending list, so "nothing pending" is actually known.
+
+- [x] Call `reg.load_pending_list()` before `startup_sweep()` at all three call sites (or have `startup_sweep()` load it).
+- [x] Skip all deletion when either load fails. (Skipped entirely when the pending list fails; a failed trained-registry load only disables condition D.)
+- [x] Add a test that sweeps a freshly constructed registry, as production does.
+
+Location in code: `src/StartupSweep.hpp`, `src/IncrementalTrainingTool.cpp` (call sites, plus the new one in `resume`); the `TODO: See TD-512` tags are now fix comments.
 
 Files to Modify:
 
@@ -14029,6 +14071,53 @@ Files to Modify:
 
 ---
 
+### TD-540: `incremental_trainer reset` Re-queues Trained Files Locally, Not on the Registry Server
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open — code fix landed October 18, 2026 | Training / IncrementalTrainer | October 18, 2026 | 2-4 hours |
+
+Description:
+Found while reviewing the TD-411 fix against the owner's rule (October 18, 2026) that the trainer always takes its data files and configuration
+from the remote services (`registry_server`, MNS) first, with local files only as fallback. `IncrementalTrainer::reset_all(keep_data_registry=true)`,
+used by `incremental_trainer reset --keep-data`, re-queued trained files in two steps:
+1. delete `<SESSION_DIR>/data_registry.txt`;
+2. re-add each trained path with `DatasetRegistry::add_files()`, which checks that the file exists locally.
+
+Against a remote `registry_server`, that changed nothing on the server, so no trained file was re-queued. There was also no operator command for
+re-queuing at all. That's needed now: every existing checkpoint has to be retrained from scratch (TD-358, TD-538), and files a pre-TD-411/412
+`resume` pass marked trained without training them can't be told apart (TD-334).
+
+**Fix landed October 18, 2026:** a server-side re-queue across every layer.
+- **Transport:** `RegistryTransport::requeue_trained(paths, all, model_name)`. `LocalTransport` does it under the pending lock; `RemoteTransport`
+  calls `POST /registry/<group>[/<kind>]/requeue`, which `registry_server` serves through the group's `LocalTransport`.
+- **Registry:** `DatasetRegistry::requeue_trained()`.
+- **CLI:** `dataset_manager requeue (--all | <file> ...) [--model <name>]`.
+- **Trainer:** `reset_all()`'s keep-data branch now uses it, assigning the files to `MODEL_NAME`.
+
+Trained entries come back as whole-file pending entries with their source, added time and checksum. A path that is already pending only loses its
+trained record.
+
+Tests: `DatasetRegistryTest.RequeueTrained*`, `LocalTransportRequeueTest`, `DatasetManagerArgsTest.RequeueArgs`. It was also checked end to end
+against a real `registry_server`: two trained files were re-queued as unclaimed and assigned, the trained registry was emptied, and an empty request
+got 400.
+
+Action Items:
+
+- [x] Re-queue through the registry transport so it works against `registry_server`; add an operator command.
+- [ ] Before the TD-358 retraining: `dataset_manager requeue --all --model <name>` on the deployment (covers TD-411's audit item).
+- [ ] Add re-queue to the Android ops dashboard's Registry tab, which aims for CLI parity (TD-205).
+- [ ] Segment ranges aren't restored on re-queue, because the trained registry has no segment concept (TD-333).
+
+Location in code: `src/RegistryTransport.{hpp,cpp}`, `src/RegistryServer.cpp` (`handle_requeue()`), `src/DatasetRegistry.{hpp,cpp}`, `src/DatasetManagerArgs.{hpp,cpp}`, `src/DatasetManagerTool.cpp`, `src/IncrementalTrainer.cpp` (`reset_all()`).
+
+Files to Modify:
+
+- (as above)
+- `tests/DatasetRegistryTests.cpp`, `tests/dataset_manager_args_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -14545,15 +14634,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 331 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 332 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|36|11%|
-|Medium|141|43%|
+|Medium|142|43%|
 |Low|154|46%|
 
-**Total Active Items:** 331
+**Total Active Items:** 332
 
 ### By Component
 
@@ -14611,7 +14700,7 @@ Recomputed directly from the 331 `### TD-NNN` entries under [Active Technical De
 |Memory / HippocampalMemory|3|
 |Metrics / Reporter|2|
 |Training / CLI|4|
-|Training / IncrementalTrainer|7|
+|Training / IncrementalTrainer|8|
 |Training / IncrementalTrainingTool|6|
 |Training / StartupSweep|2|
 |Training / Admin API|4|

@@ -132,3 +132,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Local/remote divergence: duplicate commits, `add_pending` result, segment results, unlocked registry writes (§2) | Duplicate records; misleading results; lost records under concurrency | **Verified** (commit, add); by inspection | [TD-498](../../guides/TECHNICAL_DEBT.md#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene) |
 | `model_id` never sent or set; `https://` → HTTP; unencoded group; log counts; in-memory upload (§2) | Dead history filter; confusing setup | By inspection | [TD-498](../../guides/TECHNICAL_DEBT.md#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene) |
 | Session counters; claims by bare path; sample counts 0; server-side claim checks | Already tracked | — | TD-304, TD-333, TD-334, TD-493 |
+
+## Addendum (October 18, 2026): `requeue_trained()`
+
+`RegistryTransport::requeue_trained(paths, all, model_name)` moves trained `DataVersion` entries (the listed paths, or all) back to the pending queue as whole-file `PendingEntry`s. Each keeps its source, added time and checksum, and is optionally assigned to `model_name`. A path that is already pending only loses its trained record (`already_pending`).
+- `LocalTransport` does it under the pending lock.
+- `RemoteTransport` sends `POST /registry/<group>[/<kind>]/requeue` and returns `RequeueResult::ok = false` if the request fails.
+
+Added for the remote-first rule (the trainer takes its data from `registry_server`), so re-queuing happens where the data lives. It's tested in `DatasetRegistryTests` (`Requeue*`, `LocalTransportRequeueTest`) and was checked end to end against a real `registry_server`.

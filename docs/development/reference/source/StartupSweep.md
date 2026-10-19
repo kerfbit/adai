@@ -82,3 +82,15 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Basename matching: trained-name collisions delete pending downloads; same-name pending files collapse (§2) | Spurious deletions and wrong releases | By inspection | [TD-513](../../guides/TECHNICAL_DEBT.md#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) |
 | Throwing filesystem calls; whole-file release (§2) | Crash on permission errors; stranded segment claims | By inspection | [TD-513](../../guides/TECHNICAL_DEBT.md#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) |
 | Download naming by basename; segment release | Already tracked | — | TD-337, TD-333 |
+
+## Addendum (October 18, 2026): TD-512 fixed
+
+`startup_sweep()` now calls `reg.load_pending_list()` and `reg.load_registry()` itself.
+- If the pending list can't be loaded, it returns without deleting anything.
+- If only the trained registry fails to load, condition D is disabled (empty trained set) and the rest runs.
+
+Callers no longer need to load anything first. The `resume` command (every `trainer_service` pass) now sweeps before its pass too. New tests:
+- `FreshRegistryKeepsQueuedDownloads` reproduces the production sequence above and keeps both queued downloads; the old code deleted them.
+- `UnreadablePendingListDeletesNothing`.
+
+TD-513 (basename matching) is unchanged.

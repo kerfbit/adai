@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.3.0
-// @adai-reviewed: 2026-09-20
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-10-18
 
 // TD-035: dataset_manager's per-command argument parsing, pulled out of
 // DatasetManagerTool.cpp so it's testable without touching a real DatasetRegistry/DataFetcher
@@ -86,6 +86,18 @@ struct DeleteArgs {
     std::string error_message;
 };
 DeleteArgs parse_delete_args(const std::vector<std::string>& args);
+
+// `requeue (--all | <file> ...) [--model <name>]`: move trained entries back to the pending
+// queue (on registry_server when REGISTRY_SERVER_URL is set). Unknown flags are errors, not
+// file targets.
+struct RequeueArgs {
+    std::vector<std::string> targets;
+    bool all = false;
+    std::string model_name;
+    bool error = false;
+    std::string error_message;
+};
+RequeueArgs parse_requeue_args(const std::vector<std::string>& args);
 
 // TD-202: "encoder" | "decoder" | "world_model" | "chatbot" — the same fixed vocabulary as
 // MNS's own ModelRecord::kind. Used to validate both the global --kind flag and migrate's

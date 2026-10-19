@@ -16,6 +16,7 @@
    - [status](#status)
    - [list-pending / list-trained](#list-pending--list-trained)
    - [clear-pending](#clear-pending)
+   - [requeue](#requeue)
 4. [File Layout](#file-layout)
 5. [Configuration](#configuration)
 6. [Distributed Mode](#distributed-mode)
@@ -335,6 +336,30 @@ Remove all files from the pending queue without affecting the trained registry.
 ```
 
 Use this to abandon queued data before starting a fresh dataset composition. Files that were previously trained remain in the registry; only the pending queue is cleared.
+
+### `requeue`
+
+Move trained files back to the pending queue so the next training passes train on them again, for example before retraining a model from
+scratch.
+
+```bash
+# Every trained file, assigned to one model
+./build/bin/dataset_manager requeue --all --model chat-v2
+
+# Specific files, unassigned
+./build/bin/dataset_manager requeue /data/a.jsonl /data/b.jsonl
+```
+
+- Give either `--all` or one or more files, not both. Unknown options are rejected.
+- `--model <name>` assigns the re-queued files to that model; without it they are unassigned, so any model in the group can claim them.
+- Each file comes back as a whole-file entry, keeping its source, added time and checksum. Segment ranges aren't restored, because the trained
+  registry doesn't record them; re-run `segment` if you need them.
+- A file that is already pending only loses its trained record, so it never ends up queued twice.
+- With `REGISTRY_SERVER_URL` set, this runs on `registry_server` (`POST /registry/<group>[/<kind>]/requeue`), where the data lives. Use `--kind`
+  to target a kind's own sub-pool.
+- `incremental_trainer reset --keep-data` performs the same `--all` re-queue, assigned to the trainer's `MODEL_NAME`.
+
+The output lists each file as `requeued`, `already_pending` or `not_found`. The exit code is 1 if nothing was re-queued.
 
 ---
 

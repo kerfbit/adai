@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-18
 
 /**
  * StartupSweep — stale download cleanup before the first acquire.
@@ -32,8 +32,20 @@ inline void startup_sweep(DatasetRegistry& reg, const std::string& run_id,
     if (download_dir.empty() || !fs::exists(download_dir))
         return;
 
-    // TODO: See TD-512 in TECHNICAL_DEBT.md - callers never load the pending list, and a failed registry load also
-    // leaves both sets empty; skip deletion unless the state was actually loaded.
+    // TD-512: load the state the sweep decides on here, rather than trusting whatever the caller
+    // loaded. Every caller used to load only the trained registry, so pending_files() was empty
+    // and every download (complete, partial, or anything else in download_dir) was deleted as
+    // orphaned on every pass. If the pending list can't be loaded (registry unreachable, no
+    // pending list yet), skip the sweep: without it every file would look orphaned. If the
+    // trained registry can't be loaded, carry on with an empty trained set, so nothing is
+    // deleted as "already trained" on missing information.
+    if (!reg.load_pending_list()) {
+        adai::Logger::warn("[CLEANUP] Could not load the pending list; skipping the download_dir "
+                           "sweep so no download is deleted on missing information");
+        return;
+    }
+    reg.load_registry();  // false (none yet / unreachable) leaves trained_files() empty
+
     // Build O(1) lookup structures from registry state.
     // filename → registry_path for files currently in the pending list.
     std::unordered_map<std::string, std::string> assigned_by_filename;

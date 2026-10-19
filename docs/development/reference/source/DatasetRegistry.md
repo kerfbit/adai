@@ -184,3 +184,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `remove_pending()` ignores the save result | Already tracked | — | TD-327 |
 | Relative paths stored as given | Already tracked | — | TD-328 |
 | `count <= 0` assigns all | Already tracked | — | TD-321 |
+
+## Addendum (October 18, 2026): `requeue_trained()`
+
+`DatasetRegistry::requeue_trained(paths, all, model_name)` delegates to the transport and then reloads the in-memory registry and pending lists. `IncrementalTrainer::reset_all()`'s keep-data branch now uses it (TD-540). It used to delete a local `data_registry.txt` and re-add files by local path, which re-queued nothing on a remote registry.

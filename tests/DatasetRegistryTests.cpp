@@ -105,6 +105,10 @@ class FakeFetchTransport : public RegistryTransport {
                               const std::vector<SegmentTarget>& segments = {}) override {
         return inner_.delete_paths(paths, force, delete_files, segments);
     }
+    RequeueResult requeue_trained(const std::vector<std::string>& paths, bool all,
+                                  const std::string& model_name = "") override {
+        return inner_.requeue_trained(paths, all, model_name);
+    }
 
     // Controllable Phase 11 behaviour:
     std::string next_fetch_result;  // returned by fetch_gutenberg/fetch_huggingface
@@ -538,6 +542,74 @@ TEST_F(DatasetRegistryTest, AddPendingPathUncheckedRejectsAlreadyTrainedFile) {
     reg.mark_trained({data_file_}, {10});
     EXPECT_FALSE(reg.add_pending_path_unchecked(data_file_));
     EXPECT_TRUE(reg.pending_files().empty());
+}
+
+// requeue_trained(): trained entries go back to the pending queue (needed to retrain from
+// scratch, and the operation `incremental_trainer reset --keep-data` performs).
+TEST_F(DatasetRegistryTest, RequeueTrainedMovesTrainedEntryBackToPending) {
+    DatasetRegistry reg(make_cfg());
+    reg.mark_trained({data_file_}, {10});
+    ASSERT_TRUE(reg.is_trained(data_file_));
+
+    const RequeueResult r = reg.requeue_trained({data_file_}, false, "model-a");
+    EXPECT_TRUE(r.ok);
+    EXPECT_EQ(r.requeued, 1);
+    ASSERT_EQ(r.details.size(), 1u);
+    EXPECT_EQ(r.details[0].status, "requeued");
+    EXPECT_FALSE(reg.is_trained(data_file_));
+    ASSERT_EQ(reg.pending_files().size(), 1u);
+    EXPECT_EQ(reg.pending_files()[0], data_file_);
+    EXPECT_EQ(reg.pending_entries()[0].model_name, "model-a");
+
+    // A fresh registry sees it too (persisted, not just in memory), and can acquire it.
+    DatasetRegistry fresh(make_cfg());
+    fresh.load_registry();
+    fresh.load_pending_list();
+    EXPECT_FALSE(fresh.is_trained(data_file_));
+    EXPECT_EQ(fresh.pending_files().size(), 1u);
+}
+
+TEST_F(DatasetRegistryTest, RequeueTrainedAllAndEdgeCases) {
+    DatasetRegistry reg(make_cfg());
+    EXPECT_EQ(reg.requeue_trained({}, false).requeued, 0) << "no paths and no --all is a no-op";
+
+    reg.mark_trained({data_file_}, {10});
+    const RequeueResult missing = reg.requeue_trained({"/not/trained.jsonl"}, false);
+    EXPECT_EQ(missing.not_found, 1);
+    EXPECT_TRUE(reg.is_trained(data_file_));
+
+    const RequeueResult all = reg.requeue_trained({}, true);
+    EXPECT_EQ(all.requeued, 1);
+    EXPECT_FALSE(reg.is_trained(data_file_));
+    EXPECT_EQ(reg.pending_entries()[0].model_name, "") << "no model given: unassigned";
+
+}
+
+// A file both trained and pending (e.g. re-added after training) only loses its trained record;
+// it never gets a second pending entry.
+TEST(LocalTransportRequeueTest, AlreadyPendingFileOnlyLosesItsTrainedRecord) {
+    const fs::path dir = fs::temp_directory_path() / "adai_requeue_already_pending";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    LocalTransport t((dir / "data_registry.txt").string(), (dir / "pending_files.txt").string());
+    DataVersion dv;
+    dv.data_file = "/data/a.jsonl";
+    dv.trained = true;
+    ASSERT_TRUE(t.save_registry({dv}));
+    PendingEntry pe;
+    pe.path = "/data/a.jsonl";
+    ASSERT_TRUE(t.save_pending({pe}));
+
+    const RequeueResult r = t.requeue_trained({"/data/a.jsonl"}, false);
+    EXPECT_EQ(r.already_pending, 1);
+    EXPECT_EQ(r.requeued, 0);
+    std::vector<DataVersion> reg;
+    std::vector<PendingEntry> pending;
+    t.load_registry(reg);
+    t.load_pending(pending);
+    EXPECT_TRUE(reg.empty());
+    EXPECT_EQ(pending.size(), 1u);
+    fs::remove_all(dir);
 }
 
 TEST_F(DatasetRegistryTest, AddFileSkipsAlreadyTrainedFile) {

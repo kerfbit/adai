@@ -13,6 +13,7 @@
 
 #include "IncrementalTrainer.hpp"
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -186,6 +187,99 @@ float max_abs_diff(const Matrix& a, const Matrix& b) {
 // validation loss -- each pass validates on its own files, so those losses aren't comparable.
 // Before the fix the constructors chose the lowest loss and also tested fs::exists(<bare path>),
 // so with real checkpoints they loaded nothing at all.
+namespace {
+IncrementalConfig tiny_local_config(const fs::path& session_dir) {
+    IncrementalConfig config;
+    config.session_dir = session_dir.string();
+    config.dataset.session_dir = session_dir.string();
+    config.enable_checkpoint_symlinks = false;
+    config.auto_save_enabled = false;
+    config.base_config.d_model = 32;
+    config.base_config.num_heads = 2;
+    config.base_config.d_ff = 64;
+    config.base_config.num_encoder_layers = 1;
+    config.base_config.num_decoder_layers = 1;
+    config.base_config.max_seq_length = 16;
+    config.base_config.num_epochs = 1;
+    config.base_config.log_level = LogLevel::SILENT;
+    return config;
+}
+}  // namespace
+
+// TD-412: a pass that loads no samples (missing or empty file) fails, so its caller releases the
+// files instead of marking them trained, and it leaves no zero-sample session behind.
+TEST_F(IncrementalTrainerTest, PassThatLoadsNothingFails) {
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(),
+                               tiny_local_config(session_dir));
+    const std::string missing = (test_dir / "does_not_exist.jsonl").string();
+    const std::string empty = (test_dir / "empty.jsonl").string();
+    std::ofstream(empty).close();
+
+    PendingFileRange r_missing, r_empty;
+    r_missing.path = missing;
+    r_empty.path = empty;
+    EXPECT_FALSE(trainer.train_on_files({r_missing}, 1));
+    EXPECT_FALSE(trainer.train_on_files({r_empty}, 1));
+    EXPECT_FALSE(trainer.retrain_on_files({r_missing, r_empty}, 1));
+    EXPECT_TRUE(trainer.get_session_history().empty()) << "no zero-sample session recorded";
+
+    PendingFileRange good;
+    good.path = data_file1.string();
+    EXPECT_TRUE(trainer.train_on_files({good}, 1)) << "a file with pairs still trains";
+}
+
+// TD-411: resume_last_session() hands the acquired batch to the caller's resolver (the resume
+// command's FTP download step) and trains on what it returns; if the resolver fails, the batch
+// is released rather than trained on registry-host paths or left claimed.
+TEST_F(IncrementalTrainerTest, ResumeTrainsOnResolvedFilesAndReleasesOnResolverFailure) {
+    const IncrementalConfig config = tiny_local_config(session_dir);
+    {
+        DatasetRegistry reg(config.dataset);
+        reg.load_registry();
+        reg.load_pending_list();
+        ASSERT_TRUE(reg.add_file(data_file1.string()));
+    }
+
+    {
+        IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+        int calls = 0;
+        EXPECT_FALSE(trainer.resume_last_session(
+            [&](const AcquireResponse& resp, std::vector<PendingFileRange>&) {
+                ++calls;
+                EXPECT_EQ(resp.files.size(), 1u);
+                return false;  // e.g. an FTP download failed
+            }));
+        EXPECT_EQ(calls, 1);
+    }
+    {
+        DatasetRegistry reg(config.dataset);
+        reg.load_registry();
+        reg.load_pending_list();
+        auto resp = reg.acquire_pending("probe");
+        ASSERT_EQ(resp.files.size(), 1u) << "a failed resolve must release the file";
+        reg.release_pending("probe", resp.registry_paths());
+    }
+
+    {
+        IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+        std::string trained_on;
+        EXPECT_TRUE(trainer.resume_last_session(
+            [&](const AcquireResponse&, std::vector<PendingFileRange>& ranges) {
+                PendingFileRange r;
+                r.path = data_file2.string();  // stands in for the downloaded local copy
+                trained_on = r.path;
+                ranges = {r};
+                return true;
+            }));
+        EXPECT_EQ(trained_on, data_file2.string());
+    }
+    DatasetRegistry reg(config.dataset);
+    reg.load_registry();
+    const auto trained = reg.trained_files();
+    EXPECT_NE(std::find(trained.begin(), trained.end(), data_file1.string()), trained.end())
+        << "the registry entry (not the local copy) is what gets marked trained";
+}
+
 // TD-406: a paused or crashed pass leaves session_history pointing at its auto_save_session_N
 // checkpoint (val loss 0). The next start must resume from that session's newest snapshot (the
 // auto-save or session_N_best, whichever is newer) and keep both, instead of loading an older
