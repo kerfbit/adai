@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 0.12.0
+// @adai-reviewed: 2026-10-19
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) is hardened to
@@ -664,28 +664,21 @@ static void handle_release(const httplib::Request& req, httplib::Response& res,
     std::vector<PendingEntry> entries;
     gs.transport->load_pending(entries);
 
+    // TD-205: whole-file "files" match only whole-file entries; a segment needs its own
+    // `segments` target. TD-333: both lists apply in one request (this used to be either/or, so
+    // a batch with both kinds released only its segments).
     int released = 0;
-    if (!segments.empty()) {
-        for (const auto& t : segments) {
-            for (auto& e : entries) {
-                if ((run_id.empty() || e.run_id == run_id) &&
-                    segment_matches(e, t.path, t.segment_start, t.segment_count)) {
-                    e.run_id.clear();
-                    ++released;
-                    break;
-                }
-            }
-        }
-    } else {
-        // TD-205: whole-file "files" must only match whole-file entries — a segment sharing
-        // the same physical path needs its own targeted `segments` entry to be released.
-        const std::set<std::string> to_release(files.begin(), files.end());
-        for (auto& e : entries) {
-            if ((run_id.empty() || e.run_id == run_id) && e.segment_start < 0 &&
-                to_release.count(e.path)) {
-                e.run_id.clear();
-                ++released;
-            }
+    const std::set<std::string> to_release(files.begin(), files.end());
+    for (auto& e : entries) {
+        if (!run_id.empty() && e.run_id != run_id)
+            continue;
+        bool match = e.segment_start < 0 && to_release.count(e.path) > 0;
+        for (std::size_t i = 0; !match && i < segments.size(); ++i)
+            match = segment_matches(e, segments[i].path, segments[i].segment_start,
+                                    segments[i].segment_count);
+        if (match) {
+            e.run_id.clear();
+            ++released;
         }
     }
 
@@ -996,14 +989,20 @@ static void handle_delete(const httplib::Request& req, httplib::Response& res,
             }
         }
 
-        // TD-205: the trained registry has no segment concept — only a whole-file target can
-        // match/erase it.
-        if (t.segment_start < 0) {
-            auto rit = std::find_if(reg.begin(), reg.end(),
-                                    [&](const DataVersion& dv) { return dv.data_file == t.path; });
-            if (rit != reg.end()) {
+        // TD-333: a whole-file target removes every trained record of the path; a segment
+        // target removes exactly that segment's record.
+        {
+            const auto before = reg.size();
+            reg.erase(std::remove_if(reg.begin(), reg.end(),
+                                     [&](const DataVersion& dv) {
+                                         return t.segment_start < 0
+                                                    ? dv.data_file == t.path
+                                                    : trained_matches(dv, t.path, t.segment_start,
+                                                                      t.segment_count);
+                                     }),
+                      reg.end());
+            if (reg.size() != before) {
                 found_anywhere = true;
-                reg.erase(rit);
                 registry_changed = true;
             }
         }
@@ -1129,23 +1128,36 @@ static void handle_trained(const httplib::Request& req, httplib::Response& res,
     for (const auto& e : pending)
         pending_by_path[e.path] = &e;
 
+    // TD-333: optional per-file segment ranges, aligned with "files" (exact mode). Without them
+    // every entry is treated as the whole file and the pre-TD-333 path-wide removal applies.
+    const std::vector<int> seg_starts = json_int_array(req.body, "segment_starts");
+    const std::vector<int> seg_counts = json_int_array(req.body, "segment_counts");
+    const bool exact = seg_starts.size() == files.size() && seg_counts.size() == files.size() &&
+                       !files.empty();
+    auto seg_start_of = [&](std::size_t i) { return exact ? seg_starts[i] : -1; };
+    auto seg_count_of = [&](std::size_t i) { return exact ? seg_counts[i] : -1; };
+
     // Build new DataVersion entries
     std::vector<DataVersion> reg;
     gs.transport->load_registry(reg);
-    std::set<std::string> existing;
-    for (const auto& dv : reg)
-        existing.insert(dv.data_file);
+    auto recorded = [&](const std::string& path, int start, int count) {
+        return std::any_of(reg.begin(), reg.end(), [&](const DataVersion& dv) {
+            return trained_matches(dv, path, start, count);
+        });
+    };
 
     // TODO: See TD-493 in TECHNICAL_DEBT.md - records files regardless of which run_id claimed them, and skips any
     // path already recorded, so the owning run's later report records nothing.
     int trained = 0;
     for (std::size_t i = 0; i < files.size(); ++i) {
-        if (!existing.count(files[i])) {
+        if (!recorded(files[i], seg_start_of(i), seg_count_of(i))) {
             DataVersion dv;
             dv.data_file = files[i];
             dv.num_samples = (i < samples.size()) ? samples[i] : 0;
             dv.trained = true;
             dv.model_id = model_id;
+            dv.segment_start = seg_start_of(i);
+            dv.segment_count = seg_count_of(i);
 
             if (const auto it = pending_by_path.find(files[i]); it != pending_by_path.end()) {
                 dv.source = it->second->source;
@@ -1165,19 +1177,25 @@ static void handle_trained(const httplib::Request& req, httplib::Response& res,
                 dv.checksum = "REMOTE";
             }
 
-            reg.push_back(std::move(dv));
-            existing.insert(files[i]);  // guard against a duplicate path elsewhere in this same request
+            reg.push_back(std::move(dv));  // later duplicates in this request now match recorded()
             ++trained;
         }
     }
     gs.transport->save_registry(reg);
 
-    // Remove trained files from pending
+    // Remove trained files from pending (exact mode: exactly the trained units).
     const std::set<std::string> trained_set(files.begin(), files.end());
     pending.erase(std::remove_if(pending.begin(), pending.end(),
                                  [&](const PendingEntry& e) {
-                                     return trained_set.count(e.path) &&
-                                            (run_id.empty() || e.run_id == run_id);
+                                     if (!run_id.empty() && e.run_id != run_id)
+                                         return false;
+                                     if (!exact)
+                                         return trained_set.count(e.path) > 0;
+                                     for (std::size_t i = 0; i < files.size(); ++i)
+                                         if (segment_matches(e, files[i], seg_starts[i],
+                                                             seg_counts[i]))
+                                             return true;
+                                     return false;
                                  }),
                   pending.end());
     gs.transport->save_pending(pending);
@@ -1206,7 +1224,8 @@ static void handle_registry(const httplib::Request& req, httplib::Response& res,
              << json_escape(reg[i].checksum) << "\"," << "\"num_samples\":" << reg[i].num_samples
              << "," << "\"trained\":" << (reg[i].trained ? "true" : "false") << ","
              << "\"added_utc\":\"" << json_escape(reg[i].added_utc) << "\"," << "\"source\":\""
-             << json_escape(reg[i].source) << "\"}";
+             << json_escape(reg[i].source) << "\",\"segment_start\":" << reg[i].segment_start
+             << ",\"segment_count\":" << reg[i].segment_count << "}";
     }
     json << "]}";
     res.set_content(json.str(), "application/json");

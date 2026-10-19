@@ -188,3 +188,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 ## Addendum (October 18, 2026): `requeue_trained()`
 
 `DatasetRegistry::requeue_trained(paths, all, model_name)` delegates to the transport and then reloads the in-memory registry and pending lists. `IncrementalTrainer::reset_all()`'s keep-data branch now uses it (TD-540). It used to delete a local `data_registry.txt` and re-add files by local path, which re-queued nothing on a remote registry.
+
+## Addendum (October 19, 2026): segment-aware trained records (TD-333)
+
+`DataVersion` carries `segment_start`/`segment_count`. `mark_trained(run_id, units, counts)` and `release_pending(run_id, units)` take an acquired batch's `PendingFileRange`s, and every production caller uses them. Trained records are kept per unit, `is_trained(path, segment)` is segment-aware, and delete and re-queue handle segment records. See TD-333 in the tracker for the full list.

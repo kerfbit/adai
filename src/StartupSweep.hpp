@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-10-19
 
 /**
  * StartupSweep — stale download cleanup before the first acquire.
@@ -67,8 +67,9 @@ inline void startup_sweep(DatasetRegistry& reg, const std::string& run_id,
 
         // TODO: See TD-513 in TECHNICAL_DEBT.md - basename matching (trained-name collisions delete pending downloads);
         // throwing fs calls; condition A's release is whole-file only.
-        // Condition D: already trained — stale local copy
-        if (trained_filenames.count(filename)) {
+        // Condition D: already trained — stale local copy. TD-333: a file can be trained in part
+        // (some TD-205 segments) while other segments are still pending; keep its download then.
+        if (trained_filenames.count(filename) && !assigned_by_filename.count(filename)) {
             adai::Logger::info(
                 "[CLEANUP-D] Found locally retained file '{}' already marked "
                 "trained in registry. Deleting local copy.",

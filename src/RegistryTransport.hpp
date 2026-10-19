@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 1.4.0
+// @adai-reviewed: 2026-10-19
 
 
 #include <cstddef>
@@ -34,7 +34,23 @@ struct DataVersion {
     /// Phase 15: "gutenberg" | "huggingface" | "upload" | "manual"; empty = unknown
     /// (pre-Phase-15 record, or the originating PendingEntry had none).
     std::string source;
+    /// TD-333: the TD-205 segment this record covers; -1/-1 = the whole file (every pre-TD-333
+    /// record). Two records for one path are distinct when their ranges differ, so segments
+    /// trained in separate passes are each recorded with their own sample count.
+    int segment_start = -1;
+    int segment_count = -1;
 };
+
+/// TD-333: identity check for a trained record, the counterpart of segment_matches() below.
+/// A whole-file query (segment_start < 0) matches only a whole-file record.
+inline bool trained_matches(const DataVersion& dv, const std::string& path, int segment_start,
+                            int segment_count) {
+    if (dv.data_file != path)
+        return false;
+    if (segment_start < 0)
+        return dv.segment_start < 0;
+    return dv.segment_start == segment_start && dv.segment_count == segment_count;
+}
 
 /**
  * @brief A file in the pending training queue.
@@ -291,10 +307,16 @@ class RegistryTransport {
      * RemoteTransport issues a single POST /trained request.
      * Pass an empty @p run_id to release any pending entry regardless of
      * assignment (single-run mode).
+     *
+     * TD-333: with @p trained_segments non-empty (exact mode, used by DatasetRegistry for every
+     * acquired batch), @p trained_paths removes only whole-file pending entries and each segment
+     * removes exactly its own entry. With it empty, the pre-TD-333 behaviour applies: every
+     * pending entry sharing a trained path is removed.
      */
     virtual void commit_trained(const std::string& run_id,
                                 const std::vector<DataVersion>& new_entries,
-                                const std::vector<std::string>& trained_paths) = 0;
+                                const std::vector<std::string>& trained_paths,
+                                const std::vector<SegmentTarget>& trained_segments = {}) = 0;
 
     /** @brief Atomically append a single @p path to the pending queue.
      *  No-op (returns false) if an entry with the same identity — see segment_matches() — is
@@ -483,7 +505,8 @@ class LocalTransport : public RegistryTransport {
     void release(const std::string& run_id, const std::vector<std::string>& paths,
                 const std::vector<SegmentTarget>& segments = {}) override;
     void commit_trained(const std::string& run_id, const std::vector<DataVersion>& new_entries,
-                        const std::vector<std::string>& trained_paths) override;
+                        const std::vector<std::string>& trained_paths,
+                        const std::vector<SegmentTarget>& trained_segments = {}) override;
     bool add_pending(const std::string& path, int segment_start = -1,
                      int segment_count = -1) override;
     std::string next_session(const std::string& model_name, const std::string& run_id) override;
@@ -564,7 +587,8 @@ class RemoteTransport final : public RegistryTransport {
     void release(const std::string& run_id, const std::vector<std::string>& paths,
                 const std::vector<SegmentTarget>& segments = {}) override;
     void commit_trained(const std::string& run_id, const std::vector<DataVersion>& new_entries,
-                        const std::vector<std::string>& trained_paths) override;
+                        const std::vector<std::string>& trained_paths,
+                        const std::vector<SegmentTarget>& trained_segments = {}) override;
     bool add_pending(const std::string& path, int segment_start = -1,
                      int segment_count = -1) override;
     std::string next_session(const std::string& model_name, const std::string& run_id) override;

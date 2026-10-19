@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-10-19
 
 #include <algorithm>
 #include <fstream>
@@ -636,14 +636,18 @@ int main(int argc, char* argv[]) {
         std::vector<PendingEntry> to_migrate;
         if (!parsed.targets.empty()) {
             for (const auto& t : parsed.targets) {
-                // TODO: See TD-326 in TECHNICAL_DEBT.md - matches by path only, ignoring segment ranges
-                auto it = std::find_if(source_entries.begin(), source_entries.end(),
-                                       [&](const PendingEntry& e) { return e.path == t; });
-                if (it == source_entries.end()) {
-                    std::cerr << "⚠️  Not found in legacy pending queue, skipping: " << t << "\n";
-                    continue;
+                // TD-326: a file target migrates every unit of that file (its whole-file entry
+                // and/or each TD-205 segment), not just the first entry with that path.
+                bool found = false;
+                for (const auto& e : source_entries) {
+                    if (e.path == t) {
+                        to_migrate.push_back(e);
+                        found = true;
+                    }
                 }
-                to_migrate.push_back(*it);
+                if (!found) {
+                    std::cerr << "⚠️  Not found in legacy pending queue, skipping: " << t << "\n";
+                }
             }
         } else if (parsed.count > 0) {
             const std::size_t n =
@@ -658,31 +662,70 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
+        // TD-326: move each entry exactly (its TD-205 segment range included), checking every
+        // step. Adding without the range turned a segment into the whole file, and unchecked
+        // delete/assign results left entries in both pools (trained twice) or lost the model.
+        auto label = [](const PendingEntry& e) {
+            return e.segment_start < 0 ? e.path
+                                       : e.path + " [" + std::to_string(e.segment_start) + "+" +
+                                             std::to_string(e.segment_count) + "]";
+        };
+        auto as_paths = [](const PendingEntry& e) {
+            return e.segment_start < 0 ? std::vector<std::string>{e.path}
+                                       : std::vector<std::string>{};
+        };
+        auto as_segments = [](const PendingEntry& e) {
+            return e.segment_start < 0
+                       ? std::vector<SegmentTarget>{}
+                       : std::vector<SegmentTarget>{{e.path, e.segment_start, e.segment_count}};
+        };
+        auto rollback_dest = [&](const PendingEntry& e) {
+            const DeleteResult r =
+                dest.delete_entries(as_paths(e), /*force=*/true, false, as_segments(e));
+            if (r.deleted != 1) {
+                std::cerr << "   ⚠️  Could not roll back the '" << parsed.kind
+                          << "' copy of " << label(e) << "; remove it by hand\n";
+            }
+        };
         int migrated = 0;
         for (const auto& entry : to_migrate) {
-            // TODO: See TD-326 in TECHNICAL_DEBT.md - drops segment_start/segment_count, so a segment becomes the whole file
-            if (!dest.add_pending_path_unchecked(entry.path)) {
+            if (!dest.add_pending_path_unchecked(entry.path, entry.segment_start,
+                                                 entry.segment_count)) {
                 std::cerr << "⚠️  Failed to add to '" << parsed.kind
-                          << "' pool, skipping: " << entry.path << "\n";
+                          << "' pool, skipping: " << label(entry) << "\n";
                 continue;
             }
             // Restore the model assignment (if any) via the existing assign endpoint —
             // the pending-add wire format has no model_name field, so this is the only
             // way to carry it forward without changing that shared interface.
             if (!entry.model_name.empty()) {
-                // TODO: See TD-326 in TECHNICAL_DEBT.md - result ignored; a failed assign silently loses the model assignment
-                dest.assign_model(entry.model_name, {entry.path});
+                const AssignResult a =
+                    dest.assign_model(entry.model_name, as_paths(entry), 0, as_segments(entry));
+                if (a.assigned < 1) {
+                    std::cerr << "⚠️  Could not restore model '" << entry.model_name << "' on "
+                              << label(entry) << "; left it in the legacy pool\n";
+                    rollback_dest(entry);
+                    continue;
+                }
             }
             // force=true: migrate is an operator-invoked one-time reorganization; leaving
             // an actively-claimed legacy entry behind would just duplicate it (it's
             // already in the destination pool at this point) rather than actually move it.
-            // TODO: See TD-326 in TECHNICAL_DEBT.md - result ignored; a failed (or segment-mismatched) delete leaves the entry in both pools
-            source.delete_entries({entry.path}, /*force=*/true, /*delete_files=*/false);
-            std::cout << "   " << entry.path << " -> " << parsed.kind << "\n";
+            const DeleteResult d =
+                source.delete_entries(as_paths(entry), /*force=*/true, /*delete_files=*/false,
+                                      as_segments(entry));
+            if (d.deleted != 1) {
+                std::cerr << "⚠️  Could not remove " << label(entry)
+                          << " from the legacy pool; undoing its copy so it isn't in both\n";
+                rollback_dest(entry);
+                continue;
+            }
+            std::cout << "   " << label(entry) << " -> " << parsed.kind << "\n";
             ++migrated;
         }
 
-        std::cout << "✅ Migrated " << migrated << "/" << to_migrate.size() << " file(s) into '"
+        std::cout << "✅ Migrated " << migrated << "/" << to_migrate.size() << " entr"
+                  << (to_migrate.size() == 1 ? "y" : "ies") << " into '"
                   << parsed.kind << "'\n";
         if (migrated == 0) {
             return 1;

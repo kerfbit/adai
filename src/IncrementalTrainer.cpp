@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.13.1
+// @adai-version: 0.14.0
 // @adai-reviewed: 2026-10-19
 
 #include "IncrementalTrainer.hpp"
@@ -1091,17 +1091,16 @@ bool IncrementalTrainer::resume_last_session(const PassFileResolver& resolve_fil
         Logger::warn("No pending data files to resume training on");
         return false;
     }
-    std::vector<std::string> pending = resp.registry_paths();
+    // TD-333: the batch's exact units (whole files and segments), for release/mark_trained.
+    const std::vector<PendingFileRange> pending = resp.file_ranges();
     // TD-411: local files to train on. A caller-supplied resolver (incremental_trainer's
     // resume command) downloads over FTP when the registry hands out an FTP host, as `train`
     // does. Without one, the registry's own paths are used, which only works for a local
     // registry, so an FTP registry with no resolver fails the pass instead of training on
-    // paths that don't exist here. TD-205: ranges carry each entry's segment;
-    // mark_trained()/release_pending() still key by bare path.
+    // paths that don't exist here. TD-205: ranges carry each entry's segment.
     std::vector<PendingFileRange> pending_ranges;
     if (resolve_files) {
         if (!resolve_files(resp, pending_ranges)) {
-            // TODO: See TD-333 in TECHNICAL_DEBT.md - bare paths release only whole-file entries; claimed TD-205 segments stay stuck
             reg.release_pending(run_id, pending);
             return false;
         }
@@ -1171,11 +1170,10 @@ bool IncrementalTrainer::resume_last_session(const PassFileResolver& resolve_fil
 
     bool ok = train_on_files(pending_ranges, config.base_config.num_epochs);
     if (ok) {
-        // TODO: See TD-334 in TECHNICAL_DEBT.md - always zero sample counts; TD-333: bare paths, so segments are recorded per file
+        // TODO: See TD-334 in TECHNICAL_DEBT.md - always zero sample counts
         std::vector<int> counts(pending.size(), 0);
         reg.mark_trained(run_id, pending, counts);
     } else {
-        // TODO: See TD-333 in TECHNICAL_DEBT.md - bare paths release only whole-file entries; claimed TD-205 segments stay stuck
         reg.release_pending(run_id, pending);
     }
     return ok;

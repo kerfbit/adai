@@ -5,9 +5,9 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 18, 2026
-**Total Items:** 333
+**Total Items:** 334
 **High Priority:** 36
-**Medium Priority:** 143
+**Medium Priority:** 144
 **Low Priority:** 154
 **Future Enhancements:** 19
 **Resolved Items:** 208
@@ -625,6 +625,10 @@ fixed in the same change. Both verified:
 - **TD-539:** `IncrementalTrainer`'s constructors tested `fs::exists(<checkpoint path>)`, a file `save_model()` never writes. A trainer built over
   real checkpoints loaded neither of them, so `incremental_trainer train`/`retrain` started every pass from fresh weights.
 
+Also October 19, 2026: filed [TD-542](#td-542-dataset_manager-segment-keeps-a-queued-whole-file-entry-so-its-pairs-train-twice) (MEDIUM), found while checking the TD-326 fix with the real binary. Running `segment` on
+a file that's already queued as a whole file adds its segments next to that entry, so every pair is trained twice: once by the whole file and once
+by its segment.
+
 **October 19, 2026:** filed [TD-541](#td-541-a-pass-without-validation-data-has-its-checkpoint-discarded) (MEDIUM), found while testing TD-269. A pass with no validation samples records a
 validation loss of 0, which the checkpoint sanity check treats as "never measured". Its checkpoint is then never resumed from and is deleted at the
 next start. This happens with `VALIDATION_SPLIT=0` or any pass on fewer pairs than the split ratio.
@@ -1135,9 +1139,12 @@ Done:
 
 - TD-269/270 (owner decisions: warmup once per run, optimizer state saved with checkpoints).
 
+- TD-333 and TD-326 (exact segment release, per-segment trained records, segment-safe `migrate`).
+
 Remaining, re-ordered on October 18 because TD-539 means checkpoints now actually carry over between passes:
-1. TD-333/326 and TD-523/519;
-2. TD-541 (found October 19: a pass without validation data has its checkpoint discarded).
+1. TD-523/519;
+2. TD-541 (found October 19: a pass without validation data has its checkpoint discarded);
+3. TD-542 (found October 19: `segment` keeps a queued whole-file entry; needs an owner decision).
 
 Every fix here is verified on CPU, or on the oneAPI CPU device for the SYCL kernels. Still needed: an on-device run on ai-machine, then
 retraining from scratch, since no existing checkpoint has correct GPU-trained weights (TD-358) or the encoder's own embedding (TD-538).
@@ -2149,6 +2156,7 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-539: `IncrementalTrainer` Constructors Never Load a Checkpoint](#td-539-incrementaltrainer-constructors-never-load-a-checkpoint)
   - [TD-540: `incremental_trainer reset` Re-queues Trained Files Locally, Not on the Registry Server](#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server)
   - [TD-541: A Pass Without Validation Data Has Its Checkpoint Discarded](#td-541-a-pass-without-validation-data-has-its-checkpoint-discarded)
+  - [TD-542: `dataset_manager segment` Keeps a Queued Whole-File Entry, So Its Pairs Train Twice](#td-542-dataset_manager-segment-keeps-a-queued-whole-file-entry-so-its-pairs-train-twice)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -7388,7 +7396,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Data / dataset_manager CLI | October 11, 2026 | 2-4 hours |
+| **HIGH** | Open — code fix landed October 19, 2026 | Data / dataset_manager CLI | October 11, 2026 | 2-4 hours |
 
 Description:
 Found while writing the code-traced reference [DatasetManagerTool.md](../reference/source/DatasetManagerTool.md) and confirmed by running the real
@@ -7410,11 +7418,23 @@ leaves an entry in both pools, and a failed `assign_model()` silently loses the 
 
 Action Items:
 
-- [ ] Carry `segment_start`/`segment_count` into `add_pending_path_unchecked()` and match/delete source entries by `(path, segment_start, segment_count)` (TD-205's `SegmentTarget`).
-- [ ] Check `delete_entries()`/`assign_model()` results; on failure, roll back the destination add (or report clearly) and don't count the entry as migrated.
-- [ ] Test: migrating a segmented file moves exactly its segments and leaves the source empty.
+**Fix landed October 19, 2026:** `migrate` now moves each entry exactly.
+- A file target takes every entry of that file.
+- Each entry is added with its segment range, its model assignment is restored by segment, and the source entry is deleted by
+  `(path, segment_start, segment_count)`.
+- If the assignment or the source delete fails, the destination copy is rolled back and the entry isn't counted, so nothing is left in both pools.
+  The result line counts entries.
 
-Location in code: `src/DatasetManagerTool.cpp` (`migrate`); tagged `TODO: See TD-326`.
+Checked with the real binary on a scratch local pool holding a 30-pair file's whole-file entry and its 3 segments: all 4 moved with their ranges
+(`Migrated 4/4 entries`), and the legacy pool ended empty.
+
+There are still no command-level unit tests (TD-331). The run also showed TD-542: `segment` keeps an already-queued whole-file entry.
+
+- [x] Carry `segment_start`/`segment_count` into `add_pending_path_unchecked()` and match/delete source entries by `(path, segment_start, segment_count)` (TD-205's `SegmentTarget`).
+- [x] Check `delete_entries()`/`assign_model()` results; on failure, roll back the destination add (or report clearly) and don't count the entry as migrated.
+- [x] Test: migrating a segmented file moves exactly its segments and leaves the source empty. (Checked end to end with the real binary; no unit test, TD-331.)
+
+Location in code: `src/DatasetManagerTool.cpp` (`migrate`); the `TODO: See TD-326` tags are now fix comments.
 
 Files to Modify:
 
@@ -7586,7 +7606,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Data / DatasetRegistry | October 11, 2026 | 4-8 hours |
+| **HIGH** | Open — code fix landed October 19, 2026 | Data / DatasetRegistry | October 11, 2026 | 4-8 hours |
 
 Description:
 Found while writing the code-traced reference [DatasetRegistry.md](../reference/source/DatasetRegistry.md) and confirmed by running the real class
@@ -7610,11 +7630,38 @@ against a scratch `LocalTransport` pool (one 30-pair file split into three TD-20
 
 Action Items:
 
-- [ ] Pass `FileToken` segment ranges through as `SegmentTarget`s to `release_pending()`/`mark_trained()` from every caller.
-- [ ] Key trained records by `(path, segment_start, segment_count)` (local registry format, `DataVersion`, `registry_server`), and make `is_trained()` segment-aware.
-- [ ] Tests: acquire → fail → release frees the segment for another run; training two segments records both, with their sample counts.
+**Fix landed October 19, 2026:**
+- **Record format:** `DataVersion` has `segment_start`/`segment_count` (-1 = whole file). `trained_matches()` is its identity check. The local
+  registry file gains two trailing columns, and older lines without them still load as whole-file records. `GET …/registry` adds two JSON fields,
+  and an absent field means whole file.
+- **Registry API:** `DatasetRegistry` has `mark_trained(run_id, units, counts)` and `release_pending(run_id, units)` overloads taking the
+  acquired `PendingFileRange`s. Every production caller (train, retrain, LeJEPA, failure releases, `resume_last_session()`) now passes
+  `resp.file_ranges()`.
+  - `build_new_versions()` records one entry per unit, so segments trained in separate passes each keep their sample count.
+  - `is_trained(path, seg…)` is segment-aware. A whole-file query is still true if any part was trained.
+- **Releasing:** `LocalTransport::release()` and `registry_server`'s release apply whole-file paths and segments together. They used to do one or
+  the other.
+- **Committing:** `commit_trained()` takes an optional segment list (exact mode). `RemoteTransport` sends aligned `segment_starts`/`segment_counts`,
+  and `registry_server` records per unit and removes exactly those pending entries. Requests without the arrays keep the old path-wide behaviour,
+  for older clients.
+- **Delete and re-queue:** a whole-file target removes every record of the path, and a segment target removes just its record. `requeue_trained()`
+  restores each trained segment as that segment (TD-540's last limitation).
+- **Startup sweep:** it keeps the download of a file that is trained in part but still has pending segments.
+- **Empty checksums:** the registry file writes `-` for an empty checksum, so the later columns can't shift.
 
-Location in code: `src/DatasetRegistry.cpp` (`mark_trained()`, `release_pending()`, `build_new_versions()`, `is_trained()`), callers in `src/IncrementalTrainingTool.cpp` and `src/IncrementalTrainer.cpp`; tagged `TODO: See TD-333`.
+Tests:
+- `ReleasingAnAcquiredBatchFreesItsSegments`;
+- `SegmentsTrainedSeparatelyAreEachRecorded` (two records, 10 + 7 samples, per-segment `is_trained`, segment-preserving re-queue);
+- `LocalTransportSegmentRecordTest` (format round trip and legacy lines);
+- `LiveRegistryTest.RemoteTransportCommitsAndReleasesExactSegments`, run against a real `registry_server` (all 87 live tests pass).
+
+These tests need the new overloads, so they couldn't be run on the old code; the old behaviour was measured when this entry was filed.
+
+- [x] Pass `FileToken` segment ranges through as `SegmentTarget`s to `release_pending()`/`mark_trained()` from every caller.
+- [x] Key trained records by `(path, segment_start, segment_count)` (local registry format, `DataVersion`, `registry_server`), and make `is_trained()` segment-aware.
+- [x] Tests: acquire → fail → release frees the segment for another run; training two segments records both, with their sample counts.
+
+Location in code: `src/RegistryTransport.{hpp,cpp}`, `src/RegistryServer.cpp`, `src/DatasetRegistry.{hpp,cpp}`, callers in `src/IncrementalTrainingTool.cpp` and `src/IncrementalTrainer.cpp`, `src/StartupSweep.hpp`; the `TODO: See TD-333` tags are now fix comments.
 
 Files to Modify:
 
@@ -14175,7 +14222,7 @@ Action Items:
 - [x] Re-queue through the registry transport so it works against `registry_server`; add an operator command.
 - [ ] Before the TD-358 retraining: `dataset_manager requeue --all --model <name>` on the deployment (covers TD-411's audit item).
 - [ ] Add re-queue to the Android ops dashboard's Registry tab, which aims for CLI parity (TD-205).
-- [ ] Segment ranges aren't restored on re-queue, because the trained registry has no segment concept (TD-333).
+- [x] Segment ranges aren't restored on re-queue, because the trained registry has no segment concept (TD-333). (Fixed with TD-333, October 19, 2026: records carry their segment, and re-queue restores it.)
 
 Location in code: `src/RegistryTransport.{hpp,cpp}`, `src/RegistryServer.cpp` (`handle_requeue()`), `src/DatasetRegistry.{hpp,cpp}`, `src/DatasetManagerArgs.{hpp,cpp}`, `src/DatasetManagerTool.cpp`, `src/IncrementalTrainer.cpp` (`reset_all()`).
 
@@ -14212,6 +14259,33 @@ Files to Modify:
 
 - `src/IncrementalTrainer.cpp`
 - `tests/incrementaltrainer_test.cpp`
+
+---
+
+### TD-542: `dataset_manager segment` Keeps a Queued Whole-File Entry, So Its Pairs Train Twice
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / dataset_manager CLI | October 19, 2026 | 1-2 hours |
+
+Description:
+Found while checking TD-326's fix with the real binary: `dataset_manager add f.jsonl` then `dataset_manager segment f.jsonl --count 3` left four
+pending entries, the whole file plus three segments. Training that pool trains every pair twice. `segment` neither removes the whole-file entry nor
+warns about it. Segmenting a file that isn't queued yet (the documented flow) is fine. The Android dashboard's "Create segments" dialog mirrors the
+command's sequencing (`RegistryRepository.createSegments()`), so it likely has the same gap.
+
+Action Items:
+
+- [ ] Owner decision: should `segment` replace an existing unclaimed whole-file entry (deleting it once the segments are added), or refuse and ask
+  the operator to remove it first?
+- [ ] Apply the same rule in the Android `createSegments()`; refuse when the whole-file entry is claimed by a run.
+
+Location in code: `src/DatasetManagerTool.cpp` (`segment`), `android/opsdashboard/…/RegistryRepository.kt` (`createSegments()`).
+
+Files to Modify:
+
+- `src/DatasetManagerTool.cpp`
+- `android/opsdashboard/src/main/java/com/adai/ops/data/registry/RegistryRepository.kt`
 
 ---
 
@@ -14731,15 +14805,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 333 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 334 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|36|11%|
-|Medium|143|43%|
+|Medium|144|43%|
 |Low|154|46%|
 
-**Total Active Items:** 333
+**Total Active Items:** 334
 
 ### By Component
 
@@ -14775,7 +14849,7 @@ Recomputed directly from the 333 `### TD-NNN` entries under [Active Technical De
 |Core / DaemonConfigStore|3|
 |Admin config API|2|
 |Data / DataFetcher|6|
-|Data / dataset_manager CLI|12|
+|Data / dataset_manager CLI|13|
 |Data / DatasetRegistry|4|
 |Data / DataTransport|4|
 |Data / JSONL Format|3|

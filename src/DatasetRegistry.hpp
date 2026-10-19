@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-10-19
 
 
 #include <memory>
@@ -227,8 +227,13 @@ class DatasetRegistry {
     /** @return Sorted vector of all file paths that have been trained. */
     std::vector<std::string> trained_files() const;
 
-    /** @return true if @p path appears in the trained-files set. */
-    bool is_trained(const std::string& path) const;
+    /**
+     * @return true if @p path (or, with @p segment_start >= 0, that segment of it) is trained.
+     *         TD-333: a whole-file query is true when any record of the path exists; a segment
+     *         query is true when the whole file, or that exact segment, was trained.
+     */
+    bool is_trained(const std::string& path, int segment_start = -1,
+                    int segment_count = -1) const;
 
     // ── Mark trained ───────────────────────────────────────────────────────
 
@@ -280,6 +285,13 @@ class DatasetRegistry {
                          const std::vector<SegmentTarget>& segments = {});
 
     /**
+     * @brief TD-333: release exactly the units of an acquired batch (AcquireResponse::
+     *        file_ranges()), whole files and TD-205 segments alike. Callers used to pass bare
+     *        paths, which never release a claimed segment, leaving it stuck after a failed pass.
+     */
+    void release_pending(const std::string& run_id, const std::vector<PendingFileRange>& units);
+
+    /**
      * @brief Mark trained files and release the run's reservation atomically.
      *
      * For RemoteTransport this is a single atomic POST /trained request.
@@ -289,6 +301,14 @@ class DatasetRegistry {
      * Also updates the in-memory @c pending_ list.
      */
     void mark_trained(const std::string& run_id, const std::vector<std::string>& paths,
+                      const std::vector<int>& sample_counts);
+
+    /**
+     * @brief TD-333: mark exactly the units of an acquired batch trained: one record per whole
+     *        file or segment (with its own sample count), and only those pending entries removed.
+     *        A bare-path call recorded one segment as the whole file and dropped later segments.
+     */
+    void mark_trained(const std::string& run_id, const std::vector<PendingFileRange>& units,
                       const std::vector<int>& sample_counts);
 
     /** @brief Print which files are currently assigned to which run_id. */

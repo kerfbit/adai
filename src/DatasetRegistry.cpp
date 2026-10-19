@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-10-19
 
 #include "DatasetRegistry.hpp"
 #include <algorithm>
@@ -131,7 +131,7 @@ bool DatasetRegistry::add_file(const std::string& path, int segment_start, int s
         return false;
     }
 
-    if (is_trained(path)) {
+    if (is_trained(path, segment_start, segment_count)) {
         Logger::warn("Data file already trained, skipping: {}", path);
         return false;
     }
@@ -160,7 +160,7 @@ bool DatasetRegistry::add_file(const std::string& path, int segment_start, int s
 
 bool DatasetRegistry::add_pending_path_unchecked(const std::string& path, int segment_start,
                                                  int segment_count) {
-    if (is_trained(path)) {
+    if (is_trained(path, segment_start, segment_count)) {
         Logger::warn("Data file already trained, skipping: {}", path);
         return false;
     }
@@ -296,15 +296,20 @@ DeleteResult DatasetRegistry::delete_entries(const std::vector<std::string>& pat
                                                                  d.segment_count);
                                       }),
                        pending_.end());
-        if (d.segment_start < 0) {
-            // The trained registry has no segment concept — only a whole-file delete can
-            // ever remove a DataVersion/trained-set entry.
-            registry_.erase(
-                std::remove_if(registry_.begin(), registry_.end(),
-                               [&](const DataVersion& dv) { return dv.data_file == d.path; }),
-                registry_.end());
+        // TD-333: a whole-file delete removes every trained record of the path, a segment
+        // delete exactly that segment's record.
+        registry_.erase(std::remove_if(registry_.begin(), registry_.end(),
+                                       [&](const DataVersion& dv) {
+                                           return d.segment_start < 0
+                                                      ? dv.data_file == d.path
+                                                      : trained_matches(dv, d.path,
+                                                                        d.segment_start,
+                                                                        d.segment_count);
+                                       }),
+                       registry_.end());
+        if (std::none_of(registry_.begin(), registry_.end(),
+                         [&](const DataVersion& dv) { return dv.data_file == d.path; }))
             trained_set_.erase(d.path);
-        }
     }
     return result;
 }
@@ -313,40 +318,63 @@ std::vector<std::string> DatasetRegistry::trained_files() const {
     return std::vector<std::string>(trained_set_.begin(), trained_set_.end());
 }
 
-// TODO: See TD-333 in TECHNICAL_DEBT.md - path-only: one trained segment marks the whole file trained
-bool DatasetRegistry::is_trained(const std::string& path) const {
-    return trained_set_.find(path) != trained_set_.end();
+bool DatasetRegistry::is_trained(const std::string& path, int segment_start,
+                                 int segment_count) const {
+    if (segment_start < 0) {
+        return trained_set_.find(path) != trained_set_.end();  // any record of the file
+    }
+    return std::any_of(registry_.begin(), registry_.end(), [&](const DataVersion& dv) {
+        return dv.trained && (trained_matches(dv, path, -1, -1) ||
+                              trained_matches(dv, path, segment_start, segment_count));
+    });
 }
 
 // ============================================================================
 // Mark trained (internal helper)
 // ============================================================================
 
-// Build new DataVersion entries for each untrained path; update in-memory state.
-// Returns the newly created entries (does NOT persist — callers do that).
-// TODO: See TD-333 in TECHNICAL_DEBT.md - skips a path already in trained_set_, so later segments' samples are dropped
-static std::vector<DataVersion> build_new_versions(const std::vector<std::string>& paths,
+// Build a new DataVersion for each trained unit (whole file or TD-205 segment) not already
+// recorded; update in-memory state. Returns the new entries (does NOT persist — callers do).
+// TD-333: keyed by (path, segment), so each segment trained in a separate pass gets its own
+// record and sample count; this used to skip any path already trained.
+static std::vector<DataVersion> build_new_versions(const std::vector<PendingFileRange>& units,
                                                    const std::vector<int>& sample_counts,
                                                    std::vector<DataVersion>& registry_,
                                                    std::set<std::string>& trained_set_) {
     std::vector<DataVersion> new_entries;
-    for (std::size_t i = 0; i < paths.size(); ++i) {
-        const std::string& f = paths[i];
-        if (trained_set_.count(f))
+    for (std::size_t i = 0; i < units.size(); ++i) {
+        const PendingFileRange& u = units[i];
+        const bool recorded =
+            std::any_of(registry_.begin(), registry_.end(), [&](const DataVersion& dv) {
+                return trained_matches(dv, u.path, u.segment_start, u.segment_count);
+            });
+        if (recorded)
             continue;
 
         DataVersion dv;
-        dv.data_file = f;
-        dv.checksum = DatasetRegistry::compute_checksum(f);
+        dv.data_file = u.path;
+        dv.checksum = DatasetRegistry::compute_checksum(u.path);
         dv.num_samples = (i < sample_counts.size()) ? sample_counts[i] : 0;
         dv.added_utc = utc_now_string();
         dv.trained = true;
+        dv.segment_start = u.segment_start;
+        dv.segment_count = u.segment_count;
 
         new_entries.push_back(dv);
         registry_.push_back(dv);
-        trained_set_.insert(f);
+        trained_set_.insert(u.path);
     }
     return new_entries;
+}
+
+static std::vector<PendingFileRange> whole_file_units(const std::vector<std::string>& paths) {
+    std::vector<PendingFileRange> units;
+    for (const auto& p : paths) {
+        PendingFileRange u;
+        u.path = p;
+        units.push_back(std::move(u));
+    }
+    return units;
 }
 
 // ============================================================================
@@ -355,7 +383,7 @@ static std::vector<DataVersion> build_new_versions(const std::vector<std::string
 
 void DatasetRegistry::mark_trained(const std::vector<std::string>& paths,
                                    const std::vector<int>& sample_counts) {
-    build_new_versions(paths, sample_counts, registry_, trained_set_);
+    build_new_versions(whole_file_units(paths), sample_counts, registry_, trained_set_);
     save_registry();  // calls transport_->save_registry(registry_) for LocalTransport
 
     // TD-067 (fixed): this overload used to leave now-trained files sitting in
@@ -371,10 +399,12 @@ void DatasetRegistry::mark_trained(const std::vector<std::string>& paths,
 }
 
 // Phase 9 overload — atomic for both local (flock) and remote (POST /trained).
-// TODO: See TD-333 in TECHNICAL_DEBT.md - keyed by bare path; callers never pass segment ranges
+// Bare-path overload (whole files only; the transport's pre-TD-333 path-wide pending removal).
+// Callers with an acquired batch use the PendingFileRange overload below.
 void DatasetRegistry::mark_trained(const std::string& run_id, const std::vector<std::string>& paths,
                                    const std::vector<int>& sample_counts) {
-    const auto new_entries = build_new_versions(paths, sample_counts, registry_, trained_set_);
+    const auto new_entries =
+        build_new_versions(whole_file_units(paths), sample_counts, registry_, trained_set_);
     transport_->commit_trained(run_id, new_entries, paths);
 
     // Update in-memory pending_ to remove trained files
@@ -418,7 +448,47 @@ std::string DatasetRegistry::next_session(const std::string& model_name,
     return transport_->next_session(model_name, run_id);
 }
 
-// TODO: See TD-333 in TECHNICAL_DEBT.md - callers pass bare paths, which never release a claimed segment
+void DatasetRegistry::mark_trained(const std::string& run_id,
+                                   const std::vector<PendingFileRange>& units,
+                                   const std::vector<int>& sample_counts) {
+    std::vector<std::string> whole;
+    std::vector<SegmentTarget> segments;
+    for (const auto& u : units) {
+        if (u.segment_start < 0)
+            whole.push_back(u.path);
+        else
+            segments.push_back({u.path, u.segment_start, u.segment_count});
+    }
+    const auto new_entries = build_new_versions(units, sample_counts, registry_, trained_set_);
+    // With segments the transport removes exactly these units from pending. With whole files
+    // only it uses the path-wide removal, which only touches entries this run claimed.
+    transport_->commit_trained(run_id, new_entries, whole, segments);
+
+    pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
+                                  [&](const PendingEntry& e) {
+                                      return std::any_of(
+                                          units.begin(), units.end(),
+                                          [&](const PendingFileRange& u) {
+                                              return segment_matches(e, u.path, u.segment_start,
+                                                                     u.segment_count);
+                                          });
+                                  }),
+                   pending_.end());
+}
+
+void DatasetRegistry::release_pending(const std::string& run_id,
+                                      const std::vector<PendingFileRange>& units) {
+    std::vector<std::string> whole;
+    std::vector<SegmentTarget> segments;
+    for (const auto& u : units) {
+        if (u.segment_start < 0)
+            whole.push_back(u.path);
+        else
+            segments.push_back({u.path, u.segment_start, u.segment_count});
+    }
+    release_pending(run_id, whole, segments);
+}
+
 void DatasetRegistry::release_pending(const std::string& run_id,
                                       const std::vector<std::string>& paths,
                                       const std::vector<SegmentTarget>& segments) {

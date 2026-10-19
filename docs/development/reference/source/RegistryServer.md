@@ -170,3 +170,12 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 The body is `{"paths":[...],"all":bool,"model_name":"..."}`. Either `paths` or `all:true` is required; otherwise the server returns 400. Under the group mutex, `handle_requeue()` calls the group's `LocalTransport::requeue_trained()`. It responds with `{"requeued":N,"already_pending":N,"not_found":N,"details":[{"path":...,"status":...}]}`.
 
 It was checked end to end: two trained files were re-queued with `dataset_manager requeue --all --model chat-x`, came back unclaimed and assigned, and the trained registry was emptied. The `<group>` validation gap (TD-490) applies here as it does to every route.
+
+## Addendum (October 19, 2026): segment-aware `/trained`, `/release`, `/registry` (TD-333)
+
+- **`/trained`:** accepts optional `segment_starts`/`segment_counts` aligned with `files`. It records one entry per unit and removes exactly those pending entries; without the arrays it keeps the old path-wide removal.
+- **`/release`:** applies `files` and `segments` together.
+- **`/registry`:** each entry includes `segment_start`/`segment_count`.
+- **`/delete`:** removes segment records by exact range.
+
+Checked end to end, and with the live test suite (87/87).

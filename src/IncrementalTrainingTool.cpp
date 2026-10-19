@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.14.2
+// @adai-version: 0.15.0
 // @adai-reviewed: 2026-10-19
 
 #include <array>
@@ -351,8 +351,7 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
                 local_paths.push_back(p.string());
         } catch (const std::exception& ex) {
             adai::Logger::error("[DataTransport] Download failed: {}", ex.what());
-            // TODO: See TD-333 in TECHNICAL_DEBT.md - bare paths release only whole-file entries; claimed TD-205 segments stay stuck
-            reg.release_pending(run_id, resp.registry_paths());
+            reg.release_pending(run_id, resp.file_ranges());  // TD-333: exact units
             return 1;
         }
     } else {
@@ -373,10 +372,10 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         }
     }
 
-    const auto reg_paths = resp.registry_paths();
+    // TD-333: exact units (whole files and segments)
+    const auto reg_paths = resp.file_ranges();
     if (texts.empty()) {
         adai::Logger::warn("[lejepa] Acquired files contained no usable text samples");
-        // TODO: See TD-333 in TECHNICAL_DEBT.md - bare paths release only whole-file entries; claimed TD-205 segments stay stuck
         reg.release_pending(run_id, reg_paths);
         if (use_ftp)
             cleanup_downloads(downloaded_paths);
@@ -666,7 +665,7 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
 
     const bool ok = step_count > 0;
     if (ok) {
-        // TODO: See TD-334 in TECHNICAL_DEBT.md - always zero sample counts; TD-333: bare paths, so segments are recorded per file
+        // TODO: See TD-334 in TECHNICAL_DEBT.md - always zero sample counts
         std::vector<int> counts(reg_paths.size(), 0);
         reg.mark_trained(run_id, reg_paths, counts);
         adai::Logger::info(
@@ -676,7 +675,6 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         world_model.save(world_model_dir);
         adai::Logger::info("[lejepa] World-model checkpoint saved to '{}'", world_model_dir);
     } else {
-        // TODO: See TD-333 in TECHNICAL_DEBT.md - bare paths release only whole-file entries; claimed TD-205 segments stay stuck
         reg.release_pending(run_id, reg_paths);
         adai::Logger::warn("[lejepa] No samples were long enough to train on — all skipped");
     }
@@ -1188,21 +1186,20 @@ int main(int argc, char* argv[]) {
                 std::vector<PendingFileRange> local_ranges;
                 std::vector<fs::path> downloaded_paths;
                 if (!resolve_pass_files(resp, dcfg, local_ranges, downloaded_paths)) {
-                    // TODO: See TD-333 in TECHNICAL_DEBT.md - bare paths release only whole-file entries; claimed TD-205 segments stay stuck
-                    reg.release_pending(run_id, resp.registry_paths());
+                    reg.release_pending(run_id, resp.file_ranges());  // TD-333: exact units
                     return 1;
                 }
 
                 const bool ok = trainer.train_on_files(local_ranges, epochs);
-                const auto reg_paths = resp.registry_paths();
+                // TD-333: exact units (whole files and segments)
+                const auto reg_paths = resp.file_ranges();
 
                 if (ok) {
-                    // TODO: See TD-334 in TECHNICAL_DEBT.md - always zero sample counts; TD-333: bare paths, so segments are recorded per file
+                    // TODO: See TD-334 in TECHNICAL_DEBT.md - always zero sample counts
                     std::vector<int> counts(reg_paths.size(), 0);
                     reg.mark_trained(run_id, reg_paths, counts);
                     trainer.print_training_summary();
                 } else {
-                    // TODO: See TD-333 in TECHNICAL_DEBT.md - bare paths release only whole-file entries; claimed TD-205 segments stay stuck
                     reg.release_pending(run_id, reg_paths);
                 }
 
@@ -1285,8 +1282,7 @@ int main(int argc, char* argv[]) {
                     std::vector<PendingFileRange> pending_ranges;
                     if (!resolve_pass_files(pending_resp, dcfg, pending_ranges,
                                             downloaded_paths)) {
-                        // TODO: See TD-333 in TECHNICAL_DEBT.md - bare paths release only whole-file entries; claimed TD-205 segments stay stuck
-                        reg.release_pending(run_id, pending_resp.registry_paths());
+                        reg.release_pending(run_id, pending_resp.file_ranges());  // TD-333
                         return 1;
                     }
                     local_ranges.insert(local_ranges.end(), pending_ranges.begin(),
@@ -1300,18 +1296,17 @@ int main(int argc, char* argv[]) {
                 adai::Logger::info("Starting full retrain on {} data file(s)", local_ranges.size());
 
                 const bool ok = trainer.retrain_on_files(local_ranges, epochs);
-                const auto pending_reg_paths = pending_resp.registry_paths();
+                const auto pending_reg_paths = pending_resp.file_ranges();  // TD-333
 
                 if (ok) {
                     if (!pending_reg_paths.empty()) {
-                        // TODO: See TD-334 in TECHNICAL_DEBT.md - always zero sample counts; TD-333: bare paths, so segments are recorded per file
+                        // TODO: See TD-334 in TECHNICAL_DEBT.md - always zero sample counts
                         std::vector<int> counts(pending_reg_paths.size(), 0);
                         reg.mark_trained(run_id, pending_reg_paths, counts);
                     }
                     trainer.print_training_summary();
                 } else {
                     if (!pending_reg_paths.empty())
-                        // TODO: See TD-333 in TECHNICAL_DEBT.md - bare paths release only whole-file entries; claimed TD-205 segments stay stuck
                         reg.release_pending(run_id, pending_reg_paths);
                     std::cerr << "❌ Full retrain failed\n";
                 }

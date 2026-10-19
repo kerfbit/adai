@@ -83,8 +83,9 @@ class FakeFetchTransport : public RegistryTransport {
         inner_.release(run_id, paths, segments);
     }
     void commit_trained(const std::string& run_id, const std::vector<DataVersion>& new_entries,
-                        const std::vector<std::string>& trained_paths) override {
-        inner_.commit_trained(run_id, new_entries, trained_paths);
+                        const std::vector<std::string>& trained_paths,
+                        const std::vector<SegmentTarget>& trained_segments = {}) override {
+        inner_.commit_trained(run_id, new_entries, trained_paths, trained_segments);
     }
     bool add_pending(const std::string& path, int segment_start = -1,
                      int segment_count = -1) override {
@@ -583,6 +584,94 @@ TEST_F(DatasetRegistryTest, RequeueTrainedAllAndEdgeCases) {
     EXPECT_FALSE(reg.is_trained(data_file_));
     EXPECT_EQ(reg.pending_entries()[0].model_name, "") << "no model given: unassigned";
 
+}
+
+// TD-333: one file split into three TD-205 segments. A failed pass releases exactly the claimed
+// segments (bare paths used to release none of them), and segments trained in separate passes
+// are each recorded with their own sample count.
+TEST_F(DatasetRegistryTest, ReleasingAnAcquiredBatchFreesItsSegments) {
+    DatasetRegistry reg(make_cfg());
+    reg.load_pending_list();
+    ASSERT_TRUE(reg.add_file(data_file_, 0, 10));
+    ASSERT_TRUE(reg.add_file(data_file_, 10, 10));
+    ASSERT_TRUE(reg.add_file(data_file_, 20, 10));
+
+    const AcquireResponse a = reg.acquire_pending("run-A");
+    ASSERT_EQ(a.files.size(), 3u);
+    EXPECT_TRUE(reg.acquire_pending("run-B").files.empty()) << "all claimed by run-A";
+    reg.release_pending("run-A", a.file_ranges());
+
+    DatasetRegistry fresh(make_cfg());
+    fresh.load_pending_list();
+    EXPECT_EQ(fresh.acquire_pending("run-B").files.size(), 3u)
+        << "a failed pass's segments must be claimable by the next run";
+}
+
+TEST_F(DatasetRegistryTest, SegmentsTrainedSeparatelyAreEachRecorded) {
+    DatasetRegistry reg(make_cfg());
+    reg.load_pending_list();
+    ASSERT_TRUE(reg.add_file(data_file_, 0, 10));
+    ASSERT_TRUE(reg.add_file(data_file_, 10, 10));
+    ASSERT_TRUE(reg.add_file(data_file_, 20, 10));
+
+    const AcquireResponse first = reg.acquire_pending("run-1", 1);
+    ASSERT_EQ(first.files.size(), 1u);
+    reg.mark_trained("run-1", first.file_ranges(), {10});
+    const AcquireResponse second = reg.acquire_pending("run-1", 1);
+    ASSERT_EQ(second.files.size(), 1u);
+    reg.mark_trained("run-1", second.file_ranges(), {7});
+
+    DatasetRegistry fresh(make_cfg());
+    fresh.load_registry();
+    fresh.load_pending_list();
+    std::vector<DataVersion> records;
+    LocalTransport(fs::path(make_cfg().session_dir) / "data_registry.txt",
+                   fs::path(make_cfg().session_dir) / "pending_files.txt")
+        .load_registry(records);
+    ASSERT_EQ(records.size(), 2u) << "one record per trained segment";
+    EXPECT_EQ(records[0].num_samples + records[1].num_samples, 17);
+    EXPECT_TRUE(fresh.is_trained(data_file_, first.files[0].segment_start,
+                                 first.files[0].segment_count));
+    EXPECT_TRUE(fresh.is_trained(data_file_));
+    EXPECT_EQ(fresh.pending_files().size(), 1u) << "the untrained segment is still pending";
+    EXPECT_FALSE(fresh.is_trained(data_file_, fresh.pending_entries()[0].segment_start,
+                                  fresh.pending_entries()[0].segment_count));
+
+    // Re-queuing restores each trained segment as that segment.
+    const RequeueResult rq = fresh.requeue_trained({data_file_}, false);
+    EXPECT_EQ(rq.requeued, 2);
+    EXPECT_EQ(fresh.pending_entries().size(), 3u);
+    for (const auto& e : fresh.pending_entries()) EXPECT_GE(e.segment_start, 0);
+}
+
+TEST(LocalTransportSegmentRecordTest, RegistryFileKeepsSegmentsAndReadsLegacyLines) {
+    const fs::path dir = fs::temp_directory_path() / "adai_registry_segments";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    {
+        std::ofstream legacy(dir / "data_registry.txt");
+        legacy << "# legacy\n/data/old.jsonl abc 5 1 - 2026-01-01T00:00:00Z manual\n";
+    }
+    LocalTransport t((dir / "data_registry.txt").string(), (dir / "pending_files.txt").string());
+    std::vector<DataVersion> reg;
+    ASSERT_TRUE(t.load_registry(reg));
+    ASSERT_EQ(reg.size(), 1u);
+    EXPECT_EQ(reg[0].segment_start, -1) << "a legacy line is a whole-file record";
+
+    DataVersion seg;
+    seg.data_file = "/data/new.jsonl";
+    seg.trained = true;
+    seg.segment_start = 20;
+    seg.segment_count = 10;
+    reg.push_back(seg);
+    ASSERT_TRUE(t.save_registry(reg));
+    std::vector<DataVersion> back;
+    ASSERT_TRUE(t.load_registry(back));
+    ASSERT_EQ(back.size(), 2u);
+    EXPECT_EQ(back[1].segment_start, 20);
+    EXPECT_EQ(back[1].segment_count, 10);
+    EXPECT_EQ(back[0].source, "manual");
+    fs::remove_all(dir);
 }
 
 // A file both trained and pending (e.g. re-added after training) only loses its trained record;

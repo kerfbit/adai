@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-10-19
 
 #include "RegistryTransport.hpp"
 #include <fcntl.h>  // open(), O_RDWR
@@ -63,6 +63,8 @@ bool LocalTransport::load_registry(std::vector<DataVersion>& out) {
         // TODO: See TD-496 in TECHNICAL_DEBT.md - '/data/my file.jsonl' loads as data_file '/data/my', trained=false.
         iss >> dv.data_file >> dv.checksum >> dv.num_samples >> trained_int;
         dv.trained = (trained_int == 1);
+        if (dv.checksum == "-")
+            dv.checksum.clear();  // written for an empty checksum so later columns don't shift
 
         // model_id (Phase 2), added_utc/source (Phase 15) are optional trailing
         // columns, absent in older files. "-" is a written placeholder for an
@@ -76,6 +78,12 @@ bool LocalTransport::load_registry(std::vector<DataVersion>& out) {
             dv.added_utc = (tok == "-") ? "" : tok;
         if (iss >> tok)
             dv.source = (tok == "-") ? "" : tok;
+        // TD-333: optional segment columns (absent in older files = whole file).
+        int seg_start = -1, seg_count = -1;
+        if (iss >> seg_start >> seg_count) {
+            dv.segment_start = seg_start;
+            dv.segment_count = seg_count;
+        }
 
         out.push_back(std::move(dv));
     }
@@ -95,11 +103,12 @@ bool LocalTransport::save_registry(const std::vector<DataVersion>& entries) {
 
     auto col = [](const std::string& s) { return s.empty() ? std::string("-") : s; };
 
-    file << "# Data Registry: data_file checksum num_samples trained model_id added_utc source\n";
+    file << "# Data Registry: data_file checksum num_samples trained model_id added_utc source "
+            "segment_start segment_count\n";
     for (const auto& dv : entries) {
-        file << dv.data_file << " " << dv.checksum << " " << dv.num_samples << " "
+        file << dv.data_file << " " << col(dv.checksum) << " " << dv.num_samples << " "
              << (dv.trained ? 1 : 0) << " " << col(dv.model_id) << " " << col(dv.added_utc) << " "
-             << col(dv.source) << "\n";
+             << col(dv.source) << " " << dv.segment_start << " " << dv.segment_count << "\n";
     }
 
     return file.good();
@@ -305,34 +314,27 @@ void LocalTransport::release(const std::string& run_id, const std::vector<std::s
     std::vector<PendingEntry> entries;
     load_pending(entries);
 
-    if (!segments.empty()) {
-        // TD-205: segment-targeted release — match the exact (path, range), not every entry
-        // sharing that path, so releasing one segment doesn't also release its siblings.
-        for (auto& e : entries) {
-            if (e.run_id != run_id)
-                continue;
-            for (const auto& t : segments) {
-                if (segment_matches(e, t.path, t.segment_start, t.segment_count)) {
-                    e.run_id.clear();
-                    break;
-                }
-            }
+    // TD-205: whole-file paths match only whole-file entries (segment_start < 0); a segment
+    // needs its own `segments` target, matched on its exact range so its siblings stay claimed.
+    // TD-333: both lists are applied in one call. This used to be either/or (segments, else
+    // paths), so a batch with both kinds released only half of them.
+    const std::set<std::string> to_release(paths.begin(), paths.end());
+    int released = 0;
+    for (auto& e : entries) {
+        if (e.run_id != run_id)
+            continue;
+        bool match = e.segment_start < 0 && to_release.count(e.path) > 0;
+        for (std::size_t i = 0; !match && i < segments.size(); ++i)
+            match = segment_matches(e, segments[i].path, segments[i].segment_start,
+                                    segments[i].segment_count);
+        if (match) {
+            e.run_id.clear();
+            ++released;
         }
-        save_pending(entries);
-        Logger::info("Released {} segment(s) back to pending queue (run '{}')", segments.size(),
-                    run_id);
-    } else {
-        // TD-205: whole-file paths must only match whole-file entries (segment_start < 0) —
-        // never sweep up a segment sharing the same physical path; that requires `segments`.
-        const std::set<std::string> to_release(paths.begin(), paths.end());
-        for (auto& e : entries) {
-            if (e.run_id == run_id && e.segment_start < 0 && to_release.count(e.path)) {
-                e.run_id.clear();
-            }
-        }
-        save_pending(entries);
-        Logger::info("Released {} files back to pending queue (run '{}')", paths.size(), run_id);
     }
+    save_pending(entries);
+    Logger::info("Released {} pending entr{} back to the pool (run '{}')", released,
+                 released == 1 ? "y" : "ies", run_id);
 
     unlock_pending(lock_fd);
 }
@@ -341,7 +343,8 @@ void LocalTransport::release(const std::string& run_id, const std::vector<std::s
 // registry rewrite runs outside the lock.
 void LocalTransport::commit_trained(const std::string& run_id,
                                     const std::vector<DataVersion>& new_entries,
-                                    const std::vector<std::string>& trained_paths) {
+                                    const std::vector<std::string>& trained_paths,
+                                    const std::vector<SegmentTarget>& trained_segments) {
     // ── Registry ──────────────────────────────────────────────────────────
     // Load existing registry, append new entries, save.
     std::vector<DataVersion> registry;
@@ -362,10 +365,21 @@ void LocalTransport::commit_trained(const std::string& run_id,
     load_pending(pending);
 
     const std::set<std::string> trained_set(trained_paths.begin(), trained_paths.end());
+    const bool exact = !trained_segments.empty();  // TD-333
     pending.erase(std::remove_if(pending.begin(), pending.end(),
                                  [&](const PendingEntry& e) {
-                                     return trained_set.count(e.path) &&
-                                            (run_id.empty() || e.run_id == run_id);
+                                     if (!run_id.empty() && e.run_id != run_id)
+                                         return false;
+                                     if (!exact)
+                                         return trained_set.count(e.path) > 0;
+                                     if (e.segment_start < 0)
+                                         return trained_set.count(e.path) > 0;
+                                     return std::any_of(
+                                         trained_segments.begin(), trained_segments.end(),
+                                         [&](const SegmentTarget& t) {
+                                             return segment_matches(e, t.path, t.segment_start,
+                                                                    t.segment_count);
+                                         });
                                  }),
                   pending.end());
 
@@ -634,16 +648,21 @@ DeleteResult LocalTransport::delete_paths(const std::vector<std::string>& paths,
             }
         }
 
-        // TD-205: the trained registry has no segment concept — a DataVersion always
-        // represents the whole physical file actually trained on — so only a whole-file
-        // target (segment_start < 0) can match/erase it.
-        if (t.segment_start < 0) {
-            auto rit = std::find_if(registry.begin(), registry.end(), [&](const DataVersion& dv) {
-                return dv.data_file == t.path;
-            });
-            if (rit != registry.end()) {
+        // TD-333: trained records carry their segment. A whole-file target removes every
+        // record of the path; a segment target removes exactly that segment's record.
+        {
+            const auto before = registry.size();
+            registry.erase(std::remove_if(registry.begin(), registry.end(),
+                                          [&](const DataVersion& dv) {
+                                              return t.segment_start < 0
+                                                         ? dv.data_file == t.path
+                                                         : trained_matches(dv, t.path,
+                                                                           t.segment_start,
+                                                                           t.segment_count);
+                                          }),
+                           registry.end());
+            if (registry.size() != before) {
                 found_anywhere = true;
-                registry.erase(rit);
                 registry_changed = true;
             }
         }
@@ -739,45 +758,56 @@ RequeueResult LocalTransport::requeue_trained(const std::vector<std::string>& pa
     std::vector<PendingEntry> pending;
     load_pending(pending);
 
-    std::vector<std::string> targets = paths;
-    if (all) {
-        targets.clear();
+    std::vector<std::string> targets;
+    for (const auto& p : all ? std::vector<std::string>{} : paths)
+        if (std::find(targets.begin(), targets.end(), p) == targets.end())
+            targets.push_back(p);
+    if (all)
         for (const auto& dv : registry)
-            targets.push_back(dv.data_file);
-    }
+            if (std::find(targets.begin(), targets.end(), dv.data_file) == targets.end())
+                targets.push_back(dv.data_file);
 
     bool changed = false;
     for (const auto& path : targets) {
-        RequeueResult::Detail detail;
-        detail.path = path;
-        auto rit = std::find_if(registry.begin(), registry.end(),
-                                [&](const DataVersion& dv) { return dv.data_file == path; });
-        if (rit == registry.end()) {
-            detail.status = "not_found";
-            ++result.not_found;
+        // TD-333: every trained record of the path -- the whole file, or each trained segment,
+        // which comes back as that same segment.
+        bool found = false;
+        for (auto rit = registry.begin(); rit != registry.end();) {
+            if (rit->data_file != path) {
+                ++rit;
+                continue;
+            }
+            found = true;
+            RequeueResult::Detail detail;
+            detail.path = path;
+            const bool already_pending =
+                std::any_of(pending.begin(), pending.end(), [&](const PendingEntry& e) {
+                    return segment_matches(e, path, rit->segment_start, rit->segment_count);
+                });
+            if (already_pending) {
+                detail.status = "already_pending";
+                ++result.already_pending;
+            } else {
+                PendingEntry e;
+                e.path = path;
+                e.model_name = model_name;
+                e.source = rit->source;
+                e.added_utc = rit->added_utc;
+                e.checksum = rit->checksum;
+                e.segment_start = rit->segment_start;
+                e.segment_count = rit->segment_count;
+                pending.push_back(std::move(e));
+                detail.status = "requeued";
+                ++result.requeued;
+            }
+            rit = registry.erase(rit);
+            changed = true;
             result.details.push_back(std::move(detail));
-            continue;
         }
-        const bool already_pending =
-            std::any_of(pending.begin(), pending.end(),
-                        [&](const PendingEntry& e) { return segment_matches(e, path, -1, -1); });
-        if (already_pending) {
-            detail.status = "already_pending";
-            ++result.already_pending;
-        } else {
-            PendingEntry e;
-            e.path = path;
-            e.model_name = model_name;
-            e.source = rit->source;
-            e.added_utc = rit->added_utc;
-            e.checksum = rit->checksum;
-            pending.push_back(std::move(e));
-            detail.status = "requeued";
-            ++result.requeued;
+        if (!found) {
+            result.details.push_back({path, "not_found"});
+            ++result.not_found;
         }
-        registry.erase(rit);
-        changed = true;
-        result.details.push_back(std::move(detail));
     }
 
     if (changed) {
@@ -1029,6 +1059,8 @@ bool RemoteTransport::load_registry(std::vector<DataVersion>& out) {
         DataVersion dv;
         dv.data_file = json_string(obj, "data_file");
         dv.checksum = json_string(obj, "checksum");
+        dv.segment_start = json_int(obj, "segment_start", -1);  // TD-333; absent = whole file
+        dv.segment_count = json_int(obj, "segment_count", -1);
         // num_samples is a JSON number, not a string
         const std::string ns_needle = "\"num_samples\":";
         const auto nsp = obj.find(ns_needle);
@@ -1311,38 +1343,56 @@ void RemoteTransport::release(const std::string& run_id, const std::vector<std::
 
 void RemoteTransport::commit_trained(const std::string& run_id,
                                      const std::vector<DataVersion>& new_entries,
-                                     const std::vector<std::string>& trained_paths) {
+                                     const std::vector<std::string>& trained_paths,
+                                     const std::vector<SegmentTarget>& trained_segments) {
 #ifdef BUILD_METRICS_API_SERVER
     httplib::Client cli(host_, port_);
     cli.set_connection_timeout(0, timeout_ms_ * 1000);
     cli.set_read_timeout(0, timeout_ms_ * 1000);
 
     // TODO: See TD-498 in TECHNICAL_DEBT.md - model_id is never sent (and never set), so history?model_id= never matches.
-    // Build files and samples arrays from new_entries
+    // One aligned entry per trained unit: files[i], samples[i] and (TD-333, exact mode)
+    // segment_starts[i]/segment_counts[i]. new_entries first (they carry the sample counts), then
+    // any trained path/segment already recorded, so its pending entry is still removed.
     std::vector<std::string> files;
-    std::vector<int> samples;
-    for (const auto& e : new_entries) {
-        files.push_back(e.data_file);
-        samples.push_back(e.num_samples);
-    }
-    // Also include any trained_paths not in new_entries (already in registry)
-    std::set<std::string> files_set(files.begin(), files.end());
-    for (const auto& p : trained_paths) {
-        if (!files_set.count(p)) {
-            files.push_back(p);
-            samples.push_back(0);
+    std::vector<int> samples, seg_starts, seg_counts;
+    auto has_unit = [&](const std::string& path, int start, int count) {
+        for (std::size_t i = 0; i < files.size(); ++i)
+            if (files[i] == path && seg_starts[i] == start && seg_counts[i] == count)
+                return true;
+        return false;
+    };
+    auto add_unit = [&](const std::string& path, int start, int count, int n) {
+        if (!has_unit(path, start, count)) {
+            files.push_back(path);
+            samples.push_back(n);
+            seg_starts.push_back(start);
+            seg_counts.push_back(count);
         }
-    }
+    };
+    for (const auto& e : new_entries)
+        add_unit(e.data_file, e.segment_start, e.segment_count, e.num_samples);
+    for (const auto& p : trained_paths)
+        add_unit(p, -1, -1, 0);
+    for (const auto& t : trained_segments)
+        add_unit(t.path, t.segment_start, t.segment_count, 0);
 
+    auto int_array = [](const std::vector<int>& v) {
+        std::string out = "[";
+        for (std::size_t i = 0; i < v.size(); ++i)
+            out += (i ? "," : "") + std::to_string(v[i]);
+        return out + "]";
+    };
     std::ostringstream body;
     body << "{\"run_id\":\"" << json_escape(run_id) << "\"," << "\"files\":" << json_array(files)
-         << "," << "\"samples\":[";
-    for (std::size_t i = 0; i < samples.size(); ++i) {
-        if (i)
-            body << ',';
-        body << samples[i];
+         << ",\"samples\":" << int_array(samples);
+    if (!trained_segments.empty()) {
+        // Exact mode: the server removes exactly these pending entries. Without the arrays it
+        // keeps the pre-TD-333 behaviour (every entry sharing a path), for older clients.
+        body << ",\"segment_starts\":" << int_array(seg_starts)
+             << ",\"segment_counts\":" << int_array(seg_counts);
     }
-    body << "]}";
+    body << "}";
 
     const auto res = cli.Post((group_prefix_ + "/trained").c_str(), body.str(), "application/json");
     if (!res || res->status != 200) {

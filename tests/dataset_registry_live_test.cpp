@@ -1408,6 +1408,45 @@ TEST_F(LiveRegistryTest, RemoteTransportParsesTrainedAndNumSamplesAsRawJsonLiter
     EXPECT_EQ(it->num_samples, 321) << "num_samples was not parsed as a bare JSON number";
 }
 
+// TD-333: RemoteTransport commits and releases exact segments: two segments trained in one batch
+// get their own records, a third released one is claimable by another run.
+TEST_F(LiveRegistryTest, RemoteTransportCommitsAndReleasesExactSegments) {
+    const std::string p = "/data/" + group() + "/segmented.jsonl";
+    RemoteTransport rt("http://" + server_host() + ":" + std::to_string(server_port()), group());
+    ASSERT_TRUE(rt.add_pending(p, 0, 10));
+    ASSERT_TRUE(rt.add_pending(p, 10, 10));
+    ASSERT_TRUE(rt.add_pending(p, 20, 10));
+    const AcquireResponse resp = rt.acquire("seg-run", 0);
+    ASSERT_EQ(resp.files.size(), 3u);
+
+    DataVersion a, b;
+    a.data_file = b.data_file = p;
+    a.trained = b.trained = true;
+    a.segment_start = 0;
+    a.segment_count = 10;
+    a.num_samples = 10;
+    b.segment_start = 10;
+    b.segment_count = 10;
+    b.num_samples = 7;
+    rt.commit_trained("seg-run", {a, b}, {}, {{p, 0, 10}, {p, 10, 10}});
+    rt.release("seg-run", {}, {{p, 20, 10}});
+
+    std::vector<DataVersion> reg;
+    ASSERT_TRUE(rt.load_registry(reg));
+    int records = 0, samples = 0;
+    for (const auto& dv : reg)
+        if (dv.data_file == p) {
+            ++records;
+            samples += dv.num_samples;
+            EXPECT_GE(dv.segment_start, 0);
+        }
+    EXPECT_EQ(records, 2);
+    EXPECT_EQ(samples, 17);
+    const AcquireResponse next = rt.acquire("other-run", 0);
+    ASSERT_EQ(next.files.size(), 1u);
+    EXPECT_EQ(next.files[0].segment_start, 20);
+}
+
 // ===========================================================================
 // History — GET /registry/<group>/history[?model_id=<uuid>]  (Phase 2)
 // ===========================================================================

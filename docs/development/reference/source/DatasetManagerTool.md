@@ -155,3 +155,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 ## Addendum (October 18, 2026): `requeue`
 
 `dataset_manager requeue (--all | <file> ...) [--model <name>]` calls `DatasetRegistry::requeue_trained()`. With `REGISTRY_SERVER_URL` set, that goes to `registry_server`. The command prints a status per file and exits 1 if nothing was re-queued or the request failed. Its arguments are parsed by `parse_requeue_args()`, which rejects unknown flags. The operator guide documents it.
+
+## Addendum (October 19, 2026): `migrate` moves segments exactly (TD-326)
+
+Each legacy entry is moved with its segment range: add, then restore the model by segment, then delete the source by segment. Each step's result is checked, and the destination copy is rolled back on failure. Checked with the real binary: a whole-file entry plus 3 segments moved 4/4 and left the legacy pool empty. That run also found TD-542, where `segment` keeps an existing whole-file entry.

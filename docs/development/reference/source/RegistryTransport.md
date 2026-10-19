@@ -140,3 +140,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 - `RemoteTransport` sends `POST /registry/<group>[/<kind>]/requeue` and returns `RequeueResult::ok = false` if the request fails.
 
 Added for the remote-first rule (the trainer takes its data from `registry_server`), so re-queuing happens where the data lives. It's tested in `DatasetRegistryTests` (`Requeue*`, `LocalTransportRequeueTest`) and was checked end to end against a real `registry_server`.
+
+## Addendum (October 19, 2026): segments in trained records (TD-333)
+
+- **Local registry file:** two trailing `segment_start segment_count` columns. A line without them is a whole-file record.
+- **`commit_trained(…, trained_segments)`:** in exact mode it removes exactly the trained units. `RemoteTransport` sends aligned `segment_starts`/`segment_counts`.
+- **`release()`:** applies paths and segments together.
+- **`requeue_trained()`:** restores segment records as segments.
+- **`trained_matches()`:** the identity check for a trained record.
