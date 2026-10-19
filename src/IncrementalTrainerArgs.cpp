@@ -1,8 +1,9 @@
 // @adai-status: experimental
-// @adai-version: 0.5.0
-// @adai-reviewed: 2026-09-20
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-10-19
 
 #include "IncrementalTrainerArgs.hpp"
+#include <algorithm>
 #include <array>
 #include <cstdlib>
 
@@ -97,6 +98,23 @@ ResetCommandArgs parse_reset_command_args(const std::vector<std::string>& args) 
         }
     }
     return result;
+}
+
+PassOutcome classify_pass_exit(int exit_code) {
+    if (exit_code == kResumeExitTrained)
+        return PassOutcome::DidWork;
+    if (exit_code == kResumeExitNothingPending)
+        return PassOutcome::Idle;
+    if (exit_code >= 128)
+        return PassOutcome::Crashed;
+    return PassOutcome::Failed;
+}
+
+int failure_backoff_seconds(int consecutive_failures, int base_seconds, int max_seconds) {
+    long long wait = base_seconds;
+    for (int i = 1; i < consecutive_failures && wait < max_seconds; ++i)
+        wait *= 2;
+    return static_cast<int>(std::min<long long>(wait, max_seconds));
 }
 
 }  // namespace adai

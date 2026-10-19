@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.15.0
+// @adai-version: 0.16.0
 // @adai-reviewed: 2026-10-19
 
 #include <array>
@@ -1452,7 +1452,7 @@ int main(int argc, char* argv[]) {
                                   resume_dcfg.download_dir);
                 }
                 std::vector<fs::path> resume_downloads;
-                const bool did_work = trainer.resume_last_session(
+                const auto result = trainer.resume_last_session(
                     [&](const AcquireResponse& resp, std::vector<PendingFileRange>& ranges) {
                         return resolve_pass_files(resp, resume_dcfg, ranges, resume_downloads);
                     });
@@ -1465,9 +1465,12 @@ int main(int argc, char* argv[]) {
                 }
 #endif
 
-                // TODO: See TD-523 in TECHNICAL_DEBT.md - same exit code for "nothing pending" and for failures.
-                if (!did_work)
-                    return 1;
+                // TD-523: distinct exit codes, so trainer_service can tell an idle pass (nothing
+                // pending) from a failing one; it used to see exit 1 for both.
+                if (result == IncrementalTrainer::ResumeResult::NothingPending)
+                    return adai::kResumeExitNothingPending;
+                if (result == IncrementalTrainer::ResumeResult::Failed)
+                    return adai::kResumeExitFailed;
                 adai::Logger::info("Resumed from last session; latest checkpoint: {}",
                                    trainer.get_latest_checkpoint());
                 return 0;

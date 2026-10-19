@@ -1147,9 +1147,10 @@ Done:
 
 - TD-542 (owner decision: segments replace an unclaimed whole-file entry; CLI and Android).
 
+- TD-523 and TD-519 (failing passes counted, logged and backed off; admin config PUT parsed as JSON).
+
 Remaining, re-ordered on October 18 because TD-539 means checkpoints now actually carry over between passes:
-1. TD-523/519;
-2. TD-541 (found October 19: a pass without validation data has its checkpoint discarded).
+1. TD-541 (found October 19: a pass without validation data has its checkpoint discarded).
 
 Every fix here is verified on CPU, or on the oneAPI CPU device for the SYCL kernels. Still needed: an on-device run on ai-machine, then
 retraining from scratch, since no existing checkpoint has correct GPU-trained weights (TD-358) or the encoder's own embedding (TD-538).
@@ -6946,7 +6947,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Admin config API | October 11, 2026 | 2-4 hours |
+| MEDIUM | Open — trainer validate-first part fixed October 19, 2026 (with TD-519) | Admin config API | October 11, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-304, by inspection. Two problems:
@@ -6965,7 +6966,8 @@ Found alongside TD-304, by inspection. Two problems:
 
 Action Items:
 
-- [ ] Validate every key in the body before applying or persisting any of them.
+- [x] Validate every key in the body before applying or persisting any of them. Done October 19, 2026 for both trainer handlers with TD-519's
+  shared `parse_trainer_admin_config()`; the tests now include a body whose third key is invalid, which changes nothing.
 - [ ] Add `DaemonConfigStore::set_many()` (one transaction) and persist before (or atomically with) updating in-memory state; return a clear 500 when persistence fails.
 - [ ] Tests: a body with one invalid key changes nothing; a persistence failure leaves memory and DB consistent.
 
@@ -13551,7 +13553,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / Admin API | October 17, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 19, 2026 | Training / Admin API | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `TrainerAdminAPI.cpp` (see [TrainerAdminAPI.md](../reference/source/TrainerAdminAPI.md)); verified against the real server.
@@ -13563,8 +13565,22 @@ work: `stoi` skips leading whitespace. The Android dashboard sends compact JSON.
 
 Action Items:
 
-- [ ] Parse request bodies with the vendored `nlohmann/json` (with TD-453), rejecting non-boolean values with 400.
-- [ ] Test whitespace and pretty-printed bodies, in both handlers.
+- [x] Parse request bodies with the vendored `nlohmann/json` (with TD-453), rejecting non-boolean values with 400.
+- [x] Test whitespace and pretty-printed bodies, in both handlers.
+
+**Fix (October 19, 2026).** Both handlers now call one shared parser, `parse_trainer_admin_config()` (`src/TrainerAdminConfig.{hpp,cpp}`, in
+`adai_core`), which reads the body with the vendored `nlohmann/json`.
+- Any valid JSON spacing works. `auto_save_enabled` must be a JSON boolean, and the three counts must be integers in range.
+- These are rejected with 400: malformed JSON, a body that isn't an object, the immutable keys, and a body with no mutable key.
+- The whole body is validated before anything is applied or persisted, which also fixes TD-305's validate-first half for this endpoint.
+- The old substring helpers (`json_int()`, `json_bool()`, `json_has_key()`) are removed from both files.
+
+Verified:
+- **Against the old handlers:** the new HTTP tests failed in both suites.
+  - The live API with `"auto_save_enabled": true` left auto-save off.
+  - A body rejected on its third key had already applied the first two.
+  - The idle proxy wrote `false` for a spaced `true`.
+- **With the fix:** they pass, along with `TrainerAdminConfigTests` (3 cases), `TrainerAdminAPITests` (16) and `TrainerServiceProxyTests` (18).
 
 Location in code: `src/TrainerAdminAPI.cpp` (`json_bool()`, `handle_put_config()`), `src/TrainerServiceProxy.cpp` (`json_bool()`, `handle_put_config_idle()`); tagged `TODO: See TD-519`.
 
@@ -13665,7 +13681,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / Service Supervisor | October 17, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 19, 2026 | Training / Service Supervisor | October 17, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `TrainerServiceMain.cpp` (see [TrainerServiceMain.md](../reference/source/TrainerServiceMain.md)); verified with the real binary and a
@@ -13678,8 +13694,32 @@ stuck), indefinitely, while the dashboard shows an idle trainer.
 
 Action Items:
 
-- [ ] Give `resume` distinct exit codes (e.g. 0 did work, 3 nothing pending, 1 failed) and have the supervisor count failures separately, log them, expose a `total_passes_failed`/`last_failure` field in `/admin/status`, and back off on consecutive failures.
-- [ ] Test the supervisor's handling of each exit code with a stub child.
+- [x] Give `resume` distinct exit codes (e.g. 0 did work, 3 nothing pending, 1 failed) and have the supervisor count failures separately, log them, expose a `total_passes_failed`/`last_failure` field in `/admin/status`, and back off on consecutive failures.
+- [x] Test the supervisor's handling of each exit code with a stub child.
+
+**Fix (October 19, 2026).**
+- **Distinct results:** `IncrementalTrainer::resume_last_session()` now returns `ResumeResult::Trained`, `NothingPending` or `Failed`.
+  `resume` exits 0, 3 or 1 to match (`kResumeExit*` in `IncrementalTrainerArgs.hpp`).
+- **Unreachable registry:** an unreachable registry (or a local lock failure) now sets a new `AcquireResponse::failed` flag. So a registry
+  outage is a failure, not "nothing pending".
+- **Supervisor:** `trainer_service` classifies each exit with `classify_pass_exit()`:
+  - 0 trained; 3 idle; 128 and up crashed (a signal death);
+  - anything else failed, including 127 for an exec failure.
+- **On a failure or crash** it:
+  - logs an error with the exit code;
+  - counts it;
+  - waits `failure_backoff_seconds()`: the 45 s poll interval, doubled for each consecutive failure up to 15 minutes. `POST /admin/resume`
+    still wakes it at once.
+- **`/admin/status`** gains `total_passes_failed`, `consecutive_failures` and `last_failure_unix`. `total_passes_crashed` now counts only
+  signal deaths.
+
+Verified:
+- **Unit tests:** `ResumeReportsNothingPendingSeparatelyFromFailure` (empty local queue, then an unreachable registry), the exit-code
+  classification and backoff tests.
+- **Real `trainer_service` with a stub `incremental_trainer`:**
+  - **exit 1:** `total_passes_failed: 1`, `consecutive_failures: 1`, `last_failure_unix` set, and a "training pass failed with exit code 1"
+    error in its log;
+  - **exit 3:** idle, with no failure recorded.
 
 Location in code: `src/TrainerServiceMain.cpp` (exit-code handling), `src/IncrementalTrainingTool.cpp` (`resume`'s `return 1`); tagged `TODO: See TD-523`.
 
@@ -13704,7 +13744,8 @@ Found while tracing `TrainerServiceMain.cpp` and `scripts/adai-trainer.service` 
   `TRAINER_ADMIN_ENABLED=false`, contrary to the opt-in "no new ports" intent in CLAUDE.md.
 - **`PATH` fallback:** started by a bare name, `trainer_service` launches whichever `incremental_trainer` is first on `PATH`, possibly a different version
   from the one installed beside it.
-- **No backoff:** a fixed 45 s after crashes or launch failures.
+- **No backoff:** a fixed 45 s after crashes or launch failures. (Since October 19, 2026, TD-523 backs off failed and crashed passes; a failed
+  `ChildProcess::start()` still retries after a fixed 45 s.)
 - **Unit write paths:** `adai-trainer.service` sets `ProtectSystem=strict` with `ReadWritePaths` that omit `/opt/adai/downloads` (the default
   `DOWNLOAD_DIR=downloads` under `WorkingDirectory=/opt/adai`), so FTP downloads would fail read-only under the shipped unit; the empty-`LOG_FILE_PATH`
   fallback log in the working directory likewise (TD-431).
@@ -13712,7 +13753,7 @@ Found while tracing `TrainerServiceMain.cpp` and `scripts/adai-trainer.service` 
 Action Items:
 
 - [ ] Pass `--admin-port` only when the admin API is enabled; resolve the child next to the real executable path (`/proc/self/exe`), not `PATH`.
-- [ ] Exponential backoff on consecutive crashes/failures; add the download directory to `ReadWritePaths` (and set `LOG_FILE_PATH` in the shipped config).
+- [ ] Exponential backoff on consecutive crashes/failures (done for failed and crashed passes with TD-523; launch failures remain); add the download directory to `ReadWritePaths` (and set `LOG_FILE_PATH` in the shipped config).
 
 Location in code: `src/TrainerServiceMain.cpp` (`resolve_incremental_trainer_path()`, child argv, loop), `scripts/adai-trainer.service` (`ReadWritePaths`); tagged `TODO: See TD-524`.
 

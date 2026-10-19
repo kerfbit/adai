@@ -90,3 +90,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Idle config ignores `config.trainer.conf` (§2) | Between passes, reported settings differ from what the next pass uses | **Verified** | [TD-525](../../guides/TECHNICAL_DEBT.md#td-525-trainerserviceproxy-misreports-long-checkpoint-waits-and-idle-config) |
 | Unencoded `wait_ms` in the proxied path; two meanings of `paused`; per-request clients; ignored pause/resume proxy failures (§2) | Hygiene | By inspection | [TD-525](../../guides/TECHNICAL_DEBT.md#td-525-trainerserviceproxy-misreports-long-checkpoint-waits-and-idle-config) |
 | Boolean parsing, NaN status, partial PUT, duplicated JSON, failing child shown idle | Already tracked | — | TD-519, TD-520, TD-305, TD-453, TD-523 |
+
+## Addendum (October 19, 2026): shared PUT parser and failure fields (TD-519, TD-523)
+
+`handle_put_config_idle()` uses the same `parse_trainer_admin_config()` as `TrainerAdminAPI`, so a live pass and an idle service accept and reject the same bodies, and nothing is written to `daemon_config.db` for a rejected one. `with_supervisor_fields()` adds `total_passes_failed`, `consecutive_failures` and `last_failure_unix` to `/admin/status`.

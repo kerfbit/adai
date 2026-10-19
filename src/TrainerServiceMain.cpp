@@ -1,13 +1,14 @@
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-14
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-10-19
 
 // TD-172: trainer_service — the thin process-supervisor binary that replaces
 // `incremental_trainer serve`. Deliberately minimal: it does not link adai_models/adai_nlp and
 // never touches GPU/CUDA/SYCL objects at all — every actual training pass runs inside a
 // single-pass `incremental_trainer --foreground --admin-port <N> resume` child this process
 // launches and monitors (see ChildProcess.hpp). This binary's own job is just:
-//   1. Launch a child, wait for it to exit, note whether it did work (exit 0) or not (exit 1).
+//   1. Launch a child, wait for it to exit, note whether it trained (exit 0), found nothing
+//      pending (exit 3) or failed (anything else; TD-523), backing off on repeated failures.
 //   2. If it did work, launch another one immediately (more may be pending); otherwise sleep the
 //      poll interval first — the same shape `serve`'s old in-process loop already used.
 //   3. Host an always-on admin HTTP listener (TrainerServiceProxy) that proxies /admin/* requests
@@ -163,6 +164,8 @@ int main(int argc, char* argv[]) {
     }
 
     constexpr int kPollIntervalSeconds = 45;  // matches serve's own previous cadence
+    // TD-523: consecutive failures double the wait from the poll interval up to this cap.
+    constexpr int kMaxFailureBackoffSeconds = 900;
     adai::Logger::info(
         "trainer_service: supervisory loop starting (poll interval {}s); launching {}",
         kPollIntervalSeconds, trainer_path);
@@ -213,23 +216,42 @@ int main(int argc, char* argv[]) {
         control->current_child_pid = 0;
         control->last_exit_unix = unix_seconds();
         control->last_exit_code = exit_code;
-        if (exit_code != 0 && exit_code != 1) {
-            control->total_passes_crashed.fetch_add(1);
-        }
         proxy.set_child_port(0);
 
         if (control->stop_requested.load()) {
             break;
         }
 
-        // TODO: See TD-523 in TECHNICAL_DEBT.md - `resume` exits 1 both when idle and when it failed (missing checkpoint,
-        // load/training failure), so failures look idle here and retry every 45 s unreported (verified).
-        const bool did_work = (exit_code == 0);
-        if (did_work) {
-            control->total_passes_did_work.fetch_add(1);
-            continue;  // more work may already be pending — don't sleep
+        // TD-523: `resume` exits 0 (trained), 3 (nothing pending) or 1 (failed). A failure used to
+        // share exit 1 with "nothing pending", so a broken trainer looked idle and retried every
+        // poll interval unreported, claiming and releasing files each time.
+        switch (adai::classify_pass_exit(exit_code)) {
+            case adai::PassOutcome::DidWork:
+                control->total_passes_did_work.fetch_add(1);
+                control->consecutive_failures = 0;
+                continue;  // more work may already be pending — don't sleep
+            case adai::PassOutcome::Idle:
+                control->consecutive_failures = 0;
+                control->interruptible_sleep(kPollIntervalSeconds);
+                break;
+            case adai::PassOutcome::Failed:
+            case adai::PassOutcome::Crashed: {
+                const bool crashed =
+                    adai::classify_pass_exit(exit_code) == adai::PassOutcome::Crashed;
+                (crashed ? control->total_passes_crashed : control->total_passes_failed)
+                    .fetch_add(1);
+                control->last_failure_unix = unix_seconds();
+                const int failures = control->consecutive_failures.fetch_add(1) + 1;
+                const int wait = adai::failure_backoff_seconds(failures, kPollIntervalSeconds,
+                                                               kMaxFailureBackoffSeconds);
+                adai::Logger::error(
+                    "trainer_service: training pass {} with exit code {} ({} in a row); next "
+                    "attempt in {}s — see the trainer log for the cause",
+                    crashed ? "crashed" : "failed", exit_code, failures, wait);
+                control->interruptible_sleep(wait);
+                break;
+            }
         }
-        control->interruptible_sleep(kPollIntervalSeconds);
     }
 
     adai::Logger::info("trainer_service: stop requested — shutting down");

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-14
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-10-19
 
 // TD-173: trainer_service's own process-lifetime control state — the piece missing from TD-172's
 // initial implementation. TrainerControlState (TrainerControlState.hpp) is deliberately
@@ -56,8 +56,14 @@ class TrainerServiceControlState {
     std::atomic<long long> current_child_pid{0};  // 0 = no child currently running
     std::atomic<long long> total_passes_launched{0};
     std::atomic<long long> total_passes_did_work{0};
-    std::atomic<long long> total_passes_crashed{0};  // exit code outside {0,1}: launch failure or
-                                                      // killed by signal (see ChildProcess::poll_exit())
+    std::atomic<long long> total_passes_crashed{0};  // killed by a signal (exit code >= 128, see
+                                                      // ChildProcess::poll_exit())
+    // TD-523: passes that exited with a failure code (1 from `resume`, or any other code that
+    // isn't 0/3 and isn't a signal death, e.g. 127 for an exec failure).
+    std::atomic<long long> total_passes_failed{0};
+    // Failed or crashed passes in a row; reset by a pass that trained or found nothing pending.
+    std::atomic<int> consecutive_failures{0};
+    std::atomic<std::int64_t> last_failure_unix{0};  // 0 = no failure yet
     // TODO: See TD-277 in TECHNICAL_DEBT.md - signal deaths all report 128 today (signal lost);
     // TODO: See TD-278 in TECHNICAL_DEBT.md - exec failures show up here as 127 with no clear log.
 

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.5.0
-// @adai-reviewed: 2026-09-20
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-10-19
 
 // TD-035: incremental_trainer's global argv parsing and a few small pure helpers, pulled out of
 // IncrementalTrainingTool.cpp so they're testable without touching a real IncrementalTrainer
@@ -78,5 +78,21 @@ struct ResetCommandArgs {
 // Parses `reset`'s own flags. `args` is the reset command's argument slice, NOT including "reset"
 // itself (e.g. `incremental_trainer reset --yes --keep-data` -> {"--yes", "--keep-data"}).
 ResetCommandArgs parse_reset_command_args(const std::vector<std::string>& args);
+
+// TD-523: `incremental_trainer resume` exit codes, which trainer_service's supervisor reads to
+// tell a pass that trained from an idle one and from a failing one.
+inline constexpr int kResumeExitTrained = 0;
+inline constexpr int kResumeExitFailed = 1;
+inline constexpr int kResumeExitNothingPending = 3;
+
+// How trainer_service classifies one child pass's exit code. Crashed is a signal death (128 and
+// up, see ChildProcess::poll_exit()); every other code that isn't a resume outcome is Failed,
+// including 127 (exec failure).
+enum class PassOutcome { DidWork, Idle, Failed, Crashed };
+PassOutcome classify_pass_exit(int exit_code);
+
+// Seconds to wait before the next pass after @p consecutive_failures (>= 1) failed or crashed
+// passes in a row: @p base_seconds doubled per extra failure, capped at @p max_seconds.
+int failure_backoff_seconds(int consecutive_failures, int base_seconds, int max_seconds);
 
 }  // namespace adai

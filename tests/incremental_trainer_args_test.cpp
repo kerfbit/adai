@@ -259,3 +259,24 @@ TEST(ParseResetCommandArgs, UnrecognizedTokensAreIgnored) {
     EXPECT_TRUE(r.yes);
     EXPECT_FALSE(r.keep_data);
 }
+
+// TD-523: trainer_service's reading of a pass's exit code. Exit 1 used to mean both "nothing
+// pending" and "failed"; now 3 is idle and 1 a failure.
+TEST(ClassifyPassExit, MapsResumeCodesSignalsAndOtherFailures) {
+    EXPECT_EQ(adai::classify_pass_exit(adai::kResumeExitTrained), adai::PassOutcome::DidWork);
+    EXPECT_EQ(adai::classify_pass_exit(adai::kResumeExitNothingPending), adai::PassOutcome::Idle);
+    EXPECT_EQ(adai::classify_pass_exit(adai::kResumeExitFailed), adai::PassOutcome::Failed);
+    EXPECT_EQ(adai::classify_pass_exit(2), adai::PassOutcome::Failed);
+    EXPECT_EQ(adai::classify_pass_exit(127), adai::PassOutcome::Failed);  // exec failure
+    EXPECT_EQ(adai::classify_pass_exit(128), adai::PassOutcome::Crashed);
+    EXPECT_EQ(adai::classify_pass_exit(139), adai::PassOutcome::Crashed);
+}
+
+TEST(FailureBackoffSeconds, DoublesFromTheBaseAndCaps) {
+    EXPECT_EQ(adai::failure_backoff_seconds(1, 45, 900), 45);
+    EXPECT_EQ(adai::failure_backoff_seconds(2, 45, 900), 90);
+    EXPECT_EQ(adai::failure_backoff_seconds(3, 45, 900), 180);
+    EXPECT_EQ(adai::failure_backoff_seconds(5, 45, 900), 720);
+    EXPECT_EQ(adai::failure_backoff_seconds(6, 45, 900), 900);
+    EXPECT_EQ(adai::failure_backoff_seconds(1000, 45, 900), 900);
+}

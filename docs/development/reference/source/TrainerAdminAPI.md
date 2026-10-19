@@ -79,3 +79,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | NaN `last_loss` streamed as `nan` (§2) | Invalid status JSON during divergence | **Verified** | [TD-520](../../guides/TECHNICAL_DEBT.md#td-520-trainer-admin-status-emits-nan-losses-as-invalid-json) |
 | Stale "serve" header; unbounded `wait_ms`; counter-based completion; unchecked persisted values (§2) | Misleading docs; admin API can be tied up | By inspection | [TD-521](../../guides/TECHNICAL_DEBT.md#td-521-traineradminapi-stale-header-unbounded-wait_ms-and-checkpoint-accounting) |
 | Partial apply on invalid PUT; hand-written JSON everywhere | Already tracked | — | TD-305, TD-453 |
+
+## Addendum (October 19, 2026): JSON request parsing (TD-519)
+
+`handle_put_config()` now parses the body with the shared `parse_trainer_admin_config()` (`src/TrainerAdminConfig.{hpp,cpp}`), built on the vendored `nlohmann/json`. `TrainerServiceProxy`'s idle handler uses the same parser. A spaced `"auto_save_enabled": true` now reads as true. These are rejected with 400: a non-boolean `auto_save_enabled`, non-integer or out-of-range counts, and malformed JSON. The whole body is validated before anything is applied, so a rejected PUT changes nothing (TD-305's validate-first half). Persistence is still one `set()` per key (TD-305).

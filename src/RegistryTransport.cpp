@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
+// @adai-version: 1.4.0
 // @adai-reviewed: 2026-10-19
 
 #include "RegistryTransport.hpp"
@@ -260,6 +260,7 @@ AcquireResponse LocalTransport::acquire(const std::string& run_id, int max_files
     const int lock_fd = lock_pending();
     if (lock_fd < 0) {
         Logger::error("LocalTransport::acquire — failed to acquire pending lock");
+        resp.failed = true;
         return resp;
     }
 
@@ -1206,6 +1207,7 @@ AcquireResponse RemoteTransport::acquire(const std::string& run_id, int max_file
     if (!res || res->status != 200) {
         Logger::error("RemoteTransport::acquire — HTTP {} from {}:{}{}", res ? res->status : -1,
                       host_, port_, group_prefix_ + "/acquire");
+        resp.failed = true;
         return resp;
     }
 
@@ -1316,6 +1318,7 @@ AcquireResponse RemoteTransport::acquire(const std::string& run_id, int max_file
     Logger::info("RemoteTransport: acquired {} files for run '{}'", resp.files.size(), run_id);
 #else
     Logger::error("RemoteTransport::acquire — not compiled");
+    resp.failed = true;
 #endif
     return resp;
 }

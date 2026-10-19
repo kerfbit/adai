@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.4.0
+// @adai-version: 1.5.0
 // @adai-reviewed: 2026-10-19
 
 
@@ -164,6 +164,9 @@ struct AcquireResponse {
     int ftp_server_port = 2121;
     bool ftps_enabled = false;  ///< Phase 3: use FTPS (TLS) for downloads
     std::vector<FileToken> files;
+    /// TD-523: true when the registry couldn't be asked (unreachable, HTTP error, lock failure),
+    /// so an empty `files` means "unknown", not "nothing pending".
+    bool failed = false;
 
     /// Convenience: collect registry_paths for release/mark_trained calls.
     std::vector<std::string> registry_paths() const {

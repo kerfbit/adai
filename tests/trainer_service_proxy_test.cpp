@@ -198,6 +198,37 @@ TEST_F(TrainerServiceProxyTest, PutConfigWhileIdlePersistsAndGetReflectsIt) {
     thr.join();
 }
 
+// TD-519: the idle handler parses the same way as the live one: a spaced `true` is true, and a
+// rejected body writes nothing to daemon_config.db.
+TEST_F(TrainerServiceProxyTest, PutConfigWhileIdleParsesSpacedJsonAndRejectsAtomically) {
+    auto proxy = make_proxy();
+    std::thread thr([&proxy] { proxy->start(); });
+    ASSERT_TRUE(wait_until_reachable(proxy_port));
+
+    httplib::Client client("127.0.0.1", proxy_port);
+    auto res = client.Put("/admin/config", "{\"auto_save_enabled\":false}", "application/json");
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200);
+
+    res = client.Put("/admin/config", "{\"auto_save_enabled\": true}", "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_NE(res->body.find("\"auto_save_enabled\":true"), std::string::npos) << res->body;
+
+    res = client.Put("/admin/config",
+                     "{\"auto_save_every_samples\": 77, \"max_sessions_to_keep\": 0}",
+                     "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+    auto get_res = client.Get("/admin/config");
+    ASSERT_TRUE(get_res);
+    EXPECT_EQ(get_res->body.find("\"auto_save_every_samples\":77"), std::string::npos)
+        << get_res->body;
+
+    proxy->stop();
+    thr.join();
+}
+
 TEST_F(TrainerServiceProxyTest, PutConfigRejectsImmutableKeyWhileIdle) {
     auto proxy = make_proxy();
     std::thread thr([&proxy] { proxy->start(); });

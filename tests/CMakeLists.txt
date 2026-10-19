@@ -1036,6 +1036,12 @@ target_link_libraries(trainerControlStateTests
 )
 add_test(NAME TrainerControlStateTests COMMAND trainerControlStateTests)
 
+# TrainerAdminConfig (TD-519) — the PUT /admin/config parser in adai_core.
+add_executable(trainerAdminConfigTests trainer_admin_config_test.cpp)
+target_include_directories(trainerAdminConfigTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(trainerAdminConfigTests adai_core spdlog::spdlog GTest::gtest_main pthread)
+add_test(NAME TrainerAdminConfigTests COMMAND trainerAdminConfigTests)
+
 # TrainerAdminAPI — real httplib::Server exercised with a real httplib::Client,
 # same style as RegistryServer/ModelNameService's own routes tests. Gated on
 # HTTPLIB_INCLUDE_DIR like the daemon itself (see src/CMakeLists.txt's

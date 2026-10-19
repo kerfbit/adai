@@ -192,6 +192,59 @@ TEST_F(TrainerAdminAPITest, PutConfigRejectsInvalidValues) {
     thr.join();
 }
 
+// TD-519: a space after the colon (Python json.dumps' default, hand-typed curl) used to read
+// `true` as false, turning auto-save off and persisting it.
+TEST_F(TrainerAdminAPITest, PutConfigAcceptsSpacedAndPrettyPrintedJson) {
+    control->auto_save_enabled = false;
+    auto api = make_api();
+    std::thread thr;
+    ASSERT_TRUE(start_admin_api(*api, port, thr));
+
+    httplib::Client client("127.0.0.1", port);
+    auto res = client.Put("/admin/config", "{\"auto_save_enabled\": true}", "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_TRUE(control->auto_save_enabled.load());
+
+    control->auto_save_enabled = false;
+    res = client.Put("/admin/config",
+                     "{\n  \"auto_save_enabled\" : true,\n  \"max_sessions_to_keep\" : 9\n}",
+                     "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_TRUE(control->auto_save_enabled.load());
+    EXPECT_EQ(control->max_sessions_to_keep.load(), 9);
+
+    api->stop();
+    thr.join();
+}
+
+// TD-519: non-boolean / non-integer values and malformed JSON are 400s, and a rejected body
+// changes nothing, even keys before the bad one.
+TEST_F(TrainerAdminAPITest, PutConfigRejectedBodyChangesNothing) {
+    auto api = make_api();
+    std::thread thr;
+    ASSERT_TRUE(start_admin_api(*api, port, thr));
+    const int samples_before = control->auto_save_every_samples.load();
+
+    httplib::Client client("127.0.0.1", port);
+    for (const std::string body :
+         {"{\"auto_save_enabled\":\"true\"}", "{\"auto_save_enabled\":1}",
+          "{\"auto_save_every_samples\":\"500\"}", "{\"auto_save_every_samples\":1.5}",
+          "{\"auto_save_enabled\":false", "[]",
+          "{\"auto_save_enabled\":false,\"auto_save_every_samples\":123,"
+          "\"max_sessions_to_keep\":0}"}) {
+        auto res = client.Put("/admin/config", body, "application/json");
+        ASSERT_TRUE(res);
+        EXPECT_EQ(res->status, 400) << body;
+    }
+    EXPECT_TRUE(control->auto_save_enabled.load());
+    EXPECT_EQ(control->auto_save_every_samples.load(), samples_before);
+
+    api->stop();
+    thr.join();
+}
+
 TEST_F(TrainerAdminAPITest, PutConfigPersistsAcrossRestart) {
     {
         auto api = make_api();

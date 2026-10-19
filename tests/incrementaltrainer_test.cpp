@@ -297,12 +297,13 @@ TEST_F(IncrementalTrainerTest, ResumeTrainsOnResolvedFilesAndReleasesOnResolverF
     {
         IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
         int calls = 0;
-        EXPECT_FALSE(trainer.resume_last_session(
-            [&](const AcquireResponse& resp, std::vector<PendingFileRange>&) {
-                ++calls;
-                EXPECT_EQ(resp.files.size(), 1u);
-                return false;  // e.g. an FTP download failed
-            }));
+        EXPECT_EQ(trainer.resume_last_session(
+                      [&](const AcquireResponse& resp, std::vector<PendingFileRange>&) {
+                          ++calls;
+                          EXPECT_EQ(resp.files.size(), 1u);
+                          return false;  // e.g. an FTP download failed
+                      }),
+                  IncrementalTrainer::ResumeResult::Failed);
         EXPECT_EQ(calls, 1);
     }
     {
@@ -317,14 +318,15 @@ TEST_F(IncrementalTrainerTest, ResumeTrainsOnResolvedFilesAndReleasesOnResolverF
     {
         IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
         std::string trained_on;
-        EXPECT_TRUE(trainer.resume_last_session(
-            [&](const AcquireResponse&, std::vector<PendingFileRange>& ranges) {
-                PendingFileRange r;
-                r.path = data_file2.string();  // stands in for the downloaded local copy
-                trained_on = r.path;
-                ranges = {r};
-                return true;
-            }));
+        EXPECT_EQ(trainer.resume_last_session(
+                      [&](const AcquireResponse&, std::vector<PendingFileRange>& ranges) {
+                          PendingFileRange r;
+                          r.path = data_file2.string();  // stands in for the downloaded local copy
+                          trained_on = r.path;
+                          ranges = {r};
+                          return true;
+                      }),
+                  IncrementalTrainer::ResumeResult::Trained);
         EXPECT_EQ(trained_on, data_file2.string());
     }
     DatasetRegistry reg(config.dataset);
@@ -332,6 +334,22 @@ TEST_F(IncrementalTrainerTest, ResumeTrainsOnResolvedFilesAndReleasesOnResolverF
     const auto trained = reg.trained_files();
     EXPECT_NE(std::find(trained.begin(), trained.end(), data_file1.string()), trained.end())
         << "the registry entry (not the local copy) is what gets marked trained";
+}
+
+// TD-523: resume tells "nothing pending" apart from a failure, so trainer_service can count
+// failures instead of treating every unsuccessful pass as idle. An unreachable registry is a
+// failure, not an empty queue.
+TEST_F(IncrementalTrainerTest, ResumeReportsNothingPendingSeparatelyFromFailure) {
+    IncrementalConfig config = tiny_local_config(session_dir);
+    {
+        IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+        EXPECT_EQ(trainer.resume_last_session(), IncrementalTrainer::ResumeResult::NothingPending);
+    }
+
+    config.dataset.registry_server_url = "http://127.0.0.1:1";  // nothing listens on port 1
+    config.dataset.registry_timeout_ms = 500;
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+    EXPECT_EQ(trainer.resume_last_session(), IncrementalTrainer::ResumeResult::Failed);
 }
 
 // TD-407: removing a checkpoint deletes every file save_model() wrote for it (it used to delete

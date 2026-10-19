@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.14.0
+// @adai-version: 0.15.0
 // @adai-reviewed: 2026-10-19
 
 #include "IncrementalTrainer.hpp"
@@ -1076,7 +1076,8 @@ bool IncrementalTrainer::retrain_on_files(const std::vector<PendingFileRange>& f
                         /*enable_best_model_snapshot=*/true, /*reset_best_tracking=*/true);
 }
 
-bool IncrementalTrainer::resume_last_session(const PassFileResolver& resolve_files) {
+IncrementalTrainer::ResumeResult IncrementalTrainer::resume_last_session(
+    const PassFileResolver& resolve_files) {
     DatasetRegistry reg(dataset_config_);
     // Prefer the MNS-allocated run_id (set by begin_run(), called by the
     // caller before resume_last_session()) so dataset-registry file ownership
@@ -1087,9 +1088,13 @@ bool IncrementalTrainer::resume_last_session(const PassFileResolver& resolve_fil
         run_id = detect_hostname_fragment() + "_" + std::to_string(detect_pid_mod_10000());
     }
     auto resp = reg.acquire_pending(run_id);
+    if (resp.failed) {
+        Logger::error("Could not ask the dataset registry for pending files");
+        return ResumeResult::Failed;
+    }
     if (resp.files.empty()) {
         Logger::warn("No pending data files to resume training on");
-        return false;
+        return ResumeResult::NothingPending;
     }
     // TD-333: the batch's exact units (whole files and segments), for release/mark_trained.
     const std::vector<PendingFileRange> pending = resp.file_ranges();
@@ -1102,7 +1107,7 @@ bool IncrementalTrainer::resume_last_session(const PassFileResolver& resolve_fil
     if (resolve_files) {
         if (!resolve_files(resp, pending_ranges)) {
             reg.release_pending(run_id, pending);
-            return false;
+            return ResumeResult::Failed;
         }
     } else if (!resp.ftp_server_host.empty()) {
         Logger::error("Registry delivers files over FTP ({}), but no download step was "
@@ -1110,7 +1115,7 @@ bool IncrementalTrainer::resume_last_session(const PassFileResolver& resolve_fil
                       "paths",
                       resp.ftp_server_host, pending.size());
         reg.release_pending(run_id, pending);
-        return false;
+        return ResumeResult::Failed;
     } else {
         pending_ranges = resp.file_ranges();
     }
@@ -1151,7 +1156,7 @@ bool IncrementalTrainer::resume_last_session(const PassFileResolver& resolve_fil
         if (!fs::exists(resume_checkpoint + ".config")) {
             Logger::error("Checkpoint file not found: {}.config", resume_checkpoint);
             reg.release_pending(run_id, pending);  // don't leave the batch claimed (TD-411)
-            return false;
+            return ResumeResult::Failed;
         }
 
         if (resume_session_id >= 0) {
@@ -1164,7 +1169,7 @@ bool IncrementalTrainer::resume_last_session(const PassFileResolver& resolve_fil
 
         if (!load_model(resume_checkpoint)) {
             reg.release_pending(run_id, pending);  // don't leave the batch claimed (TD-411)
-            return false;
+            return ResumeResult::Failed;
         }
     }
 
@@ -1176,7 +1181,7 @@ bool IncrementalTrainer::resume_last_session(const PassFileResolver& resolve_fil
     } else {
         reg.release_pending(run_id, pending);
     }
-    return ok;
+    return ok ? ResumeResult::Trained : ResumeResult::Failed;
 }
 
 bool IncrementalTrainer::load_session_history() {

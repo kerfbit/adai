@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.14.1
+// @adai-version: 0.15.0
 // @adai-reviewed: 2026-10-19
 
 
@@ -248,7 +248,11 @@ class IncrementalTrainer {
     // `resolve_files` defaults to using the registry's own paths, which only works when the
     // registry is local; with a registry that delivers over FTP and no resolver, the pass fails
     // and releases its files rather than training on paths it can't read (TD-411).
-    bool resume_last_session(const PassFileResolver& resolve_files = nullptr);
+    // TD-523: Trained, NothingPending (the registry answered with an empty queue) or Failed
+    // (registry unreachable, download, checkpoint, load or training failure), so callers such
+    // as trainer_service can tell an idle pass from a failing one.
+    enum class ResumeResult { Trained, NothingPending, Failed };
+    ResumeResult resume_last_session(const PassFileResolver& resolve_files = nullptr);
     bool load_session_history();
     bool save_session_history();
     TrainingSession get_current_session();

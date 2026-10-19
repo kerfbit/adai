@@ -84,6 +84,8 @@ add_library(adai_core STATIC
     ParquetReader.cpp
     SQLiteMetricsDatabase.cpp
     DaemonConfigStore.cpp
+    # TD-519: shared PUT /admin/config parser for TrainerAdminAPI and TrainerServiceProxy.
+    TrainerAdminConfig.cpp
     # TD-179/TD-180: HippocampalMemory needs only Matrix, but DecoderBlock.cpp (adai_transformer)
     # now needs to call into it — putting it in adai_lejepa (which itself depends on
     # adai_transformer for LeJEPAEncoder) would create a circular library dependency
@@ -93,6 +95,8 @@ add_library(adai_core STATIC
     HippocampalMemory.cpp
 )
 target_link_libraries(adai_core PUBLIC spdlog::spdlog)
+# nlohmann/json (vendored, header-only) for TrainerAdminConfig.cpp.
+target_include_directories(adai_core PRIVATE ${CMAKE_SOURCE_DIR}/external)
 
 # SQLite3 is detected below (shared with adai_mns); link it here for MetricsDatabase
 # The find_path/find_library block at line ~375 sets SQLITE3_INCLUDE_DIR and SQLITE3_LIBRARY.

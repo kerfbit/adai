@@ -1,12 +1,13 @@
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-14
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-10-19
 
 #include "TrainerServiceProxy.hpp"
 #include <httplib.h>
 #include <chrono>
 #include <sstream>
 #include "DaemonConfigStore.hpp"
+#include "TrainerAdminConfig.hpp"
 #include "Logger.hpp"
 
 // ============================================================================
@@ -20,9 +21,8 @@ class adai::TrainerServiceProxy::ServerImpl {
 };
 
 // ============================================================================
-// Internal JSON helpers — deliberately duplicated per-daemon rather than shared, matching
-// TrainerAdminAPI.cpp's own comment on this: there is no shared JSON-parsing header in this
-// codebase's daemons (see CLAUDE.md).
+// Internal JSON output helpers. Request bodies are parsed by the shared
+// parse_trainer_admin_config() (TrainerAdminConfig.hpp, TD-519).
 // ============================================================================
 
 namespace {
@@ -53,32 +53,6 @@ std::string json_escape(const std::string& s) {
         }
     }
     return out;
-}
-
-int json_int(const std::string& body, const std::string& key, int def = 0) {
-    const std::string needle = "\"" + key + "\":";
-    const auto pos = body.find(needle);
-    if (pos == std::string::npos)
-        return def;
-    try {
-        return std::stoi(body.substr(pos + needle.size()));
-    } catch (...) {
-        return def;
-    }
-}
-
-// TODO: See TD-519 in TECHNICAL_DEBT.md - same whitespace bug as TrainerAdminAPI's copy: a spaced `true` reads false.
-bool json_bool(const std::string& body, const std::string& key, bool def = false) {
-    const std::string needle = "\"" + key + "\":";
-    const auto pos = body.find(needle);
-    if (pos == std::string::npos)
-        return def;
-    const auto start = pos + needle.size();
-    return body.compare(start, 4, "true") == 0;
-}
-
-bool json_has_key(const std::string& body, const std::string& key) {
-    return body.find("\"" + key + "\"") != std::string::npos;
 }
 
 // A proxied request whose connection itself failed (child mid-start or mid-exit) gets this,
@@ -306,6 +280,9 @@ std::string adai::TrainerServiceProxy::with_supervisor_fields(const std::string&
           << ",\"total_passes_launched\":" << control_->total_passes_launched.load()
           << ",\"total_passes_did_work\":" << control_->total_passes_did_work.load()
           << ",\"total_passes_crashed\":" << control_->total_passes_crashed.load()
+          << ",\"total_passes_failed\":" << control_->total_passes_failed.load()
+          << ",\"consecutive_failures\":" << control_->consecutive_failures.load()
+          << ",\"last_failure_unix\":" << control_->last_failure_unix.load()
           << ",\"last_exit_code\":" << control_->last_exit_code.load()
           << ",\"service_uptime_seconds\":" << uptime_seconds << "}";
     return extra.str();
@@ -358,59 +335,25 @@ std::pair<int, std::string> adai::TrainerServiceProxy::handle_get_config_idle() 
     return {200, j.str()};
 }
 
-// TODO: See TD-305 in TECHNICAL_DEBT.md - persists keys before validating later ones; a 400 can still change the DB
 std::pair<int, std::string> adai::TrainerServiceProxy::handle_put_config_idle(
     const std::string& body) {
-    // Deliberately mirrors TrainerAdminAPI::handle_put_config()'s validation for the same four
-    // mutable keys — no shared validator exists to call into (see the JSON-helper comment above),
-    // and this set is small and stable enough that keeping the two in sync by hand is reasonable.
-    static const char* kImmutableKeys[] = {"port", "host", "dir", "enabled"};
-    for (const auto* key : kImmutableKeys) {
-        if (json_has_key(body, key)) {
-            return {400, std::string("{\"error\":\"'") + key +
-                            "' is immutable at runtime; set it via config.trainer.conf "
-                            "(TRAINER_ADMIN_*) and restart\"}"};
-        }
+    // TD-519: same parser as TrainerAdminAPI::handle_put_config(), so a live pass and an idle
+    // service accept and reject exactly the same bodies; nothing is written for a rejected one.
+    const auto parsed = parse_trainer_admin_config(body);
+    if (!parsed.error.empty()) {
+        return {400, "{\"error\":\"" + json_escape(parsed.error) + "\"}"};
     }
-
+    const auto& u = parsed.update;
     try {
         DaemonConfigStore store(child_admin_dir_ + "/daemon_config.db");
-        bool changed = false;
-        if (json_has_key(body, "auto_save_enabled")) {
-            store.set("auto_save_enabled", json_bool(body, "auto_save_enabled", true) ? "true" : "false");
-            changed = true;
-        }
-        if (json_has_key(body, "auto_save_every_samples")) {
-            const int v = json_int(body, "auto_save_every_samples", -1);
-            if (v < 0) {
-                return {400, "{\"error\":\"'auto_save_every_samples' must be >= 0 (0 disables the "
-                            "sample-count trigger)\"}"};
-            }
-            store.set("auto_save_every_samples", std::to_string(v));
-            changed = true;
-        }
-        if (json_has_key(body, "auto_save_every_minutes")) {
-            const int v = json_int(body, "auto_save_every_minutes", -1);
-            if (v < 0) {
-                return {400, "{\"error\":\"'auto_save_every_minutes' must be >= 0 (0 disables the "
-                            "time-based trigger)\"}"};
-            }
-            store.set("auto_save_every_minutes", std::to_string(v));
-            changed = true;
-        }
-        if (json_has_key(body, "max_sessions_to_keep")) {
-            const int v = json_int(body, "max_sessions_to_keep", -1);
-            if (v < 1) {
-                return {400, "{\"error\":\"'max_sessions_to_keep' must be >= 1\"}"};
-            }
-            store.set("max_sessions_to_keep", std::to_string(v));
-            changed = true;
-        }
-        if (!changed) {
-            return {400,
-                    "{\"error\":\"no recognized mutable keys in body (auto_save_enabled, "
-                    "auto_save_every_samples, auto_save_every_minutes, max_sessions_to_keep)\"}"};
-        }
+        if (u.auto_save_enabled)
+            store.set("auto_save_enabled", *u.auto_save_enabled ? "true" : "false");
+        if (u.auto_save_every_samples)
+            store.set("auto_save_every_samples", std::to_string(*u.auto_save_every_samples));
+        if (u.auto_save_every_minutes)
+            store.set("auto_save_every_minutes", std::to_string(*u.auto_save_every_minutes));
+        if (u.max_sessions_to_keep)
+            store.set("max_sessions_to_keep", std::to_string(*u.max_sessions_to_keep));
     } catch (const std::exception& e) {
         return {500, std::string("{\"error\":\"daemon_config.db unavailable while idle (") +
                         json_escape(e.what()) + ")\"}"};

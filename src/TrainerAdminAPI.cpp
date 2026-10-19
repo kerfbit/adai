@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-19
 
 #include "TrainerAdminAPI.hpp"
 #include <httplib.h>
@@ -9,6 +9,7 @@
 #include <sstream>
 #include <thread>
 #include "DaemonConfigStore.hpp"
+#include "TrainerAdminConfig.hpp"
 #include "Logger.hpp"
 
 namespace fs = std::filesystem;
@@ -24,10 +25,8 @@ class adai::TrainerAdminAPI::ServerImpl {
 };
 
 // ============================================================================
-// Internal JSON helpers — deliberately duplicated per-daemon rather than
-// shared (matches the existing convention in ModelNameService.cpp/
-// RegistryServer.cpp; there is no shared JSON-parsing header in this
-// codebase's daemons — see CLAUDE.md).
+// Internal JSON output helpers. Request bodies are parsed by the shared
+// parse_trainer_admin_config() (TrainerAdminConfig.hpp, TD-519).
 // ============================================================================
 
 namespace {
@@ -58,36 +57,6 @@ std::string json_escape(const std::string& s) {
         }
     }
     return out;
-}
-
-int json_int(const std::string& body, const std::string& key, int def = 0) {
-    const std::string needle = "\"" + key + "\":";
-    const auto pos = body.find(needle);
-    if (pos == std::string::npos)
-        return def;
-    try {
-        return std::stoi(body.substr(pos + needle.size()));
-    } catch (...) {
-        return def;
-    }
-}
-
-// TODO: See TD-519 in TECHNICAL_DEBT.md - '"auto_save_enabled": true' (space after the colon) reads as false, so
-// a normal JSON PUT disables auto-save and persists it (verified).
-// Bare-literal boolean (true/false, no quotes).
-bool json_bool(const std::string& body, const std::string& key, bool def = false) {
-    const std::string needle = "\"" + key + "\":";
-    const auto pos = body.find(needle);
-    if (pos == std::string::npos)
-        return def;
-    const auto start = pos + needle.size();
-    return body.compare(start, 4, "true") == 0;
-}
-
-// Presence check — distinguishes "key not sent" from "sent with its
-// zero/default value".
-bool json_has_key(const std::string& body, const std::string& key) {
-    return body.find("\"" + key + "\"") != std::string::npos;
 }
 
 }  // namespace
@@ -244,58 +213,22 @@ std::pair<int, std::string> adai::TrainerAdminAPI::handle_get_config() {
     return {200, j.str()};
 }
 
-// TODO: See TD-305 in TECHNICAL_DEBT.md - applies keys before validating later ones; a 400 can still change live state
 std::pair<int, std::string> adai::TrainerAdminAPI::handle_put_config(const std::string& body) {
-    // port/host/dir are baked into the already-bound listener socket and the
-    // already-opened daemon_config.db handle, so changing them here would
-    // require a restart anyway; they stay file/CLI-only (TRAINER_ADMIN_PORT/
-    // TRAINER_ADMIN_HOST/TRAINER_ADMIN_DIR in config.trainer.conf).
-    static const char* kImmutableKeys[] = {"port", "host", "dir", "enabled"};
-    for (const auto* key : kImmutableKeys) {
-        if (json_has_key(body, key)) {
-            return {400, std::string("{\"error\":\"'") + key +
-                            "' is immutable at runtime; set it via config.trainer.conf "
-                            "(TRAINER_ADMIN_*) and restart\"}"};
-        }
+    // TD-519: the whole body is parsed as JSON and validated before anything is applied, so a
+    // spaced `"auto_save_enabled": true` reads as true and a rejected PUT changes nothing.
+    const auto parsed = parse_trainer_admin_config(body);
+    if (!parsed.error.empty()) {
+        return {400, "{\"error\":\"" + json_escape(parsed.error) + "\"}"};
     }
-
-    bool changed = false;
-    if (json_has_key(body, "auto_save_enabled")) {
-        control_->auto_save_enabled = json_bool(body, "auto_save_enabled", true);
-        changed = true;
-    }
-    if (json_has_key(body, "auto_save_every_samples")) {
-        const int v = json_int(body, "auto_save_every_samples", -1);
-        if (v < 0) {
-            return {400, "{\"error\":\"'auto_save_every_samples' must be >= 0 (0 disables the "
-                        "sample-count trigger)\"}"};
-        }
-        control_->auto_save_every_samples = v;
-        changed = true;
-    }
-    if (json_has_key(body, "auto_save_every_minutes")) {
-        const int v = json_int(body, "auto_save_every_minutes", -1);
-        if (v < 0) {
-            return {400, "{\"error\":\"'auto_save_every_minutes' must be >= 0 (0 disables the "
-                        "time-based trigger)\"}"};
-        }
-        control_->auto_save_every_minutes = v;
-        changed = true;
-    }
-    if (json_has_key(body, "max_sessions_to_keep")) {
-        const int v = json_int(body, "max_sessions_to_keep", -1);
-        if (v < 1) {
-            return {400, "{\"error\":\"'max_sessions_to_keep' must be >= 1\"}"};
-        }
-        control_->max_sessions_to_keep = v;
-        changed = true;
-    }
-
-    if (!changed) {
-        return {400,
-                "{\"error\":\"no recognized mutable keys in body (auto_save_enabled, "
-                "auto_save_every_samples, auto_save_every_minutes, max_sessions_to_keep)\"}"};
-    }
+    const auto& u = parsed.update;
+    if (u.auto_save_enabled)
+        control_->auto_save_enabled = *u.auto_save_enabled;
+    if (u.auto_save_every_samples)
+        control_->auto_save_every_samples = *u.auto_save_every_samples;
+    if (u.auto_save_every_minutes)
+        control_->auto_save_every_minutes = *u.auto_save_every_minutes;
+    if (u.max_sessions_to_keep)
+        control_->max_sessions_to_keep = *u.max_sessions_to_keep;
 
     if (config_store_) {
         // TODO: See TD-305 in TECHNICAL_DEBT.md - per-key set() with no transaction
