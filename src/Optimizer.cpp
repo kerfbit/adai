@@ -1,9 +1,10 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-10-19
 
 #include "Optimizer.hpp"
 #include <cmath>
+#include <cstdint>
 #include <iostream>
 #include <limits>
 #include "Logger.hpp"
@@ -426,6 +427,116 @@ const char* Optimizer::get_optimizer_name() const {
 }
 
 // Reset optimizer state
+namespace {
+constexpr std::uint32_t kOptimizerStateMagic = 0x3154504F;  // "OPT1"
+
+void write_matrix_data(std::ostream& out, const Matrix& m) {
+    for (int i = 0; i < m.rows; ++i)
+        out.write(reinterpret_cast<const char*>(m.data[i].data()),
+                  static_cast<std::streamsize>(sizeof(float) * static_cast<size_t>(m.cols)));
+}
+
+bool read_matrix_data(std::istream& in, Matrix& m) {
+    for (int i = 0; i < m.rows; ++i)
+        if (!in.read(reinterpret_cast<char*>(m.data[i].data()),
+                     static_cast<std::streamsize>(sizeof(float) * static_cast<size_t>(m.cols))))
+            return false;
+    return true;
+}
+}  // namespace
+
+bool Optimizer::save_state(std::ostream& out) const {
+    const std::uint32_t magic = kOptimizerStateMagic;
+    const std::int32_t opt_type = static_cast<std::int32_t>(type);
+    const std::int64_t step = global_step;
+    const std::uint32_t groups = static_cast<std::uint32_t>(parameter_groups.size());
+    out.write(reinterpret_cast<const char*>(&magic), sizeof(magic));
+    out.write(reinterpret_cast<const char*>(&opt_type), sizeof(opt_type));
+    out.write(reinterpret_cast<const char*>(&step), sizeof(step));
+    out.write(reinterpret_cast<const char*>(&groups), sizeof(groups));
+    for (const auto& g : parameter_groups) {
+        const std::int32_t rows = g.weights->rows;
+        const std::int32_t cols = g.weights->cols;
+        const std::int64_t gstep = g.step;
+        const std::uint8_t has_m = g.momentum.rows > 0 ? 1 : 0;
+        const std::uint8_t has_v = g.velocity.rows > 0 ? 1 : 0;
+        out.write(reinterpret_cast<const char*>(&rows), sizeof(rows));
+        out.write(reinterpret_cast<const char*>(&cols), sizeof(cols));
+        out.write(reinterpret_cast<const char*>(&gstep), sizeof(gstep));
+        out.write(reinterpret_cast<const char*>(&has_m), sizeof(has_m));
+        out.write(reinterpret_cast<const char*>(&has_v), sizeof(has_v));
+        if (has_m)
+            write_matrix_data(out, g.momentum);
+        if (has_v)
+            write_matrix_data(out, g.velocity);
+    }
+    return static_cast<bool>(out);
+}
+
+bool Optimizer::load_state(std::istream& in) {
+    std::uint32_t magic = 0, groups = 0;
+    std::int32_t opt_type = -1;
+    std::int64_t step = 0;
+    if (!in.read(reinterpret_cast<char*>(&magic), sizeof(magic)) ||
+        magic != kOptimizerStateMagic ||
+        !in.read(reinterpret_cast<char*>(&opt_type), sizeof(opt_type)) ||
+        !in.read(reinterpret_cast<char*>(&step), sizeof(step)) ||
+        !in.read(reinterpret_cast<char*>(&groups), sizeof(groups))) {
+        adai::Logger::warn("Optimizer state: unreadable header; keeping a fresh optimizer");
+        return false;
+    }
+    if (opt_type != static_cast<std::int32_t>(type) || groups != parameter_groups.size()) {
+        adai::Logger::warn("Optimizer state doesn't match this optimizer (type {} vs {}, {} vs {} "
+                           "parameter groups); keeping a fresh optimizer",
+                           opt_type, static_cast<int>(type), groups, parameter_groups.size());
+        return false;
+    }
+    // Read everything into staging copies first, so a mismatch or truncated file part-way
+    // through leaves the current state untouched.
+    struct Staged {
+        std::int64_t step;
+        Matrix m, v;
+    };
+    std::vector<Staged> staged;
+    staged.reserve(groups);
+    for (const auto& g : parameter_groups) {
+        std::int32_t rows = 0, cols = 0;
+        std::int64_t gstep = 0;
+        std::uint8_t has_m = 0, has_v = 0;
+        if (!in.read(reinterpret_cast<char*>(&rows), sizeof(rows)) ||
+            !in.read(reinterpret_cast<char*>(&cols), sizeof(cols)) ||
+            !in.read(reinterpret_cast<char*>(&gstep), sizeof(gstep)) ||
+            !in.read(reinterpret_cast<char*>(&has_m), sizeof(has_m)) ||
+            !in.read(reinterpret_cast<char*>(&has_v), sizeof(has_v))) {
+            adai::Logger::warn("Optimizer state truncated; keeping a fresh optimizer");
+            return false;
+        }
+        if (rows != g.weights->rows || cols != g.weights->cols ||
+            has_m != (g.momentum.rows > 0 ? 1 : 0) || has_v != (g.velocity.rows > 0 ? 1 : 0)) {
+            adai::Logger::warn("Optimizer state shape mismatch ({}x{} vs {}x{}); keeping a fresh "
+                               "optimizer",
+                               rows, cols, g.weights->rows, g.weights->cols);
+            return false;
+        }
+        Staged s{gstep, has_m ? Matrix(rows, cols) : Matrix(),
+                 has_v ? Matrix(rows, cols) : Matrix()};
+        if ((has_m && !read_matrix_data(in, s.m)) || (has_v && !read_matrix_data(in, s.v))) {
+            adai::Logger::warn("Optimizer state truncated; keeping a fresh optimizer");
+            return false;
+        }
+        staged.push_back(std::move(s));
+    }
+    global_step = static_cast<int>(step);
+    for (size_t i = 0; i < parameter_groups.size(); ++i) {
+        parameter_groups[i].step = static_cast<int>(staged[i].step);
+        if (staged[i].m.rows > 0)
+            parameter_groups[i].momentum = std::move(staged[i].m);
+        if (staged[i].v.rows > 0)
+            parameter_groups[i].velocity = std::move(staged[i].v);
+    }
+    return true;
+}
+
 void Optimizer::reset_state() {
     global_step = 0;
 

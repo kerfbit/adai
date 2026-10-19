@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.14.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 0.14.1
+// @adai-reviewed: 2026-10-19
 
 
 #include <chrono>
@@ -347,6 +347,9 @@ class IncrementalTrainer {
     // TD-406: the newest snapshot of an interrupted (paused or crashed) session found at
     // construction, which this trainer resumed from; "" if none.
     std::string interrupted_resume_checkpoint_;
+    // TD-269: the checkpoint the current weights came from; its "<path>.optimizer" training state
+    // is restored into the next pass's trainer. "" = fresh weights.
+    std::string loaded_checkpoint_path_;
 
     // Metrics reporter (TD-021)
     std::unique_ptr<IMetricsReporter> metrics_reporter_;  ///< active reporter (Null or Push)

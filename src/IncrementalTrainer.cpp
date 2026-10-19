@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.13.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 0.13.1
+// @adai-reviewed: 2026-10-19
 
 #include "IncrementalTrainer.hpp"
 #include <algorithm>
@@ -390,7 +390,10 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
     }
 
     config = make_incremental_config(svc);
-    config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
+    // TD-269 (owner decision, October 18, 2026): warm up once per run, then hold the base LR. The
+    // step count carries across passes with the training state, so later passes don't re-warm or
+    // re-decay (WARMUP_COSINE decayed to the minimum within every pass).
+    config.base_config.lr_schedule = LRSchedule::LINEAR_WARMUP;
     vocab_build_size_ = svc.vocab_build_size;
     dataset_config_ = config.dataset;
     // Threaded through to ChatbotTrainer via config.base_config (its constructor
@@ -439,6 +442,7 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
                 try {
                     model->load_model(in_progress_best);
                     Logger::info("Resumed from in-progress best snapshot: {}", in_progress_best);
+                    loaded_checkpoint_path_ = in_progress_best;  // TD-269
                 } catch (...) {
                     Logger::warn(
                         "Could not load in-progress best snapshot, keeping previous weights");
@@ -832,6 +836,11 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
                               "Training pass finished but its checkpoint could not be saved to " +
                                   checkpoint_path);
             }
+        } else {
+            // TD-269: the optimizer moments, run-level step and warmup continue into the next
+            // pass from this checkpoint.
+            trainer.save_training_state(checkpoint_path + ".optimizer");
+            loaded_checkpoint_path_ = checkpoint_path;
         }
     }
     if (success && !aborted) {
@@ -990,10 +999,15 @@ bool IncrementalTrainer::train_on_files(const std::vector<PendingFileRange>& fil
 
     config.base_config.tokenized_cache_key = compute_tokenized_cache_key(
         files, vocab_path_, config.base_config.tokenizer_mode, config.base_config.max_seq_length);
-    // TODO: See TD-269 in TECHNICAL_DEBT.md - a fresh trainer (and optimizer) per pass restarts AdamW state and
-    // the LR schedule every pass.
     ChatbotTrainer trainer(config.base_config);
     trainer.set_model(std::move(model));
+    // TD-269: continue the optimizer moments, run-level step (so the LR warmup happens once per
+    // run) and adaptive-clip state from the checkpoint these weights came from. State saved under
+    // another MNS run is ignored, so a new run starts fresh.
+    trainer.set_run_id(current_run_id_);
+    if (!loaded_checkpoint_path_.empty()) {
+        trainer.load_training_state(loaded_checkpoint_path_ + ".optimizer");
+    }
     for (const auto& pair : all_pairs)
         trainer.add_training_pair(pair.input, pair.response);
 
@@ -1051,10 +1065,10 @@ bool IncrementalTrainer::retrain_on_files(const std::vector<PendingFileRange>& f
 
     config.base_config.tokenized_cache_key = compute_tokenized_cache_key(
         files, vocab_path_, config.base_config.tokenizer_mode, config.base_config.max_seq_length);
-    // TODO: See TD-269 in TECHNICAL_DEBT.md - a fresh trainer (and optimizer) per pass restarts AdamW state and
-    // the LR schedule every pass.
     ChatbotTrainer trainer(config.base_config);
     trainer.set_model(std::move(model));
+    // A full retrain is a new run: fresh optimizer and schedule, state saved under its run id.
+    trainer.set_run_id(current_run_id_);
     for (const auto& pair : all_pairs)
         trainer.add_training_pair(pair.input, pair.response);
 
@@ -1401,6 +1415,7 @@ std::string IncrementalTrainer::init_from_session_history() {
     try {
         model->load_model(resume);
         Logger::info("Resumed from checkpoint {}: {}", resume, reason);
+        loaded_checkpoint_path_ = resume;  // TD-269
         return resume;
     } catch (const std::exception& e) {
         Logger::warn("Could not load checkpoint {} ({}), keeping current model weights", resume,
@@ -1753,6 +1768,7 @@ bool IncrementalTrainer::load_model(const std::string& path) {
     try {
         model->load_model(path);
         Logger::info("Model loaded from: {}", path);
+        loaded_checkpoint_path_ = path;  // TD-269
         return true;
     } catch (const std::exception& e) {
         Logger::error("Failed to load model: {}", e.what());

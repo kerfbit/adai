@@ -5,9 +5,9 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 18, 2026
-**Total Items:** 332
+**Total Items:** 333
 **High Priority:** 36
-**Medium Priority:** 142
+**Medium Priority:** 143
 **Low Priority:** 154
 **Future Enhancements:** 19
 **Resolved Items:** 208
@@ -625,6 +625,10 @@ fixed in the same change. Both verified:
 - **TD-539:** `IncrementalTrainer`'s constructors tested `fs::exists(<checkpoint path>)`, a file `save_model()` never writes. A trainer built over
   real checkpoints loaded neither of them, so `incremental_trainer train`/`retrain` started every pass from fresh weights.
 
+**October 19, 2026:** filed [TD-541](#td-541-a-pass-without-validation-data-has-its-checkpoint-discarded) (MEDIUM), found while testing TD-269. A pass with no validation samples records a
+validation loss of 0, which the checkpoint sanity check treats as "never measured". Its checkpoint is then never resumed from and is deleted at the
+next start. This happens with `VALIDATION_SPLIT=0` or any pass on fewer pairs than the split ratio.
+
 Also October 18, 2026: filed [TD-540](#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server) (MEDIUM) and fixed it in the same change, found while applying the owner's rule that the trainer
 always takes its data and configuration from the remote services first. `incremental_trainer reset --keep-data` re-queued trained files by
 editing a local `data_registry.txt`, so against `registry_server` it re-queued nothing. A new server-side re-queue
@@ -1129,9 +1133,11 @@ Done:
 
 - TD-407 and TD-408 (checkpoint files: complete deletion, remnant reclaim, loadable links).
 
+- TD-269/270 (owner decisions: warmup once per run, optimizer state saved with checkpoints).
+
 Remaining, re-ordered on October 18 because TD-539 means checkpoints now actually carry over between passes:
-1. TD-269/270 (optimizer state and clipping restart every pass);
-2. TD-333/326 and TD-523/519.
+1. TD-333/326 and TD-523/519;
+2. TD-541 (found October 19: a pass without validation data has its checkpoint discarded).
 
 Every fix here is verified on CPU, or on the oneAPI CPU device for the SYCL kernels. Still needed: an on-device run on ai-machine, then
 retraining from scratch, since no existing checkpoint has correct GPU-trained weights (TD-358) or the encoder's own embedding (TD-538).
@@ -2142,6 +2148,7 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-538: Encoder Token Embedding and Final Norm Are Overwritten in Every Checkpoint](#td-538-encoder-token-embedding-and-final-norm-are-overwritten-in-every-checkpoint)
   - [TD-539: `IncrementalTrainer` Constructors Never Load a Checkpoint](#td-539-incrementaltrainer-constructors-never-load-a-checkpoint)
   - [TD-540: `incremental_trainer reset` Re-queues Trained Files Locally, Not on the Registry Server](#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server)
+  - [TD-541: A Pass Without Validation Data Has Its Checkpoint Discarded](#td-541-a-pass-without-validation-data-has-its-checkpoint-discarded)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -5800,7 +5807,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / ChatbotTrainer | October 9, 2026 | 4-8 hours |
+| MEDIUM | Open — code fix landed October 19, 2026 | Training / ChatbotTrainer | October 9, 2026 | 4-8 hours |
 
 Description:
 Found alongside TD-267. `IncrementalTrainer` constructs a **fresh `ChatbotTrainer` per pass**,
@@ -5816,11 +5823,39 @@ process restart loses it as well.
 
 Action Items:
 
-- [ ] Owner decision: make the schedule run-wide (pass a global step offset and the run's planned total steps from `IncrementalTrainer`), or document per-pass schedules as intended.
-- [ ] Persist optimizer state (moments and step count) with the checkpoint and restore it in `set_model()` (or a new `set_optimizer_state()`).
-- [ ] Track run-level `global_step` in the MNS/session record.
+**Owner decisions (October 18, 2026):**
+- **Schedule:** warm up once per MNS run, then hold the base learning rate.
+- **Optimizer state:** save AdamW's moments and step counts with every checkpoint. This was accepted knowing it makes checkpoints about 3× larger.
 
-Location in code: `src/ChatbotTrainer.cpp` (`set_model()`, `calculate_learning_rate()`), `src/IncrementalTrainer.cpp` (per-pass trainer construction); tagged `TODO: See TD-269`.
+**Fix landed October 19, 2026:**
+- `Optimizer::save_state()`/`load_state()` write and read the type, the global step and, per parameter group, its shape, step count and moments.
+  A loaded state must match the registered groups' shapes; otherwise nothing changes.
+- `ChatbotTrainer::save_training_state()`/`load_training_state()` wrap that with the run-level `global_step`, the run's warmup length (fixed on
+  its first `train()` call), the adaptive-clip state (TD-270) and the MNS run id. State from another run isn't loaded, so a new run (`retrain`)
+  starts fresh.
+- The state is written as `<checkpoint>.optimizer`, through a temp file and rename. That name follows the checkpoint prefix, so TD-407's deletion
+  and TD-408's links include it.
+- It is saved with the end-of-pass checkpoint, and with auto-saves and best snapshots through `save_to()`.
+- `IncrementalTrainer` records which checkpoint the weights came from (`loaded_checkpoint_path_`) and restores its state into the next pass's
+  trainer. `retrain` starts fresh.
+- The incremental trainer's schedule is now `LINEAR_WARMUP` rather than `WARMUP_COSINE`, which decayed to the minimum inside every pass.
+
+New tests:
+- `OptimizerStateTest.SaveLoadContinuesIdentically` and `MismatchedStateIsRejectedAndLeavesStateUntouched`;
+- `ChatbotTrainerCacheTest.TrainingStateRoundTripsWithinARunOnly`;
+- `IncrementalTrainerTest.TrainingStateContinuesIntoTheNextPass`: two separate trainers, where pass 2's saved step is twice pass 1's. It fails on
+  the old code, which writes no state.
+
+The full test run also surfaced a latent bug in `calculate_learning_rate()`. `WARMUP_COSINE` divided by `total − warmup`, so a run whose warmup
+equalled its step count (now common: a 1-step pass gets a 1-step warmup) got a NaN learning rate and NaN weights. `STEP_DECAY` and
+`EXPONENTIAL_DECAY` could divide by zero when a pass had fewer steps than epochs. All denominators are now guarded, and the decay progress is
+clamped to [0, 1]. New test `LearningRateIsFiniteForTinyAndContinuedRuns` covers every schedule.
+
+- [x] Owner decision: make the schedule run-wide (pass a global step offset and the run's planned total steps from `IncrementalTrainer`), or document per-pass schedules as intended. (Run-wide warmup, then constant.)
+- [x] Persist optimizer state (moments and step count) with the checkpoint and restore it in `set_model()` (or a new `set_optimizer_state()`).
+- [ ] Track run-level `global_step` in the MNS/session record. (The step is in the checkpoint's training state; MNS doesn't show it yet.)
+
+Location in code: `src/Optimizer.{hpp,cpp}` (`save_state()`, `load_state()`), `src/ChatbotTrainer.{hpp,cpp}` (`save_training_state()`, `load_training_state()`, `calculate_learning_rate()`), `src/IncrementalTrainer.cpp` (per-pass trainer setup, end-of-pass save), `src/IncrementalTrainingTool.cpp` (schedule); the `TODO: See TD-269` tags are now fix comments.
 
 Files to Modify:
 
@@ -5835,7 +5870,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / ChatbotTrainer | October 9, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 19, 2026 | Training / ChatbotTrainer | October 9, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-267. The TD-017 adaptive-clipping state (`agc_ema`, `agc_step_count`,
@@ -5847,10 +5882,14 @@ the 5.0 ceiling.
 
 Action Items:
 
-- [ ] Move the adaptive-clip state to `ChatbotTrainer` members (initialized once per `train()` call, or once per run alongside TD-269).
-- [ ] Test: the EMA and warmup counter carry across epochs.
+**Fix landed October 19, 2026 (with TD-269):** `agc_ema_` and `agc_step_count_` are `ChatbotTrainer` members. They are initialized once, not
+per epoch, and saved and restored with the training state, so they also carry across passes of a run. The per-epoch metrics (spike count,
+average clip) stay per epoch. New test `AdaptiveClippingStateCarriesAcrossEpochs`: after 3 epochs of 2 steps, the clip warmup counter is 6.
 
-Location in code: `src/ChatbotTrainer.cpp` (`train_epoch()`); tagged `TODO: See TD-270`.
+- [x] Move the adaptive-clip state to `ChatbotTrainer` members (initialized once per `train()` call, or once per run alongside TD-269).
+- [x] Test: the EMA and warmup counter carry across epochs.
+
+Location in code: `src/ChatbotTrainer.cpp` (`train_epoch()`); the `TODO: See TD-270` tag is now a fix comment.
 
 Files to Modify:
 
@@ -14147,6 +14186,35 @@ Files to Modify:
 
 ---
 
+### TD-541: A Pass Without Validation Data Has Its Checkpoint Discarded
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / IncrementalTrainer | October 19, 2026 | 1-2 hours |
+
+Description:
+Found while testing TD-269 (a one-pair pass's checkpoint wasn't resumed from). `ChatbotTrainer` reports a validation loss of 0 when there is no
+validation data, which happens with `VALIDATION_SPLIT=0` or when a pass has fewer pairs than the split ratio (fewer than 10 at the default).
+`IncrementalTrainer::is_sane_checkpoint_candidate()` rejects any `final_validation_loss <= 0` as "never measured". So that session is never
+resumed from (TD-405's rule skips it), and `cleanup_dead_sessions()` removes it from the history and deletes its checkpoint at the next start. Its
+training is lost, while its files are already marked trained.
+
+Action Items:
+
+- [ ] Record "no validation" explicitly (for example NaN or a flag in the session record) instead of 0, and treat such a session as resumable
+  under the most-recent rule; keep excluding it only from lowest-loss selection.
+- [ ] Test: a pass with no validation split is resumed by the next pass and survives cleanup.
+
+Location in code: `src/IncrementalTrainer.cpp` (`is_sane_checkpoint_candidate()`, `finalize_session()`), `src/ChatbotTrainer.cpp` (validation
+loss with no validation data).
+
+Files to Modify:
+
+- `src/IncrementalTrainer.cpp`
+- `tests/incrementaltrainer_test.cpp`
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -14663,15 +14731,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 332 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 333 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|36|11%|
-|Medium|142|43%|
+|Medium|143|43%|
 |Low|154|46%|
 
-**Total Active Items:** 332
+**Total Active Items:** 333
 
 ### By Component
 
@@ -14729,7 +14797,7 @@ Recomputed directly from the 332 `### TD-NNN` entries under [Active Technical De
 |Memory / HippocampalMemory|3|
 |Metrics / Reporter|2|
 |Training / CLI|4|
-|Training / IncrementalTrainer|8|
+|Training / IncrementalTrainer|9|
 |Training / IncrementalTrainingTool|6|
 |Training / StartupSweep|2|
 |Training / Admin API|4|

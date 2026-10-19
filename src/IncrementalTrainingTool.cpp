@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.14.1
-// @adai-reviewed: 2026-10-18
+// @adai-version: 0.14.2
+// @adai-reviewed: 2026-10-19
 
 #include <array>
 #include <chrono>
@@ -1079,7 +1079,8 @@ int main(int argc, char* argv[]) {
         std::string model_path = (args.size() >= 3) ? args[2] : default_model;
 
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
-        config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
+        // TD-269: warm up once per run
+        config.base_config.lr_schedule = LRSchedule::LINEAR_WARMUP;
         // TODO: See TD-416 in TECHNICAL_DEBT.md - hard-coded auto-save overrides AUTO_SAVE_* (also in retrain)
         config.auto_save_enabled = true;
         config.auto_save_every_minutes = 30;
@@ -1155,7 +1156,8 @@ int main(int argc, char* argv[]) {
             init_gpu, [&]() -> int {
                 IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
                 config.base_config.num_epochs = epochs;
-                config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
+                // TD-269: warm up once per run
+                config.base_config.lr_schedule = LRSchedule::LINEAR_WARMUP;
                 // TODO: See TD-414 in TECHNICAL_DEBT.md - this 3-arg constructor builds the model unconditionally, so with
                 // no vocab it throws VocabularyFileError; the first-run vocab bootstrap is only in the config-file ctor
                 IncrementalTrainer trainer(default_vocab, default_model, config);
@@ -1237,7 +1239,8 @@ int main(int argc, char* argv[]) {
             init_gpu, [&]() -> int {
                 IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
                 config.base_config.num_epochs = epochs;
-                config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
+                // TD-269: warm up once per run
+                config.base_config.lr_schedule = LRSchedule::LINEAR_WARMUP;
                 config.auto_save_enabled = true;
                 config.auto_save_every_minutes = 30;
                 config.auto_save_every_samples = 1000;
@@ -1353,7 +1356,8 @@ int main(int argc, char* argv[]) {
         }
 
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
-        config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
+        // TD-269: warm up once per run
+        config.base_config.lr_schedule = LRSchedule::LINEAR_WARMUP;
         IncrementalTrainer trainer(default_vocab, default_model, config);
 
         if (trainer.reset_all(keep_data)) {

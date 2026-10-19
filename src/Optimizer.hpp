@@ -1,12 +1,13 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-10-19
 
 
 #include <algorithm>
 #include <cmath>
+#include <iosfwd>
 #include <memory>
 #include <vector>
 #include "Matrix.hpp"
@@ -264,4 +265,20 @@ class Optimizer {
      * Useful when loading a model or changing optimization strategy.
      */
     void reset_state();
+
+    /**
+     * @brief TD-269: write the optimizer's state (type, global step, and per parameter group its
+     *        shape, step count and first/second moments) to @p out, so a later pass can continue
+     *        AdamW instead of restarting its moments from zero.
+     * @return false on a write error.
+     */
+    bool save_state(std::ostream& out) const;
+
+    /**
+     * @brief TD-269: restore state written by save_state(). The optimizer type, the number of
+     *        parameter groups and every group's shape must match the parameters registered now
+     *        (same model architecture, registered in the same order); otherwise nothing is
+     *        changed and false is returned, leaving the fresh state in place.
+     */
+    bool load_state(std::istream& in);
 };

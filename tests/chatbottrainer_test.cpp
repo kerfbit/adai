@@ -1012,6 +1012,16 @@ class ChatbotTrainerCacheTest : public ::testing::Test {
         std::iota(t.training_indices.begin(), t.training_indices.end(), 0);
     }
 
+    static int GlobalStep(const ChatbotTrainer& t) { return t.global_step; }
+    static int AgcSteps(const ChatbotTrainer& t) { return t.agc_step_count_; }
+    static int RunWarmup(const ChatbotTrainer& t) { return t.run_warmup_steps_; }
+    static void InitModel(ChatbotTrainer& t) { t.initialize_model(); }
+    static float LearningRateAt(ChatbotTrainer& t, int step, int total, int warmup) {
+        t.total_training_steps = total;
+        t.run_warmup_steps_ = warmup;
+        return t.calculate_learning_rate(step);
+    }
+
     static TrainingConfig tiny_training_config(int accumulation_steps) {
         TrainingConfig cfg = quiet_config();
         cfg.d_model = 16;
@@ -1197,6 +1207,78 @@ TEST_F(ChatbotTrainerCacheTest, FailedSampleKeepsTheWindowsEarlierGradients) {
         mean /= 4.0f;
         EXPECT_NEAR(step_losses[0], mean, 1e-4f * std::max(1.0f, mean)) << "epoch " << epoch;
     }
+}
+
+// Every schedule stays finite for tiny passes and for steps carried past this call's total
+// (TD-269): WARMUP_COSINE divided by total - warmup, which is 0 when they're equal.
+TEST_F(ChatbotTrainerCacheTest, LearningRateIsFiniteForTinyAndContinuedRuns) {
+    for (LRSchedule sched :
+         {LRSchedule::CONSTANT, LRSchedule::LINEAR_WARMUP, LRSchedule::COSINE_DECAY,
+          LRSchedule::WARMUP_COSINE, LRSchedule::STEP_DECAY, LRSchedule::EXPONENTIAL_DECAY}) {
+        TrainingConfig cfg = quiet_config();
+        cfg.lr_schedule = sched;
+        cfg.num_epochs = 3;
+        ChatbotTrainer t(cfg);
+        for (int total : {0, 1, 2})
+            for (int warmup : {0, 1, 2})
+                for (int step : {0, 1, 5, 100}) {
+                    const float lr = LearningRateAt(t, step, total, warmup);
+                    EXPECT_TRUE(std::isfinite(lr)) << "schedule " << static_cast<int>(sched)
+                                                   << " total " << total << " warmup " << warmup
+                                                   << " step " << step;
+                }
+    }
+}
+
+// TD-270: adaptive clipping keeps its EMA and warmup counter across epochs (it restarted every
+// epoch, so with few steps per epoch it never left warmup).
+TEST_F(ChatbotTrainerCacheTest, AdaptiveClippingStateCarriesAcrossEpochs) {
+    Matrix::gpu_try_initialize();
+    TrainingConfig cfg = tiny_training_config(1);
+    cfg.adaptive_gradient_clip = true;
+    ChatbotTrainer t(cfg);
+    std::filesystem::create_directories(cache_dir);
+    ASSERT_TRUE(t.build_vocabulary({"hello world", "how are you", "I am fine", "thank you"}, 100,
+                                   cache_dir + "/vocab.txt"));
+    t.add_training_pair("hello world", "how are you");
+    t.add_training_pair("I am fine", "thank you");
+    ASSERT_TRUE(t.train(3));
+    EXPECT_EQ(AgcSteps(t), GlobalStep(t)) << "one count across all 3 epochs, not per epoch";
+    EXPECT_EQ(GlobalStep(t), 6);
+}
+
+// TD-269: the training state (optimizer, run-level step, warmup, clip state) round-trips, and
+// state from another run is not loaded.
+TEST_F(ChatbotTrainerCacheTest, TrainingStateRoundTripsWithinARunOnly) {
+    Matrix::gpu_try_initialize();
+    std::filesystem::create_directories(cache_dir);
+    const std::string vocab = cache_dir + "/vocab.txt";
+    const std::string state = cache_dir + "/cp.bin.optimizer";
+    ChatbotTrainer first(tiny_training_config(1));
+    ASSERT_TRUE(first.build_vocabulary({"hello world", "how are you", "I am fine", "thank you"},
+                                       100, vocab));
+    first.set_run_id("run-01");
+    first.add_training_pair("hello world", "how are you");
+    ASSERT_TRUE(first.train(2));
+    ASSERT_TRUE(first.save_training_state(state));
+
+    // Same architecture and vocab (the model is fresh; only the state is restored).
+    ChatbotTrainer second(tiny_training_config(1));
+    ASSERT_TRUE(second.build_vocabulary({"hello world", "how are you", "I am fine", "thank you"},
+                                        100, cache_dir + "/vocab2.txt"));
+    InitModel(second);
+    second.set_run_id("run-01");
+    ASSERT_TRUE(second.load_training_state(state));
+    EXPECT_EQ(GlobalStep(second), GlobalStep(first));
+    EXPECT_EQ(RunWarmup(second), RunWarmup(first));
+
+    ChatbotTrainer other_run(tiny_training_config(1));
+    ASSERT_TRUE(other_run.build_vocabulary({"hello world", "how are you", "I am fine", "thank you"},
+                                           100, cache_dir + "/vocab3.txt"));
+    InitModel(other_run);
+    other_run.set_run_id("run-02");
+    EXPECT_FALSE(other_run.load_training_state(state)) << "a new run starts fresh";
+    EXPECT_EQ(GlobalStep(other_run), 0);
 }
 
 TEST_F(ChatbotTrainerCacheTest, RoundTripSavesAndLoadsCorrectly) {

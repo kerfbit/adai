@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added)
-// @adai-version: 0.11.1
-// @adai-reviewed: 2026-10-18
+// @adai-version: 0.12.0
+// @adai-reviewed: 2026-10-19
 
 
 #include <atomic>
@@ -265,6 +265,18 @@ class ChatbotTrainer {
     int global_step{0};
     int total_training_steps{0};
     float current_learning_rate;
+    // TD-269: warmup length fixed on the run's first train() call (config.warmup_steps, or 10% of
+    // that call's steps) and restored with the training state, so a run made of many passes warms
+    // up once instead of once per pass. 0 = not fixed yet.
+    int run_warmup_steps_{0};
+    // TD-269: the MNS run this trainer's state belongs to (see save/load_training_state()).
+    std::string run_id_;
+
+    // TD-270: adaptive-clipping state, kept across epochs (and passes, via the training state)
+    // instead of being local to train_epoch(), where every epoch restarted its warmup.
+    float agc_ema_{0.0f};
+    int agc_step_count_{0};
+    bool agc_initialized_{false};
 
     // Gradient accumulation state
     int accumulation_step{0};
@@ -548,6 +560,27 @@ class ChatbotTrainer {
      *        to an additional location.
      */
     void save_to(const std::string& path);
+
+    /// TD-269: tag the training state saved by this trainer with an MNS run id; state saved under
+    /// a different run id isn't loaded (a new run starts its optimizer and schedule fresh).
+    void set_run_id(const std::string& run_id) { run_id_ = run_id; }
+
+    /**
+     * @brief TD-269: save the training state that should continue into the next pass: the
+     *        optimizer's moments and step counts, the run-level global step and warmup length,
+     *        and the adaptive-clipping state, tagged with the run id. Written to
+     *        @p path (conventionally "<checkpoint>.optimizer", so checkpoint cleanup and links
+     *        include it) via a temp file and rename. Returns false on failure (logged).
+     */
+    bool save_training_state(const std::string& path) const;
+
+    /**
+     * @brief TD-269: restore state written by save_training_state(). Call after set_model() and
+     *        before train(). Returns false, keeping a fresh optimizer and schedule, if the file is
+     *        missing or unreadable, was saved under a different run id, or doesn't match the
+     *        model's parameters.
+     */
+    bool load_training_state(const std::string& path);
 
     /**
      * @brief Set the metrics reporter for in-epoch reporting (TD-021).

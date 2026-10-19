@@ -366,3 +366,15 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 | Long responses lose `<eos>` on head truncation (§6) | Model never sees long targets end | By inspection; **fixed in code October 17, 2026** (`truncate_target_keep_eos()`) | [TD-275](../../guides/TECHNICAL_DEBT.md#td-275-chatbottrainer-drops-eos-from-long-training-responses) |
 | Hygiene: unused accuracy/`verbose`, `log()` level mapping, `end_epoch` reports last-window gradient norm rather than the epoch average, stale `chatbottrainer_test.cpp.old`, `validate_and_correct_config()` silently changes architecture (standalone path) | Minor | By inspection | [TD-276](../../guides/TECHNICAL_DEBT.md#td-276-chatbottrainer-hygiene-dead-fields-logging-stale-test-file) |
 | Whole class capped below `stable` | Already TD-039 | — | TD-039 |
+
+## Addendum (October 19, 2026): training state across passes (TD-269, TD-270)
+
+- **`save_training_state(path)`/`load_training_state(path)`** persist the optimizer's moments and step counts (`Optimizer::save_state()`), the
+  run-level `global_step`, the run's warmup length and the adaptive-clip EMA and counter, tagged with the run id set by `set_run_id()`.
+  - Loading refuses state from another run, and state whose shapes don't match the model.
+  - `save_to()` also writes `<path>.optimizer`, so best snapshots and auto-saves carry the state.
+- **`calculate_learning_rate()`** uses `run_warmup_steps_` (fixed on the first `train()` call, then restored) instead of re-deriving 10% of each
+  call's steps. `IncrementalTrainer` now uses `LINEAR_WARMUP`, the owner decision: warm up once per run, then hold the base LR.
+- **The adaptive-clipping EMA and warmup counter** are members (`agc_ema_`, `agc_step_count_`), so they no longer reset every epoch (TD-270).
+- **`calculate_learning_rate()`** guards every denominator and clamps the cosine progress to [0, 1]. `WARMUP_COSINE` used to return NaN when the
+  warmup equalled the step count, and `STEP_DECAY`/`EXPONENTIAL_DECAY` divided by zero when a pass had fewer steps than epochs.

@@ -213,6 +213,53 @@ IncrementalConfig tiny_local_config(const fs::path& session_dir) {
 }
 }  // namespace
 
+// Global step recorded in a "<checkpoint>.optimizer" training-state file (TD-269 format:
+// magic, run-id length, run id, int64 step, ...).
+std::int64_t saved_global_step(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    std::uint32_t magic = 0, id_len = 0;
+    in.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+    in.read(reinterpret_cast<char*>(&id_len), sizeof(id_len));
+    in.seekg(id_len, std::ios::cur);
+    std::int64_t step = -1;
+    in.read(reinterpret_cast<char*>(&step), sizeof(step));
+    return in ? step : -1;
+}
+
+// TD-269: the optimizer state and run-level step continue into the next pass (a separate trainer,
+// as each trainer_service pass is a separate process), instead of restarting at step 0.
+TEST_F(IncrementalTrainerTest, TrainingStateContinuesIntoTheNextPass) {
+    const IncrementalConfig config = tiny_local_config(session_dir);
+    // Enough pairs for a validation split: a pass with no validation records loss 0, which the
+    // checkpoint sanity check treats as unusable.
+    const std::string data = (test_dir / "pairs.jsonl").string();
+    {
+        std::ofstream out(data);
+        for (int i = 0; i < 20; ++i)
+            out << "{\"input\":\"hello there " << i << "\",\"response\":\"hi friend\"}\n";
+    }
+    PendingFileRange file;
+    file.path = data;
+    std::string first_cp;
+    {
+        IncrementalTrainer pass1(vocab_file.string(), model_file.string(), config);
+        ASSERT_TRUE(pass1.train_on_files({file}, 1));
+        first_cp = pass1.get_session_history().back().checkpoint_path;
+    }
+    const std::int64_t step1 = saved_global_step(first_cp + ".optimizer");
+    ASSERT_GT(step1, 0) << "the pass saved its training state next to its checkpoint";
+
+    std::string second_cp;
+    {
+        IncrementalTrainer pass2(vocab_file.string(), model_file.string(), config);
+        ASSERT_TRUE(pass2.train_on_files({file}, 1));
+        second_cp = pass2.get_session_history().back().checkpoint_path;
+    }
+    ASSERT_NE(second_cp, first_cp);
+    EXPECT_EQ(saved_global_step(second_cp + ".optimizer"), 2 * step1)
+        << "pass 2 continued the step count (and optimizer) instead of restarting at 0";
+}
+
 // TD-412: a pass that loads no samples (missing or empty file) fails, so its caller releases the
 // files instead of marking them trained, and it leaves no zero-sample session behind.
 TEST_F(IncrementalTrainerTest, PassThatLoadsNothingFails) {

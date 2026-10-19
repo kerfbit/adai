@@ -108,3 +108,15 @@ This file replaces `docs/development/api/core/optimizer.md` (1,258 lines). Kept:
 norm semantics, and the `ChatbotTrainer` integration. Dropped: generic tutorial material (choosing an optimizer, hyperparameter tips,
 example training loops, references) and its "Future Enhancements" list, whose items (warmup, schedulers, state persistence) are tracked
 elsewhere (TD-269 for state). Added: the zero-gradient skip, the NaN guard in the caller, the GPU round trip and the measured cost.
+
+## Addendum (October 19, 2026): `save_state()`/`load_state()` (TD-269)
+
+`save_state(ostream)` writes the optimizer type, the global step and, for each parameter group in registration order, its shape, step count and
+first and second moments.
+
+`load_state(istream)` stages everything first and commits only if the type, the group count and every shape match the groups registered now. A
+mismatch or a truncated file returns false and leaves the optimizer untouched.
+
+`ChatbotTrainer` embeds this in its `<checkpoint>.optimizer` training-state file, so AdamW continues across incremental passes instead of
+restarting with zero moments. With Adam/AdamW the moments are two more weight-sized tensors, so a checkpoint is about 3× larger; that was accepted
+by the owner on October 18, 2026.

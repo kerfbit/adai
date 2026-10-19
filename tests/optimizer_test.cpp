@@ -2,6 +2,7 @@
 #include <../gtest/gtest.h>
 #include <cmath>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include "../src/Matrix.hpp"
 
@@ -919,4 +920,49 @@ TEST(OptimizerPerformanceTest, ManyParameterGroups) {
 int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+
+// TD-269: optimizer state survives save/load, so a later pass continues AdamW exactly.
+TEST(OptimizerStateTest, SaveLoadContinuesIdentically) {
+    auto make = [](Matrix& w, Matrix& g, Optimizer& opt) {
+        for (int i = 0; i < w.rows; ++i)
+            for (int j = 0; j < w.cols; ++j) {
+                w(i, j) = 0.1f * static_cast<float>(i + j);
+                g(i, j) = 0.05f * static_cast<float>(i - j + 1);
+            }
+        opt.add_parameter_group(&w, &g);
+    };
+    Matrix w1(3, 4), g1(3, 4), w2(3, 4), g2(3, 4);
+    Optimizer a(OptimizerType::ADAMW, 0.01f), b(OptimizerType::ADAMW, 0.01f);
+    make(w1, g1, a);
+    make(w2, g2, b);
+    for (int k = 0; k < 5; ++k) a.step();  // a has history; b is fresh
+    w2 = w1;
+
+    std::stringstream buf;
+    ASSERT_TRUE(a.save_state(buf));
+    ASSERT_TRUE(b.load_state(buf));
+    a.step();
+    b.step();
+    for (int i = 0; i < w1.rows; ++i)
+        for (int j = 0; j < w1.cols; ++j) EXPECT_FLOAT_EQ(w1(i, j), w2(i, j));
+}
+
+TEST(OptimizerStateTest, MismatchedStateIsRejectedAndLeavesStateUntouched) {
+    Matrix w(2, 2), g(2, 2), w_other(3, 2), g_other(3, 2);
+    g.fill(1.0f);
+    g_other.fill(1.0f);
+    Optimizer saved(OptimizerType::ADAMW, 0.01f), other(OptimizerType::ADAMW, 0.01f);
+    saved.add_parameter_group(&w, &g);
+    other.add_parameter_group(&w_other, &g_other);
+    saved.step();
+    std::stringstream buf;
+    ASSERT_TRUE(saved.save_state(buf));
+    EXPECT_FALSE(other.load_state(buf)) << "different shape";
+
+    std::stringstream truncated(buf.str().substr(0, 20));
+    Optimizer same(OptimizerType::ADAMW, 0.01f);
+    Matrix w3(2, 2), g3(2, 2);
+    same.add_parameter_group(&w3, &g3);
+    EXPECT_FALSE(same.load_state(truncated)) << "truncated";
 }

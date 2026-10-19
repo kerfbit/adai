@@ -1,12 +1,13 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.10.7
-// @adai-reviewed: 2026-10-18
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-10-19
 
 #include "ChatbotTrainer.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -860,9 +861,10 @@ float ChatbotTrainer::calculate_learning_rate(int step) {
     float lr = config.learning_rate;
     int warmup = config.warmup_steps;
 
-    // Auto-configure warmup if not set
+    // Auto-configure warmup if not set: fixed once per run (TD-269), not re-derived from each
+    // pass's own step count.
     if (warmup == 0 && config.lr_schedule != LRSchedule::CONSTANT) {
-        warmup = total_training_steps / 10;  // 10% warmup
+        warmup = run_warmup_steps_ > 0 ? run_warmup_steps_ : total_training_steps / 10;
     }
 
     switch (config.lr_schedule) {
@@ -876,7 +878,12 @@ float ChatbotTrainer::calculate_learning_rate(int step) {
             return lr;
 
         case LRSchedule::COSINE_DECAY: {
-            float progress = static_cast<float>(step) / static_cast<float>(total_training_steps);
+            // Denominators guarded and progress clamped: a pass with very few steps (or a step
+            // count carried past this call's total, TD-269) must not divide by zero or go
+            // past the end of the curve.
+            float progress = std::clamp(static_cast<float>(step) /
+                                            static_cast<float>(std::max(1, total_training_steps)),
+                                        0.0f, 1.0f);
             float cosine = 0.5f * (1.0f + std::cos(3.14159265359f * progress));
             return config.min_learning_rate + (lr - config.min_learning_rate) * cosine;
         }
@@ -886,9 +893,11 @@ float ChatbotTrainer::calculate_learning_rate(int step) {
             if (step < warmup) {
                 return lr * (static_cast<float>(step) / static_cast<float>(warmup));
             }
-            // Cosine decay phase
-            float progress = static_cast<float>(step - warmup) /
-                             static_cast<float>(total_training_steps - warmup);
+            // Cosine decay phase (guarded as in COSINE_DECAY: total == warmup made this 0/0 -> NaN)
+            float progress =
+                std::clamp(static_cast<float>(step - warmup) /
+                               static_cast<float>(std::max(1, total_training_steps - warmup)),
+                           0.0f, 1.0f);
             float cosine = 0.5f * (1.0f + std::cos(3.14159265359f * progress));
             return config.min_learning_rate + (lr - config.min_learning_rate) * cosine;
         }
@@ -896,19 +905,19 @@ float ChatbotTrainer::calculate_learning_rate(int step) {
         case LRSchedule::STEP_DECAY: {
             int decay_steps = config.lr_decay_steps;
             if (decay_steps == 0) {
-                decay_steps = total_training_steps / config.num_epochs;
+                decay_steps = total_training_steps / std::max(1, config.num_epochs);
             }
-            int num_decays = step / decay_steps;
+            int num_decays = step / std::max(1, decay_steps);  // fewer steps than epochs: 0
             return lr * static_cast<float>(std::pow(config.lr_decay_factor, num_decays));
         }
 
         case LRSchedule::EXPONENTIAL_DECAY: {
             int decay_steps = config.lr_decay_steps;
             if (decay_steps == 0) {
-                decay_steps = total_training_steps / config.num_epochs;
+                decay_steps = total_training_steps / std::max(1, config.num_epochs);
             }
-            float decay_rate =
-                std::pow(config.lr_decay_factor, 1.0f / static_cast<float>(decay_steps));
+            float decay_rate = std::pow(config.lr_decay_factor,
+                                        1.0f / static_cast<float>(std::max(1, decay_steps)));
             return lr * static_cast<float>(std::pow(decay_rate, step));
         }
 
@@ -1000,10 +1009,16 @@ float ChatbotTrainer::train_epoch(int epoch) {
     // ── TD-017: Adaptive gradient clipping state ──────────────────────────────
     // agc_ema is seeded with the fixed gradient_clip_norm value so the first
     // warmup steps start at a sensible scale rather than zero.
-    // TODO: See TD-270 in TECHNICAL_DEBT.md - this adaptive-clip state is per-epoch: every epoch restarts the
-    // warmup (default 100 steps at the 5.0 ceiling), so with <= 100 steps/epoch it never activates.
-    float agc_ema = config.gradient_clip_norm;  // running EMA of raw grad norms
-    int agc_step_count = 0;                     // optimizer steps taken (for warmup)
+    // TD-270: the EMA and warmup counter are members, initialized once (or restored with the
+    // training state) rather than per epoch, where every epoch restarted the warmup (default
+    // 100 steps at the 5.0 ceiling) so with <= 100 steps per epoch it never activated.
+    if (!agc_initialized_) {
+        agc_ema_ = config.gradient_clip_norm;
+        agc_step_count_ = 0;
+        agc_initialized_ = true;
+    }
+    float& agc_ema = agc_ema_;          // running EMA of raw grad norms
+    int& agc_step_count = agc_step_count_;  // optimizer steps taken (for warmup)
     int agc_spike_count = 0;                    // cumulative spike steps this epoch
     float agc_clip_sum = 0.0f;                  // sum of effective_clip values (for epoch avg)
     int agc_clip_count = 0;
@@ -2056,6 +2071,11 @@ bool ChatbotTrainer::train(int num_epochs) {
             (tokenized_training_data.size() + static_cast<size_t>(samples_per_update) - 1) /
             static_cast<size_t>(samples_per_update));
         total_training_steps = num_epochs * updates_per_epoch;
+        if (run_warmup_steps_ <= 0) {
+            run_warmup_steps_ = config.warmup_steps > 0
+                                    ? config.warmup_steps
+                                    : std::max(1, total_training_steps / 10);  // TD-269
+        }
 
         // Train for specified epochs
         for (int epoch = 0; epoch < num_epochs; ++epoch) {
@@ -2154,8 +2174,8 @@ void ChatbotTrainer::set_tokenizer(std::unique_ptr<BPETokenizer> tok) {
 void ChatbotTrainer::set_model(std::unique_ptr<EncoderDecoderModel> mdl) {
     model = std::move(mdl);
 
-    // TODO: See TD-269 in TECHNICAL_DEBT.md - a fresh Optimizer per ChatbotTrainer (one per incremental pass)
-    // loses AdamW moments every pass, and global_step/total_training_steps restart too.
+    // A fresh Optimizer per ChatbotTrainer; IncrementalTrainer restores its moments, the run-level
+    // step and warmup with load_training_state() so they continue across passes (TD-269).
 
     // Initialize optimizer for the model if not already done
     if (!optimizer) {
@@ -2213,7 +2233,102 @@ void ChatbotTrainer::set_best_model_callback(BestModelCallback cb) {
 void ChatbotTrainer::save_to(const std::string& path) {
     if (model) {
         model->save_model(path);
+        save_training_state(path + ".optimizer");  // TD-269: snapshots carry it too
     }
+}
+
+namespace {
+constexpr std::uint32_t kTrainingStateMagic = 0x31535254;  // "TRS1"
+}
+
+bool ChatbotTrainer::save_training_state(const std::string& path) const {
+    if (!optimizer) {
+        return false;
+    }
+    const std::string tmp = path + ".tmp";
+    {
+        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        if (!out.is_open()) {
+            adai::Logger::warn("Could not write training state {}", tmp);
+            return false;
+        }
+        const std::uint32_t magic = kTrainingStateMagic;
+        const std::uint32_t id_len = static_cast<std::uint32_t>(run_id_.size());
+        const std::int64_t step = global_step;
+        const std::int32_t warmup = run_warmup_steps_;
+        const float ema = agc_ema_;
+        const std::int32_t agc_steps = agc_step_count_;
+        const std::uint8_t agc_init = agc_initialized_ ? 1 : 0;
+        out.write(reinterpret_cast<const char*>(&magic), sizeof(magic));
+        out.write(reinterpret_cast<const char*>(&id_len), sizeof(id_len));
+        out.write(run_id_.data(), static_cast<std::streamsize>(id_len));
+        out.write(reinterpret_cast<const char*>(&step), sizeof(step));
+        out.write(reinterpret_cast<const char*>(&warmup), sizeof(warmup));
+        out.write(reinterpret_cast<const char*>(&ema), sizeof(ema));
+        out.write(reinterpret_cast<const char*>(&agc_steps), sizeof(agc_steps));
+        out.write(reinterpret_cast<const char*>(&agc_init), sizeof(agc_init));
+        if (!optimizer->save_state(out) || !out.flush()) {
+            adai::Logger::warn("Failed writing training state {}", tmp);
+            std::remove(tmp.c_str());
+            return false;
+        }
+    }
+    if (std::rename(tmp.c_str(), path.c_str()) != 0) {
+        std::remove(tmp.c_str());
+        adai::Logger::warn("Could not move training state into place: {}", path);
+        return false;
+    }
+    return true;
+}
+
+bool ChatbotTrainer::load_training_state(const std::string& path) {
+    if (!optimizer) {
+        return false;
+    }
+    std::ifstream in(path, std::ios::binary);
+    if (!in.is_open()) {
+        adai::Logger::info("No training state at {}; starting a fresh optimizer and schedule",
+                           path);
+        return false;
+    }
+    std::uint32_t magic = 0, id_len = 0;
+    if (!in.read(reinterpret_cast<char*>(&magic), sizeof(magic)) ||
+        magic != kTrainingStateMagic ||
+        !in.read(reinterpret_cast<char*>(&id_len), sizeof(id_len)) || id_len > 4096) {
+        adai::Logger::warn("Training state {} is unreadable; starting fresh", path);
+        return false;
+    }
+    std::string saved_run(id_len, '\0');
+    std::int64_t step = 0;
+    std::int32_t warmup = 0, agc_steps = 0;
+    float ema = 0.0f;
+    std::uint8_t agc_init = 0;
+    if (!in.read(saved_run.data(), static_cast<std::streamsize>(id_len)) ||
+        !in.read(reinterpret_cast<char*>(&step), sizeof(step)) ||
+        !in.read(reinterpret_cast<char*>(&warmup), sizeof(warmup)) ||
+        !in.read(reinterpret_cast<char*>(&ema), sizeof(ema)) ||
+        !in.read(reinterpret_cast<char*>(&agc_steps), sizeof(agc_steps)) ||
+        !in.read(reinterpret_cast<char*>(&agc_init), sizeof(agc_init))) {
+        adai::Logger::warn("Training state {} is truncated; starting fresh", path);
+        return false;
+    }
+    if (!run_id_.empty() && !saved_run.empty() && saved_run != run_id_) {
+        adai::Logger::info("Training state {} belongs to run '{}', not '{}'; starting this run's "
+                           "optimizer and schedule fresh",
+                           path, saved_run, run_id_);
+        return false;
+    }
+    if (!optimizer->load_state(in)) {
+        return false;  // logged; the optimizer is untouched
+    }
+    global_step = static_cast<int>(step);
+    run_warmup_steps_ = warmup;
+    agc_ema_ = ema;
+    agc_step_count_ = agc_steps;
+    agc_initialized_ = agc_init != 0;
+    adai::Logger::info("Restored training state from {} (global step {}, warmup {})", path,
+                       global_step, run_warmup_steps_);
+    return true;
 }
 
 void ChatbotTrainer::set_metrics_reporter(IMetricsReporter* reporter) {
