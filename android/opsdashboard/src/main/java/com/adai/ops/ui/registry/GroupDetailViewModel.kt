@@ -1,8 +1,8 @@
 package com.adai.ops.ui.registry
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.6.0
-// @adai-reviewed: 2026-09-20
+// @adai-version: 0.7.0
+// @adai-reviewed: 2026-10-19
 
 
 import androidx.lifecycle.ViewModel
@@ -337,13 +337,11 @@ class GroupDetailViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(actionInProgress = true, actionMessage = null) }
             val kind = _uiState.value.selectedKind
-            val created = registryRepository.createSegments(group, path, ranges, kind = kind)
-            _uiState.update {
-                it.copy(
-                    actionInProgress = false,
-                    actionMessage = "Created $created/${ranges.size} segment(s) from '$path'.",
-                )
-            }
+            val result = registryRepository.createSegments(group, path, ranges, kind = kind)
+            val message = result.error
+                ?: ("Created ${result.created}/${ranges.size} segment(s) from '$path'." +
+                    if (result.replacedWhole) " They replaced the whole-file entry." else "")
+            _uiState.update { it.copy(actionInProgress = false, actionMessage = message) }
             refresh()
         }
     }

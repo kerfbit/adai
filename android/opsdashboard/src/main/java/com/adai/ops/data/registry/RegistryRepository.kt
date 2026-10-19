@@ -1,13 +1,14 @@
 package com.adai.ops.data.registry
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.5.0
-// @adai-reviewed: 2026-09-20
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-10-19
 
 
 import com.adai.ops.network.ApiClientProvider
 import com.adai.ops.network.ApiResult
 import com.adai.ops.network.RegistryApiService
+import com.adai.ops.network.errorMessageOrNull
 import com.adai.ops.network.dto.AssignRequestDto
 import com.adai.ops.network.dto.AssignResponseDto
 import com.adai.ops.network.dto.DeleteRequestDto
@@ -257,22 +258,76 @@ class RegistryRepository(
      * does not itself count pairs, since that requires local file access the app doesn't have
      * for a path that lives only on the registry_server's own storage.
      *
-     * Returns the number of segments successfully queued.
+     * TD-542: the segments replace an unclaimed whole-file entry of [path], so the file isn't
+     * queued (and trained) twice, matching `dataset_manager segment`. A whole entry claimed by a
+     * run, or a path with trained records (which the whole-path delete would erase), is refused
+     * before anything is queued; if the whole entry can't be removed afterwards, the new
+     * segments are removed again. A whole entry's model assignment carries over to the segments.
      */
     suspend fun createSegments(
         group: String,
         path: String,
         ranges: List<Pair<Int, Int>>,
         kind: String? = null,
-    ): Int {
-        var created = 0
+    ): SegmentsResult {
+        val queue = when (val q = queue(group, kind)) {
+            is ApiResult.Success -> q.data
+            else -> return SegmentsResult(error = "Could not read the queue: ${q.errorMessageOrNull()}")
+        }
+        val whole = queue.entries.firstOrNull { it.path == path && it.segment_start < 0 }
+        if (whole != null && whole.run_id.isNotEmpty()) {
+            return SegmentsResult(
+                error = "'$path' is pending as a whole file claimed by run '${whole.run_id}'; release it first.",
+            )
+        }
+        if (whole != null) {
+            val trained = when (val r = registry(group, kind)) {
+                is ApiResult.Success -> r.data.entries.any { it.data_file == path }
+                else -> return SegmentsResult(error = "Could not read the registry: ${r.errorMessageOrNull()}")
+            }
+            if (trained) {
+                return SegmentsResult(
+                    error = "'$path' is pending as a whole file and has trained records; delete the whole entry first.",
+                )
+            }
+        }
+
+        val created = mutableListOf<SegmentTargetDto>()
         for ((start, count) in ranges) {
             val result = pendingAdd(group, path, segmentStart = start, segmentCount = count, kind = kind)
             if (result is ApiResult.Success && result.data.added) {
-                created++
+                created += SegmentTargetDto(path, start, count)
             }
         }
-        return created
+        if (whole == null || created.isEmpty()) {
+            return SegmentsResult(created = created.size)
+        }
+
+        val del = deleteEntries(group, listOf(path), force = false, kind = kind)
+        if (del !is ApiResult.Success || del.data.deleted != 1) {
+            for (segment in created) {
+                deleteEntries(group, force = false, segment = segment, kind = kind)
+            }
+            return SegmentsResult(
+                error = "Could not remove the whole-file entry of '$path'; the new segments were removed again.",
+            )
+        }
+        if (whole.model_name.isNotEmpty()) {
+            val assigned = safeApiCall {
+                service().assign(
+                    groupPath(group, kind),
+                    AssignRequestDto(model_name = whole.model_name, segments = created),
+                )
+            }
+            if (assigned !is ApiResult.Success || assigned.data.assigned != created.size) {
+                return SegmentsResult(
+                    created = created.size,
+                    replacedWhole = true,
+                    error = "Segments created, but not all were assigned to '${whole.model_name}'.",
+                )
+            }
+        }
+        return SegmentsResult(created = created.size, replacedWhole = true)
     }
 
     /** Trigger a server-side Gutenberg fetch; registry_server caches the book and rotates slices per model. */
@@ -321,3 +376,12 @@ class RegistryRepository(
     suspend fun updateFtpMaxSessionsPerRun(count: Int): ApiResult<RegistryAdminConfigDto> =
         safeResponseCall { service().putAdminConfig(buildJsonObject { put("ftp_max_sessions_per_run", count) }) }
 }
+
+/** TD-542: outcome of [RegistryRepository.createSegments]. */
+data class SegmentsResult(
+    val created: Int = 0,
+    /** true when the segments replaced the file's whole-file pending entry. */
+    val replacedWhole: Boolean = false,
+    /** non-null when the request was refused or only partly applied. */
+    val error: String? = null,
+)

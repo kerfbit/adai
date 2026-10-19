@@ -1,11 +1,12 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
+// @adai-version: 1.4.0
 // @adai-reviewed: 2026-10-19
 
 #include <algorithm>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include "Config.hpp"
 #include "DataFetcher.hpp"
@@ -777,7 +778,31 @@ int main(int argc, char* argv[]) {
         reg.load_pending_list();
         reg.load_registry();
 
+        // TD-542: the segments replace an unclaimed whole-file entry of the same path, so the
+        // file isn't queued twice (whole and in segments) and trained twice. A claimed entry
+        // belongs to a running pass, and trained records would be erased by the whole-path
+        // delete, so both refuse before anything is queued.
+        std::optional<PendingEntry> whole;
+        for (const auto& e : reg.pending_entries()) {
+            if (e.path == parsed.path && e.segment_start < 0) {
+                whole = e;
+                break;
+            }
+        }
+        if (whole && !whole->run_id.empty()) {
+            std::cerr << "❌ '" << parsed.path << "' is pending as a whole file claimed by run '"
+                      << whole->run_id << "'; release it before segmenting\n";
+            return 1;
+        }
+        if (whole && reg.is_trained(parsed.path)) {
+            std::cerr << "❌ '" << parsed.path
+                      << "' is pending as a whole file and also has trained records; replacing "
+                         "the whole entry would delete them, so delete it explicitly first\n";
+            return 1;
+        }
+
         int created = 0;
+        std::vector<SegmentTarget> created_segments;
         for (const auto& [start, count] : ranges) {
             // TD-205: add_pending_path_unchecked (not add_file) — count_pairs() above already
             // proved this path is locally readable, so the redundant existence check is
@@ -786,6 +811,7 @@ int main(int argc, char* argv[]) {
                 std::cout << "   segment [" << start << ", " << (start + count)
                           << ") -> queued\n";
                 ++created;
+                created_segments.push_back({parsed.path, start, count});
             } else {
                 std::cerr << "⚠️  Failed to queue segment [" << start << ", " << (start + count)
                           << ") — already pending or already trained\n";
@@ -796,6 +822,31 @@ int main(int argc, char* argv[]) {
                   << parsed.path << "'\n";
         if (created == 0) {
             return 1;
+        }
+
+        if (whole) {
+            const auto del = reg.delete_entries({parsed.path}, /*force=*/false, false);
+            if (del.deleted != 1) {
+                // Leaving both queued would train the file twice, so undo the segments.
+                std::cerr << "❌ Could not remove the whole-file entry of '" << parsed.path
+                          << "'; removing the new segments again\n";
+                const auto undo = reg.delete_entries({}, /*force=*/false, false, created_segments);
+                if (undo.deleted != static_cast<int>(created_segments.size())) {
+                    std::cerr << "⚠️  Only " << undo.deleted << "/" << created_segments.size()
+                              << " segment(s) were removed; check 'status'\n";
+                }
+                return 1;
+            }
+            std::cout << "   replaced the whole-file entry\n";
+            if (!whole->model_name.empty()) {
+                const auto as = reg.assign_model(whole->model_name, {}, 0, created_segments);
+                if (as.assigned != static_cast<int>(created_segments.size())) {
+                    std::cerr << "⚠️  Assigned " << as.assigned << "/" << created_segments.size()
+                              << " segment(s) to model '" << whole->model_name << "'\n";
+                    return 1;
+                }
+                std::cout << "   segments assigned to model '" << whole->model_name << "'\n";
+            }
         }
 
     } else if (command == "models") {

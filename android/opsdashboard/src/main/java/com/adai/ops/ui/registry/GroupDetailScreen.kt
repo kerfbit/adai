@@ -1,8 +1,8 @@
 package com.adai.ops.ui.registry
 
 // @adai-status: beta        (TD-205 — full dataset management: kind filter chips, pool-health overview, unassign/delete/manual-add/upload/migrate/segment actions, all mutating actions now ConfirmActionDialog-gated; real-device run still unverified, see TD-048)
-// @adai-version: 0.5.0
-// @adai-reviewed: 2026-09-20
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-10-19
 
 
 import androidx.compose.foundation.layout.Arrangement
@@ -353,8 +353,10 @@ fun GroupDetailScreen(group: String, viewModel: GroupDetailViewModel, onBack: ()
         is PendingAction.Segment -> ConfirmActionDialog(
             title = "Create ${p.ranges.size} segment(s)?",
             httpCallDescription = "POST /registry/$group/pending/add ×${p.ranges.size}\n" +
-                p.ranges.joinToString("\n") { (s, c) -> "{\"path\":\"${p.path}\",\"segment_start\":$s,\"segment_count\":$c}" },
-            effectDescription = "Splits '${p.path}' into ${p.ranges.size} independently-manageable pending entries.",
+                p.ranges.joinToString("\n") { (s, c) -> "{\"path\":\"${p.path}\",\"segment_start\":$s,\"segment_count\":$c}" } +
+                "\nPOST /registry/$group/delete\n{\"paths\":[\"${p.path}\"],\"force\":false}  (only if queued whole)",
+            effectDescription = "Splits '${p.path}' into ${p.ranges.size} independently-manageable pending entries. " +
+                "If the file is queued as a whole and unclaimed, the segments replace that entry (keeping its model).",
             confirmLabel = "Create",
             onConfirm = { pending = PendingAction.None; viewModel.createSegments(p.path, p.ranges) },
             onDismiss = { pending = PendingAction.None },

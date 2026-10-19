@@ -62,7 +62,7 @@ are what operators trust (§4).
 | `unassign <model> [files] [--force]` | `unassign_model()` | same | nothing unassigned **and** nothing skipped |
 | `delete <files> [--force] [--delete-files]` | `delete_entries()`, prints per-path status | same | nothing deleted |
 | `migrate <kind> [files] [--count N]` | Legacy pool → `<kind>` pool, entry by entry (§4) | same | nothing migrated |
-| `segment <path> --count N` / `--ranges …` | `count_pairs()` on the **local** path, then one `add_pending_path_unchecked(path, start, count)` per range | same (the server must see the same path) | no segment created |
+| `segment <path> --count N` / `--ranges …` | `count_pairs()` on the **local** path, then one `add_pending_path_unchecked(path, start, count)` per range | same (the server must see the same path) | no segment created; TD-542: replaces an unclaimed whole-file entry |
 | `models` | `ModelNameClient::list_models()` (defaults to `http://localhost:8083` when `NAME_SERVICE_URL` is unset) | — | query fails / not compiled |
 
 Success messages echo the **requested** pair count ("Book added (500 pairs)"), not what was
@@ -159,3 +159,9 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 ## Addendum (October 19, 2026): `migrate` moves segments exactly (TD-326)
 
 Each legacy entry is moved with its segment range: add, then restore the model by segment, then delete the source by segment. Each step's result is checked, and the destination copy is rolled back on failure. Checked with the real binary: a whole-file entry plus 3 segments moved 4/4 and left the legacy pool empty. That run also found TD-542, where `segment` keeps an existing whole-file entry.
+
+## Addendum (October 19, 2026): `segment` replaces an unclaimed whole-file entry (TD-542)
+
+As the owner decided, the new segments replace a whole-file pending entry of the same path, so the file isn't queued (and trained) both ways. `segment` refuses before queuing anything when that entry is claimed by a run, or when the path has trained records, which the whole-path delete would erase. Otherwise it adds the segments, deletes the whole entry with `force=false`, and assigns the segments to the entry's model. If the delete doesn't remove exactly one entry, it deletes the new segments again and exits 1. The Android `RegistryRepository.createSegments()` follows the same steps.
+
+Checked with the real binaries. Locally, and against a `registry_server` using the server's own path, a whole entry assigned to `m1` became segments assigned to `m1`, with no whole entry left. A whole entry claimed by `run-01` was refused, and nothing was queued. The same run found TD-543: against a remote registry, `segment` queues the client's local path. `add` uploads the file to `<data_dir>/<group>/uploads/` instead, so segments made away from the registry host point at a file the server can't read.

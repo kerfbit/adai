@@ -4,10 +4,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** October 18, 2026
-**Total Items:** 334
+**Last Updated:** October 19, 2026
+**Total Items:** 335
 **High Priority:** 36
-**Medium Priority:** 144
+**Medium Priority:** 145
 **Low Priority:** 154
 **Future Enhancements:** 19
 **Resolved Items:** 208
@@ -629,6 +629,10 @@ Also October 19, 2026: filed [TD-542](#td-542-dataset_manager-segment-keeps-a-qu
 a file that's already queued as a whole file adds its segments next to that entry, so every pair is trained twice: once by the whole file and once
 by its segment.
 
+Also October 19, 2026: filed [TD-543](#td-543-dataset_manager-segment-queues-a-client-local-path-on-a-remote-registry) (MEDIUM), found while checking the TD-542 fix against a real
+`registry_server`. `add` uploads a local file to the server, but `segment` queues the path as given, so segments made away from the registry host point
+at a file the server can't read.
+
 **October 19, 2026:** filed [TD-541](#td-541-a-pass-without-validation-data-has-its-checkpoint-discarded) (MEDIUM), found while testing TD-269. A pass with no validation samples records a
 validation loss of 0, which the checkpoint sanity check treats as "never measured". Its checkpoint is then never resumed from and is deleted at the
 next start. This happens with `VALIDATION_SPLIT=0` or any pass on fewer pairs than the split ratio.
@@ -1141,10 +1145,11 @@ Done:
 
 - TD-333 and TD-326 (exact segment release, per-segment trained records, segment-safe `migrate`).
 
+- TD-542 (owner decision: segments replace an unclaimed whole-file entry; CLI and Android).
+
 Remaining, re-ordered on October 18 because TD-539 means checkpoints now actually carry over between passes:
 1. TD-523/519;
-2. TD-541 (found October 19: a pass without validation data has its checkpoint discarded);
-3. TD-542 (found October 19: `segment` keeps a queued whole-file entry; needs an owner decision).
+2. TD-541 (found October 19: a pass without validation data has its checkpoint discarded).
 
 Every fix here is verified on CPU, or on the oneAPI CPU device for the SYCL kernels. Still needed: an on-device run on ai-machine, then
 retraining from scratch, since no existing checkpoint has correct GPU-trained weights (TD-358) or the encoder's own embedding (TD-538).
@@ -2157,6 +2162,7 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-540: `incremental_trainer reset` Re-queues Trained Files Locally, Not on the Registry Server](#td-540-incremental_trainer-reset-re-queues-trained-files-locally-not-on-the-registry-server)
   - [TD-541: A Pass Without Validation Data Has Its Checkpoint Discarded](#td-541-a-pass-without-validation-data-has-its-checkpoint-discarded)
   - [TD-542: `dataset_manager segment` Keeps a Queued Whole-File Entry, So Its Pairs Train Twice](#td-542-dataset_manager-segment-keeps-a-queued-whole-file-entry-so-its-pairs-train-twice)
+  - [TD-543: `dataset_manager segment` Queues a Client-Local Path on a Remote Registry](#td-543-dataset_manager-segment-queues-a-client-local-path-on-a-remote-registry)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -14266,7 +14272,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / dataset_manager CLI | October 19, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 19, 2026 | Data / dataset_manager CLI | October 19, 2026 | 1-2 hours |
 
 Description:
 Found while checking TD-326's fix with the real binary: `dataset_manager add f.jsonl` then `dataset_manager segment f.jsonl --count 3` left four
@@ -14276,9 +14282,22 @@ command's sequencing (`RegistryRepository.createSegments()`), so it likely has t
 
 Action Items:
 
-- [ ] Owner decision: should `segment` replace an existing unclaimed whole-file entry (deleting it once the segments are added), or refuse and ask
-  the operator to remove it first?
-- [ ] Apply the same rule in the Android `createSegments()`; refuse when the whole-file entry is claimed by a run.
+- [x] Owner decision (October 19, 2026): the segments replace an unclaimed whole-file entry.
+- [x] Apply the same rule in the Android `createSegments()`; refuse when the whole-file entry is claimed by a run.
+
+**Fix (October 19, 2026).** `dataset_manager segment` and the Android `RegistryRepository.createSegments()` now follow the same steps:
+- They look for a whole-file pending entry of the path first. If a run has claimed it, or the path already has trained records (the whole-path
+  delete would erase them), they refuse before queuing anything.
+- After adding the segments, they delete the unclaimed whole entry (`force=false`, so a claim taken in between makes the delete fail) and give
+  the segments its model assignment.
+- If that delete doesn't remove exactly one entry, the new segments are deleted again, so the file is never left queued both ways.
+
+`createSegments()` now returns a `SegmentsResult` (`created`, `replacedWhole`, `error`), and the confirm dialog shows the extra delete call.
+
+Verified with the real binaries, locally and against a `registry_server`. A whole entry assigned to `m1` became two or three segments assigned to
+`m1`, with no whole entry left. An entry claimed by `run-01` was refused, and nothing was queued. Five Android repository tests cover the plain
+path, the replacement, both refusals and the rollback. All 126 opsdashboard unit tests pass. The command still has no unit tests of its own
+(TD-331).
 
 Location in code: `src/DatasetManagerTool.cpp` (`segment`), `android/opsdashboard/…/RegistryRepository.kt` (`createSegments()`).
 
@@ -14286,6 +14305,33 @@ Files to Modify:
 
 - `src/DatasetManagerTool.cpp`
 - `android/opsdashboard/src/main/java/com/adai/ops/data/registry/RegistryRepository.kt`
+
+---
+
+### TD-543: `dataset_manager segment` Queues a Client-Local Path on a Remote Registry
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Data / dataset_manager CLI | October 19, 2026 | 2-3 hours |
+
+Description:
+Found while checking TD-542's fix against a real `registry_server`. With `REGISTRY_SERVER_URL` set, `dataset_manager add d.jsonl` uploads the file,
+which the server queues as `<data_dir>/<group>/uploads/d.jsonl`. `segment` instead needs the file locally (it counts the pairs with
+`count_pairs()`) and queues the path exactly as given. Run anywhere but the registry host, the segments name a client path the server can't read or
+serve over FTP, so a pass that claims them fails to load them. They also don't match the uploaded whole entry, so TD-542's replacement doesn't
+apply to it. Segmenting on the registry host, with the server's own path, works.
+
+Action Items:
+
+- [ ] Decide the remote flow: upload the file first and segment the uploaded path, or count pairs on the server (for example a pair count in the
+  queue entry, which `num_entries` already records for uploads) so a client can segment a server path it can't read.
+- [ ] Refuse a client-only path in remote mode instead of queuing it.
+
+Location in code: `src/DatasetManagerTool.cpp` (`segment`, `add`).
+
+Files to Modify:
+
+- `src/DatasetManagerTool.cpp`
 
 ---
 

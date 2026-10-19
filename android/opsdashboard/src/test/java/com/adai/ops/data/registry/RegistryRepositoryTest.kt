@@ -330,12 +330,89 @@ class RegistryRepositoryTest {
         )
         val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
 
-        val created = repository.createSegments("my-group", "big.jsonl", ranges = listOf(0 to 5, 5 to 5, 10 to 5))
+        val result = repository.createSegments("my-group", "big.jsonl", ranges = listOf(0 to 5, 5 to 5, 10 to 5))
 
-        assertEquals(2, created)
+        assertEquals(2, result.created)
+        assertFalse(result.replacedWhole)
+        assertEquals(null, result.error)
         assertEquals(3, fakeService.pendingAddCalls.size)
         val ranges = fakeService.pendingAddCalls.map { it.second.segment_start to it.second.segment_count }
         assertEquals(listOf(0 to 5, 5 to 5, 10 to 5), ranges)
+        // Not queued as a whole file, so nothing is deleted.
+        assertTrue(fakeService.deleteCalls.isEmpty())
+    }
+
+    // TD-542: segments replace an unclaimed whole-file entry and keep its model assignment.
+    @Test
+    fun `createSegments replaces an unclaimed whole-file entry and carries its model over`() = runTest {
+        val fakeService = FakeRegistryApiService(
+            queueResponse = { QueueResponseDto(entries = listOf(QueueEntryDto(path = "big.jsonl", model_name = "m1"))) },
+            deleteResponse = { _, _ -> Response.success(DeleteResponseDto(deleted = 1)) },
+            assignResponse = { _, body -> AssignResponseDto(assigned = body.segments.size) },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        val result = repository.createSegments("my-group", "big.jsonl", ranges = listOf(0 to 5, 5 to 5))
+
+        assertEquals(2, result.created)
+        assertTrue(result.replacedWhole)
+        assertEquals(null, result.error)
+        val delete = fakeService.deleteCalls.single().second
+        assertEquals(listOf("big.jsonl"), delete.paths)
+        assertFalse(delete.force)
+        val assign = fakeService.assignCalls.single().second
+        assertEquals("m1", assign.model_name)
+        assertEquals(listOf(0 to 5, 5 to 5), assign.segments.map { it.segment_start to it.segment_count })
+    }
+
+    @Test
+    fun `createSegments refuses a whole-file entry claimed by a run and queues nothing`() = runTest {
+        val fakeService = FakeRegistryApiService(
+            queueResponse = { QueueResponseDto(entries = listOf(QueueEntryDto(path = "big.jsonl", run_id = "run-01"))) },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        val result = repository.createSegments("my-group", "big.jsonl", ranges = listOf(0 to 5, 5 to 5))
+
+        assertEquals(0, result.created)
+        assertTrue(result.error!!.contains("run-01"))
+        assertTrue(fakeService.pendingAddCalls.isEmpty())
+        assertTrue(fakeService.deleteCalls.isEmpty())
+    }
+
+    @Test
+    fun `createSegments refuses when the whole-file path has trained records`() = runTest {
+        val fakeService = FakeRegistryApiService(
+            queueResponse = { QueueResponseDto(entries = listOf(QueueEntryDto(path = "big.jsonl"))) },
+            registryResponse = { RegistryResponseDto(entries = listOf(RegistryEntryDto(data_file = "big.jsonl"))) },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        val result = repository.createSegments("my-group", "big.jsonl", ranges = listOf(0 to 5))
+
+        assertEquals(0, result.created)
+        assertTrue(result.error != null)
+        assertTrue(fakeService.pendingAddCalls.isEmpty())
+    }
+
+    @Test
+    fun `createSegments removes the new segments again when the whole entry can't be deleted`() = runTest {
+        val fakeService = FakeRegistryApiService(
+            queueResponse = { QueueResponseDto(entries = listOf(QueueEntryDto(path = "big.jsonl"))) },
+            deleteResponse = { _, body ->
+                Response.success(DeleteResponseDto(deleted = if (body.paths.isNotEmpty()) 0 else 1))
+            },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        val result = repository.createSegments("my-group", "big.jsonl", ranges = listOf(0 to 5, 5 to 5))
+
+        assertFalse(result.replacedWhole)
+        assertTrue(result.error != null)
+        // One whole-path delete, then one rollback delete per created segment.
+        assertEquals(3, fakeService.deleteCalls.size)
+        val rolledBack = fakeService.deleteCalls.drop(1).map { it.second.segments.single() }
+        assertEquals(listOf(0 to 5, 5 to 5), rolledBack.map { it.segment_start to it.segment_count })
     }
 
     @Test
