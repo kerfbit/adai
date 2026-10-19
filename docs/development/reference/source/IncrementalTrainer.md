@@ -193,3 +193,7 @@ checkpoints, auto-saves, symlinks) is kept and corrected in §2–3. The operato
 ## Addendum (October 19, 2026): passes without validation data (TD-541)
 
 A completed pass with no validation data now records `final_validation_loss = TrainingSession::kNoValidationLoss` (-1) instead of 0. `is_sane_checkpoint_candidate()` accepts it, so the next pass resumes from that checkpoint and startup cleanup keeps it. `TrainingSession::has_validation_loss()` excludes it from every lowest-loss choice: `RESUME_FROM_BEST_CHECKPOINT`, the best-checkpoint tracking, and `update_best_checkpoint()`. 0 still marks an in-progress session, and NaN a diverged one.
+
+## Addendum (October 19, 2026): per-file pair counts (TD-334)
+
+`load_training_pairs()` records how many pairs each file contributed, in the order the files were passed; a TD-205 segment counts only its own range. `last_pass_pair_counts()` exposes these counts. `resume_last_session()` and `incremental_trainer`'s `train`, `retrain` and LeJEPA passes hand them to `DatasetRegistry::mark_trained()`, so trained records and `dataset_manager status`'s sample total are no longer always 0.

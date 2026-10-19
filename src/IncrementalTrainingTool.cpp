@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.19.0
+// @adai-version: 0.20.0
 // @adai-reviewed: 2026-10-19
 
 #include <array>
@@ -369,10 +369,12 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     }
 
     std::vector<std::string> texts;
+    std::vector<int> pair_counts;  // TD-334: per file, 1:1 with local_paths / resp.files
     for (const auto& path : local_paths) {
         std::vector<ConversationPair> pairs;
         // TODO: See TD-415 in TECHNICAL_DEBT.md - ignores TD-205 segment ranges: each claimed segment loads the whole file
         DatasetRegistry::load_conversation_pairs(path, pairs);
+        pair_counts.push_back(static_cast<int>(pairs.size()));
         for (const auto& pair : pairs) {
             if (!pair.input.empty())
                 texts.push_back(pair.input);
@@ -674,9 +676,7 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
 
     const bool ok = step_count > 0;
     if (ok) {
-        // TODO: See TD-334 in TECHNICAL_DEBT.md - always zero sample counts
-        std::vector<int> counts(reg_paths.size(), 0);
-        reg.mark_trained(run_id, reg_paths, counts);
+        reg.mark_trained(run_id, reg_paths, pair_counts);  // TD-334: pairs loaded per file
         adai::Logger::info(
             "[lejepa] Pass complete — {} steps, avg predictor_loss={:.4f}, avg sigreg_loss={:.4f}",
             step_count, predictor_loss_sum / static_cast<double>(step_count),
@@ -1202,9 +1202,9 @@ int main(int argc, char* argv[]) {
                 const auto reg_paths = resp.file_ranges();
 
                 if (ok) {
-                    // TODO: See TD-334 in TECHNICAL_DEBT.md - always zero sample counts
-                    std::vector<int> counts(reg_paths.size(), 0);
-                    reg.mark_trained(run_id, reg_paths, counts);
+                    // TD-334: pairs loaded per file (local_ranges is 1:1 with reg_paths); these
+                    // used to be all zeros.
+                    reg.mark_trained(run_id, reg_paths, trainer.last_pass_pair_counts());
                     trainer.print_training_summary();
                 } else {
                     reg.release_pending(run_id, reg_paths);
@@ -1302,8 +1302,16 @@ int main(int argc, char* argv[]) {
 
                 if (ok) {
                     if (!pending_reg_paths.empty()) {
-                        // TODO: See TD-334 in TECHNICAL_DEBT.md - always zero sample counts
+                        // TD-334: local_ranges holds the trained files first, then the pending
+                        // ones, so the pending files' counts are the trailing entries.
+                        const auto& all_counts = trainer.last_pass_pair_counts();
                         std::vector<int> counts(pending_reg_paths.size(), 0);
+                        const std::size_t offset = all_counts.size() >= counts.size()
+                                                       ? all_counts.size() - counts.size()
+                                                       : 0;
+                        for (std::size_t i = 0; i < counts.size() && offset + i < all_counts.size();
+                             ++i)
+                            counts[i] = all_counts[offset + i];
                         reg.mark_trained(run_id, pending_reg_paths, counts);
                     }
                     trainer.print_training_summary();

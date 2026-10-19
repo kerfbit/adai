@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.16.0
+// @adai-version: 0.17.0
 // @adai-reviewed: 2026-10-19
 
 #include "IncrementalTrainer.hpp"
@@ -930,7 +930,9 @@ std::vector<ConversationPair> IncrementalTrainer::load_training_pairs(
                                                  files[fi].segment_start, files[fi].segment_count);
 
     std::vector<ConversationPair> all_pairs;
+    last_pass_pair_counts_.assign(n_files, 0);
     for (int fi = 0; fi < n_files; ++fi) {
+        last_pass_pair_counts_[fi] = static_cast<int>(per_file[fi].size());
         if (per_file[fi].empty()) {
             // TD-412: say which file contributed nothing (missing, unreadable, empty, or a
             // segment past its end) instead of letting the pass quietly train on less.
@@ -1181,9 +1183,8 @@ IncrementalTrainer::ResumeResult IncrementalTrainer::resume_last_session(
 
     bool ok = train_on_files(pending_ranges, config.base_config.num_epochs);
     if (ok) {
-        // TODO: See TD-334 in TECHNICAL_DEBT.md - always zero sample counts
-        std::vector<int> counts(pending.size(), 0);
-        reg.mark_trained(run_id, pending, counts);
+        // TD-334: the pairs actually loaded per file (pending_ranges is 1:1 with pending).
+        reg.mark_trained(run_id, pending, last_pass_pair_counts_);
     } else {
         reg.release_pending(run_id, pending);
     }

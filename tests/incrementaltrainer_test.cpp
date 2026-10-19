@@ -336,6 +336,44 @@ TEST_F(IncrementalTrainerTest, ResumeTrainsOnResolvedFilesAndReleasesOnResolverF
         << "the registry entry (not the local copy) is what gets marked trained";
 }
 
+// TD-334: every mark_trained() caller passed zeros, so each trained record said 0 samples and
+// `dataset_manager status` always reported "0 total trained". The pass now reports the pairs it
+// loaded per file (a segment counts only its own range), and resume records them.
+TEST_F(IncrementalTrainerTest, TrainedRecordsCarryThePairsEachFileContributed) {
+    const IncrementalConfig config = tiny_local_config(session_dir);
+    const std::string jsonl = (test_dir / "twenty.jsonl").string();
+    {
+        std::ofstream out(jsonl);
+        for (int i = 0; i < 20; ++i)
+            out << "{\"input\":\"hello there " << i << "\",\"response\":\"hi friend\"}\n";
+    }
+    {
+        IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+        PendingFileRange whole;
+        whole.path = data_file1.string();  // one INPUT/RESPONSE pair
+        PendingFileRange segment;
+        segment.path = jsonl;
+        segment.segment_start = 5;
+        segment.segment_count = 7;
+        ASSERT_TRUE(trainer.train_on_files({whole, segment}, 1));
+        EXPECT_EQ(trainer.last_pass_pair_counts(), (std::vector<int>{1, 7}));
+    }
+
+    {
+        DatasetRegistry reg(config.dataset);
+        reg.load_registry();
+        reg.load_pending_list();
+        ASSERT_TRUE(reg.add_file(jsonl));  // 20 pairs
+    }
+    {
+        IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+        ASSERT_EQ(trainer.resume_last_session(), IncrementalTrainer::ResumeResult::Trained);
+    }
+    DatasetRegistry reg(config.dataset);
+    reg.load_registry();
+    EXPECT_EQ(reg.total_samples_trained(), 20) << "the trained record holds the file's 20 pairs";
+}
+
 // TD-523: resume tells "nothing pending" apart from a failure, so trainer_service can count
 // failures instead of treating every unsuccessful pass as idle. An unreachable registry is a
 // failure, not an empty queue.

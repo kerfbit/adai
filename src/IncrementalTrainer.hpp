@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.16.0
+// @adai-version: 0.17.0
 // @adai-reviewed: 2026-10-19
 
 
@@ -264,6 +264,13 @@ class IncrementalTrainer {
     // as trainer_service can tell an idle pass from a failing one.
     enum class ResumeResult { Trained, NothingPending, Failed };
     ResumeResult resume_last_session(const PassFileResolver& resolve_files = nullptr);
+
+    // TD-334: pairs loaded from each file of the last train_on_files()/retrain_on_files() call,
+    // in the order the files were passed (a segment counts only its own range), for
+    // DatasetRegistry::mark_trained(). Pairs that preprocessing later skips are still counted.
+    const std::vector<int>& last_pass_pair_counts() const {
+        return last_pass_pair_counts_;
+    }
     bool load_session_history();
     bool save_session_history();
     TrainingSession get_current_session();
@@ -492,6 +499,7 @@ class IncrementalTrainer {
     // Loads every file's pairs (in parallel, merged in order), warning about each file that
     // yields none (TD-412).
     std::vector<ConversationPair> load_training_pairs(const std::vector<PendingFileRange>& files);
+    std::vector<int> last_pass_pair_counts_;  // TD-334: see last_pass_pair_counts()
 
     // TD-412: logs that a pass loaded no samples and returns false, so the caller releases its
     // files instead of marking them trained.

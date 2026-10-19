@@ -1152,7 +1152,7 @@ Done:
 - TD-541 (a pass without validation data keeps its checkpoint and is resumed).
 
 **Remote data delivery run (October 19, 2026)**, chosen by the owner after the training-fix run: TD-337/338 (done: one download per file,
-full-path names, checksum-checked reuse), then TD-413 (done: the pre-check counts this model's entries in its kind pool), then TD-334 (trained sample counts are always 0).
+full-path names, checksum-checked reuse), then TD-413 (done: the pre-check counts this model's entries in its kind pool), then TD-334 (done: trained records carry the pairs each file contributed). The run is complete.
 
 Every fix here is verified on CPU, or on the oneAPI CPU device for the SYCL kernels. Still needed: an on-device run on ai-machine, then
 retraining from scratch, since no existing checkpoint has correct GPU-trained weights (TD-358) or the encoder's own embedding (TD-538).
@@ -7688,7 +7688,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / DatasetRegistry | October 11, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 19, 2026 | Data / DatasetRegistry | October 11, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-333, by inspection of every production call site. Each `mark_trained()` call
@@ -7699,7 +7699,21 @@ them in `train_on_files()`); they're just not passed back.
 
 Action Items:
 
-- [ ] Return per-file (per-segment) pair counts from `train_on_files()`/`retrain_on_files()` and pass them to `mark_trained()`.
+- [x] Return per-file (per-segment) pair counts from `train_on_files()`/`retrain_on_files()` and pass them to `mark_trained()`.
+
+**Fix (October 19, 2026).** `IncrementalTrainer::load_training_pairs()` records how many pairs each file contributed (a segment counts only its
+own range), exposed as `last_pass_pair_counts()`. All four callers now pass real counts to `mark_trained()`:
+- `train` and `resume_last_session()` pass them directly;
+- `retrain` passes the trailing pending files' counts, since the trained files come first in its file list;
+- the LeJEPA pass counts the pairs it loads per file.
+
+Pairs that preprocessing later skips are still counted. The counts reach `registry_server` through the existing `trained` request.
+
+Verified:
+- **Real binaries:** a standalone `incremental_trainer train` on a 20-pair file left `dataset_manager status` reporting "Samples: 20 total
+  trained", with 20 in the trained record. Before, the record held 0.
+- **New test** `TrainedRecordsCarryThePairsEachFileContributed`: a whole file plus a 7-pair segment give counts `{1, 7}`, and a resumed
+  20-pair file records 20.
 
 Location in code: `src/IncrementalTrainingTool.cpp` / `src/IncrementalTrainer.cpp` (`mark_trained()` calls); tagged `TODO: See TD-334`.
 
