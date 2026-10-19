@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-10-19
 
 /**
@@ -14,6 +14,10 @@
  *        not just ours — pending_files() is unfiltered) → orphaned, delete
  *   A  — zero-byte partial + assigned → delete + release back to pool
  *   B/C — non-zero + assigned → keep; DataTransport handles re-use/resume
+ *
+ * TD-337: downloads are named by download_file_name(registry_path), so they are matched to
+ * pending/trained entries by that name, not by basename. A `<download>.checksum` sidecar
+ * (TD-338) is kept with its download and removed with it, or on its own once its download is gone.
  */
 
 #pragma once
@@ -47,17 +51,23 @@ inline void startup_sweep(DatasetRegistry& reg, const std::string& run_id,
     reg.load_registry();  // false (none yet / unreachable) leaves trained_files() empty
 
     // Build O(1) lookup structures from registry state.
-    // filename → registry_path for files currently in the pending list.
+    // download name → registry_path for files currently in the pending list.
     std::unordered_map<std::string, std::string> assigned_by_filename;
     for (const auto& p : reg.pending_files()) {
-        assigned_by_filename[fs::path(p).filename().string()] = p;
+        assigned_by_filename[download_file_name(p)] = p;
     }
 
-    // Set of filenames already marked trained in the registry.
+    // Download names of files already marked trained in the registry.
     std::unordered_set<std::string> trained_filenames;
     for (const auto& p : reg.trained_files()) {
-        trained_filenames.insert(fs::path(p).filename().string());
+        trained_filenames.insert(download_file_name(p));
     }
+    const std::string sidecar_suffix = kDownloadChecksumSuffix;
+    const auto remove_with_sidecar = [&](const fs::path& p) {
+        std::error_code ec;
+        fs::remove(p, ec);
+        fs::remove(p.string() + sidecar_suffix, ec);
+    };
 
     for (const auto& entry : fs::directory_iterator(download_dir)) {
         if (!entry.is_regular_file())
@@ -65,8 +75,21 @@ inline void startup_sweep(DatasetRegistry& reg, const std::string& run_id,
         const fs::path local_path = entry.path();
         const std::string filename = local_path.filename().string();
 
-        // TODO: See TD-513 in TECHNICAL_DEBT.md - basename matching (trained-name collisions delete pending downloads);
-        // throwing fs calls; condition A's release is whole-file only.
+        // TD-338: a checksum sidecar goes with its download; drop it once the download is gone.
+        if (filename.size() > sidecar_suffix.size() &&
+            filename.compare(filename.size() - sidecar_suffix.size(), sidecar_suffix.size(),
+                             sidecar_suffix) == 0) {
+            const std::string download =
+                local_path.string().substr(0, local_path.string().size() - sidecar_suffix.size());
+            if (!fs::exists(download)) {
+                std::error_code ec;
+                fs::remove(local_path, ec);
+            }
+            continue;
+        }
+
+        // TODO: See TD-513 in TECHNICAL_DEBT.md - throwing fs calls; condition A's release is whole-file only.
+        // (Its basename matching is fixed by TD-337's download names.)
         // Condition D: already trained — stale local copy. TD-333: a file can be trained in part
         // (some TD-205 segments) while other segments are still pending; keep its download then.
         if (trained_filenames.count(filename) && !assigned_by_filename.count(filename)) {
@@ -74,7 +97,7 @@ inline void startup_sweep(DatasetRegistry& reg, const std::string& run_id,
                 "[CLEANUP-D] Found locally retained file '{}' already marked "
                 "trained in registry. Deleting local copy.",
                 filename);
-            fs::remove(local_path);
+            remove_with_sidecar(local_path);
             continue;
         }
 
@@ -88,7 +111,7 @@ inline void startup_sweep(DatasetRegistry& reg, const std::string& run_id,
                 "matching pending-list entry (checked while processing run_id "
                 "'{}'). Deleting.",
                 filename, run_id);
-            fs::remove(local_path);
+            remove_with_sidecar(local_path);
             continue;
         }
 
@@ -106,7 +129,7 @@ inline void startup_sweep(DatasetRegistry& reg, const std::string& run_id,
                 "Token from previous session expired — releasing assignment for "
                 "run_id '{}' and deleting file.",
                 filename, run_id);
-            fs::remove(local_path);
+            remove_with_sidecar(local_path);
             reg.release_pending(run_id, {registry_path});
             continue;
         }

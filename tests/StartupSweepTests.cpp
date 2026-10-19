@@ -71,7 +71,7 @@ TEST(StartupSweepTest, ConditionD_TrainedFileIsDeleted) {
     touch(reg_path);
 
     // Local copy in download dir
-    const fs::path local = dl_dir / "train.bin";
+    const fs::path local = dl_dir / download_file_name(reg_path);  // TD-337 download name
     touch(local);
 
     DatasetRegistry reg(make_cfg(sess));
@@ -130,7 +130,7 @@ TEST(StartupSweepTest, ConditionA_ZeroByteDeletedAndReleased) {
     touch(reg_path);
 
     // Zero-byte local copy in download dir (simulates a crashed download)
-    const fs::path local = dl_dir / "data.bin";
+    const fs::path local = dl_dir / download_file_name(reg_path);
     touch_empty(local);
     ASSERT_EQ(fs::file_size(local), 0u);
 
@@ -163,7 +163,7 @@ TEST(StartupSweepTest, ConditionBC_NonZeroFileKept) {
     touch(reg_path);
 
     // Non-zero partial local copy
-    const fs::path local = dl_dir / "partial.bin";
+    const fs::path local = dl_dir / download_file_name(reg_path);
     touch(local, "some bytes here");
     ASSERT_GT(fs::file_size(local), 0u);
 
@@ -239,8 +239,8 @@ TEST(StartupSweepTest, FreshRegistryKeepsQueuedDownloads) {
         ASSERT_TRUE(setup.add_file(queued_a));
         ASSERT_TRUE(setup.add_file(queued_b));
     }
-    const fs::path partial = dl / "a.jsonl";   // partly downloaded
-    const fs::path complete = dl / "b.jsonl";  // fully downloaded
+    const fs::path partial = dl / download_file_name(queued_a);   // partly downloaded
+    const fs::path complete = dl / download_file_name(queued_b);  // fully downloaded
     touch(partial, "half");
     touch(complete, "the whole file");
 
@@ -266,5 +266,40 @@ TEST(StartupSweepTest, UnreadablePendingListDeletesNothing) {
     startup_sweep(reg, "test-run", dl.string());
 
     EXPECT_TRUE(fs::exists(file)) << "no pending state: nothing may be called orphaned";
+    fs::remove_all(base);
+}
+
+// ============================================================================
+// TD-337/338: downloads are matched by their full-path names, and checksum sidecars go with them
+// ============================================================================
+
+TEST(StartupSweepTest, TrainedFileWithSameBasenameDoesNotDeleteAPendingDownload) {
+    const auto base = make_base("samename");
+    const fs::path sess = base / "sessions";
+    const fs::path dl = base / "downloads";
+    fs::create_directories(sess);
+    const std::string trained = (base / "uploads" / "x.jsonl").string();
+    const std::string pending = (base / "datasets" / "x.jsonl").string();
+    touch(trained);
+    touch(pending);
+    DatasetRegistry reg(make_cfg(sess));
+    reg.load_pending_list();
+    reg.mark_trained({trained}, {1});
+    ASSERT_TRUE(reg.add_file(pending));
+
+    const fs::path kept = dl / download_file_name(pending);
+    const fs::path stale = dl / download_file_name(trained);
+    touch(kept, "pending bytes");
+    touch(stale, "trained bytes");
+    touch(fs::path(stale.string() + kDownloadChecksumSuffix), "1_1");
+    const fs::path orphan_sidecar = dl / ("gone.jsonl" + std::string(kDownloadChecksumSuffix));
+    touch(orphan_sidecar, "1_1");
+
+    startup_sweep(reg, "test-run", dl.string());
+
+    EXPECT_TRUE(fs::exists(kept)) << "a same-basename trained file used to delete this download";
+    EXPECT_FALSE(fs::exists(stale));
+    EXPECT_FALSE(fs::exists(stale.string() + kDownloadChecksumSuffix)) << "sidecar goes with it";
+    EXPECT_FALSE(fs::exists(orphan_sidecar)) << "a sidecar with no download is removed";
     fs::remove_all(base);
 }

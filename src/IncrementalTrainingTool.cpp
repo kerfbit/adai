@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.17.0
+// @adai-version: 0.18.0
 // @adai-reviewed: 2026-10-19
 
 #include <array>
@@ -227,12 +227,17 @@ static bool resolve_pass_files(const AcquireResponse& resp, const DatasetConfig&
 
 static void cleanup_downloads(const std::vector<fs::path>& local_paths) {
     for (const auto& p : local_paths) {
+        // TD-337: segments of one file share a download, so a path can appear more than once.
         if (!p.empty() && fs::exists(p)) {
             std::error_code ec;
             fs::remove(p, ec);
             if (ec) {
                 adai::Logger::warn("[cleanup] Failed to remove '{}': {}", p.string(), ec.message());
             }
+        }
+        if (!p.empty()) {
+            std::error_code ec;
+            fs::remove(DataTransport::checksum_path_for(p), ec);  // TD-338 sidecar
         }
     }
 }

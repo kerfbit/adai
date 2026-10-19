@@ -39,6 +39,13 @@ static void write_bytes(const fs::path& p, std::size_t n_bytes, char fill = 'X')
     f.write(content.data(), static_cast<std::streamsize>(n_bytes));
 }
 
+// TD-337: where fetch() puts a token's download (named from its registry path).
+static fs::path local_for(const fs::path& dir, const std::string& ftp_path) {
+    FileToken tok;
+    tok.registry_path = "/registry/" + ftp_path;
+    return DataTransport::local_path_for(tok, dir);
+}
+
 static FileToken make_token(const std::string& ftp_path, std::size_t size_bytes) {
     FileToken tok;
     tok.registry_path = "/registry/" + ftp_path;
@@ -72,7 +79,7 @@ TEST(DataTransportConditionBTest, SkipsDownloadForCompleteFile) {
     const std::size_t file_size = 1024;
 
     // Pre-create a "complete" file matching the expected size
-    write_bytes(dir / ftp_path, file_size);
+    write_bytes(local_for(dir, ftp_path), file_size);
 
     FileToken tok = make_token(ftp_path, file_size);
     DataTransport dt;
@@ -81,7 +88,7 @@ TEST(DataTransportConditionBTest, SkipsDownloadForCompleteFile) {
     // If Condition B is working, fetch() returns BEFORE making any connection.
     fs::path result;
     EXPECT_NO_THROW(result = dt.fetch(tok, "127.0.0.1", 19999, dir));
-    EXPECT_EQ(result, dir / ftp_path);
+    EXPECT_EQ(result, local_for(dir, ftp_path));
     EXPECT_TRUE(fs::exists(result));
     EXPECT_EQ(fs::file_size(result), file_size);
 
@@ -95,7 +102,7 @@ TEST(DataTransportConditionBTest, DoesNotSkipWhenSizeMismatch) {
     const std::size_t disk_size = 512;  // only half downloaded
 
     // Pre-create a partial file
-    write_bytes(dir / ftp_path, disk_size);
+    write_bytes(local_for(dir, ftp_path), disk_size);
 
     FileToken tok = make_token(ftp_path, file_size);
     DataTransport dt;
@@ -114,7 +121,7 @@ TEST(DataTransportConditionBTest, DoesNotSkipWhenSizeBytesIsZero) {
     const auto dir = make_temp_dir("cond_b_zerosize");
     const std::string ftp_path = "unknown_size.bin";
 
-    write_bytes(dir / ftp_path, 1024);  // file exists, non-zero
+    write_bytes(local_for(dir, ftp_path), 1024);  // file exists, non-zero
 
     FileToken tok = make_token(ftp_path, 0 /* size unknown */);
     DataTransport dt;
@@ -135,7 +142,7 @@ TEST(DataTransportConditionBTest, CreatesDownloadDirIfAbsent) {
 
     // Manually create the file in the expected location so Condition B fires
     fs::create_directories(dir);
-    write_bytes(dir / ftp_path, file_size);
+    write_bytes(local_for(dir, ftp_path), file_size);
 
     FileToken tok = make_token(ftp_path, file_size);
     DataTransport dt;
@@ -162,7 +169,7 @@ TEST(DataTransportFetchAllTest, FetchAllReturnsPreDownloadedPaths) {
         {"a.bin", 100}, {"b.bin", 200}, {"c.bin", 300}};
 
     for (const auto& [name, sz] : files) {
-        write_bytes(dir / name, sz);
+        write_bytes(local_for(dir, name), sz);
         resp.files.push_back(make_token(name, sz));
     }
 
@@ -172,7 +179,7 @@ TEST(DataTransportFetchAllTest, FetchAllReturnsPreDownloadedPaths) {
 
     ASSERT_EQ(result.size(), 3u);
     for (std::size_t i = 0; i < files.size(); ++i) {
-        EXPECT_EQ(result[i].filename().string(), files[i].first);
+        EXPECT_EQ(result[i], local_for(dir, files[i].first));
         EXPECT_TRUE(fs::exists(result[i]));
     }
 
@@ -188,7 +195,7 @@ TEST(DataTransportFetchAllTest, FetchAllReturnsInOrder) {
 
     for (int i = 0; i < 8; ++i) {
         const std::string name = "file" + std::to_string(i) + ".bin";
-        write_bytes(dir / name, static_cast<std::size_t>((i + 1) * 128));
+        write_bytes(local_for(dir, name), static_cast<std::size_t>((i + 1) * 128));
         resp.files.push_back(make_token(name, static_cast<std::size_t>((i + 1) * 128)));
     }
 
@@ -198,7 +205,7 @@ TEST(DataTransportFetchAllTest, FetchAllReturnsInOrder) {
 
     ASSERT_EQ(result.size(), 8u);
     for (int i = 0; i < 8; ++i) {
-        EXPECT_EQ(result[i].filename().string(), "file" + std::to_string(i) + ".bin");
+        EXPECT_EQ(result[i], local_for(dir, "file" + std::to_string(i) + ".bin"));
     }
 
     fs::remove_all(dir);
@@ -223,7 +230,7 @@ TEST(DataTransportFetchAllTest, FetchAllPropagatesFirstError) {
 
     // One file is complete (Condition B will pass), one is missing
     // (will fail with a network error because nothing is at 19999).
-    write_bytes(dir / "ok.bin", 100);
+    write_bytes(local_for(dir, "ok.bin"), 100);
     resp.files.push_back(make_token("ok.bin", 100));
 
     // This file is NOT pre-created so fetch() will attempt a connection and fail
@@ -248,7 +255,7 @@ TEST(DataTransportFetchAllTest, SingleThreadedFetchAllPreservesOrder) {
 
     for (int i = 0; i < 5; ++i) {
         const std::string name = "seq" + std::to_string(i) + ".bin";
-        write_bytes(dir / name, static_cast<std::size_t>((i + 1) * 64));
+        write_bytes(local_for(dir, name), static_cast<std::size_t>((i + 1) * 64));
         resp.files.push_back(make_token(name, static_cast<std::size_t>((i + 1) * 64)));
     }
 
@@ -258,7 +265,7 @@ TEST(DataTransportFetchAllTest, SingleThreadedFetchAllPreservesOrder) {
 
     ASSERT_EQ(result.size(), 5u);
     for (int i = 0; i < 5; ++i) {
-        EXPECT_EQ(result[i].filename().string(), "seq" + std::to_string(i) + ".bin");
+        EXPECT_EQ(result[i], local_for(dir, "seq" + std::to_string(i) + ".bin"));
     }
 
     fs::remove_all(dir);
@@ -275,35 +282,81 @@ TEST(DataTransportFetchTest, CreatesMissingDownloadDir) {
 
     // Pre-create the file (Condition B) so no network connection is needed
     fs::create_directories(dir);
-    write_bytes(dir / "f.bin", 512);
+    write_bytes(local_for(dir, "f.bin"), 512);
 
     FileToken tok = make_token("f.bin", 512);
     DataTransport dt;
 
     EXPECT_NO_THROW(dt.fetch(tok, "127.0.0.1", 19999, dir));
-    EXPECT_TRUE(fs::exists(dir / "f.bin"));
+    EXPECT_TRUE(fs::exists(local_for(dir, "f.bin")));
 
     fs::remove_all(base);
 }
 
 // ============================================================================
-// FileToken — ftp_path basename extraction
+// TD-337: local names come from the full registry path, not the basename
 // ============================================================================
 
-TEST(DataTransportFetchTest, UsesBasenameOfFtpPath) {
-    const auto dir = make_temp_dir("basename_test");
+TEST(DataTransportFetchTest, SameBasenameInDifferentDirectoriesDoesNotCollide) {
+    const FileToken a = make_token("g/uploads/train.csv", 256);
+    const FileToken b = make_token("g/datasets/train.csv", 256);
+    const fs::path dir = "/dl";
+    EXPECT_NE(DataTransport::local_path_for(a, dir), DataTransport::local_path_for(b, dir));
+    // The basename is kept at the end of the name for readability.
+    const std::string name = DataTransport::local_path_for(a, dir).filename().string();
+    EXPECT_EQ(name.substr(name.size() - std::string("_train.csv").size()), "_train.csv");
+    EXPECT_EQ(download_file_name("/registry/g/uploads/train.csv"), name);
+}
 
-    // ftp_path has directory components: only the basename ends up in download_dir
-    FileToken tok = make_token("subdir/train.csv", 256);
-    const fs::path expected = dir / "train.csv";
-
-    write_bytes(expected, 256);
+TEST(DataTransportFetchAllTest, SegmentTokensOfOneFileDownloadOnce) {
+    const auto dir = make_temp_dir("fetch_all_segments");
+    AcquireResponse resp;
+    resp.ftp_server_host = "127.0.0.1";
+    resp.ftp_server_port = 19999;  // nothing listening: only a deduplicated request can succeed
+    for (int i = 0; i < 3; ++i) {
+        FileToken tok = make_token("g/big.jsonl", 300);
+        tok.segment_start = i * 10;
+        tok.segment_count = 10;
+        resp.files.push_back(tok);
+    }
+    write_bytes(local_for(dir, "g/big.jsonl"), 300);
 
     DataTransport dt;
+    std::vector<fs::path> result;
+    EXPECT_NO_THROW(result = dt.fetch_all(resp, dir, /*max_parallel=*/4));
+    ASSERT_EQ(result.size(), 3u);
+    for (const auto& p : result)
+        EXPECT_EQ(p, local_for(dir, "g/big.jsonl"));
+    fs::remove_all(dir);
+}
+
+// ============================================================================
+// TD-338: a same-size file is only reused when its recorded checksum matches
+// ============================================================================
+
+TEST(DataTransportConditionBTest, SameSizeFileWithDifferentChecksumIsDownloadedAgain) {
+    const auto dir = make_temp_dir("cond_b_checksum");
+    FileToken tok = make_token("train.bin", 1024);
+    tok.checksum = "1024_200";
+    const fs::path local = local_for(dir, "train.bin");
+    write_bytes(local, 1024, 'Z');  // stale copy of an older version
+    std::ofstream(DataTransport::checksum_path_for(local)) << "1024_100";
+
+    DataTransport dt;
+    // Not reused, so fetch() tries the (absent) server and fails.
+    EXPECT_THROW(dt.fetch(tok, "127.0.0.1", 19999, dir), std::runtime_error);
+    EXPECT_FALSE(fs::exists(local)) << "the stale file must not survive to be trained on";
+
+    // A file with no recorded checksum isn't trusted either.
+    write_bytes(local, 1024, 'Z');
+    EXPECT_THROW(dt.fetch(tok, "127.0.0.1", 19999, dir), std::runtime_error);
+
+    // The matching checksum is reused without a connection.
+    write_bytes(local, 1024);
+    std::ofstream(DataTransport::checksum_path_for(local), std::ios::trunc) << "1024_200";
     fs::path result;
     EXPECT_NO_THROW(result = dt.fetch(tok, "127.0.0.1", 19999, dir));
-    EXPECT_EQ(result, expected);
-
+    EXPECT_EQ(result, local);
     fs::remove_all(dir);
 }
 

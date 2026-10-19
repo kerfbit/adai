@@ -94,3 +94,7 @@ Callers no longer need to load anything first. The `resume` command (every `trai
 - `UnreadablePendingListDeletesNothing`.
 
 TD-513 (basename matching) is unchanged.
+
+## Addendum (October 19, 2026): download names and checksum sidecars (TD-337, TD-338)
+
+The sweep now matches downloads to pending and trained entries by `download_file_name(registry_path)`, the name `DataTransport` gives them, instead of by basename. A trained file that shares a pending file's basename therefore no longer deletes that file's download. Each deleted download takes its `.checksum` sidecar with it. A sidecar whose download is gone is removed on its own. After an upgrade, downloads still under their old basename names look orphaned and are deleted once (condition G), so they are fetched again on the next pass.

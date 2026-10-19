@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-19
 
 /**
  * DataTransport — trainer-side FTP download client.
@@ -48,12 +48,37 @@ class DataTransport {
     static constexpr int kBaseBackoffMs = 1000;  // 1 s → 2 s → 4 s
 
     /**
+     * @brief TD-337: local path of @p token's download in @p download_dir, named by
+     *        download_file_name() from the token's registry_path (ftp_path when that is empty).
+     */
+    static fs::path local_path_for(const FileToken& token, const fs::path& download_dir) {
+        return download_dir / download_file_name(token.registry_path.empty() ? token.ftp_path
+                                                                             : token.registry_path);
+    }
+
+    /// TD-338: the sidecar recording the token checksum @p local_path was downloaded against.
+    static fs::path checksum_path_for(const fs::path& local_path) {
+        return fs::path(local_path.string() + kDownloadChecksumSuffix);
+    }
+
+    /// Removes a download and its checksum sidecar (missing files are ignored).
+    static void remove_download(const fs::path& local_path) {
+        std::error_code ec;
+        fs::remove(local_path, ec);
+        fs::remove(checksum_path_for(local_path), ec);
+    }
+
+    /**
      * @brief Download one file via FTP (or FTPS) to download_dir using its per-file token.
      *
+     * The local file is named by local_path_for() (TD-337). When the token has a checksum, the
+     * checksum is written to a sidecar (checksum_path_for()) before the transfer, and an
+     * existing file whose sidecar doesn't match is deleted and downloaded again (TD-338).
+     *
      * Phase 2 additions:
-     *   - Condition B: if local_path already exists and its size equals
-     *     token.size_bytes, returns immediately without making a network
-     *     connection (logs "[CLEANUP-B] ...").
+     *   - Condition B: if local_path already exists, its size equals
+     *     token.size_bytes and (TD-338) its sidecar matches the token checksum,
+     *     returns immediately without making a network connection (logs "[CLEANUP-B] ...").
      *   - Resume: if local_path exists and is smaller than token.size_bytes,
      *     resumes from the current byte offset using the FTP REST command
      *     (CURLOPT_RESUME_FROM_LARGE), appending to the existing partial file.
@@ -78,7 +103,8 @@ class DataTransport {
      *
      * Phase 2: downloads up to max_parallel files concurrently using a
      * thread-pool work-stealing pattern.  Results are returned in the same
-     * order as resp.files.  The first exception encountered is re-thrown after
+     * order as resp.files. TD-337: tokens for the same file (TD-205 segments) are downloaded
+     * once, and each gets that one local path.  The first exception encountered is re-thrown after
      * all threads have completed so no downloads are left dangling.
      *
      * @return Local paths in the same order as resp.files.
@@ -168,10 +194,26 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
                                      int ftp_port, const fs::path& download_dir,
                                      std::size_t large_file_warn_bytes, bool ftps_enabled) {
     fs::create_directories(download_dir);
-    // TODO: See TD-337 in TECHNICAL_DEBT.md - basename only: segment tokens of one file share this path; same-named files collide
-    const fs::path local_path = download_dir / fs::path(token.ftp_path).filename();
+    // TD-337: named from the full registry path, not the basename, so segment tokens of one file
+    // share one download and same-named files in different directories don't collide.
+    const fs::path local_path = local_path_for(token, download_dir);
+    const fs::path checksum_path = checksum_path_for(local_path);
 
-    // TODO: See TD-338 in TECHNICAL_DEBT.md - size-only check; token.checksum ignored, so stale same-size files are reused
+    // TD-338: an existing file (complete or partial) is only reused when it was downloaded
+    // against this token's checksum; a same-size stale copy used to be trained on. Tokens with no
+    // checksum keep the size-only check.
+    if (!token.checksum.empty() && fs::exists(local_path)) {
+        std::string recorded;
+        std::ifstream(checksum_path) >> recorded;
+        if (recorded != token.checksum) {
+            Logger::info(
+                "[DataTransport] '{}' on disk doesn't match the registry's checksum ({}); "
+                "downloading it again",
+                token.ftp_path, recorded.empty() ? "no record" : "changed");
+            remove_download(local_path);
+        }
+    }
+
     // ── Condition B: file already fully downloaded — skip network call ────
     if (token.size_bytes > 0 && fs::exists(local_path)) {
         const std::size_t on_disk = fs::file_size(local_path);
@@ -202,6 +244,12 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
     const std::string url = "ftp://" + token.ftp_username + ":" + token.ftp_password + "@" +
                             ftp_host + ":" + std::to_string(ftp_port) + "/" +
                             dt_detail::url_encode_ftp_path(token.ftp_path);
+
+    // TD-338: record which version of the file this download is, before any bytes land, so a
+    // partial file is only resumed against the same checksum.
+    if (!token.checksum.empty()) {
+        std::ofstream(checksum_path, std::ios::trunc) << token.checksum;
+    }
 
     const auto t_start = std::chrono::steady_clock::now();
     CURLcode rc = CURLE_OK;
@@ -294,7 +342,7 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
 
     // TODO: See TD-340 in TECHNICAL_DEBT.md - deletes the partial file, so resume can't help across failed passes
     if (rc != CURLE_OK) {
-        fs::remove(local_path);
+        remove_download(local_path);
         throw std::runtime_error(std::string("[DataTransport] FTP transfer failed for '") +
                                  token.ftp_path + "': " + curl_easy_strerror(rc));
     }
@@ -303,7 +351,7 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
     if (token.size_bytes > 0) {
         const std::size_t on_disk = fs::file_size(local_path);
         if (on_disk != token.size_bytes) {
-            fs::remove(local_path);
+            remove_download(local_path);
             throw std::runtime_error("[DataTransport] Size mismatch for '" + token.ftp_path +
                                      "': expected " + std::to_string(token.size_bytes) +
                                      " bytes, got " + std::to_string(on_disk) + " bytes.");
@@ -326,7 +374,6 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
     return local_path;
 }
 
-// TODO: See TD-337 in TECHNICAL_DEBT.md - no dedup by ftp_path: N segment tokens download the same file N times concurrently
 inline std::vector<fs::path> DataTransport::fetch_all(const AcquireResponse& resp,
                                                       const fs::path& download_dir,
                                                       int max_parallel,
@@ -335,14 +382,31 @@ inline std::vector<fs::path> DataTransport::fetch_all(const AcquireResponse& res
     if (n == 0)
         return {};
 
-    std::vector<fs::path> local_paths(n);
-    std::vector<std::exception_ptr> errors(n);
+    // TD-337: one download per local file. TD-205 segment tokens of one file used to download it
+    // N times, concurrently, into the same path, where one thread's size check could delete
+    // another's in-progress file. `unique` holds the first token index for each local path;
+    // `owner[i]` is the slot in `unique` whose download token i uses.
+    std::vector<std::size_t> unique;
+    std::vector<std::size_t> owner(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        const fs::path p = local_path_for(resp.files[i], download_dir);
+        std::size_t slot = 0;
+        while (slot < unique.size() && local_path_for(resp.files[unique[slot]], download_dir) != p)
+            ++slot;
+        if (slot == unique.size())
+            unique.push_back(i);
+        owner[i] = slot;
+    }
+
+    const std::size_t m = unique.size();
+    std::vector<fs::path> unique_paths(m);
+    std::vector<std::exception_ptr> errors(m);
 
     // Work-stealing thread pool: each thread atomically claims the next
     // unprocessed index.  Results land in-order even though processing may
     // be out-of-order.
     std::atomic<std::size_t> next_idx{0};
-    const int nthreads = std::min(static_cast<int>(n), std::max(1, max_parallel));
+    const int nthreads = std::min(static_cast<int>(m), std::max(1, max_parallel));
 
     std::vector<std::thread> threads;
     threads.reserve(nthreads);
@@ -350,11 +414,11 @@ inline std::vector<fs::path> DataTransport::fetch_all(const AcquireResponse& res
         threads.emplace_back([&] {
             while (true) {
                 const std::size_t idx = next_idx.fetch_add(1, std::memory_order_relaxed);
-                if (idx >= n)
+                if (idx >= m)
                     break;
                 try {
-                    local_paths[idx] =
-                        fetch(resp.files[idx], resp.ftp_server_host, resp.ftp_server_port,
+                    unique_paths[idx] =
+                        fetch(resp.files[unique[idx]], resp.ftp_server_host, resp.ftp_server_port,
                               download_dir, large_file_warn_bytes, resp.ftps_enabled);
                 } catch (...) {
                     errors[idx] = std::current_exception();
@@ -370,6 +434,9 @@ inline std::vector<fs::path> DataTransport::fetch_all(const AcquireResponse& res
         if (e)
             std::rethrow_exception(e);
     }
+    std::vector<fs::path> local_paths(n);
+    for (std::size_t i = 0; i < n; ++i)
+        local_paths[i] = unique_paths[owner[i]];
     return local_paths;
 }
 

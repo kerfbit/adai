@@ -1151,7 +1151,8 @@ Done:
 
 - TD-541 (a pass without validation data keeps its checkpoint and is resumed).
 
-Nothing remains in this run's list.
+**Remote data delivery run (October 19, 2026)**, chosen by the owner after the training-fix run: TD-337/338 (done: one download per file,
+full-path names, checksum-checked reuse), then TD-413 (the standalone pre-check reads the wrong pool), then TD-334 (trained sample counts are always 0).
 
 Every fix here is verified on CPU, or on the oneAPI CPU device for the SYCL kernels. Still needed: an on-device run on ai-machine, then
 retraining from scratch, since no existing checkpoint has correct GPU-trained weights (TD-358) or the encoder's own embedding (TD-538).
@@ -7767,7 +7768,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / DataTransport | October 11, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 19, 2026 | Data / DataTransport | October 11, 2026 | 2-4 hours |
 
 Description:
 Found while writing the code-traced reference [DataTransport.md](../reference/source/DataTransport.md) and confirmed end-to-end on loopback
@@ -7786,9 +7787,27 @@ The `UsesBasenameOfFtpPath` test pins the basename behaviour.
 
 Action Items:
 
-- [ ] Name local files from the full `ftp_path` (or a hash of it).
-- [ ] Deduplicate tokens by `ftp_path` in `fetch_all()` (download once, return the path for each segment token).
-- [ ] Tests: three segment tokens of one file trigger one download; same-basename files in different directories don't collide.
+- [x] Name local files from the full `ftp_path` (or a hash of it).
+- [x] Deduplicate tokens by `ftp_path` in `fetch_all()` (download once, return the path for each segment token).
+- [x] Tests: three segment tokens of one file trigger one download; same-basename files in different directories don't collide.
+
+**Fix (October 19, 2026).**
+- **Naming:** a download is named `download_file_name(registry_path)` (`RegistryTransport.hpp`): a 16-hex-digit FNV-1a hash of the full
+  registry path, then `_` and the basename. The registry path is used rather than `ftp_path` because it is all `startup_sweep()` knows, so
+  the sweep matches downloads by the same name, which also fixes TD-513's basename matching.
+- **One download per file:** `fetch_all()` downloads each distinct local file once and returns that path for every token of it.
+- **Cleanup:** the trainer's `cleanup_downloads()` tolerates the repeated path and removes TD-338's sidecar.
+- **Upgrade:** downloads made under the old basename names look orphaned to the first sweep after an upgrade, and are deleted and fetched
+  once more.
+
+Verified against a real `registry_server --ftp-enabled`, with a 13 MB file queued as three segments:
+- the old `DataTransport` made 3 `RETR`s into one `big.jsonl`;
+- the new one made 1 `RETR`, and all three tokens got `909f16ee7ce07427_big.jsonl`.
+
+Unit tests:
+- `SegmentTokensOfOneFileDownloadOnce` (with no server listening, only a single shared request can succeed);
+- `SameBasenameInDifferentDirectoriesDoesNotCollide`;
+- the updated Condition B and `fetch_all()` tests (the pinned `UsesBasenameOfFtpPath` test is replaced).
 
 Location in code: `src/DataTransport.hpp` (`fetch()` local path, `fetch_all()`); tagged `TODO: See TD-337`.
 
@@ -7803,7 +7822,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / DataTransport | October 11, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 19, 2026 | Data / DataTransport | October 11, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-337 and confirmed end-to-end. "Condition B" returns an existing local file
@@ -7815,8 +7834,23 @@ under the same name with a size-preserving edit, and TD-337's basename collision
 
 Action Items:
 
-- [ ] Store the token checksum alongside each download (e.g. a sidecar file) and skip only when it matches; otherwise re-download.
-- [ ] Test: same-size different-checksum file is re-downloaded.
+- [x] Store the token checksum alongside each download (e.g. a sidecar file) and skip only when it matches; otherwise re-download.
+- [x] Test: same-size different-checksum file is re-downloaded.
+
+**Fix (October 19, 2026).**
+- **Sidecar:** `fetch()` writes the token checksum to `<download>.checksum` before the transfer starts.
+- **Reuse check:** when the token has a checksum, an existing file (complete or partial) is reused or resumed only if its sidecar holds
+  that same checksum. A missing or different sidecar deletes the file and downloads it again. A token without a checksum keeps the old
+  size-only check.
+- **Removal:** failed and mismatched downloads remove the sidecar too. `startup_sweep()` removes a sidecar with its download, or on its own
+  once the download is gone.
+
+Verified against the real `registry_server`:
+- **New code:** a rerun reused the download (`[CLEANUP-B]`, no connection). After a same-size edit to the server's file, the next fetch
+  logged "doesn't match the registry's checksum" and downloaded the new content.
+- **Old code:** with a locally edited same-size copy, it skipped the download for all three tokens and kept the edited bytes.
+- **Tests:** `SameSizeFileWithDifferentChecksumIsDownloadedAgain`, and the sweep's sidecar cases in
+  `TrainedFileWithSameBasenameDoesNotDeleteAPendingDownload`.
 
 Location in code: `src/DataTransport.hpp` (`fetch()` Condition B); tagged `TODO: See TD-338`.
 
@@ -13365,7 +13399,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / StartupSweep | October 17, 2026 | 1-2 hours |
+| LOW | Open — basename matching fixed October 19, 2026 (with TD-337) | Training / StartupSweep | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `StartupSweep.hpp` (by inspection):
@@ -13379,7 +13413,9 @@ Found while tracing `StartupSweep.hpp` (by inspection):
 
 Action Items:
 
-- [ ] Match by the full download path DataTransport would use (after TD-337), not basename; check pending before trained.
+- [x] Match by the full download path DataTransport would use (after TD-337), not basename; check pending before trained. Done October 19,
+  2026: the sweep matches `download_file_name(registry_path)`. A same-basename trained file no longer deletes a pending download (new test
+  `TrainedFileWithSameBasenameDoesNotDeleteAPendingDownload`), and condition D already skips files that are still pending (TD-333).
 - [ ] Use the `std::error_code` overloads and log failures; release segment-aware.
 
 Location in code: `src/StartupSweep.hpp` (lookup maps, condition D, condition A, filesystem calls); tagged `TODO: See TD-513`.

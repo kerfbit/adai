@@ -1,11 +1,12 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.5.0
+// @adai-version: 1.6.0
 // @adai-reviewed: 2026-10-19
 
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -150,6 +151,33 @@ struct FileToken {
     int segment_start = -1;
     int segment_count = -1;
 };
+
+/**
+ * @brief TD-337: the file name a trainer gives its FTP download of @p registry_path.
+ *
+ * A 16-hex-digit FNV-1a hash of the full registry path, '_', then the path's basename (kept for
+ * readability). Unlike the basename alone, it is unique per registry file: the TD-205 segments of
+ * one file share one download, and same-named files in different directories (or kinds) don't
+ * collide. StartupSweep computes the same name to match downloads to pending entries.
+ */
+inline std::string download_file_name(const std::string& registry_path) {
+    std::uint64_t h = 1469598103934665603ULL;
+    for (const unsigned char c : registry_path) {
+        h ^= c;
+        h *= 1099511628211ULL;
+    }
+    static const char* kHex = "0123456789abcdef";
+    std::string name(16, '0');
+    for (int i = 15; i >= 0; --i, h >>= 4)
+        name[static_cast<std::size_t>(i)] = kHex[h & 0xF];
+    const auto slash = registry_path.find_last_of("/\\");
+    name += '_';
+    name += slash == std::string::npos ? registry_path : registry_path.substr(slash + 1);
+    return name;
+}
+
+/// TD-338: suffix of the sidecar file holding the token checksum a download was made against.
+inline constexpr const char* kDownloadChecksumSuffix = ".checksum";
 
 /**
  * @brief Full response from an acquire call.
