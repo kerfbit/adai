@@ -1192,3 +1192,44 @@ TEST_F(DatasetRegistryFetchTest, RemoteUploadFailureLeavesPendingEmpty) {
     EXPECT_EQ(reg->remote_upload("/local/missing.jsonl"), "");
     EXPECT_TRUE(reg->pending_files().empty());
 }
+
+// TD-413: incremental_trainer's pre-check counts what this model can acquire from its own kind
+// sub-pool (SESSION_DIR/<kind>/ locally), through DatasetRegistry, instead of reading
+// SESSION_DIR/pending_files.txt directly.
+TEST(DatasetRegistryCountAcquirableTest, CountsThisModelsEntriesInTheKindPool) {
+    const fs::path base = fs::temp_directory_path() / "adai_count_acquirable";
+    fs::remove_all(base);
+    fs::create_directories(base / "data");
+    const auto file = [&](const std::string& name) {
+        const fs::path p = base / "data" / name;
+        std::ofstream(p) << "{\"input\":\"a\",\"response\":\"b\"}\n";
+        return p.string();
+    };
+    DatasetConfig cfg;
+    cfg.session_dir = (base / "sess").string();
+    cfg.dataset_kind = "chatbot";
+    cfg.model_name = "m1";
+    {
+        DatasetRegistry setup(cfg);
+        setup.load_pending_list();
+        ASSERT_TRUE(setup.add_file(file("free.jsonl")));
+        ASSERT_TRUE(setup.add_file(file("mine.jsonl")));
+        ASSERT_TRUE(setup.add_file(file("theirs.jsonl")));
+        setup.assign_model("m1", {(base / "data" / "mine.jsonl").string()});
+        setup.assign_model("m2", {(base / "data" / "theirs.jsonl").string()});
+    }
+    EXPECT_TRUE(fs::exists(base / "sess" / "chatbot" / "pending_files.txt"));
+    EXPECT_FALSE(fs::exists(base / "sess" / "pending_files.txt"))
+        << "the pool is the kind's, which the old pre-check never read";
+
+    DatasetRegistry reg(cfg);
+    reg.load_pending_list();
+    EXPECT_EQ(reg.pending_files().size(), 3u);
+    EXPECT_EQ(reg.count_acquirable(), 2u) << "unassigned + assigned to m1, not m2's";
+
+    cfg.model_name.clear();
+    DatasetRegistry anonymous(cfg);
+    anonymous.load_pending_list();
+    EXPECT_EQ(anonymous.count_acquirable(), 1u) << "no model identity: unassigned only";
+    fs::remove_all(base);
+}

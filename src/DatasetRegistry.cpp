@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
+// @adai-version: 1.4.0
 // @adai-reviewed: 2026-10-19
 
 #include "DatasetRegistry.hpp"
@@ -222,6 +222,13 @@ std::vector<std::string> DatasetRegistry::pending_files() const {
 
 std::vector<PendingEntry> DatasetRegistry::pending_entries() const {
     return pending_;
+}
+
+std::size_t DatasetRegistry::count_acquirable() const {
+    return static_cast<std::size_t>(
+        std::count_if(pending_.begin(), pending_.end(), [this](const PendingEntry& e) {
+            return e.model_name.empty() || e.model_name == config_.model_name;
+        }));
 }
 
 AssignResult DatasetRegistry::assign_model(const std::string& model_name,

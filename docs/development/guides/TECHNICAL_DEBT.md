@@ -1152,7 +1152,7 @@ Done:
 - TD-541 (a pass without validation data keeps its checkpoint and is resumed).
 
 **Remote data delivery run (October 19, 2026)**, chosen by the owner after the training-fix run: TD-337/338 (done: one download per file,
-full-path names, checksum-checked reuse), then TD-413 (the standalone pre-check reads the wrong pool), then TD-334 (trained sample counts are always 0).
+full-path names, checksum-checked reuse), then TD-413 (done: the pre-check counts this model's entries in its kind pool), then TD-334 (trained sample counts are always 0).
 
 Every fix here is verified on CPU, or on the oneAPI CPU device for the SYCL kernels. Still needed: an on-device run on ai-machine, then
 retraining from scratch, since no existing checkpoint has correct GPU-trained weights (TD-358) or the encoder's own embedding (TD-538).
@@ -10198,7 +10198,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / IncrementalTrainingTool | October 13, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 19, 2026 | Training / IncrementalTrainingTool | October 13, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `IncrementalTrainingTool` and verified with the built binaries. Without
@@ -10211,7 +10211,17 @@ kind pool and finds nothing. Standalone training can't start from a correctly qu
 
 Action Items:
 
-- [ ] Do the pre-check through `DatasetRegistry` (which applies the kind) in both modes, counting only files this model/kind can acquire.
+- [x] Do the pre-check through `DatasetRegistry` (which applies the kind) in both modes, counting only files this model/kind can acquire.
+
+**Fix (October 19, 2026).** `train`'s pre-fork check and `retrain`'s file count now go through `DatasetRegistry` in both modes, so they read
+the same kind sub-pool the pass acquires from (`SESSION_DIR/<kind>/` locally). The new `DatasetRegistry::count_acquirable()` counts only
+pending entries this model may claim: unassigned ones, plus ones assigned to `MODEL_NAME`, the same rule as `acquire()`. The remote check
+used to count every pending entry, including other models'. The "no pending data" message now names the pool.
+
+Verified with the real binaries:
+- `dataset_manager --kind chatbot add d.jsonl` followed by `incremental_trainer --foreground train 1` (tiny model, local registry)
+  acquired the file, trained it and marked it trained, leaving the pending list empty. Before, it printed "No pending data".
+- New test `DatasetRegistryCountAcquirableTest`: 3 queued files, 1 assigned to another model, count 2 for `m1` and 1 with no model name.
 
 Location in code: `src/IncrementalTrainingTool.cpp` (`train` pre-fork check, `retrain` count); tagged `TODO: See TD-413`.
 

@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.3.0
+// @adai-version: 1.4.0
 // @adai-reviewed: 2026-10-19
 
 
@@ -223,6 +223,14 @@ class DatasetRegistry {
 
     /** @return Copy of the current in-memory pending entries (with model assignments). */
     std::vector<PendingEntry> pending_entries() const;
+
+    /**
+     * @return TD-413: how many loaded pending entries (whole files and TD-205 segments) this
+     *         registry's model may acquire: unassigned ones, plus ones assigned to
+     *         `model_name` (the same rule as RegistryTransport::acquire()). Call
+     *         load_pending_list() first; the pool is this registry's kind sub-pool.
+     */
+    std::size_t count_acquirable() const;
 
     /** @return Sorted vector of all file paths that have been trained. */
     std::vector<std::string> trained_files() const;

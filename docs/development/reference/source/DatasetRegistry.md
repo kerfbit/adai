@@ -192,3 +192,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 ## Addendum (October 19, 2026): segment-aware trained records (TD-333)
 
 `DataVersion` carries `segment_start`/`segment_count`. `mark_trained(run_id, units, counts)` and `release_pending(run_id, units)` take an acquired batch's `PendingFileRange`s, and every production caller uses them. Trained records are kept per unit, `is_trained(path, segment)` is segment-aware, and delete and re-queue handle segment records. See TD-333 in the tracker for the full list.
+
+## Addendum (October 19, 2026): `count_acquirable()` (TD-413)
+
+`count_acquirable()` returns how many loaded pending entries (whole files and segments) this registry's `model_name` may acquire: unassigned ones, plus ones assigned to it. This is the same rule as `RegistryTransport::acquire()`. `incremental_trainer` uses it for its pre-check, so that check reads the same kind sub-pool and model filter as the pass.

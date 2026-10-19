@@ -146,3 +146,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | LeJEPA ignores segment ranges; LeJEPA claims are stuck after a crash or SIGTERM (§4) | Segmented files trained N× in full; claimed files stuck until released by hand | By inspection | [TD-415](../../guides/TECHNICAL_DEBT.md#td-415-lejepa-pass-ignores-segment-ranges-and-strands-claims-after-a-crash) |
 | Signal handler calls `std::exit(0)` (no release/checkpoint, exit 0); `init`/`retrain` override `AUTO_SAVE_*`; LeJEPA tokenizer ASCII-only; read-only commands run destructive cleanup (§4) | Unclean stops; ignored config; unexpected deletions from `status` | By inspection | [TD-416](../../guides/TECHNICAL_DEBT.md#td-416-incremental_trainer-command-hygiene) |
 | Bare-path release/mark, zero sample counts, no SIGHUP handler, PID-based run ids | Already tracked | — | TD-333, TD-334, TD-283, TD-404 |
+
+## Addendum (October 19, 2026): pre-check through the registry (TD-413)
+
+`train`'s pre-fork pending check and `retrain`'s file count now use `DatasetRegistry` in both local and remote mode, so they read the kind sub-pool the pass acquires from. They count with `DatasetRegistry::count_acquirable()`: unassigned entries plus those assigned to `MODEL_NAME`. Checked with the real binaries: a file queued with `dataset_manager --kind chatbot add` is now trained by `incremental_trainer train` instead of being reported as "No pending data".

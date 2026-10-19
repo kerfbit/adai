@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.18.0
+// @adai-version: 0.19.0
 // @adai-reviewed: 2026-10-19
 
 #include <array>
@@ -1108,22 +1108,20 @@ int main(int argc, char* argv[]) {
         // TODO: See TD-416 in TECHNICAL_DEBT.md - uncaught std::stoi: `train abc` aborts (same in retrain)
         int epochs = (args.size() >= 2) ? std::stoi(args[1]) : svc_config.num_epochs;
 
+        // TD-413: counted through DatasetRegistry in both modes, so it reads the same kind
+        // sub-pool (SESSION_DIR/<kind>/ locally, TD-202) and model filter the pass will acquire
+        // from. The standalone check used to read SESSION_DIR/pending_files.txt directly, so a
+        // correctly queued `--kind chatbot` pool read as empty.
         size_t pre_fork_pending_count = 0;
-        if (!svc_config.registry_server_url.empty()) {
+        {
             DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
             reg.load_pending_list();
-            pre_fork_pending_count = reg.pending_files().size();
-        } else {
-            // TODO: See TD-413 in TECHNICAL_DEBT.md - LocalTransport's pool is SESSION_DIR/<DATASET_KIND>/ (always set
-            // by this binary), not SESSION_DIR/ (same in retrain's count below)
-            std::ifstream pf(svc_config.session_dir + "/pending_files.txt");
-            std::string line;
-            while (std::getline(pf, line))
-                if (!line.empty())
-                    ++pre_fork_pending_count;
+            pre_fork_pending_count = reg.count_acquirable();
         }
         if (pre_fork_pending_count == 0) {
-            std::cout << "⚠️  No pending data. Use DatasetManager to queue training data.\n";
+            std::cout << "⚠️  No pending data for this model in the '"
+                      << (svc_config.dataset_kind.empty() ? "legacy" : svc_config.dataset_kind)
+                      << "' pool. Use dataset_manager to queue training data.\n";
             return 1;
         }
 
@@ -1221,18 +1219,13 @@ int main(int argc, char* argv[]) {
         int epochs = (args.size() >= 2) ? std::stoi(args[1]) : svc_config.num_epochs;
 
         int data_file_count = 0;
-        if (!svc_config.registry_server_url.empty()) {
+        {
+            // TD-413: through DatasetRegistry in both modes, so the kind sub-pool is used.
             DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
             reg.load_registry();
             reg.load_pending_list();
             data_file_count =
-                static_cast<int>(reg.trained_files().size() + reg.pending_files().size());
-        } else {
-            std::ifstream pf(svc_config.session_dir + "/pending_files.txt");
-            std::string line;
-            while (std::getline(pf, line))
-                if (!line.empty())
-                    ++data_file_count;
+                static_cast<int>(reg.trained_files().size() + reg.count_acquirable());
         }
 
         const std::string log_path =
