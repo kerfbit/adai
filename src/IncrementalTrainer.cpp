@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.12.1
+// @adai-version: 0.13.0
 // @adai-reviewed: 2026-10-18
 
 #include "IncrementalTrainer.hpp"
@@ -1496,14 +1496,23 @@ void IncrementalTrainer::cleanup_dead_sessions() {
         known_checkpoints.insert(session.checkpoint_path);
     }
 
+    // TD-407: work per checkpoint base. save_model() never writes the bare base file, so the old
+    // scan for "*.bin" files only matched per-layer files by accident. Collect each
+    // session_*/auto_save_session_* base from every file that belongs to one.
+    std::set<std::string> bases;
     for (const auto& dir_entry : fs::directory_iterator(sdir, ec)) {
         if (ec) {
             break;
         }
-        const auto& path = dir_entry.path();
-        if (path.extension().string() != ".bin") {
-            continue;  // only inspect base checkpoint files; sidecars follow their base
+        const std::string base =
+            session_checkpoint_base_of(dir_entry.path().filename().string());
+        if (!base.empty()) {
+            bases.insert((fs::path(sdir) / base).string());
         }
+    }
+
+    for (const std::string& full : bases) {
+        const fs::path path(full);
         const std::string stem = path.stem().string();
 
         int session_id = -1;
@@ -1539,12 +1548,14 @@ void IncrementalTrainer::cleanup_dead_sessions() {
             continue;
         }
 
-        const std::string full = path.string();
         std::string reason;
 
-        // TODO: See TD-407 in TECHNICAL_DEBT.md - save_model() never writes the bare `.bin` base file, so this scan
-        // only matches per-layer sidecars by accident (partially deleting snapshots)
-        if (is_best || is_autosave) {
+        if (!fs::exists(full + ".config")) {
+            // Files of a checkpoint whose .config is gone can never be loaded. This is what the
+            // pre-TD-407 deletion left behind (per-layer files of every removed checkpoint), so
+            // this also reclaims that space on the first start after the fix.
+            reason = "checkpoint remnant without a .config";
+        } else if (is_best || is_autosave) {
             // A completed session's own best-snapshot / autosave is deleted by
             // finalize_session()/cleanup_old_sessions(); any that still exist
             // under an id other than the current in-progress session belong to
@@ -1585,26 +1596,49 @@ void IncrementalTrainer::cleanup_dead_sessions() {
     }
 }
 
-// TODO: See TD-407 in TECHNICAL_DEBT.md - deletes only the top-level sidecars (~0.2% of a checkpoint); every
-// per-layer file (_token_emb.bin, _encoder_block_*, _decoder_block_*.{self_attn,cross_attn,ff}, ...) is leaked
-void IncrementalTrainer::remove_model_files(const std::string& base_path) {
-    // TD-169: ".metrics.csv" added once run_training() started writing one alongside every
-    // checkpoint (see its own comment) — without this, every rotated-out or cleaned-up
-    // checkpoint would leak its metrics CSV forever.
-    static const std::vector<std::string> sidecars = {".config", ".vocab", ".encoder", ".decoder",
-                                                      ".lm_head", ".metrics.csv"};
-    std::error_code ec;
-    // Remove bare base file (empty marker written by finalize_model)
-    if (fs::exists(base_path, ec)) {
-        fs::remove(base_path, ec);
+std::vector<fs::path> IncrementalTrainer::checkpoint_files(const std::string& base_path) {
+    std::vector<fs::path> files;
+    if (base_path.empty()) {
+        return files;
     }
-    for (const auto& ext : sidecars) {
-        std::string p = base_path + ext;
-        if (fs::exists(p, ec)) {
-            fs::remove(p, ec);
-            if (!ec) {
-                Logger::info("Removed: {}", p);
-            }
+    const fs::path base(base_path);
+    const std::string name = base.filename().string();
+    const fs::path dir = base.has_parent_path() ? base.parent_path() : fs::path(".");
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(dir, ec)) {
+        const std::string f = entry.path().filename().string();
+        if (f == name || (f.size() > name.size() && f.compare(0, name.size(), name) == 0 &&
+                          (f[name.size()] == '.' || f[name.size()] == '_'))) {
+            files.push_back(entry.path());
+        }
+    }
+    return files;
+}
+
+std::string IncrementalTrainer::session_checkpoint_base_of(const std::string& filename) {
+    if (filename.rfind("session_", 0) != 0 && filename.rfind("auto_save_session_", 0) != 0) {
+        return "";
+    }
+    // The base ends at the first ".bin" that is followed by the end, '.' or '_'.
+    for (size_t pos = filename.find(".bin"); pos != std::string::npos;
+         pos = filename.find(".bin", pos + 1)) {
+        const size_t end = pos + 4;
+        if (end == filename.size() || filename[end] == '.' || filename[end] == '_') {
+            return filename.substr(0, end);
+        }
+    }
+    return "";
+}
+
+void IncrementalTrainer::remove_model_files(const std::string& base_path) {
+    // TD-407: delete every file of the checkpoint. This used to delete only the five top-level
+    // sidecars plus .metrics.csv, leaking the per-layer weight files (0.1 of 29.6 MB removed on
+    // a d_model 256, 4+4-layer checkpoint), so SESSION_DIR grew by about a checkpoint per pass.
+    std::error_code ec;
+    for (const auto& p : checkpoint_files(base_path)) {
+        fs::remove(p, ec);
+        if (!ec) {
+            Logger::debug("Removed: {}", p.string());
         }
     }
 }
@@ -1697,7 +1731,8 @@ void IncrementalTrainer::cleanup_old_sessions() {
     // TD-005: Update latest checkpoint symlink to point to the newest remaining session
     if (config.enable_checkpoint_symlinks && !session_history.empty()) {
         const auto& latest_session = session_history.back();
-        if (fs::exists(latest_session.checkpoint_path)) {
+        // TD-408: the bare checkpoint path never exists; check the checkpoint's own files.
+        if (checkpoint_files_exist(latest_session.checkpoint_path)) {
             update_checkpoint_symlinks(latest_session.checkpoint_path);
         }
     }
@@ -1994,14 +2029,28 @@ bool IncrementalTrainer::reset_all(bool keep_data_registry) {
     // ------------------------------------------------------------------
     // 1. Backup the main model file so the old weights can be recovered.
     // ------------------------------------------------------------------
-    if (!model_path_.empty() && fs::exists(model_path_)) {
-        std::string backup = model_path_ + ".bak";
-        try {
-            fs::rename(model_path_, backup);
-            Logger::info("Old model backed up to: {}", backup);
-        } catch (const std::exception& e) {
-            Logger::warn("Could not back up model file: {}", e.what());
+    // TD-408: a checkpoint is a set of files (save_model() never writes the bare model_path_), so
+    // back up each of them under the base <model_path_>.bak, which then loads as a checkpoint.
+    const std::vector<fs::path> model_files =
+        model_path_.empty() ? std::vector<fs::path>{} : checkpoint_files(model_path_);
+    if (!model_files.empty()) {
+        const std::string backup = model_path_ + ".bak";
+        const std::string model_name = fs::path(model_path_).filename().string();
+        int moved = 0;
+        for (const auto& f : model_files) {
+            const std::string suffix = f.filename().string().substr(model_name.size());
+            if (suffix.rfind(".bak", 0) == 0) {
+                continue;  // an earlier backup of this same base
+            }
+            std::error_code ec;
+            fs::rename(f, backup + suffix, ec);
+            if (ec) {
+                Logger::warn("Could not back up model file {}: {}", f.string(), ec.message());
+            } else {
+                ++moved;
+            }
         }
+        Logger::info("Old model backed up to: {} ({} files)", backup, moved);
     }
 
     // ------------------------------------------------------------------
@@ -2044,22 +2093,19 @@ bool IncrementalTrainer::reset_all(bool keep_data_registry) {
             remove_symlink_if_exists(session_path);
         }
 
-        // Remove all checkpoint / autosave .bin files
-        // TODO: See TD-407 in TECHNICAL_DEBT.md - matches only per-layer `.bin` files; top-level sidecars and the
-        // attention/FF files survive a reset
+        // Remove every file of every session/auto-save checkpoint (TD-407: grouped by checkpoint
+        // base; the old "*.bin" scan left the top-level sidecars and attention/FF files behind).
         std::error_code ec;
+        std::vector<fs::path> to_remove;
         for (const auto& entry : fs::directory_iterator(sdir, ec)) {
-            const auto& path = entry.path();
-            std::string ext = path.extension().string();
-            std::string stem = path.stem().string();
-            if (ext == ".bin" &&
-                (stem.rfind("session_", 0) == 0 || stem.rfind("auto_save_", 0) == 0)) {
-                fs::remove(path, ec);
-                if (!ec) {
-                    Logger::info("Removed checkpoint: {}", path.string());
-                }
+            if (!session_checkpoint_base_of(entry.path().filename().string()).empty()) {
+                to_remove.push_back(entry.path());
             }
         }
+        for (const auto& path : to_remove) {
+            fs::remove(path, ec);
+        }
+        Logger::info("Removed {} checkpoint file(s) from {}", to_remove.size(), sdir);
 
         // Optionally remove the data registry
         std::string registry_file = sdir + "/" + dataset_config_.data_registry_file;
@@ -2143,35 +2189,40 @@ bool IncrementalTrainer::is_windows_platform() {
 #endif
 }
 
-// TODO: See TD-408 in TECHNICAL_DEBT.md - target is the bare checkpoint path, which save_model() never creates, so
-// the link always dangles and can't be loaded (load_model looks for <link>.config); Windows copy always fails
 bool IncrementalTrainer::create_or_update_symlink(const std::string& target,
                                                   const std::string& link_path) {
     if (!config.enable_checkpoint_symlinks) {
         return false;
     }
 
-    // Remove existing symlink/file at link_path
-    remove_symlink_if_exists(link_path);
-
+    // TD-408: a checkpoint is a set of files (<base>.config, <base>_encoder_block_0.bin, ...),
+    // never a bare <base> file, so linking <link> -> <target> always dangled and load_model(<link>)
+    // looked for <link>.config. Link every file instead, under the link's own base name, so the
+    // link name loads like the checkpoint itself (e.g. as MODEL_PATH). Windows copies them.
+    remove_symlink_if_exists(link_path);  // also clears the previous checkpoint's links
+    const std::vector<fs::path> files = checkpoint_files(target);
+    if (files.empty()) {
+        Logger::warn("No checkpoint files found for {}; not linking {}", target, link_path);
+        return false;
+    }
+    const std::string target_name = fs::path(target).filename().string();
     try {
-        if (is_windows_platform()) {
+        for (const auto& f : files) {
+            const std::string suffix = f.filename().string().substr(target_name.size());
+            const std::string link = link_path + suffix;
             std::error_code ec;
-            fs::copy_file(target, link_path, fs::copy_options::overwrite_existing, ec);
+            if (is_windows_platform()) {
+                fs::copy_file(f, link, fs::copy_options::overwrite_existing, ec);
+            } else {
+                fs::create_symlink(fs::absolute(f), link, ec);
+            }
             if (ec) {
-                Logger::warn("Failed to copy checkpoint file: {}", ec.message());
+                Logger::warn("Failed to link {} -> {}: {}", link, f.string(), ec.message());
                 return false;
             }
-            Logger::info("Copied checkpoint to: {}", link_path);
-        } else {
-            std::error_code ec;
-            fs::create_symlink(target, link_path, ec);
-            if (ec) {
-                Logger::warn("Failed to create symlink: {}", ec.message());
-                return false;
-            }
-            Logger::info("Created symlink: {} -> {}", link_path, target);
         }
+        Logger::info("{} {} -> {} ({} files)", is_windows_platform() ? "Copied" : "Linked",
+                     link_path, target, files.size());
         return true;
     } catch (const std::exception& e) {
         Logger::warn("Failed to create/update checkpoint link: {}", e.what());
@@ -2180,6 +2231,26 @@ bool IncrementalTrainer::create_or_update_symlink(const std::string& target,
 }
 
 bool IncrementalTrainer::remove_symlink_if_exists(const std::string& link_path) {
+    // TD-408: remove every <link_path>... entry this class created (one per checkpoint file),
+    // not just <link_path> itself.
+    bool ok = true;
+    for (const auto& p : checkpoint_files(link_path)) {
+        std::error_code ec;
+        // On POSIX these are symlinks; never delete a real file that merely shares the prefix
+        // (link_path itself is still cleared below, as before). Windows links are copies.
+        if (!is_windows_platform() && p != fs::path(link_path) && !fs::is_symlink(p, ec)) {
+            continue;
+        }
+        fs::remove(p, ec);
+        if (ec) {
+            Logger::warn("Failed to remove existing link '{}': {}", p.string(), ec.message());
+            ok = false;
+        }
+    }
+    if (!ok) {
+        return false;
+    }
+
     try {
         // Use symlink_status (lstat) rather than exists() (stat): exists() follows
         // symlinks and returns false for broken symlinks, leaving stale dangling

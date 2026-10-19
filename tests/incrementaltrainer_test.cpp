@@ -149,6 +149,13 @@ class IncrementalTrainerTest : public ::testing::Test {
     static int current_session_id_of(const IncrementalTrainer& trainer) {
         return trainer.current_session_id;
     }
+    static void remove_model_files_of(const std::string& base) {
+        IncrementalTrainer::remove_model_files(base);
+    }
+    static bool link_checkpoint(IncrementalTrainer& trainer, const std::string& target,
+                                const std::string& link) {
+        return trainer.create_or_update_symlink(target, link);
+    }
 
     // Creates a checkpoint base file plus the full realistic set of sidecar
     // files EncoderDecoderModel::save_model() writes, so
@@ -280,6 +287,85 @@ TEST_F(IncrementalTrainerTest, ResumeTrainsOnResolvedFilesAndReleasesOnResolverF
         << "the registry entry (not the local copy) is what gets marked trained";
 }
 
+// TD-407: removing a checkpoint deletes every file save_model() wrote for it (it used to delete
+// only the five top-level sidecars, leaking ~99.8% of the bytes), and only that checkpoint's
+// files -- session_1 must not take session_10 with it.
+TEST_F(IncrementalTrainerTest, RemoveModelFilesDeletesTheWholeCheckpointOnly) {
+    const IncrementalConfig config = tiny_local_config(session_dir);
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+    const std::string cp1 = session_dir.string() + "/session_1_checkpoint.bin";
+    const std::string cp10 = session_dir.string() + "/session_10_checkpoint.bin";
+    trainer.get_model()->save_model(cp1);
+    trainer.get_model()->save_model(cp10);
+    const size_t files1 = IncrementalTrainer::checkpoint_files(cp1).size();
+    const size_t files10 = IncrementalTrainer::checkpoint_files(cp10).size();
+    ASSERT_GT(files1, 5u) << "per-layer files exist beyond the five top-level sidecars";
+    ASSERT_EQ(files1, files10);
+
+    remove_model_files_of(cp1);
+    EXPECT_TRUE(IncrementalTrainer::checkpoint_files(cp1).empty()) << "nothing left behind";
+    EXPECT_EQ(IncrementalTrainer::checkpoint_files(cp10).size(), files10)
+        << "a checkpoint sharing the prefix digits is untouched";
+}
+
+// TD-407: per-layer files left by the old partial deletion (no .config any more) are reclaimed
+// by cleanup_dead_sessions(); a complete checkpoint in the history is kept.
+TEST_F(IncrementalTrainerTest, CleanupDeadSessionsReclaimsCheckpointRemnants) {
+    const IncrementalConfig config = tiny_local_config(session_dir);
+    const std::string kept = session_dir.string() + "/session_0_checkpoint.bin";
+    const std::string remnant = session_dir.string() + "/session_7_checkpoint.bin";
+    {
+        IncrementalTrainer t(vocab_file.string(), model_file.string(), config);
+        t.get_model()->save_model(kept);
+        t.get_model()->save_model(remnant);
+    }
+    for (const char* ext : {".config", ".vocab", ".encoder", ".decoder", ".lm_head"})
+        fs::remove(remnant + ext);  // what the pre-fix remove_model_files() did
+    ASSERT_FALSE(IncrementalTrainer::checkpoint_files(remnant).empty());
+    {
+        std::ofstream file(session_dir.string() + "/session_history.txt");
+        file << "# session_id samples_trained epochs final_loss final_val_loss checkpoint_path\n";
+        file << "0 100 5 0.8 1.2 " << kept << "\n";
+    }
+
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+    EXPECT_TRUE(IncrementalTrainer::checkpoint_files(remnant).empty());
+    EXPECT_TRUE(fs::exists(kept + ".config"));
+    EXPECT_GT(IncrementalTrainer::checkpoint_files(kept).size(), 5u);
+}
+
+// TD-408: the latest/best links are a link per checkpoint file under the link's own name, so the
+// link name loads like the checkpoint; re-pointing removes every old link.
+TEST_F(IncrementalTrainerTest, CheckpointLinksLoadAndRepointCleanly) {
+    IncrementalConfig config = tiny_local_config(session_dir);
+    config.enable_checkpoint_symlinks = true;
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+    const std::string cp_a = session_dir.string() + "/session_0_checkpoint.bin";
+    const std::string link = (test_dir / "latest_checkpoint.bin").string();
+    trainer.get_model()->save_model(cp_a);
+    const Matrix weights_a = fingerprint(trainer.get_model());
+
+    ASSERT_TRUE(link_checkpoint(trainer, cp_a, link));
+    EXPECT_TRUE(fs::is_symlink(link + ".config"));
+    EXPECT_EQ(IncrementalTrainer::checkpoint_files(link).size(),
+              IncrementalTrainer::checkpoint_files(cp_a).size());
+    {
+        IncrementalTrainer reader(vocab_file.string(), model_file.string(),
+                                  tiny_local_config(test_dir / "other_sessions"));
+        ASSERT_NO_THROW(reader.get_model()->load_model(link));
+        EXPECT_LT(max_abs_diff(fingerprint(reader.get_model()), weights_a), 1e-5f);
+    }
+
+    // Re-point at a checkpoint with a different set of files: no stale links remain.
+    const std::string cp_b = session_dir.string() + "/session_1_checkpoint.bin";
+    trainer.get_model()->save_model(cp_b);
+    std::ofstream(cp_a + ".metrics.csv") << "epoch\n";  // only cp_a has this one
+    ASSERT_TRUE(link_checkpoint(trainer, cp_a, link));
+    ASSERT_TRUE(link_checkpoint(trainer, cp_b, link));
+    EXPECT_FALSE(fs::exists(link + ".metrics.csv")) << "old link removed";
+    EXPECT_EQ(fs::read_symlink(link + ".config"), fs::absolute(cp_b + ".config"));
+}
+
 // TD-406: a paused or crashed pass leaves session_history pointing at its auto_save_session_N
 // checkpoint (val loss 0). The next start must resume from that session's newest snapshot (the
 // auto-save or session_N_best, whichever is newer) and keep both, instead of loading an older
@@ -354,13 +440,17 @@ TEST_F(IncrementalTrainerTest, ResumesFromMostRecentSessionNotLowestValidationLo
     const std::string cp0 = session_dir.string() + "/session_0_checkpoint.bin";
     const std::string cp1 = session_dir.string() + "/session_1_checkpoint.bin";
     Matrix weights0(1, 1), weights1(1, 1);
+    // Build the checkpoints with trainers on a staging directory: a trainer on session_dir
+    // would delete cp0 at construction, since it has no history entry yet (TD-407's cleanup).
+    IncrementalConfig staging = config;
+    staging.session_dir = (test_dir / "staging").string();
     {
-        IncrementalTrainer a(vocab_file.string(), model_file.string(), config);
+        IncrementalTrainer a(vocab_file.string(), model_file.string(), staging);
         a.get_model()->save_model(cp0);
         weights0 = fingerprint(a.get_model());
     }
     {
-        IncrementalTrainer b(vocab_file.string(), model_file.string(), config);
+        IncrementalTrainer b(vocab_file.string(), model_file.string(), staging);
         b.get_model()->save_model(cp1);
         weights1 = fingerprint(b.get_model());
     }
@@ -777,9 +867,12 @@ TEST_F(IncrementalTrainerTest, CleanupDeadSessionsRemovesOrphansAndBrokenHistory
     // Bare checkpoint with no matching history line at all (crash before the
     // history line was appended)
     touch(session_dir / "session_3_checkpoint.bin");
-    // Stale autosave from an old session vs. the current one
+    // Stale autosave from an old session vs. the current one (each with a .config, as real
+    // auto-saves have: a checkpoint without one is a remnant, TD-407)
     touch(session_dir / "auto_save_session_1.bin");
+    touch(session_dir / "auto_save_session_1.bin.config");
     touch(session_dir / "auto_save_session_2.bin");
+    touch(session_dir / "auto_save_session_2.bin.config");
 
     trainer.cleanup_dead_sessions();
 

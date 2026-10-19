@@ -1127,11 +1127,11 @@ Done:
 - TD-412 and TD-411 (empty passes, `resume` downloading), with TD-540's server-side re-queue (the owner's remote-first rule), then TD-512 (the
   startup sweep).
 
+- TD-407 and TD-408 (checkpoint files: complete deletion, remnant reclaim, loadable links).
+
 Remaining, re-ordered on October 18 because TD-539 means checkpoints now actually carry over between passes:
-1. TD-407 and TD-408 (checkpoint files: cleanup leaks per-layer files and must learn TD-538's names; the bare-path symlinks and backup in
-   `cleanup_old_sessions()`/`reset_all()` dangle);
-2. TD-269/270 (optimizer state and clipping restart every pass);
-3. TD-333/326 and TD-523/519.
+1. TD-269/270 (optimizer state and clipping restart every pass);
+2. TD-333/326 and TD-523/519.
 
 Every fix here is verified on CPU, or on the oneAPI CPU device for the SYCL kernels. Still needed: an on-device run on ai-machine, then
 retraining from scratch, since no existing checkpoint has correct GPU-trained weights (TD-358) or the encoder's own embedding (TD-538).
@@ -9831,7 +9831,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Training / IncrementalTrainer | October 13, 2026 | 1-2 hours |
+| **HIGH** | Open — code fix landed October 18, 2026 | Training / IncrementalTrainer | October 13, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `IncrementalTrainer` and measured. `EncoderDecoderModel::save_model()` writes
@@ -9849,10 +9849,26 @@ bound.
 
 Action Items:
 
-- [ ] Have `EncoderDecoderModel` expose (or return from `save_model()`) the list of files a checkpoint consists of, and delete exactly those in `remove_model_files()`, `cleanup_dead_sessions()` and `reset_all()`; or save each checkpoint into its own directory and remove the directory.
-- [ ] Add a test that save → remove leaves no files behind; offer a one-off cleanup command for existing session directories (ask the user to check ai-machine's `SESSION_DIR` size).
+**Fix landed October 18, 2026:** every file `save_model(base)` writes is named `base` + `.`… or `base` + `_`…, including TD-538's new encoder
+files and `.metrics.csv`. The new `IncrementalTrainer::checkpoint_files(base)` lists a directory by that prefix, so it stays complete whatever
+components a checkpoint has. It is used in three places:
+- `remove_model_files()` deletes exactly those files.
+- `cleanup_dead_sessions()` and `reset_all()` group a session directory's files by checkpoint base (`session_checkpoint_base_of()`) instead of
+  scanning for bare `*.bin` files.
+- `cleanup_dead_sessions()` also deletes checkpoint remnants whose `.config` is gone, which is what the old partial deletion left behind. So the
+  first start after the fix reclaims existing leaked space without a separate command.
 
-Location in code: `src/IncrementalTrainer.cpp` (`remove_model_files()`, `cleanup_dead_sessions()`, `reset_all()`); tagged `TODO: See TD-407`.
+New tests, all three failing on the old code:
+- `RemoveModelFilesDeletesTheWholeCheckpointOnly` (real checkpoint; `session_10` survives removing `session_1`);
+- `CleanupDeadSessionsReclaimsCheckpointRemnants`;
+- `CheckpointLinksLoadAndRepointCleanly` (TD-408).
+
+`CleanupDeadSessionsRemovesOrphansAndBrokenHistory`'s stand-in auto-saves now have a `.config`, as real ones do.
+
+- [x] Have `EncoderDecoderModel` expose (or return from `save_model()`) the list of files a checkpoint consists of, and delete exactly those in `remove_model_files()`, `cleanup_dead_sessions()` and `reset_all()`; or save each checkpoint into its own directory and remove the directory. (Done by file-name prefix, which every file `save_model()` writes follows.)
+- [x] Add a test that save → remove leaves no files behind; offer a one-off cleanup command for existing session directories (ask the user to check ai-machine's `SESSION_DIR` size). (The cleanup happens automatically on the next start.)
+
+Location in code: `src/IncrementalTrainer.cpp` (`checkpoint_files()`, `session_checkpoint_base_of()`, `remove_model_files()`, `cleanup_dead_sessions()`, `reset_all()`); the `TODO: See TD-407` tags are now fix comments.
 
 Files to Modify:
 
@@ -9865,7 +9881,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / IncrementalTrainer | October 13, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 18, 2026 | Training / IncrementalTrainer | October 13, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `IncrementalTrainer`, by inspection. `create_or_update_symlink()` links
@@ -9876,9 +9892,22 @@ the fallback `copy_file()` copies the same nonexistent bare file and always fail
 
 Action Items:
 
-- [ ] Link a checkpoint directory (see TD-407) or create links for every sidecar; or replace the links with a small text file naming the checkpoint base path that tools read.
+**Fix landed October 18, 2026:** `create_or_update_symlink()` creates one link per checkpoint file, under the link's own base name, with an
+absolute target. For example, `latest_checkpoint.bin.config` points at `…/session_3_checkpoint.bin.config`. The link name therefore loads exactly
+like the checkpoint (usable as `MODEL_PATH`). On Windows the files are copied.
 
-Location in code: `src/IncrementalTrainer.cpp` (`create_or_update_symlink()`); tagged `TODO: See TD-408`.
+`remove_symlink_if_exists()` now removes every `<link>…` symlink before re-linking. On POSIX it never removes a regular file that only shares the
+prefix. The same bare-path mistake is fixed in two more places:
+- `cleanup_old_sessions()` re-pointed the latest link only if the bare checkpoint path existed, so it never did; it now checks the checkpoint's
+  files.
+- `reset_all()`'s model backup renamed the bare `MODEL_PATH`, which never exists; it now moves every file to the base `<MODEL_PATH>.bak`, which
+  loads as a checkpoint.
+
+Test: `CheckpointLinksLoadAndRepointCleanly` (loads through the link and matches the weights; re-pointing leaves no stale link).
+
+- [x] Link a checkpoint directory (see TD-407) or create links for every sidecar; or replace the links with a small text file naming the checkpoint base path that tools read.
+
+Location in code: `src/IncrementalTrainer.cpp` (`create_or_update_symlink()`, `remove_symlink_if_exists()`, `cleanup_old_sessions()`, `reset_all()`); the `TODO: See TD-408` tag is now a fix comment.
 
 Files to Modify:
 
@@ -14025,7 +14054,7 @@ Action Items:
 - [x] Give the encoder's embedding and final norm their own file names, with a fallback for old checkpoints.
 - [x] Test that a round trip reproduces the logits exactly.
 - [ ] Retrain rather than continuing from an existing checkpoint: none has the encoder's own embedding or norm (with TD-358).
-- [ ] `IncrementalTrainer::remove_model_files()` (TD-407) should delete the new file names too.
+- [x] `IncrementalTrainer::remove_model_files()` (TD-407) should delete the new file names too. (Done: TD-407's prefix-based removal covers them.)
 
 Location in code: `src/LLMEncoder.cpp` (`save_weights()`, `load_weights()`).
 

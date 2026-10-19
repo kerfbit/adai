@@ -1,11 +1,12 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.13.0
+// @adai-version: 0.14.0
 // @adai-reviewed: 2026-10-18
 
 
 #include <chrono>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <set>
@@ -456,6 +457,19 @@ class IncrementalTrainer {
 
     // All five files EncoderDecoderModel::save_model() writes exist for `base_path`.
     static bool checkpoint_files_exist(const std::string& base_path);
+
+  public:
+    // TD-407: every file belonging to the checkpoint `base_path`. save_model(base) names all of
+    // them base + "." + ... (top-level sidecars, .metrics.csv) or base + "_" + ... (per-layer
+    // weights), plus the bare base if one exists, so this lists the directory by that prefix and
+    // stays complete whatever components a checkpoint has. Symlinks are included.
+    static std::vector<std::filesystem::path> checkpoint_files(const std::string& base_path);
+
+    // TD-407: the checkpoint base ("<name>.bin") a file in a session directory belongs to, or ""
+    // if it isn't part of a session_* / auto_save_session_* checkpoint.
+    static std::string session_checkpoint_base_of(const std::string& filename);
+
+  private:
 
     // Loads every file's pairs (in parallel, merged in order), warning about each file that
     // yields none (TD-412).
