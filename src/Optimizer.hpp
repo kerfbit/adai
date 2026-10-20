@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-10-19
 
 
@@ -59,7 +59,13 @@ struct ParameterGroup {
  *   opt.clip_gradients(1.0f);  // Optional
  *   opt.step();
  */
+class GPUOptimizer;
+
 class Optimizer {
+    // TD-468: the device-resident optimizer steps this optimizer's groups on the GPU (or, for
+    // host-only groups, through the step_* functions below) and keeps its step counts.
+    friend class GPUOptimizer;
+
    private:
     OptimizerType type;
     float learning_rate;

@@ -1,13 +1,14 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-19
 
 
 #include <memory>
 #include <string>
 #include <vector>
+#include "gpu/GPUParamRef.hpp"
 #include "Matrix.hpp"
 #ifdef ADAI_ENABLE_GPU
 #include "gpu/MatrixGPU.hpp"
@@ -196,6 +197,10 @@ class LanguageModelHead {
     std::unique_ptr<GPUState> gpu_;
 
     void gpu_upload_weights();
+    // TD-468: this layer's device parameter buffers, for the device-resident optimizer
+    // (GPUOptimizer), and the device->host weight copy it needs before checkpoints.
+    void gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int layer = -1);
+    void gpu_download_weights();
     void gpu_download_grads();
     void gpu_zero_grads();
     /** GPU forward: returns logits [seq, vocab_size]. */

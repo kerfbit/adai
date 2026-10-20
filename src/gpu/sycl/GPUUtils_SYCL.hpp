@@ -2,8 +2,8 @@
 #define GPU_UTILS_SYCL_HPP
 
 // @adai-status: beta        (TD-041 resolved — dedicated tests added; real-device paths still unverified by an actual run, see below)
-// @adai-version: 0.6.3
-// @adai-reviewed: 2026-09-13
+// @adai-version: 0.7.0
+// @adai-reviewed: 2026-10-19
 
 
 #include <cstddef>
@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #include <sycl/ext/oneapi/properties/properties.hpp>
+#include <cstdlib>
 #include <sycl/sycl.hpp>
 
 namespace adai {
@@ -52,9 +53,15 @@ class GPUManager {
     // backend (Level Zero and OpenCL); GPU_DEVICE_ID then picks by platform order and the backend isn't logged.
     // TD-394: GPU-only selection also means no test can run these kernels without a GPU (add a CPU-device test mode)
     static std::vector<sycl::device> enumerate_gpu_devices() {
+        // TD-394: ADAI_SYCL_ALLOW_CPU_DEVICE=1 also lists CPU devices (oneAPI's OpenCL CPU
+        // device), so the real kernels can run in tests on a machine with no GPU. Off by
+        // default: production must never fall back to the CPU device silently.
+        const char* allow_cpu = std::getenv("ADAI_SYCL_ALLOW_CPU_DEVICE");
+        const auto type = (allow_cpu && allow_cpu[0] == '1') ? sycl::info::device_type::all
+                                                             : sycl::info::device_type::gpu;
         std::vector<sycl::device> gpus;
         for (auto& platform : sycl::platform::get_platforms()) {
-            for (auto& dev : platform.get_devices(sycl::info::device_type::gpu)) {
+            for (auto& dev : platform.get_devices(type)) {
                 gpus.push_back(dev);
             }
         }

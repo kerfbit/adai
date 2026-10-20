@@ -5,9 +5,9 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 19, 2026
-**Total Items:** 338
+**Total Items:** 339
 **High Priority:** 36
-**Medium Priority:** 147
+**Medium Priority:** 148
 **Low Priority:** 155
 **Future Enhancements:** 19
 **Resolved Items:** 208
@@ -642,6 +642,9 @@ data-delivery fixes touched; TD-544 and TD-545 were fixed in the same change.
 - **TD-545:** `incremental_trainer reset` worked on the legacy root pool instead of the trainer's `SESSION_DIR/<kind>/` pool.
 - **TD-546:** `retrain` retrains a partly trained segmented file whole, and its pending segments again.
 
+Also October 19, 2026: filed [TD-547](#td-547-gpu-training-does-the-token-embeddings-on-the-host) (MEDIUM), the part of the owner's
+"GPU does the training math" rule that TD-468's device-resident optimizer leaves open: the token embeddings still run on the host.
+
 The same recheck also fixed:
 - **TD-326, Android side:** the dashboard's `migrateToKind()` still ignored its assign and delete results.
 - **Windows renames:** two atomic saves added in this run (`BPETokenizer::save_vocab()`, TD-221;
@@ -1170,6 +1173,13 @@ Done:
 
 **Remote data delivery run (October 19, 2026)**, chosen by the owner after the training-fix run: TD-337/338 (done: one download per file,
 full-path names, checksum-checked reuse), then TD-413 (done: the pre-check counts this model's entries in its kind pool), then TD-334 (done: trained records carry the pairs each file contributed). The run is complete.
+
+**Trainer speed run (October 19, 2026)**, chosen by the owner. The owner's rule: GPU training does all the training math on the GPU, with no
+host↔device transfers without a critical reason. So far:
+- TD-436 (done: the `sycl` build gets `-march=x86-64-v3` and AVX2/FMA);
+- TD-468 (done in code: device-resident optimizer).
+
+Next: TD-547 (embeddings on the device), then TD-434 (CPU threading and runtime SIMD dispatch, for CPU builds).
 
 Every fix here is verified on CPU, or on the oneAPI CPU device for the SYCL kernels. Still needed: an on-device run on ai-machine, then
 retraining from scratch, since no existing checkpoint has correct GPU-trained weights (TD-358) or the encoder's own embedding (TD-538).
@@ -2186,6 +2196,7 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-544: `EncoderDecoderModel::clone()` Leaves Its Temp Checkpoint Files Behind](#td-544-encoderdecodermodelclone-leaves-its-temp-checkpoint-files-behind)
   - [TD-545: `incremental_trainer reset` Works on the Legacy Pool, Not the Trainer's Own](#td-545-incremental_trainer-reset-works-on-the-legacy-pool-not-the-trainers-own)
   - [TD-546: `retrain` Trains a Partly Trained Segmented File Twice](#td-546-retrain-trains-a-partly-trained-segmented-file-twice)
+  - [TD-547: GPU Training Does the Token Embeddings on the Host](#td-547-gpu-training-does-the-token-embeddings-on-the-host)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -9579,7 +9590,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | GPU / Testing | October 12, 2026 | 2-4 hours |
+| MEDIUM | Open — CPU-device opt-in landed October 19, 2026 | GPU / Testing | October 12, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `MatrixGPU_SYCL.cpp`. The GPU kernel tests (`gpuutilsTests`,
@@ -9593,7 +9604,7 @@ schedule exposes.
 
 Action Items:
 
-- [ ] Add an opt-in CPU fallback to the SYCL `GPUManager` (for example `ADAI_SYCL_ALLOW_CPU=1`, test-only), and run `gpuutilsTests`/`matrixgpuTd003Tests` plus a kernel-vs-CPU-reference suite (every `matrix_*_gpu`) in `build/sycl-gputest`.
+- [ ] Add an opt-in CPU fallback to the SYCL `GPUManager` (for example `ADAI_SYCL_ALLOW_CPU=1`, test-only), and run `gpuutilsTests`/`matrixgpuTd003Tests` plus a kernel-vs-CPU-reference suite (every `matrix_*_gpu`) in `build/sycl-gputest`. (Opt-in done October 19, 2026 with TD-468: `ADAI_SYCL_ALLOW_CPU_DEVICE=1` makes `enumerate_gpu_devices()` list every device type. Used for `gpuOptimizerTests` and the trainer suites in a fresh SYCL tree, `build/sycl-cpudev`, configured with the current `icpx`. The older `build/sycl-gputest` no longer links against oneAPI 2026.2. A kernel-vs-reference suite for every `matrix_*_gpu` is still to do.)
 - [ ] Add LayerNorm forward/backward, softmax, cross-entropy and reduction-size cases (the harness from MatrixGPU_SYCL_cpp.md §2 is a ready template).
 - [ ] Optionally add a CI job using the oneAPI CPU runtime.
 
@@ -12074,7 +12085,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Core / Optimizer | October 14, 2026 | 8-16 hours |
+| MEDIUM | Open — device-resident optimizer landed October 19, 2026 | Core / Optimizer | October 14, 2026 | 8-16 hours |
 
 Description:
 Found while tracing `Optimizer`:
@@ -12093,7 +12104,36 @@ Action Items:
 
 - [ ] Rewrite the update, norm and clip loops over raw row pointers (vectorizable); re-measure.
 - [ ] Measure the per-step download/step/upload time on ai-machine.
-- [ ] Add a GPU-resident optimizer (AdamW kernels for CUDA and SYCL) keeping weights, gradients and moments on the device, so GPU training skips the round trip; keep the CPU optimizer for CPU training.
+- [x] Add a GPU-resident optimizer (AdamW kernels for CUDA and SYCL) keeping weights, gradients and moments on the device, so GPU training skips the round trip; keep the CPU optimizer for CPU training.
+
+**Fix (October 19, 2026): the device-resident optimizer.** This follows the owner's rule that GPU training does all the training math on the GPU
+and moves no data without a critical reason.
+- **New kernels:** `src/GPUOptimizer.{hpp,cpp}` plus two kernels in both backends (`MatrixGPU.cu`, `sycl/MatrixGPU_SYCL.cpp`):
+  - `matrix_sum_squares_accumulate_gpu()`: a single pass that adds into a device slot, with no temporary buffer and no host wait;
+  - `optimizer_update_gpu()`: the CPU `Optimizer`'s SGD, momentum, Adam and AdamW formulas, in the same order, with a gradient scale.
+- **Binding:** every layer now reports its device weight and gradient buffers (`gpu_collect_parameters()`), and `GPUOptimizer` binds the CPU
+  optimizer's groups to them by host-weight identity. The moments live on the device.
+- **Per step:** `ChatbotTrainer`'s GPU path reduces every group's gradient on the device and downloads **one float per group**. Those are the
+  squared norms that the NaN check, the clip, the zero-gradient skip and the per-layer norm metrics need. The TD-272 window rescale and the
+  clip factor are folded into the update's gradient scale. The per-step `gpu_download_grads()` and `gpu_sync_weights()` are gone.
+- **While training:** the device weights are the live copy. `sync_host_from_device()` copies weights and moments back to the host only
+  before a checkpoint (`save_to()`, the best snapshot, `save_training_state()`), before the per-epoch quality-metrics `clone()`, and at the end
+  of `train()`. `train()` uploads the host weights when it binds, since the host copy is authoritative between passes.
+- **Host groups:** groups with no device mirror are stepped on the host with no transfer. These are the two token embeddings, and the gated
+  world-model/hippocampal sub-layers when attached (TD-342). The embeddings are TD-547.
+
+Verified on the oneAPI CPU SYCL device (new opt-in `ADAI_SYCL_ALLOW_CPU_DEVICE=1`, TD-394), with the real kernels and classes:
+- **`gpuOptimizerTests` (6):**
+  - each rule matches the CPU `Optimizer` over three scaled steps (≤ 1e-5 relative);
+  - the moments round-trip through the CPU optimizer;
+  - a real model's device step matches the old download-and-CPU-step path through its logits (36 device groups, 2 host).
+- **Existing suites on the device path:** `chatbottrainerTests` (83), `encoderdecoderTests` (90) and `incrementaltrainerTests` (58) all pass
+  with every training test on the device path. The `IncrementalTrainer` fixture now initializes the GPU, as `incremental_trainer` does.
+- **Real binary:** a SYCL `incremental_trainer` trained a pass on the CPU device (validation loss 4.09 → 3.94). A second pass resumed its
+  checkpoint and restored its optimizer state at global step 18.
+
+CUDA is compile-checked only. Still to do: the first action item (the CPU loops, which now matter only for CPU training), and measuring a
+step on ai-machine.
 
 Location in code: `src/Optimizer.cpp` (update/norm/clip loops); `src/ChatbotTrainer.cpp` (`gpu_download_grads()`/`gpu_sync_weights()` around `optimizer->step()`); tagged `TODO: See TD-468`.
 
@@ -14586,6 +14626,37 @@ Action Items:
   pending segments from the acquired batch.
 
 Location in code: `src/IncrementalTrainingTool.cpp` (`retrain`); tagged `TODO: See TD-546`.
+
+---
+
+### TD-547: GPU Training Does the Token Embeddings on the Host
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | GPU / Training | October 19, 2026 | 4-8 hours |
+
+Description:
+Found while building TD-468's device-resident optimizer. `TokenEmbedding` has no device mirror, so GPU training still does all of this on the host:
+- **Each sample:**
+  - the encoder and decoder embedding lookup plus positional encoding (`LLMEncoder::gpu_encode()`, `LLMDecoder::gpu_decode()`), with the result
+    uploaded;
+  - the embedding backward: the gradient downloaded (`Matrix::from_gpu`) and accumulated into the host table.
+- **Each accumulation window:** `model->zero_grad()` zeroes both `vocab × d_model` host gradient tables (TD-518's full-matrix zeroing).
+- **Each optimizer step:** `GPUOptimizer` steps the two embedding groups on the host, a full AdamW over `vocab × d_model` parameters twice:
+  - ~49M parameters at 32k × 768;
+  - likely the largest remaining CPU cost of a GPU pass.
+
+That breaks the owner's rule that GPU training does the training math on the GPU and moves no data without a critical reason.
+
+Action Items:
+
+- [ ] Give `TokenEmbedding` a device table and gradient, a gather kernel (lookup + positional-encoding add, with a device positional table),
+  and a scatter-add backward (atomic adds for repeated tokens), in both backends.
+- [ ] Report them from `gpu_collect_parameters()` so `GPUOptimizer` steps them on the device; leave only the token IDs and scalars crossing.
+- [ ] Verify on the oneAPI CPU device against the host path, as for TD-468; measure on ai-machine.
+
+Location in code: `src/TokenEmbedding.{hpp,cpp}`, `src/LLMEncoder.cpp` (`gpu_encode()`, `gpu_backward()`), `src/Decoder.cpp` (`gpu_decode()`,
+`gpu_backward()`), `src/gpu/MatrixGPU.cu`, `src/gpu/sycl/MatrixGPU_SYCL.cpp`.
 
 ---
 

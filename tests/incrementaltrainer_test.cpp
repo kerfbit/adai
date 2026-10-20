@@ -35,6 +35,11 @@ class IncrementalTrainerTest : public ::testing::Test {
     fs::path data_file2;
 
     void SetUp() override {
+        // GPU builds train on the device (TD-468), as incremental_trainer does after its own GPU
+        // init; a no-op in CPU builds. (ADAI_SYCL_ALLOW_CPU_DEVICE=1 runs these on the oneAPI CPU
+        // device, TD-394.)
+        Matrix::gpu_try_initialize();
+
         // Create temporary test directory
         test_dir = fs::temp_directory_path() / "incremental_trainer_test";
         fs::create_directories(test_dir);

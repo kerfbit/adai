@@ -1,13 +1,14 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-195 backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 0.12.1
-// @adai-reviewed: 2026-09-18
+// @adai-version: 0.13.0
+// @adai-reviewed: 2026-10-19
 
 
 #include <functional>
 #include <memory>
 #include <vector>
+#include "gpu/GPUParamRef.hpp"
 #include "KVCache.hpp"
 #include "LoRA.hpp"
 #include "Matrix.hpp"
@@ -488,6 +489,10 @@ class MultiHeadAttention {
     std::unique_ptr<GPUState> gpu_;
 
     void gpu_upload_weights();
+    // TD-468: this layer's device parameter buffers, for the device-resident optimizer
+    // (GPUOptimizer), and the device->host weight copy it needs before checkpoints.
+    void gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int layer = -1);
+    void gpu_download_weights();
     void gpu_download_grads();
     void gpu_zero_grads();
     adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& input,

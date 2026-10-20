@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-19
 
 
 #include <algorithm>
@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iostream>
 #ifdef ADAI_ENABLE_GPU
+#include "gpu/GPUParamRef.hpp"
 #include "gpu/MatrixGPU.hpp"
 #endif
 #include <memory>
@@ -237,6 +238,10 @@ class LLMEncoder {
 #ifdef ADAI_ENABLE_GPU
     /** Upload all encoder weights to GPU. */
     void gpu_upload_weights();
+    // TD-468: this layer's device parameter buffers, for the device-resident optimizer
+    // (GPUOptimizer), and the device->host weight copy it needs before checkpoints.
+    void gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int layer = -1);
+    void gpu_download_weights();
     /** Download GPU gradient accumulators to CPU. */
     void gpu_download_grads();
     /** Zero GPU gradient accumulators. */

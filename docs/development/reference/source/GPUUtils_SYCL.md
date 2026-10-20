@@ -101,3 +101,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `set_device()` frees old-context allocations with the new queue and doesn't recompute the budget; `cleanup()` leaks live buffers by design and zeroes the counter; `initialize()` ignores new arguments when already initialized (§2) | Latent traps for multi-GPU and re-initialization | By inspection | [TD-383](../../guides/TECHNICAL_DEBT.md#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize) (amended) |
 | Unlike CUDA, the budget is locked; the queue itself is thread-safe for submission | TD-382 is milder on SYCL; the shared fix (`ScopedCpuOnly` for the async quality thread) covers it | By inspection; **fixed in code October 17, 2026** | [TD-382](../../guides/TECHNICAL_DEBT.md#td-382-gpu-work-from-any-thread-shares-unsynchronized-gpumanager-state) (amended) |
 | Nothing has run on a real Intel GPU in the development environment | — | — | — |
+
+## Addendum (October 19, 2026): CPU-device opt-in (TD-394)
+
+`enumerate_gpu_devices()` lists every device type, not just GPUs, when `ADAI_SYCL_ALLOW_CPU_DEVICE=1` is set. That lets a SYCL build run its real kernels on oneAPI's OpenCL CPU device on a machine with no GPU. It is off by default, so production never falls back to the CPU device silently. It replaced the scratch copy of this header that earlier kernel checks used. TD-468's tests and the trainer suites run this way in `build/sycl-cpudev`, configured with the current `icpx`; the older `build/sycl-gputest` no longer links against oneAPI 2026.2.

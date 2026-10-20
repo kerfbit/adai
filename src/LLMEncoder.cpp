@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-10-19
 
 #include <algorithm>
 #include <cassert>
@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #include "EncoderBlock.hpp"
+#include "gpu/GPUParamSync.hpp"
 #include "Logger.hpp"
 #include "FeedForward.hpp"
 #include "MultiHeadAttention.hpp"
@@ -354,6 +355,19 @@ void LLMEncoder::gpu_upload_weights() {
     for (auto& block : encoder_blocks)
         block->gpu_upload_weights();
     final_norm->gpu_upload_weights();
+}
+
+// The token embedding stays on the host (no GPU mirror yet), so it isn't collected here.
+void LLMEncoder::gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int /*layer*/) {
+    for (size_t l = 0; l < encoder_blocks.size(); ++l)
+        encoder_blocks[l]->gpu_collect_parameters(out, static_cast<int>(l));
+    final_norm->gpu_collect_parameters(out, -1);
+}
+
+void LLMEncoder::gpu_download_weights() {
+    for (auto& block : encoder_blocks)
+        block->gpu_download_weights();
+    final_norm->gpu_download_weights();
 }
 
 void LLMEncoder::gpu_download_grads() {

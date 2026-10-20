@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
-// @adai-version: 0.14.0
-// @adai-reviewed: 2026-09-18
+// @adai-version: 0.15.0
+// @adai-reviewed: 2026-10-19
 
 
 #include <algorithm>
@@ -16,6 +16,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "gpu/GPUParamRef.hpp"
 #include "DecoderBlock.hpp"
 #ifdef ADAI_ENABLE_GPU
 #include "gpu/MatrixGPU.hpp"
@@ -345,6 +346,10 @@ class LLMDecoder {
 
 #ifdef ADAI_ENABLE_GPU
     void gpu_upload_weights();
+    // TD-468: this layer's device parameter buffers, for the device-resident optimizer
+    // (GPUOptimizer), and the device->host weight copy it needs before checkpoints.
+    void gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int layer = -1);
+    void gpu_download_weights();
     void gpu_download_grads();
     void gpu_zero_grads();
     /**

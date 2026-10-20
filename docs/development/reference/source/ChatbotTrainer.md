@@ -372,3 +372,20 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 - **Atomic save, rechecked October 19, 2026:** `save_training_state()` writes `<path>.tmp` and moves it into place with
   `std::filesystem::rename()`, which replaces the old file on every platform. It used `std::rename()`, which fails on Windows when the
   target exists.
+
+## Addendum (October 19, 2026): GPU training steps on the device (TD-468)
+
+In GPU builds, `train()` calls `bind_gpu_optimizer()`. That uploads the host weights (`gpu_init_training()`) and binds a `GPUOptimizer` to the layers' device mirrors. `train_epoch()` binds its own when called directly.
+
+`apply_update()` then works like this:
+- It no longer downloads gradients or uploads weights.
+- The gradient norm comes from one float per parameter group.
+- The TD-272 window rescale and the clip factor are passed to `GPUOptimizer::step()` as one gradient scale.
+- The weight-update ratio and the epoch-end per-layer gradient norms come from device reductions. The per-layer norms now include each block's LayerNorms (TD-356).
+- `end_epoch()` reports the last step's norm (`last_grad_norm_`) instead of recomputing it from the host gradients.
+
+While training, the device weights are the live copy. `sync_host_from_device()` copies weights and moments back only:
+- before `save_to()`, the best-model save, `save_training_state()` and the quality-metrics `clone()`;
+- at the end of `train()`, including after a failure, best effort.
+
+Verified in a SYCL build on the oneAPI CPU device (`ADAI_SYCL_ALLOW_CPU_DEVICE=1`): all 83 tests here pass with every training test on the device path. See [GPUOptimizer.md](GPUOptimizer.md).

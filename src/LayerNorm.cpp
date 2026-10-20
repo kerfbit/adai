@@ -1,8 +1,9 @@
 // @adai-status: stable        (TD-195 — backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-18
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-19
 
 #include "LayerNorm.hpp"
+#include "gpu/GPUParamSync.hpp"
 
 #include <cmath>
 #include <fstream>
@@ -295,6 +296,20 @@ void LayerNorm::gpu_upload_weights() {
         gpu_ = std::make_unique<GPUState>(dim);
     gpu_->gamma_g.upload(gamma.data[0].data(), dim);
     gpu_->beta_g.upload(beta.data[0].data(), dim);
+}
+
+void LayerNorm::gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int layer) {
+    if (!gpu_)
+        return;
+    adai::gpu::add_param(out, gamma, gpu_->gamma_g, gpu_->dgamma, layer);
+    adai::gpu::add_param(out, beta, gpu_->beta_g, gpu_->dbeta, layer);
+}
+
+void LayerNorm::gpu_download_weights() {
+    if (!gpu_)
+        return;
+    adai::gpu::download_into(gpu_->gamma_g, gamma);
+    adai::gpu::download_into(gpu_->beta_g, beta);
 }
 
 void LayerNorm::gpu_download_grads() {

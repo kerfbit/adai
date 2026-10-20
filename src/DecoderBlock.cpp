@@ -1,8 +1,9 @@
 // @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap; TD-194 gated cross-reference pull + Hebbian association strengthening added to the hippocampal path)
-// @adai-version: 1.4.0
-// @adai-reviewed: 2026-09-18
+// @adai-version: 1.5.0
+// @adai-reviewed: 2026-10-19
 
 #include "DecoderBlock.hpp"
+#include "gpu/GPUParamSync.hpp"
 #include <cmath>
 #include <fstream>
 #include <stdexcept>
@@ -771,6 +772,26 @@ void DecoderBlock::gpu_upload_weights() {
     norm1->gpu_upload_weights();
     norm2->gpu_upload_weights();
     norm3->gpu_upload_weights();
+}
+
+// The gated world-model/hippocampal sub-layers have no GPU mirrors (TD-342), so they stay host
+// parameters of the optimizer.
+void DecoderBlock::gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int layer) {
+    self_attention->gpu_collect_parameters(out, layer);
+    cross_attention->gpu_collect_parameters(out, layer);
+    feed_forward->gpu_collect_parameters(out, layer);
+    norm1->gpu_collect_parameters(out, layer);
+    norm2->gpu_collect_parameters(out, layer);
+    norm3->gpu_collect_parameters(out, layer);
+}
+
+void DecoderBlock::gpu_download_weights() {
+    self_attention->gpu_download_weights();
+    cross_attention->gpu_download_weights();
+    feed_forward->gpu_download_weights();
+    norm1->gpu_download_weights();
+    norm2->gpu_download_weights();
+    norm3->gpu_download_weights();
 }
 
 void DecoderBlock::gpu_download_grads() {

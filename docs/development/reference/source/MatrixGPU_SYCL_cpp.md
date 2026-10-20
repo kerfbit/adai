@@ -136,3 +136,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | TD-384 race reproduces deterministically on the CPU device and disappears with the barrier fix (§4) | Confirms TD-384; its "can't reproduce on CPU" note is wrong | **Verified**; **fixed in code October 17, 2026** | [TD-384](../../guides/TECHNICAL_DEBT.md#td-384-shared-memory-race-in-gpu-softmax-layernorm-and-cross-entropy-kernels-cuda-and-sycl) |
 | No way to run the GPU kernel tests without a GPU (§6) | Both bugs above went undetected | **Verified** (harness) | [TD-394](../../guides/TECHNICAL_DEBT.md#td-394-gpu-kernel-tests-cant-run-without-a-gpu) |
 | Batch helpers read host pointer arrays asynchronously; per-call allocation/waits in reductions; unchecked inputs (§5) | Latent use-after-free in dead code; stalls; out-of-bounds on bad input | By inspection (overlaps TD-385, TD-386, TD-390) | TD-385, TD-386 (amended), TD-390 |
+
+## Addendum (October 19, 2026): optimizer kernels (TD-468)
+
+Two kernels were added for the device-resident optimizer ([GPUOptimizer.md](GPUOptimizer.md)), with identical CUDA and SYCL versions:
+- `matrix_sum_squares_accumulate_gpu(data, n, out)`: a bounded grid with a grid-stride loop. Each work-group reduces its share and adds one partial to a device float with an atomic, without the temporary buffer or host wait of `matrix_sum_gpu()` (TD-385).
+- `optimizer_update_gpu(w, g, m, v, n, update)`: the CPU `Optimizer`'s SGD, momentum, Adam and AdamW update, on gradients times `update.grad_scale`.
+
+The SYCL versions were checked against the CPU `Optimizer` on the oneAPI CPU device (`gpuOptimizerTests`). The CUDA versions are compile-checked only.

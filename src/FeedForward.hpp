@@ -1,13 +1,15 @@
 #pragma once
 
 // @adai-status: stable        (TD-195 — backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-18
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-19
 
 
+#include <vector>
 #include <functional>
 #include <memory>
 #include <string>
+#include "gpu/GPUParamRef.hpp"
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
 #ifdef ADAI_ENABLE_GPU
@@ -304,6 +306,10 @@ class FeedForward {
     std::unique_ptr<GPUState> gpu_;
 
     void gpu_upload_weights();
+    // TD-468: this layer's device parameter buffers, for the device-resident optimizer
+    // (GPUOptimizer), and the device->host weight copy it needs before checkpoints.
+    void gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int layer = -1);
+    void gpu_download_weights();
     void gpu_download_grads();
     void gpu_zero_grads();
     adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& input);

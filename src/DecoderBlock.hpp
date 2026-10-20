@@ -1,13 +1,15 @@
 #pragma once
 
 // @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap; TD-194 gated cross-reference pull + Hebbian association strengthening added to the hippocampal path)
-// @adai-version: 1.4.0
-// @adai-reviewed: 2026-09-18
+// @adai-version: 1.5.0
+// @adai-reviewed: 2026-10-19
 
 
+#include <vector>
 #include <memory>
 #include <string>
 #include <utility>
+#include "gpu/GPUParamRef.hpp"
 #include "CrossAttention.hpp"
 #include "FeedForward.hpp"
 #include "HippocampalMemory.hpp"
@@ -425,6 +427,10 @@ class DecoderBlock {
 
 #ifdef ADAI_ENABLE_GPU
     void gpu_upload_weights();
+    // TD-468: this layer's device parameter buffers, for the device-resident optimizer
+    // (GPUOptimizer), and the device->host weight copy it needs before checkpoints.
+    void gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int layer = -1);
+    void gpu_download_weights();
     void gpu_download_grads();
     void gpu_zero_grads();
     // encoder_out: cached GPU encoder output [src_len, d_model]

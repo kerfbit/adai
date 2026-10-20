@@ -1,8 +1,9 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-19
 
 #include "LanguageModelHead.hpp"
+#include "gpu/GPUParamSync.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -218,6 +219,21 @@ void LanguageModelHead::gpu_upload_weights() {
             tmp.push_back(v);
     gpu_->W_g.upload(tmp.data(), n_w);
     gpu_->b_g.upload(bias.data[0].data(), vocab_size);
+}
+
+void LanguageModelHead::gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out,
+                                               int layer) {
+    if (!gpu_)
+        return;
+    adai::gpu::add_param(out, W_output, gpu_->W_g, gpu_->dW, layer);
+    adai::gpu::add_param(out, bias, gpu_->b_g, gpu_->db, layer);
+}
+
+void LanguageModelHead::gpu_download_weights() {
+    if (!gpu_)
+        return;
+    adai::gpu::download_into(gpu_->W_g, W_output);
+    adai::gpu::download_into(gpu_->b_g, bias);
 }
 
 void LanguageModelHead::gpu_download_grads() {

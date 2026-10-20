@@ -1,13 +1,14 @@
 #pragma once
 
 // @adai-status: stable        (TD-195 — backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-18
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-19
 
 
 #include <cmath>
 #include <memory>
 #include <vector>
+#include "gpu/GPUParamRef.hpp"
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
 #ifdef ADAI_ENABLE_GPU
@@ -197,6 +198,10 @@ class LayerNorm {
 
     /** Upload CPU weights to GPU mirrors. */
     void gpu_upload_weights();
+    // TD-468: this layer's device parameter buffers, for the device-resident optimizer
+    // (GPUOptimizer), and the device->host weight copy it needs before checkpoints.
+    void gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int layer = -1);
+    void gpu_download_weights();
 
     /** Download GPU grad accumulators into CPU grad members. */
     void gpu_download_grads();

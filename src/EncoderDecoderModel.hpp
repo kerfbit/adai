@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.19.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 0.20.0
+// @adai-reviewed: 2026-10-19
 
 #include <functional>
 #include <iostream>
@@ -10,6 +10,7 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include "gpu/GPUParamRef.hpp"
 #include "BPETokenizer.hpp"
 #include "Decoder.hpp"
 #include "KVCache.hpp"
@@ -778,6 +779,12 @@ class EncoderDecoderModel {
      * Call after optimizer->step().
      */
     void gpu_sync_weights();
+    // TD-468: every device parameter buffer of the model (for GPUOptimizer), and the copy of the
+    // device weights back to the host, needed only when the host weights are read (checkpoints,
+    // clone(), the end of a pass). With the device-resident optimizer the device weights are
+    // the live ones during GPU training.
+    std::vector<adai::gpu::GPUParamRef> gpu_collect_parameters();
+    void gpu_download_weights();
 
     /**
      * Block until all previously submitted GPU work (including deferred

@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.11.1
+// @adai-version: 0.12.0
 // @adai-reviewed: 2026-10-19
 
 #include "ChatbotTrainer.hpp"
@@ -962,6 +962,14 @@ std::string ChatbotTrainer::get_schedule_name() {
  * @brief Train one epoch with gradient accumulation support
  */
 float ChatbotTrainer::train_epoch(int epoch) {
+#ifdef ADAI_ENABLE_GPU
+    // TD-468: train() binds the device-resident optimizer for the whole pass; a direct call
+    // (the tests) binds it for this epoch and copies the weights back to the host at the end.
+    const bool epoch_owns_gpu_optimizer = !gpu_optimizer_;
+    if (epoch_owns_gpu_optimizer) {
+        bind_gpu_optimizer();
+    }
+#endif
     float total_loss = 0.0f;
     float total_grad_norm = 0.0f;
     int num_samples = static_cast<int>(tokenized_training_data.size());
@@ -1164,30 +1172,36 @@ float ChatbotTrainer::train_epoch(int epoch) {
             ++pad_eff_count;
         }
 
-#ifdef ADAI_ENABLE_GPU
-        // Pull the GPU-resident gradient accumulators into the CPU grad
-        // buffers *before* anything below reads them. gpu_backward() only
-        // ever writes to device-resident buffers, so get_gradient_norm()
-        // and clip_gradients() would otherwise see the all-zero CPU
-        // buffers left by zero_grad() at the top of this accumulation
-        // window — silently skipping clipping every step.
-        // TODO: See TD-468 in TECHNICAL_DEBT.md - every gradient to the host, CPU optimizer step, every weight back each step
-        model->gpu_download_grads();
-#endif
-
         // TD-272: each sample's gradient was scaled by 1/gradient_accumulation_steps, so a
         // window holding fewer samples (the epoch's last one, or the last sample having failed)
         // is rescaled to the mean over the samples it actually holds, and its loss divided by
         // that count. It used to step with a proportionally smaller update and report a smaller
         // loss.
         const int window_samples = accumulation_step;
-        if (window_samples > 0 && window_samples < config.gradient_accumulation_steps) {
-            optimizer->scale_gradients(static_cast<float>(config.gradient_accumulation_steps) /
-                                       static_cast<float>(window_samples));
+        const float window_rescale =
+            (window_samples > 0 && window_samples < config.gradient_accumulation_steps)
+                ? static_cast<float>(config.gradient_accumulation_steps) /
+                      static_cast<float>(window_samples)
+                : 1.0f;
+#ifdef ADAI_ENABLE_GPU
+        // TD-468: the gradients stay on the device. Only one float per parameter group comes
+        // back (the squared norms the NaN check, the clip and the zero-gradient skip need); the
+        // window rescale and the clip are folded into the update itself below. This used to
+        // download every gradient here and upload every weight after a CPU optimizer step.
+        float grad_norm = 0.0f;
+        {
+            double total_sq = 0.0;
+            for (float sq : gpu_optimizer_->gradient_sq_norms())
+                total_sq += sq;
+            grad_norm = static_cast<float>(std::sqrt(total_sq)) * window_rescale;
         }
-
-        // Get gradient norm before clipping
+#else
+        if (window_rescale != 1.0f) {
+            optimizer->scale_gradients(window_rescale);
+        }
         float grad_norm = optimizer->get_gradient_norm();
+#endif
+        last_grad_norm_ = grad_norm;
 
         // Save step-level metrics here so sample callback can fire even on NaN
         float step_loss_for_cb =
@@ -1239,7 +1253,11 @@ float ChatbotTrainer::train_epoch(int epoch) {
             // Throttled to every 10 steps: weight norm changes slowly and
             // get_weight_norm() is an O(n_params) traversal.
             if (optimizer && (update_count % 10 == 0)) {
+#ifdef ADAI_ENABLE_GPU
+                float w_norm = gpu_optimizer_->weight_norm();  // device reduction (TD-468)
+#else
                 float w_norm = optimizer->get_weight_norm();
+#endif
                 if (w_norm > 1e-10f) {
                     wu_ratio_sum += current_learning_rate * grad_norm / w_norm;
                     ++wu_count;
@@ -1330,9 +1348,16 @@ float ChatbotTrainer::train_epoch(int epoch) {
             ++agc_clip_count;
         }
 
+#ifdef ADAI_ENABLE_GPU
+        // The same factor Optimizer::clip_gradients(max, norm) applies, passed to the update.
+        const float clip_scale = (effective_clip > 0.0f && grad_norm > effective_clip)
+                                     ? effective_clip / (grad_norm + 1e-6f)
+                                     : 1.0f;
+#else
         if (effective_clip > 0.0f) {
             optimizer->clip_gradients(effective_clip, grad_norm);
         }
+#endif
 
         // Push adaptive clip state to metrics service
         if (metrics_reporter_ && agc_active) {
@@ -1343,10 +1368,10 @@ float ChatbotTrainer::train_epoch(int epoch) {
 
         // Update weights via optimizer
         // TODO: See TD-341 in TECHNICAL_DEBT.md - DecoderBlock gates aren't registered, so this step never updates them
-        optimizer->step();
 #ifdef ADAI_ENABLE_GPU
-        // Re-upload updated CPU weights to GPU mirrors
-        model->gpu_sync_weights();
+        gpu_optimizer_->step(window_rescale * clip_scale);  // on the device (TD-468)
+#else
+        optimizer->step();
 #endif
 
         // step_loss_for_cb (not accumulated_loss) — accumulated_loss is the raw SUM
@@ -1694,12 +1719,25 @@ float ChatbotTrainer::train_epoch(int epoch) {
             std::vector<float> decoder_layer_norms;
             encoder_layer_norms.reserve(enc_layers);
             decoder_layer_norms.reserve(dec_layers);
+#ifdef ADAI_ENABLE_GPU
+            // TD-468: from the last step's per-group norms; the host gradients aren't filled on
+            // the GPU path. (They include each block's LayerNorms, unlike the CPU blocks'
+            // get_gradient_norm(), TD-356.)
+            for (int l = 0; l < enc_layers; ++l) {
+                encoder_layer_norms.push_back(gpu_optimizer_->layer_gradient_norm(l));
+            }
+            for (int l = 0; l < dec_layers; ++l) {
+                decoder_layer_norms.push_back(
+                    gpu_optimizer_->layer_gradient_norm(adai::gpu::kDecoderLayerBase + l));
+            }
+#else
             for (int l = 0; l < enc_layers; ++l) {
                 encoder_layer_norms.push_back(model->get_encoder()->get_encoder_block(l)->get_gradient_norm());
             }
             for (int l = 0; l < dec_layers; ++l) {
                 decoder_layer_norms.push_back(model->get_decoder()->get_decoder_block(l)->get_gradient_norm());
             }
+#endif
             metrics_reporter_->update_layer_gradient_norms(encoder_layer_norms, decoder_layer_norms);
         }
         // ─────────────────────────────────────────────────────────────────────────
@@ -1722,6 +1760,12 @@ float ChatbotTrainer::train_epoch(int epoch) {
     }
     // ─────────────────────────────────────────────────────────────────────────
 
+#ifdef ADAI_ENABLE_GPU
+    if (epoch_owns_gpu_optimizer) {
+        sync_host_from_device();
+        gpu_optimizer_.reset();
+    }
+#endif
     return epoch_loss;
 }
 
@@ -1840,6 +1884,7 @@ float ChatbotTrainer::validate() {
             // trainers there and never cleaned up.
             best_model_path = "best_model_temp.bin";
             try {
+                sync_host_from_device();  // TD-468
                 model->save_model(best_model_path);
                 adai::Logger::info("  💾 Best model saved temporarily");
                 if (best_model_callback_) {
@@ -1890,6 +1935,7 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
         // main training thread — needs its own validation before enabling.
         // TD-382: the thread holds a ScopedCpuOnly, because otherwise the clone's large
         // Matrix products would still go to the shared GPU stream via Matrix::operator*.
+        sync_host_from_device();  // TD-468: clone() copies the host weights
         std::unique_ptr<EncoderDecoderModel> snapshot = model->clone();
 
         std::vector<std::string> refs, inputs;
@@ -2077,6 +2123,12 @@ bool ChatbotTrainer::train(int num_epochs) {
                                     : std::max(1, total_training_steps / 10);  // TD-269
         }
 
+#ifdef ADAI_ENABLE_GPU
+        // TD-468: from here until sync_host_from_device() at the end, the device weights are
+        // the live copy.
+        bind_gpu_optimizer();
+#endif
+
         // Train for specified epochs
         for (int epoch = 0; epoch < num_epochs; ++epoch) {
             // TD-169: wall-clock duration for this epoch, fed to metrics_tracker_ below
@@ -2109,7 +2161,7 @@ bool ChatbotTrainer::train(int num_epochs) {
                 if (metrics_reporter_) {
                     metrics_reporter_->end_epoch(epoch + 1, epoch_loss, val_loss,
                                                  current_learning_rate, std::exp(epoch_loss),
-                                                 optimizer ? optimizer->get_gradient_norm() : 0.0f);
+                                                 last_grad_norm_);
                 }
 
                 // Early stopping check (epochs_without_improvement maintained by validate())
@@ -2140,6 +2192,13 @@ bool ChatbotTrainer::train(int num_epochs) {
             }
         }
 
+        // TD-468: the trained weights and moments back on the host before anything reads them
+        // there (the best-weights restore below, release_model(), checkpoint saves).
+        sync_host_from_device();
+#ifdef ADAI_ENABLE_GPU
+        gpu_optimizer_.reset();
+#endif
+
         // validate() saves best_model_path whenever a new best validation loss is
         // found, but never reloads it — without this, training simply ends on
         // whatever the final epoch produced, even if validation regressed after
@@ -2163,8 +2222,35 @@ bool ChatbotTrainer::train(int num_epochs) {
         return true;
     } catch (const std::exception& e) {
         adai::Logger::error("❌ Training failed: {}", e.what());
+#ifdef ADAI_ENABLE_GPU
+        // Keep what was trained so far (a caller may still checkpoint it); best effort.
+        try {
+            sync_host_from_device();
+        } catch (const std::exception& sync_err) {
+            adai::Logger::error("  ⚠️  Could not copy the device weights back: {}", sync_err.what());
+        }
+        gpu_optimizer_.reset();
+#endif
         return false;
     }
+}
+
+#ifdef ADAI_ENABLE_GPU
+void ChatbotTrainer::bind_gpu_optimizer() {
+    // The host weights are authoritative between passes (including a restored checkpoint), so
+    // upload them before the optimizer binds to the device mirrors.
+    model->gpu_init_training();
+    gpu_optimizer_ = std::make_unique<GPUOptimizer>(*optimizer, model->gpu_collect_parameters());
+}
+#endif
+
+void ChatbotTrainer::sync_host_from_device() const {
+#ifdef ADAI_ENABLE_GPU
+    if (gpu_optimizer_ && model) {
+        model->gpu_download_weights();
+        gpu_optimizer_->download_state();
+    }
+#endif
 }
 
 void ChatbotTrainer::set_tokenizer(std::unique_ptr<BPETokenizer> tok) {
@@ -2232,6 +2318,7 @@ void ChatbotTrainer::set_best_model_callback(BestModelCallback cb) {
 
 void ChatbotTrainer::save_to(const std::string& path) {
     if (model) {
+        sync_host_from_device();  // TD-468: the device holds the live weights during training
         model->save_model(path);
         save_training_state(path + ".optimizer");  // TD-269: snapshots carry it too
     }
@@ -2245,6 +2332,7 @@ bool ChatbotTrainer::save_training_state(const std::string& path) const {
     if (!optimizer) {
         return false;
     }
+    sync_host_from_device();  // TD-468: device moments into the CPU optimizer first
     const std::string tmp = path + ".tmp";
     {
         std::ofstream out(tmp, std::ios::binary | std::ios::trunc);

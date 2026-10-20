@@ -2,8 +2,8 @@
 #define MATRIX_GPU_HPP
 
 // @adai-status: beta        (TD-061 resolved — see MatrixGPU.cu's tag; this header just declares/wraps its kernels; TD-050 GPUKVCache added)
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-09-14
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-10-19
 
 
 #include <stdexcept>
@@ -15,6 +15,7 @@
 #include "sycl/MatrixGPU_SYCL.hpp"
 #else  // CUDA backend (default)
 
+#include "GPUOptimizerKernels.hpp"
 #include "GPUUtils.hpp"  // GPUMemory, GPUManager, CUDA_CHECK
 
 namespace adai {
@@ -156,6 +157,14 @@ void matrix_row_entropy_gpu(const float* data, float* out_row_entropy, int rows,
 // calls that only compiled under SYCL).
 void matrix_copy_device_to_device_gpu(const float* src, float* dst, int count);
 void matrix_download_gpu(const float* device_ptr, float* host_ptr, int count);
+
+// TD-468: device-resident optimizer kernels (see GPUOptimizerKernels.hpp and GPUOptimizer.hpp).
+// Adds sum(data[i]^2) into *out_device (a device float) without synchronizing; zero it first.
+void matrix_sum_squares_accumulate_gpu(const float* data, int size, float* out_device);
+// One optimizer update of `size` parameters in place. m/v may be null when the rule doesn't use
+// them (SGD: neither; SGD_MOMENTUM: m only).
+void optimizer_update_gpu(float* weights, const float* grads, float* m, float* v, int size,
+                          const GPUOptimizerUpdate& update);
 
 // ============================================================================
 // GPUMatrix — persistent GPU-resident matrix (TD-003)

@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.19.1
+// @adai-version: 0.20.0
 // @adai-reviewed: 2026-10-19
 
 #include "EncoderDecoderModel.hpp"
@@ -1333,6 +1333,20 @@ std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
     }
 
     return tokenizer->decode(output_tokens, true);
+}
+
+std::vector<adai::gpu::GPUParamRef> EncoderDecoderModel::gpu_collect_parameters() {
+    std::vector<adai::gpu::GPUParamRef> out;
+    encoder->gpu_collect_parameters(out);
+    decoder->gpu_collect_parameters(out);
+    lm_head->gpu_collect_parameters(out);
+    return out;
+}
+
+void EncoderDecoderModel::gpu_download_weights() {
+    encoder->gpu_download_weights();
+    decoder->gpu_download_weights();
+    lm_head->gpu_download_weights();
 }
 
 void EncoderDecoderModel::gpu_download_grads() {

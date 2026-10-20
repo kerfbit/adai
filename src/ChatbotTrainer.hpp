@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added)
-// @adai-version: 0.12.0
+// @adai-version: 0.13.0
 // @adai-reviewed: 2026-10-19
 
 
@@ -15,6 +15,7 @@
 #include <thread>
 #include <utility>
 #include <vector>
+#include "GPUOptimizer.hpp"
 #include "BPETokenizer.hpp"
 #include "EncoderDecoderModel.hpp"
 #include "IMetricsReporter.hpp"
@@ -232,6 +233,22 @@ class ChatbotTrainer {
     std::unique_ptr<BPETokenizer> tokenizer;
     std::unique_ptr<EncoderDecoderModel> model;
     std::unique_ptr<Optimizer> optimizer;
+#ifdef ADAI_ENABLE_GPU
+    // TD-468: the device-resident optimizer step, bound for the duration of train(). While it
+    // exists the device weights are the live copy; sync_host_from_device() brings them (and the
+    // moments) back to the host whenever something reads them there.
+    std::unique_ptr<GPUOptimizer> gpu_optimizer_;
+#endif
+    // The last optimizer step's gradient norm (the epoch-end report used to recompute it from the
+    // host gradients, which GPU training no longer fills).
+    float last_grad_norm_{0.0f};
+    // TD-468: copy the device weights and optimizer moments to the host (no-op in CPU builds or
+    // outside train()). Called before checkpoints, the quality-metrics clone and at train()'s end.
+    void sync_host_from_device() const;
+#ifdef ADAI_ENABLE_GPU
+    // TD-468: upload the host weights and bind gpu_optimizer_ to the layers' device mirrors.
+    void bind_gpu_optimizer();
+#endif
     TrainingConfig config;
 
     std::vector<ConversationPair> training_data;

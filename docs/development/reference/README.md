@@ -103,6 +103,7 @@ This directory contains reference materials, technical specifications, and imple
   - [FeedForward](source/FeedForward.md) (`src/FeedForward.{hpp,cpp}`; position-wise FFN in every encoder/decoder block and the LeJEPA predictor)
   - [FtpDataServer](source/FtpDataServer.md) (`src/FtpDataServer.hpp`; read-only FTP/FTPS server embedded in `registry_server` for per-file dataset delivery)
   - [GenerationQualityMetrics](source/GenerationQualityMetrics.md) (`src/GenerationQualityMetrics.{hpp,cpp}`; BLEU/ROUGE scorer for per-epoch generation quality)
+  - [GPUOptimizer](source/GPUOptimizer.md) (`src/GPUOptimizer.{hpp,cpp}`; GPU training's device-resident optimizer step, TD-468)
   - [GPUUtils](source/GPUUtils.md) (`src/gpu/GPUUtils.hpp`; GPU backend gateway: CUDA `GPUManager`/`GPUMemory`, no-GPU stub, SYCL include)
   - [GPUUtils_SYCL](source/GPUUtils_SYCL.md) (`src/gpu/sycl/GPUUtils_SYCL.hpp`; SYCL `GPUManager` (in-order queue) and USM `GPUMemory`)
   - [MatrixGPU_SYCL](source/MatrixGPU_SYCL.md) (`src/gpu/sycl/MatrixGPU_SYCL.hpp`; SYCL kernel declarations and the SYCL `GPUMatrix`)

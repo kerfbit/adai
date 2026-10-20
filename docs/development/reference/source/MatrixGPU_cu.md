@@ -148,3 +148,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `matrix_batch_add_gpu`, `matrix_batch_multiply_gpu` and `matrix_add_scalar_gpu` have no callers (§4) | Unexercised code to maintain in two backends | By inspection | [TD-386](../../guides/TECHNICAL_DEBT.md#td-386-gpu-kernel-input-checks-and-dead-batch-functions) |
 | No kernel has run on a CUDA device in any environment used so far | All of the above unverified on hardware | — | — (needs a CUDA host) |
 | GELU constants duplicated; `matrix_sum_gpu` on empty input | Already tracked / fixed | — | TD-216; TD-088 (fixed) |
+
+## Addendum (October 19, 2026): optimizer kernels (TD-468)
+
+Two kernels were added for the device-resident optimizer ([GPUOptimizer.md](GPUOptimizer.md)), with identical CUDA and SYCL versions:
+- `matrix_sum_squares_accumulate_gpu(data, n, out)`: a bounded grid with a grid-stride loop. Each work-group reduces its share and adds one partial to a device float with an atomic, without the temporary buffer or host wait of `matrix_sum_gpu()` (TD-385).
+- `optimizer_update_gpu(w, g, m, v, n, update)`: the CPU `Optimizer`'s SGD, momentum, Adam and AdamW update, on gradients times `update.grad_scale`.
+
+The SYCL versions were checked against the CPU `Optimizer` on the oneAPI CPU device (`gpuOptimizerTests`). The CUDA versions are compile-checked only.

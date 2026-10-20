@@ -1001,6 +1001,14 @@ endif()
 # public interface, so one file covers both, same convention as
 # matrixgpuTd003Tests above) vs. the CPU-only stub class that exists only when
 # neither is set.
+# TD-468: the device-resident optimizer. Skips without a GPU; a SYCL build can run it on the
+# oneAPI CPU device with ADAI_SYCL_ALLOW_CPU_DEVICE=1 (TD-394).
+if(ENABLE_GPU OR ENABLE_SYCL)
+    add_executable(gpuOptimizerTests gpu_optimizer_test.cpp)
+    target_link_libraries(gpuOptimizerTests adai_models GTest::gtest_main)
+    add_test(NAME GPUOptimizerTests COMMAND gpuOptimizerTests)
+endif()
+
 if(ENABLE_GPU OR ENABLE_SYCL)
     add_executable(gpuutilsTests gpuutils_test.cpp)
     target_link_libraries(gpuutilsTests adai_gpu GTest::gtest_main)

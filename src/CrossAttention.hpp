@@ -1,12 +1,13 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-174 forward_with_scores added; TD-180 get_last_attention_weights added)
-// @adai-version: 0.13.1
-// @adai-reviewed: 2026-09-15
+// @adai-version: 0.14.0
+// @adai-reviewed: 2026-10-19
 
 
 #include <memory>
 #include <vector>
+#include "gpu/GPUParamRef.hpp"
 #include "KVCache.hpp"
 #include "LoRA.hpp"
 #include "Matrix.hpp"
@@ -403,6 +404,10 @@ class CrossAttention {
     std::unique_ptr<GPUState> gpu_;
 
     void gpu_upload_weights();
+    // TD-468: this layer's device parameter buffers, for the device-resident optimizer
+    // (GPUOptimizer), and the device->host weight copy it needs before checkpoints.
+    void gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int layer = -1);
+    void gpu_download_weights();
     void gpu_download_grads();
     void gpu_zero_grads();
     // Returns attention output; query from decoder, kv from encoder

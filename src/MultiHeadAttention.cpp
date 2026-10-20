@@ -1,8 +1,9 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-195 backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 0.12.1
-// @adai-reviewed: 2026-09-18
+// @adai-version: 0.13.0
+// @adai-reviewed: 2026-10-19
 
 #include "MultiHeadAttention.hpp"
+#include "gpu/GPUParamSync.hpp"
 #include <cmath>
 #include <fstream>
 #include <iomanip>
@@ -782,6 +783,25 @@ void MultiHeadAttention::gpu_upload_weights() {
     upload_sq_matrix(W_k, gpu_->Wk);
     upload_sq_matrix(W_v, gpu_->Wv);
     upload_sq_matrix(W_o, gpu_->Wo);
+}
+
+void MultiHeadAttention::gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out,
+                                                int layer) {
+    if (!gpu_)
+        return;
+    adai::gpu::add_param(out, W_q, gpu_->Wq, gpu_->dWq, layer);
+    adai::gpu::add_param(out, W_k, gpu_->Wk, gpu_->dWk, layer);
+    adai::gpu::add_param(out, W_v, gpu_->Wv, gpu_->dWv, layer);
+    adai::gpu::add_param(out, W_o, gpu_->Wo, gpu_->dWo, layer);
+}
+
+void MultiHeadAttention::gpu_download_weights() {
+    if (!gpu_)
+        return;
+    adai::gpu::download_into(gpu_->Wq, W_q);
+    adai::gpu::download_into(gpu_->Wk, W_k);
+    adai::gpu::download_into(gpu_->Wv, W_v);
+    adai::gpu::download_into(gpu_->Wo, W_o);
 }
 
 void MultiHeadAttention::gpu_download_grads() {

@@ -1,8 +1,9 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-174 forward_with_scores added)
-// @adai-version: 0.13.0
-// @adai-reviewed: 2026-09-15
+// @adai-version: 0.14.0
+// @adai-reviewed: 2026-10-19
 
 #include "CrossAttention.hpp"
+#include "gpu/GPUParamSync.hpp"
 
 #include <cmath>
 #include <fstream>
@@ -787,6 +788,25 @@ void CrossAttention::gpu_upload_weights() {
     ca_upload_sq(W_k, gpu_->Wk);
     ca_upload_sq(W_v, gpu_->Wv);
     ca_upload_sq(W_o, gpu_->Wo);
+}
+
+void CrossAttention::gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out,
+                                            int layer) {
+    if (!gpu_)
+        return;
+    adai::gpu::add_param(out, W_q, gpu_->Wq, gpu_->dWq, layer);
+    adai::gpu::add_param(out, W_k, gpu_->Wk, gpu_->dWk, layer);
+    adai::gpu::add_param(out, W_v, gpu_->Wv, gpu_->dWv, layer);
+    adai::gpu::add_param(out, W_o, gpu_->Wo, gpu_->dWo, layer);
+}
+
+void CrossAttention::gpu_download_weights() {
+    if (!gpu_)
+        return;
+    adai::gpu::download_into(gpu_->Wq, W_q);
+    adai::gpu::download_into(gpu_->Wk, W_k);
+    adai::gpu::download_into(gpu_->Wv, W_v);
+    adai::gpu::download_into(gpu_->Wo, W_o);
 }
 
 void CrossAttention::gpu_download_grads() {

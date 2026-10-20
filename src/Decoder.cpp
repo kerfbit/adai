@@ -1,8 +1,9 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
-// @adai-version: 0.14.0
-// @adai-reviewed: 2026-09-18
+// @adai-version: 0.15.0
+// @adai-reviewed: 2026-10-19
 
 #include "Decoder.hpp"
+#include "gpu/GPUParamSync.hpp"
 #include <stdexcept>
 #include "Logger.hpp"
 using adai::Logger;
@@ -466,6 +467,20 @@ void LLMDecoder::gpu_upload_weights() {
     for (auto& block : decoder_blocks)
         block->gpu_upload_weights();
     final_norm->gpu_upload_weights();
+}
+
+// The token embedding stays on the host (no GPU mirror yet), so it isn't collected here.
+void LLMDecoder::gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int /*layer*/) {
+    for (size_t l = 0; l < decoder_blocks.size(); ++l)
+        decoder_blocks[l]->gpu_collect_parameters(out,
+                                                  adai::gpu::kDecoderLayerBase + static_cast<int>(l));
+    final_norm->gpu_collect_parameters(out, -1);
+}
+
+void LLMDecoder::gpu_download_weights() {
+    for (auto& block : decoder_blocks)
+        block->gpu_download_weights();
+    final_norm->gpu_download_weights();
 }
 
 void LLMDecoder::gpu_download_grads() {

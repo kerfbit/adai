@@ -1,11 +1,12 @@
 // @adai-status: beta        (TD-061 resolved — layer_norm_bwd's math bug fixed and verified analytically/numerically; most kernels still have no dedicated test and need real GPU hardware to verify, see TECHNICAL_DEBT_RESOLVED.md)
-// @adai-version: 0.9.2
-// @adai-reviewed: 2026-10-17
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-10-19
 
 #ifdef ADAI_ENABLE_GPU
 
 #include "MatrixGPU.hpp"
 #include "GPUUtils.hpp"
+#include <algorithm>
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
 #include <mutex>
@@ -1080,6 +1081,110 @@ void matrix_download_gpu(const float* device_ptr, float* host_ptr, int count) {
     CUDA_CHECK(cudaMemcpyAsync(host_ptr, device_ptr, static_cast<size_t>(count) * sizeof(float),
                                cudaMemcpyDeviceToHost, s));
     CUDA_CHECK(cudaStreamSynchronize(s));
+}
+
+// ============================================================================
+// TD-468: device-resident optimizer
+// ============================================================================
+
+// Bounded grid + grid-stride loop; each block adds one partial to *out (no temporary buffer or
+// host synchronization, unlike matrix_sum_gpu, TD-385).
+__global__ void sum_squares_accumulate_kernel(const float* data, int size, float* out) {
+    extern __shared__ float warp_sums[];
+    const unsigned int tid = threadIdx.x;
+    const unsigned int lane = tid & 31u;
+    const unsigned int wid = tid >> 5u;
+    float acc = 0.0f;
+    for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < size; i += gridDim.x * blockDim.x) {
+        const float x = data[i];
+        acc += x * x;
+    }
+    acc = warp_reduce_sum(acc);
+    if (lane == 0) {
+        warp_sums[wid] = acc;
+    }
+    __syncthreads();
+    const unsigned int warps_per_block = blockDim.x >> 5u;
+    acc = (tid < warps_per_block) ? warp_sums[tid] : 0.0f;
+    if (wid == 0) {
+        acc = warp_reduce_sum(acc);
+        if (lane == 0) {
+            atomicAdd(out, acc);
+        }
+    }
+}
+
+void matrix_sum_squares_accumulate_gpu(const float* data, int size, float* out_device) {
+    if (size <= 0) {
+        return;
+    }
+    const int threads = 256;
+    const int blocks = std::min((size + threads - 1) / threads, 1024);
+    const int smem_bytes = (threads / 32) * static_cast<int>(sizeof(float));
+    sum_squares_accumulate_kernel<<<blocks, threads, smem_bytes, GPUManager::get_stream()>>>(
+        data, size, out_device);
+    CUDA_CHECK(cudaGetLastError());
+}
+
+// Same formulas, in the same order, as Optimizer::step_sgd/step_sgd_momentum/step_adam/
+// step_adamw (Optimizer.cpp).
+__global__ void optimizer_update_kernel(float* weights, const float* grads, float* m, float* v,
+                                        int size, GPUOptimizerUpdate u) {
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= size) {
+        return;
+    }
+    float g = grads[i] * u.grad_scale;
+    float w = weights[i];
+    switch (u.rule) {
+        case GPUOptimizerRule::SGD:
+            if (u.weight_decay > 0.0f)
+                g += u.weight_decay * w;
+            w -= u.learning_rate * g;
+            break;
+        case GPUOptimizerRule::SGD_MOMENTUM: {
+            if (u.weight_decay > 0.0f)
+                g += u.weight_decay * w;
+            const float mi = u.momentum_beta * m[i] + g;
+            m[i] = mi;
+            w -= u.learning_rate * mi;
+            break;
+        }
+        case GPUOptimizerRule::ADAM: {
+            if (u.weight_decay > 0.0f)
+                g += u.weight_decay * w;
+            const float mi = u.beta1 * m[i] + (1.0f - u.beta1) * g;
+            const float vi = u.beta2 * v[i] + (1.0f - u.beta2) * g * g;
+            m[i] = mi;
+            v[i] = vi;
+            w -= u.learning_rate * (mi / u.bias_correction1) /
+                 (sqrtf(vi / u.bias_correction2) + u.epsilon);
+            break;
+        }
+        case GPUOptimizerRule::ADAMW: {
+            const float mi = u.beta1 * m[i] + (1.0f - u.beta1) * g;
+            const float vi = u.beta2 * v[i] + (1.0f - u.beta2) * g * g;
+            m[i] = mi;
+            v[i] = vi;
+            w -= u.learning_rate * ((mi / u.bias_correction1) /
+                                        (sqrtf(vi / u.bias_correction2) + u.epsilon) +
+                                    u.weight_decay * w);
+            break;
+        }
+    }
+    weights[i] = w;
+}
+
+void optimizer_update_gpu(float* weights, const float* grads, float* m, float* v, int size,
+                          const GPUOptimizerUpdate& update) {
+    if (size <= 0) {
+        return;
+    }
+    const int threads = 256;
+    const int blocks = (size + threads - 1) / threads;
+    optimizer_update_kernel<<<blocks, threads, 0, GPUManager::get_stream()>>>(
+        weights, grads, m, v, size, update);
+    CUDA_CHECK(cudaGetLastError());
 }
 
 } // namespace gpu

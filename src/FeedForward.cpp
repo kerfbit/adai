@@ -1,8 +1,9 @@
 // @adai-status: stable        (TD-195 — backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-18
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-19
 
 #include "FeedForward.hpp"
+#include "gpu/GPUParamSync.hpp"
 #include <cmath>
 #include <fstream>
 #include <iomanip>
@@ -404,6 +405,24 @@ void FeedForward::gpu_upload_weights() {
     gpu_->b1_g.upload(fb1.data(), d_ff);
     auto fb2 = flat(b2);
     gpu_->b2_g.upload(fb2.data(), d_model);
+}
+
+void FeedForward::gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int layer) {
+    if (!gpu_)
+        return;
+    adai::gpu::add_param(out, W1, gpu_->W1_g, gpu_->dW1, layer);
+    adai::gpu::add_param(out, W2, gpu_->W2_g, gpu_->dW2, layer);
+    adai::gpu::add_param(out, b1, gpu_->b1_g, gpu_->db1, layer);
+    adai::gpu::add_param(out, b2, gpu_->b2_g, gpu_->db2, layer);
+}
+
+void FeedForward::gpu_download_weights() {
+    if (!gpu_)
+        return;
+    adai::gpu::download_into(gpu_->W1_g, W1);
+    adai::gpu::download_into(gpu_->W2_g, W2);
+    adai::gpu::download_into(gpu_->b1_g, b1);
+    adai::gpu::download_into(gpu_->b2_g, b2);
 }
 
 void FeedForward::gpu_download_grads() {

@@ -1,8 +1,9 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-19
 
 #include "EncoderBlock.hpp"
+#include "gpu/GPUParamSync.hpp"
 
 #include <cmath>
 #include <fstream>
@@ -319,6 +320,20 @@ void EncoderBlock::gpu_upload_weights() {
     feed_forward->gpu_upload_weights();
     norm1->gpu_upload_weights();
     norm2->gpu_upload_weights();
+}
+
+void EncoderBlock::gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int layer) {
+    attention->gpu_collect_parameters(out, layer);
+    feed_forward->gpu_collect_parameters(out, layer);
+    norm1->gpu_collect_parameters(out, layer);
+    norm2->gpu_collect_parameters(out, layer);
+}
+
+void EncoderBlock::gpu_download_weights() {
+    attention->gpu_download_weights();
+    feed_forward->gpu_download_weights();
+    norm1->gpu_download_weights();
+    norm2->gpu_download_weights();
 }
 
 void EncoderBlock::gpu_download_grads() {

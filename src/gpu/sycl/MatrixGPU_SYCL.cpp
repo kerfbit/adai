@@ -1,10 +1,11 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.10.1
-// @adai-reviewed: 2026-10-17
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-10-19
 
 #ifdef ADAI_ENABLE_GPU
 
 #include "MatrixGPU_SYCL.hpp"
+#include <algorithm>
 #include <cmath>
 #include <oneapi/mkl/blas.hpp>
 #include <vector>
@@ -898,6 +899,100 @@ void matrix_copy_device_to_device_gpu(const float* src, float* dst, int count) {
 void matrix_download_gpu(const float* device_ptr, float* host_ptr, int count) {
     auto& q = GPUManager::get_queue();
     q.memcpy(host_ptr, device_ptr, static_cast<size_t>(count) * sizeof(float)).wait();
+}
+
+// ============================================================================
+// TD-468: device-resident optimizer
+// ============================================================================
+
+void matrix_sum_squares_accumulate_gpu(const float* data, int size, float* out_device) {
+    if (size <= 0) {
+        return;
+    }
+    auto& q = GPUManager::get_queue();
+    constexpr int WG_SIZE = 256;
+    // A bounded grid with a grid-stride loop: each work-group reduces its share and adds one
+    // partial to *out_device, so no temporary buffer or host wait is needed (unlike
+    // matrix_sum_gpu, TD-385). In-order queue: no .wait().
+    const int num_groups = std::min((size + WG_SIZE - 1) / WG_SIZE, 1024);
+    const int stride = num_groups * WG_SIZE;
+    q.submit([&](sycl::handler& cgh) {
+        sycl::local_accessor<float, 1> subgroup_sums(sycl::range<1>(WG_SIZE), cgh);
+        cgh.parallel_for(sycl::nd_range<1>(stride, WG_SIZE), [=](sycl::nd_item<1> item) {
+            float acc = 0.0f;
+            for (int i = static_cast<int>(item.get_global_id(0)); i < size; i += stride) {
+                const float x = data[i];
+                acc += x * x;
+            }
+            acc = workgroup_reduce_sum(item, subgroup_sums, acc);
+            if (item.get_local_id(0) == 0) {
+                sycl::atomic_ref<float, sycl::memory_order::relaxed, sycl::memory_scope::device,
+                                 sycl::access::address_space::global_space>
+                    out(*out_device);
+                out.fetch_add(acc);
+            }
+        });
+    });
+}
+
+void optimizer_update_gpu(float* weights, const float* grads, float* m, float* v, int size,
+                          const GPUOptimizerUpdate& update) {
+    if (size <= 0) {
+        return;
+    }
+    auto& q = GPUManager::get_queue();
+    constexpr int WG_SIZE = 256;
+    const int num_groups = (size + WG_SIZE - 1) / WG_SIZE;
+    const GPUOptimizerUpdate u = update;  // captured by value
+    q.parallel_for(sycl::nd_range<1>(num_groups * WG_SIZE, WG_SIZE), [=](sycl::nd_item<1> item) {
+        const int i = static_cast<int>(item.get_global_id(0));
+        if (i >= size) {
+            return;
+        }
+        float g = grads[i] * u.grad_scale;
+        float w = weights[i];
+        // Same formulas, in the same order, as Optimizer::step_sgd/step_sgd_momentum/
+        // step_adam/step_adamw.
+        switch (u.rule) {
+            case GPUOptimizerRule::SGD:
+                if (u.weight_decay > 0.0f)
+                    g += u.weight_decay * w;
+                w -= u.learning_rate * g;
+                break;
+            case GPUOptimizerRule::SGD_MOMENTUM: {
+                if (u.weight_decay > 0.0f)
+                    g += u.weight_decay * w;
+                const float mi = u.momentum_beta * m[i] + g;
+                m[i] = mi;
+                w -= u.learning_rate * mi;
+                break;
+            }
+            case GPUOptimizerRule::ADAM: {
+                if (u.weight_decay > 0.0f)
+                    g += u.weight_decay * w;
+                const float mi = u.beta1 * m[i] + (1.0f - u.beta1) * g;
+                const float vi = u.beta2 * v[i] + (1.0f - u.beta2) * g * g;
+                m[i] = mi;
+                v[i] = vi;
+                const float m_hat = mi / u.bias_correction1;
+                const float v_hat = vi / u.bias_correction2;
+                w -= u.learning_rate * m_hat / (sycl::sqrt(v_hat) + u.epsilon);
+                break;
+            }
+            case GPUOptimizerRule::ADAMW: {
+                const float mi = u.beta1 * m[i] + (1.0f - u.beta1) * g;
+                const float vi = u.beta2 * v[i] + (1.0f - u.beta2) * g * g;
+                m[i] = mi;
+                v[i] = vi;
+                const float m_hat = mi / u.bias_correction1;
+                const float v_hat = vi / u.bias_correction2;
+                w -= u.learning_rate * (m_hat / (sycl::sqrt(v_hat) + u.epsilon) +
+                                        u.weight_decay * w);
+                break;
+            }
+        }
+        weights[i] = w;
+    });
 }
 
 }  // namespace gpu

@@ -127,3 +127,7 @@ mismatch or a truncated file returns false and leaves the optimizer untouched.
 `ChatbotTrainer` embeds this in its `<checkpoint>.optimizer` training-state file, so AdamW continues across incremental passes instead of
 restarting with zero moments. With Adam/AdamW the moments are two more weight-sized tensors, so a checkpoint is about 3× larger; that was accepted
 by the owner on October 18, 2026.
+
+## Addendum (October 19, 2026): the device-resident optimizer (TD-468)
+
+GPU training no longer runs `step()` on the host. `GPUOptimizer` ([GPUOptimizer.md](GPUOptimizer.md)) is a `friend` of this class. It binds each parameter group to its layer's device mirror and applies these update rules on the device, with the same formulas and order. It keeps the moments on the device and the step counts (`global_step`, each group's `step`) here. Groups with no device mirror (the token embeddings, TD-547) are stepped through this class's `step_*` functions on the host. `GPUOptimizer::download_state()` copies the device moments back into the groups before `save_state()` runs, so TD-269's training state is unchanged in format. The CPU update, norm and clip loops (the first action item of TD-468) still use the bounds-checked accessor; they now matter only for CPU training.
