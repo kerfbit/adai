@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
+// @adai-version: 0.2.0
 // @adai-reviewed: 2026-10-19
 
 #ifdef ADAI_ENABLE_GPU
@@ -235,6 +235,11 @@ float GPUOptimizer::weight_norm() {
     for (size_t i : host_groups_)
         total += host_sq_norm(*host_.parameter_groups[i].weights);
     return static_cast<float>(std::sqrt(total));
+}
+
+void GPUOptimizer::zero_host_grads() {
+    for (size_t i : host_groups_)
+        host_.parameter_groups[i].gradients->fill(0.0f);
 }
 
 float GPUOptimizer::layer_gradient_norm(int layer) const {

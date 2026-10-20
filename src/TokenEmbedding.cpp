@@ -1,8 +1,10 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-17
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-10-19
 
 #include "TokenEmbedding.hpp"
+#include <algorithm>
+#include "gpu/GPUParamSync.hpp"
 #include <cmath>
 #include <fstream>
 #include <iomanip>
@@ -265,3 +267,83 @@ void TokenEmbedding::load_weights(const std::string& filename) {
     // Wrapper for consistency with other components
     load_pretrained(filename);
 }
+
+#ifdef ADAI_ENABLE_GPU
+// ============================================================================
+// TD-547: device table
+// ============================================================================
+
+void TokenEmbedding::gpu_upload_weights() {
+    if (!gpu_)
+        gpu_ = std::make_unique<GPUState>(vocab_size, d_model);
+    std::vector<float> flat;
+    flat.reserve(static_cast<size_t>(vocab_size) * static_cast<size_t>(d_model));
+    for (const auto& row : embedding_matrix.data)
+        flat.insert(flat.end(), row.begin(), row.end());
+    gpu_->W_g.upload(flat.data(), vocab_size * d_model);
+}
+
+void TokenEmbedding::gpu_download_weights() {
+    if (gpu_)
+        adai::gpu::download_into(gpu_->W_g, embedding_matrix);
+}
+
+void TokenEmbedding::gpu_zero_grads() {
+    if (gpu_)
+        gpu_->dW.zero();
+}
+
+void TokenEmbedding::gpu_download_grads() {
+    if (!gpu_)
+        return;
+    std::vector<float> tmp(static_cast<size_t>(vocab_size) * static_cast<size_t>(d_model));
+    gpu_->dW.download(tmp.data(), vocab_size * d_model);
+    size_t idx = 0;
+    for (auto& row : embedding_grad.data)
+        for (auto& v : row)
+            v += tmp[idx++];
+}
+
+void TokenEmbedding::gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int layer) {
+    if (gpu_)
+        adai::gpu::add_param(out, embedding_matrix, gpu_->W_g, gpu_->dW, layer);
+}
+
+adai::gpu::GPUMatrix TokenEmbedding::gpu_forward(const std::vector<int>& token_ids,
+                                                 const adai::gpu::GPUMatrix* pe, int pe_rows,
+                                                 int pos_offset) {
+    if (!gpu_)
+        gpu_upload_weights();
+    const int n = static_cast<int>(token_ids.size());
+    for (int id : token_ids) {
+        if (id < 0 || id >= vocab_size) {
+            throw std::out_of_range("Token ID " + std::to_string(id) + " out of range [0, " +
+                                    std::to_string(vocab_size) + ")");
+        }
+    }
+    if (n > gpu_->ids_capacity) {
+        gpu_->ids = std::make_unique<adai::gpu::GPUMemory<int>>(static_cast<size_t>(n));
+        gpu_->ids_capacity = n;
+    }
+    adai::gpu::GPUMatrix out(std::max(n, 1), d_model);
+    if (n > 0) {
+        gpu_->ids->copy_from_host(token_ids.data(), static_cast<size_t>(n));
+        adai::gpu::embedding_gather_add_pe_gpu(gpu_->W_g.device_ptr(), gpu_->ids->get(),
+                                               pe ? pe->device_ptr() : nullptr, pe_rows,
+                                               pos_offset, out.device_ptr(), n, d_model);
+    }
+    gpu_->last_count = n;
+    return out;
+}
+
+void TokenEmbedding::gpu_backward(const adai::gpu::GPUMatrix& dout) {
+    if (!gpu_ || gpu_->last_count == 0)
+        return;
+    if (dout.rows != gpu_->last_count || dout.cols != d_model) {
+        throw std::invalid_argument("TokenEmbedding::gpu_backward: gradient shape doesn't match "
+                                    "the last gpu_forward()");
+    }
+    adai::gpu::embedding_scatter_add_gpu(dout.device_ptr(), gpu_->ids->get(),
+                                         gpu_->dW.device_ptr(), gpu_->last_count, d_model);
+}
+#endif

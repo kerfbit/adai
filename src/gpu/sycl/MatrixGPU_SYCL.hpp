@@ -2,7 +2,7 @@
 #define MATRIX_GPU_SYCL_HPP
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.10.0
+// @adai-version: 0.11.0
 // @adai-reviewed: 2026-10-19
 
 
@@ -64,6 +64,13 @@ void matrix_sum_squares_accumulate_gpu(const float* data, int size, float* out_d
 // them (SGD: neither; SGD_MOMENTUM: m only).
 void optimizer_update_gpu(float* weights, const float* grads, float* m, float* v, int size,
                           const GPUOptimizerUpdate& update);
+
+// TD-547: token embedding on the device. out[i,:] = table[ids[i],:] + pe[pos_offset+i,:] (no
+// positional row when pos_offset+i >= pe_rows or pe is null, as PositionalEncoding::forward()).
+void embedding_gather_add_pe_gpu(const float* table, const int* ids, const float* pe, int pe_rows,
+                                 int pos_offset, float* out, int n, int d);
+// grad_table[ids[i],:] += dout[i,:] (atomic: a token can repeat within a sequence).
+void embedding_scatter_add_gpu(const float* dout, const int* ids, float* grad_table, int n, int d);
 
 // TODO: See TD-395 in TECHNICAL_DEBT.md - a second hand-maintained copy of MatrixGPU.hpp's CUDA GPUMatrix; only
 // copy()/zero() differ, so define it once after the backend split (as GPUKVCache already is)

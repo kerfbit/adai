@@ -207,3 +207,12 @@ this file wins:
 - the component hierarchy and information flow (§1);
 - the save/load layout (§2);
 - the semantic-similarity use case, which is what `DocumentStore` does.
+
+---
+
+## Addendum (October 19, 2026): device embedding (TD-547)
+
+`LLMEncoder` keeps a device copy of its positional table (`gpu_positional_table()`, uploaded once), and `gpu_encode()` use
+`TokenEmbedding::gpu_forward()` instead of a host lookup plus upload. The GPU backward calls `TokenEmbedding::gpu_backward()` instead of
+downloading the gradient for a host backward. `gpu_upload_weights()`, `gpu_download_weights()`, `gpu_download_grads()`, `gpu_zero_grads()` and
+`gpu_collect_parameters()` now include the embedding.

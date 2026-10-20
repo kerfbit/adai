@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-10-19
 
 
@@ -236,6 +236,12 @@ class LLMEncoder {
     }
 
 #ifdef ADAI_ENABLE_GPU
+   private:
+    // TD-547: device copy of positional_encoding's table, for TokenEmbedding::gpu_forward().
+    std::unique_ptr<adai::gpu::GPUMatrix> gpu_pe_;
+    const adai::gpu::GPUMatrix* gpu_positional_table();
+
+   public:
     /** Upload all encoder weights to GPU. */
     void gpu_upload_weights();
     // TD-468: this layer's device parameter buffers, for the device-resident optimizer

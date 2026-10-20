@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.1.0
+// @adai-version: 0.2.0
 // @adai-reviewed: 2026-10-19
 
 #ifdef ADAI_ENABLE_GPU
@@ -60,6 +60,12 @@ class GPUOptimizer {
 
     /// Copy the device moments into the CPU optimizer's groups (before saving training state).
     void download_state();
+
+    /// TD-547: zero only the host groups' gradients. In GPU training the device gradients are
+    /// zeroed by the model's gpu_zero_grads(); the host copies of the device groups' gradients
+    /// are never filled, so `model->zero_grad()` (every host gradient, including two
+    /// vocab x d_model embedding tables) would be wasted CPU work every window.
+    void zero_host_grads();
 
    private:
     struct DeviceGroup {

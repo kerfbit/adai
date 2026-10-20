@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-061 resolved — layer_norm_bwd's math bug fixed and verified analytically/numerically; most kernels still have no dedicated test and need real GPU hardware to verify, see TECHNICAL_DEBT_RESOLVED.md)
-// @adai-version: 0.10.0
+// @adai-version: 0.11.0
 // @adai-reviewed: 2026-10-19
 
 #ifdef ADAI_ENABLE_GPU
@@ -1184,6 +1184,62 @@ void optimizer_update_gpu(float* weights, const float* grads, float* m, float* v
     const int blocks = (size + threads - 1) / threads;
     optimizer_update_kernel<<<blocks, threads, 0, GPUManager::get_stream()>>>(
         weights, grads, m, v, size, update);
+    CUDA_CHECK(cudaGetLastError());
+}
+
+// ============================================================================
+// TD-547: token embedding on the device
+// ============================================================================
+
+__global__ void embedding_gather_add_pe_kernel(const float* table, const int* ids, const float* pe,
+                                               int pe_rows, int pos_offset, float* out, int n,
+                                               int d) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n * d) {
+        return;
+    }
+    const int i = idx / d;
+    const int j = idx - i * d;
+    const int pos = pos_offset + i;
+    float v = table[static_cast<size_t>(ids[i]) * d + j];
+    if (pe && pos < pe_rows) {
+        v += pe[static_cast<size_t>(pos) * d + j];
+    }
+    out[idx] = v;
+}
+
+void embedding_gather_add_pe_gpu(const float* table, const int* ids, const float* pe, int pe_rows,
+                                 int pos_offset, float* out, int n, int d) {
+    const int total = n * d;
+    if (total <= 0) {
+        return;
+    }
+    const int threads = 256;
+    embedding_gather_add_pe_kernel<<<(total + threads - 1) / threads, threads, 0,
+                                     GPUManager::get_stream()>>>(table, ids, pe, pe_rows,
+                                                                 pos_offset, out, n, d);
+    CUDA_CHECK(cudaGetLastError());
+}
+
+__global__ void embedding_scatter_add_kernel(const float* dout, const int* ids, float* grad_table,
+                                             int n, int d) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n * d) {
+        return;
+    }
+    const int i = idx / d;
+    const int j = idx - i * d;
+    atomicAdd(&grad_table[static_cast<size_t>(ids[i]) * d + j], dout[idx]);
+}
+
+void embedding_scatter_add_gpu(const float* dout, const int* ids, float* grad_table, int n, int d) {
+    const int total = n * d;
+    if (total <= 0) {
+        return;
+    }
+    const int threads = 256;
+    embedding_scatter_add_kernel<<<(total + threads - 1) / threads, threads, 0,
+                                   GPUManager::get_stream()>>>(dout, ids, grad_table, n, d);
     CUDA_CHECK(cudaGetLastError());
 }
 

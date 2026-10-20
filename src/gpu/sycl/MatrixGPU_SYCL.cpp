@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.11.0
+// @adai-version: 0.12.0
 // @adai-reviewed: 2026-10-19
 
 #ifdef ADAI_ENABLE_GPU
@@ -992,6 +992,57 @@ void optimizer_update_gpu(float* weights, const float* grads, float* m, float* v
             }
         }
         weights[i] = w;
+    });
+}
+
+// ============================================================================
+// TD-547: token embedding on the device
+// ============================================================================
+
+void embedding_gather_add_pe_gpu(const float* table, const int* ids, const float* pe, int pe_rows,
+                                 int pos_offset, float* out, int n, int d) {
+    const int total = n * d;
+    if (total <= 0) {
+        return;
+    }
+    auto& q = GPUManager::get_queue();
+    constexpr int WG_SIZE = 256;
+    const int groups = (total + WG_SIZE - 1) / WG_SIZE;
+    q.parallel_for(sycl::nd_range<1>(groups * WG_SIZE, WG_SIZE), [=](sycl::nd_item<1> item) {
+        const int idx = static_cast<int>(item.get_global_id(0));
+        if (idx >= total) {
+            return;
+        }
+        const int i = idx / d;
+        const int j = idx - i * d;
+        const int pos = pos_offset + i;
+        float v = table[static_cast<size_t>(ids[i]) * d + j];
+        if (pe && pos < pe_rows) {
+            v += pe[static_cast<size_t>(pos) * d + j];
+        }
+        out[idx] = v;
+    });
+}
+
+void embedding_scatter_add_gpu(const float* dout, const int* ids, float* grad_table, int n, int d) {
+    const int total = n * d;
+    if (total <= 0) {
+        return;
+    }
+    auto& q = GPUManager::get_queue();
+    constexpr int WG_SIZE = 256;
+    const int groups = (total + WG_SIZE - 1) / WG_SIZE;
+    q.parallel_for(sycl::nd_range<1>(groups * WG_SIZE, WG_SIZE), [=](sycl::nd_item<1> item) {
+        const int idx = static_cast<int>(item.get_global_id(0));
+        if (idx >= total) {
+            return;
+        }
+        const int i = idx / d;
+        const int j = idx - i * d;
+        sycl::atomic_ref<float, sycl::memory_order::relaxed, sycl::memory_scope::device,
+                         sycl::access::address_space::global_space>
+            slot(grad_table[static_cast<size_t>(ids[i]) * d + j]);
+        slot.fetch_add(dout[idx]);
     });
 }
 

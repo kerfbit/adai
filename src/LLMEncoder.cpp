@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-10-19
 
 #include <algorithm>
@@ -351,32 +351,50 @@ void LLMEncoder::register_parameters_with_optimizer(Optimizer& optimizer) {
 }
 
 #ifdef ADAI_ENABLE_GPU
+const adai::gpu::GPUMatrix* LLMEncoder::gpu_positional_table() {
+    // The canonical sinusoidal table (PositionalEncoding), uploaded once; it never changes.
+    if (!gpu_pe_) {
+        const Matrix& pe = positional_encoding->get_encoding();
+        gpu_pe_ = std::make_unique<adai::gpu::GPUMatrix>(pe.rows, pe.cols);
+        std::vector<float> flat;
+        flat.reserve(static_cast<size_t>(pe.rows) * static_cast<size_t>(pe.cols));
+        for (const auto& row : pe.data)
+            flat.insert(flat.end(), row.begin(), row.end());
+        gpu_pe_->upload(flat.data(), pe.rows * pe.cols);
+    }
+    return gpu_pe_.get();
+}
+
 void LLMEncoder::gpu_upload_weights() {
+    token_embedding->gpu_upload_weights();  // TD-547
     for (auto& block : encoder_blocks)
         block->gpu_upload_weights();
     final_norm->gpu_upload_weights();
 }
 
-// The token embedding stays on the host (no GPU mirror yet), so it isn't collected here.
 void LLMEncoder::gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int /*layer*/) {
+    token_embedding->gpu_collect_parameters(out, -1);  // TD-547
     for (size_t l = 0; l < encoder_blocks.size(); ++l)
         encoder_blocks[l]->gpu_collect_parameters(out, static_cast<int>(l));
     final_norm->gpu_collect_parameters(out, -1);
 }
 
 void LLMEncoder::gpu_download_weights() {
+    token_embedding->gpu_download_weights();
     for (auto& block : encoder_blocks)
         block->gpu_download_weights();
     final_norm->gpu_download_weights();
 }
 
 void LLMEncoder::gpu_download_grads() {
+    token_embedding->gpu_download_grads();
     for (auto& block : encoder_blocks)
         block->gpu_download_grads();
     final_norm->gpu_download_grads();
 }
 
 void LLMEncoder::gpu_zero_grads() {
+    token_embedding->gpu_zero_grads();
     for (auto& block : encoder_blocks)
         block->gpu_zero_grads();
     final_norm->gpu_zero_grads();
@@ -390,21 +408,12 @@ adai::gpu::GPUMatrix LLMEncoder::gpu_encode(const std::vector<int>& token_ids) {
         cached_token_ids = token_ids;
     }
 
-    // Embedding + positional encoding on CPU (cheap; avoids vocab-size GPU transfer)
-    Matrix embeddings = token_embedding->forward(token_ids);
-    Matrix encoded = positional_encoding->forward(embeddings);
-
-    // Upload the embedded sequence to GPU
-    adai::gpu::GPUMatrix gpu_in(seq, d_model);
-    std::vector<float> flat;
-    flat.reserve(seq * d_model);
-    for (const auto& row : encoded.data)
-        for (float v : row)
-            flat.push_back(v);
-    gpu_in.upload(flat.data(), seq * d_model);
+    // TD-547: embedding + positional encoding on the device; only the token IDs cross.
+    const adai::gpu::GPUMatrix* pe = gpu_positional_table();
+    (void)seq;
 
     // All-ones encoder mask: no masking needed (skip masked_fill)
-    adai::gpu::GPUMatrix x = std::move(gpu_in);
+    adai::gpu::GPUMatrix x = token_embedding->gpu_forward(token_ids, pe, pe->rows);
     for (auto& block : encoder_blocks)
         x = block->gpu_forward(x);  // no self-mask for encoder
 
@@ -421,9 +430,8 @@ void LLMEncoder::gpu_backward(const adai::gpu::GPUMatrix& dout) {
         d = encoder_blocks[i]->gpu_backward(d);
     }
 
-    // TokenEmbedding has no GPU backward — download and finish on host, reusing
-    // the existing, already-correct CPU path (mirrors gpu_encode()'s CPU embed step).
-    Matrix grad_host = Matrix::from_gpu(d);
-    token_embedding->backward(cached_token_ids, grad_host);
+    // TD-547: into the device embedding gradient (the gradient used to be downloaded and
+    // accumulated into the host table every sample).
+    token_embedding->gpu_backward(d);
 }
 #endif

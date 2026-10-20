@@ -1177,9 +1177,11 @@ full-path names, checksum-checked reuse), then TD-413 (done: the pre-check count
 **Trainer speed run (October 19, 2026)**, chosen by the owner. The owner's rule: GPU training does all the training math on the GPU, with no
 host↔device transfers without a critical reason. So far:
 - TD-436 (done: the `sycl` build gets `-march=x86-64-v3` and AVX2/FMA);
-- TD-468 (done in code: device-resident optimizer).
+- TD-468 (done in code: device-resident optimizer);
+- TD-547 (done in code: embeddings on the device).
 
-Next: TD-547 (embeddings on the device), then TD-434 (CPU threading and runtime SIMD dispatch, for CPU builds).
+Next: TD-434 (CPU threading and runtime SIMD dispatch, for CPU builds). The small per-sample causal-mask upload and per-sample sync (TD-390)
+are the remaining transfers of a GPU pass.
 
 Every fix here is verified on CPU, or on the oneAPI CPU device for the SYCL kernels. Still needed: an on-device run on ai-machine, then
 retraining from scratch, since no existing checkpoint has correct GPU-trained weights (TD-358) or the encoder's own embedding (TD-538).
@@ -8193,6 +8195,9 @@ Files to Modify:
 - `src/EncoderDecoderModel.cpp`
 - `src/PositionalEncoding.cpp`
 
+**GPU follow-up (October 19, 2026, TD-547).** `LLMDecoder::gpu_decode_step()` now takes positional rows from the shared table, adding none past
+`max_seq_length`, like the full forward. So the GPU cached path no longer diverges this way; the CPU `forward_with_cache()` still does.
+
 ---
 
 ### TD-348: `LLMDecoder` Dead Code and Robustness Gaps
@@ -12143,6 +12148,9 @@ Files to Modify:
 - `src/ChatbotTrainer.cpp`
 - `src/gpu/MatrixGPU.{hpp,cu}`, `src/gpu/sycl/MatrixGPU_SYCL.{hpp,cpp}`
 
+**Follow-up (October 19, 2026, TD-547).** The token embeddings are now device groups too, so a model without the gated paths has no
+host groups left, and GPU training no longer zeroes host gradients every window.
+
 ---
 
 ### TD-469: `Optimizer` Global Weight Decay, Unused `amsgrad` and Duplicate Registration
@@ -12467,6 +12475,9 @@ Files to Modify:
 - `src/PositionalEncoding.{hpp,cpp}`
 - `src/Decoder.cpp`
 - `tests/positionalencoding_test.cpp`
+
+**Follow-up (October 19, 2026, TD-547).** The GPU decode step's inline copy of the formula was removed; it now uses `PositionalEncoding`'s
+table on the device. The CPU `forward_with_cache()` copy remains.
 
 ---
 
@@ -13700,6 +13711,9 @@ Files to Modify:
 - `src/TokenEmbedding.{hpp,cpp}`
 - `tests/tokenembedding_test.cpp`
 
+**GPU follow-up (October 19, 2026, TD-547).** GPU training no longer zeroes the host embedding gradient at all. The device table's gradient
+is zeroed with one device memset per window, and the host table is never touched while training. The CPU path is unchanged.
+
 ---
 
 ### TD-519: Trainer Admin PUT Reads a Spaced `true` as False and Disables Auto-Save
@@ -14633,7 +14647,7 @@ Location in code: `src/IncrementalTrainingTool.cpp` (`retrain`); tagged `TODO: S
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | GPU / Training | October 19, 2026 | 4-8 hours |
+| MEDIUM | Open — code fix landed October 19, 2026 | GPU / Training | October 19, 2026 | 4-8 hours |
 
 Description:
 Found while building TD-468's device-resident optimizer. `TokenEmbedding` has no device mirror, so GPU training still does all of this on the host:
@@ -14650,10 +14664,43 @@ That breaks the owner's rule that GPU training does the training math on the GPU
 
 Action Items:
 
-- [ ] Give `TokenEmbedding` a device table and gradient, a gather kernel (lookup + positional-encoding add, with a device positional table),
+- [x] Give `TokenEmbedding` a device table and gradient, a gather kernel (lookup + positional-encoding add, with a device positional table),
   and a scatter-add backward (atomic adds for repeated tokens), in both backends.
-- [ ] Report them from `gpu_collect_parameters()` so `GPUOptimizer` steps them on the device; leave only the token IDs and scalars crossing.
-- [ ] Verify on the oneAPI CPU device against the host path, as for TD-468; measure on ai-machine.
+- [x] Report them from `gpu_collect_parameters()` so `GPUOptimizer` steps them on the device; leave only the token IDs and scalars crossing.
+- [ ] Verify on the oneAPI CPU device against the host path, as for TD-468; measure on ai-machine. (CPU device done; ai-machine open.)
+
+**Fix (October 19, 2026).**
+- **Device table:** `TokenEmbedding` has a device table and gradient (`gpu_upload_weights()`, `gpu_download_weights()`,
+  `gpu_zero_grads()`, `gpu_collect_parameters()`).
+  - `gpu_forward(ids, pe, pe_rows, pos_offset)` uploads only the token IDs and runs `embedding_gather_add_pe_gpu()`: the lookup plus
+    positional row `pos_offset + i`, with none past the table, as `PositionalEncoding::forward()`.
+  - `gpu_backward(dout)` runs `embedding_scatter_add_gpu()`, with atomic adds, since a token can repeat.
+  - Both kernels exist in CUDA and SYCL.
+- **Encoder and decoder:** `LLMEncoder`/`LLMDecoder` keep a device copy of their positional table and use the device embedding in
+  `gpu_encode()`, `gpu_decode()`, their `gpu_backward()`s, and the KV-cached `gpu_decode_step()`. Generation therefore reads the live device
+  table during training too.
+- **Optimizer:** the embeddings are now device groups, so `GPUOptimizer` steps nothing on the host for a model without the gated
+  world-model/hippocampal paths: 38 device groups, 0 host groups.
+- **Zeroing:** in GPU mode `ChatbotTrainer` no longer calls `model->zero_grad()` at each window start, NaN skip or failed backward. That
+  zeroed every host gradient, including both `vocab × d_model` tables. It now calls `GPUOptimizer::zero_host_grads()` (host groups only)
+  plus `gpu_zero_grads()`.
+- **Behavior change:** `gpu_decode_step()` used to compute positional rows inline, including past `max_seq_length`, where the full forward
+  adds none (TD-347). It now uses the same table rows as `gpu_decode()`.
+
+Verified on the oneAPI CPU device (`ADAI_SYCL_ALLOW_CPU_DEVICE=1`):
+- **New test `DeviceEmbeddingMatchesTheHostLookupAndBackward`:**
+  - the lookup equals `forward()` + `PositionalEncoding::forward()`;
+  - the offset path adds rows 6–7 and nothing past the 8-row table;
+  - the backward equals `backward()` with a repeated token;
+  - an out-of-range ID throws.
+- **`ModelStepMatchesTheDownloadAndCpuStepPath`:** now 38 device groups and 0 host, still equal to the old path.
+- **Suites:** `chatbottrainerTests` (83), `encoderdecoderTests` (90) and `incrementaltrainerTests` (58) pass.
+- **Real binary:** two SYCL `incremental_trainer` passes trained and resumed (global step 18 restored).
+
+CUDA is compile-checked only.
+
+Still crossing per sample: the token IDs and target IDs (inputs), the scalar loss, and the decoder's causal mask (`tgt²` floats built on the
+host, small). The per-sample `gpu_synchronize()` (TD-390) also remains.
 
 Location in code: `src/TokenEmbedding.{hpp,cpp}`, `src/LLMEncoder.cpp` (`gpu_encode()`, `gpu_backward()`), `src/Decoder.cpp` (`gpu_decode()`,
 `gpu_backward()`), `src/gpu/MatrixGPU.cu`, `src/gpu/sycl/MatrixGPU_SYCL.cpp`.

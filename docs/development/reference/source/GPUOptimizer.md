@@ -51,8 +51,10 @@ Kernels (identical in both backends):
 
 ## 2. Gaps
 
-- **Host groups:** the token embeddings (TD-547) and the gated world-model/hippocampal sub-layers (TD-342) have no device mirror, so their
-  updates still run on the host. The embedding ones are a full AdamW over `vocab × d_model` twice per step.
+- **Host groups:** only the gated world-model/hippocampal sub-layers (TD-342) have no device mirror, so their updates still run on the
+  host. The token embeddings became device groups with TD-547 (October 19, 2026), so a model without the gated paths has no host groups.
+  `zero_host_grads()` zeroes just the host groups' gradients; `ChatbotTrainer` calls it with `gpu_zero_grads()` instead of
+  `model->zero_grad()`.
 - **Zero-gradient skip:** it uses the squared norm, so a gradient whose every entry squares below `float` range counts as zero. The CPU checks
   each value exactly.
 - **CUDA:** compile-checked only here (no CUDA device). SYCL was run on the oneAPI CPU device; neither has been timed on ai-machine.
@@ -61,13 +63,15 @@ Kernels (identical in both backends):
 
 ## 3. Tests
 
-`gpu_optimizer_test.cpp` (6):
+`gpu_optimizer_test.cpp` (7):
 - `DeviceStepMatchesCpuOptimizer` for each rule: three steps with random gradients and a 0.5 gradient scale match the CPU `Optimizer` on
   pre-scaled gradients (≤ 1e-5 relative), and the squared norm matches;
 - `StateRoundTripsThroughTheCpuOptimizer`: two steps, `download_state()`, then a new `GPUOptimizer` taking a third step equals three CPU
   steps;
-- `ModelStepMatchesTheDownloadAndCpuStepPath`: on a real model (36 device groups, 2 host groups), one device step equals the old
-  download-and-CPU-step path, compared through the model's logits (≤ 1e-4).
+- `ModelStepMatchesTheDownloadAndCpuStepPath`: on a real model (38 device groups, 0 host groups since TD-547), one device step equals the old
+  download-and-CPU-step path, compared through the model's logits (≤ 1e-4);
+- `DeviceEmbeddingMatchesTheHostLookupAndBackward` (TD-547): the device lookup equals the host lookup plus positional encoding, an offset
+  lookup adds no row past the table, the scatter-add backward equals the host backward with a repeated token, and an out-of-range ID throws.
 
 The trainer suites run the whole path in a SYCL build on the CPU device: `chatbottrainerTests` (83), `encoderdecoderTests` (90) and
 `incrementaltrainerTests` (58).

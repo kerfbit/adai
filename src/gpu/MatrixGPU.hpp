@@ -2,7 +2,7 @@
 #define MATRIX_GPU_HPP
 
 // @adai-status: beta        (TD-061 resolved — see MatrixGPU.cu's tag; this header just declares/wraps its kernels; TD-050 GPUKVCache added)
-// @adai-version: 0.11.0
+// @adai-version: 0.12.0
 // @adai-reviewed: 2026-10-19
 
 
@@ -165,6 +165,13 @@ void matrix_sum_squares_accumulate_gpu(const float* data, int size, float* out_d
 // them (SGD: neither; SGD_MOMENTUM: m only).
 void optimizer_update_gpu(float* weights, const float* grads, float* m, float* v, int size,
                           const GPUOptimizerUpdate& update);
+
+// TD-547: token embedding on the device. out[i,:] = table[ids[i],:] + pe[pos_offset+i,:] (no
+// positional row when pos_offset+i >= pe_rows or pe is null, as PositionalEncoding::forward()).
+void embedding_gather_add_pe_gpu(const float* table, const int* ids, const float* pe, int pe_rows,
+                                 int pos_offset, float* out, int n, int d);
+// grad_table[ids[i],:] += dout[i,:] (atomic: a token can repeat within a sequence).
+void embedding_scatter_add_gpu(const float* dout, const int* ids, float* grad_table, int n, int d);
 
 // ============================================================================
 // GPUMatrix — persistent GPU-resident matrix (TD-003)

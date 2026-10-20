@@ -1,14 +1,19 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-17
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-10-19
 
 
 #include <string>
 #include <vector>
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
+#include "gpu/GPUParamRef.hpp"
+#ifdef ADAI_ENABLE_GPU
+#include <memory>
+#include "gpu/MatrixGPU.hpp"
+#endif
 
 /**
  * Token Embedding Layer
@@ -274,4 +279,37 @@ class TokenEmbedding {
      * @throws std::runtime_error if file cannot be opened or dimensions mismatch
      */
     void load_weights(const std::string& filename);
+
+#ifdef ADAI_ENABLE_GPU
+    // TD-547: a device copy of the table, so GPU training does the lookup, the backward and the
+    // optimizer step on the device. Only the token IDs cross per call.
+    void gpu_upload_weights();
+    void gpu_download_weights();
+    void gpu_zero_grads();
+    /// Adds the device gradient into the host embedding_grad (the old host-step path; tests).
+    void gpu_download_grads();
+    void gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int layer = -1);
+    /**
+     * @brief Device lookup: [ids.size(), d_model], each row the token's embedding plus the
+     *        positional row pos_offset + i of @p pe (none past pe_rows or with a null pe, as
+     *        PositionalEncoding::forward()). Throws std::out_of_range for an invalid ID, like
+     *        forward(). Remembers the IDs for gpu_backward().
+     */
+    adai::gpu::GPUMatrix gpu_forward(const std::vector<int>& token_ids,
+                                     const adai::gpu::GPUMatrix* pe, int pe_rows,
+                                     int pos_offset = 0);
+    /// Adds @p dout's rows into the device gradient rows of the last gpu_forward()'s tokens.
+    void gpu_backward(const adai::gpu::GPUMatrix& dout);
+
+   private:
+    struct GPUState {
+        adai::gpu::GPUMatrix W_g;  // [vocab_size, d_model]
+        adai::gpu::GPUMatrix dW;   // [vocab_size, d_model]
+        std::unique_ptr<adai::gpu::GPUMemory<int>> ids;
+        int ids_capacity = 0;
+        int last_count = 0;
+        GPUState(int vocab, int d) : W_g(vocab, d), dW(vocab, d) {}
+    };
+    std::unique_ptr<GPUState> gpu_;
+#endif
 };

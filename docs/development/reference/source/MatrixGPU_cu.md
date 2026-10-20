@@ -156,3 +156,12 @@ Two kernels were added for the device-resident optimizer ([GPUOptimizer.md](GPUO
 - `optimizer_update_gpu(w, g, m, v, n, update)`: the CPU `Optimizer`'s SGD, momentum, Adam and AdamW update, on gradients times `update.grad_scale`.
 
 The SYCL versions were checked against the CPU `Optimizer` on the oneAPI CPU device (`gpuOptimizerTests`). The CUDA versions are compile-checked only.
+
+### Embedding kernels (TD-547)
+
+- `embedding_gather_add_pe_gpu(table, ids, pe, pe_rows, pos_offset, out, n, d)`: `out[i] = table[ids[i]] + pe[pos_offset + i]`, adding no
+  positional row when `pe` is null or the position is past `pe_rows`.
+- `embedding_scatter_add_gpu(dout, ids, grad_table, n, d)`: `grad_table[ids[i]] += dout[i]`, with atomic adds for repeated IDs.
+
+Both were checked against `TokenEmbedding`'s host lookup and backward on the oneAPI CPU device (`gpuOptimizerTests`); the CUDA versions are
+compile-checked only.

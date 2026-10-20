@@ -99,3 +99,19 @@ This file replaces `docs/development/api/transformer/token-embedding.md` (1,110 
 distribution (the old doc said "uniform or normal"), now with standard deviation 1 (TD-517); the old doc's "Xavier/Glorot" label was never
 accurate in the usual fan-in + fan-out sense. Kept:
 the API, the file format and the gradient-accumulation semantics. Dropped: the generic embedding tutorial and examples.
+
+---
+
+## Addendum (October 19, 2026): device table (TD-547)
+
+In GPU builds the table also lives on the device:
+- `gpu_upload_weights()`, `gpu_download_weights()`, `gpu_zero_grads()`, `gpu_download_grads()` (adds the device gradient into the host one)
+  and `gpu_collect_parameters()` (one `GPUParamRef`, layer −1, so `GPUOptimizer` steps it on the device).
+- `gpu_forward(ids, pe, pe_rows, pos_offset)` uploads only the token IDs and returns `table[ids[i]] + pe[pos_offset + i]` (no positional row
+  past `pe_rows`, as `PositionalEncoding::forward()`). It uploads the table lazily and throws `std::out_of_range` for an ID outside the
+  vocabulary.
+- `gpu_backward(dout)` scatter-adds `dout` into the device gradient for the IDs of the last `gpu_forward()`, with atomic adds since tokens
+  repeat.
+
+GPU training therefore never zeroes, reads or steps the host table (TD-518's full-matrix zeroing remains on the CPU path). Tested by
+`gpuOptimizerTests`' `DeviceEmbeddingMatchesTheHostLookupAndBackward` on the oneAPI CPU device.

@@ -15,6 +15,8 @@
 #include "../src/GPUOptimizer.hpp"
 #include "../src/Matrix.hpp"
 #include "../src/Optimizer.hpp"
+#include "../src/PositionalEncoding.hpp"
+#include "../src/TokenEmbedding.hpp"
 #include "../src/gpu/MatrixGPU.hpp"
 
 namespace {
@@ -149,8 +151,7 @@ TEST(GPUOptimizerTest, StateRoundTripsThroughTheCpuOptimizer) {
 }
 
 // A real model: one device-resident step gives the same model as the old path (download every
-// gradient, CPU Optimizer step), compared through the model's logits. The token embeddings
-// have no device mirror yet, so they are the only host groups.
+// gradient, CPU Optimizer step), compared through the model's logits.
 TEST(GPUOptimizerTest, ModelStepMatchesTheDownloadAndCpuStepPath) {
     if (!gpu_ready())
         GTEST_SKIP() << "No GPU device present.";
@@ -174,7 +175,8 @@ TEST(GPUOptimizerTest, ModelStepMatchesTheDownloadAndCpuStepPath) {
         EncoderDecoderModel::strip_leading_bos(tok->encode("on the mat", true), 2);
 
     GPUOptimizer gpu(opt_a, a.gpu_collect_parameters());
-    EXPECT_EQ(gpu.host_group_count(), 2u) << "only the two token embeddings stay on the host";
+    // TD-547: the token embeddings have device tables too, so nothing is stepped on the host.
+    EXPECT_EQ(gpu.host_group_count(), 0u);
 
     for (EncoderDecoderModel* m : {&a, b.get()}) {
         m->zero_grad();
@@ -192,4 +194,49 @@ TEST(GPUOptimizerTest, ModelStepMatchesTheDownloadAndCpuStepPath) {
     const Matrix la = a.forward(in, tgt);
     const Matrix lb = b->forward(in, tgt);
     EXPECT_LT(max_rel_diff(flat(la), flat(lb)), 1e-4f);
+}
+
+// TD-547: the device lookup equals TokenEmbedding::forward() + PositionalEncoding::forward(),
+// including the positional offset the cached decode step uses and no positional row past the
+// table, and the device backward equals backward() with repeated tokens.
+TEST(GPUOptimizerTest, DeviceEmbeddingMatchesTheHostLookupAndBackward) {
+    if (!gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    TokenEmbedding emb(50, 16);
+    PositionalEncoding pe(8, 16);  // max_len 8, d_model 16
+    GPUMatrix pe_dev(8, 16);
+    const auto pe_flat = flat(pe.get_encoding());
+    pe_dev.upload(pe_flat.data(), pe_dev.size());
+
+    const std::vector<int> ids = {3, 7, 3, 49, 0};
+    const Matrix expect = pe.forward(emb.forward(ids));
+    GPUMatrix got = emb.gpu_forward(ids, &pe_dev, 8);
+    std::vector<float> got_flat(static_cast<size_t>(got.size()));
+    got.download(got_flat.data(), got.size());
+    EXPECT_LT(max_rel_diff(got_flat, flat(expect)), 1e-6f);
+
+    // Offset 6: rows 6 and 7 get positional rows, rows 8+ none (past the 8-row table).
+    GPUMatrix off = emb.gpu_forward({3, 7, 9}, &pe_dev, 8, 6);
+    std::vector<float> off_flat(static_cast<size_t>(off.size()));
+    off.download(off_flat.data(), off.size());
+    for (int j = 0; j < 16; ++j) {
+        EXPECT_NEAR(off_flat[j], emb.get_embeddings()(3, j) + pe.get_encoding()(6, j), 1e-6f);
+        EXPECT_NEAR(off_flat[32 + j], emb.get_embeddings()(9, j), 1e-6f);
+    }
+
+    std::mt19937 rng(11);
+    const Matrix dout = random_matrix(5, 16, rng, 1.0f);
+    emb.gpu_forward(ids, &pe_dev, 8);
+    emb.gpu_zero_grads();
+    GPUMatrix dout_dev(5, 16);
+    const auto dflat = flat(dout);
+    dout_dev.upload(dflat.data(), dout_dev.size());
+    emb.gpu_backward(dout_dev);
+    emb.zero_grad();
+    emb.gpu_download_grads();
+    TokenEmbedding ref(50, 16);
+    ref.backward(ids, dout);
+    // Same gradient (token 3 repeats, so its row is the sum of two rows).
+    EXPECT_NEAR(emb.get_gradient_norm(), ref.get_gradient_norm(), 1e-4f);
+    EXPECT_THROW(emb.gpu_forward({50}, &pe_dev, 8), std::out_of_range);
 }

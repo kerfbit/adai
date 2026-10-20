@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
-// @adai-version: 0.15.0
+// @adai-version: 0.16.0
 // @adai-reviewed: 2026-10-19
 
 
@@ -345,6 +345,12 @@ class LLMDecoder {
     void register_parameters_with_optimizer(Optimizer& optimizer);
 
 #ifdef ADAI_ENABLE_GPU
+   private:
+    // TD-547: device copy of positional_encoding's table, for TokenEmbedding::gpu_forward().
+    std::unique_ptr<adai::gpu::GPUMatrix> gpu_pe_;
+    const adai::gpu::GPUMatrix* gpu_positional_table();
+
+   public:
     void gpu_upload_weights();
     // TD-468: this layer's device parameter buffers, for the device-resident optimizer
     // (GPUOptimizer), and the device->host weight copy it needs before checkpoints.

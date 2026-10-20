@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
-// @adai-version: 0.15.0
+// @adai-version: 0.16.0
 // @adai-reviewed: 2026-10-19
 
 #include "Decoder.hpp"
@@ -463,14 +463,29 @@ void LLMDecoder::register_parameters_with_optimizer(Optimizer& optimizer) {
 }
 
 #ifdef ADAI_ENABLE_GPU
+const adai::gpu::GPUMatrix* LLMDecoder::gpu_positional_table() {
+    // The canonical sinusoidal table (PositionalEncoding), uploaded once; it never changes.
+    if (!gpu_pe_) {
+        const Matrix& pe = positional_encoding->get_encoding();
+        gpu_pe_ = std::make_unique<adai::gpu::GPUMatrix>(pe.rows, pe.cols);
+        std::vector<float> flat;
+        flat.reserve(static_cast<size_t>(pe.rows) * static_cast<size_t>(pe.cols));
+        for (const auto& row : pe.data)
+            flat.insert(flat.end(), row.begin(), row.end());
+        gpu_pe_->upload(flat.data(), pe.rows * pe.cols);
+    }
+    return gpu_pe_.get();
+}
+
 void LLMDecoder::gpu_upload_weights() {
+    token_embedding->gpu_upload_weights();  // TD-547
     for (auto& block : decoder_blocks)
         block->gpu_upload_weights();
     final_norm->gpu_upload_weights();
 }
 
-// The token embedding stays on the host (no GPU mirror yet), so it isn't collected here.
 void LLMDecoder::gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int /*layer*/) {
+    token_embedding->gpu_collect_parameters(out, -1);  // TD-547
     for (size_t l = 0; l < decoder_blocks.size(); ++l)
         decoder_blocks[l]->gpu_collect_parameters(out,
                                                   adai::gpu::kDecoderLayerBase + static_cast<int>(l));
@@ -478,18 +493,21 @@ void LLMDecoder::gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out
 }
 
 void LLMDecoder::gpu_download_weights() {
+    token_embedding->gpu_download_weights();
     for (auto& block : decoder_blocks)
         block->gpu_download_weights();
     final_norm->gpu_download_weights();
 }
 
 void LLMDecoder::gpu_download_grads() {
+    token_embedding->gpu_download_grads();
     for (auto& block : decoder_blocks)
         block->gpu_download_grads();
     final_norm->gpu_download_grads();
 }
 
 void LLMDecoder::gpu_zero_grads() {
+    token_embedding->gpu_zero_grads();
     for (auto& block : decoder_blocks)
         block->gpu_zero_grads();
     final_norm->gpu_zero_grads();
@@ -503,19 +521,9 @@ adai::gpu::GPUMatrix LLMDecoder::gpu_decode(const std::vector<int>& token_ids,
         cached_token_ids = token_ids;
     }
 
-    // Embedding + positional encoding on CPU (fast)
-    Matrix embeddings = token_embedding->forward(token_ids);
-    Matrix pos_encoded = positional_encoding->forward(embeddings);
-
-    adai::gpu::GPUMatrix x(tgt, d_model);
-    {
-        std::vector<float> flat;
-        flat.reserve(tgt * d_model);
-        for (const auto& row : pos_encoded.data)
-            for (float v : row)
-                flat.push_back(v);
-        x.upload(flat.data(), tgt * d_model);
-    }
+    // TD-547: embedding + positional encoding on the device; only the token IDs cross.
+    const adai::gpu::GPUMatrix* pe = gpu_positional_table();
+    adai::gpu::GPUMatrix x = token_embedding->gpu_forward(token_ids, pe, pe->rows);
 
     // Build causal mask on GPU: mask[i][j] = 0 where j > i (mask out future)
     // We store values as 0.0f for masked positions so masked_fill_inplace works.
@@ -541,41 +549,13 @@ adai::gpu::GPUMatrix LLMDecoder::gpu_decode_step(const std::vector<int>& new_tok
     const int current_position = kv_cache.current_length();
     const int total_seq_len = current_position + num_new;
 
-    // 1. Embed only the new tokens (CPU — fast, matches gpu_decode()'s own pattern).
-    Matrix embeddings = token_embedding->forward(new_token_ids);
-
-    // TODO: See TD-347 in TECHNICAL_DEBT.md - same inline encoding past max_seq_length as forward_with_cache()
-    // TODO: See TD-478 in TECHNICAL_DEBT.md - second inline copy of the formula
-    // 2. Positional encoding offset by current_position — identical formula to
-    // forward_with_cache()'s own inline reimplementation above (TD-050's own trace already
-    // confirmed this is algebraically identical to PositionalEncoding.cpp's canonical formula),
-    // reproduced verbatim here for exact parity with the already-verified CPU incremental path.
-    Matrix pos_encoded(num_new, d_model);
-    for (int pos = 0; pos < num_new; ++pos) {
-        int absolute_pos = current_position + pos;
-        for (int i = 0; i < d_model; ++i) {
-            if (i % 2 == 0) {
-                float angle = static_cast<float>(absolute_pos) /
-                             std::pow(10000.0f, (2.0f * static_cast<float>(static_cast<float>(i) / 2)) /
-                                                     static_cast<float>(d_model));
-                pos_encoded(pos, i) = embeddings(pos, i) + std::sin(angle);
-            } else {
-                float angle = static_cast<float>(absolute_pos) /
-                             std::pow(10000.0f, static_cast<float>(i - 1) / static_cast<float>(d_model));
-                pos_encoded(pos, i) = embeddings(pos, i) + std::cos(angle);
-            }
-        }
-    }
-
-    adai::gpu::GPUMatrix x(num_new, d_model);
-    {
-        std::vector<float> flat;
-        flat.reserve(num_new * d_model);
-        for (const auto& row : pos_encoded.data)
-            for (float v : row)
-                flat.push_back(v);
-        x.upload(flat.data(), num_new * d_model);
-    }
+    // 1-2. TD-547: embed the new tokens on the device and add positional rows
+    // current_position + i from the canonical table, the same rows gpu_decode() uses for a full
+    // sequence. (This used to embed on the host and recompute the formula inline, which also
+    // added positional rows past max_seq_length, where the full forward adds none, TD-347.)
+    const adai::gpu::GPUMatrix* pe = gpu_positional_table();
+    adai::gpu::GPUMatrix x =
+        token_embedding->gpu_forward(new_token_ids, pe, pe->rows, current_position);
 
     // 3. Causal mask for the new tokens: [num_new, total_seq_len] — new tokens can attend to
     // every previous cached position plus themselves, same as forward_with_cache()'s own mask.
@@ -619,11 +599,9 @@ std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> LLMDecoder::gpu_backward(
         }
     }
 
-    // TokenEmbedding has no GPU backward — download and finish on host, reusing
-    // the existing, already-correct CPU path (mirrors LLMEncoder::gpu_backward()).
+    // TD-547: into the device embedding gradient (it used to be downloaded every sample).
     if (requires_grad) {
-        Matrix grad_host = Matrix::from_gpu(d);
-        token_embedding->backward(cached_token_ids, grad_host);
+        token_embedding->gpu_backward(d);
     }
 
     return {std::move(d), std::move(*grad_encoder_sum)};

@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.12.0
+// @adai-version: 0.13.0
 // @adai-reviewed: 2026-10-19
 
 #include "ChatbotTrainer.hpp"
@@ -1226,9 +1226,11 @@ float ChatbotTrainer::train_epoch(int epoch) {
             dropped_samples += window_samples;
             accumulation_step = 0;
             accumulated_loss = 0.0f;
-            model->zero_grad();
 #ifdef ADAI_ENABLE_GPU
+            gpu_optimizer_->zero_host_grads();  // TD-547: not every host gradient
             model->gpu_zero_grads();
+#else
+            model->zero_grad();
 #endif
             return;
         }
@@ -1455,9 +1457,11 @@ float ChatbotTrainer::train_epoch(int epoch) {
         try {
             // Zero gradients at the start of accumulation cycle
             if (accumulation_step == 0) {
-                model->zero_grad();
 #ifdef ADAI_ENABLE_GPU
+                gpu_optimizer_->zero_host_grads();  // TD-547: not every host gradient
                 model->gpu_zero_grads();
+#else
+                model->zero_grad();
 #endif
                 // Reset per-window padding accumulators at start of new window
                 pad_win_actual = 0;
@@ -1583,9 +1587,11 @@ float ChatbotTrainer::train_epoch(int epoch) {
                     accumulation_step, (i + 1));
                 accumulation_step = 0;
                 accumulated_loss = 0.0f;
-                model->zero_grad();
 #ifdef ADAI_ENABLE_GPU
+                gpu_optimizer_->zero_host_grads();  // TD-547: not every host gradient
                 model->gpu_zero_grads();
+#else
+                model->zero_grad();
 #endif
             } else {
                 ++dropped_samples;
