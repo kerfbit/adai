@@ -1,11 +1,11 @@
 # `TrainerServiceMain` — Source File Reference
 
-- **File:** [`src/TrainerServiceMain.cpp`](../../../../src/TrainerServiceMain.cpp) (237 lines)
+- **File:** [`src/TrainerServiceMain.cpp`](../../../../src/TrainerServiceMain.cpp) (263 lines)
 - **Binary:** `trainer_service` (admin API proxy on 8084, opt-in); deployed by [`scripts/adai-trainer.service`](../../../../scripts/adai-trainer.service)
 - **Uses:** [`ChildProcess`](ChildProcess.md), [`TrainerServiceControlState`](TrainerServiceControlState.md), `TrainerServiceProxy`, `IncrementalTrainerArgs` ([IncrementalTrainerArgs.md](IncrementalTrainerArgs.md)), `Config`, `Logger`
-- **Status tag:** `@adai-status: experimental`, `@adai-version: 0.2.0`, `@adai-reviewed: 2026-09-14`
-- **Tests:** none for `main()` itself; the proxy (`trainerServiceProxyTests`, 17) and `ChildProcess` have their own. TD-172 records an end-to-end local verification
-- **Last traced against the code:** 2026-10-17
+- **Status tag:** `@adai-status: experimental`, `@adai-version: 0.3.0`, `@adai-reviewed: 2026-10-19`
+- **Tests:** none for `main()` itself; the proxy (`trainerServiceProxyTests`, 18), `ChildProcess`, and the exit-code classification and backoff helpers (`incrementalTrainerArgsTests`) and `ChildProcess` have their own. TD-172 records an end-to-end local verification
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real `trainer_service` binary next to a stub `incremental_trainer`
 > script, with the admin proxy enabled.
@@ -26,23 +26,29 @@ child process.
    - paused → `interruptible_sleep(45)`;
    - launch the child (a launch failure sleeps 45 s and retries); record launch time, PID; point the proxy at the child port;
    - poll every 200 ms; on a stop request, `ChildProcess::stop_and_wait(10 s)` (SIGTERM, then a force kill), well inside the unit's `TimeoutStopSec=30`;
-   - record exit time and code; exit codes other than 0 and 1 count as crashes;
-   - **exit 0 → relaunch immediately** (more work may be pending); **anything else → sleep 45 s** (wakeable by `/admin/resume`).
+   - record exit time and code, and classify it with `classify_pass_exit()` (TD-523):
+     - **0, trained** → relaunch immediately (more work may be pending);
+     - **3, nothing pending** → sleep 45 s;
+     - **≥ 128, crashed** or **any other code, failed** (1 from `resume`, 127 for an exec failure) → log an error with the code, count it,
+       and sleep `failure_backoff_seconds()`: 45 s doubled per consecutive failure, up to 900 s.
+
+     Every sleep is wakeable by `/admin/resume`.
 6. Stop the proxy and return 0.
 
 ---
 
 ## 2. Problems
 
-### A child that fails every pass looks idle (verified)
+### Fixed: a child that fails every pass looked idle (TD-523, October 19, 2026)
 
 The loop's whole model of the child is its exit code, and `incremental_trainer resume` returns **1** both for "nothing pending" and for real failures:
 `resume_last_session()` returns false for a missing checkpoint, a failed `load_model()` and a failed `train_on_files()`, as well as for an empty queue.
 With a stub child that printed an error and exited 1, `/admin/status` reported `"phase":"idle"`, `"total_passes_crashed":0`, `"last_exit_code":1`, the
 same as a healthy idle service, and nothing reached `trainer_service`'s own log. In production a corrupt checkpoint, an unreadable dataset or a training
 exception therefore turns into a silent retry every 45 s: each attempt claims the pending files, fails and releases them (segments stay stuck, TD-333),
-indefinitely, while the dashboard shows an idle trainer. The child should use a distinct exit code for "nothing to do" (and for errors), and the
-supervisor should count and surface failures (and back off).
+indefinitely, while the dashboard showed an idle trainer. Now `resume` exits 3 for "nothing pending" and 1 for a failure, and the supervisor
+logs, counts and backs off failures (§1 step 5; addendum). With the same stub, exit 1 now shows `total_passes_failed: 1`,
+`consecutive_failures: 1` and an error in the log, and exit 3 stays idle.
 
 ### Smaller items (by inspection)
 
@@ -85,8 +91,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Exit code 1 means both "idle" and "failed"; failures aren't counted or logged by the supervisor (§2) | A permanently failing trainer looks idle and retries every 45 s, claiming and releasing files | **Verified** | [TD-523](../../guides/TECHNICAL_DEBT.md#td-523-trainer_service-cant-tell-a-failing-pass-from-an-idle-one) |
-| Child admin port opened with the admin API disabled; `PATH` fallback; no backoff; unit's `ReadWritePaths` lacks the download dir (§2) | Unexpected port; wrong binary; download failures under the shipped unit | By inspection | [TD-524](../../guides/TECHNICAL_DEBT.md#td-524-trainer_service-child-port-binary-resolution-backoff-and-unit-write-paths) |
+| Exit code 1 means both "idle" and "failed"; failures aren't counted or logged by the supervisor (§2) | A permanently failing trainer looked idle and retried every 45 s, claiming and releasing files | **Fixed October 19, 2026** (was verified) | [TD-523](../../guides/TECHNICAL_DEBT.md#td-523-trainer_service-cant-tell-a-failing-pass-from-an-idle-one) |
+| Child admin port opened with the admin API disabled; `PATH` fallback; no backoff after a launch failure (failed passes back off since TD-523); unit's `ReadWritePaths` lacks the download dir (§2) | Unexpected port; wrong binary; download failures under the shipped unit | By inspection | [TD-524](../../guides/TECHNICAL_DEBT.md#td-524-trainer_service-child-port-binary-resolution-backoff-and-unit-write-paths) |
 | Unforwarded flags, shared log file, SIGHUP, exit-code reporting, FTP resume | Already tracked | — | TD-403, TD-431, TD-283, TD-277, TD-278, TD-411, TD-412 |
 
 ## Addendum (October 19, 2026): failing passes are counted and backed off (TD-523)

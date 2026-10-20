@@ -3,10 +3,10 @@
 - **Files:** [`src/DatasetManagerArgs.hpp`](../../../../src/DatasetManagerArgs.hpp), [`src/DatasetManagerArgs.cpp`](../../../../src/DatasetManagerArgs.cpp)
 - **Namespace:** `adai`
 - **Built into:** `dataset_manager` (with `DatasetManagerTool.cpp`) and its test binary
-- **Status tag:** `@adai-status: experimental`, `@adai-version: 0.3.0`, `@adai-reviewed: 2026-09-20`
-- **Tests:** [`tests/dataset_manager_args_test.cpp`](../../../../tests/dataset_manager_args_test.cpp) → `datasetManagerArgsTests` (45 tests)
+- **Status tag:** `@adai-status: experimental`, `@adai-version: 0.4.0`, `@adai-reviewed: 2026-10-18`
+- **Tests:** [`tests/dataset_manager_args_test.cpp`](../../../../tests/dataset_manager_args_test.cpp) → `datasetManagerArgsTests` (46 tests)
 - **Origin:** TD-035 (parsing pulled out of `DatasetManagerTool.cpp` to make it testable); TD-202 (`migrate`, kinds); TD-205 (`segment`)
-- **Last traced against the code:** 2026-10-11
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by compiling the parsers
 > into a scratch program (with UBSan) and running them.
@@ -49,6 +49,7 @@ All parsers take the command's own arguments, **without** the command name, e.g.
 | `delete` | `parse_delete_args` | `<files…> [--force] [--delete-files]` | At least one target required |
 | `migrate` | `parse_migrate_args` | `<kind> [files…] [--count N]` | `kind` validated by `is_valid_dataset_kind()`; no files and no count → migrate **all** legacy entries |
 | `segment` | `parse_segment_args` | `<path> --count N` **or** `--ranges A-B,C-D,…` | Ranges are 0-based inclusive, stored as `{start, B−A+1}`; exactly one mode required; unknown arguments rejected |
+| `requeue` | `parse_requeue_args` | `--all` **or** `<files…>`, `[--model <name>]` | TD-540 (October 18, 2026): exactly one of `--all` or files; `--model` needs a value; unknown `--` flags are errors, not file targets (unlike TD-322's other parsers) |
 
 `is_valid_dataset_kind(k)` accepts exactly `encoder`, `decoder`, `world_model` and `chatbot`, MNS's
 `ModelRecord::kind` vocabulary. `main()` also uses it for the global `--kind` flag.
@@ -107,7 +108,7 @@ Other notes:
 
 ## 5. Tests
 
-`dataset_manager_args_test.cpp` has 45 tests, covering each parser's happy path, missing-argument
+`dataset_manager_args_test.cpp` has 46 tests (`RequeueArgs` added October 18, 2026), covering each parser's happy path, missing-argument
 errors and non-numeric values:
 
 | Group | Tests |

@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.4.0
+// @adai-version: 1.5.0
 // @adai-reviewed: 2026-10-19
 
 #include "DatasetRegistry.hpp"
@@ -68,8 +68,7 @@ static std::unique_ptr<RegistryTransport> build_transport(const DatasetConfig& c
     // deployments the same per-trainable-piece pool separation RemoteTransport gets from its
     // kind-scoped URL segment — a chatbot's own local session_dir and a --objective=lejepa pass
     // against that same session_dir no longer share one pending_files.txt.
-    const std::string kind_dir =
-        cfg.dataset_kind.empty() ? cfg.session_dir : cfg.session_dir + "/" + cfg.dataset_kind;
+    const std::string kind_dir = DatasetRegistry::local_pool_dir(cfg);
     const std::string reg_path = kind_dir + "/" + cfg.data_registry_file;
     const std::string pend_path = kind_dir + "/pending_files.txt";
     return std::make_unique<LocalTransport>(reg_path, pend_path);
@@ -222,6 +221,10 @@ std::vector<std::string> DatasetRegistry::pending_files() const {
 
 std::vector<PendingEntry> DatasetRegistry::pending_entries() const {
     return pending_;
+}
+
+std::string DatasetRegistry::local_pool_dir(const DatasetConfig& cfg) {
+    return cfg.dataset_kind.empty() ? cfg.session_dir : cfg.session_dir + "/" + cfg.dataset_kind;
 }
 
 std::size_t DatasetRegistry::count_acquirable() const {

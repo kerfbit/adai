@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.4.0
+// @adai-version: 1.5.0
 // @adai-reviewed: 2026-10-19
 
 
@@ -231,6 +231,10 @@ class DatasetRegistry {
      *         load_pending_list() first; the pool is this registry's kind sub-pool.
      */
     std::size_t count_acquirable() const;
+
+    /// The directory LocalTransport keeps `data_registry.txt`/`pending_files.txt` in for @p cfg:
+    /// `session_dir`, or `session_dir/<dataset_kind>` when a kind is set (TD-202).
+    static std::string local_pool_dir(const DatasetConfig& cfg);
 
     /** @return Sorted vector of all file paths that have been trained. */
     std::vector<std::string> trained_files() const;

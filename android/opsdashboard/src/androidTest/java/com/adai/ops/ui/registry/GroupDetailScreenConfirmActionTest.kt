@@ -15,6 +15,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import com.adai.ops.data.mns.ModelRepository
 import com.adai.ops.data.registry.RegistryRepository
+import com.adai.ops.network.dto.AssignResponseDto
+import com.adai.ops.network.dto.DeleteResponseDto
 import com.adai.ops.network.dto.QueueEntryDto
 import com.adai.ops.network.dto.QueueResponseDto
 import com.adai.ops.network.dto.RegistryEntryDto
@@ -30,6 +32,7 @@ import com.adai.ops.ui.common.AdminAuthResult
 import com.adai.ops.ui.common.LocalAdminAuthGate
 import org.junit.Rule
 import org.junit.Test
+import retrofit2.Response
 
 /**
  * TD-048/TD-205: exercises GroupDetailScreen's ConfirmActionDialog-gated flows using the
@@ -218,6 +221,9 @@ class GroupDetailScreenConfirmActionTest {
             queueResponse = {
                 QueueResponseDto(entries = listOf(QueueEntryDto(path = "file1.jsonl", model_name = "model-a")))
             },
+            // TD-326: migrate checks both results now, rolling back on a 0.
+            assignResponse = { _, _ -> AssignResponseDto(assigned = 1) },
+            deleteResponse = { _, _ -> Response.success(DeleteResponseDto(deleted = 1)) },
         )
         setContentWithAuth(viewModelWith(fakeRegistryService))
 

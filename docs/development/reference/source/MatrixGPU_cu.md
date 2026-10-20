@@ -4,9 +4,9 @@
 - **Namespace:** `adai::gpu`
 - **Built into:** `adai_gpu` in CUDA builds (`ENABLE_GPU`, the `gpu` preset). The free functions are declared in `src/gpu/MatrixGPU.hpp` (documented separately), which also defines `GPUMatrix` on top of them
 - **SYCL counterpart:** `src/gpu/sycl/MatrixGPU_SYCL.cpp`. The training kernels here were ported from it "formula-for-formula", so most findings apply to both (see §4)
-- **Status tag:** `@adai-status: beta`, `@adai-version: 0.9.0`, `@adai-reviewed: 2026-09-14`
+- **Status tag:** `@adai-status: beta`, `@adai-version: 0.9.2`, `@adai-reviewed: 2026-10-17` (TD-384 barriers, TD-382 cuBLAS lock)
 - **Tests:** none run real kernels in any environment used so far. `matrixgpuTd003Tests` exists in `build/cuda-gputest` and skips without a device
-- **Last traced against the code:** 2026-10-12
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. **No CUDA device is available here**, so no kernel in this file was run;
 > everything below is by inspection. The math of the training kernels was checked by hand against

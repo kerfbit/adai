@@ -4,8 +4,8 @@
 - **Namespace:** `adai::gpu` (`GPUManager`, `GPUMemory<T>`): the same public API as the CUDA versions in [GPUUtils.md](GPUUtils.md)
 - **Built into:** SYCL builds (`ENABLE_SYCL`, the `sycl` preset, `icpx`), through `gpu/GPUUtils.hpp`. **This is the backend ai-machine trains on** (Intel Arc)
 - **Status tag:** `@adai-status: beta`, `@adai-version: 0.6.3`, `@adai-reviewed: 2026-09-13`
-- **Tests:** shared with CUDA, [`tests/gpuutils_test.cpp`](../../../../tests/gpuutils_test.cpp) (18 tests; 9 skip without a GPU, as they do in `build/sycl-gputest` here)
-- **Last traced against the code:** 2026-10-12
+- **Tests:** shared with CUDA, [`tests/gpuutils_test.cpp`](../../../../tests/gpuutils_test.cpp) (19 tests; 9 skip without a GPU, as they do in `build/sycl-gputest` here)
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. There's no Intel GPU here, and `GPUManager` deliberately ignores the oneAPI
 > CPU device this machine does have. The SYCL behaviours marked **verified** were measured with a

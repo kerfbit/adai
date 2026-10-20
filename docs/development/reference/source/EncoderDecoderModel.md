@@ -3,9 +3,9 @@
 - **Files:** [`src/EncoderDecoderModel.hpp`](../../../../src/EncoderDecoderModel.hpp), [`src/EncoderDecoderModel.cpp`](../../../../src/EncoderDecoderModel.cpp)
 - **Namespace:** global (no namespace)
 - **Built into:** `adai_models`; used by `ChatbotTrainer`/`incremental_trainer`, `ChatbotAPI`/`chatbot_api_server`, `chatbot_gui`, `RAGInference`, `RLHFTrainer`, `ModelSerializer`
-- **Status tag:** `@adai-status: beta` (capped by TD-050), `@adai-version: 0.18.0`, `@adai-reviewed: 2026-09-18`
-- **Tests:** [`tests/encoderdecoder_test.cpp`](../../../../tests/encoderdecoder_test.cpp) → `encoderdecoderTests` (83 tests)
-- **Last traced against the code:** 2026-10-11
+- **Status tag:** `@adai-status: beta` (capped by TD-050), `EncoderDecoderModel.cpp` `@adai-version: 0.19.1`, `@adai-reviewed: 2026-10-19`; `.hpp` `0.19.0`, `2026-10-18`
+- **Tests:** [`tests/encoderdecoder_test.cpp`](../../../../tests/encoderdecoder_test.cpp) → `encoderdecoderTests` (90 tests)
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real classes
 > (linked against the debug libraries). The GPU-path finding in §4 was reproduced on the CPU with
@@ -78,24 +78,19 @@ copies them from the tokenizer.
 > The shipped `ChatbotTrainer` registers an optimizer and calls `optimizer->step()`, so it isn't
 > affected. With an optimizer registered, `update_weights()` over-steps instead (TD-297).
 
-> **Training inserts a double `BOS` (verified).** Targets come from `tokenizer->encode(response, true)`
-> = `[BOS, w1…wn, EOS]` (in `train_step()` and in `ChatbotTrainer`'s tokenization), and `forward()`
-> prepends another `BOS`. So the decoder input is `[BOS, BOS, w1…wn]`, and position 0 is trained to
-> predict `BOS` from `BOS`. Generation follows suit: starting from `[BOS]`, a trained model first
-> emits a second `BOS` (seen in the §4 experiment: `2 2 12 23 …`), spending one step and one slot of
-> `max_length`. It's harmless to output text (decode skips specials), but wasteful and easy to
-> misread.
+> **Fixed (TD-361, October 17, 2026): training used to insert a double `BOS`.** Targets came from
+> `tokenizer->encode(response, true)` = `[BOS, w1…wn, EOS]`, and `forward()` prepends another `BOS`.
+> So the decoder input was `[BOS, BOS, w1…wn]`, and generation from `[BOS]` first emitted a second
+> `BOS` (`2 2 12 23 …`), spending one step and one slot of `max_length`.
 >
-> **Fixed in code October 17, 2026 (TD-361):** training targets are now `[w1…wn, EOS]`.
-> `strip_leading_bos()` drops the tokenizer's `BOS` in `train_step()`, `evaluate()`,
-> `gpu_evaluate()` and `ChatbotTrainer`'s tokenization, so `make_decoder_input()`'s `BOS` is the
-> only one, and the decoder input is `[BOS, w1…wn]` on both CPU and GPU.
->
-> New test `TrainedModelsFirstPredictionIsTheFirstWordNotBos` trains a tiny model on three pairs.
-> Its first prediction after `[BOS]` is each target's first word on 6/6 runs. With the old targets
-> the first prediction was `BOS` (token 2) on 3/3 runs. `ChatbotTrainer::kPreprocessFormatVersion`
-> is now 3, so cached token IDs are rebuilt. This changes training alignment, so it belongs to the
-> TD-358 retraining like everything else here.
+> Training targets are now `[w1…wn, EOS]`. `strip_leading_bos()` drops the tokenizer's `BOS` in
+> `train_step()`, `evaluate()`, `gpu_evaluate()` and `ChatbotTrainer`'s tokenization. So
+> `make_decoder_input()`'s `BOS` is the only one, and the decoder input is `[BOS, w1…wn]` on both CPU
+> and GPU. `TrainedModelsFirstPredictionIsTheFirstWordNotBos` checks it: with the new targets, the
+> first prediction after `[BOS]` is the target's first word on 6/6 runs; with the old ones it was
+> `BOS` on 3/3. `ChatbotTrainer::kPreprocessFormatVersion` went to 3, so cached token IDs are rebuilt.
+> Rechecked October 19, 2026: no other training-target path still keeps the `BOS`. The remaining
+> `encode(…, true)` calls are encoder inputs (TD-364) and the deferred RLHF code (TD-500).
 
 ---
 
@@ -106,36 +101,29 @@ copies them from the tokenizer.
 are what `ChatbotTrainer` uses whenever `ADAI_ENABLE_GPU` is set. That means **every
 `incremental_trainer` pass on ai-machine** (SYCL).
 
-> **`gpu_forward()` trains the model to copy its input token, not predict the next one.**
-> It calls `decoder->gpu_decode(target_tokens, …)` with the **unshifted** targets as the decoder
-> input, then `matrix_cross_entropy_loss_gpu(logits, targets)` scores row *t* against `targets[t]`.
-> Under the causal mask, position *t* can see `targets[t]` itself, so the loss is minimized by
-> copying the current input token. The CPU `forward()` correctly feeds `[BOS] + target[:-1]`.
-> `gpu_backward()` uses the same alignment, and `gpu_evaluate()` reports the same (misleadingly
-> low) validation loss.
->
-> **Reproduced on the CPU** with the same model classes, by training a tiny model on an echo task
-> two ways for the same 150 epochs:
+> **Fixed (TD-358, October 17, 2026): `gpu_forward()` used to train the model to copy its input
+> token.** It called `decoder->gpu_decode(target_tokens, …)` with the **unshifted** targets as the
+> decoder input, then scored row *t* against `targets[t]`. Under the causal mask, position *t* could
+> see `targets[t]` itself, so copying minimized the loss. `gpu_backward()` used the same alignment,
+> and `gpu_evaluate()` reported the same misleadingly low loss. A CPU reproduction on an echo task
+> (150 epochs each) showed why this went unnoticed:
 >
 > | Decoder input during training | Final training loss | Greedy generation exactly right |
 > |---|---|---|
-> | `[BOS] + target[:-1]` (CPU `forward()`) | 0.0008 | **12 / 12** (`2 2 12 23 18 22 4 3` for `12 23 18 22 4`) |
-> | `target` unshifted (GPU `gpu_forward()`) | 0.0006 | **0 / 12** (`2 2 2 17 17 17 17 17 …`) |
+> | `[BOS] + target[:-1]` (CPU `forward()`) | 0.0008 | **12 / 12** |
+> | `target` unshifted (old `gpu_forward()`) | 0.0006 | **0 / 12** (`2 2 2 17 17 17 …`) |
 >
-> Both reach near-zero loss, which is why the bug is invisible in training and validation metrics.
-> But the GPU-style model can't generate: at inference it only ever sees tokens it has already
-> produced, so a model that learned "output the token I was given" repeats itself.
+> Now `forward()` and `gpu_forward()` build the decoder input with one shared helper,
+> `make_decoder_input()` (`[BOS] + target[:-1]`), and the targets stay the labels. `gpu_forward()`
+> rejects an empty target, which would otherwise make the logits and label row counts disagree.
+> Verified on the oneAPI CPU SYCL device with the real classes:
+> - **Before:** `gpu_forward()`'s loss equalled the unshifted-input CPU loss (4.879566, against 4.751482
+>   shifted).
+> - **After:** it equals the CPU `forward()` loss exactly.
 >
-> **Every checkpoint trained on the GPU path is affected** and needs retraining after the fix: shift
-> the decoder input in `gpu_forward()` exactly as `forward()` does.
->
-> **Fixed in code October 17, 2026 (TD-358):** `forward()` and `gpu_forward()` now build the decoder
-> input with one shared helper, `make_decoder_input()` (`[BOS] + target[:-1]`); `gpu_forward()` rejects
-> an empty target. Verified on the oneAPI CPU SYCL device with the real classes: before the change,
-> `gpu_forward()`'s loss equalled the unshifted-input CPU loss exactly (e.g. 4.879566 vs a shifted
-> 4.751482); after it, it equals the CPU `forward()` loss exactly (0.000000 difference on three pairs).
-> `EncoderDecoderGPUTest.GpuForwardLossMatchesCpuForwardTeacherForcing` guards it (it also needs the
-> TD-384 kernel fix to pass). The on-device run on ai-machine and the retraining remain.
+> `EncoderDecoderGPUTest.GpuForwardLossMatchesCpuForwardTeacherForcing` guards it. That test also needs
+> the TD-384 kernel fix. Still to do: the on-device run on ai-machine, then retraining every GPU-trained
+> checkpoint.
 
 ---
 
@@ -177,8 +165,14 @@ By inspection:
 
 `save_model(path)` writes:
 - `.config`: a magic number, format version 2 (Pre-LN), the architecture and special-token IDs;
-- `.vocab`: the tokenizer (`save_vocab()` fails silently, TD-221);
-- `.encoder`, `.decoder` (plus their per-block sibling files) and `.lm_head`.
+- `.vocab`: the tokenizer. `save_vocab()` throws on failure (TD-221), so `save_model()` throws rather than leave a checkpoint without its vocab;
+- `.encoder`, `.decoder` and `.lm_head`, plus their sibling component files, all named `<path>_…`:
+  - the encoder's `_encoder_token_emb.bin`, `_encoder_block_<i>.bin` and `_encoder_final_norm.bin`;
+  - the decoder's `_token_emb.bin`, `_decoder_block_<i>.bin`… and `_final_norm.bin`.
+
+  TD-538 (October 18, 2026): the encoder used to write the decoder's names too, so every checkpoint
+  lost the encoder's embedding and norm; it now loads the old names as a fallback. Every file of a
+  checkpoint starts with `<path>.` or `<path>_` (`IncrementalTrainer::checkpoint_files()` relies on that).
 
 `load_model(path)`:
 - rejects a missing or old magic number ("pre-Pre-LN checkpoint, retrain") and an older format;
@@ -186,11 +180,15 @@ By inspection:
 - loads the vocab and weights, and **restores special-token IDs onto the model but not into the
   generator's config** until `sync_special_tokens()` runs.
 
-The config reads aren't checked. The main serving and training checkpoint path is SafeTensors via
-`ModelSerializer`; this format is the legacy/fallback one.
+The config reads aren't checked. This is the format every trainer checkpoint and `MODEL_PATH` uses;
+the SafeTensors path in `ModelSerializer` has no production caller (TD-465).
 
-`clone()` round-trips `save_model()`/`load_model()` through a temp file, so it inherits all of the
-above. **It doesn't copy:**
+`clone()` round-trips `save_model()`/`load_model()` through a temp checkpoint in the system temp
+directory, so it inherits all of the above. Since TD-544 (October 19, 2026) it removes every file of
+that temp checkpoint afterwards. It used to remove only the five top-level files, so each clone left
+the component files (embeddings, every block, the norms) behind: 115 clones' worth, 4.6 MB, had
+accumulated in this machine's `/tmp` from test runs alone, and a full-size model leaves its weights
+on every epoch with quality metrics on. `CloneLeavesNoTempFiles` covers it. **It doesn't copy:**
 - the world model or hippocampal memory;
 - the generation config or repetition params;
 - LoRA adapters (TD-302);
@@ -243,12 +241,13 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `gpu_forward()`/`gpu_backward()`/`gpu_evaluate()` use unshifted targets as decoder input (§4) | **GPU-trained models learn to copy instead of predict**: near-zero loss, unusable generation; every GPU checkpoint needs retraining | **Verified** (CPU reproduction of the same alignment); **code fix landed October 17, 2026** (on-device run and retraining remain) | [TD-358](../../guides/TECHNICAL_DEBT.md#td-358-gpu-training-feeds-unshifted-targets-teaching-the-model-to-copy-instead-of-predict) |
+| `gpu_forward()`/`gpu_backward()`/`gpu_evaluate()` use unshifted targets as decoder input (§4) | **GPU-trained models learn to copy instead of predict**: near-zero loss, unusable generation; every GPU checkpoint needs retraining | **Fixed in code October 17, 2026** (was verified by CPU reproduction); on-device run and retraining remain | [TD-358](../../guides/TECHNICAL_DEBT.md#td-358-gpu-training-feeds-unshifted-targets-teaching-the-model-to-copy-instead-of-predict) |
 | `generate_response()`/`gpu_generate_response()` ignore `max_length` (§5) | Trainer quality metrics/backfill generate up to `max_seq_length`; caller limits silently ignored | **Verified** | [TD-359](../../guides/TECHNICAL_DEBT.md#td-359-generate_response-and-gpu_generate_response-ignore-max_length) |
 | No-optimizer path never updates (or sets the LR of) the encoder (§3) | `train_step()`/`update_weights()` train only decoder + head | **Verified** | [TD-360](../../guides/TECHNICAL_DEBT.md#td-360-encoderdecodermodel-no-optimizer-path-never-updates-the-encoder) |
-| Double `BOS` in training targets (§3) | Wasted step and `max_length` slot in every generation | **Verified**; **fixed in code October 17, 2026** | [TD-361](../../guides/TECHNICAL_DEBT.md#td-361-training-targets-get-a-double-bos) |
+| Double `BOS` in training targets (§3) | Wasted step and `max_length` slot in every generation | **Fixed October 17, 2026** | [TD-361](../../guides/TECHNICAL_DEBT.md#td-361-training-targets-get-a-double-bos) |
 | CPU vs GPU generation inconsistencies; invalid-vocab masking missing on some paths; hippocampal writes from training-time generation; lossy world-model input via decode (§5) | Different output by path/device; memory pollution | By inspection | [TD-362](../../guides/TECHNICAL_DEBT.md#td-362-cpu-and-gpu-generation-paths-behave-differently), [TD-343](../../guides/TECHNICAL_DEBT.md#td-343-hippocampal-memory-is-updated-on-every-forward-pass) (amended) |
 | `clone()` drops world model/memory/gen config; `load_model()` unchecked reads and generator special tokens not synced (§6) | Async metric snapshots differ from the live model; truncated configs load garbage | By inspection | [TD-363](../../guides/TECHNICAL_DEBT.md#td-363-encoderdecodermodel-clone-load-and-world-model-input-gaps) |
+| `clone()` left its temp checkpoint's component files behind (§6) | A copy of the weights in the temp directory per clone (one per epoch with quality metrics) | **Fixed October 19, 2026** (was verified: 11 files from a one-layer clone) | [TD-544](../../guides/TECHNICAL_DEBT.md#td-544-encoderdecodermodelclone-leaves-its-temp-checkpoint-files-behind) |
 | Beam forced by `num_beams > 1` (CPU) | Already tracked | — | TD-261 |
 | Gated paths skipped by cached generation | Already tracked | — | TD-342 |
 | Shared-optimizer over-step via `update_weights()` | Already tracked | — | TD-297 |

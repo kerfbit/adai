@@ -3,10 +3,10 @@
 - **Files:** [`src/Config.hpp`](../../../../src/Config.hpp), [`src/Config.cpp`](../../../../src/Config.cpp)
 - **Namespace:** `adai`
 - **Built into:** compiled directly into most executables (`chatbot_api_server`, `incremental_trainer`, `trainer_service`, `chatbot_gui_binary`, the daemons and tools); it isn't part of a static library
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.3.1` (hpp) / `1.3.0` (cpp), `@adai-reviewed: 2026-09-20` / `2026-09-19`
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.4.0` (both), `@adai-reviewed: 2026-10-18`
 - **Tests:** [`tests/config_test.cpp`](../../../../tests/config_test.cpp) (73 tests)
 - **Operator guide (keys and examples):** [configuration_guide.md](../../configuration_guide.md); the shipped `config.*.conf` files are the other key reference
-- **Last traced against the code:** 2026-10-09
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. Every behaviour flagged in §4–§6 was confirmed by running the real
 > `ConfigLoader` (a scratch program compiled against `Config.cpp`) unless marked otherwise.
@@ -98,7 +98,7 @@ at load.
 
 | Accepts | Keys |
 |---|---|
-| `true`/`1`/`yes`/`on`, **case-insensitive** | `LOG_COMPRESS`, `RAG_ENABLED`, `CACHE_TOKENIZED_DATA`, `TRAINER_ADMIN_ENABLED`, `WORLD_MODEL_ENABLED`, `HIPPOCAMPAL_MEMORY_ENABLED`, `AUTO_SAVE_ENABLED`, `GPU_ENABLED` |
+| `true`/`1`/`yes`/`on`, **case-insensitive** | `LOG_COMPRESS`, `RAG_ENABLED`, `CACHE_TOKENIZED_DATA`, `TRAINER_ADMIN_ENABLED`, `WORLD_MODEL_ENABLED`, `HIPPOCAMPAL_MEMORY_ENABLED`, `AUTO_SAVE_ENABLED`, `GPU_ENABLED`, `RESUME_FROM_BEST_CHECKPOINT` (TD-405, added October 18, 2026; default `false`, shipped in `config.trainer.conf`, mapped into `IncrementalConfig` by `make_incremental_config()`) |
 | only lowercase `true`/`1`/`yes` | `GRADIENT_CLIP_ADAPTIVE`, `ENABLE_METRICS_SERVICE`, `METRICS_ENABLE_PERSISTENCE`, `METRICS_ENABLE_PROMETHEUS`, `METRICS_API_ALLOW_CONTROL`, `ENABLE_GENERATION_QUALITY_METRICS`, `FTPS_ENABLED` |
 
 Anything not accepted is silently **false**, with no warning. Verified: `ENABLE_METRICS_SERVICE=On`

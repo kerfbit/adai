@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.11.0
+// @adai-version: 0.11.1
 // @adai-reviewed: 2026-10-19
 
 #include "ChatbotTrainer.hpp"
@@ -2273,9 +2273,14 @@ bool ChatbotTrainer::save_training_state(const std::string& path) const {
             return false;
         }
     }
-    if (std::rename(tmp.c_str(), path.c_str()) != 0) {
+    // std::filesystem::rename replaces an existing file on every platform (std::rename() fails
+    // on Windows when the target exists, so every save after a pass's first would fail there).
+    std::error_code rename_ec;
+    std::filesystem::rename(tmp, path, rename_ec);
+    if (rename_ec) {
         std::remove(tmp.c_str());
-        adai::Logger::warn("Could not move training state into place: {}", path);
+        adai::Logger::warn("Could not move training state into place: {} ({})", path,
+                           rename_ec.message());
         return false;
     }
     return true;

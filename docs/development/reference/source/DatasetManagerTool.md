@@ -2,10 +2,10 @@
 
 - **File:** [`src/DatasetManagerTool.cpp`](../../../../src/DatasetManagerTool.cpp) (`main()` of the `dataset_manager` binary)
 - **Built into:** `dataset_manager` (with `DatasetManagerArgs.cpp`, `DataFetcher`, `DatasetRegistry`, `adai_core`; `ModelNameClient` when `BUILD_MNS_SERVER`)
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.1.1`, `@adai-reviewed: 2026-09-20`
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.4.0`, `@adai-reviewed: 2026-10-19`
 - **Tests:** none for `main()` itself; its parsers are tested by `datasetManagerArgsTests` ([DatasetManagerArgs.md](DatasetManagerArgs.md)) and `DatasetRegistry` by its own suites
 - **Operator guide:** [dataset-manager-guide.md](../../../operations/guides/dataset-manager-guide.md) (covers only 8 of the 15 commands, §6)
-- **Last traced against the code:** 2026-10-11
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real
 > `dataset_manager` binary against scratch local pools and a local `registry_server`
@@ -61,8 +61,9 @@ are what operators trust (§4).
 | `assign <model> [files] [--count N]` | Optionally verifies the model in MNS (and adopts its `run_group`), then `assign_model()` | same | nothing assigned |
 | `unassign <model> [files] [--force]` | `unassign_model()` | same | nothing unassigned **and** nothing skipped |
 | `delete <files> [--force] [--delete-files]` | `delete_entries()`, prints per-path status | same | nothing deleted |
-| `migrate <kind> [files] [--count N]` | Legacy pool → `<kind>` pool, entry by entry (§4) | same | nothing migrated |
-| `segment <path> --count N` / `--ranges …` | `count_pairs()` on the **local** path, then one `add_pending_path_unchecked(path, start, count)` per range | same (the server must see the same path) | no segment created; TD-542: replaces an unclaimed whole-file entry |
+| `migrate <kind> [files] [--count N]` | Legacy pool → `<kind>` pool, entry by entry, each segment exactly: add (with its range), restore the model, delete the source, checking each step and undoing the copy on failure (TD-326). A file target moves every unit of that file | same | nothing migrated |
+| `segment <path> --count N` / `--ranges …` | `count_pairs()` on the **local** path, then one `add_pending_path_unchecked(path, start, count)` per range. TD-542: the segments replace an unclaimed whole-file entry of the path and take its model (a claimed entry or trained records refuse first; a failed replacement removes the segments again) | same (the server must see the same path; a client-local path is queued as given, TD-543) | no segment created, or the replacement refused or failed |
+| `requeue (--all \| <files>) [--model M]` | TD-540: `requeue_trained()`, server-side against `registry_server` | same | nothing re-queued, or the request failed |
 | `models` | `ModelNameClient::list_models()` (defaults to `http://localhost:8083` when `NAME_SERVICE_URL` is unset) | — | query fails / not compiled |
 
 Success messages echo the **requested** pair count ("Book added (500 pairs)"), not what was
@@ -72,18 +73,16 @@ actually written.
 
 ## 4. Behaviour problems
 
-> **`migrate` duplicates segmented data (verified).** `migrate` copies each legacy entry with
-> `dest.add_pending_path_unchecked(entry.path)`, which **drops `segment_start`/`segment_count`**.
-> It then calls `source.delete_entries({entry.path}, …)` and **ignores the result** (as well as
-> `assign_model()`'s). Running it on a 30-pair file split into 3 segments:
-> - the `chatbot` pool got the **whole file** (all 30 pairs);
-> - the second and third segments failed ("already pending");
-> - the source delete matched nothing, so **all 3 segments stayed in the legacy pool**;
+> **Fixed (TD-326, October 19, 2026): `migrate` duplicated segmented data.** It copied each
+> legacy entry without its segment range and ignored the results of its delete and assign. On a
+> 30-pair file split into 3 segments:
+> - the `chatbot` pool got the whole file;
+> - the other two segments failed;
+> - all 3 segments stayed in the legacy pool;
 > - it printed "Migrated 1/3".
 >
-> Training both pools now trains every pair twice. The same unchecked delete means any failed
-> source removal (e.g. a remote error) leaves an entry in both pools. Targets are matched by path
-> only, and `--count` takes the first N entries regardless of segments.
+> Training both pools trained every pair twice. Now each entry moves exactly and every step is
+> checked (§3; addendum). `--count` still takes the first N entries regardless of segments.
 
 > **`remove` lies in remote mode (verified).** `DatasetRegistry::remove_pending()` erases the
 > entry from its in-memory list and calls `save_pending_list()`, but ignores the result.
@@ -143,13 +142,15 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `migrate` drops segment ranges and ignores failed source deletes and assigns (§4) | Data lands in both pools, so it's trained twice; misleading "Migrated" counts | **Verified** | [TD-326](../../guides/TECHNICAL_DEBT.md#td-326-dataset_manager-migrate-duplicates-segmented-data-across-pools) |
+| `migrate` drops segment ranges and ignores failed source deletes and assigns (§4) | Data landed in both pools, so it was trained twice; misleading "Migrated" counts | **Fixed October 19, 2026** (was verified) | [TD-326](../../guides/TECHNICAL_DEBT.md#td-326-dataset_manager-migrate-duplicates-segmented-data-across-pools) |
 | `remove` reports success (exit 0) against `registry_server` while nothing changes (§4) | Operators believe data was removed when it will still train | **Verified** | [TD-327](../../guides/TECHNICAL_DEBT.md#td-327-dataset_manager-remove-reports-success-in-remote-mode-without-removing-anything) |
 | Local `add`/fetches store relative paths (§4) | Trainer with a different working directory can't find queued files | **Verified** | [TD-328](../../guides/TECHNICAL_DEBT.md#td-328-dataset_manager-stores-relative-paths-in-the-local-pool) |
 | Only `assign` adopts the MNS `run_group`; other commands use the config's (§4) | Commands operate on different groups for the same model | By inspection | [TD-329](../../guides/TECHNICAL_DEBT.md#td-329-dataset_manager-uses-the-mns-run_group-only-in-assign) |
 | `unassign` exit status, requested-not-actual pair counts, `models` localhost fallback, no `--help`, global flags stripped anywhere (§2, §4) | Misleading output and exit codes | By inspection | [TD-330](../../guides/TECHNICAL_DEBT.md#td-330-dataset_manager-output-exit-code-and-flag-hygiene) |
 | No tests for command composition (§5) | Bugs above went unnoticed | By inspection | [TD-331](../../guides/TECHNICAL_DEBT.md#td-331-dataset_manager-has-no-tests-for-its-commands) |
 | Operator guide covers 8 of 15 commands (§6) | Pool-changing commands undocumented for operators | By inspection | [TD-332](../../guides/TECHNICAL_DEBT.md#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands) |
+| `segment` kept a queued whole-file entry beside its segments (§3) | Every pair trained twice | **Fixed October 19, 2026** (owner decision: replace) | [TD-542](../../guides/TECHNICAL_DEBT.md#td-542-dataset_manager-segment-keeps-a-queued-whole-file-entry-so-its-pairs-train-twice) |
+| `segment` against a remote registry queues the client's local path, not the uploaded one (§3) | Segments made off the registry host can't be read by the server | **Verified** | [TD-543](../../guides/TECHNICAL_DEBT.md#td-543-dataset_manager-segment-queues-a-client-local-path-on-a-remote-registry) |
 | Parser issues; unchecked `segment` ranges | Already tracked | — | TD-321–325 |
 
 ## Addendum (October 18, 2026): `requeue`

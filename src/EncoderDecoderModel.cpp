@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.19.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 0.19.1
+// @adai-reviewed: 2026-10-19
 
 #include "EncoderDecoderModel.hpp"
 #include <algorithm>
@@ -891,11 +891,21 @@ std::unique_ptr<EncoderDecoderModel> EncoderDecoderModel::clone() const {
     // Persist weights to temp files
     save_model(tmp);
 
-    // RAII: remove all temp files on exit (success or exception)
+    // Remove every temp file on exit (success or exception). TD-544: save_model() writes the five
+    // top-level files plus a component file per embedding, block and norm, all named
+    // <tmp>.<ext> or <tmp>_<name>; only the five used to be removed, so each clone (one per
+    // epoch for the async quality metrics) left a copy of the weights in the temp directory.
     auto remove_temps = [&tmp] {
-        for (const char* ext : {".config", ".vocab", ".encoder", ".decoder", ".lm_head"}) {
-            std::error_code ec;
-            std::filesystem::remove(tmp + ext, ec);  // best-effort; ignore errors
+        const fs::path dir = fs::path(tmp).parent_path();
+        const std::string stem = fs::path(tmp).filename().string();
+        std::error_code ec;
+        for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+            const std::string name = it->path().filename().string();
+            if (name.size() > stem.size() && name.compare(0, stem.size(), stem) == 0 &&
+                (name[stem.size()] == '.' || name[stem.size()] == '_')) {
+                std::error_code rm_ec;
+                fs::remove(it->path(), rm_ec);  // best-effort; ignore errors
+            }
         }
     };
 

@@ -374,6 +374,54 @@ TEST_F(IncrementalTrainerTest, TrainedRecordsCarryThePairsEachFileContributed) {
     EXPECT_EQ(reg.total_samples_trained(), 20) << "the trained record holds the file's 20 pairs";
 }
 
+// reset_all() works on the trainer's own pool (SESSION_DIR/<kind>/, TD-202), not the legacy root
+// pool, and --keep-data keeps the queue: it used to remove SESSION_DIR/pending_files.txt before
+// re-queuing, which lost every untrained file, while the kind pool kept its trained records.
+TEST_F(IncrementalTrainerTest, ResetWorksOnTheTrainersOwnPoolAndKeepDataKeepsTheQueue) {
+    IncrementalConfig config = tiny_local_config(session_dir);
+    config.dataset.dataset_kind = "chatbot";
+    {
+        DatasetRegistry reg(config.dataset);
+        reg.load_registry();
+        reg.load_pending_list();
+        ASSERT_TRUE(reg.add_file(data_file1.string()));  // stays queued
+        ASSERT_TRUE(reg.add_file(data_file2.string()));
+        auto resp = reg.acquire_pending("r1");
+        std::vector<PendingFileRange> trained;
+        for (const auto& r : resp.file_ranges())
+            if (r.path == data_file2.string())
+                trained.push_back(r);
+        reg.release_pending("r1", resp.file_ranges());
+        reg.mark_trained("r1", trained, {1});
+    }
+    const fs::path legacy_pending = session_dir / "pending_files.txt";
+    {
+        std::ofstream(legacy_pending) << "/legacy/queued.jsonl\n";
+    }
+
+    {
+        IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+        ASSERT_TRUE(trainer.reset_all(/*keep_data_registry=*/true));
+    }
+    {
+        DatasetRegistry reg(config.dataset);
+        reg.load_pending_list();
+        EXPECT_EQ(reg.pending_files().size(), 2u)
+            << "the queued file survives and the trained one is re-queued";
+    }
+    EXPECT_TRUE(fs::exists(legacy_pending)) << "the legacy pool isn't the trainer's";
+
+    {
+        IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+        ASSERT_TRUE(trainer.reset_all(/*keep_data_registry=*/false));
+    }
+    DatasetRegistry reg(config.dataset);
+    reg.load_registry();
+    reg.load_pending_list();
+    EXPECT_TRUE(reg.pending_files().empty()) << "a full reset clears the trainer's queue";
+    EXPECT_TRUE(fs::exists(legacy_pending));
+}
+
 // TD-523: resume tells "nothing pending" apart from a failure, so trainer_service can count
 // failures instead of treating every unsuccessful pass as idle. An unreachable registry is a
 // failure, not an empty queue.

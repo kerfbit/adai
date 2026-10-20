@@ -1,11 +1,11 @@
 # `SpecialTokens` — Source File Reference
 
-- **File:** [`src/SpecialTokens.hpp`](../../../../src/SpecialTokens.hpp) (header-only, 362 lines)
+- **File:** [`src/SpecialTokens.hpp`](../../../../src/SpecialTokens.hpp) (header-only, 365 lines)
 - **Namespace:** `adai` (`SpecialTokenIDs`, `SpecialTokenStrings`, `SpecialTokenConfig`, free helpers)
 - **Used by:** `BPETokenizer.hpp` (default IDs), `TextGenerator` (default `GenerationConfig` IDs; `is_stop_token()` via `SpecialTokenConfig`), `EncoderDecoderModel.cpp` (constructor defaults, before `sync_special_tokens()`), `PipelineInferenceEngine.hpp`, `BatchProcessor.hpp` and `ChatbotAPI.cpp` (fixed PAD/BOS/EOS)
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0`, `@adai-reviewed: 2026-09-10`
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.1`, `@adai-reviewed: 2026-10-18` (doc comment only: the training-target example now drops the leading `BOS`, TD-361)
 - **Tests:** [`tests/specialtokens_test.cpp`](../../../../tests/specialtokens_test.cpp) (18 tests, `specialtokensTests`; all pass)
-- **Last traced against the code:** 2026-10-17
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with a scratch program using the real `BPETokenizer` and `TextGenerator`.
 

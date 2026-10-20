@@ -5,8 +5,8 @@
 - **Built into:** `adai_gpu` in SYCL builds (`ENABLE_SYCL`, `icpx`). **This is the code ai-machine's GPU training runs**
 - **API:** declared in `sycl/MatrixGPU_SYCL.hpp` (the same functions as the CUDA `MatrixGPU.hpp`; see [MatrixGPU.md](MatrixGPU.md)); queue and memory from [GPUUtils_SYCL.md](GPUUtils_SYCL.md)
 - **CUDA counterpart:** [MatrixGPU_cu.md](MatrixGPU_cu.md) (ported from this file)
-- **Status tag:** `@adai-status: beta`, `@adai-version: 0.10.0`, `@adai-reviewed: 2026-09-10`
-- **Last traced against the code:** 2026-10-12
+- **Status tag:** `@adai-status: beta`, `@adai-version: 0.10.1`, `@adai-reviewed: 2026-10-17` (TD-384 barriers, TD-393 reduction)
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. **Every kernel in this file was run** in a scratch harness: a copy of this
 > `.cpp`, linked against a copy of `GPUUtils_SYCL.hpp` patched to also accept the oneAPI **CPU**

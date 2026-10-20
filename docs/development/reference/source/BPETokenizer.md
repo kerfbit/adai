@@ -2,9 +2,9 @@
 
 - **Files:** [`src/BPETokenizer.hpp`](../../../../src/BPETokenizer.hpp), [`src/BPETokenizer.cpp`](../../../../src/BPETokenizer.cpp)
 - **Library:** `adai_nlp`
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0`, `@adai-reviewed: 2026-09-10`
-- **Tests:** [`tests/tokenizer_test.cpp`](../../../../tests/tokenizer_test.cpp) → `runTests` (53 tests, ctest `TokenizerTests`); [`tests/tokenizer_error_handling_test.cpp`](../../../../tests/tokenizer_error_handling_test.cpp) → `tokenizerErrorHandlingTests` (36, TD-002); indirect coverage in `vocabbuilder_test.cpp` (52) and most model/trainer suites
-- **Last traced against the code:** 2026-10-08
+- **Status tag:** `@adai-status: stable`; `BPETokenizer.cpp` `@adai-version: 1.1.1`, `@adai-reviewed: 2026-10-19`; `BPETokenizer.hpp` `1.0.0`, `2026-09-10`
+- **Tests:** [`tests/tokenizer_test.cpp`](../../../../tests/tokenizer_test.cpp) → `runTests` (60 tests, ctest `TokenizerTests`); [`tests/tokenizer_error_handling_test.cpp`](../../../../tests/tokenizer_error_handling_test.cpp) → `tokenizerErrorHandlingTests` (36, TD-002); indirect coverage in `vocabbuilder_test.cpp` (59) and most model/trainer suites
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference: every "where it's used" claim points at a real call site, and every
 > behaviour flagged as surprising was confirmed by running the real code (a scratch program
@@ -197,27 +197,23 @@ fine at this project's vocab sizes but slow for very large corpora.
 
 ### `get_most_frequent_pair(word_tokens)` (static)
 
-Counts pairs in an `unordered_map` keyed by `first + "|||" + second`, returns the max, and splits
-the key back at the **first** `"|||"`. Hardened against empty word entries in TD-058.
+Counts every adjacent pair in an `unordered_map` keyed by the `std::pair<std::string, std::string>` itself (a small combining hash), and
+returns the pair with the highest count. Ties go to the lexicographically smallest pair, so the learned merges don't depend on hash-table
+iteration order. Hardened against empty word entries in TD-058.
 
-> **Pipe characters break it.** If `first` itself ends in `|` (e.g. the pair `("|", "|")`, key
-> `"|||||"`), splitting at the first `"|||"` returns `first = ""`, which the caller treats as "no
-> more pairs". Training then **stops entirely**. Verified: a corpus of `"|| || || ab ab"` lines
-> asked for 52 merges and learned **zero**. Markdown tables, `||` in code, and shell pipelines are
-> all realistic triggers. Any pair whose split lands inside the separator is affected, not just
-> pipes-only ones.
-
-**Fixed in code October 17, 2026 (TD-220):** counts are keyed by the `std::pair` itself (with a
-small hash), so nothing is split back. Ties now go to the lexicographically smallest pair, so the
-learned merges no longer depend on hash-table iteration order.
-
-New tests:
-- the pipe corpus above learns merges, including `("|", "|")`;
-- 40 random corpora over `{|, !}` all learn merges with no repeated rule;
-- direct `get_most_frequent_pair()` checks for pipe tokens and ties.
-
-Vocabularies built before the fix may be damaged. Check them with `scripts/audit_vocab_merges.py`,
-which flags duplicate rules and, given `--expected-merges N`, short merge lists.
+> **Fixed (TD-220, October 17, 2026): pipe characters used to break it.** Pairs were keyed by `first + "|||" + second` and split back at the
+> first `"|||"`. A pair whose split landed inside the separator, such as `("|", "|")` with key `"|||||"`, came back as `first = ""`. The caller
+> treats that as "no more pairs", so training stopped entirely: a corpus of `"|| || || ab ab"` lines asked for 52 merges and learned **zero**.
+> A non-empty mis-split instead recorded the wrong rule every round. Markdown tables, `||` in code and shell pipelines were realistic
+> triggers.
+>
+> The tests that cover the fix:
+> - the pipe corpus above now learns merges, including `("|", "|")`;
+> - 40 random corpora over `{|, !}` all learn merges with no repeated rule;
+> - direct `get_most_frequent_pair()` checks cover pipe tokens and ties.
+>
+> Vocabularies built before the fix may be damaged. `scripts/audit_vocab_merges.py` flags duplicate rules, and, given `--expected-merges N`,
+> short merge lists.
 
 ### `merge_tokens(word_tokens, first, second)` (static)
 
@@ -322,23 +318,24 @@ Escapes: space → `\s`, newline → `\n`, tab → `\t`, CR → `\r`, backslash 
 
 ### `save_vocab(filename) const`
 
-Writes the format above and logs a summary to `std::cout`.
+Writes the format above to `<filename>.tmp`, checks the stream after flushing and closing, then moves it into place with
+`std::filesystem::rename()`. That call replaces an existing file on every platform; `std::rename()` doesn't on Windows. It throws
+`VocabularyFileError` when:
+- the name is empty;
+- the file can't be opened, written or renamed (the temp file is removed first, so a failed save never replaces a good vocab with a truncated
+  one).
 
-> **Fails silently.** If the file can't be opened it prints to `std::cerr` and **returns
-> normally**. Write errors aren't checked either. Verified with an unwritable path: no exception.
-> This matters because `EncoderDecoderModel::save()` calls it for every checkpoint: a full disk or
-> bad path yields a checkpoint with weights but **no `.vocab`**, which then fails at `load()`.
-> `IncrementalTrainer`'s vocab bootstrap and `vocab_builder` have the same exposure.
+On success it logs a summary to `std::cout`.
 
-**Fixed in code October 17, 2026 (TD-221):** `save_vocab()` writes `<filename>.tmp`, checks the
-stream after flushing and closing, then renames it into place. It throws `VocabularyFileError` if
-the name is empty or if opening, writing or renaming fails, removing the temp file first, so a
-failed save never replaces a good vocab with a truncated one. How the callers now behave:
-- `EncoderDecoderModel::save_model()` lets the exception through.
-- `IncrementalTrainer` treats an end-of-pass checkpoint that fails to save as a failed pass: no
-  session is recorded, no MNS candidate is reported, and the claimed files are released, not marked
-  trained. Its vocab bootstrap returns false.
-- `vocab_builder` reaches its error path and exits 1 instead of printing success.
+How the callers handle a failure (each catches the exception, rechecked October 19, 2026):
+- **`EncoderDecoderModel::save_model()`** lets it through. `IncrementalTrainer::save_model()`, the best-snapshot callback and the auto-save
+  path each catch it. An end-of-pass checkpoint that fails to save fails the pass: no session is recorded, no MNS candidate is reported, and
+  the claimed files are released, not marked trained.
+- **`ChatbotTrainer::build_vocabulary()`** and `IncrementalTrainer`'s vocab bootstrap return false.
+- **`vocab_builder`** reaches its error path and exits 1.
+
+> **Fixed (TD-221, October 17, 2026): it used to fail silently.** An unopenable file printed to `std::cerr` and returned normally, and write
+> errors weren't checked. So a full disk or a bad path left a checkpoint with weights but no `.vocab`, which then failed at load.
 
 ### `load_vocab(filename)`
 
@@ -421,9 +418,9 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 
 | Item | Impact | Verified | Tracked as |
 |---|---|---|---|
-| `"|||"` pair separator: pairs whose split lands in the separator (e.g. `("|","|")`) stop merge learning (§5) | Pipe-heavy corpora get few or no merges | Yes: 0 of 52 merges learned; **fixed in code October 17, 2026** | [TD-220](../../guides/TECHNICAL_DEBT.md#td-220-bpe-merge-learning-is-corrupted-by-the--pair-key-separator) |
+| `"|||"` pair separator: pairs whose split lands in the separator (e.g. `("|","|")`) stop merge learning (§5) | Pipe-heavy corpora got few or no merges | **Fixed October 17, 2026** (was verified: 0 of 52 merges) | [TD-220](../../guides/TECHNICAL_DEBT.md#td-220-bpe-merge-learning-is-corrupted-by-the--pair-key-separator) |
 | `apply_bpe()` thread-local cache never invalidated; keyed by address; never freed (§6) | Stale tokenization after `load_vocab()` or address reuse; slow memory growth | Yes, both cases | [TD-222](../../guides/TECHNICAL_DEBT.md#td-222-apply_bpes-thread-local-cache-is-never-invalidated) |
-| `save_vocab()` fails silently (§8) | Checkpoints can be written without their `.vocab` | Yes; **fixed in code October 17, 2026** | [TD-221](../../guides/TECHNICAL_DEBT.md#td-221-bpetokenizersave_vocab-fails-silently-so-checkpoints-can-lack-their-vocab) |
+| `save_vocab()` fails silently (§8) | Checkpoints could be written without their `.vocab` | **Fixed October 17, 2026**; Windows-safe rename added October 19, 2026 | [TD-221](../../guides/TECHNICAL_DEBT.md#td-221-bpetokenizersave_vocab-fails-silently-so-checkpoints-can-lack-their-vocab) |
 | `load_vocab()` not exception-safe (§8) | Failed load leaves a gutted tokenizer | Yes: 12 → 1 tokens | [TD-223](../../guides/TECHNICAL_DEBT.md#td-223-tokenizer-mutators-can-leave-it-gutted-or-with-duplicate-ids) |
 | Second `build_vocab()` corrupts IDs; `RepeatedBuildVocab` test doesn't catch it (§5) | Duplicate IDs if an instance is reused | Yes: 3 shared IDs | [TD-223](../../guides/TECHNICAL_DEBT.md#td-223-tokenizer-mutators-can-leave-it-gutted-or-with-duplicate-ids) |
 | Lowercasing and whitespace collapsing are lossy (§6) | Models can't see or produce capitals, newlines, tabs | Yes | [TD-224](../../guides/TECHNICAL_DEBT.md#td-224-tokenizer-normalization-is-lossy-no-capitals-newlines-or-tabs) |

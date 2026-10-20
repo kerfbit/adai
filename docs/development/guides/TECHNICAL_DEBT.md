@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 19, 2026
-**Total Items:** 335
+**Total Items:** 338
 **High Priority:** 36
-**Medium Priority:** 145
-**Low Priority:** 154
+**Medium Priority:** 147
+**Low Priority:** 155
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -632,6 +632,23 @@ by its segment.
 Also October 19, 2026: filed [TD-543](#td-543-dataset_manager-segment-queues-a-client-local-path-on-a-remote-registry) (MEDIUM), found while checking the TD-542 fix against a real
 `registry_server`. `add` uploads a local file to the server, but `segment` queues the path as given, so segments made away from the registry host point
 at a file the server can't read.
+
+Also October 19, 2026: filed [TD-544](#td-544-encoderdecodermodelclone-leaves-its-temp-checkpoint-files-behind) (MEDIUM),
+[TD-545](#td-545-incremental_trainer-reset-works-on-the-legacy-pool-not-the-trainers-own) (MEDIUM) and
+[TD-546](#td-546-retrain-trains-a-partly-trained-segmented-file-twice) (LOW). All three were found while rechecking each file the training and
+data-delivery fixes touched; TD-544 and TD-545 were fixed in the same change.
+- **TD-544:** `clone()` left its temp checkpoint's component files in the system temp directory every time it ran, which is every epoch with
+  quality metrics on.
+- **TD-545:** `incremental_trainer reset` worked on the legacy root pool instead of the trainer's `SESSION_DIR/<kind>/` pool.
+- **TD-546:** `retrain` retrains a partly trained segmented file whole, and its pending segments again.
+
+The same recheck also fixed:
+- **TD-326, Android side:** the dashboard's `migrateToKind()` still ignored its assign and delete results.
+- **Windows renames:** two atomic saves added in this run (`BPETokenizer::save_vocab()`, TD-221;
+  `ChatbotTrainer::save_training_state()`, TD-269) used `std::rename()`, which fails on Windows when the target exists. Both now use
+  `std::filesystem::rename()`.
+- **LeJEPA download step:** the LeJEPA pass now shares `resolve_pass_files()`, so it downloads from an FTP registry without `DOWNLOAD_DIR`
+  (TD-411's remote-first rule).
 
 **October 19, 2026:** filed [TD-541](#td-541-a-pass-without-validation-data-has-its-checkpoint-discarded) (MEDIUM), found while testing TD-269. A pass with no validation samples records a
 validation loss of 0, which the checkpoint sanity check treats as "never measured". Its checkpoint is then never resumed from and is deleted at the
@@ -2166,6 +2183,9 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-541: A Pass Without Validation Data Has Its Checkpoint Discarded](#td-541-a-pass-without-validation-data-has-its-checkpoint-discarded)
   - [TD-542: `dataset_manager segment` Keeps a Queued Whole-File Entry, So Its Pairs Train Twice](#td-542-dataset_manager-segment-keeps-a-queued-whole-file-entry-so-its-pairs-train-twice)
   - [TD-543: `dataset_manager segment` Queues a Client-Local Path on a Remote Registry](#td-543-dataset_manager-segment-queues-a-client-local-path-on-a-remote-registry)
+  - [TD-544: `EncoderDecoderModel::clone()` Leaves Its Temp Checkpoint Files Behind](#td-544-encoderdecodermodelclone-leaves-its-temp-checkpoint-files-behind)
+  - [TD-545: `incremental_trainer reset` Works on the Legacy Pool, Not the Trainer's Own](#td-545-incremental_trainer-reset-works-on-the-legacy-pool-not-the-trainers-own)
+  - [TD-546: `retrain` Trains a Partly Trained Segmented File Twice](#td-546-retrain-trains-a-partly-trained-segmented-file-twice)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -4356,6 +4376,10 @@ Files to Modify:
 - `src/EncoderDecoderModel.cpp`
 - `tests/tokenizer_test.cpp`, `tests/tokenizer_error_handling_test.cpp`
 
+**Windows follow-up (October 19, 2026).** The atomic save added by this fix moved its temp file into place with `std::rename()`, which fails on Windows
+when the target exists, so every save after the first would have failed there. It now uses `std::filesystem::rename()`, which replaces the target
+on every platform.
+
 ---
 
 ### TD-222: `apply_bpe()`'s Thread-Local Cache Is Never Invalidated
@@ -5880,6 +5904,10 @@ Files to Modify:
 - `src/IncrementalTrainer.{hpp,cpp}`
 - `src/Optimizer.{hpp,cpp}` (state save/load)
 - `src/EncoderDecoderModel.cpp` (checkpoint sidecar)
+
+**Windows follow-up (October 19, 2026).** The atomic save added by this fix moved its temp file into place with `std::rename()`, which fails on Windows
+when the target exists, so every save after the first would have failed there. It now uses `std::filesystem::rename()`, which replaces the target
+on every platform.
 
 ---
 
@@ -7451,6 +7479,10 @@ Files to Modify:
 - `src/DatasetManagerTool.cpp`
 - `src/DatasetRegistry.{hpp,cpp}`
 - tests (new CLI-level test)
+
+**Android follow-up (October 19, 2026).** The dashboard's `RegistryRepository.migrateToKind()` already carried the segment range but still ignored
+its assign and delete results and returned success. It now checks both like the CLI and removes the destination copy on failure. New unit tests:
+`migrateToKind removes the destination copy and fails when the legacy delete fails` and `… keeps the source when the assign fails`.
 
 ---
 
@@ -14452,6 +14484,88 @@ Location in code: `src/DatasetManagerTool.cpp` (`segment`, `add`).
 Files to Modify:
 
 - `src/DatasetManagerTool.cpp`
+
+---
+
+### TD-544: `EncoderDecoderModel::clone()` Leaves Its Temp Checkpoint Files Behind
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open — code fix landed October 19, 2026 | Model / EncoderDecoderModel | October 19, 2026 | 1 hour |
+
+Description:
+Found while rechecking `EncoderDecoderModel` after TD-358/361/538. `clone()` saves the model to a temp checkpoint in the system temp directory and
+loads it back. It then removed only the five top-level files (`.config`, `.vocab`, `.encoder`, `.decoder`, `.lm_head`), but `save_model()` also
+writes a component file per embedding, block and norm. So every clone left a copy of the model's weights behind. `ChatbotTrainer` clones once per
+epoch for the async BLEU/ROUGE metrics, so a long run with quality metrics on fills the temp directory with full-size weight copies. This machine's
+`/tmp` held 115 clones' worth (4.6 MB) from test runs alone.
+
+Action Items:
+
+- [x] Remove every file of the temp checkpoint (`<tmp>.…` and `<tmp>_…`), as `IncrementalTrainer::checkpoint_files()` does.
+- [x] Test: a clone leaves no files in the temp directory.
+
+**Fix (October 19, 2026).** `clone()`'s cleanup removes every file in the temp directory whose name starts with the temp checkpoint's name followed
+by `.` or `_`. Another clone's files can't match, since their names differ before that character. `CloneLeavesNoTempFiles` points `TMPDIR` at a
+fresh folder and clones a one-layer model. The old code left 11 files and the new one none. Existing leftovers (`/tmp/adai_clone_*`) can be deleted by
+hand.
+
+Location in code: `src/EncoderDecoderModel.cpp` (`clone()`).
+
+---
+
+### TD-545: `incremental_trainer reset` Works on the Legacy Pool, Not the Trainer's Own
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open — code fix landed October 19, 2026 | Training / IncrementalTrainer | October 19, 2026 | 1-2 hours |
+
+Description:
+Found while rechecking `IncrementalTrainer` after TD-413 (the same root cause). `reset_all()` removed `SESSION_DIR/pending_files.txt` and
+`SESSION_DIR/data_registry.txt`, the legacy root pool's files. But `incremental_trainer` always sets `DATASET_KIND` (TD-204), so its local pool is
+`SESSION_DIR/<kind>/` (TD-202). So, with a local registry:
+- `reset` without `--keep-data` deleted the legacy pool's queue, which isn't the trainer's, and left the trainer's own trained records in place, so
+  those files stayed marked trained after a reset;
+- `--keep-data` also removed the pending queue before re-queuing the trained entries. Once pointed at the right pool, that would have thrown away
+  every queued but untrained file.
+
+Action Items:
+
+- [x] Use the same pool directory `LocalTransport` uses (`DatasetRegistry::local_pool_dir()`), only for a local registry.
+- [x] Keep the queue with `--keep-data`; clear it only on a full reset.
+- [x] Test both modes against a kind pool next to a legacy pool.
+
+**Fix (October 19, 2026).**
+- **Shared pool directory:** the new `DatasetRegistry::local_pool_dir(cfg)` is used by both the transport factory and `reset_all()`. Against
+  `registry_server` nothing local is touched.
+- **Queue kept with `--keep-data`:** the queue is removed only without `--keep-data`.
+- **Fresh weights forget the old state:** `reset_model_for_config()` also clears the loaded checkpoint's training-state path (TD-269), since fresh
+  weights shouldn't inherit old optimizer moments.
+- **Test:** `ResetWorksOnTheTrainersOwnPoolAndKeepDataKeepsTheQueue` failed three ways on the old code: the legacy queue was deleted, the full reset
+  left the kind pool's queue, and the legacy file was gone again.
+
+Location in code: `src/IncrementalTrainer.cpp` (`reset_all()`, `reset_model_for_config()`), `src/DatasetRegistry.{hpp,cpp}` (`local_pool_dir()`).
+
+---
+
+### TD-546: `retrain` Trains a Partly Trained Segmented File Twice
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / IncrementalTrainingTool | October 19, 2026 | 1-2 hours |
+
+Description:
+Found while rechecking `IncrementalTrainingTool` after TD-333. `retrain` trains on every path in `trained_files()` (each listed once, whole) plus
+whatever it acquires from pending. A TD-205 segmented file with some segments trained and others still pending is therefore loaded whole from the
+trained list, and its pending segments are acquired and trained again, so those pairs are trained twice in that retrain pass. It only arises with
+segmented files that are part-way through training.
+
+Action Items:
+
+- [ ] Build retrain's trained-file list from the trained records' units (whole files and segments), not `trained_files()`, or drop a trained path's
+  pending segments from the acquired batch.
+
+Location in code: `src/IncrementalTrainingTool.cpp` (`retrain`); tagged `TODO: See TD-546`.
 
 ---
 

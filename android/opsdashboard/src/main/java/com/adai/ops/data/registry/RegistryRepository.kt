@@ -1,7 +1,7 @@
 package com.adai.ops.data.registry
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.6.0
+// @adai-version: 0.7.0
 // @adai-reviewed: 2026-10-19
 
 
@@ -221,9 +221,10 @@ class RegistryRepository(
      * same as the CLI command, this never migrates between two non-legacy kinds directly.
      *
      * Returns [ApiResult.Success] with the created entry's path on success. A failure at the
-     * pending/add step aborts before touching the source entry (so nothing is lost); a failure
-     * at the assign or delete step is reported but the entry is still queued at the
-     * destination — callers should surface [ApiResult.ApiError]'s message either way.
+     * pending/add step aborts before touching the source entry (so nothing is lost). TD-326, as
+     * in the CLI: the assign and delete results are checked, and if either fails the destination
+     * copy is removed again and an [ApiResult.ApiError] is returned, so the entry is never left
+     * in both pools (trained twice) or moved without its model. These results used to be ignored.
      */
     suspend fun migrateToKind(
         group: String,
@@ -241,11 +242,25 @@ class RegistryRepository(
             return ApiResult.ApiError("Failed to queue '${entry.path}' into '$destKind'")
         }
         val target = SegmentTargetDto(entry.path, entry.segment_start, entry.segment_count)
+        suspend fun rollback(reason: String): ApiResult<String> {
+            val undo = deleteEntries(group, force = true, deleteFiles = false, segment = target, kind = destKind)
+            val undone = undo is ApiResult.Success && undo.data.deleted == 1
+            return ApiResult.ApiError(
+                reason + if (undone) "; the '$destKind' copy was removed again." else
+                    "; the '$destKind' copy could not be removed, remove it by hand.",
+            )
+        }
         if (entry.model_name.isNotEmpty()) {
-            assignModelToSegment(group, entry.model_name, target, kind = destKind)
+            val assigned = assignModelToSegment(group, entry.model_name, target, kind = destKind)
+            if (assigned !is ApiResult.Success || assigned.data.assigned < 1) {
+                return rollback("Could not restore model '${entry.model_name}' on '${entry.path}'")
+            }
         }
         // Source is always the legacy pool (kind = null), matching dataset_manager migrate.
-        deleteEntries(group, force = true, deleteFiles = false, segment = target, kind = null)
+        val deleted = deleteEntries(group, force = true, deleteFiles = false, segment = target, kind = null)
+        if (deleted !is ApiResult.Success || deleted.data.deleted != 1) {
+            return rollback("Could not remove '${entry.path}' from the legacy pool")
+        }
         return ApiResult.Success(entry.path)
     }
 

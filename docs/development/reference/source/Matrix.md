@@ -3,10 +3,10 @@
 - **Files:** [`src/Matrix.hpp`](../../../../src/Matrix.hpp), [`src/Matrix.cpp`](../../../../src/Matrix.cpp) (1,349 lines together); SIMD detection in [`src/MatrixSIMD.hpp`](../../../../src/MatrixSIMD.hpp) ([MatrixSIMD.md](MatrixSIMD.md))
 - **Namespace:** global
 - **Built into:** `adai_core`; the numeric type of every layer, optimizer, trainer and inference engine
-- **Status tag:** `@adai-status: beta` ("capped by TD-033"), `@adai-version: 0.9.0`, `@adai-reviewed: 2026-09-10`
-- **Tests:** [`tests/matrix_test.cpp`](../../../../tests/matrix_test.cpp) (58 tests), [`tests/matrix_simd_test.cpp`](../../../../tests/matrix_simd_test.cpp) (20), [`tests/matrixgpu_td003_test.cpp`](../../../../tests/matrixgpu_td003_test.cpp) (13, GPU helper kernels)
+- **Status tag:** `@adai-status: beta` ("capped by TD-033"), `Matrix.cpp` `@adai-version: 0.9.2`, `@adai-reviewed: 2026-10-17`; `Matrix.hpp` `0.9.0`, `2026-09-10`
+- **Tests:** [`tests/matrix_test.cpp`](../../../../tests/matrix_test.cpp) (60 tests), [`tests/matrix_simd_test.cpp`](../../../../tests/matrix_simd_test.cpp) (20), [`tests/matrixgpu_td003_test.cpp`](../../../../tests/matrixgpu_td003_test.cpp) (13, GPU helper kernels)
 - **GPU kernels:** [MatrixGPU.md](MatrixGPU.md), [MatrixGPU_cu.md](MatrixGPU_cu.md), [MatrixGPU_SYCL_cpp.md](MatrixGPU_SYCL_cpp.md)
-- **Last traced against the code:** 2026-10-14
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with scratch programs compiled
 > against the real `Matrix.cpp` (AVX2/FMA + OpenMP, and the portable `-march=x86-64` configuration).
@@ -76,7 +76,7 @@ Checked once per call, in this order (the first match wins):
 
 | # | Path | Condition | Notes |
 |---|---|---|---|
-| 1 | GPU (`multiply_gpu()`) | `GPUManager::is_available() && cols ≥ 32 && other.cols ≥ 32` | Per-call round trip (TD-033); ignores `rows`, so a 1-row decode step still round-trips; unsynchronized shared stream (TD-382) |
+| 1 | GPU (`multiply_gpu()`) | `GPUManager::is_available() && implicit_gpu_dispatch_allowed() && cols ≥ 32 && other.cols ≥ 32` | Per-call round trip (TD-033); ignores `rows`, so a 1-row decode step still round-trips. A thread holding `adai::gpu::ScopedCpuOnly` stays on the CPU (TD-382, October 17, 2026); other threads still share one stream |
 | 2 | BLAS `cblas_sgemm` | `ADAI_ENABLE_BLAS` and every dimension ≥ 256 | Packs and unpacks. **Inactive in the local build**: CMake finds no `cblas.h` |
 | 3 | AVX2 (+FMA) ikj | `__AVX2__` at compile time | OpenMP `schedule(dynamic, 16) if (rows > 64)` |
 | 4 | NEON ikj | AArch64 | Same OpenMP gate |
@@ -158,7 +158,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `sum()` accumulates in `float` (§2) | 2.2% error at 16.8M elements; few callers | **Verified** | [TD-435](../../guides/TECHNICAL_DEBT.md#td-435-matrix-accessor-cost-sum-accuracy-randomize-race-and-api-hygiene) |
 | `randomize()` static RNG isn't thread-safe (§2) | Data race if layers initialize concurrently | By inspection | [TD-435](../../guides/TECHNICAL_DEBT.md#td-435-matrix-accessor-cost-sum-accuracy-randomize-race-and-api-hygiene) |
 | Public mutable `data`/`rows`/`cols`; negative sizes give `length_error`; `print()` to stdout; `*_gpu()` wrappers unused outside tests (§1, §2) | API hygiene | By inspection | [TD-435](../../guides/TECHNICAL_DEBT.md#td-435-matrix-accessor-cost-sum-accuracy-randomize-race-and-api-hygiene) |
-| Per-op GPU round trips; GPU dispatch ignores `rows` and shares an unsynchronized stream; unseedable `randomize()`; SYCL zero-size buffers | Already tracked | — | TD-033, TD-382, TD-368, TD-392 |
+| Per-op GPU round trips; GPU dispatch ignores `rows`; unseedable `randomize()`; SYCL zero-size buffers | Already tracked | — | TD-033, TD-368, TD-392 (the shared-stream race, TD-382, was fixed October 17, 2026) |
 
 ---
 

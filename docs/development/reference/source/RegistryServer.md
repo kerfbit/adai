@@ -1,12 +1,12 @@
 # `RegistryServer` — Source File Reference
 
-- **File:** [`src/RegistryServer.cpp`](../../../../src/RegistryServer.cpp) (1,939 lines; `main()` and every handler, file-scope globals)
+- **File:** [`src/RegistryServer.cpp`](../../../../src/RegistryServer.cpp) (2,021 lines; `main()` and every handler, file-scope globals)
 - **Binary:** `registry_server` (port 8082), built from `RegistryServer.cpp`, `Config.cpp` and `RegistryServerArgs.cpp`
 - **Clients:** `RemoteTransport` ([DatasetRegistry.md](DatasetRegistry.md)) in `incremental_trainer` and `dataset_manager`; the Android ops dashboard's Registry tab; `mns_server`'s dataset proxy
-- **Status tag:** `@adai-status: beta` (TD-035 partly resolved; TD-040 resolved), `@adai-version: 0.10.1`, `@adai-reviewed: 2026-09-20`
-- **Tests:** no in-process tests. [`dataset_registry_live_test.cpp`](../../../../tests/dataset_registry_live_test.cpp) (86 tests against a running server; **all pass** against a local instance), [`registry_ftp_confinement_test.cpp`](../../../../tests/registry_ftp_confinement_test.cpp) (4, spawns the binary; pass), `registry_server_args_test.cpp` (11, see [RegistryServerArgs.md](RegistryServerArgs.md))
+- **Status tag:** `@adai-status: beta` (TD-035 partly resolved; TD-040 resolved), `@adai-version: 0.12.1`, `@adai-reviewed: 2026-10-19`
+- **Tests:** no in-process tests. [`dataset_registry_live_test.cpp`](../../../../tests/dataset_registry_live_test.cpp) (87 tests against a running server; **all pass** against a local instance), [`registry_ftp_confinement_test.cpp`](../../../../tests/registry_ftp_confinement_test.cpp) (4, spawns the binary; pass), `registry_server_args_test.cpp` (11, see [RegistryServerArgs.md](RegistryServerArgs.md))
 - **Related:** [FtpDataServer.md](FtpDataServer.md), [DataFetcher.md](DataFetcher.md), [ParquetReader.md](ParquetReader.md), [DaemonConfigStore.md](DaemonConfigStore.md), [DataTransport.md](DataTransport.md)
-- **Last traced against the code:** 2026-10-17
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. Behaviour marked **verified** was confirmed against the real `registry_server` binary (`build/debug/bin`), started with
 > `--config /dev/null` and a scratch `--data-dir`, using `curl`.
@@ -52,11 +52,12 @@ Every `/registry/<group>/…` route also accepts `/registry/<group>/<encoder|dec
 |---|---|
 | `GET …/queue` | Every pending entry: path, `run_id`, `model_name`, source, `added_utc`, size, `num_entries`, checksum, segment range |
 | `POST …/acquire {run_id, max_files, model_name}` | Claims up to `max_files` (≤ 0 = all) entries that are unclaimed or already claimed by this `run_id`, and are unassigned or assigned to `model_name`. With FTP active, entries outside `data_dir` are skipped (TD-040). Response: legacy `acquired` + parallel segment arrays, or (FTP) per-file `registry_path`/`ftp_path`/one-time credentials/size/checksum/expiry/segment. **No lease:** a claim stays until `release`, `trained` or a forced delete |
-| `POST …/release {run_id, files | segments}` | Clears `run_id` on matching entries; an empty `run_id` releases regardless of owner. `files` matches whole-file entries only |
+| `POST …/release {run_id, files, segments}` | Clears `run_id` on matching entries; an empty `run_id` releases regardless of owner. `files` matches whole-file entries only, `segments` exact ranges; both apply in one request (TD-333; it used to be either/or) |
 | `POST …/assign {model_name, paths | segments | count}` | Sets `model_name`: explicit segments; else paths (whole-file); else the first `count` unassigned whole-file entries; else **every** entry. `model_name` must match `[A-Za-z0-9._-]+` |
 | `POST …/unassign {model_name, paths | segments, force}` | Clears `model_name`; refuses all-empty; skips claimed entries unless `force` |
-| `POST …/delete {paths | segments, force, delete_files}` | Removes from pending (claimed ones only with `force`) and from the trained registry (whole-file only); `delete_files` unlinks the file if it resolves under `<data_dir>/<group>` |
-| `POST …/trained {run_id, files, samples, model_id}` | Adds a `DataVersion` per file **not already in the registry** (checksum from the local file, else `REMOTE`), then removes the files from pending where `run_id` matches (or is empty) |
+| `POST …/delete {paths | segments, force, delete_files}` | Removes from pending (claimed ones only with `force`) and from the trained registry (a whole-file target removes every record of the path, a segment target that segment's record, TD-333); `delete_files` unlinks the file if it resolves under `<data_dir>/<group>` |
+| `POST …/trained {run_id, files, samples, model_id, segment_starts, segment_counts}` | Adds a `DataVersion` per unit **not already recorded** (checksum from the local file, else `REMOTE`), with its sample count. Since TD-333 the optional `segment_starts`/`segment_counts` arrays, parallel to `files`, make it exact: each segment gets its own record and only those units leave pending. Without them, as before, records are per path and every entry of each path where `run_id` matches (or is empty) leaves pending |
+| `POST …/requeue {paths, all, model_name}` | TD-540: moves trained records back to pending (each as its own unit, TD-333); see the addendum |
 | `GET …/registry`, `…/runs`, `…/history[?model_id=]` | The trained registry; claimed files per run; registry filtered by model |
 | `POST …/pending/add {path, segment_start, segment_count}` | Queues any path (warns if outside `data_dir`); returns `added:false` if the same path/segment is already pending |
 | `POST …/session/next {model_name, run_id}` | `session-NN`, incrementing per `(model_name, run_id)`; group-agnostic |
@@ -112,8 +113,8 @@ doesn't distinguish "added" from "already pending", unlike `pending/add`.
 `trained` records a file in the registry regardless of `run_id`, and only the pending removal checks it. With `d.jsonl` claimed by `r1`, a `trained`
 call from run `other` returned `trained: 1` and added the registry record (with the replaced file's checksum), while the entry stayed pending and claimed
 by `r1`. When `r1` then reported it trained, the response was `trained: 0` (the registry already had the path) although the pending entry was removed.
-So a stale or mistaken run can mark another run's file trained, and the real run's samples/`model_id` are never recorded. Because the registry is keyed
-by bare path, a file re-added and trained again is never recorded a second time either (with TD-333's segment problem on top).
+So a stale or mistaken run can mark another run's file trained, and the real run's samples/`model_id` are never recorded. A file re-added and
+trained again as the same unit is never recorded a second time either (records are keyed by path and, since TD-333, segment).
 
 ### Smaller items
 
@@ -136,7 +137,7 @@ by bare path, a file re-added and trained again is never recorded a second time 
 | `SIGHUP` terminates the server | TD-283 |
 | Session-counter atomicity, admin PUT partial apply and range checks | TD-304, TD-305, TD-306, TD-308 |
 | Gutenberg regex crash, HuggingFace `split` traversal, partial caches, Parquet hangs | TD-309, TD-310, TD-313, TD-470 |
-| Segments released/recorded by bare path; sample counts always 0 | TD-333, TD-334 |
+| Segments released/recorded by bare path; sample counts always 0 (both fixed October 19, 2026) | TD-333, TD-334 |
 | FTP data-connection hijack and protocol gaps | TD-372–TD-377 |
 
 ---

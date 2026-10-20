@@ -3,10 +3,10 @@
 - **File:** [`src/gpu/GPUUtils.hpp`](../../../../src/gpu/GPUUtils.hpp) (header-only, 492 lines)
 - **Namespace:** `adai::gpu` (`GPUManager`, `GPUMemory<T>`), plus the `CUDA_CHECK`/`CUBLAS_CHECK` macros
 - **Built into:** every GPU-enabled target via `adai_gpu`; the no-GPU stub is used by every other build
-- **Status tag:** `@adai-status: beta`, `@adai-version: 0.9.2`, `@adai-reviewed: 2026-09-13`
-- **Tests:** [`tests/gpuutils_test.cpp`](../../../../tests/gpuutils_test.cpp) → `gpuutilsTests` (18 tests; 9 need a CUDA device and skip without one)
+- **Status tag:** `@adai-status: beta`, `@adai-version: 0.10.0`, `@adai-reviewed: 2026-10-17`
+- **Tests:** [`tests/gpuutils_test.cpp`](../../../../tests/gpuutils_test.cpp) → `gpuutilsTests` (19 tests; 9 need a CUDA device and skip without one)
 - **SYCL counterpart:** `src/gpu/sycl/GPUUtils_SYCL.hpp` (documented separately)
-- **Last traced against the code:** 2026-10-12
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. No CUDA device is available in this environment, so nothing here was run on
 > real hardware. The CUDA test build (`build/cuda-gputest`) was run: its 9 host-side tests pass and
@@ -41,7 +41,10 @@ goals in the header are about sharing a GPU politely with other tenants:
 
 ## 2. CUDA `GPUManager`
 
-All state is `inline static`, so there's one manager per process and **no locking**.
+All state is `inline static`, so there's one manager per process. Since TD-382 (October 17, 2026),
+the memory budget is guarded by `memory_mutex_` and the cuBLAS handle by `cublas_mutex()`. The rest
+(device selection, initialization flags) is still unlocked and meant to be set up once, before
+training threads start (TD-383).
 
 | Member | Behaviour |
 |---|---|
@@ -120,7 +123,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
 | `chatbot_api_server` ignores `GPU_STRATEGY` (always low priority) although its config ships `full` (§4) | The documented serving GPU mode doesn't take effect | By inspection (definite) | [TD-381](../../guides/TECHNICAL_DEBT.md#td-381-chatbot_api_server-ignores-gpu_strategy) |
-| No locking: `allocated_bytes_` and the cuBLAS handle are shared by every thread, and `Matrix::operator*` uses the GPU from any thread, including the "CPU-only" async quality thread (§2, §4) | Lost budget updates; unsupported concurrent cuBLAS handle use during training | By inspection; **fixed in code October 17, 2026** | [TD-382](../../guides/TECHNICAL_DEBT.md#td-382-gpu-work-from-any-thread-shares-unsynchronized-gpumanager-state) |
+| No locking: `allocated_bytes_` and the cuBLAS handle are shared by every thread, and `Matrix::operator*` uses the GPU from any thread, including the "CPU-only" async quality thread (§2, §4) | Lost budget updates; unsupported concurrent cuBLAS handle use during training | **Fixed October 17, 2026** (found by inspection) | [TD-382](../../guides/TECHNICAL_DEBT.md#td-382-gpu-work-from-any-thread-shares-unsynchronized-gpumanager-state) |
 | `set_device()` doesn't rebind the stream or cuBLAS handle and doesn't reset the budget, contrary to its doc; no caller (§2) | A latent trap for multi-GPU use | By inspection | [TD-383](../../guides/TECHNICAL_DEBT.md#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize) |
 | `cleanup()` zeroes the budget while `GPUMemory` buffers still exist; `initialize()` ignores new arguments once initialized and leaks the stream on partial failure; `probe_diagnostic()` hides the error; unchecked `count × sizeof(T)` (§2–3) | Wrong accounting after re-init; confusing diagnostics | By inspection | [TD-383](../../guides/TECHNICAL_DEBT.md#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize) |
 | Nothing runs on a real CUDA device in any environment used so far | All device paths unverified | — | — (needs a CUDA host) |

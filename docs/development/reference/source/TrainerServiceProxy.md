@@ -1,11 +1,11 @@
 # `TrainerServiceProxy` — Source File Reference
 
-- **Files:** [`src/TrainerServiceProxy.hpp`](../../../../src/TrainerServiceProxy.hpp) (94 lines), [`src/TrainerServiceProxy.cpp`](../../../../src/TrainerServiceProxy.cpp) (417 lines)
+- **Files:** [`src/TrainerServiceProxy.hpp`](../../../../src/TrainerServiceProxy.hpp) (94 lines), [`src/TrainerServiceProxy.cpp`](../../../../src/TrainerServiceProxy.cpp) (363 lines)
 - **Namespace:** `adai`
 - **Used by:** `trainer_service` ([TrainerServiceMain.md](TrainerServiceMain.md)): its public admin listener on `TRAINER_ADMIN_HOST:TRAINER_ADMIN_PORT` (127.0.0.1:8084 shipped), started only with `TRAINER_ADMIN_ENABLED=true`. Clients: `curl`, the Android ops dashboard's Trainer tab (via the `trainer.kerfbit.dev` tunnel)
-- **Status tag:** `@adai-status: experimental`, `@adai-version: 0.2.0`, `@adai-reviewed: 2026-09-14`
-- **Tests:** [`tests/trainer_service_proxy_test.cpp`](../../../../tests/trainer_service_proxy_test.cpp) (17 tests, `trainerServiceProxyTests`; all pass)
-- **Last traced against the code:** 2026-10-17
+- **Status tag:** `@adai-status: experimental`, `TrainerServiceProxy.cpp` `@adai-version: 0.3.0`, `@adai-reviewed: 2026-10-19`; `.hpp` `0.2.0`, `2026-09-14`
+- **Tests:** [`tests/trainer_service_proxy_test.cpp`](../../../../tests/trainer_service_proxy_test.cpp) (18 tests, `trainerServiceProxyTests`; all pass)
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with a scratch program running the real proxy in front of a real
 > [`TrainerAdminAPI`](TrainerAdminAPI.md) child instance, called with `curl`.
@@ -26,8 +26,9 @@ The always-on admin endpoint of `trainer_service`. While a child pass is alive (
 | `POST /admin/checkpoint[?wait_ms=N]` | Proxied (`wait_ms` copied into the path) | 409 |
 | `POST /admin/pause` / `resume` | Always set/clear `TrainerServiceControlState::paused` and `wake()` the supervisor (TD-173); then best-effort proxy to the child (response ignored); 202 | Same, without the proxy |
 
-`with_supervisor_fields()` appends `supervisor_paused`, `total_passes_launched`, `total_passes_did_work`, `total_passes_crashed`, `last_exit_code` and
-`service_uptime_seconds` before the final `}` (only if the body ends with one). Proxy requests use a new `httplib::Client` with a 1 s connection and 5 s
+`with_supervisor_fields()` appends `supervisor_paused`, `total_passes_launched`, `total_passes_did_work`, `total_passes_crashed`,
+`total_passes_failed`, `consecutive_failures`, `last_failure_unix` (the last three since TD-523), `last_exit_code` and `service_uptime_seconds` before
+the final `}` (only if the body ends with one). Proxy requests use a new `httplib::Client` with a 1 s connection and 5 s
 read timeout; a connection failure becomes **503 "training pass is starting or exiting; try again shortly"**.
 
 ---
@@ -61,11 +62,11 @@ passes sees values that won't apply. The shipped config uses the same numbers as
 
 | Item | Tracked as |
 |---|---|
-| Spaced `"auto_save_enabled": true` reads as false (idle handler copy) | TD-519 |
+| Spaced `"auto_save_enabled": true` read as false (idle handler copy); fixed October 19, 2026 with the shared `parse_trainer_admin_config()` | TD-519 |
 | NaN losses in the child's status relayed as invalid JSON | TD-520 |
-| Idle PUT persists earlier keys before rejecting a later one | TD-305 |
+| Idle PUT persisted earlier keys before rejecting a later one; fixed October 19, 2026 (validated first) | TD-305 |
 | Duplicated hand-written JSON helpers | TD-453 |
-| A failing child looks idle in the supervisor fields | TD-523 |
+| A failing child looked idle in the supervisor fields; fixed October 19, 2026 (`total_passes_failed`, …) | TD-523 |
 
 ---
 
@@ -89,7 +90,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | 5 s proxy read timeout vs unbounded `wait_ms`; generic "starting or exiting" 503 (§2) | An accepted checkpoint reported as a failure; misleading errors when the child API is down | **Verified** | [TD-525](../../guides/TECHNICAL_DEBT.md#td-525-trainerserviceproxy-misreports-long-checkpoint-waits-and-idle-config) |
 | Idle config ignores `config.trainer.conf` (§2) | Between passes, reported settings differ from what the next pass uses | **Verified** | [TD-525](../../guides/TECHNICAL_DEBT.md#td-525-trainerserviceproxy-misreports-long-checkpoint-waits-and-idle-config) |
 | Unencoded `wait_ms` in the proxied path; two meanings of `paused`; per-request clients; ignored pause/resume proxy failures (§2) | Hygiene | By inspection | [TD-525](../../guides/TECHNICAL_DEBT.md#td-525-trainerserviceproxy-misreports-long-checkpoint-waits-and-idle-config) |
-| Boolean parsing, NaN status, partial PUT, duplicated JSON, failing child shown idle | Already tracked | — | TD-519, TD-520, TD-305, TD-453, TD-523 |
+| NaN status, duplicated JSON | Already tracked | — | TD-520, TD-453 (boolean parsing, partial PUT and the idle-looking failing child, TD-519/305/523, fixed October 19, 2026) |
 
 ## Addendum (October 19, 2026): shared PUT parser and failure fields (TD-519, TD-523)
 

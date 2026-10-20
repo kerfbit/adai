@@ -1,12 +1,12 @@
 # `StartupSweep` — Source File Reference
 
-- **File:** [`src/StartupSweep.hpp`](../../../../src/StartupSweep.hpp) (header-only, 107 lines)
+- **File:** [`src/StartupSweep.hpp`](../../../../src/StartupSweep.hpp) (header-only, 147 lines)
 - **Namespace:** global (`startup_sweep()`)
 - **Used by:** `incremental_trainer` ([`IncrementalTrainingTool.cpp`](../../../../src/IncrementalTrainingTool.cpp)): before the first acquire in `train`, `retrain` and `--objective=lejepa`
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0`, `@adai-reviewed: 2026-09-10`
-- **Tests:** [`tests/StartupSweepTests.cpp`](../../../../tests/StartupSweepTests.cpp) (7 tests; all pass)
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.3.0`, `@adai-reviewed: 2026-10-19`
+- **Tests:** [`tests/StartupSweepTests.cpp`](../../../../tests/StartupSweepTests.cpp) (10 tests; all pass)
 - **Design:** [dataset-transport-proposal.md](../../archive/dataset-transport-proposal.md), "Stale Download Cleanup"
-- **Last traced against the code:** 2026-10-17
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with a scratch program using the real `DatasetRegistry` and `startup_sweep()`.
 
@@ -15,12 +15,16 @@
 ## 1. What this file is
 
 `startup_sweep(reg, run_id, download_dir)` cleans the FTP download directory (`DOWNLOAD_DIR`, `downloads` in `config.trainer.conf`) before a pass
-acquires files. It returns at once if the directory is unset or missing. Files are matched to the registry **by basename**:
+acquires files. It returns at once if the directory is unset or missing. It loads the pending list itself, and **skips the whole sweep if that
+fails** (TD-512). It then loads the trained registry, treating a failure as "nothing trained". Files are matched to the registry by
+`download_file_name(registry_path)`, the name `DataTransport` gives a download: a full-path hash, `_`, the basename (TD-337). It used to
+match by basename:
 
 | Condition | Test | Action |
 |---|---|---|
-| D | Basename is in `reg.trained_files()` | Delete the local copy |
-| G | Basename isn't in `reg.pending_files()` | "Orphaned": delete |
+| — | A `<download>.checksum` sidecar (TD-338) | Skipped; removed only if its download is gone. Every deletion below also removes the file's sidecar |
+| D | Name is a trained file's and **not** also a pending one's (a file can be trained in part, TD-333) | Delete the local copy |
+| G | Name isn't any pending entry's | "Orphaned": delete |
 | A | Pending, zero bytes | Delete and `release_pending(run_id, {path})` |
 | B/C | Pending, non-empty | Keep: `DataTransport::fetch()` reuses a complete file or resumes a partial one |
 
@@ -30,27 +34,21 @@ Subdirectories are skipped.
 
 ## 2. Problems
 
-### Production never loads the pending list, so the sweep deletes every download (verified)
+### Fixed: production never loaded the pending list, so the sweep deleted every download (TD-512, October 18, 2026)
 
-`pending_files()` returns `DatasetRegistry`'s in-memory `pending_`, which is filled only by `load_pending_list()`. All three call sites construct a
-fresh `DatasetRegistry`, call **`load_registry()` only**, and then call `startup_sweep()`. With two queued files (`a.jsonl` partly downloaded, `b.jsonl`
-complete) and an operator's `notes.txt` in `downloads/`, the production sequence saw **0 pending files** and **deleted all three** as orphans
-(condition G). After `load_pending_list()`, both downloads were kept.
+`pending_files()` is filled only by `load_pending_list()`, and every call site loaded only the trained registry. With two queued files
+(`a.jsonl` partly downloaded, `b.jsonl` complete) and an operator's `notes.txt` in `downloads/`, the production sequence saw 0 pending files and
+deleted all three as orphans. So conditions A, B and C never ran: every pass re-downloaded everything in full, resume never happened, and
+anything else in `DOWNLOAD_DIR` was deleted. The tests missed it because each added files to the instance it then swept. A registry failure
+had the same effect. Now the sweep loads the pending list itself and skips deleting when it can't
+(`FreshRegistryKeepsQueuedDownloads`, `UnreadablePendingListDeletesNothing`).
 
-So conditions A, B and C never run in production: every pass deletes every completed and partial download (they are re-downloaded in full, and resume
-never happens), and anything else placed in `DOWNLOAD_DIR` is deleted too. The tests don't catch this because each one adds files to the same registry
-instance it then sweeps, so `pending_` is already populated.
+### Fixed: basename matching (TD-513's first part, October 19, 2026, with TD-337)
 
-### The same deletion follows any registry failure (by inspection)
-
-If the registry can't be reached, `load_registry()` returns false with the trained set empty, and the pending list is empty anyway, so every file again
-matches condition G. A cleanup step that deletes data should skip deletion when it couldn't load the state it relies on.
-
-### Basename matching (by inspection)
-
-- **Condition D deletes a pending file's download** when any trained file anywhere (another group, model or directory) shares its basename (`train.jsonl`,
-  `data.jsonl`): D is checked before the pending lookup. This is the sweep side of TD-337's basename naming of downloads.
-- Two pending files with the same basename collapse to one map entry, so condition A can release the wrong one.
+Condition D used to delete a pending file's download whenever any trained file anywhere shared its basename (`train.jsonl`), and two pending
+files with one basename collapsed to one map entry. Downloads are now matched by their full-path names
+(`TrainedFileWithSameBasenameDoesNotDeleteAPendingDownload`). **Upgrade note:** downloads still under old basename names match nothing, so
+the first sweep after the upgrade deletes them once (condition G), and they are fetched again.
 
 ### Smaller items (by inspection)
 
@@ -63,10 +61,12 @@ matches condition G. A cleanup step that deletes data should skip deletion when 
 
 ## 3. Tests
 
-`StartupSweepTests.cpp` (7): conditions D, G, A (deleted and released) and B/C (kept), an empty directory, a missing directory and an empty path. Every
-test populates the pending list on the instance it sweeps.
+`StartupSweepTests.cpp` (10): conditions D, G, A (deleted and released) and B/C (kept), an empty directory, a missing directory and an empty path.
+Added October 18–19, 2026:
+- the production sequence and an unreadable pending list (TD-512);
+- a same-basename trained file next to a pending download, with sidecar cleanup (TD-337/338).
 
-**Not covered:** the production sequence (`load_registry()` only), registry failure, basename collisions, filesystem errors.
+**Not covered:** filesystem errors, segment release in condition A.
 
 ---
 
@@ -77,11 +77,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Callers never call `load_pending_list()`; every file looks orphaned (§2) | Every pass deletes all downloads (and anything else in `DOWNLOAD_DIR`); resume and reuse never happen | **Verified** | [TD-512](../../guides/TECHNICAL_DEBT.md#td-512-startup-sweep-deletes-every-download-because-the-pending-list-is-never-loaded) |
-| Registry failure also wipes the directory (§2) | Data loss on a network blip | By inspection | [TD-512](../../guides/TECHNICAL_DEBT.md#td-512-startup-sweep-deletes-every-download-because-the-pending-list-is-never-loaded) |
-| Basename matching: trained-name collisions delete pending downloads; same-name pending files collapse (§2) | Spurious deletions and wrong releases | By inspection | [TD-513](../../guides/TECHNICAL_DEBT.md#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) |
+| Callers never call `load_pending_list()`; every file looks orphaned (§2) | Every pass deleted all downloads (and anything else in `DOWNLOAD_DIR`); resume and reuse never happened | **Fixed October 18, 2026** (was verified) | [TD-512](../../guides/TECHNICAL_DEBT.md#td-512-startup-sweep-deletes-every-download-because-the-pending-list-is-never-loaded) |
+| Registry failure also wipes the directory (§2) | Data loss on a network blip | **Fixed October 18, 2026** | [TD-512](../../guides/TECHNICAL_DEBT.md#td-512-startup-sweep-deletes-every-download-because-the-pending-list-is-never-loaded) |
+| Basename matching: trained-name collisions delete pending downloads; same-name pending files collapse (§2) | Spurious deletions and wrong releases | **Fixed October 19, 2026** (with TD-337) | [TD-513](../../guides/TECHNICAL_DEBT.md#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) |
 | Throwing filesystem calls; whole-file release (§2) | Crash on permission errors; stranded segment claims | By inspection | [TD-513](../../guides/TECHNICAL_DEBT.md#td-513-startup_sweep-basename-matching-and-unchecked-filesystem-calls) |
-| Download naming by basename; segment release | Already tracked | — | TD-337, TD-333 |
+| Download naming by basename (fixed October 19, 2026); segment release | Already tracked | — | TD-337, TD-333 |
 
 ## Addendum (October 18, 2026): TD-512 fixed
 
@@ -93,7 +93,7 @@ Callers no longer need to load anything first. The `resume` command (every `trai
 - `FreshRegistryKeepsQueuedDownloads` reproduces the production sequence above and keeps both queued downloads; the old code deleted them.
 - `UnreadablePendingListDeletesNothing`.
 
-TD-513 (basename matching) is unchanged.
+TD-513 (basename matching) was left for TD-337 and fixed with it (next addendum).
 
 ## Addendum (October 19, 2026): download names and checksum sidecars (TD-337, TD-338)
 

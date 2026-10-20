@@ -3,9 +3,9 @@
 - **File:** [`src/DataTransport.hpp`](../../../../src/DataTransport.hpp), header-only (the implementation is inline in the header)
 - **Namespace:** global (`dt_detail` for helpers)
 - **Built into:** `incremental_trainer` (the only includer, `IncrementalTrainingTool.cpp`); real implementation only when `BUILD_FTP_TRANSPORT` (libcurl found), otherwise stubs that throw
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0`, `@adai-reviewed: 2026-09-10`
-- **Tests:** [`tests/DataTransportTests.cpp`](../../../../tests/DataTransportTests.cpp) (14 defined; 13 run in a libcurl build, since some stub tests compile only without `BUILD_FTP_TRANSPORT`), [`tests/DataTransportFtpTests.cpp`](../../../../tests/DataTransportFtpTests.cpp) (30), [`tests/StartupSweepTests.cpp`](../../../../tests/StartupSweepTests.cpp) (7, the download-dir sweep in the trainer)
-- **Last traced against the code:** 2026-10-11
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.1.0`, `@adai-reviewed: 2026-10-19`
+- **Tests:** [`tests/DataTransportTests.cpp`](../../../../tests/DataTransportTests.cpp) (14 defined; 13 run in a libcurl build, since some stub tests compile only without `BUILD_FTP_TRANSPORT`), [`tests/DataTransportFtpTests.cpp`](../../../../tests/DataTransportFtpTests.cpp) (32), [`tests/StartupSweepTests.cpp`](../../../../tests/StartupSweepTests.cpp) (10, the download-dir sweep in the trainer)
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. Behaviour marked **verified** was confirmed end-to-end on loopback:
 > a local `registry_server` with its embedded FTP server enabled, a 15.8 MB, 200,000-pair JSONL
@@ -40,14 +40,21 @@ and the pass is skipped.
 
 ### `fetch(token, host, port, download_dir, large_file_warn_bytes = 0, ftps = false)`
 
-1. **Create** `download_dir`. The local path is **`download_dir / filename(token.ftp_path)`**,
-   the basename only.
-2. **Condition B:** if `size_bytes > 0` and a local file of exactly that size exists, return it
-   immediately ("`[CLEANUP-B]` … Skipping re-download"). **The size is the only check.**
-3. If `size_bytes ≥ large_file_warn_bytes`, log a large-transfer warning.
-4. **URL:** `ftp://<user>:<password>@<host>:<port>/<path>`. Each path segment is percent-encoded by
+1. **Create** `download_dir`. The local path is `local_path_for(token, dir)` =
+   `dir / download_file_name(token.registry_path)` (`ftp_path` if the registry path is empty): a
+   16-hex-digit hash of the full registry path, `_`, the basename (TD-337).
+2. **Checksum check (TD-338):** if the token has a checksum and a local file exists, its sidecar
+   `<local>.checksum` must hold that checksum; otherwise the file (and sidecar) is deleted and
+   downloaded again.
+3. **Condition B:** if `size_bytes > 0` and a local file of exactly that size exists (and passed step
+   2), return it immediately ("`[CLEANUP-B]` … Skipping re-download"). Tokens without a checksum keep
+   the size-only check.
+4. **Sidecar:** write the token's checksum to `<local>.checksum` before transferring, so a partial
+   file is only resumed against the same version.
+5. If `size_bytes ≥ large_file_warn_bytes`, log a large-transfer warning.
+6. **URL:** `ftp://<user>:<password>@<host>:<port>/<path>`. Each path segment is percent-encoded by
    `url_encode_ftp_path()`. The credentials aren't encoded; they're hex tokens from the server.
-5. **Up to 4 attempts** (`kMaxRetries = 3`). Each attempt:
+7. **Up to 4 attempts** (`kMaxRetries = 3`). Each attempt:
    - Works out the resume offset from the local file: an empty file starts over, an oversized one is
      deleted, a smaller one resumes with `CURLOPT_RESUME_FROM_LARGE`.
    - Opens the file to append (resume) or truncate.
@@ -57,55 +64,58 @@ and the pass is skipped.
      certificate).
    - Retries only `is_transient()` errors: timeout, recv/send error, got nothing, partial file,
      accept timeout. `COULDNT_CONNECT`, login and URL errors fail at once.
-6. On final failure, **delete the local file** and throw. Otherwise verify the final size
-   (`size_bytes > 0` only); on a mismatch, delete and throw.
+8. On final failure, **delete the local file and its sidecar** and throw. Otherwise verify the final
+   size (`size_bytes > 0` only); on a mismatch, delete both and throw.
+
+`local_path_for()`, `checksum_path_for()` and `remove_download()` (file + sidecar) are public statics,
+so the trainer's cleanup and tests use the same names.
 
 ### `fetch_all(resp, download_dir, max_parallel = 4, warn_bytes = 0)`
 
-Starts `min(n, max_parallel)` threads that take indexes from an atomic counter and call `fetch()`.
-Results come back in `resp.files` order. After all threads join, it rethrows the **first** error in
+Groups the tokens by local path first (TD-337), so the TD-205 segment tokens of one file trigger
+**one** download, then starts `min(files, max_parallel)` threads that take indexes from an atomic
+counter and call `fetch()` once per distinct file. Results come back in `resp.files` order, each
+token getting its file's path (segments of one file share it). After all threads join, it rethrows the **first** error in
 index order. Files that did download stay on disk.
 
 The trainer (`IncrementalTrainingTool.cpp`, train/resume/retrain and LeJEPA paths) calls it with
-the `DatasetConfig`'s (`dcfg`) `download_dir`/`max_parallel_downloads`. On an exception it logs "Download
-failed" and releases the claim (with bare paths, so TD-333 applies to segments). The trainer's
-startup sweep (`StartupSweep.hpp`'s `startup_sweep()`, Conditions A/D/G, tested by `StartupSweepTests`) deletes zero-byte, trained and
-orphaned files from `download_dir`. It keeps any non-empty file, which is what Condition B later
-reuses.
+the `DatasetConfig`'s (`dcfg`) `download_dir` (`<SESSION_DIR>/downloads` when unset, TD-411)
+and `max_parallel_downloads`, all through `resolve_pass_files()`. On an exception it logs "Download
+failed" and releases the batch's exact units (TD-333). After the pass `cleanup_downloads()` removes
+each download and its sidecar. The trainer's startup sweep (`StartupSweep.hpp`'s `startup_sweep()`,
+Conditions A/D/G, tested by `StartupSweepTests`) matches files by the same names. It deletes
+zero-byte, trained and orphaned files (with their sidecars), and keeps non-empty pending ones, which
+Condition B or a resume later reuses once the checksum matches.
 
 Without `BUILD_FTP_TRANSPORT`, both methods throw "FTP transport not compiled". The trainer only
 reaches them when `ftp_server_host` is non-empty.
 
 ---
 
-## 3. Local file identity (verified)
+## 3. Local file identity
 
-The local name is the **basename** of `ftp_path`. A test (`UsesBasenameOfFtpPath`) pins this.
-Two consequences:
+Both problems below were fixed October 19, 2026 (TD-337, TD-338).
 
-> **Segments of one file download to the same local path, in parallel, each in full.** All three
-> segment tokens had `ftp_path = g/uploads/big.jsonl` and full-file `size_bytes = 15769547`.
-> `fetch_all()` mapped all three to `dl/big.jsonl` and ran them **concurrently**, so the whole
-> 15.8 MB file crossed the wire three times. In 20 repeated runs the final file was intact (the
-> threads write identical bytes at identical offsets), but the threads race:
-> - each opens with `trunc`;
-> - each checks the final size and **deletes the file on a mismatch**.
->
-> So one thread's verification can see another's in-progress file, delete it, and fail a pass that
-> would have succeeded. That wasn't reproduced on loopback, but nothing prevents it.
+> **Fixed: segments of one file downloaded to the same local path, in parallel, each in full.** The
+> local name used to be the basename of `ftp_path` (pinned by the removed `UsesBasenameOfFtpPath`
+> test). All three segment tokens of `g/uploads/big.jsonl` mapped to `dl/big.jsonl`, and
+> `fetch_all()` ran them concurrently, so the 15.8 MB file crossed the wire three times. Each thread
+> also opened the file with `trunc` and deleted it on a size mismatch, so one thread's check could
+> delete another's in-progress file. Different files with the same basename (`uploads/` vs
+> `datasets/`, or two kinds' sub-pools) collided too. Now names come from the full registry path, and
+> `fetch_all()` downloads each file once. Against a real FTP `registry_server` with a 13 MB file in
+> three segments, the old code made 3 `RETR`s and the new one 1.
 
-> **Condition B trusts a same-name, same-size file (verified).** A local `big.jsonl` of the right
-> size but different content (all `Z` bytes) was returned **without downloading**, even though the
-> token carried a `checksum` (`"15769547_<mtime>"`, `DatasetRegistry::compute_checksum()` format)
-> that would have caught it. Realistic triggers:
-> - a dataset re-uploaded under the same name with an edit that keeps its size;
-> - two different datasets with the same basename in different directories (`uploads/` vs
->   `datasets/`, or two kinds' sub-pools) sharing one `download_dir`.
->
-> The startup sweep keeps non-empty files, so a stale copy survives across passes.
+> **Fixed: Condition B trusted a same-name, same-size file.** A local `big.jsonl` of the right size
+> but different content was returned without downloading, though the token carried a `checksum`
+> (`"<size>_<mtime>"`) that would have caught it. The startup sweep keeps non-empty files, so a
+> stale copy survived across passes. Now the `.checksum` sidecar must match. With the real server,
+> a rerun reused the download without connecting, and after a same-size edit on the server the next
+> fetch downloaded the new content; the old code had kept a locally edited copy.
 
-Using the full `ftp_path` (or a hash of it) as the local name, deduplicating tokens per path in
-`fetch_all()`, and checking the token checksum before Condition B would close all three.
+**Upgrade note:** downloads already on disk under their old basename names don't match the new
+names. The first startup sweep after the upgrade deletes them as orphans (condition G), and they are
+downloaded once more.
 
 ---
 
@@ -136,22 +146,19 @@ between checks of `running_`. That belongs to `FtpDataServer.hpp`'s reference.
 
 ## 5. Tests
 
-**`DataTransportFtpTests.cpp` (30 tests):**
-- Condition B: skip, size mismatch, unknown size;
-- `fetch_all` ordering and error propagation;
-- basename mapping;
+**`DataTransportFtpTests.cpp` (32 tests):**
+- Condition B: skip, size mismatch, unknown size, and (TD-338) a different or missing checksum;
+- `fetch_all` ordering and error propagation, and (TD-337) segment tokens of one file downloading once;
+- full-path naming, with same-basename files not colliding;
 - URL encoding;
 - every `is_transient()` code;
 - the retry constants.
 
 **`DataTransportTests.cpp` (14 defined, 13 run with libcurl):** stubs and struct defaults.
 
-**`StartupSweepTests.cpp` (7):** the trainer's download-dir sweep.
+**`StartupSweepTests.cpp` (10):** the trainer's download-dir sweep.
 
 **Not covered:**
-- duplicate `ftp_path` tokens (segments);
-- basename collisions;
-- stale same-size files;
 - FTPS;
 - a real transfer with resume or retry.
 
@@ -164,8 +171,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Local name is the basename: segment tokens of one file download it N times, concurrently, to one path; different files with the same basename collide (§3) | Redundant transfers; a verification race can delete another thread's file; cross-file overwrites | **Verified** (shared path, redundant parallel downloads) / by inspection (race, collisions) | [TD-337](../../guides/TECHNICAL_DEBT.md#td-337-datatransport-names-downloads-by-basename-so-segments-and-same-named-files-collide) |
-| Condition B reuses any same-name, same-size file; the token checksum is ignored (§3) | Stale or wrong data trained silently | **Verified** | [TD-338](../../guides/TECHNICAL_DEBT.md#td-338-datatransport-reuses-same-size-stale-files-without-checking-the-checksum) |
+| Local name is the basename: segment tokens of one file download it N times, concurrently, to one path; different files with the same basename collide (§3) | Redundant transfers; a verification race could delete another thread's file; cross-file overwrites | **Fixed October 19, 2026** (was verified) | [TD-337](../../guides/TECHNICAL_DEBT.md#td-337-datatransport-names-downloads-by-basename-so-segments-and-same-named-files-collide) |
+| Condition B reuses any same-name, same-size file; the token checksum is ignored (§3) | Stale or wrong data trained silently | **Fixed October 19, 2026** (was verified) | [TD-338](../../guides/TECHNICAL_DEBT.md#td-338-datatransport-reuses-same-size-stale-files-without-checking-the-checksum) |
 | FTPS without server verification (§4) | Registry impersonation or MITM can inject training data | By inspection | [TD-339](../../guides/TECHNICAL_DEBT.md#td-339-ftps-downloads-dont-verify-the-registrys-certificate) |
 | No `curl_global_init()`; partial file deleted on failure; `COULDNT_CONNECT` not retried; global `using`/namespace alias in a header (§4) | Possible init race on older libcurl; lost resume; registry restarts fail passes; namespace pollution | By inspection | [TD-340](../../guides/TECHNICAL_DEBT.md#td-340-datatransport-robustness-and-header-hygiene) |
 | Segment release on download failure uses bare paths | Already tracked | — | TD-333 |

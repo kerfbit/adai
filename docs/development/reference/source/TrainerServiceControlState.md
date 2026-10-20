@@ -1,11 +1,11 @@
 # `TrainerServiceControlState` — Source File Reference
 
-- **File:** [`src/TrainerServiceControlState.hpp`](../../../../src/TrainerServiceControlState.hpp) (header-only, 105 lines)
+- **File:** [`src/TrainerServiceControlState.hpp`](../../../../src/TrainerServiceControlState.hpp) (header-only, 111 lines)
 - **Namespace:** `adai`
 - **Used by:** `trainer_service` ([`TrainerServiceMain.cpp`](../../../../src/TrainerServiceMain.cpp), which owns it for the process lifetime) and `TrainerServiceProxy` (its HTTP handlers)
-- **Status tag:** `@adai-status: experimental`, `@adai-version: 0.1.0`, `@adai-reviewed: 2026-09-14`
-- **Tests:** no dedicated file; exercised by [`tests/trainer_service_proxy_test.cpp`](../../../../tests/trainer_service_proxy_test.cpp) (17 tests, `trainerServiceProxyTests`; all pass), including the pause-while-sleeping and wake-before-sleep cases
-- **Last traced against the code:** 2026-10-17
+- **Status tag:** `@adai-status: experimental`, `@adai-version: 0.2.0`, `@adai-reviewed: 2026-10-19`
+- **Tests:** no dedicated file; exercised by [`tests/trainer_service_proxy_test.cpp`](../../../../tests/trainer_service_proxy_test.cpp) (18 tests, `trainerServiceProxyTests`; all pass), including the pause-while-sleeping and wake-before-sleep cases
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference.
 
@@ -20,7 +20,7 @@ this one decides whether the service launches passes at all and records supervis
 |---|---|---|
 | `paused` | proxy (`/admin/pause`, `/admin/resume`) → loop | Checked before every child launch; deliberately **not persisted**, so a restart comes back unpaused |
 | `stop_requested` | SIGTERM/SIGINT handler (plain atomic store) → loop | Exit request |
-| `service_started_unix`, `last_launch_unix`, `last_exit_unix`, `last_exit_code`, `current_child_pid` (0 = none), `total_passes_launched`, `total_passes_did_work`, `total_passes_crashed` | loop → proxy | Observability, reported as extra top-level keys of `/admin/status` |
+| `service_started_unix`, `last_launch_unix`, `last_exit_unix`, `last_exit_code`, `current_child_pid` (0 = none), `total_passes_launched`, `total_passes_did_work`, `total_passes_crashed` (signal deaths, exit ≥ 128), and since TD-523 (October 19, 2026) `total_passes_failed` (any other code but 0/3), `consecutive_failures` (reset by a pass that trained or found nothing), `last_failure_unix` | loop → proxy | Observability, reported as extra top-level keys of `/admin/status`; `consecutive_failures` also drives the supervisor's backoff |
 | `wake()` | proxy (`/admin/resume`) | Sets a sticky `wake_requested_` flag and notifies, so a wake before the sleep starts isn't lost. Documented as **not** async-signal-safe and not called from the signal handler |
 | `interruptible_sleep(seconds)` | loop | Waits in one-second slices, returning early on a wake or `stop_requested` (so a signal is noticed within about a second without the handler touching the mutex) |
 

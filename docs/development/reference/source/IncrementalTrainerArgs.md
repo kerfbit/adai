@@ -3,9 +3,9 @@
 - **Files:** [`src/IncrementalTrainerArgs.hpp`](../../../../src/IncrementalTrainerArgs.hpp), [`src/IncrementalTrainerArgs.cpp`](../../../../src/IncrementalTrainerArgs.cpp)
 - **Namespace:** `adai`
 - **Built into:** `incremental_trainer` (`IncrementalTrainingTool.cpp`) and `trainer_service` (`TrainerServiceMain.cpp`)
-- **Status tag:** `@adai-status: experimental`, `@adai-version: 0.5.0`, `@adai-reviewed: 2026-09-20`
-- **Tests:** [`tests/incremental_trainer_args_test.cpp`](../../../../tests/incremental_trainer_args_test.cpp) (23 tests)
-- **Last traced against the code:** 2026-10-13
+- **Status tag:** `@adai-status: experimental`, `@adai-version: 0.6.0`, `@adai-reviewed: 2026-10-19`
+- **Tests:** [`tests/incremental_trainer_args_test.cpp`](../../../../tests/incremental_trainer_args_test.cpp) (25 tests)
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the built
 > `build/debug/bin/incremental_trainer`.
@@ -24,6 +24,9 @@ out of `main()` so they can be tested:
 | `derive_run_id(configured)` | The configured `RUN_ID`, else `<first 8 chars of hostname>_<pid % 10000>` |
 | `resolve_dataset_kind(objective, override)` | The TD-202/TD-204 sub-pool: `--dataset-kind` if given, else `world_model` for `lejepa` and `chatbot` for everything else (config `DATASET_KIND` deliberately ignored) |
 | `parse_reset_command_args(args)` | `--yes`, `--keep-data` for `reset` |
+| `kResumeExitTrained` (0), `kResumeExitNothingPending` (3), `kResumeExitFailed` (1) | TD-523 (October 19, 2026): `incremental_trainer resume`'s exit codes, shared with `trainer_service`. `resume` used to exit 1 both when idle and when it failed |
+| `classify_pass_exit(code)` → `PassOutcome` | `trainer_service`'s reading of a child pass: 0 `DidWork`, 3 `Idle`, ≥ 128 `Crashed` (a signal death, see ChildProcess), anything else `Failed`, including 127 (exec failure) |
+| `failure_backoff_seconds(n, base, max)` | Wait after *n* ≥ 1 consecutive failed or crashed passes: `base` doubled per extra failure, capped at `max` (the supervisor uses 45 s and 900 s) |
 
 `trainer_service` reuses the same parser for its own command line, but only forwards `--config`,
 `--model` and `--gpu-strategy` to the children it launches (plus its own `--foreground --admin-port N
@@ -79,14 +82,15 @@ claimed files.
 
 ## 3. Tests
 
-`incremental_trainer_args_test.cpp` (23 tests) covers:
+`incremental_trainer_args_test.cpp` (25 tests) covers:
 - flag stripping in any order;
 - the `=`-only objective syntax;
 - missing values falling through as positionals;
 - the GPU-defer command set;
 - `derive_run_id()` (configured value, fallback, stability);
 - `resolve_dataset_kind()` (default, `lejepa`, unknown → chatbot, override wins);
-- `reset` flags (including unknown tokens ignored).
+- `reset` flags (including unknown tokens ignored);
+- TD-523's exit-code classification and failure backoff (2 tests, October 19, 2026).
 
 **Not covered:** a non-numeric `--admin-port` (which aborts), or validation of the objective and kind
 (none exists; the tests assert the permissive behaviour).

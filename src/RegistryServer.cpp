@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.12.0
+// @adai-version: 0.12.1
 // @adai-reviewed: 2026-10-19
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
@@ -1070,8 +1070,8 @@ static void handle_delete(const httplib::Request& req, httplib::Response& res,
 
 // POST /registry/<group>/requeue  {"paths":[...],"all":bool,"model_name":"..."}
 //
-// Moves trained DataVersion entries back to the pending queue as whole-file entries, so the
-// next passes train on them again (e.g. before retraining a model from scratch). Either `paths`
+// Moves trained DataVersion entries back to the pending queue, each as the unit it was trained
+// as (the whole file, or that TD-205 segment, TD-333), so the next passes train on them again (e.g. before retraining a model from scratch). Either `paths`
 // or `all:true` is required. `model_name`, if non-empty, assigns the re-queued entries to that
 // model. A path already pending only loses its trained record ("already_pending").
 static void handle_requeue(const httplib::Request& req, httplib::Response& res,

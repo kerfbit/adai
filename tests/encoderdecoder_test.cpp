@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -2204,4 +2205,34 @@ TEST(EncoderDecoderGPUTest, GpuForwardRejectsEmptyTarget) {
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+
+// TD-544: clone() saves to a temp checkpoint and loads it back. It used to remove only the five
+// top-level files, leaving every component file (embeddings, each block, the norms) in the temp
+// directory, once per epoch with the async quality metrics. TMPDIR points the temp directory at
+// a fresh folder so the check sees only this clone's files.
+TEST(EncoderDecoderModelTest, CloneLeavesNoTempFiles) {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "adai_clone_leak_test";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    const char* old_tmpdir = std::getenv("TMPDIR");
+    const std::string saved = old_tmpdir ? old_tmpdir : "";
+    setenv("TMPDIR", dir.c_str(), 1);
+
+    EncoderDecoderModel model(100, 32, 1, 1, 2, 64, 16);
+    build_test_vocab(model.get_tokenizer(), 100);
+    auto copy = model.clone();
+    ASSERT_TRUE(copy);
+
+    if (old_tmpdir)
+        setenv("TMPDIR", saved.c_str(), 1);
+    else
+        unsetenv("TMPDIR");
+    std::vector<std::string> left;
+    for (const auto& e : fs::directory_iterator(dir))
+        left.push_back(e.path().filename().string());
+    EXPECT_TRUE(left.empty()) << left.size() << " temp file(s) left, e.g. "
+                              << (left.empty() ? "" : left.front());
+    fs::remove_all(dir);
 }

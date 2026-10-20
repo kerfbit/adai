@@ -1,12 +1,12 @@
 # `VocabBuilder` — Source File Reference
 
-- **File:** [`src/VocabBuilder.cpp`](../../../../src/VocabBuilder.cpp) (244 lines; `main()` of `vocab_builder`)
+- **File:** [`src/VocabBuilder.cpp`](../../../../src/VocabBuilder.cpp) (295 lines; `main()` of `vocab_builder`)
 - **Binary:** `vocab_builder`, the standalone BPE vocabulary tool. A vocabulary must exist before `incremental_trainer` can start (its first-run bootstrap is unreachable, TD-414)
 - **Uses:** [`BPETokenizer`](BPETokenizer.md), the loaders in `VocabBuilderHelpers.hpp`
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0`, `@adai-reviewed: 2026-09-10`
-- **Tests:** none for `main()`; [`tests/vocabbuilder_test.cpp`](../../../../tests/vocabbuilder_test.cpp) (52 tests, `vocabbuilderTests`; all pass) covers the loaders and the tokenizer workflow
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.1.0`, `@adai-reviewed: 2026-10-18`
+- **Tests:** none for `main()`; [`tests/vocabbuilder_test.cpp`](../../../../tests/vocabbuilder_test.cpp) (59 tests, `vocabbuilderTests`; all pass) covers the loaders and the tokenizer workflow
 - **Operator docs:** [OPERATIONS_MANUAL.md](../../../operations/OPERATIONS_MANUAL.md) §4, [COMMANDS.md](../../../operations/guides/COMMANDS.md)
-- **Last traced against the code:** 2026-10-17
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real `vocab_builder` binary.
 
@@ -31,37 +31,35 @@ test sentence as a "round-trip test" (a mismatch is reported as "normal for BPE"
 
 ## 2. Problems
 
-### The default format turns JSON syntax into vocabulary (verified)
+### Fixed: the default format turned JSON syntax into vocabulary (TD-534, October 17, 2026)
 
-Training data is JSONL, but `--format` defaults to `plain`, which treats each JSONL line as raw text, and the help describes `pairs` only as
-"INPUT/RESPONSE format". On a small JSONL corpus, `--format plain` produced a vocabulary containing JSON syntax as tokens (`{`, `{"`, `input`,
-`response`), 6 of its 99 entries, none of which ever appears in the text the trainer feeds the tokenizer (it parses the JSONL first); `--format pairs`
-produced none. On a real corpus the wasted merges grow with the escape sequences and key names. JSONL should be the default (or auto-detected), and the
-help should say `pairs` reads JSONL.
+**Before:** training data is JSONL, but `--format` defaulted to `plain`, which read each JSONL line as raw text, and the help described `pairs`
+only as "INPUT/RESPONSE format". On a small JSONL corpus, `--format plain` produced a vocabulary with JSON syntax as tokens (`{`, `{"`,
+`input`, `response`): 6 of 99 entries, none of which ever appears in the text the trainer tokenizes.
 
-**Fixed in code October 17, 2026 (TD-534):** the default is now `auto`, which detects each file's format. The help describes `pairs` as JSONL or
-`INPUT:`/`RESPONSE:` training data. An explicit `--format plain` on training data prints a warning. On 300 TinyStories JSONL lines at
-`--vocab-size 400`, the result:
+**Now:** the default is `auto`, which detects each file's format. The help describes `pairs` as JSONL or `INPUT:`/`RESPONSE:` training data,
+and an explicit `--format plain` on training data prints a warning. On 300 TinyStories JSONL lines at `--vocab-size 400`:
 - `auto` loaded 600 samples, with no `{`, `input` or `response` tokens. The 5 quote tokens left, such as `?"`, come from dialogue in the stories.
 - `plain` learned 18 JSON-ish tokens, including escaped `\"` sequences and `":`.
 
-### A failed save is reported as success (verified)
+Side effect to know (rechecked October 19, 2026): under `auto`, a **plain-text** corpus whose first non-blank line starts with `{` or `[` is
+read as `pairs` or `json`. Pass `--format plain` for such a file; the warning above doesn't fire in that direction. No repository script
+calls `vocab_builder` with or without `--format`; `scripts/package_server_bundle.sh` only copies the binary.
 
-With `--output /nonexistent/dir/v.txt`, the tokenizer logged "Could not open file for writing", and the tool still printed "Vocabulary saved
-successfully!", "completed successfully" and **exited 0**; no file existed. The cause is `BPETokenizer::save_vocab()` failing silently (TD-221);
-scripts and operators relying on the exit code are misled.
+### Fixed: a failed save was reported as success (TD-535, via TD-221)
 
-**Fixed in code October 17, 2026** by TD-221: `save_vocab()` throws, so the error reaches `main()`'s catch and the tool exits 1.
+**Before:** with `--output /nonexistent/dir/v.txt`, the tokenizer logged "Could not open file for writing", and the tool still printed
+"Vocabulary saved successfully!" and exited 0, with no file written. **Now:** `BPETokenizer::save_vocab()` throws, so the error reaches
+`main()`'s catch and the tool exits 1.
 
-### Malformed numbers abort (verified)
+### Fixed: malformed numbers aborted (TD-535, October 17, 2026)
 
-`--vocab-size abc` threw an uncaught `std::invalid_argument` from `stoi` (it runs before the `try`): **abort, core dump, exit 134**. `8000x` is accepted
-as 8000, and zero or negative sizes aren't rejected (the same class as TD-401/TD-488).
+**Before:** `--vocab-size abc` threw an uncaught `std::invalid_argument` from `stoi`, which runs before the `try`, so the process aborted
+with a core dump (exit 134). `8000x` was accepted as 8000, and zero or negative sizes weren't rejected (the same class as TD-401/TD-488).
 
-**Fixed in code October 17, 2026 (TD-535):** `parse_int_in_range()` requires the whole string to be a decimal integer in range. It rejects
-leading spaces, `+`, trailing characters and overflow. A value-taking flag with no value, or an unknown `--format`, is also reported before any
-work. Checked with the real binary: `abc`, `8000x`, `0`, `-5`, `--threshold 0`, `--format xml` and a trailing `--vocab-size` each exit 1 with a
-message.
+**Now:** `parse_int_in_range()` requires the whole string to be a decimal integer in range. It rejects leading spaces, `+`, trailing
+characters and overflow. A value-taking flag with no value, or an unknown `--format`, is reported before any work. Checked with the real
+binary: `abc`, `8000x`, `0`, `-5`, `--threshold 0`, `--format xml` and a trailing `--vocab-size` each exit 1 with a message.
 
 ### Smaller items (by inspection)
 
@@ -77,21 +75,21 @@ message.
 
 | Item | Tracked as |
 |---|---|
-| `save_vocab()` fails silently | TD-221 |
+| `save_vocab()` failed silently (fixed) | TD-221 |
 | "Top 20 tokens" are the lowest IDs | TD-225 |
 | Lossy lowercase/whitespace normalization | TD-224 |
-| BPE merge learning corrupted by the `"|||"` separator | TD-220 |
+| BPE merge learning corrupted by the `"|||"` separator (fixed) | TD-220 |
 | First-run vocab bootstrap unreachable in `incremental_trainer` | TD-414 |
-| JSONL `\u` decoding and key matching | TD-531, TD-532 |
+| JSONL `\u` decoding and key matching (fixed) | TD-531, TD-532 |
 
 ---
 
 ## 3. Tests
 
-`vocabbuilder_test.cpp` (52): the three loaders (plain, pairs including JSONL detection, json), multi-source loading, special tokens, and an end-to-end
+`vocabbuilder_test.cpp` (59). The original 52 cover the three loaders (plain, pairs including JSONL detection, json), multi-source loading, special tokens, and an end-to-end
 tokenizer workflow (build, save, load, encode/decode). `main()` itself isn't tested.
 
-Since TD-534/TD-535's fix (59 tests), it also covers `detect_input_format()` (JSONL, legacy, BOM, JSON array, plain, missing file) and
+The 7 added with TD-534/TD-535's fix cover `detect_input_format()` (JSONL, legacy, BOM, JSON array, plain, missing file) and
 `parse_int_in_range()` (valid bounds; empty, letters, trailing characters, leading space, `+`, zero, negative, over range, overflow). Save failure
 is covered in `tokenizer_test.cpp` (TD-221).
 
@@ -106,8 +104,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Default `plain` format on JSONL training data; help doesn't say `pairs` reads JSONL (§2) | Vocabulary slots wasted on JSON syntax that never occurs in training text | **Verified**; **fixed in code October 17, 2026** | [TD-534](../../guides/TECHNICAL_DEBT.md#td-534-vocab_builder-defaults-to-plain-text-turning-jsonl-syntax-into-vocabulary) |
-| Save failure reported as success, exit 0 (§2) | Scripts proceed without a vocabulary | **Verified** (cause TD-221); **fixed in code October 17, 2026** | [TD-535](../../guides/TECHNICAL_DEBT.md#td-535-vocab_builder-reports-a-failed-save-as-success-and-aborts-on-malformed-numbers) |
-| `stoi` without checks: `abc` aborts, `8000x` accepted, no range check (§2) | Crash or silent misconfiguration | **Verified**; **fixed in code October 17, 2026** | [TD-535](../../guides/TECHNICAL_DEBT.md#td-535-vocab_builder-reports-a-failed-save-as-success-and-aborts-on-malformed-numbers) |
+| Default `plain` format on JSONL training data; help doesn't say `pairs` reads JSONL (§2) | Vocabulary slots wasted on JSON syntax that never occurs in training text | **Fixed October 17, 2026** | [TD-534](../../guides/TECHNICAL_DEBT.md#td-534-vocab_builder-defaults-to-plain-text-turning-jsonl-syntax-into-vocabulary) |
+| Save failure reported as success, exit 0 (§2) | Scripts proceed without a vocabulary | **Fixed October 17, 2026** (cause TD-221) | [TD-535](../../guides/TECHNICAL_DEBT.md#td-535-vocab_builder-reports-a-failed-save-as-success-and-aborts-on-malformed-numbers) |
+| `stoi` without checks: `abc` aborts, `8000x` accepted, no range check (§2) | Crash or silent misconfiguration | **Fixed October 17, 2026** | [TD-535](../../guides/TECHNICAL_DEBT.md#td-535-vocab_builder-reports-a-failed-save-as-success-and-aborts-on-malformed-numbers) |
 | `json` loader takes keys and doesn't unescape; OPERATIONS_MANUAL.md flags/defaults wrong; inherited JSONL gaps (§2) | Polluted corpora; operators misled | By inspection | [TD-536](../../guides/TECHNICAL_DEBT.md#td-536-vocab_builder-json-loader-and-operator-documentation-drift) |
 | Silent save, top-tokens, normalization, merge separator, bootstrap, JSONL parsing | Already tracked | — | TD-221, TD-225, TD-224, TD-220, TD-414, TD-531/532 |

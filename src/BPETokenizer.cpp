@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 1.1.1
+// @adai-reviewed: 2026-10-19
 
 // TODO: See TD-225 in TECHNICAL_DEBT.md - std::cout/std::cerr are used throughout this file instead of
 // adai::Logger (progress output, warnings, save/load summaries).
@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <functional>
 #include <iomanip>
 #include <iterator>
@@ -559,9 +560,14 @@ void BPETokenizer::save_vocab(const std::string& filename) const {
         std::remove(tmp_filename.c_str());
         throw VocabularyFileError("Failed writing vocabulary file: " + tmp_filename);
     }
-    if (std::rename(tmp_filename.c_str(), filename.c_str()) != 0) {
+    // std::filesystem::rename replaces an existing target on every platform; std::rename()
+    // fails on Windows when the target exists, so every save after the first would throw there.
+    std::error_code rename_ec;
+    std::filesystem::rename(tmp_filename, filename, rename_ec);
+    if (rename_ec) {
         std::remove(tmp_filename.c_str());
-        throw VocabularyFileError("Could not move vocabulary file into place: " + filename);
+        throw VocabularyFileError("Could not move vocabulary file into place: " + filename + " (" +
+                                  rename_ec.message() + ")");
     }
     std::cout << "[BPE Tokenizer] Vocabulary saved to " << filename << '\n';
     std::cout << "  - Mode: " << (mode == TokenizerMode::UNICODE ? "Unicode" : "ASCII") << '\n';

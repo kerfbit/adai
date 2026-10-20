@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.20.0
+// @adai-version: 0.20.1
 // @adai-reviewed: 2026-10-19
 
 #include <array>
@@ -346,27 +346,18 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         return 1;
     }
 
-    std::vector<std::string> local_paths;
+    // TD-411: the same download step as train/retrain/resume. This pass used to download only
+    // when DOWNLOAD_DIR was set, so against an FTP registry without it, it read registry-host
+    // paths that don't exist on the trainer host.
+    std::vector<PendingFileRange> local_ranges;
     std::vector<fs::path> downloaded_paths;
-    const bool use_ftp = !resp.ftp_server_host.empty() && !dcfg.download_dir.empty();
-    if (use_ftp) {
-        const std::size_t warn_bytes =
-            static_cast<std::size_t>(dcfg.large_file_warn_threshold_mb) * 1024ULL * 1024ULL;
-        try {
-            DataTransport dt;
-            downloaded_paths =
-                dt.fetch_all(resp, dcfg.download_dir, dcfg.max_parallel_downloads, warn_bytes);
-            for (const auto& p : downloaded_paths)
-                local_paths.push_back(p.string());
-        } catch (const std::exception& ex) {
-            adai::Logger::error("[DataTransport] Download failed: {}", ex.what());
-            reg.release_pending(run_id, resp.file_ranges());  // TD-333: exact units
-            return 1;
-        }
-    } else {
-        for (const auto& f : resp.files)
-            local_paths.push_back(f.registry_path);
+    if (!resolve_pass_files(resp, dcfg, local_ranges, downloaded_paths)) {
+        reg.release_pending(run_id, resp.file_ranges());  // TD-333: exact units
+        return 1;
     }
+    std::vector<std::string> local_paths;
+    for (const auto& r : local_ranges)
+        local_paths.push_back(r.path);
 
     std::vector<std::string> texts;
     std::vector<int> pair_counts;  // TD-334: per file, 1:1 with local_paths / resp.files
@@ -388,8 +379,7 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     if (texts.empty()) {
         adai::Logger::warn("[lejepa] Acquired files contained no usable text samples");
         reg.release_pending(run_id, reg_paths);
-        if (use_ftp)
-            cleanup_downloads(downloaded_paths);
+        cleanup_downloads(downloaded_paths);  // empty unless files were downloaded
         return 1;
     }
 
@@ -690,8 +680,7 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
 
     if (metrics_client)
         metrics_client->end_session();
-    if (use_ftp)
-        cleanup_downloads(downloaded_paths);
+    cleanup_downloads(downloaded_paths);  // empty unless files were downloaded
     return ok ? 0 : 1;
 }
 
@@ -1269,8 +1258,10 @@ int main(int argc, char* argv[]) {
                 // live on the registry machine which already trained them, so no FTP
                 // needed for the trained portion).  Only newly acquired pending files
                 // may need FTP download.
-                // TD-205: trained files come from the trained DataVersion registry, which has
-                // no segment concept — always whole-file.
+                // Trained files are retrained whole (trained_files() lists each path once; TD-333's
+                // per-segment records aren't consulted).
+                // TODO: See TD-546 in TECHNICAL_DEBT.md - a partly trained segmented file is retrained whole and its
+                // pending segments again
                 // TODO: See TD-411 in TECHNICAL_DEBT.md - trained files are read by registry path, never downloaded, so
                 // retrain against a remote FTP registry can't read them (only pending files are fetched)
                 std::vector<PendingFileRange> local_ranges;

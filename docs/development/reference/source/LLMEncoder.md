@@ -3,9 +3,9 @@
 - **Files:** [`src/encoder.hpp`](../../../../src/encoder.hpp) (declaration), [`src/LLMEncoder.cpp`](../../../../src/LLMEncoder.cpp) (implementation)
 - **Namespace:** global (no namespace)
 - **Built into:** `adai_transformer`; used by `EncoderDecoderModel` (the chatbot's encoder), `DocumentStore` (the RAG retrieval encoder), `PipelineInferenceEngine` and `IntegratedInferenceEngine`
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.1`, `@adai-reviewed: 2026-09-10` (both files)
+- **Status tag:** `@adai-status: stable`, `LLMEncoder.cpp` `@adai-version: 1.1.0`, `@adai-reviewed: 2026-10-18`; `encoder.hpp` `1.0.1`, `2026-09-10`
 - **Tests:** [`tests/llmencoder_test.cpp`](../../../../tests/llmencoder_test.cpp) → `llmencoderTests` (37 tests)
-- **Last traced against the code:** 2026-10-11
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by running the real class
 > (linked against the debug libraries) in a scratch program.
@@ -178,7 +178,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | No `update_weights()`; `EncoderDecoderModel`'s "doesn't have this method" comment is stale for `set_learning_rate()` (§2) | No-optimizer training never updates the encoder | By inspection (overlaps TD-360) | [TD-360](../../guides/TECHNICAL_DEBT.md#td-360-encoderdecodermodel-no-optimizer-path-never-updates-the-encoder) (corrected) |
 | `requires_grad` defaults to true and is never cleared for serving instances; `cached_encoder_outputs` is never read; `cached_embeddings`/`cached_pos_encoded` unused (§2) | Wasted memory per inference call; dead state | By inspection | [TD-366](../../guides/TECHNICAL_DEBT.md#td-366-serving-encoders-cache-activations-for-backward-dead-state-and-duplicate-api) |
 | `std::cout` in the constructor, `encode()` (every call), save/load, tokenizer methods and `print_config()` (§2) | Console noise from library code in serving paths | By inspection | [TD-367](../../guides/TECHNICAL_DEBT.md#td-367-llmencoder-console-output-and-unchecked-weight-io) |
-| Token embedding and final norm saved under the decoder's file names, so every `EncoderDecoderModel` checkpoint lost them (logits changed by up to 1.54 on a round trip) | Every load ran the encoder on the decoder's embedding and norm | **Verified**; **fixed in code October 18, 2026** | [TD-538](../../guides/TECHNICAL_DEBT.md#td-538-encoder-token-embedding-and-final-norm-are-overwritten-in-every-checkpoint) |
+| Token embedding and final norm saved under the decoder's file names, so every `EncoderDecoderModel` checkpoint lost them (logits changed by up to 1.54 on a round trip) | Every load ran the encoder on the decoder's embedding and norm | **Fixed October 18, 2026** (was verified) | [TD-538](../../guides/TECHNICAL_DEBT.md#td-538-encoder-token-embedding-and-final-norm-are-overwritten-in-every-checkpoint) |
 | `load_weights()` unchecked reads; `max_seq_length` not compared; `save_weights()` write errors unchecked (§2) | Truncated header gives a misleading error; silent partial saves | By inspection | [TD-367](../../guides/TECHNICAL_DEBT.md#td-367-llmencoder-console-output-and-unchecked-weight-io) |
 | `get_sentence_embedding()` and `_trainable()` are duplicates with no production caller (§2) | Dead, duplicated API | By inspection | [TD-366](../../guides/TECHNICAL_DEBT.md#td-366-serving-encoders-cache-activations-for-backward-dead-state-and-duplicate-api) |
 | RAG encoder never loads trained weights | Already tracked | — | TD-247 |

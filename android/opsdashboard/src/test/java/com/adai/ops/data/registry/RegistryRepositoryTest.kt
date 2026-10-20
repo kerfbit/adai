@@ -271,6 +271,8 @@ class RegistryRepositoryTest {
     fun `migrateToKind queues into destKind, restores the model assignment, then deletes from the legacy pool`() = runTest {
         val fakeService = FakeRegistryApiService(
             pendingAddResponse = { _, _ -> Response.success(PendingAddResponseDto(added = true)) },
+            assignResponse = { _, _ -> AssignResponseDto(assigned = 1) },
+            deleteResponse = { _, _ -> Response.success(DeleteResponseDto(deleted = 1)) },
         )
         val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
         val entry = QueueEntryDto(path = "a.jsonl", model_name = "model-a")
@@ -305,10 +307,48 @@ class RegistryRepositoryTest {
         assertTrue(fakeService.deleteCalls.isEmpty())
     }
 
+    // TD-326 (as in the CLI): a failed source delete or assign used to be ignored, leaving the
+    // entry in both pools (trained twice) or moved without its model, while reporting success.
+    @Test
+    fun `migrateToKind removes the destination copy and fails when the legacy delete fails`() = runTest {
+        val fakeService = FakeRegistryApiService(
+            pendingAddResponse = { _, _ -> Response.success(PendingAddResponseDto(added = true)) },
+            assignResponse = { _, _ -> AssignResponseDto(assigned = 1) },
+            deleteResponse = { group, _ ->
+                Response.success(DeleteResponseDto(deleted = if (group == "my-group") 0 else 1))
+            },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+        val entry = QueueEntryDto(path = "a.jsonl", model_name = "model-a", segment_start = 0, segment_count = 5)
+
+        val result = repository.migrateToKind("my-group", entry, destKind = "chatbot")
+
+        assertTrue(result is ApiResult.ApiError)
+        assertEquals(listOf("my-group", "my-group/chatbot"), fakeService.deleteCalls.map { it.first })
+        assertEquals(listOf(SegmentTargetDto("a.jsonl", 0, 5)), fakeService.deleteCalls.last().second.segments)
+    }
+
+    @Test
+    fun `migrateToKind removes the destination copy and keeps the source when the assign fails`() = runTest {
+        val fakeService = FakeRegistryApiService(
+            pendingAddResponse = { _, _ -> Response.success(PendingAddResponseDto(added = true)) },
+            assignResponse = { _, _ -> AssignResponseDto(assigned = 0) },
+            deleteResponse = { _, _ -> Response.success(DeleteResponseDto(deleted = 1)) },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+        val entry = QueueEntryDto(path = "a.jsonl", model_name = "model-a")
+
+        val result = repository.migrateToKind("my-group", entry, destKind = "chatbot")
+
+        assertTrue(result is ApiResult.ApiError)
+        assertEquals("only the destination copy is deleted", listOf("my-group/chatbot"), fakeService.deleteCalls.map { it.first })
+    }
+
     @Test
     fun `migrateToKind does not restore an assignment when the source entry was unassigned`() = runTest {
         val fakeService = FakeRegistryApiService(
             pendingAddResponse = { _, _ -> Response.success(PendingAddResponseDto(added = true)) },
+            deleteResponse = { _, _ -> Response.success(DeleteResponseDto(deleted = 1)) },
         )
         val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
         val entry = QueueEntryDto(path = "a.jsonl", model_name = "")

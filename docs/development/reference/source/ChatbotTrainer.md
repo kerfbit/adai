@@ -2,10 +2,10 @@
 
 - **Files:** [`src/ChatbotTrainer.hpp`](../../../../src/ChatbotTrainer.hpp), [`src/ChatbotTrainer.cpp`](../../../../src/ChatbotTrainer.cpp)
 - **Built into:** compiled directly into `incremental_trainer`, `training_metrics_example` and `chatbottrainerTests` (listed in each target's sources); it isn't part of a static library
-- **Status tag:** `@adai-status: beta` (capped by TD-039, "large, actively evolving core trainer"), `@adai-version: 0.10.0` (hpp) / `0.10.1` (cpp), `@adai-reviewed: 2026-09-13` / `2026-09-17`
-- **Tests:** [`tests/chatbottrainer_test.cpp`](../../../../tests/chatbottrainer_test.cpp) → `chatbottrainerTests` (72 tests; `friend class ChatbotTrainerCacheTest` for the tokenized cache); test plan in [chatbot-trainer-tests.md](../../testing/chatbot-trainer-tests.md). `tests/chatbottrainer_test.cpp.old` is an unbuilt January-2026 leftover
+- **Status tag:** `@adai-status: beta` (capped by TD-039, "large, actively evolving core trainer"), `@adai-version: 0.12.0` (hpp) / `0.11.1` (cpp), `@adai-reviewed: 2026-10-19` (both)
+- **Tests:** [`tests/chatbottrainer_test.cpp`](../../../../tests/chatbottrainer_test.cpp) → `chatbottrainerTests` (83 tests; `friend class ChatbotTrainerCacheTest` for the tokenized cache); test plan in [chatbot-trainer-tests.md](../../testing/chatbot-trainer-tests.md). `tests/chatbottrainer_test.cpp.old` is an unbuilt January-2026 leftover
 - **Related guide:** [enhanced-training-pipeline.md](../../guides/training/enhanced-training-pipeline.md) (multi-component; partly stale per its own banner)
-- **Last traced against the code:** 2026-10-09
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. The empty-pair findings in §6 and §9 were confirmed by running a real
 > training pass (a tiny model built from `ChatbotTrainer.cpp` and the debug libraries); the rest is
@@ -103,7 +103,9 @@ config.num_epochs = n; was_aborted_ = false
 if no model: initialize_model()        (validate config → build model → give it the tokenizer → optimizer → GPU init)
 if no validation pairs and validation_split > 0: split_data()   (random 1/split)
 preprocess_data()                      (§6)
+if no training pairs left: return false   (TD-412: an empty pass fails instead of "training" on nothing)
 total_training_steps = n × ceil(train_size / accumulation_steps)
+if the run's warmup isn't fixed yet: run_warmup_steps_ = warmup_steps, or 10% of total_training_steps (TD-269)
 for each epoch:
     train_epoch(e)                     (§8)
     if aborted: break
@@ -117,6 +119,10 @@ if early stopping + restore_best_weights and a best was saved: load_model(best_m
 if generation backfill: join scoring thread, backfill_generation_quality()
 return true   (any exception: logged, return false)
 ```
+
+`IncrementalTrainer` restores the previous pass's training state with `load_training_state()` before
+`train()` and saves it with each checkpoint (TD-269, §7 and the addendum).
+
 
 ---
 
@@ -153,42 +159,15 @@ Uses the model's tokenizer (ownership moved there in `initialize_model()`/by the
    `drop_skipped_pairs()` removes the skipped pairs from `training_data`/`validation_data` and the tokenized vectors together, keeping indices
    aligned. A cache hit runs the same compaction. Finally it builds `training_indices`.
 
-> **"Skipped" pairs are not removed (verified).** The comment says they're "filtered out during
-> training", but nothing filters them: `tokenized_training_data` keeps an empty entry per skipped
-> pair (`get_tokenized_training_size()` still counts it).
-> - **Training:** each one reaches `model->forward()`, which throws ("Matrix index out of
->   bounds" in the test run). The catch block logs an error and resets accumulation, which also
->   **discards the gradients already accumulated** in that window.
-> - **Validation:** each one evaluates to loss 0 with no error but still counts in the average, so
->   **validation loss is biased low** by the share of skipped pairs. In the test run, adding one
->   empty pair to two good ones dropped validation loss from about 3.4 to 2.5. Validation loss
->   drives best-model selection, early stopping and the dashboard.
-
-**Fixed in code October 17, 2026 (TD-267):** skipped pairs are now dropped after tokenizing, as described in step 3, so they reach neither training
-nor validation. `get_tokenized_*_size()` counts only real pairs.
-
-New tests:
-- `ChatbotTrainerCacheTest.DropSkippedPairsKeepsRawAndTokenizedAligned`;
-- `SkippedAndFailingPairsDontBiasValidationLoss`, which trains with one empty pair in each set.
-
-Both fail on the old code.
-
-### Tokenized-data cache format
-
-`'TKC1'` magic, `uint64` train and validation counts, then per pair: `u32` length + `int32` input
-IDs, the same for target IDs, then `u32` length + bytes for input text and for target text.
-Staleness is the caller's job: `IncrementalTrainer`'s key covers file and vocab checksums, tokenizer
-mode and `max_seq_length`. Loading also rejects count mismatches and truncated files. Saving is
-best-effort, logging rather than failing.
-
-> **Cache hits can pair data from different splits.** `train()` runs `split_data()` (a new random
-> split) **before** `preprocess_data()` loads the cache, which holds the tokenized split from the
-> run that wrote it. Counts match, so the load succeeds, but `tokenized_training_data[i]` is no
-> longer `training_data[i]`. Per-index metadata writes (`meta.token_count`, quality backfill) then
-> land on the wrong pairs. Training itself still uses a valid, self-consistent split (the cached
-> one). This only applies when `cache_tokenized_data` is on (default off).
-
----
+> **Fixed (TD-267, October 17, 2026): "skipped" pairs used to stay as empty entries.** Nothing
+> filtered them out, so each one reached `model->forward()` in training. It threw ("Matrix index out
+> of bounds"), and the catch block discarded the window's accumulated gradients. In validation each
+> one scored loss 0 but still counted in the average, biasing validation loss low: one empty pair
+> added to two good ones dropped it from about 3.4 to 2.5.
+>
+> They are now dropped after tokenizing (step 3), so `get_tokenized_*_size()` counts only real
+> pairs. `ChatbotTrainerCacheTest.DropSkippedPairsKeepsRawAndTokenizedAligned` and
+> `SkippedAndFailingPairsDontBiasValidationLoss` cover it, and both fail on the old code.
 
 ## 7. Model, optimizer and LR schedule
 
@@ -200,7 +179,11 @@ best-effort, logging rather than failing.
 - **`initialize_model()`**: the above, `build_model()`, hands the tokenizer to the model, creates
   and configures the `Optimizer`, registers parameters, and calls `gpu_init_training()` on GPU
   builds.
-- **`calculate_learning_rate(step)`**, with warmup auto-set to 10% of `total_training_steps`:
+- **`calculate_learning_rate(step)`**, with `step` = the run-level `global_step`, and warmup =
+  `warmup_steps`, else the run's fixed `run_warmup_steps_` (set on the run's first `train()` to 10% of
+  that call's steps, then restored with the training state, TD-269). Every denominator is guarded and
+  cosine progress is clamped to [0, 1], so a pass shorter than its warmup, or with fewer steps than
+  epochs, no longer yields NaN or divides by zero:
 
   | Schedule | LR at step *s* |
   |---|---|
@@ -213,12 +196,18 @@ best-effort, logging rather than failing.
 
   `update_learning_rate()` applies it to both the optimizer and the model at each step boundary.
 
-> **Optimizer state and LR schedule restart every incremental pass.** `IncrementalTrainer` builds
-> a new `ChatbotTrainer` per pass, and `set_model()` creates a **new** `Optimizer`. AdamW's moment
-> estimates start from zero again (with bias correction restarting), and `global_step` restarts at
-> 0, so the default `WARMUP_COSINE` re-warms from LR 0 and decays to the minimum **within every
-> pass**. Long training made of many short passes therefore never runs one coherent schedule. The
-> optimizer state isn't saved in checkpoints either.
+> **Fixed (TD-269, October 19, 2026; owner decisions): optimizer state and the LR schedule used to
+> restart every incremental pass.** `IncrementalTrainer` builds a new `ChatbotTrainer` per pass, and
+> `set_model()` creates a new `Optimizer`. So AdamW's moments started from zero, `global_step`
+> restarted at 0, and the old `WARMUP_COSINE` default re-warmed and decayed within every pass.
+>
+> Now:
+> - `IncrementalTrainer` uses `LINEAR_WARMUP` (warm up once per run, then hold the base LR).
+> - Each checkpoint carries `<checkpoint>.optimizer`: the moments, step counts, `global_step`, warmup
+>   length and adaptive-clip state.
+> - The next pass of the same MNS run restores it, and a new run starts fresh.
+>
+> `TrainingStateContinuesIntoTheNextPass` checks that pass 2's step count continues from pass 1's.
 
 ---
 
@@ -266,10 +255,12 @@ At epoch end: average loss and gradient norm over updates, perplexity = exp(loss
 history vectors, and report advanced metrics, saturation, entropy, per-layer gradient norms,
 padding efficiency and adaptive-clip averages.
 
-> **Adaptive clipping resets every epoch.** Its EMA, warmup counter and spike count are local to
-> `train_epoch()`. Each epoch restarts with 100 warmup steps clipped at the 5.0 ceiling, and with
-> ≤ 100 optimizer steps per epoch (common with small passes or large accumulation) **adaptive
-> clipping never activates at all**.
+> **Fixed (TD-270, October 19, 2026): adaptive clipping used to reset every epoch.** Its EMA and
+> warmup counter were local to `train_epoch()`, so each epoch restarted 100 warmup steps at the 5.0
+> ceiling. With ≤ 100 optimizer steps per epoch, adaptive clipping never activated. They are now
+> members (`agc_ema_`, `agc_step_count_`), initialized once and saved with the training state, so they
+> carry across epochs and passes. The per-epoch spike count and clip averages stay per epoch; they're
+> reporting only.
 
 > **An error or NaN mid-window dropped the whole window** (fixed October 17, 2026, TD-272). Both
 > paths reset `accumulation_step` without stepping, so gradients already accumulated from earlier
@@ -296,7 +287,7 @@ padding efficiency and adaptive-clip averages.
 
 Eval mode, then per validation pair `evaluate_tokenized()` (GPU: `gpu_evaluate_tokenized()` +
 sync, using the already-truncated IDs), optional loss-quality backfill, and back to training mode.
-Loss = sum ÷ **number of pairs**, perplexity = exp(loss). Reports `update_validation_metrics`
+Loss = sum ÷ **number of pairs that evaluated** (TD-267), perplexity = exp(loss). Reports `update_validation_metrics`
 (accuracy always −1) and runs BLEU/ROUGE (§10).
 
 If loss < best − `min_delta`: record the best epoch, report `update_best_metrics`, and **if early
@@ -355,15 +346,15 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Skipped (empty / invalid-UTF-8) pairs stay as empty entries: training throws per pair and drops the window; validation counts them as loss 0 (§6, §9) | Validation loss biased low (drives best model and early stopping); noisy errors; lost gradients | **Verified** (3.4 → 2.5 with one empty pair; "Matrix index out of bounds"); **fixed in code October 17, 2026** | [TD-267](../../guides/TECHNICAL_DEBT.md#td-267-chatbottrainer-keeps-skipped-pairs-biasing-validation-loss-low) |
+| Skipped (empty / invalid-UTF-8) pairs stay as empty entries: training throws per pair and drops the window; validation counts them as loss 0 (§6, §9) | Validation loss biased low (drives best model and early stopping); noisy errors; lost gradients | **Fixed October 17, 2026** (was verified: 3.4 → 2.5 with one empty pair) | [TD-267](../../guides/TECHNICAL_DEBT.md#td-267-chatbottrainer-keeps-skipped-pairs-biasing-validation-loss-low) |
 | Reporter `end_epoch()` is only called when validation data exists (§5) | Runs without a validation split never close epochs on the dashboard | By inspection | [TD-268](../../guides/TECHNICAL_DEBT.md#td-268-chatbottrainer-only-ends-metrics-epochs-when-there-is-validation-data) |
-| Optimizer state and LR schedule restart every incremental pass (§7) | No coherent schedule across a long run; Adam moments lost | By inspection (`IncrementalTrainer` + `set_model()`) | [TD-269](../../guides/TECHNICAL_DEBT.md#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass) |
-| Adaptive clipping state resets every epoch; never activates with ≤ 100 steps/epoch (§8) | TD-017 often has no effect | By inspection | [TD-270](../../guides/TECHNICAL_DEBT.md#td-270-adaptive-gradient-clipping-resets-every-epoch) |
+| Optimizer state and LR schedule restart every incremental pass (§7) | No coherent schedule across a long run; Adam moments lost | **Fixed October 19, 2026** (training state saved with checkpoints; warmup once per run) | [TD-269](../../guides/TECHNICAL_DEBT.md#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass) |
+| Adaptive clipping state resets every epoch; never activates with ≤ 100 steps/epoch (§8) | TD-017 often had no effect | **Fixed October 19, 2026** (members, saved with the training state) | [TD-270](../../guides/TECHNICAL_DEBT.md#td-270-adaptive-gradient-clipping-resets-every-epoch) |
 | Cache hit loaded after a fresh random split misaligns per-index metadata; split differs every pass (§6) | Wrong metadata; validation not comparable across passes | By inspection (cache off by default) | [TD-271](../../guides/TECHNICAL_DEBT.md#td-271-chatbottrainers-tokenized-cache-can-pair-with-a-different-random-split) |
-| Error/NaN mid-window drops prior samples' gradients; partial last window under-weighted (§8) | Silent loss of training signal | By inspection; **fixed in code October 17, 2026** | [TD-272](../../guides/TECHNICAL_DEBT.md#td-272-chatbottrainer-silently-drops-gradients-on-mid-window-errors-and-under-weights-the-last-window) |
+| Error/NaN mid-window drops prior samples' gradients; partial last window under-weighted (§8) | Silent loss of training signal | **Fixed October 17, 2026** | [TD-272](../../guides/TECHNICAL_DEBT.md#td-272-chatbottrainer-silently-drops-gradients-on-mid-window-errors-and-under-weights-the-last-window) |
 | Quality backfill writes to unreachable copies; no config keys (§10) | Dead feature; wasted compute if enabled | By inspection | [TD-273](../../guides/TECHNICAL_DEBT.md#td-273-chatbottrainer-quality-backfill-writes-results-nobody-can-read) |
 | `best_model_temp.bin` in the working directory, shared and never cleaned (§9) | Collisions; stray files | By inspection | [TD-274](../../guides/TECHNICAL_DEBT.md#td-274-chatbottrainer-saves-the-best-model-to-a-fixed-file-in-the-working-directory) |
-| Long responses lose `<eos>` on head truncation (§6) | Model never sees long targets end | By inspection; **fixed in code October 17, 2026** (`truncate_target_keep_eos()`) | [TD-275](../../guides/TECHNICAL_DEBT.md#td-275-chatbottrainer-drops-eos-from-long-training-responses) |
+| Long responses lose `<eos>` on head truncation (§6) | Model never saw long targets end | **Fixed October 17, 2026** (`truncate_target_keep_eos()`) | [TD-275](../../guides/TECHNICAL_DEBT.md#td-275-chatbottrainer-drops-eos-from-long-training-responses) |
 | Hygiene: unused accuracy/`verbose`, `log()` level mapping, `end_epoch` reports last-window gradient norm rather than the epoch average, stale `chatbottrainer_test.cpp.old`, `validate_and_correct_config()` silently changes architecture (standalone path) | Minor | By inspection | [TD-276](../../guides/TECHNICAL_DEBT.md#td-276-chatbottrainer-hygiene-dead-fields-logging-stale-test-file) |
 | Whole class capped below `stable` | Already TD-039 | — | TD-039 |
 
@@ -378,3 +369,6 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 - **The adaptive-clipping EMA and warmup counter** are members (`agc_ema_`, `agc_step_count_`), so they no longer reset every epoch (TD-270).
 - **`calculate_learning_rate()`** guards every denominator and clamps the cosine progress to [0, 1]. `WARMUP_COSINE` used to return NaN when the
   warmup equalled the step count, and `STEP_DECAY`/`EXPONENTIAL_DECAY` divided by zero when a pass had fewer steps than epochs.
+- **Atomic save, rechecked October 19, 2026:** `save_training_state()` writes `<path>.tmp` and moves it into place with
+  `std::filesystem::rename()`, which replaces the old file on every platform. It used `std::rename()`, which fails on Windows when the
+  target exists.

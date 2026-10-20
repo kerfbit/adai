@@ -1,12 +1,12 @@
 # `TrainerAdminAPI` — Source File Reference
 
-- **Files:** [`src/TrainerAdminAPI.hpp`](../../../../src/TrainerAdminAPI.hpp) (99 lines), [`src/TrainerAdminAPI.cpp`](../../../../src/TrainerAdminAPI.cpp) (399 lines)
+- **Files:** [`src/TrainerAdminAPI.hpp`](../../../../src/TrainerAdminAPI.hpp) (101 lines), [`src/TrainerAdminAPI.cpp`](../../../../src/TrainerAdminAPI.cpp) (337 lines)
 - **Namespace:** `adai`
 - **Used by:** `incremental_trainer --admin-port <N> resume` (the single-pass child `trainer_service` launches; bound to `127.0.0.1:TRAINER_CHILD_ADMIN_PORT`). `trainer_service`'s own public listener, `TrainerServiceProxy`, proxies `/admin/*` to it (see CLAUDE.md, "Incremental trainer admin API")
 - **State:** an in-process [`TrainerControlState`](../../../../src/TrainerControlState.hpp) shared with that pass's `IncrementalTrainer`
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0`, `@adai-reviewed: 2026-09-10` (both files)
-- **Tests:** [`tests/trainer_admin_api_test.cpp`](../../../../tests/trainer_admin_api_test.cpp) (14 tests, `trainerAdminApiTests`; all pass)
-- **Last traced against the code:** 2026-10-17
+- **Status tag:** `@adai-status: stable`, `TrainerAdminAPI.cpp` `@adai-version: 1.1.0`, `@adai-reviewed: 2026-10-19`; `.hpp` `1.0.0`, `2026-09-10`
+- **Tests:** [`tests/trainer_admin_api_test.cpp`](../../../../tests/trainer_admin_api_test.cpp) (16 tests, `trainerAdminApiTests`; all pass; the shared parser also has `trainerAdminConfigTests`, see [TrainerAdminConfig.md](TrainerAdminConfig.md))
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by starting the real class on a local port and calling it with `curl`.
 
@@ -27,19 +27,25 @@ A small httplib server exposing one training pass's control state.
 | `POST /admin/pause`, `POST /admin/resume` | Set/clear `paused` (resume also wakes the loop); 202 |
 
 `start()` opens `<config_store_dir>/daemon_config.db`, overlays the persisted tunables onto the control state (a failure only logs a warning), then
-blocks in `listen()` and returns false if the bind fails. `stop()` is idempotent. Request bodies use the same substring JSON helpers as the other daemons.
+blocks in `listen()` and returns false if the bind fails. `stop()` is idempotent. `PUT /admin/config` bodies are parsed as JSON by the shared `parse_trainer_admin_config()` (TD-519); responses are still hand-written JSON (TD-453).
 
 ---
 
 ## 2. Problems
 
-### `{"auto_save_enabled": true}` turns auto-save **off** (verified)
+### Fixed: `{"auto_save_enabled": true}` turned auto-save **off** (TD-519, October 19, 2026)
 
-`json_bool()` compares the four characters right after `"auto_save_enabled":` with `true`. With a space after the colon (the default output of
-Python's `json.dumps`, and how many people type JSON for `curl`), it sees ` tru` and returns false. `PUT {"auto_save_enabled": true}` answered
-`"auto_save_enabled":false` and **persisted it to `daemon_config.db`**, so every later pass also runs without auto-save; the compact form worked.
-`trainer_service`'s idle-path handler copies the same parser, so the same request disables it there too. The integer keys happen to work (`stoi`
-skips leading spaces).
+The old `json_bool()` compared the four characters right after `"auto_save_enabled":` with `true`. With a space after the colon, the default
+output of Python's `json.dumps`, it saw ` tru` and returned false. `PUT {"auto_save_enabled": true}` answered `"auto_save_enabled":false` and
+**persisted it to `daemon_config.db`**, so every later pass ran without auto-save. `trainer_service`'s idle handler had a copy of the same
+parser. A body rejected on a later key had also already applied its earlier keys (TD-305).
+
+Both handlers now use `parse_trainer_admin_config()` ([TrainerAdminConfig.md](TrainerAdminConfig.md)), which:
+- reads any valid JSON spacing;
+- rejects a non-boolean `auto_save_enabled`, non-integer or out-of-range counts, and malformed JSON with 400;
+- validates the whole body before applying anything.
+
+`PutConfigAcceptsSpacedAndPrettyPrintedJson` and `PutConfigRejectedBodyChangesNothing` both failed on the old code.
 
 ### A NaN loss makes `/admin/status` invalid JSON (verified)
 
@@ -75,10 +81,10 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `json_bool()` reads `"key": true` (with a space) as false; persisted (§2) | A normal JSON request silently disables auto-save for every later pass | **Verified** | [TD-519](../../guides/TECHNICAL_DEBT.md#td-519-trainer-admin-put-reads-a-spaced-true-as-false-and-disables-auto-save) |
+| `json_bool()` reads `"key": true` (with a space) as false; persisted (§2) | A normal JSON request silently disabled auto-save for every later pass | **Fixed October 19, 2026** (was verified) | [TD-519](../../guides/TECHNICAL_DEBT.md#td-519-trainer-admin-put-reads-a-spaced-true-as-false-and-disables-auto-save) |
 | NaN `last_loss` streamed as `nan` (§2) | Invalid status JSON during divergence | **Verified** | [TD-520](../../guides/TECHNICAL_DEBT.md#td-520-trainer-admin-status-emits-nan-losses-as-invalid-json) |
 | Stale "serve" header; unbounded `wait_ms`; counter-based completion; unchecked persisted values (§2) | Misleading docs; admin API can be tied up | By inspection | [TD-521](../../guides/TECHNICAL_DEBT.md#td-521-traineradminapi-stale-header-unbounded-wait_ms-and-checkpoint-accounting) |
-| Partial apply on invalid PUT; hand-written JSON everywhere | Already tracked | — | TD-305, TD-453 |
+| Hand-written JSON responses; non-atomic multi-key persistence | Already tracked | — | TD-453, TD-305 (its validate-first half fixed here October 19, 2026) |
 
 ## Addendum (October 19, 2026): JSON request parsing (TD-519)
 

@@ -1,12 +1,12 @@
 # `Optimizer` — Source File Reference
 
-- **Files:** [`src/Optimizer.hpp`](../../../../src/Optimizer.hpp), [`src/Optimizer.cpp`](../../../../src/Optimizer.cpp) (681 lines together)
+- **Files:** [`src/Optimizer.hpp`](../../../../src/Optimizer.hpp), [`src/Optimizer.cpp`](../../../../src/Optimizer.cpp) (838 lines together)
 - **Namespace:** global (`Optimizer`, `OptimizerType`, `ParameterGroup`)
 - **Built into:** `adai_core`
 - **Used by:** `ChatbotTrainer` (the chatbot's AdamW, both CPU and GPU training), `run_lejepa_training_pass()` (Adam for the world model), every layer's `set_optimizer()`/`register_parameters()`/`update_weights()`
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.1`, `@adai-reviewed: 2026-09-17` (both files)
-- **Tests:** [`tests/optimizer_test.cpp`](../../../../tests/optimizer_test.cpp) (48 tests)
-- **Last traced against the code:** 2026-10-14
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.2.0`, `@adai-reviewed: 2026-10-19` (both files)
+- **Tests:** [`tests/optimizer_test.cpp`](../../../../tests/optimizer_test.cpp) (51 tests)
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with a scratch program linked against the real class
 > (`-O3 -march=native`, 8 threads).
@@ -29,7 +29,8 @@ state (`momentum`, `velocity`, `step`).
 by stale momentum; added for LeJEPA's predictor, TD-190). Clipping: `clip_gradients()` (configured `max_grad_norm`),
 `clip_gradients(max)`, and `clip_gradients(max, precomputed_norm)` scale every group by `max / (norm + 1e-6)` when the global L2 norm
 exceeds `max`. `scale_gradients(factor)` (added October 17, 2026 for TD-272) multiplies every gradient by `factor`; `ChatbotTrainer` uses it to turn a short accumulation window's sum into a mean. `get_gradient_norm()`/`get_weight_norm()` (the latter for TD-013's update ratio), `zero_grad()`, `reset_state()`,
-`total_parameters()`, `get_optimizer_name()`.
+`total_parameters()`, `get_optimizer_name()`. `save_state(ostream)`/`load_state(istream)` (TD-269, October 18–19, 2026) persist the
+moments and step counts; see the addendum below.
 
 ### How production uses it
 
@@ -37,7 +38,9 @@ exceeds `max`. `scale_gradients(factor)` (added October 17, 2026 for TD-272) mul
 `config.trainer.conf`), `max_grad_norm`, and the betas, and the model registers every layer's matrices. Per optimizer step (every
 `GRADIENT_ACCUMULATION_STEPS` samples): `get_gradient_norm()`, a NaN/Inf check that **skips the update** (so a non-finite gradient
 never reaches Adam's state), clipping (fixed or adaptive, TD-017), then `step()`. The world-model pass uses a separate `ADAM`
-optimizer with no weight decay. Optimizer state isn't saved, so each incremental pass starts from zero moments (TD-269).
+optimizer with no weight decay. Since TD-269 (October 19, 2026), `ChatbotTrainer` saves the optimizer's state in each
+checkpoint's `<checkpoint>.optimizer` file and the next pass loads it, so AdamW's moments and step counts continue across
+incremental passes. They used to restart from zero every pass. The world-model pass still starts its optimizer fresh.
 
 ---
 
@@ -84,6 +87,9 @@ clipping (below/above threshold, custom norm, disabled), each algorithm's first 
 bias correction, coupled vs decoupled decay, the zero-gradient skip (including AdamW still applying decay), `reset_state()`, a training
 loop with LR scheduling, and edge cases (tiny gradients, large LR, empty optimizer, large or many groups).
 
+Added October 17–19, 2026: `scale_gradients()` (TD-272), and `save_state()`/`load_state()`. The state tests check a round trip
+that continues stepping identically, and that a shape mismatch or a truncated stream leaves the optimizer untouched (TD-269). A type mismatch is rejected by the same code path but not tested separately.
+
 **Not covered:** `get_weight_norm()`, the precomputed-norm clipping overload, duplicate registration, performance.
 
 ---
@@ -98,7 +104,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Bounds-checked accessor in every update loop (3.2× slower); CPU-only optimizer forces GPU training to round-trip all gradients and weights per step (§2) | Seconds of CPU work and GBs of copies per optimizer step at the configured model size | **Verified** (timing); estimate for production size | [TD-468](../../guides/TECHNICAL_DEBT.md#td-468-gpu-training-round-trips-every-gradient-and-weight-through-a-3-slow-cpu-optimizer) |
 | One global weight decay, applied to norms, biases and embeddings (§2) | Slow drift of norm gains under AdamW; no per-group control | By inspection | [TD-469](../../guides/TECHNICAL_DEBT.md#td-469-optimizer-global-weight-decay-unused-amsgrad-and-duplicate-registration) |
 | Unused `amsgrad`; no duplicate-registration check; raw pointers; float norm accumulation (§2) | Hygiene; double updates if a layer registers twice | By inspection | [TD-469](../../guides/TECHNICAL_DEBT.md#td-469-optimizer-global-weight-decay-unused-amsgrad-and-duplicate-registration) |
-| Optimizer state not persisted across passes; shared-optimizer stepping; accessor cost | Already tracked | — | TD-269, TD-297, TD-435 |
+| Shared-optimizer stepping; accessor cost | Already tracked | — | TD-297, TD-435 |
+| Optimizer state not persisted across passes | Every pass restarted AdamW from zero moments | **Fixed October 19, 2026** (`save_state()`/`load_state()`) | [TD-269](../../guides/TECHNICAL_DEBT.md#td-269-optimizer-state-and-lr-schedule-restart-every-incremental-training-pass) |
 
 ---
 

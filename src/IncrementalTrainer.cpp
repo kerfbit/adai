@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.17.0
+// @adai-version: 0.17.1
 // @adai-reviewed: 2026-10-19
 
 #include "IncrementalTrainer.hpp"
@@ -543,6 +543,8 @@ void IncrementalTrainer::reset_model_for_config() {
     samples_since_last_save = 0;
     best_validation_loss = std::numeric_limits<float>::max();
     best_checkpoint_path.clear();
+    // Fresh weights: no checkpoint's training state (TD-269) belongs to them any more.
+    loaded_checkpoint_path_.clear();
 
     build_model();
     save_session_history();
@@ -2095,14 +2097,19 @@ bool IncrementalTrainer::reset_all(bool keep_data_registry) {
     std::string sdir = get_session_dir();
     if (fs::exists(sdir)) {
         // Session-directory files to always remove
-        const std::vector<std::string> sdir_remove = {
-            "session_history.txt",
-            "pending_files.txt",
-        };
-        for (const auto& name : sdir_remove) {
-            std::string p = sdir;
-            p += '/';
-            p += name;
+        // The local registry pool lives in SESSION_DIR/<kind>/ (TD-202), which this binary always
+        // sets (TD-204); reset used to remove SESSION_DIR/pending_files.txt and
+        // data_registry.txt, the legacy pool's, and left the trainer's own pool as it was.
+        // Against registry_server the pool is remote and nothing local is touched.
+        const bool local_registry = dataset_config_.registry_server_url.empty();
+        const std::string pool_dir = DatasetRegistry::local_pool_dir(dataset_config_);
+        // --keep-data keeps the queue: only a full reset clears it (the trained entries are
+        // re-queued into it below, so removing it first threw away every untrained file).
+        std::vector<std::string> sdir_remove = {sdir + "/session_history.txt"};
+        if (local_registry && !keep_data_registry) {
+            sdir_remove.push_back(pool_dir + "/pending_files.txt");
+        }
+        for (const auto& p : sdir_remove) {
             std::error_code ec;
             auto st = fs::symlink_status(p, ec);
             if (!ec && st.type() != fs::file_type::not_found) {
@@ -2144,9 +2151,9 @@ bool IncrementalTrainer::reset_all(bool keep_data_registry) {
         Logger::info("Removed {} checkpoint file(s) from {}", to_remove.size(), sdir);
 
         // Optionally remove the data registry
-        std::string registry_file = sdir + "/" + dataset_config_.data_registry_file;
+        std::string registry_file = pool_dir + "/" + dataset_config_.data_registry_file;
         if (!keep_data_registry) {
-            if (fs::exists(registry_file)) {
+            if (local_registry && fs::exists(registry_file)) {
                 std::error_code ec2;
                 fs::remove(registry_file, ec2);
                 Logger::info("Data registry removed");
