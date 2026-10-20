@@ -127,3 +127,22 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `set_device()` doesn't rebind the stream or cuBLAS handle and doesn't reset the budget, contrary to its doc; no caller (§2) | A latent trap for multi-GPU use | By inspection | [TD-383](../../guides/TECHNICAL_DEBT.md#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize) |
 | `cleanup()` zeroes the budget while `GPUMemory` buffers still exist; `initialize()` ignores new arguments once initialized and leaks the stream on partial failure; `probe_diagnostic()` hides the error; unchecked `count × sizeof(T)` (§2–3) | Wrong accounting after re-init; confusing diagnostics | By inspection | [TD-383](../../guides/TECHNICAL_DEBT.md#td-383-gpumanager-lifecycle-gaps-set_device-cleanup-initialize) |
 | Nothing runs on a real CUDA device in any environment used so far | All device paths unverified | — | — (needs a CUDA host) |
+
+---
+
+## Addendum (October 20, 2026): stream-ordered allocation (TD-390)
+
+`GPUMemory` (header 0.11.0) no longer calls `cudaMalloc()`/`cudaFree()`. `cudaFree()` synchronizes the device, once per `GPUMatrix`
+temporary. It now uses `GPUManager::allocate_block(bytes)`/`release_block(ptr, bytes)`:
+- **With memory pools:** when the device supports them, these call `cudaMallocAsync()`/`cudaFreeAsync()` on the ADAI stream.
+  `initialize()` sets the default pool's release threshold to the ADAI budget, so freed memory stays cached for reuse instead of
+  going back to the driver at each synchronization.
+- **Why reuse is safe:** every ADAI kernel, copy, memset and cuBLAS call runs on that stream, so a freed block's earlier uses
+  complete before it is reused.
+- **Failed allocation:** retries once after `cudaMemPoolTrimTo()`.
+- **Teardown:** `cleanup()` trims the pool, and a block released after `cleanup()` is freed with `cudaFree()`.
+- **Without pool support:** devices keep `cudaMalloc()`/`cudaFree()`. `uses_stream_ordered_pool()` reports which applies.
+
+The budget counter behaves as before. Compile-checked only; `gpuutils_test.cpp`'s CUDA-only
+`CudaUsesTheStreamOrderedPoolWhenSupported` and `CudaFreeKeepsStreamOrder` skip without a device. The SYCL backend's own pool is in
+[GPUUtils_SYCL.md](GPUUtils_SYCL.md).

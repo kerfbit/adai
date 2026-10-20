@@ -9528,8 +9528,24 @@ New tests (`gpuutils_test.cpp`, SYCL only):
 - a block from before `cleanup()` isn't pooled;
 - `pool_size()` rounding.
 
-Still open: measuring on ai-machine. Also, CUDA's `GPUMemory` calls `cudaFree()`, which synchronizes the device, so the
-CUDA backend has the same class of stall. ai-machine doesn't use it, so it is left for a separate fix.
+Still open: measuring on ai-machine.
+
+**CUDA follow-up (October 20, 2026).** CUDA's `GPUMemory` called `cudaMalloc()`/`cudaFree()`, and `cudaFree()` synchronizes
+the device: the same stall, once per temporary. It now goes through `GPUManager::allocate_block()`/`release_block()`,
+which use `cudaMallocAsync()`/`cudaFreeAsync()` on the ADAI stream, the stream-ordered allocator `MatrixGPU.cu`'s batched
+paths already used. Every ADAI kernel, copy, memset and cuBLAS call runs on that one stream (checked), so a freed block's
+earlier uses complete before it is reused.
+- **Pool:** the device's default memory pool keeps freed memory up to the ADAI budget (its release threshold) instead of
+  returning it to the driver at each synchronization.
+- **Allocation failure:** a failed allocation retries once after `cudaMemPoolTrimTo()`.
+- **Teardown:** `cleanup()` trims the pool. A block destroyed after `cleanup()` falls back to `cudaFree()`, which also frees
+  pool memory.
+- **Fallback:** devices without memory-pool support (`cudaDevAttrMemoryPoolsSupported`) keep `cudaMalloc()`/`cudaFree()`.
+- **Budget:** the counter is unchanged; it already dropped at release.
+
+Compile-checked only (no CUDA device here). New CUDA-only tests, which skip without a device:
+- `CudaUsesTheStreamOrderedPoolWhenSupported`;
+- `CudaFreeKeepsStreamOrder`: a copy queued before its source is freed still reads the old data.
 
 ---
 

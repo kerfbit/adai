@@ -20,8 +20,8 @@
 // returned the string "Invalid device ID" instead of throwing at all.
 
 #include <gtest/gtest.h>
-#include <stdexcept>
 #include <memory>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 #include "../src/gpu/GPUUtils.hpp"
@@ -363,5 +363,49 @@ TEST(GPUManagerPoolSize, RoundsToSharedSizes) {
     const size_t big = 3'000'000;
     EXPECT_GE(GPUManager::pool_size(big), big);
     EXPECT_LE(GPUManager::pool_size(big), big + big / 8 + (size_t{1} << 19));
+}
+#endif
+
+#if defined(ADAI_ENABLE_GPU) && !defined(ADAI_GPU_BACKEND_SYCL)
+// TD-390 (CUDA): GPUMemory allocates and frees on the ADAI stream (cudaMallocAsync/
+// cudaFreeAsync) instead of cudaMalloc/cudaFree, whose free synchronizes the whole device.
+
+TEST_F(GPUManagerTest, CudaUsesTheStreamOrderedPoolWhenSupported) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f));
+    int supported = 0;
+    cudaDeviceGetAttribute(&supported, cudaDevAttrMemoryPoolsSupported, 0);
+    EXPECT_EQ(GPUManager::uses_stream_ordered_pool(), supported != 0);
+}
+
+TEST_F(GPUManagerTest, CudaFreeKeepsStreamOrder) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f));
+    constexpr size_t n = 1 << 20;
+    std::vector<float> old_data(n, 1.0f), new_data(n, 2.0f), out(n, 0.0f);
+    const size_t used_before = GPUManager::get_used_memory_bytes();
+
+    GPUMemory<float> dst(n);
+    {
+        GPUMemory<float> src(n);
+        src.copy_from_host(old_data.data(), n);
+        // Queued, not waited for: src is freed while this copy may still read it.
+        ASSERT_EQ(cudaMemcpyAsync(dst.get(), src.get(), n * sizeof(float), cudaMemcpyDeviceToDevice,
+                                  GPUManager::get_stream()),
+                  cudaSuccess);
+    }
+    {
+        GPUMemory<float> reuse(n);  // may get src's block back from the pool
+        reuse.copy_from_host(new_data.data(), n);
+        GPUManager::synchronize();
+    }
+    dst.copy_to_host(out.data(), n);
+    EXPECT_EQ(out.front(), 1.0f);
+    EXPECT_EQ(out.back(), 1.0f);
+    EXPECT_EQ(GPUManager::get_used_memory_bytes(), used_before + n * sizeof(float));
 }
 #endif

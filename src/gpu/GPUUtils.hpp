@@ -2,8 +2,8 @@
 #define GPU_UTILS_HPP
 
 // @adai-status: beta        (TD-041 resolved — dedicated tests added; real-device paths still unverified by an actual run, see below)
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-10-17
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-10-20
 
 
 #include <cstddef>
@@ -111,6 +111,12 @@ class GPUManager {
     inline static std::mutex memory_mutex_;
     /// TD-382: serializes use of the one shared cuBLAS handle across host threads.
     inline static std::mutex cublas_mutex_;
+    /// TD-390 (CUDA): GPUMemory allocates with cudaMallocAsync/cudaFreeAsync on stream_ when the
+    /// device supports memory pools. cudaFree() synchronizes the device, once per GPUMatrix
+    /// temporary; a stream-ordered free doesn't, and the freed block is reusable by later work
+    /// on the same stream. Every ADAI kernel, copy and cuBLAS call runs on stream_.
+    inline static bool stream_ordered_pool_ = false;
+    inline static cudaMemPool_t mem_pool_ = nullptr;
 
     /// Remaining budget; caller holds memory_mutex_.
     static size_t available_bytes_locked() {
@@ -205,6 +211,19 @@ class GPUManager {
         CUBLAS_CHECK(cublasCreate(&cublas_handle_));
         CUBLAS_CHECK(cublasSetStream(cublas_handle_, stream_));
 
+        // TD-390: keep freed memory in the device's default pool up to the ADAI budget (the
+        // release threshold), instead of returning it to the driver at every synchronization.
+        int pools_supported = 0;
+        cudaDeviceGetAttribute(&pools_supported, cudaDevAttrMemoryPoolsSupported, device_id);
+        stream_ordered_pool_ = false;
+        if (pools_supported &&
+            cudaDeviceGetDefaultMemPool(&mem_pool_, device_id) == cudaSuccess) {
+            unsigned long long threshold = max_memory_bytes_;
+            stream_ordered_pool_ = cudaMemPoolSetAttribute(mem_pool_, cudaMemPoolAttrReleaseThreshold,
+                                                           &threshold) == cudaSuccess;
+        }
+        cudaGetLastError();  // don't leave a failed pool query as the sticky last error
+
         initialized_ = true;
         return true;
     }
@@ -225,9 +244,13 @@ class GPUManager {
         // Drain in-flight work on our stream before releasing handles.
         if (stream_) {
             cudaStreamSynchronize(stream_);
+            if (stream_ordered_pool_) {
+                cudaMemPoolTrimTo(mem_pool_, 0);  // TD-390: hand cached blocks back to the driver
+            }
             cudaStreamDestroy(stream_);
             stream_ = nullptr;
         }
+        stream_ordered_pool_ = false;
 
         if (cublas_handle_) {
             cublasDestroy(cublas_handle_);
@@ -349,6 +372,60 @@ class GPUManager {
         allocated_bytes_ = (bytes <= allocated_bytes_) ? (allocated_bytes_ - bytes) : 0;
     }
 
+    /** @brief True when GPUMemory uses the stream-ordered pool (TD-390). */
+    static bool uses_stream_ordered_pool() {
+        return stream_ordered_pool_;
+    }
+
+    /**
+     * @brief Device memory for GPUMemory, counted in the budget (TD-390).
+     *
+     * Stream-ordered (cudaMallocAsync on the ADAI stream) when the device supports memory pools,
+     * else cudaMalloc. A failed pool allocation retries once after the pool is trimmed, since
+     * cached blocks of other sizes can be what fills the device.
+     */
+    static void* allocate_block(size_t bytes) {
+        reserve_memory(bytes);
+        void* ptr = nullptr;
+        cudaError_t err;
+        if (stream_ordered_pool_ && stream_) {
+            err = cudaMallocAsync(&ptr, bytes, stream_);
+            if (err == cudaErrorMemoryAllocation) {
+                cudaGetLastError();
+                cudaStreamSynchronize(stream_);
+                cudaMemPoolTrimTo(mem_pool_, 0);
+                err = cudaMallocAsync(&ptr, bytes, stream_);
+            }
+        } else {
+            err = cudaMalloc(&ptr, bytes);
+        }
+        if (err != cudaSuccess) {
+            cudaGetLastError();
+            release_memory(bytes);
+            throw std::runtime_error(std::string("CUDA allocation failed: ") + cudaGetErrorString(err));
+        }
+        return ptr;
+    }
+
+    /**
+     * @brief Takes back a block from allocate_block() (TD-390).
+     *
+     * cudaFreeAsync on the ADAI stream: no device synchronization, and the block's last uses,
+     * submitted earlier on the same stream, complete before it is reused. After cleanup() (no
+     * stream) it falls back to cudaFree, which also frees pool memory.
+     */
+    static void release_block(void* ptr, size_t bytes) {
+        if (!ptr) {
+            return;
+        }
+        if (stream_ordered_pool_ && stream_) {
+            cudaFreeAsync(ptr, stream_);
+        } else {
+            cudaFree(ptr);
+        }
+        release_memory(bytes);
+    }
+
     /**
      * @brief Human-readable description of the selected device plus memory budget.
      *
@@ -421,21 +498,15 @@ class GPUMemory {
     size_t size_ = 0;
 
    public:
+    // TD-390: allocation and release go through GPUManager, which uses the stream-ordered pool
+    // (cudaMallocAsync/cudaFreeAsync) instead of cudaMalloc/cudaFree, so destroying a temporary
+    // no longer synchronizes the device.
     explicit GPUMemory(size_t count) : size_(count) {
-        const size_t bytes = count * sizeof(T);
-        GPUManager::reserve_memory(bytes);
-        cudaError_t err = cudaMalloc(&device_ptr_, bytes);
-        if (err != cudaSuccess) {
-            GPUManager::release_memory(bytes);
-            throw std::runtime_error(std::string("cudaMalloc failed: ") + cudaGetErrorString(err));
-        }
+        device_ptr_ = static_cast<T*>(GPUManager::allocate_block(count * sizeof(T)));
     }
 
     ~GPUMemory() {
-        if (device_ptr_) {
-            cudaFree(device_ptr_);
-            GPUManager::release_memory(size_ * sizeof(T));
-        }
+        GPUManager::release_block(device_ptr_, size_ * sizeof(T));
     }
 
     // Non-copyable
@@ -450,10 +521,7 @@ class GPUMemory {
 
     GPUMemory& operator=(GPUMemory&& other) noexcept {
         if (this != &other) {
-            if (device_ptr_) {
-                cudaFree(device_ptr_);
-                GPUManager::release_memory(size_ * sizeof(T));
-            }
+            GPUManager::release_block(device_ptr_, size_ * sizeof(T));
             device_ptr_ = other.device_ptr_;
             size_ = other.size_;
             other.device_ptr_ = nullptr;
