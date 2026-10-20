@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-20
 
 // ============================================================================
 // SIMD platform detection and helper utilities for Matrix operations.
@@ -20,7 +20,9 @@
 
 // ===== Compile-time SIMD capability detection =====
 
-// TODO: See TD-434 in TECHNICAL_DEBT.md - compile-time only; portable (-march=x86-64) builds get no SIMD matmul, add runtime dispatch
+// These describe what the compiler may assume everywhere. Matrix::operator* also has an AVX2/FMA
+// kernel compiled for x86 GCC/Clang builds without them (TD-434), selected at run time with
+// cpu_supports_avx2_fma() below, so portable (-march=x86-64) binaries still get it.
 #if defined(__AVX2__)
 #define ADAI_SIMD_AVX2
 #include <immintrin.h>
@@ -97,8 +99,38 @@ inline bool has_fma() {
     // NOLINTEND(modernize-avoid-c-arrays,cppcoreguidelines-init-variables)
 }
 
+/// True when AVX2 and FMA3 can actually run: the CPU has them (CPUID) and the OS saves the YMM
+/// registers on a context switch (OSXSAVE set and XCR0 enabling SSE and AVX state). has_avx2()
+/// alone checks only the CPU (TD-437). Computed once, so it is cheap enough for every multiply.
+inline bool cpu_supports_avx2_fma() {
+    static const bool supported = [] {
+        // NOLINTBEGIN(modernize-avoid-c-arrays,cppcoreguidelines-init-variables)
+        int info1[4] = {};
+        cpuid_query(info1, 1);
+        const bool osxsave = (info1[2] >> 27) & 1;
+        const bool avx = (info1[2] >> 28) & 1;
+        const bool fma = (info1[2] >> 12) & 1;
+        // NOLINTEND(modernize-avoid-c-arrays,cppcoreguidelines-init-variables)
+        if (!osxsave || !avx || !fma || !has_avx2()) {
+            return false;
+        }
+#if defined(_MSC_VER)
+        const unsigned long long xcr0 = _xgetbv(0);
+#else
+        unsigned int eax = 0, edx = 0;
+        __asm__ volatile("xgetbv" : "=a"(eax), "=d"(edx) : "c"(0));
+        const unsigned long long xcr0 = (static_cast<unsigned long long>(edx) << 32) | eax;
+#endif
+        return (xcr0 & 0x6) == 0x6;  // XMM (bit 1) and YMM (bit 2) state enabled by the OS
+    }();
+    return supported;
+}
+
 #else  // Non-x86 architectures
 
+inline bool cpu_supports_avx2_fma() {
+    return false;
+}
 inline bool has_avx2() {
     return false;
 }

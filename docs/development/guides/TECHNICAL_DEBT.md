@@ -1178,10 +1178,10 @@ full-path names, checksum-checked reuse), then TD-413 (done: the pre-check count
 host↔device transfers without a critical reason. So far:
 - TD-436 (done: the `sycl` build gets `-march=x86-64-v3` and AVX2/FMA);
 - TD-468 (done in code: device-resident optimizer);
-- TD-547 (done in code: embeddings on the device).
+- TD-547 (done in code: embeddings on the device);
+- TD-434 (done in code: work-based multiply threading and runtime AVX2/FMA dispatch, for CPU and `portable` builds).
 
-Next: TD-434 (CPU threading and runtime SIMD dispatch, for CPU builds). The small per-sample causal-mask upload and per-sample sync (TD-390)
-are the remaining transfers of a GPU pass.
+The small per-sample causal-mask upload and per-sample sync (TD-390) are the remaining transfers of a GPU pass.
 
 Every fix here is verified on CPU, or on the oneAPI CPU device for the SYCL kernels. Still needed: an on-device run on ai-machine, then
 retraining from scratch, since no existing checkpoint has correct GPU-trained weights (TD-358) or the encoder's own embedding (TD-538).
@@ -10883,7 +10883,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Core / Matrix | October 14, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 20, 2026 | Core / Matrix | October 14, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `Matrix` and verified by timing (8-core dev machine, AVX2 build):
@@ -10903,9 +10903,9 @@ Found while tracing `Matrix` and verified by timing (8-core dev machine, AVX2 bu
 
 Action Items:
 
-- [ ] Replace the `rows > 64` gates in `operator*` with a work-based threshold (and a static schedule); benchmark before/after on a CPU training pass.
-- [ ] Add runtime ISA dispatch for the multiply (an AVX2/FMA kernel compiled with `__attribute__((target("avx2,fma")))`, selected once via the existing `adai::simd` CPUID helpers), so `portable` binaries use it on capable CPUs; extend the same to the element-wise ops if worthwhile.
-- [ ] Add a test that runs the multiply with OpenMP threads on a ≤ 64-row shape and compares against the scalar reference.
+- [x] Replace the `rows > 64` gates in `operator*` with a work-based threshold (and a static schedule); benchmark before/after on a CPU training pass.
+- [x] Add runtime ISA dispatch for the multiply (an AVX2/FMA kernel compiled with `__attribute__((target("avx2,fma")))`, selected once via the existing `adai::simd` CPUID helpers), so `portable` binaries use it on capable CPUs; extend the same to the element-wise ops if worthwhile.
+- [x] Add a test that runs the multiply with OpenMP threads on a ≤ 64-row shape and compares against the scalar reference.
 
 Location in code: `src/Matrix.cpp` (`operator*`'s OpenMP pragmas); `src/MatrixSIMD.hpp` (compile-time detection); tagged `TODO: See TD-434`.
 
@@ -10914,6 +10914,44 @@ Files to Modify:
 - `src/Matrix.cpp`
 - `src/MatrixSIMD.hpp`
 - `tests/matrix_simd_test.cpp`
+
+**Fix (October 20, 2026).**
+- **Tiling and threading:** `operator*`'s CPU path computes tiles of one row × 256 output columns, with
+  `#pragma omp parallel for schedule(static)` over the tiles when the product has more than 2¹⁸ multiply-adds. A
+  product with few rows (a training sample, a decode step, even one row) therefore splits across threads by
+  column block. Every output element still sums over k in order, so the result doesn't depend on the tiling or
+  the thread count.
+- **Runtime ISA dispatch:** the tile kernel is an AVX2/FMA kernel compiled with
+  `__attribute__((target("avx2,fma")))` into every x86 GCC/Clang build, chosen once per process with the new
+  `adai::simd::cpu_supports_avx2_fma()`. That check also confirms OS support (OSXSAVE and XGETBV), the gap
+  TD-437 notes in `has_avx2()`. `portable` binaries now use the kernel on capable CPUs. ARM keeps NEON.
+- **Fallback:** the generic kernel is a contiguous ikj loop the compiler vectorizes, replacing the strided ijk
+  loop.
+- **Override and query:** `ADAI_MATMUL_KERNEL=generic` forces the generic kernel (for tests, or a CPU the
+  detection gets wrong), and `Matrix::cpu_matmul_kernel()` reports the kernel in use.
+- **Element-wise ops:** left compile-time only (still no SIMD in `portable` builds); the multiply dominates.
+
+Measured (8-core dev machine, idle, best of 7; native → after, portable → after):
+
+| Shape | Native before | Native after | Portable before | Portable after |
+|---|---|---|---|---|
+| 64×512×512 | 2.31 ms | 0.48 ms | 23.6 ms | 0.53 ms |
+| 64×512×2048 | 15.4 ms | 2.7 ms | 161 ms | 2.6 ms |
+| 8×512×8000 | 10.4 ms | 1.9 ms | 88.9 ms | 1.9 ms |
+| 1×512×8000 | 1.19 ms | 0.96 ms | 8.7 ms | 0.96 ms |
+| 300×512×2048 | 15.7 ms | 16.9 ms | 108 ms | 16.6 ms |
+
+The one-row case is memory-bound (it streams 16 MB of weights once). The 300-row case was already threaded.
+
+Tests (`matrix_simd_test.cpp`):
+- `MatrixTiledMulTest` compares short products above the threading gate (1×512×2000, 8×512×700, 64×512×513, …)
+  with the scalar reference.
+- `ResultDoesNotDependOnThreadCount` requires a bit-identical result with 1 thread and with all of them.
+- `KernelMatchesTheCpuAndTheOverride` checks the kernel choice.
+- A second ctest entry, `MatrixSIMDTestsGenericKernel`, runs the suite with the generic kernel forced.
+
+All pass in the debug, `portable` (Release, `-march=x86-64`) and icpx SYCL trees, in both kernel modes. The CUDA
+build compiles. A before/after real CPU training pass is not yet timed.
 
 ---
 
@@ -11041,6 +11079,11 @@ Files to Modify:
 - `src/MatrixSIMD.hpp`
 - `src/Matrix.cpp`
 - `tests/matrix_simd_test.cpp`
+
+**Follow-up (October 20, 2026, TD-434).** The multiply's runtime dispatch uses the new
+`adai::simd::cpu_supports_avx2_fma()`, which checks OSXSAVE/XGETBV as well as CPUID, so it can't select AVX2
+where the OS doesn't save YMM state. `has_avx2()` itself is unchanged, and the self-check test still never
+compiles.
 
 ---
 

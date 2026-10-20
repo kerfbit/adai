@@ -178,3 +178,20 @@ wins:
 Kept: the storage layout, the constructor and operation semantics, the exception types and the
 build-option table (corrected). Dropped: generic tutorial material (integration patterns, debugging
 tips, mathematical foundations, complexity tables, future-enhancement wish lists).
+
+---
+
+## Addendum (October 20, 2026): tiled, runtime-dispatched multiply (TD-434)
+
+`operator*`'s CPU path (after the cuBLAS and BLAS checks) now computes tiles of one row × 256 output columns, run in parallel
+(`schedule(static)`) when the product has more than 2¹⁸ multiply-adds. Products with few rows use every core. Each output element
+sums over k in order, so results are bit-identical whatever the thread count. The tile kernel is chosen once per process:
+- `avx2_fma`: x86 GCC/Clang builds, compiled with `target("avx2,fma")` and used when
+  `adai::simd::cpu_supports_avx2_fma()` is true, so `portable` builds get it too;
+- `neon`: ARM;
+- `generic`: a contiguous loop the compiler vectorizes.
+
+`Matrix::cpu_matmul_kernel()` returns the name, and `ADAI_MATMUL_KERNEL=generic` (set before the first multiply) forces the generic
+kernel. 64×512×2048 went from 15.4 to 2.7 ms native and from 161 to 2.6 ms portable. Tests: `matrix_simd_test.cpp`'s
+`MatrixTiledMulTest`, `ResultDoesNotDependOnThreadCount`, `KernelMatchesTheCpuAndTheOverride`, and the
+`MatrixSIMDTestsGenericKernel` ctest entry.

@@ -9,10 +9,16 @@
 
 #include <../gtest/gtest.h>
 #include <cmath>
+#include <cstdlib>
 #include <numeric>
+#include <string>
 #include <vector>
 #include "../src/Matrix.hpp"
 #include "../src/MatrixSIMD.hpp"
+
+#ifdef ADAI_ENABLE_OPENMP
+#include <omp.h>
+#endif
 
 // ============================================================================
 // Helper: arithmetic reference (scalar, no SIMD, no OpenMP shortcuts)
@@ -259,6 +265,88 @@ INSTANTIATE_TEST_SUITE_P(Shapes, MatrixSIMDMulTest,
                                            std::make_tuple(32, 64, 32), std::make_tuple(64, 32, 64),
                                            std::make_tuple(7, 13, 11),  // odd shapes
                                            std::make_tuple(64, 64, 64)));
+
+// ============================================================================
+// TD-434: tiled, threaded multiply on short products
+// ============================================================================
+
+// Values in [-1, 1) from a fixed LCG, so sums stay small whatever the inner dimension.
+static Matrix make_bounded(int rows, int cols, unsigned seed) {
+    Matrix m(rows, cols);
+    unsigned x = seed;
+    for (int i = 0; i < rows; ++i)
+        for (int j = 0; j < cols; ++j) {
+            x = x * 1664525u + 1013904223u;
+            m.data[i][j] = static_cast<float>(x >> 8) / 8388608.0f - 1.0f;
+        }
+    return m;
+}
+
+class MatrixTiledMulTest : public ::testing::TestWithParam<std::tuple<int, int, int>> {};
+
+// Shapes above the 2^18 multiply-add threading gate with few rows (training samples, decode
+// steps), output widths that aren't multiples of the 256-column tile or the SIMD width, and one
+// below the gate.
+TEST_P(MatrixTiledMulTest, MatchesScalarReference) {
+    auto [M, K, N] = GetParam();
+    Matrix a = make_bounded(M, K, 1u);
+    Matrix b = make_bounded(K, N, 2u);
+
+    Matrix result = a * b;
+    Matrix expected = ref_mul(a, b);
+
+    ASSERT_EQ(result.rows, M);
+    ASSERT_EQ(result.cols, N);
+    for (int i = 0; i < M; ++i)
+        for (int j = 0; j < N; ++j) {
+            float magnitude = 0.0f;
+            for (int k = 0; k < K; ++k)
+                magnitude += std::abs(a.data[i][k] * b.data[k][j]);
+            EXPECT_NEAR(result.data[i][j], expected.data[i][j], 1e-5f + 1e-5f * magnitude)
+                << "at (" << i << ", " << j << ") M=" << M << " K=" << K << " N=" << N
+                << " kernel=" << Matrix::cpu_matmul_kernel();
+        }
+}
+
+INSTANTIATE_TEST_SUITE_P(ShortProducts, MatrixTiledMulTest,
+                         ::testing::Values(std::make_tuple(1, 512, 2000),  // one decode row
+                                           std::make_tuple(8, 512, 700), std::make_tuple(3, 1000, 300),
+                                           std::make_tuple(64, 512, 513),
+                                           std::make_tuple(17, 300, 257),
+                                           std::make_tuple(2, 100, 100)));  // below the gate
+
+#ifdef ADAI_ENABLE_OPENMP
+// Each output element sums over k in order, whatever the tiling or thread count, so the result
+// must be bit-identical with one thread and with all of them.
+TEST(MatrixTiledMul, ResultDoesNotDependOnThreadCount) {
+    Matrix a = make_bounded(8, 512, 3u);
+    Matrix b = make_bounded(512, 700, 4u);
+    const int threads = omp_get_max_threads();
+    omp_set_num_threads(1);
+    Matrix serial = a * b;
+    omp_set_num_threads(threads);
+    Matrix parallel = a * b;
+    for (int i = 0; i < serial.rows; ++i)
+        for (int j = 0; j < serial.cols; ++j)
+            ASSERT_EQ(serial.data[i][j], parallel.data[i][j]) << "at (" << i << ", " << j << ")";
+}
+#endif
+
+TEST(MatrixTiledMul, KernelMatchesTheCpuAndTheOverride) {
+    const char* forced = std::getenv("ADAI_MATMUL_KERNEL");
+    const std::string kernel = Matrix::cpu_matmul_kernel();
+    if (forced != nullptr && std::string(forced) == "generic") {
+        EXPECT_EQ(kernel, "generic");
+        return;
+    }
+#if defined(ADAI_SIMD_NEON)
+    EXPECT_EQ(kernel, "neon");
+#elif (defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)))
+    EXPECT_EQ(kernel, adai::simd::cpu_supports_avx2_fma() ? "avx2_fma" : "generic");
+#else
+    EXPECT_EQ(kernel, "generic");
+#endif
+}
 
 // ============================================================================
 // TD-007: BLAS path — large matrix multiply (≥ 256 in all dims)

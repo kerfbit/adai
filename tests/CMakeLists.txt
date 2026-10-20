@@ -29,6 +29,10 @@ add_test(NAME MatrixTests COMMAND matrixTests)
 add_executable(matrixSIMDTests matrix_simd_test.cpp)
 target_link_libraries(matrixSIMDTests adai_core GTest::gtest_main)
 add_test(NAME MatrixSIMDTests COMMAND matrixSIMDTests)
+# TD-434: the same suite with the generic (non-AVX2) multiply kernel forced, so it is tested on
+# AVX2 machines too.
+add_test(NAME MatrixSIMDTestsGenericKernel COMMAND matrixSIMDTests)
+set_tests_properties(MatrixSIMDTestsGenericKernel PROPERTIES ENVIRONMENT "ADAI_MATMUL_KERNEL=generic")
 
 # Quantization tests (TD-075 — ASYMMETRIC_INT8 int8_t storage/sign-extension fix)
 add_executable(quantizationTests quantization_test.cpp)

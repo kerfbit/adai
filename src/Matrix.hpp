@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-033 — GPU dispatch still round-trips per op, see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-10-20
 
 
 #include <cmath>
@@ -215,6 +215,14 @@ class Matrix {
      * @param values Vector of values to set
      */
     void set_col(int col_idx, const std::vector<float>& values);
+
+    /**
+     * The CPU kernel operator* uses: "avx2_fma" (x86 with AVX2/FMA usable, chosen at run time so
+     * portable builds get it too), "neon" (ARM) or "generic". Chosen once per process. Setting
+     * ADAI_MATMUL_KERNEL=generic before the first multiply forces the generic kernel (for tests,
+     * or a CPU the detection gets wrong). TD-434.
+     */
+    static const char* cpu_matmul_kernel();
 
     // -----------------------------------------------------------------------
     // GPU management — always declared so callers compile on CPU-only hosts.

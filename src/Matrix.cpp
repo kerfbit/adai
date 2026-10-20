@@ -1,11 +1,17 @@
 // @adai-status: beta        (capped by TD-033 — GPU dispatch still round-trips per op, see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.2
-// @adai-reviewed: 2026-10-17
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-10-20
 
 #include "Matrix.hpp"
+#include <algorithm>
+#include <cstdlib>
 #include <iomanip>
 #include <sstream>
 #include "Logger.hpp"
+
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+#include <immintrin.h>
+#endif
 
 #ifdef ADAI_ENABLE_OPENMP
 #include <omp.h>
@@ -33,6 +39,106 @@
 // Do not "fix" these OpenMP regions in response to tsan output without first checking whether a
 // newly-reported warning actually matches this pattern (worker-thread access vs.
 // post-barrier-return caller access) or is a genuinely different shape.
+
+namespace {
+
+// TD-434: operator*'s kernels compute one tile, row i and output columns [j0, j1), so a product
+// with few rows (a training sample, a decode step) still splits across threads by column block.
+// Each output element sums over k in order whatever the tiling or thread count, so results don't
+// depend on either.
+constexpr int kMatmulColumnBlock = 256;
+// Below about 2^18 multiply-adds a parallel region costs more than it saves.
+constexpr long long kMatmulParallelWork = 1LL << 18;
+
+using MatrixRows = std::vector<std::vector<float>>;
+using MatmulTile = void (*)(const float* a_row, const MatrixRows& b, int inner, float* c_row,
+                            int j0, int j1);
+
+// Baseline kernel: ikj order over contiguous rows, which the compiler vectorizes for the ISA the
+// build targets (SSE2 under -march=x86-64).
+void matmul_tile_generic(const float* a_row, const MatrixRows& b, int inner, float* c_row, int j0,
+                         int j1) {
+    for (int k = 0; k < inner; ++k) {
+        const float a = a_row[k];
+        const float* b_row = b[k].data();
+        for (int j = j0; j < j1; ++j) {
+            c_row[j] += a * b_row[j];
+        }
+    }
+}
+
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+#define ADAI_MATMUL_AVX2_KERNEL
+// AVX2/FMA kernel: compiled for AVX2 even when the build isn't (portable), and called only when
+// adai::simd::cpu_supports_avx2_fma() says the CPU and OS can run it.
+__attribute__((target("avx2,fma"))) void matmul_tile_avx2(const float* a_row, const MatrixRows& b,
+                                                          int inner, float* c_row, int j0,
+                                                          int j1) {
+    for (int k = 0; k < inner; ++k) {
+        const float* b_row = b[k].data();
+        const __m256 va = _mm256_set1_ps(a_row[k]);
+        int j = j0;
+        for (; j + 8 <= j1; j += 8) {
+            __m256 vc = _mm256_loadu_ps(c_row + j);
+            vc = _mm256_fmadd_ps(va, _mm256_loadu_ps(b_row + j), vc);
+            _mm256_storeu_ps(c_row + j, vc);
+        }
+        for (; j < j1; ++j) {
+            c_row[j] += a_row[k] * b_row[j];
+        }
+    }
+}
+#endif
+
+#if defined(ADAI_SIMD_NEON)
+void matmul_tile_neon(const float* a_row, const MatrixRows& b, int inner, float* c_row, int j0,
+                      int j1) {
+    for (int k = 0; k < inner; ++k) {
+        const float* b_row = b[k].data();
+        const float32x4_t va = vdupq_n_f32(a_row[k]);
+        int j = j0;
+        for (; j + 4 <= j1; j += 4) {
+            float32x4_t vc = vld1q_f32(c_row + j);
+            vc = vfmaq_f32(vc, va, vld1q_f32(b_row + j));
+            vst1q_f32(c_row + j, vc);
+        }
+        for (; j < j1; ++j) {
+            c_row[j] += a_row[k] * b_row[j];
+        }
+    }
+}
+#endif
+
+struct MatmulKernel {
+    MatmulTile tile;
+    const char* name;
+};
+
+const MatmulKernel& matmul_kernel() {
+    static const MatmulKernel kernel = []() -> MatmulKernel {
+        const char* forced = std::getenv("ADAI_MATMUL_KERNEL");
+        if (forced != nullptr && std::string(forced) == "generic") {
+            return {matmul_tile_generic, "generic"};
+        }
+#if defined(ADAI_SIMD_NEON)
+        return {matmul_tile_neon, "neon"};
+#elif defined(ADAI_MATMUL_AVX2_KERNEL)
+        if (adai::simd::cpu_supports_avx2_fma()) {
+            return {matmul_tile_avx2, "avx2_fma"};
+        }
+        return {matmul_tile_generic, "generic"};
+#else
+        return {matmul_tile_generic, "generic"};
+#endif
+    }();
+    return kernel;
+}
+
+}  // namespace
+
+const char* Matrix::cpu_matmul_kernel() {
+    return matmul_kernel().name;
+}
 
 // Default constructor
 Matrix::Matrix() : rows(0), cols(0) {}
@@ -99,10 +205,9 @@ const float& Matrix::operator()(int i, int j) const {
 // Acceleration priority:
 //   1. cuBLAS SGEMM (ADAI_ENABLE_GPU, matrices where any dim ≥ 32)
 //   2. BLAS SGEMM   (ADAI_ENABLE_BLAS, matrices ≥ 256 in every dimension)
-//   3. AVX2/FMA     (ADAI_SIMD_AVX2)  — ikj loop order, 8-wide FMA per iteration
-//   4. ARM NEON     (ADAI_SIMD_NEON)  — ikj loop order, 4-wide FMA per iteration
-//   5. OpenMP       (ADAI_ENABLE_OPENMP) — original ijk with #pragma omp simd
-//   6. Scalar fallback
+//   3. CPU tiles (TD-434): ikj loop order over (row, 256-column block) tiles, with OpenMP when the
+//      product has more than 2^18 multiply-adds. The tile kernel is AVX2/FMA (x86, chosen at run
+//      time, so portable builds use it too), NEON (ARM), or a plain loop the compiler vectorizes.
 Matrix Matrix::operator*(const Matrix& other) const {
     if (cols != other.rows) {
         throw std::invalid_argument("Matrix dimensions incompatible for multiplication: [" +
@@ -149,93 +254,23 @@ Matrix Matrix::operator*(const Matrix& other) const {
     }
 #endif  // ADAI_ENABLE_BLAS
 
-#if defined(ADAI_SIMD_AVX2)
-    // TODO: See TD-434 in TECHNICAL_DEBT.md - rows > 64 gate leaves short-sequence products single-threaded; AVX2 is compile-time only, so portable builds skip this path
-    // ikj loop order with AVX2 FMA: broadcasts A[i][k], processes 8 floats of
-    // row k of B simultaneously into row i of C.  B rows are contiguous so
-    // cache-friendly; each inner loop touches only one row of C (good locality).
+    const MatmulTile tile = matmul_kernel().tile;
+    const int n = other.cols;
+    const long long blocks = (n + kMatmulColumnBlock - 1) / kMatmulColumnBlock;
+    const long long tiles = static_cast<long long>(rows) * blocks;
+    const long long work = static_cast<long long>(rows) * cols * n;
+    const MatrixRows& b = other.data;
 #ifdef ADAI_ENABLE_OPENMP
-#pragma omp parallel for schedule(dynamic, 16) if (rows > 64)
-#endif
-    for (int i = 0; i < rows; ++i) {
-        float* c_row = result.data[i].data();
-        const float* a_row = data[i].data();
-        for (int k = 0; k < cols; ++k) {
-            const float* b_row = other.data[k].data();
-#ifdef ADAI_SIMD_FMA
-            __m256 va = _mm256_set1_ps(a_row[k]);
-            int j = 0;
-            for (; j <= other.cols - 8; j += 8) {
-                __m256 vc = _mm256_loadu_ps(c_row + j);
-                vc = _mm256_fmadd_ps(va, _mm256_loadu_ps(b_row + j), vc);
-                _mm256_storeu_ps(c_row + j, vc);
-            }
-#else  // AVX2 without FMA
-            __m256 va = _mm256_set1_ps(a_row[k]);
-            int j = 0;
-            for (; j <= other.cols - 8; j += 8) {
-                __m256 vc = _mm256_loadu_ps(c_row + j);
-                vc = _mm256_add_ps(vc, _mm256_mul_ps(va, _mm256_loadu_ps(b_row + j)));
-                _mm256_storeu_ps(c_row + j, vc);
-            }
-#endif
-            // scalar remainder for cols not divisible by 8
-            for (; j < other.cols; ++j) {
-                c_row[j] += a_row[k] * b_row[j];
-            }
-        }
-    }
-
-#elif defined(ADAI_SIMD_NEON)
-    // TODO: See TD-434 in TECHNICAL_DEBT.md - rows > 64 gate leaves short-sequence products single-threaded
-    // ikj loop order with ARM NEON 4-wide FMA
-#ifdef ADAI_ENABLE_OPENMP
-#pragma omp parallel for schedule(dynamic, 16) if (rows > 64)
-#endif
-    for (int i = 0; i < rows; ++i) {
-        float* c_row = result.data[i].data();
-        const float* a_row = data[i].data();
-        for (int k = 0; k < cols; ++k) {
-            const float* b_row = other.data[k].data();
-            float32x4_t va_ik = vdupq_n_f32(a_row[k]);
-            int j = 0;
-            for (; j <= other.cols - 4; j += 4) {
-                float32x4_t vc = vld1q_f32(c_row + j);
-                vc = vfmaq_f32(vc, va_ik, vld1q_f32(b_row + j));
-                vst1q_f32(c_row + j, vc);
-            }
-            for (; j < other.cols; ++j)
-                c_row[j] += a_row[k] * b_row[j];
-        }
-    }
-
-#elif defined(ADAI_ENABLE_OPENMP)
-// TODO: See TD-434 in TECHNICAL_DEBT.md - the path portable builds take: no SIMD, strided reads, 7-10x slower than AVX2
-// Parallel version with OpenMP — 5-8x speedup on multi-core CPUs
-#pragma omp parallel for collapse(2) schedule(dynamic, 32) if (rows > 64 && other.cols > 64)
-    for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < other.cols; j++) {
-            float sum = 0.0f;
-#pragma omp simd reduction(+ : sum)
-            for (int k = 0; k < cols; k++) {
-                sum += data[i][k] * other.data[k][j];
-            }
-            result.data[i][j] = sum;
-        }
-    }
-
+#pragma omp parallel for schedule(static) if (work > kMatmulParallelWork && tiles > 1)
 #else
-    // Scalar fallback
-    for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < other.cols; j++) {
-            float sum = 0.0f;
-            for (int k = 0; k < cols; k++) {
-                sum += data[i][k] * other.data[k][j];
-            }
-            result.data[i][j] = sum;
-        }
-    }
+    (void)work;
 #endif
+    for (long long t = 0; t < tiles; ++t) {
+        const int i = static_cast<int>(t / blocks);
+        const int j0 = static_cast<int>(t % blocks) * kMatmulColumnBlock;
+        const int j1 = std::min(n, j0 + kMatmulColumnBlock);
+        tile(data[i].data(), b, cols, result.data[i].data(), j0, j1);
+    }
 
     return result;
 }

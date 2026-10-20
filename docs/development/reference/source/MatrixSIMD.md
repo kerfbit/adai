@@ -116,3 +116,12 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 ## Addendum (October 19, 2026): the `sycl` build gets SIMD (TD-436)
 
 `CMakeLists.txt`'s release flags and `src/CMakeLists.txt`'s `ENABLE_SIMD` block now match `IntelLLVM` (`icpx`). The `sycl` preset compiles with `-O3 -funroll-loops -march=x86-64-v3` (a fixed AVX2/FMA/BMI level, since it is built on the dev machine and run on ai-machine; owner decision), plus `-mavx2 -mfma` for `adai_core`. So `__AVX2__` is defined and `ADAI_SIMD_AVX2` selects the intrinsic paths. `-ffast-math` is deliberately left off for `icpx`, because these options also reach the SYCL kernel sources. Measured with a real `icpx` build of `Matrix.cpp` (8 threads): 64×512×2048 went from 135.1 to 16.1 ms, and 8×512×8000 from 82.0 to 11.4 ms. An x86-64-v3 binary needs a Haswell/Zen or newer CPU; there is still no startup check (TD-437).
+
+---
+
+## Addendum (October 20, 2026): runtime AVX2/FMA check (TD-434)
+
+`adai::simd::cpu_supports_avx2_fma()` (header 1.1.0) returns true when CPUID reports AVX2, AVX and FMA, OSXSAVE is set, and XCR0
+enables XMM and YMM state. It is computed once per process. `Matrix::operator*` uses it to choose its AVX2/FMA kernel at run time, so
+the compile-time `ADAI_SIMD_AVX2` macro no longer decides whether the multiply uses SIMD. Element-wise ops still use the macro.
+`has_avx2()` is unchanged (no OS check, TD-437).
