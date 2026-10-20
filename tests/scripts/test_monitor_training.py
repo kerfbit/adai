@@ -18,10 +18,12 @@ technique already used for model_service.sh (TD-043) and serve_dashboard.py
 from __future__ import annotations
 
 import json
+import os
 import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -142,27 +144,59 @@ class MainProcessSmokeTests(unittest.TestCase):
     """Real subprocess tests. --refresh-rate is set very low so a couple of
     iterations happen quickly; every invocation is torn down with a real
     SIGINT to exercise the documented graceful-shutdown path rather than
-    just killing the process."""
+    just killing the process.
 
-    def _run_and_interrupt(self, extra_args, wait_s=2.8):
-        # main() has its own fixed 2-second startup delay before the
-        # monitoring loop even begins (see the TD-045 fix on that sleep) —
-        # wait_s must clear that plus at least one --refresh-rate=0.2
-        # iteration, or the SIGINT lands during the startup delay and this
-        # test would only ever exercise that path, never the loop body.
+    The SIGINT is sent once the output line the test is about appears, not
+    after a fixed sleep: under a parallel ctest run, interpreter startup alone
+    can take longer than the old 0.5 s/2.8 s waits, which sent the signal
+    before the script was in the state the test meant to exercise.
+    """
+
+    # Generous: only the wait for a marker that never appears runs this long.
+    MARKER_TIMEOUT_S = 60
+    EXIT_TIMEOUT_S = 15
+
+    def _run_and_interrupt(self, extra_args, marker, delay_after_marker_s=0.0, env=None):
         proc = subprocess.Popen(
-            [sys.executable, str(SCRIPT_PATH), "--refresh-rate", "0.2", *extra_args],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            [sys.executable, "-u", str(SCRIPT_PATH), "--refresh-rate", "0.2", *extra_args],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
         )
-        time.sleep(wait_s)
-        proc.send_signal(signal.SIGINT)
+        out_lines, err_lines = [], []
+        seen = threading.Event()
+
+        def read_stdout():
+            for line in proc.stdout:
+                out_lines.append(line)
+                if marker in line:
+                    seen.set()
+
+        def read_stderr():
+            for line in proc.stderr:
+                err_lines.append(line)
+
+        readers = [threading.Thread(target=read_stdout, daemon=True),
+                   threading.Thread(target=read_stderr, daemon=True)]
+        for t in readers:
+            t.start()
         try:
-            out, err = proc.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            out, err = proc.communicate()
-            self.fail(f"process did not exit after SIGINT; stdout:\n{out}\nstderr:\n{err}")
-        return proc.returncode, out, err
+            if not seen.wait(self.MARKER_TIMEOUT_S):
+                self.fail(f"{marker!r} never appeared; stdout:\n{''.join(out_lines)}"
+                          f"\nstderr:\n{''.join(err_lines)}")
+            if delay_after_marker_s:
+                time.sleep(delay_after_marker_s)
+            proc.send_signal(signal.SIGINT)
+            try:
+                proc.wait(timeout=self.EXIT_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                self.fail(f"process did not exit after SIGINT; stdout:\n{''.join(out_lines)}"
+                          f"\nstderr:\n{''.join(err_lines)}")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+            for t in readers:
+                t.join(timeout=5)
+        return proc.returncode, "".join(out_lines), "".join(err_lines)
 
     def assert_no_traceback(self, err):
         # clear_screen()'s os.system('clear') legitimately writes "TERM
@@ -180,12 +214,12 @@ class MainProcessSmokeTests(unittest.TestCase):
         # a perfectly plausible time to press Ctrl+C — crashed with a raw
         # traceback and exit code 130 instead of the same friendly
         # "Monitoring stopped." + exit 0 that Ctrl+C anywhere else in the
-        # tool's lifetime already produced. wait_s here is deliberately
-        # SHORT (well under 2s) to land inside that exact window, unlike
-        # the other tests below which deliberately wait past it.
+        # tool's lifetime already produced. The banner's last line is printed
+        # just before that delay, so signalling on it lands inside the window.
         code, out, err = self._run_and_interrupt(
-            ["--summary-file", "/tmp/td045-regress-unused.json"], wait_s=0.5,
+            ["--summary-file", "/tmp/td045-regress-unused.json"], marker="Refresh rate:",
         )
+        self.assertNotIn("Waiting for metrics file", out)  # still in the startup delay
         self.assertEqual(code, 0)
         self.assertIn("Monitoring stopped", out)
         self.assert_no_traceback(err)
@@ -210,7 +244,8 @@ class MainProcessSmokeTests(unittest.TestCase):
     def test_missing_summary_file_shows_waiting_message_and_exits_cleanly_on_sigint(self):
         with tempfile.TemporaryDirectory() as d:
             missing = str(Path(d) / "does-not-exist.json")
-            code, out, err = self._run_and_interrupt(["--summary-file", missing])
+            code, out, err = self._run_and_interrupt(
+                ["--summary-file", missing], marker="Waiting for metrics file")
             self.assertEqual(code, 0)
             self.assertIn("Waiting for metrics file", out)
             self.assertIn("Monitoring stopped", out)
@@ -220,7 +255,8 @@ class MainProcessSmokeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             bad = Path(d) / "bad.json"
             bad.write_text("{not valid json")
-            code, out, err = self._run_and_interrupt(["--summary-file", str(bad)])
+            code, out, err = self._run_and_interrupt(
+                ["--summary-file", str(bad)], marker="Invalid JSON")
             self.assertEqual(code, 0)
             self.assertIn("Invalid JSON", out)
             self.assert_no_traceback(err)
@@ -236,10 +272,30 @@ class MainProcessSmokeTests(unittest.TestCase):
                 "current_loss": 0.6,
             }))
             code, out, err = self._run_and_interrupt(
-                ["--summary-file", str(summary), "--format", "minimal"]
+                ["--summary-file", str(summary), "--format", "minimal"],
+                marker="smoke-test-run",
             )
             self.assertEqual(code, 0)
             self.assertIn("smoke-test-run", out)
+            self.assert_no_traceback(err)
+
+    def test_sigint_while_clearing_the_screen_still_stops_it(self):
+        # The refresh loop used to clear the screen with os.system('clear'), and
+        # system() ignores SIGINT in the parent while its child runs, so a SIGINT
+        # landing during a clear was discarded and the monitor kept running (the
+        # parallel-ctest flake). A `clear` that takes 2 s makes that window
+        # certain: the old script ignored this SIGINT and never exited.
+        with tempfile.TemporaryDirectory() as d:
+            slow_clear = Path(d) / "clear"
+            slow_clear.write_text("#!/bin/sh\nsleep 2\n")
+            slow_clear.chmod(0o755)
+            env = dict(os.environ, PATH=f"{d}{os.pathsep}{os.environ.get('PATH', '')}")
+            code, out, err = self._run_and_interrupt(
+                ["--summary-file", str(Path(d) / "missing.json")],
+                marker="Waiting for metrics file", delay_after_marker_s=0.5, env=env,
+            )
+            self.assertEqual(code, 0)
+            self.assertIn("Monitoring stopped", out)
             self.assert_no_traceback(err)
 
 

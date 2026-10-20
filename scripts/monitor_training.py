@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 # @adai-status: stable
-# @adai-version: 1.0.0
-# @adai-reviewed: 2026-09-11
+# @adai-version: 1.0.1
+# @adai-reviewed: 2026-10-20
 
 """
 Training Metrics Monitor - Real-time CLI dashboard for training metrics
@@ -28,7 +28,14 @@ from datetime import datetime, timedelta
 
 def clear_screen():
     """Clear the terminal screen"""
-    os.system('cls' if os.name == 'nt' else 'clear')
+    if os.name == 'nt':
+        os.system('cls')
+    elif sys.stdout.isatty():
+        # An escape sequence rather than os.system('clear'): while system() runs its child, the
+        # parent ignores SIGINT, so a Ctrl+C (or a SIGINT sent to this process alone) landing
+        # during the clear was discarded and the monitor kept running.
+        sys.stdout.write('\033[H\033[2J\033[3J')
+        sys.stdout.flush()
 
 def format_duration(seconds):
     """Format duration in seconds to human-readable string"""
@@ -284,19 +291,20 @@ def main():
     
     args = parser.parse_args()
     
-    print(f"Monitoring: {args.summary_file}")
-    print(f"Format: {args.format}")
-    print(f"Refresh rate: {args.refresh_rate}s")
-    print()
-    # TD-045: this sleep used to sit outside monitor_training()'s own
+    # TD-045: this startup delay used to sit outside monitor_training()'s own
     # try/except KeyboardInterrupt, so Ctrl+C during these first 2 seconds
     # (a perfectly plausible time to press it — right after noticing a
     # typo'd --summary-file, say) propagated all the way up uncaught,
     # crashing with a raw traceback instead of the same friendly
     # "Monitoring stopped." message + clean exit 0 that pressing Ctrl+C
     # anywhere else in the tool's lifetime already produces. Found writing
-    # this script's TD-045 smoke test.
+    # this script's TD-045 smoke test. The banner is inside the try too, so
+    # no point after argument parsing is left uncovered.
     try:
+        print(f"Monitoring: {args.summary_file}")
+        print(f"Format: {args.format}")
+        print(f"Refresh rate: {args.refresh_rate}s")
+        print()
         time.sleep(2)
     except KeyboardInterrupt:
         print("\n\nMonitoring stopped.")
