@@ -1179,9 +1179,10 @@ host↔device transfers without a critical reason. So far:
 - TD-436 (done: the `sycl` build gets `-march=x86-64-v3` and AVX2/FMA);
 - TD-468 (done in code: device-resident optimizer);
 - TD-547 (done in code: embeddings on the device);
-- TD-434 (done in code: work-based multiply threading and runtime AVX2/FMA dispatch, for CPU and `portable` builds).
+- TD-434 (done in code: work-based multiply threading and runtime AVX2/FMA dispatch, for CPU and `portable` builds);
+- TD-390 (done in code: SYCL caching allocator, no `host_task` per free; the trainer's per-sample syncs removed).
 
-The small per-sample causal-mask upload and per-sample sync (TD-390) are the remaining transfers of a GPU pass.
+Per sample, a GPU pass still uploads its token IDs, target IDs and causal mask and downloads its loss.
 
 Every fix here is verified on CPU, or on the oneAPI CPU device for the SYCL kernels. Still needed: an on-device run on ai-machine, then
 retraining from scratch, since no existing checkpoint has correct GPU-trained weights (TD-358) or the encoder's own embedding (TD-538).
@@ -9462,7 +9463,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | GPU / GPUManager | October 12, 2026 | 4-8 hours |
+| MEDIUM | Open — code fix landed October 20, 2026 | GPU / GPUManager | October 12, 2026 | 4-8 hours |
 
 Description:
 Found while tracing `GPUUtils_SYCL.hpp`; the pattern was verified on a CPU queue, and the GPU
@@ -9483,7 +9484,7 @@ generation likely spend a large share of their time in these bubbles. The `alloc
 Action Items:
 
 - [ ] Measure first on ai-machine: time one training step, and count `host_task`s per step (or use `onetrace`/`unitrace`).
-- [ ] Replace per-free `host_task`s with a caching allocator: keep freed blocks in a size-bucketed pool tied to the in-order queue (safe to reuse immediately, since later kernels on the same queue run after earlier ones), and return memory to USM only at `cleanup()` or under budget pressure.
+- [x] Replace per-free `host_task`s with a caching allocator: keep freed blocks in a size-bucketed pool tied to the in-order queue (safe to reuse immediately, since later kernels on the same queue run after earlier ones), and return memory to USM only at `cleanup()` or under budget pressure.
 - [ ] Make uploads asynchronous where the host buffer outlives the copy (or stage through a pinned buffer), keeping `.wait()` only on downloads.
 
 Location in code: `src/gpu/sycl/GPUUtils_SYCL.hpp` (`GPUMemory::defer_free()`, `copy_from_host()`/`copy_to_host()`); tagged `TODO: See TD-390`.
@@ -9492,6 +9493,43 @@ Files to Modify:
 
 - `src/gpu/sycl/GPUUtils_SYCL.hpp`
 - `src/ChatbotTrainer.cpp` (remove the accounting workaround syncs afterwards)
+
+**Fix (October 20, 2026).**
+- **Caching allocator:** `GPUMemory` takes its blocks from `GPUManager::allocate_block()` and returns them with
+  `release_block()`, which puts the block in a size-bucketed pool: no `host_task` and no wait. Sizes are 512-byte
+  steps up to 1 MiB, then an eighth of the next power of two, at most 12.5% over (`pool_size()`). Reuse is safe at
+  once on the in-order queue: commands still using a released block were submitted earlier, so they run before
+  anything its next owner submits.
+- **Budget:** live and cached bytes both count against `GPU_MEMORY_FRACTION`. An allocation that doesn't fit
+  waits for the queue and returns the pool to USM (`trim_pool_locked()`) before refusing. `cleanup()` and
+  `set_device()` trim too, and a block from before them is never pooled (generation counter).
+- **No accounting lag:** the budget counter now drops when a `GPUMemory` is destroyed, rather than when a
+  `host_task` runs. `get_used_memory_bytes()` reports live blocks at their pool size, and
+  `get_cached_memory_bytes()` reports the pool.
+- **Trainer:** `ChatbotTrainer`'s six workaround `gpu_synchronize()` calls are gone (after each training and
+  validation sample, both catch blocks, and the two generation-quality loops). Each sample's own uploads and loss
+  download still order the work. One side effect: the per-sample compute-time metric now counts the backward's
+  submission, not its device time, which moves into the next sample's upload wait. Per-epoch throughput is
+  unchanged.
+- **Uploads:** deliberately still `.wait()`. Callers pass host temporaries that may not outlive an asynchronous
+  copy, and every training sample downloads its loss anyway, so asynchronous uploads would need staging buffers
+  for little gain.
+
+Measured on the oneAPI CPU device (`ADAI_SYCL_ALLOW_CPU_DEVICE=1`):
+- **Per temporary:** allocate + small kernel + free went from 1.25 ms to 0.0145 ms (86×). This used the real
+  `GPUMemory`, built once with the old header and once with the new.
+- **Real pass:** the same SYCL `incremental_trainer` pass (d_model 128, 2+2 layers, 120 samples, 1 epoch) went
+  from 69.4 s to 38.4 s.
+
+New tests (`gpuutils_test.cpp`, SYCL only):
+- a released block is reused and counted at once, without `synchronize()` (the old header still counted it);
+- reuse keeps queue order (a copy queued before the release still reads the old data);
+- budget pressure returns the pool to the device;
+- a block from before `cleanup()` isn't pooled;
+- `pool_size()` rounding.
+
+Still open: measuring on ai-machine. Also, CUDA's `GPUMemory` calls `cudaFree()`, which synchronizes the device, so the
+CUDA backend has the same class of stall. ai-machine doesn't use it, so it is left for a separate fix.
 
 ---
 

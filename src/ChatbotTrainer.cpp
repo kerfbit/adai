@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.13.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.14.0
+// @adai-reviewed: 2026-10-20
 
 #include "ChatbotTrainer.hpp"
 #include <algorithm>
@@ -1501,12 +1501,8 @@ float ChatbotTrainer::train_epoch(int epoch) {
             // GPU backward with accumulation scale baked in
             backward_started = true;
             model->gpu_backward(grad_scale);
-
-            // Drain the queue before the next sample: temporaries created above
-            // reserve device memory synchronously but free it via a queue-ordered
-            // deferred host_task, so without a periodic sync the host can outrun
-            // the device and pile up unretired allocations until it OOMs.
-            model->gpu_synchronize();
+            // No per-sample gpu_synchronize(): it drained deferred frees, which the SYCL memory
+            // pool no longer has (TD-390). The next sample's upload waits for the queue anyway.
 #else
             Matrix logits = model->forward(pair.input_tokens, pair.target_tokens);
 
@@ -1554,20 +1550,6 @@ float ChatbotTrainer::train_epoch(int epoch) {
             }
         } catch (const std::exception& e) {
             adai::Logger::error("  ❌ Error training sample {}: {}", (i + 1), e.what());
-#ifdef ADAI_ENABLE_GPU
-            // The success path's gpu_synchronize() (above) is what drains the SYCL
-            // queue's deferred host_task frees back into GPUManager's allocated_bytes_
-            // counter. Skipping it here means a failed sample's — and any still-pending
-            // prior samples' — frees never retire, so the counter stays inflated and the
-            // next sample is more likely to also throw "budget exceeded", which again
-            // skips this drain. That spiral is what permanently exhausts the budget.
-            try {
-                model->gpu_synchronize();
-            } catch (const std::exception& sync_err) {
-                adai::Logger::error("  ⚠️  gpu_synchronize() failed after sample {}: {}", (i + 1),
-                                    sync_err.what());
-            }
-#endif
             // Still fire sample callback so the dashboard shows the sample was attempted
             if (sample_callback_) {
                 float running_avg =
@@ -1804,14 +1786,6 @@ float ChatbotTrainer::validate() {
             // what training ever allocates for the same dataset.
 #ifdef ADAI_ENABLE_GPU
             float loss = model->gpu_evaluate_tokenized(pair.input_tokens, pair.target_tokens);
-
-            // Drain the queue before the next sample — see the identical
-            // comment in the training loop above. Validation sets can be far
-            // larger than one accumulation window and have no optimizer-step
-            // backpressure, so without this the unsynchronized backlog of
-            // forward-pass temporaries grows unchecked across the whole
-            // validation pass.
-            model->gpu_synchronize();
 #else
             float loss = model->evaluate_tokenized(pair.input_tokens, pair.target_tokens);
 #endif
@@ -1822,17 +1796,6 @@ float ChatbotTrainer::validate() {
             }
         } catch (const std::exception& e) {
             adai::Logger::error("  ❌ Error validating sample {}: {}", (i + 1), e.what());
-#ifdef ADAI_ENABLE_GPU
-            // See the identical comment in the training loop's catch block above —
-            // without this, a failed sample's deferred frees never retire and the
-            // budget-exceeded failures compound for the rest of the validation pass.
-            try {
-                model->gpu_synchronize();
-            } catch (const std::exception& sync_err) {
-                adai::Logger::error("  ⚠️  gpu_synchronize() failed after sample {}: {}", (i + 1),
-                                    sync_err.what());
-            }
-#endif
         }
     }
 
@@ -2006,19 +1969,6 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
                                e.what());
             hypotheses.push_back("");
         }
-#ifdef ADAI_ENABLE_GPU
-        // gpu_generate_response()'s autoregressive decode loop allocates several
-        // temporaries per generated token with no synchronization point of its own.
-        // Without draining the SYCL queue here (same rationale as the training/
-        // validation loops above), GPUManager's allocated_bytes_ counter races ahead
-        // of the deferred host_task frees and never catches up across this loop.
-        try {
-            model->gpu_synchronize();
-        } catch (const std::exception& sync_err) {
-            adai::Logger::warn("BLEU/ROUGE: gpu_synchronize() failed after sample {}: {}", i,
-                               sync_err.what());
-        }
-#endif
     }
     model->set_training(true);
 
@@ -2059,19 +2009,6 @@ void ChatbotTrainer::backfill_generation_quality() {
                                e.what());
             result = 0.0f;
         }
-#ifdef ADAI_ENABLE_GPU
-        // This lambda runs once per sample across the entire training + validation
-        // set (see the two loops below) — without draining the SYCL queue's deferred
-        // frees after every call (same gap as the BLEU/ROUGE loop above), the
-        // allocated_bytes_ accounting climbs across the whole dataset and eventually
-        // exhausts the budget for whatever GPU work runs next.
-        try {
-            model->gpu_synchronize();
-        } catch (const std::exception& sync_err) {
-            adai::Logger::warn("backfill_generation_quality: gpu_synchronize() failed: {}",
-                               sync_err.what());
-        }
-#endif
         return result;
     };
 

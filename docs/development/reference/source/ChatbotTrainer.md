@@ -227,8 +227,9 @@ Per sample (in shuffled order):
 3. **Forward, loss, backward:**
    - CPU: `forward`, `compute_loss_for_training`, `compute_loss_gradient_for_training`, scale by
      `1/accumulation_steps`, `backward_pass`.
-   - GPU: `gpu_forward` (fused loss), `gpu_backward(scale)`, `gpu_synchronize()`. The sync drains
-     SYCL deferred frees, the fix for the budget-exhaustion spiral.
+   - GPU: `gpu_forward` (fused loss), `gpu_backward(scale)`. Until TD-390 a `gpu_synchronize()` followed, to
+     drain SYCL deferred frees (the budget-exhaustion spiral). The SYCL memory pool has no deferred frees, so the
+     sync, and its copies in the catch blocks, validation and the generation-quality loops, are gone.
    - Optional `exp(-loss)` quality backfill.
 4. When the window is full **or it's the last sample**, the `apply_update()` lambda runs:
    - padding efficiency: actual tokens ÷ (max input + max target) × window size;

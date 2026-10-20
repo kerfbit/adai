@@ -21,6 +21,7 @@
 
 #include <gtest/gtest.h>
 #include <stdexcept>
+#include <memory>
 #include <thread>
 #include <vector>
 #include "../src/gpu/GPUUtils.hpp"
@@ -203,15 +204,10 @@ TEST_F(GPUManagerTest, GPUMemoryTracksAllocationInBudget) {
         GPUMemory<float> mem(256);
         EXPECT_EQ(GPUManager::get_used_memory_bytes(), before + 256 * sizeof(float));
     }
-    // Destructor released it back -- but GPUMemory defers the actual
-    // sycl::free()/release_memory() into a queued host_task (see
-    // GPUManager::reserve_memory()'s own comment on this), so allocated_bytes_
-    // can still reflect the pre-release value immediately after the scope
-    // exits on genuinely async hardware. synchronize() drains the queue so
-    // the deferred release has actually run before asserting on it -- without
-    // this, the assertion below is a race, confirmed failing on real GPU
-    // hardware (ai-machine) even though it always passed here (no discrete
-    // device, so probe() short-circuits the whole test as skipped).
+    // Destructor released it back. Before TD-390 the SYCL backend released through a queued
+    // host_task, so the counter lagged until the queue drained (this assertion failed on
+    // ai-machine without the synchronize()); its pool now counts the release at once. The call
+    // stays harmless for both backends.
     GPUManager::synchronize();
     EXPECT_EQ(GPUManager::get_used_memory_bytes(), before);
 }
@@ -266,3 +262,106 @@ TEST_F(GPUManagerTest, ConcurrentReserveReleaseKeepsCounterExact) {
     EXPECT_EQ(GPUManager::get_used_memory_bytes(), before + kThreads);
     GPUManager::release_memory(kThreads);
 }
+
+#if defined(ADAI_GPU_BACKEND_SYCL)
+// TD-390: GPUMemory takes its blocks from and returns them to GPUManager's pool instead of
+// freeing through a host_task per release. These run on the oneAPI CPU device with
+// ADAI_SYCL_ALLOW_CPU_DEVICE=1 (TD-394).
+
+TEST_F(GPUManagerTest, ReleasedBlockIsReusedAndCountedAtOnce) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f));
+    const size_t used_before = GPUManager::get_used_memory_bytes();
+    const size_t block = GPUManager::pool_size(1000 * sizeof(float));
+
+    void* first = nullptr;
+    {
+        GPUMemory<float> mem(1000);
+        first = mem.get();
+        EXPECT_EQ(GPUManager::get_used_memory_bytes(), used_before + block);
+    }
+    // No synchronize(): the release is counted immediately (it used to lag behind a host_task).
+    EXPECT_EQ(GPUManager::get_used_memory_bytes(), used_before);
+    EXPECT_EQ(GPUManager::get_cached_memory_bytes(), block);
+
+    GPUMemory<float> again(1000);
+    EXPECT_EQ(static_cast<void*>(again.get()), first);
+    EXPECT_EQ(GPUManager::get_cached_memory_bytes(), 0u);
+}
+
+TEST_F(GPUManagerTest, ReusingABlockKeepsQueueOrder) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f));
+    constexpr size_t n = 1 << 20;
+    std::vector<float> old_data(n, 1.0f), new_data(n, 2.0f), out(n, 0.0f);
+
+    GPUMemory<float> dst(n);
+    void* recycled = nullptr;
+    {
+        GPUMemory<float> src(n);
+        src.copy_from_host(old_data.data(), n);
+        // Queued, not waited for: the block is released while this copy may still read it.
+        GPUManager::get_queue().memcpy(dst.get(), src.get(), n * sizeof(float));
+        recycled = src.get();
+    }
+    GPUMemory<float> reuse(n);
+    ASSERT_EQ(static_cast<void*>(reuse.get()), recycled);
+    reuse.copy_from_host(new_data.data(), n);  // runs after the earlier copy on the in-order queue
+
+    dst.copy_to_host(out.data(), n);
+    EXPECT_EQ(out.front(), 1.0f);
+    EXPECT_EQ(out.back(), 1.0f);
+}
+
+TEST_F(GPUManagerTest, BudgetPressureReturnsThePoolToTheDevice) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f));
+    const size_t cached_block = GPUManager::pool_size(4096 * sizeof(float));
+    { GPUMemory<float> mem(4096); }
+    ASSERT_EQ(GPUManager::get_cached_memory_bytes(), cached_block);
+
+    // Fill the budget so that live + cached is exactly the limit.
+    const size_t filler = GPUManager::get_memory_limit_bytes() - GPUManager::get_used_memory_bytes() -
+                          cached_block;
+    GPUManager::reserve_memory(filler);
+
+    // A different pool size can't reuse the cached block and only fits once the pool is trimmed.
+    {
+        GPUMemory<float> other(1024);
+        EXPECT_NE(other.get(), nullptr);
+        EXPECT_EQ(GPUManager::get_cached_memory_bytes(), 0u);
+    }
+    GPUManager::release_memory(filler);
+}
+
+TEST_F(GPUManagerTest, BlockFromBeforeCleanupIsNotPooled) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f));
+    auto stale = std::make_unique<GPUMemory<float>>(256);
+    GPUManager::cleanup();
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f));
+    stale.reset();  // belongs to the old queue's context
+    EXPECT_EQ(GPUManager::get_cached_memory_bytes(), 0u);
+    EXPECT_EQ(GPUManager::get_used_memory_bytes(), 0u);
+}
+
+TEST(GPUManagerPoolSize, RoundsToSharedSizes) {
+    EXPECT_EQ(GPUManager::pool_size(1), 512u);
+    EXPECT_EQ(GPUManager::pool_size(1024), 1024u);
+    EXPECT_EQ(GPUManager::pool_size(1025), 1536u);
+    EXPECT_EQ(GPUManager::pool_size(size_t{1} << 20), size_t{1} << 20);
+    // Above 1 MiB: steps of an eighth of the next power of two.
+    EXPECT_EQ(GPUManager::pool_size((size_t{1} << 20) + 1), (size_t{1} << 20) + (size_t{1} << 18));
+    const size_t big = 3'000'000;
+    EXPECT_GE(GPUManager::pool_size(big), big);
+    EXPECT_LE(GPUManager::pool_size(big), big + big / 8 + (size_t{1} << 19));
+}
+#endif

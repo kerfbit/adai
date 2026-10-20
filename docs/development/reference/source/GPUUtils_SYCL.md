@@ -105,3 +105,24 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 ## Addendum (October 19, 2026): CPU-device opt-in (TD-394)
 
 `enumerate_gpu_devices()` lists every device type, not just GPUs, when `ADAI_SYCL_ALLOW_CPU_DEVICE=1` is set. That lets a SYCL build run its real kernels on oneAPI's OpenCL CPU device on a machine with no GPU. It is off by default, so production never falls back to the CPU device silently. It replaced the scratch copy of this header that earlier kernel checks used. TD-468's tests and the trainer suites run this way in `build/sycl-cpudev`, configured with the current `icpx`; the older `build/sycl-gputest` no longer links against oneAPI 2026.2.
+
+---
+
+## Addendum (October 20, 2026): caching allocator (TD-390)
+
+`GPUMemory` no longer frees through a `host_task`. It allocates with `GPUManager::allocate_block(bytes)` and releases with
+`release_block(ptr, bytes, generation)`, which keeps the block in a size-bucketed pool (`pool_size()`: 512-byte steps up to 1 MiB,
+then an eighth of the next power of two). Reuse needs no wait on the in-order queue: a reused block's earlier commands were
+submitted before its next owner's.
+- **Budget:** live plus cached bytes count against the budget. A refused allocation waits for the queue, returns the pool to USM
+  (`trim_pool_locked()`) and retries.
+- **Trimming:** `cleanup()` and `set_device()` trim too, and a generation counter keeps blocks from an old queue out of the new pool.
+- **Getters:** `get_used_memory_bytes()` reports live blocks at their pool size, with no lag after a release.
+  `get_cached_memory_bytes()` reports the pool.
+- **Budget-only calls:** `reserve_memory()`/`release_memory()` still adjust only the budget.
+- **Copies:** `copy_from_host()`/`copy_to_host()` still wait.
+
+On the oneAPI CPU device, a temporary (allocate + kernel + free) went from 1.25 ms to 0.0145 ms, and a small training pass from 69 s
+to 38 s. Tests: `gpuutils_test.cpp`'s SYCL-only `ReleasedBlockIsReusedAndCountedAtOnce`, `ReusingABlockKeepsQueueOrder`,
+`BudgetPressureReturnsThePoolToTheDevice`, `BlockFromBeforeCleanupIsNotPooled` and `GPUManagerPoolSize.RoundsToSharedSizes`.
+

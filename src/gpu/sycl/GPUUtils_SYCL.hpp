@@ -2,14 +2,15 @@
 #define GPU_UTILS_SYCL_HPP
 
 // @adai-status: beta        (TD-041 resolved — dedicated tests added; real-device paths still unverified by an actual run, see below)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-10-20
 
 
 #include <cstddef>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <sycl/ext/oneapi/properties/properties.hpp>
 #include <cstdlib>
@@ -36,14 +37,21 @@ class GPUManager {
     inline static int current_device_ = -1;
     inline static sycl::queue* queue_ = nullptr;
     inline static size_t max_memory_bytes_ = 0;
+    /// Bytes of live allocations (GPUMemory blocks at their pool size, plus reserve_memory()).
     inline static size_t allocated_bytes_ = 0;
-    /// Guards max_memory_bytes_/allocated_bytes_. Needed because
-    /// release_memory() is called from inside a queued host_task (see
-    /// GPUMemory::defer_free()) — i.e. from a SYCL-runtime worker thread —
-    /// while reserve_memory()/the getters below run on whatever application
-    /// thread is allocating. Confirmed as a genuine data race with
-    /// ThreadSanitizer (concurrent reserve_memory() calls flagged a race on
-    /// this pair of fields) before this mutex was added.
+    /// TD-390: blocks a GPUMemory released, kept for reuse instead of freed. On the in-order
+    /// queue a reused block is safe at once: commands that still use it were submitted earlier
+    /// and run before anything its next owner submits. Keyed by pool size (pool_size()).
+    inline static std::unordered_map<size_t, std::vector<void*>> free_blocks_;
+    /// Bytes held in free_blocks_. Counts against the budget with allocated_bytes_, and is
+    /// returned to USM (trim_pool_locked()) when an allocation would exceed the budget.
+    inline static size_t cached_bytes_ = 0;
+    /// Bumped whenever the queue (and so the USM context) is replaced, so a block allocated
+    /// before cleanup()/set_device() is never put back into the new pool.
+    inline static unsigned pool_generation_ = 0;
+    /// Guards the budget counters and the pool. Allocation and release run on whatever
+    /// application thread owns the GPUMemory (TSan found a race on the counters when release ran
+    /// in a host_task, before TD-390 removed those).
     inline static std::mutex memory_mutex_;
     /// Remembered from initialize() so set_device() can recreate the queue
     /// with the same scheduling priority (GPU_STRATEGY) after a device switch.
@@ -91,15 +99,37 @@ class GPUManager {
                                     sycl::ext::oneapi::property::queue::priority_high{}});
     }
 
-    // Returns true if the reservation was granted outright (no need to drain
-    // in-flight deferred frees first) — see reserve_memory()'s use of this.
-    static bool try_reserve_locked(size_t bytes) {
-        std::lock_guard<std::mutex> lock(memory_mutex_);
-        if (max_memory_bytes_ == 0 || (allocated_bytes_ + bytes) <= max_memory_bytes_) {
-            allocated_bytes_ += bytes;
-            return true;
+    static bool fits_locked(size_t bytes) {
+        return max_memory_bytes_ == 0 || (allocated_bytes_ + cached_bytes_ + bytes) <= max_memory_bytes_;
+    }
+
+    [[noreturn]] static void throw_budget_exceeded_locked(size_t bytes) {
+        throw std::runtime_error(
+            "ADAI GPU memory budget exceeded: requested " + std::to_string(bytes / (1024 * 1024)) +
+            " MB, " +
+            std::to_string(
+                (max_memory_bytes_ > allocated_bytes_ ? (max_memory_bytes_ - allocated_bytes_) : 0) /
+                (1024 * 1024)) +
+            " MB available of " + std::to_string(max_memory_bytes_ / (1024 * 1024)) + " MB limit");
+    }
+
+    /// Returns every cached block to USM. sycl::free() isn't ordered against the queue, and a
+    /// cached block may still be in use by a command submitted before it was released, so this
+    /// waits for the queue first. Called rarely: under budget pressure, cleanup() and
+    /// set_device().
+    static void trim_pool_locked() {
+        if (cached_bytes_ == 0) {
+            return;
         }
-        return false;
+        queue_->wait();
+        for (auto& [size, blocks] : free_blocks_) {
+            (void)size;
+            for (void* block : blocks) {
+                sycl::free(block, *queue_);
+            }
+        }
+        free_blocks_.clear();
+        cached_bytes_ = 0;
     }
 
    public:
@@ -171,15 +201,18 @@ class GPUManager {
         if (!initialized_)
             return;
 
+        {
+            std::lock_guard<std::mutex> lock(memory_mutex_);
+            if (queue_) {
+                trim_pool_locked();
+            }
+            allocated_bytes_ = 0;
+            ++pool_generation_;
+        }
         if (queue_) {
             queue_->wait();
             delete queue_;
             queue_ = nullptr;
-        }
-
-        {
-            std::lock_guard<std::mutex> lock(memory_mutex_);
-            allocated_bytes_ = 0;
         }
         initialized_ = false;
     }
@@ -204,6 +237,14 @@ class GPUManager {
         }
         // Switching devices requires recreating the queue
         auto gpus = enumerate_gpu_devices();
+        {
+            // Cached blocks belong to the old queue's context.
+            std::lock_guard<std::mutex> lock(memory_mutex_);
+            if (queue_) {
+                trim_pool_locked();
+            }
+            ++pool_generation_;
+        }
         if (queue_) {
             queue_->wait();
             delete queue_;
@@ -237,32 +278,93 @@ class GPUManager {
         return (max_memory_bytes_ > allocated_bytes_) ? (max_memory_bytes_ - allocated_bytes_) : 0;
     }
 
-    static void reserve_memory(size_t bytes) {
-        if (try_reserve_locked(bytes)) {
+    /// Bytes held in the pool for reuse (TD-390), not counted by get_used_memory_bytes().
+    static size_t get_cached_memory_bytes() {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
+        return cached_bytes_;
+    }
+
+    /// Size a pooled allocation of `bytes` is rounded up to: 512-byte steps up to 1 MiB, then an
+    /// eighth of the next power of two (at most 12.5% over), so recurring shapes share blocks.
+    static size_t pool_size(size_t bytes) {
+        if (bytes <= (size_t{1} << 20)) {
+            return (bytes + 511) & ~size_t{511};
+        }
+        size_t pow2 = size_t{1} << 20;
+        while (pow2 < bytes) {
+            pow2 <<= 1;
+        }
+        const size_t step = pow2 / 8;
+        return (bytes + step - 1) / step * step;
+    }
+
+    static unsigned pool_generation() {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
+        return pool_generation_;
+    }
+
+    /// Hands out a device block of pool_size(bytes) bytes, reusing a released one when there is
+    /// one. Counts it in the budget; trims the pool and retries before refusing.
+    static void* allocate_block(size_t bytes) {
+        const size_t size = pool_size(bytes);
+        std::lock_guard<std::mutex> lock(memory_mutex_);
+        if (!initialized_) {
+            throw std::runtime_error("GPU not initialized. Call GPUManager::initialize() first.");
+        }
+        auto it = free_blocks_.find(size);
+        if (it != free_blocks_.end() && !it->second.empty()) {
+            void* block = it->second.back();
+            it->second.pop_back();
+            cached_bytes_ -= size;
+            allocated_bytes_ += size;
+            return block;
+        }
+        if (!fits_locked(size)) {
+            trim_pool_locked();
+            if (!fits_locked(size)) {
+                throw_budget_exceeded_locked(size);
+            }
+        }
+        // TODO: See TD-392 in TECHNICAL_DEBT.md - malloc_device(0) returns nullptr, so a zero-size
+        // GPUMemory throws (CUDA allows zero-size allocations)
+        void* block = sycl::malloc_device(size, *queue_);
+        if (!block) {
+            throw std::runtime_error("sycl::malloc_device failed: allocation returned null");
+        }
+        allocated_bytes_ += size;
+        return block;
+    }
+
+    /// Takes back a block from allocate_block(). No host_task and no wait: the block goes to the
+    /// pool, and its next owner's commands queue behind any still using it. A block from before
+    /// the queue was replaced (cleanup()/set_device()) is dropped; its context reclaims it.
+    static void release_block(void* block, size_t bytes, unsigned generation) {
+        if (!block) {
             return;
         }
-        // GPUMemory defers its sycl::free()/release_memory() into a queued
-        // host_task (see defer_free() below) to avoid racing in-flight
-        // kernels, so allocated_bytes_ can lag behind reality under
-        // sustained submission pressure. Drain the queue once to let any
-        // already-queued frees actually execute before refusing. Deliberately
-        // called without memory_mutex_ held: synchronize() blocks until any
-        // in-flight host_task completes, and that host_task itself needs to
-        // acquire memory_mutex_ inside release_memory() — holding the lock
-        // here would deadlock against it.
-        synchronize();
-        if (!try_reserve_locked(bytes)) {
-            std::lock_guard<std::mutex> lock(memory_mutex_);
-            throw std::runtime_error(
-                "ADAI GPU memory budget exceeded: requested " +
-                std::to_string(bytes / (1024 * 1024)) + " MB, " +
-                std::to_string((max_memory_bytes_ > allocated_bytes_
-                                    ? (max_memory_bytes_ - allocated_bytes_)
-                                    : 0) /
-                               (1024 * 1024)) +
-                " MB available of " + std::to_string(max_memory_bytes_ / (1024 * 1024)) +
-                " MB limit");
+        const size_t size = pool_size(bytes);
+        std::lock_guard<std::mutex> lock(memory_mutex_);
+        if (!initialized_ || generation != pool_generation_) {
+            return;
         }
+        allocated_bytes_ = (size <= allocated_bytes_) ? (allocated_bytes_ - size) : 0;
+        free_blocks_[size].push_back(block);
+        cached_bytes_ += size;
+    }
+
+    /// Budget-only reservation (no device memory), kept for callers that track memory they
+    /// allocate themselves.
+    static void reserve_memory(size_t bytes) {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
+        if (!fits_locked(bytes)) {
+            if (queue_) {
+                trim_pool_locked();
+            }
+            if (!fits_locked(bytes)) {
+                throw_budget_exceeded_locked(bytes);
+            }
+        }
+        allocated_bytes_ += bytes;
     }
 
     static void release_memory(size_t bytes) {
@@ -321,84 +423,46 @@ class GPUMemory {
    private:
     T* device_ptr_ = nullptr;
     size_t size_ = 0;
+    unsigned generation_ = 0;
 
-    // USM sycl::free() is a host-side call — it is NOT implicitly ordered
-    // against kernels previously submitted to the (asynchronous) in-order
-    // queue that may still be reading/writing this pointer. Freeing directly
-    // from a destructor races those kernels: the C++ object's lifetime ends
-    // as soon as its scope exits, which can be before the device has actually
-    // executed the last command that touches it. Submitting the free as a
-    // host_task on the same in-order queue instead guarantees it only runs
-    // once every previously-submitted command on that queue has completed on
-    // the device, while keeping the calling thread non-blocking (no .wait()).
-    // TODO: See TD-390 in TECHNICAL_DEBT.md - a host_task per free stalls the in-order queue (device idle during a
-    // host round trip; 1.35 ms vs 0.051 ms per op on a CPU queue); use a pooled/caching allocator
-    static void defer_free(T* ptr, size_t bytes) {
-        if (!ptr) {
-            return;
+    // TD-390: memory comes from and goes back to GPUManager's pool. Releasing a block used to
+    // submit a host_task running sycl::free(), which kept the free behind every command still
+    // using the block, but on an in-order queue each such task stalled the device for a host
+    // round trip (1.35 ms vs 0.014 ms per op on the oneAPI CPU device). Pooling keeps the same
+    // ordering guarantee for free: the block's next owner submits to the same in-order queue.
+    void release() {
+        if (device_ptr_) {
+            GPUManager::release_block(device_ptr_, size_ * sizeof(T), generation_);
         }
-        // TD-096 (fixed): GPUManager::get_queue() throws std::runtime_error
-        // when !initialized_ (e.g. after GPUManager::cleanup()/Matrix::gpu_cleanup()
-        // has already torn down the queue). ~GPUMemory() is implicitly
-        // noexcept(true) (its only members are a raw pointer and a size_t,
-        // both with trivial non-throwing destructors), so an exception
-        // escaping from here during destruction — or from the move-assignment
-        // operator's call to defer_free() on the old resource — calls
-        // std::terminate() immediately, crashing the whole process. Currently
-        // unreachable in practice (Matrix::gpu_cleanup(), the only caller of
-        // GPUManager::cleanup(), itself has zero callers anywhere in this
-        // codebase), but a real, sharp trap the moment graceful-shutdown GPU
-        // teardown is implemented (see ChatbotAPIServer.cpp's own "Model State
-        // Persistence on Shutdown" TODO) and any GPUMatrix/GPUMemory happens to
-        // still be alive when it runs. If the queue is already gone there is
-        // nothing to submit a host_task to anyway — the SYCL runtime reclaims
-        // device allocations when the context itself is destroyed.
-        if (!GPUManager::is_available()) {
-            return;
-        }
-        GPUManager::get_queue().submit([ptr, bytes](sycl::handler& cgh) {
-            cgh.host_task([ptr, bytes]() {
-                sycl::free(ptr, GPUManager::get_queue());
-                GPUManager::release_memory(bytes);
-            });
-        });
+        device_ptr_ = nullptr;
+        size_ = 0;
     }
 
    public:
     explicit GPUMemory(size_t count) : size_(count) {
-        const size_t bytes = count * sizeof(T);
-        GPUManager::reserve_memory(bytes);
-        try {
-            device_ptr_ = sycl::malloc_device<T>(count, GPUManager::get_queue());
-        } catch (...) {
-            GPUManager::release_memory(bytes);
-            throw;
-        }
-        // TODO: See TD-392 in TECHNICAL_DEBT.md - malloc_device(0) returns nullptr, so count == 0 throws here (CUDA
-        // allows zero-size allocations)
-        if (!device_ptr_) {
-            GPUManager::release_memory(bytes);
-            throw std::runtime_error("sycl::malloc_device failed: allocation returned null");
-        }
+        generation_ = GPUManager::pool_generation();
+        device_ptr_ = static_cast<T*>(GPUManager::allocate_block(count * sizeof(T)));
     }
 
     ~GPUMemory() {
-        defer_free(device_ptr_, size_ * sizeof(T));
+        release();
     }
 
     GPUMemory(const GPUMemory&) = delete;
     GPUMemory& operator=(const GPUMemory&) = delete;
 
-    GPUMemory(GPUMemory&& other) noexcept : device_ptr_(other.device_ptr_), size_(other.size_) {
+    GPUMemory(GPUMemory&& other) noexcept
+        : device_ptr_(other.device_ptr_), size_(other.size_), generation_(other.generation_) {
         other.device_ptr_ = nullptr;
         other.size_ = 0;
     }
 
     GPUMemory& operator=(GPUMemory&& other) noexcept {
         if (this != &other) {
-            defer_free(device_ptr_, size_ * sizeof(T));
+            release();
             device_ptr_ = other.device_ptr_;
             size_ = other.size_;
+            generation_ = other.generation_;
             other.device_ptr_ = nullptr;
             other.size_ = 0;
         }
@@ -415,7 +479,8 @@ class GPUMemory {
         return size_;
     }
 
-    // TODO: See TD-390 in TECHNICAL_DEBT.md - .wait() drains the whole queue on every upload/download
+    // Uploads still wait: callers' host buffers (temporaries) may not outlive an asynchronous
+    // copy, and every training sample downloads its loss anyway (TD-390).
     void copy_from_host(const T* host_ptr, size_t count) {
         if (count > size_) {
             throw std::out_of_range("Copy count exceeds allocated size");
