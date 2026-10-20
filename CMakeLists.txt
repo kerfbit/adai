@@ -17,17 +17,32 @@ endif()
 option(PORTABLE_BUILD "Disable -march=native for cross-machine deployment" OFF)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    # TODO: See TD-436 in TECHNICAL_DEBT.md - icpx reports IntelLLVM, so the sycl preset gets none of these flags
-    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    # TD-436: oneAPI's icpx reports IntelLLVM; it used to match neither branch, so the sycl preset
+    # (ai-machine's trainer) got no -march and no SIMD (6-8x slower CPU matrix code).
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|IntelLLVM")
         # -ffast-math enables many fp optimisations but also implies
         # -ffinite-math-only, which tells the compiler to assume NaN and
         # Infinity never occur and compiles std::isnan/isinf to constant
         # false — breaking tests and any production code that checks for
         # degenerate values.  -fno-finite-math-only re-enables IEEE NaN/Inf
         # semantics while preserving all other fast-math optimisations.
-        set(_RELEASE_FLAGS -O3 -ffast-math -fno-finite-math-only -funroll-loops -ftree-vectorize)
-        if(NOT PORTABLE_BUILD)
+        if(CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM")
+            # No -ffast-math for icpx: these options also reach the SYCL kernel sources, where it
+            # would allow approximate exp/log in the softmax and cross-entropy kernels. icpx's
+            # default fp model already contracts and reassociates, and honors NaN/Inf.
+            set(_RELEASE_FLAGS -O3 -funroll-loops)
+        else()
+            set(_RELEASE_FLAGS -O3 -ffast-math -fno-finite-math-only -funroll-loops -ftree-vectorize)
+        endif()
+        if(NOT PORTABLE_BUILD AND CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM")
+            # The sycl build is compiled on a dev machine and run on ai-machine, so target a
+            # fixed level rather than the build host: x86-64-v3 = AVX2 + FMA + BMI (Haswell /
+            # Zen and newer). Owner decision, October 19, 2026.
+            list(APPEND _RELEASE_FLAGS -march=x86-64-v3)
+            set(_ADAI_MARCH_DESC "-march=x86-64-v3")
+        elseif(NOT PORTABLE_BUILD)
             list(APPEND _RELEASE_FLAGS -march=native -mtune=native)
+            set(_ADAI_MARCH_DESC "-march=native")
         else()
             list(APPEND _RELEASE_FLAGS -march=x86-64)
         endif()
@@ -43,7 +58,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
         if(PORTABLE_BUILD)
             message(STATUS "Release mode: Portable build (-O3 -march=x86-64, SSE2 baseline)")
         else()
-            message(STATUS "Release mode: Enabled aggressive optimizations (-O3 -march=native)")
+            message(STATUS "Release mode: Enabled aggressive optimizations (-O3 ${_ADAI_MARCH_DESC})")
         endif()
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
         add_compile_options(/O2 /arch:AVX2)

@@ -10941,7 +10941,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Build / SIMD | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 19, 2026 | Build / SIMD | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `MatrixSIMD` and verified. The top-level release flags (`-march=native -mtune=native`,
@@ -10959,9 +10959,29 @@ is skipped for `icpx` too.
 
 Action Items:
 
-- [ ] Add `IntelLLVM` to both compiler-ID checks (or use `-march=native` for it), keeping the `-fno-finite-math-only` guard; confirm with the `SIMD:` configure message and `compile_commands.json`.
+- [x] Add `IntelLLVM` to both compiler-ID checks (or use `-march=native` for it), keeping the `-fno-finite-math-only` guard; confirm with the `SIMD:` configure message and `compile_commands.json`.
 - [ ] Measure a training pass's wall time on ai-machine before/after.
-- [ ] Mind that `-march=native` ties the binary to the build host's CPU (TD-437's startup check); build on ai-machine or pick an explicit `-march`.
+- [x] Mind that `-march=native` ties the binary to the build host's CPU (TD-437's startup check); build on ai-machine or pick an explicit `-march`.
+
+**Fix (October 19, 2026).** Both compiler-ID checks now include `IntelLLVM`.
+- **`-march`:** the `sycl` build gets `-march=x86-64-v3` (AVX2, FMA, BMI: Haswell / Zen and newer), not `-march=native`. It's compiled on the
+  dev machine and run on ai-machine, so the build host's CPU says nothing about the target. Owner decision. `PORTABLE_BUILD` still means
+  `-march=x86-64` and no intrinsics.
+- **SIMD:** the `ENABLE_SIMD` block adds `-mavx2 -mfma`.
+- **No `-ffast-math` for `icpx`:** `add_compile_options` also reaches the SYCL kernel sources, where it would allow approximate `exp`/`log` in
+  the softmax and cross-entropy kernels. `icpx` 2026's default already contracts and reassociates, and its `-###` shows no no-NaNs flag, so NaN
+  checks still work.
+
+Verified:
+- **Configure and flags:** `cmake --preset sycl` reports `-O3 -march=x86-64-v3` and "SIMD: AVX2 + FMA intrinsics enabled". `Matrix.cpp` compiles
+  with `-O3 -funroll-loops -march=x86-64-v3 -mavx2 -mfma`, and `MatrixGPU_SYCL.cpp` without fast-math.
+- **Speed:** `Matrix.cpp` built with `icpx` (8 threads, this machine) took 64×512×2048 from 135.1 to 16.1 ms and 8×512×8000 from 82.0 to
+  11.4 ms. The `sycl` `incremental_trainer` builds and contains AVX2 FMA code.
+- **Caveat:** an x86-64-v3 binary won't start on a pre-2013 CPU, and with no startup CPU check (TD-437) it fails with SIGILL. Check ai-machine
+  with `grep -c avx2 /proc/cpuinfo`.
+
+Context: the owner's rule is that GPU training does all the training math on the GPU, so the CPU `Matrix` paths should matter little to a
+GPU pass once TD-468's device-resident optimizer lands. This fix helps the CPU-side remainder in the meantime, and CPU builds.
 
 Location in code: `CMakeLists.txt` (release flags), `src/CMakeLists.txt` (`ENABLE_SIMD` block); tagged `TODO: See TD-436`.
 

@@ -6,7 +6,7 @@
 - **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0`, `@adai-reviewed: 2026-09-10`
 - **Tests:** [`tests/matrix_simd_test.cpp`](../../../../tests/matrix_simd_test.cpp) (`MatrixSIMDCPUDetect` suite; the rest of the file tests `Matrix`'s SIMD paths, see [Matrix.md](Matrix.md))
 - **Build wiring:** `ENABLE_SIMD` in [`src/CMakeLists.txt`](../../../../src/CMakeLists.txt); release flags in the top-level `CMakeLists.txt`
-- **Last traced against the code:** 2026-10-14
+- **Last traced against the code:** 2026-10-19
 
 > Code-traced reference. Behaviour marked **verified** was confirmed by compiling and timing the real
 > `Matrix.cpp` under each preset's compiler and flags.
@@ -107,8 +107,12 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `icpx` (`IntelLLVM`) matches neither `"GNU\|Clang"` check, so the `sycl` preset gets no `-march`/`-mavx2`; `Matrix.cpp` has no SIMD on ai-machine (§2) | 6–8× slower CPU multiply; scalar/SSE2 element-wise ops in the trainer's CPU-side work | **Verified** (flags and timing) | [TD-436](../../guides/TECHNICAL_DEBT.md#td-436-sycl-icpx-builds-get-no--march-or-simd-flags) |
+| `icpx` (`IntelLLVM`) matches neither `"GNU\|Clang"` check, so the `sycl` preset gets no `-march`/`-mavx2`; `Matrix.cpp` has no SIMD on ai-machine (§2) | 6–8× slower CPU multiply; scalar/SSE2 element-wise ops in the trainer's CPU-side work | **Fixed October 19, 2026** (was verified; now 8.4× faster) | [TD-436](../../guides/TECHNICAL_DEBT.md#td-436-sycl-icpx-builds-get-no--march-or-simd-flags) |
 | `CompileTimeAVX2MatchesRuntime` never compiles (macros are per-translation-unit); doc claim that they're global is wrong (§2) | The only compile-time/runtime consistency test never runs | **Verified** | [TD-437](../../guides/TECHNICAL_DEBT.md#td-437-simd-self-check-test-never-compiles-and-no-startup-cpu-check) |
 | No startup CPU check; `-march=native`/`-mavx2` binaries `SIGILL` on older CPUs without explanation (§3) | Confusing crash when a binary is copied to another host | By inspection | [TD-437](../../guides/TECHNICAL_DEBT.md#td-437-simd-self-check-test-never-compiles-and-no-startup-cpu-check) |
 | `has_avx2()`/`has_fma()` skip the `OSXSAVE`/`XGETBV` check; `ADAI_SIMD_SSE4` unused; `<immintrin.h>` in a widely included header (§3) | Wrong answer under AVX-disabled hypervisors once runtime dispatch exists; hygiene | By inspection | [TD-437](../../guides/TECHNICAL_DEBT.md#td-437-simd-self-check-test-never-compiles-and-no-startup-cpu-check) |
 | AVX2 compile-time only, so `portable` builds have no SIMD multiply | Already tracked | — | TD-434 |
+
+## Addendum (October 19, 2026): the `sycl` build gets SIMD (TD-436)
+
+`CMakeLists.txt`'s release flags and `src/CMakeLists.txt`'s `ENABLE_SIMD` block now match `IntelLLVM` (`icpx`). The `sycl` preset compiles with `-O3 -funroll-loops -march=x86-64-v3` (a fixed AVX2/FMA/BMI level, since it is built on the dev machine and run on ai-machine; owner decision), plus `-mavx2 -mfma` for `adai_core`. So `__AVX2__` is defined and `ADAI_SIMD_AVX2` selects the intrinsic paths. `-ffast-math` is deliberately left off for `icpx`, because these options also reach the SYCL kernel sources. Measured with a real `icpx` build of `Matrix.cpp` (8 threads): 64×512×2048 went from 135.1 to 16.1 ms, and 8×512×8000 from 82.0 to 11.4 ms. An x86-64-v3 binary needs a Haswell/Zen or newer CPU; there is still no startup check (TD-437).
