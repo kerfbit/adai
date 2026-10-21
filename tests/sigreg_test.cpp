@@ -13,6 +13,7 @@
 #include <cmath>
 #include <random>
 #include <stdexcept>
+#include <vector>
 #include "../src/Matrix.hpp"
 
 namespace {
@@ -90,8 +91,8 @@ TEST(SIGRegTest, LossNearZeroForIsotropicGaussianBatch) {
     Matrix gaussian_batch = make_isotropic_gaussian_batch(batch, d_model, /*seed=*/42);
     float loss = sigreg.compute_loss(gaussian_batch);
 
-    EXPECT_GE(loss, 0.0f);
-    EXPECT_LT(loss, 0.02f) << "loss on a genuinely isotropic Gaussian batch should be small";
+    // TD-503: unbiased, so zero in expectation and possibly slightly negative.
+    EXPECT_LT(std::abs(loss), 0.02f) << "loss on a genuinely isotropic Gaussian batch should be small";
 }
 
 TEST(SIGRegTest, LossLargeForDegenerateBatch) {
@@ -239,3 +240,114 @@ TEST(SIGRegTest, DifferentInstancesUseIndependentDirectionsButAgreeOnStatistical
     EXPECT_LT(sigreg_a.compute_loss(gaussian_batch), sigreg_a.compute_loss(collapsed_batch));
     EXPECT_LT(sigreg_b.compute_loss(gaussian_batch), sigreg_b.compute_loss(collapsed_batch));
 }
+
+// ============================================================================
+// TD-502: directions redrawn per step; TD-503: unbiased estimator
+// ============================================================================
+
+namespace {
+
+// x projected onto the span of `directions`' columns (Gram-Schmidt basis): the batch keeps its
+// Gaussian spread inside that span and is collapsed in every other dimension.
+Matrix project_onto_span(const Matrix& x, const Matrix& directions) {
+    const int d = directions.rows, k = directions.cols;
+    std::vector<std::vector<double>> basis;
+    for (int c = 0; c < k; ++c) {
+        std::vector<double> v(d);
+        for (int i = 0; i < d; ++i)
+            v[i] = directions.data[i][c];
+        for (const auto& b : basis) {
+            double dot = 0.0;
+            for (int i = 0; i < d; ++i)
+                dot += v[i] * b[i];
+            for (int i = 0; i < d; ++i)
+                v[i] -= dot * b[i];
+        }
+        double norm = 0.0;
+        for (double e : v)
+            norm += e * e;
+        norm = std::sqrt(norm);
+        if (norm < 1e-9)
+            continue;
+        for (double& e : v)
+            e /= norm;
+        basis.push_back(std::move(v));
+    }
+    Matrix out(x.rows, d);
+    for (int r = 0; r < x.rows; ++r)
+        for (const auto& b : basis) {
+            double dot = 0.0;
+            for (int i = 0; i < d; ++i)
+                dot += x.data[r][i] * b[i];
+            for (int i = 0; i < d; ++i)
+                out.data[r][i] += static_cast<float>(dot * b[i]);
+        }
+    return out;
+}
+
+}  // namespace
+
+// TD-502: one draw constrains only its own span, so a batch collapsed onto it scores the same as
+// the uncollapsed batch. Redrawing the directions (as LeJEPAEncoder::train_step() now does every
+// step) exposes the collapse. With directions fixed for the whole process, as before, it never was.
+TEST(SIGRegTest, RedrawnDirectionsPenalizeCollapseOutsideOneDrawsSpan) {
+    const int d_model = 64, sketches = 8;
+    SIGReg sigreg(d_model, sketches);
+    sigreg.set_seed(1);
+    Matrix gaussian = make_isotropic_gaussian_batch(512, d_model, /*seed=*/3);
+    Matrix collapsed = project_onto_span(gaussian, sigreg.get_directions());
+
+    EXPECT_NEAR(sigreg.compute_loss(collapsed), sigreg.compute_loss(gaussian), 1e-4f)
+        << "within one draw the collapse is invisible";
+
+    float gaussian_sum = 0.0f, collapsed_sum = 0.0f;
+    for (int step = 0; step < 20; ++step) {
+        sigreg.resample_directions();
+        gaussian_sum += sigreg.compute_loss(gaussian);
+        collapsed_sum += sigreg.compute_loss(collapsed);
+    }
+    EXPECT_GT(collapsed_sum / 20.0f, 0.05f);
+    EXPECT_GT(collapsed_sum, 10.0f * std::abs(gaussian_sum));
+}
+
+TEST(SIGRegTest, SetSeedMakesTheDirectionsReproducible) {
+    SIGReg a(16, 8), b(16, 8);
+    a.set_seed(42);
+    b.set_seed(42);
+    Matrix batch = make_isotropic_gaussian_batch(64, 16, /*seed=*/5);
+    EXPECT_EQ(a.compute_loss(batch), b.compute_loss(batch));
+    a.resample_directions();
+    b.resample_directions();
+    EXPECT_EQ(a.compute_loss(batch), b.compute_loss(batch));
+}
+
+// TD-503: the plain squared gap had an expected floor of (1 - |phi|^2)/n, so a true Gaussian of 8
+// rows (one short text's tokens) scored about 0.079 and 128 rows about 0.006: the loss tracked
+// sequence length. The unbiased estimator is about 0 at every n, while collapse still scores high.
+TEST(SIGRegTest, UnbiasedLossDoesNotDependOnSequenceLength) {
+    const int d_model = 16;
+    SIGReg sigreg(d_model, 16);
+    sigreg.set_seed(9);
+    for (int n : {8, 128}) {
+        double sum = 0.0;
+        const int trials = 300;
+        for (int t = 0; t < trials; ++t) {
+            sigreg.resample_directions();
+            sum += sigreg.compute_loss(
+                make_isotropic_gaussian_batch(n, d_model, static_cast<unsigned>(1000 * n + t)));
+        }
+        EXPECT_LT(std::abs(sum / trials), 0.01) << "n=" << n;
+    }
+    EXPECT_GT(sigreg.compute_loss(make_collapsed_batch(8, d_model)), 0.2f);
+}
+
+TEST(SIGRegTest, FewerThanTwoRowsScoreZeroWithZeroGradient) {
+    SIGReg sigreg(8, 4);
+    Matrix one = make_isotropic_gaussian_batch(1, 8, /*seed=*/1);
+    EXPECT_EQ(sigreg.compute_loss(one), 0.0f);
+    Matrix grad = sigreg.backward(one);
+    ASSERT_EQ(grad.rows, 1);
+    for (int j = 0; j < 8; ++j)
+        EXPECT_EQ(grad.data[0][j], 0.0f);
+}
+

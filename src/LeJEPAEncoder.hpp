@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.6.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-10-21
 
 #include <memory>
 #include <random>
@@ -114,6 +114,15 @@ class LeJEPAEncoder {
      *  encoding, encoder blocks, final norm. Populates the cache above when requires_grad. */
     Matrix encode_tokens(const std::vector<int>& token_ids);
 
+    /** One text's training step (shared by train_step() and train_batch()): view construction,
+     *  predictor loss, and both sequential updates. With per_sequence_sigreg, SIGReg runs on this
+     *  text's own token embeddings (train_step()); otherwise pooled_sigreg_grad, when given, is
+     *  the gradient of the batch SIGReg loss w.r.t. this text's mean-pooled target embedding
+     *  (train_batch()), spread evenly over its tokens. Returns the predictor loss; sets the
+     *  per-step diagnostics and, per sequence, sigreg_loss_out. */
+    float train_tokens(const std::vector<int>& token_ids, bool per_sequence_sigreg,
+                       const std::vector<float>* pooled_sigreg_grad, float& sigreg_loss_out);
+
     /** Backward pass through this encoder alone (final_norm -> encoder_blocks reverse ->
      *  token_embedding), mirroring LLMEncoder::backward() exactly. No-op if !requires_grad.
      *  Private: only train_step() calls this, matching the plan's own public interface, which
@@ -181,6 +190,31 @@ class LeJEPAEncoder {
      *         needs at least one context token and one target token to be meaningful.
      */
     std::pair<float, float> train_step(const std::string& text);
+
+    /** Result of train_batch(). */
+    struct BatchStepResult {
+        std::vector<size_t> trained;          ///< indices into `texts` that were trained, in order
+        std::vector<float> predictor_losses;  ///< one per trained text
+        float sigreg_loss = 0.0f;             ///< over the batch's pooled embeddings
+    };
+
+    /**
+     * Self-supervised training step on a batch, with SIGReg applied across the batch's pooled
+     * embeddings, as the LeJEPA paper does (TD-503's second item), instead of across one text's
+     * tokens. Phase 1 encodes every text's target view and mean-pools it into one row per text;
+     * SIGReg's loss and gradient are taken over that [batch, d_model] matrix. Phase 2 trains each
+     * text in turn as train_step() does, with its pooled row's SIGReg gradient (times
+     * sigreg_lambda and the batch size, which keeps the batch objective's balance between the two
+     * terms given one step per text) spread evenly over its tokens. The weights move between texts, so phase 2
+     * uses phase 1's gradient with the same bounded staleness as any sequential update.
+     *
+     * Texts that fail to tokenize or give fewer than 2 tokens are skipped (not trained, not pooled). SIGReg
+     * needs at least 2 pooled rows: a batch with fewer contributes predictor loss only.
+     * get_last_masking_ratio(), get_last_predictor_target_cosine_sim() and
+     * get_last_gradient_norm() average over the trained texts; the SIGReg variance stats
+     * describe the pooled batch.
+     */
+    BatchStepResult train_batch(const std::vector<std::string>& texts);
 
     /** λ weighting SIGReg's gradient contribution against the predictor's own, inside
      *  train_step(). Corresponds to the plan's WORLD_MODEL_SIGREG_LAMBDA config key

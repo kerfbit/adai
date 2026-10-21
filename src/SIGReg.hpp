@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-15
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-10-20
 
 // TD-175 (LJ-1a): Sketched Isotropic Gaussian Regularization (SIGReg), from the LeJEPA paper
 // (arXiv:2511.08544) — see docs/proposals/lejepa_world_model_gated_injection_plan.md's Component 3
@@ -14,8 +14,16 @@
 // other architecture-specific self-supervision trick, per the paper's own stated goal. Stateless
 // with respect to model weights: it has no learnable parameters of its own (`compute_loss()`/
 // `backward()` only ever produce a scalar loss and a gradient through the *input* embeddings) —
-// the projection directions are the only internal state, fixed once at construction and reused
-// for every call.
+// the projection directions are the only internal state. TD-502: they are redrawn by
+// resample_directions() once per training step (LeJEPAEncoder::train_step() calls it before
+// compute_loss()/backward(), which then share that draw), from a seedable RNG. Fixed directions
+// constrained only their num_sketches-dimensional span, so collapse elsewhere went unpenalized.
+//
+// TD-503: compute_loss() is the unbiased estimator of the squared characteristic-function gap.
+// The plain |phi_hat - phi|^2 has an expected floor of (1 - |phi_P|^2)/n, which made a true
+// Gaussian score higher for shorter sequences (n = one text's tokens) and the logged loss track
+// text length. Its expectation is now exactly 0 for an N(0, I) sample of any size, so a single
+// value can be slightly negative.
 //
 // Design note (this implementation's specific characteristic-function test): the LeJEPA paper's
 // own SIGReg formulation integrates the squared characteristic-function gap over a continuous
@@ -26,6 +34,8 @@
 // isotropic-Gaussian-near-zero / degenerate-batch-large behavior this regularizer is meant to
 // have holds under this simplification too — see `tests/sigreg_test.cpp`.
 
+#include <cstdint>
+#include <random>
 #include "Matrix.hpp"
 
 /**
@@ -52,11 +62,21 @@ class SIGReg {
      */
     explicit SIGReg(int d_model, int num_sketches = 64);
 
+    /** TD-502: draws a new set of unit directions. Call once per training step, before that
+     *  step's compute_loss()/backward() (and compute_variance_stats()), which all use the current
+     *  draw. */
+    void resample_directions();
+
+    /** TD-502: reseeds the direction RNG (seeded from std::random_device at construction) and
+     *  redraws, so runs and tests can be reproduced. */
+    void set_seed(std::uint32_t seed);
+
     /**
      * @brief Compute the regularization loss over a batch of embeddings.
      * @param embeddings `[batch, d_model]` — a batch of embedding vectors, one per row.
-     * @return A non-negative scalar, near zero iff the batch's per-direction projections all
-     *   look like a standard normal (see the class doc comment).
+     * @return The unbiased estimate of the mean squared characteristic-function gap (TD-503):
+     *   zero in expectation iff the per-direction projections look like a standard normal, so it
+     *   can be slightly negative. 0 when the batch has fewer than 2 rows (nothing to estimate).
      */
     float compute_loss(const Matrix& embeddings) const;
 
@@ -69,6 +89,11 @@ class SIGReg {
 
     int get_num_sketches() const {
         return num_sketches_;
+    }
+    /** The current draw, [d_model, num_sketches], one unit direction per column (tests and
+     *  diagnostics). */
+    const Matrix& get_directions() const {
+        return directions_;
     }
     int get_d_model() const {
         return d_model_;
@@ -98,6 +123,7 @@ class SIGReg {
    private:
     int d_model_;
     int num_sketches_;
-    Matrix directions_;  // [d_model, num_sketches] — each column a fixed unit-norm direction,
-                         // sampled once at construction and reused for every call.
+    Matrix directions_;  // [d_model, num_sketches] — each column a unit-norm direction, redrawn by
+                         // resample_directions() (TD-502).
+    std::mt19937 rng_;
 };

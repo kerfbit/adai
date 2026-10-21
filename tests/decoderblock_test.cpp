@@ -1968,8 +1968,11 @@ TEST(DecoderBlockGatedPathTest, OptimizerOnlyTrainingOpensBothGates) {
         optimizer.step();
     }
 
-    EXPECT_GT(std::abs(decoder_block.get_gate()), 1e-3f);
-    EXPECT_GT(std::abs(decoder_block.get_gate_h()), 1e-3f);
+    // The bug left both gates at exactly 0. How far each moves depends on the (unseeded) init,
+    // and a gate whose gradient changes sign can end small (8.7e-4 seen once), so only require
+    // that it moved, plus the output check below.
+    EXPECT_GT(std::abs(decoder_block.get_gate()), 1e-6f);
+    EXPECT_GT(std::abs(decoder_block.get_gate_h()), 1e-6f);
     Matrix plain = decoder_block.forward(decoder_input, encoder_output, causal_mask);
     EXPECT_FALSE(matrices_equal(plain, gated_forward()))
         << "open gates must let the world-model and memory inputs change the output";

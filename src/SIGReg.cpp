@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-15
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-10-20
 
 #include "SIGReg.hpp"
 #include <cmath>
@@ -37,20 +37,25 @@ int require_positive(int value, const char* name) {
 SIGReg::SIGReg(int d_model, int num_sketches)
     : d_model_(require_positive(d_model, "d_model")),
       num_sketches_(require_positive(num_sketches, "num_sketches")),
-      directions_(d_model_, num_sketches_) {
-    // TODO: See TD-502 in TECHNICAL_DEBT.md - fixed directions constrain only num_sketches of d_model dimensions
-    // (collapse in 704 of 768 dims scored identically, verified); resample per call from a seedable RNG.
-    // Random directions, fixed for this instance's whole lifetime (see the class doc comment).
-    // Sampling each component i.i.d. standard normal then normalizing to unit length gives a
-    // direction uniformly distributed on the unit sphere in R^d_model.
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::normal_distribution<float> dist(0.0f, 1.0f);
+      directions_(d_model_, num_sketches_),
+      rng_(std::random_device{}()) {
+    resample_directions();
+}
 
-    for (int k = 0; k < num_sketches; ++k) {
+void SIGReg::set_seed(std::uint32_t seed) {
+    rng_.seed(seed);
+    resample_directions();
+}
+
+// TD-502: a fresh draw per training step, so over training the loss constrains every dimension
+// rather than one fixed num_sketches-dimensional span. Each component i.i.d. standard normal,
+// then normalized: a direction uniform on the unit sphere in R^d_model.
+void SIGReg::resample_directions() {
+    std::normal_distribution<float> dist(0.0f, 1.0f);
+    for (int k = 0; k < num_sketches_; ++k) {
         float norm_sq = 0.0f;
-        for (int i = 0; i < d_model; ++i) {
-            float v = dist(gen);
+        for (int i = 0; i < d_model_; ++i) {
+            float v = dist(rng_);
             directions_.data[i][k] = v;
             norm_sq += v * v;
         }
@@ -60,7 +65,7 @@ SIGReg::SIGReg(int d_model, int num_sketches)
         if (norm < 1e-8f) {
             norm = 1e-8f;
         }
-        for (int i = 0; i < d_model; ++i) {
+        for (int i = 0; i < d_model_; ++i) {
             directions_.data[i][k] /= norm;
         }
     }
@@ -71,9 +76,10 @@ float SIGReg::compute_loss(const Matrix& embeddings) const {
         throw std::invalid_argument("SIGReg::compute_loss: embeddings.cols must equal d_model");
     }
     const int batch = embeddings.rows;
-    if (batch == 0) {
-        return 0.0f;
+    if (batch < 2) {
+        return 0.0f;  // the unbiased estimator needs two samples (TD-503)
     }
+    const float n = static_cast<float>(batch);
 
     // [batch, num_sketches] — projections[i][k] = embeddings[i] . directions[:,k]
     Matrix projections = embeddings * directions_;
@@ -98,9 +104,11 @@ float SIGReg::compute_loss(const Matrix& embeddings) const {
             const float d_real = mean_cos - target_real;
             const float d_imag = mean_sin;
 
-            // TODO: See TD-503 in TECHNICAL_DEBT.md - biased: E[loss] has a 1/n floor (true N(0,I) at n=8 scores 0.079
-            // vs 0.343 collapsed), and n is one text's token count.
-            total_loss += d_real * d_real + d_imag * d_imag;
+            // TD-503: |phi_hat - phi|^2 plus the bias correction (|phi_hat|^2 - 1)/(n - 1), which
+            // replaces |phi_hat|^2 with its unbiased U-statistic (n|phi_hat|^2 - 1)/(n - 1). The
+            // plain gap had an expected floor of (1 - |phi_P|^2)/n.
+            const float abs_sq = mean_cos * mean_cos + mean_sin * mean_sin;
+            total_loss += d_real * d_real + d_imag * d_imag + (abs_sq - 1.0f) / (n - 1.0f);
         }
     }
 
@@ -160,9 +168,11 @@ Matrix SIGReg::backward(const Matrix& embeddings) const {
         throw std::invalid_argument("SIGReg::backward: embeddings.cols must equal d_model");
     }
     const int batch = embeddings.rows;
-    if (batch == 0) {
-        return Matrix(0, d_model_);
+    if (batch < 2) {
+        return Matrix(batch, d_model_);  // compute_loss() is 0 here, so is its gradient (TD-503)
     }
+    const float n = static_cast<float>(batch);
+    const float unbiased_scale = n / (n - 1.0f);
 
     // TODO: See TD-504 in TECHNICAL_DEBT.md - third recomputation of X*D per step; no non-finite input check.
     Matrix projections = embeddings * directions_;  // [batch, num_sketches]
@@ -186,17 +196,18 @@ Matrix SIGReg::backward(const Matrix& embeddings) const {
             mean_sin /= static_cast<float>(batch);
 
             const float target_real = std::exp(-0.5f * t * t);
-            const float d_real = mean_cos - target_real;
-            const float d_imag = mean_sin;
 
-            // loss_kt = d_real^2 + d_imag^2
+            // TD-503: loss_kt = n/(n-1) * (mean_cos^2 + mean_sin^2) - 1/(n-1)
+            //                   - 2 * target * mean_cos + target^2
             // d(mean_cos)/d(p_i) = -t*sin(t*p_i) / batch ; d(mean_sin)/d(p_i) = t*cos(t*p_i) / batch
             for (int i = 0; i < batch; ++i) {
                 const float p = projections.data[i][k];
                 const float dcos_dp = -t * std::sin(t * p) / static_cast<float>(batch);
                 const float dsin_dp = t * std::cos(t * p) / static_cast<float>(batch);
                 grad_projections.data[i][k] +=
-                    (2.0f * d_real * dcos_dp + 2.0f * d_imag * dsin_dp) * norm_factor;
+                    (2.0f * unbiased_scale * (mean_cos * dcos_dp + mean_sin * dsin_dp) -
+                     2.0f * target_real * dcos_dp) *
+                    norm_factor;
             }
         }
     }

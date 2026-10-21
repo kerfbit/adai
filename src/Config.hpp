@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.4.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 1.5.0
+// @adai-reviewed: 2026-10-21
 
 
 #include <cstdint>
@@ -513,6 +513,11 @@ struct ServiceConfig {
     /// sigreg_num_sketches parameter (added alongside this config key — see LeJEPAEncoder's
     /// own version history — since SIGReg itself has no post-construction setter for it).
     size_t world_model_sigreg_num_sketches = 64;
+
+    /// Texts per LeJEPA training batch, across whose mean-pooled embeddings SIGReg is applied
+    /// (LeJEPAEncoder::train_batch(), as the LeJEPA paper does). SIGReg needs at least 2;
+    /// default 32. Config key WORLD_MODEL_SIGREG_BATCH_SIZE.
+    size_t world_model_sigreg_batch_size = 32;
 
     /// Sparsity of gated world-model cross-attention injection into the *chatbot's* own
     /// LLMDecoder (TD-181's world_model_inject_every_n_layers; 0 = never inject). Default: 1

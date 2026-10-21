@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.6.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-10-21
 
 #include "LeJEPAEncoder.hpp"
 #include "Logger.hpp"
@@ -145,13 +145,105 @@ std::pair<float, float> LeJEPAEncoder::train_step(const std::string& text) {
     if (static_cast<int>(token_ids.size()) > max_seq_length) {
         token_ids.resize(max_seq_length);
     }
-
-    const int seq_len = static_cast<int>(token_ids.size());
-    if (seq_len < 2) {
+    if (token_ids.size() < 2) {
         throw std::invalid_argument(
             "LeJEPAEncoder::train_step: text must tokenize to at least 2 tokens (need both a "
             "context region and a masked target span)");
     }
+    float sigreg_loss = 0.0f;
+    const float predictor_loss =
+        train_tokens(token_ids, /*per_sequence_sigreg=*/true, nullptr, sigreg_loss);
+    return {predictor_loss, sigreg_loss};
+}
+
+LeJEPAEncoder::BatchStepResult LeJEPAEncoder::train_batch(const std::vector<std::string>& texts) {
+    BatchStepResult result;
+    std::vector<std::vector<int>> batch_ids;
+    for (size_t t = 0; t < texts.size(); ++t) {
+        std::vector<int> ids;
+        try {
+            ids = tokenizer->encode(texts[t], true);
+        } catch (const std::exception&) {
+            continue;  // e.g. an empty text: one bad sample mustn't fail the whole batch (TD-429)
+        }
+        if (static_cast<int>(ids.size()) > max_seq_length) {
+            ids.resize(max_seq_length);
+        }
+        if (ids.size() < 2) {
+            continue;  // too short to mask a span (train_step() throws for this)
+        }
+        result.trained.push_back(t);
+        batch_ids.push_back(std::move(ids));
+    }
+    const int batch = static_cast<int>(batch_ids.size());
+    if (batch == 0) {
+        return result;
+    }
+
+    // Phase 1: each text's target view, mean-pooled to one row per text.
+    Matrix pooled(batch, d_model);
+    for (int b = 0; b < batch; ++b) {
+        const Matrix tgt = encode_tokens(batch_ids[static_cast<size_t>(b)]);
+        const float inv_rows = 1.0f / static_cast<float>(tgt.rows);
+        for (int i = 0; i < tgt.rows; ++i) {
+            for (int j = 0; j < d_model; ++j) {
+                pooled(b, j) += tgt(i, j) * inv_rows;
+            }
+        }
+    }
+    sigreg->resample_directions();  // TD-502: one draw for this batch's loss, stats and gradient
+    result.sigreg_loss = sigreg->compute_loss(pooled);  // 0 when batch < 2
+    const auto variance_stats = sigreg->compute_variance_stats(pooled);
+    last_sigreg_variance_mean_ = variance_stats.mean;
+    last_sigreg_variance_stddev_ = variance_stats.stddev;
+    const bool use_sigreg = requires_grad && batch >= 2;
+    Matrix pooled_grad;
+    if (use_sigreg) {
+        pooled_grad = sigreg->backward(pooled);  // [batch, d_model]
+        // The batch objective is mean_b(predictor_b) + lambda * SIGReg(pooled): per sample,
+        // (1/batch) * d predictor_b + lambda * d SIGReg / d pooled_b, in one step. Each text here
+        // takes its own step with its full predictor gradient, so the SIGReg part is scaled by
+        // `batch` to keep that balance (unscaled, it was `batch` times weaker).
+        const float scale = static_cast<float>(batch);
+        for (int b = 0; b < batch; ++b) {
+            for (int j = 0; j < d_model; ++j) {
+                pooled_grad(b, j) *= scale;
+            }
+        }
+    }
+
+    // Phase 2: train each text, adding its pooled row's SIGReg gradient.
+    double masking_sum = 0.0, cosine_sum = 0.0, grad_norm_sq_sum = 0.0;
+    std::vector<float> row_grad(static_cast<size_t>(d_model));
+    for (int b = 0; b < batch; ++b) {
+        if (use_sigreg) {
+            for (int j = 0; j < d_model; ++j) {
+                row_grad[static_cast<size_t>(j)] = pooled_grad(b, j);
+            }
+        }
+        float unused_sigreg = 0.0f;
+        result.predictor_losses.push_back(train_tokens(batch_ids[static_cast<size_t>(b)],
+                                                       /*per_sequence_sigreg=*/false,
+                                                       use_sigreg ? &row_grad : nullptr,
+                                                       unused_sigreg));
+        masking_sum += last_masking_ratio_;
+        cosine_sum += last_predictor_target_cosine_sim_;
+        grad_norm_sq_sum += static_cast<double>(last_gradient_norm_) * last_gradient_norm_;
+    }
+    last_masking_ratio_ = static_cast<float>(masking_sum / batch);
+    last_predictor_target_cosine_sim_ = static_cast<float>(cosine_sum / batch);
+    last_gradient_norm_ = static_cast<float>(std::sqrt(grad_norm_sq_sum / batch));
+    // Restore the batch-level variance stats (train_tokens() leaves them alone without
+    // per_sequence_sigreg, but keep the contract explicit).
+    last_sigreg_variance_mean_ = variance_stats.mean;
+    last_sigreg_variance_stddev_ = variance_stats.stddev;
+    return result;
+}
+
+float LeJEPAEncoder::train_tokens(const std::vector<int>& token_ids, bool per_sequence_sigreg,
+                                  const std::vector<float>* pooled_sigreg_grad,
+                                  float& sigreg_loss_out) {
+    const int seq_len = static_cast<int>(token_ids.size());
 
     // View construction: a contiguous span becomes the "target" region, masked out (replaced
     // with the tokenizer's own unk token) in the context view; the target view is simply the
@@ -211,10 +303,17 @@ std::pair<float, float> LeJEPAEncoder::train_step(const std::string& text) {
     }
     last_predictor_target_cosine_sim_ = cos_sum / static_cast<float>(span_len);
 
-    const float sigreg_loss = sigreg->compute_loss(tgt_embeddings);
-    const auto variance_stats = sigreg->compute_variance_stats(tgt_embeddings);
-    last_sigreg_variance_mean_ = variance_stats.mean;
-    last_sigreg_variance_stddev_ = variance_stats.stddev;
+    float sigreg_loss = 0.0f;
+    if (per_sequence_sigreg) {
+        // TD-502: new directions every step, shared by this step's loss, variance stats and
+        // backward.
+        sigreg->resample_directions();
+        sigreg_loss = sigreg->compute_loss(tgt_embeddings);
+        const auto variance_stats = sigreg->compute_variance_stats(tgt_embeddings);
+        last_sigreg_variance_mean_ = variance_stats.mean;
+        last_sigreg_variance_stddev_ = variance_stats.stddev;
+    }
+    sigreg_loss_out = sigreg_loss;
 
     if (requires_grad) {
         // d(predictor_loss)/d(predicted) and its mirror-image w.r.t. target_embeddings — zero
@@ -230,12 +329,22 @@ std::pair<float, float> LeJEPAEncoder::train_step(const std::string& text) {
             }
         }
 
-        Matrix grad_target_from_sigreg = sigreg->backward(tgt_embeddings);
-        Matrix grad_target_total(seq_len, d_model);
-        for (int i = 0; i < seq_len; ++i) {
-            for (int j = 0; j < d_model; ++j) {
-                grad_target_total(i, j) =
-                    grad_target_from_predictor(i, j) + sigreg_lambda * grad_target_from_sigreg(i, j);
+        Matrix grad_target_total = grad_target_from_predictor;
+        if (per_sequence_sigreg) {
+            Matrix grad_target_from_sigreg = sigreg->backward(tgt_embeddings);
+            for (int i = 0; i < seq_len; ++i) {
+                for (int j = 0; j < d_model; ++j) {
+                    grad_target_total(i, j) += sigreg_lambda * grad_target_from_sigreg(i, j);
+                }
+            }
+        } else if (pooled_sigreg_grad != nullptr) {
+            // The pooled row is the mean of this text's target rows, so each row gets 1/seq_len
+            // of the pooled gradient.
+            const float share = sigreg_lambda / static_cast<float>(seq_len);
+            for (int i = 0; i < seq_len; ++i) {
+                for (int j = 0; j < d_model; ++j) {
+                    grad_target_total(i, j) += share * (*pooled_sigreg_grad)[static_cast<size_t>(j)];
+                }
             }
         }
 
@@ -291,7 +400,7 @@ std::pair<float, float> LeJEPAEncoder::train_step(const std::string& text) {
         last_gradient_norm_ = 0.0f;
     }
 
-    return {predictor_loss, sigreg_loss};
+    return predictor_loss;
 }
 
 void LeJEPAEncoder::load_tokenizer_vocab(const std::string& vocab_file) {

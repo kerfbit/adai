@@ -409,6 +409,29 @@ TEST_F(TrainingMetricsAPIRoutesTest, LejepaMetricsRoundTripThroughEpochEndAndGet
         << current_res->body;
 }
 
+// TD-503: sigreg_loss is an unbiased estimate and can be slightly negative; the epoch must still
+// be recorded (the ingest used to require sigreg_loss >= 0).
+TEST_F(TrainingMetricsAPIRoutesTest, NegativeSigregLossIsStillRecorded) {
+    auto client = make_client();
+    const std::string start_body = R"({"session_id":709,"total_epochs":1,"total_samples":10})";
+    auto start_res = client.Post("/api/sessions/lejepa3/start", start_body, "application/json");
+    ASSERT_TRUE(start_res);
+    ASSERT_EQ(start_res->status, 200);
+
+    const std::string epoch_end_body =
+        R"({"epoch":1,"loss":0,"validation_loss":0,"learning_rate":0.001,)"
+        R"("predictor_loss":0.42,"sigreg_loss":-0.002})";
+    auto post_res =
+        client.Post("/api/sessions/lejepa3/epoch/end", epoch_end_body, "application/json");
+    ASSERT_TRUE(post_res);
+    EXPECT_EQ(post_res->status, 200);
+
+    auto lejepa_res = client.Get("/api/sessions/lejepa3/metrics/lejepa");
+    ASSERT_TRUE(lejepa_res);
+    EXPECT_NE(lejepa_res->body.find("\"epoch_sigreg_losses\":[-0.002000]"), std::string::npos)
+        << lejepa_res->body;
+}
+
 TEST_F(TrainingMetricsAPIRoutesTest, LejepaAdvancedMetricsRoundTripThroughEpochEndAndGet) {
     auto client = make_client();
 

@@ -135,3 +135,18 @@ only, for the frozen world model whose output feeds the decoder's gated path dur
 before this fix) or with an unreadable one logs a warning and keeps a fresh predictor. `get_predictor()` returns it. Three
 consecutive real `--objective=lejepa` passes now resume the predictor (average loss 1.07 → 0.33 → 0.22); before, each pass restarted it.
 Tests: `SaveAndLoadRestoreThePredictor`, `LoadOfACheckpointWithoutAPredictorStillLoads`.
+
+---
+
+## Addendum (October 21, 2026): `train_batch()` (TD-503)
+
+`train_batch(texts)` applies SIGReg across the batch's mean-pooled target embeddings, one row per text, instead of one text's tokens.
+- **Phase 1** pools and takes SIGReg's loss and gradient.
+- **Phase 2** trains each text like `train_step()`, adding its pooled row's SIGReg gradient (× λ × batch size, to keep the batch
+  objective's balance with per-text steps) spread over its tokens.
+- **Result:** `BatchStepResult` gives the trained indices, per-text predictor losses and the batch SIGReg loss. Unusable texts are
+  skipped.
+- **Shared code:** `train_step()` keeps the per-sequence form; both use the private `train_tokens()`.
+
+The LeJEPA pass trains in batches of `WORLD_MODEL_SIGREG_BATCH_SIZE`. Tests: `TrainBatchSkipsUnusableTextsAndReportsTheTrainedOnes`,
+`TrainBatchOfOneHasNoSigregLoss`, `TrainBatchSigregPullsPooledEmbeddingsTowardGaussian`.

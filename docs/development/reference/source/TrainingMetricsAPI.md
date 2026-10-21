@@ -101,3 +101,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | INFO log line per `metrics/current` poll (§2) | Log noise; faster rotation of real history | **Verified** | [TD-527](../../guides/TECHNICAL_DEBT.md#td-527-trainingmetricsapi-per-poll-logging-parsing-and-unbounded-history-queries) |
 | Substring parsing; uncapped `max_records`; second-resolution history timestamps; precision switch; size/boilerplate (§2) | Hygiene and resource use | By inspection | [TD-527](../../guides/TECHNICAL_DEBT.md#td-527-trainingmetricsapi-per-poll-logging-parsing-and-unbounded-history-queries) |
 | NaN JSON, session cap, query order, retention, admin PUT, duplicated JSON, CLI | Already tracked | — | TD-443, TD-445, TD-441, TD-440, TD-305/306, TD-453, TD-438/439 |
+
+---
+
+## Addendum (October 20, 2026): negative `sigreg_loss` (TD-503)
+
+The epoch-end handler recorded LeJEPA metrics only when both `predictor_loss` and `sigreg_loss` were ≥ 0, with −1 meaning "not
+sent". Since TD-503, `sigreg_loss` is an unbiased estimate that can be slightly negative, so the handler now gates on
+`predictor_loss` alone; the two always arrive together. Test: `NegativeSigregLossIsStillRecorded`.

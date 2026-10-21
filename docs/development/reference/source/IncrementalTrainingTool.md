@@ -148,3 +148,12 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 ## Addendum (October 19, 2026): pre-check through the registry (TD-413)
 
 `train`'s pre-fork pending check and `retrain`'s file count now use `DatasetRegistry` in both local and remote mode, so they read the kind sub-pool the pass acquires from. They count with `DatasetRegistry::count_acquirable()`: unassigned entries plus those assigned to `MODEL_NAME`. Checked with the real binaries: a file queued with `dataset_manager --kind chatbot add` is now trained by `incremental_trainer train` instead of being reported as "No pending data".
+
+---
+
+## Addendum (October 21, 2026): batched LeJEPA pass (TD-503)
+
+The `--objective=lejepa` pass walks its texts in chunks of `WORLD_MODEL_SIGREG_BATCH_SIZE` and calls `LeJEPAEncoder::train_batch()`.
+It still pushes per-sample predictor-loss metrics and checks auto-save per trained text, and counts the batch SIGReg loss and
+diagnostics once per trained text in the epoch averages. Unusable texts are skipped with a warning per batch. A batch that throws is
+skipped whole, which also covers TD-429's escaping `TokenizerEncodingError` for this path.

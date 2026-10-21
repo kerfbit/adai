@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.20.1
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.21.0
+// @adai-reviewed: 2026-10-21
 
 #include <array>
 #include <chrono>
@@ -529,14 +529,36 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         long long epoch_train_step_ns = 0;
         const auto epoch_wall_start = std::chrono::steady_clock::now();
         int sample_idx = 0;
-        for (const auto& text : texts) {
-            ++sample_idx;
+        // SIGReg is applied across each batch's mean-pooled embeddings (LeJEPAEncoder::
+        // train_batch(), as the LeJEPA paper does) rather than one text's tokens.
+        const size_t batch_size = std::max<size_t>(2, svc_config.world_model_sigreg_batch_size);
+        for (size_t first = 0; first < texts.size(); first += batch_size) {
+            const size_t last = std::min(texts.size(), first + batch_size);
+            const std::vector<std::string> batch(texts.begin() + static_cast<std::ptrdiff_t>(first),
+                                                 texts.begin() + static_cast<std::ptrdiff_t>(last));
+            const auto step_start = std::chrono::steady_clock::now();
+            LeJEPAEncoder::BatchStepResult result;
             try {
-                const auto step_start = std::chrono::steady_clock::now();
-                auto [predictor_loss, sigreg_loss] = world_model.train_step(text);
-                epoch_train_step_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                           std::chrono::steady_clock::now() - step_start)
-                                           .count();
+                result = world_model.train_batch(batch);
+            } catch (const std::exception& e) {
+                adai::Logger::warn("[lejepa] Skipping batch of {} ({})", batch.size(), e.what());
+                sample_idx += static_cast<int>(batch.size());
+                continue;
+            }
+            epoch_train_step_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                       std::chrono::steady_clock::now() - step_start)
+                                       .count();
+            if (result.trained.size() < batch.size()) {
+                adai::Logger::warn("[lejepa] Skipped {} of {} samples in a batch (too short or "
+                                   "untokenizable)",
+                                   batch.size() - result.trained.size(), batch.size());
+            }
+            sample_idx += static_cast<int>(batch.size());
+            for (size_t k = 0; k < result.trained.size(); ++k) {
+                const float predictor_loss = result.predictor_losses[k];
+                // The batch's SIGReg loss and diagnostics count once per trained text, so the
+                // per-step averages below keep their meaning.
+                const float sigreg_loss = result.sigreg_loss;
                 predictor_loss_sum += predictor_loss;
                 sigreg_loss_sum += sigreg_loss;
                 epoch_predictor_sum += predictor_loss;
@@ -554,8 +576,8 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
                     // channel via update_lejepa_metrics() below (TD-178), not folded
                     // in here.
                     metrics_client->update_sample_metrics(
-                        sample_idx, static_cast<float>(predictor_loss),
-                        world_model.get_last_gradient_norm(),
+                        static_cast<int>(first + result.trained[k] + 1),
+                        static_cast<float>(predictor_loss), world_model.get_last_gradient_norm(),
                         static_cast<float>(svc_config.learning_rate));
                 }
 
@@ -583,12 +605,6 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
                         last_save_time = std::chrono::steady_clock::now();
                     }
                 }
-            } catch (const std::invalid_argument& e) {
-                // TODO: See TD-429 in TECHNICAL_DEBT.md - TokenizerEncodingError (a runtime_error) escapes this catch
-                // and ends the whole pass
-                // Text tokenized to fewer than 2 tokens — too short for span masking. Skip
-                // rather than aborting the whole pass over one bad sample.
-                adai::Logger::warn("[lejepa] Skipping sample ({})", e.what());
             }
         }
         adai::Logger::info("[lejepa] Epoch {}/{} complete ({} samples)", epoch + 1, epochs,

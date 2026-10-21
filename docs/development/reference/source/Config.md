@@ -223,3 +223,10 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 | `FTPS_ENABLED`, `FTP_DATA_SERVER_SECRET`, `FTP_SERVER_PORT`, PASV range, cert/key in `config.registry.conf` are ignored by `registry_server` (CLI-only) (§5) | Operators setting FTPS or a secret in the file silently get plaintext FTP and random passwords | By inspection (`RegistryServer.cpp`, `RegistryServerArgs.cpp`) | [TD-284](../../guides/TECHNICAL_DEBT.md#td-284-registry_server-ignores-the-ftpftps-security-keys-its-config-file-ships-with) |
 | `HIPPOCAMPAL_COVERAGE_LOSS_WEIGHT` in shipped configs but unparsed (§3) | Misleading warning on every load | By inspection | [TD-290](../../guides/TECHNICAL_DEBT.md#td-290-configloader-output-hygiene) |
 | stderr/stdout output from library code; `print()` covers a fraction of settings (§4, §7) | Logging convention; incomplete startup summary | By inspection | [TD-290](../../guides/TECHNICAL_DEBT.md#td-290-configloader-output-hygiene) |
+
+---
+
+## Addendum (October 21, 2026): `WORLD_MODEL_SIGREG_BATCH_SIZE` (TD-503)
+
+`world_model_sigreg_batch_size` (default 32; file key and env var `WORLD_MODEL_SIGREG_BATCH_SIZE`) is the number of texts per LeJEPA
+training batch. SIGReg is applied across their pooled embeddings. `validate()` requires 2–4096.

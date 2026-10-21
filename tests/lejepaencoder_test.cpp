@@ -6,10 +6,12 @@
  */
 
 #include "../src/LeJEPAEncoder.hpp"
+#include "../src/SIGReg.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <cmath>
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -693,3 +695,88 @@ TEST_F(LeJEPAEncoderTest, SigregLambdaAffectsEncoderBlockWeightsNotJustTokenEmbe
         << trials << " trials: lambda=0 -> " << sum_delta_low << ", lambda=50 -> " << sum_delta_high
         << ") — if it doesn't, the target-view/SIGReg gradient isn't reaching them";
 }
+
+// ============================================================================
+// train_batch(): SIGReg across the batch's pooled embeddings (TD-503's second item)
+// ============================================================================
+
+namespace {
+
+const std::vector<std::string> kBatchTexts = {
+    "the cat sat on the mat",       "a dog ran far away home",    "birds sing in the morning",
+    "rain falls on the old roof",   "she reads a long book",      "we walk to the river",
+    "the sun is warm today",        "he plays a quiet song",      "fish swim in the lake",
+    "my friend cooks dinner",       "the wind moves the trees",   "children laugh at the park",
+    "a train leaves the station",   "the moon rises slowly",      "they paint the blue door",
+    "snow covers the hills"};
+
+// How far the texts' mean-pooled embeddings are from N(0, I): SIGReg averaged over many fresh
+// direction draws from a seeded probe, so it compares two encoders fairly.
+float pooled_gaussian_gap(LeJEPAEncoder& encoder, int d_model) {
+    Matrix pooled(static_cast<int>(kBatchTexts.size()), d_model);
+    for (size_t b = 0; b < kBatchTexts.size(); ++b) {
+        Matrix e = encoder.encode(kBatchTexts[b]);
+        for (int i = 0; i < e.rows; ++i)
+            for (int j = 0; j < d_model; ++j)
+                pooled(static_cast<int>(b), j) += e(i, j) / static_cast<float>(e.rows);
+    }
+    SIGReg probe(d_model, 16);
+    probe.set_seed(7);
+    float sum = 0.0f;
+    for (int k = 0; k < 40; ++k) {
+        probe.resample_directions();
+        sum += probe.compute_loss(pooled);
+    }
+    return sum / 40.0f;
+}
+
+}  // namespace
+
+TEST_F(LeJEPAEncoderTest, TrainBatchSkipsUnusableTextsAndReportsTheTrainedOnes) {
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder.build_tokenizer(kBatchTexts, VOCAB_SIZE);
+    auto result = encoder.train_batch({kBatchTexts[0], "", kBatchTexts[1], kBatchTexts[2]});
+    EXPECT_EQ(result.trained, (std::vector<size_t>{0, 2, 3}));
+    ASSERT_EQ(result.predictor_losses.size(), 3u);
+    for (float loss : result.predictor_losses)
+        EXPECT_TRUE(std::isfinite(loss));
+    EXPECT_TRUE(std::isfinite(result.sigreg_loss));
+}
+
+TEST_F(LeJEPAEncoderTest, TrainBatchOfOneHasNoSigregLoss) {
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder.build_tokenizer(kBatchTexts, VOCAB_SIZE);
+    auto result = encoder.train_batch({kBatchTexts[0]});
+    ASSERT_EQ(result.trained.size(), 1u);
+    EXPECT_EQ(result.sigreg_loss, 0.0f);  // SIGReg needs at least 2 pooled embeddings
+}
+
+// The batch SIGReg term does what it's for: two encoders from the same weights train on the same
+// batches, one with the SIGReg term (default lambda) and one without; the one with it keeps its
+// pooled embeddings much closer to N(0, I).
+TEST_F(LeJEPAEncoderTest, TrainBatchSigregPullsPooledEmbeddingsTowardGaussian) {
+    const std::string save_dir = temp_dir + "/batch_start";
+    LeJEPAEncoder with_sigreg(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    with_sigreg.build_tokenizer(kBatchTexts, VOCAB_SIZE);
+    with_sigreg.save(save_dir);
+    LeJEPAEncoder without(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    without.build_tokenizer(kBatchTexts, VOCAB_SIZE);
+    without.load(save_dir);
+
+    with_sigreg.set_sigreg_lambda(1.0f);  // the default
+    without.set_sigreg_lambda(0.0f);
+    with_sigreg.set_learning_rate(0.01f);
+    without.set_learning_rate(0.01f);
+    const float start = pooled_gaussian_gap(with_sigreg, D_MODEL);
+    for (int step = 0; step < 30; ++step) {
+        with_sigreg.train_batch(kBatchTexts);
+        without.train_batch(kBatchTexts);
+    }
+    const float gap_with = pooled_gaussian_gap(with_sigreg, D_MODEL);
+    const float gap_without = pooled_gaussian_gap(without, D_MODEL);
+    // Without the SIGReg term the predictor pulls the pooled embeddings away from N(0, I)
+    // (measured: start ~0.27-0.31, without ~0.56-0.59, with ~0.25-0.36 over three runs).
+    EXPECT_LT(gap_with, 0.75f * gap_without) << "start " << start << ", with " << gap_with
+                                             << ", without " << gap_without;
+}
+

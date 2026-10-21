@@ -78,6 +78,7 @@ class ConfigTest : public ::testing::Test {
         _putenv("WORLD_MODEL_D_FF=");
         _putenv("WORLD_MODEL_SIGREG_LAMBDA=");
         _putenv("WORLD_MODEL_SIGREG_NUM_SKETCHES=");
+        _putenv("WORLD_MODEL_SIGREG_BATCH_SIZE=");
         _putenv("WORLD_MODEL_INJECT_EVERY_N_LAYERS=");
 #else
         unsetenv("PORT");
@@ -131,6 +132,7 @@ class ConfigTest : public ::testing::Test {
         unsetenv("WORLD_MODEL_D_FF");
         unsetenv("WORLD_MODEL_SIGREG_LAMBDA");
         unsetenv("WORLD_MODEL_SIGREG_NUM_SKETCHES");
+        unsetenv("WORLD_MODEL_SIGREG_BATCH_SIZE");
         unsetenv("WORLD_MODEL_INJECT_EVERY_N_LAYERS");
 #endif
     }
@@ -1086,6 +1088,7 @@ TEST_F(ConfigTest, WorldModelDefaultValues) {
     EXPECT_EQ(config.world_model_d_ff, 2048u);
     EXPECT_FLOAT_EQ(config.world_model_sigreg_lambda, 1.0f);
     EXPECT_EQ(config.world_model_sigreg_num_sketches, 64u);
+    EXPECT_EQ(config.world_model_sigreg_batch_size, 32u);
     // TD-186: 0 (never inject), not TD-183's original 1 — this field now has real effect
     // (IncrementalTrainer::build_model() actually constructs gated layers from it), so the
     // config-level default reverted to matching every other gate's own "off by default"
@@ -1111,6 +1114,7 @@ TEST_F(ConfigTest, LoadWorldModelFieldsFromFile) {
         {"WORLD_MODEL_D_FF", "256"},
         {"WORLD_MODEL_SIGREG_LAMBDA", "2.5"},
         {"WORLD_MODEL_SIGREG_NUM_SKETCHES", "32"},
+        {"WORLD_MODEL_SIGREG_BATCH_SIZE", "48"},
         {"WORLD_MODEL_INJECT_EVERY_N_LAYERS", "3"},
     });
 
@@ -1123,6 +1127,7 @@ TEST_F(ConfigTest, LoadWorldModelFieldsFromFile) {
     EXPECT_EQ(config.world_model_d_ff, 256u);
     EXPECT_FLOAT_EQ(config.world_model_sigreg_lambda, 2.5f);
     EXPECT_EQ(config.world_model_sigreg_num_sketches, 32u);
+    EXPECT_EQ(config.world_model_sigreg_batch_size, 48u);
     EXPECT_EQ(config.world_model_inject_every_n_layers, 3u);
 }
 
@@ -1134,6 +1139,7 @@ TEST_F(ConfigTest, LoadWorldModelFieldsFromEnvVars) {
     setEnv("WORLD_MODEL_D_FF", "512");
     setEnv("WORLD_MODEL_SIGREG_LAMBDA", "0.5");
     setEnv("WORLD_MODEL_SIGREG_NUM_SKETCHES", "16");
+    setEnv("WORLD_MODEL_SIGREG_BATCH_SIZE", "8");
     setEnv("WORLD_MODEL_INJECT_EVERY_N_LAYERS", "2");
 
     auto config = ConfigLoader::load();
@@ -1145,6 +1151,7 @@ TEST_F(ConfigTest, LoadWorldModelFieldsFromEnvVars) {
     EXPECT_EQ(config.world_model_d_ff, 512u);
     EXPECT_FLOAT_EQ(config.world_model_sigreg_lambda, 0.5f);
     EXPECT_EQ(config.world_model_sigreg_num_sketches, 16u);
+    EXPECT_EQ(config.world_model_sigreg_batch_size, 8u);
     EXPECT_EQ(config.world_model_inject_every_n_layers, 2u);
 }
 
@@ -1190,6 +1197,18 @@ TEST_F(ConfigTest, ValidationWorldModelArchitecture) {
     std::vector<std::string> errors;
     EXPECT_FALSE(ConfigLoader::validate(config, errors));
     EXPECT_GE(errors.size(), 5u);
+}
+
+// SIGReg runs across a batch's pooled embeddings, so a batch must hold at least 2.
+TEST_F(ConfigTest, ValidationRejectsASigregBatchBelowTwo) {
+    createConfigFile({{"WORLD_MODEL_SIGREG_BATCH_SIZE", "1"}});
+    auto config = ConfigLoader::load(test_file.string());
+    std::vector<std::string> errors;
+    EXPECT_FALSE(ConfigLoader::validate(config, errors));
+    bool mentioned = false;
+    for (const auto& e : errors)
+        mentioned = mentioned || e.find("world_model_sigreg_batch_size") != std::string::npos;
+    EXPECT_TRUE(mentioned);
 }
 
 TEST_F(ConfigTest, ValidationWorldModelDefaultsPassValidation) {

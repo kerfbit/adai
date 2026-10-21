@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.9.2
-// @adai-reviewed: 2026-09-23
+// @adai-version: 0.9.3
+// @adai-reviewed: 2026-10-20
 
 #include "TrainingMetricsAPI.hpp"
 #include "PortableTime.hpp"
@@ -2248,7 +2248,10 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (current_padding_efficiency >= 0.0f) {
         service->update_padding_efficiency(current_padding_efficiency);
     }
-    if (predictor_loss_field >= 0.0f && sigreg_loss_field >= 0.0f) {
+    // Gate on predictor_loss alone (non-negative; -1 = "not sent"): the two always arrive together,
+    // and since TD-503 sigreg_loss is an unbiased estimate that can be slightly negative, so a
+    // sigreg_loss >= 0 check would drop real epochs.
+    if (predictor_loss_field >= 0.0f) {
         service->update_lejepa_metrics(predictor_loss_field, sigreg_loss_field);
     }
     // Gate on masking_ratio alone (not all four, unlike predictor/sigreg loss above):

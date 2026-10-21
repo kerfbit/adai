@@ -96,3 +96,26 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Biased loss with a 1/n floor, applied per sequence (§2) | Short texts pushed off the target; logged loss tracks text length | **Verified** | [TD-503](../../guides/TECHNICAL_DEBT.md#td-503-sigreg-loss-has-a-sequence-length-dependent-floor) |
 | Four unweighted frequencies; no NaN check; repeated projections (§2) | Weaker shape test; minor | By inspection | [TD-504](../../guides/TECHNICAL_DEBT.md#td-504-sigreg-frequency-grid-nan-inputs-and-repeated-projections) |
 | Unseeded initialization generally | Context | — | TD-368 |
+
+---
+
+## Addendum (October 20, 2026): per-step directions and the unbiased loss (TD-502, TD-503)
+
+- **Directions (TD-502):** redrawn by `resample_directions()`, which `LeJEPAEncoder::train_step()` calls once per step, from a member
+  `std::mt19937`. `set_seed()` reseeds it and redraws, and `get_directions()` returns the current draw.
+- **Loss (TD-503):** `compute_loss()` is the unbiased estimator: each squared gap gets `(|φ̂|² − 1)/(n − 1)` added. Its expectation
+  is 0 for N(0, I) at any n, so a single value can be slightly negative.
+  - `backward()` is its gradient.
+  - Fewer than two rows give 0 and a zero gradient.
+  - The old mean over N(0, I) was 0.0865/0.0211/0.0054 at n = 8/32/128; the new one is 0.0019/0.0002/0.0001.
+
+Tests: `RedrawnDirectionsPenalizeCollapseOutsideOneDrawsSpan`, `SetSeedMakesTheDirectionsReproducible`,
+`UnbiasedLossDoesNotDependOnSequenceLength`, `FewerThanTwoRowsScoreZeroWithZeroGradient`.
+
+---
+
+## Addendum (October 21, 2026): applied across a batch (TD-503)
+
+In training, SIGReg now runs on a `[batch, d_model]` matrix of mean-pooled embeddings, one row per text (`LeJEPAEncoder::train_batch()`),
+as the LeJEPA paper does, rather than on one text's tokens. `n` in the estimator is then the batch size
+(`WORLD_MODEL_SIGREG_BATCH_SIZE`, default 32).

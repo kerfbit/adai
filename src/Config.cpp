@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.4.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 1.5.0
+// @adai-reviewed: 2026-10-21
 
 #include "Config.hpp"
 #include <algorithm>
@@ -395,6 +395,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.world_model_sigreg_lambda = std::stof(value);
             } else if (key == "WORLD_MODEL_SIGREG_NUM_SKETCHES") {
                 config.world_model_sigreg_num_sketches = std::stoul(value);
+            } else if (key == "WORLD_MODEL_SIGREG_BATCH_SIZE") {
+                config.world_model_sigreg_batch_size = std::stoul(value);
             } else if (key == "WORLD_MODEL_INJECT_EVERY_N_LAYERS") {
                 config.world_model_inject_every_n_layers = std::stoul(value);
             } else if (key == "WORLD_MODEL_ARTIFACT_PATH") {
@@ -862,6 +864,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env_size_t("WORLD_MODEL_SIGREG_NUM_SKETCHES")) {
         config.world_model_sigreg_num_sketches = *val;
     }
+    if (auto val = get_env_size_t("WORLD_MODEL_SIGREG_BATCH_SIZE")) {
+        config.world_model_sigreg_batch_size = *val;
+    }
     if (auto val = get_env_size_t("WORLD_MODEL_INJECT_EVERY_N_LAYERS")) {
         config.world_model_inject_every_n_layers = *val;
     }
@@ -1219,6 +1224,12 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
         errors.push_back("Invalid world_model_sigreg_num_sketches: " +
                          std::to_string(config.world_model_sigreg_num_sketches) +
                          " (must be 1-4096)");
+        valid = false;
+    }
+    if (config.world_model_sigreg_batch_size < 2 || config.world_model_sigreg_batch_size > 4096) {
+        errors.push_back("Invalid world_model_sigreg_batch_size: " +
+                         std::to_string(config.world_model_sigreg_batch_size) +
+                         " (must be 2-4096; SIGReg needs at least 2 pooled embeddings)");
         valid = false;
     }
     // TD-186: DecoderBlock's own gated world-model cross-attention is constructed with the

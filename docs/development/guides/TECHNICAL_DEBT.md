@@ -1194,9 +1194,11 @@ retraining from scratch, since no existing checkpoint has correct GPU-trained we
 **Model features run (October 20, 2026)**, chosen by the owner: the features that never learned. So far:
 - TD-341 (done in code: world-model and hippocampal gates are optimizer parameters);
 - TD-342 (done in code: the gated paths in KV-cached generation and fully on the GPU, including the world model's encode);
-- TD-427 (done in code: the LeJEPA predictor is saved and resumed).
+- TD-427 (done in code: the LeJEPA predictor is saved and resumed);
+- TD-502/503 (done in code: SIGReg redraws its directions every step, uses the unbiased estimator, and is applied across
+  each batch's pooled embeddings, `WORLD_MODEL_SIGREG_BATCH_SIZE`).
 
-Next candidates: TD-502/503 (SIGReg), TD-548, TD-343 and TD-396.
+Next candidates: TD-548, TD-343 and TD-396.
 
 Analyzed September 12, 2026 to sequence the active items by dependency and risk rather than
 just priority label — several depend on each other or on a single owner decision, and the
@@ -13401,7 +13403,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | World Model / SIGReg | October 17, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 20, 2026 | World Model / SIGReg | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `SIGReg.cpp` (see [SIGReg.md](../reference/source/SIGReg.md)); verified. The `num_sketches` projection directions are drawn
@@ -13413,8 +13415,8 @@ process partly mask this across `trainer_service` passes but make runs irreprodu
 
 Action Items:
 
-- [ ] Resample the directions on every `compute_loss()`/`backward()` pair (share one draw between the two within a step), from a seedable RNG.
-- [ ] Add a test that a subspace-collapsed batch is penalized.
+- [x] Resample the directions on every `compute_loss()`/`backward()` pair (share one draw between the two within a step), from a seedable RNG.
+- [x] Add a test that a subspace-collapsed batch is penalized.
 
 Location in code: `src/SIGReg.cpp` (constructor), `src/SIGReg.hpp` (`directions_`); tagged `TODO: See TD-502`.
 
@@ -13424,13 +13426,25 @@ Files to Modify:
 - `src/LeJEPAEncoder.cpp`
 - `tests/sigreg_test.cpp`
 
+**Fix (October 20, 2026).**
+- **Per-step directions:** `SIGReg::resample_directions()` draws new unit directions, and `LeJEPAEncoder::train_step()` calls it
+  once per step. That step's `compute_loss()`, `compute_variance_stats()` and `backward()` then share the draw.
+- **Seeding:** the RNG is a member `std::mt19937`, seeded from `std::random_device` at construction. `set_seed()` reseeds it and
+  redraws, for reproducible runs and tests. `get_directions()` exposes the current draw.
+
+Tests (`sigreg_test.cpp`):
+- `RedrawnDirectionsPenalizeCollapseOutsideOneDrawsSpan`: a 512-row Gaussian batch projected onto one draw's 8-direction span
+  (collapsed in 56 of 64 dimensions) scores the same as the full batch under that draw. Over 20 redraws it averages above 0.05,
+  more than 10× the Gaussian batch.
+- `SetSeedMakesTheDirectionsReproducible`.
+
 ---
 
 ### TD-503: SIGReg Loss Has a Sequence-Length-Dependent Floor
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | World Model / SIGReg | October 17, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 20, 2026 | World Model / SIGReg | October 17, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `SIGReg.cpp`; verified. The squared characteristic-function gap is a biased estimator with an expected floor ∝ 1/n, and
@@ -13441,8 +13455,8 @@ applies SIGReg across a batch of samples; per-sequence application is a delibera
 
 Action Items:
 
-- [ ] Use the unbiased estimator of |φ̂(t) − φ(t)|² (remove the (1 − |φ̂|²)/n-style self-term), or scale and document the n-dependence.
-- [ ] Consider applying SIGReg across a batch of sequences' pooled embeddings, as the paper does.
+- [x] Use the unbiased estimator of |φ̂(t) − φ(t)|² (remove the (1 − |φ̂|²)/n-style self-term), or scale and document the n-dependence.
+- [x] Consider applying SIGReg across a batch of sequences' pooled embeddings, as the paper does.
 
 Location in code: `src/SIGReg.cpp` (`compute_loss()`, `backward()`), `src/LeJEPAEncoder.cpp` (`train_step()`); tagged `TODO: See TD-503`.
 
@@ -13451,6 +13465,50 @@ Files to Modify:
 - `src/SIGReg.cpp`
 - `src/LeJEPAEncoder.cpp`
 - `tests/sigreg_test.cpp`
+
+**Fix (October 20, 2026).**
+- **Unbiased estimator:** `compute_loss()` adds the bias correction `(|φ̂|² − 1)/(n − 1)` to each squared gap, which replaces
+  `|φ̂|²` with its unbiased U-statistic `(n|φ̂|² − 1)/(n − 1)`, and `backward()` is its exact gradient. Its expectation is 0 for an
+  N(0, I) sample of any size, so a single value can be slightly negative. Fewer than two rows return 0, with a zero gradient.
+- **Measured on the real class:** mean over 300 N(0, I) samples with fresh directions:
+
+  | n | Old | New |
+  |---|---|---|
+  | 8 | 0.0865 | 0.0019 |
+  | 32 | 0.0211 | 0.0002 |
+  | 128 | 0.0054 | 0.0001 |
+
+  A collapsed batch still scores above 0.2 at n = 8.
+- **Metrics ingest:** `metrics_api_server` recorded LeJEPA epoch metrics only when `sigreg_loss >= 0`, which would have dropped
+  real epochs. It now gates on `predictor_loss` alone; the two always arrive together.
+
+Tests:
+- `sigreg_test.cpp`: `UnbiasedLossDoesNotDependOnSequenceLength` and `FewerThanTwoRowsScoreZeroWithZeroGradient`.
+  `LossNearZeroForIsotropicGaussianBatch` now allows small negative values. The existing finite-difference gradient check passes
+  against the new gradient.
+- `training_metrics_api_routes_test.cpp`: `NegativeSigregLossIsStillRecorded`.
+
+**Batch application (October 20–21, 2026, the second action item, requested by the owner).**
+- **`LeJEPAEncoder::train_batch(texts)`:**
+  - Phase 1 encodes every text's target view and mean-pools it to one row per text, then takes SIGReg's loss and gradient over
+    that `[batch, d_model]` matrix.
+  - Phase 2 trains each text as `train_step()` does. Its pooled row's SIGReg gradient, scaled by `sigreg_lambda` and the batch
+    size, is spread evenly over its tokens.
+  - The batch-size factor keeps the paper's balance: in the batch objective each sample gets `(1/B)·∂predictor_b + λ·∂SIGReg/∂pooled_b`
+    in one step, but here each text takes its own step with its full predictor gradient. Unscaled, the SIGReg term was B times
+    weaker: at λ = 3 it barely held the embeddings.
+  - Texts that fail to tokenize or give fewer than 2 tokens are skipped rather than failing the batch, and a batch with fewer
+    than 2 usable texts contributes no SIGReg.
+- **`train_step(text)`:** unchanged, the per-sequence form. Both share a private `train_tokens()`.
+- **The pass:** `incremental_trainer --objective=lejepa` trains in batches of the new `WORLD_MODEL_SIGREG_BATCH_SIZE` (default 32,
+  2–4096; `config.trainer.conf`). It still pushes per-sample predictor-loss metrics and checks auto-save per sample, and the
+  batch SIGReg loss and diagnostics count once per trained text in the epoch averages.
+
+Tests (`lejepaencoder_test.cpp`):
+- `TrainBatchSkipsUnusableTextsAndReportsTheTrainedOnes` and `TrainBatchOfOneHasNoSigregLoss`.
+- `TrainBatchSigregPullsPooledEmbeddingsTowardGaussian`: two encoders from the same weights, 30 batches of 16 texts, λ = 1 vs
+  λ = 0. The pooled embeddings' gap from N(0, I) ended at 0.25–0.36 with SIGReg against 0.56–0.59 without, from a 0.27–0.31 start.
+- The config key's parsing, env override and validation are tested in `config_test.cpp`.
 
 ---
 
