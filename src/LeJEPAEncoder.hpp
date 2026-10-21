@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.8.0
+// @adai-version: 0.9.0
 // @adai-reviewed: 2026-10-21
 
 #include <memory>
@@ -329,6 +329,22 @@ class LeJEPAEncoder {
     float get_last_sigreg_variance_stddev() const {
         return last_sigreg_variance_stddev_;
     }
+
+    /** TD-548: the default world-model checkpoint directory, `<session_dir>/world_model_checkpoint`.
+     *  It used to be `<session_dir>/world_model`, which is also the standalone `world_model`
+     *  dataset pool (`<session_dir>/<kind>/`, TD-202), so the two collided. */
+    static std::string default_checkpoint_dir(const std::string& session_dir);
+
+    /** TD-548: true when `directory` holds a saved checkpoint (its config file), not merely
+     *  exists (a dataset pool can live in the same place). */
+    static bool has_checkpoint(const std::string& directory);
+
+    /** TD-548: where to load the world model from: `artifact_path` when set (MNS or
+     *  WORLD_MODEL_ARTIFACT_PATH); else the default directory; else, when only it has a
+     *  checkpoint, the pre-TD-548 `<session_dir>/world_model`. The caller still checks
+     *  has_checkpoint() on the result. */
+    static std::string resolve_checkpoint_dir(const std::string& session_dir,
+                                              const std::string& artifact_path);
 
     /** TD-427: the embedding-space predictor train_step() trains (saved and loaded with the
      *  encoder). */

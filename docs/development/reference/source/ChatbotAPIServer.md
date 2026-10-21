@@ -216,3 +216,11 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 | Startup log lists only 4 of 9 endpoints (missing the batch, export and import routes) | Misleading startup output | By inspection | [TD-252](../../guides/TECHNICAL_DEBT.md#td-252-chatbot_api_server-startup-log-and-usage-text-are-inaccurate) |
 | `--batched-inference` help text claims real batching (§3) | Already TD-211 | — | TD-211 |
 | CLI and validation issues (atoi, no startup validation, reload drops CLI overrides, top_k/beam_width, multiple modes) | Already TD-240–245 | — | TD-240–245 |
+
+---
+
+## Addendum (October 21, 2026): world-model checkpoint directory (TD-548)
+
+The world model is loaded from `LeJEPAEncoder::resolve_checkpoint_dir(SESSION_DIR, WORLD_MODEL_ARTIFACT_PATH)`: the artifact path,
+else `<SESSION_DIR>/world_model_checkpoint`, else a pre-TD-548 `<SESSION_DIR>/world_model` checkpoint. It's used only when that
+directory holds a checkpoint (`has_checkpoint()`), not merely exists.

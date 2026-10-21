@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.21.0
+// @adai-version: 0.22.0
 // @adai-reviewed: 2026-10-21
 
 #include <array>
@@ -311,13 +311,20 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     // point of feeding it new pending-data batches over time. A mismatched architecture (the
     // WORLD_MODEL_* config changed since the checkpoint was saved) is reported clearly and this
     // pass aborts rather than either silently discarding the old checkpoint or crashing uncaught.
-    if (fs::exists(world_model_dir)) {
+    // TD-548: saves go to world_model_dir; the checkpoint to resume may still be in the
+    // pre-TD-548 <session_dir>/world_model (resolve_checkpoint_dir() finds it).
+    const std::string resume_dir = LeJEPAEncoder::resolve_checkpoint_dir(
+        svc_config.session_dir, svc_config.world_model_artifact_path);
+    if (LeJEPAEncoder::has_checkpoint(resume_dir)) {
         try {
-            world_model.load(world_model_dir);
-            adai::Logger::info("[lejepa] Resumed world-model weights from '{}'", world_model_dir);
+            world_model.load(resume_dir);
+            adai::Logger::info("[lejepa] Resumed world-model weights from '{}'", resume_dir);
+            if (resume_dir != world_model_dir) {
+                adai::Logger::info("[lejepa] Saving to '{}' from now on (TD-548)", world_model_dir);
+            }
         } catch (const std::exception& e) {
             std::cerr << "❌ [lejepa] Failed to load existing world-model checkpoint at '"
-                      << world_model_dir << "': " << e.what() << "\n"
+                      << resume_dir << "': " << e.what() << "\n"
                       << "   (WORLD_MODEL_* config must match the architecture the checkpoint "
                          "was saved with — or move/remove the old checkpoint directory to start "
                          "fresh)\n";
@@ -404,7 +411,9 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         const std::string push_url =
             build_metrics_session_push_base(svc_config.metrics_server_url, session_key);
         const std::string label = svc_config.metrics_session_label.empty()
-                                      ? derive_metrics_session_label(1, world_model_dir)
+                                      // "world_model": the same label as before TD-548 moved
+                                      // the default directory
+                                      ? derive_metrics_session_label(1, "world_model")
                                       : svc_config.metrics_session_label;
         const std::string config_snapshot = build_lejepa_config_snapshot(svc_config);
 
@@ -1145,7 +1154,13 @@ int main(int argc, char* argv[]) {
                              "config.trainer.conf (or the WORLD_MODEL_ENABLED env var)\n";
                 return 1;
             }
-            const std::string world_model_dir = svc_config.session_dir + "/world_model";
+            // TD-548: WORLD_MODEL_ARTIFACT_PATH when set (it used to be ignored here), else
+            // <session_dir>/world_model_checkpoint, which no longer collides with the
+            // standalone `world_model` dataset pool.
+            const std::string world_model_dir =
+                !svc_config.world_model_artifact_path.empty()
+                    ? svc_config.world_model_artifact_path
+                    : LeJEPAEncoder::default_checkpoint_dir(svc_config.session_dir);
             return run_training_pipeline(
                 argc, argv, svc_config, world_model_dir, log_path,
                 "LeJEPA world-model pretraining started in background",

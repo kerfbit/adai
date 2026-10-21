@@ -1196,9 +1196,10 @@ retraining from scratch, since no existing checkpoint has correct GPU-trained we
 - TD-342 (done in code: the gated paths in KV-cached generation and fully on the GPU, including the world model's encode);
 - TD-427 (done in code: the LeJEPA predictor is saved and resumed);
 - TD-502/503 (done in code: SIGReg redraws its directions every step, uses the unbiased estimator, and is applied across
-  each batch's pooled embeddings, `WORLD_MODEL_SIGREG_BATCH_SIZE`).
+  each batch's pooled embeddings, `WORLD_MODEL_SIGREG_BATCH_SIZE`);
+- TD-548 (done in code: the world-model checkpoint has its own directory, away from the standalone dataset pool).
 
-Next candidates: TD-548, TD-343 and TD-396.
+Next candidates: TD-343 and TD-396.
 
 Analyzed September 12, 2026 to sequence the active items by dependency and risk rather than
 just priority label — several depend on each other or on a single owner decision, and the
@@ -14979,7 +14980,7 @@ Location in code: `src/TokenEmbedding.{hpp,cpp}`, `src/LLMEncoder.cpp` (`gpu_enc
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / World model | October 20, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 21, 2026 | Training / World model | October 20, 2026 | 1-2 hours |
 
 Description:
 Found while verifying TD-342 end to end, and reproduced with the real binaries on the oneAPI CPU device.
@@ -14998,13 +14999,31 @@ Workaround: queue the LeJEPA data under another kind and pass `--dataset-kind` (
 
 Action Items:
 
-- [ ] Put the world-model checkpoint in its own directory (e.g. `<SESSION_DIR>/world_model_checkpoint`), with a fallback that
+- [x] Put the world-model checkpoint in its own directory (e.g. `<SESSION_DIR>/world_model_checkpoint`), with a fallback that
   reads an old-layout checkpoint, or move the standalone pools under `<SESSION_DIR>/pools/<kind>/` with a migration.
-- [ ] Have `--objective=lejepa` honor `WORLD_MODEL_ARTIFACT_PATH`, like the chatbot attach.
-- [ ] Test a standalone LeJEPA pass, then a chatbot pass that attaches its world model.
+- [x] Have `--objective=lejepa` honor `WORLD_MODEL_ARTIFACT_PATH`, like the chatbot attach.
+- [x] Test a standalone LeJEPA pass, then a chatbot pass that attaches its world model.
 
 Location in code: `src/IncrementalTrainingTool.cpp` (the `lejepa` world-model directory), `src/IncrementalTrainer.cpp`
 (`maybe_attach_world_model()`), `src/DatasetRegistry.cpp` (`local_pool_dir()`).
+
+**Fix (October 21, 2026).**
+- **Shared rule:** three new static helpers on `LeJEPAEncoder`, used by the LeJEPA pass, `IncrementalTrainer::maybe_attach_world_model()`
+  and `chatbot_api_server`:
+  - `default_checkpoint_dir()` is `<SESSION_DIR>/world_model_checkpoint`.
+  - `has_checkpoint()` requires the checkpoint's `config.bin`, so a dataset pool in the same directory no longer counts.
+  - `resolve_checkpoint_dir()` picks `WORLD_MODEL_ARTIFACT_PATH` (or MNS's artifact path) when set, else the new default, else a
+    pre-fix `<SESSION_DIR>/world_model` checkpoint.
+- **The LeJEPA pass:** saves to `WORLD_MODEL_ARTIFACT_PATH` when set (it used to ignore it) or the new default. A checkpoint resumed
+  from the old directory moves to the new one on the next save.
+- **Metrics label:** kept as `world_model`.
+
+Verified:
+- **Test:** `lejepaencoder_test.cpp`'s `CheckpointDirectoryResolution`.
+- **Real binaries** (SYCL build, oneAPI CPU device):
+  - the original sequence (`dataset_manager --kind world_model add`, a LeJEPA pass, then a chatbot pass) now trains and attaches the
+    world model without the `--dataset-kind` workaround;
+  - a session with only an old-layout checkpoint resumes it and saves to `world_model_checkpoint`.
 
 ---
 

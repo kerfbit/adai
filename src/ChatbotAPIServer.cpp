@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.7.1
-// @adai-reviewed: 2026-09-19
+// @adai-version: 1.8.0
+// @adai-reviewed: 2026-10-21
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
 #include <atomic>
@@ -429,10 +429,12 @@ int main(int argc, char* argv[]) {
             // `incremental_trainer --objective=lejepa train` and serving it here otherwise needs
             // SESSION_DIR configured consistently across config.trainer.conf/config.chatbot.conf
             // (or left at its shared default) for the two binaries to agree on where it lives.
-            const std::string world_model_dir = !config.world_model_artifact_path.empty()
-                                                    ? config.world_model_artifact_path
-                                                    : config.session_dir + "/world_model";
-            if (!std::filesystem::exists(world_model_dir)) {
+            // TD-548: the default directory is <session_dir>/world_model_checkpoint (a pre-TD-548
+            // <session_dir>/world_model checkpoint is still found), and a checkpoint means its
+            // config file, not just the directory.
+            const std::string world_model_dir = LeJEPAEncoder::resolve_checkpoint_dir(
+                config.session_dir, config.world_model_artifact_path);
+            if (!LeJEPAEncoder::has_checkpoint(world_model_dir)) {
                 adai::Logger::info(
                     "  WORLD_MODEL_ENABLED is set but no checkpoint found at '{}' — continuing "
                     "without a world model",

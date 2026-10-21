@@ -780,3 +780,35 @@ TEST_F(LeJEPAEncoderTest, TrainBatchSigregPullsPooledEmbeddingsTowardGaussian) {
                                              << ", without " << gap_without;
 }
 
+
+// TD-548: <session_dir>/world_model is also the standalone `world_model` dataset pool, so the
+// default checkpoint moved to <session_dir>/world_model_checkpoint, and "has a checkpoint" means
+// its config file, not just the directory.
+TEST_F(LeJEPAEncoderTest, CheckpointDirectoryResolution) {
+    const std::string session = temp_dir + "/session";
+    const std::string current = session + "/world_model_checkpoint";
+    const std::string legacy = session + "/world_model";
+    EXPECT_EQ(LeJEPAEncoder::default_checkpoint_dir(session), current);
+
+    // Nothing saved yet: the new default (and no checkpoint there).
+    EXPECT_EQ(LeJEPAEncoder::resolve_checkpoint_dir(session, ""), current);
+    EXPECT_FALSE(LeJEPAEncoder::has_checkpoint(current));
+
+    // A dataset pool in the old directory is not a checkpoint.
+    fs::create_directories(legacy);
+    std::ofstream(legacy + "/pending_files.txt") << "x\n";
+    EXPECT_FALSE(LeJEPAEncoder::has_checkpoint(legacy));
+    EXPECT_EQ(LeJEPAEncoder::resolve_checkpoint_dir(session, ""), current);
+
+    // A checkpoint saved before TD-548 is still found...
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder.save(legacy);
+    EXPECT_TRUE(LeJEPAEncoder::has_checkpoint(legacy));
+    EXPECT_EQ(LeJEPAEncoder::resolve_checkpoint_dir(session, ""), legacy);
+    // ...until one exists in the new place.
+    encoder.save(current);
+    EXPECT_EQ(LeJEPAEncoder::resolve_checkpoint_dir(session, ""), current);
+
+    // An artifact path (MNS or WORLD_MODEL_ARTIFACT_PATH) always wins.
+    EXPECT_EQ(LeJEPAEncoder::resolve_checkpoint_dir(session, "/elsewhere/wm"), "/elsewhere/wm");
+}

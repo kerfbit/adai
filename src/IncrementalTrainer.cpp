@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.17.1
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.18.0
+// @adai-reviewed: 2026-10-21
 
 #include "IncrementalTrainer.hpp"
 #include <algorithm>
@@ -149,10 +149,11 @@ void IncrementalTrainer::maybe_attach_world_model() {
     // <session_dir>/world_model convention, so a chatbot registered with a world model link
     // doesn't depend on an operator having manually copied the checkpoint into its own session
     // directory.
-    const std::string world_model_dir = !config.world_model_artifact_path.empty()
-                                            ? config.world_model_artifact_path
-                                            : get_session_dir() + "/world_model";
-    if (!fs::exists(world_model_dir)) {
+    // TD-548: see LeJEPAEncoder::resolve_checkpoint_dir(); the default directory no longer
+    // collides with the standalone `world_model` dataset pool.
+    const std::string world_model_dir = LeJEPAEncoder::resolve_checkpoint_dir(
+        get_session_dir(), config.world_model_artifact_path);
+    if (!LeJEPAEncoder::has_checkpoint(world_model_dir)) {
         Logger::warn(
             "World-model attachment requested (WORLD_MODEL_ENABLED=true, "
             "WORLD_MODEL_INJECT_EVERY_N_LAYERS={}) but no checkpoint found at '{}' — continuing "

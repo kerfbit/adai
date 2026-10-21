@@ -150,3 +150,16 @@ Tests: `SaveAndLoadRestoreThePredictor`, `LoadOfACheckpointWithoutAPredictorStil
 
 The LeJEPA pass trains in batches of `WORLD_MODEL_SIGREG_BATCH_SIZE`. Tests: `TrainBatchSkipsUnusableTextsAndReportsTheTrainedOnes`,
 `TrainBatchOfOneHasNoSigregLoss`, `TrainBatchSigregPullsPooledEmbeddingsTowardGaussian`.
+
+---
+
+## Addendum (October 21, 2026): checkpoint directory (TD-548)
+
+The default world-model checkpoint directory is now `<SESSION_DIR>/world_model_checkpoint`. `<SESSION_DIR>/world_model` is also the
+standalone `world_model` dataset pool, so the old default collided with it.
+- `default_checkpoint_dir()` returns the new default.
+- `has_checkpoint()` checks for `config.bin`, not just the directory.
+- `resolve_checkpoint_dir(session_dir, artifact_path)` returns the artifact path when set, else the new default, else an old-layout
+  checkpoint.
+
+Test: `CheckpointDirectoryResolution`.

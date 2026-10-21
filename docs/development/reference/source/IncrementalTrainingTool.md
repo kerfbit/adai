@@ -157,3 +157,12 @@ The `--objective=lejepa` pass walks its texts in chunks of `WORLD_MODEL_SIGREG_B
 It still pushes per-sample predictor-loss metrics and checks auto-save per trained text, and counts the batch SIGReg loss and
 diagnostics once per trained text in the epoch averages. Unusable texts are skipped with a warning per batch. A batch that throws is
 skipped whole, which also covers TD-429's escaping `TokenizerEncodingError` for this path.
+
+---
+
+## Addendum (October 21, 2026): world-model checkpoint directory (TD-548)
+
+`--objective=lejepa` saves to `WORLD_MODEL_ARTIFACT_PATH` when set (it used to ignore it), else `<SESSION_DIR>/world_model_checkpoint`.
+It resumes from whatever `LeJEPAEncoder::resolve_checkpoint_dir()` finds, including a pre-TD-548 `<SESSION_DIR>/world_model`
+checkpoint. A standalone `dataset_manager --kind world_model` queue no longer makes the pass fail. The metrics session label is still
+`world_model`.

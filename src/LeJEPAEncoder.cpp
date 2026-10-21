@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.8.0
+// @adai-version: 0.9.0
 // @adai-reviewed: 2026-10-21
 
 #include "LeJEPAEncoder.hpp"
@@ -444,6 +444,29 @@ void LeJEPAEncoder::register_parameters_with_optimizer(Optimizer& optimizer) {
     predictor->register_parameters_with_optimizer(optimizer);
     // SIGReg has no learnable parameters of its own (stateless w.r.t. weights — see its class
     // doc) — nothing to register for it.
+}
+
+std::string LeJEPAEncoder::default_checkpoint_dir(const std::string& session_dir) {
+    return session_dir + "/world_model_checkpoint";
+}
+
+bool LeJEPAEncoder::has_checkpoint(const std::string& directory) {
+    std::error_code ec;
+    return !directory.empty() &&
+           std::filesystem::is_regular_file(directory + "/" + kConfigFile, ec);
+}
+
+std::string LeJEPAEncoder::resolve_checkpoint_dir(const std::string& session_dir,
+                                                  const std::string& artifact_path) {
+    if (!artifact_path.empty()) {
+        return artifact_path;
+    }
+    const std::string current = default_checkpoint_dir(session_dir);
+    const std::string legacy = session_dir + "/world_model";
+    if (!has_checkpoint(current) && has_checkpoint(legacy)) {
+        return legacy;  // saved before TD-548; the next save moves it to `current`
+    }
+    return current;
 }
 
 // TD-427: the Predictor is saved too. It used to be skipped, so every resumed pass started with a random
