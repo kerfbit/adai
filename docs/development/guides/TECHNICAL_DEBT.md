@@ -13092,7 +13092,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| HIGH | Open | Data / Registry Server | October 17, 2026 | 1-2 hours |
+| HIGH | Open — code fix landed October 21, 2026 | Data / Registry Server | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `RegistryServer.cpp` (see [RegistryServer.md](../reference/source/RegistryServer.md)); verified with the real binary. The route
@@ -13107,9 +13107,9 @@ maps to `data_dir` itself, reaching `daemon_config.db`, `session_counters.db` an
 
 Action Items:
 
-- [ ] Validate `<group>` against a strict pattern (e.g. `[A-Za-z0-9_-][A-Za-z0-9._-]*`, never `.`/`..`) in every route, returning 400.
-- [ ] Check `group_dir()` results resolve under `data_dir` (canonicalized) before use.
-- [ ] Add live tests for `..`, `%2e%2e` and `.` groups.
+- [x] Validate `<group>` against a strict pattern (e.g. `[A-Za-z0-9_-][A-Za-z0-9._-]*`, never `.`/`..`) in every route, returning 400.
+- [x] Check `group_dir()` results resolve under `data_dir` (canonicalized) before use.
+- [x] Add live tests for `..`, `%2e%2e` and `.` groups.
 
 Location in code: `src/RegistryServer.cpp` (`group_dir()`, `get_group()`, `handle_delete()`); tagged `TODO: See TD-490`.
 
@@ -13117,6 +13117,23 @@ Files to Modify:
 
 - `src/RegistryServer.cpp`
 - `tests/dataset_registry_live_test.cpp`
+
+**Fix (October 21, 2026).**
+- **Route check:** every `/registry/<group>/…` route (all 16) checks the group with `group_ok()` before calling its handler, and
+  answers 400 `invalid group name` otherwise. A valid name is one plain path component, `[A-Za-z0-9_-][A-Za-z0-9._-]*` of at most
+  128 characters, so `.` and `..` can't pass. httplib decodes the URL before routing, so `%2e%2e` is checked as `..`.
+- **Defense in depth:** `group_dir()` throws for an invalid name, and `handle_delete()`'s containment root is built from it.
+- **Not changed:** existing group names (`chatbot-v1`, `my-training-group`) are unaffected. MNS doesn't validate `run_group`, so an
+  invalid one stored there now gets a clear 400 from the registry.
+
+Verified against the real binary:
+- **The attack:** a `checkpoint.bin` was placed in `data_dir`'s parent, then `pending/add` and `delete {"delete_files":true}` sent
+  through group `..` (`curl --path-as-is`) and `%2e%2e`. All three got 400, the file survived, and no `pending_files.txt` appeared
+  in the parent.
+- **Live tests:** `dataset_registry_live_test.cpp`'s new `LiveRegistryGroupNames` tests:
+  - `%2e%2e`, `%2E%2E`, `.`, `%2e`, `.hidden` and a kind-scoped `%2e%2e/chatbot` get 400, or no 200 for `delete`/`pending/add`;
+  - ordinary names still work.
+- **Suite:** 89/89 live tests pass against the fixed server.
 
 ---
 

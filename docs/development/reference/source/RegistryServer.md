@@ -180,3 +180,14 @@ It was checked end to end: two trained files were re-queued with `dataset_manage
 - **`/delete`:** removes segment records by exact range.
 
 Checked end to end, and with the live test suite (87/87).
+
+---
+
+## Addendum (October 21, 2026): group names are validated (TD-490)
+
+Every `/registry/<group>[/<kind>]/…` route checks `<group>` (`group_ok()`) before its handler runs. A valid name is
+`[A-Za-z0-9_-][A-Za-z0-9._-]*`, at most 128 characters; anything else, including `.`, `..` and `%2e%2e` (httplib decodes it before
+routing), gets 400 `{"error":"invalid group name"}`. `group_dir()` also refuses an invalid name, and `handle_delete()`'s containment
+root comes from it, so a delete can no longer reach outside `data_dir`. Tests: `dataset_registry_live_test.cpp`'s
+`LiveRegistryGroupNames.TraversalGroupsAreRejected` and `OrdinaryGroupNamesStillWork`.
+

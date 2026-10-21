@@ -1772,3 +1772,44 @@ TEST_F(LiveRegistryTest, TrainedCarriesForwardSourceAndAddedUtcFromPendingEntry)
 }
 
 }  // namespace
+
+// ===========================================================================
+// TD-490: a group name is one plain path component under data_dir
+// ===========================================================================
+
+// "/registry/../..." and "/registry/%2e%2e/..." both reached handlers as group "..", which
+// resolved to data_dir's parent (a delete with delete_files unlinked a file there), and "." to
+// data_dir itself. Every route now answers 400 for them before touching the filesystem.
+TEST(LiveRegistryGroupNames, TraversalGroupsAreRejected) {
+    if (!server_reachable())
+        GTEST_SKIP() << "server not reachable";
+    auto c = make_client();
+    const std::string body = R"({"paths":["/nonexistent/x.jsonl"],"delete_files":true})";
+    for (const std::string group : {"%2e%2e", "%2E%2E", ".", "%2e", ".hidden"}) {
+        auto queue = c.Get("/registry/" + group + "/queue");
+        ASSERT_TRUE(queue) << group;
+        EXPECT_EQ(queue->status, 400) << group << ": " << queue->body;
+        auto del = c.Post("/registry/" + group + "/delete", body, "application/json");
+        ASSERT_TRUE(del) << group;
+        EXPECT_NE(del->status, 200) << group << ": " << del->body;
+        auto add = c.Post("/registry/" + group + "/pending/add",
+                          R"({"path":"/nonexistent/x.jsonl"})", "application/json");
+        ASSERT_TRUE(add) << group;
+        EXPECT_NE(add->status, 200) << group << ": " << add->body;
+    }
+    // A kind-scoped route gets the same check.
+    auto kinded = c.Get("/registry/%2e%2e/chatbot/queue");
+    ASSERT_TRUE(kinded);
+    EXPECT_EQ(kinded->status, 400) << kinded->body;
+}
+
+TEST(LiveRegistryGroupNames, OrdinaryGroupNamesStillWork) {
+    if (!server_reachable())
+        GTEST_SKIP() << "server not reachable";
+    auto c = make_client();
+    for (const std::string group : {make_group("ok"), std::string("Chatbot_v1.2-") + make_group()}) {
+        auto res = c.Get("/registry/" + group + "/queue");
+        ASSERT_TRUE(res) << group;
+        EXPECT_EQ(res->status, 200) << group << ": " << res->body;
+    }
+}

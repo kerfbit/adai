@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.12.1
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.13.0
+// @adai-reviewed: 2026-10-21
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) is hardened to
@@ -118,9 +118,46 @@ static std::string data_dir = "registry_sessions";
 // group working untouched after this upgrade. Shared by get_group() and every path builder below
 // that (like the Gutenberg/HuggingFace fetch-cursor and dataset-output paths) doesn't go through
 // get_group() at all but still needs to land inside the same kind-scoped sub-directory.
-// TODO: See TD-490 in TECHNICAL_DEBT.md - `group` is unvalidated: ".." (or %2e%2e) resolves to data_dir's parent and
-// "." to data_dir itself; validate it like model names and check the result stays under data_dir.
+// TD-490: a group name is one path component under data_dir. httplib decodes the URL before the
+// route regex, so "/registry/../..." and "/registry/%2e%2e/..." both reached handlers as "..",
+// which resolved to data_dir's parent (an unauthenticated delete unlinked a file there), and "."
+// to data_dir itself. Allowed: [A-Za-z0-9_-][A-Za-z0-9._-]*, at most 128 characters; it can't
+// start with '.', so "." and ".." are out.
+static bool valid_group_name(const std::string& group) {
+    if (group.empty() || group.size() > 128) {
+        return false;
+    }
+    auto ok = [](char c, bool first) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+               c == '_' || c == '-' || (!first && c == '.');
+    };
+    if (!ok(group[0], true)) {
+        return false;
+    }
+    for (size_t i = 1; i < group.size(); ++i) {
+        if (!ok(group[i], false)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Every route checks the group first; a bad one gets 400 and never reaches a handler.
+static bool group_ok(const std::string& group, httplib::Response& res) {
+    if (valid_group_name(group)) {
+        return true;
+    }
+    res.status = 400;
+    res.set_content("{\"error\":\"invalid group name\"}", "application/json");
+    Logger::warn("registry: rejected invalid group name '{}'", group);
+    return false;
+}
+
 static std::string group_dir(const std::string& group, const std::string& kind) {
+    // TD-490: defense in depth behind the route check, for any path that builds a directory.
+    if (!valid_group_name(group)) {
+        throw std::invalid_argument("invalid registry group name");
+    }
     return kind.empty() ? data_dir + "/" + group : data_dir + "/" + group + "/" + kind;
 }
 
@@ -946,9 +983,9 @@ static void handle_delete(const httplib::Request& req, httplib::Response& res,
     fs::path group_root;
     bool have_root = false;
     try {
-        // TODO: See TD-490 in TECHNICAL_DEBT.md - with group ".." this root is data_dir's parent, so delete_files
-        // unlinks files outside the data tree (verified).
-        group_root = fs::weakly_canonical(fs::path(data_dir) / group);
+        // TD-490: group_dir() rejects "..", "." and any other name that isn't one plain path
+        // component, so this root is always inside data_dir.
+        group_root = fs::weakly_canonical(fs::path(group_dir(group, "")));
         have_root = true;
     } catch (...) {
         have_root = false;
@@ -1934,67 +1971,99 @@ int main(int argc, char* argv[]) {
 #define ADAI_KIND_SEGMENT R"((?:/(encoder|decoder|world_model|chatbot))?)"
     svr.Get(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/queue)",
             [](const httplib::Request& r, httplib::Response& res) {
-                handle_queue(r, res, r.matches[1], r.matches[2]);
+                if (group_ok(r.matches[1], res)) {
+                    handle_queue(r, res, r.matches[1], r.matches[2]);
+                }
             });
     svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/acquire)",
              [](const httplib::Request& r, httplib::Response& res) {
-                 handle_acquire(r, res, r.matches[1], r.matches[2]);
+                 if (group_ok(r.matches[1], res)) {
+                     handle_acquire(r, res, r.matches[1], r.matches[2]);
+                 }
              });
     svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/session/next)",
              [](const httplib::Request& r, httplib::Response& res) {
-                 handle_session_next(r, res, r.matches[1], r.matches[2]);
+                 if (group_ok(r.matches[1], res)) {
+                     handle_session_next(r, res, r.matches[1], r.matches[2]);
+                 }
              });
     svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/release)",
              [](const httplib::Request& r, httplib::Response& res) {
-                 handle_release(r, res, r.matches[1], r.matches[2]);
+                 if (group_ok(r.matches[1], res)) {
+                     handle_release(r, res, r.matches[1], r.matches[2]);
+                 }
              });
     svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/assign)",
              [](const httplib::Request& r, httplib::Response& res) {
-                 handle_assign(r, res, r.matches[1], r.matches[2]);
+                 if (group_ok(r.matches[1], res)) {
+                     handle_assign(r, res, r.matches[1], r.matches[2]);
+                 }
              });
     svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/unassign)",
              [](const httplib::Request& r, httplib::Response& res) {
-                 handle_unassign(r, res, r.matches[1], r.matches[2]);
+                 if (group_ok(r.matches[1], res)) {
+                     handle_unassign(r, res, r.matches[1], r.matches[2]);
+                 }
              });
     svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/delete)",
              [](const httplib::Request& r, httplib::Response& res) {
-                 handle_delete(r, res, r.matches[1], r.matches[2]);
+                 if (group_ok(r.matches[1], res)) {
+                     handle_delete(r, res, r.matches[1], r.matches[2]);
+                 }
              });
     svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/requeue)",
              [](const httplib::Request& r, httplib::Response& res) {
-                 handle_requeue(r, res, r.matches[1], r.matches[2]);
+                 if (group_ok(r.matches[1], res)) {
+                     handle_requeue(r, res, r.matches[1], r.matches[2]);
+                 }
              });
     svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/trained)",
              [](const httplib::Request& r, httplib::Response& res) {
-                 handle_trained(r, res, r.matches[1], r.matches[2]);
+                 if (group_ok(r.matches[1], res)) {
+                     handle_trained(r, res, r.matches[1], r.matches[2]);
+                 }
              });
     svr.Get(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/registry)",
             [](const httplib::Request& r, httplib::Response& res) {
-                handle_registry(r, res, r.matches[1], r.matches[2]);
+                if (group_ok(r.matches[1], res)) {
+                    handle_registry(r, res, r.matches[1], r.matches[2]);
+                }
             });
     svr.Get(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/runs)",
             [](const httplib::Request& r, httplib::Response& res) {
-                handle_runs(r, res, r.matches[1], r.matches[2]);
+                if (group_ok(r.matches[1], res)) {
+                    handle_runs(r, res, r.matches[1], r.matches[2]);
+                }
             });
     svr.Get(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/history)",
             [](const httplib::Request& r, httplib::Response& res) {
-                handle_history(r, res, r.matches[1], r.matches[2]);
+                if (group_ok(r.matches[1], res)) {
+                    handle_history(r, res, r.matches[1], r.matches[2]);
+                }
             });
     svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/pending/add)",
              [](const httplib::Request& r, httplib::Response& res) {
-                 handle_pending_add(r, res, r.matches[1], r.matches[2]);
+                 if (group_ok(r.matches[1], res)) {
+                     handle_pending_add(r, res, r.matches[1], r.matches[2]);
+                 }
              });
     svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/fetch/gutenberg)",
              [](const httplib::Request& r, httplib::Response& res) {
-                 handle_fetch_gutenberg(r, res, r.matches[1], r.matches[2]);
+                 if (group_ok(r.matches[1], res)) {
+                     handle_fetch_gutenberg(r, res, r.matches[1], r.matches[2]);
+                 }
              });
     svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/fetch/huggingface)",
              [](const httplib::Request& r, httplib::Response& res) {
-                 handle_fetch_huggingface(r, res, r.matches[1], r.matches[2]);
+                 if (group_ok(r.matches[1], res)) {
+                     handle_fetch_huggingface(r, res, r.matches[1], r.matches[2]);
+                 }
              });
     svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/upload)",
              [](const httplib::Request& r, httplib::Response& res) {
-                 handle_upload(r, res, r.matches[1], r.matches[2]);
+                 if (group_ok(r.matches[1], res)) {
+                     handle_upload(r, res, r.matches[1], r.matches[2]);
+                 }
              });
 #undef ADAI_KIND_SEGMENT
     svr.Get("/admin/config", handle_admin_get_config);
