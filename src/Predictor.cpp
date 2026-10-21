@@ -1,8 +1,10 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-15
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-10-20
 
 #include "Predictor.hpp"
+#include <cstdint>
+#include <filesystem>
 #include <stdexcept>
 #include <string>
 
@@ -52,3 +54,26 @@ void Predictor::zero_grad() {
 void Predictor::register_parameters_with_optimizer(Optimizer& optimizer) {
     net_->set_optimizer(&optimizer);
 }
+
+void Predictor::save(const std::string& filename) const {
+    net_->save_weights(filename);
+}
+
+bool Predictor::load(const std::string& filename) {
+    std::error_code ec;
+    if (!std::filesystem::exists(filename, ec)) {
+        return false;
+    }
+    // FeedForward::save_weights(): two int dims, then W1, W2, b1, b2.
+    const auto expected = static_cast<std::uintmax_t>(
+        2 * sizeof(int) +
+        sizeof(float) * (2 * static_cast<std::size_t>(d_model_) * hidden_dim_ + hidden_dim_ + d_model_));
+    const std::uintmax_t actual = std::filesystem::file_size(filename, ec);
+    if (ec || actual != expected) {
+        throw std::runtime_error("Predictor::load(): " + filename + " is " + std::to_string(actual) +
+                                 " bytes, expected " + std::to_string(expected));
+    }
+    net_->load_weights(filename);  // throws on a d_model/hidden_dim mismatch
+    return true;
+}
+

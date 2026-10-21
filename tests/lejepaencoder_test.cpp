@@ -7,6 +7,8 @@
 
 #include "../src/LeJEPAEncoder.hpp"
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <cmath>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -17,6 +19,14 @@
 #include "../src/encoder.hpp"
 
 namespace fs = std::filesystem;
+
+static float max_abs_diff(const Matrix& a, const Matrix& b) {
+    float worst = 0.0f;
+    for (int i = 0; i < a.rows; ++i)
+        for (int j = 0; j < a.cols; ++j)
+            worst = std::max(worst, std::abs(a(i, j) - b(i, j)));
+    return worst;
+}
 
 class LeJEPAEncoderTest : public ::testing::Test {
    protected:
@@ -326,6 +336,36 @@ TEST_F(LeJEPAEncoderTest, LoadRoundTripsWithoutError) {
 
     LeJEPAEncoder encoder1(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
     encoder1.save(save_dir);
+
+    LeJEPAEncoder encoder2(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    EXPECT_NO_THROW(encoder2.load(save_dir));
+}
+
+// TD-427: save() used to skip the predictor, so every resumed pass started with a random one.
+TEST_F(LeJEPAEncoderTest, SaveAndLoadRestoreThePredictor) {
+    std::string save_dir = temp_dir + "/saved_encoder";
+    LeJEPAEncoder encoder1(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    LeJEPAEncoder encoder2(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    Matrix probe(2, D_MODEL);
+    for (int i = 0; i < 2; ++i)
+        for (int j = 0; j < D_MODEL; ++j)
+            probe(i, j) = 0.1f * std::cos(static_cast<float>(i * D_MODEL + j));
+
+    const Matrix expected = encoder1.get_predictor()->forward(probe);
+    ASSERT_GT(max_abs_diff(expected, encoder2.get_predictor()->forward(probe)), 0.0f);
+
+    encoder1.save(save_dir);
+    EXPECT_TRUE(fs::exists(save_dir + "/predictor.bin"));
+    encoder2.load(save_dir);
+    EXPECT_EQ(max_abs_diff(expected, encoder2.get_predictor()->forward(probe)), 0.0f);
+}
+
+// A checkpoint saved before TD-427 has no predictor.bin: it still loads, with a fresh predictor.
+TEST_F(LeJEPAEncoderTest, LoadOfACheckpointWithoutAPredictorStillLoads) {
+    std::string save_dir = temp_dir + "/saved_encoder";
+    LeJEPAEncoder encoder1(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder1.save(save_dir);
+    fs::remove(save_dir + "/predictor.bin");
 
     LeJEPAEncoder encoder2(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
     EXPECT_NO_THROW(encoder2.load(save_dir));

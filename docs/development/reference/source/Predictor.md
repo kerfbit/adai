@@ -49,3 +49,13 @@ No defects of its own beyond those already tracked:
 
 `predictor_test.cpp` (13 tests): dimension validation, accessors, shape checks, forward shape (batch and single row), determinism, backward shape,
 a finite-difference gradient check, updates changing the output, `zero_grad()`, training through a registered optimizer, distinct instances.
+
+---
+
+## Addendum (October 20, 2026): `save()`/`load()` (TD-427)
+
+`save(filename)` writes the wrapped `FeedForward` (`save_weights()` format: two int dims, then W1, W2, b1, b2). `load(filename)` returns
+false when the file is missing. It throws, before reading any weights, when the size isn't what this shape writes (a truncated file,
+TD-369) or the dims differ, leaving the weights unchanged. `LeJEPAEncoder` saves and loads it with the encoder. Tests:
+`SaveLoadRoundTripsTheOutput`, `LoadOfAMissingFileReturnsFalse`,
+`LoadRejectsTruncatedAndMismatchedFilesWithoutChangingWeights`.

@@ -1193,9 +1193,10 @@ retraining from scratch, since no existing checkpoint has correct GPU-trained we
 
 **Model features run (October 20, 2026)**, chosen by the owner: the features that never learned. So far:
 - TD-341 (done in code: world-model and hippocampal gates are optimizer parameters);
-- TD-342 (done in code: the gated paths in KV-cached generation and fully on the GPU, including the world model's encode).
+- TD-342 (done in code: the gated paths in KV-cached generation and fully on the GPU, including the world model's encode);
+- TD-427 (done in code: the LeJEPA predictor is saved and resumed).
 
-Next candidates: TD-427 (the LeJEPA predictor isn't saved), TD-502/503 (SIGReg), TD-343, TD-396 and TD-548.
+Next candidates: TD-502/503 (SIGReg), TD-548, TD-343 and TD-396.
 
 Analyzed September 12, 2026 to sequence the active items by dependency and risk rather than
 just priority label — several depend on each other or on a single owner decision, and the
@@ -10824,7 +10825,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | World Model / LeJEPAEncoder | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 20, 2026 | World Model / LeJEPAEncoder | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `LeJEPAEncoder` and verified. `save()` writes `config.bin`, the token embedding,
@@ -10838,8 +10839,8 @@ predictor-loss curve (stable `lejepa-<model>` session) restarts from about 2.0 e
 
 Action Items:
 
-- [ ] Add `Predictor::save()/load()` (it's a `FeedForward`) and include it in `LeJEPAEncoder::save()/load()`, tolerating its absence in older checkpoints with a warning.
-- [ ] Test: predictor loss is unchanged across save/load.
+- [x] Add `Predictor::save()/load()` (it's a `FeedForward`) and include it in `LeJEPAEncoder::save()/load()`, tolerating its absence in older checkpoints with a warning.
+- [x] Test: predictor loss is unchanged across save/load.
 
 Location in code: `src/LeJEPAEncoder.cpp` (`save()`, `load()`); tagged `TODO: See TD-427`.
 
@@ -10848,6 +10849,29 @@ Files to Modify:
 - `src/LeJEPAEncoder.cpp`
 - `src/Predictor.{hpp,cpp}`
 - `tests/lejepaencoder_test.cpp`
+
+**Fix (October 20, 2026).**
+- **Predictor persistence:** `Predictor::save()`/`load()` write and read the wrapped `FeedForward`'s weights.
+  - `load()` returns false when the file is missing.
+  - It throws when the file has a different shape, or is the wrong size, checked before any weights are read: a truncated
+    file can't load partway (TD-369).
+- **Encoder checkpoint:** `LeJEPAEncoder::save()` writes `predictor.bin` beside the encoder files, and `load()` restores it.
+  A checkpoint from before this fix (no `predictor.bin`), or an unreadable predictor file, logs a warning and keeps a fresh
+  predictor rather than failing the load. `get_predictor()` exposes it.
+
+Tests:
+- `predictor_test.cpp`:
+  - a save/load round trip gives identical outputs;
+  - a missing file returns false;
+  - truncated and wrong-shape files throw and leave the weights unchanged.
+- `lejepaencoder_test.cpp`:
+  - `SaveAndLoadRestoreThePredictor`: identical predictor output after load. The old `save()`/`load()` fail it: no
+    `predictor.bin`, and an output difference of 0.29.
+  - `LoadOfACheckpointWithoutAPredictorStillLoads`.
+
+Real passes: three consecutive `--objective=lejepa` passes from the same pre-fix checkpoint (SYCL build, oneAPI CPU device):
+- the old binary's average predictor loss didn't improve (0.994, 0.667, 1.124);
+- the new one's first pass warned and started fresh (1.072), then resumed (0.328, 0.217).
 
 ---
 

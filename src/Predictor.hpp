@@ -1,10 +1,11 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-15
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-10-20
 
 #include <memory>
+#include <string>
 #include "FeedForward.hpp"
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
@@ -70,6 +71,14 @@ class Predictor {
     /** Registers the wrapped FeedForward's parameters with a shared optimizer, mirroring every
      *  other component's own register_parameters_with_optimizer() convention. */
     void register_parameters_with_optimizer(Optimizer& optimizer);
+
+    /** TD-427: writes the wrapped FeedForward's weights (FeedForward::save_weights() format). */
+    void save(const std::string& filename) const;
+
+    /** TD-427: reads weights written by save(). Returns false, leaving the weights unchanged, when
+     *  the file doesn't exist. Throws when it holds a different shape or is the wrong size (a
+     *  truncated file would otherwise load partway, TD-369). */
+    bool load(const std::string& filename);
 
     int get_d_model() const {
         return d_model_;

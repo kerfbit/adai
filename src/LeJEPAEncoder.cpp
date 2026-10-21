@@ -1,8 +1,9 @@
 // @adai-status: experimental
-// @adai-version: 0.5.0
+// @adai-version: 0.6.0
 // @adai-reviewed: 2026-10-20
 
 #include "LeJEPAEncoder.hpp"
+#include "Logger.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -19,6 +20,7 @@ namespace {
 constexpr const char* kConfigFile = "config.bin";
 constexpr const char* kTokenEmbeddingFile = "token_embedding.bin";
 constexpr const char* kFinalNormFile = "final_norm.bin";
+constexpr const char* kPredictorFile = "predictor.bin";  // TD-427
 
 std::string encoder_block_file(size_t index) {
     return "encoder_block_" + std::to_string(index) + ".bin";
@@ -335,8 +337,8 @@ void LeJEPAEncoder::register_parameters_with_optimizer(Optimizer& optimizer) {
     // doc) — nothing to register for it.
 }
 
-// TODO: See TD-427 in TECHNICAL_DEBT.md - the Predictor is never saved (nor loaded), so every resumed pass starts
-// with a random predictor (verified: predictor loss 0.0017 trained -> 2.05 after save/load)
+// TD-427: the Predictor is saved too. It used to be skipped, so every resumed pass started with a random
+// predictor (predictor loss 0.0017 trained -> 2.05 after save/load) whose gradients disturbed the encoder.
 void LeJEPAEncoder::save(const std::string& directory) const {
     std::filesystem::create_directories(directory);
 
@@ -360,6 +362,7 @@ void LeJEPAEncoder::save(const std::string& directory) const {
     }
 
     final_norm->save_weights(directory + "/" + kFinalNormFile);
+    predictor->save(directory + "/" + kPredictorFile);
 
     std::cout << "Saved LeJEPA encoder weights to " << directory << '\n';
 }
@@ -407,6 +410,20 @@ void LeJEPAEncoder::load(const std::string& directory) {
     }
 
     final_norm->load_weights(directory + "/" + kFinalNormFile);
+
+    // TD-427: a checkpoint from before the predictor was saved has none, and a damaged predictor file
+    // shouldn't cost the encoder, so either case keeps a fresh predictor (re-learned this pass).
+    const std::string predictor_path = directory + "/" + kPredictorFile;
+    try {
+        if (!predictor->load(predictor_path)) {
+            adai::Logger::warn("LeJEPAEncoder::load(): no {} in {} (checkpoint predates TD-427); "
+                               "the predictor starts fresh",
+                               kPredictorFile, directory);
+        }
+    } catch (const std::exception& e) {
+        adai::Logger::warn("LeJEPAEncoder::load(): predictor not restored ({}); it starts fresh",
+                           e.what());
+    }
 
     std::cout << "Loaded LeJEPA encoder weights from " << directory << '\n';
 }

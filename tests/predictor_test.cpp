@@ -13,6 +13,9 @@
 #include "../src/Predictor.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <string>
 #include <random>
 #include <stdexcept>
 #include "../src/Matrix.hpp"
@@ -296,3 +299,70 @@ TEST(PredictorTest, DifferentInstancesProduceDifferentOutputs) {
     }
     EXPECT_TRUE(differ);
 }
+
+// ============================================================================
+// TD-427: save()/load()
+// ============================================================================
+
+namespace {
+
+Matrix predictor_probe(int d_model) {
+    Matrix x(2, d_model);
+    for (int i = 0; i < 2; ++i)
+        for (int j = 0; j < d_model; ++j)
+            x(i, j) = 0.1f * std::sin(static_cast<float>(i * d_model + j));
+    return x;
+}
+
+bool same(const Matrix& a, const Matrix& b) {
+    if (a.rows != b.rows || a.cols != b.cols)
+        return false;
+    for (int i = 0; i < a.rows; ++i)
+        for (int j = 0; j < a.cols; ++j)
+            if (a(i, j) != b(i, j))
+                return false;
+    return true;
+}
+
+std::string temp_file(const std::string& name) {
+    return (std::filesystem::temp_directory_path() / name).string();
+}
+
+}  // namespace
+
+TEST(PredictorTest, SaveLoadRoundTripsTheOutput) {
+    const std::string path = temp_file("adai_predictor_roundtrip.bin");
+    Predictor trained(16, 24);
+    Predictor fresh(16, 24);
+    const Matrix x = predictor_probe(16);
+    ASSERT_FALSE(same(trained.forward(x), fresh.forward(x)));  // independent random inits
+
+    trained.save(path);
+    ASSERT_TRUE(fresh.load(path));
+    EXPECT_TRUE(same(trained.forward(x), fresh.forward(x)));
+    std::filesystem::remove(path);
+}
+
+TEST(PredictorTest, LoadOfAMissingFileReturnsFalse) {
+    Predictor predictor(16, 24);
+    EXPECT_FALSE(predictor.load(temp_file("adai_predictor_does_not_exist.bin")));
+}
+
+TEST(PredictorTest, LoadRejectsTruncatedAndMismatchedFilesWithoutChangingWeights) {
+    const std::string path = temp_file("adai_predictor_bad.bin");
+    Predictor source(16, 24), target(16, 24);
+    const Matrix x = predictor_probe(16);
+    const Matrix before = target.forward(x);
+    source.save(path);
+
+    std::filesystem::resize_file(path, std::filesystem::file_size(path) / 2);  // truncated
+    EXPECT_THROW(target.load(path), std::runtime_error);
+    EXPECT_TRUE(same(target.forward(x), before));
+
+    Predictor other_shape(16, 32);
+    other_shape.save(path);
+    EXPECT_THROW(target.load(path), std::runtime_error);
+    EXPECT_TRUE(same(target.forward(x), before));
+    std::filesystem::remove(path);
+}
+

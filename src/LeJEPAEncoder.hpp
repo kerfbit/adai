@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.5.0
+// @adai-version: 0.6.0
 // @adai-reviewed: 2026-10-20
 
 #include <memory>
@@ -294,6 +294,12 @@ class LeJEPAEncoder {
      *  the mean looks healthy, a distinction sigreg_loss's aggregate scalar can't make. */
     float get_last_sigreg_variance_stddev() const {
         return last_sigreg_variance_stddev_;
+    }
+
+    /** TD-427: the embedding-space predictor train_step() trains (saved and loaded with the
+     *  encoder). */
+    Predictor* get_predictor() {
+        return predictor.get();
     }
 
 #ifdef ADAI_ENABLE_GPU

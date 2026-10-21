@@ -126,3 +126,12 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 and positional encoding, encoder blocks and final norm. Weights are uploaded on first use and again after `load()`. It's inference
 only, for the frozen world model whose output feeds the decoder's gated path during GPU training and generation. Test:
 `gpu_optimizer_test.cpp`'s `WorldModelGpuEncodeMatchesEncode`.
+
+---
+
+## Addendum (October 20, 2026): the predictor is saved (TD-427)
+
+`save()` writes `predictor.bin` (the `Predictor`'s `FeedForward` weights), and `load()` restores it. A checkpoint without one (saved
+before this fix) or with an unreadable one logs a warning and keeps a fresh predictor. `get_predictor()` returns it. Three
+consecutive real `--objective=lejepa` passes now resume the predictor (average loss 1.07 → 0.33 → 0.22); before, each pass restarted it.
+Tests: `SaveAndLoadRestoreThePredictor`, `LoadOfACheckpointWithoutAPredictorStillLoads`.
