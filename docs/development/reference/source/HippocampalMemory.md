@@ -118,3 +118,12 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | The swap file grows without bound (one record per response at capacity; nothing calls `recall_from_swap()` in production) (§2) | Unbounded disk use beside the model checkpoint on a long-running server | By inspection | [TD-397](../../guides/TECHNICAL_DEBT.md#td-397-hippocampal-swap-file-grows-without-bound) |
 | `read_all()` copies the whole memory on every forward pass of every injected layer; `save()`/`save_associations()` don't check writes; the main and association files are saved separately and can disagree (`load_associations()` then rejects or mismatches) (§2) | Per-step copying; silent partial saves | By inspection | [TD-398](../../guides/TECHNICAL_DEBT.md#td-398-hippocampalmemory-per-step-copies-and-unchecked-saves) |
 | Memory mutated on every forward pass; gates never train; saved only on graceful shutdown | Already tracked | — | TD-343, TD-341, TD-250 |
+
+---
+
+## Addendum (October 21, 2026): `commit_attention()` (TD-343)
+
+`commit_attention(attn_weights, repetition_decay, association_decay)` applies one decode step's update from `[rows, size()]` mean
+attention weights (rows averaged): decay coverage, add each slot's mean weight, decay associations, add co-activations. A mismatched
+shape is ignored. It moved here from `DecoderBlock`, whose forward used to apply it on every call in every injected layer.
+`committed_steps()` counts the steps applied.

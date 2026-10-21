@@ -217,3 +217,10 @@ forward it adds none past the table (TD-347 on the GPU path; one of TD-478's for
 
 `forward_with_cache()`, `gpu_decode()` and `gpu_decode_step()` take the world-model output, memory and hippocampal settings and pass
 them to every block, as `forward_with_encoder()` does. Each block applies them only if its gated path exists.
+
+---
+
+## Addendum (October 21, 2026): `last_hippocampal_step_weights()` (TD-343)
+
+Returns `[1, slots]`: the newest token's row of each block's `last_hippocampal_attention()`, averaged over the blocks whose hippocampal
+path ran. That makes one memory update per decode step, not one per injected layer.

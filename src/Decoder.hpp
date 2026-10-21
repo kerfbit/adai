@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
-// @adai-version: 0.17.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 0.18.0
+// @adai-reviewed: 2026-10-21
 
 
 #include <algorithm>
@@ -200,6 +200,11 @@ class LLMDecoder {
      *   2. Subsequent calls: only computes new token, reuses cache
      *   3. Clear cache when starting new sequence
      */
+    /** TD-343: the newest token's hippocampal attention for this decode step, [1, slots]: the
+     *  last row of each block's last_hippocampal_attention(), averaged over the blocks whose
+     *  path ran (one memory update per step, not one per injected layer). Empty when none ran. */
+    Matrix last_hippocampal_step_weights() const;
+
     Matrix forward_with_cache(const std::vector<int>& token_ids, DecoderKVCache& kv_cache,
                               const Matrix* encoder_output = nullptr, bool use_cache = true,
                               const Matrix* world_model_output = nullptr,

@@ -1284,6 +1284,8 @@ TEST(DecoderBlockGatedPathTest, CoverageNeverExceedsTheoreticalBound) {
     for (int step = 0; step < 300; ++step) {
         decoder_block.forward(decoder_input, encoder_output, causal_mask, nullptr, nullptr,
                               nullptr, &memory, /*repetition_alpha=*/0.5f, repetition_decay);
+        // TD-343: one committed step per forward, as generation does.
+        memory.commit_attention(decoder_block.last_hippocampal_attention(), repetition_decay, 0.95f);
         ASSERT_EQ(memory.size(), 1);
         float coverage_val = memory.coverage_vector()[0];
         EXPECT_LE(coverage_val, bound + 1e-4f) << "step " << step;
@@ -1442,8 +1444,9 @@ TEST(DecoderBlockGatedPathTest, GateHGradientMatchesFiniteDifference) {
 
 // The Hebbian update must actually run and touch association_matrix() — a plain mechanism check,
 // not a claim about which specific pair strengthens most (that depends on randomly-initialized
-// attention weights this test doesn't control).
-TEST(DecoderBlockCrossReferenceTest, ForwardStrengthensAssociationBetweenAttendedSlots) {
+// attention weights this test doesn't control). TD-343: forward() itself no longer touches the
+// memory; the caller commits one step with HippocampalMemory::commit_attention().
+TEST(DecoderBlockCrossReferenceTest, CommittedStepStrengthensAssociationBetweenAttendedSlots) {
     int d_model = 16, num_heads = 2, d_ff = 32;
     int tgt_len = 3, src_len = 4;
 
@@ -1483,6 +1486,16 @@ TEST(DecoderBlockCrossReferenceTest, ForwardStrengthensAssociationBetweenAttende
     decoder_block.forward(decoder_input, encoder_output, causal_mask, nullptr, nullptr, nullptr,
                           &memory, /*repetition_alpha=*/0.0f, /*repetition_decay=*/0.9f,
                           /*cross_reference_alpha=*/0.0f, /*association_decay=*/0.9f);
+    for (int i = 0; i < 3; ++i) {
+        EXPECT_FLOAT_EQ(memory.coverage_vector()[i], 0.0f) << "the forward only reads the memory";
+        for (int j = 0; j < 3; ++j) {
+            EXPECT_FLOAT_EQ(memory.association_matrix()[i][j], 0.0f);
+        }
+    }
+    const Matrix weights = decoder_block.last_hippocampal_attention();
+    ASSERT_EQ(weights.rows, tgt_len);
+    ASSERT_EQ(weights.cols, 3);
+    memory.commit_attention(weights, /*repetition_decay=*/0.9f, /*association_decay=*/0.9f);
 
     bool any_nonzero = false;
     for (int i = 0; i < 3; ++i) {
@@ -1537,6 +1550,8 @@ TEST(DecoderBlockCrossReferenceTest, AssociationNeverExceedsTheoreticalBound) {
                               nullptr, &memory, /*repetition_alpha=*/0.0f,
                               /*repetition_decay=*/0.9f, /*cross_reference_alpha=*/0.0f,
                               association_decay);
+        memory.commit_attention(decoder_block.last_hippocampal_attention(), 0.9f,
+                                association_decay);  // TD-343: as generation commits each step
         for (int i = 0; i < 3; ++i) {
             for (int j = 0; j < 3; ++j) {
                 if (i != j) {

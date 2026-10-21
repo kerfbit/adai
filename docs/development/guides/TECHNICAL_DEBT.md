@@ -1197,9 +1197,10 @@ retraining from scratch, since no existing checkpoint has correct GPU-trained we
 - TD-427 (done in code: the LeJEPA predictor is saved and resumed);
 - TD-502/503 (done in code: SIGReg redraws its directions every step, uses the unbiased estimator, and is applied across
   each batch's pooled embeddings, `WORLD_MODEL_SIGREG_BATCH_SIZE`);
-- TD-548 (done in code: the world-model checkpoint has its own directory, away from the standalone dataset pool).
+- TD-548 (done in code: the world-model checkpoint has its own directory, away from the standalone dataset pool);
+- TD-343 (done in code: the hippocampal memory is updated once per decode step, only by serving generation).
 
-Next candidates: TD-343 and TD-396.
+Next candidate: TD-396.
 
 Analyzed September 12, 2026 to sequence the active items by dependency and risk rather than
 just priority label — several depend on each other or on a single owner decision, and the
@@ -8136,7 +8137,7 @@ CUDA is compile-checked only.
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Transformer / DecoderBlock | October 11, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 21, 2026 | Transformer / DecoderBlock | October 11, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-341, by inspection. When `memory` is passed, `forward()` decays and accumulates
@@ -8158,8 +8159,8 @@ evaluation also writes episodic memories. Only serving generations should write.
 
 Action Items:
 
-- [ ] Separate scoring from state update: let the caller commit coverage/association updates once per decode step (and never during training/validation unless intended).
-- [ ] Test: beam search with width k updates coverage once per step.
+- [x] Separate scoring from state update: let the caller commit coverage/association updates once per decode step (and never during training/validation unless intended).
+- [x] Test: beam search with width k updates coverage once per step.
 
 Location in code: `src/DecoderBlock.cpp` (`forward()` hippocampal coverage/association update); tagged `TODO: See TD-343`.
 
@@ -8171,6 +8172,34 @@ Files to Modify:
 
 **Note (October 20, 2026, TD-342).** The GPU forward and KV-cached generation now update the memory too, through the same
 shared `update_hippocampal_memory()`, so this per-forward update also happens there.
+
+**Fix (October 21, 2026).**
+- **Forwards only read the memory:** `DecoderBlock`'s forwards (CPU, KV-cached and GPU) read the memory for scoring and never
+  update it.
+  - `last_hippocampal_attention()` returns the last forward's mean attention weights. On the GPU they are downloaded only when
+    asked, so GPU training no longer downloads them every forward.
+  - `LLMDecoder::last_hippocampal_step_weights()` averages the newest token's row over the blocks whose path ran: one update per
+    step, not one per injected layer.
+- **One commit per step:** the update moved to `HippocampalMemory::commit_attention()`. Every generation path (CPU and GPU, beam and
+  cached) commits it through a `HippocampalStepCommitter`, once per decode step.
+  - A step is a token length, and beam hypotheses at the same step are averaged.
+  - The pending step is flushed when generation ends.
+  - All hypotheses in a step now see the same coverage, from the end of the previous step.
+- **Training and validation:** teacher-forced forwards never commit.
+- **Training-time generation:** `EncoderDecoderModel::set_hippocampal_updates_enabled(false)` stops step commits and response writes.
+  `ChatbotTrainer::train()` sets it for its whole run (restored on exit), so quality and backfill generations no longer pollute the
+  serving memory.
+- **Diagnostics:** `HippocampalMemory::committed_steps()` counts committed steps.
+
+Tests:
+- `encoderdecoder_test.cpp`:
+  - `BeamSearchCommitsOncePerDecodeStep`: beam width 3, two injected layers, at most 10 tokens → at most 10 commits. Before,
+    about width × layers per step.
+  - `CachedDecodingCommitsOncePerToken`.
+  - `TrainingForwardsAndDisabledUpdatesLeaveTheMemoryAlone`.
+- `decoderblock_test.cpp`: `CommittedStepStrengthensAssociationBetweenAttendedSlots` (a forward alone leaves coverage and
+  associations at 0). The coverage and association bound tests commit after each forward.
+- `gpu_optimizer_test.cpp`: the GPU block test commits from both paths and compares coverage.
 
 ---
 

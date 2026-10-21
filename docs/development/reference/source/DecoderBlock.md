@@ -269,3 +269,11 @@ Tests: `OptimizerOnlyTrainingOpensBothGates` and `UpdateWeightsStillStepsGatesWi
 - **Live gate values:** `current_gate()`/`current_gate_h()` read the gates from the device during GPU training.
 
 Tests: `CachedForwardAppliesTheGatedPaths` here, and `gpu_optimizer_test.cpp`'s `DecoderBlockGatedPathsMatchTheCpu`.
+
+---
+
+## Addendum (October 21, 2026): the forward only reads the memory (TD-343)
+
+The CPU, KV-cached and GPU forwards no longer update the hippocampal memory's coverage or associations. `last_hippocampal_attention()`
+returns the last forward's mean attention weights (downloaded on the GPU only when called), and the generation paths commit one step
+from it per token with `HippocampalMemory::commit_attention()`. The shared `update_hippocampal_memory()` helper is gone.

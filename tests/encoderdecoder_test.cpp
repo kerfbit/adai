@@ -2269,3 +2269,76 @@ TEST(EncoderDecoderModelTest, CloneLeavesNoTempFiles) {
                               << (left.empty() ? "" : left.front());
     fs::remove_all(dir);
 }
+
+// ============================================================================
+// TD-343: one hippocampal memory update per decode step
+// ============================================================================
+
+namespace {
+
+std::unique_ptr<HippocampalMemory> td343_memory(int d_model) {
+    auto memory = std::make_unique<HippocampalMemory>(d_model, 8);
+    for (int slot = 0; slot < 3; ++slot) {
+        Matrix key(1, d_model), value(1, d_model);
+        for (int j = 0; j < d_model; ++j) {
+            key(0, j) = 0.1f * std::sin(static_cast<float>(slot * 5 + j));
+            value(0, j) = key(0, j);
+        }
+        memory->write(key, value);
+    }
+    return memory;
+}
+
+}  // namespace
+
+// Beam search with width k used to update the memory once per hypothesis per step, in every
+// injected layer. Now it commits once per decode step: never more steps than tokens generated.
+TEST(EncoderDecoderModelHippocampalTest, BeamSearchCommitsOncePerDecodeStep) {
+    const int vocab_size = 100, d_model = 64, max_length = 10;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2, 8, 256, 512,
+                              /*world_model_inject_every_n_layers=*/1);
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+    model.set_hippocampal_memory(td343_memory(d_model));
+    HippocampalMemory* memory = model.get_hippocampal_memory();
+
+    model.generate_response_with_strategy("hello world", max_length, "beam", 1.0f, 50, 0.9f,
+                                          /*num_beams=*/3);
+    EXPECT_GT(memory->committed_steps(), 0u);
+    EXPECT_LE(memory->committed_steps(), static_cast<size_t>(max_length))
+        << "at most one update per decode step (was about beams x layers x steps)";
+}
+
+TEST(EncoderDecoderModelHippocampalTest, CachedDecodingCommitsOncePerToken) {
+    const int vocab_size = 100, d_model = 64;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2, 8, 256, 512, 1);
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+    model.set_hippocampal_memory(td343_memory(d_model));
+    HippocampalMemory* memory = model.get_hippocampal_memory();
+
+    model.generate_response_with_strategy("hello world", 10, "greedy", 1.0f, 50, 0.9f, 1);
+    EXPECT_GT(memory->committed_steps(), 0u);
+    EXPECT_LE(memory->committed_steps(), 10u);
+}
+
+TEST(EncoderDecoderModelHippocampalTest, TrainingForwardsAndDisabledUpdatesLeaveTheMemoryAlone) {
+    const int vocab_size = 100, d_model = 64;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2, 8, 256, 512, 1);
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+    model.set_hippocampal_memory(td343_memory(d_model));
+    HippocampalMemory* memory = model.get_hippocampal_memory();
+    const int slots = memory->size();
+
+    // A teacher-forced (training/validation) forward reads the memory but never commits.
+    model.forward(model.get_tokenizer()->encode("hello world", false),
+                  model.get_tokenizer()->encode("how are you", true));
+    EXPECT_EQ(memory->committed_steps(), 0u);
+
+    // With updates off (as ChatbotTrainer sets while training), generation neither commits nor
+    // writes the response into the memory.
+    model.set_hippocampal_updates_enabled(false);
+    model.generate_response_with_strategy("hello world", 10, "greedy", 1.0f, 50, 0.9f, 1);
+    EXPECT_EQ(memory->committed_steps(), 0u);
+    EXPECT_EQ(memory->size(), slots);
+    model.set_hippocampal_updates_enabled(true);
+}
+

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.21.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 0.22.0
+// @adai-reviewed: 2026-10-21
 
 #include <functional>
 #include <iostream>
@@ -100,6 +100,10 @@ class EncoderDecoderModel {
     // cross_reference_alpha=0.0 makes the pull an explicit opt-in magnitude, not just on/off.
     float hippocampal_cross_reference_alpha_{0.0f};
     float hippocampal_association_decay_{0.95f};
+    /// TD-343: when false, generation neither commits coverage/association updates nor writes
+    /// responses into the memory (ChatbotTrainer turns it off while training, so its quality and
+    /// backfill generations don't pollute the serving memory).
+    bool hippocampal_updates_enabled_{true};
 
     int vocab_size;
     int d_model;
@@ -688,6 +692,15 @@ class EncoderDecoderModel {
      *   Trailing, defaulted (0.0/0.95, matching repetition_alpha/repetition_decay's own defaults)
      *   so every existing caller of this setter is unaffected.
      */
+    /** TD-343: whether generation updates the hippocampal memory (step commits and response
+     *  writes); training and validation forwards never do. Default true. */
+    void set_hippocampal_updates_enabled(bool enabled) {
+        hippocampal_updates_enabled_ = enabled;
+    }
+    bool hippocampal_updates_enabled() const {
+        return hippocampal_updates_enabled_;
+    }
+
     void set_hippocampal_repetition_params(float alpha, float decay,
                                            float cross_reference_alpha = 0.0f,
                                            float association_decay = 0.95f) {

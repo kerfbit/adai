@@ -283,3 +283,16 @@ generation-strategy list.
 - **Memory writes:** `maybe_write_hippocampal_memory()` encodes on the device when the GPU is active.
 
 Test: `gpu_optimizer_test.cpp`'s `GatedModelTrainsItsGatesOnTheDevice` (0 host groups; every gate opens).
+
+---
+
+## Addendum (October 21, 2026): one memory update per decode step (TD-343)
+
+- **Commits:** every generation path (CPU and GPU, beam and cached) commits the memory's coverage/association update through a
+  file-local `HippocampalStepCommitter`. A step is a token length, and beam hypotheses at the same step are averaged. The commit
+  happens when the length advances or when generation ends, before the response is written.
+- **Training forwards:** `forward()`/`gpu_forward()` never commit.
+- **Switch:** `set_hippocampal_updates_enabled(false)` turns off commits and response writes; `ChatbotTrainer` sets it while training.
+
+Tests: `BeamSearchCommitsOncePerDecodeStep`, `CachedDecodingCommitsOncePerToken`,
+`TrainingForwardsAndDisabledUpdatesLeaveTheMemoryAlone`.

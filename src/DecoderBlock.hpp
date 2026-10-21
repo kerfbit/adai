@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap; TD-194 gated cross-reference pull + Hebbian association strengthening added to the hippocampal path)
-// @adai-version: 1.7.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 1.8.0
+// @adai-reviewed: 2026-10-21
 
 
 #include <vector>
@@ -115,6 +115,8 @@ class DecoderBlock {
     /// SGD) only when no optimizer has them.
     class Optimizer* gate_optimizer_{nullptr};
     bool hippocampal_path_active_{false};
+    /// TD-343: where the last forward's hippocampal attention ran: 0 none, 1 CPU, 2 GPU.
+    int last_hippocampal_source_{0};
     Matrix cached_hm_attn;
 
     /// Steps 4a/4b of forward(): add the gated world-model and hippocampal paths to residual2.
@@ -183,6 +185,11 @@ class DecoderBlock {
     float get_gate() const {
         return gate.data[0][0];
     }
+
+    /** TD-343: the hippocampal attention's mean-across-heads weights from the last forward
+     *  ([rows, slots]; empty when the path didn't run), read on the GPU only when asked. The
+     *  forward no longer updates the memory; the generation paths commit one step from this. */
+    Matrix last_hippocampal_attention() const;
 
     /** TD-341/TD-342: the live gate values, read from the device during GPU training (where
      *  the host copies are refreshed only at checkpoints), else get_gate()/get_gate_h(). */

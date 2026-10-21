@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.21.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 0.22.0
+// @adai-reviewed: 2026-10-21
 
 #include "EncoderDecoderModel.hpp"
 #include <algorithm>
@@ -19,6 +19,62 @@
 using adai::Logger;
 
 namespace {
+
+// TD-343: commits the hippocampal memory's coverage/association update once per decode step.
+// The forwards only read the memory now; a generation path observes each decoder call's step
+// weights (the newest token's attention, averaged over injected layers) and the token length it
+// was for. Calls at the same length (beam hypotheses for one step) are averaged into a single
+// update, committed when the length advances or at flush().
+class HippocampalStepCommitter {
+   public:
+    HippocampalStepCommitter(HippocampalMemory* memory, float repetition_decay,
+                             float association_decay)
+        : memory_(memory != nullptr && memory->size() > 0 ? memory : nullptr),
+          repetition_decay_(repetition_decay),
+          association_decay_(association_decay) {}
+
+    bool active() const {
+        return memory_ != nullptr;
+    }
+
+    void observe(size_t step_length, const Matrix& weights) {
+        if (memory_ == nullptr || weights.rows == 0) {
+            return;
+        }
+        if (count_ > 0 && step_length != step_length_) {
+            flush();
+        }
+        if (count_ == 0) {
+            sum_ = Matrix(1, weights.cols);
+            step_length_ = step_length;
+        } else if (weights.cols != sum_.cols) {
+            return;
+        }
+        for (int j = 0; j < weights.cols; ++j) {
+            sum_(0, j) += weights(weights.rows - 1, j);
+        }
+        ++count_;
+    }
+
+    void flush() {
+        if (memory_ == nullptr || count_ == 0) {
+            return;
+        }
+        for (int j = 0; j < sum_.cols; ++j) {
+            sum_(0, j) /= static_cast<float>(count_);
+        }
+        memory_->commit_attention(sum_, repetition_decay_, association_decay_);
+        count_ = 0;
+    }
+
+   private:
+    HippocampalMemory* memory_;
+    float repetition_decay_;
+    float association_decay_;
+    Matrix sum_;
+    size_t step_length_ = 0;
+    int count_ = 0;
+};
 // Checkpoint .config format marker. Negative so it can never collide with a
 // legacy (pre-marker) file's first field, vocab_size, which is always > 0 —
 // this gives an unambiguous rejection instead of a coincidental dimension
@@ -85,7 +141,8 @@ void EncoderDecoderModel::set_hippocampal_memory(std::unique_ptr<HippocampalMemo
 }
 
 void EncoderDecoderModel::maybe_write_hippocampal_memory(const std::string& response_text) {
-    if (!world_model || !hippocampal_memory || response_text.empty()) {
+    if (!world_model || !hippocampal_memory || response_text.empty() ||
+        !hippocampal_updates_enabled_) {  // TD-343
         return;
     }
 
@@ -255,12 +312,18 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
     // cache's assumed prefix. Checking generator's own already-stored config here — the same
     // check gpu_generate_response() already uses for the identical constraint — closes this
     // gap without needing this method to take its own strategy parameter.
+    // TD-343: one hippocampal coverage/association update per decode step (a step is one token
+    // length; beam hypotheses at that step are averaged), not one per forward and layer.
+    HippocampalStepCommitter committer(hippocampal_updates_enabled_ ? hippocampal_memory.get()
+                                                                    : nullptr,
+                                       hippocampal_repetition_decay_,
+                                       hippocampal_association_decay_);
     if (generator->get_config().num_beams > 1) {
         // Get actual tokenizer vocab size to mask invalid tokens — mirrors
         // generate_response_with_strategy()'s own beam_model_fn exactly, masking included, so
         // this path and that one compute identically given the same inputs.
         int actual_vocab_size = static_cast<int>(tokenizer->get_vocab_size());
-        auto beam_model_fn = [this, actual_vocab_size,
+        auto beam_model_fn = [this, &committer, actual_vocab_size,
                               world_model_output_ptr](const std::vector<int>& tokens) -> Matrix {
             // Process all tokens from scratch (no caching) — mirrors
             // generate_response_with_strategy()'s own beam_model_fn.
@@ -268,6 +331,9 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
                 tokens, cached_encoder_output, world_model_output_ptr, hippocampal_memory.get(),
                 hippocampal_repetition_alpha_, hippocampal_repetition_decay_,
                 hippocampal_cross_reference_alpha_, hippocampal_association_decay_);
+            if (committer.active()) {
+                committer.observe(tokens.size(), decoder->last_hippocampal_step_weights());
+            }
             // TODO: See TD-424 in TECHNICAL_DEBT.md - projects every position; only the last row is used (~30x the
             // LM-head work per step and per beam hypothesis)
             Matrix logits = lm_head->forward(decoder_out);
@@ -287,7 +353,7 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
         std::vector<int> output_tokens =
             generator->generate_beam_search(beam_model_fn, {bos_token_id});
         std::string beam_response = tokenizer->decode(output_tokens, true);
-        // TODO: See TD-343 in TECHNICAL_DEBT.md - also runs for training-time generation (backfill/quality metrics), polluting episodic memory
+        committer.flush();
         maybe_write_hippocampal_memory(beam_response);  // TD-185
         return beam_response;
     }
@@ -298,7 +364,7 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
 
     // Create model forward function with KV caching
     // TODO: See TD-362 in TECHNICAL_DEBT.md - unlike the strategy path, this cached model_fn doesn't mask IDs beyond the tokenizer vocab
-    auto model_fn = [this, &kv_cache, &processed_length,
+    auto model_fn = [this, &committer, &kv_cache, &processed_length,
                      world_model_output_ptr](const std::vector<int>& tokens) -> Matrix {
         size_t current_length = tokens.size();
 
@@ -313,6 +379,9 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
                                         hippocampal_repetition_alpha_, hippocampal_repetition_decay_,
                                         hippocampal_cross_reference_alpha_,
                                         hippocampal_association_decay_);  // TD-342
+            if (committer.active()) {
+                committer.observe(tokens.size(), decoder->last_hippocampal_step_weights());
+            }
 
         // Update processed length
         processed_length = current_length;
@@ -330,7 +399,7 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
 
     // Decode tokens to text (skip special tokens like <bos>, <eos>, <unk>, <pad>)
     std::string response = tokenizer->decode(output_tokens, true);
-    // TODO: See TD-343 in TECHNICAL_DEBT.md - also runs for training-time generation (backfill/quality metrics), polluting episodic memory
+    committer.flush();
     maybe_write_hippocampal_memory(response);  // TD-185
 
     return response;
@@ -436,6 +505,12 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     // explicit greedy/sampling/topk/nucleus branches and returns, so ANY strategy with
     // num_beams > 1 becomes beam search (chatbot_gui passes 5 by default; RLHFTrainer gets the
     // header default 4). Keep the guard only for "beam" and unrecognized strategies.
+    // TD-343: one hippocampal coverage/association update per decode step (a step is one token
+    // length; beam hypotheses at that step are averaged), not one per forward and layer.
+    HippocampalStepCommitter committer(hippocampal_updates_enabled_ ? hippocampal_memory.get()
+                                                                    : nullptr,
+                                       hippocampal_repetition_decay_,
+                                       hippocampal_association_decay_);
     if (normalized_strategy == "beam" || num_beams > 1) {
         // Update config for beam search
         TextGenerator::GenerationConfig config = generator->get_config();
@@ -448,13 +523,16 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
 
         // Create model function WITHOUT KV caching for beam search
         // Each beam has independent token sequences, so we can't share a cache
-        auto beam_model_fn = [this, actual_vocab_size,
+        auto beam_model_fn = [this, &committer, actual_vocab_size,
                               world_model_output_ptr](const std::vector<int>& tokens) -> Matrix {
             // Process all tokens from scratch (no caching)
             Matrix decoder_out = decoder->forward_with_encoder(
                 tokens, cached_encoder_output, world_model_output_ptr, hippocampal_memory.get(),
                 hippocampal_repetition_alpha_, hippocampal_repetition_decay_,
                 hippocampal_cross_reference_alpha_, hippocampal_association_decay_);
+            if (committer.active()) {
+                committer.observe(tokens.size(), decoder->last_hippocampal_step_weights());
+            }
 
             // Project to vocabulary (last position of output)
             // TODO: See TD-424 in TECHNICAL_DEBT.md - projects every position; only the last row is used (~30x the
@@ -478,6 +556,7 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
 
         // Decode tokens to text (skip special tokens like <bos>, <eos>, <unk>, <pad>)
         std::string beam_response = tokenizer->decode(output_tokens, true);
+        committer.flush();
         maybe_write_hippocampal_memory(beam_response);  // TD-185
         return beam_response;
     }
@@ -491,7 +570,7 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     int actual_vocab_size = static_cast<int>(tokenizer->get_vocab_size());
 
     // Create model forward function with KV caching
-    auto model_fn = [this, &kv_cache, &processed_length, actual_vocab_size,
+    auto model_fn = [this, &committer, &kv_cache, &processed_length, actual_vocab_size,
                      world_model_output_ptr](const std::vector<int>& tokens) -> Matrix {
         size_t current_length = tokens.size();
 
@@ -506,6 +585,9 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
                                         hippocampal_repetition_alpha_, hippocampal_repetition_decay_,
                                         hippocampal_cross_reference_alpha_,
                                         hippocampal_association_decay_);  // TD-342
+            if (committer.active()) {
+                committer.observe(tokens.size(), decoder->last_hippocampal_step_weights());
+            }
 
         // Update processed length
         processed_length = current_length;
@@ -555,6 +637,7 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
 
     // Decode tokens to text (skip special tokens like <bos>, <eos>, <unk>, <pad>)
     std::string response = tokenizer->decode(output_tokens, true);
+    committer.flush();
     maybe_write_hippocampal_memory(response);  // TD-185
     return response;
 }
@@ -1206,6 +1289,12 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
     adai::gpu::GPUMatrix gpu_encoder_out = encoder->gpu_encode(input_tokens);
     // TD-342: the frozen world model's encoding, on the device, for the gated paths.
     std::unique_ptr<adai::gpu::GPUMatrix> gpu_wm = gpu_world_model_encoding(input_text);
+    // TD-343: one hippocampal coverage/association update per decode step (a step is one token
+    // length; beam hypotheses at that step are averaged), not one per forward and layer.
+    HippocampalStepCommitter committer(hippocampal_updates_enabled_ ? hippocampal_memory.get()
+                                                                    : nullptr,
+                                       hippocampal_repetition_decay_,
+                                       hippocampal_association_decay_);
 
     // TD-050 (September 14, 2026): beam search explores multiple diverging hypotheses through
     // one model_fn — a single shared KV cache cannot correctly serve that (each beam's calls
@@ -1216,13 +1305,16 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
     // the same full-recompute-every-step gpu_decode() this method used unconditionally before
     // the cache existed, for beam search specifically.
     if (generator->get_config().num_beams > 1) {
-        auto beam_model_fn = [this, &gpu_encoder_out, &gpu_wm](const std::vector<int>& tokens) -> Matrix {
+        auto beam_model_fn = [this, &committer, &gpu_encoder_out, &gpu_wm](const std::vector<int>& tokens) -> Matrix {
             adai::gpu::GPUMatrix dec_out = decoder->gpu_decode(tokens, gpu_encoder_out, gpu_wm.get(),
                                                                 hippocampal_memory.get(),
                                                                 hippocampal_repetition_alpha_,
                                                                 hippocampal_repetition_decay_,
                                                                 hippocampal_cross_reference_alpha_,
                                                                 hippocampal_association_decay_);
+            if (committer.active()) {
+                committer.observe(tokens.size(), decoder->last_hippocampal_step_weights());
+            }
             adai::gpu::GPUMatrix logits = lm_head->gpu_forward(dec_out);
             const int tgt = static_cast<int>(tokens.size());
             std::vector<float> last_row(vocab_size);
@@ -1236,6 +1328,7 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
         };
         std::vector<int> output_tokens = generator->generate(beam_model_fn, {bos_token_id});
         std::string response = tokenizer->decode(output_tokens, true);
+        committer.flush();
         maybe_write_hippocampal_memory(response);  // TD-342, as the CPU paths (TD-185)
         return response;
     }
@@ -1247,7 +1340,7 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
     // TODO: See TD-387 in TECHNICAL_DEBT.md - input longer than max_seq_length throws from the cross-attention cache
     adai::gpu::GPUDecoderKVCache gpu_kv_cache(decoder_layers, max_seq_length, d_model);
     size_t processed_length = 0;
-    auto model_fn = [this, &gpu_encoder_out, &gpu_kv_cache, &processed_length,
+    auto model_fn = [this, &committer, &gpu_encoder_out, &gpu_kv_cache, &processed_length,
                      &gpu_wm](const std::vector<int>& tokens) -> Matrix {
         std::vector<int> new_tokens(tokens.begin() + static_cast<std::ptrdiff_t>(processed_length),
                                     tokens.end());
@@ -1258,6 +1351,9 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
                                      hippocampal_repetition_decay_,
                                      hippocampal_cross_reference_alpha_,
                                      hippocampal_association_decay_);
+            if (committer.active()) {
+                committer.observe(tokens.size(), decoder->last_hippocampal_step_weights());
+            }
         processed_length = tokens.size();
         adai::gpu::GPUMatrix logits = lm_head->gpu_forward(dec_out);
 
@@ -1278,6 +1374,7 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
 
     std::vector<int> output_tokens = generator->generate(model_fn, {bos_token_id});
     std::string response = tokenizer->decode(output_tokens, true);
+    committer.flush();
     maybe_write_hippocampal_memory(response);  // TD-342, as the CPU paths (TD-185)
     return response;
 }
@@ -1328,6 +1425,12 @@ std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
     adai::gpu::GPUMatrix gpu_encoder_out = encoder->gpu_encode(input_tokens);
     // TD-342: the frozen world model's encoding, on the device, for the gated paths.
     std::unique_ptr<adai::gpu::GPUMatrix> gpu_wm = gpu_world_model_encoding(input_text);
+    // TD-343: one hippocampal coverage/association update per decode step (a step is one token
+    // length; beam hypotheses at that step are averaged), not one per forward and layer.
+    HippocampalStepCommitter committer(hippocampal_updates_enabled_ ? hippocampal_memory.get()
+                                                                    : nullptr,
+                                       hippocampal_repetition_decay_,
+                                       hippocampal_association_decay_);
 
     // TD-050 (September 14, 2026): beam search gets its own, deliberately non-cached model_fn —
     // same reasoning as gpu_generate_response()'s identical guard: a single shared KV cache
@@ -1336,13 +1439,16 @@ std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
     // strategy()'s own CPU "beam" branch, which never uses DecoderKVCache either. Every other
     // strategy below shares one real GPU-resident incremental cache instead of gpu_decode()'s
     // previous full-recompute-every-step call.
-    auto beam_model_fn = [this, &gpu_encoder_out, &gpu_wm](const std::vector<int>& tokens) -> Matrix {
+    auto beam_model_fn = [this, &committer, &gpu_encoder_out, &gpu_wm](const std::vector<int>& tokens) -> Matrix {
         adai::gpu::GPUMatrix dec_out = decoder->gpu_decode(tokens, gpu_encoder_out, gpu_wm.get(),
                                                                 hippocampal_memory.get(),
                                                                 hippocampal_repetition_alpha_,
                                                                 hippocampal_repetition_decay_,
                                                                 hippocampal_cross_reference_alpha_,
                                                                 hippocampal_association_decay_);
+            if (committer.active()) {
+                committer.observe(tokens.size(), decoder->last_hippocampal_step_weights());
+            }
         adai::gpu::GPUMatrix logits = lm_head->gpu_forward(dec_out);
         const int tgt = static_cast<int>(tokens.size());
         std::vector<float> last_row(vocab_size);
@@ -1358,7 +1464,7 @@ std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
     // TODO: See TD-387 in TECHNICAL_DEBT.md - input longer than max_seq_length throws from the cross-attention cache
     adai::gpu::GPUDecoderKVCache gpu_kv_cache(decoder_layers, max_seq_length, d_model);
     size_t processed_length = 0;
-    auto model_fn = [this, &gpu_encoder_out, &gpu_kv_cache, &processed_length,
+    auto model_fn = [this, &committer, &gpu_encoder_out, &gpu_kv_cache, &processed_length,
                      &gpu_wm](const std::vector<int>& tokens) -> Matrix {
         std::vector<int> new_tokens(tokens.begin() + static_cast<std::ptrdiff_t>(processed_length),
                                     tokens.end());
@@ -1369,6 +1475,9 @@ std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
                                      hippocampal_repetition_decay_,
                                      hippocampal_cross_reference_alpha_,
                                      hippocampal_association_decay_);
+            if (committer.active()) {
+                committer.observe(tokens.size(), decoder->last_hippocampal_step_weights());
+            }
         processed_length = tokens.size();
         adai::gpu::GPUMatrix logits = lm_head->gpu_forward(dec_out);
 
@@ -1401,6 +1510,7 @@ std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
     }
 
     std::string response = tokenizer->decode(output_tokens, true);
+    committer.flush();
     maybe_write_hippocampal_memory(response);  // TD-342, as the CPU paths (TD-185)
     return response;
 }

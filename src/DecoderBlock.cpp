@@ -1,6 +1,6 @@
 // @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap; TD-194 gated cross-reference pull + Hebbian association strengthening added to the hippocampal path)
-// @adai-version: 1.7.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 1.8.0
+// @adai-reviewed: 2026-10-21
 
 #include "DecoderBlock.hpp"
 #include "gpu/GPUParamSync.hpp"
@@ -171,55 +171,6 @@ Matrix hippocampal_score_bias(HippocampalMemory& memory_ref, int rows, float rep
     return score_bias;
 }
 
-// TD-342: the coverage and association update after the hippocampal attention, shared by the CPU
-// and GPU forwards. attn_weights is the mean-across-heads [rows, n_slots] softmax output.
-void update_hippocampal_memory(HippocampalMemory& memory_ref, const Matrix& attn_weights,
-                               float repetition_decay, float association_decay) {
-    HippocampalMemory* memory = &memory_ref;
-    const int n_slots = memory->size();
-    std::deque<float>& coverage = memory->coverage_vector();
-    std::deque<std::deque<float>>& association = memory->association_matrix();
-    // Coverage update: decay-then-accumulate (per the plan's own Component 6 pseudocode).
-    // Self-bounding by construction — decay_coverage() runs before accumulation, and the
-    // per-slot mean attention weight added below is itself in [0, 1] (a softmax output), so
-    // coverage[slot] converges to at most 1 / (1 - repetition_decay) regardless of how many
-    // decode steps hammer the same slot. get_last_attention_weights() is
-    // [query_rows, n_slots]; averaged over query rows to get one per-slot increment,
-    // matching the plan's own "called once per decode step" framing generalized to a
-    // multi-row (e.g. teacher-forced training) call.
-    // TODO: See TD-343 in TECHNICAL_DEBT.md - mutates memory on every forward (training, validation, each beam hypothesis), not once per decode step
-    memory->decay_coverage(repetition_decay);
-    const float inv_rows = 1.0f / static_cast<float>(attn_weights.rows);
-    for (int slot = 0; slot < n_slots; ++slot) {
-        float mean_weight = 0.0f;
-        for (int i = 0; i < attn_weights.rows; ++i) {
-            mean_weight += attn_weights(i, slot);
-        }
-        coverage[slot] += mean_weight * inv_rows;
-    }
-
-    // TD-194: Hebbian cross-reference strengthening — any two slots attended together in the
-    // SAME query row this step ("used close together") get their association bumped by their
-    // co-activation (the product of their attention weights, averaged over query rows,
-    // mirroring coverage's own per-slot-mean-weight convention above). Self-bounding the same
-    // way coverage is: decay runs before accumulation, and each co-activation term is itself
-    // a product of two [0, 1] softmax outputs, so association[a][b] converges to at most
-    // 1 / (1 - association_decay) regardless of how often the pair co-occurs.
-    memory->decay_associations(association_decay);
-    for (int a = 0; a < n_slots; ++a) {
-        for (int b = a + 1; b < n_slots; ++b) {
-            float coactivation = 0.0f;
-            for (int i = 0; i < attn_weights.rows; ++i) {
-                coactivation += attn_weights(i, a) * attn_weights(i, b);
-            }
-            coactivation *= inv_rows;
-            if (coactivation != 0.0f) {
-                association[a][b] += coactivation;
-                association[b][a] += coactivation;
-            }
-        }
-    }
-}
 
 }  // namespace
 
@@ -252,6 +203,7 @@ void DecoderBlock::apply_gated_paths(Matrix& residual2, const Matrix* world_mode
     // after the world-model path, per the plan's own Component 6 ordering ("after Component 4's
     // world-model Add & Norm").
     hippocampal_path_active_ = (memory != nullptr && memory->size() > 0 && hippocampal_cross_attention);
+    last_hippocampal_source_ = hippocampal_path_active_ ? 1 : 0;
     if (hippocampal_path_active_) {
         auto [keys, values] = memory->read_all();
         (void)values;  // see forward()'s own doc comment: keys double as CrossAttention's
@@ -272,9 +224,10 @@ void DecoderBlock::apply_gated_paths(Matrix& residual2, const Matrix* world_mode
             }
         }
 
-        update_hippocampal_memory(*memory,
-                                  hippocampal_cross_attention->get_last_attention_weights(),
-                                  repetition_decay, association_decay);
+        // TD-343: no memory update here. The caller commits one coverage/association update per
+        // decode step (HippocampalMemory::commit_attention()) from last_hippocampal_attention().
+        (void)repetition_decay;
+        (void)association_decay;
     }
 }
 
@@ -787,6 +740,18 @@ void DecoderBlock::load(const std::string& filepath) {
     }
 }
 
+Matrix DecoderBlock::last_hippocampal_attention() const {
+    if (last_hippocampal_source_ == 1) {
+        return hippocampal_cross_attention->get_last_attention_weights();
+    }
+#ifdef ADAI_ENABLE_GPU
+    if (last_hippocampal_source_ == 2) {
+        return hippocampal_cross_attention->gpu_last_mean_attention_weights();
+    }
+#endif
+    return Matrix();
+}
+
 float DecoderBlock::current_gate() {
 #ifdef ADAI_ENABLE_GPU
     if (gated_gpu_) {
@@ -967,6 +932,7 @@ void DecoderBlock::gpu_apply_gated_paths(adai::gpu::GPUMatrix& res2,
     const bool wm = world_model_out != nullptr && world_model_out->rows > 0 &&
                     world_model_cross_attention != nullptr;
     const bool hm = memory != nullptr && memory->size() > 0 && hippocampal_cross_attention != nullptr;
+    last_hippocampal_source_ = hm ? 2 : 0;
     if (!wm && !hm) {
         if (gated_gpu_) {
             gated_gpu_->wm_active = gated_gpu_->hm_active = false;
@@ -996,9 +962,9 @@ void DecoderBlock::gpu_apply_gated_paths(adai::gpu::GPUMatrix& res2,
             normed_hippocampal, keys_dev, nullptr, &bias_dev));
         adai::gpu::gated_residual_add_gpu(res2.device_ptr(), g.hm_attn->device_ptr(),
                                           g.gate_h.device_ptr(), n);
-        update_hippocampal_memory(*memory,
-                                  hippocampal_cross_attention->gpu_last_mean_attention_weights(),
-                                  repetition_decay, association_decay);
+        // TD-343: no memory update (or weight download) here; see the CPU path.
+        (void)repetition_decay;
+        (void)association_decay;
     }
 }
 

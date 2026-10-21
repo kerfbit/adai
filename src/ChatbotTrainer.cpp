@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.16.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 0.17.0
+// @adai-reviewed: 2026-10-21
 
 #include "ChatbotTrainer.hpp"
 #include <algorithm>
@@ -2061,6 +2061,20 @@ bool ChatbotTrainer::train(int num_epochs) {
         if (!model) {
             initialize_model();
         }
+
+        // TD-343: the quality and backfill generations during training must not commit
+        // hippocampal coverage updates or write episodic memories into the serving memory.
+        struct HippocampalUpdatesOff {
+            EncoderDecoderModel& m;
+            bool was;
+            explicit HippocampalUpdatesOff(EncoderDecoderModel& model_ref)
+                : m(model_ref), was(model_ref.hippocampal_updates_enabled()) {
+                m.set_hippocampal_updates_enabled(false);
+            }
+            ~HippocampalUpdatesOff() {
+                m.set_hippocampal_updates_enabled(was);
+            }
+        } hippocampal_updates_off(*model);
 
         // Split data first (on raw text pairs)
         if (validation_data.empty() && config.validation_split > 0) {

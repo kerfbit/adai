@@ -346,6 +346,8 @@ TEST(GPUGatedPathTest, DecoderBlockGatedPathsMatchTheCpu) {
     block.zero_grad();
     Matrix out_cpu = block.forward(input, enc, mask, nullptr, &wm, nullptr, mem_cpu.get(), 0.3f,
                                    0.9f, 0.2f, 0.9f);
+    // TD-343: the forward only reads the memory; commit the step as generation does.
+    mem_cpu->commit_attention(block.last_hippocampal_attention(), 0.9f, 0.9f);
     Matrix d_input_cpu = block.backward(dout);
     const float gate_grad_cpu = block.get_gate_grad(), gate_h_grad_cpu = block.get_gate_h_grad();
     ASSERT_NE(gate_grad_cpu, 0.0f);
@@ -357,6 +359,7 @@ TEST(GPUGatedPathTest, DecoderBlockGatedPathsMatchTheCpu) {
     GPUMatrix mask_dev = mask.to_gpu(), dout_dev = dout.to_gpu();
     Matrix out_gpu = Matrix::from_gpu(block.gpu_forward(in_dev, enc_dev, &mask_dev, &wm_dev,
                                                         mem_gpu.get(), 0.3f, 0.9f, 0.2f, 0.9f));
+    mem_gpu->commit_attention(block.last_hippocampal_attention(), 0.9f, 0.9f);  // GPU download
     auto [d_input_dev, d_enc_dev] = block.gpu_backward(dout_dev);
     Matrix d_input_gpu = Matrix::from_gpu(d_input_dev);
     block.zero_grad();
@@ -367,8 +370,12 @@ TEST(GPUGatedPathTest, DecoderBlockGatedPathsMatchTheCpu) {
     EXPECT_NEAR(block.get_gate_grad(), gate_grad_cpu, 1e-4f * std::max(1.0f, std::abs(gate_grad_cpu)));
     EXPECT_NEAR(block.get_gate_h_grad(), gate_h_grad_cpu,
                 1e-4f * std::max(1.0f, std::abs(gate_h_grad_cpu)));
-    for (int slot = 0; slot < mem_cpu->size(); ++slot)
+    ASSERT_EQ(mem_cpu->committed_steps(), 1u);
+    ASSERT_EQ(mem_gpu->committed_steps(), 1u);
+    for (int slot = 0; slot < mem_cpu->size(); ++slot) {
+        EXPECT_GT(mem_cpu->coverage_vector()[slot], 0.0f);
         EXPECT_NEAR(mem_gpu->coverage_vector()[slot], mem_cpu->coverage_vector()[slot], 1e-5f);
+    }
 }
 
 TEST(GPUGatedPathTest, WorldModelGpuEncodeMatchesEncode) {

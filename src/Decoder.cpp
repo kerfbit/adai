@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
-// @adai-version: 0.17.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 0.18.0
+// @adai-reviewed: 2026-10-21
 
 #include "Decoder.hpp"
 #include "gpu/GPUParamSync.hpp"
@@ -177,6 +177,32 @@ Matrix LLMDecoder::forward_with_mask(const std::vector<int>& token_ids, const Ma
     Matrix output = final_norm->forward(x);
 
     return output;
+}
+
+Matrix LLMDecoder::last_hippocampal_step_weights() const {
+    Matrix sum;
+    int blocks = 0;
+    for (const auto& block : decoder_blocks) {
+        const Matrix w = block->last_hippocampal_attention();
+        if (w.rows == 0) {
+            continue;
+        }
+        if (blocks == 0) {
+            sum = Matrix(1, w.cols);
+        } else if (w.cols != sum.cols) {
+            continue;  // can't happen within one forward (same memory); guard anyway
+        }
+        for (int j = 0; j < w.cols; ++j) {
+            sum(0, j) += w(w.rows - 1, j);
+        }
+        ++blocks;
+    }
+    if (blocks > 1) {
+        for (int j = 0; j < sum.cols; ++j) {
+            sum(0, j) /= static_cast<float>(blocks);
+        }
+    }
+    return sum;
 }
 
 Matrix LLMDecoder::forward_with_cache(const std::vector<int>& token_ids, DecoderKVCache& kv_cache,

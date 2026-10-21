@@ -390,3 +390,10 @@ While training, the device weights are the live copy. `sync_host_from_device()` 
 - at the end of `train()`, including after a failure, best effort.
 
 Verified in a SYCL build on the oneAPI CPU device (`ADAI_SYCL_ALLOW_CPU_DEVICE=1`): all 83 tests here pass with every training test on the device path. See [GPUOptimizer.md](GPUOptimizer.md).
+
+---
+
+## Addendum (October 21, 2026): no hippocampal updates while training (TD-343)
+
+`train()` turns off the model's hippocampal updates (`set_hippocampal_updates_enabled(false)`) for its whole run and restores the
+previous setting on exit, so its quality and backfill generations neither commit coverage steps nor write episodic memories.

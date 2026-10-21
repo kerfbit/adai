@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.5.0
-// @adai-reviewed: 2026-09-18
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-10-21
 
 #include <deque>
 #include <string>
@@ -94,6 +94,7 @@ class HippocampalMemory {
     std::deque<Slot> slots_;
     std::deque<float> coverage_;  // coverage_[i] corresponds to slots_[i]; see class doc above
     std::deque<std::deque<float>> association_;  // association_[i][j]: slots_[i]<->slots_[j]
+    size_t committed_steps_ = 0;  // TD-343
                                                   // cross-reference strength; see TD-194 class doc
     int capacity;
     int d_model;
@@ -171,6 +172,22 @@ class HippocampalMemory {
 
     /** association[i][j] *= gamma for every currently-stored pair, mirroring decay_coverage(). */
     void decay_associations(float gamma);
+
+    /**
+     * TD-343: one decode step's coverage and association update from the hippocampal
+     * attention's mean-across-heads softmax weights, [rows, size()] (rows are averaged):
+     * decay coverage, add each slot's mean weight, decay associations, add co-activations.
+     * Called once per generated token by the generation paths, not by DecoderBlock's forward
+     * (which used to apply it on every forward, in every injected layer). A shape that doesn't
+     * match the current slots is ignored.
+     */
+    void commit_attention(const Matrix& attn_weights, float repetition_decay,
+                          float association_decay);
+
+    /** TD-343: how many steps commit_attention() has applied (diagnostics and tests). */
+    size_t committed_steps() const {
+        return committed_steps_;
+    }
 
     int size() const {
         return static_cast<int>(slots_.size());

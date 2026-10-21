@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.5.0
-// @adai-reviewed: 2026-09-18
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-10-21
 
 #include "HippocampalMemory.hpp"
 
@@ -391,3 +391,54 @@ void HippocampalMemory::load_associations(const std::string& filepath) {
 
     association_ = std::move(loaded);
 }
+
+void HippocampalMemory::commit_attention(const Matrix& attn_weights, float repetition_decay,
+                                         float association_decay) {
+    const int n_slots = size();
+    if (n_slots == 0 || attn_weights.rows == 0 || attn_weights.cols != n_slots) {
+        return;
+    }
+    ++committed_steps_;
+    std::deque<float>& coverage = coverage_;
+    std::deque<std::deque<float>>& association = association_;
+    // Coverage update: decay-then-accumulate (per the plan's own Component 6 pseudocode).
+    // Self-bounding by construction — decay_coverage() runs before accumulation, and the
+    // per-slot mean attention weight added below is itself in [0, 1] (a softmax output), so
+    // coverage[slot] converges to at most 1 / (1 - repetition_decay) regardless of how many
+    // decode steps hammer the same slot. get_last_attention_weights() is
+    // [query_rows, n_slots]; averaged over query rows to get one per-slot increment,
+    // matching the plan's own "called once per decode step" framing generalized to a
+    // multi-row (e.g. teacher-forced training) call.
+    decay_coverage(repetition_decay);
+    const float inv_rows = 1.0f / static_cast<float>(attn_weights.rows);
+    for (int slot = 0; slot < n_slots; ++slot) {
+        float mean_weight = 0.0f;
+        for (int i = 0; i < attn_weights.rows; ++i) {
+            mean_weight += attn_weights(i, slot);
+        }
+        coverage[slot] += mean_weight * inv_rows;
+    }
+
+    // TD-194: Hebbian cross-reference strengthening — any two slots attended together in the
+    // SAME query row this step ("used close together") get their association bumped by their
+    // co-activation (the product of their attention weights, averaged over query rows,
+    // mirroring coverage's own per-slot-mean-weight convention above). Self-bounding the same
+    // way coverage is: decay runs before accumulation, and each co-activation term is itself
+    // a product of two [0, 1] softmax outputs, so association[a][b] converges to at most
+    // 1 / (1 - association_decay) regardless of how often the pair co-occurs.
+    decay_associations(association_decay);
+    for (int a = 0; a < n_slots; ++a) {
+        for (int b = a + 1; b < n_slots; ++b) {
+            float coactivation = 0.0f;
+            for (int i = 0; i < attn_weights.rows; ++i) {
+                coactivation += attn_weights(i, a) * attn_weights(i, b);
+            }
+            coactivation *= inv_rows;
+            if (coactivation != 0.0f) {
+                association[a][b] += coactivation;
+                association[b][a] += coactivation;
+            }
+        }
+    }
+}
+
