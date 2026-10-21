@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.6.0
+// @adai-version: 0.7.0
 // @adai-reviewed: 2026-10-21
 
 #include "HippocampalMemory.hpp"
@@ -28,9 +28,7 @@ HippocampalMemory::HippocampalMemory(int d_model, int capacity, std::string swap
       d_model(require_positive(d_model, "d_model")),
       swap_filepath_(std::move(swap_filepath)) {}
 
-// TODO: See TD-396 in TECHNICAL_DEBT.md - new slots start at coverage 0 while older ones carry decayed
-// coverage, so with near-uniform attention the newest slot is always evicted next and the buffer freezes
-// on its first capacity-1 entries (verified by simulation); protect new slots or evict by coverage/age
+// Evicts the lowest-coverage slot; ties go to the oldest (strict `<` keeps the first minimum).
 void HippocampalMemory::evict_least_used(std::deque<Slot>& slots, std::deque<float>& coverage,
                                           std::deque<std::deque<float>>* association) const {
     size_t evict_idx = 0;
@@ -57,9 +55,22 @@ void HippocampalMemory::evict_least_used(std::deque<Slot>& slots, std::deque<flo
     }
 }
 
-void HippocampalMemory::insert_slot(const Matrix& key, const Matrix& value, float coverage) {
+void HippocampalMemory::insert_slot(const Matrix& key, const Matrix& value) {
     if (static_cast<int>(slots_.size()) >= capacity) {
         evict_least_used(slots_, coverage_, &association_);
+    }
+
+    // TD-396: start at the mean coverage of the slots it joins (0 when it's the first). Starting
+    // at 0 while older slots carried accumulated, decayed coverage made a new slot the least used
+    // under near-uniform attention, so it was always evicted next and the buffer froze on its first
+    // capacity - 1 writes. At the mean, uniform attention keeps every slot level (eviction then
+    // goes oldest first) and peaked attention still decides the rest.
+    float coverage = 0.0f;
+    if (!coverage_.empty()) {
+        for (float c : coverage_) {
+            coverage += c;
+        }
+        coverage /= static_cast<float>(coverage_.size());
     }
 
     slots_.push_back(Slot{key, value});
@@ -81,7 +92,7 @@ void HippocampalMemory::write(const Matrix& key, const Matrix& value) {
         throw std::invalid_argument("HippocampalMemory::write: value must be [1, d_model]");
     }
 
-    insert_slot(key, value, 0.0f);
+    insert_slot(key, value);
 }
 
 // TODO: See TD-398 in TECHNICAL_DEBT.md - copies the whole memory on every forward pass of every injected layer
@@ -205,15 +216,15 @@ bool HippocampalMemory::recall_from_swap() {
     for (int j = 0; j < d_model; ++j) {
         file.read(reinterpret_cast<char*>(&value(0, j)), sizeof(float));
     }
-    // The evicted coverage value itself isn't reused — a recalled slot is treated as freshly
-    // relevant again, the same starting point any newly write()'d slot gets (see class doc).
+    // The evicted coverage value itself isn't reused — a recalled slot starts like any newly
+    // write()'d one, at the mean coverage of the slots it joins (TD-396).
     file.close();
 
     // Drop the just-read record from the swap file by truncating it away — cheap (no rewrite of
     // the remaining records needed) since it was always the LAST record in the file.
     std::filesystem::resize_file(swap_filepath_, static_cast<std::uintmax_t>(last_record_offset));
 
-    insert_slot(key, value, 0.0f);
+    insert_slot(key, value);
     return true;
 }
 

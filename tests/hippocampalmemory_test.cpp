@@ -20,6 +20,10 @@
 
 #include "../src/HippocampalMemory.hpp"
 #include <gtest/gtest.h>
+#include <vector>
+#include <cmath>
+#include <random>
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -203,15 +207,19 @@ TEST(HippocampalMemoryTest, CoverageVectorIsMutableAndPersists) {
     EXPECT_FLOAT_EQ(memory.coverage_vector()[0], 0.75f);
 }
 
-TEST(HippocampalMemoryTest, NewSlotsStartWithZeroCoverageEvenAfterOthersAccumulate) {
+// TD-396: a new slot starts at the mean coverage of the slots it joins. It used to start at 0
+// while the others carried accumulated coverage, which made it the next one evicted.
+TEST(HippocampalMemoryTest, NewSlotsStartAtTheMeanCoverageOfTheOthers) {
     HippocampalMemory memory(8, 4);
     memory.write(make_row(8, 1.0f), make_row(8, 1.0f));
     memory.coverage_vector()[0] = 0.9f;
-
     memory.write(make_row(8, 2.0f), make_row(8, 2.0f));
-
     EXPECT_FLOAT_EQ(memory.coverage_vector()[0], 0.9f);
-    EXPECT_FLOAT_EQ(memory.coverage_vector()[1], 0.0f);
+    EXPECT_FLOAT_EQ(memory.coverage_vector()[1], 0.9f);
+
+    memory.coverage_vector()[1] = 0.3f;
+    memory.write(make_row(8, 3.0f), make_row(8, 3.0f));
+    EXPECT_FLOAT_EQ(memory.coverage_vector()[2], 0.6f);
 }
 
 TEST(HippocampalMemoryTest, DecayCoverageMultipliesAllBySameGamma) {
@@ -243,7 +251,8 @@ TEST(HippocampalMemoryTest, CoverageStaysAlignedWithSlotsAcrossEviction) {
 
     ASSERT_EQ(memory.size(), capacity);
     EXPECT_FLOAT_EQ(memory.coverage_vector()[0], 7.0f);
-    EXPECT_FLOAT_EQ(memory.coverage_vector()[1], 0.0f);  // the newly-written slot
+    // The newly written slot starts at the mean coverage of the slots it joins (TD-396).
+    EXPECT_FLOAT_EQ(memory.coverage_vector()[1], 7.0f);
 }
 
 TEST(HippocampalMemoryTest, ClearRemovesAllSlotsAndCoverage) {
@@ -436,8 +445,9 @@ TEST(HippocampalMemoryTest, RecallFromSwapBringsBackEvictedSlotWithResetCoverage
     ASSERT_EQ(memory.size(), 2);
 
     // Recalling makes room the same way write() would (capacity is still 2, already full with
-    // value 2.0's slot [coverage 5] and value 3.0's slot [coverage 0, just written]) — so the
-    // recall itself evicts value 3.0's slot back out to swap while bringing value 1.0's back in.
+    // value 2.0's slot [coverage 5] and value 3.0's slot [coverage 5, the mean it joined at,
+    // TD-396]) — so the recall itself evicts one of them (the tie goes to the oldest) back out
+    // to swap while bringing value 1.0's back in.
     ASSERT_TRUE(memory.recall_from_swap());
     ASSERT_EQ(memory.size(), 2);
 
@@ -446,8 +456,8 @@ TEST(HippocampalMemoryTest, RecallFromSwapBringsBackEvictedSlotWithResetCoverage
     for (int i = 0; i < memory.size(); ++i) {
         if (row_equals(keys, i, 1.0f, d_model) && row_equals(values, i, 10.0f, d_model)) {
             found_recalled = true;
-            EXPECT_FLOAT_EQ(memory.coverage_vector()[i], 0.0f)
-                << "a recalled slot's coverage should reset to 0.0f, treated as freshly relevant";
+            EXPECT_FLOAT_EQ(memory.coverage_vector()[i], 5.0f)
+                << "a recalled slot starts like a new write, at the mean coverage it joins";
         }
     }
     EXPECT_TRUE(found_recalled) << "the slot evicted earlier (value 1.0/10.0) should be back";
@@ -774,3 +784,60 @@ TEST(HippocampalMemoryTest, LoadAssociationsRejectsTruncatedFile) {
 
     std::remove(assoc_path.c_str());
 }
+
+// ============================================================================
+// TD-396: recent memories survive eviction
+// ============================================================================
+
+namespace {
+
+// Writes `writes` memories into a capacity-8 buffer, each followed by 50 committed decode steps of
+// attention (the generation paths' bookkeeping: decay, then add each slot's weight), and returns
+// which writes survive (each key's first component is its write index).
+std::vector<int> surviving_writes(bool uniform, int writes) {
+    const int d = 4;
+    HippocampalMemory memory(d, 8);
+    std::mt19937 rng(17);
+    std::uniform_real_distribution<float> u(0.0f, 1.0f);
+    for (int w = 0; w < writes; ++w) {
+        Matrix key(1, d);
+        key(0, 0) = static_cast<float>(w);
+        memory.write(key, key);
+        for (int step = 0; step < 50; ++step) {
+            const int n = memory.size();
+            Matrix weights(1, n);
+            float total = 0.0f;
+            for (int j = 0; j < n; ++j) {
+                weights(0, j) = uniform ? 1.0f : std::pow(u(rng), 8.0f);  // peaked when random
+                total += weights(0, j);
+            }
+            for (int j = 0; j < n; ++j)
+                weights(0, j) /= total;
+            memory.commit_attention(weights, 0.95f, 0.95f);
+        }
+    }
+    std::vector<int> ids;
+    auto [keys, values] = memory.read_all();
+    (void)values;
+    for (int i = 0; i < keys.rows; ++i)
+        ids.push_back(static_cast<int>(keys(i, 0)));
+    std::sort(ids.begin(), ids.end());
+    return ids;
+}
+
+}  // namespace
+
+// Under uniform attention every new memory used to be the least covered, so it was evicted next
+// and the survivors were writes 0-6 plus the newest, forever. Now the most recent writes survive.
+TEST(HippocampalMemoryTest, RecentWritesSurviveUnderUniformAttention) {
+    EXPECT_EQ(surviving_writes(/*uniform=*/true, 40), (std::vector<int>{32, 33, 34, 35, 36, 37, 38, 39}));
+}
+
+// With peaked attention, usage decides, but the buffer still turns over.
+TEST(HippocampalMemoryTest, BufferTurnsOverUnderPeakedAttention) {
+    const std::vector<int> ids = surviving_writes(/*uniform=*/false, 40);
+    ASSERT_EQ(ids.size(), 8u);
+    const auto recent = std::count_if(ids.begin(), ids.end(), [](int id) { return id >= 24; });
+    EXPECT_GE(recent, 5) << "most survivors should be recent";
+}
+

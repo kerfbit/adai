@@ -127,3 +127,14 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 attention weights (rows averaged): decay coverage, add each slot's mean weight, decay associations, add co-activations. A mismatched
 shape is ignored. It moved here from `DecoderBlock`, whose forward used to apply it on every call in every injected layer.
 `committed_steps()` counts the steps applied.
+
+---
+
+## Addendum (October 21, 2026): new slots start at the mean coverage (TD-396)
+
+`write()` and `recall_from_swap()` give the new slot the mean coverage of the slots it joins (0 for the first), instead of 0. Under
+near-uniform attention a zero start made every new memory the least used, so it was evicted next and the buffer kept its first
+`capacity − 1` writes forever. Eviction still removes the lowest coverage, with ties going to the oldest. Tests:
+`RecentWritesSurviveUnderUniformAttention` (writes 32–39 of 40 survive), `BufferTurnsOverUnderPeakedAttention`,
+`NewSlotsStartAtTheMeanCoverageOfTheOthers`.
+

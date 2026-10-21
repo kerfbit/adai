@@ -1198,9 +1198,10 @@ retraining from scratch, since no existing checkpoint has correct GPU-trained we
 - TD-502/503 (done in code: SIGReg redraws its directions every step, uses the unbiased estimator, and is applied across
   each batch's pooled embeddings, `WORLD_MODEL_SIGREG_BATCH_SIZE`);
 - TD-548 (done in code: the world-model checkpoint has its own directory, away from the standalone dataset pool);
-- TD-343 (done in code: the hippocampal memory is updated once per decode step, only by serving generation).
+- TD-343 (done in code: the hippocampal memory is updated once per decode step, only by serving generation);
+- TD-396 (done in code: a new memory starts at the mean coverage, so recent memories survive eviction).
 
-Next candidate: TD-396.
+The run is complete.
 
 Analyzed September 12, 2026 to sequence the active items by dependency and risk rather than
 just priority label — several depend on each other or on a single owner decision, and the
@@ -9833,7 +9834,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Memory / HippocampalMemory | October 13, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 21, 2026 | Memory / HippocampalMemory | October 13, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `HippocampalMemory` and verified by simulation with the real class. TD-193's
@@ -9851,9 +9852,9 @@ whole responses. The failure is masked today only because TD-341 zeroes the path
 
 Action Items:
 
-- [ ] Give new slots a protection window (not evictable for N steps/writes), or start them at the current mean coverage, or evict by `coverage / age` (or LRU on last significant attention).
-- [ ] Add a test that simulates the decay-and-accumulate bookkeeping under uniform attention and asserts recent writes survive.
-- [ ] Do this together with TD-341.
+- [x] Give new slots a protection window (not evictable for N steps/writes), or start them at the current mean coverage, or evict by `coverage / age` (or LRU on last significant attention).
+- [x] Add a test that simulates the decay-and-accumulate bookkeeping under uniform attention and asserts recent writes survive.
+- [x] Do this together with TD-341.
 
 Location in code: `src/HippocampalMemory.cpp` (`evict_least_used()`, `insert_slot()`); tagged `TODO: See TD-396`.
 
@@ -9864,6 +9865,25 @@ Files to Modify:
 
 **Note (October 20, 2026, TD-341).** The hippocampal gate now trains on the CPU path, so this eviction behavior is now
 reachable in training, not only in theory.
+
+**Fix (October 21, 2026).** Of the options above, a new slot (from `write()` or `recall_from_swap()`) now starts at the
+**mean coverage of the slots it joins**, 0 when it's the first. Eviction ties go to the oldest.
+- **Uniform attention:** every slot stays level, so eviction becomes FIFO.
+- **Peaked attention:** usage decides as before.
+- **Why not a protection window:** it doesn't fix exactly uniform attention. A slot leaving the window is still the youngest,
+  so it's still the least covered.
+- **Repetition penalty:** at the mean coverage, it adds the same bias to every slot under uniform attention, which doesn't
+  change the softmax.
+- **Format:** the saved file format is unchanged.
+
+Tests (`hippocampalmemory_test.cpp`):
+- `RecentWritesSurviveUnderUniformAttention`: the TD's own simulation (capacity 8, 40 writes, 50 committed steps each). The
+  survivors are writes 32–39; the old code left {0, 1, 2, 3, 4, 5, 6, 39}, as described above.
+- `BufferTurnsOverUnderPeakedAttention`.
+- `NewSlotsStartAtTheMeanCoverageOfTheOthers` replaces the test that asserted the old zero start.
+- Two coverage expectations in the eviction and recall tests were updated to the mean.
+
+TD-341 (the gates) and TD-343 (one update per decode step) landed first, so the simulation uses the real per-step bookkeeping.
 
 ---
 

@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.6.0
+// @adai-version: 0.7.0
 // @adai-reviewed: 2026-10-21
 
 #include <deque>
@@ -109,9 +109,10 @@ class HippocampalMemory {
     void evict_least_used(std::deque<Slot>& slots, std::deque<float>& coverage,
                           std::deque<std::deque<float>>* association) const;
 
-    /** Evicts (see above) if already at capacity, then appends the new (key, value, coverage) to
-     *  the live buffer. Shared by write() and recall_from_swap(). */
-    void insert_slot(const Matrix& key, const Matrix& value, float coverage);
+    /** Evicts (see above) if already at capacity, then appends the new (key, value) to the live
+     *  buffer, starting at the mean coverage of the slots it joins (TD-396). Shared by write()
+     *  and recall_from_swap(). */
+    void insert_slot(const Matrix& key, const Matrix& value);
 
     /** Appends one evicted slot's (key, value, coverage) to swap_filepath_, writing the
      *  one-time d_model header first if the file doesn't already exist or is empty. */
@@ -134,7 +135,8 @@ class HippocampalMemory {
      * Write a new episode. Least-used eviction at capacity (TD-193): the currently-stored slot
      * with the lowest coverage (and its corresponding coverage entry) is evicted — appended to
      * the swap file if one is configured, discarded otherwise — before the new one is appended,
-     * so size() never exceeds capacity. The new slot's coverage starts at 0.0f.
+     * so size() never exceeds capacity. The new slot starts at the mean coverage of the slots it
+     * joins (0 when it is the first), so it is not evicted next by default (TD-396).
      *
      * @param key   [1, d_model]
      * @param value [1, d_model]
