@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-17
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-10-20
 
 #include "LeJEPAEncoder.hpp"
 
@@ -365,6 +365,9 @@ void LeJEPAEncoder::save(const std::string& directory) const {
 }
 
 void LeJEPAEncoder::load(const std::string& directory) {
+#ifdef ADAI_ENABLE_GPU
+    gpu_weights_current_ = false;  // TD-342: re-upload before the next gpu_encode()
+#endif
     std::string config_path = directory + "/" + kConfigFile;
     std::ifstream config_file(config_path, std::ios::binary);
     if (!config_file.is_open()) {
@@ -419,3 +422,27 @@ void LeJEPAEncoder::print_config() const {
     std::cout << "SIGReg lambda: " << sigreg_lambda << '\n';
     std::cout << "=====================================\n" << '\n';
 }
+
+#ifdef ADAI_ENABLE_GPU
+adai::gpu::GPUMatrix LeJEPAEncoder::gpu_encode(const std::string& text) {
+    std::vector<int> token_ids = tokenizer->encode(text, true);
+    if (static_cast<int>(token_ids.size()) > max_seq_length) {
+        token_ids.resize(max_seq_length);
+    }
+    if (!gpu_weights_current_) {
+        token_embedding->gpu_upload_weights();
+        for (auto& block : encoder_blocks) {
+            block->gpu_upload_weights();
+        }
+        final_norm->gpu_upload_weights();
+        gpu_pe_ = std::make_unique<adai::gpu::GPUMatrix>(positional_encoding->get_encoding().to_gpu());
+        gpu_weights_current_ = true;
+    }
+    adai::gpu::GPUMatrix x = token_embedding->gpu_forward(token_ids, gpu_pe_.get(), gpu_pe_->rows);
+    for (auto& block : encoder_blocks) {
+        x = block->gpu_forward(x);
+    }
+    return final_norm->gpu_forward(x);
+}
+#endif
+

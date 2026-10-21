@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.12.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.13.0
+// @adai-reviewed: 2026-10-20
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -904,6 +904,47 @@ void matrix_download_gpu(const float* device_ptr, float* host_ptr, int count) {
 // ============================================================================
 // TD-468: device-resident optimizer
 // ============================================================================
+
+// TD-342: DecoderBlock's gated residual, the gate read on the device. In-order queue: no .wait().
+void gated_residual_add_gpu(float* residual, const float* attn, const float* gate, int size) {
+    if (size <= 0) {
+        return;
+    }
+    GPUManager::get_queue().parallel_for(sycl::range<1>(static_cast<size_t>(size)),
+                                         [=](sycl::id<1> idx) {
+                                             const size_t i = idx[0];
+                                             residual[i] += sycl::tanh(gate[0]) * attn[i];
+                                         });
+}
+
+void gated_residual_backward_gpu(const float* d_res, const float* attn, const float* gate,
+                                 float* d_attn, float* gate_grad, int size) {
+    if (size <= 0) {
+        return;
+    }
+    auto& q = GPUManager::get_queue();
+    constexpr int WG_SIZE = 256;
+    const int num_groups = std::min((size + WG_SIZE - 1) / WG_SIZE, 1024);
+    const int stride = num_groups * WG_SIZE;
+    q.submit([&](sycl::handler& cgh) {
+        sycl::local_accessor<float, 1> subgroup_sums(sycl::range<1>(WG_SIZE), cgh);
+        cgh.parallel_for(sycl::nd_range<1>(stride, WG_SIZE), [=](sycl::nd_item<1> item) {
+            const float t = sycl::tanh(gate[0]);
+            float acc = 0.0f;
+            for (int i = static_cast<int>(item.get_global_id(0)); i < size; i += stride) {
+                d_attn[i] = t * d_res[i];
+                acc += d_res[i] * attn[i];
+            }
+            acc = workgroup_reduce_sum(item, subgroup_sums, acc);
+            if (item.get_local_id(0) == 0) {
+                sycl::atomic_ref<float, sycl::memory_order::relaxed, sycl::memory_scope::device,
+                                 sycl::access::address_space::global_space>
+                    out(*gate_grad);
+                out.fetch_add((1.0f - t * t) * acc);
+            }
+        });
+    });
+}
 
 void matrix_sum_squares_accumulate_gpu(const float* data, int size, float* out_device) {
     if (size <= 0) {

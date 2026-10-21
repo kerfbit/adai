@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.20.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.21.0
+// @adai-reviewed: 2026-10-20
 
 #include <functional>
 #include <iostream>
@@ -167,6 +167,9 @@ class EncoderDecoderModel {
     bool gpu_initialized_{false};
     // GPU-resident state cached between gpu_forward and gpu_backward
     std::unique_ptr<adai::gpu::GPUMatrix> gpu_encoder_out_;
+    /// TD-342: the frozen world model's encoding of `text` on the device, or nullptr (no world
+    /// model, empty text, or a failed encode).
+    std::unique_ptr<adai::gpu::GPUMatrix> gpu_world_model_encoding(const std::string& text);
     std::unique_ptr<adai::gpu::GPUMatrix> gpu_logits_;
     std::unique_ptr<adai::gpu::GPUMemory<int>> gpu_targets_dev_;
     int gpu_target_len_{0};

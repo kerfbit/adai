@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-061 resolved — layer_norm_bwd's math bug fixed and verified analytically/numerically; most kernels still have no dedicated test and need real GPU hardware to verify, see TECHNICAL_DEBT_RESOLVED.md)
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.12.0
+// @adai-reviewed: 2026-10-20
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -1112,6 +1112,66 @@ __global__ void sum_squares_accumulate_kernel(const float* data, int size, float
             atomicAdd(out, acc);
         }
     }
+}
+
+// TD-342: DecoderBlock's gated residual, the gate read on the device.
+__global__ void gated_residual_add_kernel(float* residual, const float* attn, const float* gate,
+                                          int size) {
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        residual[i] += tanhf(gate[0]) * attn[i];
+    }
+}
+
+__global__ void gated_residual_backward_kernel(const float* d_res, const float* attn,
+                                               const float* gate, float* d_attn, float* gate_grad,
+                                               int size) {
+    extern __shared__ float warp_sums[];
+    const unsigned int tid = threadIdx.x;
+    const unsigned int lane = tid & 31u;
+    const unsigned int wid = tid >> 5u;
+    const float t = tanhf(gate[0]);
+    float acc = 0.0f;
+    for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < size; i += gridDim.x * blockDim.x) {
+        d_attn[i] = t * d_res[i];
+        acc += d_res[i] * attn[i];
+    }
+    acc = warp_reduce_sum(acc);
+    if (lane == 0) {
+        warp_sums[wid] = acc;
+    }
+    __syncthreads();
+    const unsigned int warps_per_block = blockDim.x >> 5u;
+    acc = (tid < warps_per_block) ? warp_sums[tid] : 0.0f;
+    if (wid == 0) {
+        acc = warp_reduce_sum(acc);
+        if (lane == 0) {
+            atomicAdd(gate_grad, (1.0f - t * t) * acc);
+        }
+    }
+}
+
+void gated_residual_add_gpu(float* residual, const float* attn, const float* gate, int size) {
+    if (size <= 0) {
+        return;
+    }
+    const int threads = 256;
+    gated_residual_add_kernel<<<(size + threads - 1) / threads, threads, 0,
+                                GPUManager::get_stream()>>>(residual, attn, gate, size);
+    CUDA_CHECK(cudaGetLastError());
+}
+
+void gated_residual_backward_gpu(const float* d_res, const float* attn, const float* gate,
+                                 float* d_attn, float* gate_grad, int size) {
+    if (size <= 0) {
+        return;
+    }
+    const int threads = 256;
+    const int blocks = std::min((size + threads - 1) / threads, 1024);
+    const int smem_bytes = (threads / 32) * static_cast<int>(sizeof(float));
+    gated_residual_backward_kernel<<<blocks, threads, smem_bytes, GPUManager::get_stream()>>>(
+        d_res, attn, gate, d_attn, gate_grad, size);
+    CUDA_CHECK(cudaGetLastError());
 }
 
 void matrix_sum_squares_accumulate_gpu(const float* data, int size, float* out_device) {

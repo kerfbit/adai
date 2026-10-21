@@ -269,3 +269,17 @@ Where they disagree, this file wins:
 
 **Kept from the old doc:** the pipeline overview, component roles, the loss formulas and the
 generation-strategy list.
+
+---
+
+## Addendum (October 20, 2026): gated paths in cached and GPU paths (TD-342)
+
+- **CPU generation:** the KV-cached `model_fn` in `generate_response()`/`generate_response_with_strategy()` passes the world-model
+  encoding and memory, so every strategy, not only beam search, uses them.
+- **GPU training:** `gpu_forward()` encodes the decoded input with the world model on the device (`gpu_world_model_encoding()` →
+  `LeJEPAEncoder::gpu_encode()`) and passes it with the memory to `gpu_decode()`.
+- **GPU generation:** passes them to `gpu_decode()`/`gpu_decode_step()`, and now writes the response to the memory, as the CPU
+  paths do (TD-185).
+- **Memory writes:** `maybe_write_hippocampal_memory()` encodes on the device when the GPU is active.
+
+Test: `gpu_optimizer_test.cpp`'s `GatedModelTrainsItsGatesOnTheDevice` (0 host groups; every gate opens).

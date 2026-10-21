@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.15.0
+// @adai-version: 0.16.0
 // @adai-reviewed: 2026-10-20
 
 #include "ChatbotTrainer.hpp"
@@ -1636,10 +1636,10 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 continue;
             }
             if (block->get_world_model_cross_attention()) {
-                gates << " L" << l << " world=" << std::tanh(block->get_gate());
+                gates << " L" << l << " world=" << std::tanh(block->current_gate());
             }
             if (block->get_hippocampal_cross_attention()) {
-                gates << " L" << l << " memory=" << std::tanh(block->get_gate_h());
+                gates << " L" << l << " memory=" << std::tanh(block->current_gate_h());
             }
         }
         if (!gates.str().empty()) {

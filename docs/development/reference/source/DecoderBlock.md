@@ -252,3 +252,20 @@ the gated layers (TD-342).
 Tests: `OptimizerOnlyTrainingOpensBothGates` and `UpdateWeightsStillStepsGatesWithoutAnOptimizer` here, and
 `encoderdecoder_test.cpp`'s `TrainerStyleOptimizerStepsOpenTheGates`.
 
+---
+
+## Addendum (October 20, 2026): gated paths in cached and GPU decoding (TD-342)
+
+- **Cached forward:** `forward_with_cache()` takes the world-model output, memory and hippocampal settings, and runs the gated paths
+  through the same private `apply_gated_paths()` as `forward()`. The world-model K/V are recomputed each step.
+- **GPU forward and backward:** `gpu_forward()`/`gpu_forward_with_cache()` take the device world-model output and the memory, and
+  `gpu_backward()` backpropagates both gated paths.
+- **Device gates:** the gates are 1×1 device parameters in a lazily created `GatedGPUState`, with the gated outputs kept for
+  backward. The upload, download, collect and zero helpers cover the gated sub-layers and gates, so `GPUOptimizer` steps them on the
+  device.
+- **Hippocampal state:** the bias and the coverage/association update are file-local helpers shared by both forwards
+  (`hippocampal_score_bias()`, `update_hippocampal_memory()`). The GPU path uploads the keys and bias and downloads the mean attention
+  weights.
+- **Live gate values:** `current_gate()`/`current_gate_h()` read the gates from the device during GPU training.
+
+Tests: `CachedForwardAppliesTheGatedPaths` here, and `gpu_optimizer_test.cpp`'s `DecoderBlockGatedPathsMatchTheCpu`.

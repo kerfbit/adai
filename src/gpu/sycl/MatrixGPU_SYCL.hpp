@@ -2,8 +2,8 @@
 #define MATRIX_GPU_SYCL_HPP
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.12.0
+// @adai-reviewed: 2026-10-20
 
 
 #include "../GPUOptimizerKernels.hpp"
@@ -71,6 +71,14 @@ void embedding_gather_add_pe_gpu(const float* table, const int* ids, const float
                                  int pos_offset, float* out, int n, int d);
 // grad_table[ids[i],:] += dout[i,:] (atomic: a token can repeat within a sequence).
 void embedding_scatter_add_gpu(const float* dout, const int* ids, float* grad_table, int n, int d);
+
+// TD-342: the gated world-model/hippocampal residual of DecoderBlock, with the gate read from
+// device memory (a 1x1 parameter), so no gate value crosses to the host.
+// residual += tanh(gate[0]) * attn
+void gated_residual_add_gpu(float* residual, const float* attn, const float* gate, int size);
+// d_attn = tanh(gate[0]) * d_res, and gate_grad[0] += (1 - tanh(gate[0])^2) * sum(d_res * attn)
+void gated_residual_backward_gpu(const float* d_res, const float* attn, const float* gate,
+                                 float* d_attn, float* gate_grad, int size);
 
 // TODO: See TD-395 in TECHNICAL_DEBT.md - a second hand-maintained copy of MatrixGPU.hpp's CUDA GPUMatrix; only
 // copy()/zero() differ, so define it once after the backend split (as GPUKVCache already is)

@@ -153,3 +153,12 @@ The SYCL versions were checked against the CPU `Optimizer` on the oneAPI CPU dev
 
 Both were checked against `TokenEmbedding`'s host lookup and backward on the oneAPI CPU device (`gpuOptimizerTests`); the CUDA versions are
 compile-checked only.
+
+### Gated-residual kernels (TD-342)
+
+- `gated_residual_add_gpu(residual, attn, gate, n)`: `residual += tanh(gate[0]) · attn`, with the gate read from device memory.
+- `gated_residual_backward_gpu(d_res, attn, gate, d_attn, gate_grad, n)`: `d_attn = tanh(gate[0]) · d_res` and
+  `gate_grad[0] += (1 − tanh²) · Σ d_res · attn`, reduced per work-group and added atomically.
+
+Both were checked against the host formula on the oneAPI CPU device (`gpuOptimizerTests`); the CUDA versions are compile-checked only.
+

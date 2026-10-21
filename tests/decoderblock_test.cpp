@@ -2007,3 +2007,55 @@ TEST(DecoderBlockGatedPathTest, UpdateWeightsStillStepsGatesWithoutAnOptimizer) 
     EXPECT_FLOAT_EQ(block.get_gate(), -0.1f * gate_grad);
     EXPECT_EQ(block.get_gate_grad(), 0.0f);
 }
+
+// TD-342: forward_with_cache() used to skip the gated paths, so every KV-cached generation
+// strategy ignored an attached world model and memory. With both gates open and the cache empty
+// (one call over the whole sequence), it must match forward() exactly. Each call gets its own
+// memory in the same starting state, since both update coverage.
+TEST(DecoderBlockGatedPathTest, CachedForwardAppliesTheGatedPaths) {
+    int d_model = 16, num_heads = 2, d_ff = 32;
+    int tgt_len = 3, src_len = 4, wm_len = 3;
+    DecoderBlock block(d_model, num_heads, d_ff, 0.1f, /*enable_world_model=*/true,
+                       /*enable_hippocampal=*/true);
+    block.set_gate(0.5f);
+    block.set_gate_h(-0.4f);
+
+    Matrix decoder_input(tgt_len, d_model), encoder_output(src_len, d_model);
+    for (int i = 0; i < tgt_len; ++i)
+        for (int j = 0; j < d_model; ++j)
+            decoder_input(i, j) = 0.05f * std::sin(static_cast<float>(i * d_model + j));
+    for (int i = 0; i < src_len; ++i)
+        for (int j = 0; j < d_model; ++j)
+            encoder_output(i, j) = 0.05f * std::cos(static_cast<float>(i * d_model + j));
+    Matrix world_model_output(wm_len, d_model);
+    for (int i = 0; i < wm_len; ++i)
+        for (int j = 0; j < d_model; ++j)
+            world_model_output(i, j) = 0.1f * std::sin(static_cast<float>(i + 3 * j));
+    auto make_memory = [&]() {
+        auto memory = std::make_unique<HippocampalMemory>(d_model, 4);
+        for (int slot = 0; slot < 3; ++slot) {
+            Matrix key(1, d_model), value(1, d_model);
+            for (int j = 0; j < d_model; ++j) {
+                key(0, j) = 0.1f * static_cast<float>(slot + j);
+                value(0, j) = key(0, j);
+            }
+            memory->write(key, value);
+        }
+        return memory;
+    };
+    auto memory_full = make_memory();
+    auto memory_cached = make_memory();
+    Matrix causal_mask = create_causal_mask(tgt_len);
+
+    Matrix plain = block.forward(decoder_input, encoder_output, causal_mask);
+    Matrix full = block.forward(decoder_input, encoder_output, causal_mask, nullptr,
+                                &world_model_output, nullptr, memory_full.get(), 0.3f, 0.9f);
+    KVCache self_cache, cross_cache;
+    Matrix cached = block.forward_with_cache(decoder_input, encoder_output, causal_mask,
+                                             &self_cache, &cross_cache, nullptr, true,
+                                             &world_model_output, nullptr, memory_cached.get(),
+                                             0.3f, 0.9f);
+
+    ASSERT_FALSE(matrices_equal(plain, full)) << "the open gates should change the output";
+    EXPECT_TRUE(matrices_equal(full, cached, 1e-5f));
+}

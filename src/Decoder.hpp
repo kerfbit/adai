@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
-// @adai-version: 0.16.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.17.0
+// @adai-reviewed: 2026-10-20
 
 
 #include <algorithm>
@@ -201,7 +201,11 @@ class LLMDecoder {
      *   3. Clear cache when starting new sequence
      */
     Matrix forward_with_cache(const std::vector<int>& token_ids, DecoderKVCache& kv_cache,
-                              const Matrix* encoder_output = nullptr, bool use_cache = true);
+                              const Matrix* encoder_output = nullptr, bool use_cache = true,
+                              const Matrix* world_model_output = nullptr,
+                              HippocampalMemory* memory = nullptr, float repetition_alpha = 0.0f,
+                              float repetition_decay = 0.95f, float cross_reference_alpha = 0.0f,
+                              float association_decay = 0.95f);
 
     /**
      * Backward pass for training
@@ -364,8 +368,14 @@ class LLMDecoder {
      * @param encoder_out   GPU-resident encoder output [src_len, d_model]
      * @return GPU matrix [tgt_len, d_model] (decoder output, before lm_head)
      */
+    // world_model_out/memory and the knobs: the gated paths, passed to every block (TD-342).
     adai::gpu::GPUMatrix gpu_decode(const std::vector<int>& token_ids,
-                                    const adai::gpu::GPUMatrix& encoder_out);
+                                    const adai::gpu::GPUMatrix& encoder_out,
+                                    const adai::gpu::GPUMatrix* world_model_out = nullptr,
+                                    HippocampalMemory* memory = nullptr,
+                                    float repetition_alpha = 0.0f, float repetition_decay = 0.95f,
+                                    float cross_reference_alpha = 0.0f,
+                                    float association_decay = 0.95f);
     /**
      * GPU backward through decoder blocks (lm_head grad passed in as dout).
      * @param dout  Upstream gradient [tgt_len, d_model]
@@ -392,7 +402,12 @@ class LLMDecoder {
      */
     adai::gpu::GPUMatrix gpu_decode_step(const std::vector<int>& new_token_ids,
                                          adai::gpu::GPUDecoderKVCache& kv_cache,
-                                         const adai::gpu::GPUMatrix& encoder_out);
+                                         const adai::gpu::GPUMatrix& encoder_out,
+                                         const adai::gpu::GPUMatrix* world_model_out = nullptr,
+                                         HippocampalMemory* memory = nullptr,
+                                         float repetition_alpha = 0.0f, float repetition_decay = 0.95f,
+                                         float cross_reference_alpha = 0.0f,
+                                         float association_decay = 0.95f);
 
     LayerNorm* get_final_norm_dec() {
         return final_norm.get();

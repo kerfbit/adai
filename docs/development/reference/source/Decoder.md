@@ -210,3 +210,10 @@ downloading the gradient for a host backward. `gpu_upload_weights()`, `gpu_downl
 
 `gpu_decode_step()` used to compute its positional row inline, including past `max_seq_length`. It now uses the table rows, so like the full
 forward it adds none past the table (TD-347 on the GPU path; one of TD-478's formula copies removed).
+
+---
+
+## Addendum (October 20, 2026): gated inputs in cached and GPU decoding (TD-342)
+
+`forward_with_cache()`, `gpu_decode()` and `gpu_decode_step()` take the world-model output, memory and hippocampal settings and pass
+them to every block, as `forward_with_encoder()` does. Each block applies them only if its gated path exists.

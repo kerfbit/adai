@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-174 forward_with_scores added)
-// @adai-version: 0.14.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.15.0
+// @adai-reviewed: 2026-10-20
 
 #include "CrossAttention.hpp"
 #include "gpu/GPUParamSync.hpp"
@@ -862,7 +862,8 @@ void ca_gpu_scatter_head_columns(adai::gpu::GPUMatrix& dst, int start,
 // TODO: See TD-301 in TECHNICAL_DEBT.md - GPU path ignores LoRA and skips shape validation
 adai::gpu::GPUMatrix CrossAttention::gpu_forward(const adai::gpu::GPUMatrix& query,
                                                  const adai::gpu::GPUMatrix& kv,
-                                                 const adai::gpu::GPUMatrix* mask) {
+                                                 const adai::gpu::GPUMatrix* mask,
+                                                 const adai::gpu::GPUMatrix* score_bias) {
     if (!gpu_)
         gpu_upload_weights();
     const int tgt = query.rows;
@@ -903,6 +904,9 @@ adai::gpu::GPUMatrix CrossAttention::gpu_forward(const adai::gpu::GPUMatrix& que
 
         adai::gpu::GPUMatrix scores_h = Q_h * K_h.transpose();
         scores_h = scores_h.scale(scale);
+        if (score_bias != nullptr) {
+            scores_h = scores_h + *score_bias;  // TD-342, as forward_with_scores()
+        }
         if (mask != nullptr) {
             scores_h.masked_fill_inplace(*mask, -1e9f);
         }
@@ -915,6 +919,22 @@ adai::gpu::GPUMatrix CrossAttention::gpu_forward(const adai::gpu::GPUMatrix& que
 
     gpu_->cached_attn_out = std::move(concatenated);
     return gpu_->cached_attn_out * gpu_->Wo;
+}
+
+Matrix CrossAttention::gpu_last_mean_attention_weights() const {
+    if (!gpu_ || gpu_->cached_head_weights.empty()) {
+        return Matrix();
+    }
+    const auto& first = gpu_->cached_head_weights[0];
+    Matrix mean(first.rows, first.cols);
+    const float inv_heads = 1.0f / static_cast<float>(gpu_->cached_head_weights.size());
+    for (const auto& head : gpu_->cached_head_weights) {
+        Matrix w = Matrix::from_gpu(head);
+        for (int i = 0; i < w.rows; ++i)
+            for (int j = 0; j < w.cols; ++j)
+                mean(i, j) += w(i, j) * inv_heads;
+    }
+    return mean;
 }
 
 // TODO: See TD-301 in TECHNICAL_DEBT.md - GPU path ignores LoRA and skips shape validation

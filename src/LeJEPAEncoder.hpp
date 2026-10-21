@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-17
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-10-20
 
 #include <memory>
 #include <random>
@@ -18,6 +18,9 @@
 #include "Predictor.hpp"
 #include "SIGReg.hpp"
 #include "TokenEmbedding.hpp"
+#ifdef ADAI_ENABLE_GPU
+#include "gpu/MatrixGPU.hpp"
+#endif
 
 /**
  * LeJEPAEncoder (LeJEPA world-model plan, LJ-2a/LJ-2b / TD-177/TD-178)
@@ -292,4 +295,18 @@ class LeJEPAEncoder {
     float get_last_sigreg_variance_stddev() const {
         return last_sigreg_variance_stddev_;
     }
+
+#ifdef ADAI_ENABLE_GPU
+    /**
+     * TD-342: encode() on the device, for the frozen world model whose output feeds the
+     * decoder's gated path during GPU training and generation (it used to run on the CPU every
+     * sample). Same tokenization and truncation as encode(); only the token IDs cross. Weights
+     * are uploaded on first use and again after load(); inference only (no backward).
+     */
+    adai::gpu::GPUMatrix gpu_encode(const std::string& text);
+
+   private:
+    bool gpu_weights_current_ = false;
+    std::unique_ptr<adai::gpu::GPUMatrix> gpu_pe_;
+#endif
 };

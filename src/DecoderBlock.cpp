@@ -1,10 +1,11 @@
 // @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap; TD-194 gated cross-reference pull + Hebbian association strengthening added to the hippocampal path)
-// @adai-version: 1.6.0
+// @adai-version: 1.7.0
 // @adai-reviewed: 2026-10-20
 
 #include "DecoderBlock.hpp"
 #include "gpu/GPUParamSync.hpp"
 #include <cmath>
+#include <deque>
 #include <fstream>
 #include <stdexcept>
 #include <vector>
@@ -102,6 +103,132 @@ Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
         }
     }
 
+    apply_gated_paths(residual2, world_model_output, world_model_mask, memory, repetition_alpha,
+                      repetition_decay, cross_reference_alpha, association_decay);
+
+    cached_residual2 = residual2;
+
+    // Step 5: Pre-feedforward layer normalization, then feed-forward network
+    Matrix normed3 = norm3->forward(residual2);
+    Matrix ff_out = feed_forward->forward(normed3);
+    cached_ff_output = ff_out;
+
+    // Step 6: Third residual connection (residual2 + ff output) — the block's
+    // output is unnormalized; LLMDecoder's final_norm normalizes the
+    // accumulated residual stream once, after the last block.
+    Matrix residual3(residual2.rows, residual2.cols);
+    for (int i = 0; i < residual2.rows; ++i) {
+        for (int j = 0; j < residual2.cols; ++j) {
+            residual3(i, j) = residual2(i, j) + ff_out(i, j);
+        }
+    }
+    cached_residual3 = residual3;
+
+    return residual3;
+}
+
+namespace {
+
+// TD-342: the hippocampal path's per-slot score bias, shared by the CPU and GPU forwards (TD-180,
+// TD-194). Rows are the attention's query rows.
+Matrix hippocampal_score_bias(HippocampalMemory& memory_ref, int rows, float repetition_alpha,
+                              float cross_reference_alpha) {
+    HippocampalMemory* memory = &memory_ref;
+    const int n_slots = memory->size();
+    // score_bias[i][slot] = -repetition_alpha * coverage[slot]
+    //                     + cross_reference_alpha * tanh(sum_j(association[slot][j] * coverage[j]))
+    // (TD-194's own second term added below), broadcast across every query row — both terms
+    // are per-slot quantities, not per-query-position (same convention CrossAttention's own
+    // mask broadcasting already uses).
+    std::deque<float>& coverage = memory->coverage_vector();
+    std::deque<std::deque<float>>& association = memory->association_matrix();
+
+    // TD-194 gated cross-reference pull: a slot strongly associated with other *currently
+    // recently-used* slots (their own coverage, from prior decode steps — this step's own
+    // attention hasn't happened yet) gets pulled toward attention this step too. tanh keeps
+    // the pull bounded regardless of how large association/coverage grow, the same gating
+    // idiom gate_h's own blend below already uses. Computed once per slot (not per query row)
+    // since neither association nor coverage vary across query rows.
+    std::vector<float> cross_ref_boost(n_slots, 0.0f);
+    if (cross_reference_alpha != 0.0f) {
+        for (int slot = 0; slot < n_slots; ++slot) {
+            float signal = 0.0f;
+            for (int other = 0; other < n_slots; ++other) {
+                if (other != slot) {
+                    signal += association[slot][other] * coverage[other];
+                }
+            }
+            cross_ref_boost[slot] = cross_reference_alpha * std::tanh(signal);
+        }
+    }
+
+    Matrix score_bias(rows, n_slots);
+    for (int i = 0; i < rows; ++i) {
+        for (int slot = 0; slot < n_slots; ++slot) {
+            score_bias(i, slot) = -repetition_alpha * coverage[slot] + cross_ref_boost[slot];
+        }
+    }
+    return score_bias;
+}
+
+// TD-342: the coverage and association update after the hippocampal attention, shared by the CPU
+// and GPU forwards. attn_weights is the mean-across-heads [rows, n_slots] softmax output.
+void update_hippocampal_memory(HippocampalMemory& memory_ref, const Matrix& attn_weights,
+                               float repetition_decay, float association_decay) {
+    HippocampalMemory* memory = &memory_ref;
+    const int n_slots = memory->size();
+    std::deque<float>& coverage = memory->coverage_vector();
+    std::deque<std::deque<float>>& association = memory->association_matrix();
+    // Coverage update: decay-then-accumulate (per the plan's own Component 6 pseudocode).
+    // Self-bounding by construction — decay_coverage() runs before accumulation, and the
+    // per-slot mean attention weight added below is itself in [0, 1] (a softmax output), so
+    // coverage[slot] converges to at most 1 / (1 - repetition_decay) regardless of how many
+    // decode steps hammer the same slot. get_last_attention_weights() is
+    // [query_rows, n_slots]; averaged over query rows to get one per-slot increment,
+    // matching the plan's own "called once per decode step" framing generalized to a
+    // multi-row (e.g. teacher-forced training) call.
+    // TODO: See TD-343 in TECHNICAL_DEBT.md - mutates memory on every forward (training, validation, each beam hypothesis), not once per decode step
+    memory->decay_coverage(repetition_decay);
+    const float inv_rows = 1.0f / static_cast<float>(attn_weights.rows);
+    for (int slot = 0; slot < n_slots; ++slot) {
+        float mean_weight = 0.0f;
+        for (int i = 0; i < attn_weights.rows; ++i) {
+            mean_weight += attn_weights(i, slot);
+        }
+        coverage[slot] += mean_weight * inv_rows;
+    }
+
+    // TD-194: Hebbian cross-reference strengthening — any two slots attended together in the
+    // SAME query row this step ("used close together") get their association bumped by their
+    // co-activation (the product of their attention weights, averaged over query rows,
+    // mirroring coverage's own per-slot-mean-weight convention above). Self-bounding the same
+    // way coverage is: decay runs before accumulation, and each co-activation term is itself
+    // a product of two [0, 1] softmax outputs, so association[a][b] converges to at most
+    // 1 / (1 - association_decay) regardless of how often the pair co-occurs.
+    memory->decay_associations(association_decay);
+    for (int a = 0; a < n_slots; ++a) {
+        for (int b = a + 1; b < n_slots; ++b) {
+            float coactivation = 0.0f;
+            for (int i = 0; i < attn_weights.rows; ++i) {
+                coactivation += attn_weights(i, a) * attn_weights(i, b);
+            }
+            coactivation *= inv_rows;
+            if (coactivation != 0.0f) {
+                association[a][b] += coactivation;
+                association[b][a] += coactivation;
+            }
+        }
+    }
+}
+
+}  // namespace
+
+// Steps 4a/4b of forward() (TD-180), shared with forward_with_cache() (TD-342) so cached and
+// uncached decoding apply the gated paths identically.
+void DecoderBlock::apply_gated_paths(Matrix& residual2, const Matrix* world_model_output,
+                                     const Matrix* world_model_mask, HippocampalMemory* memory,
+                                     float repetition_alpha, float repetition_decay,
+                                     float cross_reference_alpha, float association_decay) {
     // Step 4a (TD-180): gated world-model cross-attention. No-op unless both a real input was
     // supplied AND this instance's own path was allocated at construction — either condition
     // alone reproduces pre-TD-180 output exactly, since `residual2` above is untouched
@@ -130,43 +257,10 @@ Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
         (void)values;  // see forward()'s own doc comment: keys double as CrossAttention's
                         // kv_input, so both K and V are derived from them — correct when a
                         // slot's value equals its key (the documented common case).
-        const int n_slots = memory->size();
-
         Matrix normed_hippocampal = norm_hippocampal->forward(residual2);
 
-        // score_bias[i][slot] = -repetition_alpha * coverage[slot]
-        //                     + cross_reference_alpha * tanh(sum_j(association[slot][j] * coverage[j]))
-        // (TD-194's own second term added below), broadcast across every query row — both terms
-        // are per-slot quantities, not per-query-position (same convention CrossAttention's own
-        // mask broadcasting already uses).
-        std::deque<float>& coverage = memory->coverage_vector();
-        std::deque<std::deque<float>>& association = memory->association_matrix();
-
-        // TD-194 gated cross-reference pull: a slot strongly associated with other *currently
-        // recently-used* slots (their own coverage, from prior decode steps — this step's own
-        // attention hasn't happened yet) gets pulled toward attention this step too. tanh keeps
-        // the pull bounded regardless of how large association/coverage grow, the same gating
-        // idiom gate_h's own blend below already uses. Computed once per slot (not per query row)
-        // since neither association nor coverage vary across query rows.
-        std::vector<float> cross_ref_boost(n_slots, 0.0f);
-        if (cross_reference_alpha != 0.0f) {
-            for (int slot = 0; slot < n_slots; ++slot) {
-                float signal = 0.0f;
-                for (int other = 0; other < n_slots; ++other) {
-                    if (other != slot) {
-                        signal += association[slot][other] * coverage[other];
-                    }
-                }
-                cross_ref_boost[slot] = cross_reference_alpha * std::tanh(signal);
-            }
-        }
-
-        Matrix score_bias(normed_hippocampal.rows, n_slots);
-        for (int i = 0; i < normed_hippocampal.rows; ++i) {
-            for (int slot = 0; slot < n_slots; ++slot) {
-                score_bias(i, slot) = -repetition_alpha * coverage[slot] + cross_ref_boost[slot];
-            }
-        }
+        Matrix score_bias = hippocampal_score_bias(*memory, normed_hippocampal.rows,
+                                                   repetition_alpha, cross_reference_alpha);
 
         Matrix hm_attn =
             hippocampal_cross_attention->forward_with_scores(normed_hippocampal, keys, score_bias);
@@ -178,78 +272,24 @@ Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
             }
         }
 
-        // Coverage update: decay-then-accumulate (per the plan's own Component 6 pseudocode).
-        // Self-bounding by construction — decay_coverage() runs before accumulation, and the
-        // per-slot mean attention weight added below is itself in [0, 1] (a softmax output), so
-        // coverage[slot] converges to at most 1 / (1 - repetition_decay) regardless of how many
-        // decode steps hammer the same slot. get_last_attention_weights() is
-        // [query_rows, n_slots]; averaged over query rows to get one per-slot increment,
-        // matching the plan's own "called once per decode step" framing generalized to a
-        // multi-row (e.g. teacher-forced training) call.
-        // TODO: See TD-343 in TECHNICAL_DEBT.md - mutates memory on every forward (training, validation, each beam hypothesis), not once per decode step
-        memory->decay_coverage(repetition_decay);
-        const Matrix& attn_weights = hippocampal_cross_attention->get_last_attention_weights();
-        const float inv_rows = 1.0f / static_cast<float>(attn_weights.rows);
-        for (int slot = 0; slot < n_slots; ++slot) {
-            float mean_weight = 0.0f;
-            for (int i = 0; i < attn_weights.rows; ++i) {
-                mean_weight += attn_weights(i, slot);
-            }
-            coverage[slot] += mean_weight * inv_rows;
-        }
-
-        // TD-194: Hebbian cross-reference strengthening — any two slots attended together in the
-        // SAME query row this step ("used close together") get their association bumped by their
-        // co-activation (the product of their attention weights, averaged over query rows,
-        // mirroring coverage's own per-slot-mean-weight convention above). Self-bounding the same
-        // way coverage is: decay runs before accumulation, and each co-activation term is itself
-        // a product of two [0, 1] softmax outputs, so association[a][b] converges to at most
-        // 1 / (1 - association_decay) regardless of how often the pair co-occurs.
-        memory->decay_associations(association_decay);
-        for (int a = 0; a < n_slots; ++a) {
-            for (int b = a + 1; b < n_slots; ++b) {
-                float coactivation = 0.0f;
-                for (int i = 0; i < attn_weights.rows; ++i) {
-                    coactivation += attn_weights(i, a) * attn_weights(i, b);
-                }
-                coactivation *= inv_rows;
-                if (coactivation != 0.0f) {
-                    association[a][b] += coactivation;
-                    association[b][a] += coactivation;
-                }
-            }
-        }
+        update_hippocampal_memory(*memory,
+                                  hippocampal_cross_attention->get_last_attention_weights(),
+                                  repetition_decay, association_decay);
     }
-
-    cached_residual2 = residual2;
-
-    // Step 5: Pre-feedforward layer normalization, then feed-forward network
-    Matrix normed3 = norm3->forward(residual2);
-    Matrix ff_out = feed_forward->forward(normed3);
-    cached_ff_output = ff_out;
-
-    // Step 6: Third residual connection (residual2 + ff output) — the block's
-    // output is unnormalized; LLMDecoder's final_norm normalizes the
-    // accumulated residual stream once, after the last block.
-    Matrix residual3(residual2.rows, residual2.cols);
-    for (int i = 0; i < residual2.rows; ++i) {
-        for (int j = 0; j < residual2.cols; ++j) {
-            residual3(i, j) = residual2(i, j) + ff_out(i, j);
-        }
-    }
-    cached_residual3 = residual3;
-
-    return residual3;
 }
 
-// TODO: See TD-342 in TECHNICAL_DEBT.md - never runs the gated world-model/hippocampal paths (KV-cached generation ignores them)
 Matrix DecoderBlock::forward_with_cache(const Matrix& input, const Matrix& encoder_output,
                                         const Matrix& self_attn_mask, KVCache* self_attn_cache,
                                         KVCache* cross_attn_cache, const Matrix* cross_attn_mask,
-                                        bool use_cache) {
+                                        bool use_cache, const Matrix* world_model_output,
+                                        const Matrix* world_model_mask, HippocampalMemory* memory,
+                                        float repetition_alpha, float repetition_decay,
+                                        float cross_reference_alpha, float association_decay) {
     // If no caching, fall back to regular forward
     if (!use_cache || self_attn_cache == nullptr) {
-        return forward(input, encoder_output, self_attn_mask, cross_attn_mask);
+        return forward(input, encoder_output, self_attn_mask, cross_attn_mask, world_model_output,
+                       world_model_mask, memory, repetition_alpha, repetition_decay,
+                       cross_reference_alpha, association_decay);
     }
 
     // Cache input for backward pass (if needed for training)
@@ -287,6 +327,10 @@ Matrix DecoderBlock::forward_with_cache(const Matrix& input, const Matrix& encod
             residual2(i, j) = residual1(i, j) + cross_attn_out(i, j);
         }
     }
+    // TD-342: the gated paths, as in forward(). The world-model K/V are recomputed each decode
+    // step (not cached like the encoder's); the world-model sequence is short.
+    apply_gated_paths(residual2, world_model_output, world_model_mask, memory, repetition_alpha,
+                      repetition_decay, cross_reference_alpha, association_decay);
     cached_residual2 = residual2;
 
     // Step 5: Pre-feedforward layer normalization, then feed-forward network (no caching needed)
@@ -743,6 +787,28 @@ void DecoderBlock::load(const std::string& filepath) {
     }
 }
 
+float DecoderBlock::current_gate() {
+#ifdef ADAI_ENABLE_GPU
+    if (gated_gpu_) {
+        float value = 0.0f;
+        gated_gpu_->gate.download(&value, 1);
+        return value;
+    }
+#endif
+    return get_gate();
+}
+
+float DecoderBlock::current_gate_h() {
+#ifdef ADAI_ENABLE_GPU
+    if (gated_gpu_) {
+        float value = 0.0f;
+        gated_gpu_->gate_h.download(&value, 1);
+        return value;
+    }
+#endif
+    return get_gate_h();
+}
+
 void DecoderBlock::register_parameters_with_optimizer(Optimizer& optimizer) {
     // Register all sub-component parameters
     self_attention->set_optimizer(&optimizer);
@@ -769,7 +835,19 @@ void DecoderBlock::register_parameters_with_optimizer(Optimizer& optimizer) {
 }
 
 #ifdef ADAI_ENABLE_GPU
-// TODO: See TD-342 in TECHNICAL_DEBT.md - GPU path covers only the core sub-layers; gated paths are never uploaded or trained
+DecoderBlock::GatedGPUState& DecoderBlock::gated_gpu() {
+    if (!gated_gpu_) {
+        gated_gpu_ = std::make_unique<GatedGPUState>();
+        gated_gpu_->gate.upload(&gate.data[0][0], 1);
+        gated_gpu_->gate_h.upload(&gate_h.data[0][0], 1);
+        gated_gpu_->gate_grad.zero();
+        gated_gpu_->gate_h_grad.zero();
+    }
+    return *gated_gpu_;
+}
+
+// TD-342: the gated world-model/hippocampal sub-layers and their gates are device parameters
+// too, so GPU training trains them (they used to stay host-side and never ran on the GPU).
 void DecoderBlock::gpu_upload_weights() {
     self_attention->gpu_upload_weights();
     cross_attention->gpu_upload_weights();
@@ -777,10 +855,18 @@ void DecoderBlock::gpu_upload_weights() {
     norm1->gpu_upload_weights();
     norm2->gpu_upload_weights();
     norm3->gpu_upload_weights();
+    if (world_model_cross_attention) {
+        world_model_cross_attention->gpu_upload_weights();
+        norm_world->gpu_upload_weights();
+        gated_gpu().gate.upload(&gate.data[0][0], 1);
+    }
+    if (hippocampal_cross_attention) {
+        hippocampal_cross_attention->gpu_upload_weights();
+        norm_hippocampal->gpu_upload_weights();
+        gated_gpu().gate_h.upload(&gate_h.data[0][0], 1);
+    }
 }
 
-// The gated world-model/hippocampal sub-layers have no GPU mirrors (TD-342), so they stay host
-// parameters of the optimizer.
 void DecoderBlock::gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& out, int layer) {
     self_attention->gpu_collect_parameters(out, layer);
     cross_attention->gpu_collect_parameters(out, layer);
@@ -788,6 +874,16 @@ void DecoderBlock::gpu_collect_parameters(std::vector<adai::gpu::GPUParamRef>& o
     norm1->gpu_collect_parameters(out, layer);
     norm2->gpu_collect_parameters(out, layer);
     norm3->gpu_collect_parameters(out, layer);
+    if (world_model_cross_attention) {
+        world_model_cross_attention->gpu_collect_parameters(out, layer);
+        norm_world->gpu_collect_parameters(out, layer);
+        adai::gpu::add_param(out, gate, gated_gpu().gate, gated_gpu().gate_grad, layer);
+    }
+    if (hippocampal_cross_attention) {
+        hippocampal_cross_attention->gpu_collect_parameters(out, layer);
+        norm_hippocampal->gpu_collect_parameters(out, layer);
+        adai::gpu::add_param(out, gate_h, gated_gpu().gate_h, gated_gpu().gate_h_grad, layer);
+    }
 }
 
 void DecoderBlock::gpu_download_weights() {
@@ -797,6 +893,20 @@ void DecoderBlock::gpu_download_weights() {
     norm1->gpu_download_weights();
     norm2->gpu_download_weights();
     norm3->gpu_download_weights();
+    if (world_model_cross_attention) {
+        world_model_cross_attention->gpu_download_weights();
+        norm_world->gpu_download_weights();
+        if (gated_gpu_) {
+            adai::gpu::download_into(gated_gpu_->gate, gate);
+        }
+    }
+    if (hippocampal_cross_attention) {
+        hippocampal_cross_attention->gpu_download_weights();
+        norm_hippocampal->gpu_download_weights();
+        if (gated_gpu_) {
+            adai::gpu::download_into(gated_gpu_->gate_h, gate_h);
+        }
+    }
 }
 
 void DecoderBlock::gpu_download_grads() {
@@ -806,6 +916,21 @@ void DecoderBlock::gpu_download_grads() {
     norm1->gpu_download_grads();
     norm2->gpu_download_grads();
     norm3->gpu_download_grads();
+    if (world_model_cross_attention) {
+        world_model_cross_attention->gpu_download_grads();
+        norm_world->gpu_download_grads();
+    }
+    if (hippocampal_cross_attention) {
+        hippocampal_cross_attention->gpu_download_grads();
+        norm_hippocampal->gpu_download_grads();
+    }
+    if (gated_gpu_) {
+        float g = 0.0f;
+        gated_gpu_->gate_grad.download(&g, 1);
+        gate_grad.data[0][0] += g;
+        gated_gpu_->gate_h_grad.download(&g, 1);
+        gate_h_grad.data[0][0] += g;
+    }
 }
 
 void DecoderBlock::gpu_zero_grads() {
@@ -815,11 +940,75 @@ void DecoderBlock::gpu_zero_grads() {
     norm1->gpu_zero_grads();
     norm2->gpu_zero_grads();
     norm3->gpu_zero_grads();
+    if (world_model_cross_attention) {
+        world_model_cross_attention->gpu_zero_grads();
+        norm_world->gpu_zero_grads();
+    }
+    if (hippocampal_cross_attention) {
+        hippocampal_cross_attention->gpu_zero_grads();
+        norm_hippocampal->gpu_zero_grads();
+    }
+    if (gated_gpu_) {
+        gated_gpu_->gate_grad.zero();
+        gated_gpu_->gate_h_grad.zero();
+    }
+}
+
+// Steps 4a/4b of forward(), on the device. The world-model path transfers nothing. The
+// hippocampal path keeps its coverage/association state on the host (HippocampalMemory), so
+// per call it uploads the memory keys and score bias (slots x d_model, rows x slots) and
+// downloads the mean attention weights (rows x slots) for the update — small, and the
+// algorithm's state, not training math.
+void DecoderBlock::gpu_apply_gated_paths(adai::gpu::GPUMatrix& res2,
+                                         const adai::gpu::GPUMatrix* world_model_out,
+                                         HippocampalMemory* memory, float repetition_alpha,
+                                         float repetition_decay, float cross_reference_alpha,
+                                         float association_decay) {
+    const bool wm = world_model_out != nullptr && world_model_out->rows > 0 &&
+                    world_model_cross_attention != nullptr;
+    const bool hm = memory != nullptr && memory->size() > 0 && hippocampal_cross_attention != nullptr;
+    if (!wm && !hm) {
+        if (gated_gpu_) {
+            gated_gpu_->wm_active = gated_gpu_->hm_active = false;
+        }
+        return;
+    }
+    GatedGPUState& g = gated_gpu();
+    const int n = res2.rows * res2.cols;
+    g.wm_active = wm;
+    if (wm) {
+        adai::gpu::GPUMatrix normed_world = norm_world->gpu_forward(res2);
+        g.wm_attn = std::make_unique<adai::gpu::GPUMatrix>(
+            world_model_cross_attention->gpu_forward(normed_world, *world_model_out));
+        adai::gpu::gated_residual_add_gpu(res2.device_ptr(), g.wm_attn->device_ptr(),
+                                          g.gate.device_ptr(), n);
+    }
+    g.hm_active = hm;
+    if (hm) {
+        auto [keys, values] = memory->read_all();
+        (void)values;  // keys double as K/V, as in forward()
+        adai::gpu::GPUMatrix keys_dev = keys.to_gpu();
+        adai::gpu::GPUMatrix normed_hippocampal = norm_hippocampal->gpu_forward(res2);
+        Matrix bias = hippocampal_score_bias(*memory, res2.rows, repetition_alpha,
+                                             cross_reference_alpha);
+        adai::gpu::GPUMatrix bias_dev = bias.to_gpu();
+        g.hm_attn = std::make_unique<adai::gpu::GPUMatrix>(hippocampal_cross_attention->gpu_forward(
+            normed_hippocampal, keys_dev, nullptr, &bias_dev));
+        adai::gpu::gated_residual_add_gpu(res2.device_ptr(), g.hm_attn->device_ptr(),
+                                          g.gate_h.device_ptr(), n);
+        update_hippocampal_memory(*memory,
+                                  hippocampal_cross_attention->gpu_last_mean_attention_weights(),
+                                  repetition_decay, association_decay);
+    }
 }
 
 adai::gpu::GPUMatrix DecoderBlock::gpu_forward(const adai::gpu::GPUMatrix& input,
                                                const adai::gpu::GPUMatrix& encoder_out,
-                                               const adai::gpu::GPUMatrix* self_mask) {
+                                               const adai::gpu::GPUMatrix* self_mask,
+                                               const adai::gpu::GPUMatrix* world_model_out,
+                                               HippocampalMemory* memory, float repetition_alpha,
+                                               float repetition_decay, float cross_reference_alpha,
+                                               float association_decay) {
     // 1. norm1 -> masked self-attention -> residual1 (unnormalized)
     adai::gpu::GPUMatrix normed1 = norm1->gpu_forward(input);
     adai::gpu::GPUMatrix self_attn = self_attention->gpu_forward(normed1, self_mask);
@@ -829,6 +1018,8 @@ adai::gpu::GPUMatrix DecoderBlock::gpu_forward(const adai::gpu::GPUMatrix& input
     adai::gpu::GPUMatrix normed2 = norm2->gpu_forward(res1);
     adai::gpu::GPUMatrix cross_attn = cross_attention->gpu_forward(normed2, encoder_out);
     adai::gpu::GPUMatrix res2 = res1 + cross_attn;
+    gpu_apply_gated_paths(res2, world_model_out, memory, repetition_alpha, repetition_decay,
+                          cross_reference_alpha, association_decay);  // TD-342
 
     // 3. norm3 -> feed-forward -> residual3 (unnormalized — final_norm handles
     // normalization once, after the last block, at the LLMDecoder level)
@@ -840,10 +1031,13 @@ adai::gpu::GPUMatrix DecoderBlock::gpu_forward(const adai::gpu::GPUMatrix& input
 adai::gpu::GPUMatrix DecoderBlock::gpu_forward_with_cache(
     const adai::gpu::GPUMatrix& input, const adai::gpu::GPUMatrix& encoder_out,
     const adai::gpu::GPUMatrix& self_attn_mask, adai::gpu::GPUKVCache* self_attn_cache,
-    adai::gpu::GPUKVCache* cross_attn_cache, bool use_cache) {
+    adai::gpu::GPUKVCache* cross_attn_cache, bool use_cache,
+    const adai::gpu::GPUMatrix* world_model_out, HippocampalMemory* memory, float repetition_alpha,
+    float repetition_decay, float cross_reference_alpha, float association_decay) {
     // Identical structure to gpu_forward() above — only the two attention sub-layers change,
     // to their own *_with_cache() incremental equivalents. Feed-forward and every norm are
-    // exactly as in gpu_forward(), since neither depends on sequence position.
+    // exactly as in gpu_forward(), since neither depends on sequence position. The gated paths
+    // (TD-342) recompute their K/V each step, as the CPU forward_with_cache().
     adai::gpu::GPUMatrix normed1 = norm1->gpu_forward(input);
     adai::gpu::GPUMatrix self_attn = self_attention->gpu_forward_with_cache(
         normed1, &self_attn_mask, self_attn_cache, use_cache);
@@ -853,6 +1047,8 @@ adai::gpu::GPUMatrix DecoderBlock::gpu_forward_with_cache(
     adai::gpu::GPUMatrix cross_attn = cross_attention->gpu_forward_with_cache(
         normed2, encoder_out, nullptr, cross_attn_cache, use_cache);
     adai::gpu::GPUMatrix res2 = res1 + cross_attn;
+    gpu_apply_gated_paths(res2, world_model_out, memory, repetition_alpha, repetition_decay,
+                          cross_reference_alpha, association_decay);
 
     adai::gpu::GPUMatrix normed3 = norm3->gpu_forward(res2);
     adai::gpu::GPUMatrix ff_out = feed_forward->gpu_forward(normed3);
@@ -865,6 +1061,35 @@ std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> DecoderBlock::gpu_backward
     adai::gpu::GPUMatrix d_normed3 = feed_forward->gpu_backward(dout);
     adai::gpu::GPUMatrix d_res2_from_norm3 = norm3->gpu_backward(d_normed3);
     adai::gpu::GPUMatrix d_res2 = dout + d_res2_from_norm3;
+
+    // TD-342: the gated paths, in reverse of the forward (hippocampal, then world model), as
+    // backward(). Each adds its gate gradient on the device and its norm's input gradient into
+    // d_res2; the world-model output and memory keys get no gradient (frozen inputs).
+    if (gated_gpu_) {
+        const int n = d_res2.rows * d_res2.cols;
+        if (gated_gpu_->hm_active) {
+            adai::gpu::GPUMatrix d_hm(d_res2.rows, d_res2.cols);
+            adai::gpu::gated_residual_backward_gpu(d_res2.device_ptr(),
+                                                   gated_gpu_->hm_attn->device_ptr(),
+                                                   gated_gpu_->gate_h.device_ptr(),
+                                                   d_hm.device_ptr(),
+                                                   gated_gpu_->gate_h_grad.device_ptr(), n);
+            auto [d_normed_h, d_keys_unused] = hippocampal_cross_attention->gpu_backward(d_hm);
+            (void)d_keys_unused;
+            d_res2 = d_res2 + norm_hippocampal->gpu_backward(d_normed_h);
+        }
+        if (gated_gpu_->wm_active) {
+            adai::gpu::GPUMatrix d_wm(d_res2.rows, d_res2.cols);
+            adai::gpu::gated_residual_backward_gpu(d_res2.device_ptr(),
+                                                   gated_gpu_->wm_attn->device_ptr(),
+                                                   gated_gpu_->gate.device_ptr(),
+                                                   d_wm.device_ptr(),
+                                                   gated_gpu_->gate_grad.device_ptr(), n);
+            auto [d_normed_w, d_wm_unused] = world_model_cross_attention->gpu_backward(d_wm);
+            (void)d_wm_unused;
+            d_res2 = d_res2 + norm_world->gpu_backward(d_normed_w);
+        }
+    }
 
     // Residual2 split: d_res1 = d_res2 (direct) + norm2/cross-attn branch
     // cross_attention backward returns {d_query=d_normed2, d_kv=d_encoder}

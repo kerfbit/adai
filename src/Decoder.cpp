@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
-// @adai-version: 0.16.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.17.0
+// @adai-reviewed: 2026-10-20
 
 #include "Decoder.hpp"
 #include "gpu/GPUParamSync.hpp"
@@ -180,7 +180,10 @@ Matrix LLMDecoder::forward_with_mask(const std::vector<int>& token_ids, const Ma
 }
 
 Matrix LLMDecoder::forward_with_cache(const std::vector<int>& token_ids, DecoderKVCache& kv_cache,
-                                      const Matrix* encoder_output, bool use_cache) {
+                                      const Matrix* encoder_output, bool use_cache,
+                                      const Matrix* world_model_output, HippocampalMemory* memory,
+                                      float repetition_alpha, float repetition_decay,
+                                      float cross_reference_alpha, float association_decay) {
     int num_new_tokens = static_cast<int>(token_ids.size());
     int current_position = kv_cache.current_length();
     int total_seq_len = current_position + num_new_tokens;
@@ -244,16 +247,18 @@ Matrix LLMDecoder::forward_with_cache(const std::vector<int>& token_ids, Decoder
 
         if (encoder_output && encoder_output->rows > 0) {
             // Encoder-decoder mode with cross-attention
-            x = decoder_blocks[layer_idx]->forward_with_cache(x, *encoder_output, causal_mask,
-                                                              &self_attn_cache, &cross_attn_cache,
-                                                              nullptr, use_cache);
+            x = decoder_blocks[layer_idx]->forward_with_cache(
+                x, *encoder_output, causal_mask, &self_attn_cache, &cross_attn_cache, nullptr, use_cache,
+                world_model_output, nullptr, memory, repetition_alpha, repetition_decay,
+                cross_reference_alpha, association_decay);  // TD-342
         } else {
             // TODO: See TD-303 in TECHNICAL_DEBT.md - cross-attention still runs over this dummy input
             // Decoder-only mode (no cross-attention)
             Matrix empty_encoder(1, d_model);
-            x = decoder_blocks[layer_idx]->forward_with_cache(x, empty_encoder, causal_mask,
-                                                              &self_attn_cache, &cross_attn_cache,
-                                                              nullptr, use_cache);
+            x = decoder_blocks[layer_idx]->forward_with_cache(
+                x, empty_encoder, causal_mask, &self_attn_cache, &cross_attn_cache, nullptr, use_cache,
+                world_model_output, nullptr, memory, repetition_alpha, repetition_decay,
+                cross_reference_alpha, association_decay);  // TD-342
         }
         cached_decoder_outputs.push_back(x);
     }
@@ -514,7 +519,11 @@ void LLMDecoder::gpu_zero_grads() {
 }
 
 adai::gpu::GPUMatrix LLMDecoder::gpu_decode(const std::vector<int>& token_ids,
-                                            const adai::gpu::GPUMatrix& encoder_out) {
+                                            const adai::gpu::GPUMatrix& encoder_out,
+                                            const adai::gpu::GPUMatrix* world_model_out,
+                                            HippocampalMemory* memory, float repetition_alpha,
+                                            float repetition_decay, float cross_reference_alpha,
+                                            float association_decay) {
     const int tgt = static_cast<int>(token_ids.size());
 
     if (requires_grad) {
@@ -537,14 +546,21 @@ adai::gpu::GPUMatrix LLMDecoder::gpu_decode(const std::vector<int>& token_ids,
     }
 
     for (auto& block : decoder_blocks)
-        x = block->gpu_forward(x, encoder_out, &causal_mask);
+        x = block->gpu_forward(x, encoder_out, &causal_mask, world_model_out, memory,
+                               repetition_alpha, repetition_decay, cross_reference_alpha,
+                               association_decay);
 
     return final_norm->gpu_forward(x);
 }
 
 adai::gpu::GPUMatrix LLMDecoder::gpu_decode_step(const std::vector<int>& new_token_ids,
                                                  adai::gpu::GPUDecoderKVCache& kv_cache,
-                                                 const adai::gpu::GPUMatrix& encoder_out) {
+                                                 const adai::gpu::GPUMatrix& encoder_out,
+                                                 const adai::gpu::GPUMatrix* world_model_out,
+                                                 HippocampalMemory* memory, float repetition_alpha,
+                                                 float repetition_decay,
+                                                 float cross_reference_alpha,
+                                                 float association_decay) {
     const int num_new = static_cast<int>(new_token_ids.size());
     const int current_position = kv_cache.current_length();
     const int total_seq_len = current_position + num_new;
@@ -574,7 +590,8 @@ adai::gpu::GPUMatrix LLMDecoder::gpu_decode_step(const std::vector<int>& new_tok
     for (int layer_idx = 0; layer_idx < num_layers; ++layer_idx) {
         x = decoder_blocks[layer_idx]->gpu_forward_with_cache(
             x, encoder_out, causal_mask, &kv_cache.self_attention_cache(layer_idx),
-            &kv_cache.cross_attention_cache(layer_idx), /*use_cache=*/true);
+            &kv_cache.cross_attention_cache(layer_idx), /*use_cache=*/true, world_model_out, memory,
+            repetition_alpha, repetition_decay, cross_reference_alpha, association_decay);
     }
 
     return final_norm->gpu_forward(x);

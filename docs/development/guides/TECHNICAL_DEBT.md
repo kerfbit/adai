@@ -4,14 +4,18 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** October 19, 2026
-**Total Items:** 339
+**Last Updated:** October 20, 2026
+**Total Items:** 340
 **High Priority:** 36
-**Medium Priority:** 148
+**Medium Priority:** 149
 **Low Priority:** 155
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
+
+**October 20, 2026:** Filed [TD-548](#td-548-standalone-world-model-pool-and-checkpoint-share-one-directory) while verifying TD-342 end to end (MEDIUM,
+verified): in standalone mode, the `world_model` kind's local queue and the default world-model checkpoint are the same
+directory, so a LeJEPA pass fails and a chatbot pass doesn't attach its world model.
 
 **October 11, 2026:** Filed [TD-304](#td-304-session-counters-can-be-duplicated-and-daemonconfigstore-has-no-busy-timeout) through [TD-308](#td-308-session-counters-reuse-the-config-stores-table-and-scan-it-per-allocation) from the code-traced
 [DaemonConfigStore.md](../reference/source/DaemonConfigStore.md). Two are MEDIUM: the store has no
@@ -1188,10 +1192,10 @@ Every fix here is verified on CPU, or on the oneAPI CPU device for the SYCL kern
 retraining from scratch, since no existing checkpoint has correct GPU-trained weights (TD-358) or the encoder's own embedding (TD-538).
 
 **Model features run (October 20, 2026)**, chosen by the owner: the features that never learned. So far:
-- TD-341 (done in code: world-model and hippocampal gates are optimizer parameters).
+- TD-341 (done in code: world-model and hippocampal gates are optimizer parameters);
+- TD-342 (done in code: the gated paths in KV-cached generation and fully on the GPU, including the world model's encode).
 
-Next candidates: TD-342 (the GPU and KV-cached paths skip the gated layers), TD-427 (the LeJEPA predictor isn't saved), TD-502/503
-(SIGReg), TD-343 and TD-396.
+Next candidates: TD-427 (the LeJEPA predictor isn't saved), TD-502/503 (SIGReg), TD-343, TD-396 and TD-548.
 
 Analyzed September 12, 2026 to sequence the active items by dependency and risk rather than
 just priority label — several depend on each other or on a single owner decision, and the
@@ -2206,6 +2210,7 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-545: `incremental_trainer reset` Works on the Legacy Pool, Not the Trainer's Own](#td-545-incremental_trainer-reset-works-on-the-legacy-pool-not-the-trainers-own)
   - [TD-546: `retrain` Trains a Partly Trained Segmented File Twice](#td-546-retrain-trains-a-partly-trained-segmented-file-twice)
   - [TD-547: GPU Training Does the Token Embeddings on the Host](#td-547-gpu-training-does-the-token-embeddings-on-the-host)
+  - [TD-548: Standalone World-Model Pool and Checkpoint Share One Directory](#td-548-standalone-world-model-pool-and-checkpoint-share-one-directory)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -8045,13 +8050,16 @@ Tests:
 
 The first and third fail on the old code (gates exactly 0, output unchanged).
 
+**Follow-up (October 20, 2026, TD-342).** The gates now train on the GPU too, as device parameters, and the per-epoch log
+reads their live device values.
+
 ---
 
 ### TD-342: KV-Cached Generation and the GPU Path Skip the Gated Paths
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Transformer / DecoderBlock | October 11, 2026 | 4-8 hours |
+| MEDIUM | Open — code fix landed October 20, 2026 | Transformer / DecoderBlock | October 11, 2026 | 4-8 hours |
 
 Description:
 Found alongside TD-341, by inspection (documented in the class header). `forward_with_cache()` has no
@@ -8064,8 +8072,8 @@ Once TD-341 is fixed, inference behaviour will differ by generation strategy and
 
 Action Items:
 
-- [ ] Thread `world_model_output`/`memory` (and the hippocampal knobs) through `forward_with_cache()` and `LLMDecoder::forward_with_cache()`, caching the world-model K/V like the encoder's.
-- [ ] Add the gated paths to the GPU forward/backward and the upload/download/zero helpers, or refuse to enable them on GPU with a clear error.
+- [x] Thread `world_model_output`/`memory` (and the hippocampal knobs) through `forward_with_cache()` and `LLMDecoder::forward_with_cache()`, caching the world-model K/V like the encoder's.
+- [x] Add the gated paths to the GPU forward/backward and the upload/download/zero helpers, or refuse to enable them on GPU with a clear error.
 
 Location in code: `src/DecoderBlock.cpp` (`forward_with_cache()`, GPU functions); tagged `TODO: See TD-342`.
 
@@ -8074,6 +8082,49 @@ Files to Modify:
 - `src/DecoderBlock.{hpp,cpp}`
 - `src/Decoder.cpp`
 - `src/EncoderDecoderModel.cpp`
+
+**Fix (October 20, 2026).** The owner chose the full GPU scope.
+- **CPU cached generation:**
+  - `DecoderBlock::forward_with_cache()` and `LLMDecoder::forward_with_cache()` take the world-model output, memory and
+    hippocampal settings. Both forwards share one helper, `apply_gated_paths()`.
+  - The KV-cached `model_fn` in `generate_response()`/`generate_response_with_strategy()` passes them, so greedy and sampling
+    decoding use the world model and memory like beam search.
+  - The world-model K/V are recomputed each step rather than cached; the sequence is short.
+- **Gate kernels:** `gated_residual_add_gpu()`/`gated_residual_backward_gpu()`, in CUDA and SYCL. They read `tanh(gate)` from
+  a 1×1 device parameter and accumulate the gate gradient on the device.
+- **Decoder block on the GPU:**
+  - `gpu_forward()`/`gpu_forward_with_cache()` run both gated paths after the cross-attention residual, and `gpu_backward()`
+    backpropagates them in reverse order.
+  - The upload, download, collect and zero helpers include the gated sub-layers and both gates. `GPUOptimizer` therefore steps
+    them on the device: a gated model has no host groups.
+  - `current_gate()`/`current_gate_h()` read the live device values. `ChatbotTrainer`'s per-epoch gate log (TD-341) uses them,
+    since the host copies are refreshed only at checkpoints.
+- **Hippocampal path on the GPU:**
+  - `CrossAttention::gpu_forward()` takes an optional score bias (added after scaling, before the mask, as
+    `forward_with_scores()`), and `gpu_last_mean_attention_weights()` downloads the mean attention weights.
+  - The coverage and association state stays in `HippocampalMemory` on the host. Each call uploads the keys and score bias
+    and downloads the weights; both are small.
+  - The bias and the update are shared with the CPU path (`hippocampal_score_bias()`, `update_hippocampal_memory()`).
+- **World model on the GPU:** `LeJEPAEncoder::gpu_encode()` runs the frozen world model on the device. Its weights are
+  uploaded on first use and again after `load()`. `EncoderDecoderModel` uses it for GPU training (on the decoded input, as
+  `forward()`), for GPU generation, and for memory writes when the GPU is active.
+- **Memory writes:** GPU generation now writes the response to the memory, as the CPU paths do (TD-185); it never did.
+
+Tests:
+- **CPU:** `decoderblock_test.cpp`'s `CachedForwardAppliesTheGatedPaths` (cached equals full forward with both gates open).
+- **GPU** (`gpu_optimizer_test.cpp`, on the oneAPI CPU device):
+  - the gate kernels against the host formula;
+  - the GPU score bias against `forward_with_scores()`;
+  - a block's GPU gated forward and backward against the CPU (output, input gradient, both gate gradients, memory coverage);
+  - `gpu_encode()` against `encode()`;
+  - a gated model training on the device with 0 host groups and opening both gates of every block.
+- **Real binaries** (SYCL, CPU device): a LeJEPA pass, then a chatbot pass with the world model and memory attached. All 84
+  groups were stepped on the device and the world-model gates opened across two resumed passes.
+
+The memory gates stayed at 0 in that run, because training never writes the memory (only generation does). With nothing to
+attend to, the hippocampal path is inactive. That run also found TD-548.
+
+CUDA is compile-checked only.
 
 ---
 
@@ -8113,6 +8164,9 @@ Files to Modify:
 - `src/DecoderBlock.{hpp,cpp}`
 - `src/EncoderDecoderModel.cpp`
 - `src/HippocampalMemory.{hpp,cpp}`
+
+**Note (October 20, 2026, TD-342).** The GPU forward and KV-cached generation now update the memory too, through the same
+shared `update_hippocampal_memory()`, so this per-forward update also happens there.
 
 ---
 
@@ -14836,6 +14890,39 @@ host, small). The per-sample `gpu_synchronize()` (TD-390) also remains.
 
 Location in code: `src/TokenEmbedding.{hpp,cpp}`, `src/LLMEncoder.cpp` (`gpu_encode()`, `gpu_backward()`), `src/Decoder.cpp` (`gpu_decode()`,
 `gpu_backward()`), `src/gpu/MatrixGPU.cu`, `src/gpu/sycl/MatrixGPU_SYCL.cpp`.
+
+---
+
+### TD-548: Standalone World-Model Pool and Checkpoint Share One Directory
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / World model | October 20, 2026 | 1-2 hours |
+
+Description:
+Found while verifying TD-342 end to end, and reproduced with the real binaries on the oneAPI CPU device.
+- **The collision:** in standalone mode (no `REGISTRY_SERVER_URL`), `LocalTransport` keeps each kind's queue in
+  `<SESSION_DIR>/<kind>/` (TD-202). `<SESSION_DIR>/world_model/` is also the default world-model checkpoint directory.
+- **LeJEPA pass:** `dataset_manager --kind world_model add` creates that directory. `incremental_trainer --objective=lejepa`
+  then finds it, tries to load a checkpoint from it (`Failed to open file for reading: …/world_model/config.bin`), and the
+  pass exits 1.
+- **Chatbot pass:** `IncrementalTrainer::maybe_attach_world_model()` sees the same directory, fails to load, and continues
+  without the world model.
+- **Who is affected:** `--objective=lejepa` always uses `<SESSION_DIR>/world_model` (it ignores `WORLD_MODEL_ARTIFACT_PATH`),
+  so standalone world-model training can't be configured around this. Against `registry_server` the queue lives server-side,
+  so ai-machine isn't affected.
+
+Workaround: queue the LeJEPA data under another kind and pass `--dataset-kind` (e.g. `--dataset-kind chatbot`).
+
+Action Items:
+
+- [ ] Put the world-model checkpoint in its own directory (e.g. `<SESSION_DIR>/world_model_checkpoint`), with a fallback that
+  reads an old-layout checkpoint, or move the standalone pools under `<SESSION_DIR>/pools/<kind>/` with a migration.
+- [ ] Have `--objective=lejepa` honor `WORLD_MODEL_ARTIFACT_PATH`, like the chatbot attach.
+- [ ] Test a standalone LeJEPA pass, then a chatbot pass that attaches its world model.
+
+Location in code: `src/IncrementalTrainingTool.cpp` (the `lejepa` world-model directory), `src/IncrementalTrainer.cpp`
+(`maybe_attach_world_model()`), `src/DatasetRegistry.cpp` (`local_pool_dir()`).
 
 ---
 

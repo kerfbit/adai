@@ -11,7 +11,11 @@
 #include <random>
 #include <vector>
 
+#include "../src/CrossAttention.hpp"
+#include "../src/DecoderBlock.hpp"
 #include "../src/EncoderDecoderModel.hpp"
+#include "../src/HippocampalMemory.hpp"
+#include "../src/LeJEPAEncoder.hpp"
 #include "../src/GPUOptimizer.hpp"
 #include "../src/Matrix.hpp"
 #include "../src/Optimizer.hpp"
@@ -240,3 +244,181 @@ TEST(GPUOptimizerTest, DeviceEmbeddingMatchesTheHostLookupAndBackward) {
     EXPECT_NEAR(emb.get_gradient_norm(), ref.get_gradient_norm(), 1e-4f);
     EXPECT_THROW(emb.gpu_forward({50}, &pe_dev, 8), std::out_of_range);
 }
+
+// ============================================================================
+// TD-342: the gated world-model/hippocampal paths on the device
+// ============================================================================
+
+namespace {
+
+std::unique_ptr<HippocampalMemory> filled_memory(int d_model) {
+    auto memory = std::make_unique<HippocampalMemory>(d_model, 4);
+    for (int slot = 0; slot < 3; ++slot) {
+        Matrix key(1, d_model), value(1, d_model);
+        for (int j = 0; j < d_model; ++j) {
+            key(0, j) = 0.1f * std::sin(static_cast<float>(slot * 7 + j));
+            value(0, j) = key(0, j);
+        }
+        memory->write(key, value);
+    }
+    return memory;
+}
+
+Matrix causal(int n) {
+    Matrix m(n, n);
+    for (int i = 0; i < n; ++i)
+        for (int j = 0; j < n; ++j)
+            m(i, j) = (j <= i) ? 1.0f : 0.0f;
+    return m;
+}
+
+}  // namespace
+
+TEST(GPUGatedPathTest, GateKernelsMatchTheHostFormula) {
+    if (!gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    std::mt19937 rng(11);
+    const int n = 1000;
+    Matrix residual = random_matrix(1, n, rng, 1.0f), attn = random_matrix(1, n, rng, 1.0f);
+    Matrix d_res = random_matrix(1, n, rng, 1.0f);
+    const float g = 0.37f, t = std::tanh(g);
+
+    GPUMatrix res_dev = residual.to_gpu(), attn_dev = attn.to_gpu(), d_res_dev = d_res.to_gpu();
+    GPUMatrix gate_dev(1, 1), gate_grad_dev(1, 1), d_attn_dev(1, n);
+    gate_dev.upload(&g, 1);
+    const float start = 0.25f;
+    gate_grad_dev.upload(&start, 1);
+
+    adai::gpu::gated_residual_add_gpu(res_dev.device_ptr(), attn_dev.device_ptr(),
+                                      gate_dev.device_ptr(), n);
+    adai::gpu::gated_residual_backward_gpu(d_res_dev.device_ptr(), attn_dev.device_ptr(),
+                                           gate_dev.device_ptr(), d_attn_dev.device_ptr(),
+                                           gate_grad_dev.device_ptr(), n);
+    Matrix res_out = Matrix::from_gpu(res_dev), d_attn = Matrix::from_gpu(d_attn_dev);
+    float gate_grad = 0.0f;
+    gate_grad_dev.download(&gate_grad, 1);
+
+    double dot = 0.0;
+    for (int j = 0; j < n; ++j) {
+        EXPECT_NEAR(res_out(0, j), residual(0, j) + t * attn(0, j), 1e-5f);
+        EXPECT_NEAR(d_attn(0, j), t * d_res(0, j), 1e-5f);
+        dot += static_cast<double>(d_res(0, j)) * attn(0, j);
+    }
+    EXPECT_NEAR(gate_grad, start + (1.0f - t * t) * static_cast<float>(dot), 1e-3f);
+}
+
+// The score bias the hippocampal path adds before softmax, on the device, as
+// CrossAttention::forward_with_scores() on the host.
+TEST(GPUGatedPathTest, ScoreBiasMatchesForwardWithScores) {
+    if (!gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    std::mt19937 rng(5);
+    CrossAttention attn(16, 2);
+    Matrix query = random_matrix(3, 16, rng, 0.5f), kv = random_matrix(4, 16, rng, 0.5f);
+    Matrix bias = random_matrix(3, 4, rng, 1.0f);
+    Matrix cpu = attn.forward_with_scores(query, kv, bias);
+    attn.gpu_upload_weights();
+    GPUMatrix q_dev = query.to_gpu(), kv_dev = kv.to_gpu(), bias_dev = bias.to_gpu();
+    Matrix gpu = Matrix::from_gpu(attn.gpu_forward(q_dev, kv_dev, nullptr, &bias_dev));
+    EXPECT_LT(max_rel_diff(flat(gpu), flat(cpu)), 1e-4f);
+    EXPECT_LT(max_rel_diff(flat(attn.gpu_last_mean_attention_weights()),
+                           flat(attn.get_last_attention_weights())),
+              1e-4f);
+}
+
+// Both gated paths open, with a world-model output and a memory: the GPU forward and backward
+// match the CPU ones (output, input gradient, gate gradients), and the memory's coverage ends up
+// the same.
+TEST(GPUGatedPathTest, DecoderBlockGatedPathsMatchTheCpu) {
+    if (!gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    const int d = 16, tgt = 3, src = 4, wm_len = 3;
+    std::mt19937 rng(3);
+    DecoderBlock block(d, 2, 32, 0.1f, /*enable_world_model=*/true, /*enable_hippocampal=*/true);
+    block.set_gate(0.5f);
+    block.set_gate_h(-0.4f);
+    Matrix input = random_matrix(tgt, d, rng, 0.5f), enc = random_matrix(src, d, rng, 0.5f);
+    Matrix wm = random_matrix(wm_len, d, rng, 0.5f), dout = random_matrix(tgt, d, rng, 0.5f);
+    Matrix mask = causal(tgt);
+    auto mem_cpu = filled_memory(d);
+    auto mem_gpu = filled_memory(d);
+
+    block.zero_grad();
+    Matrix out_cpu = block.forward(input, enc, mask, nullptr, &wm, nullptr, mem_cpu.get(), 0.3f,
+                                   0.9f, 0.2f, 0.9f);
+    Matrix d_input_cpu = block.backward(dout);
+    const float gate_grad_cpu = block.get_gate_grad(), gate_h_grad_cpu = block.get_gate_h_grad();
+    ASSERT_NE(gate_grad_cpu, 0.0f);
+    ASSERT_NE(gate_h_grad_cpu, 0.0f);
+
+    block.gpu_upload_weights();
+    block.gpu_zero_grads();
+    GPUMatrix in_dev = input.to_gpu(), enc_dev = enc.to_gpu(), wm_dev = wm.to_gpu();
+    GPUMatrix mask_dev = mask.to_gpu(), dout_dev = dout.to_gpu();
+    Matrix out_gpu = Matrix::from_gpu(block.gpu_forward(in_dev, enc_dev, &mask_dev, &wm_dev,
+                                                        mem_gpu.get(), 0.3f, 0.9f, 0.2f, 0.9f));
+    auto [d_input_dev, d_enc_dev] = block.gpu_backward(dout_dev);
+    Matrix d_input_gpu = Matrix::from_gpu(d_input_dev);
+    block.zero_grad();
+    block.gpu_download_grads();  // adds the device gate gradients into the (zeroed) host ones
+
+    EXPECT_LT(max_rel_diff(flat(out_gpu), flat(out_cpu)), 1e-4f);
+    EXPECT_LT(max_rel_diff(flat(d_input_gpu), flat(d_input_cpu)), 1e-4f);
+    EXPECT_NEAR(block.get_gate_grad(), gate_grad_cpu, 1e-4f * std::max(1.0f, std::abs(gate_grad_cpu)));
+    EXPECT_NEAR(block.get_gate_h_grad(), gate_h_grad_cpu,
+                1e-4f * std::max(1.0f, std::abs(gate_h_grad_cpu)));
+    for (int slot = 0; slot < mem_cpu->size(); ++slot)
+        EXPECT_NEAR(mem_gpu->coverage_vector()[slot], mem_cpu->coverage_vector()[slot], 1e-5f);
+}
+
+TEST(GPUGatedPathTest, WorldModelGpuEncodeMatchesEncode) {
+    if (!gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    LeJEPAEncoder world_model(64, 32, 2, 4, 64, 32);
+    world_model.build_tokenizer({"the cat sat on the mat", "a dog ran far away home"}, 64);
+    const Matrix cpu = world_model.encode("the cat sat on the mat");
+    const Matrix gpu = Matrix::from_gpu(world_model.gpu_encode("the cat sat on the mat"));
+    ASSERT_EQ(gpu.rows, cpu.rows);
+    EXPECT_LT(max_rel_diff(flat(gpu), flat(cpu)), 1e-4f);
+}
+
+// A gated model trained on the device the way ChatbotTrainer does: every parameter, gates
+// included, is a device group, and the gates open.
+TEST(GPUGatedPathTest, GatedModelTrainsItsGatesOnTheDevice) {
+    if (!gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    const std::vector<std::string> corpus = {"the cat sat on the mat", "a dog ran far away home"};
+    EncoderDecoderModel model(64, 32, 1, 2, 2, 64, 32, /*world_model_inject_every_n_layers=*/1);
+    model.get_tokenizer()->build_vocab(corpus, 64);
+    auto world_model = std::make_unique<LeJEPAEncoder>(64, 32, 1, 2, 64, 32);
+    world_model->build_tokenizer(corpus, 64);
+    world_model->set_requires_grad(false);
+    model.set_world_model(std::move(world_model));
+    model.set_hippocampal_memory(filled_memory(32));
+    model.set_training(true);
+
+    Optimizer opt(OptimizerType::ADAMW, 0.01f);
+    model.register_parameters(opt);
+    model.gpu_init_training();
+    GPUOptimizer gpu(opt, model.gpu_collect_parameters());
+    EXPECT_EQ(gpu.host_group_count(), 0u) << "the gated sub-layers and gates must be device groups";
+
+    BPETokenizer* tok = model.get_tokenizer();
+    const std::vector<int> in = tok->encode("the cat sat", false);
+    const std::vector<int> tgt =
+        EncoderDecoderModel::strip_leading_bos(tok->encode("on the mat", true), 2);
+    for (int step = 0; step < 3; ++step) {
+        model.gpu_zero_grads();
+        model.gpu_forward(in, tgt);
+        model.gpu_backward(1.0f);
+        gpu.gradient_sq_norms();
+        gpu.step(1.0f);
+    }
+    model.gpu_download_weights();
+    for (int l = 0; l < model.get_decoder()->get_num_layers(); ++l) {
+        DecoderBlock* block = model.get_decoder()->get_decoder_block(l);
+        EXPECT_NE(block->get_gate(), 0.0f) << "block " << l << " world-model gate";
+        EXPECT_NE(block->get_gate_h(), 0.0f) << "block " << l << " memory gate";
+    }
+}
+

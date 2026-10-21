@@ -298,3 +298,11 @@ This file replaces `docs/development/api/attention/cross-attention.md` (v1.1, Ja
 - "use cases" for translation, captioning and similar;
 - future-enhancement wish lists (MQA/GQA/Flash attention);
 - a duplicated "Optimizer Usage Patterns"/"Recent Updates" section that appeared twice.
+
+---
+
+## Addendum (October 20, 2026): GPU score bias (TD-342)
+
+`gpu_forward()` takes an optional `score_bias` ([tgt, src], the same for every head, added after scaling and before the mask, as
+`forward_with_scores()`). `gpu_last_mean_attention_weights()` downloads the mean-across-heads weights of the last `gpu_forward()`,
+as `get_last_attention_weights()`. Backward needs no change. Test: `gpu_optimizer_test.cpp`'s `ScoreBiasMatchesForwardWithScores`.

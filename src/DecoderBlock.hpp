@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap; TD-194 gated cross-reference pull + Hebbian association strengthening added to the hippocampal path)
-// @adai-version: 1.6.0
+// @adai-version: 1.7.0
 // @adai-reviewed: 2026-10-20
 
 
@@ -117,6 +117,13 @@ class DecoderBlock {
     bool hippocampal_path_active_{false};
     Matrix cached_hm_attn;
 
+    /// Steps 4a/4b of forward(): add the gated world-model and hippocampal paths to residual2.
+    /// Shared by forward() and forward_with_cache() (TD-342).
+    void apply_gated_paths(Matrix& residual2, const Matrix* world_model_output,
+                           const Matrix* world_model_mask, HippocampalMemory* memory,
+                           float repetition_alpha, float repetition_decay,
+                           float cross_reference_alpha, float association_decay);
+
     // Hyperparameters
     int d_model;
     int num_heads;
@@ -176,6 +183,11 @@ class DecoderBlock {
     float get_gate() const {
         return gate.data[0][0];
     }
+
+    /** TD-341/TD-342: the live gate values, read from the device during GPU training (where
+     *  the host copies are refreshed only at checkpoints), else get_gate()/get_gate_h(). */
+    float current_gate();
+    float current_gate_h();
 
     /** TD-180: hippocampal gate's own current value — same metric role as get_gate(), separate
      *  series. */
@@ -310,7 +322,11 @@ class DecoderBlock {
     Matrix forward_with_cache(const Matrix& input, const Matrix& encoder_output,
                               const Matrix& self_attn_mask, KVCache* self_attn_cache,
                               KVCache* cross_attn_cache, const Matrix* cross_attn_mask = nullptr,
-                              bool use_cache = true);
+                              bool use_cache = true, const Matrix* world_model_output = nullptr,
+                              const Matrix* world_model_mask = nullptr,
+                              HippocampalMemory* memory = nullptr, float repetition_alpha = 0.0f,
+                              float repetition_decay = 0.95f, float cross_reference_alpha = 0.0f,
+                              float association_decay = 0.95f);
 
     /**
      * Backward pass through decoder block
@@ -436,10 +452,17 @@ class DecoderBlock {
     void gpu_download_weights();
     void gpu_download_grads();
     void gpu_zero_grads();
-    // encoder_out: cached GPU encoder output [src_len, d_model]
+    // encoder_out: cached GPU encoder output [src_len, d_model]. world_model_out/memory and the
+    // hippocampal knobs: the gated paths, as forward() (TD-342); each is a no-op unless its
+    // input is given and the path was allocated.
     adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& input,
                                      const adai::gpu::GPUMatrix& encoder_out,
-                                     const adai::gpu::GPUMatrix* self_mask = nullptr);
+                                     const adai::gpu::GPUMatrix* self_mask = nullptr,
+                                     const adai::gpu::GPUMatrix* world_model_out = nullptr,
+                                     HippocampalMemory* memory = nullptr,
+                                     float repetition_alpha = 0.0f, float repetition_decay = 0.95f,
+                                     float cross_reference_alpha = 0.0f,
+                                     float association_decay = 0.95f);
     // Returns {grad_input, grad_encoder_output} — gradient w.r.t. decoder input,
     // and gradient w.r.t. this block's cross-attention encoder input.
     std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> gpu_backward(
@@ -467,6 +490,35 @@ class DecoderBlock {
                                                 const adai::gpu::GPUMatrix& self_attn_mask,
                                                 adai::gpu::GPUKVCache* self_attn_cache,
                                                 adai::gpu::GPUKVCache* cross_attn_cache,
-                                                bool use_cache = true);
+                                                bool use_cache = true,
+                                                const adai::gpu::GPUMatrix* world_model_out = nullptr,
+                                                HippocampalMemory* memory = nullptr,
+                                                float repetition_alpha = 0.0f,
+                                                float repetition_decay = 0.95f,
+                                                float cross_reference_alpha = 0.0f,
+                                                float association_decay = 0.95f);
+
+   private:
+    // TD-342: device state of the gated paths. The gates live here as 1x1 device parameters
+    // (stepped by GPUOptimizer, read by the gated-residual kernels), with the gated outputs
+    // kept for backward. Created on first use, after the GPU is initialized.
+    struct GatedGPUState {
+        adai::gpu::GPUMatrix gate{1, 1};
+        adai::gpu::GPUMatrix gate_grad{1, 1};
+        adai::gpu::GPUMatrix gate_h{1, 1};
+        adai::gpu::GPUMatrix gate_h_grad{1, 1};
+        std::unique_ptr<adai::gpu::GPUMatrix> wm_attn;
+        std::unique_ptr<adai::gpu::GPUMatrix> hm_attn;
+        bool wm_active = false;
+        bool hm_active = false;
+    };
+    std::unique_ptr<GatedGPUState> gated_gpu_;
+    GatedGPUState& gated_gpu();
+    /// Steps 4a/4b of gpu_forward(): adds the gated paths to res2 on the device.
+    void gpu_apply_gated_paths(adai::gpu::GPUMatrix& res2,
+                               const adai::gpu::GPUMatrix* world_model_out,
+                               HippocampalMemory* memory, float repetition_alpha,
+                               float repetition_decay, float cross_reference_alpha,
+                               float association_decay);
 #endif
 };

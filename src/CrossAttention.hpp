@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-174 forward_with_scores added; TD-180 get_last_attention_weights added)
-// @adai-version: 0.14.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.15.0
+// @adai-reviewed: 2026-10-20
 
 
 #include <memory>
@@ -410,10 +410,17 @@ class CrossAttention {
     void gpu_download_weights();
     void gpu_download_grads();
     void gpu_zero_grads();
-    // Returns attention output; query from decoder, kv from encoder
+    // Returns attention output; query from decoder, kv from encoder. score_bias ([tgt, src], same
+    // for every head, added after scaling and before the mask, as forward_with_scores()) is the
+    // hippocampal path's coverage/cross-reference bias (TD-342).
     adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& query,
                                      const adai::gpu::GPUMatrix& kv,
-                                     const adai::gpu::GPUMatrix* mask = nullptr);
+                                     const adai::gpu::GPUMatrix* mask = nullptr,
+                                     const adai::gpu::GPUMatrix* score_bias = nullptr);
+    /// TD-342: the mean-across-heads post-softmax weights of the last gpu_forward(), downloaded
+    /// ([tgt, src], as get_last_attention_weights()). The hippocampal coverage update needs them
+    /// on the host; small (query rows × memory slots).
+    Matrix gpu_last_mean_attention_weights() const;
     // Returns {d_query, d_kv}
     std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> gpu_backward(
         const adai::gpu::GPUMatrix& dout);
