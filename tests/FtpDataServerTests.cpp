@@ -600,3 +600,147 @@ TEST(FtpDataServerConstructorTest, EmptyAdvertiseIpIsPreserved) {
     FtpDataServer srv("/tmp/adai_data", 12124, 52300, 52399);
     EXPECT_TRUE(srv.advertise_ip().empty());
 }
+
+// ============================================================================
+// TD-372 / TD-373: live sessions against a real FtpDataServer (POSIX sockets)
+// ============================================================================
+
+#ifndef _WIN32
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
+#include <filesystem>
+#include <fstream>
+
+namespace {
+
+int connect_tcp(int port, const char* bind_ip = nullptr) {
+    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0)
+        return -1;
+    timeval tv{5, 0};
+    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    if (bind_ip != nullptr) {
+        sockaddr_in local{};
+        local.sin_family = AF_INET;
+        ::inet_pton(AF_INET, bind_ip, &local.sin_addr);
+        if (::bind(fd, reinterpret_cast<sockaddr*>(&local), sizeof(local)) < 0) {
+            ::close(fd);
+            return -1;
+        }
+    }
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(static_cast<uint16_t>(port));
+    ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+        ::close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+// One reply line ("NNN text"), CRLF stripped.
+std::string read_reply(int fd) {
+    std::string line;
+    char c;
+    while (::recv(fd, &c, 1, 0) == 1) {
+        if (c == '\n')
+            break;
+        if (c != '\r')
+            line += c;
+    }
+    return line;
+}
+
+std::string command(int fd, const std::string& cmd) {
+    const std::string line = cmd + "\r\n";
+    ::send(fd, line.data(), line.size(), 0);
+    return read_reply(fd);
+}
+
+int pasv_port(const std::string& reply) {
+    std::smatch m;
+    std::regex re(R"(\((\d+),(\d+),(\d+),(\d+),(\d+),(\d+)\))");
+    if (!std::regex_search(reply, m, re))
+        return -1;
+    return std::stoi(m[5]) * 256 + std::stoi(m[6]);
+}
+
+size_t read_all(int fd) {
+    size_t total = 0;
+    char buf[8192];
+    long n;
+    while ((n = ::recv(fd, buf, sizeof(buf), 0)) > 0)
+        total += static_cast<size_t>(n);
+    return total;
+}
+
+}  // namespace
+
+// TD-372: a connection to the PASV port from another address used to take the whole file (even
+// under PROT P) and consume the token. Now it gets nothing and the real client still downloads.
+TEST(FtpDataServerLiveTest, ForeignDataConnectionGetsNothingAndTheClientStillDownloads) {
+    const std::filesystem::path dir =
+        std::filesystem::temp_directory_path() / "adai_ftp_td372";
+    std::filesystem::create_directories(dir);
+    const size_t size = 300000;
+    {
+        std::ofstream f(dir / "data.bin", std::ios::binary);
+        for (size_t i = 0; i < size; ++i)
+            f.put(static_cast<char>(i % 251));
+    }
+    FtpDataServer srv(dir.string(), 21372, 51372, 51375, "127.0.0.1");
+    srv.start();
+    std::this_thread::sleep_for(200ms);
+    const auto tok = srv.issue_token("run-td372", "data.bin", 5);
+
+    const int ctrl = connect_tcp(21372);
+    ASSERT_GE(ctrl, 0);
+    EXPECT_EQ(read_reply(ctrl).substr(0, 3), "220");
+    EXPECT_EQ(command(ctrl, "USER " + tok.username).substr(0, 3), "331");
+    EXPECT_EQ(command(ctrl, "PASS " + tok.password).substr(0, 3), "230");
+    command(ctrl, "TYPE I");
+    const int port = pasv_port(command(ctrl, "PASV"));
+    ASSERT_GT(port, 0);
+
+    // The thief connects first, from another address (127.0.0.2 is loopback on Linux too).
+    const int thief = connect_tcp(port, "127.0.0.2");
+    ASSERT_GE(thief, 0) << "could not bind 127.0.0.2";
+    EXPECT_EQ(command(ctrl, "RETR data.bin").substr(0, 3), "150");
+    const int data = connect_tcp(port);
+    ASSERT_GE(data, 0);
+    EXPECT_EQ(read_all(data), size);
+    ::close(data);
+    EXPECT_EQ(read_reply(ctrl).substr(0, 3), "226");
+    EXPECT_EQ(read_all(thief), 0u) << "the foreign connection must not receive the file";
+    ::close(thief);
+    ::close(ctrl);
+    srv.stop();
+    std::filesystem::remove_all(dir);
+}
+
+#ifdef BUILD_FTPS
+// TD-373: with FTPS enabled, credentials are only accepted over TLS (AUTH TLS first).
+TEST(FtpDataServerLiveTest, PlaintextLoginIsRefusedWhenFtpsIsEnabled) {
+    const std::filesystem::path dir =
+        std::filesystem::temp_directory_path() / "adai_ftp_td373";
+    std::filesystem::create_directories(dir);
+    FtpDataServer srv(dir.string(), 21373, 51376, 51379, "127.0.0.1", "", /*ftps_en=*/true);
+    srv.start();
+    std::this_thread::sleep_for(300ms);
+    const auto tok = srv.issue_token("run-td373", "x.bin", 5);
+
+    const int ctrl = connect_tcp(21373);
+    ASSERT_GE(ctrl, 0);
+    EXPECT_EQ(read_reply(ctrl).substr(0, 3), "220");
+    EXPECT_EQ(command(ctrl, "USER " + tok.username).substr(0, 3), "530");
+    EXPECT_EQ(command(ctrl, "PASS " + tok.password).substr(0, 3), "530");
+    ::close(ctrl);
+    srv.stop();
+    std::filesystem::remove_all(dir);
+}
+#endif
+#endif  // _WIN32

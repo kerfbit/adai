@@ -4,14 +4,18 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** October 20, 2026
-**Total Items:** 340
+**Last Updated:** October 21, 2026
+**Total Items:** 341
 **High Priority:** 36
 **Medium Priority:** 149
-**Low Priority:** 155
+**Low Priority:** 156
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
+
+**October 21, 2026:** Filed [TD-549](#td-549-ftps-data-channel-doesnt-require-tls-session-reuse) while fixing TD-372 (LOW): the FTPS
+data channel still accepts any TLS client from the right IP. The stronger binding, TLS session reuse with the control channel, was
+left out because it risks breaking TLS 1.3 clients.
 
 **October 20, 2026:** Filed [TD-548](#td-548-standalone-world-model-pool-and-checkpoint-share-one-directory) while verifying TD-342 end to end (MEDIUM,
 verified): in standalone mode, the `world_model` kind's local queue and the default world-model checkpoint are the same
@@ -2217,6 +2221,7 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-546: `retrain` Trains a Partly Trained Segmented File Twice](#td-546-retrain-trains-a-partly-trained-segmented-file-twice)
   - [TD-547: GPU Training Does the Token Embeddings on the Host](#td-547-gpu-training-does-the-token-embeddings-on-the-host)
   - [TD-548: Standalone World-Model Pool and Checkpoint Share One Directory](#td-548-standalone-world-model-pool-and-checkpoint-share-one-directory)
+  - [TD-549: FTPS Data Channel Doesn't Require TLS Session Reuse](#td-549-ftps-data-channel-doesnt-require-tls-session-reuse)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -8959,7 +8964,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Data / FtpDataServer | October 12, 2026 | 2-4 hours |
+| **HIGH** | Open — code fix landed October 21, 2026 | Data / FtpDataServer | October 12, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `FtpDataServer` and verified against a live server. `cmd_retr()` calls
@@ -8976,10 +8981,10 @@ bypassed entirely at the data channel.
 
 Action Items:
 
-- [ ] Record the control connection's peer address; after `accept()` on the PASV socket, compare the data peer's address and reject (close, keep listening until the timeout) any mismatch.
-- [ ] Under `PROT P`, additionally require TLS session resumption from the control channel (as vsftpd's `require_ssl_reuse` does) or at least the peer-IP check above.
-- [ ] Don't consume the token unless the transfer went to the authenticated peer.
-- [ ] Add a live-session test: a foreign connection to the PASV port gets nothing and the real client still succeeds.
+- [x] Record the control connection's peer address; after `accept()` on the PASV socket, compare the data peer's address and reject (close, keep listening until the timeout) any mismatch.
+- [ ] Under `PROT P`, additionally require TLS session resumption (The peer-IP check is done; session reuse is TD-549.) from the control channel (as vsftpd's `require_ssl_reuse` does) or at least the peer-IP check above.
+- [x] Don't consume the token unless the transfer went to the authenticated peer.
+- [x] Add a live-session test: a foreign connection to the PASV port gets nothing and the real client still succeeds.
 
 Location in code: `src/FtpDataServer.hpp` (`cmd_retr()`, `ConnState`); tagged `TODO: See TD-372`.
 
@@ -8988,13 +8993,27 @@ Files to Modify:
 - `src/FtpDataServer.hpp`
 - `tests/FtpDataServerTests.cpp`
 
+**Fix (October 21, 2026).**
+- **Peer check:** `cmd_retr()` accepts through `accept_from_client()`, which takes only a connection from the control connection's
+  client IP. Any other peer is logged (`[AUDIT] Data connection refused`) and closed while it keeps waiting, within the same 30 s.
+- **Backlog:** the PASV listen backlog is now 4 (was 1), so a squatter can't block the real client.
+- **Token:** consumed only after a transfer to that peer.
+- **Not done:** requiring TLS session reuse on the data channel, the stronger binding, is TD-549.
+
+Tests:
+- `FtpDataServerTests.cpp`'s `ForeignDataConnectionGetsNothingAndTheClientStillDownloads`: a socket bound to 127.0.0.2 connects to
+  the PASV port before `RETR`. It receives nothing, and the client gets all 300,000 bytes. On the old code the foreign socket took
+  the data connection and the client couldn't connect.
+- End to end, with the real `registry_server --ftps` and `curl --ssl-reqd --ftp-method nocwd` (the trainer's libcurl options), the
+  download still completes (226, contents match).
+
 ---
 
 ### TD-373: `--ftps` Doesn't Require Encryption
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / FtpDataServer | October 12, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 21, 2026 | Data / FtpDataServer | October 12, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `FtpDataServer` and verified. With `--ftps` enabled, nothing requires
@@ -9005,7 +9024,7 @@ trainer is protected unless the connection is downgraded or a client is misconfi
 
 Action Items:
 
-- [ ] When FTPS is enabled, refuse `USER`/`PASS` with `530`/`534` until `AUTH TLS` has completed, and refuse `RETR` unless `PROT P` is set.
+- [x] When FTPS is enabled, refuse `USER`/`PASS` with `530`/`534` until `AUTH TLS` has completed, and refuse `RETR` unless `PROT P` is set.
 - [ ] Do this together with TD-339 (client certificate verification) and TD-284 (FTPS keys from config).
 
 Location in code: `src/FtpDataServer.hpp` (`cmd_pass()`, `cmd_retr()`); tagged `TODO: See TD-373`.
@@ -9014,6 +9033,19 @@ Files to Modify:
 
 - `src/FtpDataServer.hpp`
 - `tests/FtpDataServerTests.cpp`
+
+**Fix (October 21, 2026).** With FTPS enabled:
+- **Login:** `USER` and `PASS` get `530 TLS required` until `AUTH TLS` has completed, and are logged (`[AUDIT] Plaintext login refused`).
+- **Download:** `RETR` gets `521` (RFC 4217) unless `PROT P` is set.
+
+TD-339 (client certificate checks) and TD-284 (FTPS keys from config) remain open.
+
+Tests:
+- `FtpDataServerTests.cpp`'s `PlaintextLoginIsRefusedWhenFtpsIsEnabled`. The old code accepted plaintext `USER`/`PASS` (331/230).
+- End to end against `registry_server --ftps`:
+  - plaintext `curl` gets 530;
+  - `curl --ftp-ssl-control` (TLS login, clear data) gets 521;
+  - `curl --ssl-reqd` downloads normally.
 
 ---
 
@@ -9102,6 +9134,9 @@ Files to Modify:
 
 - `src/FtpDataServer.hpp`
 - `src/RegistryServer.cpp`
+
+**Partial fix (October 21, 2026, with TD-372).** The token sweep now waits on a condition variable that `stop()` signals, so `stop()`
+returns at once instead of after up to 60 s. Unencrypted `FEAT` and the silent `start()` failure remain.
 
 ---
 
@@ -15090,6 +15125,29 @@ Verified:
   - the original sequence (`dataset_manager --kind world_model add`, a LeJEPA pass, then a chatbot pass) now trains and attaches the
     world model without the `--dataset-kind` workaround;
   - a session with only an old-layout checkpoint resumes it and saves to `world_model_checkpoint`.
+
+---
+
+### TD-549: FTPS Data Channel Doesn't Require TLS Session Reuse
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / FtpDataServer | October 21, 2026 | 2-4 hours |
+
+Description:
+Filed while fixing TD-372. The data connection is now accepted only from the control connection's client IP, but under `PROT P`
+any TLS client from that address still passes the data-channel handshake. A process on the same host as the trainer (or behind the
+same NAT) could still race for the file. vsftpd's `require_ssl_reuse` closes this by requiring the data channel to resume the
+control channel's TLS session. It was left out of TD-372 because session reuse interacts badly with some TLS 1.3 clients (session
+tickets), and libcurl, the trainer's client, would need verifying on both sides first.
+
+Action Items:
+
+- [ ] Enable the server session cache with a session-id context. After the data-channel `SSL_accept()`, require
+  `SSL_session_reused()` and the control channel's session; refuse with 425/522 otherwise.
+- [ ] Verify libcurl (`CURLOPT_SSL_SESSIONID_CACHE`, on by default) still downloads under TLS 1.2 and 1.3.
+
+Location in code: `src/FtpDataServer.hpp` (`cmd_retr()`).
 
 ---
 

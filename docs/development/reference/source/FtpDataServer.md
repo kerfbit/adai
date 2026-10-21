@@ -175,3 +175,17 @@ added for direct filesystem use.
 - FTPS enforcement;
 - rate limiting across re-logins;
 - timeouts, line length and `stop()` latency.
+
+---
+
+## Addendum (October 21, 2026): data-connection binding and required TLS (TD-372, TD-373, TD-376)
+
+- **Data connection (TD-372):** `cmd_retr()` accepts it through `accept_from_client()`, which takes only a connection from the
+  control connection's client IP. Others are logged and closed while it keeps waiting, within 30 s. The PASV backlog is 4. TLS
+  session reuse on the data channel isn't required (TD-549).
+- **FTPS (TD-373):** with FTPS on, `USER`/`PASS` get 530 until `AUTH TLS`, and `RETR` gets 521 without `PROT P`.
+- **`stop()` (TD-376):** wakes the token-sweep thread through a condition variable, so it returns at once instead of after up to 60 s.
+
+Tests: `ForeignDataConnectionGetsNothingAndTheClientStillDownloads`, `PlaintextLoginIsRefusedWhenFtpsIsEnabled`. Also verified end to
+end with `registry_server --ftps` and `curl --ssl-reqd --ftp-method nocwd`.
+

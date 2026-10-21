@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-040 fully resolved — see below)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-13
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-10-21
 
 /**
  * FtpDataServer — embedded read-only FTP server for dataset delivery.
@@ -54,6 +54,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -488,6 +489,10 @@ class FtpDataServer {
     void stop() {
         if (!running_.exchange(false))
             return;
+        {
+            std::lock_guard<std::mutex> lock(stop_mtx_);  // TD-376: wake the sweep thread now
+        }
+        stop_cv_.notify_all();
         if (listen_fd_ != adai::kInvalidSocket) {
             ::shutdown(listen_fd_, adai::kShutdownBoth);
             adai::close_socket(listen_fd_);
@@ -521,6 +526,8 @@ class FtpDataServer {
 
     TokenStore tokens_;
     std::atomic<bool> running_{false};
+    std::mutex stop_mtx_;               // TD-376: with stop_cv_, ends the sweep wait on stop()
+    std::condition_variable stop_cv_;
     adai::socket_t listen_fd_ = adai::kInvalidSocket;
     std::thread listener_thread_;
     std::thread sweep_thread_;
@@ -609,8 +616,12 @@ class FtpDataServer {
     // Periodic expired-token sweep with audit logging
     void sweep_loop() {
         while (running_.load()) {
-            // TODO: See TD-376 in TECHNICAL_DEBT.md - uninterruptible 1-minute sleep makes stop() take up to 60 s
-            std::this_thread::sleep_for(std::chrono::minutes(1));
+            // TD-376: an interruptible wait; stop() wakes it, instead of waiting out a 1-minute sleep.
+            std::unique_lock<std::mutex> lock(stop_mtx_);
+            if (stop_cv_.wait_for(lock, std::chrono::minutes(1), [this] { return !running_.load(); })) {
+                break;
+            }
+            lock.unlock();
             tokens_.sweep_expired();
         }
     }
@@ -787,7 +798,25 @@ class FtpDataServer {
     // ── FTP command handlers ──────────────────────────────────────────────
 
     // TODO: See TD-374 in TECHNICAL_DEBT.md - re-login doesn't release the rate-limit slot already held
+    // TD-373: with FTPS enabled, credentials only over TLS (RFC 4217: 530 before AUTH TLS).
+    bool tls_required_but_missing(ConnState& st) {
+#ifdef BUILD_FTPS
+        if (ftps_enabled_ && st.ssl == nullptr) {
+            Logger::warn("[AUDIT] Plaintext login refused (FTPS required): client_ip='{}'",
+                         st.client_ip);
+            send_reply(st, 530, "TLS required: send AUTH TLS before USER/PASS.");
+            return true;
+        }
+#else
+        (void)st;
+#endif
+        return false;
+    }
+
     void cmd_user(ConnState& st, const std::string& arg) {
+        if (tls_required_but_missing(st)) {
+            return;
+        }
         st.pending_user = arg;
         st.authenticated = false;
         st.username.clear();
@@ -797,12 +826,14 @@ class FtpDataServer {
     }
 
     void cmd_pass(ConnState& st, const std::string& arg) {
+        if (tls_required_but_missing(st)) {
+            st.pending_user.clear();
+            return;
+        }
         if (st.pending_user.empty()) {
             send_reply(st, 503, "Send USER first.");
             return;
         }
-
-        // TODO: See TD-373 in TECHNICAL_DEBT.md - with FTPS enabled, plaintext login (no AUTH TLS) is still accepted
         std::string ftp_path, run_id;
         if (!tokens_.authenticate(st.pending_user, arg, ftp_path, &run_id)) {
             Logger::warn("[AUDIT] Login failed: username='{}' client_ip='{}'", st.pending_user,
@@ -907,7 +938,7 @@ class FtpDataServer {
         addr.sin_port = htons(static_cast<uint16_t>(port));
 
         if (::bind(srv, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0 ||
-            ::listen(srv, 1) < 0) {
+            ::listen(srv, 4) < 0) {  // TD-372: room for the real client behind a squatter
             adai::close_socket(srv);
             release_pasv_port(port);
             send_reply(st, 425, "Cannot bind data port.");
@@ -925,6 +956,37 @@ class FtpDataServer {
         send_reply(st, 227,
                    "Entering Passive Mode (" + ip + "," + std::to_string(p1) + "," +
                        std::to_string(p2) + ").");
+    }
+
+    // TD-372: accepts on st's PASV socket until a connection from st.client_ip arrives or
+    // `timeout_s` passes; any other peer is closed. Returns the accepted socket or kInvalidSocket.
+    adai::socket_t accept_from_client(ConnState& st, int timeout_s) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeout_s);
+        while (true) {
+            const auto left = std::chrono::duration_cast<std::chrono::seconds>(
+                                  deadline - std::chrono::steady_clock::now())
+                                  .count();
+            if (left <= 0) {
+                return adai::kInvalidSocket;
+            }
+            adai::set_recv_timeout(st.pasv_listen_fd, static_cast<int>(left));
+            sockaddr_in peer{};
+            socklen_t peer_len = sizeof(peer);
+            adai::socket_t fd = ::accept(st.pasv_listen_fd, reinterpret_cast<sockaddr*>(&peer),
+                                         &peer_len);
+            if (fd == adai::kInvalidSocket) {
+                return adai::kInvalidSocket;  // timeout or error
+            }
+            char ip_buf[INET_ADDRSTRLEN] = {};
+            ::inet_ntop(AF_INET, &peer.sin_addr, ip_buf, sizeof(ip_buf));
+            if (st.client_ip == ip_buf) {
+                return fd;
+            }
+            Logger::warn("[AUDIT] Data connection refused: from '{}' but the client is '{}' "
+                         "(run_id='{}' username='{}')",
+                         ip_buf, st.client_ip, st.run_id, st.username);
+            adai::close_socket(fd);
+        }
     }
 
     void cmd_retr(ConnState& st, const std::string& arg) {
@@ -952,6 +1014,16 @@ class FtpDataServer {
             return;
         }
 
+#ifdef BUILD_FTPS
+        // TD-373: with FTPS enabled, the data channel must be encrypted too (RFC 4217's 521).
+        if (ftps_enabled_ && !st.data_prot_p) {
+            Logger::warn("[AUDIT] RETR refused without PROT P: run_id='{}' username='{}'",
+                         st.run_id, st.username);
+            send_reply(st, 521, "Data connection requires PROT P on this server.");
+            return;
+        }
+#endif
+
         const std::size_t file_size = fs::file_size(local_path);
         Logger::info(
             "[AUDIT] RETR start: run_id='{}' username='{}' "
@@ -960,11 +1032,10 @@ class FtpDataServer {
 
         send_reply(st, 150, "Opening data connection.");
 
-        // TODO: See TD-372 in TECHNICAL_DEBT.md - accepts the data connection from ANY peer (no check against
-        // the control connection's client IP); a third party can steal the file, even under PROT P.
-        // TD-373: RETR doesn't require PROT P when FTPS is enabled
-        adai::set_recv_timeout(st.pasv_listen_fd, 30);
-        adai::socket_t data_fd = ::accept(st.pasv_listen_fd, nullptr, nullptr);
+        // TD-372: only the control connection's own client may take the data connection. The first
+        // connection from any address used to get the file (under PROT P too), and the token was
+        // consumed. Others are logged and closed while this keeps waiting, within the same 30 s.
+        adai::socket_t data_fd = accept_from_client(st, 30);
         adai::close_socket(st.pasv_listen_fd);
         release_pasv_port(st.pasv_port);
         st.pasv_listen_fd = adai::kInvalidSocket;
