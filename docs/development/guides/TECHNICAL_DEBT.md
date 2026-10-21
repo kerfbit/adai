@@ -1187,6 +1187,12 @@ Per sample, a GPU pass still uploads its token IDs, target IDs and causal mask a
 Every fix here is verified on CPU, or on the oneAPI CPU device for the SYCL kernels. Still needed: an on-device run on ai-machine, then
 retraining from scratch, since no existing checkpoint has correct GPU-trained weights (TD-358) or the encoder's own embedding (TD-538).
 
+**Model features run (October 20, 2026)**, chosen by the owner: the features that never learned. So far:
+- TD-341 (done in code: world-model and hippocampal gates are optimizer parameters).
+
+Next candidates: TD-342 (the GPU and KV-cached paths skip the gated layers), TD-427 (the LeJEPA predictor isn't saved), TD-502/503
+(SIGReg), TD-343 and TD-396.
+
 Analyzed September 12, 2026 to sequence the active items by dependency and risk rather than
 just priority label — several depend on each other or on a single owner decision, and the
 "Medium/Low" labels alone don't capture that. Re-derive this ordering rather than trusting it
@@ -7982,7 +7988,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Transformer / DecoderBlock | October 11, 2026 | 2-4 hours |
+| **HIGH** | Open — code fix landed October 20, 2026 | Transformer / DecoderBlock | October 11, 2026 | 2-4 hours |
 
 Description:
 Found while writing the code-traced reference [DecoderBlock.md](../reference/source/DecoderBlock.md) and confirmed by running the real class.
@@ -8001,9 +8007,9 @@ links. Nothing reads `get_gate()` outside tests, so no metric reveals it.
 
 Action Items:
 
-- [ ] Make each gate a 1×1 `Matrix` (value + gradient) and register it in `register_parameters_with_optimizer()`; drop the plain-SGD gate step from `update_weights()` (or keep it only for the no-optimizer case).
-- [ ] Push per-layer `tanh(gate)`/`tanh(gate_h)` as a training metric so a stuck gate is visible.
-- [ ] Test: training via the trainer's optimizer-only path moves a gate off zero.
+- [x] Make each gate a 1×1 `Matrix` (value + gradient) and register it in `register_parameters_with_optimizer()`; drop the plain-SGD gate step from `update_weights()` (or keep it only for the no-optimizer case).
+- [ ] Push per-layer `tanh(gate)`/`tanh(gate_h)` as a training metric so a stuck gate is visible. (Partly: logged per epoch; a metrics-pipeline series still needs a reporter method, server storage and a dashboard view.)
+- [x] Test: training via the trainer's optimizer-only path moves a gate off zero.
 
 Location in code: `src/DecoderBlock.cpp` (`update_weights()`, `register_parameters_with_optimizer()`), `src/DecoderBlock.hpp` (gate members); tagged `TODO: See TD-341`.
 
@@ -8012,6 +8018,32 @@ Files to Modify:
 - `src/DecoderBlock.{hpp,cpp}`
 - `src/ChatbotTrainer.cpp` (metrics)
 - `tests/decoderblock_test.cpp`
+
+**Fix (October 20, 2026).**
+- **Registered gates:** `gate`/`gate_h` (and their gradients) are 1×1 `Matrix` members.
+  `register_parameters_with_optimizer()` adds each as a parameter group when its path is allocated, so
+  `ChatbotTrainer`'s `optimizer->step()` moves them. `update_weights()` keeps its plain-SGD gate step only when no
+  optimizer is registered (`gate_optimizer_`). The accessors and the checkpoint format (one float per gate) are
+  unchanged.
+- **Visibility:** at the end of each epoch, `ChatbotTrainer` logs per-layer `tanh(gate)`/`tanh(gate_h)`
+  (`Epoch N gates tanh(gate): L0 world=… L0 memory=…`), only for a model with gated paths. A stuck gate now shows in
+  the trainer log and `/admin/logs`.
+- **Optimizer state:** a gated model has two more parameter groups per gated block, so a `<checkpoint>.optimizer`
+  saved before this fix no longer matches. `Optimizer::load_state()` warns and keeps fresh moments once (TD-269's
+  existing mismatch handling). AdamW's global weight decay (TD-469) also applies to the gates.
+- **GPU training:** the gated paths still don't run there (TD-342), so the gates get no gradient and stay at 0 on a
+  GPU pass. They are host groups of `GPUOptimizer`. This fix makes them learn in CPU training.
+
+Tests:
+- `decoderblock_test.cpp`:
+  - `OptimizerOnlyTrainingOpensBothGates`: 30 optimizer-only steps open both gates, and the gated inputs then change
+    the output.
+  - `UpdateWeightsStillStepsGatesWithoutAnOptimizer`.
+- `encoderdecoder_test.cpp`:
+  - `TrainerStyleOptimizerStepsOpenTheGates`: a model with a `LeJEPAEncoder` attached, trained the way
+    `ChatbotTrainer` does, opens every block's world-model gate.
+
+The first and third fail on the old code (gates exactly 0, output unchanged).
 
 ---
 
@@ -9742,6 +9774,9 @@ Files to Modify:
 
 - `src/HippocampalMemory.{hpp,cpp}`
 - `tests/hippocampalmemory_test.cpp`
+
+**Note (October 20, 2026, TD-341).** The hippocampal gate now trains on the CPU path, so this eviction behavior is now
+reachable in training, not only in theory.
 
 ---
 

@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.14.0
+// @adai-version: 0.15.0
 // @adai-reviewed: 2026-10-20
 
 #include "ChatbotTrainer.hpp"
@@ -1369,7 +1369,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
         // ─────────────────────────────────────────────────────────────────
 
         // Update weights via optimizer
-        // TODO: See TD-341 in TECHNICAL_DEBT.md - DecoderBlock gates aren't registered, so this step never updates them
+        // Steps every registered group, including the DecoderBlock gates (TD-341).
 #ifdef ADAI_ENABLE_GPU
         gpu_optimizer_->step(window_rescale * clip_scale);  // on the device (TD-468)
 #else
@@ -1624,6 +1624,28 @@ float ChatbotTrainer::train_epoch(int epoch) {
             std::to_string(avg_grad_norm) + " - Updates: " + std::to_string(num_updates) +
             " - Tokens: " + std::to_string(epoch_tokens),
         COLOR_SUCCESS);
+
+    // TD-341: per-layer tanh(gate) of the gated world-model/hippocampal paths, so a gate that
+    // isn't learning (stuck at 0, its path a no-op) shows in the log. Logged only when a path
+    // exists.
+    if (LLMDecoder* decoder = model->get_decoder()) {
+        std::ostringstream gates;
+        for (int l = 0; l < decoder->get_num_layers(); ++l) {
+            DecoderBlock* block = decoder->get_decoder_block(l);
+            if (!block) {
+                continue;
+            }
+            if (block->get_world_model_cross_attention()) {
+                gates << " L" << l << " world=" << std::tanh(block->get_gate());
+            }
+            if (block->get_hippocampal_cross_attention()) {
+                gates << " L" << l << " memory=" << std::tanh(block->get_gate_h());
+            }
+        }
+        if (!gates.str().empty()) {
+            adai::Logger::info("Epoch {} gates tanh(gate):{}", epoch + 1, gates.str());
+        }
+    }
 
     // ── TD-013: emit advanced epoch diagnostics to metrics reporter ────────────
     if (metrics_reporter_) {

@@ -1953,6 +1953,39 @@ TEST(EncoderDecoderModelWorldModelTest, BackwardFlowsGradientIntoGateWhenWorldMo
     EXPECT_TRUE(any_nonzero);
 }
 
+// TD-341: the step sequence ChatbotTrainer uses (register_parameters() once, then zero_grad,
+// forward, backward_pass, optimizer.step(); never update_weights()) must move the world-model
+// gates. They used to be plain floats only update_weights() stepped, so they stayed at 0.
+TEST(EncoderDecoderModelWorldModelTest, TrainerStyleOptimizerStepsOpenTheGates) {
+    int vocab_size = 100;
+    int d_model = 64;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2, 8, 256, 512,
+                              /*world_model_inject_every_n_layers=*/1);
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+    auto world_model = std::make_unique<LeJEPAEncoder>(vocab_size, d_model, 2, 4, 128);
+    world_model->build_tokenizer(world_model_test_corpus(), vocab_size);
+    model.set_world_model(std::move(world_model));
+
+    Optimizer optimizer(OptimizerType::ADAMW, 0.01f);
+    model.register_parameters(optimizer);
+    model.set_training(true);
+
+    std::vector<int> input_tokens = model.get_tokenizer()->encode("hello world", false);
+    std::vector<int> target_tokens = model.get_tokenizer()->encode("how are you", true);
+    for (int step = 0; step < 5; ++step) {
+        model.zero_grad();
+        Matrix logits = model.forward(input_tokens, target_tokens);
+        Matrix grad_loss = model.compute_loss_gradient_for_training(logits, target_tokens);
+        model.backward_pass(grad_loss);
+        optimizer.step();
+    }
+
+    for (int i = 0; i < model.get_decoder()->get_num_layers(); ++i) {
+        EXPECT_NE(model.get_decoder()->get_decoder_block(i)->get_gate(), 0.0f)
+            << "decoder block " << i << "'s world-model gate never moved";
+    }
+}
+
 // TD-186's own pilot run found that HippocampalMemory's gated cross-attention was never
 // actually allocated by any LLMDecoder constructor at all (world_model_inject_every_n_layers
 // only ever drove the world-model path) — fixed in Decoder.cpp to allocate both paths together.

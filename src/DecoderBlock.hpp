@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap; TD-194 gated cross-reference pull + Hebbian association strengthening added to the hippocampal path)
-// @adai-version: 1.5.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.6.0
+// @adai-reviewed: 2026-10-20
 
 
 #include <vector>
@@ -92,9 +92,11 @@ class DecoderBlock {
     // allocated, until training actually opens the gate (see forward()'s own doc comment).
     std::unique_ptr<CrossAttention> world_model_cross_attention;
     std::unique_ptr<LayerNorm> norm_world;
-    // TODO: See TD-341 in TECHNICAL_DEBT.md - gate/gate_h are not optimizer parameters, so ChatbotTrainer never updates them
-    float gate{0.0f};
-    float gate_grad{0.0f};
+    // TD-341: the gates are 1×1 matrices so register_parameters_with_optimizer() can register
+    // them like any weight. As plain floats, only update_weights()'s SGD step moved them, and
+    // ChatbotTrainer steps its optimizer directly, so every trained gate stayed at 0.
+    Matrix gate{1, 1};
+    Matrix gate_grad{1, 1};
     bool world_model_path_active_{false};  // set by the most recent forward() call; read by
                                             // backward() to know whether to backprop this path
     Matrix cached_wm_attn;                 // this path's own attention output, for gate's gradient
@@ -107,8 +109,11 @@ class DecoderBlock {
     // token-identity-level one in TextGenerator::apply_repetition_penalty.
     std::unique_ptr<CrossAttention> hippocampal_cross_attention;
     std::unique_ptr<LayerNorm> norm_hippocampal;
-    float gate_h{0.0f};
-    float gate_h_grad{0.0f};
+    Matrix gate_h{1, 1};
+    Matrix gate_h_grad{1, 1};
+    /// Set by register_parameters_with_optimizer(); update_weights() steps the gates itself (plain
+    /// SGD) only when no optimizer has them.
+    class Optimizer* gate_optimizer_{nullptr};
     bool hippocampal_path_active_{false};
     Matrix cached_hm_attn;
 
@@ -169,33 +174,33 @@ class DecoderBlock {
     /** TD-180: current gate value, tanh(gate) applied at forward time — for the
      *  mean(tanh(gate)) metric the Training Standard's Phase 1 fine-tuning pushes per layer. */
     float get_gate() const {
-        return gate;
+        return gate.data[0][0];
     }
 
     /** TD-180: hippocampal gate's own current value — same metric role as get_gate(), separate
      *  series. */
     float get_gate_h() const {
-        return gate_h;
+        return gate_h.data[0][0];
     }
 
     /** TD-180: direct gate setters, mainly for tests (gradient checks need a nonzero starting
      *  gate) — TD-187's own load() now sets these directly too, when a saved gate value is
-     *  present. Not used by forward() itself; training only ever reaches these values via
-     *  update_weights()'s own plain-SGD step. */
+     *  present. Training moves them through the registered optimizer (TD-341), or
+     *  update_weights()'s plain-SGD step when none is registered. */
     void set_gate(float g) {
-        gate = g;
+        gate.data[0][0] = g;
     }
     void set_gate_h(float g) {
-        gate_h = g;
+        gate_h.data[0][0] = g;
     }
 
     /** TD-180: current accumulated gate gradient — mainly for gradient-check tests (finite
      *  difference vs. this value) and diagnostics. Zeroed by zero_grad()/update_weights(). */
     float get_gate_grad() const {
-        return gate_grad;
+        return gate_grad.data[0][0];
     }
     float get_gate_h_grad() const {
-        return gate_h_grad;
+        return gate_h_grad.data[0][0];
     }
 
     /** TD-180: nullable sub-component accessors, mirroring get_cross_attention() above.
@@ -416,10 +421,8 @@ class DecoderBlock {
 
     /**
      * Register all decoder block parameters with optimizer, including the gated paths' own
-     * CrossAttention/LayerNorm sub-components when allocated (TD-180). gate/gate_h themselves
-     * are NOT registered — they're plain floats with no ParameterGroup equivalent in
-     * Optimizer's Matrix-based registration API, so they're always updated via plain SGD in
-     * update_weights() regardless of whether an optimizer is registered here.
+     * CrossAttention/LayerNorm sub-components when allocated (TD-180), and their gates gate/
+     * gate_h as 1×1 parameter groups (TD-341), so an optimizer step moves them too.
      *
      * @param optimizer Optimizer to register parameters with
      */

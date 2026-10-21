@@ -236,3 +236,19 @@ they disagree, this file wins:
 - use-case essays (translation, summarization, GPT-style);
 - the comparison with `EncoderBlock`;
 - generic performance estimates.
+
+---
+
+## Addendum (October 20, 2026): gates are optimizer parameters (TD-341)
+
+`gate`/`gate_h` and their gradients are now 1×1 `Matrix` members (header and source 1.6.0). `register_parameters_with_optimizer()`
+registers each as a parameter group when its path is allocated, so an optimizer step moves them. Before, only `update_weights()`'s
+plain-SGD step did, and `ChatbotTrainer` never calls it. `update_weights()` keeps that SGD step only when no optimizer is registered.
+`get_gate()`/`set_gate()`/`get_gate_grad()` (and the `_h` versions) and the checkpoint format are unchanged.
+
+`ChatbotTrainer` logs per-layer `tanh(gate)`/`tanh(gate_h)` at the end of each epoch for gated models. The GPU path still doesn't run
+the gated layers (TD-342).
+
+Tests: `OptimizerOnlyTrainingOpensBothGates` and `UpdateWeightsStillStepsGatesWithoutAnOptimizer` here, and
+`encoderdecoder_test.cpp`'s `TrainerStyleOptimizerStepsOpenTheGates`.
+

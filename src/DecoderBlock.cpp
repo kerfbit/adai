@@ -1,6 +1,6 @@
 // @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap; TD-194 gated cross-reference pull + Hebbian association strengthening added to the hippocampal path)
-// @adai-version: 1.5.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.6.0
+// @adai-reviewed: 2026-10-20
 
 #include "DecoderBlock.hpp"
 #include "gpu/GPUParamSync.hpp"
@@ -112,7 +112,7 @@ Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
         Matrix wm_attn =
             world_model_cross_attention->forward(normed_world, *world_model_output, world_model_mask);
         cached_wm_attn = wm_attn;
-        const float gate_tanh = std::tanh(gate);
+        const float gate_tanh = std::tanh(gate.data[0][0]);
         for (int i = 0; i < residual2.rows; ++i) {
             for (int j = 0; j < residual2.cols; ++j) {
                 residual2(i, j) += gate_tanh * wm_attn(i, j);
@@ -171,7 +171,7 @@ Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
         Matrix hm_attn =
             hippocampal_cross_attention->forward_with_scores(normed_hippocampal, keys, score_bias);
         cached_hm_attn = hm_attn;
-        const float gate_h_tanh = std::tanh(gate_h);
+        const float gate_h_tanh = std::tanh(gate_h.data[0][0]);
         for (int i = 0; i < residual2.rows; ++i) {
             for (int j = 0; j < residual2.cols; ++j) {
                 residual2(i, j) += gate_h_tanh * hm_attn(i, j);
@@ -346,7 +346,7 @@ Matrix DecoderBlock::backward(const Matrix& grad_output, Matrix& grad_encoder_ou
     // since CrossAttention::backward()'s own signature always produces them, but discarded —
     // see this method's own doc comment in DecoderBlock.hpp for why.
     if (hippocampal_path_active_) {
-        const float gate_h_tanh = std::tanh(gate_h);
+        const float gate_h_tanh = std::tanh(gate_h.data[0][0]);
         Matrix grad_hm_attn(grad_residual2.rows, grad_residual2.cols);
         float gate_h_dot = 0.0f;
         for (int i = 0; i < grad_residual2.rows; ++i) {
@@ -355,7 +355,7 @@ Matrix DecoderBlock::backward(const Matrix& grad_output, Matrix& grad_encoder_ou
                 gate_h_dot += grad_residual2(i, j) * cached_hm_attn(i, j);
             }
         }
-        gate_h_grad += gate_h_dot * (1.0f - gate_h_tanh * gate_h_tanh);  // d(tanh)/dx = 1 - tanh^2
+        gate_h_grad.data[0][0] += gate_h_dot * (1.0f - gate_h_tanh * gate_h_tanh);  // d(tanh)/dx = 1 - tanh^2
 
         Matrix grad_normed_hippocampal, grad_memory_keys_unused;
         hippocampal_cross_attention->backward(grad_hm_attn, grad_normed_hippocampal,
@@ -369,7 +369,7 @@ Matrix DecoderBlock::backward(const Matrix& grad_output, Matrix& grad_encoder_ou
     }
 
     if (world_model_path_active_) {
-        const float gate_tanh = std::tanh(gate);
+        const float gate_tanh = std::tanh(gate.data[0][0]);
         Matrix grad_wm_attn(grad_residual2.rows, grad_residual2.cols);
         float gate_dot = 0.0f;
         for (int i = 0; i < grad_residual2.rows; ++i) {
@@ -378,7 +378,7 @@ Matrix DecoderBlock::backward(const Matrix& grad_output, Matrix& grad_encoder_ou
                 gate_dot += grad_residual2(i, j) * cached_wm_attn(i, j);
             }
         }
-        gate_grad += gate_dot * (1.0f - gate_tanh * gate_tanh);
+        gate_grad.data[0][0] += gate_dot * (1.0f - gate_tanh * gate_tanh);
 
         Matrix grad_normed_world, grad_world_model_output_unused;
         world_model_cross_attention->backward(grad_wm_attn, grad_normed_world,
@@ -458,22 +458,23 @@ void DecoderBlock::update_weights() {
     norm3->update_weights();
 
     // TD-180: gated paths' own sub-components follow the exact same pattern as the six above
-    // (each already handles both the optimizer-registered and plain-SGD cases internally). gate/
-    // gate_h have no Optimizer equivalent (see register_parameters_with_optimizer()'s own doc
-    // comment), so they're always plain SGD here regardless of whether an optimizer is
-    // registered elsewhere on this instance.
+    // (each already handles both the optimizer-registered and plain-SGD cases internally). The
+    // gates are optimizer parameters once registered (TD-341); plain SGD only without one.
     if (world_model_cross_attention) {
         world_model_cross_attention->update_weights();
         norm_world->update_weights();
-        // TODO: See TD-341 in TECHNICAL_DEBT.md - the only gate update; ChatbotTrainer calls optimizer->step() instead, so this never runs
-        gate -= learning_rate * gate_grad;
-        gate_grad = 0.0f;
+        if (!gate_optimizer_) {
+            gate.data[0][0] -= learning_rate * gate_grad.data[0][0];
+        }
+        gate_grad.data[0][0] = 0.0f;
     }
     if (hippocampal_cross_attention) {
         hippocampal_cross_attention->update_weights();
         norm_hippocampal->update_weights();
-        gate_h -= learning_rate * gate_h_grad;
-        gate_h_grad = 0.0f;
+        if (!gate_optimizer_) {
+            gate_h.data[0][0] -= learning_rate * gate_h_grad.data[0][0];
+        }
+        gate_h_grad.data[0][0] = 0.0f;
     }
 }
 
@@ -488,12 +489,12 @@ void DecoderBlock::zero_grad() {
     if (world_model_cross_attention) {
         world_model_cross_attention->zero_grad();
         norm_world->zero_grad();
-        gate_grad = 0.0f;
+        gate_grad.data[0][0] = 0.0f;
     }
     if (hippocampal_cross_attention) {
         hippocampal_cross_attention->zero_grad();
         norm_hippocampal->zero_grad();
-        gate_h_grad = 0.0f;
+        gate_h_grad.data[0][0] = 0.0f;
     }
 }
 
@@ -517,11 +518,11 @@ float DecoderBlock::get_gradient_norm() const {
     // themselves — same quadrature combination as everything else here.
     if (world_model_cross_attention) {
         float wm_norm = world_model_cross_attention->get_gradient_norm();
-        norm_sq += wm_norm * wm_norm + gate_grad * gate_grad;
+        norm_sq += wm_norm * wm_norm + gate_grad.data[0][0] * gate_grad.data[0][0];
     }
     if (hippocampal_cross_attention) {
         float hm_norm = hippocampal_cross_attention->get_gradient_norm();
-        norm_sq += hm_norm * hm_norm + gate_h_grad * gate_h_grad;
+        norm_sq += hm_norm * hm_norm + gate_h_grad.data[0][0] * gate_h_grad.data[0][0];
     }
 
     return std::sqrt(norm_sq);
@@ -595,14 +596,16 @@ void DecoderBlock::save(const std::string& filepath) {
     const bool has_world_model = (world_model_cross_attention != nullptr);
     file.write(reinterpret_cast<const char*>(&has_world_model), sizeof(has_world_model));
     if (has_world_model) {
-        file.write(reinterpret_cast<const char*>(&gate), sizeof(gate));
+        const float gate_value = gate.data[0][0];
+        file.write(reinterpret_cast<const char*>(&gate_value), sizeof(gate_value));
     }
 
     // TD-187: gated hippocampal path, same convention as the world-model path above.
     const bool has_hippocampal = (hippocampal_cross_attention != nullptr);
     file.write(reinterpret_cast<const char*>(&has_hippocampal), sizeof(has_hippocampal));
     if (has_hippocampal) {
-        file.write(reinterpret_cast<const char*>(&gate_h), sizeof(gate_h));
+        const float gate_h_value = gate_h.data[0][0];
+        file.write(reinterpret_cast<const char*>(&gate_h_value), sizeof(gate_h_value));
     }
 
     file.close();
@@ -725,14 +728,14 @@ void DecoderBlock::load(const std::string& filepath) {
     // TD-187: gated paths' own sub-components + gate scalars, only when actually present (the
     // mismatch checks above already guarantee current_has_* matches loaded_has_* exactly here).
     if (current_has_world_model) {
-        gate = loaded_gate;
+        gate.data[0][0] = loaded_gate;
         world_model_cross_attention->load(filepath + ".world_model_cross_attn");
         norm_world->load_weights(filepath + ".norm_world");
         world_model_cross_attention->learning_rate = learning_rate;
         norm_world->learning_rate = learning_rate;
     }
     if (current_has_hippocampal) {
-        gate_h = loaded_gate_h;
+        gate_h.data[0][0] = loaded_gate_h;
         hippocampal_cross_attention->load(filepath + ".hippocampal_cross_attn");
         norm_hippocampal->load_weights(filepath + ".norm_hippocampal");
         hippocampal_cross_attention->learning_rate = learning_rate;
@@ -740,7 +743,6 @@ void DecoderBlock::load(const std::string& filepath) {
     }
 }
 
-// TODO: See TD-341 in TECHNICAL_DEBT.md - gate/gate_h not registered (plain floats), so optimizer-only training never moves them
 void DecoderBlock::register_parameters_with_optimizer(Optimizer& optimizer) {
     // Register all sub-component parameters
     self_attention->set_optimizer(&optimizer);
@@ -750,17 +752,20 @@ void DecoderBlock::register_parameters_with_optimizer(Optimizer& optimizer) {
     norm2->set_optimizer(&optimizer);
     norm3->set_optimizer(&optimizer);
 
-    // TD-180: gated paths' own CrossAttention/LayerNorm sub-components, when allocated. gate/
-    // gate_h are NOT registered here — they're plain floats with no ParameterGroup equivalent
-    // in Optimizer's Matrix-based registration API (see this method's own header doc comment).
+    // TD-180: gated paths' own CrossAttention/LayerNorm sub-components, when allocated, and
+    // (TD-341) the gates themselves as 1×1 groups, so ChatbotTrainer's optimizer->step() opens
+    // them. They have no device mirror, so GPU training steps them as host groups.
     if (world_model_cross_attention) {
         world_model_cross_attention->set_optimizer(&optimizer);
         norm_world->set_optimizer(&optimizer);
+        optimizer.add_parameter_group(&gate, &gate_grad);
     }
     if (hippocampal_cross_attention) {
         hippocampal_cross_attention->set_optimizer(&optimizer);
         norm_hippocampal->set_optimizer(&optimizer);
+        optimizer.add_parameter_group(&gate_h, &gate_h_grad);
     }
+    gate_optimizer_ = &optimizer;
 }
 
 #ifdef ADAI_ENABLE_GPU

@@ -1916,3 +1916,94 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
+
+// TD-341: ChatbotTrainer registers the model with one optimizer and calls optimizer->step(),
+// never update_weights(). The gates used to be plain floats stepped only in update_weights(),
+// so they stayed at 0 and the gated paths never learned. Train that way and require both gates
+// to open, which makes the gated inputs change the output.
+TEST(DecoderBlockGatedPathTest, OptimizerOnlyTrainingOpensBothGates) {
+    int d_model = 16, num_heads = 2, d_ff = 32;
+    int tgt_len = 3, src_len = 4, wm_len = 3;
+
+    DecoderBlock decoder_block(d_model, num_heads, d_ff, 0.1f, /*enable_world_model=*/true,
+                               /*enable_hippocampal=*/true);
+    Optimizer optimizer(OptimizerType::ADAMW, 0.01f);
+    decoder_block.register_parameters_with_optimizer(optimizer);
+
+    Matrix decoder_input(tgt_len, d_model);
+    Matrix encoder_output(src_len, d_model);
+    for (int i = 0; i < tgt_len; ++i)
+        for (int j = 0; j < d_model; ++j)
+            decoder_input(i, j) = 0.05f * std::sin(static_cast<float>(i * d_model + j));
+    for (int i = 0; i < src_len; ++i)
+        for (int j = 0; j < d_model; ++j)
+            encoder_output(i, j) = 0.05f * std::cos(static_cast<float>(i * d_model + j));
+    Matrix world_model_output(wm_len, d_model);
+    for (int i = 0; i < wm_len; ++i)
+        for (int j = 0; j < d_model; ++j)
+            world_model_output(i, j) = 0.1f * std::sin(static_cast<float>(i + 3 * j));
+    HippocampalMemory memory(d_model, 4);
+    for (int slot = 0; slot < 3; ++slot) {
+        Matrix key(1, d_model), value(1, d_model);
+        for (int j = 0; j < d_model; ++j) {
+            key(0, j) = 0.1f * static_cast<float>(slot + j);
+            value(0, j) = 0.1f * static_cast<float>(slot - j);
+        }
+        memory.write(key, value);
+    }
+    Matrix causal_mask = create_causal_mask(tgt_len);
+    auto gated_forward = [&]() {
+        return decoder_block.forward(decoder_input, encoder_output, causal_mask, nullptr,
+                                     &world_model_output, nullptr, &memory, 0.0f, 0.9f);
+    };
+
+    for (int step = 0; step < 30; ++step) {
+        decoder_block.zero_grad();
+        Matrix output = gated_forward();
+        Matrix grad_output(output.rows, output.cols);
+        for (int i = 0; i < output.rows; ++i)
+            for (int j = 0; j < output.cols; ++j)
+                grad_output(i, j) = output(i, j) - 0.5f;  // pull every output toward 0.5
+        decoder_block.backward(grad_output);
+        optimizer.step();
+    }
+
+    EXPECT_GT(std::abs(decoder_block.get_gate()), 1e-3f);
+    EXPECT_GT(std::abs(decoder_block.get_gate_h()), 1e-3f);
+    Matrix plain = decoder_block.forward(decoder_input, encoder_output, causal_mask);
+    EXPECT_FALSE(matrices_equal(plain, gated_forward()))
+        << "open gates must let the world-model and memory inputs change the output";
+}
+
+// TD-341: without a registered optimizer, update_weights() still steps the gates itself with
+// plain SGD (the path the gates used to rely on in every case).
+TEST(DecoderBlockGatedPathTest, UpdateWeightsStillStepsGatesWithoutAnOptimizer) {
+    int d_model = 16, num_heads = 2, d_ff = 32;
+    Matrix decoder_input(3, d_model), encoder_output(4, d_model);
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < d_model; ++j)
+            decoder_input(i, j) = 0.05f * std::sin(static_cast<float>(i * d_model + j));
+    for (int i = 0; i < 4; ++i)
+        for (int j = 0; j < d_model; ++j)
+            encoder_output(i, j) = 0.05f * std::cos(static_cast<float>(i * d_model + j));
+    Matrix world_model_output(3, d_model);
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < d_model; ++j)
+            world_model_output(i, j) = 0.1f * std::sin(static_cast<float>(i + 3 * j));
+    Matrix causal_mask = create_causal_mask(3);
+
+    DecoderBlock block(d_model, num_heads, d_ff, 0.1f, /*enable_world_model=*/true, false);
+    block.set_learning_rate(0.1f);
+    Matrix out = block.forward(decoder_input, encoder_output, causal_mask, nullptr,
+                               &world_model_output);
+    Matrix grad(out.rows, out.cols);
+    for (int i = 0; i < out.rows; ++i)
+        for (int j = 0; j < out.cols; ++j)
+            grad(i, j) = out(i, j) - 0.5f;
+    block.backward(grad);
+    const float gate_grad = block.get_gate_grad();
+    ASSERT_NE(gate_grad, 0.0f);
+    block.update_weights();
+    EXPECT_FLOAT_EQ(block.get_gate(), -0.1f * gate_grad);
+    EXPECT_EQ(block.get_gate_grad(), 0.0f);
+}
