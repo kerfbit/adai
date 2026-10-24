@@ -13,6 +13,7 @@
  * HuggingfaceSliceTest, rather than pulling in a JSON parsing library.
  */
 #include <gtest/gtest.h>
+#include <cstdint>
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -223,6 +224,54 @@ TEST_F(ParquetReaderTest, CorruptFileReturnsNegativeOne) {
     }
     const long long rows = ParquetReader::convert_to_jsonl(bogus, out_path_, /*append=*/false);
     EXPECT_EQ(rows, -1);
+}
+
+// ============================================================================
+// TD-470: crafted footers fail cleanly instead of hanging or crashing
+// ============================================================================
+
+namespace {
+
+// "PAR1" + footer + little-endian footer length + "PAR1".
+std::string write_parquet_with_footer(const fs::path& dir, const std::string& name,
+                                      const std::string& footer) {
+    const std::string path = (dir / name).string();
+    std::ofstream f(path, std::ios::binary);
+    f << "PAR1" << footer;
+    const auto len = static_cast<std::uint32_t>(footer.size());
+    for (int b = 0; b < 4; ++b)
+        f.put(static_cast<char>((len >> (8 * b)) & 0xFF));
+    f << "PAR1";
+    return path;
+}
+
+}  // namespace
+
+// An unknown FileMetaData field (delta 15, LIST) holding a bool list whose varint size is 2^62.
+// Skipping a bool list element consumed no bytes, so this tiny file spun at 100% CPU forever.
+TEST_F(ParquetReaderTest, HugeBoolListInFooterFailsInsteadOfLooping) {
+    std::string footer;
+    footer += static_cast<char>(0xF9);  // field delta 15, type 9 (LIST)
+    footer += static_cast<char>(0xF1);  // list: size escape (15), element type 1 (BOOL)
+    for (int i = 0; i < 8; ++i)
+        footer += static_cast<char>(0x80);  // varint 2^62 ...
+    footer += static_cast<char>(0x40);      // ... last byte
+    footer += static_cast<char>(0x00);      // STOP
+    const std::string path = write_parquet_with_footer(tmp_dir_, "bool_list.parquet", footer);
+    EXPECT_LT(fs::file_size(path), 32u);
+    EXPECT_EQ(ParquetReader::convert_to_jsonl(path, out_path_, /*append=*/false), -1);
+}
+
+// An unknown FileMetaData field (delta 15, STRUCT) containing 400,000 nested structs. Skipping
+// recursed once per level and overflowed the stack (SIGSEGV), killing registry_server.
+TEST_F(ParquetReaderTest, DeeplyNestedFooterFailsInsteadOfCrashing) {
+    const size_t depth = 400000;
+    std::string footer;
+    footer += static_cast<char>(0xFC);              // field delta 15, type 12 (STRUCT)
+    footer.append(depth, static_cast<char>(0x1C));  // each opens a nested struct (delta 1)
+    footer.append(depth + 2, '\0');                 // close them all, then FileMetaData's STOP
+    const std::string path = write_parquet_with_footer(tmp_dir_, "nested.parquet", footer);
+    EXPECT_EQ(ParquetReader::convert_to_jsonl(path, out_path_, /*append=*/false), -1);
 }
 
 // ============================================================================

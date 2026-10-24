@@ -7131,7 +7131,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Data / DataFetcher | October 11, 2026 | 1-2 hours |
+| **HIGH** | Open — code fix landed October 24, 2026 | Data / DataFetcher | October 11, 2026 | 1-2 hours |
 
 Description:
 Found while writing the code-traced reference [DataFetcher.md](../reference/source/DataFetcher.md) and confirmed by running the real
@@ -7148,9 +7148,9 @@ sentence cache is written on the way, so every retry of the same book crashes it
 
 Action Items:
 
-- [ ] Replace the regex with a linear hand-written scanner (also the natural place for TD-311's abbreviation handling).
-- [ ] Cap the length of a candidate sentence span, and treat a book with no usable sentences as a clean failure.
-- [ ] Test: a 1 MB unpunctuated input returns without crashing.
+- [x] Replace the regex with a linear hand-written scanner (also the natural place for TD-311's abbreviation handling).
+- [x] Cap the length of a candidate sentence span, and treat a book with no usable sentences as a clean failure.
+- [x] Test: a 1 MB unpunctuated input returns without crashing.
 
 Location in code: `src/DataFetcher.cpp` (`extract_sentences()`); tagged `TODO: See TD-309`.
 
@@ -7158,6 +7158,25 @@ Files to Modify:
 
 - `src/DataFetcher.cpp`
 - `tests/DataFetcherTests.cpp`
+
+**Fix (October 24, 2026).**
+- **Sentence splitting:** `extract_sentences()` is one linear pass with the regex's rules: a run of non-terminators plus its
+  terminators; text after the last terminator dropped; a `.` between digits isn't a boundary; whitespace collapsed; 21–499 characters
+  kept. A candidate stops being built once it reaches 500 characters.
+- **Other whole-text regexes:** three more could overflow the same way, and are now linear loops too:
+  - `clean_gutenberg_text()`'s `[ \t]+` and `\n{3,}` collapses (a long run of spaces or newlines);
+  - `strip_illustration_markers()`' `\[(Illustration|…)[^\]]*\]` (an unclosed `[Illustration` before a long text).
+
+  The per-line marker regexes only see short trimmed lines and stay.
+- **Not done:** a book with no usable sentences still yields an empty list, which the existing callers already report.
+- **Not changed:** TD-311's abbreviation splitting.
+
+Tests (`DataFetcherTests.cpp`):
+- `MegabyteInputsWithoutBoundariesReturnNormally`: 1 MB unpunctuated, 1 MB of words with no terminators, a 1 MB space run, a 1 MB
+  newline run, and an unclosed `[Illustration` before 1 MB, through `clean_gutenberg_text()` and `extract_sentences()`. The old code
+  segfaults on it (exit 139).
+- `SentenceScannerMatchesTheOldRegexOnProse`: the old regex pipeline, kept in the test as a reference, gives the same sentences on
+  prose with decimals, `!?` runs, line breaks, stray leading terminators and a trailing fragment.
 
 ---
 
@@ -12500,7 +12519,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Data / ParquetReader | October 14, 2026 | 1-2 hours |
+| **HIGH** | Open — code fix landed October 24, 2026 | Data / ParquetReader | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `ParquetReader` and verified with hand-crafted files. `skip_value()` (the Thrift compact-protocol skipper for footer and
@@ -12517,9 +12536,9 @@ segfault can't be caught). Same class as TD-309. (25,000 random mutations under 
 
 Action Items:
 
-- [ ] Consume one byte per bool element when skipping a list; reject list sizes larger than the remaining bytes.
-- [ ] Add a recursion depth limit (e.g. 64) to `skip_value()` and the struct parsers.
-- [ ] Regression tests with the two crafted footers.
+- [x] Consume one byte per bool element when skipping a list; reject list sizes larger than the remaining bytes.
+- [x] Add a recursion depth limit (e.g. 64) to `skip_value()` and the struct parsers.
+- [x] Regression tests with the two crafted footers.
 
 Location in code: `src/ParquetReader.cpp` (`skip_value()`, `read_list_header()`); tagged `TODO: See TD-470`.
 
@@ -12527,6 +12546,22 @@ Files to Modify:
 
 - `src/ParquetReader.cpp`
 - `tests/parquet_reader_test.cpp`
+
+**Fix (October 24, 2026).**
+- **List sizes:** `read_list_header()` rejects a size larger than the bytes left, since every compact-protocol list element takes at
+  least one byte. That bounds every list loop in the reader, not just the skipper.
+- **Bool elements:** a new `skip_list_element()` consumes the one byte a bool element takes inside a list. All five list loops that
+  skip elements use it.
+- **Nesting:** `skip_value()` takes a depth and refuses beyond 64 levels.
+- **Struct parsers:** these follow the fixed schema (one function per known struct), so data can't make them recurse; only
+  `skip_value()` did.
+
+Tests (`parquet_reader_test.cpp`):
+- `HugeBoolListInFooterFailsInsteadOfLooping`: a 24-byte file with a 2⁶²-element bool list in an unknown footer field.
+- `DeeplyNestedFooterFailsInsteadOfCrashing`: 400,000 nested structs.
+
+Both now return −1, and the real fixtures still parse (12/12). On the old reader, the first was still spinning when killed after 20 s,
+and the second segfaulted.
 
 ---
 

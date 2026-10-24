@@ -7,7 +7,9 @@
  * that have network access.
  */
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <filesystem>
+#include <regex>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -567,4 +569,60 @@ TEST(DataFetcherTest, SplitIsFlattenedIntoTheOutputDirectory) {
     EXPECT_FALSE(fs::exists(root / "ESCAPED"));
     EXPECT_FALSE(fs::exists(root / "group" / "ESCAPED"));
     fs::remove_all(root);
+}
+
+// ============================================================================
+// TD-309: long inputs can't crash the Gutenberg cleaning/splitting
+// ============================================================================
+
+// std::regex recursed per character: 100,000 characters without . ! ? crashed with SIGSEGV, so
+// one fetch/gutenberg request could kill registry_server. Every whole-text step is linear now.
+TEST_F(DataFetcherGutenbergCleaningTest, MegabyteInputsWithoutBoundariesReturnNormally) {
+    const size_t mb = 1 << 20;
+    const std::string unpunctuated(mb, 'a');
+    EXPECT_TRUE(ExtractSentences(unpunctuated).empty());
+
+    std::string words;
+    while (words.size() < mb)
+        words += "word ";
+    EXPECT_TRUE(ExtractSentences(words).empty());
+
+    const std::string spaces = "Start of the text here. " + std::string(mb, ' ') + "And the end of it.";
+    const std::string newlines = "Start of the text here.\n" + std::string(mb, '\n') + "And the end of it.";
+    const std::string unclosed = "Start of the text here. [Illustration " + words + " end.";
+    for (const std::string* text : {&unpunctuated, &spaces, &newlines, &unclosed}) {
+        const std::string cleaned = CleanGutenbergText(*text);
+        (void)ExtractSentences(cleaned);
+    }
+    EXPECT_LE(CleanGutenbergText(spaces).size(), 64u) << "the space run collapses to one";
+    EXPECT_EQ(CleanGutenbergText(newlines).find("\n\n\n"), std::string::npos);
+}
+
+// The linear scanner keeps the regex's rules. The old pipeline is the reference here.
+TEST_F(DataFetcherGutenbergCleaningTest, SentenceScannerMatchesTheOldRegexOnProse) {
+    auto old_extract = [](const std::string& text) {
+        std::vector<std::string> out;
+        const std::string protected_text =
+            std::regex_replace(text, std::regex(R"((\d)\.(\d))"), "$1\x01$2");
+        const std::regex sentence_regex("[^.!?]+[.!?]+");
+        for (auto it = std::sregex_iterator(protected_text.begin(), protected_text.end(),
+                                            sentence_regex);
+             it != std::sregex_iterator(); ++it) {
+            std::string s = it->str();
+            s.erase(0, s.find_first_not_of(" \t\n\r"));
+            s.erase(s.find_last_not_of(" \t\n\r") + 1);
+            std::replace(s.begin(), s.end(), '\x01', '.');
+            s = std::regex_replace(s, std::regex("\\s+"), " ");
+            if (s.length() > 20 && s.length() < 500)
+                out.push_back(s);
+        }
+        return out;
+    };
+    const std::string prose =
+        "...Alice was beginning to get very tired of sitting by her sister on the\n"
+        "bank, and of having nothing to do! Was it worth the trouble of getting up?!\n\n"
+        "This is EDITION 3.0 of the text, released in version 1.5 of the archive.\n"
+        "Short one. Another fairly ordinary sentence follows here...   And a trailing fragment";
+    EXPECT_EQ(ExtractSentences(prose), old_extract(prose));
+    EXPECT_FALSE(ExtractSentences(prose).empty());
 }

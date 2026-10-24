@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-24
 
 #include "ParquetReader.hpp"
 
@@ -156,13 +156,38 @@ bool read_list_header(Cursor& c, int& elem_type, std::uint64_t& size) {
             return false;
         size = extra;
     }
+    // TD-470: every list element takes at least one byte in the compact protocol (a bool
+    // element too), so a size beyond the bytes left is malformed. Unchecked, a varint size of
+    // ~2^62 made a 26-byte file loop forever.
+    if (size > c.size - c.pos) {
+        return false;
+    }
     return true;
+}
+
+// TD-470: nesting allowed in skipped values; a footer with 400,000 nested structs overflowed the
+// stack (SIGSEGV) and killed registry_server. Real Parquet metadata nests a handful of levels.
+constexpr int kMaxSkipDepth = 64;
+
+bool skip_value(Cursor& c, int compact_type, int depth = 0);
+
+// One list/set element. TD-470: a bool element is one byte here (true/false), unlike a bool struct
+// field, whose value lives in the type nibble; skipping it as zero bytes looped without progress.
+bool skip_list_element(Cursor& c, int elem_type, int depth = 0) {
+    if (elem_type == 1 || elem_type == 2) {
+        std::uint8_t b;
+        return read_byte(c, b);
+    }
+    return skip_value(c, elem_type, depth);
 }
 
 // Skips one value of the given compact-protocol type ID, recursing into
 // nested structs/lists. Makes every struct field we don't explicitly parse
 // safely ignorable instead of corrupting the rest of the parse.
-bool skip_value(Cursor& c, int compact_type) {
+bool skip_value(Cursor& c, int compact_type, int depth) {
+    if (depth > kMaxSkipDepth) {
+        return false;  // TD-470
+    }
     switch (compact_type) {
         case 1:
         case 2:  // BOOLEAN_TRUE / BOOLEAN_FALSE — value is in the type nibble, 0 bytes
@@ -191,14 +216,12 @@ bool skip_value(Cursor& c, int compact_type) {
             std::uint64_t size;
             if (!read_list_header(c, elem_type, size))
                 return false;
-            // TODO: See TD-470 in TECHNICAL_DEBT.md - size from a varint and BOOL elements consume no bytes here: a 26-byte file loops forever
             for (std::uint64_t i = 0; i < size; ++i) {
-                if (!skip_value(c, elem_type))
+                if (!skip_list_element(c, elem_type, depth + 1))
                     return false;
             }
             return true;
         }
-        // TODO: See TD-470 in TECHNICAL_DEBT.md - unbounded recursion: a deeply nested footer overflows the stack (SIGSEGV)
         case 12: {  // STRUCT
             int last_field_id = 0;
             while (true) {
@@ -217,7 +240,7 @@ bool skip_value(Cursor& c, int compact_type) {
                         return false;
                     last_field_id = static_cast<int>(zz);
                 }
-                if (!skip_value(c, type))
+                if (!skip_value(c, type, depth + 1))
                     return false;
             }
             return true;
@@ -379,7 +402,7 @@ bool parse_column_metadata(Cursor& c, ColumnMetaData& out) {
                         if (!read_zigzag_varint(c, v))
                             return false;
                         out.encodings.push_back(static_cast<std::int32_t>(v));
-                    } else if (!skip_value(c, elem_type)) {
+                    } else if (!skip_list_element(c, elem_type)) {
                         return false;
                     }
                 }
@@ -397,7 +420,7 @@ bool parse_column_metadata(Cursor& c, ColumnMetaData& out) {
                         if (!read_binary(c, s))
                             return false;
                         out.path_in_schema.push_back(std::move(s));
-                    } else if (!skip_value(c, elem_type)) {
+                    } else if (!skip_list_element(c, elem_type)) {
                         return false;
                     }
                 }
@@ -505,7 +528,7 @@ bool parse_row_group(Cursor& c, RowGroup& out) {
                         if (!parse_column_chunk(c, cc))
                             return false;
                         out.columns.push_back(std::move(cc));
-                    } else if (!skip_value(c, elem_type)) {
+                    } else if (!skip_list_element(c, elem_type)) {
                         return false;
                     }
                 }
@@ -548,7 +571,7 @@ bool parse_file_metadata(Cursor& c, FileMetaData& out) {
                         if (!parse_schema_element(c, se))
                             return false;
                         out.schema.push_back(std::move(se));
-                    } else if (!skip_value(c, elem_type)) {
+                    } else if (!skip_list_element(c, elem_type)) {
                         return false;
                     }
                 }
@@ -567,7 +590,7 @@ bool parse_file_metadata(Cursor& c, FileMetaData& out) {
                         if (!parse_row_group(c, rg))
                             return false;
                         out.row_groups.push_back(std::move(rg));
-                    } else if (!skip_value(c, elem_type)) {
+                    } else if (!skip_list_element(c, elem_type)) {
                         return false;
                     }
                 }

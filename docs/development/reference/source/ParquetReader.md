@@ -99,3 +99,14 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Declared sizes trusted for allocations: negative page sizes, Snappy length, page `num_values`, `num_rows` (§2) | Escaped `length_error`s (HTTP 500, no cleanup); multi-GB allocations from tiny inputs | **Verified** (exceptions); by inspection (8 GB case) | [TD-471](../../guides/TECHNICAL_DEBT.md#td-471-parquetreader-trusts-declared-sizes-for-allocations) |
 | Throws despite the "returns −1" contract; whole part in memory; only reference test disabled (§2) | Contract mismatch; memory use; weak coverage | By inspection | [TD-472](../../guides/TECHNICAL_DEBT.md#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps) |
 | Partial HuggingFace downloads cached as complete | Already tracked | — | TD-313 |
+
+---
+
+## Addendum (October 24, 2026): bounded Thrift skipping (TD-470)
+
+- **List sizes:** `read_list_header()` rejects a list size larger than the bytes left.
+- **Bool elements:** `skip_list_element()` consumes the byte a bool element takes inside a list.
+- **Depth:** `skip_value()` refuses nesting beyond 64 levels.
+
+A 24-byte file with a 2⁶²-element bool list (which looped forever) and a footer with 400,000 nested structs (which segfaulted) now
+make `convert_to_jsonl()` return −1. Tests: `HugeBoolListInFooterFailsInsteadOfLooping`, `DeeplyNestedFooterFailsInsteadOfCrashing`.

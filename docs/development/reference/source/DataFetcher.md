@@ -255,3 +255,12 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 `<dataset_id>_<split>` with every `/` and `\` turned into `_`, so it is always one path component under
 `huggingface_output_dir`. Before, only `dataset_id` was flattened, and a `split` like `x/../../ESCAPED` wrote outside it. Test:
 `SplitIsFlattenedIntoTheOutputDirectory`.
+
+---
+
+## Addendum (October 24, 2026): linear text processing (TD-309)
+
+`extract_sentences()`, `strip_illustration_markers()` and `clean_gutenberg_text()`'s whitespace collapses are linear loops instead of
+`std::regex`, whose engine recursed per character and segfaulted on about 100,000 characters without a match. That let one
+`fetch/gutenberg` request kill `registry_server`. The sentence rules are unchanged; a test checks them against the old regex pipeline.
+Tests: `MegabyteInputsWithoutBoundariesReturnNormally`, `SentenceScannerMatchesTheOldRegexOnProse`.

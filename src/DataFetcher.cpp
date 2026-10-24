@@ -1,8 +1,9 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-10-24
 
 #include "DataFetcher.hpp"
+#include <cstring>
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -410,11 +411,30 @@ std::string DataFetcher::clean_gutenberg_text(const std::string& raw_text) {
     cleaned = strip_illustration_markers(cleaned);
     cleaned = strip_chapter_markers(cleaned);
 
-    // Remove excessive whitespace
-    cleaned = std::regex_replace(cleaned, std::regex("[ \\t]+"), " ");
-    cleaned = std::regex_replace(cleaned, std::regex("\\n{3,}"), "\n\n");
-
-    return cleaned;
+    // Remove excessive whitespace. TD-309: linear loops, not std::regex, whose engine recurses per
+    // character and overflows the stack on a long run (one request could crash registry_server).
+    std::string collapsed;
+    collapsed.reserve(cleaned.size());
+    for (size_t i = 0; i < cleaned.size(); ++i) {
+        const char c = cleaned[i];
+        if (c == ' ' || c == '\t') {
+            if (collapsed.empty() || collapsed.back() != ' ') {
+                collapsed += ' ';  // a run of spaces/tabs becomes one space
+            }
+            continue;
+        }
+        if (c == '\n') {
+            size_t run = 0;
+            while (i + run < cleaned.size() && cleaned[i + run] == '\n') {
+                ++run;
+            }
+            collapsed.append(run >= 3 ? 2 : run, '\n');  // three or more newlines become two
+            i += run - 1;
+            continue;
+        }
+        collapsed += c;
+    }
+    return collapsed;
 }
 
 namespace {
@@ -445,9 +465,43 @@ bool DataFetcher::is_standalone_chapter_marker_line(const std::string& trimmed_l
 std::string DataFetcher::strip_illustration_markers(const std::string& text) {
     // Well-known, unambiguous Project Gutenberg transcription conventions —
     // low false-positive risk, safe to strip unconditionally wherever found.
-    static const std::regex marker_regex(
-        R"(\[(Illustration|Figure|Frontispiece|Footnote)[^\]]*\])", std::regex::icase);
-    return std::regex_replace(text, marker_regex, "");
+    // TD-309: a linear scan; std::regex's `[^\]]*` recursed per character, so an unclosed
+    // "[Illustration" followed by a long text overflowed the stack. Same rule: a bracket opening
+    // with one of these words (any case) up to the next ']' is removed; an unclosed one is kept.
+    static const char* const kWords[] = {"illustration", "figure", "frontispiece", "footnote"};
+    auto starts_with_word = [&](size_t pos) {
+        for (const char* word : kWords) {
+            const size_t n = std::strlen(word);
+            if (pos + n > text.size()) {
+                continue;
+            }
+            bool match = true;
+            for (size_t k = 0; k < n; ++k) {
+                if (std::tolower(static_cast<unsigned char>(text[pos + k])) != word[k]) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                return true;
+            }
+        }
+        return false;
+    };
+    std::string out;
+    out.reserve(text.size());
+    size_t i = 0;
+    while (i < text.size()) {
+        if (text[i] == '[' && starts_with_word(i + 1)) {
+            const size_t close = text.find(']', i + 1);
+            if (close != std::string::npos) {
+                i = close + 1;
+                continue;
+            }
+        }
+        out += text[i++];
+    }
+    return out;
 }
 
 /*static*/
@@ -541,41 +595,67 @@ std::string DataFetcher::strip_toc(const std::string& text) {
 std::vector<std::string> DataFetcher::extract_sentences(const std::string& text) {
     std::vector<std::string> sentences;
 
-    // Protect decimal/version numbers ("3.0", "1.5") from being mistaken for
-    // sentence boundaries by the naive splitter below — swap the internal
-    // period for a placeholder byte that isn't '.'/'!'/'?', then restore it
-    // per extracted sentence. Without this, e.g. "EDITION 3.0" splits into
-    // "...EDITION 3." + a stray leading "0 " on the next sentence.
-    static const std::regex decimal_regex(R"((\d)\.(\d))");
-    const std::string protected_text = std::regex_replace(text, decimal_regex, "$1\x01$2");
+    // TD-309: one linear pass, replacing std::regex("[^.!?]+[.!?]+") and the two helper regexes,
+    // whose engine recursed per character: 100,000 characters without . ! ? crashed (SIGSEGV), so a
+    // single fetch/gutenberg request could kill registry_server. The rules are the regex's: a
+    // sentence is a run of other characters followed by its run of terminators; text after the
+    // last terminator is dropped.
+    // TODO: See TD-311 in TECHNICAL_DEBT.md - still splits on Mr./Mrs./Dr.
+    auto is_terminator = [](char c) { return c == '.' || c == '!' || c == '?'; };
+    auto is_space = [](char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v';
+    };
+    // A '.' between two digits ("EDITION 3.0", "1.5") is not a boundary.
+    auto decimal_point = [&](size_t pos) {
+        return text[pos] == '.' && pos > 0 && pos + 1 < text.size() &&
+               std::isdigit(static_cast<unsigned char>(text[pos - 1])) &&
+               std::isdigit(static_cast<unsigned char>(text[pos + 1]));
+    };
 
-    // TODO: See TD-309 in TECHNICAL_DEBT.md - std::regex recursion segfaults on ~100k+ chars without . ! ? (crashes registry_server); TD-311: splits on Mr./Mrs./Dr.
-    std::regex sentence_regex("[^.!?]+[.!?]+");
-
-    auto sentences_begin =
-        std::sregex_iterator(protected_text.begin(), protected_text.end(), sentence_regex);
-    auto sentences_end = std::sregex_iterator();
-
-    for (std::sregex_iterator i = sentences_begin; i != sentences_end; ++i) {
-        std::string sentence = i->str();
-
-        sentence.erase(0, sentence.find_first_not_of(" \t\n\r"));
-        sentence.erase(sentence.find_last_not_of(" \t\n\r") + 1);
-
-        std::replace(sentence.begin(), sentence.end(), '\x01', '.');
-
-        // The regex spans newlines, so a "sentence" can carry embedded
-        // whitespace/newlines from the original line-wrapped text (or from a
-        // paragraph break within it). Collapse to single spaces — both a
-        // training-data quality improvement and required so cached sentences
-        // can be safely stored one-per-line (Phase 13: ensure_gutenberg_cached).
-        sentence = std::regex_replace(sentence, std::regex("\\s+"), " ");
-
-        if (sentence.length() > 20 && sentence.length() < 500) {
-            sentences.push_back(sentence);
+    // Collapses whitespace runs to one space and trims (the regex could span line breaks), and
+    // keeps sentences of 21-499 characters, as before.
+    auto emit = [&](size_t begin, size_t end) {
+        std::string sentence;
+        sentence.reserve(std::min<size_t>(end - begin, 512));
+        for (size_t k = begin; k < end; ++k) {
+            if (is_space(text[k])) {
+                if (!sentence.empty() && sentence.back() != ' ') {
+                    sentence += ' ';
+                }
+            } else {
+                sentence += text[k];
+            }
+            if (sentence.size() >= 500) {
+                return;  // too long to keep; no need to build the rest
+            }
         }
-    }
+        while (!sentence.empty() && sentence.back() == ' ') {
+            sentence.pop_back();
+        }
+        if (sentence.length() > 20 && sentence.length() < 500) {
+            sentences.push_back(std::move(sentence));
+        }
+    };
 
+    size_t i = 0;
+    const size_t n = text.size();
+    while (i < n) {
+        // A sentence needs at least one non-terminator first; skip stray terminators.
+        while (i < n && is_terminator(text[i]) && !decimal_point(i)) {
+            ++i;
+        }
+        const size_t begin = i;
+        while (i < n && (!is_terminator(text[i]) || decimal_point(i))) {
+            ++i;
+        }
+        if (i >= n) {
+            break;  // no terminator: dropped, as the regex did
+        }
+        while (i < n && is_terminator(text[i]) && !decimal_point(i)) {
+            ++i;
+        }
+        emit(begin, i);
+    }
     return sentences;
 }
 
