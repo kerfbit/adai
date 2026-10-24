@@ -1813,3 +1813,23 @@ TEST(LiveRegistryGroupNames, OrdinaryGroupNamesStillWork) {
         EXPECT_EQ(res->status, 200) << group << ": " << res->body;
     }
 }
+
+// TD-310: fetch/huggingface allow-listed dataset_id/split as [A-Za-z0-9._-/]+, which let ".."
+// through, and split went into paths unflattened. Traversal values now get 400 before any fetch.
+TEST(LiveRegistryHuggingface, TraversalInDatasetIdOrSplitIsRejected) {
+    if (!server_reachable())
+        GTEST_SKIP() << "server not reachable";
+    auto c = make_client();
+    const std::string group = make_group("hf");
+    const std::vector<std::pair<std::string, std::string>> cases = {
+        {"org/ds", "x/../../ESCAPED"}, {"org/ds", ".."},    {"org/ds", "."},
+        {"org/ds", "a/b"},             {"../ds", "train"},  {"org/../ds", "train"},
+        {"/org/ds", "train"},          {"org/ds/", "train"}, {"org//ds", "train"}};
+    for (const auto& [dataset_id, split] : cases) {
+        const std::string body = R"({"dataset_id":")" + dataset_id + R"(","split":")" + split +
+                                 R"(","num_pairs":5})";
+        auto res = c.Post("/registry/" + group + "/fetch/huggingface", body, "application/json");
+        ASSERT_TRUE(res) << dataset_id << " / " << split;
+        EXPECT_EQ(res->status, 400) << dataset_id << " / " << split << ": " << res->body;
+    }
+}

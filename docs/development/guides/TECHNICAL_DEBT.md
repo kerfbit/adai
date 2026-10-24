@@ -7165,7 +7165,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Data / DataFetcher | October 11, 2026 | 1 hour |
+| **HIGH** | Open — code fix landed October 24, 2026 | Data / DataFetcher | October 11, 2026 | 1 hour |
 
 Description:
 Found alongside TD-309 and confirmed by running the real code. `registry_server`'s
@@ -7179,8 +7179,8 @@ point there too. Any client that can reach the registry's fetch endpoint can do 
 
 Action Items:
 
-- [ ] Reject `..` path components (or any `/`) in `split` in the registry allow-list, and flatten `split` in `DataFetcher` like `dataset_id`.
-- [ ] Test: the endpoint rejects a `split` containing `..`, and `DataFetcher` never creates paths outside its output dir.
+- [x] Reject `..` path components (or any `/`) in `split` in the registry allow-list, and flatten `split` in `DataFetcher` like `dataset_id`.
+- [x] Test: the endpoint rejects a `split` containing `..`, and `DataFetcher` never creates paths outside its output dir.
 
 Location in code: `src/DataFetcher.cpp` (`ensure_huggingface_cached()`, `fetch_huggingface()`), `src/RegistryServer.cpp` (`kSafeHfIdentifier`); tagged `TODO: See TD-310`.
 
@@ -7189,6 +7189,21 @@ Files to Modify:
 - `src/DataFetcher.cpp`
 - `src/RegistryServer.cpp`
 - `tests/dataset_registry_live_test.cpp`
+
+**Fix (October 24, 2026).**
+- **Registry allow-list:** `fetch/huggingface` replaces its `[A-Za-z0-9._-/]+` allow-list with `is_safe_hf_component()` (one
+  `[A-Za-z0-9._-]+` name, never `.` or `..`) for `split`, and `is_safe_hf_dataset_id()` (`name` or `org/name`, every component
+  safe, no leading, trailing or doubled `/`) for `dataset_id`. Anything else gets 400 before any fetch.
+- **Registry training-file name:** built with `flatten_for_path(split)`.
+- **`DataFetcher`:** `fetch_huggingface()` and `ensure_huggingface_cached()` build the per-dataset directory with
+  `hf_dataset_dir_name()`, which flattens `/` and `\` in both `dataset_id` and `split`. That also protects `dataset_manager`'s
+  local `huggingface` command, which doesn't go through the registry check.
+
+Tests:
+- `DataFetcherTests.cpp`'s `SplitIsFlattenedIntoTheOutputDirectory`: split `x/../../ESCAPED` resolves inside the output directory,
+  and nothing named `ESCAPED` is created outside it (offline, with a pre-created cache).
+- `dataset_registry_live_test.cpp`'s `TraversalInDatasetIdOrSplitIsRejected`: nine traversal cases get 400. 90/90 live tests pass
+  against a fresh server.
 
 ---
 

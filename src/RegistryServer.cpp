@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.13.0
-// @adai-reviewed: 2026-10-21
+// @adai-version: 0.14.0
+// @adai-reviewed: 2026-10-24
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) is hardened to
@@ -1424,12 +1424,33 @@ static void handle_pending_add(const httplib::Request& req, httplib::Response& r
 // HuggingFace dataset IDs are "name" or "org/name"; DataFetcher shells out with
 // dataset_id interpolated unescaped into curl/python commands, so this endpoint
 // is a remote command-injection vector unless the id is strictly allow-listed
-// before it ever reaches DataFetcher. Same allow-list applies to `split`.
-// TODO: See TD-310 in TECHNICAL_DEBT.md - allows ".." path components; split is used unflattened in paths
-static const std::regex kSafeHfIdentifier(R"(^[A-Za-z0-9._\-/]+$)");
+// before it ever reaches DataFetcher. TD-310: the old allow-list ([A-Za-z0-9._-/]+) let ".."
+// through, and `split` went into paths unflattened, so "x/../../ESCAPED" wrote outside the group's
+// data directory. A component is now [A-Za-z0-9._-]+ and never "." or "..".
+static const std::regex kSafeHfComponent(R"(^[A-Za-z0-9._\-]+$)");
 
-static bool is_safe_hf_identifier(const std::string& s) {
-    return !s.empty() && std::regex_match(s, kSafeHfIdentifier);
+static bool is_safe_hf_component(const std::string& s) {
+    return !s.empty() && s != "." && s != ".." && std::regex_match(s, kSafeHfComponent);
+}
+
+// dataset_id: "name" or "org/name" (one or more components joined by '/').
+static bool is_safe_hf_dataset_id(const std::string& s) {
+    if (s.empty() || s.front() == '/' || s.back() == '/') {
+        return false;
+    }
+    size_t start = 0;
+    while (start <= s.size()) {
+        const size_t slash = s.find('/', start);
+        const size_t end = slash == std::string::npos ? s.size() : slash;
+        if (!is_safe_hf_component(s.substr(start, end - start))) {
+            return false;
+        }
+        if (slash == std::string::npos) {
+            break;
+        }
+        start = slash + 1;
+    }
+    return true;
 }
 
 // Upload filenames must be a bare basename — no directory separators or ".."
@@ -1583,10 +1604,11 @@ static void handle_fetch_huggingface(const httplib::Request& req, httplib::Respo
     const std::string output_field = json_string(req.body, "output_field");
     const std::string model_name = json_string(req.body, "model_name");
 
-    if (!is_safe_hf_identifier(dataset_id) || !is_safe_hf_identifier(split)) {
+    if (!is_safe_hf_dataset_id(dataset_id) || !is_safe_hf_component(split)) {
         res.status = 400;
-        res.set_content(
-            "{\"error\":\"dataset_id/split must match [A-Za-z0-9._-/]+\"}", "application/json");
+        res.set_content("{\"error\":\"dataset_id must be name or org/name and split one name, each "
+                        "[A-Za-z0-9._-]+ and never . or ..\"}",
+                        "application/json");
         Logger::warn("[{}] fetch/huggingface: rejected unsafe dataset_id='{}' split='{}'", group,
                      dataset_id, split);
         return;
@@ -1621,7 +1643,8 @@ static void handle_fetch_huggingface(const httplib::Request& req, httplib::Respo
 
     const std::string safe_id = flatten_for_path(dataset_id);
     const std::string safe_model = model_name.empty() ? "_unassigned" : flatten_for_path(model_name);
-    const std::string path = out_dir + "/" + safe_id + "_" + split + "_" + safe_model + "_row" +
+    const std::string path = out_dir + "/" + safe_id + "_" + flatten_for_path(split) + "_" +
+                             safe_model + "_row" +
                              std::to_string(offset) + "_training.jsonl";
 
     int next_offset = offset;

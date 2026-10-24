@@ -191,3 +191,10 @@ routing), gets 400 `{"error":"invalid group name"}`. `group_dir()` also refuses 
 root comes from it, so a delete can no longer reach outside `data_dir`. Tests: `dataset_registry_live_test.cpp`'s
 `LiveRegistryGroupNames.TraversalGroupsAreRejected` and `OrdinaryGroupNamesStillWork`.
 
+---
+
+## Addendum (October 24, 2026): HuggingFace fetch inputs (TD-310)
+
+`fetch/huggingface` checks `split` with `is_safe_hf_component()` (one `[A-Za-z0-9._-]+` name, never `.`/`..`) and `dataset_id` with
+`is_safe_hf_dataset_id()` (`name` or `org/name`, each component safe), and answers 400 otherwise. The produced training file's name uses
+`flatten_for_path(split)`. Test: `LiveRegistryHuggingface.TraversalInDatasetIdOrSplitIsRejected`.

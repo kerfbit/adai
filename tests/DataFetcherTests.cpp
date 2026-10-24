@@ -540,3 +540,31 @@ TEST_F(GutenbergSliceTest, MissingCachedFileReturnsZeroPairs) {
 }
 
 }  // namespace
+
+// ============================================================================
+// TD-310: split can't escape the HuggingFace output directory
+// ============================================================================
+
+// dataset_id was flattened ('/' -> '_') but split went into the cache path as-is, so a split of
+// "x/../../ESCAPED" created ESCAPED/ outside the output directory. Both are flattened now. The
+// cache file is pre-created at the flattened location, so no download is attempted.
+TEST(DataFetcherTest, SplitIsFlattenedIntoTheOutputDirectory) {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "adai_td310";
+    fs::remove_all(root);
+    const fs::path out = root / "group" / "datasets";
+    const std::string split = "x/../../ESCAPED";
+    const fs::path cached = out / "org_ds_x_.._.._ESCAPED" / "full_dataset.jsonl";
+    fs::create_directories(cached.parent_path());
+    std::ofstream(cached) << "{\"input\":\"a\",\"response\":\"b\"}\n";
+
+    FetcherConfig cfg;
+    cfg.huggingface_output_dir = out.string();
+    DataFetcher fetcher(cfg);
+    const std::string path = fetcher.ensure_huggingface_cached("org/ds", split);
+
+    EXPECT_EQ(fs::weakly_canonical(path), fs::weakly_canonical(cached));
+    EXPECT_FALSE(fs::exists(root / "ESCAPED"));
+    EXPECT_FALSE(fs::exists(root / "group" / "ESCAPED"));
+    fs::remove_all(root);
+}

@@ -246,3 +246,12 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 | No curl timeouts; synchronous in the registry handler (§6) | A stalled download holds a registry worker forever | By inspection | [TD-312](../../guides/TECHNICAL_DEBT.md#td-312-datafetcher-downloads-through-shell-curl-commands) |
 | Partial or interrupted HF downloads cached as complete; concurrent fetches share cache files (§6) | Silently incomplete or corrupt datasets served indefinitely | By inspection | [TD-313](../../guides/TECHNICAL_DEBT.md#td-313-huggingface-cache-accepts-partial-downloads-and-races-concurrent-fetches) |
 | `config=default` only; Gutenberg URL patterns limited; `fetch_gutenberg()` never caches; `std::cout` in library code (§6) | Some datasets/books unfetchable; minor | By inspection | [TD-314](../../guides/TECHNICAL_DEBT.md#td-314-datafetcher-source-coverage-and-hygiene-gaps) |
+
+---
+
+## Addendum (October 24, 2026): `split` is flattened (TD-310)
+
+`fetch_huggingface()` and `ensure_huggingface_cached()` name the per-dataset directory with `hf_dataset_dir_name()`:
+`<dataset_id>_<split>` with every `/` and `\` turned into `_`, so it is always one path component under
+`huggingface_output_dir`. Before, only `dataset_id` was flattened, and a `split` like `x/../../ESCAPED` wrote outside it. Test:
+`SplitIsFlattenedIntoTheOutputDirectory`.

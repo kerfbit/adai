@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-24
 
 #include "DataFetcher.hpp"
 #include <algorithm>
@@ -208,16 +208,27 @@ int DataFetcher::convert_gutenberg_slice(const std::string& cached_sentences,
 // Public — HuggingFace
 // ============================================================================
 
+namespace {
+
+// TD-310: the per-dataset directory name, `<dataset_id>_<split>` with every '/' and '\\' turned
+// into '_', so it is always one path component under the output directory. dataset_id was
+// flattened before, but split went in as-is, so a split like "x/../../ESCAPED" wrote outside it.
+std::string hf_dataset_dir_name(const std::string& dataset_id, const std::string& split) {
+    std::string name = dataset_id + "_" + split;
+    std::replace(name.begin(), name.end(), '/', '_');
+    std::replace(name.begin(), name.end(), '\\', '_');
+    return name;
+}
+
+}  // namespace
+
 std::string DataFetcher::fetch_huggingface(const std::string& dataset_id, int num_pairs,
                                            const std::string& split, const std::string& input_field,
                                            const std::string& output_field) {
-    std::string safe_id = dataset_id;
-    std::replace(safe_id.begin(), safe_id.end(), '/', '_');
-
-    // TODO: See TD-310 in TECHNICAL_DEBT.md - split is not flattened; ".." in split escapes the output dir
-    const std::string dataset_dir = config_.huggingface_output_dir + "/" + safe_id + "_" + split;
+    const std::string dir_name = hf_dataset_dir_name(dataset_id, split);  // TD-310
+    const std::string dataset_dir = config_.huggingface_output_dir + "/" + dir_name;
     const std::string train_file =
-        config_.huggingface_output_dir + "/" + safe_id + "_" + split + "_training.jsonl";
+        config_.huggingface_output_dir + "/" + dir_name + "_training.jsonl";
 
     if (!fs::exists(config_.huggingface_output_dir)) {
         fs::create_directories(config_.huggingface_output_dir);
@@ -256,11 +267,8 @@ std::string DataFetcher::fetch_huggingface(const std::string& dataset_id, int nu
 
 std::string DataFetcher::ensure_huggingface_cached(const std::string& dataset_id,
                                                    const std::string& split) {
-    std::string safe_id = dataset_id;
-    std::replace(safe_id.begin(), safe_id.end(), '/', '_');
-
-    // TODO: See TD-310 in TECHNICAL_DEBT.md - split is not flattened; ".." in split escapes the output dir
-    const std::string dataset_dir = config_.huggingface_output_dir + "/" + safe_id + "_" + split;
+    const std::string dataset_dir =
+        config_.huggingface_output_dir + "/" + hf_dataset_dir_name(dataset_id, split);  // TD-310
     const std::string jsonl_path = dataset_dir + "/full_dataset.jsonl";
 
     // TODO: See TD-313 in TECHNICAL_DEBT.md - any non-empty file counts as a complete cache (partial/interrupted/concurrent downloads)
