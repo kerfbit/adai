@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-10-24
 
 #include "ParquetReader.hpp"
@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <optional>
 #include <sstream>
@@ -699,13 +700,18 @@ bool parse_page_header(Cursor& c, PageHeader& out) {
 // never uses the framed/streaming format). Decompression only.
 // ============================================================================
 
-bool snappy_raw_uncompress(const std::uint8_t* src, std::size_t src_len, std::string& out) {
+bool snappy_raw_uncompress(const std::uint8_t* src, std::size_t src_len,
+                           std::uint64_t max_uncompressed, std::string& out) {
     Cursor c{src, src_len, 0};
     std::uint64_t uncompressed_len;
     if (!read_varint(c, uncompressed_len))
         return false;
     out.clear();
-    // TODO: See TD-471 in TECHNICAL_DEBT.md - declared uncompressed length trusted for reserve()
+    // TD-471: every Snappy element of n >= 2 input bytes produces at most 64 bytes
+    // (a literal produces fewer bytes than it consumes), so a declared length above
+    // 32 bytes per input byte is a lie — refuse it before reserving.
+    if (uncompressed_len > max_uncompressed || uncompressed_len / 32 > src_len)
+        return false;
     out.reserve(static_cast<std::size_t>(uncompressed_len));
 
     while (out.size() < uncompressed_len) {
@@ -828,6 +834,9 @@ bool decode_rle_bitpacked_hybrid(const std::uint8_t* data, std::size_t len, int 
         } else {
             // Bit-packed run: run_header>>1 groups of 8 values, LSB-first packing.
             std::uint64_t num_groups = run_header >> 1;
+            // TD-471: compare before multiplying, so a huge group count can't wrap.
+            if (num_groups > (c.size - c.pos) / static_cast<std::uint64_t>(bit_width))
+                return false;
             std::uint64_t total_bytes = num_groups * static_cast<std::uint64_t>(bit_width);
             if (c.pos + total_bytes > c.size)
                 return false;
@@ -875,6 +884,10 @@ bool decode_plain_values(const std::uint8_t* data, std::size_t len, PhysicalType
                          std::size_t count, std::vector<ColumnValue>& out) {
     Cursor c{data, len, 0};
     out.clear();
+    // TD-471: the smallest PLAIN value is one bit (BOOLEAN), so more than 8 values
+    // per byte can't be present; refuse before reserving.
+    if (count / 8 > len)
+        return false;
     out.reserve(count);
 
     switch (type) {
@@ -1017,13 +1030,22 @@ bool read_page_header_at(std::ifstream& file, std::int64_t offset, PageHeader& h
     return true;
 }
 
-bool read_page_body(std::ifstream& file, std::int64_t body_offset, std::int32_t compressed_size,
-                    CompressionCodec codec, const std::string& path_for_errors,
-                    const char* page_kind, std::string& uncompressed) {
+bool read_page_body(std::ifstream& file, std::int64_t file_size, std::int64_t body_offset,
+                    const PageHeader& header, CompressionCodec codec,
+                    const std::string& path_for_errors, const char* page_kind,
+                    std::string& uncompressed) {
+    const std::int32_t compressed_size = header.compressed_page_size;
+    // TD-471: the page body must fit in the bytes left in the file, and its declared
+    // uncompressed size must be a real size, before anything is allocated.
+    if (compressed_size < 0 || header.uncompressed_page_size < 0 || body_offset < 0 ||
+        body_offset > file_size || compressed_size > file_size - body_offset) {
+        Logger::error("ParquetReader: {} page in '{}' declares an impossible size", page_kind,
+                     path_for_errors);
+        return false;
+    }
     std::string compressed;
     file.clear();
     file.seekg(body_offset, std::ios::beg);
-    // TODO: See TD-471 in TECHNICAL_DEBT.md - compressed_size not validated (negative int32 -> huge size_t -> length_error)
     compressed.resize(static_cast<std::size_t>(compressed_size));
     file.read(&compressed[0], compressed_size);
     if (file.gcount() != compressed_size) {
@@ -1036,7 +1058,9 @@ bool read_page_body(std::ifstream& file, std::int64_t body_offset, std::int32_t 
     }
     if (codec == CompressionCodec::SNAPPY) {
         if (!snappy_raw_uncompress(reinterpret_cast<const std::uint8_t*>(compressed.data()),
-                                   compressed.size(), uncompressed)) {
+                                   compressed.size(),
+                                   static_cast<std::uint64_t>(header.uncompressed_page_size),
+                                   uncompressed)) {
             Logger::error("ParquetReader: Snappy decompression failed ({} page) in '{}'", page_kind,
                          path_for_errors);
             return false;
@@ -1048,11 +1072,12 @@ bool read_page_body(std::ifstream& file, std::int64_t body_offset, std::int32_t 
     return false;
 }
 
-bool decode_column_chunk(std::ifstream& file, const std::string& path_for_errors,
-                         const ColumnChunk& chunk, bool is_optional,
-                         std::int64_t expected_num_rows, std::vector<Cell>& out) {
+bool decode_column_chunk(std::ifstream& file, std::int64_t file_size,
+                         const std::string& path_for_errors, const ColumnChunk& chunk,
+                         bool is_optional, std::int64_t expected_num_rows, std::vector<Cell>& out) {
     out.clear();
-    out.reserve(static_cast<std::size_t>(std::max<std::int64_t>(expected_num_rows, 0)));
+    // expected_num_rows was checked against kMaxRowsPerRowGroup by the caller.
+    out.reserve(static_cast<std::size_t>(expected_num_rows));
 
     const ColumnMetaData& md = chunk.meta_data;
     const int max_def_level = is_optional ? 1 : 0;
@@ -1077,7 +1102,12 @@ bool decode_column_chunk(std::ifstream& file, const std::string& path_for_errors
             return false;
         }
         std::string uncompressed;
-        if (!read_page_body(file, body_offset, dph.compressed_page_size, md.codec, path_for_errors,
+        if (dph.dict_num_values < 0) {
+            Logger::error("ParquetReader: negative dictionary value count in '{}'",
+                         path_for_errors);
+            return false;
+        }
+        if (!read_page_body(file, file_size, body_offset, dph, md.codec, path_for_errors,
                             "dictionary", uncompressed))
             return false;
         if (!decode_plain_values(reinterpret_cast<const std::uint8_t*>(uncompressed.data()),
@@ -1111,14 +1141,20 @@ bool decode_column_chunk(std::ifstream& file, const std::string& path_for_errors
         }
 
         std::string page_str;
-        if (!read_page_body(file, body_offset, ph.compressed_page_size, md.codec, path_for_errors,
-                            "data", page_str))
+        // TD-471: a page can't hold more values than the column chunk has left, so a
+        // lie can't size the definition levels or the cells beyond the row group.
+        if (ph.dp_num_values < 0 || ph.dp_num_values > md.num_values - values_read) {
+            Logger::error("ParquetReader: data page in '{}' declares {} values, {} left in the column",
+                         path_for_errors, ph.dp_num_values, md.num_values - values_read);
+            return false;
+        }
+        if (!read_page_body(file, file_size, body_offset, ph, md.codec, path_for_errors, "data",
+                            page_str))
             return false;
 
         const std::uint8_t* page = reinterpret_cast<const std::uint8_t*>(page_str.data());
         const std::size_t page_len = page_str.size();
         std::size_t page_pos = 0;
-        // TODO: See TD-471 in TECHNICAL_DEBT.md - dp_num_values trusted (negative -> huge; 2^31 -> 8 GB of def levels from a few bytes)
         const std::size_t page_num_values = static_cast<std::size_t>(ph.dp_num_values);
 
         std::vector<std::uint32_t> def_levels;
@@ -1300,9 +1336,17 @@ void append_cell_json(const Cell& cell, std::string& out) {
 // ParquetReader::convert_to_jsonl
 // ============================================================================
 
-// TODO: See TD-472 in TECHNICAL_DEBT.md - throws on allocation failures despite the "returns -1" contract; buffers the whole part in memory
-long long ParquetReader::convert_to_jsonl(const std::string& parquet_path,
-                                          const std::string& out_jsonl_path, bool append) {
+namespace {
+
+// TD-471: the most rows one row group may declare. The reader buffers a whole row
+// group (TD-472), and a constant column RLE-encodes any number of rows in a few
+// bytes, so the file size can't bound this; 16Mi is 16x pyarrow's default row group.
+constexpr std::int64_t kMaxRowsPerRowGroup = std::int64_t{1} << 24;
+
+// Decodes the file and writes its rows to `out`; returns the row count or -1.
+// May throw (e.g. std::bad_alloc); convert_to_jsonl() catches that.
+// TODO: See TD-472 in TECHNICAL_DEBT.md - buffers a whole row group in memory
+long long convert_to_jsonl_impl(const std::string& parquet_path, std::ostream& out) {
     std::ifstream file(parquet_path, std::ios::binary);
     if (!file.is_open()) {
         Logger::error("ParquetReader: cannot open '{}'", parquet_path);
@@ -1403,6 +1447,15 @@ long long ParquetReader::convert_to_jsonl(const std::string& parquet_path,
                 return -1;
             }
             const ColumnMetaData& md = cc.meta_data;
+            // TD-471: in a flat schema every row has exactly one value (or null) per
+            // column, so a chunk's value count must equal its row group's row count.
+            if (rg.num_rows < 0 || rg.num_rows > kMaxRowsPerRowGroup ||
+                md.num_values != rg.num_rows) {
+                Logger::error("ParquetReader: '{}' declares a row group of {} rows with a {}-value "
+                             "column (at most {} rows, one value per row)",
+                             parquet_path, rg.num_rows, md.num_values, kMaxRowsPerRowGroup);
+                return -1;
+            }
             if (md.codec != CompressionCodec::UNCOMPRESSED && md.codec != CompressionCodec::SNAPPY) {
                 Logger::error("ParquetReader: '{}' uses unsupported compression codec {}",
                              parquet_path, static_cast<int>(md.codec));
@@ -1424,12 +1477,6 @@ long long ParquetReader::convert_to_jsonl(const std::string& parquet_path,
                 }
             }
         }
-    }
-
-    std::ofstream out(out_jsonl_path, append ? (std::ios::out | std::ios::app) : std::ios::out);
-    if (!out.is_open()) {
-        Logger::error("ParquetReader: cannot open '{}' for writing", out_jsonl_path);
-        return -1;
     }
 
     long long total_rows = 0;
@@ -1456,7 +1503,8 @@ long long ParquetReader::convert_to_jsonl(const std::string& parquet_path,
             }
             const bool is_optional =
                 se.has_repetition && se.repetition == FieldRepetitionType::OPTIONAL;
-            if (!decode_column_chunk(file, parquet_path, cc, is_optional, rg.num_rows, columns[ci]))
+            if (!decode_column_chunk(file, static_cast<std::int64_t>(file_size), parquet_path, cc,
+                                     is_optional, rg.num_rows, columns[ci]))
                 return -1;  // decode_column_chunk already logged the specific reason
         }
 
@@ -1477,10 +1525,68 @@ long long ParquetReader::convert_to_jsonl(const std::string& parquet_path,
         }
     }
 
-    if (!out.good()) {
-        Logger::error("ParquetReader: write error on '{}'", out_jsonl_path);
+    return total_rows;
+}
+
+}  // namespace
+
+long long ParquetReader::convert_to_jsonl(const std::string& parquet_path,
+                                          const std::string& out_jsonl_path, bool append) {
+    namespace fs = std::filesystem;
+    // TD-471: rows are written as each row group decodes, so a failure part-way would
+    // leave earlier row groups behind. Appends are cut back to the original size; a
+    // fresh write goes to a temp file that replaces the target only on success.
+    std::error_code ec;
+    const bool existed = fs::exists(out_jsonl_path, ec);
+    const std::uintmax_t original_size = existed ? fs::file_size(out_jsonl_path, ec) : 0;
+    if (ec) {
+        Logger::error("ParquetReader: cannot read the size of '{}': {}", out_jsonl_path,
+                     ec.message());
         return -1;
     }
+    const std::string write_path = append ? out_jsonl_path : out_jsonl_path + ".tmp";
 
-    return total_rows;
+    long long rows = -1;
+    {
+        std::ofstream out(write_path, append ? (std::ios::out | std::ios::app) : std::ios::out);
+        if (!out.is_open()) {
+            Logger::error("ParquetReader: cannot open '{}' for writing", write_path);
+            return -1;
+        }
+        try {
+            rows = convert_to_jsonl_impl(parquet_path, out);
+        } catch (const std::exception& e) {
+            Logger::error("ParquetReader: failed to convert '{}': {}", parquet_path, e.what());
+            rows = -1;
+        }
+        out.flush();
+        if (rows >= 0 && !out.good()) {
+            Logger::error("ParquetReader: write error on '{}'", write_path);
+            rows = -1;
+        }
+    }
+
+    if (rows >= 0) {
+        if (!append) {
+            fs::rename(write_path, out_jsonl_path, ec);
+            if (ec) {
+                Logger::error("ParquetReader: cannot move '{}' to '{}': {}", write_path,
+                             out_jsonl_path, ec.message());
+                fs::remove(write_path, ec);
+                return -1;
+            }
+        }
+        return rows;
+    }
+    if (!append) {
+        fs::remove(write_path, ec);
+    } else if (existed) {
+        fs::resize_file(out_jsonl_path, original_size, ec);
+    } else {
+        fs::remove(out_jsonl_path, ec);
+    }
+    if (ec)
+        Logger::error("ParquetReader: could not restore '{}' after a failed conversion: {}",
+                     out_jsonl_path, ec.message());
+    return -1;
 }

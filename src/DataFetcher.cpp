@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.2.1
 // @adai-reviewed: 2026-10-24
 
 #include "DataFetcher.hpp"
@@ -835,11 +835,13 @@ std::string DataFetcher::download_hf_full_dataset(const std::string& dataset_id,
         // Convert to JSONL — first successful part truncates jsonl_path, subsequent
         // parts append, so a failure on part 0 never leaves a stale file from a
         // previous run behind.
-        // TODO: See TD-471 in TECHNICAL_DEBT.md - convert_to_jsonl() can throw (length_error); nothing catches or cleans up here
+        // convert_to_jsonl() never throws and leaves jsonl_path as it was on failure (TD-471).
         const long long rows = ParquetReader::convert_to_jsonl(pq_file, jsonl_path,
                                                                 /*append=*/converted > 0);
         if (rows < 0) {
             Logger::error("Parquet to JSONL conversion failed for part {} ({})", i, pq_file);
+            std::error_code rm_ec;
+            fs::remove(pq_file, rm_ec);  // an unreadable part is no use to a later run
             continue;
         }
 

@@ -110,3 +110,22 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 A 24-byte file with a 2⁶²-element bool list (which looped forever) and a footer with 400,000 nested structs (which segfaulted) now
 make `convert_to_jsonl()` return −1. Tests: `HugeBoolListInFooterFailsInsteadOfLooping`, `DeeplyNestedFooterFailsInsteadOfCrashing`.
+
+---
+
+## Addendum (October 24, 2026): declared sizes checked before allocating (TD-471)
+
+Every size read from the file is checked before it sizes an allocation:
+- **Page bodies:** a page's compressed size must fit in the bytes left in the file.
+- **Snappy:** the declared length must be at most the page's uncompressed size and at most 32× the compressed bytes.
+- **Pages:** a page's value count must be at most the values left in its column chunk.
+- **Columns:** a column chunk's value count must equal its row group's row count.
+- **Row groups:** at most 2²⁴ rows (`kMaxRowsPerRowGroup`).
+- **Dictionaries and PLAIN values:** at most 8 values per byte.
+
+`convert_to_jsonl()` never throws and leaves the output as it was on failure. An append is truncated back; a replacing write goes through
+`<out>.tmp` and a rename.
+
+Tests: `SyntheticColumnFileConverts`, `RowGroupDeclaringBillionsOfRowsIsRejected`, `PageClaimingMoreValuesThanItsColumnIsRejected`,
+`NegativeOrOversizedPageSizeIsRejected`, `MutatedFixturesNeverThrowAndFailuresLeaveOutputUnchanged`.
+

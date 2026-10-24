@@ -12569,7 +12569,7 @@ and the second segfaulted.
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / ParquetReader | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 24, 2026 | Data / ParquetReader | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `ParquetReader`. Sizes read from the file drive allocations before being checked against the bytes actually present:
@@ -12584,8 +12584,8 @@ uncompressed length (`out.reserve()`), a page's `dp_num_values` (`int32` → `si
 
 Action Items:
 
-- [ ] Validate every declared size before allocating: non-negative, bounded by the file size / remaining bytes, page `num_values` ≤ the column chunk's remaining values, Snappy length ≤ the page's `uncompressed_page_size` (and a sane cap).
-- [ ] Catch exceptions in `convert_to_jsonl()` (return −1) and clean up in `DataFetcher` on failure.
+- [x] Validate every declared size before allocating: non-negative, bounded by the file size / remaining bytes, page `num_values` ≤ the column chunk's remaining values, Snappy length ≤ the page's `uncompressed_page_size` (and a sane cap).
+- [x] Catch exceptions in `convert_to_jsonl()` (return −1) and clean up in `DataFetcher` on failure.
 
 Location in code: `src/ParquetReader.cpp` (`read_page_body()`, `snappy_raw_uncompress()`, `decode_column_chunk()`); `src/DataFetcher.cpp` (the `convert_to_jsonl()` call); tagged `TODO: See TD-471`.
 
@@ -12594,6 +12594,37 @@ Files to Modify:
 - `src/ParquetReader.cpp`
 - `src/DataFetcher.cpp`
 - `tests/parquet_reader_test.cpp`
+
+**Fix (October 24, 2026).** Each declared size is checked against what can actually be present before it sizes an allocation:
+- **Page bodies:** the compressed size must be non-negative and fit in the bytes left in the file, and the uncompressed size must be
+  non-negative.
+- **Snappy:** the declared length must be at most the page's `uncompressed_page_size` and at most 32 bytes per compressed byte (no Snappy
+  element of n ≥ 2 bytes produces more than 64).
+- **Pages:** a page's value count must be non-negative and at most the values left in its column chunk.
+- **Columns:** a column chunk's value count must equal its row group's row count, since a flat schema has one value or null per row. This
+  is checked for every chunk before any output.
+- **Row groups:** at most 2²⁴ rows (`kMaxRowsPerRowGroup`, 16× pyarrow's default row group). The reader buffers a whole row group
+  (TD-472), and a constant column RLE-encodes any number of rows in a few bytes, so the file size alone can't bound this.
+- **Dictionaries and PLAIN values:** the count must be non-negative and at most 8 per byte; the smallest PLAIN value is one bit.
+- **Bit-packed runs:** the group count is compared before multiplying, so it can't wrap past the bounds check.
+
+`convert_to_jsonl()` catches exceptions (−1) and now keeps the header's promise that a failure leaves the output as it was:
+- **Before:** a failure in a later row group kept the earlier row groups' rows, and a replacing write had already truncated the file.
+- **Now:** an append is cut back to its original size, and a replacing write goes to `<out>.tmp`, which is renamed over the target only
+  on success.
+
+`DataFetcher` deletes a part it couldn't convert.
+
+Tests (`parquet_reader_test.cpp`, using a small Thrift writer that builds a one-column file):
+- `SyntheticColumnFileConverts`: the control.
+- `RowGroupDeclaringBillionsOfRowsIsRejected`
+- `PageClaimingMoreValuesThanItsColumnIsRejected`: the 8 GB definition-level fill.
+- `NegativeOrOversizedPageSizeIsRejected`
+- `MutatedFixturesNeverThrowAndFailuresLeaveOutputUnchanged`: 9,000 deterministic byte mutations of the six fixtures, each converted
+  in append and replace mode.
+
+On the old reader under a 4 GB address-space limit, the three crafted files throw `std::bad_alloc`/`std::length_error`, and the
+mutation test fails on its 13th mutated file, where a failed replacing write had wiped the output. Without the limit, the page test would fill 8 GB.
 
 ---
 
@@ -12605,14 +12636,14 @@ Files to Modify:
 
 Description:
 Found while tracing `ParquetReader`, by inspection:
-- The header promises "returns −1 on any unsupported/corrupt input", but allocation failures throw (TD-471).
+- The header promises "returns −1 on any unsupported/corrupt input", but allocation failures throw (TD-471). *Fixed with TD-471: exceptions are caught, and a failure leaves the output unchanged.*
 - Every row of a part is decoded into memory before writing; very large parts cost their full decoded size in RAM.
 - The only end-to-end comparison with pyarrow (`DISABLED_TinyStoriesPartsMatchPythonReference`) is disabled; the only malformed-input test
   is one "corrupt file" case. pyarrow is available in the dev environment (`tests/fixtures/parquet/generate_fixtures.py`).
 
 Action Items:
 
-- [ ] Add adversarial tests (the TD-470 footers, oversized declared sizes, negative sizes) and a small committed fuzz corpus or a libFuzzer target.
+- [x] Add adversarial tests (the TD-470 footers, oversized declared sizes, negative sizes) and a small committed fuzz corpus or a libFuzzer target. *(October 24, 2026, with TD-470/TD-471: crafted-footer and declared-size tests, and a deterministic in-test mutation run over every fixture; no libFuzzer target.)*
 - [ ] Re-enable the pyarrow comparison on generated fixtures (no network).
 - [ ] Stream rows per row group instead of buffering the whole part (keeping the "nothing written on failure" guarantee via a temp file + rename).
 

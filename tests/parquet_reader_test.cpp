@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -272,6 +273,210 @@ TEST_F(ParquetReaderTest, DeeplyNestedFooterFailsInsteadOfCrashing) {
     footer.append(depth + 2, '\0');                 // close them all, then FileMetaData's STOP
     const std::string path = write_parquet_with_footer(tmp_dir_, "nested.parquet", footer);
     EXPECT_EQ(ParquetReader::convert_to_jsonl(path, out_path_, /*append=*/false), -1);
+}
+
+// ============================================================================
+// TD-471: declared sizes are checked before anything is allocated
+// ============================================================================
+
+namespace {
+
+// Just enough of a Thrift compact-protocol writer to build a one-column Parquet file.
+struct ThriftWriter {
+    std::string out;
+    std::vector<int> last_ids{0};
+
+    void varint(std::uint64_t v) {
+        while (v >= 0x80) {
+            out += static_cast<char>((v & 0x7F) | 0x80);
+            v >>= 7;
+        }
+        out += static_cast<char>(v);
+    }
+    void zigzag(std::int64_t v) {
+        varint((static_cast<std::uint64_t>(v) << 1) ^ static_cast<std::uint64_t>(v >> 63));
+    }
+    void field(int id, int type) {
+        out += static_cast<char>(((id - last_ids.back()) << 4) | type);
+        last_ids.back() = id;
+    }
+    void i32(int id, std::int64_t v) { field(id, 5), zigzag(v); }
+    void i64(int id, std::int64_t v) { field(id, 6), zigzag(v); }
+    void binary(int id, const std::string& v) { field(id, 8), varint(v.size()), out += v; }
+    void begin_struct(int id) { field(id, 12), last_ids.push_back(0); }
+    void begin_list_element() { last_ids.push_back(0); }
+    void end_struct() { out += '\0', last_ids.pop_back(); }
+    void list(int id, int elem_type, int size) {
+        field(id, 9);
+        out += static_cast<char>((size << 4) | elem_type);
+    }
+};
+
+struct SyntheticColumn {
+    std::int64_t row_group_rows = 3;  // RowGroup.num_rows
+    std::int64_t column_values = 3;   // ColumnMetaData.num_values
+    std::int32_t page_values = 3;     // DataPageHeader.num_values
+    std::int32_t compressed_page_size = 12;
+    std::int32_t uncompressed_page_size = 12;
+};
+
+// One REQUIRED INT32 column "x" holding 1, 2, 3: PLAIN, uncompressed, one data page.
+std::string write_synthetic_parquet(const fs::path& dir, const std::string& name,
+                                    const SyntheticColumn& col) {
+    ThriftWriter page;
+    page.i32(1, 0);  // type DATA_PAGE
+    page.i32(2, col.uncompressed_page_size);
+    page.i32(3, col.compressed_page_size);
+    page.begin_struct(5);  // data_page_header
+    page.i32(1, col.page_values);
+    page.i32(2, 0);  // PLAIN
+    page.i32(3, 3);  // definition levels: RLE
+    page.i32(4, 3);  // repetition levels: RLE
+    page.end_struct();
+    page.out += '\0';
+    std::string body;
+    for (std::uint32_t v : {1u, 2u, 3u})
+        for (int b = 0; b < 4; ++b)
+            body += static_cast<char>((v >> (8 * b)) & 0xFF);
+
+    ThriftWriter meta;
+    meta.i32(1, 1);       // version
+    meta.list(2, 12, 2);  // schema
+    meta.begin_list_element();
+    meta.binary(4, "schema");
+    meta.i32(5, 1);  // num_children
+    meta.end_struct();
+    meta.begin_list_element();
+    meta.i32(1, 1);  // INT32
+    meta.i32(3, 0);  // REQUIRED
+    meta.binary(4, "x");
+    meta.end_struct();
+    meta.i64(3, col.row_group_rows);
+    meta.list(4, 12, 1);  // row_groups
+    meta.begin_list_element();
+    meta.list(1, 12, 1);  // columns
+    meta.begin_list_element();
+    meta.i64(2, 4);         // file_offset
+    meta.begin_struct(3);   // meta_data
+    meta.i32(1, 1);         // INT32
+    meta.list(2, 5, 1);     // encodings
+    meta.zigzag(0);         // PLAIN
+    meta.list(3, 8, 1);     // path_in_schema
+    meta.varint(1);
+    meta.out += 'x';
+    meta.i32(4, 0);  // UNCOMPRESSED
+    meta.i64(5, col.column_values);
+    meta.i64(6, static_cast<std::int64_t>(page.out.size() + body.size()));
+    meta.i64(7, static_cast<std::int64_t>(page.out.size() + body.size()));
+    meta.i64(9, 4);  // data_page_offset, right after "PAR1"
+    meta.end_struct();
+    meta.end_struct();  // ColumnChunk
+    meta.i64(2, static_cast<std::int64_t>(body.size()));
+    meta.i64(3, col.row_group_rows);
+    meta.end_struct();  // RowGroup
+    meta.out += '\0';
+
+    const std::string path = (dir / name).string();
+    std::ofstream f(path, std::ios::binary);
+    f << "PAR1" << page.out << body << meta.out;
+    const auto len = static_cast<std::uint32_t>(meta.out.size());
+    for (int b = 0; b < 4; ++b)
+        f.put(static_cast<char>((len >> (8 * b)) & 0xFF));
+    f << "PAR1";
+    return path;
+}
+
+std::string read_file(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+
+}  // namespace
+
+// The control for the tests below: the synthetic file itself is valid.
+TEST_F(ParquetReaderTest, SyntheticColumnFileConverts) {
+    const std::string path = write_synthetic_parquet(tmp_dir_, "ok.parquet", {});
+    ASSERT_EQ(ParquetReader::convert_to_jsonl(path, out_path_, /*append=*/false), 3);
+    EXPECT_EQ(read_lines(), (std::vector<std::string>{"{\"x\":1}", "{\"x\":2}", "{\"x\":3}"}));
+}
+
+// A row group claiming 2^31 rows made decode_column_chunk() reserve 2^31 cells (about 150 GB),
+// and the std::length_error escaped convert_to_jsonl().
+TEST_F(ParquetReaderTest, RowGroupDeclaringBillionsOfRowsIsRejected) {
+    SyntheticColumn col;
+    col.row_group_rows = col.column_values = std::int64_t{1} << 31;
+    const std::string path = write_synthetic_parquet(tmp_dir_, "rows.parquet", col);
+    EXPECT_EQ(ParquetReader::convert_to_jsonl(path, out_path_, /*append=*/false), -1);
+}
+
+// A REQUIRED column whose 12-byte page claims 2^31 - 1 values: the old reader filled 8 GB of
+// definition levels before finding the values missing.
+TEST_F(ParquetReaderTest, PageClaimingMoreValuesThanItsColumnIsRejected) {
+    SyntheticColumn col;
+    col.page_values = 0x7FFFFFFF;
+    const std::string path = write_synthetic_parquet(tmp_dir_, "page.parquet", col);
+    EXPECT_EQ(ParquetReader::convert_to_jsonl(path, out_path_, /*append=*/false), -1);
+}
+
+// A negative compressed page size became a huge size_t in string::resize() (std::length_error).
+TEST_F(ParquetReaderTest, NegativeOrOversizedPageSizeIsRejected) {
+    for (std::int32_t size : {-1, 1 << 30}) {
+        SyntheticColumn col;
+        col.compressed_page_size = size;
+        const std::string path = write_synthetic_parquet(tmp_dir_, "size.parquet", col);
+        EXPECT_EQ(ParquetReader::convert_to_jsonl(path, out_path_, /*append=*/false), -1) << size;
+    }
+}
+
+// Random byte mutations of every fixture: convert_to_jsonl() never throws, and a failure leaves
+// the output exactly as it was, both when appending and when replacing. Before TD-471, 62 of
+// 25,000 such mutations escaped as std::length_error, and a failure in a later row group kept
+// the earlier row groups' rows.
+TEST_F(ParquetReaderTest, MutatedFixturesNeverThrowAndFailuresLeaveOutputUnchanged) {
+    const std::vector<std::string> fixtures = {
+        "plain_uncompressed.parquet", "plain_snappy.parquet", "dict_snappy.parquet",
+        "multi_column.parquet",       "with_nulls.parquet",   "multi_row_group.parquet"};
+    const std::string original_output = "{\"keep\":true}\n";
+    const std::string mutated_path = (tmp_dir_ / "mutated.parquet").string();
+    std::uint64_t rng = 0x9E3779B97F4A7C15ull;
+    auto next = [&rng]() {
+        rng ^= rng << 13, rng ^= rng >> 7, rng ^= rng << 17;
+        return rng;
+    };
+    int failures = 0, mutations = 0;
+    for (const std::string& name : fixtures) {
+        const std::string original = read_file((fixtures_dir() / name).string());
+        ASSERT_FALSE(original.empty()) << name;
+        for (int trial = 0; trial < 1500; ++trial) {
+            std::string bytes = original;
+            const int edits = 1 + static_cast<int>(next() % 4);
+            for (int e = 0; e < edits; ++e) {
+                const std::size_t at = 4 + next() % (bytes.size() - 12);  // keep magic + length
+                const std::uint64_t pick = next();
+                bytes[at] = static_cast<char>(pick % 3 == 0 ? 0xFF : pick % 3 == 1 ? 0x80 : pick >> 8);
+            }
+            {
+                std::ofstream f(mutated_path, std::ios::binary | std::ios::trunc);
+                f << bytes;
+            }
+            for (bool append : {true, false}) {
+                {
+                    std::ofstream f(out_path_, std::ios::binary | std::ios::trunc);
+                    f << original_output;
+                }
+                long long rows = 0;
+                ASSERT_NO_THROW(rows = ParquetReader::convert_to_jsonl(mutated_path, out_path_, append))
+                    << name << " trial " << trial;
+                ++mutations;
+                if (rows < 0) {
+                    ++failures;
+                    ASSERT_EQ(read_file(out_path_), original_output)
+                        << name << " trial " << trial << (append ? " (append)" : " (replace)");
+                }
+            }
+        }
+    }
+    EXPECT_GT(failures, mutations / 10);  // the mutations really do hit the parser
 }
 
 // ============================================================================

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-10-24
 
 
 #include <string>
@@ -57,6 +57,8 @@ class ParquetReader {
      * @return Number of rows written, or -1 on any unsupported/corrupt input
      *         (nothing is ever partially written to @p out_jsonl_path on
      *         failure — the file is left exactly as it was before the call).
+     *         Never throws: allocation failures also return -1 (TD-471). A
+     *         replacing write goes through `<out_jsonl_path>.tmp`.
      */
     static long long convert_to_jsonl(const std::string& parquet_path,
                                       const std::string& out_jsonl_path, bool append);
