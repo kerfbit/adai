@@ -128,3 +128,12 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Only compact JSON accepted (§3) | Standard JSON from scripts/tools rejected with misleading errors | **Verified** | [TD-462](../../guides/TECHNICAL_DEBT.md#td-462-modelnameservice-dead-datasets-proxy-admin-settings-race-and-swallowed-persistence-errors) |
 | Dead datasets proxy (no `model_id` ever recorded; wrong group; no kind); admin-settings data race; swallowed persistence errors; promote leaves stale role; `\u` escapes (§4) | Dead endpoint; rare crash; silent memory/disk divergence | By inspection | [TD-462](../../guides/TECHNICAL_DEBT.md#td-462-modelnameservice-dead-datasets-proxy-admin-settings-race-and-swallowed-persistence-errors) |
 | Non-finite numbers; duplicated JSON code | Already tracked | — | TD-458, TD-453 |
+
+---
+
+## Addendum (October 24, 2026): browser write guard (TD-550)
+
+This server installs `install_browser_write_guard()` ([BrowserWriteGuard.md](BrowserWriteGuard.md)) as its pre-routing handler. A write
+(POST/PUT/PATCH/DELETE) carrying any `Origin` gets 403, and a write with a `text/plain`, form-encoded or multipart body gets 415. A web
+page open in an operator's browser can no longer make it execute writes. Clients that aren't browsers send no `Origin` and are unaffected
+as long as they send JSON (or, for `registry_server`'s `upload`, `application/octet-stream`).

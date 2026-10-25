@@ -125,3 +125,8 @@ The wildcard CORS policy is replaced by an allow-list (constructor argument `cor
 Requests without `Origin` (trainer, Android, `curl`) behave as before. Tests: the six TD-526 cases in
 `training_metrics_api_routes_test.cpp`. The other daemons' exposure to cross-origin writes is TD-550.
 
+---
+
+## Addendum (October 24, 2026): shared write guard (TD-550)
+
+The TD-526 write checks moved into [BrowserWriteGuard](BrowserWriteGuard.md), now shared with every HTTP daemon. `TrainingMetricsAPI` installs it with its CORS allow-list; behavior is unchanged except the 415 message, which now names the refused content type.

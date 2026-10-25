@@ -633,7 +633,7 @@ Session Not Found:
 2. **Rate Limiting:** Implement per-IP or per-user rate limits
 3. **Input Validation:** Add stricter input sanitization
 4. **HTTPS:** Use TLS/SSL for encrypted communication
-5. **CORS:** Configure Cross-Origin Resource Sharing appropriately
+5. **CORS / browser writes:** the server sends no CORS headers, and since TD-550 it refuses writes from web pages: a POST carrying any `Origin` header gets `403`, and one with a `text/plain`, form-encoded or multipart body gets `415`. Send `Content-Type: application/json` (plain `curl -d` without `-H` sends form-encoded and is refused).
 6. **Logging:** Add request logging and monitoring
 7. **Timeouts:** Implement request timeouts to prevent hanging
 

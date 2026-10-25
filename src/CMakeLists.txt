@@ -85,6 +85,8 @@ add_library(adai_core STATIC
     ParquetReader.cpp
     SQLiteMetricsDatabase.cpp
     DaemonConfigStore.cpp
+    # TD-526/TD-550: shared refusal of browser-originated writes for every HTTP daemon.
+    BrowserWriteGuard.cpp
     # TD-519: shared PUT /admin/config parser for TrainerAdminAPI and TrainerServiceProxy.
     TrainerAdminConfig.cpp
     # TD-179/TD-180: HippocampalMemory needs only Matrix, but DecoderBlock.cpp (adai_transformer)

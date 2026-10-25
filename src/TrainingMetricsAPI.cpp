@@ -1,8 +1,9 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.10.0
+// @adai-version: 0.10.1
 // @adai-reviewed: 2026-10-24
 
 #include "TrainingMetricsAPI.hpp"
+#include "BrowserWriteGuard.hpp"
 #include "PortableTime.hpp"
 #include <httplib.h>
 #include <algorithm>
@@ -102,22 +103,6 @@ std::vector<std::string> parse_origin_list(const std::string& list) {
         start = comma + 1;
     }
     return out;
-}
-
-bool is_write_method(const std::string& method) {
-    return method == "POST" || method == "PUT" || method == "PATCH" || method == "DELETE";
-}
-
-// TD-526: the Content-Types a browser may send cross-origin without a CORS preflight.
-bool is_cors_simple_content_type(const std::string& content_type) {
-    std::string media = content_type.substr(0, content_type.find(';'));
-    const auto first = media.find_first_not_of(" \t");
-    const auto last = media.find_last_not_of(" \t");
-    media = first == std::string::npos ? "" : media.substr(first, last - first + 1);
-    std::transform(media.begin(), media.end(), media.begin(),
-                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-    return media == "text/plain" || media == "application/x-www-form-urlencoded" ||
-           media == "multipart/form-data";
 }
 
 }  // namespace
@@ -1116,28 +1101,8 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
     //   - Writes carrying an Origin that isn't explicitly listed are refused (403), and writes with
     //     a preflight-free Content-Type are refused (415), so a browser can't send one unasked.
     //   - Responses carry CORS headers only for a listed origin ("*" grants reads, never writes).
-    server_impl_->server.set_pre_routing_handler(
-        [this](const httplib::Request& req, httplib::Response& res) {
-            if (!is_write_method(req.method))
-                return httplib::Server::HandlerResponse::Unhandled;
-            const std::string origin = req.get_header_value("Origin");
-            if (!origin.empty() && cors_origins_.count(origin) == 0) {
-                adai::Logger::warn("TrainingMetricsAPI: refused {} {} from origin '{}' (TD-526)",
-                                   req.method, req.path, origin);
-                res.status = 403;
-                res.set_content(create_error_response("cross-origin writes are not allowed from '" +
-                                                      origin + "'"),
-                                "application/json");
-                return httplib::Server::HandlerResponse::Handled;
-            }
-            if (is_cors_simple_content_type(req.get_header_value("Content-Type"))) {
-                res.status = 415;
-                res.set_content(create_error_response("request bodies must be application/json"),
-                                "application/json");
-                return httplib::Server::HandlerResponse::Handled;
-            }
-            return httplib::Server::HandlerResponse::Unhandled;
-        });
+    // The write guard is shared with the other daemons (TD-550, BrowserWriteGuard.hpp).
+    adai::install_browser_write_guard(server_impl_->server, "TrainingMetricsAPI", cors_origins_);
 
     server_impl_->server.set_post_routing_handler(
         [this](const httplib::Request& req, httplib::Response& res) {
@@ -1147,7 +1112,7 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
             res.set_header("Vary", "Origin");
             if (cors_origins_.count(origin) != 0)
                 res.set_header("Access-Control-Allow-Origin", origin);
-            else if (cors_any_origin_reads_ && !is_write_method(req.method))
+            else if (cors_any_origin_reads_ && !adai::is_write_method(req.method))
                 res.set_header("Access-Control-Allow-Origin", "*");
         });
 

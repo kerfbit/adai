@@ -1,9 +1,10 @@
 // @adai-status: experimental
-// @adai-version: 0.3.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-10-24
 
 #include "TrainerServiceProxy.hpp"
 #include <httplib.h>
+#include "BrowserWriteGuard.hpp"
 #include <chrono>
 #include <sstream>
 #include "DaemonConfigStore.hpp"
@@ -78,6 +79,9 @@ adai::TrainerServiceProxy::TrainerServiceProxy(std::string host, int port,
       control_(std::move(control)),
       server_impl_(std::make_unique<ServerImpl>()) {
     auto& svr = server_impl_->server;
+    // TD-550: refuse writes a web page could make from an operator's browser (an unlisted Origin, or a
+    // preflight-free Content-Type); see BrowserWriteGuard.hpp.
+    install_browser_write_guard(svr, "trainer_service");
 
     // Never proxied — the supervisor itself is "healthy" as long as it can answer at all,
     // regardless of whether a child happens to be running right now.

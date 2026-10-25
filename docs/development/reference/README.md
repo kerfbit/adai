@@ -11,6 +11,7 @@ This directory contains reference materials, technical specifications, and imple
   - [BatchedInferenceEngine](source/BatchedInferenceEngine.md) (`src/BatchedInferenceEngine.hpp`)
   - [BatchProcessor](source/BatchProcessor.md) (`src/BatchProcessor.hpp`)
   - [BPETokenizer](source/BPETokenizer.md) (`src/BPETokenizer.{hpp,cpp}`)
+  - [BrowserWriteGuard](source/BrowserWriteGuard.md) (`src/BrowserWriteGuard.{hpp,cpp}`; refusal of browser-originated writes shared by every HTTP daemon, TD-526/TD-550)
   - [ChatbotAPI](source/ChatbotAPI.md) (`src/ChatbotAPI.{hpp,cpp}`)
   - [ChatbotApiServerArgs](source/ChatbotApiServerArgs.md) (`src/ChatbotApiServerArgs.{hpp,cpp}`)
   - [ChatbotAPIServer](source/ChatbotAPIServer.md) (`src/ChatbotAPIServer.cpp`, `chatbot_api_server`'s `main()`)

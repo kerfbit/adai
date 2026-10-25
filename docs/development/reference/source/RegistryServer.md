@@ -198,3 +198,12 @@ root comes from it, so a delete can no longer reach outside `data_dir`. Tests: `
 `fetch/huggingface` checks `split` with `is_safe_hf_component()` (one `[A-Za-z0-9._-]+` name, never `.`/`..`) and `dataset_id` with
 `is_safe_hf_dataset_id()` (`name` or `org/name`, each component safe), and answers 400 otherwise. The produced training file's name uses
 `flatten_for_path(split)`. Test: `LiveRegistryHuggingface.TraversalInDatasetIdOrSplitIsRejected`.
+
+---
+
+## Addendum (October 24, 2026): browser write guard (TD-550)
+
+This server installs `install_browser_write_guard()` ([BrowserWriteGuard.md](BrowserWriteGuard.md)) as its pre-routing handler. A write
+(POST/PUT/PATCH/DELETE) carrying any `Origin` gets 403, and a write with a `text/plain`, form-encoded or multipart body gets 415. A web
+page open in an operator's browser can no longer make it execute writes. Clients that aren't browsers send no `Origin` and are unaffected
+as long as they send JSON (or, for `registry_server`'s `upload`, `application/octet-stream`).

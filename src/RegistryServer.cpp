@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.14.0
+// @adai-version: 0.15.0
 // @adai-reviewed: 2026-10-24
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
@@ -54,6 +54,7 @@
  */
 
 #include <httplib.h>
+#include "BrowserWriteGuard.hpp"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -1982,6 +1983,9 @@ int main(int argc, char* argv[]) {
 
     httplib::Server svr;
     g_server = &svr;
+    // TD-550: refuse writes a web page could make from an operator's browser (an unlisted Origin, or a
+    // preflight-free Content-Type); see BrowserWriteGuard.hpp.
+    adai::install_browser_write_guard(svr, "registry_server");
 
     // Route all /registry/<group>/... paths. TD-202: every pattern gains an optional kind
     // segment right after the group capture — (?:/(encoder|decoder|world_model|chatbot))? — so

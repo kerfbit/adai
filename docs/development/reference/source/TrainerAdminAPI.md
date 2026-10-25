@@ -89,3 +89,12 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 ## Addendum (October 19, 2026): JSON request parsing (TD-519)
 
 `handle_put_config()` now parses the body with the shared `parse_trainer_admin_config()` (`src/TrainerAdminConfig.{hpp,cpp}`), built on the vendored `nlohmann/json`. `TrainerServiceProxy`'s idle handler uses the same parser. A spaced `"auto_save_enabled": true` now reads as true. These are rejected with 400: a non-boolean `auto_save_enabled`, non-integer or out-of-range counts, and malformed JSON. The whole body is validated before anything is applied, so a rejected PUT changes nothing (TD-305's validate-first half). Persistence is still one `set()` per key (TD-305).
+
+---
+
+## Addendum (October 24, 2026): browser write guard (TD-550)
+
+This server installs `install_browser_write_guard()` ([BrowserWriteGuard.md](BrowserWriteGuard.md)) as its pre-routing handler. A write
+(POST/PUT/PATCH/DELETE) carrying any `Origin` gets 403, and a write with a `text/plain`, form-encoded or multipart body gets 415. A web
+page open in an operator's browser can no longer make it execute writes. Clients that aren't browsers send no `Origin` and are unaffected
+as long as they send JSON (or, for `registry_server`'s `upload`, `application/octet-stream`).

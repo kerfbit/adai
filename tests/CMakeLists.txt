@@ -662,6 +662,14 @@ if(HTTPLIB_INCLUDE_DIR)
 endif()
 add_test(NAME MetricsPushClientTests COMMAND metricsPushClientTests)
 
+# TD-526/TD-550: BrowserWriteGuard (shared refusal of browser-originated writes)
+if(HTTPLIB_INCLUDE_DIR)
+    add_executable(browserWriteGuardTests browser_write_guard_test.cpp)
+    target_include_directories(browserWriteGuardTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    target_link_libraries(browserWriteGuardTests adai_core GTest::gtest_main pthread)
+    add_test(NAME BrowserWriteGuardTests COMMAND browserWriteGuardTests)
+endif()
+
 # TD-018 phase 3: TrainingMetricsAPI session routing + compatibility aliases
 if(TARGET adai_metrics_api)
     add_executable(trainingMetricsApiRoutesTests training_metrics_api_routes_test.cpp)

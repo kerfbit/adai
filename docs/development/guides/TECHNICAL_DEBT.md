@@ -1222,7 +1222,10 @@ The run is complete.
 - TD-339 (done in code: the trainer can pin or CA-verify the registry's FTPS certificate);
 - TD-526 (done in code: the metrics API's CORS is an allow-list, and cross-origin or simple-content-type writes are refused).
 
-Left in the category: TD-550 (the same cross-origin write guard for the other daemons), TD-491–TD-494 and TD-549.
+- TD-550 (done in code: the same write guard, now the shared `BrowserWriteGuard`, in `registry_server`, `mns_server`,
+  `chatbot_api_server`, `trainer_service` and the child's admin API).
+
+Left in the category: TD-491–TD-494 and TD-549.
 
 Analyzed September 12, 2026 to sequence the active items by dependency and risk rather than
 just priority label — several depend on each other or on a single owner decision, and the
@@ -15311,7 +15314,7 @@ Location in code: `src/FtpDataServer.hpp` (`cmd_retr()`).
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Services / HTTP | October 24, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 24, 2026 | Services / HTTP | October 24, 2026 | 2-4 hours |
 
 Description:
 Filed while fixing TD-526, verified against the real `registry_server`. Its routes parse request bodies whatever their `Content-Type`,
@@ -15327,13 +15330,39 @@ operator's authenticated browser session carries the Access cookie.
 
 Action Items:
 
-- [ ] Move TD-526's write guard into one shared helper (refuse writes whose `Origin` isn't listed with 403, and preflight-free
+- [x] Move TD-526's write guard into one shared helper (refuse writes whose `Origin` isn't listed with 403, and preflight-free
   `Content-Type`s with 415) and install it in `registry_server`, `mns_server`, `chatbot_api_server` and `TrainerServiceProxy`.
-- [ ] Check the Android ops dashboard and `dataset_manager`/`mns_cli` still work (they send no `Origin`). `upload` takes a raw body
+- [x] Check the Android ops dashboard and `dataset_manager`/`mns_cli` still work (they send no `Origin`). `upload` takes a raw body
   sent as `application/octet-stream` by both `RegistryTransport` and the Android app, so the 415 rule doesn't affect it.
 
 Location in code: `src/RegistryServer.cpp`, `src/ModelNameServiceServer.cpp`, `src/ChatbotAPIServer.cpp`/`src/ChatbotAPI.cpp`,
 `src/TrainerServiceProxy.cpp`; the guard to share is in `src/TrainingMetricsAPI.cpp` (pre-routing handler).
+
+**Fix (October 24, 2026).** The rule now lives in one component, `src/BrowserWriteGuard.{hpp,cpp}` (`adai_core`):
+- **Refused writes** (POST/PUT/PATCH/DELETE): an `Origin` that isn't listed gets 403. A preflight-free `Content-Type` (`text/plain`,
+  form-encoded, multipart) gets 415.
+- **Installer:** `install_browser_write_guard()`, a header template over the httplib server type, so the header needn't include httplib.
+  It sets the server's pre-routing handler, logs each refusal and answers `{"error":…}`.
+- **Where it's installed:** `registry_server`, `mns_server` (`ModelNameService`), `chatbot_api_server` (`ChatbotAPI`), `trainer_service`
+  (`TrainerServiceProxy`) and the child's loopback `TrainerAdminAPI`, which a browser on the same host can reach. None of these get an
+  allow-list, since nothing browser-based writes to them.
+- **Metrics API:** `TrainingMetricsAPI` now uses the same component with its TD-526 allow-list, replacing its own copy.
+
+Clients without an `Origin` keep working:
+- `RemoteTransport`/`dataset_manager`, `mns_cli`, the trainer's clients, and the Android app (Retrofit JSON; `application/octet-stream`
+  uploads) are unaffected.
+- Every documented `curl` write already sets `application/json`. A bare `curl -d` (form-encoded) now gets 415.
+
+Verified against the real binaries with a cross-origin `text/plain` write from `Origin: http://evil.example`. Each one returned 403,
+logged the refusal and changed nothing:
+- **`registry_server`:** `pending/add` returned `{"added":true}` before the fix. A form-encoded body without `Origin` got 415, and JSON
+  still got 200.
+- **`mns_server`:** `POST /models` was refused and the model wasn't registered; JSON still registers (201).
+- **`trainer_service`:** `POST /admin/pause` was refused and `supervisor_paused` stayed false; without `Origin` it got 202 and paused.
+- **`chatbot_api_server`:** `POST /clear-session` was refused; JSON got 200, and a GET with `Origin` got 200.
+
+Tests: `browser_write_guard_test.cpp` (7: the decision table, JSON escaping, and a real `httplib::Server` where refused writes never reach
+the route), plus TD-526's route tests through the shared code.
 
 ---
 

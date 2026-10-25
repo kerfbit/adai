@@ -1,9 +1,10 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-10-24
 
 #include "TrainerAdminAPI.hpp"
 #include <httplib.h>
+#include "BrowserWriteGuard.hpp"
 #include <chrono>
 #include <filesystem>
 #include <sstream>
@@ -73,6 +74,10 @@ adai::TrainerAdminAPI::TrainerAdminAPI(std::shared_ptr<TrainerControlState> cont
       config_store_dir_(std::move(config_store_dir)),
       server_impl_(std::make_unique<ServerImpl>()) {
     auto& svr = server_impl_->server;
+    // TD-550: loopback-only, but a browser on the same host can still reach it.
+    // TD-550: refuse writes a web page could make from an operator's browser (an unlisted Origin, or a
+    // preflight-free Content-Type); see BrowserWriteGuard.hpp.
+    install_browser_write_guard(svr, "TrainerAdminAPI");
 
     svr.Get("/health", [this](const httplib::Request&, httplib::Response& res) {
         auto [status, body] = handle_health();

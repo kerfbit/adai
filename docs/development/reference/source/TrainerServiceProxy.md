@@ -95,3 +95,12 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 ## Addendum (October 19, 2026): shared PUT parser and failure fields (TD-519, TD-523)
 
 `handle_put_config_idle()` uses the same `parse_trainer_admin_config()` as `TrainerAdminAPI`, so a live pass and an idle service accept and reject the same bodies, and nothing is written to `daemon_config.db` for a rejected one. `with_supervisor_fields()` adds `total_passes_failed`, `consecutive_failures` and `last_failure_unix` to `/admin/status`.
+
+---
+
+## Addendum (October 24, 2026): browser write guard (TD-550)
+
+This server installs `install_browser_write_guard()` ([BrowserWriteGuard.md](BrowserWriteGuard.md)) as its pre-routing handler. A write
+(POST/PUT/PATCH/DELETE) carrying any `Origin` gets 403, and a write with a `text/plain`, form-encoded or multipart body gets 415. A web
+page open in an operator's browser can no longer make it execute writes. Clients that aren't browsers send no `Origin` and are unaffected
+as long as they send JSON (or, for `registry_server`'s `upload`, `application/octet-stream`).

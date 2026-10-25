@@ -1,8 +1,9 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-09-14
+// @adai-version: 0.12.0
+// @adai-reviewed: 2026-10-24
 
 #include "ChatbotAPI.hpp"
+#include "BrowserWriteGuard.hpp"
 #include <httplib.h>
 #include <algorithm>
 #include <iomanip>
@@ -29,6 +30,10 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
 
       rag_engine_(nullptr),
       server_impl_(std::make_unique<ServerImpl>()) {
+    // TD-550: refuse writes a web page could make from an operator's browser (an unlisted Origin, or a
+    // preflight-free Content-Type); see BrowserWriteGuard.hpp.
+    adai::install_browser_write_guard(server_impl_->server, "ChatbotAPI");
+
     // Set up HTTP endpoints
 
     // TODO: See TD-238 in TECHNICAL_DEBT.md - every route below returns e.what() to the client; log it

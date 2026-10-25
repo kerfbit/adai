@@ -1,9 +1,10 @@
 // @adai-status: stable
-// @adai-version: 1.0.2
-// @adai-reviewed: 2026-09-19
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-24
 
 #include "ModelNameService.hpp"
 #include <httplib.h>
+#include "BrowserWriteGuard.hpp"
 #include <sqlite3.h>
 #include "DaemonConfigStore.hpp"
 #include <algorithm>
@@ -549,6 +550,9 @@ static std::string resolve_json(const ModelRecord& r) {
 adai::ModelNameService::ModelNameService(std::string data_dir, int port)
     : data_dir_(std::move(data_dir)), port_(port), server_impl_(std::make_unique<ServerImpl>()) {
     auto& svr = server_impl_->server;
+    // TD-550: refuse writes a web page could make from an operator's browser (an unlisted Origin, or a
+    // preflight-free Content-Type); see BrowserWriteGuard.hpp.
+    install_browser_write_guard(svr, "mns_server");
 
     svr.Post("/models", [this](const httplib::Request& req, httplib::Response& res) {
         auto [status, body] = handle_register(req.body);
