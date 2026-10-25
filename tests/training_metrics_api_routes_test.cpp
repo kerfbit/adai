@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -14,6 +15,7 @@
 #include <httplib.h>
 
 #include "MetricsPushClient.hpp"
+#include "nlohmann/json.hpp"
 #include "MetricsSessionRegistry.hpp"
 #include "TrainingMetricsAPI.hpp"
 
@@ -863,3 +865,47 @@ TEST_F(TrainingMetricsAPIRoutesTest, EveryPushClientEndpointHasAPostRoute) {
         EXPECT_EQ(endpoints.count(e), 1u) << e << " was never posted";
 }
 
+// TD-443: JSON has no NaN/infinity; operator<< writes them as nan/inf. Every JSON response goes through
+// sanitize_non_finite_json(), which turns such values (outside strings) into null.
+TEST(TrainingMetricsAPISanitize, NonFiniteValuesBecomeNull) {
+    EXPECT_EQ(sanitize_non_finite_json(
+                  R"({"a":nan,"b":[inf,-nan,1.5,-inf, 1e-07],"s":"nan, inf","c": Infinity,"d":-1})"),
+              R"({"a":null,"b":[null,null,1.5,null, 1e-07],"s":"nan, inf","c": null,"d":-1})");
+    const std::string untouched = R"({"nan":"inf","x":[1,2],"esc":"a\"nan"})";
+    EXPECT_EQ(sanitize_non_finite_json(untouched), untouched);
+}
+
+// TD-443 end to end: a diverged epoch (NaN loss, infinite validation loss), a tiny learning rate and
+// adaptive clipping, pushed by the real client. /epochs used to read "epoch_losses":[nan,...] (invalid
+// JSON), a 1e-7 learning rate as 0, and an empty epoch_adaptive_clip_thresholds.
+TEST_F(TrainingMetricsAPIRoutesTest, NonFiniteAndTinyEpochValuesRoundTripAsValidJson) {
+    MetricsPushClient pc("http://127.0.0.1:" + std::to_string(port_) + "/api/sessions/diverge1", 2000);
+    ASSERT_EQ(pc.start_session(1, 2, 10, "", ""), 200);
+    pc.start_epoch(1, 10);
+    pc.update_adaptive_clip_epoch(0.5f, 3);
+    pc.end_epoch(1, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(),
+                 1e-7f);
+    pc.start_epoch(2, 10);
+    pc.end_epoch(2, 2.5f, 2.6f, 1e-7f);
+    pc.end_session();
+
+    auto client = make_client();
+    auto res = client.Get("/api/sessions/diverge1/epochs");
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200);
+    const auto j = nlohmann::json::parse(res->body, nullptr, /*allow_exceptions=*/false);
+    ASSERT_FALSE(j.is_discarded()) << "not valid JSON: " << res->body;
+    ASSERT_EQ(j["epoch_losses"].size(), 2u) << res->body;
+    EXPECT_TRUE(j["epoch_losses"][0].is_null()) << res->body;
+    EXPECT_FLOAT_EQ(j["epoch_losses"][1].get<float>(), 2.5f);
+    EXPECT_TRUE(j["epoch_validation_losses"][0].is_null()) << res->body;
+    ASSERT_EQ(j["epoch_learning_rates"].size(), 2u);
+    EXPECT_NEAR(j["epoch_learning_rates"][0].get<double>(), 1e-7, 1e-12) << res->body;
+    ASSERT_TRUE(j.contains("epoch_adaptive_clip_thresholds")) << res->body;
+    ASSERT_FALSE(j["epoch_adaptive_clip_thresholds"].empty()) << res->body;
+    EXPECT_FLOAT_EQ(j["epoch_adaptive_clip_thresholds"][0].get<float>(), 0.5f);
+
+    auto current = client.Get("/api/sessions/diverge1/metrics/current");
+    ASSERT_TRUE(current);
+    EXPECT_FALSE(nlohmann::json::parse(current->body, nullptr, false).is_discarded()) << current->body;
+}

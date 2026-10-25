@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.11.0
+// @adai-version: 0.12.0
 // @adai-reviewed: 2026-10-25
 
 #include "TrainingMetricsAPI.hpp"
@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cctype>
 #include <iomanip>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <utility>
@@ -50,6 +51,15 @@ void set_legacy_deprecation_headers(httplib::Response& res, const std::string& r
 // rest of this file's body-parsing only ever handles scalar fields via
 // find(":")+stof; a bare-array field needs matching-bracket + comma-split
 // instead. Returns an empty vector if the key isn't found or the array is empty.
+// TD-443: a pushed float field; JSON null (what MetricsPushClient sends for NaN/infinity) is NaN.
+// std::stof alone threw on null, failing the whole event.
+float parse_json_float(const std::string& s) {
+    const auto start = s.find_first_not_of(" \t\r\n");
+    if (start != std::string::npos && s.compare(start, 4, "null") == 0)
+        return std::numeric_limits<float>::quiet_NaN();
+    return std::stof(s);
+}
+
 std::vector<float> parse_json_float_array(const std::string& body, const std::string& key) {
     std::vector<float> result;
     const std::string needle = "\"" + key + "\"";
@@ -73,7 +83,9 @@ std::vector<float> parse_json_float_array(const std::string& body, const std::st
         const std::string item = inner.substr(item_start, comma - item_start);
         if (!item.empty()) {
             try {
-                result.push_back(std::stof(item));
+                // TD-443: null (a non-finite value) stays in place as NaN; skipping it would shift
+                // every later layer's norm.
+                result.push_back(parse_json_float(item));
             } catch (...) {
                 // Skip malformed elements rather than aborting the whole array.
             }
@@ -108,6 +120,57 @@ std::vector<std::string> parse_origin_list(const std::string& list) {
 }
 
 }  // namespace
+
+// TD-443: JSON has no NaN or infinity, but this file and TrainingMetricsService build JSON with
+// operator<<, which writes them as nan/inf: a diverged run's /epochs read
+// "epoch_losses":[nan,2.5], which JSON parsers reject, exactly when the dashboard is needed. Every
+// JSON response passes through here (post-routing), so a bare nan/-nan/inf/-inf/infinity value
+// outside a string becomes null, whichever endpoint produced it.
+std::string sanitize_non_finite_json(const std::string& in) {
+    std::string out;
+    out.reserve(in.size());
+    bool in_string = false;
+    char prev_sig = 0;  // last non-space character outside strings
+    for (std::size_t i = 0; i < in.size(); ++i) {
+        const char c = in[i];
+        if (in_string) {
+            out += c;
+            if (c == '\\' && i + 1 < in.size()) {
+                out += in[++i];
+            } else if (c == '"') {
+                in_string = false;
+                prev_sig = '"';
+            }
+            continue;
+        }
+        if (c == '"') {
+            in_string = true;
+            out += c;
+            continue;
+        }
+        if ((prev_sig == ':' || prev_sig == '[' || prev_sig == ',') &&
+            (c == '-' || c == '+' || c == 'n' || c == 'N' || c == 'i' || c == 'I')) {
+            std::size_t j = i + ((c == '-' || c == '+') ? 1 : 0);
+            std::size_t k = j;
+            while (k < in.size() && std::isalpha(static_cast<unsigned char>(in[k])))
+                ++k;
+            std::string word = in.substr(j, k - j);
+            std::transform(word.begin(), word.end(), word.begin(),
+                           [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+            if ((word == "nan" || word == "inf" || word == "infinity") &&
+                (k >= in.size() || !std::isalnum(static_cast<unsigned char>(in[k])))) {
+                out += "null";
+                prev_sig = 'l';
+                i = k - 1;
+                continue;
+            }
+        }
+        out += c;
+        if (!std::isspace(static_cast<unsigned char>(c)))
+            prev_sig = c;
+    }
+    return out;
+}
 
 TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> session_registry,
                                        int port, bool allow_control,
@@ -1127,6 +1190,19 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
 
     server_impl_->server.set_post_routing_handler(
         [this](const httplib::Request& req, httplib::Response& res) {
+            // TD-443: no response may carry nan/inf as a JSON value. httplib has already set
+            // Content-Length from the body by now, so a changed body (null is longer than nan/inf)
+            // needs it reset, or clients read a truncated reply. Compressed bodies are left alone.
+            if (res.get_header_value("Content-Type").rfind("application/json", 0) == 0 &&
+                !res.has_header("Content-Encoding")) {
+                std::string sanitized = sanitize_non_finite_json(res.body);
+                if (sanitized != res.body) {
+                    res.body = std::move(sanitized);
+                    const auto range = res.headers.equal_range("Content-Length");
+                    res.headers.erase(range.first, range.second);
+                    res.set_header("Content-Length", std::to_string(res.body.size()));
+                }
+            }
             const std::string origin = req.get_header_value("Origin");
             if (origin.empty() || req.method == "OPTIONS")
                 return;
@@ -2138,8 +2214,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            // TODO: See TD-443 in TECHNICAL_DEBT.md - stof accepts nan/inf, which the /epochs output then re-emits as invalid JSON
-            loss = std::stof(body.substr(pos + 1));
+            loss = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2147,7 +2222,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            validation_loss = std::stof(body.substr(pos + 1));
+            validation_loss = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2155,7 +2230,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            learning_rate = std::stof(body.substr(pos + 1));
+            learning_rate = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2163,7 +2238,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            perplexity = std::stof(body.substr(pos + 1));
+            perplexity = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2171,7 +2246,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            gradient_norm = std::stof(body.substr(pos + 1));
+            gradient_norm = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2183,7 +2258,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            gradient_variance = std::stof(body.substr(pos + 1));
+            gradient_variance = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2191,7 +2266,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            compute_time_ratio = std::stof(body.substr(pos + 1));
+            compute_time_ratio = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2199,7 +2274,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            weight_update_ratio = std::stof(body.substr(pos + 1));
+            weight_update_ratio = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2226,7 +2301,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            activation_saturation_ratio = std::stof(body.substr(pos + 1));
+            activation_saturation_ratio = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2234,7 +2309,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            attention_entropy = std::stof(body.substr(pos + 1));
+            attention_entropy = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2242,7 +2317,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            current_padding_efficiency = std::stof(body.substr(pos + 1));
+            current_padding_efficiency = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2253,7 +2328,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            predictor_loss_field = std::stof(body.substr(pos + 1));
+            predictor_loss_field = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2261,7 +2336,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            sigreg_loss_field = std::stof(body.substr(pos + 1));
+            sigreg_loss_field = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2271,7 +2346,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            masking_ratio_field = std::stof(body.substr(pos + 1));
+            masking_ratio_field = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2279,7 +2354,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            predictor_target_cosine_sim_field = std::stof(body.substr(pos + 1));
+            predictor_target_cosine_sim_field = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2287,7 +2362,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            sigreg_variance_mean_field = std::stof(body.substr(pos + 1));
+            sigreg_variance_mean_field = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2295,7 +2370,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            sigreg_variance_stddev_field = std::stof(body.substr(pos + 1));
+            sigreg_variance_stddev_field = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2338,6 +2413,20 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
                                                 sigreg_variance_stddev_field);
     }
 
+    // TD-443: adaptive gradient clipping's epoch average and spike count (MetricsPushClient used to
+    // buffer them but never send them, so epoch_adaptive_clip_thresholds stayed empty).
+    float adaptive_clip_threshold = -1.0f;
+    int adaptive_clip_spikes = 0;
+    pos = body.find("\"adaptive_clip_threshold\"");
+    if (pos != std::string::npos && (pos = body.find(':', pos)) != std::string::npos)
+        adaptive_clip_threshold = parse_json_float(body.substr(pos + 1));
+    pos = body.find("\"adaptive_clip_spikes\"");
+    if (pos != std::string::npos && (pos = body.find(':', pos)) != std::string::npos)
+        adaptive_clip_spikes = std::stoi(body.substr(pos + 1));
+    if (adaptive_clip_threshold >= 0.0f) {
+        service->update_adaptive_clip_epoch(adaptive_clip_threshold, adaptive_clip_spikes);
+    }
+
     service->end_epoch(epoch, loss, validation_loss, learning_rate, perplexity, gradient_norm,
                        epoch_time);
 
@@ -2366,7 +2455,7 @@ std::string TrainingMetricsAPI::handle_post_sample_metrics(const std::string& se
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            loss = std::stof(body.substr(pos + 1));
+            loss = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2374,7 +2463,7 @@ std::string TrainingMetricsAPI::handle_post_sample_metrics(const std::string& se
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            gradient_norm = std::stof(body.substr(pos + 1));
+            gradient_norm = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2382,7 +2471,7 @@ std::string TrainingMetricsAPI::handle_post_sample_metrics(const std::string& se
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            learning_rate = std::stof(body.substr(pos + 1));
+            learning_rate = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2404,7 +2493,7 @@ std::string TrainingMetricsAPI::handle_post_validation_metrics(const std::string
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            validation_loss = std::stof(body.substr(pos + 1));
+            validation_loss = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2412,7 +2501,7 @@ std::string TrainingMetricsAPI::handle_post_validation_metrics(const std::string
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            validation_accuracy = std::stof(body.substr(pos + 1));
+            validation_accuracy = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2420,7 +2509,7 @@ std::string TrainingMetricsAPI::handle_post_validation_metrics(const std::string
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            validation_perplexity = std::stof(body.substr(pos + 1));
+            validation_perplexity = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2489,7 +2578,7 @@ std::string TrainingMetricsAPI::handle_post_best_metrics(const std::string& sess
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            validation_loss = std::stof(body.substr(pos + 1));
+            validation_loss = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2519,28 +2608,28 @@ std::string TrainingMetricsAPI::handle_post_generation_quality_metrics(
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            bleu4 = std::stof(body.substr(pos + 1));
+            bleu4 = parse_json_float(body.substr(pos + 1));
         }
     }
     pos = body.find("\"rouge1\"");
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            rouge1 = std::stof(body.substr(pos + 1));
+            rouge1 = parse_json_float(body.substr(pos + 1));
         }
     }
     pos = body.find("\"rouge2\"");
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            rouge2 = std::stof(body.substr(pos + 1));
+            rouge2 = parse_json_float(body.substr(pos + 1));
         }
     }
     pos = body.find("\"rougeL\"");
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            rougeL = std::stof(body.substr(pos + 1));
+            rougeL = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2561,7 +2650,7 @@ std::string TrainingMetricsAPI::handle_post_advanced_metrics(const std::string& 
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            gradient_variance = std::stof(body.substr(pos + 1));
+            gradient_variance = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2569,7 +2658,7 @@ std::string TrainingMetricsAPI::handle_post_advanced_metrics(const std::string& 
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            compute_time_ratio = std::stof(body.substr(pos + 1));
+            compute_time_ratio = parse_json_float(body.substr(pos + 1));
         }
     }
 
@@ -2577,7 +2666,7 @@ std::string TrainingMetricsAPI::handle_post_advanced_metrics(const std::string& 
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
         if (pos != std::string::npos) {
-            weight_update_ratio = std::stof(body.substr(pos + 1));
+            weight_update_ratio = parse_json_float(body.substr(pos + 1));
         }
     }
 

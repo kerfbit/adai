@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-10-25
 
 #include "MetricsPushClient.hpp"
@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <sstream>
 #include <thread>
 #include "Logger.hpp"
@@ -85,6 +86,35 @@ struct ParsedUrl {
  *        escaped inside a JSON string literal.
  */
 // TODO: See TD-453 in TECHNICAL_DEBT.md - duplicated hand-written JSON helpers; consolidate on nlohmann/json
+// TD-443: a JSON number: NaN/infinity as null (JSON has neither; operator<< wrote nan/inf, which the
+// server echoed back as invalid JSON), finite values as the shortest decimal that reads back as the same
+// value (std::fixed's 6 decimals stored a 1e-7 learning rate as 0; a fixed %.9g would write 0.4f as
+// 0.400000006).
+struct JsonNum {
+    double value;
+    bool is_float;  // round-trip as a float (at most 9 digits) or a double (at most 17)
+};
+JsonNum jnum(float v) {
+    return JsonNum{v, true};
+}
+JsonNum jnum(double v) {
+    return JsonNum{v, false};
+}
+std::ostream& operator<<(std::ostream& os, JsonNum n) {
+    if (!std::isfinite(n.value))
+        return os << "null";
+    char buf[40];
+    const int max_digits = n.is_float ? 9 : 17;
+    for (int digits = 6; digits <= max_digits; ++digits) {
+        std::snprintf(buf, sizeof(buf), "%.*g", digits, n.value);
+        const bool same = n.is_float ? std::strtof(buf, nullptr) == static_cast<float>(n.value)
+                                     : std::strtod(buf, nullptr) == n.value;
+        if (same)
+            break;
+    }
+    return os << buf;
+}
+
 std::string escape_json_string(const std::string& s) {
     std::string out;
     out.reserve(s.size() + 8);
@@ -249,25 +279,30 @@ void MetricsPushClient::end_epoch(int epoch, float loss, float validation_loss, 
                                   double epoch_time_seconds) {
     const float stored_perplexity = (perplexity > 0.0f) ? perplexity : std::exp(loss);
 
-    // TODO: See TD-443 in TECHNICAL_DEBT.md - std::fixed turns values < 5e-7 into 0; NaN/inf written as nan/inf (invalid JSON); adaptive-clip buffers never written
+    // TD-443: jnum() writes NaN/infinity as null and keeps small values (a 1e-7 learning rate was 0
+    // under std::fixed); the adaptive-clip epoch values are sent too (they were buffered but never
+    // sent).
     std::ostringstream json;
-    json << std::fixed;
-    json << "{\"epoch\":" << epoch << ",\"loss\":" << loss
-         << ",\"validation_loss\":" << validation_loss << ",\"learning_rate\":" << learning_rate
-         << ",\"perplexity\":" << stored_perplexity << ",\"gradient_norm\":" << gradient_norm
-         << ",\"epoch_time\":" << epoch_time_seconds
-         << ",\"gradient_variance\":" << buf_gradient_variance_
-         << ",\"compute_time_ratio\":" << buf_compute_time_ratio_
-         << ",\"weight_update_ratio\":" << buf_weight_update_ratio_
-         << ",\"activation_saturation_ratio\":" << buf_activation_saturation_
-         << ",\"attention_entropy\":" << buf_attention_entropy_
-         << ",\"current_padding_efficiency\":" << buf_padding_efficiency_
-         << ",\"predictor_loss\":" << buf_predictor_loss_
-         << ",\"sigreg_loss\":" << buf_sigreg_loss_
-         << ",\"masking_ratio\":" << buf_masking_ratio_
-         << ",\"predictor_target_cosine_sim\":" << buf_predictor_target_cosine_sim_
-         << ",\"sigreg_variance_mean\":" << buf_sigreg_variance_mean_
-         << ",\"sigreg_variance_stddev\":" << buf_sigreg_variance_stddev_ << "}";
+    json << "{\"epoch\":" << epoch << ",\"loss\":" << jnum(loss)
+         << ",\"validation_loss\":" << jnum(validation_loss)
+         << ",\"learning_rate\":" << jnum(learning_rate)
+         << ",\"perplexity\":" << jnum(stored_perplexity)
+         << ",\"gradient_norm\":" << jnum(gradient_norm)
+         << ",\"epoch_time\":" << jnum(epoch_time_seconds)
+         << ",\"gradient_variance\":" << jnum(buf_gradient_variance_)
+         << ",\"compute_time_ratio\":" << jnum(buf_compute_time_ratio_)
+         << ",\"weight_update_ratio\":" << jnum(buf_weight_update_ratio_)
+         << ",\"activation_saturation_ratio\":" << jnum(buf_activation_saturation_)
+         << ",\"attention_entropy\":" << jnum(buf_attention_entropy_)
+         << ",\"current_padding_efficiency\":" << jnum(buf_padding_efficiency_)
+         << ",\"predictor_loss\":" << jnum(buf_predictor_loss_)
+         << ",\"sigreg_loss\":" << jnum(buf_sigreg_loss_)
+         << ",\"masking_ratio\":" << jnum(buf_masking_ratio_)
+         << ",\"predictor_target_cosine_sim\":" << jnum(buf_predictor_target_cosine_sim_)
+         << ",\"sigreg_variance_mean\":" << jnum(buf_sigreg_variance_mean_)
+         << ",\"sigreg_variance_stddev\":" << jnum(buf_sigreg_variance_stddev_)
+         << ",\"adaptive_clip_threshold\":" << jnum(buf_adaptive_clip_avg_)
+         << ",\"adaptive_clip_spikes\":" << buf_adaptive_clip_spikes_ << "}";
     enqueue({EventPriority::Epoch, "/epoch/end", json.str()});
 }
 
@@ -278,8 +313,9 @@ void MetricsPushClient::end_epoch(int epoch, float loss, float validation_loss, 
 void MetricsPushClient::update_sample_metrics(int sample, float loss, float gradient_norm,
                                               float learning_rate) {
     std::ostringstream json;
-    json << "{\"sample\":" << sample << ",\"loss\":" << loss
-         << ",\"gradient_norm\":" << gradient_norm << ",\"learning_rate\":" << learning_rate << "}";
+    json << "{\"sample\":" << sample << ",\"loss\":" << jnum(loss)
+         << ",\"gradient_norm\":" << jnum(gradient_norm)
+         << ",\"learning_rate\":" << jnum(learning_rate) << "}";
     enqueue({EventPriority::Sample, "/metrics/sample", json.str()});
 }
 
@@ -290,15 +326,15 @@ void MetricsPushClient::update_sample_metrics(int sample, float loss, float grad
 void MetricsPushClient::update_validation_metrics(float validation_loss, float validation_accuracy,
                                                   float validation_perplexity) {
     std::ostringstream json;
-    json << "{\"validation_loss\":" << validation_loss
-         << ",\"validation_accuracy\":" << validation_accuracy
-         << ",\"validation_perplexity\":" << validation_perplexity << "}";
+    json << "{\"validation_loss\":" << jnum(validation_loss)
+         << ",\"validation_accuracy\":" << jnum(validation_accuracy)
+         << ",\"validation_perplexity\":" << jnum(validation_perplexity) << "}";
     enqueue({EventPriority::Epoch, "/metrics/validation", json.str()});
 }
 
 void MetricsPushClient::update_best_metrics(float validation_loss, int epoch) {
     std::ostringstream json;
-    json << "{\"validation_loss\":" << validation_loss << ",\"epoch\":" << epoch << "}";
+    json << "{\"validation_loss\":" << jnum(validation_loss) << ",\"epoch\":" << epoch << "}";
     enqueue({EventPriority::Epoch, "/metrics/best", json.str()});
 }
 
@@ -317,16 +353,17 @@ void MetricsPushClient::update_advanced_epoch_metrics(float gradient_variance,
     // Also push immediately for per-step dashboard updates (Sample priority —
     // these events are dropped under queue backpressure).
     std::ostringstream json;
-    json << "{\"gradient_variance\":" << gradient_variance
-         << ",\"compute_time_ratio\":" << compute_time_ratio
-         << ",\"weight_update_ratio\":" << weight_update_ratio << "}";
+    json << "{\"gradient_variance\":" << jnum(gradient_variance)
+         << ",\"compute_time_ratio\":" << jnum(compute_time_ratio)
+         << ",\"weight_update_ratio\":" << jnum(weight_update_ratio) << "}";
     enqueue({EventPriority::Sample, "/metrics/advanced", json.str()});
 }
 
 void MetricsPushClient::flag_abnormal_sample(const AbnormalSample& sample) {
     std::ostringstream json;
     json << "{\"epoch\":" << sample.epoch << ",\"sample_id\":" << sample.sample_id
-         << ",\"loss\":" << sample.loss << ",\"grad_norm\":" << sample.grad_norm << ",\"reason\":\""
+         << ",\"loss\":" << jnum(sample.loss) << ",\"grad_norm\":" << jnum(sample.grad_norm)
+         << ",\"reason\":\""
          << escape_json_string(sample.reason) << "\"" << ",\"input_text\":\""
          << escape_json_string(sample.input_text) << "\"" << ",\"target_text\":\""
          << escape_json_string(sample.target_text) << "\"" << "}";
@@ -337,7 +374,6 @@ void MetricsPushClient::flag_abnormal_sample(const AbnormalSample& sample) {
 // IMetricsReporter — Adaptive gradient clipping (TD-017)
 // ============================================================================
 
-// TODO: See TD-443 in TECHNICAL_DEBT.md - buffered but never sent: end_epoch() omits buf_adaptive_clip_*
 void MetricsPushClient::update_adaptive_clip_metrics(float effective_clip_threshold,
                                                      int cumulative_spike_count) {
     // State-only: buffer for inclusion in end_epoch payload.
@@ -372,13 +408,13 @@ void MetricsPushClient::update_layer_gradient_norms(const std::vector<float>& en
     for (size_t i = 0; i < encoder_layer_norms.size(); ++i) {
         if (i > 0)
             json << ",";
-        json << encoder_layer_norms[i];
+        json << jnum(encoder_layer_norms[i]);
     }
     json << "],\"decoder_layer_grad_norms\":[";
     for (size_t i = 0; i < decoder_layer_norms.size(); ++i) {
         if (i > 0)
             json << ",";
-        json << decoder_layer_norms[i];
+        json << jnum(decoder_layer_norms[i]);
     }
     json << "]}";
     enqueue({EventPriority::Epoch, "/metrics/layer-gradients", json.str()});
@@ -395,9 +431,8 @@ void MetricsPushClient::update_padding_efficiency(float efficiency) {
 void MetricsPushClient::update_generation_quality_metrics(float bleu4, float rouge1, float rouge2,
                                                           float rougeL) {
     std::ostringstream json;
-    json << std::fixed;
-    json << "{\"bleu4\":" << bleu4 << ",\"rouge1\":" << rouge1 << ",\"rouge2\":" << rouge2
-         << ",\"rougeL\":" << rougeL << "}";
+    json << "{\"bleu4\":" << jnum(bleu4) << ",\"rouge1\":" << jnum(rouge1)
+         << ",\"rouge2\":" << jnum(rouge2) << ",\"rougeL\":" << jnum(rougeL) << "}";
     enqueue({EventPriority::Epoch, "/metrics/generation-quality", json.str()});
 }
 

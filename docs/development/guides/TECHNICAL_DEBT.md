@@ -1236,6 +1236,7 @@ The run is complete.
 - TD-555 (done in code: pushed abnormal samples are stored, and only an unknown session triggers re-registration).
 - TD-445 (done in code: a full session registry archives finished or stale sessions to make room; only live sessions count).
 - TD-442 (done in code: the push client's end-of-pass drain is bounded, 10 s by default, and runs after the final save).
+- TD-443 (done in code: non-finite values travel as `null`, small values keep their digits, no response emits `nan`/`inf`, and adaptive clipping is sent).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -11682,7 +11683,7 @@ Tests (`metrics_push_client_test.cpp`):
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Metrics / Push Client | October 14, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 25, 2026 | Metrics / Push Client | October 14, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `MetricsPushClient` and verified against a real `metrics_api_server`:
@@ -11700,10 +11701,10 @@ Found while tracing `MetricsPushClient` and verified against a real `metrics_api
 
 Action Items:
 
-- [ ] Serialize floats with a helper that writes non-finite values as `null` (or a documented sentinel) and uses enough significant digits (`std::defaultfloat` with `max_digits10`, or `%.9g`).
-- [ ] Make the server reject or normalize non-finite input and never emit `nan`/`inf`.
-- [ ] Add the adaptive-clip fields to the `end_epoch` payload and its server handler.
-- [ ] Tests for NaN/inf/tiny values and adaptive-clip fields, end to end.
+- [x] Serialize floats with a helper that writes non-finite values as `null` (or a documented sentinel) and uses enough significant digits (`std::defaultfloat` with `max_digits10`, or `%.9g`).
+- [x] Make the server reject or normalize non-finite input and never emit `nan`/`inf`.
+- [x] Add the adaptive-clip fields to the `end_epoch` payload and its server handler.
+- [x] Tests for NaN/inf/tiny values and adaptive-clip fields, end to end.
 
 Location in code: `src/MetricsPushClient.cpp` (`end_epoch()`, `update_adaptive_clip_*()`); `src/TrainingMetricsAPI.cpp` (`/epoch/end` parsing); tagged `TODO: See TD-443`.
 
@@ -11712,6 +11713,27 @@ Files to Modify:
 - `src/MetricsPushClient.cpp`
 - `src/TrainingMetricsAPI.cpp`
 - `tests/metrics_push_client_test.cpp`
+
+**Fix (October 25, 2026).**
+- **Client:** `MetricsPushClient` writes every float through `jnum()`: NaN/infinity as `null`, finite values as the shortest decimal that reads back as the same value (at most 9 digits for a float). That replaces
+  `operator<<` and `end_epoch()`'s and `update_generation_quality_metrics()`'s `std::fixed`, so a 1e-7 learning rate stays 1e-7.
+  `end_epoch()` also sends `adaptive_clip_threshold`/`adaptive_clip_spikes` (from `update_adaptive_clip_epoch()`).
+- **Server input:** `TrainingMetricsAPI`'s 31 `std::stof` field reads go through `parse_json_float()`, which reads `null` as NaN;
+  `std::stof` threw on it and failed the whole event. The float-array parser keeps `null` elements in place as NaN, so a layer's norm
+  never shifts. `/epoch/end` applies the adaptive-clip fields through `update_adaptive_clip_epoch()`.
+- **Server output:** `sanitize_non_finite_json()` runs on every JSON response in the post-routing handler. It rewrites a bare
+  `nan`/`-nan`/`inf`/`-inf`/`infinity` value outside strings to `null` and resets `Content-Length` (httplib has set it by then, and an
+  unchanged length truncated the reply). It skips compressed bodies. So no endpoint, including future ones and in-process NaNs, emits
+  invalid JSON.
+
+Tests (`training_metrics_api_routes_test.cpp`):
+- `NonFiniteValuesBecomeNull`: the sanitizer, with strings and escapes left alone.
+- `NonFiniteAndTinyEpochValuesRoundTripAsValidJson`: the real push client sends a NaN-loss/infinite-validation-loss epoch, a 1e-7
+  learning rate and adaptive clipping. `/epochs` and `/metrics/current` parse as strict JSON (nlohmann), with `null` losses, a 1e-7
+  learning rate and `epoch_adaptive_clip_thresholds:[0.5]`.
+
+Against a real `metrics_api_server`, `/epochs`, `/metrics/current`, `/metrics/summary` and `/status` were all valid JSON after a diverged
+epoch. The `Content-Length` problem showed up first in the end-to-end test, and the real-server check confirmed it as a 360-byte truncated `/epochs` reply.
 
 ---
 

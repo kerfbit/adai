@@ -690,6 +690,8 @@ if(TARGET adai_metrics_api)
     if(HTTPLIB_INCLUDE_DIR)
         target_include_directories(trainingMetricsApiRoutesTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
     endif()
+    # TD-443: strict JSON validation of responses.
+    target_include_directories(trainingMetricsApiRoutesTests PRIVATE ${CMAKE_SOURCE_DIR}/external)
     add_test(NAME TrainingMetricsAPIRoutesTests COMMAND trainingMetricsApiRoutesTests)
 
     # Live-server integration tests — connect to a running metrics_api_server.

@@ -139,3 +139,13 @@ Session-scoped `POST /api/sessions/<key>/metrics/abnormal`
 (`{"epoch","sample_id","loss","grad_norm","reason","input_text","target_text"}`) records a pushed abnormal sample through
 `TrainingMetricsService::flag_abnormal_sample()`, which stores it in memory, the DB and the JSON file. Texts are capped at 4 KiB (on a
 UTF-8 boundary, marked "…") and `reason` at 128 characters. The path used to be GET-only, so remote trainers' samples were never stored.
+
+---
+
+## Addendum (October 25, 2026): no nan/inf in or out (TD-443)
+
+- **Input:** field reads use `parse_json_float()`, so `null` becomes NaN; `std::stof` threw on it and the event failed. Array elements
+  that are `null` stay in place as NaN.
+- **`/epoch/end`:** applies `adaptive_clip_threshold`/`adaptive_clip_spikes`.
+- **Output:** every JSON response passes through `sanitize_non_finite_json()` in the post-routing handler, which turns bare `nan`/`inf`
+  values into `null` and resets `Content-Length`.

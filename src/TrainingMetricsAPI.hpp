@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.11.0
+// @adai-version: 0.12.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -59,6 +59,10 @@
  *   TrainingMetricsAPI api(registry, 8081);
  *   api.start();  // Blocking - runs server on port 8081
  */
+/// TD-443: rewrites bare nan/-nan/inf/-inf/infinity values (outside strings) in a JSON document to
+/// null. Every JSON response of TrainingMetricsAPI passes through it.
+std::string sanitize_non_finite_json(const std::string& json);
+
 class TrainingMetricsAPI {
    public:
     /**

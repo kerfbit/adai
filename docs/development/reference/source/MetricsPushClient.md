@@ -184,3 +184,10 @@ Stopping (`end_session()` or the destructor) sets a drain deadline (`set_drain_t
 events are dropped and the rest are sent with a single attempt each, with no back-off and no heartbeats. At the deadline whatever is left
 is dropped except one attempt at `/end`. With nothing listening, 41 queued events used to take 50.45 s; now about 1.2 s with a 1 s
 deadline.
+
+---
+
+## Addendum (October 25, 2026): JSON-safe numbers and adaptive clipping (TD-443)
+
+Payload floats go through `jnum()`: `null` for NaN/infinity, otherwise the shortest decimal that reads back as the same value, with no more `std::fixed`. A 1e-7 learning rate used to
+be sent as 0. `end_epoch()` adds `adaptive_clip_threshold`/`adaptive_clip_spikes`.
