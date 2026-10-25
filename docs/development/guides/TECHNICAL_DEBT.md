@@ -5,13 +5,18 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 24, 2026
-**Total Items:** 342
+**Total Items:** 343
 **High Priority:** 36
-**Medium Priority:** 150
+**Medium Priority:** 151
 **Low Priority:** 156
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
+
+**October 24, 2026:** Filed [TD-551](#td-551-a-second-daemon-instance-silently-shares-the-port) while fixing TD-491 (MEDIUM, verified):
+cpp-httplib's default socket options set `SO_REUSEPORT`, so a second `registry_server` started on a port already in use bound without
+error. The kernel then split connections between the two processes, each with its own locks and memory over the same data directory.
+A stale test instance turned eight serialized fetches into duplicate slices. Every httplib daemon is affected.
 
 **October 24, 2026:** Filed [TD-550](#td-550-registry-mns-and-other-daemons-accept-cross-origin-writes) while fixing TD-526 (MEDIUM, verified):
 `registry_server` executes a cross-origin `text/plain` POST from any web page (a `pending/add` from `Origin: http://evil.example`
@@ -1225,7 +1230,9 @@ The run is complete.
 - TD-550 (done in code: the same write guard, now the shared `BrowserWriteGuard`, in `registry_server`, `mns_server`,
   `chatbot_api_server`, `trainer_service` and the child's admin API).
 
-Left in the category: TD-491–TD-494 and TD-549.
+- TD-491 (done in code: fetch cursors are serialized, slice names are unique, and `added` reports what was queued).
+
+Left in the category: TD-492–TD-494, TD-549 and TD-551 (a second daemon instance silently shares the port).
 
 Analyzed September 12, 2026 to sequence the active items by dependency and risk rather than
 just priority label — several depend on each other or on a single owner decision, and the
@@ -2243,6 +2250,7 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-548: Standalone World-Model Pool and Checkpoint Share One Directory](#td-548-standalone-world-model-pool-and-checkpoint-share-one-directory)
   - [TD-549: FTPS Data Channel Doesn't Require TLS Session Reuse](#td-549-ftps-data-channel-doesnt-require-tls-session-reuse)
   - [TD-550: Registry, MNS and Other Daemons Accept Cross-Origin Writes](#td-550-registry-mns-and-other-daemons-accept-cross-origin-writes)
+  - [TD-551: A Second Daemon Instance Silently Shares the Port](#td-551-a-second-daemon-instance-silently-shares-the-port)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -13312,7 +13320,7 @@ Verified against the real binary:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / Registry Server | October 17, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 24, 2026 | Data / Registry Server | October 17, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `RegistryServer.cpp`; verified. `handle_fetch_huggingface()`/`handle_fetch_gutenberg()` read the per-(source, model) cursor, write
@@ -13323,9 +13331,9 @@ same file at once. After a wrap-around a fetch also rewrites an earlier `_row<of
 
 Action Items:
 
-- [ ] Serialize cursor read → write → advance per cursor (a per-cursor mutex, or the group mutex around the slice step).
-- [ ] Make output names unique (e.g. include a sequence number) and report `added:false` when nothing new was queued.
-- [ ] Test concurrent fetches.
+- [x] Serialize cursor read → write → advance per cursor (a per-cursor mutex, or the group mutex around the slice step).
+- [x] Make output names unique (e.g. include a sequence number) and report `added:false` when nothing new was queued.
+- [x] Test concurrent fetches.
 
 Location in code: `src/RegistryServer.cpp` (`handle_fetch_gutenberg()`, `handle_fetch_huggingface()`); tagged `TODO: See TD-491`.
 
@@ -13333,6 +13341,25 @@ Files to Modify:
 
 - `src/RegistryServer.cpp`
 - `tests/dataset_registry_live_test.cpp`
+
+**Fix (October 24, 2026).** `handle_fetch_huggingface()` and `handle_fetch_gutenberg()` now hold a mutex per cursor file
+(`fetch_cursor_mutex()`) from reading the cursor to queuing the slice and advancing it:
+- **Concurrent fetches:** for one (source, model) they run one after another, each serving the next slice. Different cursors don't wait
+  for each other, and the download/cache step stays outside the lock.
+- **Slice names:** `unique_slice_path()` appends `_<n>` when `…_row<offset>_training.jsonl` already exists. After a wrap-around, a fetch
+  no longer rewrites an earlier slice that may be pending, claimed or trained.
+- **Queuing:** `queue_fetched_slice()` uses `add_pending_path_locked()`'s result. If nothing new was queued, it removes the file, answers
+  409 `{"added":false,"reason":"already_queued"}`, and doesn't advance the cursor.
+
+Tests: the live registry suite gains `REGISTRY_SERVER_DATA_DIR`, so a test can seed a cached dataset in the server's data directory (no
+network).
+- `ConcurrentFetchesServeDistinctSlices`: eight concurrent fetches of 10 pairs serve rows 0–70 once each and queue eight files.
+- `WrappedFetchesNeverReuseASliceFile`: six fetches over a 20-row dataset give six files and six queue entries.
+
+On the old server, the first served only rows 0 and 10 (two files queued, eight `added:true`), and the second gave three files for six
+fetches. The whole live suite passes against the fixed server (92 tests).
+
+While testing, a stale server left on the same port took part of the traffic; that's TD-551.
 
 ---
 
@@ -15363,6 +15390,37 @@ logged the refusal and changed nothing:
 
 Tests: `browser_write_guard_test.cpp` (7: the decision table, JSON escaping, and a real `httplib::Server` where refused writes never reach
 the route), plus TD-526's route tests through the shared code.
+
+---
+
+### TD-551: A Second Daemon Instance Silently Shares the Port
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Services / HTTP | October 24, 2026 | 1-2 hours |
+
+Description:
+Filed while fixing TD-491, verified with `registry_server`. cpp-httplib's `default_socket_options` sets `SO_REUSEPORT` as well as
+`SO_REUSEADDR` (`external/cpp-httplib/httplib.h`, around line 1867). A second instance started on a port that's already in use
+therefore binds without error and logs a normal startup. The kernel then spreads new connections across both processes.
+
+A stale test `registry_server` left on port 18491 took part of eight concurrent fetches. Each process had its own cursor locks and its
+own in-memory group mutexes over the same data directory, so two requests both served row 0, and both reported `added:true` into
+pending lists that overwrote each other.
+
+The same applies to every httplib daemon (`registry_server`, `mns_server`, `metrics_api_server`, `chatbot_api_server`,
+`trainer_service`), for example a manual start next to the systemd unit, or an overlapping restart. TD-494's "bind failure exits 0" is
+the other half: the start doesn't fail at all.
+
+Action Items:
+
+- [ ] Give every server socket options without `SO_REUSEPORT` (`set_socket_options()` with `SO_REUSEADDR` only, in one shared helper),
+  so a second instance fails to bind.
+- [ ] Make a failed bind exit non-zero with a clear message (TD-494 for `registry_server`; check the other daemons).
+- [ ] Test: a second instance on the same port must fail.
+
+Location in code: every `httplib::Server` (`RegistryServer.cpp`, `ModelNameService.cpp`, `TrainingMetricsAPI.cpp`, `ChatbotAPI.cpp`,
+`TrainerServiceProxy.cpp`, `TrainerAdminAPI.cpp`).
 
 ---
 

@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.15.0
+// @adai-version: 0.16.0
 // @adai-reviewed: 2026-10-24
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
@@ -1510,6 +1510,46 @@ static void write_cursor(const std::string& path, int offset) {
     f << offset;
 }
 
+// TD-491: one lock per cursor file, held from reading the cursor to queuing the slice and advancing
+// it. Without it, eight concurrent fetch/huggingface calls all read offset 0, wrote the same file at
+// once and queued it once, while each caller was told its 1,000 pairs were added.
+static std::mutex& fetch_cursor_mutex(const std::string& cursor_path) {
+    static std::mutex map_mtx;
+    static std::map<std::string, std::unique_ptr<std::mutex>> mutexes;
+    std::lock_guard<std::mutex> lock(map_mtx);
+    auto& m = mutexes[cursor_path];
+    if (!m)
+        m = std::make_unique<std::mutex>();
+    return *m;
+}
+
+// TD-491: "<stem>_training.jsonl", or "<stem>_<n>_training.jsonl" when that file already exists.
+// After the cursor wraps, the earlier "_row<offset>" slice may still be pending, claimed or trained,
+// and rewriting it would change data under a claim or a recorded checksum.
+static std::string unique_slice_path(const std::string& stem) {
+    std::string path = stem + "_training.jsonl";
+    for (int n = 2; fs::exists(path); ++n)
+        path = stem + "_" + std::to_string(n) + "_training.jsonl";
+    return path;
+}
+
+// TD-491: queues a freshly written slice; on failure removes it and answers 409 added:false.
+static bool queue_fetched_slice(httplib::Response& res, const std::string& group,
+                                const std::string& kind, const std::string& path,
+                                const std::string& source, int pairs_written) {
+    auto& gs = get_group(group, kind);
+    std::lock_guard<std::mutex> lock(gs.mtx);
+    if (add_pending_path_locked(gs, path, source, pairs_written))
+        return true;
+    fs::remove(path);
+    res.status = 409;
+    res.set_content("{\"added\":false,\"reason\":\"already_queued\",\"path\":\"" +
+                        json_escape(path) + "\"}",
+                    "application/json");
+    Logger::warn("[{}] fetch/{}: '{}' was already queued; nothing added", group, source, path);
+    return false;
+}
+
 // POST /registry/<group>/fetch/gutenberg  {"book_id":N,"num_pairs":N}
 // POST /registry/<group>/fetch/gutenberg  {"book_id":N,"num_pairs":N,"model_name":"..."}
 //
@@ -1551,14 +1591,13 @@ static void handle_fetch_gutenberg(const httplib::Request& req, httplib::Respons
         return;
     }
 
-    // TODO: See TD-491 in TECHNICAL_DEBT.md - cursor read/convert/write run without a lock; concurrent fetches serve
-    // and write the same offset-named slice.
     const std::string cursor_path = gutenberg_cursor_path(group, kind, book_id, model_name);
+    std::lock_guard<std::mutex> cursor_lock(fetch_cursor_mutex(cursor_path));  // TD-491
     const int offset = read_cursor(cursor_path);
 
     const std::string safe_model = model_name.empty() ? "_unassigned" : flatten_for_path(model_name);
-    const std::string path = out_dir + "/gutenberg_" + std::to_string(book_id) + "_" + safe_model +
-                             "_row" + std::to_string(offset) + "_training.jsonl";
+    const std::string path = unique_slice_path(out_dir + "/gutenberg_" + std::to_string(book_id) +
+                                               "_" + safe_model + "_row" + std::to_string(offset));
 
     int next_offset = offset;
     const int pairs_written = DataFetcher::convert_gutenberg_slice(cached_sentences, path, offset,
@@ -1571,11 +1610,9 @@ static void handle_fetch_gutenberg(const httplib::Request& req, httplib::Respons
                      group, book_id, offset);
         return;
     }
+    if (!queue_fetched_slice(res, group, kind, path, "gutenberg", pairs_written))
+        return;
     write_cursor(cursor_path, next_offset);
-
-    auto& gs = get_group(group, kind);
-    std::lock_guard<std::mutex> lock(gs.mtx);
-    add_pending_path_locked(gs, path, "gutenberg", pairs_written);
 
     std::ostringstream json;
     json << "{\"added\":true,\"path\":\"" << json_escape(path) << "\",\"served_from_row\":" << offset
@@ -1637,16 +1674,15 @@ static void handle_fetch_huggingface(const httplib::Request& req, httplib::Respo
         return;
     }
 
-    // TODO: See TD-491 in TECHNICAL_DEBT.md - cursor read/convert/write run without a lock (8 concurrent calls all
-    // served row 0, verified).
     const std::string cursor_path = hf_cursor_path(group, kind, dataset_id, split, model_name);
+    std::lock_guard<std::mutex> cursor_lock(fetch_cursor_mutex(cursor_path));  // TD-491
     const int offset = read_cursor(cursor_path);
 
     const std::string safe_id = flatten_for_path(dataset_id);
     const std::string safe_model = model_name.empty() ? "_unassigned" : flatten_for_path(model_name);
-    const std::string path = out_dir + "/" + safe_id + "_" + flatten_for_path(split) + "_" +
-                             safe_model + "_row" +
-                             std::to_string(offset) + "_training.jsonl";
+    const std::string path = unique_slice_path(out_dir + "/" + safe_id + "_" +
+                                               flatten_for_path(split) + "_" + safe_model + "_row" +
+                                               std::to_string(offset));
 
     int next_offset = offset;
     const int pairs_written = DataFetcher::convert_huggingface_slice(
@@ -1659,11 +1695,9 @@ static void handle_fetch_huggingface(const httplib::Request& req, httplib::Respo
                      dataset_id, offset);
         return;
     }
+    if (!queue_fetched_slice(res, group, kind, path, "huggingface", pairs_written))
+        return;
     write_cursor(cursor_path, next_offset);
-
-    auto& gs = get_group(group, kind);
-    std::lock_guard<std::mutex> lock(gs.mtx);
-    add_pending_path_locked(gs, path, "huggingface", pairs_written);
 
     std::ostringstream json;
     json << "{\"added\":true,\"path\":\"" << json_escape(path) << "\",\"served_from_row\":" << offset

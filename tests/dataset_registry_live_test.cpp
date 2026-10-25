@@ -7,9 +7,11 @@
 // Each test creates an isolated group name derived from the PID, timestamp, and
 // a monotonic counter so concurrent test runs on the same server cannot collide.
 //
-// Configuration (env vars, both optional):
+// Configuration (env vars, all optional):
 //   REGISTRY_SERVER_HOST   default: 127.0.0.1
 //   REGISTRY_SERVER_PORT   default: 8082
+//   REGISTRY_SERVER_DATA_DIR  the server's --data-dir; the fetch-cursor tests (TD-491) seed a
+//                          cached dataset there and skip when it is unset
 //
 // The default host MUST be a loopback/clearly-local address, never a real LAN IP —
 // see the identical note in tests/training_metrics_api_live_test.cpp for why (a
@@ -25,8 +27,14 @@
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <mutex>
+#include <regex>
+#include <set>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <httplib.h>
@@ -1833,3 +1841,112 @@ TEST(LiveRegistryHuggingface, TraversalInDatasetIdOrSplitIsRejected) {
         EXPECT_EQ(res->status, 400) << dataset_id << " / " << split << ": " << res->body;
     }
 }
+
+// ===========================================================================
+// TD-491: fetch cursors. These need the server's data directory to seed a cached dataset (no network):
+// set REGISTRY_SERVER_DATA_DIR to the --data-dir the server was started with.
+// ===========================================================================
+
+namespace {
+
+std::string server_data_dir() {
+    const char* env = std::getenv("REGISTRY_SERVER_DATA_DIR");
+    return env ? std::string(env) : "";
+}
+
+// Writes <data_dir>/<group>/datasets/org_cursor_train/full_dataset.jsonl, which
+// DataFetcher::ensure_huggingface_cached() takes as the cached "org/cursor" train split.
+void seed_hf_cache(const std::string& group, int rows) {
+    const std::filesystem::path dir =
+        std::filesystem::path(server_data_dir()) / group / "datasets" / "org_cursor_train";
+    std::filesystem::create_directories(dir);
+    std::ofstream f(dir / "full_dataset.jsonl");
+    for (int i = 0; i < rows; ++i)
+        f << "{\"input\":\"question " << i << "\",\"output\":\"answer " << i << "\"}\n";
+}
+
+httplib::Result fetch_cursor_slice(httplib::Client& c, const std::string& group, int num_pairs) {
+    const std::string body = R"({"dataset_id":"org/cursor","split":"train","num_pairs":)" +
+                             std::to_string(num_pairs) +
+                             R"(,"input_field":"input","output_field":"output"})";
+    return c.Post("/registry/" + group + "/fetch/huggingface", body, "application/json");
+}
+
+std::string json_field(const std::string& body, const std::string& key) {
+    std::smatch m;
+    const std::regex re("\"" + key + "\":\"?([^\",}]*)");
+    return std::regex_search(body, m, re) ? m[1].str() : "";
+}
+
+int count_occurrences(const std::string& haystack, const std::string& needle) {
+    int n = 0;
+    for (std::size_t pos = haystack.find(needle); pos != std::string::npos;
+         pos = haystack.find(needle, pos + needle.size()))
+        ++n;
+    return n;
+}
+
+}  // namespace
+
+// Eight concurrent fetches of 10 pairs used to all serve row 0 into one file, queued once, while each
+// reported added:true.
+TEST(LiveRegistryFetchCursor, ConcurrentFetchesServeDistinctSlices) {
+    if (!server_reachable() || server_data_dir().empty())
+        GTEST_SKIP() << "needs REGISTRY_SERVER_HOST and REGISTRY_SERVER_DATA_DIR";
+    const std::string group = make_group("cursor");
+    seed_hf_cache(group, 200);
+
+    std::vector<std::string> bodies(8);
+    std::vector<int> statuses(8, 0);
+    std::vector<std::thread> threads;
+    for (int t = 0; t < 8; ++t) {
+        threads.emplace_back([&, t] {
+            auto c = make_client();
+            c.set_read_timeout(std::chrono::seconds(30));
+            auto res = fetch_cursor_slice(c, group, 10);
+            if (res) {
+                statuses[t] = res->status;
+                bodies[t] = res->body;
+            }
+        });
+    }
+    for (auto& th : threads)
+        th.join();
+
+    std::set<std::string> rows, paths;
+    for (int t = 0; t < 8; ++t) {
+        EXPECT_EQ(statuses[t], 200) << "request " << t << ": " << bodies[t];
+        rows.insert(json_field(bodies[t], "served_from_row"));
+        paths.insert(json_field(bodies[t], "path"));
+    }
+    EXPECT_EQ(rows, (std::set<std::string>{"0", "10", "20", "30", "40", "50", "60", "70"}));
+    EXPECT_EQ(paths.size(), 8u);
+
+    auto c = make_client();
+    auto queue = c.Get("/registry/" + group + "/queue");
+    ASSERT_TRUE(queue);
+    EXPECT_EQ(count_occurrences(queue->body, "org_cursor_train__unassigned_row"), 8) << queue->body;
+}
+
+// Once the cursor wraps, a new slice must not rewrite (and re-report) an earlier one, which may already be
+// pending, claimed or trained.
+TEST(LiveRegistryFetchCursor, WrappedFetchesNeverReuseASliceFile) {
+    if (!server_reachable() || server_data_dir().empty())
+        GTEST_SKIP() << "needs REGISTRY_SERVER_HOST and REGISTRY_SERVER_DATA_DIR";
+    const std::string group = make_group("cursorwrap");
+    seed_hf_cache(group, 20);
+    auto c = make_client();
+    std::set<std::string> paths;
+    for (int i = 0; i < 6; ++i) {
+        auto res = fetch_cursor_slice(c, group, 10);
+        ASSERT_TRUE(res);
+        ASSERT_EQ(res->status, 200) << res->body;
+        EXPECT_NE(res->body.find("\"added\":true"), std::string::npos) << res->body;
+        paths.insert(json_field(res->body, "path"));
+    }
+    EXPECT_EQ(paths.size(), 6u);
+    auto queue = c.Get("/registry/" + group + "/queue");
+    ASSERT_TRUE(queue);
+    EXPECT_EQ(count_occurrences(queue->body, "org_cursor_train__unassigned_row"), 6) << queue->body;
+}
+

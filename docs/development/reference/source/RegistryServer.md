@@ -207,3 +207,14 @@ This server installs `install_browser_write_guard()` ([BrowserWriteGuard.md](Bro
 (POST/PUT/PATCH/DELETE) carrying any `Origin` gets 403, and a write with a `text/plain`, form-encoded or multipart body gets 415. A web
 page open in an operator's browser can no longer make it execute writes. Clients that aren't browsers send no `Origin` and are unaffected
 as long as they send JSON (or, for `registry_server`'s `upload`, `application/octet-stream`).
+
+---
+
+## Addendum (October 24, 2026): serialized fetch cursors (TD-491)
+
+`handle_fetch_huggingface()`/`handle_fetch_gutenberg()` hold `fetch_cursor_mutex(cursor_path)` from reading the cursor to queuing the
+slice and advancing it, so concurrent fetches for one (source, model) serve consecutive slices. `unique_slice_path()` adds `_<n>` instead
+of rewriting an existing `…_row<offset>_training.jsonl`. `queue_fetched_slice()` answers 409 `{"added":false,"reason":"already_queued"}`
+(removing the file, leaving the cursor) when nothing new was queued. Live tests: `LiveRegistryFetchCursor.*` (need
+`REGISTRY_SERVER_DATA_DIR`). A second `registry_server` on the same port silently shares it (TD-551).
+
