@@ -160,3 +160,14 @@ Added for the remote-first rule (the trainer takes its data from `registry_serve
 `LocalTransport::commit_trained()` now loads the pending list first and, for a non-empty `run_id`, appends only entries whose unit that
 run has claimed, logging how many it skipped. `RemoteTransport::commit_trained()` logs a warning when `registry_server` lists rejected
 units. A path can now have several trained records, one per pass; `requeue_trained()` re-queues it once and removes them all.
+
+---
+
+## Addendum (October 25, 2026): claim leases (TD-494)
+
+- **`PendingEntry::claimed_unix`:** the 11th column of the pending file.
+- **`AcquireResponse::claim_lease_seconds`:** parsed by `RemoteTransport::acquire()`.
+- **`RegistryTransport::renew_claims(run_id)`:** a virtual whose default returns 0. `RemoteTransport` posts `…/renew` and returns
+  `renewed`, or -1 on failure.
+
+`LocalTransport::acquire()` records `claimed_unix` for display only; standalone mode has no leases.

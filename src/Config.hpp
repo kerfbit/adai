@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.7.0
-// @adai-reviewed: 2026-10-24
+// @adai-version: 1.8.0
+// @adai-reviewed: 2026-10-25
 
 
 #include <cstdint>
@@ -314,6 +314,14 @@ struct ServiceConfig {
     /// Root storage directory for registry_server's per-group state (default: "registry_sessions").
     /// Server-side setting, read by registry_server.
     std::string registry_data_dir = "registry_sessions";
+
+    /// TD-494: minutes a claim lasts without renewal before another run may take the entry;
+    /// 0 = claims never expire (the pre-TD-494 behavior).
+    int registry_claim_lease_minutes = 30;
+    /// TD-494: largest request body registry_server accepts, in MiB (uploads); larger → 413.
+    int registry_max_upload_mb = 2048;
+    /// TD-494: fetch/gutenberg + fetch/huggingface requests that may run at once; more → 429.
+    int registry_max_concurrent_fetches = 2;
 
     // ============================================================
     // FTP Dataset Transport Configuration (Phase 10)

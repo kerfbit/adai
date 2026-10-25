@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.19.0
-// @adai-reviewed: 2026-10-24
+// @adai-version: 0.20.0
+// @adai-reviewed: 2026-10-25
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) is hardened to
@@ -214,6 +214,17 @@ static std::unique_ptr<adai::DaemonConfigStore> g_config_store;
 // daemon_config.db since it's business data, not an admin setting.
 static std::unique_ptr<adai::DaemonConfigStore> g_session_store;
 static std::mutex g_session_store_mtx;
+
+// TD-494: claim leases. A claim older than the lease (claimed_unix + lease) may be taken by
+// another run's acquire; POST …/renew restarts it. 0 = claims never expire. A claim made before
+// leases existed has no claimed_unix; its lease counts from this server's start, so upgrading
+// never releases anything immediately.
+static std::atomic<long long> g_claim_lease_seconds{30 * 60};
+static long long g_server_start_unix = 0;
+
+// TD-494: fetches that may run at once, so slow downloads can't occupy every request thread.
+static std::atomic<int> g_max_concurrent_fetches{2};
+static std::atomic<int> g_fetches_running{0};
 
 // ============================================================================
 // Minimal JSON helpers
@@ -453,7 +464,8 @@ static void handle_queue(const httplib::Request& req, httplib::Response& res,
              << entries[i].size_bytes << "," << "\"num_entries\":" << entries[i].num_entries
              << "," << "\"checksum\":\"" << json_escape(entries[i].checksum) << "\","
              << "\"segment_start\":" << entries[i].segment_start << ","
-             << "\"segment_count\":" << entries[i].segment_count << "}";
+             << "\"segment_count\":" << entries[i].segment_count << ","
+             << "\"claimed_unix\":" << entries[i].claimed_unix << "}";  // TD-494
     }
     json << "]}";
     res.set_content(json.str(), "application/json");
@@ -540,16 +552,32 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
     std::vector<int> acquired_segment_start;
     std::vector<int> acquired_segment_count;
     std::vector<std::string> ftp_rejected;
+    // TD-494: a claim whose lease ran out (its run crashed or stopped renewing) is claimable again.
+    const long long now_unix = static_cast<long long>(std::time(nullptr));
+    const long long lease = g_claim_lease_seconds.load();
+    const auto claim_expired = [&](const PendingEntry& e) {
+        if (lease <= 0 || e.run_id.empty())
+            return false;
+        const long long since = e.claimed_unix > 0 ? e.claimed_unix : g_server_start_unix;
+        return now_unix - since >= lease;
+    };
     for (auto& e : entries) {
         // Unclaimed, OR already claimed by this exact run_id — see the
-        // matching comment in LocalTransport::acquire() (RegistryTransport.cpp).
-        if ((e.run_id.empty() || e.run_id == run_id) && eligible(e) &&
+        // matching comment in LocalTransport::acquire() (RegistryTransport.cpp) — OR (TD-494)
+        // claimed by a run whose lease has expired.
+        const bool expired = e.run_id != run_id && claim_expired(e);
+        if ((e.run_id.empty() || e.run_id == run_id || expired) && eligible(e) &&
             static_cast<int>(acquired.size()) < limit) {
             if (!ftp_deliverable(e)) {
                 ftp_rejected.push_back(e.path);
                 continue;
             }
+            if (expired)
+                Logger::warn("[{}] acquire: run '{}' takes '{}' from run '{}', whose claim lease "
+                             "expired",
+                             group, run_id, e.path, e.run_id);
             e.run_id = run_id;
+            e.claimed_unix = now_unix;
             acquired.push_back(e.path);
             acquired_segment_start.push_back(e.segment_start);
             acquired_segment_count.push_back(e.segment_count);
@@ -588,7 +616,7 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
                 json << ',';
             json << acquired_segment_count[i];
         }
-        json << "]}";
+        json << "],\"claim_lease_seconds\":" << lease << "}";  // TD-494
         res.set_content(json.str(), "application/json");
         Logger::info("[{}] acquire: run='{}' claimed {} files", group, run_id, acquired.size());
         return;
@@ -601,7 +629,9 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
     std::ostringstream json;
     json << "{\"run_id\":\"" << json_escape(run_id) << "\"," << "\"ftp_server_host\":\""
          << json_escape(ftp_advertise_ip) << "\"," << "\"ftp_server_port\":" << ftp_port << ","
-         << "\"ftps_enabled\":" << (ftps_enabled ? "true" : "false") << "," << "\"files\":[";
+         << "\"ftps_enabled\":" << (ftps_enabled ? "true" : "false") << ","
+         << "\"claim_lease_seconds\":" << lease << ","  // TD-494
+         << "\"files\":[";
 
     for (std::size_t i = 0; i < acquired.size(); ++i) {
         if (i)
@@ -694,6 +724,7 @@ static void handle_release(const httplib::Request& req, httplib::Response& res,
                                     segments[i].segment_count);
         if (match) {
             e.run_id.clear();
+            e.claimed_unix = 0;
             ++released;
         }
     }
@@ -704,6 +735,61 @@ static void handle_release(const httplib::Request& req, httplib::Response& res,
     json << "{\"released\":" << released << "}";
     res.set_content(json.str(), "application/json");
     Logger::info("[{}] release: run='{}' released {} files", group, run_id, released);
+}
+
+// TD-494: runs @p fetch only if fewer than g_max_concurrent_fetches fetches are running, else
+// answers 429 with Retry-After. A fetch downloads on the request thread (often for minutes), and
+// httplib's pool is small (8 threads on small hosts), so unlimited fetches could leave no thread
+// for trainers' acquire/trained calls.
+template <typename Fetch>
+static void with_fetch_slot(httplib::Response& res, const std::string& group, Fetch&& fetch) {
+    if (g_fetches_running.fetch_add(1) >= g_max_concurrent_fetches.load()) {
+        g_fetches_running.fetch_sub(1);
+        res.status = 429;
+        res.set_header("Retry-After", "30");
+        res.set_content("{\"added\":false,\"reason\":\"busy\",\"max_concurrent_fetches\":" +
+                            std::to_string(g_max_concurrent_fetches.load()) + "}",
+                        "application/json");
+        Logger::warn("[{}] fetch refused: {} fetches already running", group,
+                     g_max_concurrent_fetches.load());
+        return;
+    }
+    struct Release {
+        ~Release() { g_fetches_running.fetch_sub(1); }
+    } release;
+    fetch();
+}
+
+// POST /registry/<group>[/<kind>]/renew  {"run_id":"..."}
+// TD-494: restarts the lease of every entry @p run_id has claimed. Trainers call it every third of
+// the lease while they work (DatasetRegistry's claim renewer). "renewed":0 tells a trainer its
+// claims are gone: its lease ran out and another run took them.
+static void handle_renew(const httplib::Request& req, httplib::Response& res,
+                         const std::string& group, const std::string& kind) {
+    const std::string run_id = json_string(req.body, "run_id");
+    if (run_id.empty()) {
+        res.status = 400;
+        res.set_content("{\"error\":\"run_id required\"}", "application/json");
+        return;
+    }
+    auto& gs = get_group(group, kind);
+    std::lock_guard<std::mutex> lock(gs.mtx);
+    std::vector<PendingEntry> entries;
+    gs.transport->load_pending(entries);
+    const long long now_unix = static_cast<long long>(std::time(nullptr));
+    int renewed = 0;
+    for (auto& e : entries) {
+        if (e.run_id == run_id) {
+            e.claimed_unix = now_unix;
+            ++renewed;
+        }
+    }
+    if (renewed > 0)
+        gs.transport->save_pending(entries);
+    res.set_content("{\"renewed\":" + std::to_string(renewed) +
+                        ",\"claim_lease_seconds\":" + std::to_string(g_claim_lease_seconds.load()) +
+                        "}",
+                    "application/json");
 }
 
 // POST /registry/<group>/assign  {"model_name":"...","paths":[...],"count":N}
@@ -1993,6 +2079,9 @@ static void print_usage(const char* prog) {
         << "  --ftp-key FILE        PEM private key file for FTPS (default: self-signed)\n"
         << "  --ftp-max-sessions N  Max concurrent FTP sessions per run_id (default: 4)\n"
         << "  --admin-enabled BOOL  Allow PUT /admin/config to mutate settings (default: true)\n"
+        << "  --claim-lease-minutes N  Claim lease without renewal; 0 = never expire (default: 30)\n"
+        << "  --max-upload-mb N     Largest request body (uploads), MiB (default: 2048)\n"
+        << "  --max-concurrent-fetches N  Gutenberg/HuggingFace fetches at once (default: 2)\n"
         << "  --help                Show this message\n\n"
         << "Endpoints per group:\n"
         << "  (TD-202: every path below also accepts an optional kind segment right after\n"
@@ -2004,6 +2093,7 @@ static void print_usage(const char* prog) {
            "{\"run_id\":\"...\",\"max_files\":N,\"model_name\":\"...\"}\n"
         << "  POST /registry/<group>/session/next {\"model_name\":\"...\",\"run_id\":\"...\"}\n"
         << "  POST /registry/<group>/release  {\"run_id\":\"...\",\"files\":[...]}\n"
+        << "  POST /registry/<group>/renew    {\"run_id\":\"...\"}  (restart the run's claim lease)\n"
         << "  POST /registry/<group>/assign   "
            "{\"model_name\":\"...\",\"paths\":[...],\"count\":N}\n"
         << "  POST /registry/<group>/unassign "
@@ -2081,6 +2171,12 @@ int main(int argc, char* argv[]) {
         ftp_max_sessions = effective.ftp_max_sessions;
         admin_enabled = effective.admin_enabled;
     }
+    // TD-494: claim lease, upload cap and fetch concurrency (file < CLI; not admin-mutable).
+    const auto td494 = adai::resolve_registry_server_config(cli, file_config, {});
+    g_claim_lease_seconds.store(static_cast<long long>(td494.claim_lease_minutes) * 60);
+    g_max_concurrent_fetches.store(td494.max_concurrent_fetches);
+    g_server_start_unix = static_cast<long long>(std::time(nullptr));
+    const std::size_t max_body_bytes = static_cast<std::size_t>(td494.max_upload_mb) * 1024 * 1024;
 
     try {
         std::lock_guard<std::mutex> lock(g_session_store_mtx);
@@ -2112,6 +2208,8 @@ int main(int argc, char* argv[]) {
     // preflight-free Content-Type); see BrowserWriteGuard.hpp.
     adai::install_browser_write_guard(svr, "registry_server");
     adai::use_exclusive_listen_port(svr);  // TD-551
+    // TD-494: bodies (uploads) are held in memory; larger ones get 413.
+    svr.set_payload_max_length(max_body_bytes);
 
     // Route all /registry/<group>/... paths. TD-202: every pattern gains an optional kind
     // segment right after the group capture — (?:/(encoder|decoder|world_model|chatbot))? — so
@@ -2144,6 +2242,12 @@ int main(int argc, char* argv[]) {
              [](const httplib::Request& r, httplib::Response& res) {
                  if (group_ok(r.matches[1], res)) {
                      handle_release(r, res, r.matches[1], r.matches[2]);
+                 }
+             });
+    svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/renew)",  // TD-494
+             [](const httplib::Request& r, httplib::Response& res) {
+                 if (group_ok(r.matches[1], res)) {
+                     handle_renew(r, res, r.matches[1], r.matches[2]);
                  }
              });
     svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/assign)",
@@ -2203,13 +2307,17 @@ int main(int argc, char* argv[]) {
     svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/fetch/gutenberg)",
              [](const httplib::Request& r, httplib::Response& res) {
                  if (group_ok(r.matches[1], res)) {
-                     handle_fetch_gutenberg(r, res, r.matches[1], r.matches[2]);
+                     with_fetch_slot(res, r.matches[1], [&] {
+                         handle_fetch_gutenberg(r, res, r.matches[1], r.matches[2]);
+                     });
                  }
              });
     svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/fetch/huggingface)",
              [](const httplib::Request& r, httplib::Response& res) {
                  if (group_ok(r.matches[1], res)) {
-                     handle_fetch_huggingface(r, res, r.matches[1], r.matches[2]);
+                     with_fetch_slot(res, r.matches[1], [&] {
+                         handle_fetch_huggingface(r, res, r.matches[1], r.matches[2]);
+                     });
                  }
              });
     svr.Post(R"(/registry/([^/]+))" ADAI_KIND_SEGMENT R"(/upload)",

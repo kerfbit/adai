@@ -4,7 +4,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** October 24, 2026
+**Last Updated:** October 25, 2026
 **Total Items:** 347
 **High Priority:** 36
 **Medium Priority:** 152
@@ -1240,19 +1240,20 @@ The run is complete.
 - TD-309/470 (done in code: linear Gutenberg text scans; bounded Parquet Thrift skipping);
 - TD-471 (done in code: Parquet declared sizes checked before allocating);
 - TD-339 (done in code: the trainer can pin or CA-verify the registry's FTPS certificate);
-- TD-526 (done in code: the metrics API's CORS is an allow-list, and cross-origin or simple-content-type writes are refused).
-
+- TD-526 (done in code: the metrics API's CORS is an allow-list, and cross-origin or simple-content-type writes are refused);
 - TD-550 (done in code: the same write guard, now the shared `BrowserWriteGuard`, in `registry_server`, `mns_server`,
-  `chatbot_api_server`, `trainer_service` and the child's admin API).
-
-- TD-491 (done in code: fetch cursors are serialized, slice names are unique, and `added` reports what was queued).
-- TD-492 (done in code: an upload never replaces a claimed, trained or queued file without `overwrite=true`, never a claimed one).
-- TD-493 (done in code: `trained` records only units the reporting run claimed, and records a re-trained unit again).
-- TD-551 (done in code: every httplib daemon's port is exclusive, so a second instance fails to start, and `registry_server` exits 1 when it can't listen).
-- TD-494, in part (done in code: request bodies parsed as JSON, session keys can't collide, `/health` reports the session store; leases, the fetch thread pool and an upload cap remain).
+  `chatbot_api_server`, `trainer_service` and the child's admin API);
+- TD-491 (done in code: fetch cursors are serialized, slice names are unique, and `added` reports what was queued);
+- TD-492 (done in code: an upload never replaces a trained or queued file without `overwrite=true`, and never a claimed one);
+- TD-493 (done in code: `trained` records only units the reporting run claimed, and records a re-trained unit again);
+- TD-551 (done in code: every httplib daemon's port is exclusive, so a second instance fails to start, and `registry_server` exits 1
+  when it can't listen);
+- TD-494 (done in code: request bodies parsed as JSON, session keys can't collide, `/health` reports the session store, claim leases
+  with renewal, a concurrent-fetch cap and an upload size cap);
 - TD-549 (done in code: an FTPS data connection must resume its own control connection's TLS session).
 
-Left in the category: TD-494's remaining parts (claim leases, fetches off the request pool, an upload size cap) (a second daemon instance silently shares the port).
+The run is complete. Filed along the way and left for later: TD-552 (overwrite option in `dataset_manager` and the Android app), TD-553
+and TD-554 (build numbers and per-build aggregate versions), and TD-555 (abnormal-sample pushes 404).
 
 Analyzed September 12, 2026 to sequence the active items by dependency and risk rather than
 just priority label — several depend on each other or on a single owner decision, and the
@@ -13491,7 +13492,7 @@ The whole live suite passes against the fixed server (97 tests).
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open — partly fixed in code October 24, 2026 | Data / Registry Server | October 17, 2026 | 2-4 hours |
+| LOW | Open — code fix landed October 25, 2026 | Data / Registry Server | October 17, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `RegistryServer.cpp`:
@@ -13508,7 +13509,7 @@ Action Items:
 
 - [x] Log and exit non-zero when `listen()` fails; handle a stop requested before `listen()`. *(October 24, 2026, with TD-551: exits 1 with the port in the log; a stop requested before `listen()` skips it, though one arriving in the last instant before `listen()` is still lost.)*
 - [x] Parse request bodies with the vendored `nlohmann/json` (with TD-453).
-- [ ] Consider claim leases (expiry + renewal) or an explicit stale-claim report; run fetches off the request pool; cap upload size.
+- [x] Consider claim leases (expiry + renewal) or an explicit stale-claim report; run fetches off the request pool; cap upload size. *(October 25, 2026, owner choices: leases with renewal, a concurrent-fetch cap, a configurable 2 GiB upload cap.)*
 
 Location in code: `src/RegistryServer.cpp` (`main()`, JSON helpers, `handle_session_next()`); tagged `TODO: See TD-494`.
 
@@ -13540,6 +13541,41 @@ Live tests: `BodiesWithWhitespaceAreParsed`, `EscapesInBodiesAreDecoded`, `Sessi
 - running fetch downloads off httplib's request pool;
 - capping upload size (the body is still held in memory unbounded);
 - the narrow stop-before-`listen()` window.
+
+**Rest of the fix (October 25, 2026).** These follow the owner's choices.
+- **Claim leases.**
+  - **Server:** each claim records `claimed_unix` (a new 11th column of the pending file, `PendingEntry::claimed_unix`; older files
+    and older binaries ignore it). `handle_acquire()` lets another run take an entry whose claim is older than the lease (logged).
+    `POST …/renew {"run_id"}` restarts a run's leases and answers `{"renewed":N}`. Acquire responses (both shapes) carry
+    `claim_lease_seconds`, release clears the claim time, and the queue shows it.
+  - **Setting:** `REGISTRY_CLAIM_LEASE_MINUTES` / `--claim-lease-minutes`, default 30; 0 turns leases off.
+  - **Upgrade safety:** a claim with no recorded time has its lease counted from server start, so upgrading releases nothing at once.
+  - **Client:** `RemoteTransport` reads the lease and implements `renew_claims()`. `DatasetRegistry::acquire_pending()` starts a
+    background renewer that calls it every third of the lease (at least every 5 s), and `mark_trained()`, `release_pending()` and the
+    destructor stop it. Every trainer acquire site (`train`, `retrain`, `resume` and so every `trainer_service` pass, LeJEPA) is covered
+    without changes. If the claims are gone (renewed 0), it logs an error once.
+  - **Result:** a crashed trainer's files return to the pool after the lease, which also helps TD-415's LeJEPA run IDs. A late report
+    from the old run is rejected by TD-493's claim check.
+- **Fetch concurrency:** at most `REGISTRY_MAX_CONCURRENT_FETCHES` / `--max-concurrent-fetches` (default 2) Gutenberg/HuggingFace
+  fetches run at once (`with_fetch_slot()`). Others get 429 with `Retry-After: 30`, leaving the request threads for
+  `acquire`/`trained`.
+- **Upload size:** `REGISTRY_MAX_UPLOAD_MB` / `--max-upload-mb` (default 2048) sets httplib's payload limit; larger bodies get 413.
+
+Tests:
+- `registry_server_args_test.cpp`: defaults, file, CLI precedence and clamping.
+- `DatasetRegistryTests.cpp`: the renewer renews during a pass and stops after `mark_trained()`, and stays off without a lease.
+- Live:
+  - `AcquireReportsTheClaimLease`
+  - `ExpiredClaimIsTakenByAnotherRun`: a backdated claim is taken; the old run renews 0 and records nothing.
+  - `RenewKeepsAClaim`
+  - `ClaimWithoutATimeIsNotReleasedAtOnce`
+  - `RemoteTransportReadsTheLeaseAndRenews`
+  - The first three fail against the old server.
+- TD-491's concurrent-fetch test now retries 429s, as clients should; the server log shows the cap refusing extra fetches.
+- The whole live suite passes (106 tests). A server with `--max-upload-mb 1` answered a 2 MiB upload 413 (not stored) and a 1 KB one
+  200.
+
+**Still open:** the narrow window where a stop arriving just before `listen()` is lost.
 
 ---
 

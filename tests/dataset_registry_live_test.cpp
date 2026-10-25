@@ -1903,11 +1903,20 @@ TEST(LiveRegistryFetchCursor, ConcurrentFetchesServeDistinctSlices) {
     std::vector<std::string> bodies(8);
     std::vector<int> statuses(8, 0);
     std::vector<std::thread> threads;
+    std::atomic<int> busy_answers{0};
     for (int t = 0; t < 8; ++t) {
         threads.emplace_back([&, t] {
             auto c = make_client();
             c.set_read_timeout(std::chrono::seconds(30));
+            // TD-494: the server runs at most --max-concurrent-fetches fetches at once and answers
+            // 429 to the rest; retry as a client should (the test doesn't wait out Retry-After).
             auto res = fetch_cursor_slice(c, group, 10);
+            for (int retry = 0; res && res->status == 429 && retry < 200; ++retry) {
+                if (retry == 0)
+                    ++busy_answers;
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                res = fetch_cursor_slice(c, group, 10);
+            }
             if (res) {
                 statuses[t] = res->status;
                 bodies[t] = res->body;
@@ -2140,3 +2149,114 @@ TEST(LiveRegistryHealthDetail, ReportsTheSessionCounterStore) {
     EXPECT_NE(res->body.find("\"session_counters\":true"), std::string::npos) << res->body;
 }
 
+// ===========================================================================
+// TD-494: claim leases. The server re-reads pending_files.txt on every request, so a test can
+// backdate a claim by rewriting its claimed_unix column (the 11th) instead of waiting out a lease.
+// ===========================================================================
+
+namespace {
+
+// Sets claimed_unix of @p path's entry in @p group's pending file (needs REGISTRY_SERVER_DATA_DIR).
+void set_claimed_unix(const std::string& group, const std::string& path, long long value) {
+    const std::filesystem::path file =
+        std::filesystem::path(server_data_dir()) / group / "pending_files.txt";
+    std::ifstream in(file);
+    std::vector<std::string> lines;
+    for (std::string line; std::getline(in, line);) {
+        if (line.compare(0, path.size() + 1, path + "\t") == 0) {
+            std::vector<std::string> cols;
+            std::size_t start = 0;
+            for (std::size_t tab; (tab = line.find('\t', start)) != std::string::npos; start = tab + 1)
+                cols.push_back(line.substr(start, tab - start));
+            cols.push_back(line.substr(start));
+            cols.resize(std::max<std::size_t>(cols.size(), 11));
+            cols[10] = std::to_string(value);
+            line.clear();
+            for (std::size_t i = 0; i < cols.size(); ++i)
+                line += (i ? "\t" : "") + cols[i];
+        }
+        lines.push_back(line);
+    }
+    in.close();
+    std::ofstream out(file, std::ios::trunc);
+    for (const auto& l : lines)
+        out << l << '\n';
+}
+
+}  // namespace
+
+TEST_F(LiveRegistryTest, AcquireReportsTheClaimLease) {
+    ASSERT_TRUE(add_pending("/data/" + group() + "/lease.jsonl"));
+    auto res = acquire("r1");
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200) << res->body;
+    EXPECT_NE(res->body.find("\"claim_lease_seconds\":"), std::string::npos) << res->body;
+    EXPECT_EQ(res->body.find("\"claim_lease_seconds\":0"), std::string::npos)
+        << "leases are on by default: " << res->body;
+}
+
+// A crashed trainer's claim used to stay until released by hand; once its lease runs out, another
+// run takes it, and the old run can neither renew nor record it.
+TEST_F(LiveRegistryTest, ExpiredClaimIsTakenByAnotherRun) {
+    if (server_data_dir().empty())
+        GTEST_SKIP() << "needs REGISTRY_SERVER_DATA_DIR";
+    const std::string path = "/data/" + group() + "/expired.jsonl";
+    ASSERT_TRUE(add_pending(path));
+    ASSERT_TRUE(acquire("r1"));
+    set_claimed_unix(group(), path, 1);  // claimed in 1970
+
+    auto res = acquire("r2");
+    ASSERT_TRUE(res);
+    EXPECT_NE(res->body.find(path), std::string::npos) << res->body;
+    auto renew = client().Post(("/registry/" + group() + "/renew").c_str(), "{\"run_id\":\"r1\"}",
+                               "application/json");
+    ASSERT_TRUE(renew);
+    EXPECT_NE(renew->body.find("\"renewed\":0"), std::string::npos) << renew->body;
+    auto t = trained("r1", {path}, {4});
+    ASSERT_TRUE(t);
+    EXPECT_NE(t->body.find("\"trained\":0"), std::string::npos) << t->body;
+}
+
+TEST_F(LiveRegistryTest, RenewKeepsAClaim) {
+    if (server_data_dir().empty())
+        GTEST_SKIP() << "needs REGISTRY_SERVER_DATA_DIR";
+    const std::string path = "/data/" + group() + "/renewed.jsonl";
+    ASSERT_TRUE(add_pending(path));
+    ASSERT_TRUE(acquire("r1"));
+    set_claimed_unix(group(), path, 1);
+    auto renew = client().Post(("/registry/" + group() + "/renew").c_str(), "{\"run_id\":\"r1\"}",
+                               "application/json");
+    ASSERT_TRUE(renew);
+    EXPECT_NE(renew->body.find("\"renewed\":1"), std::string::npos) << renew->body;
+    auto res = acquire("r2");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->body.find(path), std::string::npos) << res->body;
+}
+
+// A claim made before leases existed has no claimed_unix; its lease counts from server start, so
+// upgrading the server never releases a running trainer's files at once.
+TEST_F(LiveRegistryTest, ClaimWithoutATimeIsNotReleasedAtOnce) {
+    if (server_data_dir().empty())
+        GTEST_SKIP() << "needs REGISTRY_SERVER_DATA_DIR";
+    const std::string path = "/data/" + group() + "/legacy.jsonl";
+    ASSERT_TRUE(add_pending(path));
+    ASSERT_TRUE(acquire("r1"));
+    set_claimed_unix(group(), path, 0);
+    auto res = acquire("r2");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->body.find(path), std::string::npos) << res->body;
+}
+
+
+// The trainer's side: RemoteTransport reads the lease from acquire and renews through /renew.
+TEST_F(LiveRegistryTest, RemoteTransportReadsTheLeaseAndRenews) {
+    const std::string path = "/data/" + group() + "/remote_renew.jsonl";
+    ASSERT_TRUE(add_pending(path));
+    RemoteTransport rt("http://" + server_host() + ":" + std::to_string(server_port()), group());
+    const auto resp = rt.acquire("r-remote", 0);
+    ASSERT_FALSE(resp.failed);
+    ASSERT_EQ(resp.files.size(), 1u);
+    EXPECT_GT(resp.claim_lease_seconds, 0);
+    EXPECT_EQ(rt.renew_claims("r-remote"), 1);
+    EXPECT_EQ(rt.renew_claims("nobody"), 0);
+}

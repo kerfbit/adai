@@ -1,17 +1,20 @@
 // @adai-status: stable
-// @adai-version: 1.7.0
-// @adai-reviewed: 2026-10-24
+// @adai-version: 1.8.0
+// @adai-reviewed: 2026-10-25
 
 #include "DatasetRegistry.hpp"
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <mutex>
 #include <set>
 #include <sstream>
+#include <thread>
 #include <utility>
 #include "Logger.hpp"
 #include "PortableTime.hpp"
@@ -83,6 +86,61 @@ DatasetRegistry::DatasetRegistry(DatasetConfig cfg)
 
 DatasetRegistry::DatasetRegistry(DatasetConfig cfg, std::unique_ptr<RegistryTransport> transport)
     : config_(std::move(cfg)), transport_(std::move(transport)) {}
+
+// ============================================================================
+// TD-494: claim lease renewal
+// ============================================================================
+
+// Renews a run's claims every third of the registry's lease (at least every 5 s) until stopped,
+// so a pass that trains for hours keeps its files while a crashed one's claims run out. Calls the
+// transport from its own thread; RemoteTransport opens a fresh HTTP client per call.
+class DatasetRegistry::ClaimRenewer {
+   public:
+    ClaimRenewer(RegistryTransport* transport, std::string run_id, int lease_seconds)
+        : transport_(transport), run_id_(std::move(run_id)) {
+        const auto interval = std::chrono::seconds(std::max(5, lease_seconds / 3));
+        thread_ = std::thread([this, interval] {
+            std::unique_lock<std::mutex> lock(mtx_);
+            while (!cv_.wait_for(lock, interval, [this] { return stop_; })) {
+                lock.unlock();
+                const int renewed = transport_->renew_claims(run_id_);
+                lock.lock();
+                if (renewed == 0 && !lost_reported_) {
+                    Logger::error("Run '{}' holds no claims any more: its lease ran out and the "
+                                  "files may have been taken by another run",
+                                  run_id_);
+                    lost_reported_ = true;
+                } else if (renewed < 0) {
+                    Logger::warn("Could not renew run '{}''s claims; retrying", run_id_);
+                }
+            }
+        });
+    }
+    ~ClaimRenewer() {
+        {
+            std::lock_guard<std::mutex> lock(mtx_);
+            stop_ = true;
+        }
+        cv_.notify_all();
+        if (thread_.joinable())
+            thread_.join();
+    }
+    ClaimRenewer(const ClaimRenewer&) = delete;
+    ClaimRenewer& operator=(const ClaimRenewer&) = delete;
+
+   private:
+    RegistryTransport* transport_;
+    std::string run_id_;
+    std::mutex mtx_;
+    std::condition_variable cv_;
+    bool stop_ = false;
+    bool lost_reported_ = false;
+    std::thread thread_;
+};
+
+DatasetRegistry::~DatasetRegistry() = default;
+DatasetRegistry::DatasetRegistry(DatasetRegistry&&) noexcept = default;
+DatasetRegistry& DatasetRegistry::operator=(DatasetRegistry&&) noexcept = default;
 
 /*static*/
 // TODO: See TD-335 in TECHNICAL_DEBT.md - max_files_per_run and data_registry_file are never mapped
@@ -423,6 +481,7 @@ void DatasetRegistry::mark_trained(const std::vector<std::string>& paths,
 // Callers with an acquired batch use the PendingFileRange overload below.
 void DatasetRegistry::mark_trained(const std::string& run_id, const std::vector<std::string>& paths,
                                    const std::vector<int>& sample_counts) {
+    claim_renewer_.reset();  // TD-494: the pass is done with its claims
     const auto new_entries = build_new_versions(whole_file_units(paths), sample_counts, registry_,
                                                 trained_set_, /*record_again=*/!run_id.empty());
     transport_->commit_trained(run_id, new_entries, paths);
@@ -443,6 +502,12 @@ void DatasetRegistry::mark_trained(const std::string& run_id, const std::vector<
 AcquireResponse DatasetRegistry::acquire_pending(const std::string& run_id, int max_files) {
     const int limit = (max_files > 0) ? max_files : config_.max_files_per_run;
     auto resp = transport_->acquire(run_id, limit, config_.model_name);
+
+    // TD-494: keep the claims alive while this run works on them.
+    claim_renewer_.reset();
+    if (resp.claim_lease_seconds > 0 && !resp.files.empty())
+        claim_renewer_ =
+            std::make_unique<ClaimRenewer>(transport_.get(), run_id, resp.claim_lease_seconds);
 
     // Reflect acquisition in in-memory pending_
     for (const auto& f : resp.files) {
@@ -479,6 +544,7 @@ void DatasetRegistry::mark_trained(const std::string& run_id,
         else
             segments.push_back({u.path, u.segment_start, u.segment_count});
     }
+    claim_renewer_.reset();  // TD-494: the pass is done with its claims
     const auto new_entries = build_new_versions(units, sample_counts, registry_, trained_set_,
                                                 /*record_again=*/!run_id.empty());
     // With segments the transport removes exactly these units from pending. With whole files
@@ -513,6 +579,7 @@ void DatasetRegistry::release_pending(const std::string& run_id,
 void DatasetRegistry::release_pending(const std::string& run_id,
                                       const std::vector<std::string>& paths,
                                       const std::vector<SegmentTarget>& segments) {
+    claim_renewer_.reset();  // TD-494: the pass is giving its claims back
     transport_->release(run_id, paths, segments);
 
     // Remove from in-memory pending_. TD-205: whole-file paths only ever remove a whole-file

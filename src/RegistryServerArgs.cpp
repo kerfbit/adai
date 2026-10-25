@@ -1,8 +1,9 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-10-25
 
 #include "RegistryServerArgs.hpp"
+#include <algorithm>
 #include <cctype>
 
 namespace adai {
@@ -41,6 +42,12 @@ RegistryServerArgs parse_registry_server_args(int argc, char* argv[]) {
             result.ftp_cert_file = argv[++i];
         } else if (arg == "--ftp-key" && i + 1 < argc) {
             result.ftp_key_file = argv[++i];
+        } else if (arg == "--claim-lease-minutes" && i + 1 < argc) {
+            result.claim_lease_minutes = std::stoi(argv[++i]);
+        } else if (arg == "--max-upload-mb" && i + 1 < argc) {
+            result.max_upload_mb = std::stoi(argv[++i]);
+        } else if (arg == "--max-concurrent-fetches" && i + 1 < argc) {
+            result.max_concurrent_fetches = std::stoi(argv[++i]);
         } else if (arg == "--ftp-max-sessions" && i + 1 < argc) {
             result.ftp_max_sessions = std::stoi(argv[++i]);
         } else if (arg == "--admin-enabled" && i + 1 < argc) {
@@ -88,6 +95,11 @@ RegistryServerEffectiveConfig resolve_registry_server_config(
     if (args.ftp_max_sessions)
         cfg.ftp_max_sessions = *args.ftp_max_sessions;
     cfg.admin_enabled = args.admin_enabled.value_or(true);
+    cfg.claim_lease_minutes =
+        std::max(0, args.claim_lease_minutes.value_or(file_config.registry_claim_lease_minutes));
+    cfg.max_upload_mb = std::max(1, args.max_upload_mb.value_or(file_config.registry_max_upload_mb));
+    cfg.max_concurrent_fetches = std::max(
+        1, args.max_concurrent_fetches.value_or(file_config.registry_max_concurrent_fetches));
 
     return cfg;
 }

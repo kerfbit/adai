@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.5.0
-// @adai-reviewed: 2026-10-24
+// @adai-version: 1.6.0
+// @adai-reviewed: 2026-10-25
 
 #include "RegistryTransport.hpp"
 #include <fcntl.h>  // open(), O_RDWR
@@ -184,6 +184,12 @@ bool LocalTransport::load_pending(std::vector<PendingEntry>& out) {
             } catch (...) {
             }
         }
+        if (cols.size() > 10 && !cols[10].empty()) {  // TD-494
+            try {
+                e.claimed_unix = std::stoll(cols[10]);
+            } catch (...) {
+            }
+        }
 
         out.push_back(std::move(e));
     }
@@ -204,7 +210,8 @@ bool LocalTransport::save_pending(const std::vector<PendingEntry>& entries) {
     for (const auto& e : entries) {
         file << e.path << '\t' << e.run_id << '\t' << e.model_name << '\t' << e.source << '\t'
              << e.added_utc << '\t' << e.size_bytes << '\t' << e.num_entries << '\t' << e.checksum
-             << '\t' << e.segment_start << '\t' << e.segment_count << '\n';
+             << '\t' << e.segment_start << '\t' << e.segment_count << '\t' << e.claimed_unix
+             << '\n';
     }
 
     return file.good();
@@ -287,6 +294,8 @@ AcquireResponse LocalTransport::acquire(const std::string& run_id, int max_files
         if ((e.run_id.empty() || e.run_id == run_id) && eligible(e) &&
             static_cast<int>(resp.files.size()) < limit) {
             e.run_id = run_id;
+            // TD-494: recorded for display; standalone claims have no lease (claim_lease_seconds 0).
+            e.claimed_unix = static_cast<long long>(std::time(nullptr));
             FileToken tok;
             tok.registry_path = e.path;
             tok.segment_start = e.segment_start;
@@ -1189,6 +1198,14 @@ bool RemoteTransport::load_pending(std::vector<PendingEntry>& out) {
                 } catch (...) {
                 }
             }
+            const std::string cu_needle = "\"claimed_unix\":";  // TD-494
+            const auto cup = obj.find(cu_needle);
+            if (cup != std::string::npos) {
+                try {
+                    e.claimed_unix = std::stoll(obj.substr(cup + cu_needle.size()));
+                } catch (...) {
+                }
+            }
             out.push_back(std::move(e));
         }
         cur = obj_end + 1;
@@ -1231,6 +1248,16 @@ AcquireResponse RemoteTransport::acquire(const std::string& run_id, int max_file
     }
 
     const std::string& b = res->body;
+
+    // TD-494: the claim lease (both response shapes); DatasetRegistry renews within it. An older
+    // server omits it (0: claims don't expire there).
+    const std::string lease_needle = "\"claim_lease_seconds\":";
+    if (const auto lp = b.find(lease_needle); lp != std::string::npos) {
+        try {
+            resp.claim_lease_seconds = std::max(0, std::stoi(b.substr(lp + lease_needle.size())));
+        } catch (...) {
+        }
+    }
 
     // Detect new structured response: has "files":[ array.
     // Old response format: {"acquired":["path",...]}
@@ -1714,6 +1741,33 @@ std::string RemoteTransport::upload_file(const std::string& local_path) {
 #else
     Logger::error("RemoteTransport::upload_file — not compiled");
     return "";
+#endif
+}
+
+int RemoteTransport::renew_claims(const std::string& run_id) {
+#ifdef BUILD_METRICS_API_SERVER
+    httplib::Client cli(host_, port_);
+    cli.set_connection_timeout(0, timeout_ms_ * 1000);
+    cli.set_read_timeout(0, timeout_ms_ * 1000);
+    const std::string body = "{\"run_id\":\"" + json_escape(run_id) + "\"}";
+    const auto res = cli.Post((group_prefix_ + "/renew").c_str(), body, "application/json");
+    if (!res || res->status != 200) {
+        Logger::warn("RemoteTransport::renew_claims — HTTP {} from {}:{}{}", res ? res->status : -1,
+                     host_, port_, group_prefix_ + "/renew");
+        return -1;
+    }
+    const std::string needle = "\"renewed\":";
+    const auto p = res->body.find(needle);
+    if (p == std::string::npos)
+        return -1;
+    try {
+        return std::stoi(res->body.substr(p + needle.size()));
+    } catch (...) {
+        return -1;
+    }
+#else
+    (void)run_id;
+    return -1;
 #endif
 }
 

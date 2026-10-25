@@ -263,3 +263,15 @@ signatures but read the body through nlohmann/json (`parsed_body()`, cached per 
 `session/next` rejects a `|` in `model_name`/`run_id`. `/health` adds `"session_counters":true|false` and reports `"degraded"` without
 the store.
 
+---
+
+## Addendum (October 25, 2026): claim leases, fetch cap, upload cap (TD-494)
+
+- **Leases:** `handle_acquire()` takes over entries whose claim is older than the lease (`g_claim_lease_seconds`, from
+  `--claim-lease-minutes`/`REGISTRY_CLAIM_LEASE_MINUTES`, default 30 min, 0 = off). A claim without `claimed_unix` counts from server
+  start. Acquired entries get `claimed_unix = now`, and both response shapes carry `claim_lease_seconds`.
+- **`POST …/renew {"run_id"}`** (`handle_renew()`) restarts the run's leases and answers `{"renewed":N,"claim_lease_seconds":S}`.
+  Release clears `claimed_unix`, and `GET …/queue` shows it.
+- **Fetch cap:** `with_fetch_slot()` caps concurrent fetches (`--max-concurrent-fetches`, default 2) and answers 429 with
+  `Retry-After: 30` otherwise.
+- **Upload cap:** `set_payload_max_length()` caps request bodies (`--max-upload-mb`, default 2048); larger ones get 413.

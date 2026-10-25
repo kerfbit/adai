@@ -219,3 +219,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 `build_new_versions()` takes `record_again`. The run-scoped `mark_trained()` overloads pass `true`, so a unit already in the registry
 (re-queued and trained again) is still committed with its real sample count, and the transport decides by claim whether to record it.
 The run-less overload, used only by tests, still skips recorded units.
+
+---
+
+## Addendum (October 25, 2026): claim renewal (TD-494)
+
+When `acquire_pending()` gets `claim_lease_seconds > 0`, a private `ClaimRenewer` thread calls `transport_->renew_claims(run_id)` every
+third of the lease (at least every 5 s) and logs once if the claims are gone. `mark_trained()`, `release_pending()` and the destructor
+stop it. The class gained an out-of-line destructor and move operations. Tests: `DatasetRegistryClaimLeaseTest.*`.

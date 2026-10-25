@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.6.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.7.0
+// @adai-reviewed: 2026-10-25
 
 
 #include <cstddef>
@@ -84,6 +84,10 @@ struct PendingEntry {
     /// a bare `path` comparison.
     int segment_start = -1;
     int segment_count = -1;
+    /// TD-494: Unix time the current claim (run_id) was made or last renewed; 0 = unknown (no
+    /// claim, or a claim made before leases existed). registry_server expires a claim this old
+    /// plus its lease, so a crashed trainer's entries return to the pool.
+    long long claimed_unix = 0;
 };
 
 /**
@@ -195,6 +199,9 @@ struct AcquireResponse {
     /// TD-523: true when the registry couldn't be asked (unreachable, HTTP error, lock failure),
     /// so an empty `files` means "unknown", not "nothing pending".
     bool failed = false;
+    /// TD-494: the registry's claim lease in seconds; the claimer must renew within it
+    /// (RegistryTransport::renew_claims()). 0 = claims don't expire, nothing to renew.
+    int claim_lease_seconds = 0;
 
     /// Convenience: collect registry_paths for release/mark_trained calls.
     std::vector<std::string> registry_paths() const {
@@ -329,6 +336,14 @@ class RegistryTransport {
      *  specific segment rather than every entry sharing its physical path. */
     virtual void release(const std::string& run_id, const std::vector<std::string>& paths,
                          const std::vector<SegmentTarget>& segments = {}) = 0;
+
+    /**
+     * @brief TD-494: renew every claim @p run_id holds, restarting its lease.
+     * @return Claims renewed (0 = none left: they expired and were taken by another run), or
+     *         -1 when the registry couldn't be asked. Only RemoteTransport has leases; the
+     *         default (LocalTransport, test doubles) has nothing to renew and returns 0.
+     */
+    virtual int renew_claims(const std::string& /*run_id*/) { return 0; }
 
     /**
      * @brief Atomically append @p new_entries to the registry and remove
@@ -642,6 +657,7 @@ class RemoteTransport final : public RegistryTransport {
     std::string upload_file(const std::string& local_path) override;
     RequeueResult requeue_trained(const std::vector<std::string>& paths, bool all,
                                   const std::string& model_name = "") override;
+    int renew_claims(const std::string& run_id) override;  // TD-494
 
    private:
     std::string host_;

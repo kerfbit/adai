@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.6.0
-// @adai-reviewed: 2026-10-24
+// @adai-version: 1.7.0
+// @adai-reviewed: 2026-10-25
 
 
 #include <memory>
@@ -87,6 +87,10 @@ class DatasetRegistry {
      *        to inject a RemoteTransport in place of LocalTransport.
      */
     DatasetRegistry(DatasetConfig cfg, std::unique_ptr<RegistryTransport> transport);
+
+    ~DatasetRegistry();  // stops the TD-494 claim renewer
+    DatasetRegistry(DatasetRegistry&&) noexcept;
+    DatasetRegistry& operator=(DatasetRegistry&&) noexcept;
 
     /**
      * @brief Build a DatasetConfig from a parsed ServiceConfig.
@@ -458,6 +462,12 @@ class DatasetRegistry {
     std::vector<DataVersion> registry_;
     std::set<std::string> trained_set_;
     std::vector<PendingEntry> pending_;
+
+    // TD-494: renews this registry's claims in the background while a lease applies. Started by
+    // acquire_pending() when the registry reports claim_lease_seconds > 0; stopped by
+    // mark_trained()/release_pending() and the destructor.
+    class ClaimRenewer;
+    std::unique_ptr<ClaimRenewer> claim_renewer_;
 
     /** @return Full path to the registry flat file. */
     // TODO: See TD-335 in TECHNICAL_DEBT.md - registry_file_path()/pending_file_path() are unused and ignore the kind subdirectory

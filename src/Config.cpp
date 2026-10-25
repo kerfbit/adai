@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.7.0
-// @adai-reviewed: 2026-10-24
+// @adai-version: 1.8.0
+// @adai-reviewed: 2026-10-25
 
 #include "Config.hpp"
 #include <algorithm>
@@ -324,6 +324,12 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.registry_listen_port = std::stoi(value);
             } else if (key == "REGISTRY_DATA_DIR") {
                 config.registry_data_dir = value;
+            } else if (key == "REGISTRY_CLAIM_LEASE_MINUTES") {
+                config.registry_claim_lease_minutes = std::stoi(value);
+            } else if (key == "REGISTRY_MAX_UPLOAD_MB") {
+                config.registry_max_upload_mb = std::stoi(value);
+            } else if (key == "REGISTRY_MAX_CONCURRENT_FETCHES") {
+                config.registry_max_concurrent_fetches = std::stoi(value);
                 // FTP Dataset Transport configuration (Phase 10)
             } else if (key == "FTP_SERVER_PORT") {
                 config.ftp_server_port = std::stoi(value);
@@ -771,6 +777,15 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env("REGISTRY_DATA_DIR")) {
         config.registry_data_dir = *val;
+    }
+    if (auto val = get_env_int("REGISTRY_CLAIM_LEASE_MINUTES")) {
+        config.registry_claim_lease_minutes = *val;
+    }
+    if (auto val = get_env_int("REGISTRY_MAX_UPLOAD_MB")) {
+        config.registry_max_upload_mb = *val;
+    }
+    if (auto val = get_env_int("REGISTRY_MAX_CONCURRENT_FETCHES")) {
+        config.registry_max_concurrent_fetches = *val;
     }
 
     // FTP Dataset Transport (Phase 10)

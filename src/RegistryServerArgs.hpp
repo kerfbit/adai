@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-10-25
 
 // TD-035 (narrower scope, per the item's own note): registry_server's argv parsing and
 // config-precedence resolution, pulled out of RegistryServer.cpp so that piece is testable
@@ -49,6 +49,11 @@ struct RegistryServerArgs {
     std::optional<int> ftp_max_sessions;
     std::optional<bool> admin_enabled;
 
+    // TD-494: file < CLI (not admin-mutable).
+    std::optional<int> claim_lease_minutes;
+    std::optional<int> max_upload_mb;
+    std::optional<int> max_concurrent_fetches;
+
     bool help = false;
 };
 
@@ -66,6 +71,9 @@ struct RegistryServerEffectiveConfig {
     int ftp_ttl_minutes = 30;
     int ftp_max_sessions = 4;
     bool admin_enabled = true;
+    int claim_lease_minutes = 30;     // TD-494
+    int max_upload_mb = 2048;         // TD-494
+    int max_concurrent_fetches = 2;   // TD-494
 };
 
 // Resolves port/data_dir/ftp_ttl_minutes/ftp_max_sessions/admin_enabled from (lowest to highest

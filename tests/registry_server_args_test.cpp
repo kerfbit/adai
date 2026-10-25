@@ -42,6 +42,45 @@ TEST(ParseRegistryServerArgs, NoArgsLeavesEverythingAtDefaults) {
     EXPECT_FALSE(r.admin_enabled.has_value());
 }
 
+// TD-494: claim lease, upload cap and fetch concurrency — defaults, file, and CLI over file.
+TEST(RegistryServerTd494Settings, DefaultsFileAndCliPrecedence) {
+    std::vector<std::string> none = {"registry_server"};
+    auto argv0 = make_argv(none);
+    ServiceConfig file;
+    auto cfg = resolve_registry_server_config(
+        parse_registry_server_args(static_cast<int>(argv0.size()), argv0.data()), file, {});
+    EXPECT_EQ(cfg.claim_lease_minutes, 30);
+    EXPECT_EQ(cfg.max_upload_mb, 2048);
+    EXPECT_EQ(cfg.max_concurrent_fetches, 2);
+
+    file.registry_claim_lease_minutes = 0;
+    file.registry_max_upload_mb = 512;
+    file.registry_max_concurrent_fetches = 4;
+    cfg = resolve_registry_server_config(
+        parse_registry_server_args(static_cast<int>(argv0.size()), argv0.data()), file, {});
+    EXPECT_EQ(cfg.claim_lease_minutes, 0);
+    EXPECT_EQ(cfg.max_upload_mb, 512);
+    EXPECT_EQ(cfg.max_concurrent_fetches, 4);
+
+    std::vector<std::string> raw = {"registry_server", "--claim-lease-minutes", "45",
+                                    "--max-upload-mb", "100", "--max-concurrent-fetches", "1"};
+    auto argv = make_argv(raw);
+    cfg = resolve_registry_server_config(
+        parse_registry_server_args(static_cast<int>(argv.size()), argv.data()), file, {});
+    EXPECT_EQ(cfg.claim_lease_minutes, 45);
+    EXPECT_EQ(cfg.max_upload_mb, 100);
+    EXPECT_EQ(cfg.max_concurrent_fetches, 1);
+
+    std::vector<std::string> bad = {"registry_server", "--claim-lease-minutes", "-5",
+                                    "--max-upload-mb", "0", "--max-concurrent-fetches", "0"};
+    auto argvb = make_argv(bad);
+    cfg = resolve_registry_server_config(
+        parse_registry_server_args(static_cast<int>(argvb.size()), argvb.data()), file, {});
+    EXPECT_EQ(cfg.claim_lease_minutes, 0) << "negative lease clamps to 'never expire'";
+    EXPECT_EQ(cfg.max_upload_mb, 1);
+    EXPECT_EQ(cfg.max_concurrent_fetches, 1);
+}
+
 TEST(ParseRegistryServerArgs, HelpFlagShortCircuits) {
     std::vector<std::string> raw = {"registry_server", "--port", "9999", "--help"};
     auto argv = make_argv(raw);

@@ -14,10 +14,13 @@
  */
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 #include "../src/Config.hpp"
 #include "../src/DatasetRegistry.hpp"
@@ -76,7 +79,16 @@ class FakeFetchTransport : public RegistryTransport {
     }
     AcquireResponse acquire(const std::string& run_id, int max_files,
                             const std::string& model_name = "") override {
-        return inner_.acquire(run_id, max_files, model_name);
+        auto resp = inner_.acquire(run_id, max_files, model_name);
+        resp.claim_lease_seconds = lease_seconds;  // TD-494: as a registry_server would report
+        return resp;
+    }
+    // TD-494: count renewals (called from DatasetRegistry's renewer thread).
+    int lease_seconds = 0;
+    std::atomic<int> renew_calls{0};
+    int renew_claims(const std::string& /*run_id*/) override {
+        ++renew_calls;
+        return 1;
     }
     void release(const std::string& run_id, const std::vector<std::string>& paths,
                 const std::vector<SegmentTarget>& segments = {}) override {
@@ -1231,5 +1243,58 @@ TEST(DatasetRegistryCountAcquirableTest, CountsThisModelsEntriesInTheKindPool) {
     DatasetRegistry anonymous(cfg);
     anonymous.load_pending_list();
     EXPECT_EQ(anonymous.count_acquirable(), 1u) << "no model identity: unassigned only";
+    fs::remove_all(base);
+}
+
+// TD-494: while a lease applies, DatasetRegistry renews its claims every third of the lease (at
+// least every 5 s) from acquire_pending() until the pass marks its files trained.
+TEST(DatasetRegistryClaimLeaseTest, RenewsClaimsDuringThePassAndStopsAfterIt) {
+    const fs::path base = fs::temp_directory_path() / "adai_claim_lease";
+    fs::remove_all(base);
+    const std::string data = (base / "d.jsonl").string();
+    write_file(data, kJsonlPairs);
+
+    auto fake_owned = std::make_unique<FakeFetchTransport>((base / "reg.txt").string(),
+                                                           (base / "pending.txt").string());
+    FakeFetchTransport* fake = fake_owned.get();
+    fake->lease_seconds = 15;  // renew every 5 s
+    DatasetConfig cfg;
+    cfg.session_dir = base.string();
+    DatasetRegistry reg(cfg, std::move(fake_owned));
+    reg.load_pending_list();
+    ASSERT_TRUE(reg.add_file(data));
+
+    const auto resp = reg.acquire_pending("run-lease");
+    ASSERT_EQ(resp.files.size(), 1u);
+    EXPECT_EQ(resp.claim_lease_seconds, 15);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5600));
+    EXPECT_GE(fake->renew_calls.load(), 1) << "no renewal within the first interval";
+
+    reg.mark_trained("run-lease", resp.file_ranges(), {2});
+    const int after_trained = fake->renew_calls.load();
+    std::this_thread::sleep_for(std::chrono::milliseconds(5600));
+    EXPECT_EQ(fake->renew_calls.load(), after_trained) << "kept renewing after the pass ended";
+    fs::remove_all(base);
+}
+
+// Without a lease (LocalTransport, or a registry with leases off) nothing is renewed.
+TEST(DatasetRegistryClaimLeaseTest, NoLeaseMeansNoRenewer) {
+    const fs::path base = fs::temp_directory_path() / "adai_claim_nolease";
+    fs::remove_all(base);
+    const std::string data = (base / "d.jsonl").string();
+    write_file(data, kJsonlPairs);
+    auto fake_owned = std::make_unique<FakeFetchTransport>((base / "reg.txt").string(),
+                                                           (base / "pending.txt").string());
+    FakeFetchTransport* fake = fake_owned.get();
+    DatasetConfig cfg;
+    cfg.session_dir = base.string();
+    DatasetRegistry reg(cfg, std::move(fake_owned));
+    reg.load_pending_list();
+    ASSERT_TRUE(reg.add_file(data));
+    const auto resp = reg.acquire_pending("run-nolease");
+    ASSERT_EQ(resp.files.size(), 1u);
+    EXPECT_EQ(resp.claim_lease_seconds, 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5600));
+    EXPECT_EQ(fake->renew_calls.load(), 0);
     fs::remove_all(base);
 }
