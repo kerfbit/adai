@@ -199,3 +199,17 @@ end with `registry_server --ftps` and `curl --ssl-reqd --ftp-method nocwd`.
 - **SIGPIPE:** `start()` ignores SIGPIPE on POSIX. OpenSSL writes TLS records with plain `write()`, so a client dropping an FTPS session
   raised SIGPIPE. `registry_server` was protected only because `httplib::Server`'s constructor ignores it; any other host process died
   (seen in the TD-339 tests, exit 141).
+
+---
+
+## Addendum (October 24, 2026): data connections must resume the control session (TD-549)
+
+With `PROT P`, `cmd_retr()` checks that the data connection resumed a TLS session carrying its control connection's random token
+(`ConnState::tls_token`):
+- the ticket callbacks `ftp_detail::session_ticket_generate()`/`session_ticket_decrypt()` put the token into every issued ticket;
+- `cmd_auth()` puts it into the control session for TLS 1.2 session-ID resumption;
+- `ftp_detail::data_session_matches()` does the check.
+
+Anything else gets `522 Data connections must reuse the control connection's TLS session.` and no data. libcurl resumes the control
+session by default, so trainers are unaffected (verified under TLS 1.2 and 1.3). Tests: `FtpsSessionReuseTest.*` (TLS 1.2 and 1.3).
+

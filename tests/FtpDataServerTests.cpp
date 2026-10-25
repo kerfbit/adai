@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <memory>
 #include <regex>
 #include <string>
 #include <thread>
@@ -743,4 +744,169 @@ TEST(FtpDataServerLiveTest, PlaintextLoginIsRefusedWhenFtpsIsEnabled) {
     std::filesystem::remove_all(dir);
 }
 #endif
+#ifdef BUILD_FTPS
+// ============================================================================
+// TD-549: the FTPS data connection must resume its control connection's TLS session
+// ============================================================================
+
+namespace {
+
+struct TlsConn {
+    int fd = -1;
+    SSL* ssl = nullptr;
+    ~TlsConn() {
+        if (ssl) {
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
+        }
+        if (fd >= 0)
+            ::close(fd);
+    }
+};
+
+std::string tls_reply(SSL* ssl) {
+    std::string line;
+    char c;
+    while (SSL_read(ssl, &c, 1) == 1) {
+        if (c == '\n')
+            break;
+        if (c != '\r')
+            line += c;
+    }
+    return line;
+}
+
+std::string tls_command(SSL* ssl, const std::string& cmd) {
+    const std::string line = cmd + "\r\n";
+    SSL_write(ssl, line.data(), static_cast<int>(line.size()));
+    return tls_reply(ssl);
+}
+
+SSL_CTX* client_ctx(int tls_version) {
+    SSL_CTX* ctx = SSL_CTX_new(TLS_client_method());
+    SSL_CTX_set_min_proto_version(ctx, tls_version);
+    SSL_CTX_set_max_proto_version(ctx, tls_version);
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
+    return ctx;
+}
+
+// Connects, upgrades with AUTH TLS and reads one reply over TLS (which delivers TLS 1.3 tickets).
+bool open_tls_control(TlsConn& c, SSL_CTX* ctx, int port) {
+    c.fd = connect_tcp(port);
+    if (c.fd < 0 || read_reply(c.fd).substr(0, 3) != "220")
+        return false;
+    if (command(c.fd, "AUTH TLS").substr(0, 3) != "234")
+        return false;
+    c.ssl = SSL_new(ctx);
+    SSL_set_fd(c.ssl, c.fd);
+    if (SSL_connect(c.ssl) != 1)
+        return false;
+    return tls_command(c.ssl, "PBSZ 0").substr(0, 3) == "200";
+}
+
+// Logs in on @p ctrl, starts a RETR of data.bin and connects the data channel with TLS, resuming
+// @p session (nullptr = a fresh session). Returns the bytes received; @p final_reply gets the
+// control reply after the transfer.
+size_t retr_over_tls(TlsConn& ctrl, SSL_CTX* ctx, const FtpDataServer::IssuedToken& tok,
+                     SSL_SESSION* session, std::string& final_reply) {
+    EXPECT_EQ(tls_command(ctrl.ssl, "USER " + tok.username).substr(0, 3), "331");
+    EXPECT_EQ(tls_command(ctrl.ssl, "PASS " + tok.password).substr(0, 3), "230");
+    EXPECT_EQ(tls_command(ctrl.ssl, "PROT P").substr(0, 3), "200");
+    tls_command(ctrl.ssl, "TYPE I");
+    const int port = pasv_port(tls_command(ctrl.ssl, "PASV"));
+    EXPECT_GT(port, 0);
+    const std::string line = "RETR data.bin\r\n";
+    SSL_write(ctrl.ssl, line.data(), static_cast<int>(line.size()));
+    TlsConn data;
+    data.fd = connect_tcp(port);
+    EXPECT_GE(data.fd, 0);
+    EXPECT_EQ(tls_reply(ctrl.ssl).substr(0, 3), "150");
+    data.ssl = SSL_new(ctx);
+    SSL_set_fd(data.ssl, data.fd);
+    if (session)
+        SSL_set_session(data.ssl, session);
+    size_t total = 0;
+    if (SSL_connect(data.ssl) == 1) {
+        char buf[8192];
+        int n;
+        while ((n = SSL_read(data.ssl, buf, sizeof(buf))) > 0)
+            total += static_cast<size_t>(n);
+    }
+    final_reply = tls_reply(ctrl.ssl);
+    return total;
+}
+
+class FtpsSessionReuseTest : public ::testing::TestWithParam<int> {
+   protected:
+    void SetUp() override {
+        dir_ = std::filesystem::temp_directory_path() / "adai_ftp_td549";
+        std::filesystem::create_directories(dir_);
+        std::ofstream f(dir_ / "data.bin", std::ios::binary);
+        for (size_t i = 0; i < kSize; ++i)
+            f.put(static_cast<char>(i % 251));
+        f.close();
+        srv_ = std::make_unique<FtpDataServer>(dir_.string(), 21549, 51549, 51556, "127.0.0.1", "",
+                                               /*ftps_en=*/true);
+        srv_->start();
+        std::this_thread::sleep_for(300ms);
+        ctx_ = client_ctx(GetParam());
+    }
+    void TearDown() override {
+        SSL_CTX_free(ctx_);
+        srv_->stop();
+        std::filesystem::remove_all(dir_);
+    }
+    static constexpr size_t kSize = 200000;
+    std::filesystem::path dir_;
+    std::unique_ptr<FtpDataServer> srv_;
+    SSL_CTX* ctx_ = nullptr;
+};
+
+}  // namespace
+
+// What libcurl and every conforming FTPS client do.
+TEST_P(FtpsSessionReuseTest, ResumingTheControlSessionDownloads) {
+    TlsConn ctrl;
+    ASSERT_TRUE(open_tls_control(ctrl, ctx_, 21549));
+    SSL_SESSION* session = SSL_get1_session(ctrl.ssl);
+    std::string reply;
+    const size_t got = retr_over_tls(ctrl, ctx_, srv_->issue_token("run-td549", "data.bin", 5),
+                                     session, reply);
+    SSL_SESSION_free(session);
+    EXPECT_EQ(got, kSize);
+    EXPECT_EQ(reply.substr(0, 3), "226") << reply;
+}
+
+TEST_P(FtpsSessionReuseTest, FreshTlsSessionOnTheDataConnectionIsRefused) {
+    TlsConn ctrl;
+    ASSERT_TRUE(open_tls_control(ctrl, ctx_, 21549));
+    std::string reply;
+    const size_t got = retr_over_tls(ctrl, ctx_, srv_->issue_token("run-td549", "data.bin", 5),
+                                     nullptr, reply);
+    EXPECT_EQ(got, 0u);
+    EXPECT_EQ(reply.substr(0, 3), "522") << reply;
+}
+
+// The TD-549 threat: another client on the same host resumes a session of its own (from its own
+// control connection) on this connection's data port. Before TD-549 it received the file.
+TEST_P(FtpsSessionReuseTest, AnotherControlConnectionsSessionIsRefused) {
+    TlsConn victim, other;
+    ASSERT_TRUE(open_tls_control(victim, ctx_, 21549));
+    ASSERT_TRUE(open_tls_control(other, ctx_, 21549));
+    SSL_SESSION* foreign = SSL_get1_session(other.ssl);
+    std::string reply;
+    const size_t got = retr_over_tls(victim, ctx_, srv_->issue_token("run-td549", "data.bin", 5),
+                                     foreign, reply);
+    SSL_SESSION_free(foreign);
+    EXPECT_EQ(got, 0u);
+    EXPECT_EQ(reply.substr(0, 3), "522") << reply;
+}
+
+INSTANTIATE_TEST_SUITE_P(TlsVersions, FtpsSessionReuseTest,
+                         ::testing::Values(TLS1_2_VERSION, TLS1_3_VERSION),
+                         [](const ::testing::TestParamInfo<int>& info) {
+                             return info.param == TLS1_2_VERSION ? std::string("TLS12")
+                                                                 : std::string("TLS13");
+                         });
+#endif  // BUILD_FTPS
 #endif  // _WIN32

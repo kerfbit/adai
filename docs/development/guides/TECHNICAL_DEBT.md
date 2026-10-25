@@ -1250,8 +1250,9 @@ The run is complete.
 - TD-493 (done in code: `trained` records only units the reporting run claimed, and records a re-trained unit again).
 - TD-551 (done in code: every httplib daemon's port is exclusive, so a second instance fails to start, and `registry_server` exits 1 when it can't listen).
 - TD-494, in part (done in code: request bodies parsed as JSON, session keys can't collide, `/health` reports the session store; leases, the fetch thread pool and an upload cap remain).
+- TD-549 (done in code: an FTPS data connection must resume its own control connection's TLS session).
 
-Left in the category: TD-494's remaining parts (claim leases, fetches off the request pool, an upload size cap) and TD-549 (a second daemon instance silently shares the port).
+Left in the category: TD-494's remaining parts (claim leases, fetches off the request pool, an upload size cap) (a second daemon instance silently shares the port).
 
 Analyzed September 12, 2026 to sequence the active items by dependency and risk rather than
 just priority label — several depend on each other or on a single owner decision, and the
@@ -15412,7 +15413,7 @@ Verified:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / FtpDataServer | October 21, 2026 | 2-4 hours |
+| LOW | Open — code fix landed October 24, 2026 | Data / FtpDataServer | October 21, 2026 | 2-4 hours |
 
 Description:
 Filed while fixing TD-372. The data connection is now accepted only from the control connection's client IP, but under `PROT P`
@@ -15423,11 +15424,33 @@ tickets), and libcurl, the trainer's client, would need verifying on both sides 
 
 Action Items:
 
-- [ ] Enable the server session cache with a session-id context. After the data-channel `SSL_accept()`, require
+- [x] Enable the server session cache with a session-id context. After the data-channel `SSL_accept()`, require
   `SSL_session_reused()` and the control channel's session; refuse with 425/522 otherwise.
-- [ ] Verify libcurl (`CURLOPT_SSL_SESSIONID_CACHE`, on by default) still downloads under TLS 1.2 and 1.3.
+- [x] Verify libcurl (`CURLOPT_SSL_SESSIONID_CACHE`, on by default) still downloads under TLS 1.2 and 1.3.
 
 Location in code: `src/FtpDataServer.hpp` (`cmd_retr()`).
+
+**Fix (October 24, 2026).** A `PROT P` data connection must resume its own control connection's TLS session, or `RETR` answers 522
+and sends nothing.
+- **Why a token:** checking `SSL_session_reused()` alone isn't enough, because another client on the same host could resume a session
+  from its own control connection.
+- **The token:** each control connection gets a random 16-byte token, set as the SSL object's app data before its handshake.
+- **Where it's carried:** `SSL_CTX_set_session_ticket_cb()` writes the token into every session ticket the server issues
+  (`SSL_SESSION_set1_ticket_appdata()`), for both TLS 1.3 and TLS 1.2 tickets. It's also set on the control session itself, for TLS 1.2
+  session-ID resumption from the server cache (`SSL_CTX_set_session_id_context()` + `SSL_SESS_CACHE_SERVER`).
+- **The check:** after the data channel's `SSL_accept()`, `data_session_matches()` requires a resumed session whose ticket appdata equals
+  the control connection's token (constant-time compare). The data connection issues no tickets of its own.
+- **Compatibility:** OpenSSL ≥ 1.1.1 (the ticket appdata API).
+
+Tests (`FtpDataServerTests.cpp`, an OpenSSL client against a real server, under both TLS 1.2 and TLS 1.3):
+- `ResumingTheControlSessionDownloads`
+- `FreshTlsSessionOnTheDataConnectionIsRefused`
+- `AnotherControlConnectionsSessionIsRefused`: the TD-549 threat.
+
+On the old server the two refusal tests fail under both versions; the file was delivered.
+
+libcurl, the trainer's client, still works. `DataTransportFtpsTests` (TLS 1.3) pass. `curl --tlsv1.2 --tls-max 1.2` and `--tlsv1.3`
+against a real FTPS `registry_server` (token from `acquire`) both downloaded the file byte for byte, with no refusal logged.
 
 ---
 

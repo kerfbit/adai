@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-040 fully resolved — see below)
-// @adai-version: 0.11.0
+// @adai-version: 0.12.0
 // @adai-reviewed: 2026-10-24
 
 /**
@@ -318,6 +318,48 @@ inline std::string public_key_pin(X509* cert) {
     const int b64_len = EVP_EncodeBlock(b64, digest, static_cast<int>(digest_len));
     return "sha256//" + std::string(reinterpret_cast<const char*>(b64), static_cast<std::size_t>(b64_len));
 }
+
+// TD-549: binds a data connection's TLS session to the control connection that created it. Each
+// control connection gets a random token, stored as the SSL object's app data before its handshake.
+// The ticket callbacks below write it into every session ticket the server issues (TLS 1.3 and TLS
+// 1.2 tickets), and it is also set on the control session itself for TLS 1.2 session-ID resumption
+// (the cached SSL_SESSION object is the same one). A data connection must resume a session carrying
+// its own control connection's token: a client that merely reaches the PASV port from the right IP,
+// even one with a session of its own from another control connection, is refused.
+inline int session_ticket_generate(SSL* s, void* /*arg*/) {
+    const auto* token = static_cast<const std::string*>(SSL_get_app_data(s));
+    if (token && !token->empty())
+        SSL_SESSION_set1_ticket_appdata(SSL_get0_session(s), token->data(), token->size());
+    return 1;
+}
+
+inline SSL_TICKET_RETURN session_ticket_decrypt(SSL* /*s*/, SSL_SESSION* /*ss*/,
+                                                const unsigned char* /*keyname*/,
+                                                size_t /*keyname_len*/, SSL_TICKET_STATUS status,
+                                                void* /*arg*/) {
+    switch (status) {
+        case SSL_TICKET_SUCCESS:
+            return SSL_TICKET_RETURN_USE;
+        case SSL_TICKET_SUCCESS_RENEW:
+            return SSL_TICKET_RETURN_USE_RENEW;
+        case SSL_TICKET_EMPTY:
+        case SSL_TICKET_NO_DECRYPT:
+            return SSL_TICKET_RETURN_IGNORE_RENEW;
+        default:
+            return SSL_TICKET_RETURN_ABORT;
+    }
+}
+
+// True when @p data_ssl resumed a session carrying @p token.
+inline bool data_session_matches(SSL* data_ssl, const std::string& token) {
+    if (token.empty() || !SSL_session_reused(data_ssl))
+        return false;
+    void* data = nullptr;
+    size_t len = 0;
+    if (SSL_SESSION_get0_ticket_appdata(SSL_get0_session(data_ssl), &data, &len) != 1)
+        return false;
+    return len == token.size() && CRYPTO_memcmp(data, token.data(), len) == 0;
+}
 #endif  // BUILD_FTPS
 
 }  // namespace ftp_detail
@@ -457,6 +499,13 @@ class FtpDataServer {
                 return;
             }
             SSL_CTX_set_min_proto_version(ssl_ctx_, TLS1_2_VERSION);
+            // TD-549: sessions must be resumable by the data connection, and carry the control
+            // connection's token (see ftp_detail::session_ticket_generate()).
+            static const unsigned char kSessionContext[] = "adai-ftp";
+            SSL_CTX_set_session_id_context(ssl_ctx_, kSessionContext, sizeof(kSessionContext) - 1);
+            SSL_CTX_set_session_cache_mode(ssl_ctx_, SSL_SESS_CACHE_SERVER);
+            SSL_CTX_set_session_ticket_cb(ssl_ctx_, ftp_detail::session_ticket_generate,
+                                          ftp_detail::session_ticket_decrypt, nullptr);
 
             bool cert_ok = false;
             if (!cert_file_.empty() && !key_file_.empty()) {
@@ -686,6 +735,7 @@ class FtpDataServer {
 #ifdef BUILD_FTPS
         SSL* ssl = nullptr;        // non-null after AUTH TLS handshake
         bool data_prot_p = false;  // true after PROT P
+        std::string tls_token;     // TD-549: carried by this control connection's TLS sessions
 #endif
     };
 
@@ -924,11 +974,16 @@ class FtpDataServer {
 
         SSL* ssl = SSL_new(ssl_ctx_);
         SSL_set_fd(ssl, static_cast<int>(st.fd));  // TD-161: SOCKET->int narrowing on Windows, OpenSSL's own API shape
+        st.tls_token = ftp_detail::random_hex(16);  // TD-549
+        SSL_set_app_data(ssl, &st.tls_token);        // read by session_ticket_generate()
         if (SSL_accept(ssl) != 1) {
             Logger::error("[FTP/TLS] TLS handshake failed for client '{}'", st.client_ip);
             SSL_free(ssl);
             return;  // close connection on handshake failure
         }
+        // TLS 1.2 session-ID resumption reuses this very SSL_SESSION from the server cache.
+        SSL_SESSION_set1_ticket_appdata(SSL_get0_session(ssl), st.tls_token.data(),
+                                        st.tls_token.size());
         st.ssl = ssl;
         Logger::info("[FTP/TLS] TLS established with client '{}'", st.client_ip);
     }
@@ -1094,12 +1149,25 @@ class FtpDataServer {
         if (ssl_ctx_ && st.data_prot_p) {
             data_ssl = SSL_new(ssl_ctx_);
             SSL_set_fd(data_ssl, static_cast<int>(data_fd));  // TD-161: SOCKET->int narrowing on Windows
+            SSL_set_num_tickets(data_ssl, 0);  // the data connection never needs to be resumed
             if (SSL_accept(data_ssl) != 1) {
                 Logger::error("[FTP/TLS] Data-channel TLS handshake failed for '{}'", st.username);
                 SSL_free(data_ssl);
                 data_ssl = nullptr;
                 adai::close_socket(data_fd);
                 send_reply(st, 425, "TLS handshake on data connection failed.");
+                return;
+            }
+            // TD-549: the data connection must resume this control connection's TLS session.
+            if (!ftp_detail::data_session_matches(data_ssl, st.tls_token)) {
+                Logger::warn("[FTP/TLS] Data connection for '{}' from '{}' did not resume the control "
+                             "connection's TLS session; refused",
+                             st.username, st.client_ip);
+                SSL_shutdown(data_ssl);
+                SSL_free(data_ssl);
+                data_ssl = nullptr;
+                adai::close_socket(data_fd);
+                send_reply(st, 522, "Data connections must reuse the control connection's TLS session.");
                 return;
             }
         }
