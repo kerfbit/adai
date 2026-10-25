@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.17.0
+// @adai-version: 0.18.0
 // @adai-reviewed: 2026-10-24
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
@@ -64,6 +64,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <tuple>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -1184,11 +1185,37 @@ static void handle_trained(const httplib::Request& req, httplib::Response& res,
         });
     };
 
-    // TODO: See TD-493 in TECHNICAL_DEBT.md - records files regardless of which run_id claimed them, and skips any
-    // path already recorded, so the owning run's later report records nothing.
+    // TD-493: a unit is recorded only when it is pending and claimed by the calling run_id. It used
+    // to be recorded for any caller, while only the pending removal checked the claim: another
+    // run's report recorded r1's claimed file, and r1's own report then recorded nothing because
+    // the path was already there. A claimed unit is now recorded even if an earlier pass recorded
+    // it too (re-queued or re-uploaded and trained again), so the registry keeps each pass's sample
+    // count. An empty run_id is an explicit force (as for release): it records any unit not already
+    // recorded, the old behavior.
+    auto claimed_by_caller = [&](std::size_t i) {
+        return std::any_of(pending.begin(), pending.end(), [&](const PendingEntry& e) {
+            if (e.run_id != run_id)
+                return false;
+            return exact ? segment_matches(e, files[i], seg_starts[i], seg_counts[i])
+                         : e.path == files[i];
+        });
+    };
+    std::vector<std::size_t> rejected;
+    std::set<std::tuple<std::string, int, int>> recorded_now;
     int trained = 0;
     for (std::size_t i = 0; i < files.size(); ++i) {
-        if (!recorded(files[i], seg_start_of(i), seg_count_of(i))) {
+        const auto unit = std::make_tuple(files[i], seg_start_of(i), seg_count_of(i));
+        if (recorded_now.count(unit))
+            continue;  // listed twice in one request
+        const bool eligible = run_id.empty() ? !recorded(files[i], seg_start_of(i), seg_count_of(i))
+                                             : claimed_by_caller(i);
+        if (!eligible) {
+            if (!run_id.empty())
+                rejected.push_back(i);
+            continue;
+        }
+        recorded_now.insert(unit);
+        {
             DataVersion dv;
             dv.data_file = files[i];
             dv.num_samples = (i < samples.size()) ? samples[i] : 0;
@@ -1215,7 +1242,7 @@ static void handle_trained(const httplib::Request& req, httplib::Response& res,
                 dv.checksum = "REMOTE";
             }
 
-            reg.push_back(std::move(dv));  // later duplicates in this request now match recorded()
+            reg.push_back(std::move(dv));
             ++trained;
         }
     }
@@ -1239,9 +1266,16 @@ static void handle_trained(const httplib::Request& req, httplib::Response& res,
     gs.transport->save_pending(pending);
 
     std::ostringstream json;
-    json << "{\"trained\":" << trained << "}";
+    json << "{\"trained\":" << trained << ",\"rejected\":[";
+    for (std::size_t k = 0; k < rejected.size(); ++k)
+        json << (k ? "," : "") << "\"" << json_escape(files[rejected[k]]) << "\"";
+    json << "]}";
     res.set_content(json.str(), "application/json");
-    Logger::info("[{}] trained: run='{}' committed {} new files", group, run_id, trained);
+    Logger::info("[{}] trained: run='{}' committed {} units", group, run_id, trained);
+    if (!rejected.empty())
+        Logger::warn("[{}] trained: run='{}' reported {} unit(s) it doesn't hold a claim on; not "
+                     "recorded (first: '{}')",
+                     group, run_id, rejected.size(), files[rejected.front()]);
 }
 
 // GET /registry/<group>/registry

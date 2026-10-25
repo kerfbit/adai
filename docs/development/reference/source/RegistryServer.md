@@ -231,3 +231,11 @@ of rewriting an existing `…_row<offset>_training.jsonl`. `queue_fetched_slice(
 
 Live tests: `UploadOverAClaimedFileIsRefused`, `UploadOverwriteReplacesAnUnclaimedQueuedFile`, `UploadOverATrainedFileNeedsOverwrite`.
 
+---
+
+## Addendum (October 24, 2026): claim-checked trained records (TD-493)
+
+`POST …/trained` with a `run_id` records a unit only when that run holds its claim (a pending entry for the path, or the exact segment,
+with that `run_id`). Others are listed in the reply's new `"rejected"` array. A claimed unit is recorded even if an earlier pass
+recorded it, so re-trained units keep a record per pass. An empty `run_id` still forces a record of units not yet recorded. Live tests:
+`TrainedFromAnotherRunIsRejected`, `ReTrainedUnitIsRecordedAgain`.

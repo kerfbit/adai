@@ -152,3 +152,11 @@ Added for the remote-first rule (the trainer takes its data from `registry_serve
 - **`release()`:** applies paths and segments together.
 - **`requeue_trained()`:** restores segment records as segments.
 - **`trained_matches()`:** the identity check for a trained record.
+
+---
+
+## Addendum (October 24, 2026): claim-checked commits (TD-493)
+
+`LocalTransport::commit_trained()` now loads the pending list first and, for a non-empty `run_id`, appends only entries whose unit that
+run has claimed, logging how many it skipped. `RemoteTransport::commit_trained()` logs a warning when `registry_server` lists rejected
+units. A path can now have several trained records, one per pass; `requeue_trained()` re-queues it once and removes them all.

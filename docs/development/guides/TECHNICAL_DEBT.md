@@ -1236,8 +1236,9 @@ The run is complete.
 
 - TD-491 (done in code: fetch cursors are serialized, slice names are unique, and `added` reports what was queued).
 - TD-492 (done in code: an upload never replaces a claimed, trained or queued file without `overwrite=true`, never a claimed one).
+- TD-493 (done in code: `trained` records only units the reporting run claimed, and records a re-trained unit again).
 
-Left in the category: TD-493, TD-494, TD-549 and TD-551 (a second daemon instance silently shares the port).
+Left in the category: TD-494, TD-549 and TD-551 (a second daemon instance silently shares the port).
 
 Analyzed September 12, 2026 to sequence the active items by dependency and risk rather than
 just priority label — several depend on each other or on a single owner decision, and the
@@ -13422,7 +13423,7 @@ All four fail against the old server, and the whole live suite passes against th
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / Registry Server | October 17, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 24, 2026 | Data / Registry Server | October 17, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `RegistryServer.cpp`; verified. `handle_trained()` adds a registry record for every listed file not already in the registry,
@@ -13433,8 +13434,8 @@ again is never recorded again either (TD-333 covers segments).
 
 Action Items:
 
-- [ ] Record a file only when it is pending and claimed by the calling `run_id` (or an explicit force), and report rejected files.
-- [ ] Key registry records by (path, segment, run) or append history instead of skipping already-recorded paths.
+- [x] Record a file only when it is pending and claimed by the calling `run_id` (or an explicit force), and report rejected files.
+- [x] Key registry records by (path, segment, run) or append history instead of skipping already-recorded paths.
 
 Location in code: `src/RegistryServer.cpp` (`handle_trained()`); tagged `TODO: See TD-493`.
 
@@ -13443,6 +13444,29 @@ Files to Modify:
 - `src/RegistryServer.cpp`
 - `src/RegistryTransport.cpp` (`LocalTransport` equivalent)
 - `tests/dataset_registry_live_test.cpp`
+
+**Fix (October 24, 2026).** A report with a `run_id` records a unit only when that run holds the unit's claim: a pending entry for the
+path, or exactly that segment in exact mode, with the same `run_id`.
+- **Server (`handle_trained()`):** a unit reported by a run that doesn't hold its claim isn't recorded, and the reply lists it in a new
+  `"rejected"` array (`{"trained":N,"rejected":[…]}`). The pending removal was already claim-checked and is unchanged.
+- **Retraining:** a claimed unit is recorded even when an earlier pass recorded it, so a unit re-queued (or re-uploaded with
+  `overwrite=true`, TD-492) and trained again keeps each pass's record and sample count. That's the "append history" option; duplicates
+  within one request still collapse.
+- **Forced reports:** an empty `run_id` is still an explicit force, as for `release`: it records a unit not already recorded.
+- **Standalone mode:** `LocalTransport::commit_trained()` applies the same claim check under its pending lock.
+- **Client:** `DatasetRegistry::build_new_versions()` no longer drops already-recorded units from run-scoped commits
+  (`record_again`), so a re-trained unit is sent with its real count instead of 0. The run-less test overload keeps the old skip.
+  `RemoteTransport::commit_trained()` logs a warning when the registry rejects units.
+- **Requeue:** `requeue_trained()` with several records for one path re-queues it once, reports the others as `already_pending`, and
+  removes all of them.
+
+Tests:
+- `RegistryTransportTests.cpp`: `CommitTrainedRecordsOnlyUnitsTheRunClaimed`, `CommitTrainedRecordsAUnitTrainedAgain`.
+- Live: `TrainedFromAnotherRunIsRejected` (`trained:0`, path rejected, and then the owner's report records it with its count) and
+  `ReTrainedUnitIsRecordedAgain` (two records, 5 and 7 samples). Both fail against the old server.
+- `TrainedDeduplicatesInRegistry` asserted the old skip for a re-trained unit. It now checks that a forced report still skips one.
+
+The whole live suite passes against the fixed server (97 tests).
 
 ---
 

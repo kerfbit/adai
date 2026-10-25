@@ -211,3 +211,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 ## Addendum (October 19, 2026): `count_acquirable()` (TD-413)
 
 `count_acquirable()` returns how many loaded pending entries (whole files and segments) this registry's `model_name` may acquire: unassigned ones, plus ones assigned to it. This is the same rule as `RegistryTransport::acquire()`. `incremental_trainer` uses it for its pre-check, so that check reads the same kind sub-pool and model filter as the pass.
+
+---
+
+## Addendum (October 24, 2026): re-trained units are sent with their counts (TD-493)
+
+`build_new_versions()` takes `record_again`. The run-scoped `mark_trained()` overloads pass `true`, so a unit already in the registry
+(re-queued and trained again) is still committed with its real sample count, and the transport decides by claim whether to record it.
+The run-less overload, used only by tests, still skips recorded units.

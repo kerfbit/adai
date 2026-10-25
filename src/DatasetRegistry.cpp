@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.6.0
+// @adai-version: 1.7.0
 // @adai-reviewed: 2026-10-24
 
 #include "DatasetRegistry.hpp"
@@ -349,10 +349,14 @@ bool DatasetRegistry::is_trained(const std::string& path, int segment_start,
 // recorded; update in-memory state. Returns the new entries (does NOT persist — callers do).
 // TD-333: keyed by (path, segment), so each segment trained in a separate pass gets its own
 // record and sample count; this used to skip any path already trained.
+// TD-493: record_again = a run-scoped commit, where every unit is sent with its sample count and the
+// transport records it if the run holds its claim, even when an earlier pass recorded it too (a
+// re-queued unit trained again). The run-less overload keeps skipping units already recorded.
 static std::vector<DataVersion> build_new_versions(const std::vector<PendingFileRange>& units,
                                                    const std::vector<int>& sample_counts,
                                                    std::vector<DataVersion>& registry_,
-                                                   std::set<std::string>& trained_set_) {
+                                                   std::set<std::string>& trained_set_,
+                                                   bool record_again = false) {
     std::vector<DataVersion> new_entries;
     for (std::size_t i = 0; i < units.size(); ++i) {
         const PendingFileRange& u = units[i];
@@ -360,7 +364,11 @@ static std::vector<DataVersion> build_new_versions(const std::vector<PendingFile
             std::any_of(registry_.begin(), registry_.end(), [&](const DataVersion& dv) {
                 return trained_matches(dv, u.path, u.segment_start, u.segment_count);
             });
-        if (recorded)
+        const bool listed_twice =
+            std::any_of(new_entries.begin(), new_entries.end(), [&](const DataVersion& dv) {
+                return trained_matches(dv, u.path, u.segment_start, u.segment_count);
+            });
+        if (listed_twice || (recorded && !record_again))
             continue;
 
         DataVersion dv;
@@ -415,8 +423,8 @@ void DatasetRegistry::mark_trained(const std::vector<std::string>& paths,
 // Callers with an acquired batch use the PendingFileRange overload below.
 void DatasetRegistry::mark_trained(const std::string& run_id, const std::vector<std::string>& paths,
                                    const std::vector<int>& sample_counts) {
-    const auto new_entries =
-        build_new_versions(whole_file_units(paths), sample_counts, registry_, trained_set_);
+    const auto new_entries = build_new_versions(whole_file_units(paths), sample_counts, registry_,
+                                                trained_set_, /*record_again=*/!run_id.empty());
     transport_->commit_trained(run_id, new_entries, paths);
 
     // Update in-memory pending_ to remove trained files
@@ -471,7 +479,8 @@ void DatasetRegistry::mark_trained(const std::string& run_id,
         else
             segments.push_back({u.path, u.segment_start, u.segment_count});
     }
-    const auto new_entries = build_new_versions(units, sample_counts, registry_, trained_set_);
+    const auto new_entries = build_new_versions(units, sample_counts, registry_, trained_set_,
+                                                /*record_again=*/!run_id.empty());
     // With segments the transport removes exactly these units from pending. With whole files
     // only it uses the path-wide removal, which only touches entries this run claimed.
     transport_->commit_trained(run_id, new_entries, whole, segments);

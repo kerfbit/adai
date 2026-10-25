@@ -1100,10 +1100,11 @@ TEST_F(LiveRegistryTest, TrainedDeduplicatesInRegistry) {
     ASSERT_TRUE(acquire("run-V"));
     ASSERT_TRUE(trained("run-V", {path}, {5}));
 
-    // Adding and committing the same file again under a fresh run should be a no-op.
+    // TD-493: a re-queued unit trained by a run that claimed it IS recorded again (see
+    // ReTrainedUnitIsRecordedAgain); only a forced report (empty run_id) still skips a unit that's
+    // already recorded.
     ASSERT_TRUE(add_pending(path));
-    ASSERT_TRUE(acquire("run-V2"));
-    auto tr_res2 = trained("run-V2", {path}, {99});
+    auto tr_res2 = trained("", {path}, {99});
     ASSERT_TRUE(tr_res2);
     EXPECT_EQ(tr_res2->status, 200);
     EXPECT_EQ(json_int(tr_res2->body, "trained"), 0) << tr_res2->body;
@@ -2029,5 +2030,58 @@ TEST_F(LiveRegistryTest, UploadOverATrainedFileNeedsOverwrite) {
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 200) << res->body;
     EXPECT_NE(res->body.find("\"added\":true"), std::string::npos) << res->body;
+}
+
+// ===========================================================================
+// TD-493: trained records only what the reporting run claimed, and records a re-trained unit again
+// ===========================================================================
+
+// Verified before the fix: "other" recorded r1's claimed file (trained:1) and r1's own report then
+// recorded nothing (trained:0), so r1's sample count was lost.
+TEST_F(LiveRegistryTest, TrainedFromAnotherRunIsRejected) {
+    const std::string path = "/data/" + group() + "/claimed.jsonl";
+    ASSERT_TRUE(add_pending(path));
+    ASSERT_TRUE(acquire("r1"));
+
+    auto res = trained("other", {path}, {3});
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200) << res->body;
+    EXPECT_NE(res->body.find("\"trained\":0"), std::string::npos) << res->body;
+    EXPECT_NE(res->body.find("\"rejected\":[\"" + path + "\"]"), std::string::npos) << res->body;
+    auto reg = get_registry();
+    ASSERT_TRUE(reg);
+    EXPECT_EQ(reg->body.find(path), std::string::npos) << reg->body;
+
+    res = trained("r1", {path}, {11});
+    ASSERT_TRUE(res);
+    EXPECT_NE(res->body.find("\"trained\":1"), std::string::npos) << res->body;
+    reg = get_registry();
+    ASSERT_TRUE(reg);
+    EXPECT_EQ(count_occurrences(reg->body, path), 1) << reg->body;
+    EXPECT_NE(reg->body.find("\"num_samples\":11"), std::string::npos) << reg->body;
+    auto queue = get_queue();
+    ASSERT_TRUE(queue);
+    EXPECT_EQ(queue->body.find(path), std::string::npos) << queue->body;
+}
+
+TEST_F(LiveRegistryTest, ReTrainedUnitIsRecordedAgain) {
+    const std::string path = "/data/" + group() + "/again.jsonl";
+    ASSERT_TRUE(add_pending(path));
+    ASSERT_TRUE(acquire("r1"));
+    auto res = trained("r1", {path}, {5});
+    ASSERT_TRUE(res);
+    EXPECT_NE(res->body.find("\"trained\":1"), std::string::npos) << res->body;
+
+    ASSERT_TRUE(add_pending(path));  // queued again (e.g. an overwritten upload, TD-492)
+    ASSERT_TRUE(acquire("r2"));
+    res = trained("r2", {path}, {7});
+    ASSERT_TRUE(res);
+    EXPECT_NE(res->body.find("\"trained\":1"), std::string::npos) << res->body;
+
+    auto reg = get_registry();
+    ASSERT_TRUE(reg);
+    EXPECT_EQ(count_occurrences(reg->body, path), 2) << reg->body;
+    EXPECT_NE(reg->body.find("\"num_samples\":5"), std::string::npos) << reg->body;
+    EXPECT_NE(reg->body.find("\"num_samples\":7"), std::string::npos) << reg->body;
 }
 

@@ -282,6 +282,57 @@ TEST_F(LocalTransportPhase9Test, CommitTrainedAppendsToExistingRegistry) {
     EXPECT_TRUE(pending.empty());
 }
 
+// TD-493: only the run holding a unit's claim records it, and a unit trained again is recorded again.
+TEST_F(LocalTransportPhase9Test, CommitTrainedRecordsOnlyUnitsTheRunClaimed) {
+    seed_pending({"/data/claimed.txt"});
+    LocalTransport t(reg_path_, pend_path_);
+    t.acquire("run-a", 0);
+
+    DataVersion dv;
+    dv.data_file = "/data/claimed.txt";
+    dv.checksum = "MISSING";
+    dv.trained = true;
+    dv.num_samples = 9;
+    t.commit_trained("other-run", {dv}, {"/data/claimed.txt"});
+
+    std::vector<DataVersion> reg;
+    t.load_registry(reg);
+    EXPECT_TRUE(reg.empty()) << "another run's report must not record run-a's claimed unit";
+    std::vector<PendingEntry> pending;
+    t.load_pending(pending);
+    ASSERT_EQ(pending.size(), 1u);
+    EXPECT_EQ(pending[0].run_id, "run-a");
+
+    t.commit_trained("run-a", {dv}, {"/data/claimed.txt"});
+    t.load_registry(reg);
+    ASSERT_EQ(reg.size(), 1u);
+    EXPECT_EQ(reg[0].num_samples, 9);
+}
+
+TEST_F(LocalTransportPhase9Test, CommitTrainedRecordsAUnitTrainedAgain) {
+    seed_pending({"/data/again.txt"});
+    LocalTransport t(reg_path_, pend_path_);
+    DataVersion dv;
+    dv.data_file = "/data/again.txt";
+    dv.checksum = "MISSING";
+    dv.trained = true;
+
+    t.acquire("run-1", 0);
+    dv.num_samples = 5;
+    t.commit_trained("run-1", {dv}, {"/data/again.txt"});
+
+    ASSERT_TRUE(t.add_pending("/data/again.txt"));  // re-queued
+    t.acquire("run-2", 0);
+    dv.num_samples = 7;
+    t.commit_trained("run-2", {dv}, {"/data/again.txt"});
+
+    std::vector<DataVersion> reg;
+    t.load_registry(reg);
+    ASSERT_EQ(reg.size(), 2u);
+    EXPECT_EQ(reg[0].num_samples, 5);
+    EXPECT_EQ(reg[1].num_samples, 7);
+}
+
 // ============================================================================
 // Backward compatibility: Phase 8 format (no run_id column) still loads
 // ============================================================================

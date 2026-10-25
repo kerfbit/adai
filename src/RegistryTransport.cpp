@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.4.1
+// @adai-version: 1.5.0
 // @adai-reviewed: 2026-10-24
 
 #include "RegistryTransport.hpp"
@@ -346,16 +346,6 @@ void LocalTransport::commit_trained(const std::string& run_id,
                                     const std::vector<DataVersion>& new_entries,
                                     const std::vector<std::string>& trained_paths,
                                     const std::vector<SegmentTarget>& trained_segments) {
-    // ── Registry ──────────────────────────────────────────────────────────
-    // Load existing registry, append new entries, save.
-    std::vector<DataVersion> registry;
-    load_registry(registry);
-    for (const auto& e : new_entries) {
-        registry.push_back(e);
-    }
-    save_registry(registry);
-
-    // ── Pending ───────────────────────────────────────────────────────────
     const int lock_fd = lock_pending();
     if (lock_fd < 0) {
         Logger::error("LocalTransport::commit_trained — failed to acquire pending lock");
@@ -364,6 +354,35 @@ void LocalTransport::commit_trained(const std::string& run_id,
 
     std::vector<PendingEntry> pending;
     load_pending(pending);
+
+    // ── Registry ──────────────────────────────────────────────────────────
+    // TD-493, as in registry_server's handle_trained(): with a run_id, an entry is recorded only
+    // when its unit is pending and claimed by that run (even if an earlier pass recorded it too).
+    // Without one, entries are recorded as given (DatasetRegistry already skipped recorded units).
+    std::vector<DataVersion> registry;
+    load_registry(registry);
+    int rejected = 0;
+    for (const auto& e : new_entries) {
+        const bool claimed =
+            run_id.empty() ||
+            std::any_of(pending.begin(), pending.end(), [&](const PendingEntry& p) {
+                return p.run_id == run_id &&
+                       (e.segment_start < 0 ? p.path == e.data_file
+                                            : segment_matches(p, e.data_file, e.segment_start,
+                                                              e.segment_count));
+            });
+        if (claimed)
+            registry.push_back(e);
+        else
+            ++rejected;
+    }
+    save_registry(registry);
+    if (rejected > 0)
+        Logger::warn("LocalTransport::commit_trained — run '{}' doesn't hold the claim on {} "
+                     "unit(s); not recorded",
+                     run_id, rejected);
+
+    // ── Pending ───────────────────────────────────────────────────────────
 
     const std::set<std::string> trained_set(trained_paths.begin(), trained_paths.end());
     const bool exact = !trained_segments.empty();  // TD-333
@@ -1401,6 +1420,11 @@ void RemoteTransport::commit_trained(const std::string& run_id,
     if (!res || res->status != 200) {
         Logger::error("RemoteTransport::commit_trained — HTTP {} from {}:{}{}",
                       res ? res->status : -1, host_, port_, group_prefix_ + "/trained");
+    } else if (res->body.find("\"rejected\":[]") == std::string::npos &&
+               res->body.find("\"rejected\"") != std::string::npos) {
+        // TD-493: units this run doesn't hold a claim on aren't recorded.
+        Logger::warn("RemoteTransport::commit_trained — registry didn't record some units: {}",
+                     res->body);
     }
 #else
     Logger::error("RemoteTransport::commit_trained — not compiled");
