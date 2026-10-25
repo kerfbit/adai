@@ -670,6 +670,14 @@ if(HTTPLIB_INCLUDE_DIR)
     add_test(NAME BrowserWriteGuardTests COMMAND browserWriteGuardTests)
 endif()
 
+# TD-551: HttpListenSocket (exclusive listening ports for every httplib daemon)
+if(HTTPLIB_INCLUDE_DIR)
+    add_executable(httpListenSocketTests http_listen_socket_test.cpp)
+    target_include_directories(httpListenSocketTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    target_link_libraries(httpListenSocketTests GTest::gtest_main pthread)
+    add_test(NAME HttpListenSocketTests COMMAND httpListenSocketTests)
+endif()
+
 # TD-018 phase 3: TrainingMetricsAPI session routing + compatibility aliases
 if(TARGET adai_metrics_api)
     add_executable(trainingMetricsApiRoutesTests training_metrics_api_routes_test.cpp)

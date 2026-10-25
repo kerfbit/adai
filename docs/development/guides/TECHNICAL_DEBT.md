@@ -5,13 +5,19 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 24, 2026
-**Total Items:** 344
+**Total Items:** 346
 **High Priority:** 36
 **Medium Priority:** 151
-**Low Priority:** 157
+**Low Priority:** 159
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
+
+**October 24, 2026:** Filed [TD-554](#td-554-no-aggregate-version-per-cmake-build) at the owner's request (LOW): derive an aggregate version
+for each CMake build (preset × executable target) from the per-file versions of the sources it compiles. Builds on TD-553.
+
+**October 24, 2026:** Filed [TD-553](#td-553-per-file-versions-have-no-build-number) at the owner's request (LOW): add a build number to the
+per-file `@adai-version` scheme, following SemVer 2.0.0 for what resets on minor and major updates.
 
 **October 24, 2026:** Filed [TD-552](#td-552-dataset_manager-and-the-android-app-cant-replace-an-uploaded-file) with TD-492 at the owner's
 request (LOW): `registry_server`'s `upload` now refuses to replace a queued or trained file unless `overwrite=true` is given, but neither
@@ -1237,8 +1243,9 @@ The run is complete.
 - TD-491 (done in code: fetch cursors are serialized, slice names are unique, and `added` reports what was queued).
 - TD-492 (done in code: an upload never replaces a claimed, trained or queued file without `overwrite=true`, never a claimed one).
 - TD-493 (done in code: `trained` records only units the reporting run claimed, and records a re-trained unit again).
+- TD-551 (done in code: every httplib daemon's port is exclusive, so a second instance fails to start, and `registry_server` exits 1 when it can't listen).
 
-Left in the category: TD-494, TD-549 and TD-551 (a second daemon instance silently shares the port).
+Left in the category: TD-494 (its remaining parts) and TD-549 (a second daemon instance silently shares the port).
 
 Analyzed September 12, 2026 to sequence the active items by dependency and risk rather than
 just priority label — several depend on each other or on a single owner decision, and the
@@ -2258,6 +2265,8 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-550: Registry, MNS and Other Daemons Accept Cross-Origin Writes](#td-550-registry-mns-and-other-daemons-accept-cross-origin-writes)
   - [TD-551: A Second Daemon Instance Silently Shares the Port](#td-551-a-second-daemon-instance-silently-shares-the-port)
   - [TD-552: `dataset_manager` and the Android App Can't Replace an Uploaded File](#td-552-dataset_manager-and-the-android-app-cant-replace-an-uploaded-file)
+  - [TD-553: Per-File Versions Have No Build Number](#td-553-per-file-versions-have-no-build-number)
+  - [TD-554: No Aggregate Version per CMake Build](#td-554-no-aggregate-version-per-cmake-build)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -13489,7 +13498,7 @@ Found while tracing `RegistryServer.cpp`:
 
 Action Items:
 
-- [ ] Log and exit non-zero when `listen()` fails; handle a stop requested before `listen()`.
+- [x] Log and exit non-zero when `listen()` fails; handle a stop requested before `listen()`. *(October 24, 2026, with TD-551: exits 1 with the port in the log; a stop requested before `listen()` skips it, though one arriving in the last instant before `listen()` is still lost.)*
 - [ ] Parse request bodies with the vendored `nlohmann/json` (with TD-453).
 - [ ] Consider claim leases (expiry + renewal) or an explicit stale-claim report; run fetches off the request pool; cap upload size.
 
@@ -15450,7 +15459,7 @@ the route), plus TD-526's route tests through the shared code.
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Services / HTTP | October 24, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 24, 2026 | Services / HTTP | October 24, 2026 | 1-2 hours |
 
 Description:
 Filed while fixing TD-491, verified with `registry_server`. cpp-httplib's `default_socket_options` sets `SO_REUSEPORT` as well as
@@ -15467,13 +15476,37 @@ the other half: the start doesn't fail at all.
 
 Action Items:
 
-- [ ] Give every server socket options without `SO_REUSEPORT` (`set_socket_options()` with `SO_REUSEADDR` only, in one shared helper),
+- [x] Give every server socket options without `SO_REUSEPORT` (`set_socket_options()` with `SO_REUSEADDR` only, in one shared helper),
   so a second instance fails to bind.
-- [ ] Make a failed bind exit non-zero with a clear message (TD-494 for `registry_server`; check the other daemons).
-- [ ] Test: a second instance on the same port must fail.
+- [x] Make a failed bind exit non-zero with a clear message (TD-494 for `registry_server`; check the other daemons).
+- [x] Test: a second instance on the same port must fail.
 
 Location in code: every `httplib::Server` (`RegistryServer.cpp`, `ModelNameService.cpp`, `TrainingMetricsAPI.cpp`, `ChatbotAPI.cpp`,
 `TrainerServiceProxy.cpp`, `TrainerAdminAPI.cpp`).
+
+**Fix (October 24, 2026).** `src/HttpListenSocket.hpp` adds `use_exclusive_listen_port()`, a header template over the httplib server
+type. It replaces httplib's POSIX socket options (`SO_REUSEPORT` only) with `SO_REUSEADDR` alone, which still allows an immediate
+restart over TIME_WAIT connections but makes a second listener's bind fail. Windows is unchanged; httplib already sets
+`SO_EXCLUSIVEADDRUSE` there.
+
+It's installed next to the TD-550 write guard in every server: `registry_server`, `ModelNameService`, `TrainingMetricsAPI`, `ChatbotAPI`,
+`TrainerServiceProxy` and the child's `TrainerAdminAPI`.
+
+`registry_server` was the only daemon that ignored a failed `listen()` (TD-494). It now logs the port and exits 1. It also skips
+`listen()` when a stop was already requested; one arriving in the narrow window just before `listen()` is still lost. The other daemons
+already treated a failed start as an error.
+
+Verified against the real binaries by starting a second instance on the port of a running one:
+- **Second instance:** `registry_server`, `mns_server`, `metrics_api_server` and `chatbot_api_server` exit 1. `trainer_service` logs
+  "admin proxy failed to bind" and keeps supervising without an admin port, its documented behavior for an admin bind failure.
+  Before, it would have shared the admin port, so a pause reached either supervisor at random. Two supervisors still both launch
+  passes; the registry's claims keep them on different files.
+- **First instance:** answers `/health` in every case.
+
+Tests: `http_listen_socket_test.cpp` (4):
+- with httplib's defaults a second server binds the same port (the problem);
+- with the helper a second server is refused, even one with default options;
+- the port can be bound again right after the server stops.
 
 ---
 
@@ -15508,6 +15541,108 @@ Action Items:
 Location in code: `src/DatasetManagerTool.cpp`, `src/DatasetManagerArgs.{hpp,cpp}`, `src/RegistryTransport.{hpp,cpp}`
 (`upload_file()`); `android/opsdashboard/src/main/java/com/adai/ops/data/registry/RegistryRepository.kt`,
 `android/opsdashboard/src/main/java/com/adai/ops/network/RegistryApiService.kt` and the Registry upload dialog.
+
+---
+
+### TD-553: Per-File Versions Have No Build Number
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Tooling / File status standard | October 24, 2026 | 2-4 hours |
+
+Description:
+Filed at the owner's request. The per-file `@adai-version` tag ([file-status-standard.md](file-status-standard.md)) is plain
+`MAJOR.MINOR.PATCH`, and `scripts/check_file_status.py` accepts only that (`SEMVER_RE = ^(\d+)\.(\d+)\.(\d+)$`). This causes two
+gaps:
+- **No build number:** nothing counts the changes to a file between version bumps. A file edited in five commits at `1.2.0` looks the
+  same as one edited once.
+- **Reset rules unwritten:** the standard says what PATCH, MINOR and MAJOR mean, but not what happens to the lower parts on a bump.
+  Practice has followed SemVer, for example `1.1.3 → 1.2.0`, but it isn't written down or checked.
+
+Proposed scheme, following [SemVer 2.0.0](https://semver.org/):
+- **Format:** `MAJOR.MINOR.PATCH+BUILD`, for example `1.2.0+17`. BUILD uses SemVer's build-metadata syntax (§10), so standard SemVer
+  tools still parse the version and ignore BUILD when comparing precedence.
+- **Resets** (SemVer §6–§8):
+  - a PATCH bump keeps MAJOR.MINOR;
+  - a MINOR bump resets PATCH to 0;
+  - a MAJOR bump resets MINOR and PATCH to 0;
+  - a pre-1.0 file follows the same rules (`0.9.3 → 0.10.0`).
+- **BUILD:** a per-file counter that increases by one on every committed change to the file, including the commits that bump MAJOR or
+  MINOR. It never resets, so it stays a monotonic change count across the file's whole history, like a build number that keeps
+  climbing across releases.
+- **Owner decision to confirm:** keep BUILD monotonic (recommended above), or reset it to 0 on every MAJOR/MINOR bump. Avoid a fourth dotted
+  component (`1.2.0.17`, the .NET style), which isn't valid SemVer and would break the `stable ⇒ MAJOR ≥ 1` parsing.
+
+Action Items:
+
+- [ ] Get the owner's decision on BUILD's reset behavior (monotonic recommended).
+- [ ] Update file-status-standard.md: the `+BUILD` format, the SemVer reset rules for MINOR and MAJOR bumps, when BUILD increments, and
+  that BUILD never affects precedence or the `stable ⇒ MAJOR ≥ 1` rule.
+- [ ] `check_file_status.py`: accept `MAJOR.MINOR.PATCH+BUILD` (BUILD a non-negative integer, with or without a `build.` prefix, as
+  decided). With `--changed`, compare against the file's version at the base commit:
+  - BUILD increased by at least 1;
+  - the version didn't go backwards;
+  - a MINOR bump reset PATCH, and a MAJOR bump reset MINOR and PATCH.
+- [ ] `gen_status_report.py`: show BUILD in the status dashboard.
+- [ ] Migrate every in-scope file (`src/`, Android `src/main`, `tizen-metrics-app/js/`, operational `scripts/`). Seed BUILD from the
+  file's git history (`git log --follow --oneline -- <file> | wc -l`) or start at `+1`, as decided, in one mechanical commit.
+- [ ] Update CLAUDE.md's "File status tag" convention and CONTRIBUTING.md, including that new files start at `0.1.0+1`.
+
+Location in code: `docs/development/guides/file-status-standard.md`, `scripts/check_file_status.py`, `scripts/gen_status_report.py`,
+and the header tag of every in-scope file.
+
+---
+
+### TD-554: No Aggregate Version per CMake Build
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Build / Versioning | October 24, 2026 | 1-2 days |
+
+Description:
+Filed at the owner's request. Every in-scope source file carries its own `@adai-version` (and, after TD-553, a build number), but nothing
+combines them into a version for what is actually built and deployed:
+- The top-level `CMakeLists.txt` declares a fixed `project(adai VERSION 1.0.0)` that nothing updates or reads.
+- No binary reports a version (`--version`, `/health`, `/admin/status`).
+
+So two `registry_server` builds, or a `sycl` and a `portable` `incremental_trainer`, can't be told apart, and there's no way to see
+which files changed between what ai-machine runs and what's in the repository.
+
+"Build pattern" here means a CMake preset × executable target: `debug`/`release`/`portable`/`sycl`/`gpu` × `registry_server`,
+`mns_server`, `metrics_api_server`, `chatbot_api_server`, `incremental_trainer`, `trainer_service`, `dataset_manager`, `mns_cli`,
+`vocab_builder` and the rest.
+
+Proposed scheme (details for the owner to confirm):
+- **Constituents:** the target's sources, the in-repo headers they include, and the sources of every `adai_*` library it links, resolved
+  by CMake at configure time. Each constituent's `@adai-version` tag is read from its header.
+- **Manifest:** a generated `<target>.versions` (file → version, status) per preset, kept with the build and committed for released
+  builds as the baseline.
+- **Aggregate version:** SemVer, bumped from the previous released manifest with the same rules as TD-553:
+  - any constituent MAJOR increase (or a file added or removed from the target) → aggregate MAJOR + 1, MINOR and PATCH reset;
+  - otherwise any MINOR increase → MINOR + 1, PATCH reset;
+  - otherwise any PATCH or BUILD change → PATCH + 1.
+- **Build metadata:** the preset and the git revision, for example `registry_server 1.4.2+sycl.g2928ede` (dirty-tree marked). A build
+  counter from TD-553 (the sum of constituent builds, or the commit count) is an alternative.
+- **Aggregate status:** the lowest `@adai-status` among the constituents, so a "stable" binary can't hide an experimental file.
+
+Action Items:
+
+- [ ] Owner decision: the aggregation rules above (bump-from-baseline vs. another derivation), the build-metadata contents, and where the
+  released baselines live.
+- [ ] CMake: a function (e.g. `adai_target_version(<target>)`) that collects a target's constituent sources, reads their tags (a small
+  script run at configure/build time, sharing parsing with `check_file_status.py`), writes the manifest, and generates a
+  per-target `<target>_version.hpp` with the aggregate version, status, preset and git revision.
+- [ ] Binaries: `--version` on every executable, and the version in each daemon's `/health` (and `trainer_service`'s `/admin/status`),
+  so operators can see what's deployed on ai-machine and the coordinator.
+- [ ] Release flow: a script to diff a build's manifest against the last released one (which files changed and how), and to record the
+  new baseline. Add a per-target table to `gen_status_report.py`.
+- [ ] Use the project's own `project(VERSION)` for the overall release, or retire it, so there's one meaning for "the version".
+- [ ] Docs: file-status-standard.md (the aggregate rules), the server bundle and deployment guides, and CLAUDE.md.
+
+Depends on TD-553 for the build number and the written reset rules.
+
+Location in code: `CMakeLists.txt`, `src/CMakeLists.txt`, `CMakePresets.json`, `scripts/check_file_status.py` /
+`scripts/gen_status_report.py` (shared tag parsing), and each executable's `main()` / `/health` handler.
 
 ---
 

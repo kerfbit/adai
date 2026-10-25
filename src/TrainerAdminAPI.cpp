@@ -1,10 +1,11 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.2.1
 // @adai-reviewed: 2026-10-24
 
 #include "TrainerAdminAPI.hpp"
 #include <httplib.h>
 #include "BrowserWriteGuard.hpp"
+#include "HttpListenSocket.hpp"
 #include <chrono>
 #include <filesystem>
 #include <sstream>
@@ -78,6 +79,7 @@ adai::TrainerAdminAPI::TrainerAdminAPI(std::shared_ptr<TrainerControlState> cont
     // TD-550: refuse writes a web page could make from an operator's browser (an unlisted Origin, or a
     // preflight-free Content-Type); see BrowserWriteGuard.hpp.
     install_browser_write_guard(svr, "TrainerAdminAPI");
+    use_exclusive_listen_port(svr);  // TD-551
 
     svr.Get("/health", [this](const httplib::Request&, httplib::Response& res) {
         auto [status, body] = handle_health();

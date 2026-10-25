@@ -36,6 +36,7 @@ This directory contains reference materials, technical specifications, and imple
   - [EncoderBlock](source/EncoderBlock.md) (`src/EncoderBlock.{hpp,cpp}`; Pre-LN encoder layer)
   - [EncoderDecoderModel](source/EncoderDecoderModel.md) (`src/EncoderDecoderModel.{hpp,cpp}`; full chatbot model: training, generation, checkpoints, GPU path)
   - [HippocampalMemory](source/HippocampalMemory.md) (`src/HippocampalMemory.{hpp,cpp}`; bounded episodic memory with least-used eviction, swap file and associations)
+  - [HttpListenSocket](source/HttpListenSocket.md) (`src/HttpListenSocket.hpp`; exclusive listening ports for every httplib daemon, TD-551)
   - [IMetricsReporter](source/IMetricsReporter.md) (`src/IMetricsReporter.hpp`; trainer-side metrics interface and `NullMetricsReporter`)
   - [IncrementalTrainer](source/IncrementalTrainer.md) (`src/IncrementalTrainer.{hpp,cpp}`; session/checkpoint manager around `ChatbotTrainer` for every training pass)
   - [IncrementalTrainerArgs](source/IncrementalTrainerArgs.md) (`src/IncrementalTrainerArgs.{hpp,cpp}`; `incremental_trainer`/`trainer_service` global flag parser and helpers)

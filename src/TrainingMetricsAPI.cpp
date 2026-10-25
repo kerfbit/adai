@@ -1,9 +1,10 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.10.1
+// @adai-version: 0.10.2
 // @adai-reviewed: 2026-10-24
 
 #include "TrainingMetricsAPI.hpp"
 #include "BrowserWriteGuard.hpp"
+#include "HttpListenSocket.hpp"
 #include "PortableTime.hpp"
 #include <httplib.h>
 #include <algorithm>
@@ -1103,6 +1104,7 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
     //   - Responses carry CORS headers only for a listed origin ("*" grants reads, never writes).
     // The write guard is shared with the other daemons (TD-550, BrowserWriteGuard.hpp).
     adai::install_browser_write_guard(server_impl_->server, "TrainingMetricsAPI", cors_origins_);
+    adai::use_exclusive_listen_port(server_impl_->server);  // TD-551
 
     server_impl_->server.set_post_routing_handler(
         [this](const httplib::Request& req, httplib::Response& res) {

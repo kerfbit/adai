@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.18.0
+// @adai-version: 0.18.1
 // @adai-reviewed: 2026-10-24
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
@@ -55,6 +55,7 @@
 
 #include <httplib.h>
 #include "BrowserWriteGuard.hpp"
+#include "HttpListenSocket.hpp"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -2126,6 +2127,7 @@ int main(int argc, char* argv[]) {
     // TD-550: refuse writes a web page could make from an operator's browser (an unlisted Origin, or a
     // preflight-free Content-Type); see BrowserWriteGuard.hpp.
     adai::install_browser_write_guard(svr, "registry_server");
+    adai::use_exclusive_listen_port(svr);  // TD-551
 
     // Route all /registry/<group>/... paths. TD-202: every pattern gains an optional kind
     // segment right after the group capture — (?:/(encoder|decoder|world_model|chatbot))? — so
@@ -2247,11 +2249,17 @@ int main(int argc, char* argv[]) {
                      ftp_pasv_max);
     }
 
-    // TODO: See TD-494 in TECHNICAL_DEBT.md - a failed listen() (port in use) exits 0; a stop() before listen() is lost.
-    svr.listen("0.0.0.0", port);
+    // TD-494/TD-551: a failed listen() (port in use, now that the port is exclusive) used to log
+    // "stopped" and exit 0, so restart-on-failure never fired. A stop requested before listen() is
+    // checked first; one arriving in the narrow window just before listen() is still lost.
+    const bool listened = !shutdown_requested.load() && svr.listen("0.0.0.0", port);
 
     if (g_ftp_server)
         g_ftp_server->stop();
+    if (!listened && !shutdown_requested.load()) {
+        Logger::error("registry_server could not listen on port {} (already in use?)", port);
+        return 1;
+    }
     Logger::info("registry_server stopped");
     return 0;
 }

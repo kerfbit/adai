@@ -239,3 +239,12 @@ Live tests: `UploadOverAClaimedFileIsRefused`, `UploadOverwriteReplacesAnUnclaim
 with that `run_id`). Others are listed in the reply's new `"rejected"` array. A claimed unit is recorded even if an earlier pass
 recorded it, so re-trained units keep a record per pass. An empty `run_id` still forces a record of units not yet recorded. Live tests:
 `TrainedFromAnotherRunIsRejected`, `ReTrainedUnitIsRecordedAgain`.
+
+---
+
+## Addendum (October 24, 2026): exclusive port and bind failure (TD-551, TD-494)
+
+The server's listening port is exclusive ([HttpListenSocket](HttpListenSocket.md)): a second `registry_server` on the same port can't
+bind any more. It used to share the port silently. When `listen()` fails, `main()` logs the port and exits 1 instead of logging
+"stopped" and exiting 0. A stop requested before `listen()` skips it.
+
