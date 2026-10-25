@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-10-24
 
 #include "MetricsApiServerArgs.hpp"
 #include <cstdlib>
@@ -24,6 +24,7 @@ MetricsApiServerConfig seed_metrics_server_config_from_file(const ServiceConfig&
     config.staleness_threshold_seconds = file_config.metrics_staleness_threshold_seconds;
     config.enable_prometheus = file_config.metrics_enable_prometheus;
     config.allow_control = file_config.metrics_api_allow_control;
+    config.cors_allowed_origins = file_config.metrics_api_cors_allowed_origins;
     config.name_service_url = file_config.name_service_url;
     config.storage_backend = file_config.metrics_storage_backend;
     config.db_path = file_config.metrics_db_path;
@@ -109,6 +110,8 @@ MetricsApiServerArgsResult parse_metrics_api_server_args(int argc, char* argv[],
             config.enable_prometheus = true;
         } else if (arg == "--no-control") {
             config.allow_control = false;
+        } else if (arg == "--cors-allowed-origins" && i + 1 < argc) {
+            config.cors_allowed_origins = argv[++i];
         } else if (arg == "--name-service-url" && i + 1 < argc) {
             config.name_service_url = argv[++i];
         } else if (arg == "--no-name-service") {

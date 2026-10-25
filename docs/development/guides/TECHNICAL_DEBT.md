@@ -4,14 +4,19 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** October 21, 2026
-**Total Items:** 341
+**Last Updated:** October 24, 2026
+**Total Items:** 342
 **High Priority:** 36
-**Medium Priority:** 149
+**Medium Priority:** 150
 **Low Priority:** 156
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
+
+**October 24, 2026:** Filed [TD-550](#td-550-registry-mns-and-other-daemons-accept-cross-origin-writes) while fixing TD-526 (MEDIUM, verified):
+`registry_server` executes a cross-origin `text/plain` POST from any web page (a `pending/add` from `Origin: http://evil.example`
+returned `{"added":true}`). It sends no CORS headers, so the page can't read the reply, but the write goes through. `mns_server`,
+`chatbot_api_server` and `trainer_service`'s admin API parse bodies the same way.
 
 **October 21, 2026:** Filed [TD-549](#td-549-ftps-data-channel-doesnt-require-tls-session-reuse) while fixing TD-372 (LOW): the FTPS
 data channel still accepts any TLS client from the right IP. The stronger binding, TLS session reuse with the control channel, was
@@ -1207,6 +1212,18 @@ retraining from scratch, since no existing checkpoint has correct GPU-trained we
 
 The run is complete.
 
+**Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
+- TD-490 (done in code: registry group names validated in every route);
+- TD-372/373 (done in code: the FTP data connection must come from the control connection's client, and FTPS requires `AUTH TLS` and
+  `PROT P`);
+- TD-310 (done in code: HuggingFace `split`/`dataset_id` can't leave the data directory);
+- TD-309/470 (done in code: linear Gutenberg text scans; bounded Parquet Thrift skipping);
+- TD-471 (done in code: Parquet declared sizes checked before allocating);
+- TD-339 (done in code: the trainer can pin or CA-verify the registry's FTPS certificate);
+- TD-526 (done in code: the metrics API's CORS is an allow-list, and cross-origin or simple-content-type writes are refused).
+
+Left in the category: TD-550 (the same cross-origin write guard for the other daemons), TD-491–TD-494 and TD-549.
+
 Analyzed September 12, 2026 to sequence the active items by dependency and risk rather than
 just priority label — several depend on each other or on a single owner decision, and the
 "Medium/Low" labels alone don't capture that. Re-derive this ordering rather than trusting it
@@ -2222,6 +2239,7 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-547: GPU Training Does the Token Embeddings on the Host](#td-547-gpu-training-does-the-token-embeddings-on-the-host)
   - [TD-548: Standalone World-Model Pool and Checkpoint Share One Directory](#td-548-standalone-world-model-pool-and-checkpoint-share-one-directory)
   - [TD-549: FTPS Data Channel Doesn't Require TLS Session Reuse](#td-549-ftps-data-channel-doesnt-require-tls-session-reuse)
+  - [TD-550: Registry, MNS and Other Daemons Accept Cross-Origin Writes](#td-550-registry-mns-and-other-daemons-accept-cross-origin-writes)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -14454,7 +14472,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Metrics / API | October 17, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 24, 2026 | Metrics / API | October 17, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `TrainingMetricsAPI.cpp` (see [TrainingMetricsAPI.md](../reference/source/TrainingMetricsAPI.md)); verified against the real
@@ -14468,9 +14486,9 @@ origin permits reading responses, read every endpoint, including `metrics/abnorm
 
 Action Items:
 
-- [ ] Replace the wildcard with a configured allow-list of dashboard origins (or no CORS for write routes).
-- [ ] Reject write/control requests whose `Content-Type` isn't `application/json` (forcing a preflight); consider a shared token for writes.
-- [ ] Update TRAINING_METRICS_API.md's security notes; check `mns_server`/`registry_server` for the same exposure.
+- [x] Replace the wildcard with a configured allow-list of dashboard origins (or no CORS for write routes).
+- [x] Reject write/control requests whose `Content-Type` isn't `application/json` (forcing a preflight); consider a shared token for writes.
+- [x] Update TRAINING_METRICS_API.md's security notes; check `mns_server`/`registry_server` for the same exposure.
 
 Location in code: `src/TrainingMetricsAPI.cpp` (post-routing CORS handler, `OPTIONS` route, push/control routes); tagged `TODO: See TD-526`.
 
@@ -14479,6 +14497,29 @@ Files to Modify:
 - `src/TrainingMetricsAPI.cpp`
 - `docs/development/TRAINING_METRICS_API.md`
 - `tests/training_metrics_api_routes_test.cpp`
+
+**Fix (October 24, 2026).** `TrainingMetricsAPI` takes an allow-list of browser origins: `METRICS_API_CORS_ALLOWED_ORIGINS` in
+`config.metrics.conf` or the environment, or `--cors-allowed-origins`. **Owner decision: empty by default.** Browsers always send
+`Origin` on cross-origin requests and on POSTs; the trainer, the Android app and `curl` don't, and are unaffected.
+- **Writes** (POST/PUT/PATCH/DELETE): refused with 403 if they carry an `Origin` that isn't explicitly listed, and with 415 if their
+  `Content-Type` is one a browser may send without a preflight (`text/plain`, form-encoded, multipart). This runs in a pre-routing
+  handler, so no write route runs.
+- **Responses:** carry `Access-Control-Allow-Origin` only for a listed origin. A `*` entry lets any origin read, never write.
+  `Vary: Origin` is set whenever an `Origin` came in.
+- **Preflights:** answered (204, methods GET/POST/PUT) only for a listed origin; otherwise 403 with no CORS headers.
+- **Tizen app:** it reads with `fetch(…, {mode: 'cors'})`. If its runtime enforces CORS, its origin must be listed. Its exact `Origin`
+  header can't be checked without the device.
+
+Tests (`training_metrics_api_routes_test.cpp`, against the real HTTP server):
+- `CrossOriginTextPlainWriteIsRefusedAndNotApplied`: the verified attack; the injected sample isn't recorded.
+- `SimpleContentTypeWriteIsRefusedWithoutOrigin`
+- `NonBrowserJsonWriteStillWorks`: the trainer's path.
+- `DefaultGrantsNoCrossOriginReadsOrPreflights`
+- `ListedOriginReadsAndWrites`
+- `WildcardGrantsReadsButNotWrites`
+
+**Same exposure elsewhere:** the other daemons send no CORS headers, so responses can't be read, but `registry_server` executed a
+cross-origin `text/plain` `pending/add` (verified). Filed as TD-550.
 
 ---
 
@@ -15263,6 +15304,36 @@ Action Items:
 - [ ] Verify libcurl (`CURLOPT_SSL_SESSIONID_CACHE`, on by default) still downloads under TLS 1.2 and 1.3.
 
 Location in code: `src/FtpDataServer.hpp` (`cmd_retr()`).
+
+---
+
+### TD-550: Registry, MNS and Other Daemons Accept Cross-Origin Writes
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Services / HTTP | October 24, 2026 | 2-4 hours |
+
+Description:
+Filed while fixing TD-526, verified against the real `registry_server`. Its routes parse request bodies whatever their `Content-Type`,
+and there's no authentication. A web page open in a browser on the LAN can therefore send a CORS "simple" request (`text/plain`, no
+preflight) that the server executes:
+- `POST /registry/g1/pending/add` with `Origin: http://evil.example` and `Content-Type: text/plain` returned `{"added":true}`;
+- the page can't read the reply (no CORS headers), but the write happens. Delete, assign, requeue and fetch routes are reachable the
+  same way.
+
+By inspection, the same applies to `mns_server` (state, role and registration writes), `chatbot_api_server` and `trainer_service`'s
+admin API (pause/resume/checkpoint, when enabled). This matters most behind the Cloudflare tunnels (`*.kerfbit.dev`), where an
+operator's authenticated browser session carries the Access cookie.
+
+Action Items:
+
+- [ ] Move TD-526's write guard into one shared helper (refuse writes whose `Origin` isn't listed with 403, and preflight-free
+  `Content-Type`s with 415) and install it in `registry_server`, `mns_server`, `chatbot_api_server` and `TrainerServiceProxy`.
+- [ ] Check the Android ops dashboard and `dataset_manager`/`mns_cli` still work (they send no `Origin`). `upload` takes a raw body
+  sent as `application/octet-stream` by both `RegistryTransport` and the Android app, so the 415 rule doesn't affect it.
+
+Location in code: `src/RegistryServer.cpp`, `src/ModelNameServiceServer.cpp`, `src/ChatbotAPIServer.cpp`/`src/ChatbotAPI.cpp`,
+`src/TrainerServiceProxy.cpp`; the guard to share is in `src/TrainingMetricsAPI.cpp` (pre-routing handler).
 
 ---
 

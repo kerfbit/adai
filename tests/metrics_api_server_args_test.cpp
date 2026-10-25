@@ -41,6 +41,7 @@ TEST(SeedMetricsServerConfigFromFile, CopiesEveryField) {
     file_config.metrics_staleness_threshold_seconds = 20;
     file_config.metrics_enable_prometheus = true;
     file_config.metrics_api_allow_control = false;
+    file_config.metrics_api_cors_allowed_origins = "https://dash.example";
     file_config.name_service_url = "http://ns:9000";
     file_config.metrics_storage_backend = "postgres";
     file_config.metrics_db_path = "/custom/db.sqlite";
@@ -64,6 +65,7 @@ TEST(SeedMetricsServerConfigFromFile, CopiesEveryField) {
     EXPECT_EQ(config.staleness_threshold_seconds, 20);
     EXPECT_TRUE(config.enable_prometheus);
     EXPECT_FALSE(config.allow_control);
+    EXPECT_EQ(config.cors_allowed_origins, "https://dash.example");
     EXPECT_EQ(config.name_service_url, "http://ns:9000");
     EXPECT_EQ(config.storage_backend, "postgres");
     EXPECT_EQ(config.db_path, "/custom/db.sqlite");
@@ -165,6 +167,16 @@ TEST_F(ParseMetricsApiServerArgsTest, BooleanFlagsToggleCorrectly) {
     EXPECT_TRUE(config.enable_prometheus);
     EXPECT_FALSE(config.allow_control);
     EXPECT_EQ(config.name_service_url, "");
+}
+
+// TD-526
+TEST_F(ParseMetricsApiServerArgsTest, CorsAllowedOriginsFlagIsApplied) {
+    std::vector<std::string> raw = {"metrics_api_server", "--cors-allowed-origins",
+                                    "https://a.example,https://b.example"};
+    auto argv = make_argv(raw);
+    auto r = parse_metrics_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
+    ASSERT_FALSE(r.error) << r.error_message;
+    EXPECT_EQ(config.cors_allowed_origins, "https://a.example,https://b.example");
 }
 
 TEST_F(ParseMetricsApiServerArgsTest, StorageBackendAndDbFlagsAreApplied) {

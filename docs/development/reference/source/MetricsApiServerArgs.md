@@ -129,3 +129,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Unknown `--storage-backend` accepted (falls back to file-only with a log warning) (§3) | Metrics DB silently absent | **Verified** (parser); by inspection (fallback) | [TD-439](../../guides/TECHNICAL_DEBT.md#td-439-metrics_api_server-backend-name-and-admin-store-location-gaps) |
 | Admin store located from the file's `db_path`, not `--db-path`; CLI flags silently undo saved admin settings; test-file name in header (§4) | Admin settings can't persist with a custom installer `--metrics-dir`; confusing precedence | By inspection | [TD-439](../../guides/TECHNICAL_DEBT.md#td-439-metrics_api_server-backend-name-and-admin-store-location-gaps) |
 | No range checks on `PUT /admin/config`; two boolean parsers | Already tracked | — | TD-306, TD-286 |
+
+---
+
+## Addendum (October 24, 2026): `--cors-allowed-origins` (TD-526)
+
+`MetricsApiServerConfig::cors_allowed_origins` is seeded from `METRICS_API_CORS_ALLOWED_ORIGINS` and overridden by
+`--cors-allowed-origins LIST`; it isn't admin-mutable. See TrainingMetricsAPI.md.
+

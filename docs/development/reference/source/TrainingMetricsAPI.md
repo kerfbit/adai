@@ -109,3 +109,19 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 The epoch-end handler recorded LeJEPA metrics only when both `predictor_loss` and `sigreg_loss` were ≥ 0, with −1 meaning "not
 sent". Since TD-503, `sigreg_loss` is an unbiased estimate that can be slightly negative, so the handler now gates on
 `predictor_loss` alone; the two always arrive together. Test: `NegativeSigregLossIsStillRecorded`.
+
+---
+
+## Addendum (October 24, 2026): CORS allow-list and write guard (TD-526)
+
+The wildcard CORS policy is replaced by an allow-list (constructor argument `cors_allowed_origins`, from
+`METRICS_API_CORS_ALLOWED_ORIGINS`/`--cors-allowed-origins`, empty by default):
+- **Pre-routing handler:** refuses writes (POST/PUT/PATCH/DELETE) with an unlisted `Origin` (403), and with a preflight-free
+  `Content-Type` (415).
+- **Post-routing handler:** adds `Access-Control-Allow-Origin` only for a listed origin (or `*` for reads when the list has `*`), plus
+  `Vary: Origin`.
+- **`OPTIONS`:** answers a preflight only for a listed origin.
+
+Requests without `Origin` (trainer, Android, `curl`) behave as before. Tests: the six TD-526 cases in
+`training_metrics_api_routes_test.cpp`. The other daemons' exposure to cross-origin writes is TD-550.
+

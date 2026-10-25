@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.6.0
+// @adai-version: 1.7.0
 // @adai-reviewed: 2026-10-24
 
 #include "Config.hpp"
@@ -267,6 +267,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "METRICS_API_ALLOW_CONTROL") {
                 config.metrics_api_allow_control =
                     (value == "true" || value == "1" || value == "yes");
+            } else if (key == "METRICS_API_CORS_ALLOWED_ORIGINS") {
+                config.metrics_api_cors_allowed_origins = value;
                 // Metrics database persistence (TD-020)
             } else if (key == "METRICS_STORAGE_BACKEND") {
                 config.metrics_storage_backend = value;
@@ -650,6 +652,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_bool("METRICS_API_ALLOW_CONTROL")) {
         config.metrics_api_allow_control = *val;
+    }
+    if (auto val = get_env("METRICS_API_CORS_ALLOWED_ORIGINS")) {
+        config.metrics_api_cors_allowed_origins = *val;
     }
 
     // Generation quality metrics configuration

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-10-24
 
 // TD-035: metrics_api_server's config-precedence resolution (file < persisted admin overrides <
 // CLI flags) and argv parsing, pulled out of TrainingMetricsAPIServer.cpp so it's testable
@@ -22,6 +22,7 @@ struct MetricsApiServerConfig {
     bool enable_persistence = true;
     bool enable_prometheus = false;
     bool allow_control = true;
+    std::string cors_allowed_origins;  // TD-526: METRICS_API_CORS_ALLOWED_ORIGINS / --cors-allowed-origins
     std::string metrics_file = "training_sessions/metrics.jsonl";
     std::string summary_file = "training_sessions/metrics_summary.json";
     std::string prometheus_file = "training_sessions/metrics.prom";

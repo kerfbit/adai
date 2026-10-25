@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.6.0
+// @adai-version: 1.7.0
 // @adai-reviewed: 2026-10-24
 
 
@@ -246,6 +246,10 @@ struct ServiceConfig {
 
     /// Allow control endpoints in metrics API (default: true)
     bool metrics_api_allow_control = true;
+
+    /// TD-526: comma-separated browser origins allowed cross-origin access to the metrics API
+    /// ("*" = any origin may read, never write); empty (default) = none.
+    std::string metrics_api_cors_allowed_origins;
 
     // ============================================================
     // Metrics Database Persistence (TD-020)

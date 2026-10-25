@@ -1,12 +1,13 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.9.1
-// @adai-reviewed: 2026-09-23
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-10-24
 
 
 #include <atomic>
 #include <memory>
+#include <set>
 #include <string>
 #include <utility>
 #include "DaemonConfigStore.hpp"
@@ -72,10 +73,18 @@ class TrainingMetricsAPI {
      *        settings persisted via PUT /admin/config); empty = admin changes don't persist
      *        across restarts (GET/PUT /admin/config still work in-memory).
      */
+    /**
+     * @param cors_allowed_origins TD-526: comma-separated browser origins (e.g.
+     *        "https://dash.example:8443") allowed to read responses cross-origin and to send
+     *        writes; "*" lets any origin read (never write). Empty (default) = no cross-origin
+     *        access. Requests without an Origin header (trainers, the Android app, curl) are
+     *        unaffected.
+     */
     explicit TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> session_registry,
                                 int port = 8081, bool allow_control = true,
                                 const std::string& name_service_url = "",
-                                const std::string& admin_config_db_dir = "");
+                                const std::string& admin_config_db_dir = "",
+                                const std::string& cors_allowed_origins = "");
 
     /**
      * @brief Destructor - ensures server is stopped
@@ -176,6 +185,8 @@ class TrainingMetricsAPI {
     int port_;
     bool allow_control_;
     std::string name_service_url_;
+    std::set<std::string> cors_origins_;  // TD-526: explicitly allowed browser origins
+    bool cors_any_origin_reads_ = false;  // TD-526: "*" in the list — any origin may read
     std::atomic<bool> running_;
     std::unique_ptr<adai::DaemonConfigStore> config_store_;
 

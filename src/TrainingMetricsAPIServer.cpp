@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-24
 
 #include <atomic>
 #include <csignal>
@@ -72,6 +72,8 @@ void print_usage(const char* program_name) {
     std::cout << "  --no-persistence             Disable persistence to disk\n";
     std::cout << "  --enable-prometheus          Enable Prometheus format output\n";
     std::cout << "  --no-control                 Disable control endpoints (flush, clear)\n";
+    std::cout << "  --cors-allowed-origins LIST  Browser origins allowed cross-origin access, "
+                 "comma-separated; * = any may read (default: none)\n";
     std::cout << "  --name-service-url URL       Model Name Service URL (default: "
                  "http://localhost:8083)\n";
     std::cout << "  --no-name-service            Disable name service integration\n";
@@ -227,7 +229,8 @@ int main(int argc, char* argv[]) {
         std::cout << "\n[2/3] Creating REST API...\n";
         auto api = std::make_unique<TrainingMetricsAPI>(
             session_registry, server_config.port, server_config.allow_control,
-            server_config.name_service_url, admin_config_db_dir);
+            server_config.name_service_url, admin_config_db_dir,
+            server_config.cors_allowed_origins);
         std::cout << "  ✓ API initialized\n";
 
         if (!server_config.name_service_url.empty()) {
@@ -237,6 +240,10 @@ int main(int argc, char* argv[]) {
         if (!server_config.allow_control) {
             std::cout << "  ⚠ Control endpoints disabled (flush, clear)\n";
         }
+        std::cout << "  ✓ Cross-origin (CORS) access: "
+                  << (server_config.cors_allowed_origins.empty() ? "none"
+                                                                 : server_config.cors_allowed_origins)
+                  << "\n";
 
         // Set up signal handlers
         g_api_server = api.get();

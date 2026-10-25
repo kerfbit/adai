@@ -46,6 +46,9 @@ class TrainingMetricsAPIRoutesTest : public ::testing::Test {
     virtual size_t max_live_sessions() const {
         return 16;
     }
+    virtual std::string cors_allowed_origins() const {
+        return "";
+    }
 
     void SetUp() override {
         const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
@@ -78,7 +81,8 @@ class TrainingMetricsAPIRoutesTest : public ::testing::Test {
 
         for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
             port_ = candidate_test_port(attempt + static_cast<int>(::getpid()));
-            api_ = std::make_unique<TrainingMetricsAPI>(registry_, port_, true);
+            api_ = std::make_unique<TrainingMetricsAPI>(registry_, port_, true, "", "",
+                                                        cors_allowed_origins());
 
             server_exit_code_.store(-1);
             server_thread_ =
@@ -608,3 +612,128 @@ TEST_F(TrainingMetricsAPIRoutesTest, SessionStartWithoutModelIdStillWorks) {
 }
 
 }  // namespace
+
+// ============================================================================
+// TD-526: cross-origin access. Browsers always send Origin on cross-origin requests and on POSTs;
+// the trainer, the Android app and curl don't.
+// ============================================================================
+
+namespace {
+
+const std::string kSampleBody = R"({"sample":7,"loss":99.5,"gradient_norm":0.1,"learning_rate":0.001})";
+
+httplib::Headers origin_header(const std::string& origin) {
+    return {{"Origin", origin}};
+}
+
+}  // namespace
+
+// The verified attack: a web page's preflight-free text/plain POST used to inject a sample (200)
+// and could clear history the same way.
+TEST_F(TrainingMetricsAPIRoutesTest, CrossOriginTextPlainWriteIsRefusedAndNotApplied) {
+    auto client = make_client();
+    auto res = client.Post("/api/sessions/0-default/metrics/sample",
+                           origin_header("http://evil.example"), kSampleBody, "text/plain");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 403);
+    EXPECT_FALSE(res->has_header("Access-Control-Allow-Origin"));
+    auto clear = client.Post("/api/sessions/0-default/control/clear",
+                             origin_header("http://evil.example"), "", "text/plain");
+    ASSERT_TRUE(clear);
+    EXPECT_EQ(clear->status, 403);
+
+    auto current = client.Get("/api/sessions/0-default/metrics/current");
+    ASSERT_TRUE(current);
+    EXPECT_EQ(current->body.find("99.5"), std::string::npos) << current->body;
+}
+
+// Even a listed-origin JSON body can't arrive cross-origin without a preflight, but a simple
+// Content-Type must be refused outright, Origin or not.
+TEST_F(TrainingMetricsAPIRoutesTest, SimpleContentTypeWriteIsRefusedWithoutOrigin) {
+    auto client = make_client();
+    auto res = client.Post("/api/sessions/0-default/metrics/sample", kSampleBody, "text/plain");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 415);
+    res = client.Post("/api/sessions/0-default/metrics/sample", kSampleBody,
+                      "application/x-www-form-urlencoded");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 415);
+}
+
+// The trainer's path (no Origin, application/json) is unchanged.
+TEST_F(TrainingMetricsAPIRoutesTest, NonBrowserJsonWriteStillWorks) {
+    auto client = make_client();
+    auto res = client.Post("/api/sessions/0-default/metrics/sample", kSampleBody,
+                           "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200) << res->body;
+    auto current = client.Get("/api/sessions/0-default/metrics/current");
+    ASSERT_TRUE(current);
+    EXPECT_NE(current->body.find("99.5"), std::string::npos) << current->body;
+}
+
+// Default (empty allow-list): reads still answer, but without CORS headers, so a web page on
+// another origin can't read them; preflights are refused.
+TEST_F(TrainingMetricsAPIRoutesTest, DefaultGrantsNoCrossOriginReadsOrPreflights) {
+    auto client = make_client();
+    auto res = client.Get("/api/sessions/0-default/metrics/current",
+                          origin_header("http://evil.example"));
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_FALSE(res->has_header("Access-Control-Allow-Origin"));
+    EXPECT_EQ(res->get_header_value("Vary"), "Origin");
+
+    res = client.Options("/api/sessions/0-default/metrics/sample",
+                         {{"Origin", "http://evil.example"},
+                          {"Access-Control-Request-Method", "POST"}});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 403);
+    EXPECT_FALSE(res->has_header("Access-Control-Allow-Origin"));
+}
+
+class TrainingMetricsAPICorsAllowListTest : public TrainingMetricsAPIRoutesTest {
+   protected:
+    std::string cors_allowed_origins() const override {
+        return " https://dash.example:8443/ , * ";
+    }
+};
+
+TEST_F(TrainingMetricsAPICorsAllowListTest, ListedOriginReadsAndWrites) {
+    auto client = make_client();
+    auto res = client.Get("/api/sessions/0-default/metrics/current",
+                          origin_header("https://dash.example:8443"));
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->get_header_value("Access-Control-Allow-Origin"), "https://dash.example:8443");
+
+    res = client.Options("/api/sessions/0-default/metrics/sample",
+                         {{"Origin", "https://dash.example:8443"},
+                          {"Access-Control-Request-Method", "POST"}});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 204);
+    EXPECT_EQ(res->get_header_value("Access-Control-Allow-Origin"), "https://dash.example:8443");
+
+    res = client.Post("/api/sessions/0-default/metrics/sample",
+                      origin_header("https://dash.example:8443"), kSampleBody, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200) << res->body;
+    EXPECT_EQ(res->get_header_value("Access-Control-Allow-Origin"), "https://dash.example:8443");
+}
+
+// "*" grants reads to any origin, never writes.
+TEST_F(TrainingMetricsAPICorsAllowListTest, WildcardGrantsReadsButNotWrites) {
+    auto client = make_client();
+    auto res = client.Get("/api/sessions/0-default/metrics/current",
+                          origin_header("http://other.example"));
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->get_header_value("Access-Control-Allow-Origin"), "*");
+
+    res = client.Post("/api/sessions/0-default/metrics/sample",
+                      origin_header("http://other.example"), kSampleBody, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 403);
+    res = client.Options("/api/sessions/0-default/metrics/sample",
+                         {{"Origin", "http://other.example"},
+                          {"Access-Control-Request-Method", "POST"}});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 403);
+}

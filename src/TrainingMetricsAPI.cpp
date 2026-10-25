@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.9.3
-// @adai-reviewed: 2026-10-20
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-10-24
 
 #include "TrainingMetricsAPI.hpp"
 #include "PortableTime.hpp"
@@ -82,18 +82,63 @@ std::vector<float> parse_json_float_array(const std::string& body, const std::st
     return result;
 }
 
+// TD-526: METRICS_API_CORS_ALLOWED_ORIGINS entries, trimmed, without a trailing '/' (browsers
+// send "https://host:port" with no path).
+std::vector<std::string> parse_origin_list(const std::string& list) {
+    std::vector<std::string> out;
+    std::size_t start = 0;
+    while (start <= list.size()) {
+        std::size_t comma = list.find(',', start);
+        if (comma == std::string::npos)
+            comma = list.size();
+        std::string item = list.substr(start, comma - start);
+        const auto first = item.find_first_not_of(" \t");
+        const auto last = item.find_last_not_of(" \t");
+        item = first == std::string::npos ? "" : item.substr(first, last - first + 1);
+        while (item.size() > 1 && item.back() == '/')
+            item.pop_back();
+        if (!item.empty())
+            out.push_back(item);
+        start = comma + 1;
+    }
+    return out;
+}
+
+bool is_write_method(const std::string& method) {
+    return method == "POST" || method == "PUT" || method == "PATCH" || method == "DELETE";
+}
+
+// TD-526: the Content-Types a browser may send cross-origin without a CORS preflight.
+bool is_cors_simple_content_type(const std::string& content_type) {
+    std::string media = content_type.substr(0, content_type.find(';'));
+    const auto first = media.find_first_not_of(" \t");
+    const auto last = media.find_last_not_of(" \t");
+    media = first == std::string::npos ? "" : media.substr(first, last - first + 1);
+    std::transform(media.begin(), media.end(), media.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return media == "text/plain" || media == "application/x-www-form-urlencoded" ||
+           media == "multipart/form-data";
+}
+
 }  // namespace
 
 TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> session_registry,
                                        int port, bool allow_control,
                                        const std::string& name_service_url,
-                                       const std::string& admin_config_db_dir)
+                                       const std::string& admin_config_db_dir,
+                                       const std::string& cors_allowed_origins)
     : session_registry_(std::move(session_registry)),
       port_(port),
       allow_control_(allow_control),
       name_service_url_(name_service_url),
       running_(false),
       server_impl_(std::make_unique<ServerImpl>()) {
+    for (const std::string& origin : parse_origin_list(cors_allowed_origins)) {
+        if (origin == "*")
+            cors_any_origin_reads_ = true;
+        else
+            cors_origins_.insert(origin);
+    }
     if (!admin_config_db_dir.empty()) {
         try {
             config_store_ = std::make_unique<adai::DaemonConfigStore>(admin_config_db_dir +
@@ -1063,20 +1108,60 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
         res.status = 200;
     });
 
-    // TODO: See TD-526 in TECHNICAL_DEBT.md - wildcard origin + no auth + writes accepting text/plain: any web page in an
-    // operator's browser can clear/inject metrics (verified) and read every response, incl. abnormal-sample training text.
-    // Add CORS headers to all responses
-    server_impl_->server.set_post_routing_handler(
-        [](const httplib::Request&, httplib::Response& res) {
-            res.set_header("Access-Control-Allow-Origin", "*");
-            res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-            res.set_header("Access-Control-Allow-Headers", "Content-Type");
+    // TD-526: CORS. This API has no authentication, and it used to answer every request with
+    // "Access-Control-Allow-Origin: *" and parse any body whatever its Content-Type, so any web page
+    // open in an operator's browser could clear or inject metrics with a preflight-free text/plain
+    // POST and read every response, abnormal-sample training text included. Browsers always send
+    // Origin on cross-origin requests and on POSTs; the trainer, the Android app and curl don't.
+    //   - Writes carrying an Origin that isn't explicitly listed are refused (403), and writes with
+    //     a preflight-free Content-Type are refused (415), so a browser can't send one unasked.
+    //   - Responses carry CORS headers only for a listed origin ("*" grants reads, never writes).
+    server_impl_->server.set_pre_routing_handler(
+        [this](const httplib::Request& req, httplib::Response& res) {
+            if (!is_write_method(req.method))
+                return httplib::Server::HandlerResponse::Unhandled;
+            const std::string origin = req.get_header_value("Origin");
+            if (!origin.empty() && cors_origins_.count(origin) == 0) {
+                adai::Logger::warn("TrainingMetricsAPI: refused {} {} from origin '{}' (TD-526)",
+                                   req.method, req.path, origin);
+                res.status = 403;
+                res.set_content(create_error_response("cross-origin writes are not allowed from '" +
+                                                      origin + "'"),
+                                "application/json");
+                return httplib::Server::HandlerResponse::Handled;
+            }
+            if (is_cors_simple_content_type(req.get_header_value("Content-Type"))) {
+                res.status = 415;
+                res.set_content(create_error_response("request bodies must be application/json"),
+                                "application/json");
+                return httplib::Server::HandlerResponse::Handled;
+            }
+            return httplib::Server::HandlerResponse::Unhandled;
         });
 
-    // Handle OPTIONS requests for CORS preflight
-    server_impl_->server.Options(".*", [](const httplib::Request&, httplib::Response& res) {
-        res.set_header("Access-Control-Allow-Origin", "*");
-        res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    server_impl_->server.set_post_routing_handler(
+        [this](const httplib::Request& req, httplib::Response& res) {
+            const std::string origin = req.get_header_value("Origin");
+            if (origin.empty() || req.method == "OPTIONS")
+                return;
+            res.set_header("Vary", "Origin");
+            if (cors_origins_.count(origin) != 0)
+                res.set_header("Access-Control-Allow-Origin", origin);
+            else if (cors_any_origin_reads_ && !is_write_method(req.method))
+                res.set_header("Access-Control-Allow-Origin", "*");
+        });
+
+    // Preflight: only a listed origin is told it may send writes.
+    server_impl_->server.Options(".*", [this](const httplib::Request& req,
+                                              httplib::Response& res) {
+        const std::string origin = req.get_header_value("Origin");
+        res.set_header("Vary", "Origin");
+        if (origin.empty() || cors_origins_.count(origin) == 0) {
+            res.status = 403;
+            return;
+        }
+        res.set_header("Access-Control-Allow-Origin", origin);
+        res.set_header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS");
         res.set_header("Access-Control-Allow-Headers", "Content-Type");
         res.status = 204;
     });

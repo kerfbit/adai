@@ -960,7 +960,14 @@ scrape_configs:
 
 - The server binds to `0.0.0.0` (all interfaces) by default.
 - No authentication is built in. Add a reverse proxy (nginx, Caddy) for production access control.
-- CORS headers (`Access-Control-Allow-Origin: *`) are included on all responses to support browser-based dashboards.
+- **Cross-origin access is off by default (TD-526).** There's no authentication, so a wildcard CORS policy let any web page open in an
+  operator's browser clear or inject metrics and read every response, including abnormal samples' training text; a reverse proxy
+  doesn't help against a browser already behind it. List the browser dashboards that need access in `METRICS_API_CORS_ALLOWED_ORIGINS`
+  (`config.metrics.conf`, comma-separated, e.g. `https://dash.example:8443`) or `--cors-allowed-origins`. A listed origin may read and
+  write; `*` lets any origin read, never write.
+- Writes (POST/PUT) carrying an `Origin` that isn't listed get `403`. Writes with a `Content-Type` a browser can send without a
+  preflight (`text/plain`, form-encoded, multipart) get `415`; send `application/json`. Clients that aren't browsers (the trainer,
+  the Android app, `curl`) send no `Origin` and are unaffected.
 - Control endpoints (`flush`, `clear`) can be disabled with `--no-control` to make the server read-only for external clients.
 - Session key format is validated on all push endpoints (1–64 chars, alphanumeric start, alphanumerics/`_`/`-` only). Invalid keys return `400 Bad Request`.
 
