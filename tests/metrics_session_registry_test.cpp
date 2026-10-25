@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <thread>
 #include "MetricsSessionRegistry.hpp"
@@ -565,4 +566,59 @@ TEST(MetricsSessionRegistry, ConcurrentSetCompletedTtlSecondsDuringSweepIsRaceFr
     stop.store(true, std::memory_order_relaxed);
     writer.join();
     SUCCEED();
+}
+// TD-445: finished sessions used to hold max_live_sessions slots until their completed TTL (an
+// hour), so a new key got no session (503 metrics_server_full). Verified before the fix with a
+// cap of 2: two started-and-ended sessions blocked a third key.
+TEST(MetricsSessionRegistry, FinishedSessionsDontBlockANewKey) {
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 2, 3600);
+    auto a = registry.create_or_get_session("1-host");
+    ASSERT_NE(a, nullptr);
+    a->start_session(1, 1, 10);
+    a->end_session();
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));  // a is the least recently updated
+    auto b = registry.create_or_get_session("2-host");
+    ASSERT_NE(b, nullptr);
+    b->start_session(2, 1, 10);
+    b->end_session();
+
+    auto c = registry.start_session_or_conflict("3-host");
+    EXPECT_FALSE(c.conflict);
+    ASSERT_NE(c.service, nullptr) << "a finished session should have been archived to make room";
+    EXPECT_FALSE(registry.get_session("1-host").has_value()) << "the oldest finished one goes first";
+    EXPECT_TRUE(registry.get_session("2-host").has_value());
+
+    // create_or_get_session() makes room the same way.
+    c.service->start_session(3, 1, 10);
+    c.service->end_session();
+    EXPECT_NE(registry.create_or_get_session("4-host"), nullptr);
+}
+
+TEST(MetricsSessionRegistry, LiveSessionsStillFillTheRegistry) {
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 2, 3600);
+    for (const char* key : {"1-live", "2-live"}) {
+        auto s = registry.create_or_get_session(key);
+        ASSERT_NE(s, nullptr);
+        s->start_session(1, 5, 100);  // training, not stale
+    }
+    auto c = registry.start_session_or_conflict("3-live");
+    EXPECT_FALSE(c.conflict);
+    EXPECT_EQ(c.service, nullptr) << "live sessions are never evicted";
+    EXPECT_TRUE(registry.get_session("1-live").has_value());
+    EXPECT_TRUE(registry.get_session("2-live").has_value());
+}
+
+// A never-started placeholder (e.g. metrics_api_server's startup "0-default" alias) isn't evicted.
+TEST(MetricsSessionRegistry, NeverStartedPlaceholderIsNotEvicted) {
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 2, 3600);
+    ASSERT_NE(registry.create_or_get_session("0-default"), nullptr);
+    auto done = registry.create_or_get_session("1-done");
+    ASSERT_NE(done, nullptr);
+    done->start_session(1, 1, 10);
+    done->end_session();
+
+    auto c = registry.start_session_or_conflict("2-new");
+    ASSERT_NE(c.service, nullptr);
+    EXPECT_TRUE(registry.get_session("0-default").has_value());
+    EXPECT_FALSE(registry.get_session("1-done").has_value());
 }

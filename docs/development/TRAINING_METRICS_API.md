@@ -681,7 +681,7 @@ These endpoints are called by `incremental_trainer` (via `MetricsPushClient`) to
 
 #### `POST /api/sessions/{key}/start`
 
-Creates the session if it does not exist, then starts a training run for it. Returns `409 Conflict` if the session is already active and not stale. Returns `503 Service Unavailable` with `{"error":"metrics_server_full","max_live_sessions":N}` if `--max-live-sessions` is reached.
+Creates the session if it does not exist, then starts a training run for it. Returns `409 Conflict` if the session is already active and not stale. Returns `503 Service Unavailable` with `{"error":"metrics_server_full","max_live_sessions":N}` only if `--max-live-sessions` sessions are all live (finished or stale ones are archived to make room, TD-445).
 
 Request body:
 
@@ -863,7 +863,7 @@ Options:
   --help                       Show this help message
 ```
 
-**Capacity limits:** When `--max-live-sessions` is reached, `POST /api/sessions/{key}/start` returns `503 Service Unavailable` with body `{"error":"metrics_server_full","max_live_sessions":N}`. Completed sessions are evicted after `--completed-ttl-seconds`; the sweep runs every `--sweep-interval-seconds`.
+**Capacity limits:** `--max-live-sessions` limits sessions that are training. When the registry is full and a new key starts, the least recently updated finished or stale session is archived (to the metrics DB, as on key reuse) to make room. Never-started placeholders such as `0-default` aren't evicted. Only when every slot holds a live session does `POST /api/sessions/{key}/start` return `503 Service Unavailable` with body `{"error":"metrics_server_full","max_live_sessions":N}` (TD-445; finished sessions used to hold their slot until `--completed-ttl-seconds`, so more than N passes an hour got 503). Completed sessions are still evicted after `--completed-ttl-seconds`; the sweep runs every `--sweep-interval-seconds`.
 
 ---
 

@@ -1234,6 +1234,7 @@ The run is complete.
 
 **Metrics pipeline run (October 25, 2026)**, chosen by the owner. So far:
 - TD-555 (done in code: pushed abnormal samples are stored, and only an unknown session triggers re-registration).
+- TD-445 (done in code: a full session registry archives finished or stale sessions to make room; only live sessions count).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -11732,7 +11733,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Metrics / Session Registry | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 25, 2026 | Metrics / Session Registry | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `MetricsSessionRegistry` and verified with the real registry. `start_session_or_conflict()`
@@ -11749,9 +11750,9 @@ too. So with the shipped cap of 16, more than 16 passes within an hour fills the
 
 Action Items:
 
-- [ ] Before refusing, evict (archive) the least recently updated finished or stale session; count only live sessions against the cap.
-- [ ] Add a test: cap N, N finished sessions, a new key still starts.
-- [ ] Update TRAINING_METRICS_API.md's capacity note.
+- [x] Before refusing, evict (archive) the least recently updated finished or stale session; count only live sessions against the cap.
+- [x] Add a test: cap N, N finished sessions, a new key still starts.
+- [x] Update TRAINING_METRICS_API.md's capacity note.
 
 Location in code: `src/MetricsSessionRegistry.hpp` (`start_session_or_conflict()`, `create_or_get_session()`); tagged `TODO: See TD-445`.
 
@@ -11760,6 +11761,23 @@ Files to Modify:
 - `src/MetricsSessionRegistry.hpp`
 - `tests/metrics_session_registry_test.cpp`
 - `docs/development/TRAINING_METRICS_API.md`
+
+**Fix (October 25, 2026).** `create_or_get_session()` and `start_session_or_conflict()` call a new `make_room_locked()` instead of
+refusing at the cap. While the registry is full, it archives (`archive_and_remove_locked()`, so the history stays in the metrics DB as on
+key reuse) the least recently updated session that is finished or stale. Live sessions and never-started placeholders, such as the
+startup `0-default` alias, are never evicted, so in effect only live sessions count against `max_live_sessions`, and 503 means every
+slot is training.
+
+Tests (`metrics_session_registry_test.cpp`):
+- `FinishedSessionsDontBlockANewKey`: with a cap of 2 and two finished sessions, a third key starts, the oldest is archived, and
+  `create_or_get_session()` does the same.
+- `LiveSessionsStillFillTheRegistry`
+- `NeverStartedPlaceholderIsNotEvicted`
+
+The first and third fail against the old registry. The existing 503 capacity route test still passes.
+
+Against a real `metrics_api_server --max-live-sessions 3`, with the startup `0-default` and two started-and-ended passes, a third and a
+fourth pass both started (200). Two finished sessions were archived "to make room"; before, the third got 503.
 
 ---
 

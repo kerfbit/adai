@@ -123,3 +123,13 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Runtime `sweep_interval` ≤ 0 spins the sweep thread; 0 → positive never starts it (§3) | A quarter of a core plus constant exclusive locking; or no eviction despite the reported setting | **Verified** | [TD-446](../../guides/TECHNICAL_DEBT.md#td-446-metricssessionregistry-sweep-interval-changes-miss-logging-and-lock-held-io) |
 | `get_session()` miss logging (amplified by Prometheus aggregation); DB and file I/O under the registry lock; late writes after archiving (§4) | Log spam; request stalls on slow storage; rare file sharing between runs | By inspection | [TD-446](../../guides/TECHNICAL_DEBT.md#td-446-metricssessionregistry-sweep-interval-changes-miss-logging-and-lock-held-io) |
 | No range checks on admin settings; `--sweep-interval-seconds 0`; unknown backend | Already tracked | — | TD-306, TD-438, TD-439 |
+
+---
+
+## Addendum (October 25, 2026): finished sessions make room (TD-445)
+
+`make_room_locked()`, called by `create_or_get_session()` and `start_session_or_conflict()`, archives finished or stale sessions, least
+recently updated first, while the registry is at `max_live_sessions`. The history is kept in the DB, as on key reuse. Live sessions and
+never-started placeholders are never evicted. A new key is refused (`nullptr` / 503) only when every slot is live. Tests:
+`FinishedSessionsDontBlockANewKey`, `LiveSessionsStillFillTheRegistry`, `NeverStartedPlaceholderIsNotEvicted`.
+

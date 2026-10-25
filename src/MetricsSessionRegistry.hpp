@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-25
 
 
 #include <atomic>
@@ -108,8 +108,7 @@ class MetricsSessionRegistry {
             }
         }
 
-        // TODO: See TD-445 in TECHNICAL_DEBT.md - counts finished/stale sessions until their TTL; nothing evicts one to make room
-        if (sessions_.size() >= max_live_sessions_) {
+        if (!make_room_locked()) {
             return nullptr;
         }
 
@@ -153,8 +152,7 @@ class MetricsSessionRegistry {
             }
         }
 
-        // TODO: See TD-445 in TECHNICAL_DEBT.md - counts finished/stale sessions until their TTL; nothing evicts one to make room
-        if (sessions_.size() >= max_live_sessions_) {
+        if (!make_room_locked()) {
             return SessionStartResult{nullptr, false};
         }
 
@@ -466,6 +464,40 @@ class MetricsSessionRegistry {
         archive_session_files_locked(key, archived_key, service);
 
         sessions_.erase(it);
+    }
+
+    // TD-445: whether there's room for one more session, making room if needed. A finished or stale
+    // session used to hold a max_live_sessions slot until its completed TTL (an hour by default), so
+    // more than max_live_sessions trainer passes an hour got 503 metrics_server_full and trained
+    // without metrics. Now, when full, finished/stale sessions are archived (to the DB, as on key
+    // reuse) least recently updated first. Live sessions and never-started placeholders (e.g. the
+    // startup "0-default" alias) are never evicted, so in effect only live sessions count.
+    // Must be called with registry_mutex_ held exclusively.
+    bool make_room_locked() {
+        while (sessions_.size() >= max_live_sessions_) {
+            auto victim = sessions_.end();
+            std::chrono::system_clock::time_point victim_activity{};
+            for (auto it = sessions_.begin(); it != sessions_.end(); ++it) {
+                if (!should_replace_completed_session(it->second.service))
+                    continue;  // live, or never started
+                const auto snapshot = it->second.service->get_current_snapshot();
+                const auto activity = snapshot.last_update_time.time_since_epoch().count() > 0
+                                          ? snapshot.last_update_time
+                                          : it->second.created_at;
+                if (victim == sessions_.end() || activity < victim_activity) {
+                    victim = it;
+                    victim_activity = activity;
+                }
+            }
+            if (victim == sessions_.end())
+                return false;  // every slot is a live session
+            adai::Logger::info(
+                "[MetricsSessionRegistry] registry full ({} sessions); archiving finished/stale "
+                "session '{}' to make room",
+                sessions_.size(), victim->first);
+            archive_and_remove_locked(victim);
+        }
+        return true;
     }
 
     size_t evict_completed_sessions_locked(int max_age_seconds) {
