@@ -696,6 +696,49 @@ TEST_F(PostgresMetricsDatabaseTest, GenerationQualityRoundTrip) {
     TearDownRawConn();
 }
 
+// TD-479: the service wrote the session row only after the first history batch and the per-step
+// gradient-variance rows, so Postgres's foreign keys rejected those inserts, each stalled ~0.5 s in
+// retries, and they were dropped — a fresh session ended with 0 history rows. start_session() now
+// writes the session row first, and a rejected statement isn't retried.
+TEST_F(PostgresMetricsDatabaseTest, FreshServiceSessionKeepsFirstRowsWithoutRetryStalls) {
+    PostgresMetricsDatabase db(db_url_, 2);
+    MetricsServiceConfig config;
+    config.enable_persistence = true;
+    config.metrics_file = (scratch_dir_ / (db_name_ + "_metrics.jsonl")).string();
+    config.summary_file = (scratch_dir_ / (db_name_ + "_summary.json")).string();
+    config.persist_every_samples = 1;
+    config.session_key = "td479";
+
+    const auto t0 = std::chrono::steady_clock::now();
+    {
+        TrainingMetricsService service(config);
+        service.set_database(&db, "td479");  // no upsert_session() beforehand
+        service.start_session(1, 1, 5);
+        service.start_epoch(1, 5);
+        for (int i = 1; i <= 5; ++i) {
+            service.update_sample_metrics(i, 2.0f, 1.0f, 0.001f);
+            service.update_advanced_epoch_metrics(0.1f * i, 0.5f, 0.01f);
+        }
+        service.flush_to_disk();
+        service.end_epoch(1, 2.0f, 2.1f, 0.001f);
+        service.end_session();
+    }
+    const double secs =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+
+    PGresult* res = raw_query("SELECT COUNT(*) FROM metrics_history WHERE session_key = 'td479'");
+    ASSERT_EQ(PQresultStatus(res), PGRES_TUPLES_OK) << PQerrorMessage(raw_conn_);
+    EXPECT_GE(std::atoi(PQgetvalue(res, 0, 0)), 5);
+    PQclear(res);
+    res = raw_query(
+        "SELECT COUNT(*) FROM gradient_variance_history WHERE session_key = 'td479'");
+    ASSERT_EQ(PQresultStatus(res), PGRES_TUPLES_OK) << PQerrorMessage(raw_conn_);
+    EXPECT_EQ(std::atoi(PQgetvalue(res, 0, 0)), 5);
+    PQclear(res);
+    EXPECT_LT(secs, 2.0) << "inserts stalled in retries";
+    TearDownRawConn();
+}
+
 TEST_F(PostgresMetricsDatabaseTest, ListSessionsFilterByTraining) {
     PostgresMetricsDatabase db(db_url_, 2);
 

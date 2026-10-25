@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.9.2
-// @adai-reviewed: 2026-09-23
+// @adai-version: 0.9.3
+// @adai-reviewed: 2026-10-25
 
 #include "TrainingMetricsService.hpp"
 #include <algorithm>
@@ -96,8 +96,6 @@ TrainingMetricsService::~TrainingMetricsService() {
     adai::Logger::info("TrainingMetricsService shutdown");
 }
 
-// TODO: See TD-479 in TECHNICAL_DEBT.md - the DB session row isn't written here, only in persist_summary() after the first history batch;
-// on Postgres every child insert before that violates its foreign key and is dropped
 void TrainingMetricsService::start_session(int session_id, int total_epochs, int total_samples,
                                            const std::string& label,
                                            const std::string& config_snapshot, bool reset_best) {
@@ -132,6 +130,18 @@ void TrainingMetricsService::start_session(int session_id, int total_epochs, int
         }
 
         session_start_steady_ = std::chrono::steady_clock::now();
+
+        // TD-479: write the session row now. It used to be written only by persist_summary(), after
+        // the first history batch, so on Postgres (which enforces session_key REFERENCES sessions)
+        // every history, gradient-variance and abnormal-sample row before the first persist failed its
+        // foreign key and was dropped; a short session could lose all of them.
+        if (db_ && !session_key_.empty()) {
+            try {
+                db_->upsert_session(build_session_record());
+            } catch (const std::exception& e) {
+                adai::Logger::error("Failed to write session row to DB at start: {}", e.what());
+            }
+        }
         samples_since_last_persist_ = 0;
         last_persist_time_ = std::chrono::system_clock::now();
         awaiting_validation_ = false;
@@ -835,6 +845,7 @@ void TrainingMetricsService::clear_history() {
 
     history_.clear();
     persisted_up_to_ = 0;
+    db_persisted_up_to_ = 0;
 
     // Also reset "best" tracking: start_session() deliberately carries
     // best_validation_loss/best_epoch forward across sessions for the same key
@@ -873,33 +884,42 @@ MetricsServiceConfig TrainingMetricsService::get_config() const {
 // ============================================================================
 
 void TrainingMetricsService::persist_metrics() {
-    if (!config_.enable_persistence || persisted_up_to_ >= history_.size()) {
+    if (!config_.enable_persistence) {
         return;
     }
 
     // Only records added since the last successful persist — history_ is a rolling
     // in-memory window, not a pending-persist queue, so re-iterating the whole thing
     // here would re-insert/re-append every already-persisted record on every call.
-    const auto begin = history_.begin() + static_cast<std::ptrdiff_t>(persisted_up_to_);
+    // TD-529: the DB and the JSONL file each have their own marker, advanced only by their own
+    // successful writes. One shared marker, skipped when the file couldn't be opened, made every
+    // persist re-insert all pending rows into the DB (3 records became 9 rows).
 
-    // DB write first (TD-020)
+    // DB write first (TD-020); the marker advances row by row, so a failure part-way retries from
+    // the failed row next time instead of re-inserting the earlier ones.
     if (db_ && !session_key_.empty()) {
         try {
-            for (auto it = begin; it != history_.end(); ++it) {
-                db_->insert_metrics_record(session_key_, *it);
+            while (db_persisted_up_to_ < history_.size()) {
+                db_->insert_metrics_record(session_key_, history_[db_persisted_up_to_]);
+                ++db_persisted_up_to_;
             }
         } catch (const std::exception& e) {
             adai::Logger::error("Failed to persist metrics to DB: {}", e.what());
         }
+    } else {
+        db_persisted_up_to_ = history_.size();
     }
+
+    if (persisted_up_to_ >= history_.size()) {
+        return;
+    }
+    const auto begin = history_.begin() + static_cast<std::ptrdiff_t>(persisted_up_to_);
 
     try {
         ensure_parent_directory(config_.metrics_file);
         // TODO: See TD-440 in TECHNICAL_DEBT.md - appended forever, never rotated or trimmed
         std::ofstream file(config_.metrics_file, std::ios::app);
-        // TODO: See TD-529 in TECHNICAL_DEBT.md - returning here skips persisted_up_to_ after the DB inserts above, so the
-        // next persist re-inserts every pending row (3 records -> 9 DB rows, verified).
-        if (!file.is_open()) {
+        if (!file.is_open()) {  // persisted_up_to_ stays put; the file catches up when it can
             adai::Logger::warn("Failed to open metrics file: {}", config_.metrics_file);
             return;
         }
@@ -922,8 +942,13 @@ void TrainingMetricsService::persist_metrics() {
         }
 
         file.close();
+        if (file.fail()) {
+            adai::Logger::warn("Failed to write metrics file: {}", config_.metrics_file);
+            return;
+        }
     } catch (const std::exception& e) {
         adai::Logger::error("Failed to persist metrics: {}", e.what());
+        return;
     }
 
     persisted_up_to_ = history_.size();
@@ -1367,6 +1392,8 @@ void TrainingMetricsService::trim_history() {
         // way, but if any were never persisted (persisted_up_to_ hadn't caught up yet),
         // this must not let it point past the front of the now-shorter vector.
         persisted_up_to_ = (persisted_up_to_ > to_remove) ? (persisted_up_to_ - to_remove) : 0;
+        db_persisted_up_to_ =
+            (db_persisted_up_to_ > to_remove) ? (db_persisted_up_to_ - to_remove) : 0;
     }
 }
 

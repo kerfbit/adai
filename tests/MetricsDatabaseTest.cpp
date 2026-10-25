@@ -6,6 +6,7 @@
 #include <limits>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <thread>
 #include "GenerationQualityMetrics.hpp"
 #include "IMetricsReporter.hpp"
@@ -1265,4 +1266,74 @@ TEST_F(MetricsDatabaseTest, FoundGetSessionDoesNotBlockWalCheckpoints) {
     ASSERT_TRUE(fs::exists(wal));
     EXPECT_LT(fs::file_size(wal), 16u * 1024 * 1024) << "WAL bytes: " << fs::file_size(wal);
     EXPECT_GT(fs::file_size(db_path_), 1u * 1024 * 1024) << "rows should reach the main database";
+}
+
+// TD-529: when the JSONL metrics file couldn't be opened, persist_metrics() returned after the DB
+// inserts without advancing its marker, so every later persist re-inserted every pending row
+// (3 records → 9 rows). The DB now has its own marker, independent of the file write.
+TEST_F(MetricsDatabaseTest, UnwritableMetricsFileDoesNotDuplicateDbRows) {
+    const fs::path metrics_file = fs::path(test_dir_) / "metrics.jsonl";
+    fs::create_directories(metrics_file);  // a directory, so it can't be opened as the JSONL file
+
+    MetricsServiceConfig config;
+    config.enable_persistence = true;
+    config.metrics_file = metrics_file.string();
+    config.summary_file = (fs::path(test_dir_) / "summary.json").string();
+    config.persist_every_samples = 1;
+    config.session_key = "td529";
+    auto db = std::make_unique<SQLiteMetricsDatabase>(db_path_);
+    TrainingMetricsService service(config);
+    service.set_database(db.get(), "td529");
+    service.start_session(1, 5, 100);
+    service.start_epoch(1, 100);
+    for (int i = 1; i <= 10; ++i) service.update_sample_metrics(i, 2.5f, 1.0f, 0.001f);
+    service.flush_to_disk();
+    service.flush_to_disk();
+
+    const auto rows = db->query_history("td529", std::nullopt, std::nullopt, 0);
+    std::set<int> samples;
+    for (const auto& r : rows) samples.insert(r.sample);
+    EXPECT_EQ(rows.size(), samples.size()) << "duplicate DB rows: " << rows.size() << " rows for "
+                                           << samples.size() << " samples";
+    EXPECT_FALSE(rows.empty());
+}
+
+// TD-529 (other half): a DB failure must neither drop the rows nor duplicate them. The rows that
+// failed are inserted by a later persist once the DB works again.
+namespace {
+class FlakySQLiteMetricsDatabase : public SQLiteMetricsDatabase {
+public:
+    using SQLiteMetricsDatabase::SQLiteMetricsDatabase;
+    void insert_metrics_record(const std::string& key, const PersistentMetricsRecord& rec) override {
+        if (failing) throw std::runtime_error("simulated DB failure");
+        SQLiteMetricsDatabase::insert_metrics_record(key, rec);
+    }
+    bool failing = true;
+};
+}  // namespace
+
+TEST_F(MetricsDatabaseTest, FailingDbRowsAreInsertedOnceWhenItRecovers) {
+    MetricsServiceConfig config;
+    config.enable_persistence = true;
+    config.metrics_file = (fs::path(test_dir_) / "metrics.jsonl").string();
+    config.summary_file = (fs::path(test_dir_) / "summary.json").string();
+    config.persist_every_samples = 1;
+    config.session_key = "td529db";
+    auto db = std::make_unique<FlakySQLiteMetricsDatabase>(db_path_);
+    TrainingMetricsService service(config);
+    service.set_database(db.get(), "td529db");
+    service.start_session(1, 5, 100);
+    service.start_epoch(1, 100);
+    for (int i = 1; i <= 5; ++i) service.update_sample_metrics(i, 2.5f, 1.0f, 0.001f);
+    service.flush_to_disk();
+    db->failing = false;
+    for (int i = 6; i <= 10; ++i) service.update_sample_metrics(i, 2.5f, 1.0f, 0.001f);
+    service.flush_to_disk();
+
+    const auto rows = db->query_history("td529db", std::nullopt, std::nullopt, 0);
+    std::set<int> samples;
+    for (const auto& r : rows) samples.insert(r.sample);
+    EXPECT_EQ(rows.size(), samples.size()) << "duplicate DB rows";
+    EXPECT_TRUE(samples.count(1)) << "rows from the failed persists were dropped";
+    EXPECT_TRUE(samples.count(10));
 }

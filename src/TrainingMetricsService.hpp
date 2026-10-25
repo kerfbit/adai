@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.9.2
-// @adai-reviewed: 2026-09-23
+// @adai-version: 0.9.3
+// @adai-reviewed: 2026-10-25
 
 
 #include <atomic>
@@ -423,7 +423,8 @@ class TrainingMetricsService {
     // persist_metrics() has already written out, so periodic persistence only writes
     // newly-added records instead of re-writing the whole window every time.
     std::vector<PersistentMetricsRecord> history_;
-    std::size_t persisted_up_to_{0};
+    std::size_t persisted_up_to_{0};     // written to the JSONL metrics file
+    std::size_t db_persisted_up_to_{0};  // TD-529: inserted into db_ (its own marker)
 
     // Configuration
     MetricsServiceConfig config_;

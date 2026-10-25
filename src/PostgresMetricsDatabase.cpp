@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-042 resolved — real test coverage added; still not built by default)
-// @adai-version: 0.4.2
-// @adai-reviewed: 2026-09-23
+// @adai-version: 0.4.3
+// @adai-reviewed: 2026-10-25
 
 #ifdef ADAI_ENABLE_POSTGRES
 
@@ -159,6 +159,15 @@ bool PostgresMetricsDatabase::execute_with_retry(const char* context,
                                 e.what(), attempt + 1, RETRY_COUNT);
         }
 
+        // TD-479: a failure on a healthy connection is the statement's own (a foreign-key or other
+        // constraint violation, bad data): the same statement fails the same way again, so don't
+        // retry it. Retrying used to block the caller ~0.5 s per rejected row (every per-step
+        // gradient-variance insert, before a session row existed). Only connection trouble retries.
+        if (!success && PQstatus(conn) == CONNECTION_OK) {
+            release_connection(conn);
+            adai::Logger::error("[PostgresMetricsDB] {} — statement rejected; not retried", context);
+            return false;
+        }
         if (!success && PQstatus(conn) != CONNECTION_OK) {
             std::lock_guard<std::mutex> lock(pool_mutex_);
             for (auto& entry : pool_) {
@@ -557,7 +566,6 @@ void PostgresMetricsDatabase::mark_session_ended(const std::string& key) {
 // Metrics Record Operations
 // ============================================================================
 
-// TODO: See TD-479 in TECHNICAL_DEBT.md - FK violation (no session row yet) is retried 3x (~0.5 s) then dropped
 void PostgresMetricsDatabase::insert_metrics_record(const std::string& session_key,
                                                     const PersistentMetricsRecord& rec) {
     execute_with_retry("insert_metrics_record", [&](PGconn* conn) -> bool {
@@ -614,7 +622,6 @@ void PostgresMetricsDatabase::insert_metrics_record(const std::string& session_k
     });
 }
 
-// TODO: See TD-479 in TECHNICAL_DEBT.md - per-step rows before the first persist all hit the FK and are dropped
 void PostgresMetricsDatabase::insert_gradient_variance_sample(const std::string& session_key,
                                                                int step, int epoch, float value) {
     execute_with_retry("insert_gradient_variance_sample", [&](PGconn* conn) -> bool {

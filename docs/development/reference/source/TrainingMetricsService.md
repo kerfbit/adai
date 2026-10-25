@@ -113,3 +113,17 @@ This file replaces `docs/development/TRAINING_METRICS_SERVICE.md` (409 lines). W
 - **"Efficient persistence… minimal overhead"** omitted that history is sampled every `persist_every_samples`.
 
 Kept: the snapshot fields, configuration, export formats and threading model. Dropped: the example program, monitoring script and use-case list.
+
+---
+
+## Addendum (October 25, 2026): persistence markers and session row order (TD-529, TD-479)
+
+- **TD-529:** `persist_metrics()` keeps two markers, `db_persisted_up_to_` for the database and `persisted_up_to_` for the JSONL file.
+  Each advances only past rows its own write accepted. An unopenable JSONL file no longer makes the next persist re-insert DB rows (10
+  samples now give 10 rows; the old code left 75), and a DB exception leaves the failed row for the next persist instead of skipping it.
+  `clear_history()` and `trim_history()` adjust both markers.
+- **TD-479:** `start_session()` upserts the session row as soon as a database is attached, so child rows (history, gradient variance)
+  always have their parent. This matters for Postgres, which enforces the foreign keys.
+
+Tests: `UnwritableMetricsFileDoesNotDuplicateDbRows`, `FailingDbRowsAreInsertedOnceWhenItRecovers` (`MetricsDatabaseTest.cpp`),
+`FreshServiceSessionKeepsFirstRowsWithoutRetryStalls` (`postgres_metrics_database_test.cpp`).

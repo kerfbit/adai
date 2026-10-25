@@ -85,3 +85,16 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Child rows written before the session row violate foreign keys; retried 3× (~0.5 s) and dropped (§2) | Every session loses its first history batch and early per-step gradient rows; ingest stalls 0.5 s per rejected insert | **Verified** (real PostgreSQL 16) | [TD-479](../../guides/TECHNICAL_DEBT.md#td-479-postgres-backend-drops-each-sessions-first-history-batch-on-foreign-key-violations) |
 | Schema bootstrap only on a successful first connection; reconnects under the pool mutex; no timeouts; non-idempotent and non-retryable retries; archive key collision (§2) | Broken store after a late DB start; stalls; duplicate rows | By inspection | [TD-480](../../guides/TECHNICAL_DEBT.md#td-480-postgresmetricsdatabase-one-time-schema-bootstrap-reconnects-under-lock-and-unsafe-retries) |
 | Timestamp fraction parsing; no retention | Already tracked | — | TD-477, TD-440 |
+
+---
+
+## Addendum (October 25, 2026): first rows kept, rejected statements not retried (TD-479)
+
+- `TrainingMetricsService::start_session()` writes the session row before any child row, so the first history batch and early
+  gradient-variance rows are no longer dropped on foreign-key violations.
+- `execute_with_retry()` retries only when the connection is down. A statement the server rejects on a healthy connection fails at once
+  and is logged ("statement rejected; not retried"), so a bad row no longer stalls ingest for ~0.5 s.
+
+Test: `FreshServiceSessionKeepsFirstRowsWithoutRetryStalls` writes through the real service with a fresh key and no upsert first. All 5
+history and 5 gradient-variance rows are stored, in about 1 s. The old code stored none and took 5.5 s. This closes the "not covered"
+gap above.

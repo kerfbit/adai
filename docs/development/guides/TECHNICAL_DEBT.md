@@ -1238,6 +1238,8 @@ The run is complete.
 - TD-442 (done in code: the push client's end-of-pass drain is bounded, 10 s by default, and runs after the final save).
 - TD-443 (done in code: non-finite values travel as `null`, small values keep their digits, no response emits `nan`/`inf`, and adaptive clipping is sent).
 - TD-509/510 (done in code: the SQLite store's `get_session()` no longer blocks WAL checkpoints, and NaN reads back as NaN, not 0).
+- TD-479/529 (done in code: the session row is written when the session starts, rejected Postgres statements aren't retried, and the DB
+  and JSONL file each keep their own persist marker).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -13016,7 +13018,7 @@ table on the device. The CPU `forward_with_cache()` copy remains.
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Metrics / Database | October 17, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 25, 2026 | Metrics / Database | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `PostgresMetricsDatabase` and verified on a real PostgreSQL 16 cluster through the real `TrainingMetricsService`. The Postgres schema
@@ -13031,9 +13033,16 @@ sessions can lose everything. The backend's own tests always upsert the session 
 
 Action Items:
 
-- [ ] Upsert the session row in `TrainingMetricsService::start_session()` (and/or run `persist_summary()` before `persist_metrics()`).
-- [ ] Don't retry constraint violations (check the SQLSTATE class) in `execute_with_retry()`.
-- [ ] Add a live test that writes child rows through `TrainingMetricsService` without a prior upsert.
+- [x] Upsert the session row in `TrainingMetricsService::start_session()` (and/or run `persist_summary()` before `persist_metrics()`).
+- [x] Don't retry constraint violations (check the SQLSTATE class) in `execute_with_retry()`.
+- [x] Add a live test that writes child rows through `TrainingMetricsService` without a prior upsert.
+
+**Fix (October 25, 2026).** `start_session()` upserts the session row as soon as a database is attached, so every child row that follows
+has its parent. `execute_with_retry()` retries only when the connection is gone: a statement the server rejects on a healthy connection
+(a constraint violation, a bad value) fails at once and is logged, instead of sleeping ~0.5 s in retries. Test
+`FreshServiceSessionKeepsFirstRowsWithoutRetryStalls` (`postgres_metrics_database_test.cpp`, real PostgreSQL 16): a service with a fresh
+key and no upsert first writes 5 samples and 5 gradient-variance rows. All of them are stored, in about 1 s. With the old code it stored
+0 history rows and 0 gradient-variance rows and took 5.5 s.
 
 Location in code: `src/TrainingMetricsService.cpp` (`start_session()`, `persist_metrics()`/`persist_summary()` order); `src/PostgresMetricsDatabase.cpp` (child inserts, `execute_with_retry()`); tagged `TODO: See TD-479`.
 
@@ -14828,7 +14837,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Metrics / Service | October 17, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 25, 2026 | Metrics / Service | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `TrainingMetricsService.cpp` (see [TrainingMetricsService.md](../reference/source/TrainingMetricsService.md)); verified with
@@ -14840,8 +14849,16 @@ the marker past rows that never reached the DB, is TD-479's drop.)
 
 Action Items:
 
-- [ ] Track DB and file progress separately (two markers), advancing each only after its own write succeeds.
-- [ ] Test persistence with an unwritable JSONL path and with a failing DB.
+- [x] Track DB and file progress separately (two markers), advancing each only after its own write succeeds.
+- [x] Test persistence with an unwritable JSONL path and with a failing DB.
+
+**Fix (October 25, 2026).** `persist_metrics()` keeps a DB marker (`db_persisted_up_to_`) next to the file marker, and each advances only
+past rows its own write accepted: the DB marker one row at a time, so a DB exception leaves the failed row for the next persist, and the
+file marker only after the JSONL write and close succeed. `clear_history()` and `trim_history()` adjust both markers. Tests
+(`MetricsDatabaseTest.cpp`):
+- `UnwritableMetricsFileDoesNotDuplicateDbRows`: with the JSONL path unopenable, 10 samples give 10 DB rows. The old code left 75.
+- `FailingDbRowsAreInsertedOnceWhenItRecovers`: rows whose inserts threw are inserted once, by the first persist after the DB recovers.
+  The old code dropped them.
 
 Location in code: `src/TrainingMetricsService.cpp` (`persist_metrics()`); tagged `TODO: See TD-529`.
 
