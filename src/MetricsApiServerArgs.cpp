@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-10-24
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-10-25
 
 #include "MetricsApiServerArgs.hpp"
 #include <cstdlib>
@@ -18,6 +18,9 @@ MetricsApiServerConfig seed_metrics_server_config_from_file(const ServiceConfig&
     config.persist_every_seconds = file_config.metrics_persist_every_seconds;
     config.max_records_in_memory = file_config.metrics_max_records_in_memory;
     config.max_records_on_disk = file_config.metrics_max_records_on_disk;
+    config.retention_days = file_config.metrics_retention_days;
+    config.metrics_file_max_mb = file_config.metrics_file_max_mb;
+    config.metrics_file_backups = file_config.metrics_file_backups;
     config.max_live_sessions = file_config.metrics_max_live_sessions;
     config.completed_ttl_seconds = file_config.metrics_completed_ttl_seconds;
     config.sweep_interval_seconds = file_config.metrics_sweep_interval_seconds;
@@ -59,6 +62,9 @@ void apply_metrics_admin_overrides(MetricsApiServerConfig& config,
     apply_int("persist_every_seconds", config.persist_every_seconds);
     apply_int("max_records_in_memory", config.max_records_in_memory);
     apply_int("max_records_on_disk", config.max_records_on_disk);
+    apply_int("retention_days", config.retention_days);
+    apply_int("metrics_file_max_mb", config.metrics_file_max_mb);
+    apply_int("metrics_file_backups", config.metrics_file_backups);
     apply_int("staleness_threshold_seconds", config.staleness_threshold_seconds);
     if (auto it = overrides.find("enable_prometheus"); it != overrides.end()) {
         config.enable_prometheus = (it->second == "true");
@@ -93,6 +99,12 @@ MetricsApiServerArgsResult parse_metrics_api_server_args(int argc, char* argv[],
             config.max_records_in_memory = std::atoi(argv[++i]);
         } else if (arg == "--max-disk-records" && i + 1 < argc) {
             config.max_records_on_disk = std::atoi(argv[++i]);
+        } else if (arg == "--retention-days" && i + 1 < argc) {
+            config.retention_days = std::atoi(argv[++i]);
+        } else if (arg == "--metrics-file-max-mb" && i + 1 < argc) {
+            config.metrics_file_max_mb = std::atoi(argv[++i]);
+        } else if (arg == "--metrics-file-backups" && i + 1 < argc) {
+            config.metrics_file_backups = std::atoi(argv[++i]);
         } else if (arg == "--max-live-sessions" && i + 1 < argc) {
             config.max_live_sessions = static_cast<size_t>(std::strtoul(argv[++i], nullptr, 10));
         } else if (arg == "--completed-ttl-seconds" && i + 1 < argc) {

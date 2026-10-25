@@ -2,6 +2,7 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <thread>
 #include "MetricsSessionRegistry.hpp"
 
@@ -621,4 +622,106 @@ TEST(MetricsSessionRegistry, NeverStartedPlaceholderIsNotEvicted) {
     ASSERT_NE(c.service, nullptr);
     EXPECT_TRUE(registry.get_session("0-default").has_value());
     EXPECT_FALSE(registry.get_session("1-done").has_value());
+}
+
+// TD-440: age retention deletes old DB sessions (with their rows) and old archived files, and keeps
+// recent sessions, recent archived files and files that aren't archived.
+TEST(MetricsSessionRegistry, RetentionDeletesOldSessionsAndArchivedFiles) {
+    namespace fs = std::filesystem;
+    const fs::path temp_root = fs::temp_directory_path() / "adai_metrics_registry_test_retention";
+    fs::remove_all(temp_root);
+    fs::create_directories(temp_root);
+
+    MetricsServiceConfig config;
+    config.metrics_file = (temp_root / "metrics.jsonl").string();
+    config.summary_file = (temp_root / "metrics_summary.json").string();
+    config.retention_days = 30;
+    const std::string db_path = (temp_root / "metrics.db").string();
+    MetricsSessionRegistry registry(config, 16, 3600, /*sweep=*/0, "sqlite", db_path);
+    auto* db = registry.get_database();
+    ASSERT_NE(db, nullptr);
+
+    const auto now = std::chrono::system_clock::now();
+    auto add_session = [&](const std::string& key, std::chrono::system_clock::time_point updated) {
+        SessionRecord rec;
+        rec.key = key;
+        rec.session_id = 1;
+        rec.created_at = updated;
+        rec.last_update_at = updated;
+        db->upsert_session(rec);
+        PersistentMetricsRecord row;
+        row.timestamp = updated;
+        db->insert_metrics_record(key, row);
+        db->insert_gradient_variance_sample(key, 1, 1, 0.5f);
+    };
+    add_session("old_archived_1_0", now - std::chrono::hours(24 * 40));
+    add_session("recent", now - std::chrono::hours(24 * 10));
+
+    auto touch = [&](const std::string& name, std::chrono::hours age) {
+        const fs::path p = temp_root / name;
+        std::ofstream(p) << "x";
+        fs::last_write_time(p, fs::file_time_type::clock::now() - age);
+        return p;
+    };
+    const auto old_archived = touch("k_archived_1_0_metrics.jsonl.2", std::chrono::hours(24 * 40));
+    const auto new_archived = touch("k_archived_2_0_metrics.jsonl", std::chrono::hours(24 * 10));
+    const auto old_live = touch("live_metrics.jsonl", std::chrono::hours(24 * 40));
+
+    EXPECT_EQ(registry.apply_retention(now), 1);
+    EXPECT_FALSE(db->get_session("old_archived_1_0").has_value());
+    EXPECT_TRUE(db->query_history("old_archived_1_0", std::nullopt, std::nullopt, 0).empty());
+    EXPECT_TRUE(db->query_gradient_variance("old_archived_1_0", 0).empty());
+    EXPECT_TRUE(db->get_session("recent").has_value());
+    EXPECT_EQ(db->query_history("recent", std::nullopt, std::nullopt, 0).size(), 1u);
+    EXPECT_FALSE(fs::exists(old_archived));
+    EXPECT_TRUE(fs::exists(new_archived));
+    EXPECT_TRUE(fs::exists(old_live)) << "only archived files are removed";
+
+    registry.update_metrics_config([](MetricsServiceConfig& c) { c.retention_days = 0; });
+    EXPECT_EQ(registry.apply_retention(now + std::chrono::hours(24 * 365)), 0)
+        << "retention_days 0 keeps everything";
+    EXPECT_TRUE(db->get_session("recent").has_value());
+
+    fs::remove_all(temp_root);
+}
+
+// TD-440: a session's rotated JSONL backups are renamed with it when it is archived.
+TEST(MetricsSessionRegistry, EvictionArchivesRotatedMetricsBackups) {
+    namespace fs = std::filesystem;
+    const fs::path temp_root = fs::temp_directory_path() / "adai_metrics_registry_test_backups";
+    fs::remove_all(temp_root);
+    fs::create_directories(temp_root);
+
+    MetricsServiceConfig config;
+    config.enable_persistence = true;
+    config.metrics_file = (temp_root / "metrics.jsonl").string();
+    config.summary_file = (temp_root / "metrics_summary.json").string();
+    config.metrics_file_backups = 2;
+    MetricsSessionRegistry registry(config, 16, /*ttl=*/0, /*sweep=*/0);
+    auto svc = registry.create_or_get_session("bk-key");
+    ASSERT_NE(svc, nullptr);
+    svc->start_session(1, 1, 1);
+    svc->end_session();
+    const std::string metrics_file = svc->get_config().metrics_file;
+    std::ofstream(metrics_file + ".1") << "x";
+    std::ofstream(metrics_file + ".2") << "x";
+
+    registry.evict_completed_sessions(0);
+
+    EXPECT_FALSE(fs::exists(metrics_file + ".1"));
+    EXPECT_FALSE(fs::exists(metrics_file + ".2"));
+    auto ends_with = [](const std::string& s, const std::string& suffix) {
+        return s.size() >= suffix.size() &&
+               s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+    };
+    int archived_backups = 0;
+    for (const auto& entry : fs::directory_iterator(temp_root)) {
+        const std::string name = entry.path().filename().string();
+        if (name.rfind("bk-key_archived_", 0) == 0 &&
+            (ends_with(name, "_metrics.jsonl.1") || ends_with(name, "_metrics.jsonl.2")))
+            ++archived_backups;
+    }
+    EXPECT_EQ(archived_backups, 2);
+
+    fs::remove_all(temp_root);
 }

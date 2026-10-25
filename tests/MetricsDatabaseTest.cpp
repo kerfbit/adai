@@ -1337,3 +1337,198 @@ TEST_F(MetricsDatabaseTest, FailingDbRowsAreInsertedOnceWhenItRecovers) {
     EXPECT_TRUE(samples.count(1)) << "rows from the failed persists were dropped";
     EXPECT_TRUE(samples.count(10));
 }
+
+// ---------------------------------------------------------------------------
+// TD-440: retention (row cap, age delete), readers for the formerly write-only tables, JSONL rotation
+// ---------------------------------------------------------------------------
+
+TEST(MetricsRowCapPlan, ThinsOldestOrDeletesOldest) {
+    EXPECT_EQ(plan_row_cap(100, 100).thin_first, 0);  // at the cap: nothing
+    EXPECT_EQ(plan_row_cap(100, 100).delete_oldest, 0);
+    EXPECT_EQ(plan_row_cap(5000, 0).thin_first, 0);  // 0 = no cap
+    // 1000 rows, cap 800 → trim to 600: thin the oldest 800 (every second goes, 400 rows)
+    EXPECT_EQ(plan_row_cap(1000, 800).thin_first, 800);
+    EXPECT_EQ(plan_row_cap(1000, 800).delete_oldest, 0);
+    // 1000 rows, cap 100 → trim to 75: more than half must go, so delete the oldest 925
+    EXPECT_EQ(plan_row_cap(1000, 100).thin_first, 0);
+    EXPECT_EQ(plan_row_cap(1000, 100).delete_oldest, 925);
+}
+
+namespace {
+void add_test_session(IMetricsDatabase& db, const std::string& key,
+                      std::chrono::system_clock::time_point updated) {
+    SessionRecord rec;
+    rec.key = key;
+    rec.session_id = 1;
+    rec.created_at = updated;
+    rec.last_update_at = updated;
+    db.upsert_session(rec);
+}
+}  // namespace
+
+TEST_F(MetricsDatabaseTest, CapSessionRowsThinsOldestAndKeepsNewest) {
+    SQLiteMetricsDatabase db(db_path_);
+    add_test_session(db, "cap", std::chrono::system_clock::now());
+    add_test_session(db, "other", std::chrono::system_clock::now());
+    const auto base = std::chrono::system_clock::now();
+    for (int i = 0; i < 1000; ++i) {
+        PersistentMetricsRecord rec;
+        rec.timestamp = base + std::chrono::milliseconds(i);
+        rec.sample = i;
+        db.insert_metrics_record("cap", rec);
+        db.insert_gradient_variance_sample("cap", i, 1, static_cast<float>(i));
+    }
+    for (int i = 0; i < 10; ++i) {
+        PersistentMetricsRecord rec;
+        rec.timestamp = base;
+        rec.sample = i;
+        db.insert_metrics_record("other", rec);
+    }
+
+    EXPECT_EQ(db.cap_session_rows("cap", 2000), 0) << "under the cap: nothing deleted";
+    EXPECT_EQ(db.cap_session_rows("cap", 800), 800);  // 400 from each table
+
+    const auto rows = db.query_history("cap", std::nullopt, std::nullopt, 0);
+    ASSERT_EQ(rows.size(), 600u);
+    EXPECT_EQ(rows.front().sample, 0) << "the start of the run survives thinning";
+    EXPECT_EQ(rows[1].sample, 2) << "the oldest rows are thinned to every second one";
+    EXPECT_EQ(rows.back().sample, 999);
+    EXPECT_EQ(rows[399].sample, 798);
+    EXPECT_EQ(rows[400].sample, 800) << "rows newer than the thinned span are all kept";
+    const auto gv = db.query_gradient_variance("cap", 0);
+    ASSERT_EQ(gv.size(), 600u);
+    EXPECT_EQ(gv.front().step, 0);
+    EXPECT_EQ(gv.back().step, 999);
+    EXPECT_EQ(db.query_history("other", std::nullopt, std::nullopt, 0).size(), 10u)
+        << "other sessions untouched";
+
+    // A cap far below the row count deletes the oldest rows: 600 → 75.
+    EXPECT_EQ(db.cap_session_rows("cap", 100), 2 * 525);
+    const auto small = db.query_history("cap", std::nullopt, std::nullopt, 0);
+    ASSERT_EQ(small.size(), 75u);
+    EXPECT_EQ(small.back().sample, 999);
+}
+
+TEST_F(MetricsDatabaseTest, DeleteSessionsUpdatedBeforeRemovesAllTheirRows) {
+    SQLiteMetricsDatabase db(db_path_);
+    const auto now = std::chrono::system_clock::now();
+    add_test_session(db, "old", now - std::chrono::hours(24 * 100));
+    add_test_session(db, "new", now - std::chrono::hours(1));
+    for (const char* key : {"old", "new"}) {
+        PersistentMetricsRecord rec;
+        rec.timestamp = now;
+        db.insert_metrics_record(key, rec);
+        db.insert_gradient_variance_sample(key, 1, 1, 0.1f);
+        GenerationQualityScore score;
+        db.insert_generation_quality(key, 1, score);
+        AbnormalSample sample;
+        sample.timestamp = now;
+        db.insert_abnormal_sample(key, sample);
+    }
+
+    EXPECT_EQ(db.delete_sessions_updated_before(now - std::chrono::hours(24 * 90)), 1);
+    EXPECT_FALSE(db.get_session("old").has_value());
+    EXPECT_TRUE(db.query_history("old", std::nullopt, std::nullopt, 0).empty());
+    EXPECT_TRUE(db.query_gradient_variance("old", 0).empty());
+    EXPECT_TRUE(db.query_generation_quality("old").empty());
+    EXPECT_TRUE(db.get_session("new").has_value());
+    EXPECT_EQ(db.query_history("new", std::nullopt, std::nullopt, 0).size(), 1u);
+    EXPECT_EQ(db.query_gradient_variance("new", 0).size(), 1u);
+    EXPECT_EQ(db.query_generation_quality("new").size(), 1u);
+
+    // No orphaned abnormal_samples rows are left for the deleted session.
+    sqlite3* raw = nullptr;
+    ASSERT_EQ(sqlite3_open(db_path_.c_str(), &raw), SQLITE_OK);
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(raw, "SELECT COUNT(*) FROM abnormal_samples WHERE session_key='old'", -1,
+                       &stmt, nullptr);
+    ASSERT_EQ(sqlite3_step(stmt), SQLITE_ROW);
+    EXPECT_EQ(sqlite3_column_int(stmt, 0), 0);
+    sqlite3_finalize(stmt);
+    sqlite3_close(raw);
+}
+
+TEST_F(MetricsDatabaseTest, GradientVarianceAndGenerationQualityReadBack) {
+    SQLiteMetricsDatabase db(db_path_);
+    add_test_session(db, "read", std::chrono::system_clock::now());
+    for (int i = 1; i <= 5; ++i)
+        db.insert_gradient_variance_sample("read", i, 1 + i / 3, 1.5e-6f * i);
+    GenerationQualityScore score;
+    score.bleu1 = 0.5f;
+    score.bleu2 = 0.4f;
+    score.bleu4 = 0.25f;
+    score.rouge1 = 0.6f;
+    score.rouge2 = 0.3f;
+    score.rougeL = 0.55f;
+    db.insert_generation_quality("read", 3, score);
+
+    const auto all = db.query_gradient_variance("read", 0);
+    ASSERT_EQ(all.size(), 5u);
+    EXPECT_EQ(all[0].step, 1);
+    EXPECT_EQ(all[4].step, 5);
+    EXPECT_FLOAT_EQ(all[0].value, 1.5e-6f);
+    const auto newest = db.query_gradient_variance("read", 2);
+    ASSERT_EQ(newest.size(), 2u);
+    EXPECT_EQ(newest[0].step, 4) << "limit keeps the newest rows, oldest first";
+    EXPECT_EQ(newest[1].step, 5);
+
+    const auto gq = db.query_generation_quality("read");
+    ASSERT_EQ(gq.size(), 1u);
+    EXPECT_EQ(gq[0].epoch, 3);
+    EXPECT_FLOAT_EQ(gq[0].bleu1, 0.5f);
+    EXPECT_FLOAT_EQ(gq[0].bleu2, 0.4f);
+    EXPECT_FLOAT_EQ(gq[0].bleu4, 0.25f);
+    EXPECT_FLOAT_EQ(gq[0].rougeL, 0.55f);
+}
+
+TEST_F(MetricsDatabaseTest, ServiceKeepsSessionRowsUnderMaxRecordsOnDisk) {
+    MetricsServiceConfig config;
+    config.enable_persistence = true;
+    config.metrics_file = (fs::path(test_dir_) / "cap_metrics.jsonl").string();
+    config.summary_file = (fs::path(test_dir_) / "cap_summary.json").string();
+    config.persist_every_samples = 1;
+    config.max_records_on_disk = 40;
+    config.session_key = "svc-cap";
+    auto db = std::make_unique<SQLiteMetricsDatabase>(db_path_);
+    TrainingMetricsService service(config);
+    service.set_database(db.get(), "svc-cap");
+    service.start_session(1, 1, 200);
+    service.start_epoch(1, 200);
+    for (int i = 1; i <= 200; ++i) {
+        service.update_sample_metrics(i, 2.0f, 1.0f, 0.001f);
+        service.update_advanced_epoch_metrics(0.1f, 0.5f, 0.01f);
+        service.flush_to_disk();
+    }
+
+    const auto rows = db->query_history("svc-cap", std::nullopt, std::nullopt, 0);
+    EXPECT_LE(rows.size(), 40u);
+    EXPECT_GE(rows.size(), 30u);
+    ASSERT_FALSE(rows.empty());
+    EXPECT_EQ(rows.back().sample, 200);
+    EXPECT_LE(db->query_gradient_variance("svc-cap", 0).size(), 40u);
+}
+
+TEST_F(MetricsDatabaseTest, MetricsFileRotatesAtSizeAndKeepsBackups) {
+    const std::string path = (fs::path(test_dir_) / "rot_metrics.jsonl").string();
+    auto write_mb = [&](double mb) {
+        std::ofstream(path, std::ios::app) << std::string(static_cast<size_t>(mb * 1024 * 1024), 'x');
+    };
+
+    write_mb(0.5);
+    rotate_metrics_file_if_needed(path, 1, 2);
+    EXPECT_TRUE(fs::exists(path)) << "below the size limit: no rotation";
+    EXPECT_FALSE(fs::exists(path + ".1"));
+
+    for (int i = 0; i < 3; ++i) {
+        write_mb(1.1);
+        rotate_metrics_file_if_needed(path, 1, 2);
+    }
+    EXPECT_FALSE(fs::exists(path)) << "the next append starts a new file";
+    EXPECT_TRUE(fs::exists(path + ".1"));
+    EXPECT_TRUE(fs::exists(path + ".2"));
+    EXPECT_FALSE(fs::exists(path + ".3")) << "only the configured number of backups is kept";
+
+    write_mb(1.1);
+    rotate_metrics_file_if_needed(path, 0, 2);
+    EXPECT_TRUE(fs::exists(path)) << "max_mb 0 never rotates";
+}

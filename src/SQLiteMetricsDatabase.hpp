@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-25
 
 
 #include <mutex>
@@ -43,6 +43,15 @@ class SQLiteMetricsDatabase : public IMetricsDatabase {
     std::vector<SessionRecord> list_sessions(std::optional<bool> is_training_filter) override;
 
     std::optional<SessionRecord> get_session(const std::string& key) override;
+
+    std::vector<GradientVarianceRecord> query_gradient_variance(const std::string& session_key,
+                                                                int limit) override;
+    std::vector<GenerationQualityRecord> query_generation_quality(
+        const std::string& session_key) override;
+
+    long long cap_session_rows(const std::string& session_key, int max_rows) override;
+    long long delete_sessions_updated_before(
+        std::chrono::system_clock::time_point cutoff) override;
 
    private:
     void bootstrap_schema();

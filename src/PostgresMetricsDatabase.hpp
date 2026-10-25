@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (TD-042 resolved — real test coverage added; still not built by default)
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-10-25
 
 
 #ifdef ADAI_ENABLE_POSTGRES
@@ -48,6 +48,15 @@ class PostgresMetricsDatabase : public IMetricsDatabase {
     std::vector<SessionRecord> list_sessions(std::optional<bool> is_training_filter) override;
 
     std::optional<SessionRecord> get_session(const std::string& key) override;
+
+    std::vector<GradientVarianceRecord> query_gradient_variance(const std::string& session_key,
+                                                                int limit) override;
+    std::vector<GenerationQualityRecord> query_generation_quality(
+        const std::string& session_key) override;
+
+    long long cap_session_rows(const std::string& session_key, int max_rows) override;
+    long long delete_sessions_updated_before(
+        std::chrono::system_clock::time_point cutoff) override;
 
    private:
     struct PooledConnection {

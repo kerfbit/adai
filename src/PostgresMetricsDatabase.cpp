@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-042 resolved — real test coverage added; still not built by default)
-// @adai-version: 0.4.3
+// @adai-version: 0.5.0
 // @adai-reviewed: 2026-10-25
 
 #ifdef ADAI_ENABLE_POSTGRES
@@ -934,6 +934,185 @@ std::optional<SessionRecord> PostgresMetricsDatabase::get_session(const std::str
     });
 
     return result;
+}
+
+// ============================================================================
+// TD-440: readers for the formerly write-only tables, and retention
+// ============================================================================
+
+std::vector<GradientVarianceRecord> PostgresMetricsDatabase::query_gradient_variance(
+    const std::string& session_key, int limit) {
+    std::vector<GradientVarianceRecord> results;
+    execute_with_retry("query_gradient_variance", [&](PGconn* conn) -> bool {
+        results.clear();
+        // Newest `limit` rows (by insertion order), returned oldest first.
+        std::string sql =
+            "SELECT recorded_at, step, epoch, value FROM gradient_variance_history "
+            "WHERE session_key = $1 ORDER BY id DESC";
+        if (limit > 0)
+            sql += " LIMIT " + std::to_string(limit);
+        const char* params[] = {session_key.c_str()};
+        PGresult* res =
+            PQexecParams(conn, sql.c_str(), 1, nullptr, params, nullptr, nullptr, 0);
+        if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+            adai::Logger::error("[PostgresMetricsDB] query_gradient_variance: {}",
+                                PQerrorMessage(conn));
+            PQclear(res);
+            return false;
+        }
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        for (int i = PQntuples(res) - 1; i >= 0; --i) {
+            GradientVarianceRecord rec;
+            rec.timestamp = parse_timestamp(PQgetvalue(res, i, 0));
+            rec.step = std::atoi(PQgetvalue(res, i, 1));
+            rec.epoch = std::atoi(PQgetvalue(res, i, 2));
+            rec.value = pg_opt_float(res, i, 3, nan);
+            results.push_back(rec);
+        }
+        PQclear(res);
+        return true;
+    });
+    return results;
+}
+
+std::vector<GenerationQualityRecord> PostgresMetricsDatabase::query_generation_quality(
+    const std::string& session_key) {
+    std::vector<GenerationQualityRecord> results;
+    execute_with_retry("query_generation_quality", [&](PGconn* conn) -> bool {
+        results.clear();
+        const char* params[] = {session_key.c_str()};
+        PGresult* res = PQexecParams(conn,
+                                     "SELECT recorded_at, epoch, bleu1, bleu2, bleu4, rouge1, "
+                                     "rouge2, \"rougeL\" FROM generation_quality "
+                                     "WHERE session_key = $1 ORDER BY id ASC",
+                                     1, nullptr, params, nullptr, nullptr, 0);
+        if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+            adai::Logger::error("[PostgresMetricsDB] query_generation_quality: {}",
+                                PQerrorMessage(conn));
+            PQclear(res);
+            return false;
+        }
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        for (int i = 0; i < PQntuples(res); ++i) {
+            GenerationQualityRecord rec;
+            rec.timestamp = parse_timestamp(PQgetvalue(res, i, 0));
+            rec.epoch = std::atoi(PQgetvalue(res, i, 1));
+            rec.bleu1 = pg_opt_float(res, i, 2, nan);
+            rec.bleu2 = pg_opt_float(res, i, 3, nan);
+            rec.bleu4 = pg_opt_float(res, i, 4, nan);
+            rec.rouge1 = pg_opt_float(res, i, 5, nan);
+            rec.rouge2 = pg_opt_float(res, i, 6, nan);
+            rec.rougeL = pg_opt_float(res, i, 7, nan);
+            results.push_back(rec);
+        }
+        PQclear(res);
+        return true;
+    });
+    return results;
+}
+
+long long PostgresMetricsDatabase::cap_session_rows(const std::string& session_key,
+                                                    int max_rows) {
+    if (max_rows <= 0)
+        return 0;
+    long long deleted = 0;
+    execute_with_retry("cap_session_rows", [&](PGconn* conn) -> bool {
+        deleted = 0;
+        for (const char* table : {"metrics_history", "gradient_variance_history"}) {
+            const std::string t = table;
+            const char* p1[] = {session_key.c_str()};
+            PGresult* res =
+                PQexecParams(conn, ("SELECT COUNT(*) FROM " + t + " WHERE session_key = $1").c_str(),
+                             1, nullptr, p1, nullptr, nullptr, 0);
+            if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+                adai::Logger::error("[PostgresMetricsDB] cap_session_rows: {}",
+                                    PQerrorMessage(conn));
+                PQclear(res);
+                return false;
+            }
+            const long long count = std::atoll(PQgetvalue(res, 0, 0));
+            PQclear(res);
+
+            const RowCapPlan plan = plan_row_cap(count, max_rows);
+            std::string sql;
+            long long n = 0;
+            if (plan.thin_first > 0) {
+                sql = "DELETE FROM " + t +
+                      " WHERE id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY id) "
+                      "AS rn FROM " +
+                      t +
+                      " WHERE session_key = $1) AS numbered WHERE rn <= $2 AND rn % 2 = 0)";
+                n = plan.thin_first;
+            } else if (plan.delete_oldest > 0) {
+                sql = "DELETE FROM " + t + " WHERE id IN (SELECT id FROM " + t +
+                      " WHERE session_key = $1 ORDER BY id LIMIT $2)";
+                n = plan.delete_oldest;
+            } else {
+                continue;
+            }
+            const std::string n_str = std::to_string(n);
+            const char* p2[] = {session_key.c_str(), n_str.c_str()};
+            res = PQexecParams(conn, sql.c_str(), 2, nullptr, p2, nullptr, nullptr, 0);
+            if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+                adai::Logger::error("[PostgresMetricsDB] cap_session_rows: {}",
+                                    PQerrorMessage(conn));
+                PQclear(res);
+                return false;
+            }
+            deleted += std::atoll(PQcmdTuples(res));
+            PQclear(res);
+        }
+        return true;
+    });
+    return deleted;
+}
+
+long long PostgresMetricsDatabase::delete_sessions_updated_before(
+    std::chrono::system_clock::time_point cutoff) {
+    long long sessions = 0;
+    const std::string ts = format_timestamp(cutoff);
+    execute_with_retry("delete_sessions_updated_before", [&](PGconn* conn) -> bool {
+        PGresult* res = PQexec(conn, "BEGIN");
+        bool ok = PQresultStatus(res) == PGRES_COMMAND_OK;
+        PQclear(res);
+        if (!ok)
+            return false;
+
+        const char* params[] = {ts.c_str()};
+        auto run = [&](const char* sql) -> long long {
+            PGresult* r = PQexecParams(conn, sql, 1, nullptr, params, nullptr, nullptr, 0);
+            long long changed = -1;
+            if (PQresultStatus(r) == PGRES_COMMAND_OK)
+                changed = std::atoll(PQcmdTuples(r));
+            else
+                adai::Logger::error("[PostgresMetricsDB] delete_sessions_updated_before: {}",
+                                    PQerrorMessage(conn));
+            PQclear(r);
+            return changed;
+        };
+        // Children first: they reference sessions(key).
+        bool step_ok = true;
+        for (const char* sql :
+             {"DELETE FROM metrics_history WHERE session_key IN "
+              "(SELECT key FROM sessions WHERE last_update_at < $1)",
+              "DELETE FROM gradient_variance_history WHERE session_key IN "
+              "(SELECT key FROM sessions WHERE last_update_at < $1)",
+              "DELETE FROM generation_quality WHERE session_key IN "
+              "(SELECT key FROM sessions WHERE last_update_at < $1)",
+              "DELETE FROM abnormal_samples WHERE session_key IN "
+              "(SELECT key FROM sessions WHERE last_update_at < $1)"}) {
+            step_ok = step_ok && run(sql) >= 0;
+        }
+        long long n = step_ok ? run("DELETE FROM sessions WHERE last_update_at < $1") : -1;
+        step_ok = step_ok && n >= 0;
+
+        res = PQexec(conn, step_ok ? "COMMIT" : "ROLLBACK");
+        PQclear(res);
+        if (step_ok)
+            sessions = n;
+        return step_ok;
+    });
+    return sessions;
 }
 
 // ============================================================================

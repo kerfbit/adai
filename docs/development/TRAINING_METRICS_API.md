@@ -100,6 +100,8 @@ The server uses a session-keyed design. Each training run opens a named **sessio
 | **GET** | `/api/metrics/aggregate` | Compact JSON of all live sessions |
 | **GET** | `/api/metrics/prometheus/aggregate` | Prometheus text for all live sessions with `session=` labels |
 | **GET** | `/api/sessions/{key}/metrics/db-history` | DB-backed time-range history (`from`, `to`, `limit`) |
+| **GET** | `/api/sessions/{key}/metrics/db-gradient-variance` | Per-optimizer-step gradient variance from the DB (`limit` = newest N) |
+| **GET** | `/api/sessions/{key}/metrics/db-generation-quality` | Per-epoch BLEU/ROUGE scores from the DB |
 | **GET** | `/api/sessions/{key}/metrics/export` | Full unbounded history export (`format=csv\|json`) |
 | **GET** | `/api/metrics/compare` | Cross-session metric comparison (`keys`, `metric`) |
 | **GET** | `/health` | Server health and active session count |
@@ -596,6 +598,28 @@ Returns an error response if no database backend is configured (`METRICS_STORAGE
 
 ---
 
+### `GET /api/sessions/{key}/metrics/db-gradient-variance`
+
+The per-optimizer-step gradient variance the trainer pushes with `/metrics/advanced` (TD-440; stored since TD-013, readable
+since October 25, 2026). Rows come oldest first; `limit=N` returns only the newest N.
+
+```bash
+curl "http://localhost:8081/api/sessions/42-gpu0/metrics/db-gradient-variance?limit=1000"
+```
+
+```json
+{"session_key":"42-gpu0","count":2,"records":[
+  {"timestamp":"2026-10-25T22:08:23.717Z","step":2999,"epoch":1,"value":0.00299900002},
+  {"timestamp":"2026-10-25T22:08:23.719Z","step":3000,"epoch":1,"value":0.00300000003}]}
+```
+
+### `GET /api/sessions/{key}/metrics/db-generation-quality`
+
+The per-epoch generation quality scores (`epoch`, `bleu1`, `bleu2`, `bleu4`, `rouge1`, `rouge2`, `rougeL`), oldest first.
+Both routes return an error response when no database backend is configured.
+
+---
+
 ### `GET /api/sessions/{key}/metrics/export`
 
 Full unbounded history export from the database.
@@ -844,7 +868,12 @@ Options:
   --persist-samples N          Persist every N samples (default: 100)
   --persist-seconds N          Persist every N seconds (default: 30)
   --max-memory-records N       Max records in memory (default: 10000)
-  --max-disk-records N         Max records on disk (default: 100000)
+  --max-disk-records N         Max DB rows per session; older rows are thinned
+                               (default: 100000, 0 = no cap)
+  --retention-days N           Delete sessions not updated for N days
+                               (default: 90, 0 = keep forever)
+  --metrics-file-max-mb N      Rotate a session's JSONL file at N MB (default: 100, 0 = never)
+  --metrics-file-backups N     Rotated JSONL files kept per session (default: 3)
   --max-live-sessions N        Max concurrent live sessions (default: 16)
   --completed-ttl-seconds N    Seconds to retain completed sessions in memory
                                (default: 3600)
@@ -864,6 +893,20 @@ Options:
 ```
 
 **Capacity limits:** `--max-live-sessions` limits sessions that are training. When the registry is full and a new key starts, the least recently updated finished or stale session is archived (to the metrics DB, as on key reuse) to make room. Never-started placeholders such as `0-default` aren't evicted. Only when every slot holds a live session does `POST /api/sessions/{key}/start` return `503 Service Unavailable` with body `{"error":"metrics_server_full","max_live_sessions":N}` (TD-445; finished sessions used to hold their slot until `--completed-ttl-seconds`, so more than N passes an hour got 503). Completed sessions are still evicted after `--completed-ttl-seconds`; the sweep runs every `--sweep-interval-seconds`.
+
+**Storage retention (TD-440, October 25, 2026).** Storage used to grow for as long as the server ran: nothing deleted rows, the
+JSONL files were appended to forever, and `--max-disk-records` was read by nothing. Now:
+- **Per-session row cap** (`--max-disk-records`, `METRICS_MAX_RECORDS_ON_DISK`, admin key `max_records_on_disk`). After each
+  persist, a session's `metrics_history` and `gradient_variance_history` rows are each kept at or below the cap. Once a table goes
+  over, it is trimmed to 3/4 of the cap by deleting every second row among the oldest rows, so older history gets progressively
+  sparser while the start and the recent end of the run stay. Only when more than half the rows must go are the oldest deleted.
+- **Age retention** (`--retention-days`, `METRICS_RETENTION_DAYS`, admin key `retention_days`). Once an hour the sweep deletes every
+  session whose `last_update_at` is older than this, with all its rows (history, gradient variance, generation quality, abnormal
+  samples), and every archived session file (`*_archived_*`, rotated backups included) last written before the same cutoff. A live
+  session updates its row at every persist, so only dead and archived sessions get that old.
+- **JSONL rotation** (`--metrics-file-max-mb`/`--metrics-file-backups`, `METRICS_FILE_MAX_MB`/`METRICS_FILE_BACKUPS`, admin keys
+  `metrics_file_max_mb`/`metrics_file_backups`). A session's JSONL file moves to `<file>.1` at the size limit (older backups shift
+  up, the oldest is deleted), and archiving a session renames its backups with it.
 
 ---
 

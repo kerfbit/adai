@@ -846,3 +846,70 @@ TEST_F(PostgresMetricsDatabaseTest, PoolDoesNotDeadlockOnSustainedConnectionFail
 }
 
 #endif  // ADAI_ENABLE_POSTGRES
+
+// TD-440 (Postgres): readers, the per-session row cap and the age delete.
+TEST_F(PostgresMetricsDatabaseTest, RetentionAndReadersWork) {
+    PostgresMetricsDatabase db(db_url_, 2);
+    const auto now = std::chrono::system_clock::now();
+    auto add = [&](const std::string& key, std::chrono::system_clock::time_point updated) {
+        SessionRecord s;
+        s.key = key;
+        s.session_id = 1;
+        s.created_at = s.last_update_at = updated;
+        db.upsert_session(s);
+    };
+    add("cap", now);
+    add("old", now - std::chrono::hours(24 * 100));
+    for (int i = 0; i < 1000; ++i) {
+        PersistentMetricsRecord rec;
+        rec.timestamp = now + std::chrono::milliseconds(i);
+        rec.sample = i;
+        db.insert_metrics_record("cap", rec);
+        db.insert_gradient_variance_sample("cap", i, 1, 1e-6f * i);
+    }
+    GenerationQualityScore score;
+    score.bleu4 = 0.25f;
+    score.rougeL = 0.5f;
+    db.insert_generation_quality("cap", 4, score);
+    db.insert_generation_quality("old", 1, score);
+    PersistentMetricsRecord old_row;
+    old_row.timestamp = now;
+    db.insert_metrics_record("old", old_row);
+    db.insert_gradient_variance_sample("old", 1, 1, 0.5f);
+    AbnormalSample sample;
+    sample.timestamp = now;
+    db.insert_abnormal_sample("old", sample);
+
+    const auto newest = db.query_gradient_variance("cap", 3);
+    ASSERT_EQ(newest.size(), 3u);
+    EXPECT_EQ(newest[0].step, 997);
+    EXPECT_EQ(newest[2].step, 999);
+    const auto gq = db.query_generation_quality("cap");
+    ASSERT_EQ(gq.size(), 1u);
+    EXPECT_EQ(gq[0].epoch, 4);
+    EXPECT_FLOAT_EQ(gq[0].bleu4, 0.25f);
+    EXPECT_FLOAT_EQ(gq[0].rougeL, 0.5f);
+
+    EXPECT_EQ(db.cap_session_rows("cap", 800), 800);
+    const auto rows = db.query_history("cap", std::nullopt, std::nullopt, 0);
+    ASSERT_EQ(rows.size(), 600u);
+    EXPECT_EQ(rows[0].sample, 0);
+    EXPECT_EQ(rows[1].sample, 2);
+    EXPECT_EQ(rows.back().sample, 999);
+    EXPECT_EQ(db.query_gradient_variance("cap", 0).size(), 600u);
+
+    // Deleting "old" must clear its child rows first (Postgres enforces the foreign keys).
+    EXPECT_EQ(db.delete_sessions_updated_before(now - std::chrono::hours(24 * 90)), 1);
+    EXPECT_FALSE(db.get_session("old").has_value());
+    EXPECT_TRUE(db.get_session("cap").has_value());
+    PGresult* res = raw_query(
+        "SELECT (SELECT COUNT(*) FROM metrics_history WHERE session_key='old') + "
+        "(SELECT COUNT(*) FROM gradient_variance_history WHERE session_key='old') + "
+        "(SELECT COUNT(*) FROM generation_quality WHERE session_key='old') + "
+        "(SELECT COUNT(*) FROM abnormal_samples WHERE session_key='old')");
+    ASSERT_EQ(PQresultStatus(res), PGRES_TUPLES_OK) << PQerrorMessage(raw_conn_);
+    EXPECT_EQ(std::atoi(PQgetvalue(res, 0, 0)), 0);
+    PQclear(res);
+    EXPECT_EQ(db.query_generation_quality("cap").size(), 1u);
+    TearDownRawConn();
+}

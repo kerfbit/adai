@@ -127,3 +127,22 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `gradient_variance_history` and `generation_quality` are write-only; per-step inserts (§3) | One write per optimizer step per session for data nothing reads | **Verified** (search) | [TD-440](../../guides/TECHNICAL_DEBT.md#td-440-metrics-storage-has-no-retention-and-max_records_on_disk-is-never-applied) |
 | `step` restarts per service instance; `limit` keeps the oldest rows; unbounded compare/export reads; undocumented contract; factory in the SQLite file (§3) | Duplicate step numbers; a "latest N" query returns the earliest N | By inspection | [TD-441](../../guides/TECHNICAL_DEBT.md#td-441-imetricsdatabase-contract-gaps-step-counter-limit-order-unbounded-reads) |
 | Unknown backend name falls back to file-only | Already tracked | — | TD-439 |
+
+---
+
+## Addendum (October 25, 2026): retention and readers (TD-440)
+
+`IMetricsDatabase` (1.1.0) has four new methods, implemented by both backends:
+- `query_gradient_variance(key, limit)` and `query_generation_quality(key)` read the two tables that used to be write-only. Rows come
+  oldest first; `limit` keeps the newest N. They're served as `GET …/metrics/db-gradient-variance` and `…/db-generation-quality`.
+- `cap_session_rows(key, max_rows)` keeps a session's `metrics_history` and `gradient_variance_history` at or below `max_rows`, using
+  `plan_row_cap()`. Nothing happens until the cap is exceeded. Then each table is trimmed to 3/4 of the cap by deleting every second
+  row among the oldest, or by deleting the oldest rows when more than half must go. Repeated trims make old history sparser while the
+  start of the run survives. `TrainingMetricsService` calls it after every DB persist with `max_records_on_disk`.
+- `delete_sessions_updated_before(cutoff)` deletes sessions whose `last_update_at` is older than the cutoff, and their rows in all four
+  child tables, in one transaction with children first (Postgres enforces the foreign keys). The registry sweep calls it hourly with
+  `retention_days`.
+
+Tests: `CapSessionRowsThinsOldestAndKeepsNewest`, `DeleteSessionsUpdatedBeforeRemovesAllTheirRows`,
+`GradientVarianceAndGenerationQualityReadBack`, `MetricsRowCapPlan.ThinsOldestOrDeletesOldest` (SQLite);
+`RetentionAndReadersWork` (PostgreSQL 16).

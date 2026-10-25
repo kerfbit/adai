@@ -60,3 +60,11 @@ No defects of its own beyond those already tracked, plus small items, tracked as
 ## 3. Tests
 
 None run `main()`. The pieces it wires together have their own suites (argument parsing, registry, API routes and live tests).
+
+---
+
+## Addendum (October 25, 2026): retention flags (TD-440)
+
+`--max-disk-records` is enforced now, and there are three new flags: `--retention-days`, `--metrics-file-max-mb` and
+`--metrics-file-backups` (config keys `METRICS_RETENTION_DAYS`, `METRICS_FILE_MAX_MB`, `METRICS_FILE_BACKUPS`). The startup banner
+prints the retention settings. TD-528's "unenforced flag" item no longer applies.

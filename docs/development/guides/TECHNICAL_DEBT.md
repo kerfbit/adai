@@ -1240,6 +1240,8 @@ The run is complete.
 - TD-509/510 (done in code: the SQLite store's `get_session()` no longer blocks WAL checkpoints, and NaN reads back as NaN, not 0).
 - TD-479/529 (done in code: the session row is written when the session starts, rejected Postgres statements aren't retried, and the DB
   and JSONL file each keep their own persist marker).
+- TD-440 (done in code: per-session DB row cap with thinning, 90-day session retention, size-based JSONL rotation, and read routes for
+  gradient variance and generation quality).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -11552,7 +11554,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Metrics / Database | October 14, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 25, 2026 | Metrics / Database | October 14, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `MetricsDatabase` and verified by search:
@@ -11573,9 +11575,42 @@ nothing reads.
 
 Action Items:
 
-- [ ] Owner decision: retention policy (per-session row cap, age, or both) and whether `gradient_variance_history`/`generation_quality` get readers (an API endpoint) or are dropped/throttled.
-- [ ] Add a prune operation to `IMetricsDatabase` (both backends) and apply `max_records_on_disk` (per session) on persist or in the registry sweep; trim or rotate the JSONL to match.
-- [ ] Remove `compress_old_records` or implement it; correct TRAINING_METRICS_API.md.
+- [x] Owner decision: retention policy (per-session row cap, age, or both) and whether `gradient_variance_history`/`generation_quality` get readers (an API endpoint) or are dropped/throttled.
+- [x] Add a prune operation to `IMetricsDatabase` (both backends) and apply `max_records_on_disk` (per session) on persist or in the registry sweep; trim or rotate the JSONL to match.
+- [x] Remove `compress_old_records` or implement it; correct TRAINING_METRICS_API.md.
+
+**Owner decision (October 25, 2026).** Both a per-session row cap and an age limit; read endpoints for the two write-only tables; the
+JSONL rotated by size.
+
+**Fix (October 25, 2026).**
+- **Row cap.** `max_records_on_disk` (default 100,000) is enforced per session on `metrics_history` and `gradient_variance_history`.
+  After each DB persist, `TrainingMetricsService` calls the new `IMetricsDatabase::cap_session_rows()`. Once a table exceeds the
+  cap, it is trimmed to 3/4 of the cap by deleting every second row among the oldest (`plan_row_cap()`). Repeated trims make older
+  history progressively sparser while the start and the recent end of the run stay. Only when more than half the rows must go are the
+  oldest deleted.
+- **Age limit.** New `METRICS_RETENTION_DAYS` (default 90, 0 = forever; `--retention-days`). Once an hour the registry sweep
+  (`MetricsSessionRegistry::apply_retention()`) deletes every session not updated for that long, with all its rows, through the new
+  `delete_sessions_updated_before()` (children first, one transaction). It also deletes archived session files older than the
+  cutoff.
+- **Readers.** `query_gradient_variance()`/`query_generation_quality()`, served as `GET …/metrics/db-gradient-variance[?limit=N]` and
+  `…/metrics/db-generation-quality`.
+- **JSONL rotation.** New `METRICS_FILE_MAX_MB` (100) and `METRICS_FILE_BACKUPS` (3), with matching flags. A session's file moves to
+  `<file>.1` at the limit, and archiving renames the backups with the session.
+- **Admin and docs.** All four settings are admin-mutable through `PUT /admin/config`. `compress_old_records` was removed.
+  TRAINING_METRICS_API.md documents the routes and the retention behavior.
+
+Tests (all new):
+- SQLite: `CapSessionRowsThinsOldestAndKeepsNewest`, `DeleteSessionsUpdatedBeforeRemovesAllTheirRows`,
+  `GradientVarianceAndGenerationQualityReadBack`, `ServiceKeepsSessionRowsUnderMaxRecordsOnDisk`,
+  `MetricsFileRotatesAtSizeAndKeepsBackups`, `MetricsRowCapPlan.ThinsOldestOrDeletesOldest`.
+- Registry: `RetentionDeletesOldSessionsAndArchivedFiles`, `EvictionArchivesRotatedMetricsBackups`.
+- Postgres, live: `RetentionAndReadersWork`.
+- API: `GradientVarianceAndGenerationQualityAreReadable`, `RetentionSettingsAreAdminMutable`.
+- Args: `RetentionFlagsAreApplied`, plus the seed and override tests extended.
+
+End to end: two real `metrics_api_server`s each received 3,000 samples and gradient-variance pushes with `--max-disk-records 50`. The
+new binary kept 49 rows in each table, including samples 1 and 3,000. The old binary kept 3,000 in each. A 6,000-sample run with
+`--metrics-file-max-mb 1` rotated the JSONL to `.1` at 1 MB.
 
 Location in code: `src/MetricsDatabase.hpp` (`IMetricsDatabase`); `src/TrainingMetricsService.hpp` (`max_records_on_disk`, `compress_old_records`); `src/TrainingMetricsService.cpp` (JSONL append); tagged `TODO: See TD-440`.
 
@@ -14820,7 +14855,7 @@ Found while tracing `TrainingMetricsAPIServer.cpp` (see [TrainingMetricsAPIServe
 Action Items:
 
 - [ ] Make `stop()` effective before `listen()` (e.g. set `running_` before spawning the thread, or have `start()` check a stop flag first).
-- [ ] Generate or trim the endpoint lists (point to TRAINING_METRICS_API.md); drop `--max-disk-records` from help until TD-440 implements it.
+- [ ] Generate or trim the endpoint lists (point to TRAINING_METRICS_API.md). (`--max-disk-records` is enforced since TD-440's fix, October 25, 2026.)
 - [ ] Exempt `0-default` from the live-session cap (or stop creating it when no legacy client uses it).
 
 Location in code: `src/TrainingMetricsAPIServer.cpp` (`print_usage()`, startup banner, shutdown sequence, `0-default` creation); tagged `TODO: See TD-528`.
@@ -14884,7 +14919,7 @@ samples plus one per epoch) without that being documented on `/history` or in th
 
 Action Items:
 
-- [ ] Remove the push path (or route it through `MetricsPushClient`), `compress_old_records` and `GlobalMetricsService` (or mark them test-only).
+- [ ] Remove the push path (or route it through `MetricsPushClient`) and `GlobalMetricsService` (or mark them test-only). (`compress_old_records` was removed with TD-440's fix.)
 - [ ] Write the full record to JSONL (or document the subset); document the history sampling in TRAINING_METRICS_API.md.
 
 Location in code: `src/TrainingMetricsService.hpp` (`MetricsServiceConfig`, `GlobalMetricsService`), `src/TrainingMetricsService.cpp` (`push_to_api()`, `persist_metrics()` JSONL writer); tagged `TODO: See TD-530`.

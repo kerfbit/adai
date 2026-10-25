@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-24
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-10-25
 
 #include <atomic>
 #include <csignal>
@@ -44,7 +44,7 @@ void signal_handler(int signal) {
 /**
  * @brief Print usage information
  */
-// TODO: See TD-528 in TECHNICAL_DEBT.md - lists unenforced --max-disk-records and only the legacy flat routes.
+// TODO: See TD-528 in TECHNICAL_DEBT.md - lists only the legacy flat routes.
 void print_usage(const char* program_name) {
     std::cout << "Training Metrics REST API Server\n";
     std::cout << "Usage: " << program_name << " [OPTIONS]\n\n";
@@ -61,7 +61,13 @@ void print_usage(const char* program_name) {
     std::cout << "  --persist-samples N          Persist every N samples (default: 100)\n";
     std::cout << "  --persist-seconds N          Persist every N seconds (default: 30)\n";
     std::cout << "  --max-memory-records N       Max records in memory (default: 10000)\n";
-    std::cout << "  --max-disk-records N         Max records on disk (default: 100000)\n";
+    std::cout << "  --max-disk-records N         Max DB rows per session; older rows are thinned "
+                 "(default: 100000, 0 = no cap)\n";
+    std::cout << "  --retention-days N           Delete sessions not updated for N days "
+                 "(default: 90, 0 = keep forever)\n";
+    std::cout << "  --metrics-file-max-mb N      Rotate a session's JSONL file at N MB "
+                 "(default: 100, 0 = never)\n";
+    std::cout << "  --metrics-file-backups N     Rotated JSONL files kept per session (default: 3)\n";
     std::cout << "  --max-live-sessions N        Max live metrics sessions (default: 16)\n";
     std::cout
         << "  --completed-ttl-seconds N    Completed session TTL in seconds (default: 3600)\n";
@@ -181,6 +187,9 @@ int main(int argc, char* argv[]) {
         metrics_config.staleness_threshold_seconds = server_config.staleness_threshold_seconds;
         metrics_config.max_records_in_memory = server_config.max_records_in_memory;
         metrics_config.max_records_on_disk = server_config.max_records_on_disk;
+        metrics_config.retention_days = server_config.retention_days;
+        metrics_config.metrics_file_max_mb = server_config.metrics_file_max_mb;
+        metrics_config.metrics_file_backups = server_config.metrics_file_backups;
         metrics_config.enable_prometheus_format = server_config.enable_prometheus;
 
         // Create registry-backed metrics services
@@ -218,6 +227,13 @@ int main(int argc, char* argv[]) {
             std::cout << "    - Summary file: " << server_config.summary_file << "\n";
             std::cout << "    - Persist every " << server_config.persist_every_samples
                       << " samples or " << server_config.persist_every_seconds << " seconds\n";
+            std::cout << "    - Retention: " << server_config.max_records_on_disk
+                      << " DB rows per session, sessions kept "
+                      << (server_config.retention_days > 0
+                              ? std::to_string(server_config.retention_days) + " days"
+                              : std::string("forever"))
+                      << ", JSONL rotated at " << server_config.metrics_file_max_mb << " MB ("
+                      << server_config.metrics_file_backups << " kept)\n";
         } else {
             std::cout << "  ⚠ Persistence disabled\n";
         }

@@ -149,3 +149,11 @@ UTF-8 boundary, marked "…") and `reason` at 128 characters. The path used to b
 - **`/epoch/end`:** applies `adaptive_clip_threshold`/`adaptive_clip_spikes`.
 - **Output:** every JSON response passes through `sanitize_non_finite_json()` in the post-routing handler, which turns bare `nan`/`inf`
   values into `null` and resets `Content-Length`.
+
+---
+
+## Addendum (October 25, 2026): DB readers and retention settings (TD-440)
+
+New routes: `GET /api/sessions/{key}/metrics/db-gradient-variance[?limit=N]` and `GET …/metrics/db-generation-quality`. Small values
+keep their digits. `GET`/`PUT /admin/config` also expose `retention_days`, `metrics_file_max_mb` and `metrics_file_backups`, persisted
+like the other keys. Tests: `GradientVarianceAndGenerationQualityAreReadable`, `RetentionSettingsAreAdminMutable`.

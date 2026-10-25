@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.12.0
+// @adai-version: 0.13.0
 // @adai-reviewed: 2026-10-25
 
 #include "TrainingMetricsAPI.hpp"
@@ -482,6 +482,35 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
             } catch (const ApiRequestError& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = e.status_code();
+            } catch (const std::exception& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 500;
+            }
+        });
+
+    // TD-440: readers for the per-step gradient variance and per-epoch generation quality tables
+    // (written since TD-013/TD-019, never readable before).
+    server_impl_->server.Get(
+        "/api/sessions/" + key_pattern + "/metrics/db-gradient-variance",
+        [this](const httplib::Request& req, httplib::Response& res) {
+            try {
+                std::string query_params;
+                if (req.has_param("limit"))
+                    query_params = "limit=" + req.get_param_value("limit");
+                res.set_content(handle_db_gradient_variance(req.matches[1], query_params),
+                                "application/json");
+                res.status = 200;
+            } catch (const std::exception& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 500;
+            }
+        });
+    server_impl_->server.Get(
+        "/api/sessions/" + key_pattern + "/metrics/db-generation-quality",
+        [this](const httplib::Request& req, httplib::Response& res) {
+            try {
+                res.set_content(handle_db_generation_quality(req.matches[1]), "application/json");
+                res.status = 200;
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -1791,6 +1820,9 @@ std::string TrainingMetricsAPI::handle_admin_get_config() {
       << ",\"persist_every_seconds\":" << cfg.persist_every_seconds
       << ",\"max_records_in_memory\":" << cfg.max_records_in_memory
       << ",\"max_records_on_disk\":" << cfg.max_records_on_disk
+      << ",\"retention_days\":" << cfg.retention_days
+      << ",\"metrics_file_max_mb\":" << cfg.metrics_file_max_mb
+      << ",\"metrics_file_backups\":" << cfg.metrics_file_backups
       << ",\"enable_prometheus\":" << (cfg.enable_prometheus_format ? "true" : "false")
       << ",\"staleness_threshold_seconds\":" << cfg.staleness_threshold_seconds
       << ",\"allow_control\":" << (allow_control_ ? "true" : "false") << "}";
@@ -1849,6 +1881,25 @@ std::pair<int, std::string> TrainingMetricsAPI::handle_admin_put_config(const st
             [n](MetricsServiceConfig& c) { c.max_records_on_disk = n; });
         changed = true;
     }
+    // TD-440: retention settings, applied to future persists and the next retention sweep.
+    if (auto v = json_int_value(body, "retention_days")) {
+        const int n = static_cast<int>(*v);
+        session_registry_->update_metrics_config(
+            [n](MetricsServiceConfig& c) { c.retention_days = n; });
+        changed = true;
+    }
+    if (auto v = json_int_value(body, "metrics_file_max_mb")) {
+        const int n = static_cast<int>(*v);
+        session_registry_->update_metrics_config(
+            [n](MetricsServiceConfig& c) { c.metrics_file_max_mb = n; });
+        changed = true;
+    }
+    if (auto v = json_int_value(body, "metrics_file_backups")) {
+        const int n = static_cast<int>(*v);
+        session_registry_->update_metrics_config(
+            [n](MetricsServiceConfig& c) { c.metrics_file_backups = n; });
+        changed = true;
+    }
     if (auto v = json_bool_value(body, "enable_prometheus")) {
         const bool b = *v;
         session_registry_->update_metrics_config(
@@ -1867,6 +1918,7 @@ std::pair<int, std::string> TrainingMetricsAPI::handle_admin_put_config(const st
                 "{\"error\":\"no recognized mutable keys in body (max_live_sessions, "
                 "completed_ttl_seconds, sweep_interval_seconds, persist_every_samples, "
                 "persist_every_seconds, max_records_in_memory, max_records_on_disk, "
+                "retention_days, metrics_file_max_mb, metrics_file_backups, "
                 "enable_prometheus, staleness_threshold_seconds)\"}"};
     }
 
@@ -1883,6 +1935,9 @@ std::pair<int, std::string> TrainingMetricsAPI::handle_admin_put_config(const st
         config_store_->set("persist_every_seconds", std::to_string(cfg.persist_every_seconds));
         config_store_->set("max_records_in_memory", std::to_string(cfg.max_records_in_memory));
         config_store_->set("max_records_on_disk", std::to_string(cfg.max_records_on_disk));
+        config_store_->set("retention_days", std::to_string(cfg.retention_days));
+        config_store_->set("metrics_file_max_mb", std::to_string(cfg.metrics_file_max_mb));
+        config_store_->set("metrics_file_backups", std::to_string(cfg.metrics_file_backups));
         config_store_->set("enable_prometheus", cfg.enable_prometheus_format ? "true" : "false");
         config_store_->set("staleness_threshold_seconds",
                            std::to_string(cfg.staleness_threshold_seconds));
@@ -2768,6 +2823,52 @@ std::string TrainingMetricsAPI::handle_db_history(const std::string& session_key
         json << "\"learning_rate\":" << r.learning_rate << ",";
         json << "\"gradient_norm\":" << r.gradient_norm << ",";
         json << "\"perplexity\":" << r.perplexity << "}";
+    }
+    json << "]}";
+    return json.str();
+}
+
+std::string TrainingMetricsAPI::handle_db_gradient_variance(const std::string& session_key,
+                                                            const std::string& query_params) {
+    auto* db = session_registry_->get_database();
+    if (!db) {
+        return create_error_response("No database backend configured");
+    }
+    const int limit = parse_query_param_int(query_params, "limit", 0);
+    const auto records = db->query_gradient_variance(session_key, limit);
+
+    std::ostringstream json;
+    json << std::setprecision(std::numeric_limits<float>::max_digits10);
+    json << "{\"session_key\":\"" << escape_json(session_key) << "\",";
+    json << "\"count\":" << records.size() << ",\"records\":[";
+    for (size_t i = 0; i < records.size(); ++i) {
+        const auto& r = records[i];
+        json << (i > 0 ? "," : "") << "{\"timestamp\":\"" << format_iso8601(r.timestamp)
+             << "\",\"step\":" << r.step << ",\"epoch\":" << r.epoch
+             << ",\"value\":" << r.value << "}";
+    }
+    json << "]}";
+    return json.str();
+}
+
+std::string TrainingMetricsAPI::handle_db_generation_quality(const std::string& session_key) {
+    auto* db = session_registry_->get_database();
+    if (!db) {
+        return create_error_response("No database backend configured");
+    }
+    const auto records = db->query_generation_quality(session_key);
+
+    std::ostringstream json;
+    json << std::setprecision(std::numeric_limits<float>::max_digits10);
+    json << "{\"session_key\":\"" << escape_json(session_key) << "\",";
+    json << "\"count\":" << records.size() << ",\"records\":[";
+    for (size_t i = 0; i < records.size(); ++i) {
+        const auto& r = records[i];
+        json << (i > 0 ? "," : "") << "{\"timestamp\":\"" << format_iso8601(r.timestamp)
+             << "\",\"epoch\":" << r.epoch << ",\"bleu1\":" << r.bleu1
+             << ",\"bleu2\":" << r.bleu2 << ",\"bleu4\":" << r.bleu4
+             << ",\"rouge1\":" << r.rouge1 << ",\"rouge2\":" << r.rouge2
+             << ",\"rougeL\":" << r.rougeL << "}";
     }
     json << "]}";
     return json.str();

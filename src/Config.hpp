@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.8.0
+// @adai-version: 1.9.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -205,8 +205,19 @@ struct ServiceConfig {
     /// Maximum records in memory (default: 10000)
     int metrics_max_records_in_memory = 10000;
 
-    /// Maximum records on disk (default: 100000)
+    /// Maximum metrics_history (and gradient_variance_history) rows kept per session in the DB;
+    /// older rows are thinned when exceeded (TD-440). 0 = no cap. (default: 100000)
     int metrics_max_records_on_disk = 100000;
+
+    /// TD-440: delete sessions (DB rows and archived files) not updated for this many days.
+    /// 0 = keep forever. (default: 90)
+    int metrics_retention_days = 90;
+
+    /// TD-440: rotate a session's JSONL metrics file at this size in MB; 0 = never. (default: 100)
+    int metrics_file_max_mb = 100;
+
+    /// TD-440: rotated JSONL files kept per session (<file>.1 … .N). (default: 3)
+    int metrics_file_backups = 3;
 
     /// Enable Prometheus format export (default: false)
     bool metrics_enable_prometheus = false;

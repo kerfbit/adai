@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-10-24
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-10-25
 
 // TD-035: metrics_api_server's config-precedence resolution (file < persisted admin overrides <
 // CLI flags) and argv parsing, pulled out of TrainingMetricsAPIServer.cpp so it's testable
@@ -30,6 +30,9 @@ struct MetricsApiServerConfig {
     int persist_every_seconds = 30;
     int max_records_in_memory = 10000;
     int max_records_on_disk = 100000;
+    int retention_days = 90;         // TD-440: METRICS_RETENTION_DAYS / --retention-days
+    int metrics_file_max_mb = 100;   // TD-440: METRICS_FILE_MAX_MB / --metrics-file-max-mb
+    int metrics_file_backups = 3;    // TD-440: METRICS_FILE_BACKUPS / --metrics-file-backups
     size_t max_live_sessions = 16;
     int completed_ttl_seconds = 3600;
     int sweep_interval_seconds = 60;

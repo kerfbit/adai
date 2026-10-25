@@ -133,3 +133,14 @@ recently updated first, while the registry is at `max_live_sessions`. The histor
 never-started placeholders are never evicted. A new key is refused (`nullptr` / 503) only when every slot is live. Tests:
 `FinishedSessionsDontBlockANewKey`, `LiveSessionsStillFillTheRegistry`, `NeverStartedPlaceholderIsNotEvicted`.
 
+
+---
+
+## Addendum (October 25, 2026): age retention (TD-440)
+
+`apply_retention(now)` deletes DB sessions not updated for `retention_days` (via `IMetricsDatabase::delete_sessions_updated_before()`),
+and archived files (names carrying `_archived_`, rotated backups included) in the metrics directories last written before the same
+cutoff. Files that aren't archived are left alone. The sweep thread runs it at most once an hour. `retention_days` lives in the base
+`MetricsServiceConfig`, so `PUT /admin/config` changes it with `update_metrics_config()`. Archiving a session now renames its rotated
+JSONL backups (`<file>.1` … `.N`) with it. Tests: `RetentionDeletesOldSessionsAndArchivedFiles`,
+`EvictionArchivesRotatedMetricsBackups`.

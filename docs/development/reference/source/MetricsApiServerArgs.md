@@ -39,6 +39,7 @@ for `ConfigLoader::discover_config_path()`).
 | `metrics_file`, `summary_file`, `prometheus_file` | `training_sessions/…` | `--metrics-file`, `--summary-file`, `--prometheus-file` | — |
 | `persist_every_samples` / `persist_every_seconds` | 100 / 30 | `--persist-samples` / `--persist-seconds` | yes |
 | `max_records_in_memory` / `max_records_on_disk` | 10,000 / 100,000 | `--max-memory-records` / `--max-disk-records` | yes |
+| `retention_days`, `metrics_file_max_mb`, `metrics_file_backups` (TD-440) | 90, 100, 3 | `--retention-days`, `--metrics-file-max-mb`, `--metrics-file-backups` | yes |
 | `max_live_sessions` (`size_t`) | 16 | `--max-live-sessions` | yes |
 | `completed_ttl_seconds`, `sweep_interval_seconds`, `staleness_threshold_seconds` | 3600, 60, 60 | `--completed-ttl-seconds`, `--sweep-interval-seconds`, `--staleness-threshold-seconds` | yes |
 | `name_service_url` | `http://localhost:8083` | `--name-service-url`, `--no-name-service` | — |

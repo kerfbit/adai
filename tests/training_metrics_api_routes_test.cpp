@@ -14,6 +14,7 @@
 
 #include <httplib.h>
 
+#include "GenerationQualityMetrics.hpp"
 #include "MetricsPushClient.hpp"
 #include "nlohmann/json.hpp"
 #include "MetricsSessionRegistry.hpp"
@@ -55,13 +56,23 @@ class TrainingMetricsAPIRoutesTest : public ::testing::Test {
     virtual std::string cors_allowed_origins() const {
         return "";
     }
+    virtual bool use_sqlite_db() const {
+        return false;
+    }
 
     void SetUp() override {
         const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
         ASSERT_NE(info, nullptr);
 
         MetricsServiceConfig cfg = make_test_config(info->name());
-        registry_ = std::make_shared<MetricsSessionRegistry>(cfg, max_live_sessions());
+        if (use_sqlite_db()) {
+            const auto dir = std::filesystem::path(cfg.metrics_file).parent_path();
+            std::filesystem::create_directories(dir);
+            registry_ = std::make_shared<MetricsSessionRegistry>(
+                cfg, max_live_sessions(), 3600, 60, "sqlite", (dir / "metrics.db").string());
+        } else {
+            registry_ = std::make_shared<MetricsSessionRegistry>(cfg, max_live_sessions());
+        }
         ASSERT_NE(registry_, nullptr);
 
         // Ensure legacy-default session exists for alias endpoint coverage.
@@ -908,4 +919,67 @@ TEST_F(TrainingMetricsAPIRoutesTest, NonFiniteAndTinyEpochValuesRoundTripAsValid
     auto current = client.Get("/api/sessions/diverge1/metrics/current");
     ASSERT_TRUE(current);
     EXPECT_FALSE(nlohmann::json::parse(current->body, nullptr, false).is_discarded()) << current->body;
+}
+
+// TD-440: the gradient variance and generation quality tables are readable over the API, and the
+// retention settings are admin-mutable.
+class TrainingMetricsAPIDbRoutesTest : public TrainingMetricsAPIRoutesTest {
+   protected:
+    bool use_sqlite_db() const override {
+        return true;
+    }
+};
+
+TEST_F(TrainingMetricsAPIDbRoutesTest, GradientVarianceAndGenerationQualityAreReadable) {
+    auto* db = registry_->get_database();
+    ASSERT_NE(db, nullptr);
+    SessionRecord rec;
+    rec.key = "gv-key";
+    rec.session_id = 1;
+    rec.created_at = rec.last_update_at = std::chrono::system_clock::now();
+    db->upsert_session(rec);
+    for (int i = 1; i <= 3; ++i)
+        db->insert_gradient_variance_sample("gv-key", i, 1, 2.5e-7f * i);
+    GenerationQualityScore score;
+    score.bleu1 = 0.5f;
+    score.bleu4 = 0.125f;
+    score.rougeL = 0.75f;
+    db->insert_generation_quality("gv-key", 2, score);
+
+    auto client = make_client();
+    auto res = client.Get("/api/sessions/gv-key/metrics/db-gradient-variance?limit=2");
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200) << res->body;
+    auto j = nlohmann::json::parse(res->body);
+    ASSERT_EQ(j["count"], 2);
+    EXPECT_EQ(j["records"][0]["step"], 2);
+    EXPECT_EQ(j["records"][1]["step"], 3);
+    EXPECT_FLOAT_EQ(j["records"][1]["value"].get<float>(), 7.5e-7f) << "small values keep digits";
+
+    res = client.Get("/api/sessions/gv-key/metrics/db-generation-quality");
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200) << res->body;
+    j = nlohmann::json::parse(res->body);
+    ASSERT_EQ(j["count"], 1);
+    EXPECT_EQ(j["records"][0]["epoch"], 2);
+    EXPECT_FLOAT_EQ(j["records"][0]["bleu4"].get<float>(), 0.125f);
+    EXPECT_FLOAT_EQ(j["records"][0]["rougeL"].get<float>(), 0.75f);
+}
+
+TEST_F(TrainingMetricsAPIRoutesTest, RetentionSettingsAreAdminMutable) {
+    auto client = make_client();
+    auto res = client.Put(
+        "/admin/config",
+        R"({"retention_days": 7, "metrics_file_max_mb": 50, "metrics_file_backups": 1})",
+        "application/json");
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200) << res->body;
+    auto j = nlohmann::json::parse(res->body);
+    EXPECT_EQ(j["retention_days"], 7);
+    EXPECT_EQ(j["metrics_file_max_mb"], 50);
+    EXPECT_EQ(j["metrics_file_backups"], 1);
+    const auto cfg = registry_->base_metrics_config();
+    EXPECT_EQ(cfg.retention_days, 7);
+    EXPECT_EQ(cfg.metrics_file_max_mb, 50);
+    EXPECT_EQ(cfg.metrics_file_backups, 1);
 }

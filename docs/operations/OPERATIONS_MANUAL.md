@@ -844,7 +844,10 @@ All settings can be provided via:
 | `METRICS_PERSIST_EVERY_SAMPLES` | `100` | Flush to disk every N samples |
 | `METRICS_PERSIST_EVERY_SECONDS` | `30` | Flush to disk every N seconds |
 | `METRICS_MAX_RECORDS_IN_MEMORY` | `10000` | Cap on in-memory metric records |
-| `METRICS_MAX_RECORDS_ON_DISK` | `100000` | Cap on persisted metric records |
+| `METRICS_MAX_RECORDS_ON_DISK` | `100000` | Max DB rows per session (history, and per-step gradient variance); older rows are thinned when exceeded; 0 = no cap |
+| `METRICS_RETENTION_DAYS` | `90` | Delete sessions (DB rows and archived files) not updated for this many days; 0 = keep forever |
+| `METRICS_FILE_MAX_MB` | `100` | Rotate a session's JSONL metrics file at this size; 0 = never |
+| `METRICS_FILE_BACKUPS` | `3` | Rotated JSONL files kept per session |
 | `METRICS_ENABLE_PROMETHEUS` | `false` | Write Prometheus format output |
 | `METRICS_PROMETHEUS_FILE` | `training_sessions/metrics.prom` | Prometheus output path |
 | `METRICS_MAX_LIVE_SESSIONS` | `16` | Max concurrent tracked sessions in daemon |
@@ -940,6 +943,9 @@ METRICS_PERSIST_EVERY_SAMPLES=100
 METRICS_PERSIST_EVERY_SECONDS=30
 METRICS_MAX_RECORDS_IN_MEMORY=10000
 METRICS_MAX_RECORDS_ON_DISK=100000
+METRICS_RETENTION_DAYS=90
+METRICS_FILE_MAX_MB=100
+METRICS_FILE_BACKUPS=3
 METRICS_ENABLE_PROMETHEUS=false
 METRICS_PROMETHEUS_FILE=training_sessions/metrics.prom
 

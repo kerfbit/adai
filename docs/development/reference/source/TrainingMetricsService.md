@@ -127,3 +127,16 @@ Kept: the snapshot fields, configuration, export formats and threading model. Dr
 
 Tests: `UnwritableMetricsFileDoesNotDuplicateDbRows`, `FailingDbRowsAreInsertedOnceWhenItRecovers` (`MetricsDatabaseTest.cpp`),
 `FreshServiceSessionKeepsFirstRowsWithoutRetryStalls` (`postgres_metrics_database_test.cpp`).
+
+---
+
+## Addendum (October 25, 2026): row cap and JSONL rotation (TD-440)
+
+- `max_records_on_disk` is enforced: after each DB persist, `persist_metrics()` calls `IMetricsDatabase::cap_session_rows()` for the
+  session (see MetricsDatabase.md). A 200-sample run with a cap of 40 keeps 30–40 rows, including the newest.
+- The JSONL file rotates: `rotate_metrics_file_if_needed()` moves it to `<file>.1` at `metrics_file_max_mb` (backups shift up to
+  `<file>.<metrics_file_backups>`, the oldest is deleted) before the next append.
+- `retention_days` is read by the registry sweep, not by this class.
+- `compress_old_records` was removed. It was never read.
+
+Tests: `ServiceKeepsSessionRowsUnderMaxRecordsOnDisk`, `MetricsFileRotatesAtSizeAndKeepsBackups`.

@@ -35,6 +35,9 @@ TEST(SeedMetricsServerConfigFromFile, CopiesEveryField) {
     file_config.metrics_persist_every_seconds = 7;
     file_config.metrics_max_records_in_memory = 111;
     file_config.metrics_max_records_on_disk = 222;
+    file_config.metrics_retention_days = 14;
+    file_config.metrics_file_max_mb = 64;
+    file_config.metrics_file_backups = 5;
     file_config.metrics_max_live_sessions = 33;
     file_config.metrics_completed_ttl_seconds = 999;
     file_config.metrics_sweep_interval_seconds = 15;
@@ -59,6 +62,9 @@ TEST(SeedMetricsServerConfigFromFile, CopiesEveryField) {
     EXPECT_EQ(config.persist_every_seconds, 7);
     EXPECT_EQ(config.max_records_in_memory, 111);
     EXPECT_EQ(config.max_records_on_disk, 222);
+    EXPECT_EQ(config.retention_days, 14);
+    EXPECT_EQ(config.metrics_file_max_mb, 64);
+    EXPECT_EQ(config.metrics_file_backups, 5);
     EXPECT_EQ(config.max_live_sessions, 33u);
     EXPECT_EQ(config.completed_ttl_seconds, 999);
     EXPECT_EQ(config.sweep_interval_seconds, 15);
@@ -91,7 +97,8 @@ TEST_F(ApplyMetricsAdminOverridesTest, AppliesEveryDocumentedKey) {
         {"sweep_interval_seconds", "30"},   {"persist_every_samples", "10"},
         {"persist_every_seconds", "5"},     {"max_records_in_memory", "500"},
         {"max_records_on_disk", "5000"},    {"staleness_threshold_seconds", "45"},
-        {"enable_prometheus", "true"},
+        {"enable_prometheus", "true"},      {"retention_days", "30"},
+        {"metrics_file_max_mb", "10"},      {"metrics_file_backups", "2"},
     };
     apply_metrics_admin_overrides(config, overrides);
     EXPECT_EQ(config.max_live_sessions, 50u);
@@ -103,6 +110,9 @@ TEST_F(ApplyMetricsAdminOverridesTest, AppliesEveryDocumentedKey) {
     EXPECT_EQ(config.max_records_on_disk, 5000);
     EXPECT_EQ(config.staleness_threshold_seconds, 45);
     EXPECT_TRUE(config.enable_prometheus);
+    EXPECT_EQ(config.retention_days, 30);
+    EXPECT_EQ(config.metrics_file_max_mb, 10);
+    EXPECT_EQ(config.metrics_file_backups, 2);
 }
 
 TEST_F(ApplyMetricsAdminOverridesTest, UnparseableNumericOverrideIsSkippedNotCrashed) {
@@ -208,4 +218,18 @@ TEST_F(ParseMetricsApiServerArgsTest, CliOverridesWhateverWasAlreadySet) {
     auto r = parse_metrics_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
     ASSERT_FALSE(r.error);
     EXPECT_EQ(config.port, 1234);
+}
+
+// TD-440: retention flags.
+TEST_F(ParseMetricsApiServerArgsTest, RetentionFlagsAreApplied) {
+    std::vector<std::string> raw = {"metrics_api_server",    "--retention-days", "0",
+                                    "--metrics-file-max-mb", "25",               "--metrics-file-backups",
+                                    "4"};
+    auto argv = make_argv(raw);
+    auto result =
+        parse_metrics_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
+    EXPECT_FALSE(result.error) << result.error_message;
+    EXPECT_EQ(config.retention_days, 0);
+    EXPECT_EQ(config.metrics_file_max_mb, 25);
+    EXPECT_EQ(config.metrics_file_backups, 4);
 }

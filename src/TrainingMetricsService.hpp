@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.9.3
+// @adai-version: 0.10.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -190,6 +190,10 @@ struct PersistentMetricsRecord {
     std::string layer_gradient_norms_json;
 };
 
+// TD-440: rotates a JSONL metrics file to <path>.1 … <path>.<backups> once it reaches max_mb MB
+// (max_mb <= 0: never). Used by persist_metrics(); exposed for tests.
+void rotate_metrics_file_if_needed(const std::string& path, int max_mb, int backups);
+
 /**
  * @brief Configuration for metrics service
  */
@@ -203,9 +207,16 @@ struct MetricsServiceConfig {
 
     // Data retention
     int max_records_in_memory = 10000;
-    // TODO: See TD-440 in TECHNICAL_DEBT.md - max_records_on_disk and compress_old_records are never read
+    // TD-440: per-session cap on DB metrics_history and gradient_variance_history rows (0 = none).
+    // When exceeded, the oldest rows are thinned down to 3/4 of the cap (IMetricsDatabase::
+    // cap_session_rows()), so older history gets progressively sparser instead of disappearing.
     int max_records_on_disk = 100000;
-    bool compress_old_records = false;
+    // TD-440: the registry sweep deletes sessions (DB rows and archived files) not updated for this
+    // many days; 0 = keep forever.
+    int retention_days = 90;
+    // TD-440: a session's JSONL file rotates to <file>.1 (… .N) at this size; 0 = never rotate.
+    int metrics_file_max_mb = 100;
+    int metrics_file_backups = 3;
 
     // Monitoring
     bool enable_prometheus_format = false;
@@ -497,7 +508,7 @@ class MetricsSessionRegistry;
  * instance().start_session(id, ...) call-site API didn't need to change everywhere
  * it's used.
  */
-// TODO: See TD-530 in TECHNICAL_DEBT.md - only tests call this; compress_old_records/push config are unused too.
+// TODO: See TD-530 in TECHNICAL_DEBT.md - only tests call this; push config is unused too.
 class GlobalMetricsService {
    public:
     static TrainingMetricsService& instance();

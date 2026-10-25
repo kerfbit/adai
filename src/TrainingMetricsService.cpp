@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.9.3
+// @adai-version: 0.10.0
 // @adai-reviewed: 2026-10-25
 
 #include "TrainingMetricsService.hpp"
@@ -883,6 +883,36 @@ MetricsServiceConfig TrainingMetricsService::get_config() const {
 // Private Helper Methods
 // ============================================================================
 
+// TD-440: the JSONL file used to be appended to forever. At max_mb it moves to <path>.1 (older
+// backups shift up to <path>.<backups>, the oldest is deleted), and appending starts a new file.
+// backups <= 0 just starts over. max_mb <= 0 never rotates.
+void rotate_metrics_file_if_needed(const std::string& path, int max_mb, int backups) {
+    namespace fs = std::filesystem;
+    if (max_mb <= 0 || path.empty())
+        return;
+    std::error_code ec;
+    const auto size = fs::file_size(path, ec);
+    if (ec || size < static_cast<std::uintmax_t>(max_mb) * 1024 * 1024)
+        return;
+
+    if (backups <= 0) {
+        fs::remove(path, ec);
+    } else {
+        fs::remove(path + "." + std::to_string(backups), ec);
+        for (int i = backups - 1; i >= 1; --i) {
+            const std::string from = path + "." + std::to_string(i);
+            if (fs::exists(from, ec))
+                fs::rename(from, path + "." + std::to_string(i + 1), ec);
+        }
+        fs::rename(path, path + ".1", ec);
+    }
+    if (ec) {
+        adai::Logger::warn("Failed to rotate metrics file {}: {}", path, ec.message());
+    } else {
+        adai::Logger::info("Rotated metrics file {} at {} MB", path, max_mb);
+    }
+}
+
 void TrainingMetricsService::persist_metrics() {
     if (!config_.enable_persistence) {
         return;
@@ -906,6 +936,20 @@ void TrainingMetricsService::persist_metrics() {
         } catch (const std::exception& e) {
             adai::Logger::error("Failed to persist metrics to DB: {}", e.what());
         }
+        // TD-440: keep the session's DB rows (history and per-step gradient variance) under
+        // max_records_on_disk, thinning the oldest when the cap is exceeded.
+        if (config_.max_records_on_disk > 0) {
+            try {
+                const long long trimmed =
+                    db_->cap_session_rows(session_key_, config_.max_records_on_disk);
+                if (trimmed > 0) {
+                    adai::Logger::info("Metrics session '{}': thinned {} old DB rows (cap {})",
+                                       session_key_, trimmed, config_.max_records_on_disk);
+                }
+            } catch (const std::exception& e) {
+                adai::Logger::error("Failed to apply metrics row cap: {}", e.what());
+            }
+        }
     } else {
         db_persisted_up_to_ = history_.size();
     }
@@ -917,7 +961,8 @@ void TrainingMetricsService::persist_metrics() {
 
     try {
         ensure_parent_directory(config_.metrics_file);
-        // TODO: See TD-440 in TECHNICAL_DEBT.md - appended forever, never rotated or trimmed
+        rotate_metrics_file_if_needed(config_.metrics_file, config_.metrics_file_max_mb,
+                                      config_.metrics_file_backups);
         std::ofstream file(config_.metrics_file, std::ios::app);
         if (!file.is_open()) {  // persisted_up_to_ stays put; the file catches up when it can
             adai::Logger::warn("Failed to open metrics file: {}", config_.metrics_file);

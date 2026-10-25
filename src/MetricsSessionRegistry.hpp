@@ -1,10 +1,11 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-10-25
 
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -251,6 +252,66 @@ class MetricsSessionRegistry {
         return db_.get();
     }
 
+    // TD-440: age retention. Deletes every DB session not updated for retention_days (with all of
+    // its rows) and every archived session file (any file in the metrics directories whose name
+    // carries the archive marker, rotated backups included) last written before the same cutoff.
+    // retention_days <= 0 keeps everything. `now` is a parameter so tests can move time forward.
+    // Returns the number of DB sessions deleted. The sweep runs this at most once an hour.
+    long long apply_retention(std::chrono::system_clock::time_point now) {
+        namespace fs = std::filesystem;
+        MetricsServiceConfig cfg = base_metrics_config();
+        if (cfg.retention_days <= 0)
+            return 0;
+        const auto max_age = std::chrono::hours(24) * cfg.retention_days;
+        const auto cutoff = now - max_age;
+
+        long long deleted = 0;
+        if (db_) {
+            try {
+                deleted = db_->delete_sessions_updated_before(cutoff);
+            } catch (const std::exception& e) {
+                adai::Logger::error("[MetricsSessionRegistry] retention delete failed: {}",
+                                    e.what());
+            }
+        }
+
+        // File times are on their own clock: compare each file's age with the same cutoff.
+        const auto file_cutoff = fs::file_time_type::clock::now() -
+                                 std::chrono::duration_cast<fs::file_time_type::duration>(
+                                     std::chrono::system_clock::now() - cutoff);
+        std::vector<fs::path> dirs;
+        for (const std::string* f : {&cfg.metrics_file, &cfg.summary_file, &cfg.prometheus_file,
+                                     &cfg.abnormal_samples_file}) {
+            if (f->empty())
+                continue;
+            fs::path dir = fs::path(*f).parent_path();
+            if (dir.empty())
+                dir = ".";
+            if (std::find(dirs.begin(), dirs.end(), dir) == dirs.end())
+                dirs.push_back(dir);
+        }
+        size_t files_removed = 0;
+        for (const auto& dir : dirs) {
+            std::error_code ec;
+            for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+                std::error_code fec;
+                if (!it->is_regular_file(fec) ||
+                    it->path().filename().string().find(kArchivedKeyMarker) == std::string::npos)
+                    continue;
+                const auto mtime = fs::last_write_time(it->path(), fec);
+                if (!fec && mtime < file_cutoff && fs::remove(it->path(), fec))
+                    ++files_removed;
+            }
+        }
+        if (deleted > 0 || files_removed > 0) {
+            adai::Logger::info(
+                "[MetricsSessionRegistry] retention ({} days): deleted {} DB sessions and {} "
+                "archived files",
+                cfg.retention_days, deleted, files_removed);
+        }
+        return deleted;
+    }
+
     size_t evict_completed_sessions(int max_age_seconds) {
         std::unique_lock<std::shared_mutex> lock(registry_mutex_);
         return evict_completed_sessions_locked(max_age_seconds);
@@ -417,10 +478,14 @@ class MetricsSessionRegistry {
 
         namespace fs = std::filesystem;
         const auto config = service->get_config();
-        const std::string* paths[] = {&config.metrics_file, &config.summary_file,
-                                      &config.prometheus_file, &config.abnormal_samples_file};
-        for (const auto* path_ptr : paths) {
-            const std::string& path = *path_ptr;
+        std::vector<std::string> paths = {config.metrics_file, config.summary_file,
+                                          config.prometheus_file, config.abnormal_samples_file};
+        // TD-440: the JSONL file's rotated backups belong to the session too.
+        if (!config.metrics_file.empty()) {
+            for (int i = 1; i <= config.metrics_file_backups; ++i)
+                paths.push_back(config.metrics_file + "." + std::to_string(i));
+        }
+        for (const auto& path : paths) {
             if (path.empty())
                 continue;
 
@@ -534,6 +599,11 @@ class MetricsSessionRegistry {
             // concurrent read/write of a non-atomic int. Routing through the
             // mutex-protected getter closes the race.
             evict_completed_sessions(completed_ttl_seconds());
+            const auto now = std::chrono::system_clock::now();
+            if (now - last_retention_run_ >= std::chrono::hours(1)) {
+                last_retention_run_ = now;
+                apply_retention(now);
+            }
             lock.lock();
         }
     }
@@ -548,6 +618,7 @@ class MetricsSessionRegistry {
     std::atomic<uint64_t> archive_counter_{0};
 
     std::atomic<bool> stop_sweep_{false};
+    std::chrono::system_clock::time_point last_retention_run_{};  ///< sweep thread only (TD-440)
     mutable std::mutex sweep_mutex_;  ///< guards sweep_cv_ wait only; mutable for the const getter
     std::condition_variable_any sweep_cv_;
     std::thread sweep_thread_;  ///< last member — joins after other members are valid

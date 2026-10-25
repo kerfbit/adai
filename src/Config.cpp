@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.8.0
+// @adai-version: 1.9.0
 // @adai-reviewed: 2026-10-25
 
 #include "Config.hpp"
@@ -245,6 +245,12 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.metrics_max_records_in_memory = std::stoi(value);
             } else if (key == "METRICS_MAX_RECORDS_ON_DISK") {
                 config.metrics_max_records_on_disk = std::stoi(value);
+            } else if (key == "METRICS_RETENTION_DAYS") {
+                config.metrics_retention_days = std::stoi(value);
+            } else if (key == "METRICS_FILE_MAX_MB") {
+                config.metrics_file_max_mb = std::stoi(value);
+            } else if (key == "METRICS_FILE_BACKUPS") {
+                config.metrics_file_backups = std::stoi(value);
             } else if (key == "METRICS_ENABLE_PROMETHEUS") {
                 config.metrics_enable_prometheus =
                     (value == "true" || value == "1" || value == "yes");
@@ -646,6 +652,15 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_int("METRICS_MAX_RECORDS_ON_DISK")) {
         config.metrics_max_records_on_disk = *val;
+    }
+    if (auto val = get_env_int("METRICS_RETENTION_DAYS")) {
+        config.metrics_retention_days = *val;
+    }
+    if (auto val = get_env_int("METRICS_FILE_MAX_MB")) {
+        config.metrics_file_max_mb = *val;
+    }
+    if (auto val = get_env_int("METRICS_FILE_BACKUPS")) {
+        config.metrics_file_backups = *val;
     }
     if (auto val = get_env_bool("METRICS_ENABLE_PROMETHEUS")) {
         config.metrics_enable_prometheus = *val;

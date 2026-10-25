@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-10-25
 
 #include "SQLiteMetricsDatabase.hpp"
@@ -10,6 +10,7 @@
 #include "TrainingMetricsService.hpp"
 
 #include <sqlite3.h>
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <iomanip>
@@ -852,6 +853,173 @@ std::optional<SessionRecord> SQLiteMetricsDatabase::get_session(const std::strin
     rec.final_validation_loss = sqlite_nan_float(stmt_get_session_, 13);
 
     return rec;
+}
+
+// ============================================================================
+// TD-440: readers for the formerly write-only tables, and retention
+// ============================================================================
+
+std::vector<GradientVarianceRecord> SQLiteMetricsDatabase::query_gradient_variance(
+    const std::string& session_key, int limit) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    // Newest `limit` rows (by insertion order), returned oldest first.
+    std::string sql =
+        "SELECT recorded_at, step, epoch, value FROM gradient_variance_history "
+        "WHERE session_key = ?1 ORDER BY id DESC";
+    if (limit > 0)
+        sql += " LIMIT " + std::to_string(limit);
+
+    sqlite3_stmt* stmt = nullptr;
+    check_sqlite(sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr), db_,
+                 "query_gradient_variance prepare");
+    sqlite3_bind_text(stmt, 1, session_key.c_str(), -1, SQLITE_TRANSIENT);
+
+    std::vector<GradientVarianceRecord> results;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        GradientVarianceRecord rec;
+        auto ts_text = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        rec.timestamp = parse_timestamp(ts_text ? ts_text : "");
+        rec.step = sqlite3_column_int(stmt, 1);
+        rec.epoch = sqlite3_column_int(stmt, 2);
+        rec.value = sqlite_nan_float(stmt, 3);
+        results.push_back(rec);
+    }
+    sqlite3_finalize(stmt);
+    std::reverse(results.begin(), results.end());
+    return results;
+}
+
+std::vector<GenerationQualityRecord> SQLiteMetricsDatabase::query_generation_quality(
+    const std::string& session_key) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    sqlite3_stmt* stmt = nullptr;
+    check_sqlite(sqlite3_prepare_v2(db_,
+                                    "SELECT recorded_at, epoch, bleu1, bleu2, bleu4, rouge1, "
+                                    "rouge2, rougeL FROM generation_quality "
+                                    "WHERE session_key = ?1 ORDER BY id ASC",
+                                    -1, &stmt, nullptr),
+                 db_, "query_generation_quality prepare");
+    sqlite3_bind_text(stmt, 1, session_key.c_str(), -1, SQLITE_TRANSIENT);
+
+    std::vector<GenerationQualityRecord> results;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        GenerationQualityRecord rec;
+        auto ts_text = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        rec.timestamp = parse_timestamp(ts_text ? ts_text : "");
+        rec.epoch = sqlite3_column_int(stmt, 1);
+        rec.bleu1 = sqlite_nan_float(stmt, 2);
+        rec.bleu2 = sqlite_nan_float(stmt, 3);
+        rec.bleu4 = sqlite_nan_float(stmt, 4);
+        rec.rouge1 = sqlite_nan_float(stmt, 5);
+        rec.rouge2 = sqlite_nan_float(stmt, 6);
+        rec.rougeL = sqlite_nan_float(stmt, 7);
+        results.push_back(rec);
+    }
+    sqlite3_finalize(stmt);
+    return results;
+}
+
+long long SQLiteMetricsDatabase::cap_session_rows(const std::string& session_key, int max_rows) {
+    if (max_rows <= 0)
+        return 0;
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    auto run = [this, &session_key](const std::string& sql, long long n) -> long long {
+        sqlite3_stmt* stmt = nullptr;
+        check_sqlite(sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr), db_, sql.c_str());
+        sqlite3_bind_text(stmt, 1, session_key.c_str(), -1, SQLITE_TRANSIENT);
+        if (n >= 0)
+            sqlite3_bind_int64(stmt, 2, n);
+        long long value = 0;
+        int rc = sqlite3_step(stmt);
+        if (rc == SQLITE_ROW)
+            value = sqlite3_column_int64(stmt, 0);
+        else if (rc == SQLITE_DONE)
+            value = sqlite3_changes(db_);
+        sqlite3_finalize(stmt);
+        if (rc != SQLITE_ROW && rc != SQLITE_DONE)
+            throw std::runtime_error(sql + ": " + sqlite3_errmsg(db_));
+        return value;
+    };
+
+    long long deleted = 0;
+    for (const char* table : {"metrics_history", "gradient_variance_history"}) {
+        const std::string t = table;
+        const long long count =
+            run("SELECT COUNT(*) FROM " + t + " WHERE session_key = ?1", -1);
+        const RowCapPlan plan = plan_row_cap(count, max_rows);
+        if (plan.thin_first > 0) {
+            deleted += run("DELETE FROM " + t +
+                               " WHERE id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER "
+                               "(ORDER BY id) AS rn FROM " +
+                               t +
+                               " WHERE session_key = ?1) AS numbered "
+                               "WHERE rn <= ?2 AND rn % 2 = 0)",
+                           plan.thin_first);
+        } else if (plan.delete_oldest > 0) {
+            deleted += run("DELETE FROM " + t + " WHERE id IN (SELECT id FROM " + t +
+                               " WHERE session_key = ?1 ORDER BY id LIMIT ?2)",
+                           plan.delete_oldest);
+        }
+    }
+    return deleted;
+}
+
+long long SQLiteMetricsDatabase::delete_sessions_updated_before(
+    std::chrono::system_clock::time_point cutoff) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const std::string ts = format_timestamp(cutoff);
+
+    // Timestamps are stored as fixed-width ISO-8601 UTC text, so text order is time order.
+    auto run = [this, &ts](const char* sql) -> long long {
+        sqlite3_stmt* stmt = nullptr;
+        check_sqlite(sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr), db_, sql);
+        sqlite3_bind_text(stmt, 1, ts.c_str(), -1, SQLITE_TRANSIENT);
+        int rc = sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+        if (rc != SQLITE_DONE)
+            throw std::runtime_error(std::string(sql) + ": " + sqlite3_errmsg(db_));
+        return sqlite3_changes(db_);
+    };
+
+    check_sqlite(sqlite3_exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr), db_,
+                 "delete_sessions_updated_before:begin");
+    long long sessions = 0;
+    try {
+        for (const char* sql :
+             {"DELETE FROM metrics_history WHERE session_key IN "
+              "(SELECT key FROM sessions WHERE last_update_at < ?1);",
+              "DELETE FROM gradient_variance_history WHERE session_key IN "
+              "(SELECT key FROM sessions WHERE last_update_at < ?1);",
+              "DELETE FROM generation_quality WHERE session_key IN "
+              "(SELECT key FROM sessions WHERE last_update_at < ?1);",
+              "DELETE FROM abnormal_samples WHERE session_key IN "
+              "(SELECT key FROM sessions WHERE last_update_at < ?1);"}) {
+            run(sql);
+        }
+        sessions = run("DELETE FROM sessions WHERE last_update_at < ?1;");
+    } catch (...) {
+        sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
+        throw;
+    }
+    check_sqlite(sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr), db_,
+                 "delete_sessions_updated_before:commit");
+    return sessions;
+}
+
+RowCapPlan plan_row_cap(long long count, int max_rows) {
+    RowCapPlan plan;
+    if (max_rows <= 0 || count <= max_rows)
+        return plan;
+    const long long target = std::max<long long>(1, max_rows - max_rows / 4);
+    const long long excess = count - target;
+    if (2 * excess <= count)
+        plan.thin_first = 2 * excess;  // every second of these goes: exactly `excess` rows
+    else
+        plan.delete_oldest = excess;
+    return plan;
 }
 
 // ============================================================================

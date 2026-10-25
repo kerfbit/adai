@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.12.0
+// @adai-version: 0.13.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -144,6 +144,10 @@ class TrainingMetricsAPI {
     std::string handle_sessions_list_filtered(const std::string& query_params);
     std::string handle_metrics_aggregate();
     std::string handle_db_history(const std::string& session_key, const std::string& query_params);
+    // TD-440: GET …/metrics/db-gradient-variance[?limit=N] and …/metrics/db-generation-quality
+    std::string handle_db_gradient_variance(const std::string& session_key,
+                                            const std::string& query_params);
+    std::string handle_db_generation_quality(const std::string& session_key);
     std::string handle_metrics_compare(const std::string& query_params);
     std::string handle_metrics_export(const std::string& session_key,
                                       const std::string& query_params);
