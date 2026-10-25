@@ -234,3 +234,11 @@ A completed pass with no validation data now records `final_validation_loss = Tr
 ## Addendum (October 19, 2026): per-file pair counts (TD-334)
 
 `load_training_pairs()` records how many pairs each file contributed, in the order the files were passed; a TD-205 segment counts only its own range. `last_pass_pair_counts()` exposes these counts. `resume_last_session()` and `incremental_trainer`'s `train`, `retrain` and LeJEPA passes hand them to `DatasetRegistry::mark_trained()`, so trained records and `dataset_manager status`'s sample total are no longer always 0.
+
+---
+
+## Addendum (October 25, 2026): the metrics session ends last (TD-442)
+
+`run_training()` ends the push session as its last step, after the final checkpoint save, `finalize_session()` and the MNS candidate
+report, and clears `ChatbotTrainer`'s reporter pointer. A metrics outage can no longer delay the save, and with the push client's bounded
+drain the callers' `mark_trained()` waits at most the drain deadline.

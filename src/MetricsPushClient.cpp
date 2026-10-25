@@ -1,8 +1,9 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-10-25
 
 #include "MetricsPushClient.hpp"
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -138,11 +139,18 @@ MetricsPushClient::~MetricsPushClient() {
     if (push_thread_.joinable()) {
         {
             std::lock_guard<std::mutex> lock(queue_mutex_);
-            stop_ = true;
+            begin_stop_locked();
         }
         queue_cv_.notify_one();
         push_thread_.join();
     }
+}
+
+void MetricsPushClient::begin_stop_locked() {
+    if (!stop_.load())
+        drain_deadline_ =
+            std::chrono::steady_clock::now() + std::chrono::milliseconds(drain_timeout_ms_);
+    stop_ = true;
 }
 
 // ============================================================================
@@ -195,12 +203,14 @@ int MetricsPushClient::start_session(int session_id, int total_epochs, int total
     return rc;
 }
 
-// TODO: See TD-442 in TECHNICAL_DEBT.md - drains every queued event at ~1.2 s+ each when the server is down (20-70 min for a full queue)
+// TD-442: the drain is bounded by drain_timeout_ms_. It used to send every queued event with
+// retries and back-off, ~1.2 s per failing event: 13.2 s for 11 events with the server down, and
+// 20-70 minutes for a full queue, which delayed (or, if the pass was stopped, lost) the results.
 void MetricsPushClient::end_session() {
     enqueue({EventPriority::Session, "/end", "{}"});
     {
         std::lock_guard<std::mutex> lock(queue_mutex_);
-        stop_ = true;
+        begin_stop_locked();
     }
     queue_cv_.notify_one();
     if (push_thread_.joinable()) {
@@ -461,10 +471,42 @@ void MetricsPushClient::push_loop() {
         PushEvent event;
         bool have_event = false;
         bool stopping = false;
+        bool draining = false;
         {
             std::unique_lock<std::mutex> lock(queue_mutex_);
             queue_cv_.wait_for(lock, interval,
                                [this] { return !queue_.empty() || stop_.load(); });
+
+            // TD-442: once stopping, drop step events, and at the deadline drop everything left
+            // except one attempt at /end.
+            draining = stop_.load();
+            if (draining) {
+                const std::size_t before = queue_.size();
+                queue_.erase(std::remove_if(queue_.begin(), queue_.end(),
+                                            [](const PushEvent& e) {
+                                                return e.priority == EventPriority::Sample;
+                                            }),
+                             queue_.end());
+                std::size_t dropped = before - queue_.size();
+                if (!queue_.empty() && std::chrono::steady_clock::now() >= drain_deadline_) {
+                    const auto end_it =
+                        std::find_if(queue_.begin(), queue_.end(),
+                                     [](const PushEvent& e) { return e.endpoint == "/end"; });
+                    std::deque<PushEvent> keep;
+                    if (end_it != queue_.end())
+                        keep.push_back(std::move(*end_it));
+                    dropped += queue_.size() - keep.size();
+                    queue_ = std::move(keep);
+                    adai::Logger::warn(
+                        "MetricsPushClient: drain deadline ({} ms) reached; dropped {} queued "
+                        "event(s)",
+                        drain_timeout_ms_, dropped);
+                    dropped = 0;
+                }
+                if (dropped > 0)
+                    adai::Logger::debug("MetricsPushClient: dropped {} step event(s) while stopping",
+                                        dropped);
+            }
 
             if (!queue_.empty()) {
                 event = std::move(queue_.front());
@@ -481,7 +523,7 @@ void MetricsPushClient::push_loop() {
 
         if (have_event) {
             std::string response;
-            const int rc = attempt_post(event.endpoint, event.body, &response);
+            const int rc = attempt_post(event.endpoint, event.body, &response, /*retry=*/!draining);
 
             // TODO: See TD-444 in TECHNICAL_DEBT.md - every status other than 404 is ignored (only debug-logged)
             // Session lost (server restart or eviction) — re-register and retry once.
@@ -500,9 +542,10 @@ void MetricsPushClient::push_loop() {
                             event.endpoint);
                         session_loss_logged_ = true;
                     }
-                    const int start_rc = attempt_post("/start", reconnect_body_);
+                    const int start_rc =
+                        attempt_post("/start", reconnect_body_, nullptr, /*retry=*/!draining);
                     if (start_rc == 200 || start_rc == 409) {
-                        if (attempt_post(event.endpoint, event.body) / 100 == 2)
+                        if (attempt_post(event.endpoint, event.body, nullptr, !draining) / 100 == 2)
                             session_loss_logged_ = false;
                     } else {
                         adai::Logger::warn(
@@ -530,7 +573,7 @@ void MetricsPushClient::push_loop() {
         // so firing it on a plain wall-clock timer (not "queue was empty and
         // wait_for timed out") keeps the session alive under backlog too.
         const auto now = std::chrono::steady_clock::now();
-        if (now - last_heartbeat >= interval) {
+        if (!draining && now - last_heartbeat >= interval) {
             attempt_post("/heartbeat", "{}");
             last_heartbeat = now;
         }
@@ -544,7 +587,7 @@ void MetricsPushClient::push_loop() {
 #ifdef BUILD_METRICS_API_SERVER
 
 int MetricsPushClient::attempt_post(const std::string& endpoint, const std::string& body,
-                                    std::string* response_body) const {
+                                    std::string* response_body, bool retry) const {
     if (session_base_url_.empty()) {
         return 0;
     }
@@ -556,7 +599,8 @@ int MetricsPushClient::attempt_post(const std::string& endpoint, const std::stri
     static constexpr int kBackoffMs[] = {0, 200, 1000};
     static constexpr int kMaxAttempts = 3;
 
-    for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
+    const int max_attempts = retry ? kMaxAttempts : 1;  // TD-442: no retries while draining
+    for (int attempt = 0; attempt < max_attempts; ++attempt) {
         if (attempt > 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds(kBackoffMs[attempt]));
         }
@@ -603,7 +647,7 @@ int MetricsPushClient::attempt_post(const std::string& endpoint, const std::stri
 
 // NOLINTBEGIN(readability-convert-member-functions-to-static)
 int MetricsPushClient::attempt_post(const std::string& /*endpoint*/, const std::string& /*body*/,
-                                    std::string* /*response_body*/) const {
+                                    std::string* /*response_body*/, bool /*retry*/) const {
     return 0;  // No-op when httplib is not available
 }
 // NOLINTEND(readability-convert-member-functions-to-static)

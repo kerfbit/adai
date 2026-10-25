@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <unistd.h>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -830,6 +831,18 @@ TEST_F(TrainingMetricsAPIRoutesTest, EveryPushClientEndpointHasAPostRoute) {
         pc.update_lejepa_metrics(0.5f, 0.01f);
         pc.update_lejepa_advanced_metrics(0.3f, 0.9f, 1.0f, 0.1f);
         pc.end_epoch(1, 0.5f, 0.6f, 0.001f, 1.6f, 1.0f, 2.0);
+        // The queue is FIFO: once /epoch/end (queued last) has arrived, every earlier event has been
+        // sent. end_session() would otherwise drop step events still queued (TD-442).
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (std::chrono::steady_clock::now() < deadline) {
+            {
+                std::lock_guard<std::mutex> lk(mtx);
+                if (std::any_of(seen.begin(), seen.end(),
+                                [](const auto& p) { return p.first == "/epoch/end"; }))
+                    break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
         pc.end_session();
     }
     recorder.stop();

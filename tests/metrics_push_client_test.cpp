@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -25,6 +26,7 @@ static constexpr int kPort_StartSession = 42207;
 static constexpr int kPort_ReconnectResetBest = 42208;
 static constexpr int kPort_LayerGradientNorms = 42209;
 static constexpr int kPort_MissingRoute = 42210;
+static constexpr int kPort_ServerDown = 42211;  // never listened on
 
 #ifdef BUILD_METRICS_API_SERVER
 
@@ -353,19 +355,22 @@ TEST(MetricsPushClientRetryPolicy, DoesNotRetryOn409) {
 // ============================================================================
 
 TEST(MetricsPushClientShutdownDrain, EndSessionDrainsAllQueuedEventsBeforeJoin) {
-    // end_session() must not return until every queued event has been delivered.
+    // end_session() must not return until every queued epoch/session event has been delivered.
+    // TD-442: step-level Sample events still queued when it stops are dropped (the drain is
+    // bounded), so only a sample already sent before the stop can arrive.
     httplib::Server svr;
-    std::atomic<int> post_count{0};
+    std::mutex mtx;
+    std::vector<std::string> paths;
 
-    svr.Post("/.*", [&](const httplib::Request&, httplib::Response& res) {
-        post_count.fetch_add(1, std::memory_order_relaxed);
+    svr.Post("/.*", [&](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lk(mtx);
+        paths.push_back(req.path);
         res.status = 201;
     });
 
     auto svr_thread = start_server(svr, kPort_DrainOnEnd);
     MetricsPushClient client(session_url(kPort_DrainOnEnd), 500);
 
-    // Enqueue 5 events.
     client.start_epoch(1, 200);
     client.update_sample_metrics(1, 0.8f, 1.2f, 0.001f);
     client.update_sample_metrics(2, 0.7f, 1.1f, 0.001f);
@@ -378,8 +383,34 @@ TEST(MetricsPushClientShutdownDrain, EndSessionDrainsAllQueuedEventsBeforeJoin) 
     svr.stop();
     svr_thread.join();
 
-    // 5 queued events + the /end event from end_session() = 6 server hits.
-    EXPECT_EQ(post_count.load(), 6);
+    std::lock_guard<std::mutex> lk(mtx);
+    const auto count = [&](const std::string& suffix) {
+        return std::count_if(paths.begin(), paths.end(), [&](const std::string& p) {
+            return p.size() >= suffix.size() &&
+                   p.compare(p.size() - suffix.size(), suffix.size(), suffix) == 0;
+        });
+    };
+    EXPECT_EQ(count("/1-test/epoch/start"), 1);
+    EXPECT_EQ(count("/1-test/epoch/end"), 1);
+    EXPECT_EQ(count("/1-test/end"), 1);
+    EXPECT_LE(count("/1-test/metrics/sample"), 3);
+}
+
+// TD-442: with the metrics server down, end_session() used to send every queued event with retries
+// and back-off (~1.2 s each: 13.2 s for 11 events, 20-70 minutes for a full queue), delaying the
+// end of the training pass. It now returns within the drain deadline.
+TEST(MetricsPushClientShutdownDrain, EndSessionWithTheServerDownReturnsWithinTheDeadline) {
+    MetricsPushClient client(session_url(kPort_ServerDown), 500);  // nothing listens there
+    client.set_drain_timeout_ms(1000);
+    for (int e = 1; e <= 20; ++e) {
+        client.start_epoch(e, 100);
+        client.end_epoch(e, 0.5f, 0.6f, 0.001f);
+    }
+    const auto t0 = std::chrono::steady_clock::now();
+    client.end_session();
+    const auto elapsed = std::chrono::steady_clock::now() - t0;
+    EXPECT_LT(elapsed, std::chrono::seconds(4))
+        << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() << " ms";
 }
 
 // ============================================================================

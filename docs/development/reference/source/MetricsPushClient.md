@@ -175,3 +175,12 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 when the body says `Unknown session key`. Then it re-registers (logged once per outage, reset by the next accepted event) and retries the
 event. Any other 404 means the server lacks the route: it's logged once per endpoint and the event is dropped. Every flagged abnormal
 sample used to log "session gone, re-registering", because the server had no POST route for it.
+
+---
+
+## Addendum (October 25, 2026): bounded drain (TD-442)
+
+Stopping (`end_session()` or the destructor) sets a drain deadline (`set_drain_timeout_ms()`, default 10 s). Until then, queued Sample
+events are dropped and the rest are sent with a single attempt each, with no back-off and no heartbeats. At the deadline whatever is left
+is dropped except one attempt at `/end`. With nothing listening, 41 queued events used to take 50.45 s; now about 1.2 s with a 1 s
+deadline.

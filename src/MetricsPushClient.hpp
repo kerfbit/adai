@@ -1,11 +1,12 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-10-25
 
 
 #include <atomic>
+#include <chrono>
 #include <array>
 #include <cctype>
 #include <condition_variable>
@@ -230,6 +231,13 @@ class MetricsPushClient final : public IMetricsReporter {
      * explicitly (idempotent after the first call).
      */
     void end_session();
+    /// TD-442: the most end_session() (or the destructor) spends sending queued events once it
+    /// stops (default 10 s). While draining, Sample events are dropped and nothing is retried; at
+    /// the deadline the rest is dropped and /end gets one attempt.
+    void set_drain_timeout_ms(int ms) {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        drain_timeout_ms_ = ms < 0 ? 0 : ms;
+    }
 
     // ── IMetricsReporter ─────────────────────────────────────────────────────
 
@@ -275,6 +283,10 @@ class MetricsPushClient final : public IMetricsReporter {
     // TD-555 (push thread only): log a lost session once per outage, and a route the server
     // doesn't have once per endpoint, instead of once per event.
     bool session_loss_logged_{false};
+    // TD-442: how long end_session()/the destructor may spend sending what's queued once stopping;
+    // the deadline is set when stopping begins (guarded by queue_mutex_).
+    int drain_timeout_ms_{10000};
+    std::chrono::steady_clock::time_point drain_deadline_{};
     std::set<std::string> missing_route_logged_;
 
     // ── Buffered per-epoch state ──────────────────────────────────────────────
@@ -311,8 +323,11 @@ class MetricsPushClient final : public IMetricsReporter {
      * @return HTTP status code, or 0 on persistent connection failure.
      */
     /// @p response_body, when non-null, receives the body of the final response (TD-555).
+    /// @p retry false (TD-442: while draining) makes a single attempt with no back-off.
     int attempt_post(const std::string& endpoint, const std::string& body,
-                     std::string* response_body = nullptr) const;
+                     std::string* response_body = nullptr, bool retry = true) const;
+    /// TD-442: sets stop_ and the drain deadline; call with queue_mutex_ held.
+    void begin_stop_locked();
 
     // Saved verbatim from the last start_session() call so push_loop can
     // re-register the session automatically after a 404 (server restart /

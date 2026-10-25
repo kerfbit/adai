@@ -1235,6 +1235,7 @@ The run is complete.
 **Metrics pipeline run (October 25, 2026)**, chosen by the owner. So far:
 - TD-555 (done in code: pushed abnormal samples are stored, and only an unknown session triggers re-registration).
 - TD-445 (done in code: a full session registry archives finished or stale sessions to make room; only live sessions count).
+- TD-442 (done in code: the push client's end-of-pass drain is bounded, 10 s by default, and runs after the final save).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -11626,7 +11627,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Metrics / Push Client | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 25, 2026 | Metrics / Push Client | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `MetricsPushClient` and verified. `end_session()` enqueues `/end`, sets the stop flag and
@@ -11643,9 +11644,9 @@ final save and leaves the files claimed. (`run_lejepa_training_pass()` saves fir
 
 Action Items:
 
-- [ ] Bound the drain: a deadline for `end_session()`, and once stopping, drop `Sample` events and skip retries/back-off.
-- [ ] In `IncrementalTrainer`, save the final checkpoint and `mark_trained()` before `end_session()`.
-- [ ] Add a test: `end_session()` with the server down returns within the deadline.
+- [x] Bound the drain: a deadline for `end_session()`, and once stopping, drop `Sample` events and skip retries/back-off.
+- [x] In `IncrementalTrainer`, save the final checkpoint and `mark_trained()` before `end_session()`.
+- [x] Add a test: `end_session()` with the server down returns within the deadline.
 
 Location in code: `src/MetricsPushClient.cpp` (`end_session()`, `push_loop()`); `src/IncrementalTrainer.cpp` (`end_session()` before the final save); tagged `TODO: See TD-442`.
 
@@ -11654,6 +11655,26 @@ Files to Modify:
 - `src/MetricsPushClient.{hpp,cpp}`
 - `src/IncrementalTrainer.cpp`
 - `tests/metrics_push_client_test.cpp`
+
+**Fix (October 25, 2026).**
+- **Bounded drain:** `MetricsPushClient` has a drain deadline (`set_drain_timeout_ms()`, default 10 s), set when `end_session()` or the
+  destructor stops the push thread. While draining:
+  - queued `Sample` (per-step) events are dropped;
+  - every remaining event, re-registration included, gets one attempt with no back-off;
+  - heartbeats stop;
+  - at the deadline everything still queued is dropped except one attempt at `/end` (logged).
+
+  Epoch and session events queued before the stop are still sent while there's time.
+- **Order in `IncrementalTrainer::run_training()`:** `end_session()` is now its last step, after the final checkpoint save, the session
+  finalize and the MNS candidate report. Before, it came first. `mark_trained()` runs in the callers after `run_training()` returns, so
+  it waits at most the drain deadline instead of up to an hour. The trainer's reporter pointer is also cleared there instead of being left
+  pointing at the destroyed client.
+
+Tests (`metrics_push_client_test.cpp`):
+- `EndSessionWithTheServerDownReturnsWithinTheDeadline`: 41 queued events with nothing listening, a 1 s deadline, and `end_session()`
+  returned in about 1.2 s. The old client took 50.45 s for the same queue.
+- `EndSessionDrainsAllQueuedEventsBeforeJoin` now requires every epoch and session event and allows the step samples queued at the stop
+  to be dropped.
 
 ---
 

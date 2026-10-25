@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.18.0
-// @adai-reviewed: 2026-10-21
+// @adai-version: 0.19.0
+// @adai-reviewed: 2026-10-25
 
 #include "IncrementalTrainer.hpp"
 #include <algorithm>
@@ -819,13 +819,6 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
         }
     }
 
-    // TODO: See TD-442 in TECHNICAL_DEBT.md - runs before the final save/mark_trained; a metrics outage delays (or, if stopped, loses) them
-    if (push_client_) {
-        push_client_->end_session();
-        push_client_ = nullptr;
-    }
-    metrics_reporter_ = std::make_unique<NullMetricsReporter>();
-
     std::string checkpoint_path;
     if (success && !aborted) {
         checkpoint_path = generate_session_checkpoint_path();
@@ -913,6 +906,18 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
     // normal-completion and genuine-failure paths here so `serve`'s
     // /admin/status always reads Idle once run_training() has returned,
     // regardless of which path was taken.
+    // TD-442: end the metrics session last. It used to run before the final checkpoint save, and its
+    // drain sent every queued event with retries (20-70 minutes for a full queue with the server
+    // down), so a metrics outage delayed the save and mark_trained(), and a stop in that window lost
+    // them. The save is done by now, and the drain itself is bounded (MetricsPushClient::
+    // set_drain_timeout_ms(), 10 s by default), so the caller's mark_trained() waits at most that.
+    if (push_client_) {
+        push_client_->end_session();
+        push_client_ = nullptr;
+    }
+    trainer.set_metrics_reporter(nullptr);
+    metrics_reporter_ = std::make_unique<NullMetricsReporter>();
+
     if (control_ && !aborted) {
         control_->phase = adai::TrainerPhase::Idle;
     }
