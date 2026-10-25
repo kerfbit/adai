@@ -76,8 +76,13 @@ struct Gate {
 static std::thread start_server(httplib::Server& svr, int port) {
     std::thread t([&svr, port]() { svr.listen("127.0.0.1", port); });
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    // Stop at the deadline: a port that can't be bound (fixed test ports sit in the ephemeral range, so
+    // another test's outgoing connection can hold one under parallel ctest) used to loop forever.
     while (!svr.is_running()) {
-        EXPECT_LT(std::chrono::steady_clock::now(), deadline) << "Server failed to start";
+        if (std::chrono::steady_clock::now() >= deadline) {
+            ADD_FAILURE() << "Server failed to start on port " << port;
+            break;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     return t;

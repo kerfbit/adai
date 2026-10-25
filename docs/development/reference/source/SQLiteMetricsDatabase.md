@@ -89,3 +89,15 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | No busy timeout (§2) | Lock contention drops rows immediately | **Verified** | [TD-511](../../guides/TECHNICAL_DEBT.md#td-511-sqlitemetricsdatabase-busy-timeout-transactions-and-setup-gaps) |
 | Per-row transactions; ignored PRAGMA/migration errors; unused `schema_version`; default directory not created (§2) | Robustness | By inspection (directory verified) | [TD-511](../../guides/TECHNICAL_DEBT.md#td-511-sqlitemetricsdatabase-busy-timeout-transactions-and-setup-gaps) |
 | No retention; limit keeps oldest rows; timestamp parsing; unknown backend accepted | Already tracked | — | TD-440, TD-441, TD-477, TD-439 |
+
+---
+
+## Addendum (October 25, 2026): WAL checkpoints and NaN reads (TD-509, TD-510)
+
+- **TD-509:** `get_session()` resets `stmt_get_session_` on every return path (a scope guard). A found row used to leave a read
+  snapshot open that stopped WAL checkpoints: 86 MB of WAL after 4,000 rows in the new test, 254 MB after 20,000 when the bug was filed.
+- **TD-510:** every nullable float column reads through `sqlite_nan_float()`. NULL, which is how SQLite stores a bound NaN and what
+  pre-migration rows hold, comes back as NaN, not 0.
+
+Tests: `FoundGetSessionDoesNotBlockWalCheckpoints`, `NanLossesReadBackAsNanNotZero`.
+

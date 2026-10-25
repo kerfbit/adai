@@ -1237,6 +1237,7 @@ The run is complete.
 - TD-445 (done in code: a full session registry archives finished or stale sessions to make room; only live sessions count).
 - TD-442 (done in code: the push client's end-of-pass drain is bounded, 10 s by default, and runs after the final save).
 - TD-443 (done in code: non-finite values travel as `null`, small values keep their digits, no response emits `nan`/`inf`, and adaptive clipping is sent).
+- TD-509/510 (done in code: the SQLite store's `get_session()` no longer blocks WAL checkpoints, and NaN reads back as NaN, not 0).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -14128,7 +14129,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Metrics / SQLite Database | October 17, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 25, 2026 | Metrics / SQLite Database | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `SQLiteMetricsDatabase.cpp` (see [SQLiteMetricsDatabase.md](../reference/source/SQLiteMetricsDatabase.md)); verified.
@@ -14141,8 +14142,8 @@ re-registering after a `metrics_api_server` restart mid-pass) the snapshot stays
 
 Action Items:
 
-- [ ] `sqlite3_reset()` the statement after copying the row (and on every return path), e.g. with a scope guard.
-- [ ] Test that the WAL stays bounded after a found `get_session()`.
+- [x] `sqlite3_reset()` the statement after copying the row (and on every return path), e.g. with a scope guard.
+- [x] Test that the WAL stays bounded after a found `get_session()`.
 
 Location in code: `src/SQLiteMetricsDatabase.cpp` (`get_session()`); tagged `TODO: See TD-509`.
 
@@ -14151,13 +14152,18 @@ Files to Modify:
 - `src/SQLiteMetricsDatabase.cpp`
 - `tests/MetricsDatabaseTest.cpp`
 
+**Fix (October 25, 2026).** `get_session()` resets its prepared statement on every return path with a scope guard, so a found row no
+longer holds a read snapshot. Test `FoundGetSessionDoesNotBlockWalCheckpoints` (`MetricsDatabaseTest.cpp`): a found `get_session()`,
+then 4,000 inserts of a few KB each. The WAL stays under 16 MB and the rows reach the main database. With the old code the WAL grew to
+86 MB.
+
 ---
 
 ### TD-510: SQLite Metrics Store Reads NaN Losses Back as 0
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Metrics / SQLite Database | October 17, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 25, 2026 | Metrics / SQLite Database | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `SQLiteMetricsDatabase.cpp`; verified. SQLite stores a bound NaN as NULL, and `sqlite3_column_double()` reads NULL as 0.0. A
@@ -14167,8 +14173,8 @@ pre-migration rows also read as 0. Infinity round-trips correctly.
 
 Action Items:
 
-- [ ] Read every nullable float with a NULL check and return NaN (or an explicit missing marker) instead of 0; decide how the JSON layer reports it (with TD-443/TD-458's NaN-as-invalid-JSON fixes).
-- [ ] Test NaN round trips.
+- [x] Read every nullable float with a NULL check and return NaN (or an explicit missing marker) instead of 0; decide how the JSON layer reports it (with TD-443/TD-458's NaN-as-invalid-JSON fixes).
+- [x] Test NaN round trips.
 
 Location in code: `src/SQLiteMetricsDatabase.cpp` (`query_history()`, `list_sessions()`, `get_session()` column reads); tagged `TODO: See TD-510`.
 
@@ -14176,6 +14182,16 @@ Files to Modify:
 
 - `src/SQLiteMetricsDatabase.cpp`
 - `tests/MetricsDatabaseTest.cpp`
+
+**Fix (October 25, 2026).** Every nullable float column read (20 of them, in `query_history()`, `list_sessions()` and `get_session()`)
+goes through `sqlite_nan_float()`, so NULL (a stored NaN, or a pre-migration row) reads back as NaN instead of 0. The JSON layer writes NaN
+as `null` (TD-443), and the "not sent" checks treat NaN as absent.
+
+Tests:
+- `NanLossesReadBackAsNanNotZero`: history and session NaNs come back as NaN, while a 1e-7 learning rate and an infinite gradient norm
+  are unchanged. It fails against the old code.
+- `MigratesPreExistingDatabaseMissingFinalLossColumns` now expects a pre-migration row's missing `final_loss` to read as NaN. It had
+  pinned the 0.
 
 ---
 

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <filesystem>
 #include <fstream>
 #include <thread>
@@ -295,10 +296,9 @@ TEST_F(MetricsDatabaseTest, MigratesPreExistingDatabaseMissingFinalLossColumns) 
     ASSERT_TRUE(rec.has_value());
     EXPECT_EQ(rec->total_epochs, 3);
     EXPECT_FLOAT_EQ(rec->best_validation_loss, 0.9f);
-    // Pre-existing rows have no value for the new columns — NULL reads back as 0
-    // via sqlite3_column_double, which is an acceptable "unknown" default here
-    // (matches every other float field's zero-initialized default in this struct).
-    EXPECT_FLOAT_EQ(rec->final_loss, 0.0f);
+    // Pre-existing rows have no value for the new columns. TD-510: that NULL reads back as NaN
+    // ("unknown"), not 0, which looked like a perfect final loss.
+    EXPECT_TRUE(std::isnan(rec->final_loss)) << rec->final_loss;
 
     // And the migrated table must accept new writes to the new columns going forward.
     SessionRecord updated = *rec;
@@ -1199,4 +1199,70 @@ TEST_F(MetricsDatabaseTest, FactoryHandlesSqlitePlusFile) {
     auto db = MetricsDatabaseFactory::create("sqlite+file", db_path_);
     ASSERT_NE(db, nullptr);
     EXPECT_TRUE(fs::exists(db_path_));
+}
+
+// TD-510: SQLite stores a bound NaN as NULL, which used to read back as 0, so a diverged run looked
+// perfect in history, comparisons and exports. NULL now reads back as NaN.
+TEST_F(MetricsDatabaseTest, NanLossesReadBackAsNanNotZero) {
+    SQLiteMetricsDatabase db(db_path_);
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    SessionRecord session;
+    session.key = "diverged";
+    session.session_id = 1;
+    session.created_at = std::chrono::system_clock::now();
+    session.last_update_at = session.created_at;
+    session.final_loss = nan;
+    session.final_validation_loss = nan;
+    db.upsert_session(session);
+
+    PersistentMetricsRecord rec;
+    rec.timestamp = std::chrono::system_clock::now();
+    rec.loss = nan;
+    rec.validation_loss = nan;
+    rec.learning_rate = 1e-7f;
+    rec.gradient_norm = std::numeric_limits<float>::infinity();
+    db.insert_metrics_record("diverged", rec);
+
+    const auto history = db.query_history("diverged", std::nullopt, std::nullopt, 0);
+    ASSERT_EQ(history.size(), 1u);
+    EXPECT_TRUE(std::isnan(history[0].loss)) << history[0].loss;
+    EXPECT_TRUE(std::isnan(history[0].validation_loss)) << history[0].validation_loss;
+    EXPECT_FLOAT_EQ(history[0].learning_rate, 1e-7f);
+    EXPECT_TRUE(std::isinf(history[0].gradient_norm));
+
+    const auto got = db.get_session("diverged");
+    ASSERT_TRUE(got.has_value());
+    EXPECT_TRUE(std::isnan(got->final_loss)) << got->final_loss;
+    EXPECT_TRUE(std::isnan(got->final_validation_loss)) << got->final_validation_loss;
+    const auto all = db.list_sessions(std::nullopt);
+    ASSERT_EQ(all.size(), 1u);
+    EXPECT_TRUE(std::isnan(all[0].final_loss)) << all[0].final_loss;
+}
+
+// TD-509: a found get_session() left its statement stepped, holding a read snapshot that stopped WAL
+// checkpoints: 20,000 inserts afterwards grew the WAL to 254 MB (4 KB main database). With the
+// statement reset, checkpoints keep the WAL near SQLite's ~1000-page auto-checkpoint size.
+TEST_F(MetricsDatabaseTest, FoundGetSessionDoesNotBlockWalCheckpoints) {
+    SQLiteMetricsDatabase db(db_path_);
+    SessionRecord session;
+    session.key = "wal";
+    session.session_id = 1;
+    session.created_at = std::chrono::system_clock::now();
+    session.last_update_at = session.created_at;
+    db.upsert_session(session);
+    ASSERT_TRUE(db.get_session("wal").has_value());
+
+    const auto base = std::chrono::system_clock::now();
+    for (int i = 0; i < 4000; ++i) {
+        PersistentMetricsRecord rec;
+        rec.timestamp = base + std::chrono::milliseconds(i);
+        rec.sample = i;
+        rec.loss = 1.0f;
+        rec.layer_gradient_norms_json = std::string(2000, '1');  // make each row a few KB
+        db.insert_metrics_record("wal", rec);
+    }
+    const fs::path wal = db_path_ + "-wal";
+    ASSERT_TRUE(fs::exists(wal));
+    EXPECT_LT(fs::file_size(wal), 16u * 1024 * 1024) << "WAL bytes: " << fs::file_size(wal);
+    EXPECT_GT(fs::file_size(db_path_), 1u * 1024 * 1024) << "rows should reach the main database";
 }

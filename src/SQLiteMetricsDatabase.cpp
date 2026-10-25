@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.2
-// @adai-reviewed: 2026-09-23
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-25
 
 #include "SQLiteMetricsDatabase.hpp"
 #include "GenerationQualityMetrics.hpp"
@@ -30,6 +30,12 @@ static float sqlite_opt_float(sqlite3_stmt* stmt, int col, float fallback) {
         return fallback;
     }
     return static_cast<float>(sqlite3_column_double(stmt, col));
+}
+
+// TD-510: a nullable float column; NULL (how SQLite stores a bound NaN, and what pre-migration rows
+// hold) reads as NaN rather than 0. The JSON layer writes NaN as null (TD-443).
+static float sqlite_nan_float(sqlite3_stmt* stmt, int col) {
+    return sqlite_opt_float(stmt, col, std::numeric_limits<float>::quiet_NaN());
 }
 
 static void check_sqlite(int rc, sqlite3* db, const char* context) {
@@ -720,27 +726,29 @@ std::vector<PersistentMetricsRecord> SQLiteMetricsDatabase::query_history(
         rec.timestamp = parse_timestamp(ts_text ? ts_text : "");
         rec.epoch = sqlite3_column_int(stmt, 1);
         rec.sample = sqlite3_column_int(stmt, 2);
-        // TODO: See TD-510 in TECHNICAL_DEBT.md - NaN is stored as NULL and reads back as 0 for every unguarded column.
-        rec.loss = static_cast<float>(sqlite3_column_double(stmt, 3));
-        rec.validation_loss = static_cast<float>(sqlite3_column_double(stmt, 4));
-        rec.learning_rate = static_cast<float>(sqlite3_column_double(stmt, 5));
-        rec.gradient_norm = static_cast<float>(sqlite3_column_double(stmt, 6));
-        rec.perplexity = static_cast<float>(sqlite3_column_double(stmt, 7));
-        rec.compute_time_ratio = static_cast<float>(sqlite3_column_double(stmt, 8));
-        rec.weight_update_ratio = static_cast<float>(sqlite3_column_double(stmt, 9));
-        rec.activation_saturation_ratio = static_cast<float>(sqlite3_column_double(stmt, 10));
-        rec.attention_entropy = static_cast<float>(sqlite3_column_double(stmt, 11));
-        rec.padding_efficiency = static_cast<float>(sqlite3_column_double(stmt, 12));
+        // TD-510: SQLite stores a bound NaN as NULL, which sqlite3_column_double() read back as 0, so a
+        // diverged run (NaN loss) looked perfect in db-history, comparisons and exports. NULL reads
+        // as NaN (see sqlite_nan_float()).
+        rec.loss = sqlite_nan_float(stmt, 3);
+        rec.validation_loss = sqlite_nan_float(stmt, 4);
+        rec.learning_rate = sqlite_nan_float(stmt, 5);
+        rec.gradient_norm = sqlite_nan_float(stmt, 6);
+        rec.perplexity = sqlite_nan_float(stmt, 7);
+        rec.compute_time_ratio = sqlite_nan_float(stmt, 8);
+        rec.weight_update_ratio = sqlite_nan_float(stmt, 9);
+        rec.activation_saturation_ratio = sqlite_nan_float(stmt, 10);
+        rec.attention_entropy = sqlite_nan_float(stmt, 11);
+        rec.padding_efficiency = sqlite_nan_float(stmt, 12);
         if (const auto* lg_text =
                 reinterpret_cast<const char*>(sqlite3_column_text(stmt, 13))) {
             rec.layer_gradient_norms_json = lg_text;
         }
-        rec.predictor_loss = static_cast<float>(sqlite3_column_double(stmt, 14));
-        rec.sigreg_loss = static_cast<float>(sqlite3_column_double(stmt, 15));
-        rec.masking_ratio = static_cast<float>(sqlite3_column_double(stmt, 16));
-        rec.predictor_target_cosine_sim = static_cast<float>(sqlite3_column_double(stmt, 17));
-        rec.sigreg_variance_mean = static_cast<float>(sqlite3_column_double(stmt, 18));
-        rec.sigreg_variance_stddev = static_cast<float>(sqlite3_column_double(stmt, 19));
+        rec.predictor_loss = sqlite_nan_float(stmt, 14);
+        rec.sigreg_loss = sqlite_nan_float(stmt, 15);
+        rec.masking_ratio = sqlite_nan_float(stmt, 16);
+        rec.predictor_target_cosine_sim = sqlite_nan_float(stmt, 17);
+        rec.sigreg_variance_mean = sqlite_nan_float(stmt, 18);
+        rec.sigreg_variance_stddev = sqlite_nan_float(stmt, 19);
         results.push_back(rec);
     }
 
@@ -792,8 +800,8 @@ std::vector<SessionRecord> SQLiteMetricsDatabase::list_sessions(
         rec.best_validation_loss =
             sqlite_opt_float(stmt, 10, std::numeric_limits<float>::max());
         rec.best_epoch = sqlite3_column_int(stmt, 11);
-        rec.final_loss = static_cast<float>(sqlite3_column_double(stmt, 12));
-        rec.final_validation_loss = static_cast<float>(sqlite3_column_double(stmt, 13));
+        rec.final_loss = sqlite_nan_float(stmt, 12);
+        rec.final_validation_loss = sqlite_nan_float(stmt, 13);
         results.push_back(std::move(rec));
     }
 
@@ -807,8 +815,13 @@ std::optional<SessionRecord> SQLiteMetricsDatabase::get_session(const std::strin
     sqlite3_reset(stmt_get_session_);
     sqlite3_bind_text(stmt_get_session_, 1, key.c_str(), -1, SQLITE_TRANSIENT);
 
-    // TODO: See TD-509 in TECHNICAL_DEBT.md - on SQLITE_ROW the statement is never reset, so its read snapshot blocks
-    // WAL checkpoints until the next call (254 MB WAL after 20k inserts, verified).
+    // TD-509: reset the statement on every return path. Left stepped on a found row, it kept a read
+    // snapshot open until the next get_session(), which stopped WAL checkpoints: 20,000 inserts after
+    // one found get_session() grew the WAL to 254 MB with a 4 KB main database.
+    struct ResetOnExit {
+        sqlite3_stmt* stmt;
+        ~ResetOnExit() { sqlite3_reset(stmt); }
+    } reset_on_exit{stmt_get_session_};
     if (sqlite3_step(stmt_get_session_) != SQLITE_ROW) {
         return std::nullopt;
     }
@@ -835,8 +848,8 @@ std::optional<SessionRecord> SQLiteMetricsDatabase::get_session(const std::strin
     rec.best_validation_loss =
         sqlite_opt_float(stmt_get_session_, 10, std::numeric_limits<float>::max());
     rec.best_epoch = sqlite3_column_int(stmt_get_session_, 11);
-    rec.final_loss = static_cast<float>(sqlite3_column_double(stmt_get_session_, 12));
-    rec.final_validation_loss = static_cast<float>(sqlite3_column_double(stmt_get_session_, 13));
+    rec.final_loss = sqlite_nan_float(stmt_get_session_, 12);
+    rec.final_validation_loss = sqlite_nan_float(stmt_get_session_, 13);
 
     return rec;
 }
