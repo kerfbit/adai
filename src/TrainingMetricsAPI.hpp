@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-10-24
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-10-25
 
 
 #include <atomic>
@@ -161,6 +161,8 @@ class TrainingMetricsAPI {
     std::string handle_post_validation_metrics(const std::string& session_key,
                                                const std::string& body);
     std::string handle_post_best_metrics(const std::string& session_key, const std::string& body);
+    /// TD-555: POST …/metrics/abnormal — a flagged sample pushed by MetricsPushClient.
+    std::string handle_post_abnormal_sample(const std::string& session_key, const std::string& body);
     std::string handle_post_advanced_metrics(const std::string& session_key,
                                              const std::string& body);
     std::string handle_post_layer_gradient_norms(const std::string& session_key,

@@ -1232,6 +1232,9 @@ retraining from scratch, since no existing checkpoint has correct GPU-trained we
 
 The run is complete.
 
+**Metrics pipeline run (October 25, 2026)**, chosen by the owner. So far:
+- TD-555 (done in code: pushed abnormal samples are stored, and only an unknown session triggers re-registration).
+
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
 - TD-372/373 (done in code: the FTP data connection must come from the control connection's client, and FTPS requires `AUTH TLS` and
@@ -15741,7 +15744,7 @@ Location in code: `CMakeLists.txt`, `src/CMakeLists.txt`, `CMakePresets.json`, `
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Metrics / Push client and API | October 24, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 25, 2026 | Metrics / Push client and API | October 24, 2026 | 1-2 hours |
 
 Description:
 Filed after the owner reported an excessive number of "session gone, re-registering" warnings in training logs. Verified against the
@@ -15772,19 +15775,44 @@ Related but distinct: TD-444 (the client ignores every non-404 status), TD-445 (
 
 Action Items:
 
-- [ ] Server: add a session-scoped `POST /api/sessions/<key>/metrics/abnormal` handler that records the sample in the session (and the
+- [x] Server: add a session-scoped `POST /api/sessions/<key>/metrics/abnormal` handler that records the sample in the session (and the
   metrics DB, like the in-process path), with the TD-526/TD-550 write guard and sensible text-length limits (see TD-399).
-- [ ] Client: re-register only when the server says the session key is unknown, i.e. a 404 whose body is `Unknown session key`, not on
+- [x] Client: re-register only when the server says the session key is unknown, i.e. a 404 whose body is `Unknown session key`, not on
   any 404. Treat a 404 for a missing route as a client/server version mismatch, logged once per endpoint. Log a real re-registration once
   per outage, not per event.
-- [ ] Tests:
+- [x] Tests:
   - a route test that a pushed abnormal sample is stored and readable via GET;
   - a `MetricsPushClient` test against a real server that one flagged sample logs no re-registration;
   - a restart test where re-registration still recovers after a genuine server restart.
-- [ ] Check the other push endpoints against the server's POST routes in one test, so a future mismatch fails a test instead of the log.
+- [x] Check the other push endpoints against the server's POST routes in one test, so a future mismatch fails a test instead of the log.
 
 Location in code: `src/MetricsPushClient.cpp` (`report_abnormal_sample()`, `push_loop()`), `src/TrainingMetricsAPI.cpp` (session
 routes, `handle_post_*`).
+
+**Fix (October 25, 2026).**
+- **Server:** `TrainingMetricsAPI` has `POST /api/sessions/<key>/metrics/abnormal` (`handle_post_abnormal_sample()`), which parses the
+  body with nlohmann/json and calls `TrainingMetricsService::flag_abnormal_sample()`. That keeps the sample in memory, writes it to the
+  metrics DB and persists it to the JSON file. It truncates `input_text`/`target_text` to 4 KiB on a UTF-8 boundary (marked "…") and
+  `reason` to 128 characters (TD-399). A non-object body gets 400 and an unknown session 404 `Unknown session key`. The TD-526/TD-550
+  write guard applies.
+- **Client:** `MetricsPushClient::attempt_post()` can return the response body. `push_loop()` re-registers only on a 404 whose body
+  says `Unknown session key`:
+  - it logs that once per outage, reset when an event is accepted again;
+  - a 404 without it (a route the server doesn't have) is logged once per endpoint, and those events are dropped without
+    re-registering.
+
+Tests:
+- `MissingRouteIsNotTreatedAsALostSession` (`metrics_push_client_test.cpp`): two flagged samples against a server without the route give
+  one `/start` and two posts. The old client gave three `/start`s and four posts.
+- `ReconnectAfter404DoesNotReplayResetBest` now answers with the real server's `Unknown session key` body.
+- Route tests (`training_metrics_api_routes_test.cpp`):
+  - `PushedAbnormalSampleIsStoredAndReadable`: stored, readable via GET, the 10 KB text truncated, a non-object body 400, an unknown
+    session 404. The old server answered the POST with 404.
+  - `PushClientAbnormalSampleReachesTheServer`: the real push client against the real API, end to end.
+
+- `EveryPushClientEndpointHasAPostRoute`: drives every `IMetricsReporter` method of a `MetricsPushClient` against a recording server,
+  then replays each recorded request against the real API and requires a POST route for it. Against the old server it reports "no POST
+  route for /metrics/abnormal", so a future client/server mismatch fails a test instead of flooding the training log.
 
 ---
 

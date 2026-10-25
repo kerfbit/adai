@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-23
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-25
 
 
 #include <atomic>
@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <mutex>
 #include <sstream>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -271,6 +272,10 @@ class MetricsPushClient final : public IMetricsReporter {
     std::thread push_thread_;
     std::atomic<bool> stop_{false};
     bool overflow_warned_{false};  ///< True while a Sample-drop overflow episode is active
+    // TD-555 (push thread only): log a lost session once per outage, and a route the server
+    // doesn't have once per endpoint, instead of once per event.
+    bool session_loss_logged_{false};
+    std::set<std::string> missing_route_logged_;
 
     // ── Buffered per-epoch state ──────────────────────────────────────────────
     // Updated by training-loop-thread methods and folded into the end_epoch
@@ -305,7 +310,9 @@ class MetricsPushClient final : public IMetricsReporter {
      * @param body      JSON request body.
      * @return HTTP status code, or 0 on persistent connection failure.
      */
-    int attempt_post(const std::string& endpoint, const std::string& body) const;
+    /// @p response_body, when non-null, receives the body of the final response (TD-555).
+    int attempt_post(const std::string& endpoint, const std::string& body,
+                     std::string* response_body = nullptr) const;
 
     // Saved verbatim from the last start_session() call so push_loop can
     // re-register the session automatically after a 404 (server restart /

@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-23
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-25
 
 #include "MetricsPushClient.hpp"
 #include <chrono>
@@ -480,23 +480,43 @@ void MetricsPushClient::push_loop() {
         }
 
         if (have_event) {
-            const int rc = attempt_post(event.endpoint, event.body);
+            std::string response;
+            const int rc = attempt_post(event.endpoint, event.body, &response);
 
             // TODO: See TD-444 in TECHNICAL_DEBT.md - every status other than 404 is ignored (only debug-logged)
             // Session lost (server restart or eviction) — re-register and retry once.
             // Skip lifecycle endpoints: /start is already a registration, /end is a teardown.
+            // TD-555: only a 404 that says the session key is unknown means the session is gone.
+            // httplib also answers 404 for a route the server doesn't have (POST …/metrics/abnormal
+            // used to be GET-only), and treating that as a lost session re-registered (409, still
+            // live) and logged a warning on every flagged sample.
             if (rc == 404 && !reconnect_body_.empty() && event.endpoint != "/start" &&
                 event.endpoint != "/end") {
-                adai::Logger::warn("MetricsPushClient: session gone on {}, re-registering",
-                                   event.endpoint);
-                const int start_rc = attempt_post("/start", reconnect_body_);
-                if (start_rc == 200 || start_rc == 409) {
-                    attempt_post(event.endpoint, event.body);
-                } else {
+                if (response.find("Unknown session key") != std::string::npos) {
+                    if (!session_loss_logged_) {
+                        adai::Logger::warn(
+                            "MetricsPushClient: session gone on {}, re-registering (logged once "
+                            "until events are accepted again)",
+                            event.endpoint);
+                        session_loss_logged_ = true;
+                    }
+                    const int start_rc = attempt_post("/start", reconnect_body_);
+                    if (start_rc == 200 || start_rc == 409) {
+                        if (attempt_post(event.endpoint, event.body) / 100 == 2)
+                            session_loss_logged_ = false;
+                    } else {
+                        adai::Logger::warn(
+                            "MetricsPushClient: re-registration failed (HTTP {}), dropping {}",
+                            start_rc, event.endpoint);
+                    }
+                } else if (missing_route_logged_.insert(event.endpoint).second) {
                     adai::Logger::warn(
-                        "MetricsPushClient: re-registration failed (HTTP {}), dropping {}",
-                        start_rc, event.endpoint);
+                        "MetricsPushClient: the metrics server has no POST route for {} "
+                        "(older server?); dropping these events",
+                        event.endpoint);
                 }
+            } else if (rc / 100 == 2) {
+                session_loss_logged_ = false;
             }
         }
 
@@ -523,7 +543,8 @@ void MetricsPushClient::push_loop() {
 
 #ifdef BUILD_METRICS_API_SERVER
 
-int MetricsPushClient::attempt_post(const std::string& endpoint, const std::string& body) const {
+int MetricsPushClient::attempt_post(const std::string& endpoint, const std::string& body,
+                                    std::string* response_body) const {
     if (session_base_url_.empty()) {
         return 0;
     }
@@ -565,6 +586,8 @@ int MetricsPushClient::attempt_post(const std::string& endpoint, const std::stri
             }
 
             // 2xx or 4xx — return immediately (callers handle 409 at their level)
+            if (response_body)
+                *response_body = res->body;
             return status;
 
         } catch (const std::exception& e) {
@@ -579,8 +602,8 @@ int MetricsPushClient::attempt_post(const std::string& endpoint, const std::stri
 #else  // BUILD_METRICS_API_SERVER not defined
 
 // NOLINTBEGIN(readability-convert-member-functions-to-static)
-int MetricsPushClient::attempt_post(const std::string& /*endpoint*/,
-                                    const std::string& /*body*/) const {
+int MetricsPushClient::attempt_post(const std::string& /*endpoint*/, const std::string& /*body*/,
+                                    std::string* /*response_body*/) const {
     return 0;  // No-op when httplib is not available
 }
 // NOLINTEND(readability-convert-member-functions-to-static)

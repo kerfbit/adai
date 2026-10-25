@@ -5,11 +5,14 @@
 #include <chrono>
 #include <filesystem>
 #include <memory>
+#include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 
 #include <httplib.h>
 
+#include "MetricsPushClient.hpp"
 #include "MetricsSessionRegistry.hpp"
 #include "TrainingMetricsAPI.hpp"
 
@@ -737,3 +740,113 @@ TEST_F(TrainingMetricsAPICorsAllowListTest, WildcardGrantsReadsButNotWrites) {
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 403);
 }
+
+// TD-555: the trainer pushes flagged samples with POST …/metrics/abnormal; the route used to be
+// GET-only (404), so nothing was ever stored.
+TEST_F(TrainingMetricsAPIRoutesTest, PushedAbnormalSampleIsStoredAndReadable) {
+    auto client = make_client();
+    const std::string long_text(10000, 'x');
+    const std::string body = R"({"epoch":2,"sample_id":17,"loss":9.5,"grad_norm":3.25,)"
+                             R"("reason":"loss_outlier","input_text":"hello","target_text":")" +
+                             long_text + R"("})";
+    auto res = client.Post("/api/sessions/0-default/metrics/abnormal", body, "application/json");
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200) << res->body;
+
+    auto get = client.Get("/api/sessions/0-default/metrics/abnormal");
+    ASSERT_TRUE(get);
+    EXPECT_NE(get->body.find("\"count\":1"), std::string::npos) << get->body.substr(0, 300);
+    EXPECT_NE(get->body.find("loss_outlier"), std::string::npos);
+    EXPECT_NE(get->body.find("hello"), std::string::npos);
+    EXPECT_EQ(get->body.find(long_text), std::string::npos) << "target_text must be truncated";
+    EXPECT_LT(get->body.size(), 6000u);
+
+    res = client.Post("/api/sessions/0-default/metrics/abnormal", "[1,2]", "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400) << res->body;
+    res = client.Post("/api/sessions/nosuch1/metrics/abnormal", body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 404);
+    EXPECT_NE(res->body.find("Unknown session key"), std::string::npos) << res->body;
+}
+
+// TD-555 end to end: the real push client flags a sample against the real API; it is stored.
+TEST_F(TrainingMetricsAPIRoutesTest, PushClientAbnormalSampleReachesTheServer) {
+    MetricsPushClient pc("http://127.0.0.1:" + std::to_string(port_) + "/api/sessions/pushed1", 2000);
+    ASSERT_EQ(pc.start_session(1, 1, 10, "", ""), 200);
+    AbnormalSample sample;
+    sample.epoch = 1;
+    sample.sample_id = 4;
+    sample.loss = 7.0f;
+    sample.reason = "grad_norm_outlier";
+    sample.input_text = "in";
+    sample.target_text = "out";
+    pc.flag_abnormal_sample(sample);
+    pc.end_session();  // drains the queue
+
+    auto client = make_client();
+    auto get = client.Get("/api/sessions/pushed1/metrics/abnormal");
+    ASSERT_TRUE(get);
+    EXPECT_NE(get->body.find("\"count\":1"), std::string::npos) << get->body;
+    EXPECT_NE(get->body.find("grad_norm_outlier"), std::string::npos) << get->body;
+}
+
+// TD-555: every endpoint MetricsPushClient posts to must exist as a POST route on the real API, so a
+// client/server mismatch fails here instead of turning into a log flood in training. The client is
+// driven through every IMetricsReporter method against a recording server; each recorded request is
+// then replayed against the real API.
+TEST_F(TrainingMetricsAPIRoutesTest, EveryPushClientEndpointHasAPostRoute) {
+    httplib::Server recorder;
+    std::mutex mtx;
+    std::vector<std::pair<std::string, std::string>> seen;  // (path after the session key, body)
+    recorder.Post(R"(/api/sessions/[^/]+(/.*))", [&](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lk(mtx);
+        seen.emplace_back(req.matches[1], req.body);
+        res.status = 200;
+    });
+    const int rec_port = recorder.bind_to_any_port("127.0.0.1");
+    ASSERT_GT(rec_port, 0);
+    std::thread rec_thread([&] { recorder.listen_after_bind(); });
+    recorder.wait_until_ready();
+    {
+        MetricsPushClient pc("http://127.0.0.1:" + std::to_string(rec_port) + "/api/sessions/rec1",
+                             2000);
+        ASSERT_EQ(pc.start_session(1, 1, 10, "label", "{}"), 200);
+        pc.start_epoch(1, 10);
+        pc.update_sample_metrics(1, 0.5f, 1.0f, 0.001f);
+        pc.update_validation_metrics(0.6f, 0.5f, 1.8f);
+        pc.update_best_metrics(0.6f, 1);
+        pc.update_advanced_epoch_metrics(0.1f, 0.5f, 0.01f);
+        AbnormalSample a;
+        a.reason = "loss_outlier";
+        pc.flag_abnormal_sample(a);
+        pc.update_adaptive_clip_metrics(1.0f, 2);
+        pc.update_adaptive_clip_epoch(1.0f, 2);
+        pc.update_activation_saturation(0.1f);
+        pc.update_attention_entropy(2.0f);
+        pc.update_layer_gradient_norms({0.1f, 0.2f}, {0.3f});
+        pc.update_padding_efficiency(0.9f);
+        pc.update_generation_quality_metrics(0.1f, 0.2f, 0.3f, 0.4f);
+        pc.update_lejepa_metrics(0.5f, 0.01f);
+        pc.update_lejepa_advanced_metrics(0.3f, 0.9f, 1.0f, 0.1f);
+        pc.end_epoch(1, 0.5f, 0.6f, 0.001f, 1.6f, 1.0f, 2.0);
+        pc.end_session();
+    }
+    recorder.stop();
+    rec_thread.join();
+
+    auto client = make_client();
+    ASSERT_TRUE(client.Post("/api/sessions/routes1/start", R"({"session_id":1,"total_epochs":1})",
+                            "application/json"));
+    std::set<std::string> endpoints;
+    for (const auto& [path, body] : seen) {
+        endpoints.insert(path);
+        auto res = client.Post("/api/sessions/routes1" + path, body, "application/json");
+        ASSERT_TRUE(res) << path;
+        EXPECT_NE(res->status, 404) << "the API has no POST route for " << path << ": " << res->body;
+    }
+    // The recorder saw the lifecycle and the per-event endpoints, not just a few of them.
+    for (const char* e : {"/start", "/epoch/start", "/metrics/sample", "/metrics/abnormal", "/end"})
+        EXPECT_EQ(endpoints.count(e), 1u) << e << " was never posted";
+}
+

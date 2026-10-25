@@ -1,11 +1,12 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.10.2
-// @adai-reviewed: 2026-10-24
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-10-25
 
 #include "TrainingMetricsAPI.hpp"
 #include "BrowserWriteGuard.hpp"
 #include "HttpListenSocket.hpp"
 #include "PortableTime.hpp"
+#include "nlohmann/json.hpp"
 #include <httplib.h>
 #include <algorithm>
 #include <cctype>
@@ -565,6 +566,24 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
         [this](const httplib::Request& req, httplib::Response& res) {
             try {
                 std::string response = handle_post_best_metrics(req.matches[1], req.body);
+                res.set_content(response, "application/json");
+                res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
+            } catch (const std::exception& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 400;
+            }
+        });
+
+    // TD-555: the trainer pushes flagged samples here. The path was GET-only, so every push got a
+    // 404 that MetricsPushClient took for a lost session, and the samples were never stored.
+    server_impl_->server.Post(
+        "/api/sessions/" + key_pattern + "/metrics/abnormal",
+        [this](const httplib::Request& req, httplib::Response& res) {
+            try {
+                std::string response = handle_post_abnormal_sample(req.matches[1], req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const ApiRequestError& e) {
@@ -2407,6 +2426,55 @@ std::string TrainingMetricsAPI::handle_post_validation_metrics(const std::string
 
     service->update_validation_metrics(validation_loss, validation_accuracy, validation_perplexity);
 
+    return R"({"status":"ok"})";
+}
+
+namespace {
+
+// TD-555/TD-399: abnormal-sample texts are whole training inputs/targets; keep what is stored and
+// served bounded. Cut on a UTF-8 character boundary and mark the cut.
+std::string truncate_sample_text(std::string text) {
+    constexpr std::size_t kMaxBytes = 4096;
+    if (text.size() <= kMaxBytes)
+        return text;
+    std::size_t cut = kMaxBytes;
+    while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80)
+        --cut;
+    text.resize(cut);
+    text += "\u2026";
+    return text;
+}
+
+}  // namespace
+
+std::string TrainingMetricsAPI::handle_post_abnormal_sample(const std::string& session_key,
+                                                            const std::string& body) {
+    auto service = resolve_session_service(session_key, false);
+    const auto j = nlohmann::json::parse(body, nullptr, /*allow_exceptions=*/false);
+    if (!j.is_object())
+        throw ApiRequestError(400, "abnormal sample must be a JSON object");
+    const auto int_or = [&](const char* key) {
+        const auto it = j.find(key);
+        return (it != j.end() && it->is_number_integer()) ? it->get<int>() : 0;
+    };
+    const auto float_or = [&](const char* key) {
+        const auto it = j.find(key);
+        return (it != j.end() && it->is_number()) ? it->get<float>() : 0.0f;
+    };
+    const auto string_or = [&](const char* key) {
+        const auto it = j.find(key);
+        return (it != j.end() && it->is_string()) ? it->get<std::string>() : std::string();
+    };
+    AbnormalSample sample;
+    sample.epoch = int_or("epoch");
+    sample.sample_id = int_or("sample_id");
+    sample.loss = float_or("loss");
+    sample.grad_norm = float_or("grad_norm");
+    sample.reason = string_or("reason").substr(0, 128);
+    sample.input_text = truncate_sample_text(string_or("input_text"));
+    sample.target_text = truncate_sample_text(string_or("target_text"));
+    sample.timestamp = std::chrono::system_clock::now();
+    service->flag_abnormal_sample(sample);
     return R"({"status":"ok"})";
 }
 

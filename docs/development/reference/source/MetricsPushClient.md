@@ -166,3 +166,12 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Adaptive-clip values buffered but never sent (§3) | The dashboard's adaptive-clip history is always empty | **Verified** | [TD-443](../../guides/TECHNICAL_DEBT.md#td-443-metrics-push-payloads-send-naninf-round-small-values-to-0-and-omit-adaptive-clipping) |
 | `https://` sends plain HTTP; no custom headers; a connection per event; non-404 failures silent; `reconnect_body_` race; 8-character host fragment (§1, §3) | Metrics through TLS or a tunnel impossible; overhead; hidden failures | By inspection | [TD-444](../../guides/TECHNICAL_DEBT.md#td-444-metricspushclient-transport-gaps-no-https-a-connection-per-event-silent-failures) |
 | Abnormal-sample texts untruncated | Already tracked | — | TD-399 |
+
+---
+
+## Addendum (October 25, 2026): re-registration only for an unknown session (TD-555)
+
+`attempt_post(endpoint, body, &response_body)` returns the final response body too. `push_loop()` treats a 404 as a lost session only
+when the body says `Unknown session key`. Then it re-registers (logged once per outage, reset by the next accepted event) and retries the
+event. Any other 404 means the server lacks the route: it's logged once per endpoint and the event is dropped. Every flagged abnormal
+sample used to log "session gone, re-registering", because the server had no POST route for it.

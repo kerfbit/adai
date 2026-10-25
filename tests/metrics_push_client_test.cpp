@@ -24,6 +24,7 @@ static constexpr int kPort_DrainOnEnd = 42206;
 static constexpr int kPort_StartSession = 42207;
 static constexpr int kPort_ReconnectResetBest = 42208;
 static constexpr int kPort_LayerGradientNorms = 42209;
+static constexpr int kPort_MissingRoute = 42210;
 
 #ifdef BUILD_METRICS_API_SERVER
 
@@ -435,8 +436,10 @@ TEST(MetricsPushClientStartSession, ReconnectAfter404DoesNotReplayResetBest) {
         } else if (req.path.find("/metrics/sample") != std::string::npos) {
             // First sample push looks like the session was evicted; subsequent
             // ones (after reconnect) succeed.
+            // (TD-555: with the real server's body; only "Unknown session key" means a lost session.)
             if (sample_call_count.fetch_add(1, std::memory_order_relaxed) == 0) {
                 res.status = 404;
+                res.set_content(R"({"error":"Unknown session key: 1-test"})", "application/json");
             } else {
                 res.status = 201;
             }
@@ -524,3 +527,39 @@ TEST(MetricsPushClientShutdownDrain, DestructorDoesNotDeadlockOrCrash) {
     }
     SUCCEED();
 }
+
+// TD-555: a 404 for a route the server doesn't have (POST …/metrics/abnormal used to be GET-only)
+// is not a lost session. It used to re-register (/start again) on every such event.
+TEST(MetricsPushClientStartSession, MissingRouteIsNotTreatedAsALostSession) {
+    httplib::Server svr;
+    std::atomic<int> start_calls{0};
+    std::atomic<int> abnormal_calls{0};
+    svr.Post("/.*", [&](const httplib::Request& req, httplib::Response& res) {
+        if (req.path.find("/start") != std::string::npos) {
+            ++start_calls;
+            res.status = 200;
+        } else if (req.path.find("/metrics/abnormal") != std::string::npos) {
+            ++abnormal_calls;
+            res.status = 404;  // httplib's answer for an unmatched route: no session-key message
+        } else {
+            res.status = 200;
+        }
+    });
+    auto svr_thread = start_server(svr, kPort_MissingRoute);
+    MetricsPushClient client(session_url(kPort_MissingRoute), 500);
+    ASSERT_EQ(client.start_session(1, 1, 10, "", ""), 200);
+
+    AbnormalSample sample;
+    sample.epoch = 1;
+    sample.reason = "loss_outlier";
+    client.flag_abnormal_sample(sample);
+    client.flag_abnormal_sample(sample);
+    ASSERT_TRUE(wait_for_count(abnormal_calls, 2));
+    client.end_session();
+    svr.stop();
+    svr_thread.join();
+
+    EXPECT_EQ(abnormal_calls.load(), 2) << "each sample is tried once, not retried after a re-start";
+    EXPECT_EQ(start_calls.load(), 1) << "a missing route must not trigger re-registration";
+}
+

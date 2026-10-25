@@ -429,7 +429,8 @@ if(BUILD_METRICS_API_SERVER)
             adai_core
             pthread
         )
-        target_include_directories(adai_metrics_api PRIVATE ${HTTPLIB_INCLUDE_DIR})
+        # TD-555: nlohmann/json (vendored) parses pushed abnormal samples.
+        target_include_directories(adai_metrics_api PRIVATE ${HTTPLIB_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/external)
         message(STATUS "Building Metrics API server (cpp-httplib found at ${HTTPLIB_INCLUDE_DIR})")
     else()
         message(WARNING "cpp-httplib not found. Metrics API server will not be built. Install with: sudo apt-get install libhttplib-dev or download from https://github.com/yhirose/cpp-httplib")

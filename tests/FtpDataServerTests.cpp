@@ -643,6 +643,20 @@ int connect_tcp(int port, const char* bind_ip = nullptr) {
     return fd;
 }
 
+// Waits until @p port accepts connections. An FTPS server generates its RSA key in start() before
+// it listens, which can take well over a fixed sleep on a loaded machine (parallel ctest).
+bool wait_listening(int port) {
+    for (int i = 0; i < 200; ++i) {
+        const int fd = connect_tcp(port);
+        if (fd >= 0) {
+            ::close(fd);
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    return false;
+}
+
 // One reply line ("NNN text"), CRLF stripped.
 std::string read_reply(int fd) {
     std::string line;
@@ -731,7 +745,7 @@ TEST(FtpDataServerLiveTest, PlaintextLoginIsRefusedWhenFtpsIsEnabled) {
     std::filesystem::create_directories(dir);
     FtpDataServer srv(dir.string(), 21373, 51376, 51379, "127.0.0.1", "", /*ftps_en=*/true);
     srv.start();
-    std::this_thread::sleep_for(300ms);
+    ASSERT_TRUE(wait_listening(21373));
     const auto tok = srv.issue_token("run-td373", "x.bin", 5);
 
     const int ctrl = connect_tcp(21373);
@@ -848,7 +862,7 @@ class FtpsSessionReuseTest : public ::testing::TestWithParam<int> {
         srv_ = std::make_unique<FtpDataServer>(dir_.string(), 21549, 51549, 51556, "127.0.0.1", "",
                                                /*ftps_en=*/true);
         srv_->start();
-        std::this_thread::sleep_for(300ms);
+        ASSERT_TRUE(wait_listening(21549));
         ctx_ = client_ctx(GetParam());
     }
     void TearDown() override {

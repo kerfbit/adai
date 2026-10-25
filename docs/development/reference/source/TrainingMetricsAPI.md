@@ -130,3 +130,12 @@ Requests without `Origin` (trainer, Android, `curl`) behave as before. Tests: th
 ## Addendum (October 24, 2026): shared write guard (TD-550)
 
 The TD-526 write checks moved into [BrowserWriteGuard](BrowserWriteGuard.md), now shared with every HTTP daemon. `TrainingMetricsAPI` installs it with its CORS allow-list; behavior is unchanged except the 415 message, which now names the refused content type.
+
+---
+
+## Addendum (October 25, 2026): POST …/metrics/abnormal (TD-555)
+
+Session-scoped `POST /api/sessions/<key>/metrics/abnormal`
+(`{"epoch","sample_id","loss","grad_norm","reason","input_text","target_text"}`) records a pushed abnormal sample through
+`TrainingMetricsService::flag_abnormal_sample()`, which stores it in memory, the DB and the JSON file. Texts are capped at 4 KiB (on a
+UTF-8 boundary, marked "…") and `reason` at 128 characters. The path used to be GET-only, so remote trainers' samples were never stored.

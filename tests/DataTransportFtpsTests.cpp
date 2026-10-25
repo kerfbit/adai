@@ -14,6 +14,13 @@
 #include <string>
 #include <thread>
 
+#ifndef _WIN32
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+
 #include "../src/DataTransport.hpp"
 #include "../src/DatasetRegistry.hpp"
 #include "../src/FtpDataServer.hpp"
@@ -49,8 +56,11 @@ class FtpsVerificationTest : public ::testing::Test {
         server_ = std::make_unique<FtpDataServer>(data_dir_.string(), port, port + 100,
                                                   port + 103, "127.0.0.1", "", ftps, cert, key);
         server_->start();
-        std::this_thread::sleep_for(300ms);
         port_ = port;
+        // The server generates its RSA key before it listens; on a loaded machine that takes longer
+        // than any fixed sleep, so wait until the port accepts connections.
+        for (int i = 0; i < 200 && !listening(port); ++i)
+            std::this_thread::sleep_for(50ms);
     }
 
     FileToken token() {
@@ -78,6 +88,19 @@ class FtpsVerificationTest : public ::testing::Test {
                                 name + " -addext subjectAltName=IP:127.0.0.1 -keyout " +
                                 key.string() + " -out " + cert.string() + " >/dev/null 2>&1";
         return std::system(cmd.c_str()) == 0 && fs::exists(cert);
+    }
+
+    static bool listening(int port) {
+        const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (fd < 0)
+            return false;
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(static_cast<uint16_t>(port));
+        ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        const bool ok = ::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0;
+        ::close(fd);
+        return ok;
     }
 
     static std::string read_file(const fs::path& p) {
