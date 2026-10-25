@@ -1244,8 +1244,9 @@ The run is complete.
 - TD-492 (done in code: an upload never replaces a claimed, trained or queued file without `overwrite=true`, never a claimed one).
 - TD-493 (done in code: `trained` records only units the reporting run claimed, and records a re-trained unit again).
 - TD-551 (done in code: every httplib daemon's port is exclusive, so a second instance fails to start, and `registry_server` exits 1 when it can't listen).
+- TD-494, in part (done in code: request bodies parsed as JSON, session keys can't collide, `/health` reports the session store; leases, the fetch thread pool and an upload cap remain).
 
-Left in the category: TD-494 (its remaining parts) and TD-549 (a second daemon instance silently shares the port).
+Left in the category: TD-494's remaining parts (claim leases, fetches off the request pool, an upload size cap) and TD-549 (a second daemon instance silently shares the port).
 
 Analyzed September 12, 2026 to sequence the active items by dependency and risk rather than
 just priority label — several depend on each other or on a single owner decision, and the
@@ -13483,7 +13484,7 @@ The whole live suite passes against the fixed server (97 tests).
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / Registry Server | October 17, 2026 | 2-4 hours |
+| LOW | Open — partly fixed in code October 24, 2026 | Data / Registry Server | October 17, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `RegistryServer.cpp`:
@@ -13499,7 +13500,7 @@ Found while tracing `RegistryServer.cpp`:
 Action Items:
 
 - [x] Log and exit non-zero when `listen()` fails; handle a stop requested before `listen()`. *(October 24, 2026, with TD-551: exits 1 with the port in the log; a stop requested before `listen()` skips it, though one arriving in the last instant before `listen()` is still lost.)*
-- [ ] Parse request bodies with the vendored `nlohmann/json` (with TD-453).
+- [x] Parse request bodies with the vendored `nlohmann/json` (with TD-453).
 - [ ] Consider claim leases (expiry + renewal) or an explicit stale-claim report; run fetches off the request pool; cap upload size.
 
 Location in code: `src/RegistryServer.cpp` (`main()`, JSON helpers, `handle_session_next()`); tagged `TODO: See TD-494`.
@@ -13507,6 +13508,31 @@ Location in code: `src/RegistryServer.cpp` (`main()`, JSON helpers, `handle_sess
 Files to Modify:
 
 - `src/RegistryServer.cpp`
+
+**Partial fix (October 24, 2026).**
+- **Request bodies:** parsed with the vendored nlohmann/json behind the same helper signatures, so none of the ~60 call sites changed.
+  Each request thread caches its parse. As a result:
+  - whitespace is accepted (`{"run_id": "r2"}` works);
+  - escapes are decoded (`\u00e9` becomes `é`, `\"` becomes `"`);
+  - only top-level keys match, where a key name inside a value used to match;
+  - non-integers, fractions and out-of-range numbers give the default;
+  - an integer array with a bad element is treated as not sent instead of carrying a silent 0, since those arrays are aligned with
+    `files`;
+  - a body that isn't a JSON object gives the defaults.
+- **`session/next`:** rejects a `model_name` outside `[A-Za-z0-9._-]*` or a `run_id` containing `|` (400), since either could make two
+  (model, run) pairs share one counter.
+- **`/health`:** reports `{"status":"degraded","session_counters":false}` when `session_counters.db` couldn't be opened. It stays 200,
+  since everything but session numbering works and clients treat a failed `/health` as down. The bind-failure item was fixed earlier the
+  same day with TD-551.
+
+Live tests: `BodiesWithWhitespaceAreParsed`, `EscapesInBodiesAreDecoded`, `SessionKeysCantCollideThroughAPipe` and
+`ReportsTheSessionCounterStore` all fail against the old server; the whole live suite passes (101 tests).
+
+**Still open:**
+- claim leases or a stale-claim report;
+- running fetch downloads off httplib's request pool;
+- capping upload size (the body is still held in memory unbounded);
+- the narrow stop-before-`listen()` window.
 
 ---
 

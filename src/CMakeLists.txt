@@ -675,7 +675,8 @@ if(HTTPLIB_INCLUDE_DIR)
         pthread
         $<$<CXX_COMPILER_ID:GNU>:stdc++fs>
     )
-    target_include_directories(registry_server PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    # TD-494: request bodies are parsed with the vendored nlohmann/json.
+    target_include_directories(registry_server PRIVATE ${HTTPLIB_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/external)
     target_compile_definitions(registry_server PRIVATE BUILD_METRICS_API_SERVER)
     set_target_properties(registry_server PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin

@@ -2085,3 +2085,58 @@ TEST_F(LiveRegistryTest, ReTrainedUnitIsRecordedAgain) {
     EXPECT_NE(reg->body.find("\"num_samples\":7"), std::string::npos) << reg->body;
 }
 
+// ===========================================================================
+// TD-494: request bodies are parsed as JSON (whitespace, escapes), session keys can't collide, and
+// /health reports the session counter store
+// ===========================================================================
+
+// Verified before the fix: a space after the colon gave "400 run_id required".
+TEST_F(LiveRegistryTest, BodiesWithWhitespaceAreParsed) {
+    const std::string path = "/data/" + group() + "/spaced.jsonl";
+    auto add = client().Post(("/registry/" + group() + "/pending/add").c_str(),
+                             "{ \"path\" : \"" + path + "\" }", "application/json");
+    ASSERT_TRUE(add);
+    EXPECT_EQ(add->status, 200) << add->body;
+    auto res = client().Post(("/registry/" + group() + "/acquire").c_str(),
+                             "{\n  \"run_id\": \"r2\",\n  \"max_files\": 0\n}", "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200) << res->body;
+    EXPECT_NE(res->body.find(path), std::string::npos) << res->body;
+}
+
+// é used to be stored literally (backslash and all); it's now the UTF-8 character.
+TEST_F(LiveRegistryTest, EscapesInBodiesAreDecoded) {
+    const std::string raw = "/data/" + group() + "/caf\\u00e9.jsonl";
+    const std::string decoded = "/data/" + group() + "/caf\xc3\xa9.jsonl";
+    auto add = client().Post(("/registry/" + group() + "/pending/add").c_str(),
+                             "{\"path\":\"" + raw + "\"}", "application/json");
+    ASSERT_TRUE(add);
+    ASSERT_EQ(add->status, 200) << add->body;
+    auto queue = get_queue();
+    ASSERT_TRUE(queue);
+    EXPECT_NE(queue->body.find(decoded), std::string::npos) << queue->body;
+    EXPECT_EQ(queue->body.find("\\u00e9"), std::string::npos) << queue->body;
+}
+
+TEST_F(LiveRegistryTest, SessionKeysCantCollideThroughAPipe) {
+    auto res = next_session("a|b", "c");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400) << res->body;
+    res = next_session("a", "b|c");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400) << res->body;
+    res = next_session("model-a", "run-01");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200) << res->body;
+}
+
+TEST(LiveRegistryHealthDetail, ReportsTheSessionCounterStore) {
+    if (!server_reachable())
+        GTEST_SKIP() << "server not reachable";
+    auto c = make_client();
+    auto res = c.Get("/health");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_NE(res->body.find("\"session_counters\":true"), std::string::npos) << res->body;
+}
+

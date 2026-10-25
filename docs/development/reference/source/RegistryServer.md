@@ -248,3 +248,18 @@ The server's listening port is exclusive ([HttpListenSocket](HttpListenSocket.md
 bind any more. It used to share the port silently. When `listen()` fails, `main()` logs the port and exits 1 instead of logging
 "stopped" and exiting 0. A stop requested before `listen()` skips it.
 
+---
+
+## Addendum (October 24, 2026): JSON request parsing (TD-494)
+
+`json_string()`/`json_int()`/`json_bool()`/`json_has_key()`/`json_string_array()`/`json_int_array()`/`json_segment_targets()` keep their
+signatures but read the body through nlohmann/json (`parsed_body()`, cached per thread):
+- top-level keys only;
+- escapes decoded;
+- whitespace allowed;
+- integers only in int range;
+- an integer array with any bad element comes back empty.
+
+`session/next` rejects a `|` in `model_name`/`run_id`. `/health` adds `"session_counters":true|false` and reports `"degraded"` without
+the store.
+

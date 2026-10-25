@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.18.1
+// @adai-version: 0.19.0
 // @adai-reviewed: 2026-10-24
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
@@ -54,6 +54,8 @@
  */
 
 #include <httplib.h>
+#include <climits>
+#include "nlohmann/json.hpp"
 #include "BrowserWriteGuard.hpp"
 #include "HttpListenSocket.hpp"
 #include <algorithm>
@@ -244,134 +246,108 @@ static std::string json_escape(const std::string& s) {
     return out;
 }
 
-// TODO: See TD-494 in TECHNICAL_DEBT.md - compact-JSON-only substring parsing, no unescaping; use nlohmann/json.
-static std::string json_string(const std::string& body, const std::string& key) {
-    const std::string needle = "\"" + key + "\":\"";
-    const auto pos = body.find(needle);
-    if (pos == std::string::npos)
-        return {};
-    const auto start = pos + needle.size();
-    const auto end = body.find('"', start);
-    if (end == std::string::npos)
-        return {};
-    return body.substr(start, end - start);
-}
-
-static int json_int(const std::string& body, const std::string& key, int def = 0) {
-    const std::string needle = "\"" + key + "\":";
-    const auto pos = body.find(needle);
-    if (pos == std::string::npos)
-        return def;
-    try {
-        return std::stoi(body.substr(pos + needle.size()));
-    } catch (...) {
-        return def;
+// TD-494: request bodies are parsed with the vendored nlohmann/json. The old helpers matched
+// substrings of compact JSON only, so {"run_id": "r2"} (a space after the colon) answered
+// "400 run_id required", escapes like \" or é were never decoded, a key name appearing inside a
+// value matched as a key, and a bad element of an integer array silently became 0. The helpers keep
+// their signatures and read top-level keys; a body that isn't a JSON object yields the defaults.
+static const nlohmann::json& parsed_body(const std::string& body) {
+    // Handlers read several fields from one body; parse it once per request thread.
+    thread_local std::string last_body;
+    thread_local nlohmann::json last_parsed = nlohmann::json::object();
+    thread_local bool has_last = false;
+    if (!has_last || body != last_body) {
+        last_parsed = nlohmann::json::parse(body, nullptr, /*allow_exceptions=*/false);
+        if (!last_parsed.is_object())
+            last_parsed = nlohmann::json::object();
+        last_body = body;
+        has_last = true;
     }
+    return last_parsed;
 }
 
-// Bare-literal boolean (true/false, no quotes) — json_string can't parse
-// these since it requires a '"' immediately after the colon, and json_int's
-// std::stoi would throw on "true"/"false" and silently fall back to @p def
-// without ever telling the caller it didn't understand the value.
-static bool json_bool(const std::string& body, const std::string& key, bool def = false) {
-    const std::string needle = "\"" + key + "\":";
-    const auto pos = body.find(needle);
-    if (pos == std::string::npos)
+static const nlohmann::json* json_field(const std::string& body, const std::string& key) {
+    const auto& j = parsed_body(body);
+    const auto it = j.find(key);
+    return it == j.end() ? nullptr : &*it;
+}
+
+static std::string json_string(const std::string& body, const std::string& key) {
+    const auto* v = json_field(body, key);
+    return (v && v->is_string()) ? v->get<std::string>() : std::string();
+}
+
+// An integer in int range; anything else (missing, a string, a fraction, out of range) gives @p def.
+static int json_int(const std::string& body, const std::string& key, int def = 0) {
+    const auto* v = json_field(body, key);
+    if (!v || !v->is_number_integer())
         return def;
-    const auto start = pos + needle.size();
-    return body.compare(start, 4, "true") == 0;
+    const auto n = v->get<long long>();
+    return (n < INT_MIN || n > INT_MAX) ? def : static_cast<int>(n);
+}
+
+static bool json_bool(const std::string& body, const std::string& key, bool def = false) {
+    const auto* v = json_field(body, key);
+    return (v && v->is_boolean()) ? v->get<bool>() : def;
 }
 
 // Presence check — distinguishes "key not sent" from "sent with its zero/default value".
 static bool json_has_key(const std::string& body, const std::string& key) {
-    return body.find("\"" + key + "\"") != std::string::npos;
+    return json_field(body, key) != nullptr;
 }
 
+// The string elements of an array (non-string elements are skipped).
 static std::vector<std::string> json_string_array(const std::string& body, const std::string& key) {
     std::vector<std::string> result;
-    const std::string needle = "\"" + key + "\":[";
-    const auto pos = body.find(needle);
-    if (pos == std::string::npos)
+    const auto* v = json_field(body, key);
+    if (!v || !v->is_array())
         return result;
-    auto cur = pos + needle.size();
-    while (cur < body.size()) {
-        // An empty array (or one that has already been fully consumed) closes
-        // with ']' before any further '"' — check that first, otherwise an
-        // empty array immediately followed by another JSON field (e.g.
-        // "paths":[],"count":0) would wrongly treat that field's key as an
-        // array element, since the ']' would never be observed.
-        const auto quote_pos = body.find('"', cur);
-        const auto close_pos = body.find(']', cur);
-        if (quote_pos == std::string::npos ||
-            (close_pos != std::string::npos && close_pos < quote_pos)) {
-            break;
-        }
-        cur = quote_pos + 1;
-        const auto end = body.find('"', cur);
-        if (end == std::string::npos)
-            break;
-        result.push_back(body.substr(cur, end - cur));
-        cur = end + 1;
-        const auto next = body.find_first_of(",]", cur);
-        if (next == std::string::npos || body[next] == ']')
-            break;
-        cur = next + 1;
-    }
+    for (const auto& e : *v)
+        if (e.is_string())
+            result.push_back(e.get<std::string>());
     return result;
 }
 
+// An array of ints, or empty if any element isn't an integer in int range. These arrays are
+// aligned with another one (samples/segment_starts/segment_counts with files), so dropping or
+// zeroing a bad element would misalign or falsify them; empty means "not sent" to every caller.
 static std::vector<int> json_int_array(const std::string& body, const std::string& key) {
     std::vector<int> result;
-    const std::string needle = "\"" + key + "\":[";
-    const auto pos = body.find(needle);
-    if (pos == std::string::npos)
+    const auto* v = json_field(body, key);
+    if (!v || !v->is_array())
         return result;
-    auto cur = pos + needle.size();
-    while (cur < body.size()) {
-        const auto end = body.find_first_of(",]", cur);
-        if (end == std::string::npos)
-            break;
-        try {
-            result.push_back(std::stoi(body.substr(cur, end - cur)));
-        } catch (...) {
-            result.push_back(0);
-        }
-        if (body[end] == ']')
-            break;
-        cur = end + 1;
+    for (const auto& e : *v) {
+        if (!e.is_number_integer())
+            return {};
+        const auto n = e.get<long long>();
+        if (n < INT_MIN || n > INT_MAX)
+            return {};
+        result.push_back(static_cast<int>(n));
     }
     return result;
 }
 
-// TD-205: parse "<key>":[{"path":"...","segment_start":N,"segment_count":N},...] — flat
-// (non-nested) objects, same iteration idiom as every other object-array parser in this file
-// (see handle_acquire's own response-parsing counterpart, RegistryTransport.cpp).
+// TD-205: "<key>":[{"path":"...","segment_start":N,"segment_count":N},...]; objects without a
+// string path are skipped, missing ranges default to -1 (whole file).
 static std::vector<SegmentTarget> json_segment_targets(const std::string& body,
                                                         const std::string& key) {
     std::vector<SegmentTarget> result;
-    const std::string needle = "\"" + key + "\":[";
-    auto cur = body.find(needle);
-    if (cur == std::string::npos)
+    const auto* v = json_field(body, key);
+    if (!v || !v->is_array())
         return result;
-    cur += needle.size();
-    while (cur < body.size()) {
-        auto obj_start = body.find('{', cur);
-        if (obj_start == std::string::npos)
-            break;
-        auto obj_end = body.find('}', obj_start);
-        if (obj_end == std::string::npos)
-            break;
-        const std::string obj = body.substr(obj_start, obj_end - obj_start + 1);
+    for (const auto& obj : *v) {
+        if (!obj.is_object() || !obj.contains("path") || !obj["path"].is_string())
+            continue;
         SegmentTarget t;
-        t.path = json_string(obj, "path");
-        t.segment_start = json_int(obj, "segment_start", -1);
-        t.segment_count = json_int(obj, "segment_count", -1);
-        if (!t.path.empty()) {
+        t.path = obj["path"].get<std::string>();
+        const auto int_or = [&](const char* k) {
+            const auto it = obj.find(k);
+            return (it != obj.end() && it->is_number_integer()) ? it->get<int>() : -1;
+        };
+        t.segment_start = int_or("segment_start");
+        t.segment_count = int_or("segment_count");
+        if (!t.path.empty())
             result.push_back(std::move(t));
-        }
-        cur = obj_end + 1;
-        if (body.find(']', cur) < body.find('{', cur))
-            break;
     }
     return result;
 }
@@ -1959,6 +1935,15 @@ static void handle_session_next(const httplib::Request& req, httplib::Response& 
         res.set_content("{\"error\":\"run_id required\"}", "application/json");
         return;
     }
+    // TD-494: the counter key is "<model_name>|<run_id>", so a '|' in either could make two pairs
+    // share one counter ("a|b" + "c" and "a" + "b|c").
+    if (!is_safe_model_name(model_name) || run_id.find('|') != std::string::npos) {
+        res.status = 400;
+        res.set_content("{\"error\":\"model_name must match [A-Za-z0-9._-]* and run_id must not "
+                        "contain '|'\"}",
+                        "application/json");
+        return;
+    }
 
     std::lock_guard<std::mutex> lock(g_session_store_mtx);
     if (!g_session_store) {
@@ -1967,7 +1952,6 @@ static void handle_session_next(const httplib::Request& req, httplib::Response& 
         return;
     }
 
-    // TODO: See TD-494 in TECHNICAL_DEBT.md - model_name is unvalidated, so a '|' in it can collide.
     const std::string key = model_name + "|" + run_id;
     int next = 1;
     // TODO: See TD-304 in TECHNICAL_DEBT.md - read-modify-write is atomic only within this process (TD-308: full-table scan)
@@ -2238,8 +2222,17 @@ int main(int argc, char* argv[]) {
     svr.Get("/admin/config", handle_admin_get_config);
     svr.Put("/admin/config", handle_admin_put_config);
 
+    // TD-494: without session_counters.db every session/next answers 503, so say so here too. Still
+    // 200: everything else (acquire, trained, FTP) works, and clients treat a failed /health as down.
     svr.Get("/health", [](const httplib::Request&, httplib::Response& res) {
-        res.set_content("{\"status\":\"ok\"}", "application/json");
+        bool sessions_ok = false;
+        {
+            std::lock_guard<std::mutex> lock(g_session_store_mtx);
+            sessions_ok = g_session_store != nullptr;
+        }
+        res.set_content(sessions_ok ? "{\"status\":\"ok\",\"session_counters\":true}"
+                                    : "{\"status\":\"degraded\",\"session_counters\":false}",
+                        "application/json");
     });
 
     Logger::info("registry_server listening on port {}", port);
