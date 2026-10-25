@@ -5,13 +5,18 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 24, 2026
-**Total Items:** 346
+**Total Items:** 347
 **High Priority:** 36
-**Medium Priority:** 151
+**Medium Priority:** 152
 **Low Priority:** 159
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
+
+**October 24, 2026:** Filed [TD-555](#td-555-abnormal-sample-pushes-404-and-flood-the-log-with-session-re-registration) (MEDIUM, verified)
+after the owner asked about frequent "session gone, re-registering" warnings in training logs. The trainer posts abnormal samples
+to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
+session: it re-registers, gets 409 because the session is live, retries into another 404, and the sample is never stored.
 
 **October 24, 2026:** Filed [TD-554](#td-554-no-aggregate-version-per-cmake-build) at the owner's request (LOW): derive an aggregate version
 for each CMake build (preset × executable target) from the per-file versions of the sources it compiles. Builds on TD-553.
@@ -2268,6 +2273,7 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-552: `dataset_manager` and the Android App Can't Replace an Uploaded File](#td-552-dataset_manager-and-the-android-app-cant-replace-an-uploaded-file)
   - [TD-553: Per-File Versions Have No Build Number](#td-553-per-file-versions-have-no-build-number)
   - [TD-554: No Aggregate Version per CMake Build](#td-554-no-aggregate-version-per-cmake-build)
+  - [TD-555: Abnormal-Sample Pushes 404 and Flood the Log With Session Re-Registration](#td-555-abnormal-sample-pushes-404-and-flood-the-log-with-session-re-registration)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -15669,6 +15675,57 @@ Depends on TD-553 for the build number and the written reset rules.
 
 Location in code: `CMakeLists.txt`, `src/CMakeLists.txt`, `CMakePresets.json`, `scripts/check_file_status.py` /
 `scripts/gen_status_report.py` (shared tag parsing), and each executable's `main()` / `/health` handler.
+
+---
+
+### TD-555: Abnormal-Sample Pushes 404 and Flood the Log With Session Re-Registration
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Metrics / Push client and API | October 24, 2026 | 1-2 hours |
+
+Description:
+Filed after the owner reported an excessive number of "session gone, re-registering" warnings in training logs. Verified against the
+real `metrics_api_server`.
+
+`MetricsPushClient::report_abnormal_sample()` enqueues `POST /api/sessions/<key>/metrics/abnormal` (`MetricsPushClient.cpp`, ~line 323).
+`TrainingMetricsAPI` registers that path only as a `GET` (~line 338), and httplib answers a POST to a GET-only path with 404.
+`push_loop()` treats every 404 on a non-lifecycle endpoint as a lost session (~line 490). So for every flagged sample it:
+1. logs `MetricsPushClient: session gone on /metrics/abnormal, re-registering`;
+2. posts `/start` again, which gets 409 because the session is still live, so the client treats the re-registration as successful;
+3. retries the abnormal post, which gets 404 again and is silently dropped.
+
+Reproduced with curl against the real server: `/start` 200, `/metrics/sample` 200, `POST …/metrics/abnormal` 404, the client's
+re-`/start` 409, and `GET …/metrics/abnormal` returns `{"abnormal_samples":[],"count":0}`.
+
+Consequences:
+- **Log noise:** a warning per flagged sample (up to `max_abnormal_samples` per epoch), which looks like the session keeps being lost when
+  it isn't.
+- **Lost data:** abnormal samples pushed by remote trainers never reach the metrics server or its DB, so the dashboard's abnormal-sample
+  view and `review_abnormal_samples.py`'s server source stay empty.
+- **Wasted calls:** three HTTP calls per flagged sample on the push thread.
+
+A genuine metrics-server restart mid-pass does lose every session. Re-registering is correct there, but every queued event also warns
+until the session exists again.
+
+Related but distinct: TD-444 (the client ignores every non-404 status), TD-445 (the full registry answers 503, which the trainer turns into
+"no metrics for this run"), TD-442 (slow end-of-pass drain when events fail), TD-399 (untruncated abnormal-sample texts).
+
+Action Items:
+
+- [ ] Server: add a session-scoped `POST /api/sessions/<key>/metrics/abnormal` handler that records the sample in the session (and the
+  metrics DB, like the in-process path), with the TD-526/TD-550 write guard and sensible text-length limits (see TD-399).
+- [ ] Client: re-register only when the server says the session key is unknown, i.e. a 404 whose body is `Unknown session key`, not on
+  any 404. Treat a 404 for a missing route as a client/server version mismatch, logged once per endpoint. Log a real re-registration once
+  per outage, not per event.
+- [ ] Tests:
+  - a route test that a pushed abnormal sample is stored and readable via GET;
+  - a `MetricsPushClient` test against a real server that one flagged sample logs no re-registration;
+  - a restart test where re-registration still recovers after a genuine server restart.
+- [ ] Check the other push endpoints against the server's POST routes in one test, so a future mismatch fails a test instead of the log.
+
+Location in code: `src/MetricsPushClient.cpp` (`report_abnormal_sample()`, `push_loop()`), `src/TrainingMetricsAPI.cpp` (session
+routes, `handle_post_*`).
 
 ---
 
