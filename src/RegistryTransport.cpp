@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.4.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.4.1
+// @adai-reviewed: 2026-10-24
 
 #include "RegistryTransport.hpp"
 #include <fcntl.h>  // open(), O_RDWR
@@ -1677,8 +1677,9 @@ std::string RemoteTransport::upload_file(const std::string& local_path) {
         group_prefix_ + "/upload?filename=" + httplib::detail::encode_query_param(filename);
     const auto res = cli.Post(path.c_str(), contents, "application/octet-stream");
     if (!res || res->status != 200) {
-        Logger::error("RemoteTransport::upload_file — HTTP {} from {}:{}{}",
-                      res ? res->status : -1, host_, port_, path);
+        // TD-492: 409 = the name is already claimed, trained or queued ("reason" in the body).
+        Logger::error("RemoteTransport::upload_file — HTTP {} from {}:{}{}: {}",
+                      res ? res->status : -1, host_, port_, path, res ? res->body : "");
         return "";
     }
     if (res->body.find("\"added\":true") == std::string::npos) {

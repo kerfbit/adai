@@ -29,6 +29,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <mutex>
 #include <regex>
 #include <set>
@@ -1675,12 +1676,14 @@ TEST_F(LiveRegistryTest, UploadDeduplicatesSamePath) {
     const std::string filename = "dup_" + group() + ".jsonl";
     ASSERT_TRUE(upload(filename, "first"));
 
+    // TD-492: a second upload of a queued name is refused (it used to overwrite the file and say
+    // added:true); overwrite=true replaces it (UploadOverwriteReplacesAnUnclaimedQueuedFile).
     auto res = upload(filename, "second");
     ASSERT_TRUE(res);
-    EXPECT_EQ(res->status, 200);
-    EXPECT_NE(res->body.find("\"added\":true"), std::string::npos) << res->body;
+    EXPECT_EQ(res->status, 409) << res->body;
+    EXPECT_NE(res->body.find("\"reason\":\"already_queued\""), std::string::npos) << res->body;
 
-    // Second upload overwrote the file but must not create a duplicate queue entry.
+    // Still exactly one queue entry.
     auto queue_res = get_queue();
     ASSERT_TRUE(queue_res);
     int occurrences = 0;
@@ -1948,5 +1951,83 @@ TEST(LiveRegistryFetchCursor, WrappedFetchesNeverReuseASliceFile) {
     auto queue = c.Get("/registry/" + group + "/queue");
     ASSERT_TRUE(queue);
     EXPECT_EQ(count_occurrences(queue->body, "org_cursor_train__unassigned_row"), 6) << queue->body;
+}
+
+// ===========================================================================
+// TD-492: an upload never replaces bytes something depends on
+// ===========================================================================
+
+namespace {
+
+std::string read_server_file(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+
+}  // namespace
+
+// Verified before the fix: re-uploading a claimed file returned added:true and replaced the bytes under
+// the claim.
+TEST_F(LiveRegistryTest, UploadOverAClaimedFileIsRefused) {
+    const std::string filename = "claimed_" + group() + ".jsonl";
+    auto first = upload(filename, "{\"input\":\"a\",\"output\":\"b\"}\n");
+    ASSERT_TRUE(first);
+    ASSERT_EQ(first->status, 200) << first->body;
+    const std::string path = json_field(first->body, "path");
+    ASSERT_TRUE(acquire("r1"));
+
+    for (const char* query : {"", "&overwrite=true"}) {
+        auto res = client().Post(
+            ("/registry/" + group() + "/upload?filename=" + filename + query).c_str(),
+            "{\"input\":\"x\",\"output\":\"y\"}\n", "application/octet-stream");
+        ASSERT_TRUE(res);
+        EXPECT_EQ(res->status, 409) << query << ": " << res->body;
+        EXPECT_NE(res->body.find("\"reason\":\"claimed\""), std::string::npos) << res->body;
+    }
+    if (!server_data_dir().empty())
+        EXPECT_EQ(read_server_file(path), "{\"input\":\"a\",\"output\":\"b\"}\n");
+}
+
+TEST_F(LiveRegistryTest, UploadOverwriteReplacesAnUnclaimedQueuedFile) {
+    const std::string filename = "replace_" + group() + ".jsonl";
+    ASSERT_TRUE(upload(filename, "{\"input\":\"a\",\"output\":\"b\"}\n"));
+    const std::string bigger = "{\"input\":\"a\",\"output\":\"b\"}\n{\"input\":\"c\",\"output\":\"d\"}\n";
+    auto res = client().Post(
+        ("/registry/" + group() + "/upload?filename=" + filename + "&overwrite=true").c_str(), bigger,
+        "application/octet-stream");
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200) << res->body;
+    EXPECT_NE(res->body.find("\"replaced\":true"), std::string::npos) << res->body;
+    EXPECT_NE(res->body.find("\"added\":false"), std::string::npos) << res->body;
+
+    auto queue = get_queue();
+    ASSERT_TRUE(queue);
+    EXPECT_EQ(count_occurrences(queue->body, filename), 1) << queue->body;
+    EXPECT_NE(queue->body.find("\"size_bytes\":" + std::to_string(bigger.size())), std::string::npos)
+        << queue->body;
+    EXPECT_NE(queue->body.find("\"num_entries\":2"), std::string::npos) << queue->body;
+}
+
+TEST_F(LiveRegistryTest, UploadOverATrainedFileNeedsOverwrite) {
+    const std::string filename = "trained_" + group() + ".jsonl";
+    auto first = upload(filename, "{\"input\":\"a\",\"output\":\"b\"}\n");
+    ASSERT_TRUE(first);
+    const std::string path = json_field(first->body, "path");
+    ASSERT_TRUE(acquire("r1"));
+    auto t = trained("r1", {path}, {1});
+    ASSERT_TRUE(t);
+    ASSERT_EQ(t->status, 200) << t->body;
+
+    auto res = upload(filename, "{\"input\":\"new\",\"output\":\"version\"}\n");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 409) << res->body;
+    EXPECT_NE(res->body.find("\"reason\":\"trained\""), std::string::npos) << res->body;
+
+    res = client().Post(
+        ("/registry/" + group() + "/upload?filename=" + filename + "&overwrite=true").c_str(),
+        "{\"input\":\"new\",\"output\":\"version\"}\n", "application/octet-stream");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200) << res->body;
+    EXPECT_NE(res->body.find("\"added\":true"), std::string::npos) << res->body;
 }
 

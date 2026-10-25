@@ -218,3 +218,16 @@ of rewriting an existing `…_row<offset>_training.jsonl`. `queue_fetched_slice(
 (removing the file, leaving the cursor) when nothing new was queued. Live tests: `LiveRegistryFetchCursor.*` (need
 `REGISTRY_SERVER_DATA_DIR`). A second `registry_server` on the same port silently shares it (TD-551).
 
+---
+
+## Addendum (October 24, 2026): uploads don't replace files in use (TD-492)
+
+`POST …/upload?filename=<name>[&overwrite=true]` writes to a temporary file, then, under the group lock:
+- **Claimed target:** refused (409 `claimed`).
+- **Trained, or queued as one unclaimed whole file:** refused (409 `trained`/`already_queued`) unless `overwrite=true`. A replaced queued
+  entry gets its size, checksum, entry count and `added_utc` refreshed, and the reply is `{"added":false,"replaced":true}`.
+- **Queued as segments:** refused (409 `segmented`).
+- **New:** queued as before.
+
+Live tests: `UploadOverAClaimedFileIsRefused`, `UploadOverwriteReplacesAnUnclaimedQueuedFile`, `UploadOverATrainedFileNeedsOverwrite`.
+

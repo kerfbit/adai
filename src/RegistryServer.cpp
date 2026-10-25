@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.16.0
+// @adai-version: 0.17.0
 // @adai-reviewed: 2026-10-24
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
@@ -1729,25 +1729,97 @@ static void handle_upload(const httplib::Request& req, httplib::Response& res,
     const std::string dir = group_dir(group, kind) + "/uploads";
     fs::create_directories(dir);
     const std::string path = dir + "/" + filename;
+    const bool overwrite = req.has_param("overwrite") && req.get_param_value("overwrite") == "true";
 
-    // TODO: See TD-492 in TECHNICAL_DEBT.md - overwrites a pending/claimed/trained file and still reports added:true.
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
-    if (!out.is_open() || !(out << req.body) || !out.good()) {
-        res.status = 500;
-        res.set_content("{\"added\":false,\"reason\":\"write_failed\"}", "application/json");
-        Logger::error("[{}] upload: failed to write '{}'", group, path);
-        return;
+    // TD-492: the upload used to truncate and rewrite the file whatever its queue state, and report
+    // added:true. Replacing the bytes under a claim or a trained record means a trainer trains (or
+    // downloads over FTP) data that isn't what was queued, and the recorded checksum stops matching.
+    // The body goes to a temporary file first; the target is only replaced, under the group lock,
+    // when nothing depends on its current content.
+    static std::atomic<unsigned long> upload_seq{0};
+    const std::string tmp_path = path + ".upload-" + std::to_string(upload_seq.fetch_add(1)) + ".tmp";
+    {
+        std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
+        if (!out.is_open() || !(out << req.body) || !out.good()) {
+            out.close();
+            fs::remove(tmp_path);
+            res.status = 500;
+            res.set_content("{\"added\":false,\"reason\":\"write_failed\"}", "application/json");
+            Logger::error("[{}] upload: failed to write '{}'", group, tmp_path);
+            return;
+        }
     }
-    out.close();
+
+    auto refuse = [&](const char* reason, const std::string& detail) {
+        fs::remove(tmp_path);
+        res.status = 409;
+        res.set_content("{\"added\":false,\"reason\":\"" + std::string(reason) + "\",\"path\":\"" +
+                            json_escape(path) + "\"}",
+                        "application/json");
+        Logger::warn("[{}] upload: refused '{}': {}", group, path, detail);
+    };
 
     auto& gs = get_group(group, kind);
     std::lock_guard<std::mutex> lock(gs.mtx);
-    add_pending_path_locked(gs, path, "upload");
+    std::vector<PendingEntry> pending;
+    gs.transport->load_pending(pending);
+    int queued_units = 0;
+    bool queued_whole = false;
+    for (const auto& e : pending) {
+        if (e.path != path)
+            continue;
+        if (!e.run_id.empty())
+            return refuse("claimed", "claimed by run '" + e.run_id + "'");
+        ++queued_units;
+        queued_whole = queued_whole || e.segment_start < 0;
+    }
+    std::vector<DataVersion> trained;
+    gs.transport->load_registry(trained);
+    for (const auto& r : trained) {
+        if (r.data_file == path && !overwrite)
+            return refuse("trained", "already trained; pass overwrite=true to upload a new version");
+    }
+    if (queued_units > 0 && !overwrite)
+        return refuse("already_queued", "already queued; pass overwrite=true to replace it");
+    if (queued_units > 0 && (queued_units > 1 || !queued_whole))
+        return refuse("segmented", "queued as segments, whose row ranges a new version would break");
+
+    std::error_code ec;
+    fs::rename(tmp_path, path, ec);
+    if (ec) {
+        fs::remove(tmp_path);
+        res.status = 500;
+        res.set_content("{\"added\":false,\"reason\":\"write_failed\"}", "application/json");
+        Logger::error("[{}] upload: failed to move '{}' into place: {}", group, path, ec.message());
+        return;
+    }
+
+    bool replaced = false;
+    if (queued_units > 0) {
+        // overwrite=true on an unclaimed whole-file entry: refresh what it says about the file.
+        for (auto& e : pending) {
+            if (e.path != path)
+                continue;
+            if (const auto stat = stat_local_file(path)) {
+                e.size_bytes = stat->size_bytes;
+                e.checksum = stat->checksum;
+            }
+            e.num_entries = count_jsonl_entries(path);
+            e.added_utc = utc_now_string();
+        }
+        gs.transport->save_pending(pending);
+        replaced = true;
+    } else {
+        add_pending_path_locked(gs, path, "upload");
+    }
 
     std::ostringstream json;
-    json << "{\"added\":true,\"path\":\"" << json_escape(path) << "\"}";
+    json << "{\"added\":" << (replaced ? "false" : "true")
+         << ",\"replaced\":" << (replaced ? "true" : "false") << ",\"path\":\"" << json_escape(path)
+         << "\"}";
     res.set_content(json.str(), "application/json");
-    Logger::info("[{}] upload: '{}' ({} bytes)", group, path, req.body.size());
+    Logger::info("[{}] upload: '{}' ({} bytes{})", group, path, req.body.size(),
+                 replaced ? ", replaced the queued version" : "");
 }
 
 // ============================================================================

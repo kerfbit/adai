@@ -5,13 +5,17 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 24, 2026
-**Total Items:** 343
+**Total Items:** 344
 **High Priority:** 36
 **Medium Priority:** 151
-**Low Priority:** 156
+**Low Priority:** 157
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
+
+**October 24, 2026:** Filed [TD-552](#td-552-dataset_manager-and-the-android-app-cant-replace-an-uploaded-file) with TD-492 at the owner's
+request (LOW): `registry_server`'s `upload` now refuses to replace a queued or trained file unless `overwrite=true` is given, but neither
+`dataset_manager` nor the Android ops dashboard can send it.
 
 **October 24, 2026:** Filed [TD-551](#td-551-a-second-daemon-instance-silently-shares-the-port) while fixing TD-491 (MEDIUM, verified):
 cpp-httplib's default socket options set `SO_REUSEPORT`, so a second `registry_server` started on a port already in use bound without
@@ -1231,8 +1235,9 @@ The run is complete.
   `chatbot_api_server`, `trainer_service` and the child's admin API).
 
 - TD-491 (done in code: fetch cursors are serialized, slice names are unique, and `added` reports what was queued).
+- TD-492 (done in code: an upload never replaces a claimed, trained or queued file without `overwrite=true`, never a claimed one).
 
-Left in the category: TD-492–TD-494, TD-549 and TD-551 (a second daemon instance silently shares the port).
+Left in the category: TD-493, TD-494, TD-549 and TD-551 (a second daemon instance silently shares the port).
 
 Analyzed September 12, 2026 to sequence the active items by dependency and risk rather than
 just priority label — several depend on each other or on a single owner decision, and the
@@ -2251,6 +2256,7 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-549: FTPS Data Channel Doesn't Require TLS Session Reuse](#td-549-ftps-data-channel-doesnt-require-tls-session-reuse)
   - [TD-550: Registry, MNS and Other Daemons Accept Cross-Origin Writes](#td-550-registry-mns-and-other-daemons-accept-cross-origin-writes)
   - [TD-551: A Second Daemon Instance Silently Shares the Port](#td-551-a-second-daemon-instance-silently-shares-the-port)
+  - [TD-552: `dataset_manager` and the Android App Can't Replace an Uploaded File](#td-552-dataset_manager-and-the-android-app-cant-replace-an-uploaded-file)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -13367,7 +13373,7 @@ While testing, a stale server left on the same port took part of the traffic; th
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / Registry Server | October 17, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 24, 2026 | Data / Registry Server | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `RegistryServer.cpp`; verified. `handle_upload()` truncates and rewrites `<group_dir>/uploads/<filename>` whatever its queue state.
@@ -13377,8 +13383,8 @@ that is not what was queued, and a trained file's recorded checksum no longer ma
 
 Action Items:
 
-- [ ] Refuse (409) an upload whose target is pending, claimed or trained, unless an explicit `overwrite` is given and the entry is unclaimed.
-- [ ] Write to a temporary name and rename; report `added:false` when the path was already queued.
+- [x] Refuse (409) an upload whose target is pending, claimed or trained, unless an explicit `overwrite` is given and the entry is unclaimed.
+- [x] Write to a temporary name and rename; report `added:false` when the path was already queued.
 
 Location in code: `src/RegistryServer.cpp` (`handle_upload()`); tagged `TODO: See TD-492`.
 
@@ -13386,6 +13392,29 @@ Files to Modify:
 
 - `src/RegistryServer.cpp`
 - `tests/dataset_registry_live_test.cpp`
+
+**Fix (October 24, 2026).** `handle_upload()` writes the body to `<path>.upload-<n>.tmp` and decides under the group lock whether it may
+replace the target:
+
+| Target | Result |
+|---|---|
+| claimed by a run | 409 `"reason":"claimed"` (even with `overwrite=true`) |
+| trained (in the registry) | 409 `"trained"`; with `overwrite=true`, replaced and queued again as a new version |
+| queued, unclaimed, whole file | 409 `"already_queued"`; with `overwrite=true`, replaced, and its pending entry's size, checksum, entry count and `added_utc` refreshed (`{"added":false,"replaced":true}`) |
+| queued as TD-205 segments | 409 `"segmented"`, since a new version would break the row ranges |
+| not queued or trained | renamed into place and queued (`{"added":true}`), as before |
+
+A refused upload leaves the existing file untouched and deletes the temporary file. `RemoteTransport::upload_file()` now logs the
+server's reason with the status, so `dataset_manager add` of an already-queued file says why it failed. It used to overwrite silently;
+neither it nor the Android app offers `overwrite` yet, so a deliberate replacement is a `curl` with `?overwrite=true` (adding the option to both is TD-552).
+
+Tests (live, `dataset_registry_live_test.cpp`):
+- `UploadOverAClaimedFileIsRefused`: the file's bytes are unchanged, checked with `REGISTRY_SERVER_DATA_DIR`.
+- `UploadOverwriteReplacesAnUnclaimedQueuedFile`: still one queue entry, with the new size and entry count.
+- `UploadOverATrainedFileNeedsOverwrite`
+- `UploadDeduplicatesSamePath`: now expects 409 `already_queued`; it had asserted the old overwrite.
+
+All four fail against the old server, and the whole live suite passes against the new one (95 tests).
 
 ---
 
@@ -15421,6 +15450,40 @@ Action Items:
 
 Location in code: every `httplib::Server` (`RegistryServer.cpp`, `ModelNameService.cpp`, `TrainingMetricsAPI.cpp`, `ChatbotAPI.cpp`,
 `TrainerServiceProxy.cpp`, `TrainerAdminAPI.cpp`).
+
+---
+
+### TD-552: `dataset_manager` and the Android App Can't Replace an Uploaded File
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Data / Registry clients | October 24, 2026 | 1-2 hours |
+
+Description:
+Filed with TD-492 at the owner's request. Since TD-492, `POST /registry/<group>[/<kind>]/upload?filename=<name>` refuses (409) to replace
+a file that is already trained (`"trained"`) or queued (`"already_queued"`) unless `&overwrite=true` is given. With it, a trained file is
+replaced and queued again, and an unclaimed whole-file queue entry is replaced with its metadata refreshed. A claimed or segmented file
+is always refused.
+
+Neither client can send `overwrite`:
+- **`dataset_manager`:** `add` in remote mode uploads through `RemoteTransport::upload_file()`, which has no overwrite parameter. A
+  re-add now fails with the server's reason, so a deliberate replacement needs `curl … ?overwrite=true`.
+- **Android ops dashboard:** the Registry tab's upload (`RegistryRepository.upload()`, `RegistryApiService.upload()`) has no overwrite
+  parameter and shows the 409 as an error.
+
+Action Items:
+
+- [ ] `dataset_manager`: an `--overwrite` flag on the commands that upload (`add` in remote mode), passed through
+  `RegistryTransport::upload_file()`. Report `replaced` vs `added`, and show the 409 reason (`claimed`, `segmented`) plainly when even
+  overwrite is refused.
+- [ ] Android: an "Overwrite existing file" option in the upload dialog, sent as `overwrite=true`. Show the server's 409 reason, and gate
+  the overwrite through the same `ConfirmActionDialog` as other destructive actions, with the HTTP-call preview showing `overwrite=true`.
+- [ ] Tests: a `dataset_manager` overwrite test against a live registry, and a repository/unit test for the Android query parameter.
+- [ ] Document the flag in the `dataset_manager` operator guide and the ops dashboard docs.
+
+Location in code: `src/DatasetManagerTool.cpp`, `src/DatasetManagerArgs.{hpp,cpp}`, `src/RegistryTransport.{hpp,cpp}`
+(`upload_file()`); `android/opsdashboard/src/main/java/com/adai/ops/data/registry/RegistryRepository.kt`,
+`android/opsdashboard/src/main/java/com/adai/ops/network/RegistryApiService.kt` and the Registry upload dialog.
 
 ---
 
