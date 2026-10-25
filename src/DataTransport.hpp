@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-10-24
 
 /**
  * DataTransport — trainer-side FTP download client.
@@ -38,10 +38,28 @@
 using adai::Logger;
 namespace fs = std::filesystem;
 
+/// TD-339: how fetch() authenticates the registry's FTPS server. With neither field set the
+/// server's certificate isn't checked (a warning is logged once per process).
+struct FtpsVerification {
+    /// PEM CA bundle (or the server's own certificate) that must sign the server's certificate;
+    /// enables peer and hostname verification. The certificate must name the FTP host the
+    /// registry advertises (FTP_ADVERTISE_IP / --ftp-advertise-ip).
+    std::string ca_file;
+    /// curl CURLOPT_PINNEDPUBLICKEY value: "sha256//<base64>" (registry_server logs its pin at
+    /// startup) or the path of a PEM/DER public key. Works with a self-signed certificate.
+    std::string pinned_public_key;
+
+    bool configured() const { return !ca_file.empty() || !pinned_public_key.empty(); }
+};
+
 class DataTransport {
    public:
     DataTransport() = default;
+    explicit DataTransport(FtpsVerification verification)
+        : verification_(std::move(verification)) {}
     ~DataTransport() = default;
+
+    const FtpsVerification& ftps_verification() const { return verification_; }
 
     // Phase 2: retry configuration constants
     static constexpr int kMaxRetries = 3;        // attempts = 1 + kMaxRetries
@@ -88,8 +106,11 @@ class DataTransport {
      *
      * Phase 3 additions:
      *   - ftps_enabled: when true, enables FTPS (FTP over TLS with AUTH TLS)
-     *     via CURLOPT_USE_SSL.  Peer certificate verification is skipped for
-     *     self-signed server certificates (internal network deployment).
+     *     via CURLOPT_USE_SSL.
+     *   - TD-339: the server is authenticated by the FtpsVerification passed to the
+     *     constructor (CA file and/or pinned public key). When one is configured, a registry
+     *     offering plain FTP is refused, since the credentials would cross unencrypted to an
+     *     unverified server.
      *
      * @return Local filesystem path to the downloaded file.
      * @throws std::runtime_error on FTP error, size mismatch, or missing libcurl.
@@ -112,6 +133,9 @@ class DataTransport {
      */
     std::vector<fs::path> fetch_all(const AcquireResponse& resp, const fs::path& download_dir,
                                     int max_parallel = 4, std::size_t large_file_warn_bytes = 0);
+
+   private:
+    FtpsVerification verification_;
 };
 
 // ============================================================================
@@ -236,6 +260,27 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
             token.ftp_path, size_mb);
     }
 
+    // TD-339: refuse before connecting when the configured verification can't be applied.
+    if (verification_.configured() && !ftps_enabled) {
+        throw std::runtime_error(
+            "[DataTransport] FTPS verification is configured (FTPS_CA_FILE / "
+            "FTPS_PINNED_PUBLIC_KEY) but the registry offered plain FTP for '" + token.ftp_path +
+            "'; refusing to send credentials to an unverified server");
+    }
+    if (!verification_.ca_file.empty() && !fs::is_regular_file(verification_.ca_file)) {
+        throw std::runtime_error("[DataTransport] FTPS_CA_FILE '" + verification_.ca_file +
+                                 "' is not a readable file");
+    }
+    if (ftps_enabled && !verification_.configured()) {
+        static std::atomic<bool> warned{false};
+        if (!warned.exchange(true))
+            Logger::warn(
+                "[DataTransport] FTPS is NOT verifying the registry's certificate: anyone who can "
+                "intercept the connection can impersonate registry_server, serve arbitrary training "
+                "data and collect download credentials. Set FTPS_PINNED_PUBLIC_KEY (registry_server "
+                "logs its pin at startup) or FTPS_CA_FILE in config.trainer.conf.");
+    }
+
     // Build FTP URL — use plain ftp:// with CURLOPT_USE_SSL for FTPS (AUTH TLS)
     // rather than ftps:// (which implies implicit TLS on port 990).
     // ftp_path is percent-encoded per path segment: it comes from real on-disk
@@ -309,12 +354,19 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
         curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L);
         curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 60L);  // abort if < 1 byte/s for 60s
         curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
-        // Phase 3: FTPS — explicit TLS via AUTH TLS on the control channel
-        // TODO: See TD-339 in TECHNICAL_DEBT.md - peer/host verification disabled; registry can be impersonated
+        // Phase 3: FTPS — explicit TLS via AUTH TLS on the control channel.
+        // TD-339: a CA file turns on peer + hostname verification; a pin is checked on its own,
+        // so it also authenticates a self-signed certificate. With neither, nothing is checked.
         if (ftps_enabled) {
             curl_easy_setopt(curl, CURLOPT_USE_SSL, (long)CURLUSESSL_ALL);
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);  // accept self-signed certs
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+            const bool verify_chain = !verification_.ca_file.empty();
+            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, verify_chain ? 1L : 0L);
+            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, verify_chain ? 2L : 0L);
+            if (verify_chain)
+                curl_easy_setopt(curl, CURLOPT_CAINFO, verification_.ca_file.c_str());
+            if (!verification_.pinned_public_key.empty())
+                curl_easy_setopt(curl, CURLOPT_PINNEDPUBLICKEY,
+                                 verification_.pinned_public_key.c_str());
         }
         if (resume_from > 0) {
             curl_easy_setopt(curl, CURLOPT_RESUME_FROM_LARGE, static_cast<curl_off_t>(resume_from));

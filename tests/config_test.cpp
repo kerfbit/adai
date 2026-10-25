@@ -121,6 +121,8 @@ class ConfigTest : public ::testing::Test {
         unsetenv("DOWNLOAD_DIR");
         unsetenv("MAX_PARALLEL_DOWNLOADS");
         unsetenv("LARGE_FILE_WARN_THRESHOLD_MB");
+        unsetenv("FTPS_CA_FILE");
+        unsetenv("FTPS_PINNED_PUBLIC_KEY");
         unsetenv("TOKENIZER_MODE");
         unsetenv("ENABLE_METRICS_SERVICE");
         unsetenv("METRICS_SERVER_URL");
@@ -1072,6 +1074,23 @@ TEST_F(ConfigTest, FtpEnvVarOverridesFile) {
 
     EXPECT_EQ(config.ftp_server_port, 5121);          // from env
     EXPECT_EQ(config.download_dir, "/mnt/datasets");  // from file
+}
+
+// TD-339: trainer-side FTPS server authentication keys, from the file and the environment.
+TEST_F(ConfigTest, FtpsVerificationKeysLoad) {
+    auto defaults = ConfigLoader::load();
+    EXPECT_TRUE(defaults.ftps_ca_file.empty());
+    EXPECT_TRUE(defaults.ftps_pinned_public_key.empty());
+
+    createConfigFile({
+        {"FTPS_CA_FILE", "/etc/adai/registry-ca.pem"},
+        {"FTPS_PINNED_PUBLIC_KEY", "sha256//file-pin="},
+    });
+    setEnv("FTPS_PINNED_PUBLIC_KEY", "sha256//env-pin=");  // env overrides file
+    auto config = ConfigLoader::load(test_file.string());
+    EXPECT_EQ(config.ftps_ca_file, "/etc/adai/registry-ca.pem");
+    EXPECT_EQ(config.ftps_pinned_public_key, "sha256//env-pin=");
+
 }
 
 // ============================================================================

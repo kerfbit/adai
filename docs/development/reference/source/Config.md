@@ -230,3 +230,11 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 
 `world_model_sigreg_batch_size` (default 32; file key and env var `WORLD_MODEL_SIGREG_BATCH_SIZE`) is the number of texts per LeJEPA
 training batch. SIGReg is applied across their pooled embeddings. `validate()` requires 2–4096.
+
+---
+
+## Addendum (October 24, 2026): FTPS verification keys (TD-339)
+
+`FTPS_PINNED_PUBLIC_KEY` and `FTPS_CA_FILE` (`ServiceConfig::ftps_pinned_public_key`/`ftps_ca_file`, file and environment, default
+empty) set how `incremental_trainer` authenticates `registry_server`'s FTPS certificate. They're mapped into `DatasetConfig` by
+`DatasetRegistry::make_config()`. See DataTransport.md.

@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.22.0
-// @adai-reviewed: 2026-10-21
+// @adai-version: 0.22.1
+// @adai-reviewed: 2026-10-24
 
 #include <array>
 #include <chrono>
@@ -196,7 +196,7 @@ static bool resolve_pass_files(const AcquireResponse& resp, const DatasetConfig&
         const std::size_t warn_bytes =
             static_cast<std::size_t>(dcfg.large_file_warn_threshold_mb) * 1024ULL * 1024ULL;
         try {
-            DataTransport dt;
+            DataTransport dt(FtpsVerification{dcfg.ftps_ca_file, dcfg.ftps_pinned_public_key});
             downloaded =
                 dt.fetch_all(resp, download_dir, dcfg.max_parallel_downloads, warn_bytes);
             for (const auto& p : downloaded)

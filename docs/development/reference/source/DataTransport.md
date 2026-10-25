@@ -173,10 +173,23 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 |---|---|---|---|
 | Local name is the basename: segment tokens of one file download it N times, concurrently, to one path; different files with the same basename collide (§3) | Redundant transfers; a verification race could delete another thread's file; cross-file overwrites | **Fixed October 19, 2026** (was verified) | [TD-337](../../guides/TECHNICAL_DEBT.md#td-337-datatransport-names-downloads-by-basename-so-segments-and-same-named-files-collide) |
 | Condition B reuses any same-name, same-size file; the token checksum is ignored (§3) | Stale or wrong data trained silently | **Fixed October 19, 2026** (was verified) | [TD-338](../../guides/TECHNICAL_DEBT.md#td-338-datatransport-reuses-same-size-stale-files-without-checking-the-checksum) |
-| FTPS without server verification (§4) | Registry impersonation or MITM can inject training data | By inspection | [TD-339](../../guides/TECHNICAL_DEBT.md#td-339-ftps-downloads-dont-verify-the-registrys-certificate) |
+| FTPS without server verification (§4) | Registry impersonation or MITM can inject training data | **Fixed October 24, 2026** when `FTPS_PINNED_PUBLIC_KEY`/`FTPS_CA_FILE` is set (was by inspection) | [TD-339](../../guides/TECHNICAL_DEBT.md#td-339-ftps-downloads-dont-verify-the-registrys-certificate) |
 | No `curl_global_init()`; partial file deleted on failure; `COULDNT_CONNECT` not retried; global `using`/namespace alias in a header (§4) | Possible init race on older libcurl; lost resume; registry restarts fail passes; namespace pollution | By inspection | [TD-340](../../guides/TECHNICAL_DEBT.md#td-340-datatransport-robustness-and-header-hygiene) |
 | Segment release on download failure uses bare paths | Already tracked | — | TD-333 |
 
 ## Addendum (October 19, 2026): full-path names, one download per file, checksum sidecars (TD-337, TD-338)
 
 A download is now named by `download_file_name(registry_path)` (`RegistryTransport.hpp`): a 16-hex-digit FNV-1a hash of the full registry path, then `_` and the basename. `DataTransport::local_path_for()` gives the path. `fetch_all()` downloads each distinct file once and hands that path to every token of it, so TD-205 segments of one file share one transfer. `fetch()` records the token checksum in `<download>.checksum` before transferring. When the token carries a checksum, an existing file is reused (Condition B) or resumed only if that sidecar matches; otherwise it is deleted and downloaded again. Checked against a real FTP-enabled `registry_server` with a 13 MB file in three segments. The old code made 3 `RETR`s and kept a stale same-size copy. The new code made 1 `RETR`, and it downloaded the file again after a same-size edit on the server.
+
+---
+
+## Addendum (October 24, 2026): FTPS server verification (TD-339)
+
+`DataTransport(FtpsVerification{ca_file, pinned_public_key})` authenticates the registry's FTPS server:
+- **Pin:** a `pinned_public_key` (`CURLOPT_PINNEDPUBLICKEY`) is checked on its own and works with the self-signed default certificate.
+- **CA file:** a `ca_file` turns on peer and hostname verification.
+
+When either is set, plain FTP is refused, and a missing CA file fails before connecting. When neither is set, FTPS is unverified as
+before and a warning is logged once. The trainer reads `FTPS_PINNED_PUBLIC_KEY`/`FTPS_CA_FILE` from `config.trainer.conf` or the
+environment (`DatasetConfig`, `resolve_pass_files()`). The §4 "doesn't authenticate the server" gap is closed when one of them is
+configured. Tests: `DataTransportFtpsTests` (real `FtpDataServer` + libcurl on loopback).

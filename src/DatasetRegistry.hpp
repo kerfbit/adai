@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.5.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.6.0
+// @adai-reviewed: 2026-10-24
 
 
 #include <memory>
@@ -53,6 +53,9 @@ struct DatasetConfig {
     int max_parallel_downloads = 4;
     /// Log a warning for any file whose size exceeds this threshold in MB; 0 = disabled
     int large_file_warn_threshold_mb = 500;
+    /// TD-339: FTPS server authentication for downloads (see FtpsVerification in DataTransport.hpp)
+    std::string ftps_ca_file;
+    std::string ftps_pinned_public_key;
 };
 
 /**

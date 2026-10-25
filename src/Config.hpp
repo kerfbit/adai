@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.5.0
-// @adai-reviewed: 2026-10-21
+// @adai-version: 1.6.0
+// @adai-reviewed: 2026-10-24
 
 
 #include <cstdint>
@@ -343,6 +343,13 @@ struct ServiceConfig {
 
     /// Log a warning when a file transfer exceeds this size in MB; 0 = disabled (default: 500)
     int large_file_warn_threshold_mb = 500;
+
+    /// TD-339: trainer-side FTPS server authentication. PEM CA bundle (or the registry's own
+    /// certificate) that must sign the FTPS certificate; enables peer + hostname checks.
+    std::string ftps_ca_file;
+    /// TD-339: CURLOPT_PINNEDPUBLICKEY value ("sha256//<base64>", logged by registry_server at
+    /// startup, or a public-key file path). Either key set = plain FTP is refused.
+    std::string ftps_pinned_public_key;
 
     // ── Phase 3: Security hardening ───────────────────────────────────────
 

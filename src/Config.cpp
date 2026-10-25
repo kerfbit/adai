@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.5.0
-// @adai-reviewed: 2026-10-21
+// @adai-version: 1.6.0
+// @adai-reviewed: 2026-10-24
 
 #include "Config.hpp"
 #include <algorithm>
@@ -341,6 +341,10 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.max_parallel_downloads = std::stoi(value);
             } else if (key == "LARGE_FILE_WARN_THRESHOLD_MB") {
                 config.large_file_warn_threshold_mb = std::stoi(value);
+            } else if (key == "FTPS_CA_FILE") {
+                config.ftps_ca_file = value;
+            } else if (key == "FTPS_PINNED_PUBLIC_KEY") {
+                config.ftps_pinned_public_key = value;
                 // Phase 3: security hardening
             } else if (key == "FTP_MAX_SESSIONS_PER_RUN") {
                 config.ftp_max_sessions_per_run = std::stoi(value);
@@ -788,6 +792,12 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_int("LARGE_FILE_WARN_THRESHOLD_MB")) {
         config.large_file_warn_threshold_mb = *val;
+    }
+    if (auto val = get_env("FTPS_CA_FILE")) {
+        config.ftps_ca_file = *val;
+    }
+    if (auto val = get_env("FTPS_PINNED_PUBLIC_KEY")) {
+        config.ftps_pinned_public_key = *val;
     }
     // Phase 3: security hardening
     if (auto val = get_env_int("FTP_MAX_SESSIONS_PER_RUN")) {

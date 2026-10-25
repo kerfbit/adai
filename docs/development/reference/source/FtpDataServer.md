@@ -189,3 +189,13 @@ added for direct filesystem use.
 Tests: `ForeignDataConnectionGetsNothingAndTheClientStillDownloads`, `PlaintextLoginIsRefusedWhenFtpsIsEnabled`. Also verified end to
 end with `registry_server --ftps` and `curl --ssl-reqd --ftp-method nocwd`.
 
+---
+
+## Addendum (October 24, 2026): public-key pin and SIGPIPE (TD-339)
+
+- **Pin:** with FTPS, `start()` computes the certificate's public-key pin (`sha256//` + base64 SHA-256 of the DER
+  SubjectPublicKeyInfo, curl's `CURLOPT_PINNEDPUBLICKEY` form) and logs it. `public_key_pin()` returns it; trainers set it as
+  `FTPS_PINNED_PUBLIC_KEY`. A generated self-signed certificate gets a new key on every start, so pin a `--ftp-cert`/`--ftp-key` pair.
+- **SIGPIPE:** `start()` ignores SIGPIPE on POSIX. OpenSSL writes TLS records with plain `write()`, so a client dropping an FTPS session
+  raised SIGPIPE. `registry_server` was protected only because `httplib::Server`'s constructor ignores it; any other host process died
+  (seen in the TD-339 tests, exit 141).

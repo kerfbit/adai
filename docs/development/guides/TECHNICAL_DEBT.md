@@ -7981,7 +7981,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / DataTransport | October 11, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 24, 2026 | Data / DataTransport | October 11, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-337, by inspection. With FTPS enabled, `fetch()` sets `CURLOPT_SSL_VERIFYPEER`
@@ -7993,7 +7993,7 @@ config file's FTPS keys).
 
 Action Items:
 
-- [ ] Add a trainer config option for a CA bundle or pinned certificate (`CURLOPT_CAINFO` / `CURLOPT_PINNEDPUBLICKEY`), enable verification when set, and warn loudly when FTPS runs unverified.
+- [x] Add a trainer config option for a CA bundle or pinned certificate (`CURLOPT_CAINFO` / `CURLOPT_PINNEDPUBLICKEY`), enable verification when set, and warn loudly when FTPS runs unverified.
 
 Location in code: `src/DataTransport.hpp` (`fetch()` FTPS options); tagged `TODO: See TD-339`.
 
@@ -8002,6 +8002,40 @@ Files to Modify:
 - `src/DataTransport.hpp`
 - `src/Config.{hpp,cpp}`
 - `src/IncrementalTrainingTool.cpp`
+
+**Fix (October 24, 2026).** `DataTransport` takes an `FtpsVerification` (`ca_file`, `pinned_public_key`). The trainer fills it from
+two new `config.trainer.conf` keys, also read from the environment and carried through `DatasetConfig` to `resolve_pass_files()`:
+- **`FTPS_PINNED_PUBLIC_KEY`:** curl's `CURLOPT_PINNEDPUBLICKEY` (`sha256//<base64>` or a public-key file), checked on its own, so it
+  authenticates the default self-signed certificate. `registry_server` now logs its pin at startup (`[FTP/TLS] Certificate public-key
+  pin …`, `FtpDataServer::public_key_pin()`). A generated certificate's key changes on every restart, so a pinned deployment should give
+  `registry_server` `--ftp-cert`/`--ftp-key`.
+- **`FTPS_CA_FILE`:** a PEM CA bundle (or the registry's own certificate). It turns on peer and hostname verification
+  (`VERIFYPEER`/`VERIFYHOST 2`), so the certificate must name the host `registry_server` advertises.
+
+With either key set:
+- a registry that offers plain FTP is refused before any credentials are sent;
+- a missing CA file fails before connecting.
+
+With neither set, FTPS works as before and logs one loud warning per process.
+
+**Found while testing:** `FtpDataServer` survived a client that dropped a TLS session only because `httplib::Server`'s constructor
+ignores SIGPIPE process-wide; OpenSSL writes with plain `write()`. In the test process the wrong-pin case killed the server with SIGPIPE
+(exit 141). `FtpDataServer::start()` now ignores SIGPIPE itself. The shipped `registry_server` was not affected (30 wrong-pin `curl`
+connections against the real binary, which survived).
+
+Tests:
+- `DataTransportFtpsTests` (new; a real `FtpDataServer` with FTPS serving a real libcurl `DataTransport` on loopback):
+  - the server publishes a well-formed pin;
+  - the matching pin downloads;
+  - a different pin is refused (the impersonation case, which the old code accepted);
+  - a CA file must sign the server's certificate (generated with SAN `IP:127.0.0.1`; a different self-signed certificate is refused);
+  - a missing CA file fails before connecting;
+  - configured verification refuses plain FTP;
+  - unverified FTPS still downloads;
+  - the keys reach `DatasetConfig`.
+- `config_test`: `FtpsVerificationKeysLoad`.
+- The new tests can't build against the old code, which had no verification API. Its `fetch()` set both checks to 0 and no pin, which
+  is the path `UnverifiedFtpsStillDownloads` covers.
 
 ---
 

@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.5.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.6.0
+// @adai-reviewed: 2026-10-24
 
 #include "DatasetRegistry.hpp"
 #include <algorithm>
@@ -104,6 +104,8 @@ DatasetConfig DatasetRegistry::make_config(const adai::ServiceConfig& svc) {
     cfg.download_dir = svc.download_dir;
     cfg.max_parallel_downloads = svc.max_parallel_downloads;
     cfg.large_file_warn_threshold_mb = svc.large_file_warn_threshold_mb;
+    cfg.ftps_ca_file = svc.ftps_ca_file;
+    cfg.ftps_pinned_public_key = svc.ftps_pinned_public_key;
     return cfg;
 }
 

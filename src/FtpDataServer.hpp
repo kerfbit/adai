@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-040 fully resolved — see below)
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-10-21
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-10-24
 
 /**
  * FtpDataServer — embedded read-only FTP server for dataset delivery.
@@ -55,6 +55,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <csignal>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -295,6 +296,28 @@ inline bool generate_self_signed(SSL_CTX* ctx) {
     EVP_PKEY_free(pkey);
     return ok;
 }
+
+// TD-339: curl's CURLOPT_PINNEDPUBLICKEY form of a certificate's public key,
+// "sha256//" + base64(SHA-256(DER SubjectPublicKeyInfo)); empty on error.
+inline std::string public_key_pin(X509* cert) {
+    if (!cert)
+        return "";
+    unsigned char* der = nullptr;
+    const int der_len = i2d_PUBKEY(X509_get0_pubkey(cert), &der);
+    if (der_len <= 0)
+        return "";
+    unsigned char digest[EVP_MAX_MD_SIZE];
+    unsigned int digest_len = 0;
+    const bool hashed =
+        EVP_Digest(der, static_cast<std::size_t>(der_len), digest, &digest_len, EVP_sha256(),
+                   nullptr) == 1;
+    OPENSSL_free(der);
+    if (!hashed)
+        return "";
+    unsigned char b64[4 * ((EVP_MAX_MD_SIZE + 2) / 3) + 1];
+    const int b64_len = EVP_EncodeBlock(b64, digest, static_cast<int>(digest_len));
+    return "sha256//" + std::string(reinterpret_cast<const char*>(b64), static_cast<std::size_t>(b64_len));
+}
 #endif  // BUILD_FTPS
 
 }  // namespace ftp_detail
@@ -350,6 +373,11 @@ class FtpDataServer {
     }
     bool ftps_enabled() const {
         return ftps_enabled_;
+    }
+    /// TD-339: the TLS certificate's public-key pin ("sha256//<base64>") once start() has set
+    /// up FTPS; empty otherwise.
+    std::string public_key_pin() const {
+        return public_key_pin_;
     }
 
     // ── Issue a new token ─────────────────────────────────────────────────
@@ -412,6 +440,13 @@ class FtpDataServer {
     void start() {
         if (running_.exchange(true))
             return;
+#ifndef _WIN32
+        // OpenSSL writes TLS records with plain write(), not send(MSG_NOSIGNAL), so a client that
+        // drops an FTPS session (e.g. curl rejecting the certificate, TD-339) would raise SIGPIPE
+        // and kill the process. registry_server was only safe because httplib::Server's
+        // constructor happens to ignore SIGPIPE; don't depend on the host doing that.
+        std::signal(SIGPIPE, SIG_IGN);
+#endif
 
 #ifdef BUILD_FTPS
         if (ftps_enabled_) {
@@ -446,7 +481,13 @@ class FtpDataServer {
                 running_.store(false);
                 return;
             }
+            public_key_pin_ = ftp_detail::public_key_pin(SSL_CTX_get0_certificate(ssl_ctx_));
             Logger::info("[FTP] FTPS (TLS) enabled — connections will use AUTH TLS");
+            // TD-339: trainers verify this server with FTPS_PINNED_PUBLIC_KEY=<pin> (or with
+            // FTPS_CA_FILE for a CA-issued certificate). A generated certificate's pin changes
+            // on every restart, so pinned deployments should pass --ftp-cert/--ftp-key.
+            Logger::info("[FTP/TLS] Certificate public-key pin (trainer FTPS_PINNED_PUBLIC_KEY): {}",
+                         public_key_pin_);
         }
 #endif
 
@@ -522,6 +563,7 @@ class FtpDataServer {
     bool ftps_enabled_;          // Phase 3: FTPS mode
     std::string cert_file_;      // Phase 3: PEM cert path
     std::string key_file_;       // Phase 3: PEM key path
+    std::string public_key_pin_;  // TD-339: set by start() when FTPS is enabled
     int max_sessions_per_run_;   // Phase 3: rate limit
 
     TokenStore tokens_;

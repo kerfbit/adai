@@ -980,6 +980,21 @@ if(ENABLE_FTP_TRANSPORT AND CURL_FOUND)
     add_test(NAME DataTransportFtpTests COMMAND dataTransportFtpTests)
 endif()
 
+# TD-339: FTPS server authentication, end to end — a real FtpDataServer (BUILD_FTPS) serving a
+# real DataTransport (libcurl, BUILD_FTP_TRANSPORT) on loopback.
+if(ENABLE_FTP_TRANSPORT AND CURL_FOUND AND OPENSSL_FOUND)
+    add_executable(dataTransportFtpsTests DataTransportFtpsTests.cpp)
+    target_compile_definitions(dataTransportFtpsTests PRIVATE BUILD_FTP_TRANSPORT BUILD_FTPS)
+    target_link_libraries(dataTransportFtpsTests
+        adai_core
+        CURL::libcurl
+        OpenSSL::SSL
+        OpenSSL::Crypto
+        GTest::gtest_main
+    )
+    add_test(NAME DataTransportFtpsTests COMMAND dataTransportFtpsTests)
+endif()
+
 # TD-028 Phase 2 (startup sweep): startup_sweep() unit tests.
 # Tests all four cleanup conditions (A, D, G, B/C) using a real
 # DatasetRegistry backed by a temp directory — no FTP server needed.
