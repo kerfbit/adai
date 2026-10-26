@@ -14,7 +14,6 @@ namespace {
 MetricsServiceConfig make_no_persist_config(int staleness_threshold_seconds = 60) {
     MetricsServiceConfig cfg;
     cfg.enable_persistence = false;
-    cfg.enable_push = false;
     cfg.enable_prometheus_format = false;
     cfg.staleness_threshold_seconds = staleness_threshold_seconds;
     return cfg;

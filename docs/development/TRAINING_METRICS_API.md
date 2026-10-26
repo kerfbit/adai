@@ -264,6 +264,16 @@ Query parameters:
 
 Each record's `timestamp` is whole seconds (a string, as before); `timestamp_ms` (a number, TD-527) has milliseconds.
 
+**History is sampled (TD-530).** A history record is written once every `persist_every_samples` samples (default 100,
+`METRICS_PERSIST_EVERY_SAMPLES`), plus one at every epoch end. It is not one per sample. The epoch-level fields (diagnostics,
+LeJEPA losses, layer gradient norms) are filled on the epoch-end records and are -1 or absent on the others. The same records go to
+`/history`, to the DB's `metrics_history` (`db-history`, `export`) and to the session's JSONL file. Per-step gradient variance has its
+own unsampled table (`db-gradient-variance`).
+
+**JSONL file.** One JSON object per line with every record field: `loss`, `validation_loss`, `learning_rate`, `gradient_norm`,
+`perplexity`, the TD-013 diagnostics, the LeJEPA fields, and `layer_gradient_norms` when set. Non-finite values are `null`. Before
+TD-530 the file had only the first five metrics, wrote NaN as `nan` (invalid JSON) and rounded small values to `0.000000`.
+
 **Request bodies (TD-527, October 25, 2026).** Every POST body is parsed as a JSON object. Absent fields take their defaults,
 `null` in a number field means NaN, and a field of the wrong type is a `400` naming it (`{"error":"field 'sample' must be an
 integer"}`). Invalid JSON is a `400` too.

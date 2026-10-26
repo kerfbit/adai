@@ -15,7 +15,6 @@
 static MetricsServiceConfig no_persist_config() {
     MetricsServiceConfig cfg;
     cfg.enable_persistence = false;
-    cfg.enable_push = false;
     cfg.enable_prometheus_format = false;
     return cfg;
 }

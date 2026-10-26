@@ -1033,20 +1033,13 @@ Configure `incremental_trainer` to push metrics to the daemon:
 config.conf:
 
 ```conf
-# Enable metrics push to API daemon
-ENABLE_METRICS_SERVICE=true
-METRICS_PUSH_ENABLED=true
+# Metrics push to the API daemon (config.trainer.conf); empty URL = no push
 METRICS_SERVER_URL=http://localhost:8081
+METRICS_PUSH_TIMEOUT_MS=1000
 ```
 
-Or via IncrementalConfig:
-
-```cpp
-IncrementalConfig config;
-config.metrics_config.enable_push = true;
-config.metrics_config.push_url = "http://localhost:8081";
-config.metrics_config.push_timeout_ms = 1000;
-```
+The trainer pushes through `MetricsPushClient` (an `https://` URL and `METRICS_SERVER_HEADERS` need a libcurl build, TD-444).
+The old `MetricsServiceConfig::enable_push`/`push_url` fields were removed (TD-530).
 
 ### Monitoring Endpoints
 

@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.15.1
+// @adai-version: 0.15.2
 // @adai-reviewed: 2026-10-25
 
 #include "TrainingMetricsAPI.hpp"
@@ -2156,22 +2156,6 @@ std::string TrainingMetricsAPI::handle_post_session_start(const std::string& ses
         throw ApiRequestError(400, "Invalid session key format");
     }
 
-    // The conflict check and the reclaim-if-stale decision must happen atomically under one
-    // registry lock (see MetricsSessionRegistry::start_session_or_conflict) — otherwise a
-    // session that is still genuinely training can be silently archived and replaced out from
-    // under itself before a separate "is it already active?" check gets to run.
-    auto outcome = session_registry_->start_session_or_conflict(session_key);
-    if (outcome.conflict) {
-        throw ApiRequestError(409, "session already active for key: " + session_key);
-    }
-    auto service = outcome.service;
-    if (!service) {
-        std::ostringstream body_err;
-        body_err << R"({"error":"metrics_server_full","max_live_sessions":)"
-                 << session_registry_->max_live_sessions() << "}";
-        throw ApiRequestError(503, body_err.str());
-    }
-
     // Body: {"session_id": int, "total_epochs": int, "total_samples": int, "label": string,
     //        "config": object, "model_id": string, "reset_best": bool}, every field optional.
     const PushBody b(body);
@@ -2191,6 +2175,25 @@ std::string TrainingMetricsAPI::handle_post_session_start(const std::string& ses
     // A fresh retrain sets reset_best so best_validation_loss/best_epoch don't carry forward from a
     // prior session.
     const bool reset_best = b.get_bool("reset_best", false);
+
+    // The body is parsed before the key is claimed below: a claimed session refuses other starts
+    // until it has started (MetricsSessionRegistry::SessionEntry::claimed), so a malformed body
+    // must not leave a claim behind.
+    // The conflict check and the reclaim-if-stale decision must happen atomically under one
+    // registry lock (see MetricsSessionRegistry::start_session_or_conflict) — otherwise a
+    // session that is still genuinely training can be silently archived and replaced out from
+    // under itself before a separate "is it already active?" check gets to run.
+    auto outcome = session_registry_->start_session_or_conflict(session_key);
+    if (outcome.conflict) {
+        throw ApiRequestError(409, "session already active for key: " + session_key);
+    }
+    auto service = outcome.service;
+    if (!service) {
+        std::ostringstream body_err;
+        body_err << R"({"error":"metrics_server_full","max_live_sessions":)"
+                 << session_registry_->max_live_sessions() << "}";
+        throw ApiRequestError(503, body_err.str());
+    }
 
     service->start_session(session_id, total_epochs, total_samples, label, config_snapshot,
                            reset_best);

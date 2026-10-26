@@ -93,14 +93,10 @@ void example_basic_usage() {
 void example_integration_with_trainer() {
     adai::Logger::info("\n=== Example 2: Integration with IncrementalTrainer ===\n");
     
-    // Initialize global metrics service with push enabled so the
-    // metrics-api-server daemon handles printing and saving.
+    // A local service for this example. A real trainer reports through MetricsPushClient, which
+    // pushes to the metrics-api-server daemon; the daemon's MetricsSessionRegistry owns the services.
     MetricsServiceConfig config;
-    config.enable_push = true;
-    config.push_url = "http://localhost:8081";
-    GlobalMetricsService::initialize(config);
-    
-    auto& service = GlobalMetricsService::instance();
+    TrainingMetricsService service(config);
     
     try {
         // Create trainer
@@ -135,8 +131,6 @@ void example_integration_with_trainer() {
     } catch (const std::exception& e) {
         adai::Logger::error("Training error: {}", e.what());
     }
-    
-    GlobalMetricsService::shutdown();
 }
 
 /**

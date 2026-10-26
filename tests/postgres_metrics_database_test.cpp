@@ -707,7 +707,6 @@ TEST_F(PostgresMetricsDatabaseTest, FreshServiceSessionKeepsFirstRowsWithoutRetr
     config.metrics_file = (scratch_dir_ / (db_name_ + "_metrics.jsonl")).string();
     config.summary_file = (scratch_dir_ / (db_name_ + "_summary.json")).string();
     config.persist_every_samples = 1;
-    config.session_key = "td479";
 
     const auto t0 = std::chrono::steady_clock::now();
     {

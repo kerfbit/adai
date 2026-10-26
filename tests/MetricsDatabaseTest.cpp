@@ -992,7 +992,6 @@ TEST_F(MetricsDatabaseTest, DualWritePath) {
     config.metrics_file = jsonl_path;
     config.summary_file = summary_path;
     config.persist_every_samples = 1;
-    config.session_key = "dual-test";
 
     auto db = std::make_unique<SQLiteMetricsDatabase>(db_path_);
 
@@ -1041,7 +1040,6 @@ TEST_F(MetricsDatabaseTest, PersistMetricsDoesNotDuplicateAcrossMultipleFlushes)
     config.metrics_file = jsonl_path;
     config.summary_file = summary_path;
     config.persist_every_samples = 1;
-    config.session_key = "dedup-test";
 
     auto db = std::make_unique<SQLiteMetricsDatabase>(db_path_);
 
@@ -1102,7 +1100,6 @@ TEST_F(MetricsDatabaseTest, RestoreFromDB) {
     MetricsServiceConfig config;
     config.enable_persistence = true;
     config.summary_file = summary_path;
-    config.session_key = "restore-test";
 
     TrainingMetricsService service(config);
     service.set_database(db.get(), "restore-test");
@@ -1275,7 +1272,6 @@ TEST_F(MetricsDatabaseTest, UnwritableMetricsFileDoesNotDuplicateDbRows) {
     config.metrics_file = metrics_file.string();
     config.summary_file = (fs::path(test_dir_) / "summary.json").string();
     config.persist_every_samples = 1;
-    config.session_key = "td529";
     auto db = std::make_unique<SQLiteMetricsDatabase>(db_path_);
     TrainingMetricsService service(config);
     service.set_database(db.get(), "td529");
@@ -1314,7 +1310,6 @@ TEST_F(MetricsDatabaseTest, FailingDbRowsAreInsertedOnceWhenItRecovers) {
     config.metrics_file = (fs::path(test_dir_) / "metrics.jsonl").string();
     config.summary_file = (fs::path(test_dir_) / "summary.json").string();
     config.persist_every_samples = 1;
-    config.session_key = "td529db";
     auto db = std::make_unique<FlakySQLiteMetricsDatabase>(db_path_);
     TrainingMetricsService service(config);
     service.set_database(db.get(), "td529db");
@@ -1484,7 +1479,6 @@ TEST_F(MetricsDatabaseTest, ServiceKeepsSessionRowsUnderMaxRecordsOnDisk) {
     config.summary_file = (fs::path(test_dir_) / "cap_summary.json").string();
     config.persist_every_samples = 1;
     config.max_records_on_disk = 40;
-    config.session_key = "svc-cap";
     auto db = std::make_unique<SQLiteMetricsDatabase>(db_path_);
     TrainingMetricsService service(config);
     service.set_database(db.get(), "svc-cap");
@@ -1600,7 +1594,6 @@ TEST_F(MetricsDatabaseTest, BatchInsertsAreAllOrNothing) {
 TEST_F(MetricsDatabaseTest, ServiceBatchesGradientVarianceRows) {
     MetricsServiceConfig config;
     config.enable_persistence = false;  // the DB rows don't depend on file persistence
-    config.session_key = "gvb";
     auto db = std::make_unique<SQLiteMetricsDatabase>(db_path_);
     TrainingMetricsService service(config);
     service.set_database(db.get(), "gvb");
@@ -1662,7 +1655,6 @@ TEST_F(MetricsDatabaseTest, GradientVarianceStepsContinueAcrossServiceInstances)
     auto db = std::make_unique<SQLiteMetricsDatabase>(db_path_);
     MetricsServiceConfig config;
     config.enable_persistence = false;
-    config.session_key = "steps";
     for (int instance = 0; instance < 2; ++instance) {
         TrainingMetricsService service(config);
         service.set_database(db.get(), "steps");

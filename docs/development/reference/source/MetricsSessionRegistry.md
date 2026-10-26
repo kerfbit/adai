@@ -157,3 +157,10 @@ JSONL backups (`<file>.1` … `.N`) with it. Tests: `RetentionDeletesOldSessions
 
 Tests: `DisabledSweepIntervalDoesNotSpin`, `EnablingSweepLaterStartsSweeping`, `ShorterSweepIntervalAppliesImmediately`,
 `EvictedServiceStopsWriting`, `ConcurrentKeyReuseWithArchivingOutsideTheLock`; TSan-clean.
+
+## Addendum (October 25, 2026): starts claim their session
+
+`start_session_or_conflict()` marks the session it hands out as claimed (`SessionEntry::claimed`). Another start for the key gets
+the conflict until the first has started, at which point the session is live. Before, two concurrent starts could share one
+never-started placeholder. A placeholder made by `create_or_get_session()` (e.g. by a GET) is still handed to the first start.
+Test: `SecondStartBeforeTheFirstHasRunIsRefused`.

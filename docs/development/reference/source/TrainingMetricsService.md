@@ -148,3 +148,15 @@ batch is stored. `update_advanced_epoch_metrics()` no longer inserts a row per o
 `flush_gradient_variance_locked()` writes the buffer as one batch at every persist (even with file persistence off) or every 256 rows.
 On failure the buffer is kept, capped at 100,000 rows with the oldest dropped. `set_database()` and the registry's archiving flush
 first.
+
+## Addendum (October 25, 2026): push path removed, full JSONL records (TD-530)
+
+- **Removed.** The push path (`push_to_api()`, `build_push_url()`, the `enable_push`/`push_url`/`session_key`/`push_timeout_ms`
+  fields) and `GlobalMetricsService` are gone. Trainers push through `MetricsPushClient`, and `MetricsSessionRegistry` owns the
+  services.
+- **JSONL.** `persist_metrics()` writes every `PersistentMetricsRecord` field through `JsonlFloat` (null for non-finite, shortest
+  round-trip otherwise). The layer-gradient-norms JSON uses it too.
+- **Sampling.** History sampling (one record per `persist_every_samples` samples plus one per epoch) is documented in
+  TRAINING_METRICS_API.md.
+
+Test: `TrainingMetricsServiceJsonl.LinesAreValidJsonWithEveryField`.

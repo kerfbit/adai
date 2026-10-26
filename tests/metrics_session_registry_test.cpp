@@ -881,3 +881,25 @@ TEST(MetricsSessionRegistry, DefaultSessionDoesNotTakeALiveSlot) {
         << "two live trainer sessions fill a cap of 2";
     EXPECT_TRUE(registry.get_session("0-default").has_value());
 }
+
+// Two starts for one key used to share a never-started placeholder; the second is now refused until
+// the first has started (and archived and replaced once that run is over).
+TEST(MetricsSessionRegistry, SecondStartBeforeTheFirstHasRunIsRefused) {
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, 3600, /*sweep=*/0);
+    auto first = registry.start_session_or_conflict("claim-key");
+    ASSERT_NE(first.service, nullptr);
+    auto second = registry.start_session_or_conflict("claim-key");
+    EXPECT_TRUE(second.conflict);
+    EXPECT_EQ(second.service, nullptr);
+
+    // A placeholder made by create_or_get_session (e.g. a GET) is still handed to one start.
+    ASSERT_NE(registry.create_or_get_session("placeholder"), nullptr);
+    EXPECT_NE(registry.start_session_or_conflict("placeholder").service, nullptr);
+    EXPECT_TRUE(registry.start_session_or_conflict("placeholder").conflict);
+
+    first.service->start_session(1, 1, 1);
+    first.service->end_session();
+    auto again = registry.start_session_or_conflict("claim-key");
+    EXPECT_NE(again.service, nullptr) << "a finished run is archived and the key reused";
+    EXPECT_NE(again.service, first.service);
+}

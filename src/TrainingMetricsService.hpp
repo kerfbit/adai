@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.13.0
+// @adai-version: 0.14.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -222,11 +222,9 @@ struct MetricsServiceConfig {
     bool enable_prometheus_format = false;
     std::string prometheus_file = "training_sessions/metrics.prom";
 
-    // Push to external metrics API daemon
-    bool enable_push = false;
-    std::string push_url = "http://localhost:8081";  // Base URL of metrics API daemon
-    std::string session_key;     // Optional session key for /api/sessions/{key} push routing
-    int push_timeout_ms = 1000;  // HTTP request timeout
+    // TD-530: the push-to-daemon fields (enable_push, push_url, session_key, push_timeout_ms) were
+    // removed with the push path they configured: nothing set enable_push, and trainers push through
+    // MetricsPushClient.
 
     // Outlier detection (TD-013)
     std::string abnormal_samples_file = "training_sessions/abnormal_samples.json";
@@ -489,8 +487,6 @@ class TrainingMetricsService {
     static std::string format_timestamp(const std::chrono::system_clock::time_point& tp);
 
     // HTTP push to external metrics API daemon
-    void push_to_api(const std::string& endpoint, const std::string& json_body);
-    std::string build_push_url(const std::string& endpoint) const;
 
     // Outlier storage & persistence (TD-013)
     std::vector<AbnormalSample> abnormal_samples_;  // in-memory list of flagged samples
@@ -511,24 +507,5 @@ class TrainingMetricsService {
     void flush_gradient_variance_locked();
 };
 
-class MetricsSessionRegistry;
-
-/**
- * @brief Global metrics service instance (optional singleton access)
- *
- * Resolved by TD-018: this is now a thin proxy through the "0-default" slot of a
- * MetricsSessionRegistry, kept deliberately (not replaced) so the pre-existing
- * instance().start_session(id, ...) call-site API didn't need to change everywhere
- * it's used.
- */
-// TODO: See TD-530 in TECHNICAL_DEBT.md - only tests call this; push config is unused too.
-class GlobalMetricsService {
-   public:
-    static TrainingMetricsService& instance();
-    static void initialize(const MetricsServiceConfig& config);
-    static void shutdown();
-
-   private:
-    static std::unique_ptr<MetricsSessionRegistry> registry_;
-    static std::mutex instance_mutex_;
-};
+// TD-530: GlobalMetricsService (a singleton proxy for the "0-default" session) was removed; only
+// tests and an example used it. MetricsSessionRegistry owns sessions.

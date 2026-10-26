@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <future>
 #include <limits>
 #include <memory>
@@ -34,7 +35,6 @@ MetricsServiceConfig make_test_config(const std::string& test_name) {
 
     MetricsServiceConfig cfg;
     cfg.enable_persistence = false;
-    cfg.enable_push = false;
     cfg.enable_prometheus_format = false;
     cfg.persist_every_samples = 1;
 
@@ -1145,4 +1145,68 @@ TEST(TrainingMetricsAPIStartStop, StopRacingStartAlwaysEndsIt) {
             FAIL() << "iteration " << i << ": stop() was lost";
         }
     }
+}
+
+// TD-530: each JSONL line is valid JSON and carries the whole record (the file used to get only the
+// first five metrics, wrote NaN as nan and rounded a 1e-7 learning rate to 0.000000).
+TEST(TrainingMetricsServiceJsonl, LinesAreValidJsonWithEveryField) {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() /
+                         ("adai_metrics_jsonl_" + std::to_string(::getpid()));
+    fs::remove_all(dir);
+    MetricsServiceConfig cfg;
+    cfg.enable_persistence = true;
+    cfg.persist_every_samples = 1;
+    cfg.metrics_file = (dir / "metrics.jsonl").string();
+    cfg.summary_file = (dir / "summary.json").string();
+    {
+        TrainingMetricsService service(cfg);
+        service.start_session(1, 1, 10);
+        service.start_epoch(1, 10);
+        service.update_padding_efficiency(0.75f);
+        service.update_lejepa_metrics(0.5f, -0.01f);
+        service.update_layer_gradient_norms({1.0f, std::numeric_limits<float>::quiet_NaN()}, {2.0f});
+        service.update_sample_metrics(1, std::numeric_limits<float>::quiet_NaN(), 1.0f, 1e-7f);
+        service.update_sample_metrics(2, 2.5f, 1.0f, 1e-7f);
+        service.end_epoch(1, 2.5f, 2.6f, 1e-7f);  // the epoch record carries the epoch-level fields
+        service.flush_to_disk();
+    }
+    std::ifstream in(cfg.metrics_file);
+    std::string line;
+    int lines = 0;
+    int epoch_records = 0;
+    while (std::getline(in, line)) {
+        ++lines;
+        const auto j = nlohmann::json::parse(line, nullptr, /*allow_exceptions=*/false);
+        ASSERT_FALSE(j.is_discarded()) << "not JSON: " << line;
+        for (const char* key : {"loss", "learning_rate", "padding_efficiency", "predictor_loss",
+                                "sigreg_loss", "compute_time_ratio", "masking_ratio",
+                                "sigreg_variance_stddev"})
+            EXPECT_TRUE(j.contains(key)) << key << " missing: " << line;
+        EXPECT_FLOAT_EQ(j["learning_rate"].get<float>(), 1e-7f);
+        if (j["sample"] == 1)
+            EXPECT_TRUE(j["loss"].is_null()) << line;
+        if (j.contains("layer_gradient_norms")) {
+            ++epoch_records;
+            EXPECT_FLOAT_EQ(j["padding_efficiency"].get<float>(), 0.75f) << line;
+            EXPECT_FLOAT_EQ(j["predictor_loss"].get<float>(), 0.5f) << line;
+            EXPECT_TRUE(j["layer_gradient_norms"]["encoder"][1].is_null()) << line;
+        }
+    }
+    EXPECT_GE(lines, 3);
+    EXPECT_EQ(epoch_records, 1);
+    fs::remove_all(dir);
+}
+
+// A malformed /start body is refused before the key is claimed, so the key stays usable.
+TEST_F(TrainingMetricsAPIRoutesTest, MalformedStartBodyDoesNotBlockTheKey) {
+    auto client = make_client();
+    auto bad = client.Post("/api/sessions/bad-start/start", R"({"session_id":"x"})",
+                           "application/json");
+    ASSERT_TRUE(bad);
+    EXPECT_EQ(bad->status, 400);
+    auto good = client.Post("/api/sessions/bad-start/start", R"({"session_id":1})",
+                            "application/json");
+    ASSERT_TRUE(good);
+    EXPECT_EQ(good->status, 200) << good->body;
 }

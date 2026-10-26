@@ -1,10 +1,12 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.13.1
+// @adai-version: 0.14.0
 // @adai-reviewed: 2026-10-25
 
 #include "TrainingMetricsService.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -14,17 +16,28 @@
 #include <utility>
 #include "GenerationQualityMetrics.hpp"
 #include "Logger.hpp"
-#include "MetricsSessionRegistry.hpp"
-
-// HTTP client for pushing metrics to external API daemon (optional)
-#ifdef BUILD_METRICS_API_SERVER
-#include <httplib.h>
-#include <cmath>
-#endif
 
 namespace fs = std::filesystem;
 
 namespace {
+
+// TD-530: a float as a JSONL value: null for NaN/infinity (operator<< wrote nan/inf, which isn't
+// JSON), otherwise the shortest decimal that reads back as the same float (std::fixed wrote a 1e-7
+// learning rate as 0.000000).
+struct JsonlFloat {
+    float value;
+};
+std::ostream& operator<<(std::ostream& os, JsonlFloat f) {
+    if (!std::isfinite(f.value))
+        return os << "null";
+    char buf[32];
+    for (int digits = 6; digits <= 9; ++digits) {
+        std::snprintf(buf, sizeof(buf), "%.*g", digits, static_cast<double>(f.value));
+        if (std::strtof(buf, nullptr) == f.value)
+            break;
+    }
+    return os << buf;
+}
 
 void ensure_parent_directory(const std::string& file_path) {
     fs::path path(file_path);
@@ -99,8 +112,6 @@ TrainingMetricsService::~TrainingMetricsService() {
 void TrainingMetricsService::start_session(int session_id, int total_epochs, int total_samples,
                                            const std::string& label,
                                            const std::string& config_snapshot, bool reset_best) {
-    std::string push_json;
-    bool should_push = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
 
@@ -150,31 +161,11 @@ void TrainingMetricsService::start_session(int session_id, int total_epochs, int
         adai::Logger::info("Metrics session {} started (epochs={}, samples={}, label={})",
                            session_id, total_epochs, total_samples,
                            label.empty() ? "(none)" : label);
-        adai::Logger::info("Metrics push config: enable_push={}, push_url={}", config_.enable_push,
-                           config_.push_url);
 
-        should_push = config_.enable_push;
-        if (should_push) {
-            std::ostringstream json;
-            json << "{\"session_id\":" << session_id << ",\"total_epochs\":" << total_epochs
-                 << ",\"total_samples\":" << total_samples;
-            if (!label.empty()) {
-                json << ",\"label\":\"" << escape_json(label) << "\"";
-            }
-            if (!config_snapshot.empty()) {
-                json << ",\"config\":" << config_snapshot;
-            }
-            json << "}";
-            push_json = json.str();
-        }
-    }  // mutex released here — HTTP call runs WITHOUT holding the lock
-    if (should_push) {
-        push_to_api("/api/session/start", push_json);
     }
 }
 
 void TrainingMetricsService::end_session() {
-    bool should_push = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
 
@@ -208,10 +199,6 @@ void TrainingMetricsService::end_session() {
             "Metrics session {} ended (total_time={:.2f}s, samples={})", current_session_id_.load(),
             current_snapshot_.total_training_time_seconds, current_snapshot_.total_samples_trained);
 
-        should_push = config_.enable_push;
-    }  // mutex released here
-    if (should_push) {
-        push_to_api("/api/session/end", "{}");
     }
 }
 
@@ -227,8 +214,6 @@ void TrainingMetricsService::heartbeat() {
 }
 
 void TrainingMetricsService::start_epoch(int epoch, int total_samples) {
-    std::string push_json;
-    bool should_push = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
 
@@ -244,23 +229,12 @@ void TrainingMetricsService::start_epoch(int epoch, int total_samples) {
 
         adai::Logger::debug("Metrics epoch {} started (samples={})", epoch, total_samples);
 
-        should_push = config_.enable_push;
-        if (should_push) {
-            std::ostringstream json;
-            json << "{\"epoch\":" << epoch << ",\"total_samples\":" << total_samples << "}";
-            push_json = json.str();
-        }
-    }  // mutex released here
-    if (should_push) {
-        push_to_api("/api/epoch/start", push_json);
     }
 }
 
 void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_loss,
                                        float learning_rate, float perplexity, float gradient_norm,
                                        double epoch_time_seconds) {
-    std::string push_json;
-    bool should_push = false;
     float stored_perplexity = 0.0f;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -359,13 +333,13 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
             for (size_t i = 0; i < current_snapshot_.encoder_layer_grad_norms.size(); ++i) {
                 if (i > 0)
                     lg << ",";
-                lg << current_snapshot_.encoder_layer_grad_norms[i];
+                lg << JsonlFloat{current_snapshot_.encoder_layer_grad_norms[i]};  // TD-530: null, not nan
             }
             lg << "],\"decoder\":[";
             for (size_t i = 0; i < current_snapshot_.decoder_layer_grad_norms.size(); ++i) {
                 if (i > 0)
                     lg << ",";
-                lg << current_snapshot_.decoder_layer_grad_norms[i];
+                lg << JsonlFloat{current_snapshot_.decoder_layer_grad_norms[i]};  // TD-530: null, not nan
             }
             lg << "]}";
             record.layer_gradient_norms_json = lg.str();
@@ -389,42 +363,11 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
             validation_loss, epoch_time);
 
         stored_perplexity = current_snapshot_.current_perplexity;
-        should_push = config_.enable_push;
-        if (should_push) {
-            std::ostringstream json;
-            json << "{\"epoch\":" << epoch << ",\"loss\":" << loss
-                 << ",\"validation_loss\":" << validation_loss
-                 << ",\"learning_rate\":" << learning_rate
-                 << ",\"perplexity\":" << stored_perplexity
-                 << ",\"gradient_norm\":" << gradient_norm << ",\"epoch_time\":" << epoch_time
-                 << ",\"gradient_variance\":" << current_snapshot_.gradient_variance
-                 << ",\"compute_time_ratio\":" << current_snapshot_.compute_time_ratio
-                 << ",\"weight_update_ratio\":" << current_snapshot_.weight_update_ratio
-                 << ",\"activation_saturation_ratio\":"
-                 << current_snapshot_.activation_saturation_ratio
-                 << ",\"attention_entropy\":" << current_snapshot_.attention_entropy
-                 << ",\"current_padding_efficiency\":"
-                 << current_snapshot_.current_padding_efficiency
-                 << ",\"predictor_loss\":" << current_snapshot_.current_predictor_loss
-                 << ",\"sigreg_loss\":" << current_snapshot_.current_sigreg_loss
-                 << ",\"masking_ratio\":" << current_snapshot_.current_masking_ratio
-                 << ",\"predictor_target_cosine_sim\":"
-                 << current_snapshot_.current_predictor_target_cosine_sim
-                 << ",\"sigreg_variance_mean\":" << current_snapshot_.current_sigreg_variance_mean
-                 << ",\"sigreg_variance_stddev\":"
-                 << current_snapshot_.current_sigreg_variance_stddev << "}";
-            push_json = json.str();
-        }
-    }  // mutex released here
-    if (should_push) {
-        push_to_api("/api/epoch/end", push_json);
     }
 }
 
 void TrainingMetricsService::update_sample_metrics(int sample, float loss, float gradient_norm,
                                                    float learning_rate) {
-    std::string push_json;
-    bool should_push = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
 
@@ -477,14 +420,6 @@ void TrainingMetricsService::update_sample_metrics(int sample, float loss, float
         update_throughput_metrics();
 
         // Build push payload while lock is held
-        should_push = config_.enable_push;
-        if (should_push) {
-            std::ostringstream json;
-            json << "{\"sample\":" << sample << ",\"loss\":" << loss
-                 << ",\"gradient_norm\":" << gradient_norm << ",\"learning_rate\":" << learning_rate
-                 << "}";
-            push_json = json.str();
-        }
 
         // Persist if needed
         if (samples_since_last_persist_ >= config_.persist_every_samples) {
@@ -504,17 +439,12 @@ void TrainingMetricsService::update_sample_metrics(int sample, float loss, float
             samples_since_last_persist_ = 0;
             last_persist_time_ = current_snapshot_.last_update_time;
         }
-    }  // mutex released here
-    if (should_push) {
-        push_to_api("/api/metrics/sample", push_json);
     }
 }
 
 void TrainingMetricsService::update_validation_metrics(float validation_loss,
                                                        float validation_accuracy,
                                                        float validation_perplexity) {
-    std::string push_json;
-    bool should_push = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
 
@@ -528,24 +458,10 @@ void TrainingMetricsService::update_validation_metrics(float validation_loss,
         current_snapshot_.current_validation_accuracy = validation_accuracy;
         current_snapshot_.last_update_time = std::chrono::system_clock::now();
 
-        should_push = config_.enable_push;
-        if (should_push) {
-            std::ostringstream json;
-            json << "{\"validation_loss\":" << validation_loss
-                 << ",\"validation_accuracy\":" << validation_accuracy
-                 << ",\"validation_perplexity\":" << current_snapshot_.current_validation_perplexity
-                 << "}";
-            push_json = json.str();
-        }
-    }  // mutex released here
-    if (should_push) {
-        push_to_api("/api/metrics/validation", push_json);
     }
 }
 
 void TrainingMetricsService::update_best_metrics(float validation_loss, int epoch) {
-    std::string push_json;
-    bool should_push = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
 
@@ -555,16 +471,7 @@ void TrainingMetricsService::update_best_metrics(float validation_loss, int epoc
             adai::Logger::info("New best validation loss: {:.4f} (epoch {})", validation_loss,
                                epoch);
 
-            should_push = config_.enable_push;
-            if (should_push) {
-                std::ostringstream json;
-                json << "{\"validation_loss\":" << validation_loss << ",\"epoch\":" << epoch << "}";
-                push_json = json.str();
-            }
         }
-    }  // mutex released here
-    if (should_push) {
-        push_to_api("/api/metrics/best", push_json);
     }
 }
 
@@ -1005,20 +912,35 @@ void TrainingMetricsService::persist_metrics() {
             return;
         }
 
-        // Write records as JSON Lines (one JSON object per line)
+        // Write records as JSON Lines (one JSON object per line). TD-530: every field of the record,
+        // as in the DB (the file used to get only the first five metrics); -1 means "not reported".
         for (auto it = begin; it != history_.end(); ++it) {
-            const auto& record = *it;
-            file << std::fixed << std::setprecision(6);
+            const auto& r = *it;
             file << "{";
-            file << R"("timestamp":")" << format_timestamp(record.timestamp) << "\",";
-            file << "\"session_id\":" << record.session_id << ",";
-            file << "\"epoch\":" << record.epoch << ",";
-            file << "\"sample\":" << record.sample << ",";
-            file << "\"loss\":" << record.loss << ",";
-            file << "\"validation_loss\":" << record.validation_loss << ",";
-            file << "\"learning_rate\":" << record.learning_rate << ",";
-            file << "\"gradient_norm\":" << record.gradient_norm << ",";
-            file << "\"perplexity\":" << record.perplexity;
+            file << R"("timestamp":")" << format_timestamp(r.timestamp) << "\",";
+            file << "\"session_id\":" << r.session_id << ",";
+            file << "\"epoch\":" << r.epoch << ",";
+            file << "\"sample\":" << r.sample << ",";
+            file << "\"loss\":" << JsonlFloat{r.loss} << ",";
+            file << "\"validation_loss\":" << JsonlFloat{r.validation_loss} << ",";
+            file << "\"learning_rate\":" << JsonlFloat{r.learning_rate} << ",";
+            file << "\"gradient_norm\":" << JsonlFloat{r.gradient_norm} << ",";
+            file << "\"perplexity\":" << JsonlFloat{r.perplexity} << ",";
+            file << "\"compute_time_ratio\":" << JsonlFloat{r.compute_time_ratio} << ",";
+            file << "\"weight_update_ratio\":" << JsonlFloat{r.weight_update_ratio} << ",";
+            file << "\"activation_saturation_ratio\":" << JsonlFloat{r.activation_saturation_ratio}
+                 << ",";
+            file << "\"attention_entropy\":" << JsonlFloat{r.attention_entropy} << ",";
+            file << "\"padding_efficiency\":" << JsonlFloat{r.padding_efficiency} << ",";
+            file << "\"predictor_loss\":" << JsonlFloat{r.predictor_loss} << ",";
+            file << "\"sigreg_loss\":" << JsonlFloat{r.sigreg_loss} << ",";
+            file << "\"masking_ratio\":" << JsonlFloat{r.masking_ratio} << ",";
+            file << "\"predictor_target_cosine_sim\":" << JsonlFloat{r.predictor_target_cosine_sim}
+                 << ",";
+            file << "\"sigreg_variance_mean\":" << JsonlFloat{r.sigreg_variance_mean} << ",";
+            file << "\"sigreg_variance_stddev\":" << JsonlFloat{r.sigreg_variance_stddev};
+            if (!r.layer_gradient_norms_json.empty())
+                file << ",\"layer_gradient_norms\":" << r.layer_gradient_norms_json;
             file << "}\n";
         }
 
@@ -1549,133 +1471,12 @@ std::string TrainingMetricsService::format_timestamp(
 }
 
 // ============================================================================
-// HTTP Push to External Metrics API Daemon
-// ============================================================================
-
-#ifdef BUILD_METRICS_API_SERVER
-
-std::string TrainingMetricsService::build_push_url(const std::string& endpoint) const {
-    std::string url = config_.push_url;
-    while (!url.empty() && url.back() == '/') {
-        url.pop_back();
-    }
-
-    std::string endpoint_path = endpoint;
-    if (endpoint_path.empty()) {
-        endpoint_path = "/";
-    }
-    if (endpoint_path.front() != '/') {
-        endpoint_path.insert(endpoint_path.begin(), '/');
-    }
-
-    // If the caller configured a session-scoped base URL
-    // (.../api/sessions/{key}), translate legacy flat endpoints to
-    // per-session relative routes.
-    if (url.find("/api/sessions/") != std::string::npos) {
-        if (endpoint_path.rfind("/api/session/", 0) == 0) {
-            endpoint_path = "/" + endpoint_path.substr(13);
-        } else if (endpoint_path.rfind("/api/", 0) == 0) {
-            endpoint_path = endpoint_path.substr(4);
-        }
-    }
-
-    return url + endpoint_path;
-}
-
-// TODO: See TD-530 in TECHNICAL_DEBT.md - dead: enable_push is never set (trainers use MetricsPushClient).
-void TrainingMetricsService::push_to_api(const std::string& endpoint,
-                                         const std::string& json_body) {
-    std::string request_url;
-    int timeout = 0;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!config_.enable_push) {
-            return;
-        }
-        timeout = config_.push_timeout_ms;
-        request_url = build_push_url(endpoint);
-    }
-
-    // Fire-and-forget: dispatch HTTP call onto a detached thread so the
-    // training loop is never blocked by network latency or a slow/unresponsive
-    // metrics server.
-    std::thread([request_url, timeout, json_body]() {
-        try {
-            // Parse URL to extract host and port
-            std::string url = request_url;
-            std::string host = "localhost";
-            int port = 8081;
-            std::string path = "/";
-
-            size_t proto_pos = url.find("://");
-            if (proto_pos != std::string::npos) {
-                url = url.substr(proto_pos + 3);
-            }
-
-            size_t port_pos = url.find(':');
-            if (port_pos != std::string::npos) {
-                host = url.substr(0, port_pos);
-                size_t path_pos = url.find('/', port_pos);
-                std::string port_str;
-                if (path_pos != std::string::npos) {
-                    port_str = url.substr(port_pos + 1, path_pos - port_pos - 1);
-                    path = url.substr(path_pos);
-                } else {
-                    port_str = url.substr(port_pos + 1);
-                }
-                port = std::stoi(port_str);
-            } else {
-                size_t path_pos = url.find('/');
-                if (path_pos != std::string::npos) {
-                    host = url.substr(0, path_pos);
-                    path = url.substr(path_pos);
-                } else {
-                    host = url;
-                }
-            }
-
-            httplib::Client client(host, port);
-            client.set_connection_timeout(0, static_cast<long>(timeout) * 1000);
-            client.set_read_timeout(timeout / 1000, static_cast<long>(timeout % 1000) * 1000);
-            client.set_write_timeout(timeout / 1000, static_cast<long>(timeout % 1000) * 1000);
-
-            auto res = client.Post(path, json_body, "application/json");
-
-            if (!res) {
-                adai::Logger::debug("Metrics push to {}: connection failed", request_url);
-            } else if (res->status != 200) {
-                adai::Logger::debug("Metrics push to {}: HTTP {}", request_url, res->status);
-            }
-        } catch (const std::exception& e) {
-            adai::Logger::debug("Metrics push exception {}: {}", request_url, e.what());
-        }
-    }).detach();
-}
-
-#else
-
-// Stub implementations when httplib is not available
-// NOLINTBEGIN(readability-convert-member-functions-to-static)
-std::string TrainingMetricsService::build_push_url(const std::string&) const {
-    return "";
-}
-// NOLINTEND(readability-convert-member-functions-to-static)
-
-void TrainingMetricsService::push_to_api(const std::string&, const std::string&) {
-    // No-op when httplib not available
-}
-
-#endif
-
-// ============================================================================
 // TD-013: Advanced Metrics & Outlier Detection
 // ============================================================================
 
 void TrainingMetricsService::update_advanced_epoch_metrics(float gradient_variance,
                                                            float compute_time_ratio,
                                                            float weight_update_ratio) {
-    std::string push_json;
-    bool should_push = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         current_snapshot_.gradient_variance = gradient_variance;
@@ -1701,17 +1502,6 @@ void TrainingMetricsService::update_advanced_epoch_metrics(float gradient_varian
                 flush_gradient_variance_locked();
         }
 
-        should_push = config_.enable_push;
-        if (should_push) {
-            std::ostringstream json;
-            json << "{\"gradient_variance\":" << gradient_variance
-                 << ",\"compute_time_ratio\":" << compute_time_ratio
-                 << ",\"weight_update_ratio\":" << weight_update_ratio << "}";
-            push_json = json.str();
-        }
-    }
-    if (should_push) {
-        push_to_api("/api/metrics/advanced", push_json);
     }
 }
 
@@ -1789,8 +1579,6 @@ void TrainingMetricsService::update_adaptive_clip_epoch(float avg_clip_threshold
 void TrainingMetricsService::update_generation_quality_metrics(float bleu4, float rouge1,
                                                                float rouge2, float rougeL,
                                                                float bleu1, float bleu2) {
-    std::string push_json;
-    bool should_push = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         current_snapshot_.current_bleu4 = bleu4;
@@ -1822,17 +1610,6 @@ void TrainingMetricsService::update_generation_quality_metrics(float bleu4, floa
             "ROUGE-2: {:.4f}  ROUGE-L: {:.4f}",
             bleu4, rouge1, rouge2, rougeL);
 
-        should_push = config_.enable_push;
-        if (should_push) {
-            std::ostringstream json;
-            json << std::fixed << std::setprecision(6);
-            json << "{\"bleu4\":" << bleu4 << ",\"rouge1\":" << rouge1 << ",\"rouge2\":" << rouge2
-                 << ",\"rougeL\":" << rougeL << "}";
-            push_json = json.str();
-        }
-    }
-    if (should_push) {
-        push_to_api("/api/metrics/generation-quality", push_json);
     }
 }
 
@@ -1951,35 +1728,4 @@ SessionRecord TrainingMetricsService::build_session_record() const {
     rec.final_loss = current_snapshot_.current_loss;
     rec.final_validation_loss = current_snapshot_.current_validation_loss;
     return rec;
-}
-
-// ============================================================================
-// GlobalMetricsService Implementation
-// ============================================================================
-
-std::unique_ptr<MetricsSessionRegistry> GlobalMetricsService::registry_ = nullptr;
-std::mutex GlobalMetricsService::instance_mutex_;
-
-TrainingMetricsService& GlobalMetricsService::instance() {
-    std::lock_guard<std::mutex> lock(instance_mutex_);
-    if (!registry_) {
-        registry_ = std::make_unique<MetricsSessionRegistry>();
-    }
-
-    auto service = registry_->create_or_get_session("0-default");
-    if (!service) {
-        throw std::runtime_error(
-            "GlobalMetricsService failed to provision default metrics session");
-    }
-    return *service;
-}
-
-void GlobalMetricsService::initialize(const MetricsServiceConfig& config) {
-    std::lock_guard<std::mutex> lock(instance_mutex_);
-    registry_ = std::make_unique<MetricsSessionRegistry>(config);
-}
-
-void GlobalMetricsService::shutdown() {
-    std::lock_guard<std::mutex> lock(instance_mutex_);
-    registry_.reset();
 }

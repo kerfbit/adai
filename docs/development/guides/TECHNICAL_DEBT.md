@@ -1256,6 +1256,8 @@ The run is complete.
 - TD-527 (done in code except the boilerplate refactor: push bodies parsed with nlohmann/json and field-named 400s, debug-level poll
   logging, capped `max_records`, millisecond history timestamps).
 - TD-528 (done in code: `stop()` works before `listen()`, short shared endpoint list, `0-default` doesn't take a live-session slot).
+- TD-530 (done in code: the dead push path and `GlobalMetricsService` removed, full and valid JSONL records, history sampling
+  documented).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -12011,6 +12013,15 @@ The first four fail against the old registry: 0.28 CPU-seconds in 1 s, no sweepi
 late persist recreating the old key's file. The registry suite is also clean under ThreadSanitizer (34 tests). TSan needs
 `setarch $(uname -m) -R` on this kernel.
 
+**Follow-up (October 25, 2026, found by the stress test above under parallel ctest load).** `start_session_or_conflict()` handed a
+never-started placeholder to every caller. Two concurrent starts for one key could share a service; if one finished and a third start
+archived it, the other's writes were dropped. Over HTTP, two concurrent `/start` requests could share a session. Fixes:
+- A start now claims the session under the registry lock (`SessionEntry::claimed`), and another start before it has run gets the
+  conflict (409).
+- `POST …/start` parses its body before claiming, so a malformed body can't leave a claim behind.
+
+Tests: `SecondStartBeforeTheFirstHasRunIsRefused`, `MalformedStartBodyDoesNotBlockTheKey`. The stress test passed 30 repeats.
+
 Location in code: `src/MetricsSessionRegistry.hpp` (`sweep_loop()`, `set_sweep_interval_seconds()`, constructor, `get_session()`, `archive_and_remove_locked()`, `list_sessions()`); tagged `TODO: See TD-446`.
 
 Files to Modify:
@@ -15104,7 +15115,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Metrics / Service | October 17, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 25, 2026 | Metrics / Service | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `TrainingMetricsService.{hpp,cpp}` (by inspection): `enable_push` is never set anywhere (trainers use `MetricsPushClient`), so
@@ -15115,8 +15126,22 @@ samples plus one per epoch) without that being documented on `/history` or in th
 
 Action Items:
 
-- [ ] Remove the push path (or route it through `MetricsPushClient`) and `GlobalMetricsService` (or mark them test-only). (`compress_old_records` was removed with TD-440's fix.)
-- [ ] Write the full record to JSONL (or document the subset); document the history sampling in TRAINING_METRICS_API.md.
+- [x] Remove the push path (or route it through `MetricsPushClient`) and `GlobalMetricsService` (or mark them test-only). (`compress_old_records` was removed with TD-440's fix.)
+- [x] Write the full record to JSONL (or document the subset); document the history sampling in TRAINING_METRICS_API.md.
+
+**Fix (October 25, 2026).**
+- **Removed.** The push path is gone: `push_to_api()`, `build_push_url()`, the `should_push` blocks in nine methods, and the
+  `enable_push`/`push_url`/`session_key`/`push_timeout_ms` config fields. `GlobalMetricsService` is gone with its two compatibility
+  tests. `training_metrics_example` uses a local service, and SYSTEMD_DEPLOYMENT.md no longer shows the push fields or the
+  nonexistent `METRICS_PUSH_ENABLED` key.
+- **JSONL.** The file gets every record field, with non-finite values as `null` and small values at full precision. The layer
+  gradient norms JSON stored with the record uses the same writer.
+- **Docs.** TRAINING_METRICS_API.md documents the history sampling (one record per `persist_every_samples` samples plus one per
+  epoch) and the JSONL contents.
+
+Test `TrainingMetricsServiceJsonl.LinesAreValidJsonWithEveryField` (`training_metrics_api_routes_test.cpp`): every line parses, has
+every field, keeps a 1e-7 learning rate and writes a NaN loss as `null`. Against the old code the first line wasn't JSON
+(`"loss":nan`) and the learning rate read `0.000000`.
 
 Location in code: `src/TrainingMetricsService.hpp` (`MetricsServiceConfig`, `GlobalMetricsService`), `src/TrainingMetricsService.cpp` (`push_to_api()`, `persist_metrics()` JSONL writer); tagged `TODO: See TD-530`.
 

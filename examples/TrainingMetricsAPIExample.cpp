@@ -247,10 +247,8 @@ void train_model() {
 
 // In a separate thread or process, start the API server:
 void start_metrics_api() {
-    auto api = std::make_unique<TrainingMetricsAPI>(
-        GlobalMetricsService::instance(),  // Use singleton
-        8081
-    );
+    auto registry = std::make_shared<MetricsSessionRegistry>();
+    auto api = std::make_unique<TrainingMetricsAPI>(registry, 8081);
     api->start();  // Blocking
 }
 */

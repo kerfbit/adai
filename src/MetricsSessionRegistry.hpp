@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.3.1
+// @adai-version: 1.3.2
 // @adai-reviewed: 2026-10-25
 
 
@@ -163,14 +163,19 @@ class MetricsSessionRegistry {
                         retry = true;
                     } else {
                         const auto snapshot = existing->second.service->get_current_snapshot();
-                        // Genuinely live: refuse without touching it. Never started (a freshly
-                        // created placeholder): safe to hand back as-is.
-                        result = has_started(snapshot)
-                                     ? SessionStartResult{nullptr, true}
-                                     : SessionStartResult{existing->second.service, false};
+                        // Genuinely live, or already claimed by another start that hasn't run
+                        // start_session() yet: refuse without touching it. Otherwise a never-started
+                        // placeholder (e.g. made by a GET) is claimed and handed back.
+                        if (has_started(snapshot) || existing->second.claimed) {
+                            result = SessionStartResult{nullptr, true};
+                        } else {
+                            existing->second.claimed = true;
+                            result = SessionStartResult{existing->second.service, false};
+                        }
                     }
                 } else if (make_room_locked(pending)) {
                     result = SessionStartResult{create_locked(key), false};
+                    sessions_.find(key)->second.claimed = true;
                 }
             }
             archive_detached(pending);
@@ -405,6 +410,10 @@ class MetricsSessionRegistry {
     struct SessionEntry {
         std::shared_ptr<TrainingMetricsService> service;
         std::chrono::system_clock::time_point created_at;
+        // Handed to a start_session_or_conflict() caller. A second start for the key is refused
+        // even before the first caller's start_session() has run: two concurrent starts used to
+        // share one never-started placeholder.
+        bool claimed = false;
         // Hygiene: label/config_snapshot used to live here too ("populated by
         // start_session() (TD-021 step 8)") but were never actually written
         // or read anywhere in this file — list_sessions() reads those fields
