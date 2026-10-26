@@ -114,3 +114,9 @@ This file replaces `docs/development/api/advanced/speculative-decoding.md` (510 
 inference", "mathematically equivalent" sampling, "target model verifies ALL K in parallel (one forward pass)" and "O(N/K) forward passes", none of which
 holds (§2). Kept: the configuration fields and the draft/verify loop structure. Dropped: the benchmarks and tuning guidance, which describe the standard
 algorithm rather than this implementation.
+
+## Addendum (October 26, 2026): aligned model callbacks (TD-506)
+
+`ChatbotAPI`'s draft and target callbacks call `EncoderDecoderModel::next_token_logits()`, not the training `forward()`. That method
+puts a BOS in front of the empty first context. With the trained model as its own draft, speculative greedy decoding now reproduces the
+echo task exactly (`ChatbotAPIEchoTest.SpeculativeDecodingEchoesExactly`). TD-507's algorithm issues are unchanged.

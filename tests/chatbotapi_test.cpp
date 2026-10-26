@@ -20,6 +20,7 @@
 #include "../src/BPETokenizer.hpp"
 #include "../src/ConversationContext.hpp"
 #include "../src/EncoderDecoderModel.hpp"
+#include "../src/Optimizer.hpp"
 
 class ChatbotAPITest : public ::testing::Test {
    protected:
@@ -1324,6 +1325,155 @@ TEST_F(ChatbotAPITest, PlainPathConcurrentRequestsDoNotCorruptTheHeap) {
             EXPECT_FALSE(threw[i]) << "round " << round << ", concurrent request " << i
                                    << " threw unexpectedly: " << errors[i];
         }
+    }
+}
+
+// ============================================================================
+// TD-506: CPU generation callbacks are aligned with training
+// ============================================================================
+//
+// A model trained to echo a few phrases must generate them exactly through every ChatbotAPI CPU
+// path. The callbacks used to call the training forward(), whose decoder input is
+// [BOS] + targets[:-1]: given the generated sequence, its last row predicted the last token
+// already generated, so a correctly trained model answered wrongly (0/12 vs 12/12 when verified).
+
+class ChatbotAPIEchoTest : public ChatbotAPITest {
+   protected:
+    const std::vector<std::string> phrases = {"hello world", "hi there", "how are you",
+                                              "test message"};
+
+    void SetUp() override {
+        ChatbotAPITest::SetUp();
+        // Initialization isn't seeded (TD-368) and an occasional run doesn't converge in time, so a
+        // fresh model is tried before giving up.
+        for (int attempt = 0; attempt < 3 && !train_echo(); ++attempt) {
+            model = std::make_unique<EncoderDecoderModel>(tokenizer->get_vocab_size(), 32, 1, 1, 2,
+                                                          64, 128);
+            api = std::make_unique<ChatbotAPI>(model.get(), tokenizer.get(), 8080, 30);
+        }
+        ASSERT_LT(echo_loss(), kTrainedLoss) << "the echo model didn't train";
+    }
+
+    static constexpr float kTrainedLoss = 0.01f;
+
+    // Teacher-forced CPU training, as ChatbotTrainer does it: targets are the input's tokens + EOS.
+    // Returns whether the mean loss got below kTrainedLoss.
+    bool train_echo() {
+        Optimizer optimizer(OptimizerType::ADAM, 0.01f);
+        model->register_parameters(optimizer);
+        for (int epoch = 0; epoch < 300; ++epoch) {
+            if (epoch % 50 == 0 && epoch >= 100) {
+                model->set_training(false);
+                if (echo_loss() < kTrainedLoss)
+                    return true;
+            }
+            model->set_training(true);
+            for (const auto& phrase : phrases) {
+                const std::vector<int> input = tokenizer->encode(phrase, false);
+                std::vector<int> target = input;
+                target.push_back(tokenizer->get_eos_token_id());
+                model->zero_grad();
+                optimizer.zero_grad();
+                Matrix logits = model->forward(input, target);
+                model->backward_pass(model->compute_loss_gradient_for_training(logits, target));
+                optimizer.step();
+            }
+        }
+        model->set_training(false);
+        return echo_loss() < kTrainedLoss;
+    }
+
+    float echo_loss() {
+        float total = 0.0f;
+        for (const auto& phrase : phrases) {
+            const std::vector<int> input = tokenizer->encode(phrase, false);
+            std::vector<int> target = input;
+            target.push_back(tokenizer->get_eos_token_id());
+            total += model->compute_loss_for_training(model->forward(input, target), target);
+        }
+        return total / static_cast<float>(phrases.size());
+    }
+
+    std::string expected(const std::string& phrase) {
+        return tokenizer->decode(tokenizer->encode(phrase, false));
+    }
+
+    static ChatbotAPI::GenerationConfig greedy_config() {
+        ChatbotAPI::GenerationConfig config;
+        config.max_length = 20;
+        config.strategy = "greedy";
+        return config;
+    }
+};
+
+TEST_F(ChatbotAPIEchoTest, PlainCpuGenerationEchoesExactly) {
+    for (const auto& phrase : phrases) {
+        EXPECT_EQ(call_generate_response(phrase, greedy_config()), expected(phrase)) << phrase;
+    }
+}
+
+TEST_F(ChatbotAPIEchoTest, PlainCpuBeamSearchEchoesExactly) {
+    auto config = greedy_config();
+    config.strategy = "beam";
+    config.beam_width = 3;
+    for (const auto& phrase : phrases) {
+        EXPECT_EQ(call_generate_response(phrase, config), expected(phrase)) << phrase;
+    }
+}
+
+TEST_F(ChatbotAPIEchoTest, BatchEndpointEchoesExactly) {
+    ChatbotAPI::BatchResponse response = api->generate_batch_responses(phrases, greedy_config());
+    ASSERT_TRUE(response.success) << response.error;
+    ASSERT_EQ(response.responses.size(), phrases.size());
+    for (size_t i = 0; i < phrases.size(); ++i) {
+        EXPECT_EQ(response.responses[i], expected(phrases[i])) << phrases[i];
+    }
+}
+
+TEST_F(ChatbotAPIEchoTest, SpeculativeDecodingEchoesExactly) {
+    // The trained model is its own draft: every candidate is the target's own choice and is
+    // accepted, so the output is the greedy answer (TD-507's sampling issues don't arise).
+    api = std::make_unique<ChatbotAPI>(model.get(), tokenizer.get(), 8080, 30, model.get(),
+                                       /*speculative_num_candidates=*/3);
+    for (const auto& phrase : phrases) {
+        EXPECT_EQ(call_generate_response(phrase, greedy_config()), expected(phrase)) << phrase;
+    }
+}
+
+TEST_F(ChatbotAPIEchoTest, BatchedInferenceEchoesExactly) {
+    BatchedInferenceConfig batch_config;
+    batch_config.timeout_ms = 10;
+    api->enable_batched_inference(batch_config);
+    // TD-214: batched mode samples whatever the strategy; temperature 0 makes it greedy.
+    auto config = greedy_config();
+    config.temperature = 0.0f;
+    for (const auto& phrase : phrases) {
+        EXPECT_EQ(call_generate_response(phrase, config), expected(phrase)) << phrase;
+    }
+}
+
+TEST_F(ChatbotAPIEchoTest, NextTokenLogitsIsTheLastRowOfTheAlignedForward) {
+    // TD-424: next_token_logits() projects only the last decoder row. Its row equals the last row
+    // of the training forward whose decoder input is the same sequence ([BOS] + generated).
+    const std::vector<int> input = tokenizer->encode("hello world", false);
+    std::vector<int> generated = {tokenizer->get_bos_token_id()};
+    for (int id : input)
+        generated.push_back(id);
+
+    std::vector<int> shifted_targets(generated.begin() + 1, generated.end());
+    shifted_targets.push_back(tokenizer->get_eos_token_id());
+    const Matrix full = model->forward(input, shifted_targets);
+    const Matrix next = model->next_token_logits(input, generated);
+
+    ASSERT_EQ(next.rows, 1);
+    ASSERT_EQ(next.cols, full.cols);
+    for (int j = 0; j < full.cols; ++j) {
+        EXPECT_NEAR(next.data[0][j], full.data[full.rows - 1][j], 1e-4f) << j;
+    }
+    // Without the leading BOS the same sequence is accepted unchanged.
+    const Matrix again = model->next_token_logits(input, {generated.begin() + 1, generated.end()});
+    for (int j = 0; j < full.cols; ++j) {
+        EXPECT_NEAR(again.data[0][j], next.data[0][j], 1e-6f) << j;
     }
 }
 

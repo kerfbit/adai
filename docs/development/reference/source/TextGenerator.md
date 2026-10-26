@@ -18,8 +18,9 @@
 Model-agnostic autoregressive decoding. Every strategy repeatedly calls a caller-supplied `ModelForwardFn` (`Matrix(const std::vector<int>&)`) on the
 whole sequence so far and reads the **last row** of the returned logits as the next-token distribution.
 
-> **Contract:** the last row must be the prediction of the token *after* the context. `ChatbotAPI`'s CPU `model_fn`s break it by wrapping the training
-> `forward()`, whose last row predicts the last context token (TD-506). `EncoderDecoderModel`'s own strategy paths build aligned functions.
+> **Contract:** the last row must be the prediction of the token *after* the context. Don't wrap the training `forward()`: its last row predicts
+> the last context token. `ChatbotAPI`'s CPU `model_fn`s did until TD-506 (fixed October 26, 2026); they now call
+> `EncoderDecoderModel::next_token_logits()`. `EncoderDecoderModel`'s own strategy paths build aligned functions.
 
 ### `GenerationConfig`
 

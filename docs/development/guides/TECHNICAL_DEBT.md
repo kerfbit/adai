@@ -1273,6 +1273,8 @@ The metrics pipeline run is complete.
 - TD-424 (done in code for `EncoderDecoderModel`: beam callbacks project only the last row; the `ChatbotAPI` part goes with TD-506).
 - TD-364/365 (done in code: `encode()` matches the model's encoder input, over-long input keeps its tail everywhere, and
   `encode_with_mask()`/`gpu_encode()` refuse over-length input). TD-387's GPU overflow goes with it.
+- TD-506 (done in code: `ChatbotAPI`'s CPU callbacks use the aligned `next_token_logits()`, so a trained model answers correctly on a
+  CPU server; it projects only the last row, finishing TD-424).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -11151,7 +11153,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — code fix landed October 26, 2026 (EncoderDecoderModel part) | Models / LanguageModelHead | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 26, 2026 | Models / LanguageModelHead | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `LanguageModelHead` and measured. The uncached generation callbacks run
@@ -11164,7 +11166,7 @@ path and the pipeline/integrated engines already project only what they need.
 
 Action Items:
 
-- [ ] In generation callbacks, project only the last decoder row (keep `forward()`'s full projection for training/loss), and fix the misleading comment. (Done for `EncoderDecoderModel`'s two beam callbacks; `ChatbotAPI`'s CPU `model_fn` and `/chat/batch` go with TD-506, which replaces those callbacks.)
+- [x] In generation callbacks, project only the last decoder row (keep `forward()`'s full projection for training/loss), and fix the misleading comment. (Done for `EncoderDecoderModel`'s two beam callbacks; `ChatbotAPI`'s CPU `model_fn` and `/chat/batch` with TD-506, October 26, 2026.)
 
 **Fix (October 26, 2026, `EncoderDecoderModel` part).** Both beam `beam_model_fn`s project only the decoder's last row (`last_row()`),
 and the misleading "last position of output" comment is fixed; `forward()` keeps the full projection for training. This is exact
@@ -11176,7 +11178,10 @@ Tests:
 - `BeamGenerationIsDeterministicAfterLastRowProjection`.
 - The existing beam tests still pass.
 
-Location in code: `src/EncoderDecoderModel.cpp` (both beam `beam_model_fn`s, `forward()`); tagged `TODO: See TD-424`.
+**Fix (October 26, 2026, `ChatbotAPI` part, with TD-506).** `ChatbotAPI`'s CPU callbacks (plain, speculative, batched, `/chat/batch`)
+call `EncoderDecoderModel::next_token_logits()`, which projects only the last decoder row. Test: `NextTokenLogitsIsTheLastRowOfTheAlignedForward`.
+
+Location in code: `src/EncoderDecoderModel.cpp` (both beam `beam_model_fn`s, `forward()`, `next_token_logits()`), `src/ChatbotAPI.cpp`.
 
 Files to Modify:
 
@@ -14369,7 +14374,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| HIGH | Open | Inference / Serving / API | October 17, 2026 | 2-4 hours |
+| HIGH | Open — code fix landed October 26, 2026 | Inference / Serving / API | October 17, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `SpeculativeDecoding.hpp` (see [SpeculativeDecoding.md](../reference/source/SpeculativeDecoding.md)); verified.
@@ -14385,11 +14390,33 @@ the generated tokens) **12/12**; speculative decoding likewise 0/12 vs 12/12. So
 
 Action Items:
 
-- [ ] Add an inference forward that takes the decoder input directly (e.g. `forward_decoder(input_tokens, decoder_input)`) and use it in all four `ChatbotAPI` `model_fn`s.
-- [ ] Add a regression test: a model trained on an echo task must generate it exactly through `ChatbotAPI::generate_response()` on the CPU.
-- [ ] Have that forward project only the last decoder row (TD-424's `ChatbotAPI` part; `EncoderDecoderModel`'s beam callbacks already do, October 26, 2026).
+- [x] Add an inference forward that takes the decoder input directly (e.g. `forward_decoder(input_tokens, decoder_input)`) and use it in all four `ChatbotAPI` `model_fn`s.
+- [x] Add a regression test: a model trained on an echo task must generate it exactly through `ChatbotAPI::generate_response()` on the CPU.
+- [x] Have that forward project only the last decoder row (TD-424's `ChatbotAPI` part; `EncoderDecoderModel`'s beam callbacks already do, October 26, 2026).
 
-Location in code: `src/ChatbotAPI.cpp` (`generate_response()` plain, speculative and batched `model_fn`s; `handle_batch_chat()`); tagged `TODO: See TD-506`.
+**Fix (October 26, 2026).** `EncoderDecoderModel::next_token_logits(input_tokens, decoder_tokens)` is the inference forward. Its decoder
+input is the generated sequence as given: `TextGenerator` starts it with BOS, and a BOS is put in front when it is missing (as from
+`SpeculativeDecoder`'s empty context). It returns the logits of the last decoder row only. It shares `run_decoder()` with `forward()`:
+the encoder (tail-truncated, TD-365), world-model and hippocampal reads are the same, and nothing is committed to the hippocampal memory.
+All four `ChatbotAPI` CPU callbacks use it: plain, speculative (draft and target), batched and `/chat/batch`. `forward()` keeps the
+training shift and the full projection.
+
+Tests (`ChatbotAPIEchoTest`): the fixture trains a tiny model on the CPU to echo four phrases (mean loss below 0.01; a fresh model is
+tried when an unseeded run doesn't converge, TD-368). Then every path must reproduce each phrase exactly:
+- `PlainCpuGenerationEchoesExactly` (greedy) and `PlainCpuBeamSearchEchoesExactly`;
+- `BatchEndpointEchoesExactly` (`generate_batch_responses()`);
+- `SpeculativeDecodingEchoesExactly` (the model as its own draft);
+- `BatchedInferenceEchoesExactly` (temperature 0, TD-214).
+
+With the old callbacks, the four plain, beam and batch tests fail with every token doubled: "hheelloo w wororlldd" for "hello world".
+`NextTokenLogitsIsTheLastRowOfTheAlignedForward` checks the logits against the training forward's last row (within 1e-4) and checks that
+a missing BOS is added.
+
+Not changed: these CPU paths still re-run the encoder every step with no KV cache, don't commit hippocampal steps, and don't cap
+generation at `max_seq_length` the way `generate_response_with_strategy()` does (TD-347). That is part of TD-362's CPU/GPU differences.
+
+Location in code: `src/ChatbotAPI.cpp` (`generate_response()` plain, speculative and batched `model_fn`s; `generate_batch_responses()`),
+`src/EncoderDecoderModel.{hpp,cpp}` (`next_token_logits()`, `run_decoder()`).
 
 Files to Modify:
 

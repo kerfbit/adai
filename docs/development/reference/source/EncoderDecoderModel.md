@@ -314,3 +314,11 @@ generator's stored value afterwards; `<= 0` keeps it. Tests: `GenerateResponseHo
 
 All four generation entry points cap the generated length (BOS included) at `max_seq_length` (`capped_generation_length()`). Test:
 `GenerationNeverExceedsMaxSeqLength`.
+
+## Addendum (October 26, 2026): `next_token_logits()` for generation callbacks (TD-506)
+
+`next_token_logits(input_tokens, decoder_tokens)` returns the `1 × vocab` logits for the token after `decoder_tokens`. The decoder
+input is that sequence as given, with a BOS put in front when it is empty or doesn't start with one. `forward()` instead feeds the
+shifted targets (`[BOS] + targets[:-1]`), so its last row predicts the last given token. Use `next_token_logits()` in any
+`TextGenerator` callback. Both methods share `run_decoder()`: the same truncated encoder input and the same world-model and hippocampal
+reads. Only the last row is projected (TD-424). Test: `ChatbotAPIEchoTest.NextTokenLogitsIsTheLastRowOfTheAlignedForward`.

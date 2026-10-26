@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.25.0
+// @adai-version: 0.26.0
 // @adai-reviewed: 2026-10-26
 
 #include "EncoderDecoderModel.hpp"
@@ -1080,8 +1080,8 @@ std::vector<int> EncoderDecoderModel::make_decoder_input(
 Matrix EncoderDecoderModel::forward(const std::vector<int>& raw_input_tokens,
                                     const std::vector<int>& target_tokens) {
     // TD-156: see generate_response()'s identical lock above / model_mutex_'s doc comment in
-    // EncoderDecoderModel.hpp. This is the entry point ChatbotAPI's plain and
-    // speculative-decoding paths call directly, on the HTTP handler thread.
+    // EncoderDecoderModel.hpp. Training and evaluation call this; ChatbotAPI's CPU generation
+    // callbacks call next_token_logits() (TD-506).
     std::lock_guard<std::mutex> lock(model_mutex_);
     // TD-365: the tail-keeping rule for encoder input (ChatbotTrainer already truncates its inputs
     // this way; ChatbotAPI's CPU callbacks pass whole conversations).
@@ -1091,6 +1091,25 @@ Matrix EncoderDecoderModel::forward(const std::vector<int>& raw_input_tokens,
     cached_input_tokens = input_tokens;
     cached_target_tokens = target_tokens;
 
+    // Prepare decoder input (teacher forcing: use target tokens)
+    // In training, we use ground truth tokens as decoder input
+    // TD-060 (fixed): `i < target_tokens.size() - 1` underflows to SIZE_MAX for
+    // an empty target_tokens (size_t is unsigned), turning this into an
+    // out-of-bounds read that crashes immediately — confirmed via ASan (SEGV).
+    // `forward()` is a public, documented "custom training loops" API, so an
+    // empty target_tokens is a plausible caller input, not just theoretical.
+    run_decoder(input_tokens, make_decoder_input(target_tokens), "forward");
+
+    // Project to vocabulary: the full projection is what training needs. Generation callbacks use
+    // next_token_logits() instead (TD-506), which projects only the last row (TD-424).
+    Matrix logits = lm_head->forward(cached_decoder_output);
+
+    return logits;
+}
+
+const Matrix& EncoderDecoderModel::run_decoder(const std::vector<int>& input_tokens,
+                                               const std::vector<int>& decoder_input,
+                                               const char* caller) {
     // Encode input
     int input_len = static_cast<int>(input_tokens.size());
     Matrix encoder_mask(input_len, input_len);
@@ -1101,19 +1120,10 @@ Matrix EncoderDecoderModel::forward(const std::vector<int>& raw_input_tokens,
     }
     cached_encoder_output = encoder->encode_with_mask(input_tokens, encoder_mask);
 
-    // Prepare decoder input (teacher forcing: use target tokens)
-    // In training, we use ground truth tokens as decoder input
-    // TD-060 (fixed): `i < target_tokens.size() - 1` underflows to SIZE_MAX for
-    // an empty target_tokens (size_t is unsigned), turning this into an
-    // out-of-bounds read that crashes immediately — confirmed via ASan (SEGV).
-    // `forward()` is a public, documented "custom training loops" API, so an
-    // empty target_tokens is a plausible caller input, not just theoretical.
-    std::vector<int> decoder_input = make_decoder_input(target_tokens);
-
-    // TD-186: gated world-model / hippocampal cross-attention wiring — see this method's own
+    // TD-186: gated world-model / hippocampal cross-attention wiring — see forward()'s own
     // doc comment (EncoderDecoderModel.hpp) for the full rationale. Both remain no-ops when not
     // attached (world_model_output_ptr stays nullptr, hippocampal_memory.get() is nullptr),
-    // reproducing this method's exact pre-TD-186 behavior byte-for-byte.
+    // reproducing the exact pre-TD-186 behavior byte-for-byte.
     Matrix world_model_encoding;
     const Matrix* world_model_output_ptr = nullptr;
     if (world_model) {
@@ -1126,8 +1136,8 @@ Matrix EncoderDecoderModel::forward(const std::vector<int>& raw_input_tokens,
                     world_model_output_ptr = &world_model_encoding;
                 }
             } catch (const std::exception& e) {
-                Logger::warn("EncoderDecoderModel::forward(): world-model encode skipped ({})",
-                            e.what());
+                Logger::warn("EncoderDecoderModel::{}(): world-model encode skipped ({})", caller,
+                             e.what());
             }
         }
     }
@@ -1136,15 +1146,27 @@ Matrix EncoderDecoderModel::forward(const std::vector<int>& raw_input_tokens,
     cached_decoder_output = decoder->forward_with_encoder(
         decoder_input, cached_encoder_output, world_model_output_ptr, hippocampal_memory.get(),
         hippocampal_repetition_alpha_, hippocampal_repetition_decay_,
-                hippocampal_cross_reference_alpha_, hippocampal_association_decay_);
+        hippocampal_cross_reference_alpha_, hippocampal_association_decay_);
+    return cached_decoder_output;
+}
 
-    // Project to vocabulary
-    // The full projection is what training needs. TD-424: ChatbotAPI's CPU generation model_fn and
-    // /chat/batch also call forward() per step and use only the last row; that goes with TD-506,
-    // which replaces those callbacks (their last row is also misaligned).
-    Matrix logits = lm_head->forward(cached_decoder_output);
+Matrix EncoderDecoderModel::next_token_logits(const std::vector<int>& raw_input_tokens,
+                                              const std::vector<int>& decoder_tokens) {
+    // TD-156: same lock as forward(); ChatbotAPI calls this per step from request threads.
+    std::lock_guard<std::mutex> lock(model_mutex_);
+    const std::vector<int> input_tokens = encoder->keep_last_positions(raw_input_tokens);
 
-    return logits;
+    // TD-506: the decoder input is the generated sequence itself, not forward()'s shifted targets.
+    std::vector<int> decoder_input;
+    decoder_input.reserve(decoder_tokens.size() + 1);
+    if (decoder_tokens.empty() || decoder_tokens.front() != bos_token_id) {
+        decoder_input.push_back(bos_token_id);
+    }
+    decoder_input.insert(decoder_input.end(), decoder_tokens.begin(), decoder_tokens.end());
+
+    // TD-424: only the last row is a next-token prediction; the LM head is row-wise, so projecting
+    // that row alone gives the same logits as the full projection's last row.
+    return lm_head->forward(last_row(run_decoder(input_tokens, decoder_input, "next_token_logits")));
 }
 
 // Backward pass

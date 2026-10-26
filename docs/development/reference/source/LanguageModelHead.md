@@ -103,5 +103,5 @@ none of which exist here), and its unsourced complexity and performance tables. 
 ## Addendum (October 26, 2026): beam callbacks project the last row (TD-424)
 
 `EncoderDecoderModel`'s beam callbacks pass only the decoder's last row to `forward()`. The head is row-wise, so this is exact. A
-60-token beam run (width 4, vocab 4,000) went from 6.9 s to 4.2 s in the debug build. `ChatbotAPI`'s callbacks still project every
-position until TD-506 replaces them.
+60-token beam run (width 4, vocab 4,000) went from 6.9 s to 4.2 s in the debug build. Since TD-506 (same day) `ChatbotAPI`'s CPU
+callbacks use `EncoderDecoderModel::next_token_logits()`, which also projects only the last row.

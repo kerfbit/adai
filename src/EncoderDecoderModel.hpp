@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.23.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.24.0
+// @adai-reviewed: 2026-10-26
 
 #include <functional>
 #include <iostream>
@@ -134,6 +134,13 @@ class EncoderDecoderModel {
     // drift apart again (gpu_forward() used to feed the targets unshifted, teaching the model to
     // copy its input). Returns just `[BOS]` for an empty target.
     std::vector<int> make_decoder_input(const std::vector<int>& target_tokens) const;
+
+    // TD-506: the shared body of forward() and next_token_logits(): encodes `input_tokens` (already
+    // truncated), adds the world-model and hippocampal reads, and runs the decoder on
+    // `decoder_input` as given. Updates cached_encoder_output/cached_decoder_output and returns the
+    // decoder output. The caller holds model_mutex_.
+    const Matrix& run_decoder(const std::vector<int>& input_tokens,
+                              const std::vector<int>& decoder_input, const char* caller);
 
     // TD-156: forward()/backward()/generate_response()/generate_response_with_strategy() all
     // read and write the four cached_* members above with no synchronization of their own.
@@ -730,6 +737,22 @@ class EncoderDecoderModel {
      * @return Logits matrix [seq_length, vocab_size]
      */
     Matrix forward(const std::vector<int>& input_tokens, const std::vector<int>& target_tokens);
+
+    /**
+     * TD-506: the next-token logits for a TextGenerator/SpeculativeDecoder model callback.
+     *
+     * `decoder_tokens` is the decoder input as is: the sequence generated so far, which a
+     * TextGenerator starts with BOS. A BOS is put in front when the sequence is empty or doesn't
+     * start with one. forward() is the training forward and shifts its targets
+     * (`[BOS] + targets[:-1]`), so its last row predicts the last token already given, not the
+     * next one. Only the last decoder row is projected (TD-424). Encoder input keeps its last
+     * `max_seq_length` tokens, as in forward(); world-model and hippocampal reads are the same
+     * as forward()'s, and nothing is committed to the hippocampal memory.
+     *
+     * @return Logits [1, vocab_size] for the token after `decoder_tokens`
+     */
+    Matrix next_token_logits(const std::vector<int>& input_tokens,
+                             const std::vector<int>& decoder_tokens);
 
     /**
      * Backward pass (for custom training loops)
