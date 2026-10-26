@@ -1275,6 +1275,7 @@ The metrics pipeline run is complete.
   `encode_with_mask()`/`gpu_encode()` refuse over-length input). TD-387's GPU overflow goes with it.
 - TD-506 (done in code: `ChatbotAPI`'s CPU callbacks use the aligned `next_token_logits()`, so a trained model answers correctly on a
   CPU server; it projects only the last row, finishing TD-424).
+- TD-514/515 (done in code: a beam width below 1 throws instead of crashing, and a temperature of 0 or below is greedy in every strategy).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -14687,7 +14688,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | NLP / TextGenerator | October 17, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 26, 2026 | NLP / TextGenerator | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `TextGenerator.cpp` (see [TextGenerator.md](../reference/source/TextGenerator.md)); verified under AddressSanitizer.
@@ -14698,10 +14699,17 @@ beam strategy crashes `chatbot_api_server` on its first chat request.
 
 Action Items:
 
-- [ ] Reject (throw `invalid_argument`) or clamp `num_beams < 1` in `generate_beam_search()`; validate config at startup (TD-241).
-- [ ] Test widths 0 and −1.
+- [x] Reject (throw `invalid_argument`) or clamp `num_beams < 1` in `generate_beam_search()`; validate config at startup (TD-241). (Rejected; startup validation stays with TD-241.)
+- [x] Test widths 0 and −1. (−1 means "the configured width", so the test uses 0, −2 and a configured 0.)
 
-Location in code: `src/TextGenerator.cpp` (`generate_beam_search()`); tagged `TODO: See TD-514`.
+**Fix (October 26, 2026).** `generate_beam_search()` throws `std::invalid_argument` ("beam width must be at least 1") when the width is
+below 1, whether passed directly or read from `config.num_beams`. `BEAM_WIDTH=0` with `STRATEGY=beam` now fails each request with an
+error instead of crashing `chatbot_api_server`. `ConfigLoader::validate()` at startup is still TD-241. Very large widths aren't capped
+here; `validate()` limits them to 16.
+
+Test: `TextGeneratorBeamSearchTest.BeamWidthBelowOneThrows`. On the old code it kills the test process at width 0.
+
+Location in code: `src/TextGenerator.cpp` (`generate_beam_search()`).
 
 Files to Modify:
 
@@ -14714,7 +14722,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | NLP / TextGenerator | October 17, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 26, 2026 | NLP / TextGenerator | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `TextGenerator.cpp`; verified. `apply_temperature()` returns the logits unchanged for `temperature <= 0`, which is only correct where
@@ -14724,10 +14732,21 @@ shipped default, so `TEMPERATURE=0` (allowed by `validate()`) doesn't make chat 
 
 Action Items:
 
-- [ ] Take the argmax at `temperature <= 0` in every sampling strategy (or reject negative temperatures).
-- [ ] Test determinism at temperature 0 for each strategy.
+- [x] Take the argmax at `temperature <= 0` in every sampling strategy (or reject negative temperatures).
+- [x] Test determinism at temperature 0 for each strategy.
 
-Location in code: `src/TextGenerator.cpp` (`apply_temperature()`, `generate_top_k()`, `generate_nucleus()`); tagged `TODO: See TD-515`.
+**Fix (October 26, 2026).** A temperature of 0 or below is greedy in every strategy:
+- `generate_top_k()` and `generate_nucleus()` take the argmax of the filtered, penalized logits;
+- `generate_sampling()` and `generate()` treat a negative temperature like 0 (they used to test `== 0` and sample a negative temperature at 1).
+
+`TEMPERATURE=0` now makes chat deterministic with the default nucleus strategy.
+
+Tests:
+- `TemperatureZeroOrBelowIsGreedyForEveryStrategy`: top-k, nucleus, sampling and `generate()` match greedy for 20 seeds, at T = 0 and
+  T = −0.5. On the old code it fails 114 checks.
+- `PositiveTemperatureStillSamples`: nucleus output still varies at T = 1.
+
+Location in code: `src/TextGenerator.cpp` (`apply_temperature()`, `generate_sampling()`, `generate_top_k()`, `generate_nucleus()`, `generate()`).
 
 Files to Modify:
 

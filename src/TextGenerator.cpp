@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-10-26
 
 #include "TextGenerator.hpp"
 #include <algorithm>
@@ -8,6 +8,8 @@
 #include <iostream>
 #include <numeric>
 #include <queue>
+#include <stdexcept>
+#include <string>
 #include <unordered_set>
 #include <utility>
 
@@ -21,8 +23,8 @@ TextGenerator::TextGenerator(const GenerationConfig& config, unsigned int seed)
 // Apply temperature scaling
 std::vector<float> TextGenerator::apply_temperature(const std::vector<float>& logits,
                                                     float temperature) {
-    // TODO: See TD-515 in TECHNICAL_DEBT.md - returning logits unchanged for T <= 0 is only right when the caller then
-    // takes the argmax; generate_top_k()/generate_nucleus() sample at T=1 instead (33/50 distinct at T=0, verified).
+    // T <= 0 leaves the logits unchanged: every strategy then takes the argmax instead of sampling
+    // (TD-515).
     if (temperature <= 0.0f || temperature == 1.0f) {
         return logits;
     }
@@ -235,7 +237,13 @@ std::vector<int> TextGenerator::generate_beam_search(const ModelForwardFn& model
         return generate_greedy(model_fn, prompt_tokens);
     }
 
-    // TODO: See TD-514 in TECHNICAL_DEBT.md - num_beams <= 0 is unchecked: 0 segfaults, negative throws length_error.
+    // TD-514: a width of 0 used to segfault (beams[0] of an empty vector) and a negative width
+    // terminated the process (uncaught length_error). ChatbotAPI passes BEAM_WIDTH straight in.
+    if (num_beams < 1) {
+        throw std::invalid_argument("TextGenerator: beam width must be at least 1, got " +
+                                    std::to_string(num_beams));
+    }
+
     // Initialize beams
     std::vector<BeamHypothesis> beams(num_beams);
     beams[0].tokens = prompt_tokens;
@@ -373,8 +381,8 @@ std::vector<int> TextGenerator::generate_sampling(const ModelForwardFn& model_fn
         temperature = config.temperature;
     }
 
-    // If temperature is 0, use greedy
-    if (temperature == 0.0f) {
+    // Temperature 0 or below is greedy (TD-515: a negative temperature used to sample at 1).
+    if (temperature <= 0.0f) {
         return generate_greedy(model_fn, prompt_tokens);
     }
 
@@ -451,8 +459,9 @@ std::vector<int> TextGenerator::generate_top_k(const ModelForwardFn& model_fn,
                 apply_repetition_penalty(last_logits, generated, config.repetition_penalty);
         }
 
-        std::vector<float> probs = softmax(last_logits);
-        int next_token = sample_token(probs);
+        // TD-515: temperature <= 0 takes the argmax of the filtered logits instead of sampling.
+        int next_token = config.temperature <= 0.0f ? argmax(last_logits)
+                                                    : sample_token(softmax(last_logits));
 
         generated.push_back(next_token);
 
@@ -499,8 +508,9 @@ std::vector<int> TextGenerator::generate_nucleus(const ModelForwardFn& model_fn,
                 apply_repetition_penalty(last_logits, generated, config.repetition_penalty);
         }
 
-        std::vector<float> probs = softmax(last_logits);
-        int next_token = sample_token(probs);
+        // TD-515: temperature <= 0 takes the argmax of the filtered logits instead of sampling.
+        int next_token = config.temperature <= 0.0f ? argmax(last_logits)
+                                                    : sample_token(softmax(last_logits));
 
         generated.push_back(next_token);
 
@@ -551,9 +561,9 @@ std::vector<int> TextGenerator::generate(const ModelForwardFn& model_fn,
                 apply_repetition_penalty(last_logits, generated, config.repetition_penalty);
         }
 
-        // Sample or greedy
+        // Sample or greedy (TD-515: temperature <= 0 is greedy, as in every strategy)
         int next_token;
-        if (config.temperature == 0.0f) {
+        if (config.temperature <= 0.0f) {
             next_token = argmax(last_logits);
         } else {
             std::vector<float> probs = softmax(last_logits);

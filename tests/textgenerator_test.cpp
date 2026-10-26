@@ -897,6 +897,76 @@ TEST(TextGeneratorPerformanceTest, GreedyFasterThanBeam) {
 }
 
 // ============================================================================
+// TD-514: beam width below 1 is rejected
+// ============================================================================
+
+TEST(TextGeneratorBeamSearchTest, BeamWidthBelowOneThrows) {
+    // Width 0 used to segfault (beams[0] of an empty vector) and a negative width terminated the
+    // process with an uncaught length_error.
+    MockLanguageModel model(100, 64);
+    auto model_fn = [&model](const std::vector<int>& tokens) { return model.forward(tokens); };
+    TextGenerator::GenerationConfig config;
+    config.max_length = 8;
+    TextGenerator gen(config, 42);
+
+    EXPECT_THROW(gen.generate_beam_search(model_fn, {2}, 0), std::invalid_argument);
+    EXPECT_THROW(gen.generate_beam_search(model_fn, {2}, -2), std::invalid_argument);
+
+    // -1 means "the configured width", which is checked the same way.
+    config.num_beams = 0;
+    gen.set_config(config);
+    EXPECT_THROW(gen.generate_beam_search(model_fn, {2}), std::invalid_argument);
+}
+
+// ============================================================================
+// TD-515: temperature <= 0 is greedy in every strategy
+// ============================================================================
+
+TEST(TextGeneratorSamplingTest, TemperatureZeroOrBelowIsGreedyForEveryStrategy) {
+    // The mock's three likely tokens (5, 10, 15) make sampling at temperature 1 vary from seed to
+    // seed. Top-k and nucleus used to sample at an effective temperature of 1 when the temperature
+    // was 0 (33 distinct nucleus outputs in 50 runs); a negative temperature sampled in every strategy.
+    MockLanguageModel model(100, 64);
+    auto model_fn = [&model](const std::vector<int>& tokens) { return model.forward(tokens); };
+
+    for (float temperature : {0.0f, -0.5f}) {
+        TextGenerator::GenerationConfig config;
+        config.max_length = 8;
+        config.temperature = temperature;
+        const std::vector<int> greedy = TextGenerator(config, 1).generate_greedy(model_fn, {2});
+
+        for (unsigned seed = 1; seed <= 20; ++seed) {
+            TextGenerator gen(config, seed);
+            EXPECT_EQ(gen.generate_top_k(model_fn, {2}, 50), greedy)
+                << "top-k, T=" << temperature << ", seed " << seed;
+            EXPECT_EQ(gen.generate_nucleus(model_fn, {2}, 0.9f), greedy)
+                << "nucleus, T=" << temperature << ", seed " << seed;
+            EXPECT_EQ(gen.generate_sampling(model_fn, {2}, temperature), greedy)
+                << "sampling, T=" << temperature << ", seed " << seed;
+            EXPECT_EQ(gen.generate(model_fn, {2}), greedy)
+                << "generate(), T=" << temperature << ", seed " << seed;
+        }
+    }
+}
+
+TEST(TextGeneratorSamplingTest, PositiveTemperatureStillSamples) {
+    // Guards the TD-515 fix against turning sampling off: at temperature 1 the nucleus output varies.
+    MockLanguageModel model(100, 64);
+    auto model_fn = [&model](const std::vector<int>& tokens) { return model.forward(tokens); };
+    TextGenerator::GenerationConfig config;
+    config.max_length = 8;
+    config.temperature = 1.0f;
+
+    std::vector<std::vector<int>> outputs;
+    for (unsigned seed = 1; seed <= 20; ++seed) {
+        outputs.push_back(TextGenerator(config, seed).generate_nucleus(model_fn, {2}, 0.9f));
+    }
+    std::sort(outputs.begin(), outputs.end());
+    outputs.erase(std::unique(outputs.begin(), outputs.end()), outputs.end());
+    EXPECT_GT(outputs.size(), 1u);
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 

@@ -120,3 +120,16 @@ This file replaces `docs/development/api/nlp/text-generator.md` (1,179 lines). W
 
 Kept: the strategies, config fields, repetition-penalty and softmax details, and the API list. Dropped: the generic decoding tutorial, parameter-tuning
 recipes and examples. The test-coverage report (TEXTGENERATOR_TEST_COVERAGE.md) is unchanged.
+
+## Addendum (October 26, 2026): beam width checked, temperature 0 greedy everywhere (TD-514, TD-515)
+
+- **Beam width.** `generate_beam_search()` throws `std::invalid_argument` for a width below 1, given directly or from `config.num_beams`.
+  Width 0 used to segfault and a negative width terminated the process. In `chatbot_api_server` the request now fails with an error. The
+  startup validation of `BEAM_WIDTH` belongs to TD-241.
+- **Temperature.** A temperature of 0 or below is greedy in every strategy. `generate_top_k()` and `generate_nucleus()` take the argmax of
+  the filtered and penalized logits, and `generate_sampling()`/`generate()` treat negative values like 0. The merge note's "true for
+  `generate()`/`generate_sampling()` only" no longer applies.
+
+Tests: `BeamWidthBelowOneThrows`, `TemperatureZeroOrBelowIsGreedyForEveryStrategy` (20 seeds at T = 0 and −0.5),
+`PositiveTemperatureStillSamples`. On the old code the beam test kills the process, and the temperature test fails 114 checks across all four
+strategies.

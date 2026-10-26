@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-10-26
 
 
 #include <functional>
@@ -64,7 +64,7 @@ class TextGenerator {
      */
     struct GenerationConfig {
         int max_length = 100;                           // Maximum sequence length
-        float temperature = 1.0f;                       // Sampling temperature (0 = greedy)
+        float temperature = 1.0f;                       // Sampling temperature (<= 0 = greedy in every strategy, TD-515)
         int top_k = 0;                                  // Top-k filtering (0 = disabled)
         float top_p = 1.0f;                             // Nucleus sampling threshold
         float repetition_penalty = 1.0f;                // Penalty for repeated tokens (1.0 = none)
@@ -183,7 +183,7 @@ class TextGenerator {
      *
      * @param model_fn Model forward function
      * @param prompt_tokens Initial token sequence
-     * @param num_beams Number of beams to maintain
+     * @param num_beams Number of beams to maintain (at least 1; std::invalid_argument otherwise, TD-514)
      * @return Best generated token sequence
      */
     std::vector<int> generate_beam_search(const ModelForwardFn& model_fn,
