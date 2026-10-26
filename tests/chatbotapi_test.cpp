@@ -967,14 +967,10 @@ TEST_F(ChatbotAPITest, Profile_EnabledBeforeAnyGenerationReportsZeroCalls) {
 TEST_F(ChatbotAPITest, SpeculativeDecoding_ZeroCandidatesReachesTheDraftPathAndThrows) {
     // A deliberately observable, falsifiable signal that generate_response() genuinely reaches
     // SpeculativeDecoder rather than silently falling through to the plain strategy-based path:
-    // with num_candidates=0, SpeculativeDecoder::generate_candidates() proposes nothing on every
-    // round, so generate_tokens() breaks on its first iteration with zero output tokens — and
-    // BPETokenizer::decode() on an empty token vector throws ("Input token ID vector is empty"),
-    // caught and rethrown here as a generation failure. Confirmed directly: this only happens
-    // via the speculative path — plain generation on this same (untrained, randomly-initialized)
-    // model never legitimately produces zero tokens (max_length=5 greedy decoding always emits
-    // at least one token before it could possibly hit EOS), so this exception could only
-    // originate from SpeculativeDecoder actually being invoked with num_candidates=0.
+    // SpeculativeDecoder rejects num_candidates=0 (TD-507; it used to propose nothing and end with
+    // zero tokens), and generate_response() rethrows that as a generation failure. Plain
+    // generation never throws on this model, so the exception can only come from the speculative
+    // path.
     auto draft_model = std::make_unique<EncoderDecoderModel>(tokenizer->get_vocab_size(),
                                                              /*d_model=*/16, /*enc_layers=*/1,
                                                              /*dec_layers=*/1, /*num_heads=*/2,
@@ -1475,6 +1471,26 @@ TEST_F(ChatbotAPIEchoTest, NextTokenLogitsIsTheLastRowOfTheAlignedForward) {
     for (int j = 0; j < full.cols; ++j) {
         EXPECT_NEAR(again.data[0][j], next.data[0][j], 1e-6f) << j;
     }
+}
+
+TEST_F(ChatbotAPIEchoTest, NextTokenLogitsLastRowsMatchTheAlignedForward) {
+    // TD-507: speculative decoding's target asks for its last K + 1 rows in one pass.
+    const std::vector<int> input = tokenizer->encode("how are you", false);
+    std::vector<int> generated = {tokenizer->get_bos_token_id()};
+    for (int id : input)
+        generated.push_back(id);
+    std::vector<int> shifted_targets(generated.begin() + 1, generated.end());
+    shifted_targets.push_back(tokenizer->get_eos_token_id());
+    const Matrix full = model->forward(input, shifted_targets);
+
+    const Matrix tail = model->next_token_logits(input, generated, 3);
+    ASSERT_EQ(tail.rows, 3);
+    for (int r = 0; r < 3; ++r)
+        for (int j = 0; j < full.cols; ++j)
+            EXPECT_NEAR(tail.data[r][j], full.data[full.rows - 3 + r][j], 1e-4f) << r << " " << j;
+
+    // More rows than positions gives every position.
+    EXPECT_EQ(model->next_token_logits(input, generated, 1000).rows, full.rows);
 }
 
 #ifdef ADAI_ENABLE_GPU

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.10.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 1.10.1
+// @adai-reviewed: 2026-10-26
 
 
 #include <cstdint>
@@ -59,10 +59,9 @@ struct ServiceConfig {
 
     /// Path to a second model's weights to use as the "draft" model for speculative decoding
     /// (TD-038) — empty (default) disables it entirely, falling back to the normal
-    /// strategy-based generation. The draft model shares the target model's architecture
-    /// (d_model/num_heads/etc. below) and tokenizer; only its weights differ. Wiring an
-    /// independently-*sized* draft model would need its own DRAFT_D_MODEL/etc. keys, which this
-    /// intentionally does not add — see TECHNICAL_DEBT_RESOLVED.md's TD-038 entry.
+    /// strategy-based generation. The draft model shares the tokenizer; its architecture is read
+    /// from its own checkpoint's `.config` (TD-507), so it can be smaller than the target (it must
+    /// be, for speculative decoding to save time). No DRAFT_* keys are needed.
     std::string draft_model_path;
 
     /// Number of candidate tokens (K) the draft model proposes per verification round when

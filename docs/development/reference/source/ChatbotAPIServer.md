@@ -48,7 +48,7 @@ something other than what the operator asked for (§9).
  5. GPU (if GPU_ENABLED): gpu_try_initialize(device, memory fraction); else CPU
  6. [2/4] Model: EncoderDecoderModel(vocab size, architecture, inject_every_n if world model on)
              ─► load_model(MODEL_PATH)   (failure → warn, RANDOM weights; no path → random)
- 7. Draft model (if DRAFT_MODEL_PATH): same architecture, load weights (failure → disabled)
+ 7. Draft model (if DRAFT_MODEL_PATH): its own checkpoint's architecture (TD-507), same vocabulary, load weights (failure → disabled)
  8. World model (if WORLD_MODEL_ENABLED and its checkpoint dir exists): LeJEPAEncoder, frozen
              ─► hippocampal memory (if enabled): restore <MODEL_PATH>.hippocampal(.assoc)
  9. [3/4] ChatbotAPI(model, tokenizer, port, timeout, draft, K)
@@ -117,7 +117,7 @@ architecture values, which then feed step 6's "random init on failure" fallback 
   vocab-less checkpoint; see TD-221), the server **logs a warning and serves the randomly
   initialized model**. With no `MODEL_PATH` it also serves random weights, logging only "training
   required". In both cases `/health` reports `ok`.
-- **Draft model** (`--draft-model`, TD-038): same architecture and tokenizer, different weights.
+- **Draft model** (`--draft-model`, TD-038): same tokenizer; its architecture is read from its own checkpoint (`EncoderDecoderModel::read_checkpoint_architecture()`, TD-507), so it can be smaller than the target.
   It's built without world-model injection. A load failure disables speculative decoding for the
   run.
 - **World model** (TD-193/196, experimental): only if `WORLD_MODEL_ENABLED` and the checkpoint

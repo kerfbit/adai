@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 2.0.0
+// @adai-version: 2.1.0
 // @adai-reviewed: 2026-10-26
 
 #include "TextGenerator.hpp"
@@ -641,11 +641,19 @@ BPETokenizer* TextGenerator::get_tokenizer() const {
 
 // Get probability distribution for the next token given context tokens.
 // Requires that set_model_fn() was called beforehand.
-std::vector<float> TextGenerator::get_next_token_probs(const std::vector<int>& context) {
+Matrix TextGenerator::get_logits(const std::vector<int>& context) {
     if (!model_fn_) {
         throw std::runtime_error("TextGenerator: no model function set (call set_model_fn first)");
     }
-    Matrix logits_mat = model_fn_(context);
+    Matrix logits = model_fn_(context);
+    if (logits.rows < 1 || logits.cols < 1) {
+        throw std::runtime_error("TextGenerator: the model returned no logits");
+    }
+    return logits;
+}
+
+std::vector<float> TextGenerator::get_next_token_probs(const std::vector<int>& context) {
+    Matrix logits_mat = get_logits(context);
     // Extract the last row of logits (next-token prediction)
     int last_row = logits_mat.rows - 1;
     std::vector<float> last_logits(logits_mat.cols);

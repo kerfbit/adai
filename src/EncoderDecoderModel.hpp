@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.24.0
+// @adai-version: 0.25.0
 // @adai-reviewed: 2026-10-26
 
 #include <functional>
@@ -588,6 +588,29 @@ class EncoderDecoderModel {
      */
     void load_model(const std::string& filepath);
 
+    /** Architecture and special-token IDs stored in a checkpoint's `.config` file. */
+    struct CheckpointArchitecture {
+        int vocab_size = 0;
+        int d_model = 0;
+        int encoder_layers = 0;
+        int decoder_layers = 0;
+        int num_heads = 0;
+        int d_ff = 0;
+        int max_seq_length = 0;
+        int bos_token_id = 0;
+        int eos_token_id = 0;
+        int pad_token_id = 0;
+    };
+
+    /**
+     * Reads `<filepath>.config` without building a model, so a model can be constructed to match a
+     * checkpoint (TD-507: `chatbot_api_server` builds its speculative-decoding draft this way, so
+     * the draft can be smaller than the target).
+     *
+     * @throws std::runtime_error if the file is missing, truncated or an unsupported format
+     */
+    static CheckpointArchitecture read_checkpoint_architecture(const std::string& filepath);
+
     /**
      * Get model dimensions
      */
@@ -749,10 +772,14 @@ class EncoderDecoderModel {
      * `max_seq_length` tokens, as in forward(); world-model and hippocampal reads are the same
      * as forward()'s, and nothing is committed to the hippocampal memory.
      *
-     * @return Logits [1, vocab_size] for the token after `decoder_tokens`
+     * `last_rows` > 1 returns that many rows ending at the last position (capped at the decoder input's
+     * length): row i predicts the token after the decoder input's position `size - last_rows + i`.
+     * SpeculativeDecoder scores all its proposals from one such call (TD-507).
+     *
+     * @return Logits [last_rows, vocab_size]; the last row is for the token after `decoder_tokens`
      */
     Matrix next_token_logits(const std::vector<int>& input_tokens,
-                             const std::vector<int>& decoder_tokens);
+                             const std::vector<int>& decoder_tokens, int last_rows = 1);
 
     /**
      * Backward pass (for custom training loops)

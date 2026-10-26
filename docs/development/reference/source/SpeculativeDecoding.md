@@ -120,3 +120,34 @@ algorithm rather than this implementation.
 `ChatbotAPI`'s draft and target callbacks call `EncoderDecoderModel::next_token_logits()`, not the training `forward()`. That method
 puts a BOS in front of the empty first context. With the trained model as its own draft, speculative greedy decoding now reproduces the
 echo task exactly (`ChatbotAPIEchoTest.SpeculativeDecodingEchoesExactly`). TD-507's algorithm issues are unchanged.
+
+## Addendum (October 26, 2026): standard speculative sampling (TD-507, TD-508)
+
+`SpeculativeDecoder` (2.0.0) now implements the published algorithm, so §2's findings and the "Not covered" list describe the old
+version. Each round goes like this:
+1. The draft samples up to K tokens from softmax(logits / T).
+2. One target pass returns K + 1 rows (`TextGenerator::get_logits()`; `ChatbotAPI` asks `next_token_logits(…, K + 1)`).
+3. Each proposal is accepted with probability min(1, p/q).
+4. The first rejection is replaced by a sample from norm(max(0, p − q)), using the whole draft distribution.
+5. When all K are accepted, a bonus token comes from the next target row.
+
+Greedy mode (or T ≤ 0) accepts only the target's argmax, so its output equals the target's greedy output. A target that returns only its
+last row is called once per needed prefix instead.
+
+Other changes:
+- Output stops at `max_new_tokens`, and K < 1 throws.
+- `get_tokens_per_target_pass()` replaces `get_speedup()`, and `expected_tokens_per_target_pass(K, α)` = (1 − α^(K+1))/(1 − α)
+  replaces `calculate_theoretical_speedup()`.
+- `acceptance_threshold` and `print_speedup_table()` are removed, `log_stats()` uses `Logger`, and the constructor takes a seed.
+- `chatbot_api_server` builds the draft with its checkpoint's own architecture (`read_checkpoint_architecture()`).
+
+Old versus new, with the same mocks:
+
+| Check | Old | New |
+|---|---|---|
+| First token, target (0.5, 0.3, 0.2) | (0.391, 0.411, 0.197) | within 0.015 of target |
+| First token at T = 0.5 (0.658, 0.237, 0.105) | (0.396, 0.341, 0.264) | within 0.015 |
+| Greedy equals target greedy | 0 of 10 | 10 of 10 |
+| Target passes for 20 tokens, identical models, K = 4 | 20 | 4 |
+
+Tests: `SpeculativeDecodingTD507Test.*`, `SpeculativeDecodingTD508Test.SameSeedSameOutput`, `ExpectedTokensPerTargetPassTest.*`.

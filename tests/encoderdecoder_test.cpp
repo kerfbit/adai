@@ -1090,6 +1090,38 @@ TEST(EncoderDecoderModelTest, SaveLoadRoundTripReproducesLogits) {
     std::filesystem::remove_all(dir);
 }
 
+// TD-507: chatbot_api_server builds its speculative draft from the checkpoint's own architecture, so
+// read_checkpoint_architecture() must return what save_model() wrote, and reject a truncated file.
+TEST(EncoderDecoderModelTest, ReadCheckpointArchitectureMatchesTheSavedModel) {
+    const std::string dir = std::filesystem::temp_directory_path() / "adai_ed_read_arch";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    EncoderDecoderModel a(100, 48, 3, 2, 4, 96, 40);
+    build_test_vocab(a.get_tokenizer(), 100);
+    a.save_model(dir + "/cp.bin");
+
+    const auto arch = EncoderDecoderModel::read_checkpoint_architecture(dir + "/cp.bin");
+    EXPECT_EQ(arch.vocab_size, 100);
+    EXPECT_EQ(arch.d_model, 48);
+    EXPECT_EQ(arch.encoder_layers, 3);
+    EXPECT_EQ(arch.decoder_layers, 2);
+    EXPECT_EQ(arch.num_heads, 4);
+    EXPECT_EQ(arch.d_ff, 96);
+    EXPECT_EQ(arch.max_seq_length, 40);
+
+    // A model built from it loads the checkpoint.
+    EncoderDecoderModel b(arch.vocab_size, arch.d_model, arch.encoder_layers, arch.decoder_layers,
+                          arch.num_heads, arch.d_ff, arch.max_seq_length);
+    EXPECT_NO_THROW(b.load_model(dir + "/cp.bin"));
+
+    std::filesystem::resize_file(dir + "/cp.bin.config", 12);
+    EXPECT_THROW(EncoderDecoderModel::read_checkpoint_architecture(dir + "/cp.bin"),
+                 std::runtime_error);
+    EXPECT_THROW(EncoderDecoderModel::read_checkpoint_architecture(dir + "/missing.bin"),
+                 std::runtime_error);
+    std::filesystem::remove_all(dir);
+}
+
 // TD-538: a checkpoint saved before the encoder-specific file names (only the shared
 // _token_emb.bin/_final_norm.bin, holding the decoder's copies) still loads, as it always did.
 TEST(EncoderDecoderModelTest, LegacyCheckpointWithoutEncoderSpecificFilesStillLoads) {

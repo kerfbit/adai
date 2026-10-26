@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.26.1
+// @adai-version: 0.27.0
 // @adai-reviewed: 2026-10-26
 
 #include "EncoderDecoderModel.hpp"
@@ -938,8 +938,8 @@ void EncoderDecoderModel::save_model(const std::string& filepath) const {
 
 // Load model
 // TODO: See TD-363 in TECHNICAL_DEBT.md - config reads unchecked; special tokens not synced into the generator config
-void EncoderDecoderModel::load_model(const std::string& filepath) {
-    // Load architecture config
+EncoderDecoderModel::CheckpointArchitecture EncoderDecoderModel::read_checkpoint_architecture(
+    const std::string& filepath) {
     std::ifstream config_file(filepath + ".config", std::ios::binary);
     if (!config_file.is_open()) {
         throw std::runtime_error("Failed to load model config");
@@ -961,22 +961,28 @@ void EncoderDecoderModel::load_model(const std::string& filepath) {
                                  std::to_string(kConfigFormatVersion) + "). Retrain from scratch.");
     }
 
-    int loaded_vocab_size = 0, loaded_d_model = 0, loaded_encoder_layers = 0,
-        loaded_decoder_layers = 0;
-    int loaded_num_heads = 0, loaded_d_ff = 0, loaded_max_seq_length = 0;
-    int loaded_bos = 0, loaded_eos = 0, loaded_pad = 0;
+    CheckpointArchitecture arch;
+    for (int* field : {&arch.vocab_size, &arch.d_model, &arch.encoder_layers, &arch.decoder_layers,
+                       &arch.num_heads, &arch.d_ff, &arch.max_seq_length, &arch.bos_token_id,
+                       &arch.eos_token_id, &arch.pad_token_id}) {
+        config_file.read(reinterpret_cast<char*>(field), sizeof(int));
+    }
+    if (!config_file) {
+        throw std::runtime_error("Truncated model config: " + filepath + ".config");
+    }
+    return arch;
+}
 
-    config_file.read(reinterpret_cast<char*>(&loaded_vocab_size), sizeof(int));
-    config_file.read(reinterpret_cast<char*>(&loaded_d_model), sizeof(int));
-    config_file.read(reinterpret_cast<char*>(&loaded_encoder_layers), sizeof(int));
-    config_file.read(reinterpret_cast<char*>(&loaded_decoder_layers), sizeof(int));
-    config_file.read(reinterpret_cast<char*>(&loaded_num_heads), sizeof(int));
-    config_file.read(reinterpret_cast<char*>(&loaded_d_ff), sizeof(int));
-    config_file.read(reinterpret_cast<char*>(&loaded_max_seq_length), sizeof(int));
-    config_file.read(reinterpret_cast<char*>(&loaded_bos), sizeof(int));
-    config_file.read(reinterpret_cast<char*>(&loaded_eos), sizeof(int));
-    config_file.read(reinterpret_cast<char*>(&loaded_pad), sizeof(int));
-    config_file.close();
+void EncoderDecoderModel::load_model(const std::string& filepath) {
+    // Load architecture config
+    const CheckpointArchitecture arch = read_checkpoint_architecture(filepath);
+    const int loaded_vocab_size = arch.vocab_size, loaded_d_model = arch.d_model,
+              loaded_encoder_layers = arch.encoder_layers,
+              loaded_decoder_layers = arch.decoder_layers;
+    const int loaded_num_heads = arch.num_heads, loaded_d_ff = arch.d_ff,
+              loaded_max_seq_length = arch.max_seq_length;
+    const int loaded_bos = arch.bos_token_id, loaded_eos = arch.eos_token_id,
+              loaded_pad = arch.pad_token_id;
 
     // Verify architecture match
     if (loaded_vocab_size != vocab_size || loaded_d_model != d_model ||
@@ -1152,7 +1158,8 @@ const Matrix& EncoderDecoderModel::run_decoder(const std::vector<int>& input_tok
 }
 
 Matrix EncoderDecoderModel::next_token_logits(const std::vector<int>& raw_input_tokens,
-                                              const std::vector<int>& decoder_tokens) {
+                                              const std::vector<int>& decoder_tokens,
+                                              int last_rows) {
     // TD-156: same lock as forward(); ChatbotAPI calls this per step from request threads.
     std::lock_guard<std::mutex> lock(model_mutex_);
     const std::vector<int> input_tokens = encoder->keep_last_positions(raw_input_tokens);
@@ -1165,9 +1172,18 @@ Matrix EncoderDecoderModel::next_token_logits(const std::vector<int>& raw_input_
     }
     decoder_input.insert(decoder_input.end(), decoder_tokens.begin(), decoder_tokens.end());
 
-    // TD-424: only the last row is a next-token prediction; the LM head is row-wise, so projecting
-    // that row alone gives the same logits as the full projection's last row.
-    return lm_head->forward(last_row(run_decoder(input_tokens, decoder_input, "next_token_logits")));
+    const Matrix& decoder_out = run_decoder(input_tokens, decoder_input, "next_token_logits");
+    // TD-424: only the requested last rows are projected; the LM head is row-wise, so this gives the
+    // same logits as the full projection's last rows.
+    if (last_rows <= 1) {
+        return lm_head->forward(last_row(decoder_out));
+    }
+    const int rows = std::min(last_rows, decoder_out.rows);
+    Matrix tail(rows, decoder_out.cols);
+    for (int r = 0; r < rows; ++r) {
+        tail.data[r] = decoder_out.data[decoder_out.rows - rows + r];
+    }
+    return lm_head->forward(tail);
 }
 
 // Backward pass

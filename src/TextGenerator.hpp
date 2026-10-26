@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 2.0.0
+// @adai-version: 2.1.0
 // @adai-reviewed: 2026-10-26
 
 
@@ -319,6 +319,14 @@ class TextGenerator {
      * @throws std::runtime_error if no model function has been set
      */
     std::vector<float> get_next_token_probs(const std::vector<int>& context);
+
+    /**
+     * The stored model_fn_'s raw logits for `context` (every row it returns). SpeculativeDecoder
+     * reads several rows from one target pass (TD-507).
+     *
+     * @throws std::runtime_error if no model function has been set or it returns no rows
+     */
+    Matrix get_logits(const std::vector<int>& context);
 
     /**
      * Set random seed

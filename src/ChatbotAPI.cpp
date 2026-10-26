@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.12.2
+// @adai-version: 0.12.3
 // @adai-reviewed: 2026-10-26
 
 #include "ChatbotAPI.hpp"
@@ -843,16 +843,17 @@ std::string ChatbotAPI::generate_response(const std::string& input,
         // TD-506: every model_fn in this file calls next_token_logits(), whose decoder input is the
         // generated sequence. They used to call the training forward(), which shifts its targets
         // ([BOS] + tokens[:-1]), so the last row predicted the last generated token, not the next
-        // (0/12 vs 12/12 on a trained toy model). TD-507: speculative decoding itself is not
-        // target-distributed or faster.
+        // (0/12 vs 12/12 on a trained toy model). TD-507: the target returns its last K + 1 rows, so
+        // one pass scores all K proposals plus the bonus token.
         if (draft_model_) {
             auto draft_model_fn =
                 [this, &input_tokens](const std::vector<int>& decoder_tokens) -> Matrix {
                 return draft_model_->next_token_logits(input_tokens, decoder_tokens);
             };
-            auto target_model_fn =
-                [this, &input_tokens](const std::vector<int>& decoder_tokens) -> Matrix {
-                return model_->next_token_logits(input_tokens, decoder_tokens);
+            const int verify_rows = speculative_num_candidates_ + 1;
+            auto target_model_fn = [this, &input_tokens,
+                                    verify_rows](const std::vector<int>& decoder_tokens) -> Matrix {
+                return model_->next_token_logits(input_tokens, decoder_tokens, verify_rows);
             };
 
             TextGenerator draft_gen;
@@ -862,6 +863,11 @@ std::string ChatbotAPI::generate_response(const std::string& input,
             TextGenerator target_gen;
             target_gen.set_model_fn(target_model_fn);
             target_gen.set_tokenizer(tokenizer_);
+            // generate_tokens({}) starts from the target generator's BOS: use the tokenizer's.
+            TextGenerator::GenerationConfig target_config = target_gen.get_config();
+            target_config.bos_token_id = tokenizer_->get_bos_token_id();
+            target_config.eos_token_id = tokenizer_->get_eos_token_id();
+            target_gen.set_config(target_config);
 
             SpeculativeDecodingConfig spec_config;
             spec_config.num_candidates = speculative_num_candidates_;

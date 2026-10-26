@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.8.0
-// @adai-reviewed: 2026-10-21
+// @adai-version: 1.9.0
+// @adai-reviewed: 2026-10-26
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
 #include <atomic>
@@ -94,9 +94,9 @@ void print_usage(const char* program_name) {
            "/etc/adai/config.chatbot.conf)\n"
         << "  --model <path>       Path to model file\n"
         << "  --vocab <path>       Path to vocabulary file\n"
-        << "  --draft-model <path> Enable speculative decoding: path to a second model's\n"
-           "                       weights, sharing this run's architecture and tokenizer,\n"
-           "                       used as the fast \"draft\" model\n"
+        << "  --draft-model <path> Enable speculative decoding: path to a smaller checkpoint\n"
+           "                       (its own architecture, this run's tokenizer) used as\n"
+           "                       the fast \"draft\" model\n"
         << "  --speculative-candidates <n>  Draft-model candidates per round (default: 4)\n"
         << "  --port <number>      Port number (default: 8080)\n"
         << "  --timeout <minutes>  Session timeout in minutes (default: 30)\n"
@@ -386,22 +386,32 @@ int main(int argc, char* argv[]) {
             adai::Logger::info("  Using randomly initialized model (training required)");
         }
 
-        // TD-038: optional draft model for speculative decoding — shares this run's
-        // architecture and tokenizer (see Config.hpp's draft_model_path doc comment); only its
-        // weights differ. A load failure here disables speculative decoding for this run
-        // (falls back to normal generation) rather than aborting startup, the same tolerant
-        // stance the main model's own load failure above takes.
+        // TD-038: optional draft model for speculative decoding. TD-507: it is built with its own
+        // checkpoint's architecture, so it can be smaller (and faster) than the target; it used to
+        // take the target's architecture, which made speculative decoding slower by construction. It
+        // must share the tokenizer's vocabulary. A load failure here disables speculative decoding
+        // for this run (falls back to normal generation) rather than aborting startup, the same
+        // tolerant stance the main model's own load failure above takes.
         std::shared_ptr<EncoderDecoderModel> draft_model;
         if (!config.draft_model_path.empty()) {
             adai::Logger::info("  Loading draft model weights from: {}", config.draft_model_path);
             try {
-                // TODO: See TD-507 in TECHNICAL_DEBT.md - the draft has the target's architecture, so it can't be faster.
+                const auto arch =
+                    EncoderDecoderModel::read_checkpoint_architecture(config.draft_model_path);
+                if (arch.vocab_size != static_cast<int>(tokenizer->get_vocab_size())) {
+                    throw std::runtime_error(
+                        "draft vocabulary size " + std::to_string(arch.vocab_size) +
+                        " differs from the tokenizer's " +
+                        std::to_string(tokenizer->get_vocab_size()));
+                }
                 draft_model = std::make_shared<EncoderDecoderModel>(
-                    tokenizer->get_vocab_size(), config.d_model, config.num_encoder_layers,
-                    config.num_decoder_layers, config.num_heads, config.d_ff,
-                    config.max_seq_length);
+                    arch.vocab_size, arch.d_model, arch.encoder_layers, arch.decoder_layers,
+                    arch.num_heads, arch.d_ff, arch.max_seq_length);
                 draft_model->load_model(config.draft_model_path);
-                adai::Logger::info("  Draft model weights loaded successfully");
+                adai::Logger::info(
+                    "  Draft model weights loaded (d_model={}, layers={}+{}, heads={}, d_ff={})",
+                    arch.d_model, arch.encoder_layers, arch.decoder_layers, arch.num_heads,
+                    arch.d_ff);
             } catch (const std::exception& e) {
                 adai::Logger::warn("  Failed to load draft model weights: {}", e.what());
                 adai::Logger::warn("  Speculative decoding disabled for this run");

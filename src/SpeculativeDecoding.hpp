@@ -2,47 +2,46 @@
 #define SPECULATIVE_DECODING_HPP
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-12
+// @adai-version: 2.0.0
+// @adai-reviewed: 2026-10-26
 
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
-#include <iostream>
 #include <random>
 #include <stdexcept>
+#include <string>
 #include <vector>
+#include "Logger.hpp"
 #include "Matrix.hpp"
 #include "TextGenerator.hpp"
 
 /**
  * @file SpeculativeDecoding.hpp
- * @brief Speculative Decoding for Faster Autoregressive Inference
+ * @brief Speculative decoding (speculative sampling)
  *
- * Speculative decoding (also called "speculative sampling" or "assisted generation")
- * speeds up inference by using a small, fast "draft" model to propose tokens,
- * then verifying them with the larger "target" model in parallel.
+ * A small, fast "draft" model proposes K tokens one at a time; the "target" model scores all of them
+ * in one forward pass. Each proposal is accepted with probability min(1, p(x)/q(x)) (p = target,
+ * q = draft); the first rejection is replaced by a sample from norm(max(0, p − q)), and when all K
+ * are accepted a bonus token is sampled from the target's next distribution. The output is
+ * distributed exactly as sampling from the target alone (Leviathan et al. 2023, Chen et al. 2023).
+ * In greedy mode a proposal is accepted only when it is the target's argmax, so the output equals the
+ * target's greedy output.
  *
- * Algorithm:
- * 1. Draft model generates K candidate tokens quickly
- * 2. Target model evaluates all K candidates in parallel (single forward pass)
- * 3. Accept/reject candidates based on probability comparison
- * 4. On rejection, sample from adjusted distribution
+ * Each round costs K draft passes and one target pass and yields between 1 and K + 1 tokens; with
+ * acceptance rate α the expected yield is (1 − α^(K+1)) / (1 − α) tokens per target pass. Whether
+ * that saves time depends on how much cheaper the draft is than the target.
  *
- * Key Benefits:
- * - 2-3x speedup for similar-quality outputs
- * - Mathematically equivalent to standard sampling (same distribution)
- * - No training required - works with any model pair
- * - Larger K (lookahead) → more speedup (diminishing returns)
+ * Model functions: a TextGenerator's model_fn returns logits whose last row predicts the token after
+ * its input. The target's should return a row per position (at least the last K + 1), so one pass
+ * scores every proposal; a target that returns only its last row is called once per prefix it needs
+ * instead (the output is the same, the pass count higher).
  *
- * Requirements:
- * - Draft model: Small, fast (e.g., 125M params)
- * - Target model: Large, accurate (e.g., 7B params)
- * - Models should produce similar-quality outputs
- *
- * @version 1.0
- * @date January 2026
+ * TD-507/TD-508 (October 26, 2026): rewritten. The old version sampled rejections from a residual that
+ * subtracted only the rejected token's draft probability, accepted randomly in greedy mode, called
+ * the target once per proposal, never sampled a bonus token, overshot max_new_tokens, compared a
+ * temperature-scaled draft sample with unscaled probabilities, and reported K·α/(K + 1) (always
+ * below 1) as a speedup.
  */
 
 /**
@@ -50,12 +49,10 @@
  * @brief Configuration for speculative decoding
  */
 struct SpeculativeDecodingConfig {
-    int num_candidates = 4;             // K: Number of tokens to propose (typical: 4-8)
-    float temperature = 1.0f;           // Sampling temperature
-    int max_length = 100;               // Maximum sequence length
-    // TODO: See TD-508 in TECHNICAL_DEBT.md - never read.
-    float acceptance_threshold = 0.0f;  // Minimum acceptance probability
-    bool use_greedy = false;            // Use greedy sampling instead of probabilistic
+    int num_candidates = 4;    // K: tokens the draft proposes per round (at least 1)
+    float temperature = 1.0f;  // Applied to both models; <= 0 means greedy (as TextGenerator, TD-515)
+    int max_length = 100;      // Default maximum number of new tokens
+    bool use_greedy = false;   // Greedy: output equals the target's greedy output
 
     SpeculativeDecodingConfig() = default;
 };
@@ -64,9 +61,9 @@ struct SpeculativeDecodingConfig {
  * @brief Token proposal from draft model
  */
 struct TokenProposal {
-    int token_id;       // Proposed token
-    float draft_prob;   // Probability from draft model
-    float target_prob;  // Probability from target model (after verification)
+    int token_id;       // Proposed token (replaced by the resampled token on rejection)
+    float draft_prob;   // q(token) under the temperature-adjusted draft distribution
+    float target_prob;  // p(token) under the temperature-adjusted target distribution
     bool accepted;      // Whether proposal was accepted
 
     TokenProposal(int id = 0, float dp = 0.0f)
@@ -74,29 +71,34 @@ struct TokenProposal {
 };
 
 /**
+ * @brief Expected tokens per target pass for K proposals at acceptance rate α:
+ * (1 − α^(K+1)) / (1 − α), which is K + 1 at α = 1 and 1 at α = 0.
+ */
+inline float expected_tokens_per_target_pass(int num_candidates, float acceptance_rate) {
+    if (num_candidates <= 0 || acceptance_rate <= 0.0f)
+        return 1.0f;
+    const float alpha = std::min(acceptance_rate, 1.0f);
+    if (alpha >= 1.0f)
+        return static_cast<float>(num_candidates + 1);
+    return (1.0f - std::pow(alpha, static_cast<float>(num_candidates + 1))) / (1.0f - alpha);
+}
+
+/**
  * @class SpeculativeDecoder
- * @brief Implements speculative decoding for accelerated generation
+ * @brief Speculative decoding over two TextGenerators' model functions
  *
  * Example Usage:
  * @code
- * // Create draft and target models
- * LLMDecoder draft_model(256, 4, 1024, 6, vocab_size, max_len);  // Small
- * LLMDecoder target_model(768, 12, 3072, 24, vocab_size, max_len); // Large
+ * TextGenerator draft_gen, target_gen;
+ * draft_gen.set_model_fn(draft_fn);    // last row = next-token logits
+ * target_gen.set_model_fn(target_fn);  // a row per position (at least the last K + 1)
+ * target_gen.set_tokenizer(&tokenizer);
  *
- * // Configure speculative decoding
  * SpeculativeDecodingConfig config;
- * config.num_candidates = 5;
- * config.temperature = 0.8;
- *
- * SpeculativeDecoder decoder(&draft_model, &target_model, &tokenizer, config);
- *
- * // Generate with speedup
- * std::string prompt = "Once upon a time";
- * std::string output = decoder.generate(prompt);
- *
- * // Check statistics
- * std::cout << "Acceptance rate: " << decoder.get_acceptance_rate() << std::endl;
- * std::cout << "Speedup: " << decoder.get_speedup() << "x" << std::endl;
+ * config.num_candidates = 4;
+ * SpeculativeDecoder decoder(&draft_gen, &target_gen, config, 42);
+ * std::vector<int> tokens = decoder.generate_tokens({bos_id}, 64);
+ * float yield = decoder.get_tokens_per_target_pass();
  * @endcode
  */
 class SpeculativeDecoder {
@@ -110,163 +112,197 @@ class SpeculativeDecoder {
     int accepted_proposals_;
     int total_forward_passes_draft_;
     int total_forward_passes_target_;
+    int total_generated_tokens_;
 
     std::mt19937 rng_;
 
-    /**
-     * @brief Sample token from probability distribution
-     *
-     * @param probs Probability distribution over vocabulary
-     * @param temperature Sampling temperature
-     * @return Sampled token ID
-     */
-    int sample_token(const std::vector<float>& probs, float temperature = 1.0f) {
-        if (config_.use_greedy) {
-            // Greedy: return argmax
-            return std::distance(probs.begin(), std::max_element(probs.begin(), probs.end()));
-        }
-
-        // Temperature sampling
-        std::vector<float> scaled_probs = probs;
-        if (temperature != 1.0f && temperature > 0.0f) {
-            float sum = 0.0f;
-            for (float& p : scaled_probs) {
-                p = std::pow(p, 1.0f / temperature);
-                sum += p;
-            }
-            for (float& p : scaled_probs) {
-                p /= sum;
-            }
-        }
-
-        // Sample
-        std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-        float rand_val = dist(rng_);
-        float cumsum = 0.0f;
-
-        for (size_t i = 0; i < scaled_probs.size(); i++) {
-            cumsum += scaled_probs[i];
-            if (rand_val <= cumsum) {
-                return i;
-            }
-        }
-
-        return scaled_probs.size() - 1;
+    bool greedy() const {
+        return config_.use_greedy || config_.temperature <= 0.0f;
     }
 
-    /**
-     * @brief Generate K candidate tokens with draft model
-     *
-     * @param context Current sequence context
-     * @return Vector of token proposals
-     */
-    std::vector<TokenProposal> generate_candidates(const std::vector<int>& context) {
-        std::vector<TokenProposal> proposals;
-        std::vector<int> draft_context = context;
-
-        for (int i = 0; i < config_.num_candidates; i++) {
-            // Get probabilities from draft model
-            std::vector<float> draft_probs = draft_generator_->get_next_token_probs(draft_context);
-            total_forward_passes_draft_++;
-
-            // Sample token
-            int token_id = sample_token(draft_probs, config_.temperature);
-            float token_prob = draft_probs[token_id];
-
-            proposals.push_back(TokenProposal(token_id, token_prob));
-            draft_context.push_back(token_id);
-
-            // Early stopping if draft model predicts EOS
-            if (token_id == draft_generator_->get_tokenizer()->get_eos_token_id()) {
-                break;
-            }
+    static void check_config(const SpeculativeDecodingConfig& config) {
+        if (config.num_candidates < 1) {
+            throw std::invalid_argument("SpeculativeDecoder: num_candidates must be at least 1, got " +
+                                        std::to_string(config.num_candidates));
         }
-
-        return proposals;
     }
 
+    static int argmax(const std::vector<float>& values) {
+        return static_cast<int>(std::max_element(values.begin(), values.end()) - values.begin());
+    }
+
+    // softmax(logits / T), the same temperature for both models.
+    std::vector<float> distribution(const std::vector<float>& logits) const {
+        std::vector<float> probs(logits.size());
+        const float max_logit = *std::max_element(logits.begin(), logits.end());
+        const float temperature = config_.temperature;
+        float sum = 0.0f;
+        for (size_t i = 0; i < logits.size(); ++i) {
+            probs[i] = std::exp((logits[i] - max_logit) / temperature);
+            sum += probs[i];
+        }
+        for (float& p : probs) {
+            p /= sum;
+        }
+        return probs;
+    }
+
+    int sample(const std::vector<float>& probs) {
+        std::discrete_distribution<int> dist(probs.begin(), probs.end());
+        return dist(rng_);
+    }
+
+    static std::vector<float> row(const Matrix& logits, int r) {
+        return std::vector<float>(logits.data[r].begin(), logits.data[r].end());
+    }
+
+    static void check_logits(const std::vector<float>& logits, const char* model) {
+        for (float value : logits) {
+            if (!std::isfinite(value) && !(std::isinf(value) && value < 0.0f)) {
+                throw std::runtime_error(std::string("SpeculativeDecoder: the ") + model +
+                                         " model returned non-finite logits");
+            }
+        }
+    }
+
+    int eos_token_id() const {
+        const BPETokenizer* tokenizer = target_generator_->get_tokenizer();
+        return tokenizer ? tokenizer->get_eos_token_id()
+                         : target_generator_->get_config().eos_token_id;
+    }
+
+    // Whether the target's model_fn returns a row per position: unknown until its first call.
+    enum class TargetRows { Unknown, PerPosition, LastOnly };
+    TargetRows target_rows_mode_ = TargetRows::Unknown;
+
     /**
-     * @brief Verify candidates with target model
-     *
-     * All K candidates are evaluated in a single forward pass (parallel verification)
-     *
-     * @param context Original context
-     * @param proposals Token proposals from draft model
-     * @return Number of accepted tokens
+     * The target's logits for the token after each prefix `sequence[0 .. base + i]`, i = 0 .. count-1,
+     * fetched on demand. A per-position target answers all of them from one pass; a last-row-only
+     * target is called once per prefix actually needed.
      */
-    int verify_candidates(const std::vector<int>& context, std::vector<TokenProposal>& proposals) {
-        if (proposals.empty())
-            return 0;
-
-        std::vector<int> extended_context = context;
-        int num_accepted = 0;
-
-        for (size_t i = 0; i < proposals.size(); i++) {
-            // TODO: See TD-507 in TECHNICAL_DEBT.md - one target pass per candidate (no parallel verification, no bonus
-            // token); greedy mode still accepts randomly; draft_prob is pre-temperature.
-            // Get target model probabilities for current context
-            std::vector<float> target_probs =
-                target_generator_->get_next_token_probs(extended_context);
-            total_forward_passes_target_++;
-
-            int proposed_token = proposals[i].token_id;
-            float target_prob = target_probs[proposed_token];
-            proposals[i].target_prob = target_prob;
-
-            // Acceptance criterion: p_target(x) >= p_draft(x)
-            // With randomness: accept if uniform(0,1) < min(1, p_target/p_draft)
-            float acceptance_ratio = target_prob / (proposals[i].draft_prob + 1e-10f);
-
-            std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-            float rand_val = dist(rng_);
-
-            if (rand_val < std::min(1.0f, acceptance_ratio)) {
-                // Accept proposal
-                proposals[i].accepted = true;
-                extended_context.push_back(proposed_token);
-                num_accepted++;
-                total_proposals_++;
-                accepted_proposals_++;
-            } else {
-                // TODO: See TD-507 in TECHNICAL_DEBT.md - residual must subtract the whole draft distribution, not just the
-                // rejected token's probability (target (0.5,0.3,0.2) came out (0.40,0.40,0.20), verified).
-                // Reject proposal - resample from adjusted distribution
-                // Adjusted distribution: max(0, p_target - p_draft) / Z
-                std::vector<float> adjusted_probs(target_probs.size());
-                float sum = 0.0f;
-
-                for (size_t j = 0; j < target_probs.size(); j++) {
-                    // Get draft probability for token j
-                    float draft_p = (j == static_cast<size_t>(proposed_token))
-                                        ? proposals[i].draft_prob
-                                        : 0.0f;  // Simplified - would need full draft dist
-
-                    adjusted_probs[j] = std::max(0.0f, target_probs[j] - draft_p);
-                    sum += adjusted_probs[j];
-                }
-
-                // Normalize
-                if (sum > 1e-10f) {
-                    for (float& p : adjusted_probs) {
-                        p /= sum;
-                    }
+    class TargetRowSource {
+       public:
+        TargetRowSource(SpeculativeDecoder& decoder, const std::vector<int>& sequence, int count)
+            : decoder_(decoder), sequence_(sequence), count_(count), rows_(count) {
+            if (decoder_.target_rows_mode_ != TargetRows::LastOnly) {
+                Matrix logits = decoder_.target_generator_->get_logits(sequence_);
+                ++decoder_.total_forward_passes_target_;
+                if (logits.rows >= count_) {
+                    decoder_.target_rows_mode_ = TargetRows::PerPosition;
+                    for (int i = 0; i < count_; ++i)
+                        rows_[i] = row(logits, logits.rows - count_ + i);
                 } else {
-                    adjusted_probs = target_probs;  // Fallback
+                    decoder_.target_rows_mode_ = TargetRows::LastOnly;
+                    rows_[count_ - 1] = row(logits, logits.rows - 1);
                 }
-
-                // Sample from adjusted distribution
-                int resampled_token = sample_token(adjusted_probs, config_.temperature);
-                proposals[i].token_id = resampled_token;
-                proposals[i].accepted = false;
-                extended_context.push_back(resampled_token);
-                total_proposals_++;
-
-                // Stop verification - must regenerate remaining candidates
-                break;
             }
         }
 
-        return num_accepted;
+        const std::vector<float>& get(int i) {
+            if (rows_[i].empty()) {
+                const int drop = count_ - 1 - i;
+                std::vector<int> prefix(sequence_.begin(), sequence_.end() - drop);
+                Matrix logits = decoder_.target_generator_->get_logits(prefix);
+                ++decoder_.total_forward_passes_target_;
+                rows_[i] = row(logits, logits.rows - 1);
+            }
+            check_logits(rows_[i], "target");
+            return rows_[i];
+        }
+
+       private:
+        SpeculativeDecoder& decoder_;
+        const std::vector<int>& sequence_;
+        int count_;
+        std::vector<std::vector<float>> rows_;
+    };
+
+    /**
+     * One round: up to `budget` (<= K) draft proposals, one target verification, then the
+     * resampled or bonus token. Returns the tokens to append (accepted proposals first).
+     */
+    std::vector<int> round(const std::vector<int>& context, int budget,
+                           std::vector<TokenProposal>& proposals) {
+        const int eos = eos_token_id();
+        proposals.clear();
+
+        // Step 1: draft proposals, each sampled from q = softmax(draft logits / T) (argmax if greedy).
+        std::vector<std::vector<float>> draft_dists;
+        std::vector<int> draft_context = context;
+        for (int i = 0; i < budget; ++i) {
+            Matrix logits = draft_generator_->get_logits(draft_context);
+            ++total_forward_passes_draft_;
+            std::vector<float> last = row(logits, logits.rows - 1);
+            check_logits(last, "draft");
+            int token;
+            float q = 1.0f;
+            if (greedy()) {
+                token = argmax(last);
+                draft_dists.emplace_back();
+            } else {
+                draft_dists.push_back(distribution(last));
+                token = sample(draft_dists.back());
+                q = draft_dists.back()[token];
+            }
+            proposals.emplace_back(token, q);
+            draft_context.push_back(token);
+            if (token == eos)
+                break;
+        }
+
+        // Step 2: one target pass over context + proposals; row i predicts proposal i, row n the bonus.
+        const int n = static_cast<int>(proposals.size());
+        TargetRowSource rows(*this, draft_context, n + 1);
+        if (!draft_dists.empty() && !draft_dists.front().empty() &&
+            draft_dists.front().size() != rows.get(0).size()) {
+            throw std::runtime_error("SpeculativeDecoder: draft and target vocabularies differ");
+        }
+
+        // Step 3: accept or replace each proposal in order.
+        std::vector<int> out;
+        for (int i = 0; i < n; ++i) {
+            TokenProposal& proposal = proposals[i];
+            ++total_proposals_;
+            if (greedy()) {
+                const int best = argmax(rows.get(i));
+                proposal.target_prob = proposal.token_id == best ? 1.0f : 0.0f;
+                if (proposal.token_id == best) {
+                    proposal.accepted = true;
+                } else {
+                    proposal.token_id = best;
+                }
+            } else {
+                const std::vector<float> p = distribution(rows.get(i));
+                const std::vector<float>& q = draft_dists[i];
+                const int token = proposal.token_id;
+                proposal.target_prob = p[token];
+                std::uniform_real_distribution<float> uniform(0.0f, 1.0f);
+                if (uniform(rng_) < std::min(1.0f, p[token] / std::max(q[token], 1e-30f))) {
+                    proposal.accepted = true;
+                } else {
+                    // Residual norm(max(0, p − q)) over the whole draft distribution.
+                    std::vector<float> residual(p.size());
+                    float sum = 0.0f;
+                    for (size_t j = 0; j < p.size(); ++j) {
+                        residual[j] = std::max(0.0f, p[j] - q[j]);
+                        sum += residual[j];
+                    }
+                    proposal.token_id = sum > 0.0f ? sample(residual) : sample(p);
+                }
+            }
+            out.push_back(proposal.token_id);
+            if (!proposal.accepted) {
+                return out;
+            }
+            ++accepted_proposals_;
+            if (proposal.token_id == eos) {
+                return out;
+            }
+        }
+
+        // All accepted: the target's next distribution gives a bonus token for free.
+        out.push_back(greedy() ? argmax(rows.get(n)) : sample(distribution(rows.get(n))));
+        return out;
     }
 
    public:
@@ -275,10 +311,12 @@ class SpeculativeDecoder {
      *
      * @param draft_generator Generator using draft (fast) model
      * @param target_generator Generator using target (accurate) model
-     * @param config Speculative decoding configuration
+     * @param config Speculative decoding configuration (num_candidates >= 1)
+     * @param seed Seed for acceptance and sampling (TD-508: was always random)
      */
     SpeculativeDecoder(TextGenerator* draft_generator, TextGenerator* target_generator,
-                       const SpeculativeDecodingConfig& config = SpeculativeDecodingConfig())
+                       const SpeculativeDecodingConfig& config = SpeculativeDecodingConfig(),
+                       unsigned int seed = std::random_device{}())
         : draft_generator_(draft_generator),
           target_generator_(target_generator),
           config_(config),
@@ -286,101 +324,68 @@ class SpeculativeDecoder {
           accepted_proposals_(0),
           total_forward_passes_draft_(0),
           total_forward_passes_target_(0),
-          rng_(std::random_device{}()) {
+          total_generated_tokens_(0),
+          rng_(seed) {
         if (!draft_generator || !target_generator) {
             throw std::invalid_argument("Generators cannot be null");
         }
+        check_config(config_);
     }
 
     /**
      * @brief Generate text using speculative decoding
      *
-     * @param prompt Input prompt text
+     * @param prompt Input prompt text (tokenized with the target's tokenizer, special tokens added)
      * @return Generated text
      */
     std::string generate(const std::string& prompt) {
-        // Tokenize prompt
         auto tokenizer = target_generator_->get_tokenizer();
-        std::vector<int> context = tokenizer->encode(prompt);
-
-        std::vector<int> output_tokens;
-
-        while (output_tokens.size() < static_cast<size_t>(config_.max_length)) {
-            // Step 1: Generate K candidates with draft model
-            std::vector<int> current_context = context;
-            current_context.insert(current_context.end(), output_tokens.begin(),
-                                   output_tokens.end());
-
-            std::vector<TokenProposal> proposals = generate_candidates(current_context);
-
-            if (proposals.empty())
-                break;
-
-            // Step 2: Verify candidates with target model
-            int num_accepted = verify_candidates(current_context, proposals);
-
-            // Step 3: Add accepted tokens to output
-            for (const auto& proposal : proposals) {
-                output_tokens.push_back(proposal.token_id);
-
-                // Check for EOS
-                if (proposal.token_id == tokenizer->get_eos_token_id()) {
-                    goto generation_complete;
-                }
-
-                // Only process up to first rejection
-                if (!proposal.accepted)
-                    break;
-            }
+        if (!tokenizer) {
+            throw std::runtime_error("SpeculativeDecoder: the target generator has no tokenizer");
         }
-
-    generation_complete:
-        // Decode output
-        return tokenizer->decode(output_tokens);
+        return tokenizer->decode(generate_tokens(tokenizer->encode(prompt), config_.max_length));
     }
 
     /**
-     * @brief Generate tokens (returns token IDs)
+     * @brief Generate tokens (returns the new token IDs only)
      *
-     * @param prompt_tokens Input prompt as token IDs
-     * @param max_new_tokens Maximum new tokens to generate
-     * @return Generated token IDs
+     * @param prompt_tokens Input prompt as token IDs; empty starts from the target's BOS
+     * @param max_new_tokens Maximum new tokens (-1 = config max_length); the output never exceeds it
+     * @return Generated token IDs, ending at EOS if one was generated
      */
-    std::vector<int> generate_tokens(const std::vector<int>& prompt_tokens,
-                                     int max_new_tokens = -1) {
+    std::vector<int> generate_tokens(const std::vector<int>& prompt_tokens, int max_new_tokens = -1) {
         if (max_new_tokens < 0) {
             max_new_tokens = config_.max_length;
         }
 
+        std::vector<int> context = prompt_tokens;
+        if (context.empty()) {
+            context.push_back(target_generator_->get_config().bos_token_id);
+        }
+        const int eos = eos_token_id();
+
         std::vector<int> output_tokens;
-        auto tokenizer = target_generator_->get_tokenizer();
-
-        while (output_tokens.size() < static_cast<size_t>(max_new_tokens)) {
-            std::vector<int> current_context = prompt_tokens;
-            current_context.insert(current_context.end(), output_tokens.begin(),
-                                   output_tokens.end());
-
-            std::vector<TokenProposal> proposals = generate_candidates(current_context);
-            if (proposals.empty())
-                break;
-
-            verify_candidates(current_context, proposals);
-
-            for (const auto& proposal : proposals) {
-                output_tokens.push_back(proposal.token_id);
-                if (proposal.token_id == tokenizer->get_eos_token_id()) {
-                    return output_tokens;
-                }
-                if (!proposal.accepted)
+        std::vector<TokenProposal> proposals;
+        while (static_cast<int>(output_tokens.size()) < max_new_tokens) {
+            const int remaining = max_new_tokens - static_cast<int>(output_tokens.size());
+            // A round yields at most budget + 1 tokens; the cut below keeps the bonus from overshooting.
+            const int budget = std::min(config_.num_candidates, remaining);
+            std::vector<int> tokens = round(context, budget, proposals);
+            for (int token : tokens) {
+                if (static_cast<int>(output_tokens.size()) >= max_new_tokens)
                     break;
+                output_tokens.push_back(token);
+                context.push_back(token);
+                ++total_generated_tokens_;
+                if (token == eos)
+                    return output_tokens;
             }
         }
-
         return output_tokens;
     }
 
     /**
-     * @brief Get acceptance rate (fraction of proposals accepted)
+     * @brief Fraction of proposals accepted
      */
     float get_acceptance_rate() const {
         if (total_proposals_ == 0)
@@ -389,16 +394,25 @@ class SpeculativeDecoder {
     }
 
     /**
-     * @brief Estimate speedup compared to standard generation
+     * @brief Generated tokens per target forward pass (1 for plain decoding; up to K + 1)
      *
-     * Speedup = K * acceptance_rate / (K + 1)
-     * where K is number of candidates
+     * TD-508: replaces get_speedup(), which returned K·α/(K + 1), below 1 for every rate. Time saved
+     * also depends on the draft's cost relative to the target's.
      */
-    // TODO: See TD-508 in TECHNICAL_DEBT.md - K*a/(K+1) is < 1 for every acceptance rate; not a speedup.
-    float get_speedup() const {
-        float acc_rate = get_acceptance_rate();
-        float K = config_.num_candidates;
-        return (K * acc_rate) / (K + 1.0f);
+    float get_tokens_per_target_pass() const {
+        if (total_forward_passes_target_ == 0)
+            return 0.0f;
+        return static_cast<float>(total_generated_tokens_) / total_forward_passes_target_;
+    }
+
+    int get_draft_passes() const {
+        return total_forward_passes_draft_;
+    }
+    int get_target_passes() const {
+        return total_forward_passes_target_;
+    }
+    int get_generated_tokens() const {
+        return total_generated_tokens_;
     }
 
     /**
@@ -409,19 +423,19 @@ class SpeculativeDecoder {
         accepted_proposals_ = 0;
         total_forward_passes_draft_ = 0;
         total_forward_passes_target_ = 0;
+        total_generated_tokens_ = 0;
     }
 
     /**
-     * @brief Print statistics
+     * @brief Log statistics (TD-508: through Logger, not std::cout)
      */
-    void print_stats() const {
-        std::cout << "=== Speculative Decoding Statistics ===\n";
-        std::cout << "Total proposals: " << total_proposals_ << "\n";
-        std::cout << "Accepted proposals: " << accepted_proposals_ << "\n";
-        std::cout << "Acceptance rate: " << get_acceptance_rate() * 100 << "%\n";
-        std::cout << "Estimated speedup: " << get_speedup() << "x\n";
-        std::cout << "Draft forward passes: " << total_forward_passes_draft_ << "\n";
-        std::cout << "Target forward passes: " << total_forward_passes_target_ << "\n";
+    void log_stats() const {
+        adai::Logger::info(
+            "Speculative decoding: {} proposals, {} accepted ({:.1f}%), {} tokens, {} target passes "
+            "({:.2f} tokens/pass), {} draft passes",
+            total_proposals_, accepted_proposals_, get_acceptance_rate() * 100.0f,
+            total_generated_tokens_, total_forward_passes_target_, get_tokens_per_target_pass(),
+            total_forward_passes_draft_);
     }
 
     /**
@@ -432,46 +446,12 @@ class SpeculativeDecoder {
     }
 
     /**
-     * @brief Update configuration
+     * @brief Update configuration (num_candidates >= 1)
      */
     void set_config(const SpeculativeDecodingConfig& config) {
+        check_config(config);
         config_ = config;
     }
 };
-
-/**
- * @brief Helper: Calculate theoretical speedup
- *
- * Given acceptance rate and number of candidates, estimate speedup.
- * Formula: speedup = K * α / (K + 1)
- * where K = num_candidates, α = acceptance_rate
- */
-inline float calculate_theoretical_speedup(int num_candidates, float acceptance_rate) {
-    if (num_candidates <= 0 || acceptance_rate <= 0.0f)
-        return 1.0f;
-    return (num_candidates * acceptance_rate) / (num_candidates + 1.0f);
-}
-
-/**
- * @brief Print speedup table for different K and acceptance rates
- */
-inline void print_speedup_table() {
-    std::cout << "\n=== Theoretical Speculative Decoding Speedup ===\n\n";
-    std::cout << "K (candidates) | Acceptance Rate | Speedup\n";
-    std::cout << "------------------------------------------------\n";
-
-    std::vector<int> K_values = {2, 4, 6, 8, 10};
-    std::vector<float> acc_rates = {0.5f, 0.6f, 0.7f, 0.8f, 0.9f};
-
-    for (int K : K_values) {
-        for (float acc : acc_rates) {
-            float speedup = calculate_theoretical_speedup(K, acc);
-            printf("%14d | %15.1f%% | %.2fx\n", K, acc * 100, speedup);
-        }
-        std::cout << "------------------------------------------------\n";
-    }
-
-    std::cout << "\nNote: Actual speedup depends on draft/target model speed ratio\n";
-}
 
 #endif  // SPECULATIVE_DECODING_HPP

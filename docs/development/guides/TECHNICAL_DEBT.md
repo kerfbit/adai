@@ -1276,6 +1276,9 @@ The metrics pipeline run is complete.
 - TD-506 (done in code: `ChatbotAPI`'s CPU callbacks use the aligned `next_token_logits()`, so a trained model answers correctly on a
   CPU server; it projects only the last row, finishing TD-424).
 - TD-514/515 (done in code: a beam width below 1 throws instead of crashing, and a temperature of 0 or below is greedy in every strategy).
+- TD-507/508 (done in code: speculative sampling verifies all K proposals in one target pass with the full-draft residual and a bonus
+  token, is exactly greedy in greedy mode, applies one temperature to both models, caps output, reports tokens per target pass, and
+  the server's draft takes its own checkpoint's architecture).
 - TD-516 (done in code, owner's choices: `max_length` counts new tokens, `min_length` and exact beam early stopping are implemented,
   non-finite logits throw, the repetition penalty runs before filtering, and `top_p <= 0` is top-1).
 
@@ -14433,7 +14436,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / SpeculativeDecoding | October 17, 2026 | 4-8 hours |
+| MEDIUM | Open — code fix landed October 26, 2026 | Inference / SpeculativeDecoding | October 17, 2026 | 4-8 hours |
 
 Description:
 Found while tracing `SpeculativeDecoding.hpp`; verified with toy fixed-distribution `TextGenerator`s:
@@ -14447,12 +14450,49 @@ Found while tracing `SpeculativeDecoding.hpp`; verified with toy fixed-distribut
 
 Action Items:
 
-- [ ] Verify all K candidates in one target forward (logits for every position), use the full draft distribution in the residual `max(0, p − q)`, sample a bonus token when all K are accepted, and cap output at `max_new_tokens`.
-- [ ] Greedy mode: accept iff the candidate equals the target argmax.
-- [ ] Apply temperature consistently to both distributions; allow a smaller draft architecture (`DRAFT_*` config) in `chatbot_api_server`.
-- [ ] Test the output distribution and greedy equivalence.
+- [x] Verify all K candidates in one target forward (logits for every position), use the full draft distribution in the residual `max(0, p − q)`, sample a bonus token when all K are accepted, and cap output at `max_new_tokens`.
+- [x] Greedy mode: accept iff the candidate equals the target argmax.
+- [x] Apply temperature consistently to both distributions; allow a smaller draft architecture (`DRAFT_*` config) in `chatbot_api_server`. (The draft's architecture comes from its own checkpoint instead of `DRAFT_*` keys.)
+- [x] Test the output distribution and greedy equivalence.
 
-Location in code: `src/SpeculativeDecoding.hpp` (`generate_candidates()`, `verify_candidates()`, `sample_token()`, `generate_tokens()`), `src/ChatbotAPIServer.cpp` (draft model construction); tagged `TODO: See TD-507`.
+**Fix (October 26, 2026).** `SpeculativeDecoder` (`SpeculativeDecoding.hpp` 2.0.0) is rewritten as standard speculative sampling.
+Each round works as follows:
+1. The draft samples up to K tokens from q = softmax(draft logits / T).
+2. One target pass over the context plus the proposals gives K + 1 rows (`TextGenerator::get_logits()`).
+3. Each proposal is accepted with probability min(1, p/q), where p = softmax(target logits / T), the same temperature for both models.
+4. The first rejection is replaced by a sample from norm(max(0, p − q)), using the whole draft distribution.
+5. When all K are accepted, a bonus token is sampled from the target's next row.
+
+Greedy mode (`use_greedy`, or T ≤ 0 as in TD-515) accepts a proposal only when it is the target's argmax, so the output equals the
+target's greedy output. A round never drafts more than the remaining budget, and the output is cut at `max_new_tokens`. A target that
+returns only its last row still works: the decoder calls it once per prefix it needs and remembers the mode.
+
+Model side:
+- `EncoderDecoderModel::next_token_logits(…, last_rows)` returns the last K + 1 rows, and `ChatbotAPI`'s target callback asks for
+  them.
+- `chatbot_api_server` builds the draft from `EncoderDecoderModel::read_checkpoint_architecture(DRAFT_MODEL_PATH)`. The draft can now
+  be smaller than the target, but its vocabulary must match the tokenizer's. `num_candidates < 1` throws.
+
+Measured on the old code with the same mocks:
+- first-token distribution (0.391, 0.411, 0.197) instead of (0.5, 0.3, 0.2);
+- (0.396, 0.341, 0.264) at T = 0.5 instead of (0.658, 0.237, 0.105);
+- greedy output equal to the target's greedy output in 0 of 10 runs;
+- 20 target calls for 20 tokens.
+
+New tests (`SpeculativeDecodingTD507Test`):
+- `FirstTokenFollowsTheTargetDistribution` and `TemperatureAppliesToBothModels` (20,000 draws each, within 0.015);
+- `GreedyOutputEqualsTheTargetsGreedyOutput` (10 draft/target pairs);
+- `OneTargetPassPerRoundAndABonusToken`: 4 target passes for 20 tokens at K = 4;
+- `OutputNeverExceedsMaxNewTokens`;
+- `LastRowOnlyTargetGivesTheSameGreedyOutput`.
+
+Supporting tests:
+- `ChatbotAPIEchoTest.NextTokenLogitsLastRowsMatchTheAlignedForward`;
+- `EncoderDecoderModelTest.ReadCheckpointArchitectureMatchesTheSavedModel`;
+- `ChatbotAPIEchoTest.SpeculativeDecodingEchoesExactly`, which now uses the one-pass target.
+
+Location in code: `src/SpeculativeDecoding.hpp`, `src/TextGenerator.{hpp,cpp}` (`get_logits()`), `src/EncoderDecoderModel.{hpp,cpp}`
+(`next_token_logits()` `last_rows`, `read_checkpoint_architecture()`), `src/ChatbotAPI.cpp`, `src/ChatbotAPIServer.cpp`.
 
 Files to Modify:
 
@@ -14466,7 +14506,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Inference / SpeculativeDecoding | October 17, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 26, 2026 | Inference / SpeculativeDecoding | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `SpeculativeDecoding.hpp`: `get_speedup()`/`calculate_theoretical_speedup()` return `K·α/(K+1)`, which is below 1 for every
@@ -14476,10 +14516,20 @@ costs); the tests assert this formula and the replaced doc promised "2–3×". B
 
 Action Items:
 
-- [ ] Report tokens per target pass (and measured time if available) instead; update the tests.
-- [ ] Remove or implement `acceptance_threshold`; route output through `Logger`; seedable RNG.
+- [x] Report tokens per target pass (and measured time if available) instead; update the tests.
+- [x] Remove or implement `acceptance_threshold`; route output through `Logger`; seedable RNG.
 
-Location in code: `src/SpeculativeDecoding.hpp` (`get_speedup()`, `calculate_theoretical_speedup()`, `SpeculativeDecodingConfig`); tagged `TODO: See TD-508`.
+**Fix (October 26, 2026, with TD-507).**
+- **Statistics.** `get_speedup()` is replaced by `get_tokens_per_target_pass()`, with pass and token counters
+  (`get_target_passes()`, `get_draft_passes()`, `get_generated_tokens()`). `calculate_theoretical_speedup()` is replaced by
+  `expected_tokens_per_target_pass(K, α)` = (1 − α^(K+1))/(1 − α), which is K + 1 at α = 1. Timing isn't measured, since it depends
+  on the draft-to-target cost ratio.
+- **Removed:** `acceptance_threshold`, `print_speedup_table()` and the `goto`.
+- **Output.** `print_stats()` is now `log_stats()`, through `Logger`.
+- **RNG.** The constructor takes a seed (default `std::random_device`).
+- **Tests.** The speedup tests became `ExpectedTokensPerTargetPassTest`, and `SpeculativeDecodingTD508Test.SameSeedSameOutput` is new.
+
+Location in code: `src/SpeculativeDecoding.hpp`.
 
 Files to Modify:
 
