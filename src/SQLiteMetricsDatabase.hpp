@@ -1,10 +1,11 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-10-25
 
 
+#include <functional>
 #include <mutex>
 #include <string>
 #include "MetricsDatabase.hpp"
@@ -30,6 +31,11 @@ class SQLiteMetricsDatabase : public IMetricsDatabase {
     void insert_gradient_variance_sample(const std::string& session_key, int step, int epoch,
                                          float value) override;
 
+    void insert_metrics_records(const std::string& session_key,
+                                const std::vector<PersistentMetricsRecord>& recs) override;
+    void insert_gradient_variance_samples(const std::string& session_key,
+                                          const std::vector<GradientVarianceRecord>& recs) override;
+
     void insert_abnormal_sample(const std::string& session_key,
                                 const AbnormalSample& sample) override;
 
@@ -54,7 +60,17 @@ class SQLiteMetricsDatabase : public IMetricsDatabase {
         std::chrono::system_clock::time_point cutoff) override;
 
    private:
+    static constexpr int kBusyTimeoutMs = 5000;  // TD-511
+
     void bootstrap_schema();
+    bool has_column(const char* table, const char* column);
+    // Callers hold mutex_.
+    void in_transaction(const std::function<void()>& body);
+    void insert_metrics_record_locked(const std::string& session_key,
+                                      const PersistentMetricsRecord& rec);
+    void insert_gradient_variance_locked(const std::string& session_key,
+                                         std::chrono::system_clock::time_point when, int step,
+                                         int epoch, float value);
     void prepare_statements();
     void finalize_statements();
     static std::string format_timestamp(const std::chrono::system_clock::time_point& tp);

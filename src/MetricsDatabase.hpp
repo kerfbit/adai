@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -93,12 +93,21 @@ class IMetricsDatabase {
     // deliberately NOT folded into insert_metrics_record()/PersistentMetricsRecord,
     // which is only written once every persist_every_samples (default 100)
     // steps. gradient_variance is the most direct vanishing-gradient signal,
-    // so it gets its own table written on every TrainingMetricsService::
-    // update_advanced_epoch_metrics() call instead. `step` is a server-side
+    // so it gets its own table with a row for every TrainingMetricsService::
+    // update_advanced_epoch_metrics() call (buffered and written in batches through
+    // insert_gradient_variance_samples() since TD-511). `step` is a server-side
     // monotonic counter (not the trainer's sample index).
     // TODO: See TD-441 in TECHNICAL_DEBT.md - step restarts at 0 per TrainingMetricsService instance
     virtual void insert_gradient_variance_sample(const std::string& session_key, int step,
                                                  int epoch, float value) = 0;
+
+    // TD-511: batch versions, one transaction each, all or nothing; they throw when the batch couldn't
+    // be stored. TrainingMetricsService writes its history and per-step gradient-variance rows through
+    // these at each persist (one autocommit per row cost ~60x as much in SQLite).
+    virtual void insert_metrics_records(const std::string& session_key,
+                                        const std::vector<PersistentMetricsRecord>& recs) = 0;
+    virtual void insert_gradient_variance_samples(
+        const std::string& session_key, const std::vector<GradientVarianceRecord>& recs) = 0;
 
     virtual void insert_abnormal_sample(const std::string& session_key,
                                         const AbnormalSample& sample) = 0;

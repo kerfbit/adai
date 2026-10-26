@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-10-25
 
 #include "SQLiteMetricsDatabase.hpp"
@@ -11,6 +11,8 @@
 
 #include <sqlite3.h>
 #include <algorithm>
+#include <filesystem>
+#include <functional>
 #include <chrono>
 #include <cstring>
 #include <iomanip>
@@ -48,6 +50,13 @@ static void check_sqlite(int rc, sqlite3* db, const char* context) {
 }
 
 SQLiteMetricsDatabase::SQLiteMetricsDatabase(const std::string& db_path) {
+    // TD-511: the default training_sessions/metrics.db failed to open when its directory didn't exist.
+    if (db_path != ":memory:" && db_path.rfind("file:", 0) != 0) {
+        const auto parent = std::filesystem::path(db_path).parent_path();
+        std::error_code ec;
+        if (!parent.empty())
+            std::filesystem::create_directories(parent, ec);  // an open failure below reports it
+    }
     int rc = sqlite3_open(db_path.c_str(), &db_);
     if (rc != SQLITE_OK) {
         std::string msg = "Failed to open SQLite database: " + db_path;
@@ -60,18 +69,21 @@ SQLiteMetricsDatabase::SQLiteMetricsDatabase(const std::string& db_path) {
         throw std::runtime_error(msg);
     }
 
-    // TODO: See TD-511 in TECHNICAL_DEBT.md - no sqlite3_busy_timeout() (writes fail instantly under contention);
-    // PRAGMA/migration errors ignored; parent directory not created.
-    char* err = nullptr;
-    sqlite3_exec(db_, "PRAGMA journal_mode = WAL;", nullptr, nullptr, &err);
-    if (err) {
-        sqlite3_free(err);
-    }
+    // TD-511: wait for another connection's write instead of failing at once ("database is locked"
+    // after 0.3 ms, and the row was dropped).
+    sqlite3_busy_timeout(db_, kBusyTimeoutMs);
 
-    sqlite3_exec(db_, "PRAGMA synchronous = NORMAL;", nullptr, nullptr, &err);
-    if (err) {
+    // TD-511: PRAGMA failures used to be ignored. WAL is a performance setting, so failing to get it
+    // (e.g. a filesystem without shared memory) is logged, not fatal.
+    auto pragma = [this](const char* sql) {
+        char* err = nullptr;
+        if (sqlite3_exec(db_, sql, nullptr, nullptr, &err) != SQLITE_OK) {
+            adai::Logger::warn("[SQLiteMetricsDB] {} failed: {}", sql, err ? err : "unknown");
+        }
         sqlite3_free(err);
-    }
+    };
+    pragma("PRAGMA journal_mode = WAL;");
+    pragma("PRAGMA synchronous = NORMAL;");
 
     bootstrap_schema();
     prepare_statements();
@@ -93,11 +105,6 @@ SQLiteMetricsDatabase::~SQLiteMetricsDatabase() {
 
 void SQLiteMetricsDatabase::bootstrap_schema() {
     const char* schema_sql = R"SQL(
-        CREATE TABLE IF NOT EXISTS schema_version (
-            version    INTEGER NOT NULL,
-            applied_at TEXT    NOT NULL
-        );
-
         CREATE TABLE IF NOT EXISTS sessions (
             key                  TEXT    PRIMARY KEY,
             session_id           INTEGER NOT NULL,
@@ -198,152 +205,59 @@ void SQLiteMetricsDatabase::bootstrap_schema() {
         throw std::runtime_error(msg);
     }
 
-    // Insert schema_version row 1 if not present
-    const char* version_check = "SELECT COUNT(*) FROM schema_version WHERE version = 1;";
+    // TD-511: a schema_version table used to be written here and never read. Migrations probe the
+    // columns themselves (below), which is what actually decides; databases that have the table keep it.
+
+    // Migrations: columns added after the original schema. CREATE TABLE IF NOT EXISTS is a no-op on an
+    // existing table, so each group is added when its probe column is missing. Every group has its own
+    // probe: reusing an earlier group's probe once kept later columns from ever being added (TD-178).
+    // TD-511: a failed ALTER used to be ignored; it now throws, and the open fails loudly.
+    struct Migration {
+        const char* table;
+        const char* probe_column;
+        const char* description;
+        std::vector<const char*> columns;  // "name TYPE"
+    };
+    const Migration migrations[] = {
+        {"sessions", "final_loss", "final_loss / final_validation_loss",
+         {"final_loss REAL", "final_validation_loss REAL"}},
+        {"metrics_history", "compute_time_ratio", "TD-013 diagnostic columns",
+         {"compute_time_ratio REAL", "weight_update_ratio REAL", "activation_saturation_ratio REAL",
+          "attention_entropy REAL", "padding_efficiency REAL", "layer_gradient_norms_json TEXT"}},
+        {"metrics_history", "predictor_loss", "TD-178 LeJEPA loss columns",
+         {"predictor_loss REAL", "sigreg_loss REAL"}},
+        {"metrics_history", "masking_ratio", "LeJEPA advanced diagnostic columns",
+         {"masking_ratio REAL", "predictor_target_cosine_sim REAL", "sigreg_variance_mean REAL",
+          "sigreg_variance_stddev REAL"}},
+    };
+    for (const auto& m : migrations) {
+        if (has_column(m.table, m.probe_column))
+            continue;
+        adai::Logger::info("[SQLiteMetricsDB] Migrating {} table: adding {}", m.table,
+                           m.description);
+        for (const char* column : m.columns) {
+            const std::string sql =
+                std::string("ALTER TABLE ") + m.table + " ADD COLUMN " + column + ";";
+            check_sqlite(sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, nullptr), db_,
+                         sql.c_str());
+        }
+    }
+}
+
+bool SQLiteMetricsDatabase::has_column(const char* table, const char* column) {
+    const std::string sql = std::string("PRAGMA table_info(") + table + ");";
     sqlite3_stmt* stmt = nullptr;
-    sqlite3_prepare_v2(db_, version_check, -1, &stmt, nullptr);
-    int count = 0;
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        count = sqlite3_column_int(stmt, 0);
+    check_sqlite(sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr), db_, sql.c_str());
+    bool found = false;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const auto* name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        if (name && std::string(name) == column) {
+            found = true;
+            break;
+        }
     }
     sqlite3_finalize(stmt);
-
-    if (count == 0) {
-        auto now = format_timestamp(std::chrono::system_clock::now());
-        std::string insert =
-            "INSERT INTO schema_version (version, applied_at) VALUES (1, '" + now + "');";
-        sqlite3_exec(db_, insert.c_str(), nullptr, nullptr, nullptr);
-    }
-
-    // Migration: final_loss/final_validation_loss were added after the initial schema, so
-    // a database created before this change won't have them yet — CREATE TABLE IF NOT EXISTS
-    // above is a no-op against an existing table. Add them if missing (checked via
-    // PRAGMA table_info rather than just trying ALTER TABLE and swallowing the "duplicate
-    // column" error, so a genuinely unexpected failure here still surfaces).
-    bool has_final_loss = false;
-    sqlite3_stmt* pragma_stmt = nullptr;
-    if (sqlite3_prepare_v2(db_, "PRAGMA table_info(sessions);", -1, &pragma_stmt, nullptr) ==
-        SQLITE_OK) {
-        while (sqlite3_step(pragma_stmt) == SQLITE_ROW) {
-            const auto* col_name =
-                reinterpret_cast<const char*>(sqlite3_column_text(pragma_stmt, 1));
-            if (col_name && std::string(col_name) == "final_loss") {
-                has_final_loss = true;
-                break;
-            }
-        }
-    }
-    sqlite3_finalize(pragma_stmt);
-
-    if (!has_final_loss) {
-        adai::Logger::info(
-            "[SQLiteMetricsDB] Migrating sessions table: adding final_loss / "
-            "final_validation_loss columns");
-        sqlite3_exec(db_, "ALTER TABLE sessions ADD COLUMN final_loss REAL;", nullptr, nullptr,
-                     nullptr);
-        sqlite3_exec(db_, "ALTER TABLE sessions ADD COLUMN final_validation_loss REAL;", nullptr,
-                     nullptr, nullptr);
-    }
-
-    // Migration: TD-013 extension columns on metrics_history, added after the
-    // initial schema — same PRAGMA table_info check pattern as above.
-    bool has_compute_time_ratio = false;
-    sqlite3_stmt* mh_pragma_stmt = nullptr;
-    if (sqlite3_prepare_v2(db_, "PRAGMA table_info(metrics_history);", -1, &mh_pragma_stmt,
-                           nullptr) == SQLITE_OK) {
-        while (sqlite3_step(mh_pragma_stmt) == SQLITE_ROW) {
-            const auto* col_name =
-                reinterpret_cast<const char*>(sqlite3_column_text(mh_pragma_stmt, 1));
-            if (col_name && std::string(col_name) == "compute_time_ratio") {
-                has_compute_time_ratio = true;
-                break;
-            }
-        }
-    }
-    sqlite3_finalize(mh_pragma_stmt);
-
-    if (!has_compute_time_ratio) {
-        adai::Logger::info(
-            "[SQLiteMetricsDB] Migrating metrics_history table: adding TD-013 diagnostic columns");
-        sqlite3_exec(db_, "ALTER TABLE metrics_history ADD COLUMN compute_time_ratio REAL;",
-                     nullptr, nullptr, nullptr);
-        sqlite3_exec(db_, "ALTER TABLE metrics_history ADD COLUMN weight_update_ratio REAL;",
-                     nullptr, nullptr, nullptr);
-        sqlite3_exec(db_,
-                     "ALTER TABLE metrics_history ADD COLUMN activation_saturation_ratio REAL;",
-                     nullptr, nullptr, nullptr);
-        sqlite3_exec(db_, "ALTER TABLE metrics_history ADD COLUMN attention_entropy REAL;",
-                     nullptr, nullptr, nullptr);
-        sqlite3_exec(db_, "ALTER TABLE metrics_history ADD COLUMN padding_efficiency REAL;",
-                     nullptr, nullptr, nullptr);
-        sqlite3_exec(db_,
-                     "ALTER TABLE metrics_history ADD COLUMN layer_gradient_norms_json TEXT;",
-                     nullptr, nullptr, nullptr);
-    }
-
-    // Migration: TD-178 LeJEPA loss columns, added after the initial schema (and after
-    // the TD-013 columns above) — its OWN independent PRAGMA table_info check, not nested
-    // inside has_compute_time_ratio's block above: a DB already migrated for TD-013 already
-    // has compute_time_ratio, so reusing that gate would make these two new columns never
-    // get added to any such database.
-    bool has_predictor_loss = false;
-    sqlite3_stmt* lejepa_pragma_stmt = nullptr;
-    if (sqlite3_prepare_v2(db_, "PRAGMA table_info(metrics_history);", -1, &lejepa_pragma_stmt,
-                           nullptr) == SQLITE_OK) {
-        while (sqlite3_step(lejepa_pragma_stmt) == SQLITE_ROW) {
-            const auto* col_name =
-                reinterpret_cast<const char*>(sqlite3_column_text(lejepa_pragma_stmt, 1));
-            if (col_name && std::string(col_name) == "predictor_loss") {
-                has_predictor_loss = true;
-                break;
-            }
-        }
-    }
-    sqlite3_finalize(lejepa_pragma_stmt);
-
-    if (!has_predictor_loss) {
-        adai::Logger::info(
-            "[SQLiteMetricsDB] Migrating metrics_history table: adding TD-178 LeJEPA loss columns");
-        sqlite3_exec(db_, "ALTER TABLE metrics_history ADD COLUMN predictor_loss REAL;", nullptr,
-                     nullptr, nullptr);
-        sqlite3_exec(db_, "ALTER TABLE metrics_history ADD COLUMN sigreg_loss REAL;", nullptr,
-                     nullptr, nullptr);
-    }
-
-    // Migration: LeJEPA "advanced" diagnostic columns, added after the TD-178 columns above —
-    // its OWN independent PRAGMA table_info check, not nested inside has_predictor_loss's block:
-    // a DB already migrated for TD-178 already has predictor_loss, so reusing that gate would
-    // make these four new columns never get added to any such database (same lesson TD-178
-    // itself already learned once against has_compute_time_ratio above).
-    bool has_masking_ratio = false;
-    sqlite3_stmt* advanced_pragma_stmt = nullptr;
-    if (sqlite3_prepare_v2(db_, "PRAGMA table_info(metrics_history);", -1, &advanced_pragma_stmt,
-                           nullptr) == SQLITE_OK) {
-        while (sqlite3_step(advanced_pragma_stmt) == SQLITE_ROW) {
-            const auto* col_name =
-                reinterpret_cast<const char*>(sqlite3_column_text(advanced_pragma_stmt, 1));
-            if (col_name && std::string(col_name) == "masking_ratio") {
-                has_masking_ratio = true;
-                break;
-            }
-        }
-    }
-    sqlite3_finalize(advanced_pragma_stmt);
-
-    if (!has_masking_ratio) {
-        adai::Logger::info(
-            "[SQLiteMetricsDB] Migrating metrics_history table: adding LeJEPA advanced "
-            "diagnostic columns");
-        sqlite3_exec(db_, "ALTER TABLE metrics_history ADD COLUMN masking_ratio REAL;", nullptr,
-                     nullptr, nullptr);
-        sqlite3_exec(db_,
-                     "ALTER TABLE metrics_history ADD COLUMN predictor_target_cosine_sim REAL;",
-                     nullptr, nullptr, nullptr);
-        sqlite3_exec(db_, "ALTER TABLE metrics_history ADD COLUMN sigreg_variance_mean REAL;",
-                     nullptr, nullptr, nullptr);
-        sqlite3_exec(db_, "ALTER TABLE metrics_history ADD COLUMN sigreg_variance_stddev REAL;",
-                     nullptr, nullptr, nullptr);
-    }
+    return found;
 }
 
 // ============================================================================
@@ -576,7 +490,36 @@ void SQLiteMetricsDatabase::mark_session_ended(const std::string& key) {
 void SQLiteMetricsDatabase::insert_metrics_record(const std::string& session_key,
                                                   const PersistentMetricsRecord& rec) {
     std::lock_guard<std::mutex> lock(mutex_);
+    insert_metrics_record_locked(session_key, rec);
+}
 
+// TD-511: one transaction for the whole batch. Each autocommitted row cost ~316 us against ~5 us
+// batched (WAL, synchronous=NORMAL). All or nothing: on failure nothing is stored.
+void SQLiteMetricsDatabase::insert_metrics_records(
+    const std::string& session_key, const std::vector<PersistentMetricsRecord>& recs) {
+    if (recs.empty())
+        return;
+    std::lock_guard<std::mutex> lock(mutex_);
+    in_transaction([&] {
+        for (const auto& rec : recs)
+            insert_metrics_record_locked(session_key, rec);
+    });
+}
+
+void SQLiteMetricsDatabase::in_transaction(const std::function<void()>& body) {
+    check_sqlite(sqlite3_exec(db_, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr), db_,
+                 "begin batch");
+    try {
+        body();
+    } catch (...) {
+        sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
+        throw;
+    }
+    check_sqlite(sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr), db_, "commit batch");
+}
+
+void SQLiteMetricsDatabase::insert_metrics_record_locked(const std::string& session_key,
+                                                         const PersistentMetricsRecord& rec) {
     auto ts = format_timestamp(rec.timestamp);
 
     sqlite3_reset(stmt_insert_metrics_);
@@ -617,8 +560,25 @@ void SQLiteMetricsDatabase::insert_metrics_record(const std::string& session_key
 void SQLiteMetricsDatabase::insert_gradient_variance_sample(const std::string& session_key,
                                                              int step, int epoch, float value) {
     std::lock_guard<std::mutex> lock(mutex_);
+    insert_gradient_variance_locked(session_key, std::chrono::system_clock::now(), step, epoch,
+                                    value);
+}
 
-    auto ts = format_timestamp(std::chrono::system_clock::now());
+void SQLiteMetricsDatabase::insert_gradient_variance_samples(
+    const std::string& session_key, const std::vector<GradientVarianceRecord>& recs) {
+    if (recs.empty())
+        return;
+    std::lock_guard<std::mutex> lock(mutex_);
+    in_transaction([&] {
+        for (const auto& r : recs)
+            insert_gradient_variance_locked(session_key, r.timestamp, r.step, r.epoch, r.value);
+    });
+}
+
+void SQLiteMetricsDatabase::insert_gradient_variance_locked(
+    const std::string& session_key, std::chrono::system_clock::time_point when, int step,
+    int epoch, float value) {
+    auto ts = format_timestamp(when);
 
     sqlite3_reset(stmt_insert_gradient_variance_);
     sqlite3_bind_text(stmt_insert_gradient_variance_, 1, session_key.c_str(), -1,

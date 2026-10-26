@@ -140,3 +140,11 @@ Tests: `UnwritableMetricsFileDoesNotDuplicateDbRows`, `FailingDbRowsAreInsertedO
 - `compress_old_records` was removed. It was never read.
 
 Tests: `ServiceKeepsSessionRowsUnderMaxRecordsOnDisk`, `MetricsFileRotatesAtSizeAndKeepsBackups`.
+
+## Addendum (October 25, 2026): batched DB writes (TD-511)
+
+`persist_metrics()` writes the rows since the DB marker as one `insert_metrics_records()` batch, and the marker moves only when the
+batch is stored. `update_advanced_epoch_metrics()` no longer inserts a row per optimizer step. It buffers the row, and
+`flush_gradient_variance_locked()` writes the buffer as one batch at every persist (even with file persistence off) or every 256 rows.
+On failure the buffer is kept, capped at 100,000 rows with the oldest dropped. `set_database()` and the registry's archiving flush
+first.

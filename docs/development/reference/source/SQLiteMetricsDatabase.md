@@ -101,3 +101,19 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 Tests: `FoundGetSessionDoesNotBlockWalCheckpoints`, `NanLossesReadBackAsNanNotZero`.
 
+
+---
+
+## Addendum (October 25, 2026): setup, migrations and batched writes (TD-511)
+
+- **Constructor.** It creates the database's parent directory and calls `sqlite3_busy_timeout(5000)`. A write now waits for another
+  connection's transaction instead of failing after 0.3 ms. PRAGMA failures are logged.
+- **Migrations.** A table of `{table, probe column, columns}` checked through `has_column()`. A failed `ALTER TABLE` throws with the
+  statement in the message.
+- **`schema_version`.** It's no longer created or written.
+- **Batch writes.** `insert_metrics_records()`/`insert_gradient_variance_samples()` run in one `BEGIN IMMEDIATE` transaction, roll back
+  on any failure and rethrow. They take ~5 µs a row, against ~316 µs for autocommitted inserts. `TrainingMetricsService` uses them for
+  each persist's history rows and for its buffered per-step gradient-variance rows.
+
+Tests: `CreatesMissingParentDirectory`, `WriteWaitsForAnotherConnectionsTransaction`, `BatchInsertsAreAllOrNothing`,
+`ServiceBatchesGradientVarianceRows`, `NewDatabaseHasNoUnusedSchemaVersionTable`, `FailedMigrationFailsTheOpen`.

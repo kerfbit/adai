@@ -1245,6 +1245,8 @@ The run is complete.
 - TD-378 (done in code: per-epoch BLEU is unsmoothed corpus BLEU, and the per-sample backfill uses a smoothed sentence BLEU with
   effective order).
 - TD-379 (done in code: BLEU-1/BLEU-2 travel from the trainer to the DB row).
+- TD-511 (done in code: SQLite busy timeout, parent directory, checked PRAGMAs and migrations, batched transactional writes in both
+  backends, `schema_version` dropped).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -14280,7 +14282,7 @@ Tests:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Metrics / SQLite Database | October 17, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 25, 2026 | Metrics / SQLite Database | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `SQLiteMetricsDatabase.cpp`:
@@ -14293,8 +14295,33 @@ Found while tracing `SQLiteMetricsDatabase.cpp`:
 
 Action Items:
 
-- [ ] `sqlite3_busy_timeout()` (a few seconds); create the parent directory; check PRAGMA/migration results.
-- [ ] Batch per-step inserts in transactions; use or drop `schema_version`.
+- [x] `sqlite3_busy_timeout()` (a few seconds); create the parent directory; check PRAGMA/migration results.
+- [x] Batch per-step inserts in transactions; use or drop `schema_version`.
+
+**Fix (October 25, 2026).**
+- **Opening the database.** The constructor creates the parent directory and sets a 5 s busy timeout. A failed `PRAGMA` is logged.
+  WAL is a performance setting, so a missing WAL isn't fatal.
+- **Migrations.** These are now table-driven, through one `has_column()` probe instead of four copy-pasted blocks. A failed
+  `ALTER TABLE` throws and names the statement, where it used to be ignored and left a store missing columns.
+- **`schema_version`.** It was dropped, since it was written but never read and the column probes are what decide. Existing
+  databases keep the table.
+- **Batching.** One autocommit per row measured 316 µs against 4.7 µs batched (WAL, `synchronous=NORMAL`). `IMetricsDatabase` gained
+  `insert_metrics_records()` and `insert_gradient_variance_samples()`, one transaction each, all or nothing, and both throw when not
+  stored. Both backends implement them. `TrainingMetricsService` writes each persist's history rows as one batch (TD-529's marker
+  moves only on success). It buffers the per-step gradient-variance rows and writes them at each persist or every 256 rows. Past
+  100,000 pending rows while the DB is down, the oldest are dropped.
+- **Flushing.** Buffered rows are flushed before a session is archived and before `set_database()` switches keys, so they never land
+  under a key without a session row.
+
+Tests:
+- SQLite (`MetricsDatabaseTest.cpp`): `CreatesMissingParentDirectory`, `WriteWaitsForAnotherConnectionsTransaction` (another
+  connection holds a write for 300 ms), `BatchInsertsAreAllOrNothing` (a trigger rejects one row and the whole batch rolls back),
+  `ServiceBatchesGradientVarianceRows`, `NewDatabaseHasNoUnusedSchemaVersionTable`, `FailedMigrationFailsTheOpen`.
+- Postgres, live: `BatchInsertsAreAllOrNothing`.
+
+Five of the SQLite tests failed against the old behavior: unable to open, `database is locked`, a partly stored batch, a
+`schema_version` table, and an open that succeeded silently with a column missing. `SchemaBootstrap` no longer expects
+`schema_version`. The failing-DB test (TD-529) now fails the batch method.
 
 Location in code: `src/SQLiteMetricsDatabase.cpp` (constructor, `bootstrap_schema()`, insert methods); tagged `TODO: See TD-511`.
 

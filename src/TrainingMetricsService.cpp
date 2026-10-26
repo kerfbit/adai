@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.11.0
+// @adai-version: 0.12.0
 // @adai-reviewed: 2026-10-25
 
 #include "TrainingMetricsService.hpp"
@@ -913,7 +913,29 @@ void rotate_metrics_file_if_needed(const std::string& path, int max_mb, int back
     }
 }
 
+// TD-511: writes the buffered per-step gradient-variance rows as one batch. On failure they stay
+// buffered for the next attempt; past kMaxPendingGradientVariance the oldest are dropped, so a DB that
+// stays down can't grow memory without bound. Caller holds mutex_.
+void TrainingMetricsService::flush_gradient_variance_locked() {
+    if (pending_gradient_variance_.empty() || !db_ || session_key_.empty())
+        return;
+    try {
+        db_->insert_gradient_variance_samples(session_key_, pending_gradient_variance_);
+        pending_gradient_variance_.clear();
+    } catch (const std::exception& e) {
+        adai::Logger::error("Failed to insert {} gradient_variance rows to DB: {}",
+                            pending_gradient_variance_.size(), e.what());
+        if (pending_gradient_variance_.size() > kMaxPendingGradientVariance) {
+            pending_gradient_variance_.erase(
+                pending_gradient_variance_.begin(),
+                pending_gradient_variance_.end() -
+                    static_cast<std::ptrdiff_t>(kMaxPendingGradientVariance));
+        }
+    }
+}
+
 void TrainingMetricsService::persist_metrics() {
+    flush_gradient_variance_locked();  // the DB rows aren't gated on file persistence
     if (!config_.enable_persistence) {
         return;
     }
@@ -925,13 +947,17 @@ void TrainingMetricsService::persist_metrics() {
     // successful writes. One shared marker, skipped when the file couldn't be opened, made every
     // persist re-insert all pending rows into the DB (3 records became 9 rows).
 
-    // DB write first (TD-020); the marker advances row by row, so a failure part-way retries from
-    // the failed row next time instead of re-inserting the earlier ones.
+    // DB write first (TD-020), as one all-or-nothing batch (TD-511: one transaction instead of one per
+    // row). The marker moves only when the batch is stored, so a failure retries the same rows next
+    // time instead of re-inserting earlier ones.
     if (db_ && !session_key_.empty()) {
         try {
-            while (db_persisted_up_to_ < history_.size()) {
-                db_->insert_metrics_record(session_key_, history_[db_persisted_up_to_]);
-                ++db_persisted_up_to_;
+            if (db_persisted_up_to_ < history_.size()) {
+                const std::vector<PersistentMetricsRecord> batch(
+                    history_.begin() + static_cast<std::ptrdiff_t>(db_persisted_up_to_),
+                    history_.end());
+                db_->insert_metrics_records(session_key_, batch);
+                db_persisted_up_to_ = history_.size();
             }
         } catch (const std::exception& e) {
             adai::Logger::error("Failed to persist metrics to DB: {}", e.what());
@@ -1652,15 +1678,18 @@ void TrainingMetricsService::update_advanced_epoch_metrics(float gradient_varian
         // Dedicated, unthrottled per-step gradient_variance history (see
         // IMetricsDatabase::insert_gradient_variance_sample doc comment for why
         // this doesn't reuse the throttled insert_metrics_record() path).
+        // TD-511: buffered and written in one transaction at the next persist (or every
+        // kGradientVarianceBatch rows) instead of one autocommitted insert per optimizer step.
         if (db_ && !session_key_.empty()) {
-            try {
-                // TODO: See TD-441 in TECHNICAL_DEBT.md - counter restarts at 0 when this service is recreated
-                db_->insert_gradient_variance_sample(session_key_, ++gradient_variance_step_counter_,
-                                                     current_snapshot_.current_epoch,
-                                                     gradient_variance);
-            } catch (const std::exception& e) {
-                adai::Logger::error("Failed to insert gradient_variance sample to DB: {}", e.what());
-            }
+            // TODO: See TD-441 in TECHNICAL_DEBT.md - counter restarts at 0 when this service is recreated
+            GradientVarianceRecord rec;
+            rec.timestamp = std::chrono::system_clock::now();
+            rec.step = ++gradient_variance_step_counter_;
+            rec.epoch = current_snapshot_.current_epoch;
+            rec.value = gradient_variance;
+            pending_gradient_variance_.push_back(rec);
+            if (pending_gradient_variance_.size() >= kGradientVarianceBatch)
+                flush_gradient_variance_locked();
         }
 
         should_push = config_.enable_push;
@@ -1880,6 +1909,8 @@ void TrainingMetricsService::persist_abnormal_samples() {
 
 void TrainingMetricsService::set_database(IMetricsDatabase* db, const std::string& session_key) {
     std::lock_guard<std::mutex> lock(mutex_);
+    flush_gradient_variance_locked();     // TD-511: buffered rows belong to the old key
+    pending_gradient_variance_.clear();
     db_ = db;
     session_key_ = session_key;
 }

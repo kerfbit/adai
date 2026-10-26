@@ -913,3 +913,38 @@ TEST_F(PostgresMetricsDatabaseTest, RetentionAndReadersWork) {
     EXPECT_EQ(db.query_generation_quality("cap").size(), 1u);
     TearDownRawConn();
 }
+
+// TD-511 (Postgres): batch inserts are one transaction, all or nothing, and throw when not stored.
+TEST_F(PostgresMetricsDatabaseTest, BatchInsertsAreAllOrNothing) {
+    PostgresMetricsDatabase db(db_url_, 2);
+    SessionRecord s;
+    s.key = "pg-batch";
+    s.session_id = 1;
+    s.created_at = s.last_update_at = std::chrono::system_clock::now();
+    db.upsert_session(s);
+
+    std::vector<PersistentMetricsRecord> recs(200);
+    for (int i = 0; i < 200; ++i) {
+        recs[i].timestamp = std::chrono::system_clock::now();
+        recs[i].sample = i;
+    }
+    db.insert_metrics_records("pg-batch", recs);
+    EXPECT_EQ(db.query_history("pg-batch", std::nullopt, std::nullopt, 0).size(), 200u);
+
+    std::vector<GradientVarianceRecord> gv(150);
+    for (int i = 0; i < 150; ++i) {
+        gv[i].timestamp = std::chrono::system_clock::now();
+        gv[i].step = i + 1;
+        gv[i].value = 1e-5f * i;
+    }
+    db.insert_gradient_variance_samples("pg-batch", gv);
+    EXPECT_EQ(db.query_gradient_variance("pg-batch", 0).size(), 150u);
+
+    // A key with no session row violates the foreign key: the batch is rejected and nothing remains.
+    const auto t0 = std::chrono::steady_clock::now();
+    EXPECT_THROW(db.insert_metrics_records("pg-no-session", recs), std::runtime_error);
+    EXPECT_LT(std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(), 1.0)
+        << "a rejected batch isn't retried (TD-479)";
+    EXPECT_TRUE(db.query_history("pg-no-session", std::nullopt, std::nullopt, 0).empty());
+    TearDownRawConn();
+}

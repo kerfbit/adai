@@ -146,3 +146,9 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 Tests: `CapSessionRowsThinsOldestAndKeepsNewest`, `DeleteSessionsUpdatedBeforeRemovesAllTheirRows`,
 `GradientVarianceAndGenerationQualityReadBack`, `MetricsRowCapPlan.ThinsOldestOrDeletesOldest` (SQLite);
 `RetentionAndReadersWork` (PostgreSQL 16).
+
+## Addendum (October 25, 2026): batch inserts (TD-511)
+
+`insert_metrics_records()` and `insert_gradient_variance_samples()` write a batch in one transaction, all or nothing, and throw when
+it isn't stored. Both backends implement them, and `TrainingMetricsService` writes its history and per-step gradient-variance rows
+through them. Tests: `BatchInsertsAreAllOrNothing` (SQLite and live PostgreSQL).

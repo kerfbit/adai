@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-042 resolved — real test coverage added; still not built by default)
-// @adai-version: 0.5.0
+// @adai-version: 0.6.0
 // @adai-reviewed: 2026-10-25
 
 #ifdef ADAI_ENABLE_POSTGRES
@@ -566,86 +566,150 @@ void PostgresMetricsDatabase::mark_session_ended(const std::string& key) {
 // Metrics Record Operations
 // ============================================================================
 
+// TD-511: runs `body` between BEGIN and COMMIT on `conn`; rolls back and returns false when it fails.
+static bool pg_in_transaction(PGconn* conn, const std::function<bool()>& body) {
+    PGresult* res = PQexec(conn, "BEGIN");
+    const bool begun = PQresultStatus(res) == PGRES_COMMAND_OK;
+    PQclear(res);
+    if (!begun)
+        return false;
+    bool ok = body();
+    res = PQexec(conn, ok ? "COMMIT" : "ROLLBACK");
+    ok = ok && PQresultStatus(res) == PGRES_COMMAND_OK;
+    PQclear(res);
+    return ok;
+}
+
+// One metrics_history row on `conn`; false (logged) on failure.
+static bool pg_insert_metrics_row(PGconn* conn, const std::string& session_key,
+                                  const PersistentMetricsRecord& rec,
+                                  const std::string& ts) {
+    auto epoch = std::to_string(rec.epoch);
+    auto sample = std::to_string(rec.sample);
+    auto loss = pg_float_to_string(rec.loss);
+    auto vloss = pg_float_to_string(rec.validation_loss);
+    auto lr = pg_float_to_string(rec.learning_rate);
+    auto gnorm = pg_float_to_string(rec.gradient_norm);
+    auto ppl = pg_float_to_string(rec.perplexity);
+    auto ctr = pg_float_to_string(rec.compute_time_ratio);
+    auto wur = pg_float_to_string(rec.weight_update_ratio);
+    auto asr = pg_float_to_string(rec.activation_saturation_ratio);
+    auto aent = pg_float_to_string(rec.attention_entropy);
+    auto peff = pg_float_to_string(rec.padding_efficiency);
+    auto ploss = pg_float_to_string(rec.predictor_loss);
+    auto sloss = pg_float_to_string(rec.sigreg_loss);
+    auto mratio = pg_float_to_string(rec.masking_ratio);
+    auto pcossim = pg_float_to_string(rec.predictor_target_cosine_sim);
+    auto svmean = pg_float_to_string(rec.sigreg_variance_mean);
+    auto svstddev = pg_float_to_string(rec.sigreg_variance_stddev);
+    // PQexecParams treats a NULL entry in the params array as SQL NULL —
+    // pass nullptr instead of an empty string when not reported this epoch.
+    const char* lg_json = rec.layer_gradient_norms_json.empty()
+                              ? nullptr
+                              : rec.layer_gradient_norms_json.c_str();
+
+    const char* params[] = {
+        session_key.c_str(), ts.c_str(),    epoch.c_str(),   sample.c_str(),  loss.c_str(),
+        vloss.c_str(),       lr.c_str(),    gnorm.c_str(),   ppl.c_str(),     ctr.c_str(),
+        wur.c_str(),         asr.c_str(),   aent.c_str(),    peff.c_str(),    lg_json,
+        ploss.c_str(),       sloss.c_str(), mratio.c_str(), pcossim.c_str(), svmean.c_str(),
+        svstddev.c_str()};
+
+    PGresult* res = PQexecParams(
+        conn,
+        "INSERT INTO metrics_history (session_key, recorded_at, epoch, sample, "
+        "loss, validation_loss, learning_rate, gradient_norm, perplexity, "
+        "compute_time_ratio, weight_update_ratio, activation_saturation_ratio, "
+        "attention_entropy, padding_efficiency, layer_gradient_norms_json, "
+        "predictor_loss, sigreg_loss, masking_ratio, predictor_target_cosine_sim, "
+        "sigreg_variance_mean, sigreg_variance_stddev) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, "
+        "$18, $19, $20, $21)",
+        21, nullptr, params, nullptr, nullptr, 0);
+
+    bool ok = PQresultStatus(res) == PGRES_COMMAND_OK;
+    if (!ok)
+        adai::Logger::error("[PostgresMetricsDB] insert_metrics_record: {}",
+                            PQerrorMessage(conn));
+    PQclear(res);
+    return ok;
+}
+
 void PostgresMetricsDatabase::insert_metrics_record(const std::string& session_key,
                                                     const PersistentMetricsRecord& rec) {
     execute_with_retry("insert_metrics_record", [&](PGconn* conn) -> bool {
-        auto ts = format_timestamp(rec.timestamp);
-        auto epoch = std::to_string(rec.epoch);
-        auto sample = std::to_string(rec.sample);
-        auto loss = pg_float_to_string(rec.loss);
-        auto vloss = pg_float_to_string(rec.validation_loss);
-        auto lr = pg_float_to_string(rec.learning_rate);
-        auto gnorm = pg_float_to_string(rec.gradient_norm);
-        auto ppl = pg_float_to_string(rec.perplexity);
-        auto ctr = pg_float_to_string(rec.compute_time_ratio);
-        auto wur = pg_float_to_string(rec.weight_update_ratio);
-        auto asr = pg_float_to_string(rec.activation_saturation_ratio);
-        auto aent = pg_float_to_string(rec.attention_entropy);
-        auto peff = pg_float_to_string(rec.padding_efficiency);
-        auto ploss = pg_float_to_string(rec.predictor_loss);
-        auto sloss = pg_float_to_string(rec.sigreg_loss);
-        auto mratio = pg_float_to_string(rec.masking_ratio);
-        auto pcossim = pg_float_to_string(rec.predictor_target_cosine_sim);
-        auto svmean = pg_float_to_string(rec.sigreg_variance_mean);
-        auto svstddev = pg_float_to_string(rec.sigreg_variance_stddev);
-        // PQexecParams treats a NULL entry in the params array as SQL NULL —
-        // pass nullptr instead of an empty string when not reported this epoch.
-        const char* lg_json = rec.layer_gradient_norms_json.empty()
-                                  ? nullptr
-                                  : rec.layer_gradient_norms_json.c_str();
-
-        const char* params[] = {
-            session_key.c_str(), ts.c_str(),    epoch.c_str(),   sample.c_str(),  loss.c_str(),
-            vloss.c_str(),       lr.c_str(),    gnorm.c_str(),   ppl.c_str(),     ctr.c_str(),
-            wur.c_str(),         asr.c_str(),   aent.c_str(),    peff.c_str(),    lg_json,
-            ploss.c_str(),       sloss.c_str(), mratio.c_str(), pcossim.c_str(), svmean.c_str(),
-            svstddev.c_str()};
-
-        PGresult* res = PQexecParams(
-            conn,
-            "INSERT INTO metrics_history (session_key, recorded_at, epoch, sample, "
-            "loss, validation_loss, learning_rate, gradient_norm, perplexity, "
-            "compute_time_ratio, weight_update_ratio, activation_saturation_ratio, "
-            "attention_entropy, padding_efficiency, layer_gradient_norms_json, "
-            "predictor_loss, sigreg_loss, masking_ratio, predictor_target_cosine_sim, "
-            "sigreg_variance_mean, sigreg_variance_stddev) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, "
-            "$18, $19, $20, $21)",
-            21, nullptr, params, nullptr, nullptr, 0);
-
-        bool ok = PQresultStatus(res) == PGRES_COMMAND_OK;
-        if (!ok)
-            adai::Logger::error("[PostgresMetricsDB] insert_metrics_record: {}",
-                                PQerrorMessage(conn));
-        PQclear(res);
-        return ok;
+        return pg_insert_metrics_row(conn, session_key, rec, format_timestamp(rec.timestamp));
     });
+}
+
+// TD-511: the whole batch in one transaction, all or nothing. Throws when it couldn't be stored, so
+// TrainingMetricsService keeps the rows for its next persist (TD-529).
+void PostgresMetricsDatabase::insert_metrics_records(
+    const std::string& session_key, const std::vector<PersistentMetricsRecord>& recs) {
+    if (recs.empty())
+        return;
+    const bool ok = execute_with_retry("insert_metrics_records", [&](PGconn* conn) -> bool {
+        return pg_in_transaction(conn, [&] {
+            for (const auto& rec : recs) {
+                if (!pg_insert_metrics_row(conn, session_key, rec, format_timestamp(rec.timestamp)))
+                    return false;
+            }
+            return true;
+        });
+    });
+    if (!ok)
+        throw std::runtime_error("insert_metrics_records: batch not stored");
+}
+
+// One gradient_variance_history row on `conn`; false (logged) on failure.
+static bool pg_insert_gradient_variance_row(PGconn* conn, const std::string& session_key,
+                                            const std::string& ts, int step, int epoch,
+                                            float value) {
+    auto step_str = std::to_string(step);
+    auto epoch_str = std::to_string(epoch);
+    auto value_str = pg_float_to_string(value);
+    const char* params[] = {session_key.c_str(), ts.c_str(), step_str.c_str(), epoch_str.c_str(),
+                            value_str.c_str()};
+    PGresult* res = PQexecParams(
+        conn,
+        "INSERT INTO gradient_variance_history (session_key, recorded_at, step, epoch, value) "
+        "VALUES ($1, $2, $3, $4, $5)",
+        5, nullptr, params, nullptr, nullptr, 0);
+    bool ok = PQresultStatus(res) == PGRES_COMMAND_OK;
+    if (!ok)
+        adai::Logger::error("[PostgresMetricsDB] insert_gradient_variance_sample: {}",
+                            PQerrorMessage(conn));
+    PQclear(res);
+    return ok;
 }
 
 void PostgresMetricsDatabase::insert_gradient_variance_sample(const std::string& session_key,
                                                                int step, int epoch, float value) {
     execute_with_retry("insert_gradient_variance_sample", [&](PGconn* conn) -> bool {
-        auto ts = format_timestamp(std::chrono::system_clock::now());
-        auto step_str = std::to_string(step);
-        auto epoch_str = std::to_string(epoch);
-        auto value_str = pg_float_to_string(value);
-
-        const char* params[] = {session_key.c_str(), ts.c_str(), step_str.c_str(),
-                                epoch_str.c_str(), value_str.c_str()};
-
-        PGresult* res = PQexecParams(
-            conn,
-            "INSERT INTO gradient_variance_history (session_key, recorded_at, step, epoch, value) "
-            "VALUES ($1, $2, $3, $4, $5)",
-            5, nullptr, params, nullptr, nullptr, 0);
-
-        bool ok = PQresultStatus(res) == PGRES_COMMAND_OK;
-        if (!ok)
-            adai::Logger::error("[PostgresMetricsDB] insert_gradient_variance_sample: {}",
-                                PQerrorMessage(conn));
-        PQclear(res);
-        return ok;
+        return pg_insert_gradient_variance_row(
+            conn, session_key, format_timestamp(std::chrono::system_clock::now()), step, epoch,
+            value);
     });
+}
+
+void PostgresMetricsDatabase::insert_gradient_variance_samples(
+    const std::string& session_key, const std::vector<GradientVarianceRecord>& recs) {
+    if (recs.empty())
+        return;
+    const bool ok =
+        execute_with_retry("insert_gradient_variance_samples", [&](PGconn* conn) -> bool {
+            return pg_in_transaction(conn, [&] {
+                for (const auto& r : recs) {
+                    if (!pg_insert_gradient_variance_row(conn, session_key,
+                                                         format_timestamp(r.timestamp), r.step,
+                                                         r.epoch, r.value))
+                        return false;
+                }
+                return true;
+            });
+        });
+    if (!ok)
+        throw std::runtime_error("insert_gradient_variance_samples: batch not stored");
 }
 
 void PostgresMetricsDatabase::insert_abnormal_sample(const std::string& session_key,

@@ -38,21 +38,13 @@ TEST_F(MetricsDatabaseTest, SchemaBootstrap) {
 
     EXPECT_TRUE(fs::exists(db_path_));
 
-    // Verify schema_version row was inserted by opening a second connection
     sqlite3* raw_db = nullptr;
     ASSERT_EQ(sqlite3_open(db_path_.c_str(), &raw_db), SQLITE_OK);
 
-    // Check schema_version has version 1
+    // Every table exists. (schema_version was dropped by TD-511: written, never read.)
     sqlite3_stmt* stmt = nullptr;
-    sqlite3_prepare_v2(raw_db, "SELECT version FROM schema_version WHERE version = 1", -1, &stmt,
-                       nullptr);
-    ASSERT_EQ(sqlite3_step(stmt), SQLITE_ROW);
-    EXPECT_EQ(sqlite3_column_int(stmt, 0), 1);
-    sqlite3_finalize(stmt);
-
-    // Check all 4 tables + schema_version exist
-    for (const char* table : {"schema_version", "sessions", "metrics_history", "generation_quality",
-                              "abnormal_samples"}) {
+    for (const char* table : {"sessions", "metrics_history", "gradient_variance_history",
+                              "generation_quality", "abnormal_samples"}) {
         sqlite3_prepare_v2(raw_db, "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
                            -1, &stmt, nullptr);
         sqlite3_bind_text(stmt, 1, table, -1, SQLITE_TRANSIENT);
@@ -1304,9 +1296,10 @@ namespace {
 class FlakySQLiteMetricsDatabase : public SQLiteMetricsDatabase {
 public:
     using SQLiteMetricsDatabase::SQLiteMetricsDatabase;
-    void insert_metrics_record(const std::string& key, const PersistentMetricsRecord& rec) override {
+    void insert_metrics_records(const std::string& key,
+                                const std::vector<PersistentMetricsRecord>& recs) override {
         if (failing) throw std::runtime_error("simulated DB failure");
-        SQLiteMetricsDatabase::insert_metrics_record(key, rec);
+        SQLiteMetricsDatabase::insert_metrics_records(key, recs);
     }
     bool failing = true;
 };
@@ -1531,4 +1524,131 @@ TEST_F(MetricsDatabaseTest, MetricsFileRotatesAtSizeAndKeepsBackups) {
     write_mb(1.1);
     rotate_metrics_file_if_needed(path, 0, 2);
     EXPECT_TRUE(fs::exists(path)) << "max_mb 0 never rotates";
+}
+
+// ---------------------------------------------------------------------------
+// TD-511: missing directory, busy timeout, batched all-or-nothing writes, migration errors
+// ---------------------------------------------------------------------------
+
+TEST_F(MetricsDatabaseTest, CreatesMissingParentDirectory) {
+    const std::string nested = (fs::path(test_dir_) / "a" / "b" / "metrics.db").string();
+    ASSERT_FALSE(fs::exists(fs::path(nested).parent_path()));
+    SQLiteMetricsDatabase db(nested);  // used to throw "unable to open database file"
+    EXPECT_TRUE(fs::exists(nested));
+}
+
+TEST_F(MetricsDatabaseTest, WriteWaitsForAnotherConnectionsTransaction) {
+    SQLiteMetricsDatabase db(db_path_);
+    add_test_session(db, "busy", std::chrono::system_clock::now());
+
+    sqlite3* other = nullptr;
+    ASSERT_EQ(sqlite3_open(db_path_.c_str(), &other), SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(other, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr), SQLITE_OK);
+    std::thread releaser([other] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        sqlite3_exec(other, "COMMIT;", nullptr, nullptr, nullptr);
+    });
+
+    PersistentMetricsRecord rec;
+    rec.timestamp = std::chrono::system_clock::now();
+    EXPECT_NO_THROW(db.insert_metrics_record("busy", rec))
+        << "used to fail at once with 'database is locked'";
+    releaser.join();
+    sqlite3_close(other);
+    EXPECT_EQ(db.query_history("busy", std::nullopt, std::nullopt, 0).size(), 1u);
+}
+
+TEST_F(MetricsDatabaseTest, BatchInsertsAreAllOrNothing) {
+    SQLiteMetricsDatabase db(db_path_);
+    add_test_session(db, "batch", std::chrono::system_clock::now());
+    std::vector<PersistentMetricsRecord> recs(1000);
+    for (int i = 0; i < 1000; ++i) {
+        recs[i].timestamp = std::chrono::system_clock::now();
+        recs[i].sample = i;
+    }
+    db.insert_metrics_records("batch", recs);
+    EXPECT_EQ(db.query_history("batch", std::nullopt, std::nullopt, 0).size(), 1000u);
+
+    // A row that fails part-way rolls the whole batch back.
+    sqlite3* raw = nullptr;
+    ASSERT_EQ(sqlite3_open(db_path_.c_str(), &raw), SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(raw,
+                           "CREATE TRIGGER reject_500 BEFORE INSERT ON metrics_history "
+                           "WHEN NEW.sample = 1500 BEGIN SELECT RAISE(ABORT, 'rejected'); END;",
+                           nullptr, nullptr, nullptr),
+              SQLITE_OK);
+    sqlite3_close(raw);
+    for (int i = 0; i < 1000; ++i)
+        recs[i].sample = 1000 + i;
+    EXPECT_THROW(db.insert_metrics_records("batch", recs), std::runtime_error);
+    EXPECT_EQ(db.query_history("batch", std::nullopt, std::nullopt, 0).size(), 1000u)
+        << "none of the failed batch's rows may remain";
+
+    std::vector<GradientVarianceRecord> gv(300);
+    for (int i = 0; i < 300; ++i) {
+        gv[i].timestamp = std::chrono::system_clock::now();
+        gv[i].step = i + 1;
+        gv[i].value = 0.5f;
+    }
+    db.insert_gradient_variance_samples("batch", gv);
+    EXPECT_EQ(db.query_gradient_variance("batch", 0).size(), 300u);
+}
+
+TEST_F(MetricsDatabaseTest, ServiceBatchesGradientVarianceRows) {
+    MetricsServiceConfig config;
+    config.enable_persistence = false;  // the DB rows don't depend on file persistence
+    config.session_key = "gvb";
+    auto db = std::make_unique<SQLiteMetricsDatabase>(db_path_);
+    TrainingMetricsService service(config);
+    service.set_database(db.get(), "gvb");
+    service.start_session(1, 1, 10);
+    service.start_epoch(1, 10);
+    for (int i = 0; i < 300; ++i)
+        service.update_advanced_epoch_metrics(0.001f * i, 0.5f, 0.01f);
+    EXPECT_EQ(db->query_gradient_variance("gvb", 0).size(), 256u)
+        << "a full batch is written without waiting for a persist";
+    service.end_session();
+    const auto rows = db->query_gradient_variance("gvb", 0);
+    ASSERT_EQ(rows.size(), 300u);
+    EXPECT_EQ(rows.front().step, 1);
+    EXPECT_EQ(rows.back().step, 300);
+}
+
+TEST_F(MetricsDatabaseTest, NewDatabaseHasNoUnusedSchemaVersionTable) {
+    { SQLiteMetricsDatabase db(db_path_); }
+    sqlite3* raw = nullptr;
+    ASSERT_EQ(sqlite3_open(db_path_.c_str(), &raw), SQLITE_OK);
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(raw, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'schema_version'", -1,
+                       &stmt, nullptr);
+    ASSERT_EQ(sqlite3_step(stmt), SQLITE_ROW);
+    EXPECT_EQ(sqlite3_column_int(stmt, 0), 0);
+    sqlite3_finalize(stmt);
+    sqlite3_close(raw);
+}
+
+TEST_F(MetricsDatabaseTest, FailedMigrationFailsTheOpen) {
+    // A complete database that only lacks a migrated column, opened read-only, so the ALTER TABLE
+    // fails. That error used to be ignored; now the open fails and names the statement.
+    { SQLiteMetricsDatabase db(db_path_); }
+    {
+        sqlite3* raw = nullptr;
+        ASSERT_EQ(sqlite3_open(db_path_.c_str(), &raw), SQLITE_OK);
+        ASSERT_EQ(sqlite3_exec(raw, "PRAGMA journal_mode = DELETE;", nullptr, nullptr, nullptr),
+                  SQLITE_OK);
+        ASSERT_EQ(sqlite3_exec(raw, "ALTER TABLE sessions DROP COLUMN final_loss;", nullptr, nullptr,
+                               nullptr),
+                  SQLITE_OK);
+        sqlite3_close(raw);
+    }
+    fs::permissions(db_path_, fs::perms::owner_read | fs::perms::group_read | fs::perms::others_read);
+    std::string error;
+    try {
+        SQLiteMetricsDatabase db(db_path_);
+    } catch (const std::exception& e) {
+        error = e.what();
+    }
+    fs::permissions(db_path_, fs::perms::owner_all);
+    EXPECT_NE(error.find("ALTER TABLE sessions ADD COLUMN final_loss"), std::string::npos)
+        << "error: '" << error << "'";
 }

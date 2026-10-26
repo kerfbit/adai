@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.2.1
 // @adai-reviewed: 2026-10-25
 
 
@@ -516,6 +516,16 @@ class MetricsSessionRegistry {
         const std::string key = it->first;
         const auto service = it->second.service;
         const std::string archived_key = make_archived_key(key);
+
+        // TD-511: write the session's pending rows (buffered gradient variance, unpersisted history)
+        // under its current key first; written after the rename they'd land under a key that no
+        // longer has a session row.
+        try {
+            service->flush_to_disk();
+        } catch (const std::exception& e) {
+            adai::Logger::warn("[MetricsSessionRegistry] flush before archiving '{}' failed: {}", key,
+                               e.what());
+        }
 
         if (db_) {
             try {

@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (TD-042 resolved — real test coverage added; still not built by default)
-// @adai-version: 0.5.0
+// @adai-version: 0.6.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -34,6 +34,10 @@ class PostgresMetricsDatabase : public IMetricsDatabase {
 
     void insert_gradient_variance_sample(const std::string& session_key, int step, int epoch,
                                          float value) override;
+    void insert_metrics_records(const std::string& session_key,
+                                const std::vector<PersistentMetricsRecord>& recs) override;
+    void insert_gradient_variance_samples(const std::string& session_key,
+                                          const std::vector<GradientVarianceRecord>& recs) override;
 
     void insert_abnormal_sample(const std::string& session_key,
                                 const AbnormalSample& sample) override;

@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.11.0
+// @adai-version: 0.12.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -499,6 +499,11 @@ class TrainingMetricsService {
     // server-side ordinal (one per update_advanced_epoch_metrics() call), not
     // the trainer's own sample/step index, which never crosses the wire.
     int gradient_variance_step_counter_{0};
+    // TD-511: per-step gradient-variance rows waiting for the next batched DB write.
+    std::vector<GradientVarianceRecord> pending_gradient_variance_;
+    static constexpr std::size_t kGradientVarianceBatch = 256;
+    static constexpr std::size_t kMaxPendingGradientVariance = 100000;
+    void flush_gradient_variance_locked();
 };
 
 class MetricsSessionRegistry;
