@@ -1255,6 +1255,7 @@ The run is complete.
   reads are bounded, the interface contract is documented, and the factory has its own file).
 - TD-527 (done in code except the boilerplate refactor: push bodies parsed with nlohmann/json and field-named 400s, debug-level poll
   logging, capped `max_records`, millisecond history timestamps).
+- TD-528 (done in code: `stop()` works before `listen()`, short shared endpoint list, `0-default` doesn't take a live-session slot).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -15014,7 +15015,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Metrics / Server CLI | October 17, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 25, 2026 | Metrics / Server CLI | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `TrainingMetricsAPIServer.cpp` (see [TrainingMetricsAPIServer.md](../reference/source/TrainingMetricsAPIServer.md)); by inspection
@@ -15029,9 +15030,29 @@ Found while tracing `TrainingMetricsAPIServer.cpp` (see [TrainingMetricsAPIServe
 
 Action Items:
 
-- [ ] Make `stop()` effective before `listen()` (e.g. set `running_` before spawning the thread, or have `start()` check a stop flag first).
-- [ ] Generate or trim the endpoint lists (point to TRAINING_METRICS_API.md). (`--max-disk-records` is enforced since TD-440's fix, October 25, 2026.)
-- [ ] Exempt `0-default` from the live-session cap (or stop creating it when no legacy client uses it).
+- [x] Make `stop()` effective before `listen()` (e.g. set `running_` before spawning the thread, or have `start()` check a stop flag first).
+- [x] Generate or trim the endpoint lists (point to TRAINING_METRICS_API.md). (`--max-disk-records` is enforced since TD-440's fix, October 25, 2026.)
+- [x] Exempt `0-default` from the live-session cap (or stop creating it when no legacy client uses it).
+
+**Fix (October 25, 2026).**
+- **Stop/start.** `TrainingMetricsAPI::start()` binds, then calls `listen_after_bind()`. It marks itself starting before it checks a
+  stop-requested flag. `stop()` sets that flag first, then waits up to 5 s for a start in progress to be listening, the point where
+  httplib's `stop()` works. So whichever comes second sees the other, and a stop can no longer be lost. `metrics_api_server` doesn't
+  report "failed to start" when the start gave way to a shutdown.
+- **Endpoint lists.** `--help` and the startup banner share one short list of the main routes and point to TRAINING_METRICS_API.md.
+- **`0-default`.** It doesn't count toward `max_live_sessions` (`counted_sessions_locked()`) and isn't an eviction candidate.
+
+Tests:
+- `TrainingMetricsAPIStartStop.StopBeforeStartIsNotLost`;
+- `StopRacingStartAlwaysEndsIt`: 50 starts, each stopped at once;
+- `MetricsSessionRegistry.DefaultSessionDoesNotTakeALiveSlot`.
+
+All three fail against the old code: start() kept serving, the stop was lost on the first iteration, and `0-default` took a slot.
+`NeverStartedPlaceholderIsNotEvicted` and `SessionStartReturns503WhenRegistryIsFull` had pinned `0-default` taking a slot; each now
+uses a cap of 1 with one trainer session.
+
+End to end: 30 real `metrics_api_server` starts got a SIGTERM 0–90 ms in. None hung: 15 exited 0 through the handler, and 15 were
+ended by SIGTERM's default action before the handler was installed (143).
 
 Location in code: `src/TrainingMetricsAPIServer.cpp` (`print_usage()`, startup banner, shutdown sequence, `0-default` creation); tagged `TODO: See TD-528`.
 

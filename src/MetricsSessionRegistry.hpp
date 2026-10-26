@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.3.0
+// @adai-version: 1.3.1
 // @adai-reviewed: 2026-10-25
 
 
@@ -473,6 +473,9 @@ class MetricsSessionRegistry {
     // bookkeeping residue, not sessions a dashboard should ever show or let a user pick.
     static constexpr const char* kArchivedKeyMarker = "_archived_";
 
+    // The session behind the legacy flat /api/metrics/* routes (see config_for_session()).
+    static constexpr const char* kDefaultSessionKey = "0-default";
+
     static bool is_archived_key(const std::string& key) {
         return key.find(kArchivedKeyMarker) != std::string::npos;
     }
@@ -600,12 +603,19 @@ class MetricsSessionRegistry {
     // without metrics. Now, when full, finished/stale sessions are archived (to the DB, as on key
     // reuse) least recently updated first. Live sessions and never-started placeholders (e.g. the
     // startup "0-default" alias) are never evicted, so in effect only live sessions count.
+    // TD-528: the "0-default" alias for the legacy flat routes doesn't take a slot (it used to leave
+    // trainers one fewer than max_live_sessions).
     // Must be called with registry_mutex_ held exclusively.
+    size_t counted_sessions_locked() const {
+        return sessions_.size() - sessions_.count(kDefaultSessionKey);
+    }
     bool make_room_locked(std::vector<PendingArchive>& pending) {
-        while (sessions_.size() >= max_live_sessions_) {
+        while (counted_sessions_locked() >= max_live_sessions_) {
             auto victim = sessions_.end();
             std::chrono::system_clock::time_point victim_activity{};
             for (auto it = sessions_.begin(); it != sessions_.end(); ++it) {
+                if (it->first == kDefaultSessionKey)
+                    continue;  // not counted, so evicting it frees nothing
                 if (!should_replace_completed_session(it->second.service))
                     continue;  // live, or never started
                 const auto snapshot = it->second.service->get_current_snapshot();

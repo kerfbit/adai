@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-10-25
 
 #include <atomic>
@@ -44,7 +44,28 @@ void signal_handler(int signal) {
 /**
  * @brief Print usage information
  */
-// TODO: See TD-528 in TECHNICAL_DEBT.md - lists only the legacy flat routes.
+// TD-528: the endpoint list is a short pointer to the main routes; the full list (session-scoped,
+// DB queries, admin) is docs/development/TRAINING_METRICS_API.md. It used to list only the legacy
+// flat routes.
+void print_endpoint_summary(bool allow_control, bool name_service) {
+    std::cout << "  GET  /api/sessions                          - List sessions\n";
+    std::cout << "  GET  /api/sessions/{key}/metrics/current    - A session's live snapshot\n";
+    std::cout << "  GET  /api/sessions/{key}/metrics/db-history - Stored history (from, to, limit)\n";
+    std::cout << "  GET  /api/sessions/{key}/metrics/export     - History export (format=csv|json)\n";
+    std::cout << "  GET  /api/metrics/compare                   - Compare sessions (keys, metric)\n";
+    std::cout << "  GET  /api/metrics/aggregate                 - All live sessions\n";
+    std::cout << "  POST /api/sessions/{key}/start, /end, ...   - Trainer pushes (MetricsPushClient)\n";
+    if (allow_control)
+        std::cout << "  POST /api/sessions/{key}/control/flush|clear\n";
+    std::cout << "  GET|PUT /admin/config                       - Runtime settings\n";
+    if (name_service)
+        std::cout << "  GET  /api/models                            - Registered models\n";
+    std::cout << "  GET  /health                                - Health check\n";
+    std::cout << "  (the legacy /api/metrics/* and /api/session/* routes act on session "
+                 "0-default)\n";
+    std::cout << "  Full list: docs/development/TRAINING_METRICS_API.md\n";
+}
+
 void print_usage(const char* program_name) {
     std::cout << "Training Metrics REST API Server\n";
     std::cout << "Usage: " << program_name << " [OPTIONS]\n\n";
@@ -96,23 +117,7 @@ void print_usage(const char* program_name) {
     std::cout << "  " << program_name << " --port 9090 --persist-samples 50\n";
     std::cout << "    Start on port 9090, persist every 50 samples\n\n";
     std::cout << "Endpoints:\n";
-    std::cout << "  GET  /api/metrics/current       - Current training snapshot\n";
-    std::cout << "  GET  /api/metrics/summary       - Aggregated metrics summary\n";
-    std::cout << "  GET  /api/metrics/history       - Historical records (query params: "
-                 "max_records, session_id)\n";
-    std::cout << "  GET  /api/sessions              - List tracked sessions\n";
-    std::cout << "  GET  /api/metrics/aggregate     - Aggregate live session metrics\n";
-    std::cout << "  GET  /api/sessions/{key}/...    - Session-scoped endpoints\n";
-    std::cout << "  GET  /api/metrics/prometheus    - Prometheus format metrics\n";
-    std::cout << "  GET  /api/metrics/csv           - CSV format metrics\n";
-    std::cout << "  GET  /api/session/status        - Session status and progress\n";
-    std::cout << "  GET  /api/session/epochs        - Per-epoch metrics\n";
-    std::cout << "  POST /api/control/flush         - Force flush to disk\n";
-    std::cout << "  POST /api/control/clear         - Clear historical metrics\n";
-    std::cout << "  GET  /admin/config               - Current admin-mutable settings\n";
-    std::cout << "  PUT  /admin/config               - Update admin-mutable settings\n";
-    std::cout << "  GET  /api/models                - Registered models (from name service)\n";
-    std::cout << "  GET  /health                    - Health check\n";
+    print_endpoint_summary(true, true);
 }
 
 int main(int argc, char* argv[]) {
@@ -198,7 +203,8 @@ int main(int argc, char* argv[]) {
             metrics_config, server_config.max_live_sessions, server_config.completed_ttl_seconds,
             server_config.sweep_interval_seconds, server_config.storage_backend,
             server_config.db_path, server_config.db_url, server_config.db_pool_size);
-        // TODO: See TD-528 in TECHNICAL_DEBT.md - 0-default counts toward max_live_sessions (one fewer slot for trainers).
+        // The legacy flat routes' session. TD-528: it doesn't count toward max_live_sessions (it took
+        // one of the trainers' slots); see MetricsSessionRegistry::make_room_locked().
         auto metrics_service = session_registry->create_or_get_session("0-default");
         if (!metrics_service) {
             std::cerr << "Error: Unable to initialize default metrics session\n";
@@ -273,34 +279,17 @@ int main(int argc, char* argv[]) {
         std::cout << "==================================================\n";
         std::cout << "Server starting on http://0.0.0.0:" << server_config.port << "\n";
         std::cout << "Available endpoints:\n";
-        std::cout << "  GET  /api/metrics/current       - Current training snapshot\n";
-        std::cout << "  GET  /api/metrics/summary       - Aggregated metrics summary\n";
-        std::cout << "  GET  /api/metrics/history       - Historical records\n";
-        std::cout << "  GET  /api/sessions              - List tracked sessions\n";
-        std::cout << "  GET  /api/metrics/aggregate     - Aggregate live sessions\n";
-        std::cout << "  GET  /api/sessions/{key}/...    - Session-scoped endpoints\n";
-        std::cout << "  GET  /api/metrics/prometheus    - Prometheus format\n";
-        std::cout << "  GET  /api/metrics/csv           - CSV format\n";
-        std::cout << "  GET  /api/session/status        - Session status\n";
-        std::cout << "  GET  /api/session/epochs        - Per-epoch metrics\n";
-
-        if (server_config.allow_control) {
-            std::cout << "  POST /api/control/flush         - Force flush to disk\n";
-            std::cout << "  POST /api/control/clear         - Clear history\n";
-        }
-
-        if (!server_config.name_service_url.empty()) {
-            std::cout << "  GET  /api/models                - Registered models\n";
-        }
-
-        std::cout << "  GET  /health                    - Health check\n";
+        print_endpoint_summary(server_config.allow_control,
+                               !server_config.name_service_url.empty());
         std::cout << "==================================================\n";
         std::cout << "Press Ctrl+C to stop the server\n\n";
 
         // Start server in a background thread to allow main thread to handle signals
         std::atomic<bool> server_error{false};
         std::thread server_thread([&]() {
-            if (!api->start()) {
+            // TD-528: start() also returns false when a stop came first (a SIGTERM during startup);
+            // that isn't a failure to listen.
+            if (!api->start() && !shutdown_requested.load()) {
                 std::cerr << "\nFailed to start server on port " << server_config.port << '\n';
                 std::cerr << "Port may already be in use. Try a different port with --port" << '\n';
                 server_error = true;
@@ -320,8 +309,8 @@ int main(int argc, char* argv[]) {
             std::cout << "==================================================\n";
 
             std::cout << "[1/2] Stopping API server...\n";
-            // TODO: See TD-528 in TECHNICAL_DEBT.md - stop() is a no-op until start() has set running_ on the server
-            // thread, so a SIGTERM in that window leaves join() waiting forever.
+            // TD-528: stop() also works before start() is listening (it used to be a no-op then,
+            // leaving this join() waiting for a server that then ran forever).
             if (g_api_server) {
                 g_api_server->stop();
             }

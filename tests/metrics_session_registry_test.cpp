@@ -618,7 +618,8 @@ TEST(MetricsSessionRegistry, LiveSessionsStillFillTheRegistry) {
 
 // A never-started placeholder (e.g. metrics_api_server's startup "0-default" alias) isn't evicted.
 TEST(MetricsSessionRegistry, NeverStartedPlaceholderIsNotEvicted) {
-    MetricsSessionRegistry registry(MetricsServiceConfig(), 2, 3600);
+    // Cap 1: "0-default" doesn't count (TD-528), so "1-done" fills the registry.
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 1, 3600);
     ASSERT_NE(registry.create_or_get_session("0-default"), nullptr);
     auto done = registry.create_or_get_session("1-done");
     ASSERT_NE(done, nullptr);
@@ -865,4 +866,18 @@ TEST(MetricsSessionRegistry, ConcurrentKeyReuseWithArchivingOutsideTheLock) {
     }
     EXPECT_EQ(rows, static_cast<size_t>(runs.load()));
     fs::remove_all(temp_root);
+}
+
+// TD-528: the startup "0-default" alias doesn't take one of the trainers' max_live_sessions slots.
+TEST(MetricsSessionRegistry, DefaultSessionDoesNotTakeALiveSlot) {
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 2, 3600, /*sweep=*/0);
+    ASSERT_NE(registry.create_or_get_session("0-default"), nullptr);
+    for (const char* key : {"1-live", "2-live"}) {
+        auto r = registry.start_session_or_conflict(key);
+        ASSERT_NE(r.service, nullptr) << key << " refused: 0-default took a slot";
+        r.service->start_session(1, 5, 100);
+    }
+    EXPECT_EQ(registry.start_session_or_conflict("3-live").service, nullptr)
+        << "two live trainer sessions fill a cap of 2";
+    EXPECT_TRUE(registry.get_session("0-default").has_value());
 }

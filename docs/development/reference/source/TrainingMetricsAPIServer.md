@@ -68,3 +68,12 @@ None run `main()`. The pieces it wires together have their own suites (argument 
 `--max-disk-records` is enforced now, and there are three new flags: `--retention-days`, `--metrics-file-max-mb` and
 `--metrics-file-backups` (config keys `METRICS_RETENTION_DAYS`, `METRICS_FILE_MAX_MB`, `METRICS_FILE_BACKUPS`). The startup banner
 prints the retention settings. TD-528's "unenforced flag" item no longer applies.
+
+## Addendum (October 25, 2026): stop before listen, endpoint list, default session (TD-528)
+
+- `TrainingMetricsAPI::start()`/`stop()` hand off through `starting_`/`stop_requested_`, so a SIGTERM during startup ends the
+  server instead of being lost. `start()` binds, then calls `listen_after_bind()`.
+- `print_endpoint_summary()` is the one endpoint list for `--help` and the banner; the full list is TRAINING_METRICS_API.md.
+- `0-default` doesn't take a `max_live_sessions` slot.
+
+Tests: `StopBeforeStartIsNotLost`, `StopRacingStartAlwaysEndsIt`, `DefaultSessionDoesNotTakeALiveSlot`.

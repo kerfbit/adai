@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.15.0
+// @adai-version: 0.15.1
 // @adai-reviewed: 2026-10-25
 
 
@@ -202,6 +202,8 @@ class TrainingMetricsAPI {
     std::set<std::string> cors_origins_;  // TD-526: explicitly allowed browser origins
     bool cors_any_origin_reads_ = false;  // TD-526: "*" in the list — any origin may read
     std::atomic<bool> running_;
+    std::atomic<bool> starting_{false};        // TD-528: start() between entry and return
+    std::atomic<bool> stop_requested_{false};  // TD-528: a stop() came, perhaps before start()
     std::unique_ptr<adai::DaemonConfigStore> config_store_;
 
     // HTTP server implementation (forward declaration to avoid including httplib.h in header)

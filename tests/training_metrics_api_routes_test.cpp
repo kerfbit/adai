@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <future>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -550,9 +551,12 @@ TEST_F(TrainingMetricsAPICapacityRoutesTest, SessionStartReturns503WhenRegistryI
 
     const std::string start_body = R"({"session_id":606,"total_epochs":2,"total_samples":100})";
 
-    // With max_live_sessions=1 and 0-default pre-created in fixture setup,
-    // creating any additional key should be rejected as at-capacity.
-    auto res = client.Post("/api/sessions/captest1/start", start_body, "application/json");
+    // max_live_sessions=1: the pre-created 0-default doesn't take the slot (TD-528), so the first
+    // trainer session gets it and a second live one is rejected as at-capacity.
+    auto first = client.Post("/api/sessions/captest1/start", start_body, "application/json");
+    ASSERT_TRUE(first);
+    EXPECT_EQ(first->status, 200) << first->body;
+    auto res = client.Post("/api/sessions/captest2/start", start_body, "application/json");
 
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 503);
@@ -1110,4 +1114,35 @@ TEST_F(TrainingMetricsAPIRoutesTest, HistoryHasMillisecondTimestampsAndCappedMax
     ASSERT_TRUE(r.contains("timestamp_ms"));
     const long long ms = r["timestamp_ms"].get<long long>();
     EXPECT_EQ(ms / 1000, std::stoll(r["timestamp"].get<std::string>()));
+}
+
+// TD-528: a stop() before start() is listening (a SIGTERM during startup) used to be lost: start()
+// then served forever and the shutdown join() never returned.
+TEST(TrainingMetricsAPIStartStop, StopBeforeStartIsNotLost) {
+    auto registry = std::make_shared<MetricsSessionRegistry>(make_test_config("stop_before_start"));
+    TrainingMetricsAPI api(registry, /*port=*/0, true, "", "", "");
+    api.stop();
+    auto started = std::async(std::launch::async, [&] { return api.start(); });
+    if (started.wait_for(std::chrono::seconds(3)) != std::future_status::ready) {
+        api.stop();  // it is listening now, so this stop works; let the thread finish
+        started.wait();
+        FAIL() << "start() kept serving after an earlier stop()";
+    }
+    EXPECT_FALSE(started.get());
+}
+
+TEST(TrainingMetricsAPIStartStop, StopRacingStartAlwaysEndsIt) {
+    auto registry = std::make_shared<MetricsSessionRegistry>(make_test_config("stop_race"));
+    for (int i = 0; i < 50; ++i) {
+        TrainingMetricsAPI api(registry, /*port=*/0, true, "", "", "");
+        auto started = std::async(std::launch::async, [&] { return api.start(); });
+        if (i % 2)
+            std::this_thread::sleep_for(std::chrono::microseconds(100 * (i % 7)));
+        api.stop();
+        if (started.wait_for(std::chrono::seconds(3)) != std::future_status::ready) {
+            api.stop();  // let the thread finish before failing
+            started.wait();
+            FAIL() << "iteration " << i << ": stop() was lost";
+        }
+    }
 }
