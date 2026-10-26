@@ -1049,3 +1049,65 @@ TEST_F(TrainingMetricsAPIDbRoutesTest, ExportReportsTruncationAndDbHistoryLimitK
     EXPECT_EQ(j["records"][0]["sample"], 27);
     EXPECT_EQ(j["records"][2]["sample"], 29);
 }
+
+// TD-527: push bodies are parsed as JSON. Malformed fields are 400s naming the field (they were a
+// bare "stoi"/"stof"), a key inside a nested object no longer shadows the top-level one, and string
+// escapes are decoded.
+TEST_F(TrainingMetricsAPIRoutesTest, PushBodiesParseAsJsonWithFieldErrors) {
+    auto client = make_client();
+    // "config" (with its own session_id) comes first: substring search used to read 99.
+    auto res = client.Post("/api/sessions/json-key/start",
+                           R"({"config":{"session_id":99,"lr":0.001},"label":"say \"hi\"",)"
+                           R"("session_id":5,"total_epochs":2,"total_samples":10})",
+                           "application/json");
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200) << res->body;
+    auto svc = registry_->get_session("json-key");
+    ASSERT_TRUE(svc.has_value());
+    const auto snap = (*svc)->get_current_snapshot();
+    EXPECT_EQ(snap.session_id, 5);
+    EXPECT_EQ(snap.label, "say \"hi\"");
+    EXPECT_NE(snap.config_snapshot.find("\"lr\":0.001"), std::string::npos) << snap.config_snapshot;
+
+    res = client.Post("/api/sessions/json-key/metrics/sample", R"({"sample":"abc","loss":1.0})",
+                      "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+    EXPECT_NE(res->body.find("field 'sample'"), std::string::npos) << res->body;
+
+    res = client.Post("/api/sessions/json-key/metrics/sample", R"({"sample":1,"loss":)",
+                      "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+    EXPECT_NE(res->body.find("not valid JSON"), std::string::npos) << res->body;
+
+    res = client.Post("/api/sessions/json-key/metrics/sample",
+                      R"({"sample":3,"loss":null,"gradient_norm":1.5,"learning_rate":1e-7})",
+                      "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200) << res->body;
+}
+
+// TD-527: history records carry millisecond timestamps (timestamp stays whole seconds), and
+// max_records is capped.
+TEST_F(TrainingMetricsAPIRoutesTest, HistoryHasMillisecondTimestampsAndCappedMaxRecords) {
+    auto client = make_client();
+    ASSERT_EQ(client.Post("/api/sessions/hist-key/start", R"({"session_id":1})", "application/json")
+                  ->status,
+              200);
+    client.Post("/api/sessions/hist-key/epoch/start", R"({"epoch":1,"total_samples":10})",
+                "application/json");
+    for (int i = 1; i <= 3; ++i) {
+        client.Post("/api/sessions/hist-key/metrics/sample",
+                    "{\"sample\":" + std::to_string(i) + ",\"loss\":1.0}", "application/json");
+    }
+    auto res = client.Get("/api/sessions/hist-key/metrics/history?max_records=999999999");
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200) << res->body;
+    auto j = nlohmann::json::parse(res->body);
+    ASSERT_GE(j["count"].get<int>(), 1);
+    const auto& r = j["records"][0];
+    ASSERT_TRUE(r.contains("timestamp_ms"));
+    const long long ms = r["timestamp_ms"].get<long long>();
+    EXPECT_EQ(ms / 1000, std::stoll(r["timestamp"].get<std::string>()));
+}

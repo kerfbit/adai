@@ -259,8 +259,14 @@ Historical per-sample records.
 
 Query parameters:
 
-- `max_records` (default: 1000) — Maximum records to return.
+- `max_records` (default: 1000, at most 10,000) — Maximum records to return.
 - `session_id` — Filter by numeric session ID.
+
+Each record's `timestamp` is whole seconds (a string, as before); `timestamp_ms` (a number, TD-527) has milliseconds.
+
+**Request bodies (TD-527, October 25, 2026).** Every POST body is parsed as a JSON object. Absent fields take their defaults,
+`null` in a number field means NaN, and a field of the wrong type is a `400` naming it (`{"error":"field 'sample' must be an
+integer"}`). Invalid JSON is a `400` too.
 
 ```bash
 curl "http://localhost:8081/api/sessions/0-default/metrics/history"
@@ -275,6 +281,7 @@ Response:
   "records": [
     {
       "timestamp": "1678123456",
+      "timestamp_ms": 1678123456789,
       "session_id": 1,
       "epoch": 0,
       "sample": 100,

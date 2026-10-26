@@ -163,3 +163,10 @@ like the other keys. Tests: `GradientVarianceAndGenerationQualityAreReadable`, `
 `GET …/metrics/export` reads the newest `kMaxReadRows` (200,000) rows, and its JSON form reports `"truncated"`. `GET /api/metrics/compare`
 refuses more than `kMaxCompareSessions` (16) keys and reads each session's newest 200,000 rows. `db-history?limit=N` returns the newest
 N. Tests: `CompareRefusesTooManySessions`, `ExportReportsTruncationAndDbHistoryLimitKeepsNewest`.
+
+## Addendum (October 25, 2026): JSON body parsing, poll logging, history (TD-527)
+
+Push handlers read bodies through `PushBody` (nlohmann/json): defaults for absent fields, NaN for `null`, a 400 naming any
+wrongly typed field, and a 400 for invalid JSON. `parse_json_float()`/`parse_json_float_array()` are gone. `metrics/current` logs at
+debug. `metrics/history` caps `max_records` at `kMaxHistoryRecords` (10,000) and adds `timestamp_ms`. Tests:
+`PushBodiesParseAsJsonWithFieldErrors`, `HistoryHasMillisecondTimestampsAndCappedMaxRecords`.

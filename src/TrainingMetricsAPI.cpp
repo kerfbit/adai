@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.14.0
+// @adai-version: 0.15.0
 // @adai-reviewed: 2026-10-25
 
 #include "TrainingMetricsAPI.hpp"
@@ -10,6 +10,7 @@
 #include <httplib.h>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <iomanip>
 #include <limits>
 #include <optional>
@@ -47,55 +48,112 @@ void set_legacy_deprecation_headers(httplib::Response& res, const std::string& r
     res.set_header("Link", replacement_path);
 }
 
-// Parses a JSON array of numbers for a given key, e.g. "key":[1.0,2.5,3]. The
-// rest of this file's body-parsing only ever handles scalar fields via
-// find(":")+stof; a bare-array field needs matching-bracket + comma-split
-// instead. Returns an empty vector if the key isn't found or the array is empty.
-// TD-443: a pushed float field; JSON null (what MetricsPushClient sends for NaN/infinity) is NaN.
-// std::stof alone threw on null, failing the whole event.
-float parse_json_float(const std::string& s) {
-    const auto start = s.find_first_not_of(" \t\r\n");
-    if (start != std::string::npos && s.compare(start, 4, "null") == 0)
-        return std::numeric_limits<float>::quiet_NaN();
-    return std::stof(s);
-}
-
-std::vector<float> parse_json_float_array(const std::string& body, const std::string& key) {
-    std::vector<float> result;
-    const std::string needle = "\"" + key + "\"";
-    size_t pos = body.find(needle);
-    if (pos == std::string::npos)
-        return result;
-    pos = body.find(':', pos);
-    if (pos == std::string::npos)
-        return result;
-    const size_t bracket_start = body.find('[', pos);
-    if (bracket_start == std::string::npos)
-        return result;
-    const size_t bracket_end = body.find(']', bracket_start);
-    if (bracket_end == std::string::npos)
-        return result;
-
-    const std::string inner = body.substr(bracket_start + 1, bracket_end - bracket_start - 1);
-    size_t item_start = 0;
-    while (item_start < inner.size()) {
-        const size_t comma = inner.find(',', item_start);
-        const std::string item = inner.substr(item_start, comma - item_start);
-        if (!item.empty()) {
-            try {
-                // TD-443: null (a non-finite value) stays in place as NaN; skipping it would shift
-                // every later layer's norm.
-                result.push_back(parse_json_float(item));
-            } catch (...) {
-                // Skip malformed elements rather than aborting the whole array.
-            }
+// TD-527: a pushed request body, parsed once with nlohmann/json. Fields used to be found by
+// substring search (a key inside a nested object or a string value could match) and read with
+// stoi/stof (a malformed number came back as a 400 saying only "stof"). Absent fields take the
+// caller's default; a field of the wrong type is a 400 naming the field. JSON null in a float field
+// is NaN (TD-443: what MetricsPushClient sends for NaN/infinity).
+class PushBody {
+   public:
+    explicit PushBody(const std::string& body) {
+        if (body.find_first_not_of(" \t\r\n") == std::string::npos) {
+            j_ = nlohmann::json::object();
+            return;
         }
-        if (comma == std::string::npos)
-            break;
-        item_start = comma + 1;
+        j_ = nlohmann::json::parse(body, nullptr, /*allow_exceptions=*/false);
+        if (j_.is_discarded())
+            throw ApiRequestError(400, "request body is not valid JSON");
+        if (!j_.is_object())
+            throw ApiRequestError(400, "request body must be a JSON object");
     }
-    return result;
-}
+
+    int get_int(const char* key, int fallback) const {
+        const auto* v = find(key);
+        if (!v || v->is_null())
+            return fallback;
+        if (v->is_number_integer() &&
+            v->get<long long>() >= std::numeric_limits<int>::min() &&
+            v->get<long long>() <= std::numeric_limits<int>::max())
+            return static_cast<int>(v->get<long long>());
+        if (v->is_number_float() && std::floor(v->get<double>()) == v->get<double>() &&
+            std::fabs(v->get<double>()) <= std::numeric_limits<int>::max())
+            return static_cast<int>(v->get<double>());
+        throw bad_field(key, "an integer");
+    }
+
+    double get_double(const char* key, double fallback) const {
+        const auto* v = find(key);
+        if (!v)
+            return fallback;
+        if (v->is_null())
+            return std::numeric_limits<double>::quiet_NaN();
+        if (!v->is_number())
+            throw bad_field(key, "a number");
+        return v->get<double>();
+    }
+
+    float get_float(const char* key, float fallback) const {
+        return static_cast<float>(get_double(key, fallback));
+    }
+
+    bool get_bool(const char* key, bool fallback) const {
+        const auto* v = find(key);
+        if (!v || v->is_null())
+            return fallback;
+        if (!v->is_boolean())
+            throw bad_field(key, "true or false");
+        return v->get<bool>();
+    }
+
+    std::string get_string(const char* key) const {
+        const auto* v = find(key);
+        if (!v || v->is_null())
+            return {};
+        if (!v->is_string())
+            throw bad_field(key, "a string");
+        return v->get<std::string>();
+    }
+
+    // A JSON object field, re-serialized; empty when absent or null.
+    nlohmann::json get_object(const char* key) const {
+        const auto* v = find(key);
+        if (!v || v->is_null())
+            return nlohmann::json();
+        if (!v->is_object())
+            throw bad_field(key, "an object");
+        return *v;
+    }
+
+    // An array of numbers; null elements are NaN, kept in place so later indices don't shift.
+    std::vector<float> get_float_array(const char* key) const {
+        std::vector<float> out;
+        const auto* v = find(key);
+        if (!v || v->is_null())
+            return out;
+        if (!v->is_array())
+            throw bad_field(key, "an array of numbers");
+        for (const auto& e : *v) {
+            if (e.is_null())
+                out.push_back(std::numeric_limits<float>::quiet_NaN());
+            else if (e.is_number())
+                out.push_back(e.get<float>());
+            else
+                throw bad_field(key, "an array of numbers");
+        }
+        return out;
+    }
+
+   private:
+    const nlohmann::json* find(const char* key) const {
+        const auto it = j_.find(key);
+        return it == j_.end() ? nullptr : &*it;
+    }
+    static ApiRequestError bad_field(const char* key, const char* expected) {
+        return ApiRequestError(400, std::string("field '") + key + "' must be " + expected);
+    }
+
+    nlohmann::json j_;
+};
 
 // TD-526: METRICS_API_CORS_ALLOWED_ORIGINS entries, trimmed, without a trailing '/' (browsers
 // send "https://host:port" with no path).
@@ -276,9 +334,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
         [this](const httplib::Request& req, httplib::Response& res) {
             try {
                 const std::string& matched_key = req.matches[1];
-                // TODO: See TD-527 in TECHNICAL_DEBT.md - INFO log line on every dashboard poll.
-                adai::Logger::info("[metrics/current] matched key='{}' len={}", matched_key,
-                                   matched_key.size());
+                // TD-527: debug, not info: dashboards poll this continuously (one line per poll
+                // crowded the log and sped up its rotation).
+                adai::Logger::debug("[metrics/current] key='{}'", matched_key);
                 std::string response = handle_current_metrics(matched_key);
                 res.set_content(response, "application/json");
                 res.status = 200;
@@ -1305,8 +1363,9 @@ std::string TrainingMetricsAPI::handle_metrics_history(const std::string& sessio
                                                        const std::string& query_params) {
     auto service = resolve_session_service(session_key, false);
     // Parse query parameters
-    // TODO: See TD-527 in TECHNICAL_DEBT.md - max_records is uncapped; timestamps below are whole seconds.
+    // TD-527: capped at the in-memory history size (it was uncapped).
     int max_records = parse_query_param_int(query_params, "max_records", 1000);
+    max_records = std::max(1, std::min(max_records, kMaxHistoryRecords));
     int session_id = parse_query_param_int(query_params, "session_id", -1);
 
     // Get history
@@ -1328,8 +1387,14 @@ std::string TrainingMetricsAPI::handle_metrics_history(const std::string& sessio
             json << ",";
         }
         json << "{";
+        // "timestamp" stays whole seconds (dashboards read it as is); TD-527 adds milliseconds.
         json << R"("timestamp":")" << std::chrono::system_clock::to_time_t(record.timestamp)
              << "\",";
+        json << "\"timestamp_ms\":"
+             << std::chrono::duration_cast<std::chrono::milliseconds>(
+                    record.timestamp.time_since_epoch())
+                    .count()
+             << ",";
         json << "\"session_id\":" << record.session_id << ",";
         json << "\"epoch\":" << record.epoch << ",";
         json << "\"sample\":" << record.sample << ",";
@@ -1370,16 +1435,15 @@ std::string TrainingMetricsAPI::handle_session_status(const std::string& session
     json << "\"total_epochs\":" << snapshot.total_epochs << ",";
     json << "\"current_sample\":" << snapshot.current_sample << ",";
     json << "\"total_samples\":" << snapshot.total_samples << ",";
-    json << "\"progress_percent\":" << std::fixed << std::setprecision(2);
-
-    if (snapshot.total_samples > 0) {
-        json << (100.0f * static_cast<float>(snapshot.current_sample) /
-                 static_cast<float>(snapshot.total_samples));
-    } else {
-        json << 0.0f;
-    }
-
-    json << ",";
+    // TD-527: only progress_percent is rounded to 2 decimals. std::fixed used to stay set for the
+    // fields after it, rounding samples_per_second (and the ETA) to 2 decimals too.
+    std::ostringstream progress;
+    progress << std::fixed << std::setprecision(2)
+             << (snapshot.total_samples > 0
+                     ? 100.0f * static_cast<float>(snapshot.current_sample) /
+                           static_cast<float>(snapshot.total_samples)
+                     : 0.0f);
+    json << "\"progress_percent\":" << progress.str() << ",";
     json << "\"samples_per_second\":" << snapshot.samples_per_second << ",";
     json << "\"estimated_time_remaining_seconds\":" << snapshot.estimated_time_remaining_seconds
          << ",";
@@ -2088,116 +2152,25 @@ std::string TrainingMetricsAPI::handle_post_session_start(const std::string& ses
         throw ApiRequestError(503, body_err.str());
     }
 
-    // Parse JSON body: {"session_id": int, "total_epochs": int, "total_samples": int,
-    //                   "label": string (optional), "config": JSON object (optional)}
-    int session_id = 0;
-    int total_epochs = 0;
-    int total_samples = 0;
-    std::string label;
-    std::string config_snapshot;
-
-    // Simple JSON parsing (extract integer values)
-    size_t pos = body.find("\"session_id\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            session_id = std::stoi(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"total_epochs\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            total_epochs = std::stoi(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"total_samples\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            total_samples = std::stoi(body.substr(pos + 1));
-        }
-    }
-
-    // Extract optional "label" string field
-    pos = body.find("\"label\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            size_t q1 = body.find('"', pos + 1);
-            if (q1 != std::string::npos) {
-                size_t q2 = body.find('"', q1 + 1);
-                if (q2 != std::string::npos) {
-                    label = body.substr(q1 + 1, q2 - q1 - 1);
-                }
-            }
-        }
-    }
-
-    // Extract optional "config" JSON object field by brace-matching
-    pos = body.find("\"config\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            size_t brace_start = body.find('{', pos + 1);
-            if (brace_start != std::string::npos) {
-                int depth = 1;
-                size_t i = brace_start + 1;
-                while (i < body.size() && depth > 0) {
-                    if (body[i] == '{')
-                        ++depth;
-                    else if (body[i] == '}')
-                        --depth;
-                    ++i;
-                }
-                if (depth == 0) {
-                    config_snapshot = body.substr(brace_start, i - brace_start);
-                }
-            }
-        }
-    }
-
-    // Extract optional "model_id" string field (Phase 2 — MNS UUID injected into config_snapshot)
-    std::string model_id;
-    pos = body.find("\"model_id\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            size_t q1 = body.find('"', pos + 1);
-            if (q1 != std::string::npos) {
-                size_t q2 = body.find('"', q1 + 1);
-                if (q2 != std::string::npos) {
-                    model_id = body.substr(q1 + 1, q2 - q1 - 1);
-                }
-            }
-        }
-    }
+    // Body: {"session_id": int, "total_epochs": int, "total_samples": int, "label": string,
+    //        "config": object, "model_id": string, "reset_best": bool}, every field optional.
+    const PushBody b(body);
+    const int session_id = b.get_int("session_id", 0);
+    const int total_epochs = b.get_int("total_epochs", 0);
+    const int total_samples = b.get_int("total_samples", 0);
+    const std::string label = b.get_string("label");
+    nlohmann::json config = b.get_object("config");
+    // Phase 2: an MNS model UUID is folded into the config snapshot.
+    const std::string model_id = b.get_string("model_id");
     if (!model_id.empty()) {
-        if (config_snapshot.size() >= 2 && config_snapshot.back() == '}') {
-            const bool is_empty_obj = (config_snapshot == "{}");
-            config_snapshot.pop_back();
-            if (!is_empty_obj)
-                config_snapshot += ',';
-            config_snapshot += "\"model_id\":\"" + model_id + "\"}";
-        } else {
-            config_snapshot = "{\"model_id\":\"" + model_id + "\"}";
-        }
+        if (!config.is_object())
+            config = nlohmann::json::object();
+        config["model_id"] = model_id;
     }
-
-    // Extract optional "reset_best" bool field — a fresh retrain sets this so
-    // best_validation_loss/best_epoch don't carry forward from a prior session.
-    bool reset_best = false;
-    pos = body.find("\"reset_best\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            const std::string rest = body.substr(pos + 1);
-            const size_t nz = rest.find_first_not_of(" \t");
-            reset_best = (nz != std::string::npos && rest.compare(nz, 4, "true") == 0);
-        }
-    }
+    const std::string config_snapshot = config.is_object() ? config.dump() : std::string();
+    // A fresh retrain sets reset_best so best_validation_loss/best_epoch don't carry forward from a
+    // prior session.
+    const bool reset_best = b.get_bool("reset_best", false);
 
     service->start_session(session_id, total_epochs, total_samples, label, config_snapshot,
                            reset_best);
@@ -2220,222 +2193,48 @@ std::string TrainingMetricsAPI::handle_post_heartbeat(const std::string& session
 std::string TrainingMetricsAPI::handle_post_epoch_start(const std::string& session_key,
                                                         const std::string& body) {
     auto service = resolve_session_service(session_key, false);
-    // Parse JSON body: {"epoch": int, "total_samples": int}
-    int epoch = 0;
-    int total_samples = 0;
-
-    size_t pos = body.find("\"epoch\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            epoch = std::stoi(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"total_samples\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            total_samples = std::stoi(body.substr(pos + 1));
-        }
-    }
-
-    service->start_epoch(epoch, total_samples);
-
+    const PushBody b(body);  // {"epoch": int, "total_samples": int}
+    service->start_epoch(b.get_int("epoch", 0), b.get_int("total_samples", 0));
     return R"({"status":"ok","message":"Epoch started"})";
 }
 
 std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session_key,
                                                       const std::string& body) {
     auto service = resolve_session_service(session_key, false);
-    // Parse JSON body: {"epoch": int, "loss": float, "validation_loss": float, "learning_rate":
-    // float, "perplexity": float, "gradient_norm": float}
-    int epoch = 0;
-    float loss = 0.0f;
-    float validation_loss = 0.0f;
-    float learning_rate = 0.0f;
-    float perplexity = 0.0f;
-    float gradient_norm = 0.0f;
-
-    size_t pos = body.find("\"epoch\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            epoch = std::stoi(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"loss\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            loss = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"validation_loss\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            validation_loss = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"learning_rate\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            learning_rate = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"perplexity\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            perplexity = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"gradient_norm\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            gradient_norm = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    float gradient_variance = 0.0f;
-    float compute_time_ratio = 0.0f;
-    float weight_update_ratio = 0.0f;
-
-    pos = body.find("\"gradient_variance\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            gradient_variance = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"compute_time_ratio\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            compute_time_ratio = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"weight_update_ratio\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            weight_update_ratio = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    float activation_saturation_ratio = -1.0f;
-    float attention_entropy = -1.0f;
-    float current_padding_efficiency = -1.0f;
-    float predictor_loss_field = -1.0f;
-    float sigreg_loss_field = -1.0f;
-    float masking_ratio_field = -1.0f;
-    float predictor_target_cosine_sim_field = -1.0f;
-    float sigreg_variance_mean_field = -1.0f;
-    float sigreg_variance_stddev_field = -1.0f;
-    double epoch_time = 0.0;
-
-    pos = body.find("\"epoch_time\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            epoch_time = std::stod(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"activation_saturation_ratio\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            activation_saturation_ratio = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"attention_entropy\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            attention_entropy = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"current_padding_efficiency\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            current_padding_efficiency = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    // TD-178: LeJEPA predictor/SIGReg losses — optional, only present for
-    // --objective=lejepa passes. Reported as a pair (see IMetricsReporter's own doc
-    // comment on update_lejepa_metrics) rather than as two independent optional fields.
-    pos = body.find("\"predictor_loss\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            predictor_loss_field = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"sigreg_loss\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            sigreg_loss_field = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    // LeJEPA advanced diagnostics — optional, only present once the trainer's
-    // update_lejepa_advanced_metrics() has been called for this epoch.
-    pos = body.find("\"masking_ratio\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            masking_ratio_field = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"predictor_target_cosine_sim\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            predictor_target_cosine_sim_field = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"sigreg_variance_mean\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            sigreg_variance_mean_field = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"sigreg_variance_stddev\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            sigreg_variance_stddev_field = parse_json_float(body.substr(pos + 1));
-        }
-    }
+    // Body: {"epoch", "loss", "validation_loss", "learning_rate", "perplexity", "gradient_norm",
+    // "epoch_time"} plus the optional per-epoch diagnostics below (-1 = not sent).
+    const PushBody b(body);
+    const int epoch = b.get_int("epoch", 0);
+    const float loss = b.get_float("loss", 0.0f);
+    const float validation_loss = b.get_float("validation_loss", 0.0f);
+    const float learning_rate = b.get_float("learning_rate", 0.0f);
+    const float perplexity = b.get_float("perplexity", 0.0f);
+    const float gradient_norm = b.get_float("gradient_norm", 0.0f);
+    const double epoch_time = b.get_double("epoch_time", 0.0);
+    const float gradient_variance = b.get_float("gradient_variance", 0.0f);
+    const float compute_time_ratio = b.get_float("compute_time_ratio", 0.0f);
+    const float weight_update_ratio = b.get_float("weight_update_ratio", 0.0f);
+    const float activation_saturation_ratio = b.get_float("activation_saturation_ratio", -1.0f);
+    const float attention_entropy = b.get_float("attention_entropy", -1.0f);
+    const float current_padding_efficiency = b.get_float("current_padding_efficiency", -1.0f);
+    // TD-178: LeJEPA predictor/SIGReg losses, only for --objective=lejepa passes, sent as a pair.
+    const float predictor_loss_field = b.get_float("predictor_loss", -1.0f);
+    const float sigreg_loss_field = b.get_float("sigreg_loss", -1.0f);
+    // LeJEPA advanced diagnostics, sent once update_lejepa_advanced_metrics() ran this epoch.
+    const float masking_ratio_field = b.get_float("masking_ratio", -1.0f);
+    const float predictor_target_cosine_sim_field =
+        b.get_float("predictor_target_cosine_sim", -1.0f);
+    const float sigreg_variance_mean_field = b.get_float("sigreg_variance_mean", -1.0f);
+    const float sigreg_variance_stddev_field = b.get_float("sigreg_variance_stddev", -1.0f);
+    // TD-443: adaptive gradient clipping's epoch average and spike count.
+    const float adaptive_clip_threshold = b.get_float("adaptive_clip_threshold", -1.0f);
+    const int adaptive_clip_spikes = b.get_int("adaptive_clip_spikes", 0);
 
     // These optional per-epoch fields must be applied BEFORE end_epoch() — end_epoch() both
     // (a) pushes the CURRENT snapshot value into that field's history vector and (b) reads it
     // into the PersistentMetricsRecord it persists, so calling it first would push/persist last
     // epoch's stale value instead of the one just POSTed in this same request body (caught by
-    // TrainingMetricsAPIRoutesTest.LejepaMetricsRoundTripThroughEpochEndAndGet — no prior test
-    // exercised any of these optional fields through the real HTTP handler, only via direct
-    // TrainingMetricsService calls in the already-correct order).
+    // TrainingMetricsAPIRoutesTest.LejepaMetricsRoundTripThroughEpochEndAndGet).
     if (gradient_variance != 0.0f || compute_time_ratio != 0.0f || weight_update_ratio != 0.0f) {
         service->update_advanced_epoch_metrics(gradient_variance, compute_time_ratio,
                                                weight_update_ratio);
@@ -2455,29 +2254,15 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
     if (predictor_loss_field >= 0.0f) {
         service->update_lejepa_metrics(predictor_loss_field, sigreg_loss_field);
     }
-    // Gate on masking_ratio alone (not all four, unlike predictor/sigreg loss above):
-    // masking_ratio is strictly positive whenever computed (span_len is clamped to >= 1), so
-    // it has an unambiguous sentinel — unlike predictor_target_cosine_sim_field, whose valid
-    // range [-1, 1] legitimately includes the -1.0f "not sent" sentinel value itself. All four
-    // fields are always sent together as one bundle from a single train_step() call, so gating
-    // on masking_ratio's presence is equivalent to gating on the whole bundle's presence.
+    // Gate on masking_ratio alone: it is strictly positive whenever computed (span_len >= 1), unlike
+    // predictor_target_cosine_sim, whose valid range [-1, 1] includes the -1 sentinel. All four are
+    // sent together from one train_step(), so masking_ratio's presence means the whole bundle's.
     if (masking_ratio_field >= 0.0f) {
         service->update_lejepa_advanced_metrics(masking_ratio_field,
                                                 predictor_target_cosine_sim_field,
                                                 sigreg_variance_mean_field,
                                                 sigreg_variance_stddev_field);
     }
-
-    // TD-443: adaptive gradient clipping's epoch average and spike count (MetricsPushClient used to
-    // buffer them but never send them, so epoch_adaptive_clip_thresholds stayed empty).
-    float adaptive_clip_threshold = -1.0f;
-    int adaptive_clip_spikes = 0;
-    pos = body.find("\"adaptive_clip_threshold\"");
-    if (pos != std::string::npos && (pos = body.find(':', pos)) != std::string::npos)
-        adaptive_clip_threshold = parse_json_float(body.substr(pos + 1));
-    pos = body.find("\"adaptive_clip_spikes\"");
-    if (pos != std::string::npos && (pos = body.find(':', pos)) != std::string::npos)
-        adaptive_clip_spikes = std::stoi(body.substr(pos + 1));
     if (adaptive_clip_threshold >= 0.0f) {
         service->update_adaptive_clip_epoch(adaptive_clip_threshold, adaptive_clip_spikes);
     }
@@ -2491,85 +2276,23 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session
 std::string TrainingMetricsAPI::handle_post_sample_metrics(const std::string& session_key,
                                                            const std::string& body) {
     auto service = resolve_session_service(session_key, false);
-    // Parse JSON body: {"sample": int, "loss": float, "gradient_norm": float, "learning_rate":
-    // float}
-    int sample = 0;
-    float loss = 0.0f;
-    float gradient_norm = 0.0f;
-    float learning_rate = 0.0f;
-
-    size_t pos = body.find("\"sample\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            sample = std::stoi(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"loss\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            loss = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"gradient_norm\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            gradient_norm = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"learning_rate\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            learning_rate = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    service->update_sample_metrics(sample, loss, gradient_norm, learning_rate);
-
+    // {"sample": int, "loss": float, "gradient_norm": float, "learning_rate": float}
+    const PushBody b(body);
+    service->update_sample_metrics(b.get_int("sample", 0), b.get_float("loss", 0.0f),
+                                   b.get_float("gradient_norm", 0.0f),
+                                   b.get_float("learning_rate", 0.0f));
     return R"({"status":"ok"})";
 }
 
 std::string TrainingMetricsAPI::handle_post_validation_metrics(const std::string& session_key,
                                                                const std::string& body) {
     auto service = resolve_session_service(session_key, false);
-    // Parse JSON body: {"validation_loss": float, "validation_accuracy": float,
-    // "validation_perplexity": float}
-    float validation_loss = 0.0f;
-    float validation_accuracy = -1.0f;   // TD-015: optional
-    float validation_perplexity = 0.0f;  // TD-015: optional (0 = auto-derive from loss)
-
-    size_t pos = body.find("\"validation_loss\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            validation_loss = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"validation_accuracy\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            validation_accuracy = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"validation_perplexity\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            validation_perplexity = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    service->update_validation_metrics(validation_loss, validation_accuracy, validation_perplexity);
-
+    // {"validation_loss": float, "validation_accuracy": float (TD-015: optional, -1 = not
+    // computed), "validation_perplexity": float (optional, 0 = derive from the loss)}
+    const PushBody b(body);
+    service->update_validation_metrics(b.get_float("validation_loss", 0.0f),
+                                       b.get_float("validation_accuracy", -1.0f),
+                                       b.get_float("validation_perplexity", 0.0f));
     return R"({"status":"ok"})";
 }
 
@@ -2594,29 +2317,15 @@ std::string truncate_sample_text(std::string text) {
 std::string TrainingMetricsAPI::handle_post_abnormal_sample(const std::string& session_key,
                                                             const std::string& body) {
     auto service = resolve_session_service(session_key, false);
-    const auto j = nlohmann::json::parse(body, nullptr, /*allow_exceptions=*/false);
-    if (!j.is_object())
-        throw ApiRequestError(400, "abnormal sample must be a JSON object");
-    const auto int_or = [&](const char* key) {
-        const auto it = j.find(key);
-        return (it != j.end() && it->is_number_integer()) ? it->get<int>() : 0;
-    };
-    const auto float_or = [&](const char* key) {
-        const auto it = j.find(key);
-        return (it != j.end() && it->is_number()) ? it->get<float>() : 0.0f;
-    };
-    const auto string_or = [&](const char* key) {
-        const auto it = j.find(key);
-        return (it != j.end() && it->is_string()) ? it->get<std::string>() : std::string();
-    };
+    const PushBody b(body);
     AbnormalSample sample;
-    sample.epoch = int_or("epoch");
-    sample.sample_id = int_or("sample_id");
-    sample.loss = float_or("loss");
-    sample.grad_norm = float_or("grad_norm");
-    sample.reason = string_or("reason").substr(0, 128);
-    sample.input_text = truncate_sample_text(string_or("input_text"));
-    sample.target_text = truncate_sample_text(string_or("target_text"));
+    sample.epoch = b.get_int("epoch", 0);
+    sample.sample_id = b.get_int("sample_id", 0);
+    sample.loss = b.get_float("loss", 0.0f);
+    sample.grad_norm = b.get_float("grad_norm", 0.0f);
+    sample.reason = b.get_string("reason").substr(0, 128);
+    sample.input_text = truncate_sample_text(b.get_string("input_text"));
+    sample.target_text = truncate_sample_text(b.get_string("target_text"));
     sample.timestamp = std::chrono::system_clock::now();
     service->flag_abnormal_sample(sample);
     return R"({"status":"ok"})";
@@ -2625,137 +2334,41 @@ std::string TrainingMetricsAPI::handle_post_abnormal_sample(const std::string& s
 std::string TrainingMetricsAPI::handle_post_best_metrics(const std::string& session_key,
                                                          const std::string& body) {
     auto service = resolve_session_service(session_key, false);
-    // Parse JSON body: {"validation_loss": float, "epoch": int}
-    float validation_loss = 0.0f;
-    int epoch = 0;
-
-    size_t pos = body.find("\"validation_loss\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            validation_loss = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"epoch\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            epoch = std::stoi(body.substr(pos + 1));
-        }
-    }
-
-    service->update_best_metrics(validation_loss, epoch);
-
+    const PushBody b(body);  // {"validation_loss": float, "epoch": int}
+    service->update_best_metrics(b.get_float("validation_loss", 0.0f), b.get_int("epoch", 0));
     return R"({"status":"ok"})";
 }
 
 std::string TrainingMetricsAPI::handle_post_generation_quality_metrics(
     const std::string& session_key, const std::string& body) {
     auto service = resolve_session_service(session_key, false);
-    // Parse JSON body: {"bleu4": float, "rouge1": float, "rouge2": float, "rougeL": float,
-    // "bleu1": float, "bleu2": float} (TD-379: bleu1/bleu2 optional, -1 when absent)
-    float bleu1 = -1.0f;
-    float bleu2 = -1.0f;
-    float bleu4 = -1.0f;
-    float rouge1 = -1.0f;
-    float rouge2 = -1.0f;
-    float rougeL = -1.0f;
-
-    size_t pos = body.find("\"bleu4\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            bleu4 = parse_json_float(body.substr(pos + 1));
-        }
-    }
-    pos = body.find("\"rouge1\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            rouge1 = parse_json_float(body.substr(pos + 1));
-        }
-    }
-    pos = body.find("\"rouge2\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            rouge2 = parse_json_float(body.substr(pos + 1));
-        }
-    }
-    pos = body.find("\"rougeL\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            rougeL = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    for (auto [key, field] : {std::pair<const char*, float*>{"\"bleu1\"", &bleu1},
-                              std::pair<const char*, float*>{"\"bleu2\"", &bleu2}}) {
-        pos = body.find(key);
-        if (pos != std::string::npos) {
-            pos = body.find(':', pos);
-            if (pos != std::string::npos) {
-                *field = parse_json_float(body.substr(pos + 1));
-            }
-        }
-    }
-
-    service->update_generation_quality_metrics(bleu4, rouge1, rouge2, rougeL, bleu1, bleu2);
+    // {"bleu4", "rouge1", "rouge2", "rougeL", "bleu1", "bleu2"}: floats, -1 when absent (TD-379:
+    // bleu1/bleu2 are optional)
+    const PushBody b(body);
+    service->update_generation_quality_metrics(
+        b.get_float("bleu4", -1.0f), b.get_float("rouge1", -1.0f), b.get_float("rouge2", -1.0f),
+        b.get_float("rougeL", -1.0f), b.get_float("bleu1", -1.0f), b.get_float("bleu2", -1.0f));
     return R"({"status":"ok"})";
 }
 
 std::string TrainingMetricsAPI::handle_post_advanced_metrics(const std::string& session_key,
                                                              const std::string& body) {
     auto service = resolve_session_service(session_key, false);
-    // Parse JSON body: {"gradient_variance": float, "compute_time_ratio": float,
-    // "weight_update_ratio": float}
-    float gradient_variance = 0.0f;
-    float compute_time_ratio = 0.0f;
-    float weight_update_ratio = 0.0f;
-
-    size_t pos = body.find("\"gradient_variance\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            gradient_variance = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"compute_time_ratio\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            compute_time_ratio = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    pos = body.find("\"weight_update_ratio\"");
-    if (pos != std::string::npos) {
-        pos = body.find(':', pos);
-        if (pos != std::string::npos) {
-            weight_update_ratio = parse_json_float(body.substr(pos + 1));
-        }
-    }
-
-    service->update_advanced_epoch_metrics(gradient_variance, compute_time_ratio,
-                                           weight_update_ratio);
-
+    // {"gradient_variance": float, "compute_time_ratio": float, "weight_update_ratio": float}
+    const PushBody b(body);
+    service->update_advanced_epoch_metrics(b.get_float("gradient_variance", 0.0f),
+                                           b.get_float("compute_time_ratio", 0.0f),
+                                           b.get_float("weight_update_ratio", 0.0f));
     return R"({"status":"ok"})";
 }
 
 std::string TrainingMetricsAPI::handle_post_layer_gradient_norms(const std::string& session_key,
                                                                   const std::string& body) {
     auto service = resolve_session_service(session_key, false);
-    // Parse JSON body: {"encoder_layer_grad_norms": [float, ...], "decoder_layer_grad_norms": [float, ...]}
-    std::vector<float> encoder_layer_norms =
-        parse_json_float_array(body, "encoder_layer_grad_norms");
-    std::vector<float> decoder_layer_norms =
-        parse_json_float_array(body, "decoder_layer_grad_norms");
-
-    service->update_layer_gradient_norms(encoder_layer_norms, decoder_layer_norms);
-
+    // {"encoder_layer_grad_norms": [float, ...], "decoder_layer_grad_norms": [float, ...]}
+    const PushBody b(body);
+    service->update_layer_gradient_norms(b.get_float_array("encoder_layer_grad_norms"),
+                                         b.get_float_array("decoder_layer_grad_norms"));
     return R"({"status":"ok"})";
 }
 

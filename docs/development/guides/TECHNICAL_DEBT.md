@@ -1253,6 +1253,8 @@ The run is complete.
   rate-limited; no heartbeat before the session; longer host fragment).
 - TD-441 (done in code: gradient-variance steps continue across service instances, `limit` keeps the newest rows, compare/export
   reads are bounded, the interface contract is documented, and the factory has its own file).
+- TD-527 (done in code except the boilerplate refactor: push bodies parsed with nlohmann/json and field-named 400s, debug-level poll
+  logging, capped `max_records`, millisecond history timestamps).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -12237,6 +12239,10 @@ parsing rules. That's the root of several filed defects: non-finite numbers emit
 escaping (TD-449, TD-452), and `ChatbotAPI`'s parser rejecting `]` (TD-226). The repository already vendors
 `external/nlohmann` and uses it in `ModelSerializer`, `ChatbotAPI` and `DataFetcher`.
 
+**Progress (October 25, 2026).** `TrainingMetricsAPI`'s push handlers now parse request bodies with nlohmann/json (TD-527), and
+`MetricsPushClient` writes numbers through one shared helper (TD-443). The MNS files and the API's response writers are still
+hand-written.
+
 Action Items:
 
 - [ ] Move the MNS (server, client, CLI, GUI) and metrics (server, push client) request/response code to `nlohmann/json`, one file at a time behind the existing tests.
@@ -14956,7 +14962,7 @@ cross-origin `text/plain` `pending/add` (verified). Filed as TD-550.
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Metrics / API | October 17, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 25, 2026 | Metrics / API | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `TrainingMetricsAPI.cpp`:
@@ -14968,8 +14974,33 @@ Found while tracing `TrainingMetricsAPI.cpp`:
 
 Action Items:
 
-- [ ] Drop the per-request log line (or make it DEBUG); cap `max_records`; emit millisecond timestamps.
-- [ ] Parse bodies with `nlohmann/json` (TD-453) and return field-specific errors; factor the per-route boilerplate.
+- [x] Drop the per-request log line (or make it DEBUG); cap `max_records`; emit millisecond timestamps.
+- [ ] Parse bodies with `nlohmann/json` (TD-453) and return field-specific errors; factor the per-route boilerplate. (Parsing and
+  errors done; the per-route try/catch boilerplate is unchanged.)
+
+**Fix (October 25, 2026).**
+- **Logging.** `metrics/current` logs at debug.
+- **History.** `max_records` is capped at 10,000, the in-memory history size. Records gain `timestamp_ms`; `timestamp` keeps its
+  seconds string, which the dashboards read.
+- **Status.** In `handle_session_status()` only `progress_percent` is rounded to 2 decimals.
+- **Push bodies.** Every push handler (session start, epoch start/end, sample, validation, best, abnormal, generation quality,
+  advanced, layer gradients) reads its body through one `PushBody` helper on nlohmann/json:
+  - absent fields take defaults, and `null` in a number field is NaN (TD-443);
+  - a wrong type is a 400 naming the field, and invalid JSON is a 400;
+  - a key inside a nested object or a string can no longer be read as a top-level field;
+  - string escapes are decoded, and `config` is re-serialized, with `model_id` folded in as a JSON field.
+
+  The two substring parsers are gone (cpp net −387 lines).
+
+The per-route try/catch boilerplate (TD-039) is unchanged.
+
+Tests (`training_metrics_api_routes_test.cpp`):
+- `PushBodiesParseAsJsonWithFieldErrors`: `config` with its own `session_id` sent first; an escaped label; a string where a number
+  belongs; truncated JSON; null and 1e-7 values.
+- `HistoryHasMillisecondTimestampsAndCappedMaxRecords`.
+
+Against the old code both fail: `session_id` came out 99 from inside `config`, the label was cut to `say \`, errors had no field
+name, and there was no `timestamp_ms`.
 
 Location in code: `src/TrainingMetricsAPI.cpp` (`metrics/current` route, `handle_metrics_history()`, push handlers); tagged `TODO: See TD-527`.
 
