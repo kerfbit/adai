@@ -55,8 +55,7 @@ TEST(GenerationQualityBLEU, IdenticalReferenceShouldScoreOne) {
     GenerationQualityScore score = GenerationQualityEvaluator::evaluate(refs, hyps);
     // BLEU-1 should be 1.0 for identical strings
     EXPECT_NEAR(score.bleu1, 1.0f, 0.01f);
-    // BLEU-4 may be slightly < 1 due to add-1 smoothing on a short sentence
-    EXPECT_GT(score.bleu4, 0.8f);
+    EXPECT_NEAR(score.bleu4, 1.0f, 1e-5f);
 }
 
 TEST(GenerationQualityBLEU, CompletelyDifferentHypothesisScoresNearZero) {
@@ -206,4 +205,71 @@ TEST(GenerationQualityEdge, AllScoresInValidRange) {
     EXPECT_LE(score.rouge2, 1.0f);
     EXPECT_GE(score.rougeL, 0.0f);
     EXPECT_LE(score.rougeL, 1.0f);
+}
+
+// ============================================================================
+// TD-378: reference values. Computed with an independent implementation of Papineni et al.'s corpus
+// BLEU and of sacreBLEU's sentence BLEU (smooth_method="floor", value 0.1, effective_order=True), on
+// the same tokens. The old code applied add-1 to every order and scored "unrelated" BLEU-4 0.23.
+// ============================================================================
+
+TEST(GenerationQualityBLEUReference, UnrelatedAnswerScoresZero) {
+    auto s = GenerationQualityEvaluator::evaluate({"the cat sat on the mat"},
+                                                  {"dogs run very quickly home"});
+    EXPECT_FLOAT_EQ(s.bleu1, 0.0f);
+    EXPECT_FLOAT_EQ(s.bleu4, 0.0f);
+}
+
+TEST(GenerationQualityBLEUReference, ScrambledWordsHaveNoBigramsSoBleu4IsZero) {
+    auto s = GenerationQualityEvaluator::evaluate({"a b c d e"}, {"e d c b a"});
+    EXPECT_NEAR(s.bleu1, 1.0f, 1e-5f);
+    EXPECT_FLOAT_EQ(s.bleu2, 0.0f);
+    EXPECT_FLOAT_EQ(s.bleu4, 0.0f);
+}
+
+TEST(GenerationQualityBLEUReference, KnownPartialMatchValues) {
+    auto s = GenerationQualityEvaluator::evaluate({"the cat sat on the mat"},
+                                                  {"the cat sat on a mat"});
+    EXPECT_NEAR(s.bleu1, 0.833333f, 1e-5f);
+    EXPECT_NEAR(s.bleu2, 0.707107f, 1e-5f);
+    EXPECT_NEAR(s.bleu4, 0.537285f, 1e-5f);
+}
+
+TEST(GenerationQualityBLEUReference, BrevityPenaltyValue) {
+    auto s = GenerationQualityEvaluator::evaluate({"the cat sat on the mat"}, {"the cat sat on"});
+    EXPECT_NEAR(s.bleu4, 0.606531f, 1e-5f);  // all precisions 1, BP = exp(1 - 6/4)
+}
+
+TEST(GenerationQualityBLEUReference, CorpusSumsCountsAcrossPairs) {
+    // The 3-word pair has no 4-grams of its own, but the corpus score still counts its matches.
+    auto s = GenerationQualityEvaluator::evaluate({"i am fine", "the cat sat on the mat"},
+                                                  {"i am fine", "the cat sat on a mat"});
+    EXPECT_NEAR(s.bleu1, 0.888889f, 1e-5f);
+    EXPECT_NEAR(s.bleu2, 0.796819f, 1e-5f);
+    EXPECT_NEAR(s.bleu4, 0.596949f, 1e-5f);
+}
+
+TEST(GenerationQualityBLEUReference, ExactShortAnswerCorpusBleu4IsZeroButBleu2IsOne) {
+    auto s = GenerationQualityEvaluator::evaluate({"i am fine"}, {"i am fine"});
+    EXPECT_NEAR(s.bleu1, 1.0f, 1e-5f);
+    EXPECT_NEAR(s.bleu2, 1.0f, 1e-5f);
+    EXPECT_FLOAT_EQ(s.bleu4, 0.0f);  // textbook: no 4-grams
+}
+
+TEST(GenerationQualitySentenceBLEU, ReferenceValues) {
+    using E = GenerationQualityEvaluator;
+    EXPECT_NEAR(E::sentence_bleu("i am fine", "i am fine"), 1.0f, 1e-5f)
+        << "effective order: a correct 3-word answer scores 1";
+    EXPECT_NEAR(E::sentence_bleu("the cat sat on the mat", "dogs run very quickly home"), 0.024737f,
+                1e-5f);
+    EXPECT_NEAR(E::sentence_bleu("a b c d e", "e d c b a"), 0.080343f, 1e-5f);
+    EXPECT_NEAR(E::sentence_bleu("the cat sat on the mat", "the cat sat on a mat"), 0.537285f,
+                1e-5f);
+    EXPECT_FLOAT_EQ(E::sentence_bleu("hello there", ""), 0.0f);
+}
+
+TEST(GenerationQualitySentenceBLEU, CorrectShortAnswerOutranksUnrelatedLongOne) {
+    using E = GenerationQualityEvaluator;
+    EXPECT_GT(E::sentence_bleu("i am fine", "i am fine"),
+              E::sentence_bleu("the cat sat on the mat", "dogs run very quickly home"));
 }

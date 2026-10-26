@@ -141,3 +141,24 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Tokenization differs from sacreBLEU/`rouge-score`; 0–1 scale vs. the lesson's 0–100 ranges; a 10-sample default (§2–3) | Numbers can't be compared with published scores or read against the lesson's ranges; a 10-sample BLEU-4 is very noisy | By inspection | [TD-380](../../guides/TECHNICAL_DEBT.md#td-380-generation-quality-scores-arent-comparable-or-well-sampled) |
 | Tests don't catch the smoothing distortion (§4) | The bug passed review as `stable` | By inspection | [TD-378](../../guides/TECHNICAL_DEBT.md#td-378-bleu-smoothing-inflates-unrelated-answers-and-zeroes-correct-short-ones) (tests) |
 | `generation_quality_max_tokens` ignored; backfill results unread | Already tracked | — | TD-359, TD-273 |
+
+---
+
+## Addendum (October 25, 2026): textbook BLEU (TD-378)
+
+- `evaluate()`'s BLEU-1/2/4 are unsmoothed corpus BLEU (Papineni et al.). Clipped matches and n-gram counts are summed over every pair,
+  and the score is BP · exp(mean log p_n). An order with no matches gives 0. The add-1-on-every-order smoothing and the fixed −20
+  for missing orders are gone.
+- `sentence_bleu(reference, hypothesis, max_n = 4)` is the explicitly smoothed single-pair score, used for `ChatbotTrainer`'s
+  per-sample backfill. It uses Chen & Cherry 2014 method 1 (0.1 matches for an order with none, sacreBLEU `floor`) and effective order
+  (orders longer than the hypothesis are skipped), matching sacreBLEU's sentence settings on the same tokens.
+
+| Case | Old BLEU-4 | Corpus BLEU-4 now | `sentence_bleu` |
+|---|---|---|---|
+| 5 unrelated words vs 6 | 0.188–0.23 | 0 | 0.025 |
+| Same 5 words scrambled | 0.359 | 0 | 0.080 |
+| Exactly correct 3-word answer | 0.0067 | 0 (no 4-grams) | 1.0 |
+| "the cat sat on a mat" vs "the cat sat on the mat" | — | 0.537 | 0.537 |
+
+Tokenization (TD-380) is unchanged, so the scores still aren't comparable with published numbers. Tests:
+`GenerationQualityBLEUReference.*`, `GenerationQualitySentenceBLEU.*`.

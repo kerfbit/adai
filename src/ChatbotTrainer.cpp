@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.17.0
-// @adai-reviewed: 2026-10-21
+// @adai-version: 0.17.1
+// @adai-reviewed: 2026-10-25
 
 #include "ChatbotTrainer.hpp"
 #include <algorithm>
@@ -2024,8 +2024,9 @@ void ChatbotTrainer::backfill_generation_quality() {
             std::string hyp =
                 model->generate_response(input, config.generation_backfill_max_tokens);
 #endif
-            GenerationQualityScore s = GenerationQualityEvaluator::evaluate({target}, {hyp});
-            result = s.bleu4 >= 0.0f ? s.bleu4 : 0.0f;
+            // TD-378: one pair needs the smoothed sentence BLEU; corpus BLEU of a single short reply
+            // is almost always 0.
+            result = GenerationQualityEvaluator::sentence_bleu(target, hyp);
         } catch (const std::exception& e) {
             adai::Logger::warn("backfill_generation_quality: generate_response() threw: {}",
                                e.what());

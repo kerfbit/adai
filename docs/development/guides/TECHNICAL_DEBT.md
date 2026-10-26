@@ -1242,6 +1242,8 @@ The run is complete.
   and JSONL file each keep their own persist marker).
 - TD-440 (done in code: per-session DB row cap with thinning, 90-day session retention, size-based JSONL rotation, and read routes for
   gradient variance and generation quality).
+- TD-378 (done in code: per-epoch BLEU is unsmoothed corpus BLEU, and the per-sample backfill uses a smoothed sentence BLEU with
+  effective order).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -9311,7 +9313,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Metrics / GenerationQuality | October 12, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 25, 2026 | Metrics / GenerationQuality | October 12, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `GenerationQualityMetrics` and verified against a textbook (Papineni et al.)
@@ -9335,9 +9337,32 @@ particular examples.
 
 Action Items:
 
-- [ ] Use unsmoothed corpus BLEU for the per-epoch metric, or a documented standard smoothing (Chen & Cherry 2014 method 1 — epsilon for zero-match orders — or add-1 for n ≥ 2 only); keep sentence-level BLEU only behind an explicitly smoothed function.
-- [ ] Handle hypotheses shorter than `n` the standard way, and fix the header's citation.
-- [ ] Add tests against known reference values (for example, sacreBLEU/NLTK outputs recorded as constants): unrelated → 0, scrambled → low, short exact match.
+- [x] Use unsmoothed corpus BLEU for the per-epoch metric, or a documented standard smoothing (Chen & Cherry 2014 method 1 — epsilon for zero-match orders — or add-1 for n ≥ 2 only); keep sentence-level BLEU only behind an explicitly smoothed function.
+- [x] Handle hypotheses shorter than `n` the standard way, and fix the header's citation.
+- [x] Add tests against known reference values (for example, sacreBLEU/NLTK outputs recorded as constants): unrelated → 0, scrambled → low, short exact match.
+
+**Fix (October 25, 2026).**
+- **Per-epoch score.** `evaluate()` reports unsmoothed corpus BLEU (Papineni et al.). Matches and n-gram counts are summed over every
+  pair, and an order with no matches makes the score 0. For a single pair, the textbook value of a 3-word answer's BLEU-4 is 0. With
+  the default 10 pairs that only happens when the model gets no 4-gram right anywhere.
+- **Per-sample score.** The new `sentence_bleu()` is the explicitly smoothed single-pair score, used by the per-sample backfill
+  (TD-273). It follows sacreBLEU's sentence settings: Chen & Cherry (2014) method 1 (an order with no matches counts 0.1 matches,
+  `smooth_method="floor"`) and effective order (orders the hypothesis is too short for are left out). An exactly correct 3-word answer
+  scores 1, and 5 unrelated words score 0.025.
+- The header's citation is corrected.
+
+Tests (`generation_quality_test.cpp`). sacreBLEU and NLTK aren't installed here, so the reference values come from an independent
+Python implementation of the published formulas, recorded as constants. The partial-match value, 0.537285, matches a hand
+calculation.
+- Corpus: an unrelated answer → 0, scrambled words → BLEU-4 0 (BLEU-1 1), partial match, brevity penalty, a corpus summed across
+  pairs, and a short exact match (BLEU-2 1, BLEU-4 0).
+- Sentence: reference values, and a correct short answer outranking an unrelated long one.
+
+The old code fails 5 of the 6 new corpus tests: unrelated BLEU-4 0.188, scrambled 0.359, short exact match 0.0067.
+`IdenticalReferenceShouldScoreOne` now expects exactly 1.
+
+Per-epoch BLEU-4 values from before this fix aren't comparable with later ones. The old numbers were inflated for poor outputs and
+deflated for short correct ones.
 
 Location in code: `src/GenerationQualityMetrics.cpp` (`compute_corpus_bleu()`), `src/GenerationQualityMetrics.hpp` (class comment); tagged `TODO: See TD-378`.
 

@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-25
 
 #include "GenerationQualityMetrics.hpp"
 
@@ -74,54 +74,74 @@ GenerationQualityEvaluator::Counts GenerationQualityEvaluator::count_ngrams(cons
     return c;
 }
 
-// ─── compute_corpus_bleu ──────────────────────────────────────────────────────
+// ─── BLEU ─────────────────────────────────────────────────────────────────────
 
-float GenerationQualityEvaluator::compute_corpus_bleu(const std::vector<TokenList>& refs,
-                                                      const std::vector<TokenList>& hyps,
-                                                      int max_n) {
-    std::vector<int> match_cnt(max_n, 0);
-    std::vector<int> hyp_cnt(max_n, 0);
-    int total_ref_len = 0;
-    int total_hyp_len = 0;
-
+GenerationQualityEvaluator::BleuStats GenerationQualityEvaluator::bleu_stats(
+    const std::vector<TokenList>& refs, const std::vector<TokenList>& hyps, int max_n) {
+    BleuStats st;
+    st.matches.assign(max_n, 0);
+    st.totals.assign(max_n, 0);
     for (size_t idx = 0; idx < refs.size(); ++idx) {
-        int r = static_cast<int>(refs[idx].size());
-        int h = static_cast<int>(hyps[idx].size());
-        total_ref_len += r;
-        total_hyp_len += h;
-
+        st.ref_len += static_cast<int>(refs[idx].size());
+        st.hyp_len += static_cast<int>(hyps[idx].size());
         for (int n = 1; n <= max_n; ++n) {
             Counts ref_ng = count_ngrams(refs[idx], n);
             Counts hyp_ng = count_ngrams(hyps[idx], n);
             for (auto& [ngram, cnt] : hyp_ng) {
-                hyp_cnt[n - 1] += cnt;
+                st.totals[n - 1] += cnt;
                 auto it = ref_ng.find(ngram);
                 if (it != ref_ng.end()) {
-                    match_cnt[n - 1] += std::min(cnt, it->second);
+                    st.matches[n - 1] += std::min(cnt, it->second);
                 }
             }
         }
     }
+    return st;
+}
 
-    // Brevity penalty (corpus-level)
-    float bp = 1.0f;
-    if (total_hyp_len < total_ref_len && total_hyp_len > 0) {
-        bp = std::exp(1.0f - static_cast<float>(total_ref_len) / static_cast<float>(total_hyp_len));
-    }
+float GenerationQualityEvaluator::brevity_penalty(int ref_len, int hyp_len) {
+    if (hyp_len <= 0)
+        return 0.0f;
+    if (hyp_len >= ref_len)
+        return 1.0f;
+    return std::exp(1.0f - static_cast<float>(ref_len) / static_cast<float>(hyp_len));
+}
 
-    // Geometric mean of smoothed modified precisions
-    float log_avg = 0.0f;
-    for (int n = 1; n <= max_n; ++n) {
-        int m = match_cnt[n - 1];
-        int h = hyp_cnt[n - 1];
-        // Add-1 smoothing: avoids log(0) when no n-gram matches exist
-        // TODO: See TD-378 in TECHNICAL_DEBT.md - applied to unigrams too, plus a fixed -20 for missing orders;
-        // distorts sentence- and small-corpus BLEU (unrelated 5-word answer: BLEU-4 0.23)
-        float prec = (h > 0) ? static_cast<float>(m + 1) / static_cast<float>(h + 1) : 0.0f;
-        log_avg += (prec > 0.0f) ? std::log(prec) : -20.0f;
+// TD-378: unsmoothed (Papineni et al.). The old add-1 on every order, unigrams included, plus a fixed
+// log of -20 for an order the hypotheses were too short to have, scored an unrelated 5-word answer
+// BLEU-4 0.23 and an exactly correct 3-word one 0.0067.
+float GenerationQualityEvaluator::compute_corpus_bleu(const std::vector<TokenList>& refs,
+                                                      const std::vector<TokenList>& hyps,
+                                                      int max_n) {
+    const BleuStats st = bleu_stats(refs, hyps, max_n);
+    double log_sum = 0.0;
+    for (int n = 0; n < max_n; ++n) {
+        if (st.matches[n] == 0)
+            return 0.0f;  // includes an order with no hypothesis n-grams at all
+        log_sum += std::log(static_cast<double>(st.matches[n]) / st.totals[n]);
     }
-    log_avg /= static_cast<float>(max_n);
-    return bp * std::exp(log_avg);
+    return brevity_penalty(st.ref_len, st.hyp_len) *
+           static_cast<float>(std::exp(log_sum / max_n));
+}
+
+float GenerationQualityEvaluator::sentence_bleu(const std::string& reference,
+                                                const std::string& hypothesis, int max_n) {
+    const std::vector<TokenList> refs = {tokenize(reference)};
+    const std::vector<TokenList> hyps = {tokenize(hypothesis)};
+    const BleuStats st = bleu_stats(refs, hyps, max_n);
+
+    constexpr double kFloor = 0.1;  // Chen & Cherry 2014 method 1 (sacreBLEU "floor")
+    int effective_order = 0;
+    double log_sum = 0.0;
+    for (int n = 0; n < max_n && st.totals[n] > 0; ++n) {
+        ++effective_order;
+        const double matches = st.matches[n] > 0 ? st.matches[n] : kFloor;
+        log_sum += std::log(matches / st.totals[n]);
+    }
+    if (effective_order == 0)
+        return 0.0f;
+    return brevity_penalty(st.ref_len, st.hyp_len) *
+           static_cast<float>(std::exp(log_sum / effective_order));
 }
 
 // ─── compute_corpus_rouge_n ───────────────────────────────────────────────────
