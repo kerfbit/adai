@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
+// @adai-version: 1.4.0
 // @adai-reviewed: 2026-10-25
 
 #include "MetricsPushClient.hpp"
@@ -429,10 +429,11 @@ void MetricsPushClient::update_padding_efficiency(float efficiency) {
 // ============================================================================
 
 void MetricsPushClient::update_generation_quality_metrics(float bleu4, float rouge1, float rouge2,
-                                                          float rougeL) {
+                                                          float rougeL, float bleu1, float bleu2) {
     std::ostringstream json;
     json << "{\"bleu4\":" << jnum(bleu4) << ",\"rouge1\":" << jnum(rouge1)
-         << ",\"rouge2\":" << jnum(rouge2) << ",\"rougeL\":" << jnum(rougeL) << "}";
+         << ",\"rouge2\":" << jnum(rouge2) << ",\"rougeL\":" << jnum(rougeL)
+         << ",\"bleu1\":" << jnum(bleu1) << ",\"bleu2\":" << jnum(bleu2) << "}";
     enqueue({EventPriority::Epoch, "/metrics/generation-quality", json.str()});
 }
 

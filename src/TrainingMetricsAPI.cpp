@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.13.0
+// @adai-version: 0.13.1
 // @adai-reviewed: 2026-10-25
 
 #include "TrainingMetricsAPI.hpp"
@@ -2653,7 +2653,10 @@ std::string TrainingMetricsAPI::handle_post_best_metrics(const std::string& sess
 std::string TrainingMetricsAPI::handle_post_generation_quality_metrics(
     const std::string& session_key, const std::string& body) {
     auto service = resolve_session_service(session_key, false);
-    // Parse JSON body: {"bleu4": float, "rouge1": float, "rouge2": float, "rougeL": float}
+    // Parse JSON body: {"bleu4": float, "rouge1": float, "rouge2": float, "rougeL": float,
+    // "bleu1": float, "bleu2": float} (TD-379: bleu1/bleu2 optional, -1 when absent)
+    float bleu1 = -1.0f;
+    float bleu2 = -1.0f;
     float bleu4 = -1.0f;
     float rouge1 = -1.0f;
     float rouge2 = -1.0f;
@@ -2688,7 +2691,18 @@ std::string TrainingMetricsAPI::handle_post_generation_quality_metrics(
         }
     }
 
-    service->update_generation_quality_metrics(bleu4, rouge1, rouge2, rougeL);
+    for (auto [key, field] : {std::pair<const char*, float*>{"\"bleu1\"", &bleu1},
+                              std::pair<const char*, float*>{"\"bleu2\"", &bleu2}}) {
+        pos = body.find(key);
+        if (pos != std::string::npos) {
+            pos = body.find(':', pos);
+            if (pos != std::string::npos) {
+                *field = parse_json_float(body.substr(pos + 1));
+            }
+        }
+    }
+
+    service->update_generation_quality_metrics(bleu4, rouge1, rouge2, rougeL, bleu1, bleu2);
     return R"({"status":"ok"})";
 }
 

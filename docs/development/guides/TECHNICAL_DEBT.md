@@ -1244,6 +1244,7 @@ The run is complete.
   gradient variance and generation quality).
 - TD-378 (done in code: per-epoch BLEU is unsmoothed corpus BLEU, and the per-sample backfill uses a smoothed sentence BLEU with
   effective order).
+- TD-379 (done in code: BLEU-1/BLEU-2 travel from the trainer to the DB row).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -9377,7 +9378,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Metrics / GenerationQuality | October 12, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 25, 2026 | Metrics / GenerationQuality | October 12, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `GenerationQualityMetrics`, by inspection. `evaluate()` computes `bleu1` and
@@ -9388,7 +9389,18 @@ that look like data but never hold any.
 
 Action Items:
 
-- [ ] Pass the whole `GenerationQualityScore` through the reporter interface (and the push client/API if the dashboards should show them), or drop the two fields and columns.
+- [x] Pass the whole `GenerationQualityScore` through the reporter interface (and the push client/API if the dashboards should show them), or drop the two fields and columns.
+
+**Fix (October 25, 2026).** `IMetricsReporter::update_generation_quality_metrics()` takes `bleu1` and `bleu2` as two trailing
+arguments (default -1, so existing callers compile unchanged). They pass through the whole chain:
+- `ChatbotTrainer` sends them from both the synchronous and the asynchronous paths;
+- `MetricsPushClient` adds them to the JSON;
+- the API reads them as optional fields;
+- `TrainingMetricsService` stores them in the DB row.
+
+Older clients that don't send them still store -1. They're readable through TD-440's `…/metrics/db-generation-quality` route. Test
+`PushedBleu1AndBleu2AreStored` (`training_metrics_api_routes_test.cpp`): the real push client sends BLEU-1 0.75 and BLEU-2 0.5 to the
+real API with a SQLite store, and both values come back from the DB.
 
 Location in code: `src/TrainingMetricsService.cpp` (`update_generation_quality_metrics()`); tagged `TODO: See TD-379`.
 

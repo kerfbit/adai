@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.10.0
+// @adai-version: 0.11.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -337,8 +337,11 @@ class TrainingMetricsService {
      * @param rouge1  ROUGE-1 F1 (0–1, or -1 if not available)
      * @param rouge2  ROUGE-2 F1 (0–1, or -1 if not available)
      * @param rougeL  ROUGE-L F1 (0–1, or -1 if not available)
+     * @param bleu1   BLEU-1 (TD-379: stored in the DB row; -1 if not available)
+     * @param bleu2   BLEU-2 (TD-379)
      */
-    void update_generation_quality_metrics(float bleu4, float rouge1, float rouge2, float rougeL);
+    void update_generation_quality_metrics(float bleu4, float rouge1, float rouge2, float rougeL,
+                                           float bleu1 = -1.0f, float bleu2 = -1.0f);
 
     /**
      * @brief Update batch padding efficiency for the current epoch.

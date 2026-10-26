@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.17.1
+// @adai-version: 0.17.2
 // @adai-reviewed: 2026-10-25
 
 #include "ChatbotTrainer.hpp"
@@ -1961,7 +1961,7 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
                 GenerationQualityScore score =
                     GenerationQualityEvaluator::evaluate(refs, hypotheses);
                 reporter->update_generation_quality_metrics(score.bleu4, score.rouge1, score.rouge2,
-                                                            score.rougeL);
+                                                            score.rougeL, score.bleu1, score.bleu2);
             }
         });
         return;
@@ -2000,7 +2000,7 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
 
     GenerationQualityScore score = GenerationQualityEvaluator::evaluate(references, hypotheses);
     metrics_reporter_->update_generation_quality_metrics(score.bleu4, score.rouge1, score.rouge2,
-                                                         score.rougeL);
+                                                         score.rougeL, score.bleu1, score.bleu2);
 }
 
 // TODO: See TD-273 in TECHNICAL_DEBT.md - writes meta.quality into private copies nobody reads (no accessor;

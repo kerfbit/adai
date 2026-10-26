@@ -162,3 +162,9 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 Tokenization (TD-380) is unchanged, so the scores still aren't comparable with published numbers. Tests:
 `GenerationQualityBLEUReference.*`, `GenerationQualitySentenceBLEU.*`.
+
+## Addendum (October 25, 2026): BLEU-1/2 stored (TD-379)
+
+`bleu1`/`bleu2` now reach the metrics DB. `IMetricsReporter::update_generation_quality_metrics()` takes them as two trailing arguments
+(default -1), and the push client, API and `TrainingMetricsService` carry them into the `generation_quality` row. Test:
+`PushedBleu1AndBleu2AreStored`.

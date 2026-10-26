@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.3.0
+// @adai-version: 1.4.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -261,8 +261,8 @@ class MetricsPushClient final : public IMetricsReporter {
     void update_layer_gradient_norms(const std::vector<float>& encoder_layer_norms,
                                      const std::vector<float>& decoder_layer_norms) override;
     void update_padding_efficiency(float efficiency) override;
-    void update_generation_quality_metrics(float bleu4, float rouge1, float rouge2,
-                                           float rougeL) override;
+    void update_generation_quality_metrics(float bleu4, float rouge1, float rouge2, float rougeL,
+                                           float bleu1 = -1.0f, float bleu2 = -1.0f) override;
     void update_lejepa_metrics(float predictor_loss, float sigreg_loss) override;
     void update_lejepa_advanced_metrics(float masking_ratio, float predictor_target_cosine_sim,
                                         float sigreg_variance_mean,

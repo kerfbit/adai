@@ -983,3 +983,24 @@ TEST_F(TrainingMetricsAPIRoutesTest, RetentionSettingsAreAdminMutable) {
     EXPECT_EQ(cfg.metrics_file_max_mb, 50);
     EXPECT_EQ(cfg.metrics_file_backups, 1);
 }
+
+// TD-379: BLEU-1/BLEU-2 travel from the push client through the API into the DB row. They used to
+// be dropped on the way, so the bleu1/bleu2 columns always held -1.
+TEST_F(TrainingMetricsAPIDbRoutesTest, PushedBleu1AndBleu2AreStored) {
+    MetricsPushClient pc("http://127.0.0.1:" + std::to_string(port_) + "/api/sessions/gq1", 2000);
+    ASSERT_EQ(pc.start_session(1, 1, 10, "", ""), 200);
+    pc.start_epoch(1, 10);
+    pc.update_generation_quality_metrics(0.25f, 0.6f, 0.3f, 0.55f, 0.75f, 0.5f);
+    pc.end_session();  // drains the queue
+
+    auto client = make_client();
+    auto res = client.Get("/api/sessions/gq1/metrics/db-generation-quality");
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200) << res->body;
+    auto j = nlohmann::json::parse(res->body);
+    ASSERT_EQ(j["count"], 1) << res->body;
+    EXPECT_FLOAT_EQ(j["records"][0]["bleu1"].get<float>(), 0.75f);
+    EXPECT_FLOAT_EQ(j["records"][0]["bleu2"].get<float>(), 0.5f);
+    EXPECT_FLOAT_EQ(j["records"][0]["bleu4"].get<float>(), 0.25f);
+    EXPECT_FLOAT_EQ(j["records"][0]["rougeL"].get<float>(), 0.55f);
+}

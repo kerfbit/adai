@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.10.0
+// @adai-version: 0.11.0
 // @adai-reviewed: 2026-10-25
 
 #include "TrainingMetricsService.hpp"
@@ -1749,7 +1749,8 @@ void TrainingMetricsService::update_adaptive_clip_epoch(float avg_clip_threshold
 // ─────────────────────────────────────────────────────────────────────────────
 
 void TrainingMetricsService::update_generation_quality_metrics(float bleu4, float rouge1,
-                                                               float rouge2, float rougeL) {
+                                                               float rouge2, float rougeL,
+                                                               float bleu1, float bleu2) {
     std::string push_json;
     bool should_push = false;
     {
@@ -1763,8 +1764,10 @@ void TrainingMetricsService::update_generation_quality_metrics(float bleu4, floa
         // DB write (TD-020)
         if (db_ && !session_key_.empty()) {
             try {
-                // TODO: See TD-379 in TECHNICAL_DEBT.md - bleu1/bleu2 are dropped here, so their DB columns are always -1
+                // TD-379: bleu1/bleu2 used to be dropped on the way here, so their columns always held -1.
                 GenerationQualityScore score;
+                score.bleu1 = bleu1;
+                score.bleu2 = bleu2;
                 score.bleu4 = bleu4;
                 score.rouge1 = rouge1;
                 score.rouge2 = rouge2;

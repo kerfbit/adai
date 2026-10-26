@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-23
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-25
 
 
 #include <chrono>
@@ -160,8 +160,11 @@ class IMetricsReporter {
     /// @param rouge1  Macro-avg ROUGE-1 F1
     /// @param rouge2  Macro-avg ROUGE-2 F1
     /// @param rougeL  Macro-avg ROUGE-L F1
+    /// @param bleu1   Corpus BLEU-1 (TD-379: stored in the metrics DB; -1 = not sent)
+    /// @param bleu2   Corpus BLEU-2 (TD-379)
     virtual void update_generation_quality_metrics(float bleu4, float rouge1, float rouge2,
-                                                   float rougeL) = 0;
+                                                   float rougeL, float bleu1 = -1.0f,
+                                                   float bleu2 = -1.0f) = 0;
 
     // ── LeJEPA world-model pretraining metrics (TD-178) ──────────────────────
 
@@ -221,7 +224,8 @@ class NullMetricsReporter final : public IMetricsReporter {
                                      const std::vector<float>& /*decoder_layer_norms*/) override {}
     void update_padding_efficiency(float /*efficiency*/) override {}
     void update_generation_quality_metrics(float /*bleu4*/, float /*rouge1*/, float /*rouge2*/,
-                                           float /*rougeL*/) override {}
+                                           float /*rougeL*/, float /*bleu1*/ = -1.0f,
+                                           float /*bleu2*/ = -1.0f) override {}
     void update_lejepa_metrics(float /*predictor_loss*/, float /*sigreg_loss*/) override {}
     void update_lejepa_advanced_metrics(float /*masking_ratio*/,
                                         float /*predictor_target_cosine_sim*/,

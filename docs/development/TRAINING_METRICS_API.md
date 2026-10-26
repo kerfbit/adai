@@ -830,8 +830,11 @@ Response: `{"status":"ok"}`
 Push BLEU/ROUGE scores for the current epoch.
 
 ```json
-{"bleu4": 0.3125, "rouge1": 0.4876, "rouge2": 0.2812, "rougeL": 0.4218}
+{"bleu4": 0.3125, "rouge1": 0.4876, "rouge2": 0.2812, "rougeL": 0.4218, "bleu1": 0.61, "bleu2": 0.44}
 ```
+
+`bleu1`/`bleu2` are optional (TD-379, October 25, 2026). They're stored in the DB's generation quality row, served by
+`…/metrics/db-generation-quality`; when absent they're stored as -1.
 
 Response: `{"status":"ok"}`
 

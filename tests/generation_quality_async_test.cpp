@@ -54,7 +54,8 @@ class RecordingMetricsReporter final : public IMetricsReporter {
     void update_layer_gradient_norms(const std::vector<float>&,
                                      const std::vector<float>&) override {}
     void update_padding_efficiency(float) override {}
-    void update_generation_quality_metrics(float bleu4, float, float, float) override {
+    void update_generation_quality_metrics(float bleu4, float, float, float, float = -1.0f,
+                                           float = -1.0f) override {
         std::lock_guard<std::mutex> lk(score_mutex);
         last_bleu4 = bleu4;
         generation_quality_call_count.fetch_add(1, std::memory_order_relaxed);
