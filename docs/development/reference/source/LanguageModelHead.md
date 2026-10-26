@@ -105,3 +105,12 @@ none of which exist here), and its unsourced complexity and performance tables. 
 `EncoderDecoderModel`'s beam callbacks pass only the decoder's last row to `forward()`. The head is row-wise, so this is exact. A
 60-token beam run (width 4, vocab 4,000) went from 6.9 s to 4.2 s in the debug build. Since TD-506 (same day) `ChatbotAPI`'s CPU
 callbacks use `EncoderDecoderModel::next_token_logits()`, which also projects only the last row.
+
+## Addendum (October 26, 2026): checked checkpoint I/O (TD-423)
+
+`save()`/`load()` use `adai::binio::Reader`/`Writer` (`src/BinaryIO.{hpp,cpp}`).
+- **Loading.** A file that is short, empty or longer than this layer's shapes throws `std::runtime_error`. The whole file is read
+  into temporaries first, so a failed load leaves the layer unchanged.
+- **Saving.** A failed write or flush (a full disk) throws instead of leaving a short file.
+
+Tests: `LanguageModelHeadPersistenceTest.*`, `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad` (all 22 sidecars of a checkpoint, one byte short and one byte long: 43 of 44 cases loaded on the old code).

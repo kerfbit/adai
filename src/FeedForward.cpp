@@ -1,8 +1,9 @@
 // @adai-status: stable        (TD-195 — backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.1.1
+// @adai-reviewed: 2026-10-26
 
 #include "FeedForward.hpp"
+#include "BinaryIO.hpp"
 #include "gpu/GPUParamSync.hpp"
 #include <cmath>
 #include <fstream>
@@ -281,56 +282,24 @@ void FeedForward::clip_gradients(float max_norm) {
 }
 
 void FeedForward::save_weights(const std::string& filename) const {
-    std::ofstream file(filename, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for writing: " + filename);
-    }
-
-    // Write dimensions
-    file.write(reinterpret_cast<const char*>(&d_model), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&d_ff), sizeof(int));
-
-    // Write W1
-    for (int i = 0; i < d_model; ++i) {
-        for (int j = 0; j < d_ff; ++j) {
-            file.write(reinterpret_cast<const char*>(&W1(i, j)), sizeof(float));
-        }
-    }
-
-    // Write W2
-    for (int i = 0; i < d_ff; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            file.write(reinterpret_cast<const char*>(&W2(i, j)), sizeof(float));
-        }
-    }
-
-    // Write b1
-    for (int i = 0; i < d_ff; ++i) {
-        file.write(reinterpret_cast<const char*>(&b1(0, i)), sizeof(float));
-    }
-
-    // Write b2
-    for (int i = 0; i < d_model; ++i) {
-        file.write(reinterpret_cast<const char*>(&b2(0, i)), sizeof(float));
-    }
-
-    // TODO: See TD-369 in TECHNICAL_DEBT.md - write errors unchecked; TD-370: std::cout in library code
+    adai::binio::Writer file(filename);  // TD-423/TD-369: checked writes
+    file.value(d_model, "d_model");
+    file.value(d_ff, "d_ff");
+    file.matrix(W1, "W1");
+    file.matrix(W2, "W2");
+    file.matrix(b1, "b1");
+    file.matrix(b2, "b2");
     file.close();
+    // TODO: See TD-370 in TECHNICAL_DEBT.md - std::cout in library code
     std::cout << "Saved FeedForward weights to " << filename << '\n';
 }
 
 void FeedForward::load_weights(const std::string& filename) {
-    std::ifstream file(filename, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for reading: " + filename);
-    }
-
-    // Read dimensions
-    // TODO: See TD-369 in TECHNICAL_DEBT.md - reads unchecked: a truncated file loads partially, keeps the old
-    // weights for the rest, and doesn't throw
-    int loaded_d_model = 0, loaded_d_ff = 0;
-    file.read(reinterpret_cast<char*>(&loaded_d_model), sizeof(int));
-    file.read(reinterpret_cast<char*>(&loaded_d_ff), sizeof(int));
+    // TD-423/TD-369: checked reads; a truncated file used to load partially, keep the old weights for
+    // the rest and not throw. The weights change only after the whole file has been read.
+    adai::binio::Reader file(filename);
+    const int loaded_d_model = file.value<int>("d_model");
+    const int loaded_d_ff = file.value<int>("d_ff");
 
     // Validate dimensions
     if (loaded_d_model != d_model || loaded_d_ff != d_ff) {
@@ -340,31 +309,15 @@ void FeedForward::load_weights(const std::string& filename) {
                                  ", d_ff=" + std::to_string(loaded_d_ff));
     }
 
-    // Read W1
-    for (int i = 0; i < d_model; ++i) {
-        for (int j = 0; j < d_ff; ++j) {
-            file.read(reinterpret_cast<char*>(&W1(i, j)), sizeof(float));
-        }
-    }
-
-    // Read W2
-    for (int i = 0; i < d_ff; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            file.read(reinterpret_cast<char*>(&W2(i, j)), sizeof(float));
-        }
-    }
-
-    // Read b1
-    for (int i = 0; i < d_ff; ++i) {
-        file.read(reinterpret_cast<char*>(&b1(0, i)), sizeof(float));
-    }
-
-    // Read b2
-    for (int i = 0; i < d_model; ++i) {
-        file.read(reinterpret_cast<char*>(&b2(0, i)), sizeof(float));
-    }
-
-    file.close();
+    Matrix w1 = file.matrix(d_model, d_ff, "W1");
+    Matrix w2 = file.matrix(d_ff, d_model, "W2");
+    Matrix bias1 = file.matrix(1, d_ff, "b1");
+    Matrix bias2 = file.matrix(1, d_model, "b2");
+    file.expect_end();
+    W1 = std::move(w1);
+    W2 = std::move(w2);
+    b1 = std::move(bias1);
+    b2 = std::move(bias2);
     std::cout << "Loaded FeedForward weights from " << filename << '\n';
 }
 

@@ -1276,11 +1276,14 @@ The metrics pipeline run is complete.
 - TD-506 (done in code: `ChatbotAPI`'s CPU callbacks use the aligned `next_token_logits()`, so a trained model answers correctly on a
   CPU server; it projects only the last row, finishing TD-424).
 - TD-514/515 (done in code: a beam width below 1 throws instead of crashing, and a temperature of 0 or below is greedy in every strategy).
+- TD-516 (done in code, owner's choices: `max_length` counts new tokens, `min_length` and exact beam early stopping are implemented,
+  non-finite logits throw, the repetition penalty runs before filtering, and `top_p <= 0` is top-1).
 - TD-507/508 (done in code: speculative sampling verifies all K proposals in one target pass with the full-draft residual and a bonus
   token, is exactly greedy in greedy mode, applies one temperature to both models, caps output, reports tokens per target pass, and
   the server's draft takes its own checkpoint's architecture).
-- TD-516 (done in code, owner's choices: `max_length` counts new tokens, `min_length` and exact beam early stopping are implemented,
-  non-finite logits throw, the repetition penalty runs before filtering, and `top_p <= 0` is top-1).
+- TD-423 (done in code, owner's choice of every checkpoint loader: shared checked `adai::binio` reads and writes, so a truncated,
+  over-long or short-written sidecar fails the load or save instead of loading NaN or stale weights; this also closes TD-298 and
+  TD-369 and the load/save-check items of TD-345, 348, 357, 367, 426, 467 and 518).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6919,7 +6922,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Attention / CrossAttention | October 10, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 26, 2026 | Attention / CrossAttention | October 10, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-297 and confirmed by running the real class. `load()` pre-sets each value to
@@ -6931,11 +6934,13 @@ checkpoint path is SafeTensors (`ModelSerializer`).
 
 Action Items:
 
-- [ ] Check the stream after every read (and the file size up front); throw on short reads.
-- [ ] Read the header into locals and assign `learning_rate` only after validation; check `save()`'s stream before returning.
-- [ ] Test: truncated and empty files throw and leave the layer unchanged.
+- [x] Check the stream after every read (and the file size up front); throw on short reads.
+- [x] Read the header into locals and assign `learning_rate` only after validation; check `save()`'s stream before returning.
+- [x] Test: truncated and empty files throw and leave the layer unchanged.
 
-Location in code: `src/CrossAttention.cpp` (`load()`, `save()`); tagged `TODO: See TD-298`.
+**Load/save checks (October 26, 2026, with TD-423).** `save()`/`load()` reads and writes through `adai::binio` (`src/BinaryIO.{hpp,cpp}`): a short or over-long file throws `std::runtime_error`, the file is read into temporaries before anything changes, and a failed write or flush throws. Covered by `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad` and `CrossAttentionPersistenceTest.TruncatedOrEmptyFileThrowsAndLeavesTheLayerUnchanged`; `learning_rate` is assigned only after the whole file is read and validated.
+
+Location in code: `src/CrossAttention.cpp` (`load()`, `save()`); no longer tagged.
 
 Files to Modify:
 
@@ -8444,6 +8449,8 @@ Action Items:
 
 - [ ] Check reads in `load()` and validate before assigning; add SafeTensors entries (and accessors) for the gates and gated sub-layers.
 
+**Load/save checks (October 26, 2026, with TD-423).** `DecoderBlock::save()`/`load()` (flags and gates included; `dropout_rate`/`learning_rate` assigned only after validation) reads and writes through `adai::binio` (`src/BinaryIO.{hpp,cpp}`): a short or over-long file throws `std::runtime_error`, the file is read into temporaries before anything changes, and a failed write or flush throws. Covered by `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`. This TD's other items stay open.
+
 Location in code: `src/DecoderBlock.cpp` (`load()`); tagged `TODO: See TD-345`.
 
 Files to Modify:
@@ -8549,6 +8556,8 @@ Found alongside TD-346, by inspection:
 Action Items:
 
 - [ ] Remove the empty loop, the unused copy and (if still unused) `forward_with_mask()`; check header reads; validate constructor arguments; guard the zero-layer case.
+
+**Load/save checks (October 26, 2026, with TD-423).** `LLMDecoder::save_weights()`/`load_weights()`'s header reads and writes through `adai::binio` (`src/BinaryIO.{hpp,cpp}`): a short or over-long file throws `std::runtime_error`, the file is read into temporaries before anything changes, and a failed write or flush throws. Covered by `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`. This TD's other items stay open.
 
 Location in code: `src/Decoder.cpp` (`set_training()`, `forward_with_encoder()`, `load_weights()`, `gpu_backward()`); tagged `TODO: See TD-348`.
 
@@ -8693,6 +8702,8 @@ code.
 Action Items:
 
 - [ ] Add `set_learning_rate()` (propagating to sub-layers, like `DecoderBlock`'s) and stop overwriting in `update_weights()`; check reads in `load_weights()`; switch output to `Logger`.
+
+**Load/save checks (October 26, 2026, with TD-423).** `EncoderBlock::save_weights()`/`load_weights()` reads and writes through `adai::binio` (`src/BinaryIO.{hpp,cpp}`): a short or over-long file throws `std::runtime_error`, the file is read into temporaries before anything changes, and a failed write or flush throws. Covered by `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`. This TD's other items stay open.
 
 Location in code: `src/EncoderBlock.cpp` (`update_weights()`, `load_weights()`, `save_weights()`, `print_config()`); tagged `TODO: See TD-357`.
 
@@ -9067,6 +9078,8 @@ Action Items:
 - [ ] Switch to `adai::Logger` (debug level for the per-call message).
 - [ ] Check header reads and writes, and decide whether `max_seq_length` must match (harmless for sinusoidal encoding, so a warning is enough).
 
+**Load/save checks (October 26, 2026, with TD-423).** `LLMEncoder::save_weights()`/`load_weights()`'s header reads and writes through `adai::binio` (`src/BinaryIO.{hpp,cpp}`): a short or over-long file throws `std::runtime_error`, the file is read into temporaries before anything changes, and a failed write or flush throws. Covered by `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`. This TD's other items stay open.
+
 Location in code: `src/LLMEncoder.cpp` (constructor, `encode()`, `save_weights()`, `load_weights()`); tagged `TODO: See TD-367`.
 
 Files to Modify:
@@ -9111,7 +9124,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Transformer / FeedForward | October 12, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 26, 2026 | Transformer / FeedForward | October 12, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `FeedForward` and verified. `load_weights()` checks the two dimension ints but
@@ -9124,11 +9137,13 @@ doesn't check its writes. Same class as TD-298, TD-345, TD-357 and TD-367.
 
 Action Items:
 
-- [ ] Check the file size up front (`8 + 4·(2·d_model·d_ff + d_ff + d_model)` bytes), read into temporaries, check the stream, and assign only on success.
-- [ ] Check `save_weights()`'s stream before returning; write each matrix in one call rather than one float at a time.
-- [ ] Test: truncated and empty files throw and leave the layer unchanged.
+- [x] Check the file size up front (`8 + 4·(2·d_model·d_ff + d_ff + d_model)` bytes), read into temporaries, check the stream, and assign only on success.
+- [x] Check `save_weights()`'s stream before returning; write each matrix in one call rather than one float at a time. (One call per row.)
+- [x] Test: truncated and empty files throw and leave the layer unchanged.
 
-Location in code: `src/FeedForward.cpp` (`load_weights()`, `save_weights()`); tagged `TODO: See TD-369`.
+**Load/save checks (October 26, 2026, with TD-423).** `save_weights()`/`load_weights()` reads and writes through `adai::binio` (`src/BinaryIO.{hpp,cpp}`): a short or over-long file throws `std::runtime_error`, the file is read into temporaries before anything changes, and a failed write or flush throws. Covered by `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad` and `FeedForwardPersistenceTest.TruncatedOrEmptyFileThrowsAndLeavesTheLayerUnchanged`.
+
+Location in code: `src/FeedForward.cpp` (`load_weights()`, `save_weights()`); no longer tagged (TD-370's console output remains).
 
 Files to Modify:
 
@@ -11130,7 +11145,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Models / LanguageModelHead | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 26, 2026 | Models / LanguageModelHead | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `LanguageModelHead` and verified. `load()` checks the two dimension ints, then
@@ -11143,10 +11158,39 @@ Same defect as TD-298 (`CrossAttention::load()`).
 
 Action Items:
 
-- [ ] Check the file size (or the stream after each read) and throw on short files, leaving the head unchanged; check `save()`'s stream.
-- [ ] Do this with the other legacy loaders (TD-298, TD-345, TD-357, TD-367, TD-369).
+- [x] Check the file size (or the stream after each read) and throw on short files, leaving the head unchanged; check `save()`'s stream.
+- [x] Do this with the other legacy loaders (TD-298, TD-345, TD-357, TD-367, TD-369). (Owner chose every checkpoint loader, October 26, 2026.)
 
-Location in code: `src/LanguageModelHead.cpp` (`load()`, `save()`); tagged `TODO: See TD-423`.
+**Fix (October 26, 2026).** The new `adai::binio::Reader`/`Writer` (`src/BinaryIO.{hpp,cpp}`, in `adai_core`) handle checkpoint I/O:
+- **Reads.** A short read throws `std::runtime_error` naming the file and field, and `expect_end()` rejects trailing bytes, so a file
+  that doesn't match the model's shapes fails too.
+- **Writes.** Matrices are written a row at a time, and `close()` throws when a write or the final flush failed (a full disk).
+
+Every file `save_model()`/`load_model()` touches uses them:
+- `.config` and the encoder and decoder headers (`LLMEncoder`, `LLMDecoder`);
+- token embeddings, layer norms (including the encoder/decoder final norms) and the LM head;
+- self- and cross-attention, feed-forward;
+- encoder and decoder blocks, including the gated paths' flags and gates.
+
+Each loader reads its whole file into temporaries and validates it before changing anything, so a failed load leaves that layer as it
+was. `CrossAttention`/`DecoderBlock` no longer overwrite `learning_rate`/`dropout_rate` before the dimensions are checked.
+
+Not covered:
+- `load_model()` reads its files one after another, so a failure in a later file leaves earlier layers already replaced. Callers
+  treat the throw as a failed load.
+- The `.vocab` text file (TD-223), other formats (`.optimizer` training state, `LeJEPAEncoder`, `HippocampalMemory`) and the
+  remaining items of each loader's own TD stay open.
+
+Tests:
+- `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`: each of the 22 binary sidecars of a 2+2-layer checkpoint is cut one
+  byte short, then grown one byte long, and `load_model()` must throw each time. On the old code 43 of the 44 cases loaded without
+  error.
+- `LanguageModelHeadPersistenceTest.TruncatedFileThrowsAndLeavesTheHeadUnchanged` and `FailedWriteThrows` (`/dev/full`), both
+  failing on the old code.
+- `CrossAttentionPersistenceTest`/`FeedForwardPersistenceTest`.TruncatedOrEmptyFileThrowsAndLeavesTheLayerUnchanged.
+- `BinaryIOTest.*`.
+
+Location in code: `src/BinaryIO.{hpp,cpp}`, `src/LanguageModelHead.cpp`, and the loaders listed above.
 
 Files to Modify:
 
@@ -11243,6 +11287,8 @@ Found while tracing `LayerNorm`; the first two items verified:
 Action Items:
 
 - [ ] Throw `invalid_argument` from the setters and on shape mismatches; check reads and writes (with the other legacy loaders, Tier 55); switch to `adai::Logger`; guard `gpu_backward()`; refresh the GPU mirror in the setters.
+
+**Load/save checks (October 26, 2026, with TD-423).** `LayerNorm::save_weights()`/`load_weights()` reads and writes through `adai::binio` (`src/BinaryIO.{hpp,cpp}`): a short or over-long file throws `std::runtime_error`, the file is read into temporaries before anything changes, and a failed write or flush throws. Covered by `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`. This TD's other items stay open.
 
 Location in code: `src/LayerNorm.cpp` (`forward()`, `set_gamma()`/`set_beta()`, `load_weights()`, `gpu_backward()`); tagged `TODO: See TD-426`.
 
@@ -12892,7 +12938,9 @@ Found while tracing `MultiHeadAttention` (whose per-head backward was verified c
 
 Action Items:
 
-- [ ] Check every read in `load_weights()` (and writes in `save_weights()`), throwing on a short file; do it with Tier 55's shared loader fix.
+- [x] Check every read in `load_weights()` (and writes in `save_weights()`), throwing on a short file; do it with Tier 55's shared loader fix.
+
+**Load/save checks (October 26, 2026, with TD-423).** `save_weights()`/`load_weights()` reads and writes through `adai::binio` (`src/BinaryIO.{hpp,cpp}`): a short or over-long file throws `std::runtime_error`, the file is read into temporaries before anything changes, and a failed write or flush throws. Covered by `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.
 - [ ] Validate `num_heads > 0` before computing `d_k`.
 - [ ] Use raw row pointers in the per-head loops (or per-head GEMMs); replace console output with `Logger`.
 
@@ -14936,6 +14984,8 @@ Action Items:
 
 - [ ] Check every read and the file size in `load_pretrained()`; validate sizes and `set_embeddings()`'s shape.
 - [ ] Zero/update only touched rows (track them in `backward()`); use `Logger`; drop the unused cache.
+
+**Load/save checks (October 26, 2026, with TD-423).** `TokenEmbedding::save_embeddings()`/`load_pretrained()` reads and writes through `adai::binio` (`src/BinaryIO.{hpp,cpp}`): a short or over-long file throws `std::runtime_error`, the file is read into temporaries before anything changes, and a failed write or flush throws. Covered by `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`. This TD's other items stay open.
 
 Location in code: `src/TokenEmbedding.cpp` (`load_pretrained()`, `zero_grad()`, `update_weights()`, constructor, `set_embeddings()`); tagged `TODO: See TD-518`.
 

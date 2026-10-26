@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.27.0
+// @adai-version: 0.27.1
 // @adai-reviewed: 2026-10-26
 
 #include "EncoderDecoderModel.hpp"
@@ -12,6 +12,7 @@
 #include <sstream>
 #include <stdexcept>
 #include "HippocampalMemory.hpp"  // TD-185: forward-declared in the header, complete type needed here
+#include "BinaryIO.hpp"
 #include "LeJEPAEncoder.hpp"      // TD-182: forward-declared in the header, complete type needed here
 #include "Logger.hpp"
 #include "Optimizer.hpp"
@@ -903,22 +904,15 @@ TextGenerator::GenerationConfig EncoderDecoderModel::get_generation_config() con
 // Save model
 void EncoderDecoderModel::save_model(const std::string& filepath) const {
     // Save architecture config
-    std::ofstream config_file(filepath + ".config", std::ios::binary);
-    if (!config_file.is_open()) {
-        throw std::runtime_error("Failed to open config file for writing: " + filepath + ".config");
+    // TD-423: every sidecar is written with checked writes, so a full disk fails the save instead
+    // of leaving a short file that loads as garbage.
+    adai::binio::Writer config_file(filepath + ".config");
+    config_file.value(kConfigMagic, "format marker");
+    config_file.value(kConfigFormatVersion, "format version");
+    for (int field : {vocab_size, d_model, encoder_layers, decoder_layers, num_heads, d_ff,
+                      max_seq_length, bos_token_id, eos_token_id, pad_token_id}) {
+        config_file.value(field, "architecture");
     }
-    config_file.write(reinterpret_cast<const char*>(&kConfigMagic), sizeof(int32_t));
-    config_file.write(reinterpret_cast<const char*>(&kConfigFormatVersion), sizeof(int32_t));
-    config_file.write(reinterpret_cast<const char*>(&vocab_size), sizeof(int));
-    config_file.write(reinterpret_cast<const char*>(&d_model), sizeof(int));
-    config_file.write(reinterpret_cast<const char*>(&encoder_layers), sizeof(int));
-    config_file.write(reinterpret_cast<const char*>(&decoder_layers), sizeof(int));
-    config_file.write(reinterpret_cast<const char*>(&num_heads), sizeof(int));
-    config_file.write(reinterpret_cast<const char*>(&d_ff), sizeof(int));
-    config_file.write(reinterpret_cast<const char*>(&max_seq_length), sizeof(int));
-    config_file.write(reinterpret_cast<const char*>(&bos_token_id), sizeof(int));
-    config_file.write(reinterpret_cast<const char*>(&eos_token_id), sizeof(int));
-    config_file.write(reinterpret_cast<const char*>(&pad_token_id), sizeof(int));
     config_file.close();
 
     // Save tokenizer vocabulary
@@ -937,17 +931,11 @@ void EncoderDecoderModel::save_model(const std::string& filepath) const {
 }
 
 // Load model
-// TODO: See TD-363 in TECHNICAL_DEBT.md - config reads unchecked; special tokens not synced into the generator config
+// TODO: See TD-363 in TECHNICAL_DEBT.md - special tokens not synced into the generator config
 EncoderDecoderModel::CheckpointArchitecture EncoderDecoderModel::read_checkpoint_architecture(
     const std::string& filepath) {
-    std::ifstream config_file(filepath + ".config", std::ios::binary);
-    if (!config_file.is_open()) {
-        throw std::runtime_error("Failed to load model config");
-    }
-
-    int32_t magic = 0, format_version = 0;
-    config_file.read(reinterpret_cast<char*>(&magic), sizeof(int32_t));
-    config_file.read(reinterpret_cast<char*>(&format_version), sizeof(int32_t));
+    adai::binio::Reader config_file(filepath + ".config");  // TD-423: checked reads
+    const int32_t magic = config_file.value<int32_t>("format marker");
     if (magic != kConfigMagic) {
         throw std::runtime_error(
             "Checkpoint format marker missing/invalid — this looks like a pre-Pre-LN (Post-LN) "
@@ -955,6 +943,7 @@ EncoderDecoderModel::CheckpointArchitecture EncoderDecoderModel::read_checkpoint
             "current Pre-LN EncoderBlock/DecoderBlock math (same weight shapes, different "
             "meaning — loading it would silently produce garbage). Retrain from scratch.");
     }
+    const int32_t format_version = config_file.value<int32_t>("format version");
     if (format_version < kConfigFormatVersion) {
         throw std::runtime_error("Unsupported older checkpoint format_version " +
                                  std::to_string(format_version) + " (current: " +
@@ -965,11 +954,9 @@ EncoderDecoderModel::CheckpointArchitecture EncoderDecoderModel::read_checkpoint
     for (int* field : {&arch.vocab_size, &arch.d_model, &arch.encoder_layers, &arch.decoder_layers,
                        &arch.num_heads, &arch.d_ff, &arch.max_seq_length, &arch.bos_token_id,
                        &arch.eos_token_id, &arch.pad_token_id}) {
-        config_file.read(reinterpret_cast<char*>(field), sizeof(int));
+        *field = config_file.value<int>("architecture");
     }
-    if (!config_file) {
-        throw std::runtime_error("Truncated model config: " + filepath + ".config");
-    }
+    config_file.expect_end();
     return arch;
 }
 

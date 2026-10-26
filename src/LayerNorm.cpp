@@ -1,8 +1,9 @@
 // @adai-status: stable        (TD-195 — backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.1.1
+// @adai-reviewed: 2026-10-26
 
 #include "LayerNorm.hpp"
+#include "BinaryIO.hpp"
 #include "gpu/GPUParamSync.hpp"
 
 #include <cmath>
@@ -232,60 +233,33 @@ void LayerNorm::print_config(const std::string& name) const {
 }
 
 void LayerNorm::save_weights(const std::string& filename) const {
-    std::ofstream file(filename, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for writing: " + filename);
-    }
-
-    // Write dimension
-    int dim = gamma.cols;
-    file.write(reinterpret_cast<const char*>(&dim), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&eps), sizeof(float));
-
-    // Write gamma
-    for (int j = 0; j < gamma.cols; ++j) {
-        file.write(reinterpret_cast<const char*>(&gamma(0, j)), sizeof(float));
-    }
-
-    // Write beta
-    for (int j = 0; j < beta.cols; ++j) {
-        file.write(reinterpret_cast<const char*>(&beta(0, j)), sizeof(float));
-    }
-
+    adai::binio::Writer file(filename);  // TD-423: checked writes
+    file.value(static_cast<int>(gamma.cols), "dim");
+    file.value(eps, "eps");
+    file.matrix(gamma, "gamma");
+    file.matrix(beta, "beta");
     file.close();
     std::cout << "Saved LayerNorm weights to " << filename << '\n';
 }
 
 void LayerNorm::load_weights(const std::string& filename) {
-    std::ifstream file(filename, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for reading: " + filename);
-    }
-
-    // TODO: See TD-426 in TECHNICAL_DEBT.md - reads unchecked (truncated file keeps old values), file eps discarded,
-    // std::cout in save/load
-    // Read and verify dimensions
-    int loaded_dim = 0;
-    float loaded_eps = NAN;
-    file.read(reinterpret_cast<char*>(&loaded_dim), sizeof(int));
-    file.read(reinterpret_cast<char*>(&loaded_eps), sizeof(float));
+    // TD-423/TD-426: checked reads; a truncated file used to keep the old values past the cut. gamma
+    // and beta change only after the whole file has been read.
+    // TODO: See TD-426 in TECHNICAL_DEBT.md - file eps discarded, std::cout in save/load
+    adai::binio::Reader file(filename);
+    const int loaded_dim = file.value<int>("dim");
+    file.value<float>("eps");
 
     if (loaded_dim != gamma.cols) {
         throw std::runtime_error("Dimension mismatch: file has " + std::to_string(loaded_dim) +
                                  ", expected " + std::to_string(gamma.cols));
     }
 
-    // Read gamma
-    for (int j = 0; j < gamma.cols; ++j) {
-        file.read(reinterpret_cast<char*>(&gamma(0, j)), sizeof(float));
-    }
-
-    // Read beta
-    for (int j = 0; j < beta.cols; ++j) {
-        file.read(reinterpret_cast<char*>(&beta(0, j)), sizeof(float));
-    }
-
-    file.close();
+    Matrix loaded_gamma = file.matrix(1, gamma.cols, "gamma");
+    Matrix loaded_beta = file.matrix(1, beta.cols, "beta");
+    file.expect_end();
+    gamma = std::move(loaded_gamma);
+    beta = std::move(loaded_beta);
     std::cout << "Loaded LayerNorm weights from " << filename << '\n';
 }
 

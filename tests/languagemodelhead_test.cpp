@@ -2,6 +2,7 @@
 #include <../gtest/gtest.h>
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <stdexcept>
 #include "../src/Activation.hpp"
@@ -1180,6 +1181,49 @@ TEST(LanguageModelHeadOptimizerTest, BackwardCompatibilityNoOptimizer) {
 // ============================================================================
 // Main
 // ============================================================================
+
+// TD-423: a .lm_head cut short used to load with NaN weights (all-NaN logits). It must throw and leave
+// the head unchanged; a file with extra bytes must throw too, and a failed write must be reported.
+TEST(LanguageModelHeadPersistenceTest, TruncatedFileThrowsAndLeavesTheHeadUnchanged) {
+    const std::string path = "/tmp/adai_lm_head_td423.bin";
+    LanguageModelHead saved(16, 40);
+    saved.save(path);
+
+    LanguageModelHead head(16, 40);
+    const Matrix before_w = head.get_W_output();
+    const Matrix before_b = head.get_bias();
+
+    const auto full_size = std::filesystem::file_size(path);
+    std::filesystem::resize_file(path, full_size / 2);
+    EXPECT_THROW(head.load(path), std::runtime_error);
+    std::filesystem::resize_file(path, full_size - 1);
+    EXPECT_THROW(head.load(path), std::runtime_error);
+
+    for (int i = 0; i < before_w.rows; ++i)
+        for (int j = 0; j < before_w.cols; ++j)
+            ASSERT_EQ(head.get_W_output()(i, j), before_w(i, j));
+    for (int j = 0; j < before_b.cols; ++j)
+        ASSERT_EQ(head.get_bias()(0, j), before_b(0, j));
+
+    // The intact file still loads, and extra bytes are rejected.
+    saved.save(path);
+    EXPECT_NO_THROW(head.load(path));
+    EXPECT_EQ(head.get_W_output()(3, 7), saved.get_W_output()(3, 7));
+    {
+        std::ofstream append(path, std::ios::binary | std::ios::app);
+        append.put('x');
+    }
+    EXPECT_THROW(head.load(path), std::runtime_error);
+    std::filesystem::remove(path);
+}
+
+TEST(LanguageModelHeadPersistenceTest, FailedWriteThrows) {
+    // /dev/full accepts the open and fails every write: save() used to report success.
+    if (!std::filesystem::exists("/dev/full"))
+        GTEST_SKIP() << "no /dev/full";
+    LanguageModelHead head(16, 40);
+    EXPECT_THROW(head.save("/dev/full"), std::runtime_error);
+}
 
 int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);

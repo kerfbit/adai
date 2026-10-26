@@ -1,8 +1,9 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
-// @adai-version: 0.18.1
+// @adai-version: 0.18.2
 // @adai-reviewed: 2026-10-26
 
 #include "Decoder.hpp"
+#include "BinaryIO.hpp"
 #include "gpu/GPUParamSync.hpp"
 #include <stdexcept>
 #include "Logger.hpp"
@@ -384,19 +385,11 @@ void LLMDecoder::set_learning_rate(float lr) {
 
 // Save weights
 void LLMDecoder::save_weights(const std::string& filepath) const {
-    std::ofstream file(filepath, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for saving: " + filepath);
+    // Write header (TD-423: checked writes)
+    adai::binio::Writer file(filepath);
+    for (int field : {vocab_size, d_model, num_layers, num_heads, d_ff, max_seq_length}) {
+        file.value(field, "decoder header");
     }
-
-    // Write header
-    file.write(reinterpret_cast<const char*>(&vocab_size), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&d_model), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&num_layers), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&num_heads), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&d_ff), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&max_seq_length), sizeof(int));
-
     file.close();
 
     // Save component weights to separate files
@@ -413,23 +406,16 @@ void LLMDecoder::save_weights(const std::string& filepath) const {
 }
 
 // Load weights
-// TODO: See TD-348 in TECHNICAL_DEBT.md - header reads are not checked
 void LLMDecoder::load_weights(const std::string& filepath) {
-    std::ifstream file(filepath, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for loading: " + filepath);
-    }
-
-    // Read and verify header
-    int loaded_vocab_size = 0, loaded_d_model = 0, loaded_num_layers = 0;
-    int loaded_num_heads = 0, loaded_d_ff = 0, loaded_max_seq_length = 0;
-
-    file.read(reinterpret_cast<char*>(&loaded_vocab_size), sizeof(int));
-    file.read(reinterpret_cast<char*>(&loaded_d_model), sizeof(int));
-    file.read(reinterpret_cast<char*>(&loaded_num_layers), sizeof(int));
-    file.read(reinterpret_cast<char*>(&loaded_num_heads), sizeof(int));
-    file.read(reinterpret_cast<char*>(&loaded_d_ff), sizeof(int));
-    file.read(reinterpret_cast<char*>(&loaded_max_seq_length), sizeof(int));
+    // Read and verify header (TD-423/TD-348: checked reads)
+    adai::binio::Reader file(filepath);
+    const int loaded_vocab_size = file.value<int>("vocab_size");
+    const int loaded_d_model = file.value<int>("d_model");
+    const int loaded_num_layers = file.value<int>("num_layers");
+    const int loaded_num_heads = file.value<int>("num_heads");
+    const int loaded_d_ff = file.value<int>("d_ff");
+    file.value<int>("max_seq_length");
+    file.expect_end();
 
     if (loaded_vocab_size != vocab_size || loaded_d_model != d_model ||
         loaded_num_layers != num_layers || loaded_num_heads != num_heads || loaded_d_ff != d_ff) {
@@ -443,7 +429,6 @@ void LLMDecoder::load_weights(const std::string& filepath) {
             ", heads=" + std::to_string(num_heads) + ", d_ff=" + std::to_string(d_ff) + ")");
     }
 
-    file.close();
 
     // Load component weights from separate files
     std::string base = filepath.substr(0, filepath.find_last_of('.'));

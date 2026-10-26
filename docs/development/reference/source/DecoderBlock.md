@@ -277,3 +277,12 @@ Tests: `CachedForwardAppliesTheGatedPaths` here, and `gpu_optimizer_test.cpp`'s 
 The CPU, KV-cached and GPU forwards no longer update the hippocampal memory's coverage or associations. `last_hippocampal_attention()`
 returns the last forward's mean attention weights (downloaded on the GPU only when called), and the generation paths commit one step
 from it per token with `HippocampalMemory::commit_attention()`. The shared `update_hippocampal_memory()` helper is gone.
+
+## Addendum (October 26, 2026): checked checkpoint I/O (TD-423)
+
+`save()`/`load()` (TD-345's read item; flags, gates, `dropout_rate`, `learning_rate` validated before assignment) use `adai::binio::Reader`/`Writer` (`src/BinaryIO.{hpp,cpp}`).
+- **Loading.** A file that is short, empty or longer than this layer's shapes throws `std::runtime_error`. The whole file is read
+  into temporaries first, so a failed load leaves the layer unchanged.
+- **Saving.** A failed write or flush (a full disk) throws instead of leaving a short file.
+
+Tests: `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.

@@ -226,6 +226,12 @@ target_link_libraries(kvcacheTests adai_core GTest::gtest_main)
 target_include_directories(kvcacheTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME KVCacheTests COMMAND kvcacheTests)
 
+# TD-423: checked binary checkpoint I/O
+add_executable(binaryioTests binaryio_test.cpp)
+target_link_libraries(binaryioTests adai_core GTest::gtest_main)
+target_include_directories(binaryioTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME BinaryIOTests COMMAND binaryioTests)
+
 # ============================================================================
 # Application Tests
 # ============================================================================

@@ -327,3 +327,12 @@ reads. Only the last row is projected (TD-424). Test: `ChatbotAPIEchoTest.NextTo
 
 `TextGenerator`'s `max_length` now counts new tokens. `capped_generation_length()` therefore caps at `max_seq_length − 1` new tokens,
 and the generated sequence with its BOS still fits in `max_seq_length` (TD-347).
+
+## Addendum (October 26, 2026): checked checkpoint I/O (TD-423)
+
+`save_model()`'s `.config` and `read_checkpoint_architecture()`; `load_model()` loads its files one after another, so a failure in a later file leaves earlier layers replaced use `adai::binio::Reader`/`Writer` (`src/BinaryIO.{hpp,cpp}`).
+- **Loading.** A file that is short, empty or longer than this layer's shapes throws `std::runtime_error`. The whole file is read
+  into temporaries first, so a failed load leaves the layer unchanged.
+- **Saving.** A failed write or flush (a full disk) throws instead of leaving a short file.
+
+Tests: `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.

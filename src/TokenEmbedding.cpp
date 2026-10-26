@@ -1,8 +1,9 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.2.1
+// @adai-reviewed: 2026-10-26
 
 #include "TokenEmbedding.hpp"
+#include "BinaryIO.hpp"
 #include <algorithm>
 #include "gpu/GPUParamSync.hpp"
 #include <cmath>
@@ -153,15 +154,11 @@ int TokenEmbedding::get_embedding_dim() const {
 }
 
 void TokenEmbedding::load_pretrained(const std::string& filename) {
-    std::ifstream file(filename, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Cannot open file: " + filename);
-    }
-
-    // Read dimensions
-    int saved_vocab_size = 0, saved_d_model = 0;
-    file.read(reinterpret_cast<char*>(&saved_vocab_size), sizeof(int));
-    file.read(reinterpret_cast<char*>(&saved_d_model), sizeof(int));
+    // TD-423/TD-518: checked reads; a truncated file used to load with its later rows left random.
+    // The table changes only after the whole file has been read.
+    adai::binio::Reader file(filename);
+    const int saved_vocab_size = file.value<int>("vocab_size");
+    const int saved_d_model = file.value<int>("d_model");
 
     // Verify dimensions match
     if (saved_vocab_size != vocab_size || saved_d_model != d_model) {
@@ -171,39 +168,19 @@ void TokenEmbedding::load_pretrained(const std::string& filename) {
                                  std::to_string(vocab_size) + ", " + std::to_string(d_model) + ")");
     }
 
-    // TODO: See TD-518 in TECHNICAL_DEBT.md - reads unchecked: a truncated file loads with later rows left random.
-    // Read embedding matrix
-    for (int i = 0; i < vocab_size; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            file.read(reinterpret_cast<char*>(&embedding_matrix(i, j)), sizeof(float));
-        }
-    }
-
-    file.close();
+    Matrix loaded = file.matrix(vocab_size, d_model, "embedding matrix");
+    file.expect_end();
+    embedding_matrix = std::move(loaded);
 
     std::cout << "Loaded pre-trained embeddings from " << filename << '\n';
 }
 
 void TokenEmbedding::save_embeddings(const std::string& filename) const {
-    std::ofstream file(filename, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Cannot open file for writing: " + filename);
-    }
-
-    // Write dimensions
-    file.write(reinterpret_cast<const char*>(&vocab_size), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&d_model), sizeof(int));
-
-    // Write embedding matrix
-    for (int i = 0; i < vocab_size; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            file.write(reinterpret_cast<const char*>(&embedding_matrix(i, j)), sizeof(float));
-        }
-    }
-
+    adai::binio::Writer file(filename);  // TD-423: checked writes
+    file.value(vocab_size, "vocab_size");
+    file.value(d_model, "d_model");
+    file.matrix(embedding_matrix, "embedding matrix");
     file.close();
-
-    std::cout << "Saved embeddings to " << filename << '\n';
 }
 
 void TokenEmbedding::initialize_constant(float value) {

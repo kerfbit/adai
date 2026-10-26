@@ -115,3 +115,12 @@ In GPU builds the table also lives on the device:
 
 GPU training therefore never zeroes, reads or steps the host table (TD-518's full-matrix zeroing remains on the CPU path). Tested by
 `gpuOptimizerTests`' `DeviceEmbeddingMatchesTheHostLookupAndBackward` on the oneAPI CPU device.
+
+## Addendum (October 26, 2026): checked checkpoint I/O (TD-423)
+
+`save_embeddings()`/`load_pretrained()` (TD-518's read item) use `adai::binio::Reader`/`Writer` (`src/BinaryIO.{hpp,cpp}`).
+- **Loading.** A file that is short, empty or longer than this layer's shapes throws `std::runtime_error`. The whole file is read
+  into temporaries first, so a failed load leaves the layer unchanged.
+- **Saving.** A failed write or flush (a full disk) throws instead of leaving a short file.
+
+Tests: `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.

@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <vector>
 #include "../src/Activation.hpp"
@@ -1626,6 +1627,34 @@ TEST(FeedForwardGPUActivationStatsHookTest, SaturationRatioNoneSaturated) {
 // ============================================================================
 // Main Function
 // ============================================================================
+
+// TD-369/TD-423: a truncated file used to load partially and keep the old weights past the cut,
+// without throwing. Truncated and empty files must throw and leave the layer unchanged.
+TEST(FeedForwardPersistenceTest, TruncatedOrEmptyFileThrowsAndLeavesTheLayerUnchanged) {
+    const std::string path = "/tmp/adai_feedforward_td369.bin";
+    FeedForward saved(8, 24);
+    saved.save_weights(path);
+    FeedForward layer(8, 24);
+    const Matrix w1 = layer.get_W1();
+    const Matrix b2 = layer.get_b2();
+
+    const auto full = std::filesystem::file_size(path);
+    for (std::uintmax_t size : {full - 1, full / 2, std::uintmax_t{0}}) {
+        saved.save_weights(path);
+        std::filesystem::resize_file(path, size);
+        EXPECT_THROW(layer.load_weights(path), std::runtime_error) << size;
+    }
+    for (int i = 0; i < w1.rows; ++i)
+        for (int j = 0; j < w1.cols; ++j)
+            ASSERT_EQ(layer.get_W1()(i, j), w1(i, j));
+    for (int j = 0; j < b2.cols; ++j)
+        ASSERT_EQ(layer.get_b2()(0, j), b2(0, j));
+
+    saved.save_weights(path);
+    EXPECT_NO_THROW(layer.load_weights(path));
+    EXPECT_EQ(layer.get_W2()(3, 2), saved.get_W2()(3, 2));
+    std::filesystem::remove(path);
+}
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

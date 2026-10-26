@@ -1,8 +1,9 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-174 forward_with_scores added)
-// @adai-version: 0.15.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 0.15.1
+// @adai-reviewed: 2026-10-26
 
 #include "CrossAttention.hpp"
+#include "BinaryIO.hpp"
 #include "gpu/GPUParamSync.hpp"
 
 #include <cmath>
@@ -669,62 +670,26 @@ float CrossAttention::get_gradient_norm() const {
     return std::sqrt(sum_squares);
 }
 
-// TODO: See TD-298 in TECHNICAL_DEBT.md - writes are not checked; LoRA adapters are not saved (TD-302)
+// TODO: See TD-302 in TECHNICAL_DEBT.md - LoRA adapters are not saved
 void CrossAttention::save(const std::string& filepath) const {
-    std::ofstream file(filepath, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for writing: " + filepath);
-    }
-
-    // Save hyperparameters
-    file.write(reinterpret_cast<const char*>(&d_model), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&num_heads), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&learning_rate), sizeof(float));
-
-    // Save weight matrices (manually write matrix data)
-    for (int i = 0; i < d_model; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            float val = W_q(i, j);
-            file.write(reinterpret_cast<const char*>(&val), sizeof(float));
-        }
-    }
-
-    for (int i = 0; i < d_model; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            float val = W_k(i, j);
-            file.write(reinterpret_cast<const char*>(&val), sizeof(float));
-        }
-    }
-
-    for (int i = 0; i < d_model; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            float val = W_v(i, j);
-            file.write(reinterpret_cast<const char*>(&val), sizeof(float));
-        }
-    }
-
-    for (int i = 0; i < d_model; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            float val = W_o(i, j);
-            file.write(reinterpret_cast<const char*>(&val), sizeof(float));
-        }
-    }
-
+    adai::binio::Writer file(filepath);  // TD-423/TD-298: checked writes
+    file.value(d_model, "d_model");
+    file.value(num_heads, "num_heads");
+    file.value(learning_rate, "learning_rate");
+    file.matrix(W_q, "W_q");
+    file.matrix(W_k, "W_k");
+    file.matrix(W_v, "W_v");
+    file.matrix(W_o, "W_o");
     file.close();
 }
 
-// TODO: See TD-298 in TECHNICAL_DEBT.md - reads are unchecked (truncated file -> NaN weights); learning_rate set before validation
 void CrossAttention::load(const std::string& filepath) {
-    std::ifstream file(filepath, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for reading: " + filepath);
-    }
-
-    // Load hyperparameters
-    int loaded_d_model = 0, loaded_num_heads = 0;
-    file.read(reinterpret_cast<char*>(&loaded_d_model), sizeof(int));
-    file.read(reinterpret_cast<char*>(&loaded_num_heads), sizeof(int));
-    file.read(reinterpret_cast<char*>(&learning_rate), sizeof(float));
+    // TD-423/TD-298: checked reads; a truncated file used to load NaN weights, and learning_rate was
+    // overwritten before the dimensions were checked. Nothing changes until the whole file is read.
+    adai::binio::Reader file(filepath);
+    const int loaded_d_model = file.value<int>("d_model");
+    const int loaded_num_heads = file.value<int>("num_heads");
+    const float loaded_learning_rate = file.value<float>("learning_rate");
 
     // Validate dimensions
     if (loaded_d_model != d_model || loaded_num_heads != num_heads) {
@@ -734,40 +699,16 @@ void CrossAttention::load(const std::string& filepath) {
                                  ", num_heads=" + std::to_string(loaded_num_heads));
     }
 
-    // Load weight matrices (manually read matrix data)
-    for (int i = 0; i < d_model; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            float val = NAN;
-            file.read(reinterpret_cast<char*>(&val), sizeof(float));
-            W_q(i, j) = val;
-        }
-    }
-
-    for (int i = 0; i < d_model; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            float val = NAN;
-            file.read(reinterpret_cast<char*>(&val), sizeof(float));
-            W_k(i, j) = val;
-        }
-    }
-
-    for (int i = 0; i < d_model; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            float val = NAN;
-            file.read(reinterpret_cast<char*>(&val), sizeof(float));
-            W_v(i, j) = val;
-        }
-    }
-
-    for (int i = 0; i < d_model; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            float val = NAN;
-            file.read(reinterpret_cast<char*>(&val), sizeof(float));
-            W_o(i, j) = val;
-        }
-    }
-
-    file.close();
+    Matrix q = file.matrix(d_model, d_model, "W_q");
+    Matrix k = file.matrix(d_model, d_model, "W_k");
+    Matrix v = file.matrix(d_model, d_model, "W_v");
+    Matrix o = file.matrix(d_model, d_model, "W_o");
+    file.expect_end();
+    learning_rate = loaded_learning_rate;
+    W_q = std::move(q);
+    W_k = std::move(k);
+    W_v = std::move(v);
+    W_o = std::move(o);
 }
 
 #ifdef ADAI_ENABLE_GPU

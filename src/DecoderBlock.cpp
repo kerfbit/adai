@@ -1,8 +1,10 @@
 // @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap; TD-194 gated cross-reference pull + Hebbian association strengthening added to the hippocampal path)
-// @adai-version: 1.8.0
-// @adai-reviewed: 2026-10-21
+// @adai-version: 1.8.1
+// @adai-reviewed: 2026-10-26
 
 #include "DecoderBlock.hpp"
+#include "BinaryIO.hpp"
+#include <cstdint>
 #include "gpu/GPUParamSync.hpp"
 #include <cmath>
 #include <deque>
@@ -545,45 +547,22 @@ void DecoderBlock::set_learning_rate(float lr) {
 }
 
 void DecoderBlock::save(const std::string& filepath) {
-    std::ofstream file(filepath, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for writing: " + filepath);
-    }
+    adai::binio::Writer file(filepath);  // TD-423/TD-345: checked writes
 
     // Save dimensions and hyperparameters
-    file.write(reinterpret_cast<const char*>(&d_model), sizeof(d_model));
-    file.write(reinterpret_cast<const char*>(&num_heads), sizeof(num_heads));
-    file.write(reinterpret_cast<const char*>(&d_ff), sizeof(d_ff));
-    file.write(reinterpret_cast<const char*>(&dropout_rate), sizeof(dropout_rate));
-    file.write(reinterpret_cast<const char*>(&learning_rate), sizeof(learning_rate));
+    file.value(d_model, "d_model");
+    file.value(num_heads, "num_heads");
+    file.value(d_ff, "d_ff");
+    file.value(dropout_rate, "dropout_rate");
+    file.value(learning_rate, "learning_rate");
 
     // Save LayerNorm parameters inline
-    const Matrix& gamma1 = norm1->get_gamma();
-    const Matrix& beta1 = norm1->get_beta();
-    for (int j = 0; j < gamma1.cols; ++j) {
-        file.write(reinterpret_cast<const char*>(&gamma1(0, j)), sizeof(float));
-    }
-    for (int j = 0; j < beta1.cols; ++j) {
-        file.write(reinterpret_cast<const char*>(&beta1(0, j)), sizeof(float));
-    }
-
-    const Matrix& gamma2 = norm2->get_gamma();
-    const Matrix& beta2 = norm2->get_beta();
-    for (int j = 0; j < gamma2.cols; ++j) {
-        file.write(reinterpret_cast<const char*>(&gamma2(0, j)), sizeof(float));
-    }
-    for (int j = 0; j < beta2.cols; ++j) {
-        file.write(reinterpret_cast<const char*>(&beta2(0, j)), sizeof(float));
-    }
-
-    const Matrix& gamma3 = norm3->get_gamma();
-    const Matrix& beta3 = norm3->get_beta();
-    for (int j = 0; j < gamma3.cols; ++j) {
-        file.write(reinterpret_cast<const char*>(&gamma3(0, j)), sizeof(float));
-    }
-    for (int j = 0; j < beta3.cols; ++j) {
-        file.write(reinterpret_cast<const char*>(&beta3(0, j)), sizeof(float));
-    }
+    file.matrix(norm1->get_gamma(), "norm1 gamma");
+    file.matrix(norm1->get_beta(), "norm1 beta");
+    file.matrix(norm2->get_gamma(), "norm2 gamma");
+    file.matrix(norm2->get_beta(), "norm2 beta");
+    file.matrix(norm3->get_gamma(), "norm3 gamma");
+    file.matrix(norm3->get_beta(), "norm3 beta");
 
     // TD-187: gated world-model path, only when this instance actually has one allocated. The
     // presence flag is written unconditionally so load() always knows whether a gate value
@@ -591,18 +570,16 @@ void DecoderBlock::save(const std::string& filepath) {
     // without having to guess from this instance's own construction (which may differ from
     // whatever instance eventually calls load()).
     const bool has_world_model = (world_model_cross_attention != nullptr);
-    file.write(reinterpret_cast<const char*>(&has_world_model), sizeof(has_world_model));
+    file.value(static_cast<std::uint8_t>(has_world_model), "world-model flag");
     if (has_world_model) {
-        const float gate_value = gate.data[0][0];
-        file.write(reinterpret_cast<const char*>(&gate_value), sizeof(gate_value));
+        file.value(gate.data[0][0], "world-model gate");
     }
 
     // TD-187: gated hippocampal path, same convention as the world-model path above.
     const bool has_hippocampal = (hippocampal_cross_attention != nullptr);
-    file.write(reinterpret_cast<const char*>(&has_hippocampal), sizeof(has_hippocampal));
+    file.value(static_cast<std::uint8_t>(has_hippocampal), "hippocampal flag");
     if (has_hippocampal) {
-        const float gate_h_value = gate_h.data[0][0];
-        file.write(reinterpret_cast<const char*>(&gate_h_value), sizeof(gate_h_value));
+        file.value(gate_h.data[0][0], "hippocampal gate");
     }
 
     file.close();
@@ -624,64 +601,36 @@ void DecoderBlock::save(const std::string& filepath) {
     }
 }
 
-// TODO: See TD-345 in TECHNICAL_DEBT.md - reads unchecked (truncated file loads garbage); learning_rate set before validation
 void DecoderBlock::load(const std::string& filepath) {
-    std::ifstream file(filepath, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for reading: " + filepath);
-    }
-
-    // Load dimensions and hyperparameters
-    int loaded_d_model = 0, loaded_num_heads = 0, loaded_d_ff = 0;
-    file.read(reinterpret_cast<char*>(&loaded_d_model), sizeof(loaded_d_model));
-    file.read(reinterpret_cast<char*>(&loaded_num_heads), sizeof(loaded_num_heads));
-    file.read(reinterpret_cast<char*>(&loaded_d_ff), sizeof(loaded_d_ff));
-    file.read(reinterpret_cast<char*>(&dropout_rate), sizeof(dropout_rate));
-    file.read(reinterpret_cast<char*>(&learning_rate), sizeof(learning_rate));
+    // TD-423/TD-345: checked reads; a truncated file used to load garbage, and dropout_rate and
+    // learning_rate were overwritten before the dimensions were checked. This file is read whole and
+    // validated before anything changes; the sub-component files check themselves.
+    adai::binio::Reader file(filepath);
+    const int loaded_d_model = file.value<int>("d_model");
+    const int loaded_num_heads = file.value<int>("num_heads");
+    const int loaded_d_ff = file.value<int>("d_ff");
+    const float loaded_dropout_rate = file.value<float>("dropout_rate");
+    const float loaded_learning_rate = file.value<float>("learning_rate");
 
     if (loaded_d_model != d_model || loaded_num_heads != num_heads || loaded_d_ff != d_ff) {
         throw std::runtime_error("Dimension mismatch in saved model");
     }
 
-    // Load LayerNorm parameters inline
-    Matrix gamma1(1, d_model), beta1(1, d_model);
-    for (int j = 0; j < d_model; ++j) {
-        file.read(reinterpret_cast<char*>(&gamma1(0, j)), sizeof(float));
-    }
-    for (int j = 0; j < d_model; ++j) {
-        file.read(reinterpret_cast<char*>(&beta1(0, j)), sizeof(float));
-    }
-    norm1->set_gamma(gamma1);
-    norm1->set_beta(beta1);
-
-    Matrix gamma2(1, d_model), beta2(1, d_model);
-    for (int j = 0; j < d_model; ++j) {
-        file.read(reinterpret_cast<char*>(&gamma2(0, j)), sizeof(float));
-    }
-    for (int j = 0; j < d_model; ++j) {
-        file.read(reinterpret_cast<char*>(&beta2(0, j)), sizeof(float));
-    }
-    norm2->set_gamma(gamma2);
-    norm2->set_beta(beta2);
-
-    Matrix gamma3(1, d_model), beta3(1, d_model);
-    for (int j = 0; j < d_model; ++j) {
-        file.read(reinterpret_cast<char*>(&gamma3(0, j)), sizeof(float));
-    }
-    for (int j = 0; j < d_model; ++j) {
-        file.read(reinterpret_cast<char*>(&beta3(0, j)), sizeof(float));
-    }
-    norm3->set_gamma(gamma3);
-    norm3->set_beta(beta3);
+    // LayerNorm parameters inline
+    Matrix gamma1 = file.matrix(1, d_model, "norm1 gamma");
+    Matrix beta1 = file.matrix(1, d_model, "norm1 beta");
+    Matrix gamma2 = file.matrix(1, d_model, "norm2 gamma");
+    Matrix beta2 = file.matrix(1, d_model, "norm2 beta");
+    Matrix gamma3 = file.matrix(1, d_model, "norm3 gamma");
+    Matrix beta3 = file.matrix(1, d_model, "norm3 beta");
 
     // TD-187: gated world-model path presence flag — must match this instance's own
     // construction-time enable_world_model exactly (see load()'s own doc comment for why a
     // mismatch throws rather than silently dropping or fabricating trained state).
-    bool loaded_has_world_model = false;
-    file.read(reinterpret_cast<char*>(&loaded_has_world_model), sizeof(loaded_has_world_model));
+    const bool loaded_has_world_model = file.value<std::uint8_t>("world-model flag") != 0;
     float loaded_gate = 0.0f;
     if (loaded_has_world_model) {
-        file.read(reinterpret_cast<char*>(&loaded_gate), sizeof(loaded_gate));
+        loaded_gate = file.value<float>("world-model gate");
     }
     const bool current_has_world_model = (world_model_cross_attention != nullptr);
     if (loaded_has_world_model != current_has_world_model) {
@@ -694,11 +643,10 @@ void DecoderBlock::load(const std::string& filepath) {
     }
 
     // TD-187: gated hippocampal path presence flag, same convention as above.
-    bool loaded_has_hippocampal = false;
-    file.read(reinterpret_cast<char*>(&loaded_has_hippocampal), sizeof(loaded_has_hippocampal));
+    const bool loaded_has_hippocampal = file.value<std::uint8_t>("hippocampal flag") != 0;
     float loaded_gate_h = 0.0f;
     if (loaded_has_hippocampal) {
-        file.read(reinterpret_cast<char*>(&loaded_gate_h), sizeof(loaded_gate_h));
+        loaded_gate_h = file.value<float>("hippocampal gate");
     }
     const bool current_has_hippocampal = (hippocampal_cross_attention != nullptr);
     if (loaded_has_hippocampal != current_has_hippocampal) {
@@ -709,8 +657,16 @@ void DecoderBlock::load(const std::string& filepath) {
             (current_has_hippocampal ? "true" : "false") +
             " — construct with a matching flag before loading");
     }
+    file.expect_end();
 
-    file.close();
+    dropout_rate = loaded_dropout_rate;
+    learning_rate = loaded_learning_rate;
+    norm1->set_gamma(gamma1);
+    norm1->set_beta(beta1);
+    norm2->set_gamma(gamma2);
+    norm2->set_beta(beta2);
+    norm3->set_gamma(gamma3);
+    norm3->set_beta(beta3);
 
     // Load sub-components
     self_attention->load_weights(filepath + ".self_attn");

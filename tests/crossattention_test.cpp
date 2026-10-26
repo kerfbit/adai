@@ -2,6 +2,7 @@
 #include <../gtest/gtest.h>
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <random>
 #include <stdexcept>
@@ -2205,6 +2206,36 @@ TEST(CrossAttentionOptimizerTest, BackwardCompatibilityNoOptimizer) {
 // ============================================================================
 // Main
 // ============================================================================
+
+// TD-298/TD-423: a truncated or empty file used to load NaN weights (and overwrite learning_rate
+// before validation). It must throw and leave the layer unchanged.
+TEST(CrossAttentionPersistenceTest, TruncatedOrEmptyFileThrowsAndLeavesTheLayerUnchanged) {
+    const std::string path = "/tmp/adai_cross_attn_td298.bin";
+    CrossAttention saved(16, 4);
+    saved.save(path);
+    CrossAttention layer(16, 4);
+    const Matrix wq = layer.get_Wq();
+    const Matrix wo = layer.get_Wo();
+    const float lr = layer.learning_rate;
+
+    const auto full = std::filesystem::file_size(path);
+    for (std::uintmax_t size : {full - 1, full / 2, std::uintmax_t{0}}) {
+        saved.save(path);
+        std::filesystem::resize_file(path, size);
+        EXPECT_THROW(layer.load(path), std::runtime_error) << size;
+    }
+    for (int i = 0; i < 16; ++i)
+        for (int j = 0; j < 16; ++j) {
+            ASSERT_EQ(layer.get_Wq()(i, j), wq(i, j));
+            ASSERT_EQ(layer.get_Wo()(i, j), wo(i, j));
+        }
+    EXPECT_EQ(layer.learning_rate, lr);
+
+    saved.save(path);
+    EXPECT_NO_THROW(layer.load(path));
+    EXPECT_EQ(layer.get_Wo()(5, 9), saved.get_Wo()(5, 9));
+    std::filesystem::remove(path);
+}
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

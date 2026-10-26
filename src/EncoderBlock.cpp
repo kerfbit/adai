@@ -1,8 +1,9 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.1.1
+// @adai-reviewed: 2026-10-26
 
 #include "EncoderBlock.hpp"
+#include "BinaryIO.hpp"
 #include "gpu/GPUParamSync.hpp"
 
 #include <cmath>
@@ -187,36 +188,19 @@ void EncoderBlock::clip_gradients(float max_norm) {
 }
 
 void EncoderBlock::save_weights(const std::string& filename) const {
-    std::ofstream file(filename, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for writing: " + filename);
-    }
+    adai::binio::Writer file(filename);  // TD-423/TD-357: checked writes
 
     // Write dimensions for validation on load
-    file.write(reinterpret_cast<const char*>(&d_model), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&num_heads), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&d_ff), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&dropout_rate), sizeof(float));
+    file.value(d_model, "d_model");
+    file.value(num_heads, "num_heads");
+    file.value(d_ff, "d_ff");
+    file.value(dropout_rate, "dropout_rate");
 
     // Write LayerNorm parameters directly
-    const Matrix& gamma1 = norm1->get_gamma();
-    const Matrix& beta1 = norm1->get_beta();
-    for (int j = 0; j < gamma1.cols; ++j) {
-        file.write(reinterpret_cast<const char*>(&gamma1(0, j)), sizeof(float));
-    }
-    for (int j = 0; j < beta1.cols; ++j) {
-        file.write(reinterpret_cast<const char*>(&beta1(0, j)), sizeof(float));
-    }
-
-    const Matrix& gamma2 = norm2->get_gamma();
-    const Matrix& beta2 = norm2->get_beta();
-    for (int j = 0; j < gamma2.cols; ++j) {
-        file.write(reinterpret_cast<const char*>(&gamma2(0, j)), sizeof(float));
-    }
-    for (int j = 0; j < beta2.cols; ++j) {
-        file.write(reinterpret_cast<const char*>(&beta2(0, j)), sizeof(float));
-    }
-
+    file.matrix(norm1->get_gamma(), "norm1 gamma");
+    file.matrix(norm1->get_beta(), "norm1 beta");
+    file.matrix(norm2->get_gamma(), "norm2 gamma");
+    file.matrix(norm2->get_beta(), "norm2 beta");
     file.close();
 
     // Save component weights to separate files
@@ -228,21 +212,14 @@ void EncoderBlock::save_weights(const std::string& filename) const {
     std::cout << "Saved EncoderBlock weights to " << filename << '\n';
 }
 
-// TODO: See TD-357 in TECHNICAL_DEBT.md - reads are unchecked (truncated file loads garbage)
 void EncoderBlock::load_weights(const std::string& filename) {
-    std::ifstream file(filename, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for reading: " + filename);
-    }
-
-    // Read and validate dimensions
-    int saved_d_model = 0, saved_num_heads = 0, saved_d_ff = 0;
-    float saved_dropout_rate = NAN;
-
-    file.read(reinterpret_cast<char*>(&saved_d_model), sizeof(int));
-    file.read(reinterpret_cast<char*>(&saved_num_heads), sizeof(int));
-    file.read(reinterpret_cast<char*>(&saved_d_ff), sizeof(int));
-    file.read(reinterpret_cast<char*>(&saved_dropout_rate), sizeof(float));
+    // TD-423/TD-357: checked reads; a truncated file used to load garbage norms. This file is read
+    // whole before the norms change; the attention and feed-forward files check themselves.
+    adai::binio::Reader file(filename);
+    const int saved_d_model = file.value<int>("d_model");
+    const int saved_num_heads = file.value<int>("num_heads");
+    const int saved_d_ff = file.value<int>("d_ff");
+    file.value<float>("dropout_rate");
 
     if (saved_d_model != d_model || saved_num_heads != num_heads || saved_d_ff != d_ff) {
         throw std::runtime_error("Dimension mismatch: saved (" + std::to_string(saved_d_model) +
@@ -252,30 +229,15 @@ void EncoderBlock::load_weights(const std::string& filename) {
                                  std::to_string(d_ff) + ")");
     }
 
-    // Read LayerNorm parameters directly
-    Matrix gamma1(1, d_model);
-    Matrix beta1(1, d_model);
-    for (int j = 0; j < d_model; ++j) {
-        file.read(reinterpret_cast<char*>(&gamma1(0, j)), sizeof(float));
-    }
-    for (int j = 0; j < d_model; ++j) {
-        file.read(reinterpret_cast<char*>(&beta1(0, j)), sizeof(float));
-    }
+    Matrix gamma1 = file.matrix(1, d_model, "norm1 gamma");
+    Matrix beta1 = file.matrix(1, d_model, "norm1 beta");
+    Matrix gamma2 = file.matrix(1, d_model, "norm2 gamma");
+    Matrix beta2 = file.matrix(1, d_model, "norm2 beta");
+    file.expect_end();
     norm1->set_gamma(gamma1);
     norm1->set_beta(beta1);
-
-    Matrix gamma2(1, d_model);
-    Matrix beta2(1, d_model);
-    for (int j = 0; j < d_model; ++j) {
-        file.read(reinterpret_cast<char*>(&gamma2(0, j)), sizeof(float));
-    }
-    for (int j = 0; j < d_model; ++j) {
-        file.read(reinterpret_cast<char*>(&beta2(0, j)), sizeof(float));
-    }
     norm2->set_gamma(gamma2);
     norm2->set_beta(beta2);
-
-    file.close();
 
     // Load component weights from separate files
     std::string base = filename.substr(0, filename.find_last_of('.'));

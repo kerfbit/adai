@@ -129,3 +129,12 @@ they disagree, this file wins:
 **Dropped:** complexity essays and usage walkthroughs for a Post-LN design that no longer exists.
 The separate [ENCODERBLOCK_TEST_COVERAGE.md](../../testing/coverage/ENCODERBLOCK_TEST_COVERAGE.md)
 is kept as test-coverage history.
+
+## Addendum (October 26, 2026): checked checkpoint I/O (TD-423)
+
+`save_weights()`/`load_weights()` (TD-357's read item) use `adai::binio::Reader`/`Writer` (`src/BinaryIO.{hpp,cpp}`).
+- **Loading.** A file that is short, empty or longer than this layer's shapes throws `std::runtime_error`. The whole file is read
+  into temporaries first, so a failed load leaves the layer unchanged.
+- **Saving.** A failed write or flush (a full disk) throws instead of leaving a short file.
+
+Tests: `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.

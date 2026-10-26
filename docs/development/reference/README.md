@@ -10,6 +10,7 @@ This directory contains reference materials, technical specifications, and imple
   - [Activation](source/Activation.md) (`src/Activation.{hpp,cpp}`)
   - [BatchedInferenceEngine](source/BatchedInferenceEngine.md) (`src/BatchedInferenceEngine.hpp`)
   - [BatchProcessor](source/BatchProcessor.md) (`src/BatchProcessor.hpp`)
+  - [BinaryIO](source/BinaryIO.md) (`src/BinaryIO.{hpp,cpp}`; checked binary reads/writes for checkpoint sidecars, TD-423)
   - [BPETokenizer](source/BPETokenizer.md) (`src/BPETokenizer.{hpp,cpp}`)
   - [BrowserWriteGuard](source/BrowserWriteGuard.md) (`src/BrowserWriteGuard.{hpp,cpp}`; refusal of browser-originated writes shared by every HTTP daemon, TD-526/TD-550)
   - [ChatbotAPI](source/ChatbotAPI.md) (`src/ChatbotAPI.{hpp,cpp}`)

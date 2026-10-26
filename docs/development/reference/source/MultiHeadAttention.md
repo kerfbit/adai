@@ -116,3 +116,12 @@ This file replaces `docs/development/api/attention/multihead-attention.md` (1,64
 Kept: the formulation, mask semantics, the cached-forward contract, the attention hook and persistence layout. Dropped: generic
 tutorial material (complexity tables, training-loop and encoder-layer examples, future-enhancement sketches such as dropout and
 Flash Attention).
+
+## Addendum (October 26, 2026): checked checkpoint I/O (TD-423)
+
+`save_weights()`/`load_weights()` (TD-467's read item) use `adai::binio::Reader`/`Writer` (`src/BinaryIO.{hpp,cpp}`).
+- **Loading.** A file that is short, empty or longer than this layer's shapes throws `std::runtime_error`. The whole file is read
+  into temporaries first, so a failed load leaves the layer unchanged.
+- **Saving.** A failed write or flush (a full disk) throws instead of leaving a short file.
+
+Tests: `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.

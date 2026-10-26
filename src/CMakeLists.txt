@@ -72,6 +72,7 @@ find_path(HTTPLIB_INCLUDE_DIR httplib.h
 # Core mathematical operations
 add_library(adai_core STATIC
     Matrix.cpp
+    BinaryIO.cpp
     Activation.cpp
     Optimizer.cpp
     GPUOptimizer.cpp  # TD-468; compiled only with ADAI_ENABLE_GPU

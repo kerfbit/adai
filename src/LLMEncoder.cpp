@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.4.0
+// @adai-version: 1.4.1
 // @adai-reviewed: 2026-10-26
 
 #include <algorithm>
@@ -18,6 +18,7 @@
 #include "MultiHeadAttention.hpp"
 #include "TokenEmbedding.hpp"
 #include "encoder.hpp"
+#include "BinaryIO.hpp"
 #include <stdexcept>
 
 // LLMEncoder Implementation
@@ -276,19 +277,11 @@ int LLMEncoder::get_embedding_dim() const {
 }
 
 void LLMEncoder::save_weights(const std::string& filename) {
-    std::ofstream file(filename, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for writing: " + filename);
+    // Write header with dimensions for validation (TD-423: checked writes)
+    adai::binio::Writer file(filename);
+    for (int field : {vocab_size, d_model, num_layers, num_heads, d_ff, max_seq_length}) {
+        file.value(field, "encoder header");
     }
-
-    // Write header with dimensions for validation
-    file.write(reinterpret_cast<const char*>(&vocab_size), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&d_model), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&num_layers), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&num_heads), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&d_ff), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&max_seq_length), sizeof(int));
-
     file.close();
 
     // Save component weights to separate files.
@@ -309,22 +302,16 @@ void LLMEncoder::save_weights(const std::string& filename) {
 }
 
 void LLMEncoder::load_weights(const std::string& filename) {
-    std::ifstream file(filename, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for reading: " + filename);
-    }
-
-    // Read and verify header
-    // TODO: See TD-367 in TECHNICAL_DEBT.md - reads unchecked; max_seq_length read but not compared
-    int loaded_vocab_size = 0, loaded_d_model = 0, loaded_num_layers = 0;
-    int loaded_num_heads = 0, loaded_d_ff = 0, loaded_max_seq_length = 0;
-
-    file.read(reinterpret_cast<char*>(&loaded_vocab_size), sizeof(int));
-    file.read(reinterpret_cast<char*>(&loaded_d_model), sizeof(int));
-    file.read(reinterpret_cast<char*>(&loaded_num_layers), sizeof(int));
-    file.read(reinterpret_cast<char*>(&loaded_num_heads), sizeof(int));
-    file.read(reinterpret_cast<char*>(&loaded_d_ff), sizeof(int));
-    file.read(reinterpret_cast<char*>(&loaded_max_seq_length), sizeof(int));
+    // Read and verify header (TD-423/TD-367: checked reads)
+    // TODO: See TD-367 in TECHNICAL_DEBT.md - max_seq_length read but not compared
+    adai::binio::Reader file(filename);
+    const int loaded_vocab_size = file.value<int>("vocab_size");
+    const int loaded_d_model = file.value<int>("d_model");
+    const int loaded_num_layers = file.value<int>("num_layers");
+    const int loaded_num_heads = file.value<int>("num_heads");
+    const int loaded_d_ff = file.value<int>("d_ff");
+    file.value<int>("max_seq_length");
+    file.expect_end();
 
     if (loaded_vocab_size != vocab_size || loaded_d_model != d_model ||
         loaded_num_layers != num_layers || loaded_num_heads != num_heads || loaded_d_ff != d_ff) {
@@ -338,7 +325,6 @@ void LLMEncoder::load_weights(const std::string& filename) {
             ", heads=" + std::to_string(num_heads) + ", d_ff=" + std::to_string(d_ff) + ")");
     }
 
-    file.close();
 
     // Load component weights from separate files. TD-538: files saved before the
     // encoder-specific names have only the shared "_token_emb.bin"/"_final_norm.bin", which in an

@@ -1122,6 +1122,49 @@ TEST(EncoderDecoderModelTest, ReadCheckpointArchitectureMatchesTheSavedModel) {
     std::filesystem::remove_all(dir);
 }
 
+// TD-423: every binary sidecar of a checkpoint (config, encoder/decoder headers, embeddings, norms,
+// attention, cross-attention, feed-forward, blocks, LM head) loaded unchecked, so a file cut short by a
+// full disk loaded as NaN or stale weights. One byte short, or one byte extra, must fail load_model().
+TEST(EncoderDecoderModelTest, EveryCheckpointFileIsCheckedOnLoad) {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "adai_ed_td423";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    EncoderDecoderModel a(60, 16, 2, 2, 2, 32, 16);
+    build_test_vocab(a.get_tokenizer(), 60);
+    a.save_model((dir / "cp.bin").string());
+
+    std::vector<fs::path> files;
+    for (const auto& entry : fs::directory_iterator(dir)) {
+        if (entry.path().extension() != ".vocab")  // the vocabulary is text (TD-223)
+            files.push_back(entry.path());
+    }
+    ASSERT_GE(files.size(), 20u) << "expected every sidecar of a 2+2-layer checkpoint";
+
+    for (const auto& file : files) {
+        const auto size = fs::file_size(file);
+        for (int delta : {-1, +1}) {
+            fs::copy_file(file, dir / "original", fs::copy_options::overwrite_existing);
+            if (delta < 0) {
+                fs::resize_file(file, size - 1);
+            } else {
+                std::ofstream(file, std::ios::binary | std::ios::app).put('\0');
+            }
+            EncoderDecoderModel b(60, 16, 2, 2, 2, 32, 16);
+            build_test_vocab(b.get_tokenizer(), 60);
+            EXPECT_THROW(b.load_model((dir / "cp.bin").string()), std::runtime_error)
+                << file.filename() << (delta < 0 ? " one byte short" : " one byte long");
+            fs::copy_file(dir / "original", file, fs::copy_options::overwrite_existing);
+        }
+    }
+
+    // Restored, the checkpoint loads.
+    EncoderDecoderModel c(60, 16, 2, 2, 2, 32, 16);
+    build_test_vocab(c.get_tokenizer(), 60);
+    EXPECT_NO_THROW(c.load_model((dir / "cp.bin").string()));
+    fs::remove_all(dir);
+}
+
 // TD-538: a checkpoint saved before the encoder-specific file names (only the shared
 // _token_emb.bin/_final_norm.bin, holding the decoder's copies) still loads, as it always did.
 TEST(EncoderDecoderModelTest, LegacyCheckpointWithoutEncoderSpecificFilesStillLoads) {

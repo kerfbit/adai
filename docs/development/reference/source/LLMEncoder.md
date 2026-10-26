@@ -226,3 +226,12 @@ downloading the gradient for a host backward. `gpu_upload_weights()`, `gpu_downl
 - **Checks.** `encode_with_mask()` and `gpu_encode()` throw `invalid_argument` past `max_seq_length`.
 
 Tests: `EncodeMatchesTheModelsEncoderInput`, `OverLongInputKeepsTheTail`, `EncodeWithMaskRejectsOverLongInput`.
+
+## Addendum (October 26, 2026): checked checkpoint I/O (TD-423)
+
+`save_weights()`/`load_weights()`'s header (TD-367's read/write item) use `adai::binio::Reader`/`Writer` (`src/BinaryIO.{hpp,cpp}`).
+- **Loading.** A file that is short, empty or longer than this layer's shapes throws `std::runtime_error`. The whole file is read
+  into temporaries first, so a failed load leaves the layer unchanged.
+- **Saving.** A failed write or flush (a full disk) throws instead of leaving a short file.
+
+Tests: `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.

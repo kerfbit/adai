@@ -306,3 +306,12 @@ This file replaces `docs/development/api/attention/cross-attention.md` (v1.1, Ja
 `gpu_forward()` takes an optional `score_bias` ([tgt, src], the same for every head, added after scaling and before the mask, as
 `forward_with_scores()`). `gpu_last_mean_attention_weights()` downloads the mean-across-heads weights of the last `gpu_forward()`,
 as `get_last_attention_weights()`. Backward needs no change. Test: `gpu_optimizer_test.cpp`'s `ScoreBiasMatchesForwardWithScores`.
+
+## Addendum (October 26, 2026): checked checkpoint I/O (TD-423)
+
+`save()`/`load()` (TD-298; `learning_rate` is assigned only after validation) use `adai::binio::Reader`/`Writer` (`src/BinaryIO.{hpp,cpp}`).
+- **Loading.** A file that is short, empty or longer than this layer's shapes throws `std::runtime_error`. The whole file is read
+  into temporaries first, so a failed load leaves the layer unchanged.
+- **Saving.** A failed write or flush (a full disk) throws instead of leaving a short file.
+
+Tests: `CrossAttentionPersistenceTest.TruncatedOrEmptyFileThrowsAndLeavesTheLayerUnchanged`, `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.

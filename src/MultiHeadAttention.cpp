@@ -1,8 +1,9 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-195 backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 0.13.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.13.1
+// @adai-reviewed: 2026-10-26
 
 #include "MultiHeadAttention.hpp"
+#include "BinaryIO.hpp"
 #include "gpu/GPUParamSync.hpp"
 #include <cmath>
 #include <fstream>
@@ -635,55 +636,24 @@ void MultiHeadAttention::print_config(const std::string& name) const {
 }
 
 void MultiHeadAttention::save_weights(const std::string& filename) const {
-    std::ofstream file(filename, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Cannot open file for writing: " + filename);
-    }
-
-    // Write dimensions
-    file.write(reinterpret_cast<const char*>(&d_model), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&num_heads), sizeof(int));
-
-    // Write weight matrices
-    for (int i = 0; i < d_model; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            file.write(reinterpret_cast<const char*>(&W_q(i, j)), sizeof(float));
-        }
-    }
-
-    for (int i = 0; i < d_model; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            file.write(reinterpret_cast<const char*>(&W_k(i, j)), sizeof(float));
-        }
-    }
-
-    for (int i = 0; i < d_model; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            file.write(reinterpret_cast<const char*>(&W_v(i, j)), sizeof(float));
-        }
-    }
-
-    for (int i = 0; i < d_model; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            file.write(reinterpret_cast<const char*>(&W_o(i, j)), sizeof(float));
-        }
-    }
-
+    adai::binio::Writer file(filename);  // TD-423: checked writes
+    file.value(d_model, "d_model");
+    file.value(num_heads, "num_heads");
+    file.matrix(W_q, "W_q");
+    file.matrix(W_k, "W_k");
+    file.matrix(W_v, "W_v");
+    file.matrix(W_o, "W_o");
     file.close();
 
     std::cout << "Saved MultiHeadAttention weights to " << filename << '\n';
 }
 
 void MultiHeadAttention::load_weights(const std::string& filename) {
-    std::ifstream file(filename, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Cannot open file: " + filename);
-    }
-
-    // Read dimensions
-    int saved_d_model = 0, saved_num_heads = 0;
-    file.read(reinterpret_cast<char*>(&saved_d_model), sizeof(int));
-    file.read(reinterpret_cast<char*>(&saved_num_heads), sizeof(int));
+    // TD-423/TD-467: checked reads; a truncated file used to load silently, keeping the old weights
+    // past the cut. The weights change only after the whole file has been read.
+    adai::binio::Reader file(filename);
+    const int saved_d_model = file.value<int>("d_model");
+    const int saved_num_heads = file.value<int>("num_heads");
 
     // Verify dimensions match
     if (saved_d_model != d_model || saved_num_heads != num_heads) {
@@ -693,33 +663,15 @@ void MultiHeadAttention::load_weights(const std::string& filename) {
             std::to_string(d_model) + ", num_heads=" + std::to_string(num_heads));
     }
 
-    // TODO: See TD-467 in TECHNICAL_DEBT.md - reads aren't checked: a truncated file loads silently, leaving old weights
-    // Read weight matrices
-    for (int i = 0; i < d_model; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            file.read(reinterpret_cast<char*>(&W_q(i, j)), sizeof(float));
-        }
-    }
-
-    for (int i = 0; i < d_model; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            file.read(reinterpret_cast<char*>(&W_k(i, j)), sizeof(float));
-        }
-    }
-
-    for (int i = 0; i < d_model; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            file.read(reinterpret_cast<char*>(&W_v(i, j)), sizeof(float));
-        }
-    }
-
-    for (int i = 0; i < d_model; ++i) {
-        for (int j = 0; j < d_model; ++j) {
-            file.read(reinterpret_cast<char*>(&W_o(i, j)), sizeof(float));
-        }
-    }
-
-    file.close();
+    Matrix q = file.matrix(d_model, d_model, "W_q");
+    Matrix k = file.matrix(d_model, d_model, "W_k");
+    Matrix v = file.matrix(d_model, d_model, "W_v");
+    Matrix o = file.matrix(d_model, d_model, "W_o");
+    file.expect_end();
+    W_q = std::move(q);
+    W_k = std::move(k);
+    W_v = std::move(v);
+    W_o = std::move(o);
 
     std::cout << "Loaded MultiHeadAttention weights from " << filename << '\n';
 }

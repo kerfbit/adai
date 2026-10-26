@@ -1,8 +1,9 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.1.1
+// @adai-reviewed: 2026-10-26
 
 #include "LanguageModelHead.hpp"
+#include "BinaryIO.hpp"
 #include "gpu/GPUParamSync.hpp"
 
 #include <algorithm>
@@ -119,66 +120,29 @@ void LanguageModelHead::zero_grad() {
 }
 
 void LanguageModelHead::save(const std::string& filepath) const {
-    std::ofstream file(filepath, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for writing: " + filepath);
-    }
-
-    // Save dimensions
-    file.write(reinterpret_cast<const char*>(&d_model), sizeof(d_model));
-    file.write(reinterpret_cast<const char*>(&vocab_size), sizeof(vocab_size));
-
-    // Save W_output
-    for (int i = 0; i < W_output.rows; ++i) {
-        for (int j = 0; j < W_output.cols; ++j) {
-            float val = W_output(i, j);
-            file.write(reinterpret_cast<const char*>(&val), sizeof(float));
-        }
-    }
-
-    // Save bias
-    for (int j = 0; j < bias.cols; ++j) {
-        float val = bias(0, j);
-        file.write(reinterpret_cast<const char*>(&val), sizeof(float));
-    }
-
+    // TD-423: checked writes; a failed write or flush throws instead of leaving a short file.
+    adai::binio::Writer file(filepath);
+    file.value(d_model, "d_model");
+    file.value(vocab_size, "vocab_size");
+    file.matrix(W_output, "W_output");
+    file.matrix(bias, "bias");
     file.close();
 }
 
 void LanguageModelHead::load(const std::string& filepath) {
-    std::ifstream file(filepath, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for reading: " + filepath);
-    }
-
-    // Load dimensions
-    int loaded_d_model = 0, loaded_vocab_size = 0;
-    file.read(reinterpret_cast<char*>(&loaded_d_model), sizeof(loaded_d_model));
-    file.read(reinterpret_cast<char*>(&loaded_vocab_size), sizeof(loaded_vocab_size));
-
+    // TD-423: a truncated .lm_head used to load with NaN weights (all-NaN logits). The whole file is
+    // read and checked before anything changes, so a failed load leaves the head as it was.
+    adai::binio::Reader file(filepath);
+    const int loaded_d_model = file.value<int>("d_model");
+    const int loaded_vocab_size = file.value<int>("vocab_size");
     if (loaded_d_model != d_model || loaded_vocab_size != vocab_size) {
         throw std::runtime_error("Dimension mismatch in saved model");
     }
-
-    // TODO: See TD-423 in TECHNICAL_DEBT.md - reads unchecked: a truncated .lm_head loads silently with NaN weights
-    // (all-NaN logits); save() doesn't check its writes either
-    // Load W_output
-    for (int i = 0; i < W_output.rows; ++i) {
-        for (int j = 0; j < W_output.cols; ++j) {
-            float val = NAN;
-            file.read(reinterpret_cast<char*>(&val), sizeof(float));
-            W_output(i, j) = val;
-        }
-    }
-
-    // Load bias
-    for (int j = 0; j < bias.cols; ++j) {
-        float val = NAN;
-        file.read(reinterpret_cast<char*>(&val), sizeof(float));
-        bias(0, j) = val;
-    }
-
-    file.close();
+    Matrix loaded_w = file.matrix(W_output.rows, W_output.cols, "W_output");
+    Matrix loaded_bias = file.matrix(bias.rows, bias.cols, "bias");
+    file.expect_end();
+    W_output = std::move(loaded_w);
+    bias = std::move(loaded_bias);
 }
 
 void LanguageModelHead::set_optimizer(Optimizer* opt) {

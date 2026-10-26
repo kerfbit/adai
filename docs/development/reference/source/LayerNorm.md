@@ -83,3 +83,12 @@ This file replaces `docs/development/api/transformer/layer-norm.md` (1,683 lines
 per-row (token-wise) semantics, the γ/β initialization and the persistence layout. Dropped: generic
 tutorial material. Added: the backward pass verified numerically, the setter behaviour, and the
 GPU-kernel status.
+
+## Addendum (October 26, 2026): checked checkpoint I/O (TD-423)
+
+`save_weights()`/`load_weights()` (TD-426's read/write item) use `adai::binio::Reader`/`Writer` (`src/BinaryIO.{hpp,cpp}`).
+- **Loading.** A file that is short, empty or longer than this layer's shapes throws `std::runtime_error`. The whole file is read
+  into temporaries first, so a failed load leaves the layer unchanged.
+- **Saving.** A failed write or flush (a full disk) throws instead of leaving a short file.
+
+Tests: `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.
