@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.17.3
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.17.4
+// @adai-reviewed: 2026-10-26
 
 #include "ChatbotTrainer.hpp"
 #include <algorithm>
@@ -1979,7 +1979,6 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
         references.push_back(pair.target_text);
         try {
 #ifdef ADAI_ENABLE_GPU
-            // TODO: See TD-359 in TECHNICAL_DEBT.md - generation_quality_max_tokens is ignored by (gpu_)generate_response()
             hypotheses.push_back(model->gpu_generate_response(
                 pair.input_text, config.generation_quality_max_tokens));
 #else
@@ -2017,7 +2016,6 @@ void ChatbotTrainer::backfill_generation_quality() {
         float result = 0.0f;
         try {
 #ifdef ADAI_ENABLE_GPU
-            // TODO: See TD-359 in TECHNICAL_DEBT.md - generation_backfill_max_tokens is ignored by (gpu_)generate_response()
             std::string hyp =
                 model->gpu_generate_response(input, config.generation_backfill_max_tokens);
 #else

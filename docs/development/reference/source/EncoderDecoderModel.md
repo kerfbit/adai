@@ -303,3 +303,9 @@ Tests: `BeamSearchCommitsOncePerDecodeStep`, `CachedDecodingCommitsOncePerToken`
 keeps that path off the KV cache. Explicit greedy/sampling/topk/nucleus ignore `num_beams`, and the generator's stored config keeps a
 beam width only when beam search ran, so a later `generate_response()` isn't switched to beam. Both overloads default `num_beams` to
 1. Test: `ExplicitStrategiesIgnoreNumBeams`.
+
+## Addendum (October 26, 2026): `max_length` applied (TD-359)
+
+`generate_response()` and `gpu_generate_response()` apply their `max_length` for the call (`ScopedMaxLength`), restoring the
+generator's stored value afterwards; `<= 0` keeps it. Tests: `GenerateResponseHonoursMaxLength`,
+`EncoderDecoderGPUTest.GpuGenerateResponseHonoursMaxLength` (oneAPI CPU device).

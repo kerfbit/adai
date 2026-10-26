@@ -492,6 +492,29 @@ TEST(EncoderDecoderModelTest, GenerateWithStrategySyncsGeneratorConfig) {
     EXPECT_FLOAT_EQ(cfg.top_p, 0.6f);
 }
 
+// TD-359: generate_response() applies its max_length for the call and keeps the generator's stored
+// value. It used to ignore the argument: generate_response("hello world", 5) gave 9 tokens with the
+// generator at 64.
+TEST(EncoderDecoderModelTest, GenerateResponseHonoursMaxLength) {
+    EncoderDecoderModel model(100, 64, 2, 2);
+    build_test_vocab(model.get_tokenizer(), 100);
+    model.set_training(false);
+    auto cfg = model.get_generator()->get_config();
+    cfg.max_length = 64;
+    cfg.num_beams = 1;
+    model.get_generator()->set_config(cfg);
+
+    size_t longest = 0;
+    for (const char* input : {"hello world", "the quick brown fox", "a b c"}) {
+        const std::string shorter = model.generate_response(input, 5);
+        EXPECT_LE(model.get_tokenizer()->encode(shorter, false).size(), 5u) << input;
+        const std::string longer = model.generate_response(input, 40);
+        longest = std::max(longest, model.get_tokenizer()->encode(longer, false).size());
+    }
+    EXPECT_GT(longest, 5u) << "the model should reach past 5 tokens when allowed (test sanity)";
+    EXPECT_EQ(model.get_generator()->get_config().max_length, 64) << "stored value restored";
+}
+
 // TD-261: an explicit strategy ignores num_beams. `num_beams > 1` used to send every strategy to
 // beam search (chatbot_gui's Beam Width defaults to 5; RLHFTrainer got the header default 4), so
 // sampling rollouts were deterministic beam search: 1 distinct response in 6.
@@ -2245,6 +2268,32 @@ TEST(EncoderDecoderGPUTest, GpuForwardLossMatchesCpuForwardTeacherForcing) {
         const float gpu_loss = model.gpu_forward(in, tgt);
         EXPECT_NEAR(gpu_loss, cpu_loss, 1e-3f) << "target '" << target << "'";
     }
+}
+
+// TD-359: gpu_generate_response() applies its max_length too (it was "kept for interface parity").
+TEST(EncoderDecoderGPUTest, GpuGenerateResponseHonoursMaxLength) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
+    EncoderDecoderModel model(100, 64, 2, 2);
+    build_test_vocab(model.get_tokenizer(), 100);
+    model.set_training(false);
+    auto cfg = model.get_generator()->get_config();
+    cfg.max_length = 64;
+    cfg.num_beams = 1;
+    model.get_generator()->set_config(cfg);
+
+    size_t longest = 0;
+    for (const char* input : {"hello world", "the quick brown fox", "a b c"}) {
+        const std::string shorter = model.gpu_generate_response(input, 5);
+        EXPECT_LE(model.get_tokenizer()->encode(shorter, false).size(), 5u) << input;
+        const std::string longer = model.gpu_generate_response(input, 40);
+        longest = std::max(longest, model.get_tokenizer()->encode(longer, false).size());
+    }
+    EXPECT_GT(longest, 5u) << "test sanity";
+    EXPECT_EQ(model.get_generator()->get_config().max_length, 64);
 }
 
 TEST(EncoderDecoderGPUTest, GpuForwardRejectsEmptyTarget) {

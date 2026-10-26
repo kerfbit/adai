@@ -1266,6 +1266,7 @@ The metrics pipeline run is complete.
 **Generation and model math run (October 25, 2026)**, chosen by the owner. So far:
 - TD-261 (done in code: explicit strategies ignore `num_beams`, the default is 1, and the GUI and RLHF pass the beam width only for
   beam search).
+- TD-359 (done in code: `generate_response()`/`gpu_generate_response()` apply their `max_length`; this unblocks TD-380's sample size).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -8728,7 +8729,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Models / EncoderDecoderModel | October 11, 2026 | 1 hour |
+| MEDIUM | Open — code fix landed October 26, 2026 | Models / EncoderDecoderModel | October 11, 2026 | 1 hour |
 
 Description:
 Found alongside TD-358 and confirmed. Neither method forwards its `max_length` argument to
@@ -8741,8 +8742,19 @@ honour `max_length`.
 
 Action Items:
 
-- [ ] Apply `max_length` for the call (temporarily set it on the generator config and restore it, or pass it through), on both CPU and GPU.
-- [ ] Test: `generate_response(…, 5)` returns at most 5 new tokens.
+- [x] Apply `max_length` for the call (temporarily set it on the generator config and restore it, or pass it through), on both CPU and GPU.
+- [x] Test: `generate_response(…, 5)` returns at most 5 new tokens.
+
+**Fix (October 26, 2026).** `generate_response()` and `gpu_generate_response()` apply their `max_length` for the call through a scoped
+override (`ScopedMaxLength`, under the model lock), and the generator's stored value is put back afterwards. `max_length <= 0` keeps
+the stored value. `ChatbotTrainer`'s generation-quality and backfill calls now stop at `generation_quality_max_tokens` (50) and
+`generation_backfill_max_tokens` instead of running to the stored length. (The count still includes BOS, TD-516.)
+
+Tests:
+- `GenerateResponseHonoursMaxLength` (CPU): three inputs at `max_length = 5` stay within 5 tokens with the generator at 64, a limit of
+  40 gives longer output, and the stored 64 is unchanged. The old code returned 10, 12 and 14 tokens.
+- `EncoderDecoderGPUTest.GpuGenerateResponseHonoursMaxLength`: the same on the GPU path, run on the oneAPI CPU device
+  (`ADAI_SYCL_ALLOW_CPU_DEVICE=1`, `build/sycl-cpudev`).
 
 Location in code: `src/EncoderDecoderModel.cpp` (`generate_response()`, `gpu_generate_response()`); tagged `TODO: See TD-359`.
 
@@ -9475,8 +9487,8 @@ Action Items:
 
 - [x] Document the tokenization and scale in the header, metrics API and dashboards (or report 0–100).
 - [x] Add a note to the lesson that the training metric isn't standard corpus BLEU.
-- [ ] Raise the default sample size (or report a confidence interval) once TD-359 makes generation length bounded. (Still waiting
-  on TD-359.)
+- [ ] Raise the default sample size (or report a confidence interval) once TD-359 makes generation length bounded. (TD-359's fix
+  landed October 26, 2026; this can now be done.)
 
 **Owner decision (October 25, 2026).** Standard tokenizers and the 0–100 scale.
 

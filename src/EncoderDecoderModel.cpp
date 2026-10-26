@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.23.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.23.1
+// @adai-reviewed: 2026-10-26
 
 #include "EncoderDecoderModel.hpp"
 #include <algorithm>
@@ -19,6 +19,32 @@
 using adai::Logger;
 
 namespace {
+
+// TD-359: applies one call's max_length to the generator, whose stored config is otherwise what
+// TextGenerator reads, and puts the stored value back when the call returns. max_length <= 0 keeps
+// the stored value.
+class ScopedMaxLength {
+   public:
+    ScopedMaxLength(TextGenerator& generator, int max_length)
+        : generator_(generator), previous_(generator.get_config().max_length) {
+        if (max_length > 0) {
+            auto config = generator_.get_config();
+            config.max_length = max_length;
+            generator_.set_config(config);
+        }
+    }
+    ~ScopedMaxLength() {
+        auto config = generator_.get_config();
+        config.max_length = previous_;
+        generator_.set_config(config);
+    }
+    ScopedMaxLength(const ScopedMaxLength&) = delete;
+    ScopedMaxLength& operator=(const ScopedMaxLength&) = delete;
+
+   private:
+    TextGenerator& generator_;
+    int previous_;
+};
 
 // TD-343: commits the hippocampal memory's coverage/association update once per decode step.
 // The forwards only read the memory now; a generation path observes each decoder call's step
@@ -257,12 +283,14 @@ Matrix EncoderDecoderModel::compute_loss_gradient(const Matrix& logits,
 }
 
 // Generate response
-// TODO: See TD-359 in TECHNICAL_DEBT.md - max_length is never applied; the generator's stored max_length is used instead
 std::string EncoderDecoderModel::generate_response(const std::string& input_text, int max_length) {
     // TD-156: serializes this whole (potentially multi-token) generation against any other
     // thread's forward()/backward()/generate_response()/generate_response_with_strategy() call
     // on this same instance — see model_mutex_'s doc comment in EncoderDecoderModel.hpp.
     std::lock_guard<std::mutex> lock(model_mutex_);
+    // TD-359: this call's max_length (it used to be ignored: generate_response("hello world", 5)
+    // produced 9 tokens with the generator at 64).
+    const ScopedMaxLength scoped_max_length(*generator, max_length);
 
     // Encode input (no special tokens for encoder input)
     // TODO: See TD-365 in TECHNICAL_DEBT.md - never truncated to max_seq_length
@@ -1269,11 +1297,8 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
     // GPUState, which two concurrent callers on the same model instance would race on.
     std::lock_guard<std::mutex> lock(model_mutex_);
 
-    // Matches generate_response(): the caller's max_length is not forwarded to
-    // TextGenerator, which generates up to its own, separately configured
-    // config.max_length. Kept as a parameter for interface parity.
-    // TODO: See TD-359 in TECHNICAL_DEBT.md - max_length is ignored
-    (void)max_length;
+    // TD-359: this call's max_length, as generate_response() (it used to be ignored).
+    const ScopedMaxLength scoped_max_length(*generator, max_length);
 
     // TODO: See TD-365 in TECHNICAL_DEBT.md - never truncated to max_seq_length
     std::vector<int> input_tokens = tokenizer->encode(input_text, false);
