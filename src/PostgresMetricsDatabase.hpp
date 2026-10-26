@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (TD-042 resolved — real test coverage added; still not built by default)
-// @adai-version: 0.6.0
+// @adai-version: 0.7.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -58,6 +58,7 @@ class PostgresMetricsDatabase : public IMetricsDatabase {
     std::vector<GenerationQualityRecord> query_generation_quality(
         const std::string& session_key) override;
 
+    int max_gradient_variance_step(const std::string& session_key) override;
     long long cap_session_rows(const std::string& session_key, int max_rows) override;
     long long delete_sessions_updated_before(
         std::chrono::system_clock::time_point cutoff) override;

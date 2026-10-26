@@ -84,6 +84,7 @@ add_library(adai_core STATIC
     DataFetcher.cpp
     ParquetReader.cpp
     SQLiteMetricsDatabase.cpp
+    MetricsDatabase.cpp  # TD-441: IMetricsDatabase factory and shared helpers
     DaemonConfigStore.cpp
     # TD-526/TD-550: shared refusal of browser-originated writes for every HTTP daemon.
     BrowserWriteGuard.cpp

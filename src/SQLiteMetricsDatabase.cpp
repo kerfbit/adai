@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
+// @adai-version: 1.4.0
 // @adai-reviewed: 2026-10-25
 
 #include "SQLiteMetricsDatabase.hpp"
@@ -662,11 +662,11 @@ std::vector<PersistentMetricsRecord> SQLiteMetricsDatabase::query_history(
         sql += " AND recorded_at <= ?" + std::to_string(param_idx++);
     }
 
-    // TODO: See TD-441 in TECHNICAL_DEBT.md - ASC then LIMIT returns the oldest N, not the latest
-    sql += " ORDER BY recorded_at ASC";
-
+    // TD-441: limit keeps the newest rows (it used to keep a run's first ones); returned oldest first.
     if (limit > 0) {
-        sql += " LIMIT " + std::to_string(limit);
+        sql += " ORDER BY recorded_at DESC, id DESC LIMIT " + std::to_string(limit);
+    } else {
+        sql += " ORDER BY recorded_at ASC, id ASC";
     }
 
     sqlite3_stmt* stmt = nullptr;
@@ -714,6 +714,8 @@ std::vector<PersistentMetricsRecord> SQLiteMetricsDatabase::query_history(
     }
 
     sqlite3_finalize(stmt);
+    if (limit > 0)
+        std::reverse(results.begin(), results.end());
     return results;
 }
 
@@ -881,6 +883,22 @@ std::vector<GenerationQualityRecord> SQLiteMetricsDatabase::query_generation_qua
     return results;
 }
 
+int SQLiteMetricsDatabase::max_gradient_variance_step(const std::string& session_key) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    sqlite3_stmt* stmt = nullptr;
+    check_sqlite(sqlite3_prepare_v2(db_,
+                                    "SELECT COALESCE(MAX(step), 0) FROM gradient_variance_history "
+                                    "WHERE session_key = ?1",
+                                    -1, &stmt, nullptr),
+                 db_, "max_gradient_variance_step prepare");
+    sqlite3_bind_text(stmt, 1, session_key.c_str(), -1, SQLITE_TRANSIENT);
+    int max_step = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+        max_step = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    return max_step;
+}
+
 long long SQLiteMetricsDatabase::cap_session_rows(const std::string& session_key, int max_rows) {
     if (max_rows <= 0)
         return 0;
@@ -969,53 +987,4 @@ long long SQLiteMetricsDatabase::delete_sessions_updated_before(
     return sessions;
 }
 
-RowCapPlan plan_row_cap(long long count, int max_rows) {
-    RowCapPlan plan;
-    if (max_rows <= 0 || count <= max_rows)
-        return plan;
-    const long long target = std::max<long long>(1, max_rows - max_rows / 4);
-    const long long excess = count - target;
-    if (2 * excess <= count)
-        plan.thin_first = 2 * excess;  // every second of these goes: exactly `excess` rows
-    else
-        plan.delete_oldest = excess;
-    return plan;
-}
 
-// ============================================================================
-// Factory
-// ============================================================================
-
-std::unique_ptr<IMetricsDatabase> MetricsDatabaseFactory::create(const std::string& backend,
-                                                                 const std::string& db_path,
-                                                                 const std::string& db_url,
-                                                                 int pool_size) {
-    // Strip "+file" suffix — the dual-write decision is handled by the caller
-    std::string core_backend = backend;
-    auto plus_pos = core_backend.find("+file");
-    if (plus_pos != std::string::npos) {
-        core_backend = core_backend.substr(0, plus_pos);
-    }
-
-    if (core_backend == "sqlite") {
-        std::string path = db_path.empty() ? "training_sessions/metrics.db" : db_path;
-        return std::make_unique<SQLiteMetricsDatabase>(path);
-    }
-
-#ifdef ADAI_ENABLE_POSTGRES
-    if (core_backend == "postgres") {
-        // Forward declaration — implemented in PostgresMetricsDatabase.cpp
-        extern std::unique_ptr<IMetricsDatabase> create_postgres_metrics_database(
-            const std::string& url, int pool_size);
-        return create_postgres_metrics_database(db_url, pool_size);
-    }
-#endif
-
-    if (core_backend == "file" || core_backend.empty()) {
-        return nullptr;
-    }
-
-    adai::Logger::warn("[MetricsDatabaseFactory] Unknown backend '{}'; falling back to file-only",
-                       backend);
-    return nullptr;
-}

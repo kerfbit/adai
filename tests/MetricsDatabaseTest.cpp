@@ -161,8 +161,11 @@ TEST_F(MetricsDatabaseTest, LimitClause) {
         db.insert_metrics_record("limit-test", rec);
     }
 
+    // TD-441: limit keeps the newest rows, still returned oldest first (it used to keep samples 0-4).
     auto results = db.query_history("limit-test", std::nullopt, std::nullopt, 5);
-    EXPECT_EQ(results.size(), 5u);
+    ASSERT_EQ(results.size(), 5u);
+    EXPECT_EQ(results.front().sample, 15);
+    EXPECT_EQ(results.back().sample, 19);
 }
 
 TEST_F(MetricsDatabaseTest, UpsertSession) {
@@ -1651,4 +1654,31 @@ TEST_F(MetricsDatabaseTest, FailedMigrationFailsTheOpen) {
     fs::permissions(db_path_, fs::perms::owner_all);
     EXPECT_NE(error.find("ALTER TABLE sessions ADD COLUMN final_loss"), std::string::npos)
         << "error: '" << error << "'";
+}
+
+// TD-441: a service attaching to a session that already has gradient-variance rows (a restored
+// session after a server restart) continues the step numbering instead of restarting at 1.
+TEST_F(MetricsDatabaseTest, GradientVarianceStepsContinueAcrossServiceInstances) {
+    auto db = std::make_unique<SQLiteMetricsDatabase>(db_path_);
+    MetricsServiceConfig config;
+    config.enable_persistence = false;
+    config.session_key = "steps";
+    for (int instance = 0; instance < 2; ++instance) {
+        TrainingMetricsService service(config);
+        service.set_database(db.get(), "steps");
+        service.start_session(1, 1, 10);
+        for (int i = 0; i < 5; ++i)
+            service.update_advanced_epoch_metrics(0.1f, 0.5f, 0.01f);
+        service.end_session();
+    }
+    EXPECT_EQ(db->max_gradient_variance_step("steps"), 10);
+    const auto rows = db->query_gradient_variance("steps", 0);
+    ASSERT_EQ(rows.size(), 10u);
+    std::set<int> steps;
+    for (const auto& r : rows)
+        steps.insert(r.step);
+    EXPECT_EQ(steps.size(), 10u) << "duplicate steps";
+    EXPECT_EQ(*steps.begin(), 1);
+    EXPECT_EQ(*steps.rbegin(), 10);
+    EXPECT_EQ(db->max_gradient_variance_step("no-such-session"), 0);
 }

@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.13.0
+// @adai-version: 0.13.1
 // @adai-reviewed: 2026-10-25
 
 #include "TrainingMetricsService.hpp"
@@ -1691,7 +1691,6 @@ void TrainingMetricsService::update_advanced_epoch_metrics(float gradient_varian
         // TD-511: buffered and written in one transaction at the next persist (or every
         // kGradientVarianceBatch rows) instead of one autocommitted insert per optimizer step.
         if (db_ && !session_key_.empty()) {
-            // TODO: See TD-441 in TECHNICAL_DEBT.md - counter restarts at 0 when this service is recreated
             GradientVarianceRecord rec;
             rec.timestamp = std::chrono::system_clock::now();
             rec.step = ++gradient_variance_step_counter_;
@@ -1923,6 +1922,17 @@ void TrainingMetricsService::set_database(IMetricsDatabase* db, const std::strin
     pending_gradient_variance_.clear();
     db_ = db;
     session_key_ = session_key;
+    // TD-441: continue the session's step numbering when it already has rows (a restored session
+    // after a server restart); the counter used to restart at 0 and duplicate steps.
+    gradient_variance_step_counter_ = 0;
+    if (db_ && !session_key_.empty()) {
+        try {
+            gradient_variance_step_counter_ = db_->max_gradient_variance_step(session_key_);
+        } catch (const std::exception& e) {
+            adai::Logger::warn("Could not read the stored gradient-variance step for '{}': {}",
+                               session_key_, e.what());
+        }
+    }
 }
 
 SessionRecord TrainingMetricsService::build_session_record() const {

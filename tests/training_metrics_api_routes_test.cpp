@@ -1004,3 +1004,48 @@ TEST_F(TrainingMetricsAPIDbRoutesTest, PushedBleu1AndBleu2AreStored) {
     EXPECT_FLOAT_EQ(j["records"][0]["bleu4"].get<float>(), 0.25f);
     EXPECT_FLOAT_EQ(j["records"][0]["rougeL"].get<float>(), 0.55f);
 }
+
+// TD-441: compare is bounded; it used to read every listed session's whole history per request.
+TEST_F(TrainingMetricsAPIDbRoutesTest, CompareRefusesTooManySessions) {
+    std::string keys;
+    for (int i = 0; i < 17; ++i)
+        keys += (i ? "," : "") + std::string("k") + std::to_string(i);
+    auto client = make_client();
+    auto res = client.Get("/api/metrics/compare?keys=" + keys + "&metric=loss");
+    ASSERT_TRUE(res);
+    EXPECT_NE(res->body.find("At most 16 sessions"), std::string::npos) << res->body;
+
+    res = client.Get("/api/metrics/compare?keys=k1,k2&metric=loss");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->body.find("error"), std::string::npos) << res->body;
+}
+
+// TD-441: export reports whether it was cut at the read bound; db-history's limit keeps the newest.
+TEST_F(TrainingMetricsAPIDbRoutesTest, ExportReportsTruncationAndDbHistoryLimitKeepsNewest) {
+    auto* db = registry_->get_database();
+    SessionRecord rec;
+    rec.key = "exp";
+    rec.session_id = 1;
+    rec.created_at = rec.last_update_at = std::chrono::system_clock::now();
+    db->upsert_session(rec);
+    std::vector<PersistentMetricsRecord> rows(30);
+    for (int i = 0; i < 30; ++i) {
+        rows[i].timestamp = rec.created_at + std::chrono::milliseconds(i);
+        rows[i].sample = i;
+    }
+    db->insert_metrics_records("exp", rows);
+
+    auto client = make_client();
+    auto res = client.Get("/api/sessions/exp/metrics/export?format=json");
+    ASSERT_TRUE(res);
+    auto j = nlohmann::json::parse(res->body);
+    EXPECT_EQ(j["count"], 30);
+    EXPECT_EQ(j["truncated"], false);
+
+    res = client.Get("/api/sessions/exp/metrics/db-history?limit=3");
+    ASSERT_TRUE(res);
+    j = nlohmann::json::parse(res->body);
+    ASSERT_EQ(j["count"], 3);
+    EXPECT_EQ(j["records"][0]["sample"], 27);
+    EXPECT_EQ(j["records"][2]["sample"], 29);
+}

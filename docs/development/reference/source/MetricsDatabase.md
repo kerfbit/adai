@@ -152,3 +152,13 @@ Tests: `CapSessionRowsThinsOldestAndKeepsNewest`, `DeleteSessionsUpdatedBeforeRe
 `insert_metrics_records()` and `insert_gradient_variance_samples()` write a batch in one transaction, all or nothing, and throw when
 it isn't stored. Both backends implement them, and `TrainingMetricsService` writes its history and per-step gradient-variance rows
 through them. Tests: `BatchInsertsAreAllOrNothing` (SQLite and live PostgreSQL).
+
+## Addendum (October 25, 2026): contract, `limit`, step counter (TD-441)
+
+- **Contract.** It's documented at the top of `IMetricsDatabase`: thread safety, errors per backend, oldest-first order, `limit` > 0
+  keeping the newest rows, sentinels, retention.
+- **`query_history(…, limit)`.** It returns the newest `limit` rows, oldest first, in both backends.
+- **`max_gradient_variance_step(key)`.** `TrainingMetricsService::set_database()` uses it to continue a session's step numbering.
+- **Factory.** `MetricsDatabaseFactory::create()` and `plan_row_cap()` live in `src/MetricsDatabase.cpp`.
+
+Tests: `LimitClause`, `GradientVarianceStepsContinueAcrossServiceInstances`, `LimitKeepsNewestAndMaxStep` (PostgreSQL).

@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -55,6 +55,7 @@ class SQLiteMetricsDatabase : public IMetricsDatabase {
     std::vector<GenerationQualityRecord> query_generation_quality(
         const std::string& session_key) override;
 
+    int max_gradient_variance_step(const std::string& session_key) override;
     long long cap_session_rows(const std::string& session_key, int max_rows) override;
     long long delete_sessions_updated_before(
         std::chrono::system_clock::time_point cutoff) override;

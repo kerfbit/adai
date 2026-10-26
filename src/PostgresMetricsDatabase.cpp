@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-042 resolved — real test coverage added; still not built by default)
-// @adai-version: 0.6.0
+// @adai-version: 0.7.0
 // @adai-reviewed: 2026-10-25
 
 #ifdef ADAI_ENABLE_POSTGRES
@@ -14,6 +14,7 @@
 #include <libpq-fe.h>
 #include <chrono>
 #include <cstring>
+#include <algorithm>
 #include <functional>
 #include <iomanip>
 #include <limits>
@@ -814,10 +815,12 @@ std::vector<PersistentMetricsRecord> PostgresMetricsDatabase::query_history(
             param_strs.push_back(to_str);
         }
 
-        // TODO: See TD-441 in TECHNICAL_DEBT.md - ASC then LIMIT returns the oldest N, not the latest
-        sql += " ORDER BY recorded_at ASC";
+        // TD-441: limit keeps the newest rows (it used to keep a run's first ones); returned oldest
+        // first (reversed below).
         if (limit > 0) {
-            sql += " LIMIT " + std::to_string(limit);
+            sql += " ORDER BY recorded_at DESC, id DESC LIMIT " + std::to_string(limit);
+        } else {
+            sql += " ORDER BY recorded_at ASC, id ASC";
         }
 
         std::vector<const char*> params;
@@ -874,6 +877,8 @@ std::vector<PersistentMetricsRecord> PostgresMetricsDatabase::query_history(
         }
 
         PQclear(res);
+        if (limit > 0)
+            std::reverse(results.begin(), results.end());
         return true;
     });
 
@@ -1073,6 +1078,26 @@ std::vector<GenerationQualityRecord> PostgresMetricsDatabase::query_generation_q
         return true;
     });
     return results;
+}
+
+int PostgresMetricsDatabase::max_gradient_variance_step(const std::string& session_key) {
+    int max_step = 0;
+    execute_with_retry("max_gradient_variance_step", [&](PGconn* conn) -> bool {
+        const char* params[] = {session_key.c_str()};
+        PGresult* res = PQexecParams(conn,
+                                     "SELECT COALESCE(MAX(step), 0) FROM gradient_variance_history "
+                                     "WHERE session_key = $1",
+                                     1, nullptr, params, nullptr, nullptr, 0);
+        const bool ok = PQresultStatus(res) == PGRES_TUPLES_OK;
+        if (ok)
+            max_step = std::atoi(PQgetvalue(res, 0, 0));
+        else
+            adai::Logger::error("[PostgresMetricsDB] max_gradient_variance_step: {}",
+                                PQerrorMessage(conn));
+        PQclear(res);
+        return ok;
+    });
+    return max_step;
 }
 
 long long PostgresMetricsDatabase::cap_session_rows(const std::string& session_key,

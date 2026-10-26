@@ -157,3 +157,9 @@ UTF-8 boundary, marked "…") and `reason` at 128 characters. The path used to b
 New routes: `GET /api/sessions/{key}/metrics/db-gradient-variance[?limit=N]` and `GET …/metrics/db-generation-quality`. Small values
 keep their digits. `GET`/`PUT /admin/config` also expose `retention_days`, `metrics_file_max_mb` and `metrics_file_backups`, persisted
 like the other keys. Tests: `GradientVarianceAndGenerationQualityAreReadable`, `RetentionSettingsAreAdminMutable`.
+
+## Addendum (October 25, 2026): bounded compare/export reads (TD-441)
+
+`GET …/metrics/export` reads the newest `kMaxReadRows` (200,000) rows, and its JSON form reports `"truncated"`. `GET /api/metrics/compare`
+refuses more than `kMaxCompareSessions` (16) keys and reads each session's newest 200,000 rows. `db-history?limit=N` returns the newest
+N. Tests: `CompareRefusesTooManySessions`, `ExportReportsTruncationAndDbHistoryLimitKeepsNewest`.

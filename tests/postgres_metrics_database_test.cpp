@@ -948,3 +948,29 @@ TEST_F(PostgresMetricsDatabaseTest, BatchInsertsAreAllOrNothing) {
     EXPECT_TRUE(db.query_history("pg-no-session", std::nullopt, std::nullopt, 0).empty());
     TearDownRawConn();
 }
+
+// TD-441 (Postgres): limit keeps the newest rows; the stored max gradient-variance step.
+TEST_F(PostgresMetricsDatabaseTest, LimitKeepsNewestAndMaxStep) {
+    PostgresMetricsDatabase db(db_url_, 2);
+    SessionRecord s;
+    s.key = "pg-limit";
+    s.session_id = 1;
+    s.created_at = s.last_update_at = std::chrono::system_clock::now();
+    db.upsert_session(s);
+    std::vector<PersistentMetricsRecord> recs(20);
+    for (int i = 0; i < 20; ++i) {
+        recs[i].timestamp = s.created_at + std::chrono::milliseconds(i);
+        recs[i].sample = i;
+    }
+    db.insert_metrics_records("pg-limit", recs);
+    const auto newest = db.query_history("pg-limit", std::nullopt, std::nullopt, 5);
+    ASSERT_EQ(newest.size(), 5u);
+    EXPECT_EQ(newest.front().sample, 15);
+    EXPECT_EQ(newest.back().sample, 19);
+
+    EXPECT_EQ(db.max_gradient_variance_step("pg-limit"), 0);
+    db.insert_gradient_variance_sample("pg-limit", 7, 1, 0.1f);
+    db.insert_gradient_variance_sample("pg-limit", 3, 1, 0.1f);
+    EXPECT_EQ(db.max_gradient_variance_step("pg-limit"), 7);
+    TearDownRawConn();
+}

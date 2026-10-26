@@ -102,7 +102,7 @@ The server uses a session-keyed design. Each training run opens a named **sessio
 | **GET** | `/api/sessions/{key}/metrics/db-history` | DB-backed time-range history (`from`, `to`, `limit`) |
 | **GET** | `/api/sessions/{key}/metrics/db-gradient-variance` | Per-optimizer-step gradient variance from the DB (`limit` = newest N) |
 | **GET** | `/api/sessions/{key}/metrics/db-generation-quality` | Per-epoch BLEU/ROUGE scores from the DB |
-| **GET** | `/api/sessions/{key}/metrics/export` | Full unbounded history export (`format=csv\|json`) |
+| **GET** | `/api/sessions/{key}/metrics/export` | History export, newest 200,000 records (`format=csv\|json`) |
 | **GET** | `/api/metrics/compare` | Cross-session metric comparison (`keys`, `metric`) |
 | **GET** | `/health` | Server health and active session count |
 
@@ -575,7 +575,7 @@ Query parameters:
 |-------|------|-------------|
 | `from` | ISO 8601 | Start of time range (inclusive) |
 | `to` | ISO 8601 | End of time range (inclusive) |
-| `limit` | int | Maximum records to return (0 = unlimited) |
+| `limit` | int | Return only the newest N records, still oldest first (0 = all). Before TD-441 (October 25, 2026) it returned a run's first N |
 
 ```bash
 curl "http://localhost:8081/api/sessions/42-gpu0/metrics/db-history?from=2026-06-25T10:00:00Z&to=2026-06-25T12:00:00Z&limit=500"
@@ -622,7 +622,9 @@ Both routes return an error response when no database backend is configured.
 
 ### `GET /api/sessions/{key}/metrics/export`
 
-Full unbounded history export from the database.
+History export from the database: the newest 200,000 records, oldest first (TD-441; it used to read the whole history per
+request). The JSON form has `"truncated": true` when older records were left out. Per-session retention (TD-440,
+`max_records_on_disk`, default 100,000) normally keeps a session under the bound.
 
 Query parameters:
 
@@ -651,6 +653,7 @@ timestamp,epoch,sample,loss,validation_loss,learning_rate,gradient_norm,perplexi
 ### `GET /api/metrics/compare`
 
 Cross-session metric comparison. Returns parallel per-epoch value arrays for the specified metric from each session, useful for loss-curve overlays.
+At most 16 sessions per request; each is read from its newest 200,000 records (TD-441).
 
 Query parameters:
 

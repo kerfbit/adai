@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.13.0
+// @adai-version: 0.14.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -143,6 +143,9 @@ class TrainingMetricsAPI {
     std::string handle_sessions_list();
     std::string handle_sessions_list_filtered(const std::string& query_params);
     std::string handle_metrics_aggregate();
+    // TD-441: read bounds for compare/export (whole histories were materialized per request).
+    static constexpr int kMaxReadRows = 200000;
+    static constexpr size_t kMaxCompareSessions = 16;
     std::string handle_db_history(const std::string& session_key, const std::string& query_params);
     // TD-440: GET …/metrics/db-gradient-variance[?limit=N] and …/metrics/db-generation-quality
     std::string handle_db_gradient_variance(const std::string& session_key,

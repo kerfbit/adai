@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -71,7 +71,21 @@ struct RowCapPlan {
 };
 RowCapPlan plan_row_cap(long long count, int max_rows);
 
-// TODO: See TD-441 in TECHNICAL_DEBT.md - contract (throws, thread safety, ASC order, limit 0 = all) undocumented
+// The storage behind metrics_api_server's history (TD-020), implemented by SQLiteMetricsDatabase and
+// PostgresMetricsDatabase; created by MetricsDatabaseFactory (MetricsDatabase.cpp).
+//
+// Contract (TD-441):
+// - Thread safety: every method may be called from any thread concurrently (SQLite serializes on one
+//   connection and mutex; Postgres uses a connection pool).
+// - Errors: SQLite methods throw std::runtime_error on failure. Postgres single-row writes and reads
+//   log and return (an empty result for reads) once its connection retries are exhausted; its batch
+//   inserts throw, so callers can keep the rows for another try. A statement rejected on a healthy
+//   connection is never retried (TD-479).
+// - Order: every query returns rows oldest first. A `limit` > 0 keeps the newest `limit` rows;
+//   0 means all.
+// - Sentinels: SessionRecord::best_validation_loss is FLT_MAX when no validation ran; a stored NaN
+//   reads back as NaN (SQLite stores it as NULL, TD-510).
+// - Retention: cap_session_rows() and delete_sessions_updated_before() delete rows (TD-440).
 class IMetricsDatabase {
    public:
     virtual ~IMetricsDatabase() = default;
@@ -96,8 +110,9 @@ class IMetricsDatabase {
     // so it gets its own table with a row for every TrainingMetricsService::
     // update_advanced_epoch_metrics() call (buffered and written in batches through
     // insert_gradient_variance_samples() since TD-511). `step` is a server-side
-    // monotonic counter (not the trainer's sample index).
-    // TODO: See TD-441 in TECHNICAL_DEBT.md - step restarts at 0 per TrainingMetricsService instance
+    // counter (not the trainer's sample index), increasing within a session: a service
+    // that attaches to a session with stored rows continues from max_gradient_variance_step()
+    // (TD-441; it used to restart at 0, duplicating steps).
     virtual void insert_gradient_variance_sample(const std::string& session_key, int step,
                                                  int epoch, float value) = 0;
 
@@ -124,6 +139,9 @@ class IMetricsDatabase {
         std::optional<bool> is_training_filter = std::nullopt) = 0;
 
     virtual std::optional<SessionRecord> get_session(const std::string& key) = 0;
+
+    // TD-441: the highest stored gradient-variance step for the session (0 when none).
+    virtual int max_gradient_variance_step(const std::string& session_key) = 0;
 
     // TD-440: readers for the two tables that used to be write-only. Both return rows oldest first;
     // `limit` > 0 keeps only the newest `limit` rows.

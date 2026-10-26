@@ -1251,6 +1251,8 @@ The run is complete.
   registry lock, and evicted services stop writing).
 - TD-444 (done in code: the push client uses libcurl, giving HTTPS, extra headers and one kept-alive connection; failures are warned,
   rate-limited; no heartbeat before the session; longer host fragment).
+- TD-441 (done in code: gradient-variance steps continue across service instances, `limit` keeps the newest rows, compare/export
+  reads are bounded, the interface contract is documented, and the factory has its own file).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -11671,7 +11673,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Metrics / Database | October 14, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 25, 2026 | Metrics / Database | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `MetricsDatabase`, by inspection:
@@ -11689,9 +11691,30 @@ Found while tracing `MetricsDatabase`, by inspection:
 
 Action Items:
 
-- [ ] Seed the step counter from the DB (`MAX(step)`) on restore, or drop the "monotonic" claim.
-- [ ] Add an order/"latest N" option to `query_history()` and use it for `db-history`; document `limit`.
-- [ ] Cap or page compare/export reads; document the interface contract; move the factory to its own file.
+- [x] Seed the step counter from the DB (`MAX(step)`) on restore, or drop the "monotonic" claim.
+- [x] Add an order/"latest N" option to `query_history()` and use it for `db-history`; document `limit`.
+- [x] Cap or page compare/export reads; document the interface contract; move the factory to its own file.
+
+**Fix (October 25, 2026).**
+- **Step counter.** The new `IMetricsDatabase::max_gradient_variance_step()` returns `COALESCE(MAX(step), 0)`.
+  `TrainingMetricsService::set_database()` seeds the counter from it, so a service attaching to a session with stored rows
+  continues its numbering.
+- **`limit`.** It now keeps the newest rows in both backends (`ORDER BY recorded_at DESC, id DESC LIMIT n`, reversed to oldest
+  first). Nothing used the old meaning; `db-history?limit=N` now returns the latest N.
+- **Read bounds.** Export reads the newest 200,000 rows, and its JSON says `"truncated"` when older ones were left out. Compare takes
+  at most 16 sessions, each from its newest 200,000 rows. TD-440's per-session cap normally keeps a session well under that.
+- **Contract and factory.** The interface contract (thread safety, errors per backend, ordering, `limit`, sentinels, retention) is
+  documented at the top of `IMetricsDatabase`. The factory and `plan_row_cap()` moved to the new `src/MetricsDatabase.cpp`.
+
+Tests:
+- `LimitClause` now expects samples 15–19 of 20;
+- `GradientVarianceStepsContinueAcrossServiceInstances`;
+- `CompareRefusesTooManySessions`;
+- `ExportReportsTruncationAndDbHistoryLimitKeepsNewest`;
+- Postgres, live: `LimitKeepsNewestAndMaxStep`.
+
+With the old ordering and no seeding, the first, second and fourth fail: samples 0–4, duplicate steps 1–5, and the first three
+rows.
 
 Location in code: `src/MetricsDatabase.hpp`; `src/TrainingMetricsService.cpp` (step counter); `src/SQLiteMetricsDatabase.cpp`/`src/PostgresMetricsDatabase.cpp` (`query_history()`); tagged `TODO: See TD-441`.
 

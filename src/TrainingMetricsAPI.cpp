@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.13.1
+// @adai-version: 0.14.0
 // @adai-reviewed: 2026-10-25
 
 #include "TrainingMetricsAPI.hpp"
@@ -2909,6 +2909,11 @@ std::string TrainingMetricsAPI::handle_metrics_compare(const std::string& query_
         if (!k.empty())
             keys.push_back(k);
     }
+    // TD-441: compare used to read every listed session's whole history per request.
+    if (keys.size() > kMaxCompareSessions) {
+        return create_error_response("At most " + std::to_string(kMaxCompareSessions) +
+                                     " sessions can be compared at once");
+    }
 
     std::ostringstream json;
     json << std::fixed << std::setprecision(6);
@@ -2919,7 +2924,9 @@ std::string TrainingMetricsAPI::handle_metrics_compare(const std::string& query_
             json << ",";
         json << "\"" << escape_json(keys[i]) << "\":[";
 
-        auto records = db->query_history(keys[i]);
+        // TD-441: the newest kMaxReadRows rows per session (the comparison keeps each epoch's last
+        // value, so the newest rows are the ones that matter).
+        auto records = db->query_history(keys[i], std::nullopt, std::nullopt, kMaxReadRows);
         std::map<int, float> epoch_values;
         for (const auto& r : records) {
             float val = 0.0f;
@@ -3014,7 +3021,12 @@ std::string TrainingMetricsAPI::handle_metrics_export(const std::string& session
     }
 
     auto format = parse_query_param_string(query_params, "format", "json");
-    auto records = db->query_history(session_key);
+    // TD-441: bounded to the newest kMaxReadRows rows (it read the whole history per request). One
+    // extra row is fetched to tell whether anything was left out; JSON reports it as "truncated".
+    auto records = db->query_history(session_key, std::nullopt, std::nullopt, kMaxReadRows + 1);
+    const bool truncated = records.size() > static_cast<size_t>(kMaxReadRows);
+    if (truncated)
+        records.erase(records.begin());
 
     if (format == "csv") {
         std::ostringstream csv;
@@ -3034,6 +3046,7 @@ std::string TrainingMetricsAPI::handle_metrics_export(const std::string& session
     json << std::fixed << std::setprecision(6);
     json << "{\"session_key\":\"" << escape_json(session_key) << "\",";
     json << "\"count\":" << records.size() << ",";
+    json << "\"truncated\":" << (truncated ? "true" : "false") << ",";
     json << "\"records\":[";
     for (size_t i = 0; i < records.size(); ++i) {
         if (i > 0)
