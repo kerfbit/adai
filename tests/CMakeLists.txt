@@ -220,6 +220,12 @@ add_executable(inferenceOptimizationTests inference_optimization_test.cpp)
 target_link_libraries(inferenceOptimizationTests adai_models adai_nlp GTest::gtest_main)
 add_test(NAME InferenceOptimizationTests COMMAND inferenceOptimizationTests)
 
+# TD-421/TD-422: direct KVCache tests
+add_executable(kvcacheTests kvcache_test.cpp)
+target_link_libraries(kvcacheTests adai_core GTest::gtest_main)
+target_include_directories(kvcacheTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME KVCacheTests COMMAND kvcacheTests)
+
 # ============================================================================
 # Application Tests
 # ============================================================================

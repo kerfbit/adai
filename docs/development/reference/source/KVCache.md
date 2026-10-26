@@ -121,3 +121,9 @@ wins:
 
 **Kept:** the API description (§2), the per-layer structure, and the "clear self-attention only, keep
 the encoder K/V" pattern.
+
+## Addendum (October 26, 2026): in-place growth and checks (TD-421, TD-422)
+
+`append()` pushes the new rows onto the existing `Matrix` (one vector per row), so no cached row is copied. One cache at d_model 512:
+512 steps took 219 ms before and 1.03 ms after. It throws `invalid_argument` on mismatched shapes, and `DecoderKVCache`'s layer
+accessors throw `out_of_range`. Tests: `tests/kvcache_test.cpp`.

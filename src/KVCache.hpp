@@ -1,10 +1,12 @@
 #pragma once
 
 // @adai-status: beta        (TD-050 investigated — root-caused clean, no correctness bug found; see TECHNICAL_DEBT.md)
-// @adai-version: 0.6.0
-// @adai-reviewed: 2026-09-14
+// @adai-version: 0.7.0
+// @adai-reviewed: 2026-10-26
 
 
+#include <stdexcept>
+#include <string>
 #include <vector>
 #include "Matrix.hpp"
 
@@ -83,42 +85,38 @@ struct KVCache {
      *
      * @param new_keys Keys for new position(s) [num_new_positions, d_model]
      * @param new_values Values for new position(s) [num_new_positions, d_model]
+     * @throws std::invalid_argument when the shapes don't match each other or the cache (TD-421:
+     *         wider rows used to overflow the heap on write, fewer value rows on read)
      */
-    // TODO: See TD-421 in TECHNICAL_DEBT.md - no shape checks: wider rows overflow on write, fewer value rows than
-    // key rows overflow on read (ASan-verified), and an inconsistent first append is accepted silently.
-    // TD-422: reallocates and copies the whole cache on every append (O(n^2 * d) per generation)
     void append(const Matrix& new_keys, const Matrix& new_values) {
+        if (new_keys.rows != new_values.rows || new_keys.cols != new_values.cols) {
+            throw std::invalid_argument(
+                "KVCache::append: keys " + std::to_string(new_keys.rows) + "x" +
+                std::to_string(new_keys.cols) + " and values " + std::to_string(new_values.rows) +
+                "x" + std::to_string(new_values.cols) + " differ in shape");
+        }
+        if (!is_empty() && new_keys.cols != keys.cols) {
+            throw std::invalid_argument("KVCache::append: new rows have width " +
+                                        std::to_string(new_keys.cols) + ", the cache " +
+                                        std::to_string(keys.cols));
+        }
         if (is_empty()) {
-            // Initialize cache with first keys/values
             keys = new_keys;
             values = new_values;
             current_length = new_keys.rows;
-        } else {
-            // Concatenate new keys/values to existing cache
-            // This creates a new matrix with shape [current_length + num_new, d_model]
-            Matrix concatenated_keys(current_length + new_keys.rows, keys.cols);
-            Matrix concatenated_values(current_length + new_values.rows, values.cols);
-
-            // Copy existing cached data
-            for (int i = 0; i < current_length; ++i) {
-                for (int j = 0; j < keys.cols; ++j) {
-                    concatenated_keys.data[i][j] = keys.data[i][j];
-                    concatenated_values.data[i][j] = values.data[i][j];
-                }
-            }
-
-            // Append new data
-            for (int i = 0; i < new_keys.rows; ++i) {
-                for (int j = 0; j < new_keys.cols; ++j) {
-                    concatenated_keys.data[current_length + i][j] = new_keys.data[i][j];
-                    concatenated_values.data[current_length + i][j] = new_values.data[i][j];
-                }
-            }
-
-            keys = concatenated_keys;
-            values = concatenated_values;
-            current_length += new_keys.rows;
+            return;
         }
+        // TD-422: grow in place. Matrix keeps one vector per row, so appending rows moves no
+        // existing data (amortized O(new rows * d)). This used to allocate a
+        // [current_length + new, d] pair and copy the whole cache on every decode step: O(n^2 * d)
+        // per generation (255 ms of copying for one 512-step cache at d_model 512).
+        for (int i = 0; i < new_keys.rows; ++i) {
+            keys.data.push_back(new_keys.data[i]);
+            values.data.push_back(new_values.data[i]);
+        }
+        keys.rows += new_keys.rows;
+        values.rows += new_values.rows;
+        current_length += new_keys.rows;
     }
 
     /**
@@ -194,16 +192,24 @@ struct DecoderKVCache {
     /**
      * Get cache for specific layer's self-attention
      */
-    // TODO: See TD-421 in TECHNICAL_DEBT.md - layer_idx unchecked (also get_cross_attention_cache)
+    // TD-421: layer indices are checked (an out-of-range index used to read past the vector).
     KVCache& get_self_attention_cache(int layer_idx) {
-        return self_attention_caches[layer_idx];
+        return self_attention_caches.at(checked_layer(layer_idx));
     }
 
     /**
      * Get cache for specific layer's cross-attention
      */
     KVCache& get_cross_attention_cache(int layer_idx) {
-        return cross_attention_caches[layer_idx];
+        return cross_attention_caches.at(checked_layer(layer_idx));
+    }
+
+    size_t checked_layer(int layer_idx) const {
+        if (layer_idx < 0 || static_cast<size_t>(layer_idx) >= self_attention_caches.size()) {
+            throw std::out_of_range("DecoderKVCache: layer " + std::to_string(layer_idx) +
+                                    " of " + std::to_string(self_attention_caches.size()));
+        }
+        return static_cast<size_t>(layer_idx);
     }
 
     /**
@@ -219,7 +225,8 @@ struct DecoderKVCache {
     }
 
     /**
-     * Get current sequence length from first layer cache
+     * Get current sequence length from first layer cache (every layer's self-attention cache grows
+     * by the same rows each step)
      */
     int current_length() const {
         if (!self_attention_caches.empty()) {

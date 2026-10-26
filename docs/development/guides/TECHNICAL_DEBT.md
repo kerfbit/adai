@@ -1268,6 +1268,8 @@ The metrics pipeline run is complete.
   beam search).
 - TD-359 (done in code: `generate_response()`/`gpu_generate_response()` apply their `max_length`; this unblocks TD-380's sample size).
 - TD-347 (done in code: the cached forward's positional rows match the full forward, and generation stops at `max_seq_length`).
+- TD-421/422 (done in code: `KVCache::append()` checks shapes and grows in place, about 210× faster at 512 steps, and layer indices
+  are checked).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -10999,7 +11001,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Inference / KVCache | October 13, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 26, 2026 | Inference / KVCache | October 13, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `KVCache` and verified under AddressSanitizer. `KVCache::append()` never compares
@@ -11016,7 +11018,12 @@ bounds-check the layer index, and `current_length()` reads only layer 0.
 
 Action Items:
 
-- [ ] Validate shapes in `append()` (throw `invalid_argument`), bounds-check layer indices, and add a direct `KVCache` test file.
+- [x] Validate shapes in `append()` (throw `invalid_argument`), bounds-check layer indices, and add a direct `KVCache` test file.
+
+**Fix (October 26, 2026, with TD-422).** `append()` throws `invalid_argument` when keys and values differ in shape or the new rows
+have a different width from the cache, and a rejected append changes nothing. `DecoderKVCache::get_*_attention_cache()` throw
+`out_of_range` for a bad layer index. New `tests/kvcache_test.cpp` (`kvcacheTests`): `RejectsMismatchedShapes` (the three cases from
+the description), `LayerIndicesAreChecked`, plus TD-422's tests. Clean under AddressSanitizer.
 
 Location in code: `src/KVCache.hpp` (`append()`, `get_*_cache()`); tagged `TODO: See TD-421`.
 
@@ -11031,7 +11038,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / KVCache | October 13, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 26, 2026 | Inference / KVCache | October 13, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `KVCache` and measured. `append()` allocates new `[current_length + new_rows ×
@@ -11044,8 +11051,23 @@ CPU serving path. `GPUKVCache` already pre-allocates to `max_seq_length`; this o
 
 Action Items:
 
-- [ ] Pre-allocate `keys`/`values` to `max_seq_length` (or grow geometrically) and track the populated length; give `MultiHeadAttention`/`CrossAttention` a view of the populated rows instead of a full copy.
-- [ ] Do this with TD-388 and TD-398, which have the same per-step copy pattern.
+- [x] Pre-allocate `keys`/`values` to `max_seq_length` (or grow geometrically) and track the populated length; give `MultiHeadAttention`/`CrossAttention` a view of the populated rows instead of a full copy.
+- [ ] Do this with TD-388 and TD-398, which have the same per-step copy pattern. (Not done: TD-388 is the GPU cache and TD-398 the
+  hippocampal memory. Both are left open.)
+
+**Fix (October 26, 2026).** `append()` grows the cache in place. `Matrix` keeps one vector per row, so new rows are pushed and no
+cached row is copied (amortized O(new rows × d)). Attention reads the populated matrix by reference as before. Measured for one cache
+at d_model 512, one row per step (`-O2`):
+
+| Steps | Before | After |
+|---|---|---|
+| 128 | 19.8 ms | 0.37 ms |
+| 256 | 52.7 ms | 0.42 ms |
+| 512 | 219 ms | 1.03 ms |
+
+Test `AppendDoesNotCopyCachedRows` checks that the first row's buffer survives 300 appends; the old code reallocated it.
+`AppendKeepsEveryRowInOrder` checks the contents. `MultiHeadAttention::forward_with_cache()` still copies the cache into
+`cached_K`/`cached_V` for a backward pass that nothing runs after cached decoding, one more O(n·d) copy per step; that remains.
 
 Location in code: `src/KVCache.hpp` (`append()`); tagged `TODO: See TD-422`.
 
