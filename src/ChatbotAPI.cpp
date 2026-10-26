@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.12.3
+// @adai-version: 0.13.0
 // @adai-reviewed: 2026-10-26
 
 #include "ChatbotAPI.hpp"
@@ -837,9 +837,7 @@ std::string ChatbotAPI::generate_response(const std::string& input,
         // configured — a server-level decoding mechanism (see draft_model_'s doc comment in
         // ChatbotAPI.hpp), not a per-request strategy choice, so this bypasses the
         // strategy-based dispatch below rather than adding "speculative" as another strategy
-        // string. The draft/target model_fns are otherwise identical to the plain path's below
-        // (same input_tokens capture, same next_token_logits() call) — only which model each one
-        // calls into differs.
+        // string. The draft and target model_fns differ only in which model they call.
         // TD-506: every model_fn in this file calls next_token_logits(), whose decoder input is the
         // generated sequence. They used to call the training forward(), which shifts its targets
         // ([BOS] + tokens[:-1]), so the last row predicted the last generated token, not the next
@@ -950,45 +948,14 @@ std::string ChatbotAPI::generate_response(const std::string& input,
         }
 #endif
 
-        // Create a TextGenerator with appropriate configuration
-        TextGenerator::GenerationConfig gen_config;
-        gen_config.max_length = static_cast<int>(config.max_length);
-        gen_config.temperature = config.temperature;
-        gen_config.top_p = config.top_p;
-        gen_config.top_k = static_cast<int>(config.top_k);
-        gen_config.num_beams = static_cast<int>(config.beam_width);
-
-        TextGenerator generator(gen_config, 0);  // seed=0 for random
-
-        // Create model forward function (uses encoder-decoder model). CPU fallback for when no
-        // GPU is available (see the GPU-resident branch above).
-        // TD-506: aligned next-token logits (see the speculative branch above).
-        auto model_fn = [this, &input_tokens](const std::vector<int>& decoder_tokens) -> Matrix {
-            // The encoder runs again on every step; there's no KV cache on this path.
-            return model_->next_token_logits(input_tokens, decoder_tokens);
-        };
-
-        // Generate tokens based on strategy
-        std::vector<int> generated_tokens;
-
-        if (config.strategy == "greedy") {
-            generated_tokens = generator.generate_greedy(model_fn, {});
-        } else if (config.strategy == "beam") {
-            generated_tokens =
-                generator.generate_beam_search(model_fn, {}, static_cast<int>(config.beam_width));
-        } else if (config.strategy == "temperature") {
-            generated_tokens = generator.generate_sampling(model_fn, {}, config.temperature);
-        } else if (config.strategy == "top_k") {
-            generated_tokens =
-                generator.generate_top_k(model_fn, {}, static_cast<int>(config.top_k));
-        } else {
-            // Default to nucleus sampling (including explicit "nucleus" strategy)
-            generated_tokens = generator.generate_nucleus(model_fn, {}, config.top_p);
-        }
-
-        // Detokenize generated tokens
-        std::string response = tokenizer_->decode(generated_tokens);
-        return response;
+        // TD-362: the CPU fallback (no GPU) takes the model's own strategy path, as the GPU branch
+        // above takes its GPU twin: the same strategy names, defaults and vocab masking, the KV cache,
+        // the world-model and hippocampal paths, and the max_seq_length cap. It used to run its own
+        // TextGenerator loop over next_token_logits(), re-running the encoder and the whole decoder
+        // every step.
+        return model_->generate_response_with_strategy(
+            input, static_cast<int>(config.max_length), config.strategy, config.temperature,
+            static_cast<int>(config.top_k), config.top_p, static_cast<int>(config.beam_width));
 
     } catch (const std::exception& e) {
         // TODO: See TD-238 in TECHNICAL_DEBT.md - this internal message reaches the client via the route handler.

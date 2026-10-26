@@ -49,6 +49,9 @@ class ChatbotAPITest : public ::testing::Test {
 
         model = std::make_unique<EncoderDecoderModel>(
             vocab_size, d_model, encoder_layers, decoder_layers, num_heads, d_ff, max_seq_length);
+        // TD-362: generation tokenizes with the model's own tokenizer (as chatbot_api_server's model
+        // gets its checkpoint's .vocab); give it the same vocabulary as the API's.
+        model->get_tokenizer()->build_vocab(test_texts, 50);
 
         // Create API (don't start server for unit tests)
         api = std::make_unique<ChatbotAPI>(model.get(), tokenizer.get(),
@@ -1345,6 +1348,10 @@ class ChatbotAPIEchoTest : public ChatbotAPITest {
         for (int attempt = 0; attempt < 3 && !train_echo(); ++attempt) {
             model = std::make_unique<EncoderDecoderModel>(tokenizer->get_vocab_size(), 32, 1, 1, 2,
                                                           64, 128);
+            model->get_tokenizer()->build_vocab(
+                {"hello world test", "hi there how are you", "what is the answer to this question",
+                 "test message for training"},
+                50);
             api = std::make_unique<ChatbotAPI>(model.get(), tokenizer.get(), 8080, 30);
         }
         ASSERT_LT(echo_loss(), kTrainedLoss) << "the echo model didn't train";

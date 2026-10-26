@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.9.0
+// @adai-version: 1.9.1
 // @adai-reviewed: 2026-10-26
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
@@ -370,10 +370,12 @@ int main(int argc, char* argv[]) {
                 : 0);
 
         // Load model weights if path provided
+        bool model_loaded = false;
         if (!config.model_path.empty()) {
             adai::Logger::info("  Loading model weights from: {}", config.model_path);
             try {
                 model->load_model(config.model_path);
+                model_loaded = true;
                 adai::Logger::info("  Model weights loaded successfully");
             } catch (const std::exception& e) {
                 // TODO: See TD-246 in TECHNICAL_DEBT.md - keeps serving random weights while /health says ok;
@@ -384,6 +386,16 @@ int main(int argc, char* argv[]) {
         } else {
             // TODO: See TD-246 in TECHNICAL_DEBT.md - no MODEL_PATH also serves an untrained model.
             adai::Logger::info("  Using randomly initialized model (training required)");
+        }
+        // TD-362: generation (CPU and GPU) tokenizes with the model's own tokenizer, which a loaded
+        // checkpoint fills from its .vocab. Without one, give it VOCAB_PATH.
+        if (!model_loaded) {
+            try {
+                model->get_tokenizer()->load_vocab(config.vocab_path);
+            } catch (const std::exception& e) {
+                adai::Logger::warn("  Could not load {} into the model's tokenizer: {}",
+                                   config.vocab_path, e.what());
+            }
         }
 
         // TD-038: optional draft model for speculative decoding. TD-507: it is built with its own

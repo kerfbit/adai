@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.25.0
+// @adai-version: 0.26.0
 // @adai-reviewed: 2026-10-26
 
 #include <functional>
@@ -141,6 +141,20 @@ class EncoderDecoderModel {
     // decoder output. The caller holds model_mutex_.
     const Matrix& run_decoder(const std::vector<int>& input_tokens,
                               const std::vector<int>& decoder_input, const char* caller);
+
+    // TD-362: the generation steps every CPU and GPU entry point shares, so the same request gives
+    // the same output either way. Each path differs only in its forward call.
+    // Applies one call's settings to `generator`: the capped max_length (TD-347), temperature,
+    // top_k, top_p, and the beam width only when beam search runs (TD-261).
+    void sync_generation_config(int max_length, float temperature, int top_k, float top_p,
+                                int beam_width);
+    // Sets logits of IDs the tokenizer doesn't have (IDs >= its vocab size) to -1e9.
+    void mask_unknown_ids(Matrix& logits) const;
+    // Runs a non-beam strategy (normalized name) with a cached model_fn; an unrecognized name runs
+    // generate() on the stored config.
+    std::vector<int> run_single_hypothesis(const std::string& normalized_strategy,
+                                           const TextGenerator::ModelForwardFn& model_fn,
+                                           float temperature, int top_k, float top_p);
 
     // TD-156: forward()/backward()/generate_response()/generate_response_with_strategy() all
     // read and write the four cached_* members above with no synchronization of their own.
@@ -350,13 +364,13 @@ class EncoderDecoderModel {
      *
      * @param input_text Input text to encode
      * @param max_length Maximum output length
-     * @param strategy "greedy", "beam", "sampling"/"temperature", "topk"/"top_k", or
-     *                 "nucleus"/"top_p" (accepts both ChatbotAPI's and
-     *                 generate_response_with_strategy()'s own spellings)
+     * @param strategy See generate_response_with_strategy(); TD-362: both resolve names, unknown
+     *                 strategies and num_beams the same way, and mask IDs beyond the tokenizer's
+     *                 vocabulary.
      * @param temperature Temperature for sampling strategies
      * @param top_k Top-k value for the "topk" strategy
      * @param top_p Nucleus threshold for the "nucleus" strategy
-     * @param num_beams Beam width for the "beam" strategy
+     * @param num_beams Beam width for "beam" (and an unrecognized strategy with num_beams > 1)
      * @return Generated response text
      */
     std::string gpu_generate_response_with_strategy(const std::string& input_text,
@@ -371,7 +385,10 @@ class EncoderDecoderModel {
      *
      * @param input_text Input text
      * @param max_length Maximum output length
-     * @param strategy "greedy", "beam", "sampling", "topk", "nucleus"
+     * @param strategy "greedy", "beam", "sampling"/"temperature", "topk"/"top_k"/"top-k", or
+     *                 "nucleus"/"top_p"/"top-p" (normalize_strategy()); anything else runs
+     *                 TextGenerator::generate() on the configured filters, or beam search when
+     *                 num_beams > 1. The GPU version behaves the same way (TD-362).
      * @param temperature Temperature for sampling (default 1.0)
      * @param top_k Top-k value for filtering (default 50)
      * @param top_p Top-p value for nucleus sampling (default 0.9)
@@ -383,6 +400,13 @@ class EncoderDecoderModel {
                                                 const std::string& strategy = "greedy",
                                                 float temperature = 1.0f, int top_k = 50,
                                                 float top_p = 0.9f, int num_beams = 1);
+
+    /**
+     * TD-362: the canonical name of a strategy spelling, shared by the CPU and GPU paths:
+     * "temperature" -> "sampling", "top_k"/"top-k" -> "topk", "top_p"/"top-p" -> "nucleus".
+     * Other names are returned unchanged.
+     */
+    static std::string normalize_strategy(const std::string& strategy);
 
     /**
      * Training step on a single (input, target) pair

@@ -1284,6 +1284,8 @@ The metrics pipeline run is complete.
 - TD-423 (done in code, owner's choice of every checkpoint loader: shared checked `adai::binio` reads and writes, so a truncated,
   over-long or short-written sidecar fails the load or save instead of loading NaN or stale weights; this also closes TD-298 and
   TD-369 and the load/save-check items of TD-345, 348, 357, 367, 426, 467 and 518).
+- TD-362 (done in code: shared strategy names, beam decision, config sync, vocab masking and unknown-strategy dispatch for every CPU
+  and GPU entry point, and `ChatbotAPI`'s CPU fallback takes the model's strategy path like its GPU branch).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -8878,7 +8880,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Models / EncoderDecoderModel | October 11, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 26, 2026 | Models / EncoderDecoderModel | October 11, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-358, by inspection. The four generation entry points diverge:
@@ -8893,9 +8895,35 @@ GPU build.
 
 Action Items:
 
-- [ ] Factor one shared model_fn/strategy-dispatch for CPU and GPU (masking, defaults, beam handling, memory write), differing only in the forward call.
+- [x] Factor one shared model_fn/strategy-dispatch for CPU and GPU (masking, defaults, beam handling, memory write), differing only in the forward call.
 
-Location in code: `src/EncoderDecoderModel.cpp` (`generate_response()`, `gpu_generate_response()`, `gpu_generate_response_with_strategy()`); tagged `TODO: See TD-362`.
+**Fix (October 26, 2026).** By then TD-342/343 had already given the GPU paths the world model and the hippocampal writes, and TD-261
+had fixed `num_beams` on the CPU. The remaining differences now go through shared members of `EncoderDecoderModel`:
+- `normalize_strategy()` (public, static): `temperature`→`sampling`, `top_k`/`top-k`→`topk`, `top_p`/`top-p`→`nucleus`. The CPU
+  strategy path used to accept only the hyphenated forms.
+- One beam decision on both: "beam", or an unrecognized strategy with `num_beams > 1`.
+- `sync_generation_config()`, which stores the beam width only when beam search runs. The GPU path used to store it for every
+  strategy, so a later plain call could switch to beam search.
+- `mask_unknown_ids()`, now used by every CPU and GPU model callback. The CPU plain cached path and all four GPU callbacks didn't
+  mask IDs beyond the tokenizer's vocabulary.
+- `run_single_hypothesis()`, which runs `TextGenerator::generate()` on the configured filters for an unrecognized strategy. The GPU
+  path used nucleus sampling.
+
+`ChatbotAPI`'s CPU fallback (no GPU) now calls `generate_response_with_strategy()`, as its GPU branch calls the GPU version. It used to
+run its own `TextGenerator` loop over `next_token_logits()` (TD-506), re-running the encoder and the whole decoder every step, with no
+hippocampal commits and no `max_seq_length` cap. Generation therefore tokenizes with the model's tokenizer on both paths. When no
+checkpoint loads, `chatbot_api_server` gives that tokenizer `VOCAB_PATH`.
+
+Tests:
+- `NormalizeStrategyAcceptsEverySpelling`.
+- `PlainCachedPathMasksIdsTheTokenizerLacks`: with the logits favouring an ID the tokenizer lacks, the plain call must equal greedy. On
+  the old code it returned "" against "worlhellod worl amm".
+- `EncoderDecoderGPUTest.GpuAndCpuGenerationAgree` (oneAPI CPU device): GPU greedy, plain, beam and "other" with 3 beams equal the CPU
+  greedy/beam output, and an explicit greedy call doesn't store its `num_beams`. On the old code every GPU result was "".
+- The `ChatbotAPIEchoTest` paths, with the fixture's model given the API's vocabulary.
+
+Location in code: `src/EncoderDecoderModel.{hpp,cpp}` (`normalize_strategy()`, `sync_generation_config()`, `mask_unknown_ids()`,
+`run_single_hypothesis()`, all four generation entry points), `src/ChatbotAPI.cpp` (`generate_response()`), `src/ChatbotAPIServer.cpp`.
 
 Files to Modify:
 
@@ -14468,6 +14496,8 @@ a missing BOS is added.
 
 Not changed: these CPU paths still re-run the encoder every step with no KV cache, don't commit hippocampal steps, and don't cap
 generation at `max_seq_length` the way `generate_response_with_strategy()` does (TD-347). That is part of TD-362's CPU/GPU differences.
+(TD-362, October 26, 2026: the plain CPU path now uses `generate_response_with_strategy()`; the speculative, batched and `/chat/batch`
+paths still use `next_token_logits()`.)
 
 Location in code: `src/ChatbotAPI.cpp` (`generate_response()` plain, speculative and batched `model_fn`s; `generate_batch_responses()`),
 `src/EncoderDecoderModel.{hpp,cpp}` (`next_token_logits()`, `run_decoder()`).

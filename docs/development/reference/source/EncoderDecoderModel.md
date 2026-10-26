@@ -336,3 +336,11 @@ and the generated sequence with its BOS still fits in `max_seq_length` (TD-347).
 - **Saving.** A failed write or flush (a full disk) throws instead of leaving a short file.
 
 Tests: `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.
+
+## Addendum (October 26, 2026): one behavior for CPU and GPU generation (TD-362)
+
+All four generation entry points share `normalize_strategy()` (public, static), the beam decision ("beam", or an unrecognized
+strategy with `num_beams > 1`), `sync_generation_config()` (stores the beam width only when beam search runs), `mask_unknown_ids()`
+(IDs beyond the tokenizer's vocabulary, in every CPU and GPU callback) and `run_single_hypothesis()` (an unrecognized strategy runs
+`TextGenerator::generate()`, on GPU too). The same request gives the same output on either path:
+`EncoderDecoderGPUTest.GpuAndCpuGenerationAgree` and `PlainCachedPathMasksIdsTheTokenizerLacks`.

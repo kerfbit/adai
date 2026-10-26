@@ -356,3 +356,10 @@ The plain CPU, speculative, batched and `/chat/batch` callbacks call `EncoderDec
 `forward()`. A model trained to echo four phrases on the CPU now reproduces each exactly through every one of these paths
 (`ChatbotAPIEchoTest`). With the old callbacks every token came out twice (`"hheelloo w wororlldd"`). These paths still have no KV cache,
 don't commit hippocampal steps, and aren't capped at `max_seq_length` (TD-362).
+
+## Addendum (October 26, 2026): CPU fallback uses the model's strategy path (TD-362)
+
+Without a GPU, `generate_response()` now calls `EncoderDecoderModel::generate_response_with_strategy()`, as the GPU branch calls its
+GPU twin. It gets the KV cache, the world-model and hippocampal paths, the `max_seq_length` cap and the same strategy handling as
+the GPU. Generation tokenizes with the model's tokenizer, which `chatbot_api_server` fills from the checkpoint's `.vocab` (or
+`VOCAB_PATH` when no checkpoint loads). Speculative, batched and `/chat/batch` still use `next_token_logits()`.

@@ -537,6 +537,40 @@ TEST(EncoderDecoderModelTest, GenerationNeverExceedsMaxSeqLength) {
     }
 }
 
+// TD-362: the CPU and GPU generation paths share their strategy names, beam decision and vocab masking.
+TEST(EncoderDecoderModelTest, NormalizeStrategyAcceptsEverySpelling) {
+    EXPECT_EQ(EncoderDecoderModel::normalize_strategy("temperature"), "sampling");
+    EXPECT_EQ(EncoderDecoderModel::normalize_strategy("top_k"), "topk");
+    EXPECT_EQ(EncoderDecoderModel::normalize_strategy("top-k"), "topk");
+    EXPECT_EQ(EncoderDecoderModel::normalize_strategy("top_p"), "nucleus");
+    EXPECT_EQ(EncoderDecoderModel::normalize_strategy("top-p"), "nucleus");
+    for (const char* same : {"greedy", "beam", "sampling", "topk", "nucleus", "", "other"})
+        EXPECT_EQ(EncoderDecoderModel::normalize_strategy(same), same);
+}
+
+// Logits favour an ID the tokenizer doesn't have; every path must mask it. generate_response()'s
+// cached path used to pick it at every step while generate_response_with_strategy() masked it.
+static void favour_unknown_id(EncoderDecoderModel& model, int id) {
+    Matrix bias = model.get_lm_head()->get_bias();
+    bias(0, id) = 50.0f;
+    model.get_lm_head()->set_bias(bias);
+}
+
+TEST(EncoderDecoderModelTest, PlainCachedPathMasksIdsTheTokenizerLacks) {
+    EncoderDecoderModel model(100, 32, 1, 1, 2, 64, 32);
+    build_test_vocab(model.get_tokenizer(), 100);
+    ASSERT_LT(static_cast<int>(model.get_tokenizer()->get_vocab_size()), 99);
+    model.set_training(false);
+    favour_unknown_id(model, 99);
+
+    for (const char* input : {"hello world", "good morning"}) {
+        // The strategy call stores temperature 0 and one beam, so the plain call is greedy too.
+        const std::string greedy =
+            model.generate_response_with_strategy(input, 6, "greedy", 0.0f, 50, 0.9f, 1);
+        EXPECT_EQ(model.generate_response(input, 6), greedy) << input;
+    }
+}
+
 // TD-424: the beam callbacks project only the decoder's last row. That's exact because the LM head is
 // row-wise (a linear map plus bias): the last row's logits don't depend on the other rows.
 TEST(EncoderDecoderModelTest, LastRowProjectionMatchesFullProjection) {
@@ -2467,6 +2501,43 @@ TEST(EncoderDecoderGPUTest, GpuGenerationAcceptsOverLongInput) {
         long_text += "hello world ";
     EXPECT_NO_THROW(model.gpu_generate_response(long_text, 8));
     EXPECT_NO_THROW(model.gpu_generate_response_with_strategy(long_text, 8, "greedy"));
+}
+
+// TD-362: the GPU paths mask IDs the tokenizer doesn't have, resolve strategies and num_beams the
+// same way as the CPU path, and so give the same output for the same request.
+TEST(EncoderDecoderGPUTest, GpuAndCpuGenerationAgree) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
+    EncoderDecoderModel model(100, 32, 1, 1, 2, 64, 32);
+    build_test_vocab(model.get_tokenizer(), 100);
+    model.set_training(false);
+    favour_unknown_id(model, 99);  // the GPU paths used to pick it every step
+
+    for (const char* input : {"hello world", "good morning"}) {
+        const std::string cpu_greedy =
+            model.generate_response_with_strategy(input, 6, "greedy", 0.0f, 50, 0.9f, 1);
+        EXPECT_EQ(model.gpu_generate_response_with_strategy(input, 6, "greedy", 0.0f, 50, 0.9f, 1),
+                  cpu_greedy)
+            << input;
+        EXPECT_EQ(model.gpu_generate_response(input, 6), cpu_greedy) << input;
+
+        const std::string cpu_beam =
+            model.generate_response_with_strategy(input, 6, "beam", 1.0f, 50, 0.9f, 3);
+        EXPECT_EQ(model.gpu_generate_response_with_strategy(input, 6, "beam", 1.0f, 50, 0.9f, 3),
+                  cpu_beam)
+            << input;
+        // An unrecognized strategy with num_beams > 1 is beam search on both (GPU: nucleus before).
+        EXPECT_EQ(model.gpu_generate_response_with_strategy(input, 6, "other", 1.0f, 50, 0.9f, 3),
+                  cpu_beam)
+            << input;
+    }
+
+    // An explicit single-hypothesis strategy doesn't store its num_beams (TD-261 on the GPU too).
+    model.gpu_generate_response_with_strategy("hello world", 6, "greedy", 0.0f, 50, 0.9f, 4);
+    EXPECT_EQ(model.get_generator()->get_config().num_beams, 1);
 }
 
 TEST(EncoderDecoderGPUTest, GpuForwardRejectsEmptyTarget) {

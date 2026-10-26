@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.27.1
+// @adai-version: 0.28.0
 // @adai-reviewed: 2026-10-26
 
 #include "EncoderDecoderModel.hpp"
@@ -298,6 +298,65 @@ Matrix EncoderDecoderModel::compute_loss_gradient(const Matrix& logits,
     return grad;
 }
 
+// TD-362: shared by every CPU and GPU generation entry point.
+std::string EncoderDecoderModel::normalize_strategy(const std::string& strategy) {
+    if (strategy == "temperature") {
+        return "sampling";
+    }
+    if (strategy == "top_k" || strategy == "top-k") {
+        return "topk";
+    }
+    if (strategy == "top_p" || strategy == "top-p") {
+        return "nucleus";
+    }
+    return strategy;
+}
+
+void EncoderDecoderModel::sync_generation_config(int max_length, float temperature, int top_k,
+                                                 float top_p, int beam_width) {
+    // TD-100: every strategy's filters (and max_length) are read from the generator's stored
+    // config, so this call's arguments must be stored, not just passed. The generator keeps the
+    // config between calls, and the plain entry points switch to beam search when the stored
+    // num_beams > 1: store a beam width only when beam search runs (TD-261).
+    TextGenerator::GenerationConfig synced_config = generator->get_config();
+    synced_config.max_length =
+        capped_generation_length(max_length, synced_config.max_length, max_seq_length);  // TD-347
+    synced_config.temperature = temperature;
+    synced_config.top_k = top_k;
+    synced_config.top_p = top_p;
+    synced_config.num_beams = beam_width;
+    generator->set_config(synced_config);
+}
+
+void EncoderDecoderModel::mask_unknown_ids(Matrix& logits) const {
+    const int known = static_cast<int>(tokenizer->get_vocab_size());
+    for (int i = 0; i < logits.rows; ++i) {
+        for (int j = std::max(known, 0); j < logits.cols; ++j) {
+            logits.data[i][j] = -1e9f;  // probability ~0
+        }
+    }
+}
+
+std::vector<int> EncoderDecoderModel::run_single_hypothesis(
+    const std::string& normalized_strategy, const TextGenerator::ModelForwardFn& model_fn,
+    float temperature, int top_k, float top_p) {
+    if (normalized_strategy == "greedy") {
+        return generator->generate_greedy(model_fn, {bos_token_id});
+    }
+    if (normalized_strategy == "sampling") {
+        return generator->generate_sampling(model_fn, {bos_token_id}, temperature);
+    }
+    if (normalized_strategy == "topk") {
+        return generator->generate_top_k(model_fn, {bos_token_id}, top_k);
+    }
+    if (normalized_strategy == "nucleus") {
+        return generator->generate_nucleus(model_fn, {bos_token_id}, top_p);
+    }
+    // Unrecognized (e.g. RAGInference's empty strategy, TD-486): every configured filter at the
+    // configured temperature. The GPU path used to fall to nucleus sampling here instead.
+    return generator->generate(model_fn, {bos_token_id});
+}
+
 // Generate response
 std::string EncoderDecoderModel::generate_response(const std::string& input_text, int max_length) {
     // TD-156: serializes this whole (potentially multi-token) generation against any other
@@ -364,11 +423,7 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
                                        hippocampal_repetition_decay_,
                                        hippocampal_association_decay_);
     if (generator->get_config().num_beams > 1) {
-        // Get actual tokenizer vocab size to mask invalid tokens — mirrors
-        // generate_response_with_strategy()'s own beam_model_fn exactly, masking included, so
-        // this path and that one compute identically given the same inputs.
-        int actual_vocab_size = static_cast<int>(tokenizer->get_vocab_size());
-        auto beam_model_fn = [this, &committer, actual_vocab_size,
+        auto beam_model_fn = [this, &committer,
                               world_model_output_ptr](const std::vector<int>& tokens) -> Matrix {
             // Process all tokens from scratch (no caching) — mirrors
             // generate_response_with_strategy()'s own beam_model_fn.
@@ -383,15 +438,7 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
             // used to project every position (~30x the LM-head work per step and per hypothesis).
             Matrix logits = lm_head->forward(last_row(decoder_out));
 
-            // Mask out invalid token IDs beyond actual vocabulary size, same as
-            // generate_response_with_strategy()'s beam_model_fn.
-            if (actual_vocab_size < logits.cols) {
-                for (int i = 0; i < logits.rows; ++i) {
-                    for (int j = actual_vocab_size; j < logits.cols; ++j) {
-                        logits.data[i][j] = -1e9f;
-                    }
-                }
-            }
+            mask_unknown_ids(logits);  // IDs the tokenizer doesn't have (TD-362)
 
             return logits;
         };
@@ -408,7 +455,6 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
     size_t processed_length = 0;
 
     // Create model forward function with KV caching
-    // TODO: See TD-362 in TECHNICAL_DEBT.md - unlike the strategy path, this cached model_fn doesn't mask IDs beyond the tokenizer vocab
     auto model_fn = [this, &committer, &kv_cache, &processed_length,
                      world_model_output_ptr](const std::vector<int>& tokens) -> Matrix {
         size_t current_length = tokens.size();
@@ -433,6 +479,7 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
 
         // Project to vocabulary (last position of output)
         Matrix logits = lm_head->forward(decoder_out);
+        mask_unknown_ids(logits);  // TD-362: as the strategy and beam paths always did
 
         return logits;
     };
@@ -480,13 +527,8 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     // strategies specifically; max_length was dropped for every strategy
     // except "beam". Syncing once, up front, for every strategy closes all
     // of these gaps without changing any strategy's own filtering logic.
-    // Normalize strategy name (handle hyphens)
-    std::string normalized_strategy = strategy;
-    if (normalized_strategy == "top-k") {
-        normalized_strategy = "topk";
-    } else if (normalized_strategy == "top-p" || normalized_strategy == "nucleus") {
-        normalized_strategy = "nucleus";  // Standardize to "nucleus"
-    }
+    // TD-362: names, the beam decision and the config sync are shared with the GPU version.
+    const std::string normalized_strategy = normalize_strategy(strategy);
 
     // TD-261: beam search runs for "beam", or for an unrecognized strategy with num_beams > 1 (it
     // falls to generator->generate(), which itself routes to beam search when num_beams > 1 and must
@@ -498,19 +540,7 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
         normalized_strategy == "topk" || normalized_strategy == "nucleus";
     const bool use_beam =
         normalized_strategy == "beam" || (!single_hypothesis_strategy && num_beams > 1);
-
-    {
-        TextGenerator::GenerationConfig synced_config = generator->get_config();
-        synced_config.max_length =
-            capped_generation_length(max_length, synced_config.max_length, max_seq_length);  // TD-347
-        synced_config.temperature = temperature;
-        synced_config.top_k = top_k;
-        synced_config.top_p = top_p;
-        // The generator keeps this config between calls, and generate_response() switches to beam
-        // search when the stored num_beams > 1: store a beam width only when beam search runs.
-        synced_config.num_beams = use_beam ? num_beams : 1;
-        generator->set_config(synced_config);
-    }
+    sync_generation_config(max_length, temperature, top_k, top_p, use_beam ? num_beams : 1);
 
     // Encode input (no special tokens for encoder input)
     // TD-365: over-long input keeps its last max_seq_length tokens, as in training (it was never
@@ -558,12 +588,10 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
                                        hippocampal_association_decay_);
     if (use_beam) {  // the config sync above already set num_beams and max_length
 
-        // Get actual tokenizer vocab size to mask invalid tokens
-        int actual_vocab_size = static_cast<int>(tokenizer->get_vocab_size());
 
         // Create model function WITHOUT KV caching for beam search
         // Each beam has independent token sequences, so we can't share a cache
-        auto beam_model_fn = [this, &committer, actual_vocab_size,
+        auto beam_model_fn = [this, &committer,
                               world_model_output_ptr](const std::vector<int>& tokens) -> Matrix {
             // Process all tokens from scratch (no caching)
             Matrix decoder_out = decoder->forward_with_encoder(
@@ -578,15 +606,7 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
             // used to project every position (~30x the LM-head work per step and per hypothesis).
             Matrix logits = lm_head->forward(last_row(decoder_out));
 
-            // Mask out invalid token IDs beyond actual vocabulary size
-            // This prevents generation of tokens that don't exist in the tokenizer
-            if (actual_vocab_size < logits.cols) {
-                for (int i = 0; i < logits.rows; ++i) {
-                    for (int j = actual_vocab_size; j < logits.cols; ++j) {
-                        logits.data[i][j] = -1e9f;  // Set to very negative to make prob ~0
-                    }
-                }
-            }
+            mask_unknown_ids(logits);  // IDs the tokenizer doesn't have (TD-362)
 
             return logits;
         };
@@ -605,11 +625,9 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     DecoderKVCache kv_cache(decoder_layers);
     size_t processed_length = 0;
 
-    // Get actual tokenizer vocab size to mask invalid tokens
-    int actual_vocab_size = static_cast<int>(tokenizer->get_vocab_size());
 
     // Create model forward function with KV caching
-    auto model_fn = [this, &committer, &kv_cache, &processed_length, actual_vocab_size,
+    auto model_fn = [this, &committer, &kv_cache, &processed_length,
                      world_model_output_ptr](const std::vector<int>& tokens) -> Matrix {
         size_t current_length = tokens.size();
 
@@ -634,45 +652,17 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
         // Project to vocabulary (last position of output)
         Matrix logits = lm_head->forward(decoder_out);
 
-        // Mask out invalid token IDs beyond actual vocabulary size
-        // This prevents generation of tokens that don't exist in the tokenizer
-        if (actual_vocab_size < logits.cols) {
-            for (int i = 0; i < logits.rows; ++i) {
-                for (int j = actual_vocab_size; j < logits.cols; ++j) {
-                    logits.data[i][j] = -1e9f;  // Set to very negative to make prob ~0
-                }
-            }
-        }
+        mask_unknown_ids(logits);  // IDs the tokenizer doesn't have (TD-362)
 
         return logits;
     };
 
-    // Generate based on strategy
-
-    if (normalized_strategy == "greedy") {
-        // TD-050 (root-caused September 14, 2026): this used to bypass the KV cache here via a
-        // dedicated non-cached greedy_model_fn ("WORKAROUND: Use non-cached path for greedy due
-        // to KV cache bug"), on the assumption that DecoderKVCache had a self-attention/
-        // cross-attention indexing bug producing incorrect results specifically for greedy
-        // decoding. A real multi-step incremental-decode-vs-full-recompute numerical comparison
-        // (tests/inference_optimization_test.cpp,
-        // InferenceOptimizationIntegrationTest.IncrementalCacheMatchesFullRecomputePerStep) found
-        // no such bug: across 40 decode steps the two paths agree to ~1e-6, with no growth or
-        // accumulation trend as the sequence lengthens — ordinary float32 rounding noise, not an
-        // algorithmic divergence. Greedy now uses the same cached `model_fn` every other
-        // non-beam strategy already did, closing the O(n) vs O(n^2)-per-generation gap this
-        // workaround left on the table for greedy specifically.
-        output_tokens = generator->generate_greedy(model_fn, {bos_token_id});
-    } else if (normalized_strategy == "sampling") {
-        output_tokens = generator->generate_sampling(model_fn, {bos_token_id}, temperature);
-    } else if (normalized_strategy == "topk") {
-        output_tokens = generator->generate_top_k(model_fn, {bos_token_id}, top_k);
-    } else if (normalized_strategy == "nucleus") {
-        output_tokens = generator->generate_nucleus(model_fn, {bos_token_id}, top_p);
-    } else {
-        // Default to main generate method (uses config)
-        output_tokens = generator->generate(model_fn, {bos_token_id});
-    }
+    // Generate based on strategy. TD-050 (root-caused September 14, 2026): greedy used to bypass the
+    // KV cache on the assumption that DecoderKVCache had an indexing bug; a 40-step
+    // incremental-vs-full comparison (InferenceOptimizationIntegrationTest.
+    // IncrementalCacheMatchesFullRecomputePerStep) agrees to ~1e-6, so every non-beam strategy uses
+    // the cached model_fn.
+    output_tokens = run_single_hypothesis(normalized_strategy, model_fn, temperature, top_k, top_p);
 
     // Decode tokens to text (skip special tokens like <bos>, <eos>, <unk>, <pad>)
     std::string response = tokenizer->decode(output_tokens, true);
@@ -1390,6 +1380,7 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
             for (int v = 0; v < vocab_size; ++v) {
                 last_logits.data[0][v] = last_row[v];
             }
+            mask_unknown_ids(last_logits);  // TD-362: as the CPU paths
             return last_logits;
         };
         std::vector<int> output_tokens = generator->generate(beam_model_fn, {bos_token_id});
@@ -1435,6 +1426,7 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
         for (int v = 0; v < vocab_size; ++v) {
             last_logits.data[0][v] = last_row[v];
         }
+        mask_unknown_ids(last_logits);  // TD-362: as the CPU paths
         return last_logits;
     };
 
@@ -1445,7 +1437,6 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
     return response;
 }
 
-// TODO: See TD-362 in TECHNICAL_DEBT.md - no vocab masking, no world model/memory write, different unknown-strategy default and num_beams handling than the CPU path
 std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
     const std::string& input_text, int max_length, const std::string& strategy,
     float temperature, int top_k, float top_p, int num_beams) {
@@ -1459,31 +1450,16 @@ std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
     std::lock_guard<std::mutex> lock(model_mutex_);
     sync_special_tokens();
 
-    // Sync generator's config from this call's own arguments, the same way
-    // generate_response_with_strategy() does (see that function's TD-100 comment) — every
-    // strategy's filters must see the caller's actual values, not whatever generator's config
-    // last happened to hold.
-    {
-        TextGenerator::GenerationConfig synced_config = generator->get_config();
-        synced_config.max_length =
-            capped_generation_length(max_length, synced_config.max_length, max_seq_length);  // TD-347
-        synced_config.temperature = temperature;
-        synced_config.top_k = top_k;
-        synced_config.top_p = top_p;
-        synced_config.num_beams = num_beams;
-        generator->set_config(synced_config);
-    }
-
-    // Normalize strategy name — accepts both ChatbotAPI's spellings ("temperature", "top_k")
-    // and generate_response_with_strategy()'s own ("sampling", "topk", hyphenated forms).
-    std::string normalized_strategy = strategy;
-    if (normalized_strategy == "temperature") {
-        normalized_strategy = "sampling";
-    } else if (normalized_strategy == "top_k" || normalized_strategy == "top-k") {
-        normalized_strategy = "topk";
-    } else if (normalized_strategy == "top_p" || normalized_strategy == "top-p") {
-        normalized_strategy = "nucleus";
-    }
+    // TD-362: the same names, beam decision and config sync as generate_response_with_strategy().
+    // This path used to store num_beams for every strategy (so a later plain call could switch to
+    // beam search, TD-261) and to send an unrecognized strategy to nucleus sampling.
+    const std::string normalized_strategy = normalize_strategy(strategy);
+    const bool single_hypothesis_strategy =
+        normalized_strategy == "greedy" || normalized_strategy == "sampling" ||
+        normalized_strategy == "topk" || normalized_strategy == "nucleus";
+    const bool use_beam =
+        normalized_strategy == "beam" || (!single_hypothesis_strategy && num_beams > 1);
+    sync_generation_config(max_length, temperature, top_k, top_p, use_beam ? num_beams : 1);
 
     // TD-365: over-long input keeps its last max_seq_length tokens, as in training (it was never
     // truncated, so positions past max_seq_length had no positional encoding).
@@ -1526,6 +1502,7 @@ std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
         for (int v = 0; v < vocab_size; ++v) {
             last_logits.data[0][v] = last_row[v];
         }
+        mask_unknown_ids(last_logits);  // TD-362: as the CPU paths
         return last_logits;
     };
 
@@ -1558,24 +1535,13 @@ std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
         for (int v = 0; v < vocab_size; ++v) {
             last_logits.data[0][v] = last_row[v];
         }
+        mask_unknown_ids(last_logits);  // TD-362: as the CPU paths
         return last_logits;
     };
 
-    std::vector<int> output_tokens;
-    if (normalized_strategy == "greedy") {
-        output_tokens = generator->generate_greedy(model_fn, {bos_token_id});
-    } else if (normalized_strategy == "beam") {
-        output_tokens = generator->generate_beam_search(beam_model_fn, {bos_token_id});
-    } else if (normalized_strategy == "sampling") {
-        output_tokens = generator->generate_sampling(model_fn, {bos_token_id}, temperature);
-    } else if (normalized_strategy == "topk") {
-        output_tokens = generator->generate_top_k(model_fn, {bos_token_id}, top_k);
-    } else {
-        // Default to nucleus sampling (including explicit "nucleus" strategy) — matches
-        // ChatbotAPI::generate_response()'s own default-branch semantics exactly, since that's
-        // this method's actual caller.
-        output_tokens = generator->generate_nucleus(model_fn, {bos_token_id}, top_p);
-    }
+    const std::vector<int> output_tokens =
+        use_beam ? generator->generate_beam_search(beam_model_fn, {bos_token_id})
+                 : run_single_hypothesis(normalized_strategy, model_fn, temperature, top_k, top_p);
 
     std::string response = tokenizer->decode(output_tokens, true);
     committer.flush();
