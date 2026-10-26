@@ -480,7 +480,7 @@ TEST(EncoderDecoderModelTest, GenerateWithStrategySyncsGeneratorConfig) {
     EXPECT_FLOAT_EQ(cfg.temperature, 0.5f);
     EXPECT_EQ(cfg.top_k, 15);
     EXPECT_FLOAT_EQ(cfg.top_p, 0.8f);
-    EXPECT_EQ(cfg.num_beams, 2);
+    EXPECT_EQ(cfg.num_beams, 1) << "TD-261: topk ignores num_beams, so no beam width is stored";
 
     // A second call with different values must overwrite, not merely
     // coexist with, the first — proving this is a real sync, not a
@@ -490,6 +490,34 @@ TEST(EncoderDecoderModelTest, GenerateWithStrategySyncsGeneratorConfig) {
     EXPECT_EQ(cfg.max_length, 12);
     EXPECT_FLOAT_EQ(cfg.temperature, 0.3f);
     EXPECT_FLOAT_EQ(cfg.top_p, 0.6f);
+}
+
+// TD-261: an explicit strategy ignores num_beams. `num_beams > 1` used to send every strategy to
+// beam search (chatbot_gui's Beam Width defaults to 5; RLHFTrainer got the header default 4), so
+// sampling rollouts were deterministic beam search: 1 distinct response in 6.
+TEST(EncoderDecoderModelTest, ExplicitStrategiesIgnoreNumBeams) {
+    EncoderDecoderModel model(100, 64, 2, 2);
+    build_test_vocab(model.get_tokenizer(), 100);
+    model.set_training(false);
+
+    for (const char* strategy : {"sampling", "topk", "nucleus"}) {
+        std::set<std::string> distinct;
+        for (int i = 0; i < 6; ++i)
+            distinct.insert(model.generate_response_with_strategy("hello world", 12, strategy, 2.0f,
+                                                                  50, 0.99f, /*num_beams=*/5));
+        EXPECT_GT(distinct.size(), 1u) << strategy << " ran deterministic beam search";
+        EXPECT_EQ(model.get_generator()->get_config().num_beams, 1)
+            << strategy << " must not leave a beam width for later calls";
+    }
+    EXPECT_EQ(model.generate_response_with_strategy("hello world", 12, "greedy", 1.0f, 50, 0.9f, 5),
+              model.generate_response_with_strategy("hello world", 12, "greedy", 1.0f, 50, 0.9f, 1));
+
+    // "beam" still uses the width, and an unrecognized strategy with num_beams > 1 still takes the
+    // (uncached) beam path rather than the KV-cached one.
+    model.generate_response_with_strategy("hello world", 8, "beam", 1.0f, 50, 0.9f, 3);
+    EXPECT_EQ(model.get_generator()->get_config().num_beams, 3);
+    model.generate_response_with_strategy("hello world", 8, "quux", 1.0f, 50, 0.9f, 3);
+    EXPECT_EQ(model.get_generator()->get_config().num_beams, 3);
 }
 
 // ============================================================================

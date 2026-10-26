@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-037 — no Qt Test infrastructure in this repo; onStrategyChanged's mapping extracted to ChatbotGuiLogic.hpp, see TECHNICAL_DEBT.md)
-// @adai-version: 0.8.0
-// @adai-reviewed: 2026-09-13
+// @adai-version: 0.8.1
+// @adai-reviewed: 2026-10-25
 
 #include "ChatbotGUI.hpp"
 #include <QApplication>
@@ -485,11 +485,10 @@ std::string ChatbotGUI::generateResponse(const std::string& user_input) {
         std::string formatted_context = context->format_with_special_tokens();
 
         // Generate response using the model
+        // TD-261: the Beam Width setting applies to beam search only.
         std::string response = model->generate_response_with_strategy(
             formatted_context, max_response_length, generation_strategy, temperature, top_k, top_p,
-            // TODO: See TD-261 in TECHNICAL_DEBT.md - beam_width (default 5) > 1 forces beam search for every
-            // strategy; pass it only when the strategy is "beam".
-            beam_width);
+            generation_strategy == "beam" ? beam_width : 1);
 
         // Add assistant response to context
         context->add_assistant_message(response);

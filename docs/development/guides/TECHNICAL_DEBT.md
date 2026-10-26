@@ -1263,6 +1263,10 @@ The run is complete.
 
 The metrics pipeline run is complete.
 
+**Generation and model math run (October 25, 2026)**, chosen by the owner. So far:
+- TD-261 (done in code: explicit strategies ignore `num_beams`, the default is 1, and the GUI and RLHF pass the beam width only for
+  beam search).
+
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
 - TD-372/373 (done in code: the FTP data connection must come from the control connection's client, and FTPS requires `AUTH TLS` and
@@ -5706,7 +5710,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Core Model / Generation | October 9, 2026 | 2-4 hours |
+| **HIGH** | Open — code fix landed October 25, 2026 | Core Model / Generation | October 9, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-260. In `EncoderDecoderModel::generate_response_with_strategy()`, the beam
@@ -5728,10 +5732,28 @@ be handed the KV-cached `model_fn`.
 
 Action Items:
 
-- [ ] Take the beam branch only for `strategy == "beam"`, or for an *unrecognized* strategy with `num_beams > 1` (preserving the cache-safety guard); explicit greedy/sampling/topk/nucleus must ignore `num_beams`.
-- [ ] Change the header default `num_beams = 4` to 1 (in both overloads) so omitted arguments don't imply beam search.
-- [ ] `chatbot_gui`: pass `beam_width` only when the strategy is beam (otherwise 1). `RLHFTrainer`: pass `num_beams` explicitly.
-- [ ] Fix the misleading comment; add tests that each explicit strategy with `num_beams = 5` does not run beam search.
+- [x] Take the beam branch only for `strategy == "beam"`, or for an *unrecognized* strategy with `num_beams > 1` (preserving the cache-safety guard); explicit greedy/sampling/topk/nucleus must ignore `num_beams`.
+- [x] Change the header default `num_beams = 4` to 1 (in both overloads) so omitted arguments don't imply beam search.
+- [x] `chatbot_gui`: pass `beam_width` only when the strategy is beam (otherwise 1). `RLHFTrainer`: pass `num_beams` explicitly.
+- [x] Fix the misleading comment; add tests that each explicit strategy with `num_beams = 5` does not run beam search.
+
+**Fix (October 25, 2026).**
+- **Dispatch.** `generate_response_with_strategy()` decides `use_beam` up front: true for `"beam"`, or for an unrecognized strategy
+  with `num_beams > 1`, which keeps the guard against handing the KV-cached `model_fn` to beam search. Explicit
+  greedy/sampling/topk/nucleus ignore `num_beams`.
+- **Stored width.** The generator's stored config gets `num_beams` only when beam search runs, otherwise 1. A nucleus call with
+  `num_beams = 5` used to leave 5 behind, and a later plain `generate_response()` then switched to beam search.
+- **Defaults and callers.** Both overloads, CPU and GPU, default `num_beams` to 1; the GPU dispatch already ignored `num_beams` for
+  explicit strategies. `chatbot_gui` passes its Beam Width only for `"beam"`. `RLHFTrainer` passes `num_beams = 1` explicitly
+  (TD-500's deterministic-rollout part).
+
+Test `ExplicitStrategiesIgnoreNumBeams` (`encoderdecoder_test.cpp`):
+- six sampling/topk/nucleus calls with `num_beams = 5` give more than one distinct answer, and leave no beam width stored;
+- greedy with 5 equals greedy with 1;
+- `"beam"` and an unrecognized strategy still store their width.
+
+Against the old code all three sampling strategies ran deterministic beam search (one answer each) and left 5 behind.
+`GenerateWithStrategySyncsGeneratorConfig` now expects 1 after a `"topk"` call. The RLHF tests pass 3/3 with random rollouts.
 
 Location in code: `src/EncoderDecoderModel.{hpp,cpp}` (`generate_response_with_strategy()`), `src/ChatbotGUI.cpp` (`generateResponse()`), `src/RLHFTrainer.cpp`; tagged `TODO: See TD-261`.
 
@@ -14026,7 +14048,8 @@ tiny model:
 
 Action Items:
 
-- [ ] Pass `num_beams = 1` (with TD-261's fix) and test that sampling rollouts differ.
+- [x] Pass `num_beams = 1` (with TD-261's fix) and test that sampling rollouts differ. (Done with TD-261, October 25, 2026;
+  `ExplicitStrategiesIgnoreNumBeams` checks that sampling with `num_beams = 5` gives distinct answers.)
 - [ ] Return the generated token IDs from generation and train on exactly those, with the same encoder input generation used (no special tokens).
 
 Location in code: `src/RLHFTrainer.cpp` (`run_iteration()`: generation call, prompt/response encoding); tagged `TODO: See TD-500`.

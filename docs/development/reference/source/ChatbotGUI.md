@@ -183,3 +183,8 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 | Different multi-turn prompt format from the server (§4) | Inconsistent model behaviour across clients | By inspection | [TD-265](../../guides/TECHNICAL_DEBT.md#td-265-chatbot_gui-and-chatbot_api_server-format-conversation-context-differently) |
 | Hardcoded 480-token context; load doesn't redisplay history; `--help` needs a display; no GPU (§3–4) | Minor | By inspection | [TD-266](../../guides/TECHNICAL_DEBT.md#td-266-chatbot_gui-minor-gaps) |
 | Widget class untested | Already TD-037 | — | TD-037 |
+
+## Addendum (October 25, 2026): Beam Width only for beam search (TD-261)
+
+`generateResponse()` passes the Beam Width setting only when the strategy is `"beam"` (otherwise 1). With the model-side fix, Nucleus,
+Top-k, Greedy and Sampling now run as chosen; they used to be beam search at the default width of 5.

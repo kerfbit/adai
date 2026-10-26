@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.22.0
-// @adai-reviewed: 2026-10-21
+// @adai-version: 0.23.0
+// @adai-reviewed: 2026-10-25
 
 #include "EncoderDecoderModel.hpp"
 #include <algorithm>
@@ -435,22 +435,35 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     // strategies specifically; max_length was dropped for every strategy
     // except "beam". Syncing once, up front, for every strategy closes all
     // of these gaps without changing any strategy's own filtering logic.
-    {
-        TextGenerator::GenerationConfig synced_config = generator->get_config();
-        synced_config.max_length = max_length;
-        synced_config.temperature = temperature;
-        synced_config.top_k = top_k;
-        synced_config.top_p = top_p;
-        synced_config.num_beams = num_beams;
-        generator->set_config(synced_config);
-    }
-
     // Normalize strategy name (handle hyphens)
     std::string normalized_strategy = strategy;
     if (normalized_strategy == "top-k") {
         normalized_strategy = "topk";
     } else if (normalized_strategy == "top-p" || normalized_strategy == "nucleus") {
         normalized_strategy = "nucleus";  // Standardize to "nucleus"
+    }
+
+    // TD-261: beam search runs for "beam", or for an unrecognized strategy with num_beams > 1 (it
+    // falls to generator->generate(), which itself routes to beam search when num_beams > 1 and must
+    // not get the KV-cached model_fn). An explicit greedy/sampling/topk/nucleus ignores num_beams:
+    // `num_beams > 1` used to send every strategy to beam search (chatbot_gui passes its Beam Width,
+    // default 5; RLHFTrainer got the old header default, 4).
+    const bool single_hypothesis_strategy =
+        normalized_strategy == "greedy" || normalized_strategy == "sampling" ||
+        normalized_strategy == "topk" || normalized_strategy == "nucleus";
+    const bool use_beam =
+        normalized_strategy == "beam" || (!single_hypothesis_strategy && num_beams > 1);
+
+    {
+        TextGenerator::GenerationConfig synced_config = generator->get_config();
+        synced_config.max_length = max_length;
+        synced_config.temperature = temperature;
+        synced_config.top_k = top_k;
+        synced_config.top_p = top_p;
+        // The generator keeps this config between calls, and generate_response() switches to beam
+        // search when the stored num_beams > 1: store a beam width only when beam search runs.
+        synced_config.num_beams = use_beam ? num_beams : 1;
+        generator->set_config(synced_config);
     }
 
     // Encode input (no special tokens for encoder input)
@@ -488,35 +501,15 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     std::vector<int> output_tokens;
 
     // IMPORTANT: Beam search requires different handling because each beam has its own sequence
-    // and KV caching doesn't work when we need to explore multiple hypotheses simultaneously.
-    //
-    // Also route here whenever num_beams > 1 regardless of the strategy string, not only when
-    // normalized_strategy == "beam" literally: an unrecognized/typo'd strategy name falls to the
-    // `else` branch below, which calls generator->generate(model_fn, ...) — and
-    // TextGenerator::generate() itself routes to generate_beam_search() whenever
-    // config.num_beams > 1 (synced from this call's own num_beams argument just above),
-    // regardless of what strategy string got it there. Without this, a single call with e.g.
-    // strategy="quux", num_beams=5 would silently hand the CACHED model_fn (built below) to beam
-    // search — the same cache-can't-serve-multiple-diverging-hypotheses corruption this whole
-    // guard exists to prevent, reachable in one call with no leftover state from a previous one
-    // required. explicit "greedy"/"sampling"/"topk"/"nucleus" below are unaffected: they call
-    // TextGenerator's single-hypothesis methods directly, none of which consult num_beams.
-    // TODO: See TD-261 in TECHNICAL_DEBT.md - contrary to the comment above, this check runs before the
-    // explicit greedy/sampling/topk/nucleus branches and returns, so ANY strategy with
-    // num_beams > 1 becomes beam search (chatbot_gui passes 5 by default; RLHFTrainer gets the
-    // header default 4). Keep the guard only for "beam" and unrecognized strategies.
+    // and KV caching doesn't work when we need to explore multiple hypotheses simultaneously, so it
+    // uses the uncached beam_model_fn below (see use_beam above for when it runs).
     // TD-343: one hippocampal coverage/association update per decode step (a step is one token
     // length; beam hypotheses at that step are averaged), not one per forward and layer.
     HippocampalStepCommitter committer(hippocampal_updates_enabled_ ? hippocampal_memory.get()
                                                                     : nullptr,
                                        hippocampal_repetition_decay_,
                                        hippocampal_association_decay_);
-    if (normalized_strategy == "beam" || num_beams > 1) {
-        // Update config for beam search
-        TextGenerator::GenerationConfig config = generator->get_config();
-        config.num_beams = num_beams;
-        config.max_length = max_length;
-        generator->set_config(config);
+    if (use_beam) {  // the config sync above already set num_beams and max_length
 
         // Get actual tokenizer vocab size to mask invalid tokens
         int actual_vocab_size = static_cast<int>(tokenizer->get_vocab_size());

@@ -1,6 +1,6 @@
 // @adai-status: experimental        (TD-038 — new class, first real RLHF integration; see TECHNICAL_DEBT.md; run_iteration() now checks for an empty generated response before encode() instead of after, closing a real uncaught-exception crash)
-// @adai-version: 0.1.1
-// @adai-reviewed: 2026-09-16
+// @adai-version: 0.1.2
+// @adai-reviewed: 2026-10-25
 
 #include "RLHFTrainer.hpp"
 #include <algorithm>
@@ -178,12 +178,12 @@ RLHFStepResult RLHFTrainer::run_iteration(const std::vector<std::string>& prompt
         // 1. Roll out a response from the CURRENT policy. Safe to call before the encoder-call
         //    ordering constraint kicks in -- generation's own internal caches are fully
         //    superseded by apply_policy_gradient()'s own authoritative forward() call below.
-        // TODO: See TD-261 in TECHNICAL_DEBT.md - num_beams is omitted, so the header default (4) forces beam
-        // search regardless of config_.generation_strategy.
-        // TODO: See TD-500 in TECHNICAL_DEBT.md - so "sampling" rollouts are deterministic beam search (1 distinct
-        // response in 6, verified); train on the generated token IDs, not re-encoded text.
+        // TD-261: num_beams is passed explicitly; the old header default (4) made every rollout beam
+        // search, so "sampling" rollouts were deterministic (1 distinct response in 6).
+        // TODO: See TD-500 in TECHNICAL_DEBT.md - train on the generated token IDs, not re-encoded text.
         std::string response = model_.generate_response_with_strategy(
-            prompt, config_.max_response_length, config_.generation_strategy, config_.temperature);
+            prompt, config_.max_response_length, config_.generation_strategy, config_.temperature,
+            /*top_k=*/50, /*top_p=*/0.9f, /*num_beams=*/1);
         // Checked BEFORE encode(), not after: BPETokenizer::encode() unconditionally throws
         // TokenizerInputError on an empty string (BPETokenizer.cpp's own validate_input()), so an
         // empty response -- which real generation genuinely produces sometimes, e.g. greedy/

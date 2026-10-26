@@ -94,3 +94,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Update uses BOS/EOS-wrapped prompt and re-encoded response with BOS/EOS actions never sampled (§2) | Gradient on a different sequence than the rollout | **Verified** | [TD-500](../../guides/TECHNICAL_DEBT.md#td-500-rlhf-rollouts-never-explore-and-updates-train-on-a-different-sequence) |
 | No KL penalty or batch-level update; per-token encoder passes for value states; training mode left on (§2) | Unsafe, noisy and slow RLHF | By inspection | [TD-501](../../guides/TECHNICAL_DEBT.md#td-501-rlhftrainer-lacks-a-kl-penalty-batch-updates-and-efficient-value-states) |
 | Per-response advantage normalization; inert PPO ratio; reward model gaps | Already tracked | — | TD-481, TD-482, TD-499 |
+
+## Addendum (October 25, 2026): rollouts sample again (TD-261)
+
+`run_iteration()` passes `num_beams = 1`. With TD-261's fix, `"sampling"` rollouts are random rather than deterministic beam search;
+they were one distinct response in six. TD-500's re-encoding issue remains.

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.22.0
-// @adai-reviewed: 2026-10-21
+// @adai-version: 0.23.0
+// @adai-reviewed: 2026-10-25
 
 #include <functional>
 #include <iostream>
@@ -356,7 +356,7 @@ class EncoderDecoderModel {
                                                      int max_length = 100,
                                                      const std::string& strategy = "greedy",
                                                      float temperature = 1.0f, int top_k = 50,
-                                                     float top_p = 0.9f, int num_beams = 4);
+                                                     float top_p = 0.9f, int num_beams = 1);
 #endif
 
     /**
@@ -368,16 +368,14 @@ class EncoderDecoderModel {
      * @param temperature Temperature for sampling (default 1.0)
      * @param top_k Top-k value for filtering (default 50)
      * @param top_p Top-p value for nucleus sampling (default 0.9)
-     * @param num_beams Number of beams for beam search (default 4)
+     * @param num_beams Beam width, used only for "beam" (and an unrecognized strategy with
+     *                  num_beams > 1); explicit greedy/sampling/topk/nucleus ignore it (TD-261)
      * @return Generated response text
-     *
-     * TODO: See TD-261 in TECHNICAL_DEBT.md - default num_beams = 4 makes every call that omits it beam
-     * search (see the num_beams > 1 check in the .cpp); the default should be 1.
      */
     std::string generate_response_with_strategy(const std::string& input_text, int max_length = 100,
                                                 const std::string& strategy = "greedy",
                                                 float temperature = 1.0f, int top_k = 50,
-                                                float top_p = 0.9f, int num_beams = 4);
+                                                float top_p = 0.9f, int num_beams = 1);
 
     /**
      * Training step on a single (input, target) pair
