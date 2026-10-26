@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.22.1
-// @adai-reviewed: 2026-10-24
+// @adai-version: 0.22.2
+// @adai-reviewed: 2026-10-25
 
 #include <array>
 #include <chrono>
@@ -417,8 +417,11 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
                                       : svc_config.metrics_session_label;
         const std::string config_snapshot = build_lejepa_config_snapshot(svc_config);
 
-        auto pc = std::make_unique<MetricsPushClient>(push_url, svc_config.metrics_push_timeout_ms,
-                                                      1024, svc_config.metrics_heartbeat_interval_ms);
+        auto pc = std::make_unique<MetricsPushClient>(
+            push_url, svc_config.metrics_push_timeout_ms, 1024,
+            svc_config.metrics_heartbeat_interval_ms,
+            parse_metrics_server_headers(svc_config.metrics_server_headers),
+            svc_config.metrics_server_ca_file);
         int rc = 0;
         for (int attempt = 0; attempt < 3; ++attempt) {
             if (attempt > 0) {

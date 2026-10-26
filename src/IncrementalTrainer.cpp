@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.19.0
+// @adai-version: 0.19.1
 // @adai-reviewed: 2026-10-25
 
 #include "IncrementalTrainer.hpp"
@@ -308,6 +308,8 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     // Metrics push configuration
     cfg.metrics_server_url = svc.metrics_server_url;
     cfg.metrics_push_timeout_ms = svc.metrics_push_timeout_ms;
+    cfg.metrics_server_headers = svc.metrics_server_headers;
+    cfg.metrics_server_ca_file = svc.metrics_server_ca_file;
     cfg.metrics_heartbeat_interval_ms = svc.metrics_heartbeat_interval_ms;
     cfg.metrics_session_label = svc.metrics_session_label;
 
@@ -616,8 +618,10 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
             }
             const std::string push_url =
                 build_metrics_session_push_base(config.metrics_server_url, session_key);
-            pc = std::make_unique<MetricsPushClient>(push_url, config.metrics_push_timeout_ms, 1024,
-                                                     config.metrics_heartbeat_interval_ms);
+            pc = std::make_unique<MetricsPushClient>(
+                push_url, config.metrics_push_timeout_ms, 1024, config.metrics_heartbeat_interval_ms,
+                parse_metrics_server_headers(config.metrics_server_headers),
+                config.metrics_server_ca_file);
             const std::string label =
                 config.metrics_session_label.empty()
                     ? derive_metrics_session_label(current_session_id + 1, model_path_)

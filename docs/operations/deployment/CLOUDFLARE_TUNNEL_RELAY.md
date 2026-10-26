@@ -165,6 +165,21 @@ In the Cloudflare Zero Trust dashboard:
    attach `adai-tablet-relay` to this application — that would defeat the point of
    splitting them.
 
+### 6c. Trainer metrics push through the tunnel (optional, TD-444)
+
+Since October 25, 2026, `incremental_trainer` can push metrics to `https://metrics.kerfbit.dev`, for a trainer that isn't on the
+LAN. It needs a build with libcurl (the default when libcurl is installed) and a service token on the metrics application from 6a.
+Create a token of its own (e.g. `adai-trainer-metrics`) rather than reusing `adai-tablet-relay`, so it can be revoked separately.
+Then in `config.trainer.conf`:
+
+```ini
+METRICS_SERVER_URL=https://metrics.kerfbit.dev
+METRICS_SERVER_HEADERS=CF-Access-Client-Id: <id>; CF-Access-Client-Secret: <secret>
+```
+
+Keep that file readable only by the trainer's user, and never commit the secret. The trainer keeps one connection open, so the TLS
+handshake happens once per pass, not per event. A trainer on the LAN should keep using `http://192.168.1.16:8081`.
+
 ## Verification
 
 From an external network (e.g. a phone hotspot — **not** the home Wi-Fi, to prove

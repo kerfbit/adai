@@ -3,10 +3,17 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <set>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
+#include <unistd.h>
 #include "MetricsPushClient.hpp"
 
 #ifdef BUILD_METRICS_API_SERVER
@@ -617,3 +624,171 @@ TEST(MetricsPushClientStartSession, MissingRouteIsNotTreatedAsALostSession) {
     EXPECT_EQ(start_calls.load(), 1) << "a missing route must not trigger re-registration";
 }
 
+
+// ============================================================================
+// TD-444: transport — extra headers, one kept-alive connection, no early heartbeat, HTTPS
+// ============================================================================
+
+TEST(MetricsPushClientHeaders, ParsesSemicolonSeparatedHeaders) {
+    const auto h = parse_metrics_server_headers(
+        " CF-Access-Client-Id: abc ; CF-Access-Client-Secret: x:y;; junk ; :bad");
+    ASSERT_EQ(h.size(), 2u);
+    EXPECT_EQ(h[0], "CF-Access-Client-Id: abc");
+    EXPECT_EQ(h[1], "CF-Access-Client-Secret: x:y");
+    EXPECT_TRUE(parse_metrics_server_headers("").empty());
+}
+
+#ifdef BUILD_METRICS_API_SERVER
+
+TEST(MetricsPushClientTransport, SendsExtraHeadersOnEveryRequest) {
+    httplib::Server svr;
+    std::atomic<int> with_header{0};
+    std::atomic<int> total{0};
+    svr.Post("/.*", [&](const httplib::Request& req, httplib::Response& res) {
+        ++total;
+        if (req.get_header_value("CF-Access-Client-Id") == "abc" &&
+            req.get_header_value("CF-Access-Client-Secret") == "s3cret")
+            ++with_header;
+        res.status = 200;
+    });
+    int port = 0;
+    auto svr_thread = start_server(svr, port);
+    {
+        MetricsPushClient client(session_url(port), 1000, 1024, 30000,
+                                 {"CF-Access-Client-Id: abc", "CF-Access-Client-Secret: s3cret"});
+        ASSERT_EQ(client.start_session(1, 1, 10, "", ""), 200);
+        client.update_sample_metrics(1, 1.0f, 1.0f, 0.001f);
+        ASSERT_TRUE(wait_for_count(total, 2));
+        client.end_session();
+    }
+    svr.stop();
+    svr_thread.join();
+    EXPECT_EQ(with_header.load(), total.load());
+    EXPECT_GE(total.load(), 3);  // start, sample, end
+}
+
+TEST(MetricsPushClientTransport, ReusesOneConnection) {
+    httplib::Server svr;
+    std::mutex mtx;
+    std::set<int> client_ports;
+    std::atomic<int> samples{0};
+    svr.Post("/.*", [&](const httplib::Request& req, httplib::Response& res) {
+        {
+            std::lock_guard<std::mutex> lk(mtx);
+            client_ports.insert(req.remote_port);
+        }
+        if (req.path.find("/metrics/sample") != std::string::npos)
+            ++samples;
+        res.status = 200;
+    });
+    svr.set_keep_alive_max_count(1000);  // httplib's default closes a connection after 5 requests
+    int port = 0;
+    auto svr_thread = start_server(svr, port);
+    {
+        MetricsPushClient client(session_url(port), 1000);
+        ASSERT_EQ(client.start_session(1, 1, 10, "", ""), 200);
+        for (int i = 1; i <= 20; ++i)
+            client.update_sample_metrics(i, 1.0f, 1.0f, 0.001f);
+        ASSERT_TRUE(wait_for_count(samples, 20));
+        client.end_session();
+    }
+    svr.stop();
+    svr_thread.join();
+    EXPECT_EQ(client_ports.size(), 1u)
+        << "a new TCP connection per event used to mean one client port per request";
+}
+
+TEST(MetricsPushClientTransport, NoHeartbeatBeforeTheSessionStarts) {
+    httplib::Server svr;
+    std::atomic<int> heartbeats{0};
+    svr.Post("/.*", [&](const httplib::Request& req, httplib::Response& res) {
+        if (req.path.find("/heartbeat") != std::string::npos)
+            ++heartbeats;
+        res.status = 200;
+    });
+    int port = 0;
+    auto svr_thread = start_server(svr, port);
+    {
+        MetricsPushClient client(session_url(port), 1000, 1024, /*heartbeat_interval_ms=*/50);
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));
+        EXPECT_EQ(heartbeats.load(), 0);
+        ASSERT_EQ(client.start_session(1, 1, 10, "", ""), 200);
+        EXPECT_TRUE(wait_for_count(heartbeats, 1)) << "heartbeats start once the session exists";
+        client.end_session();
+    }
+    svr.stop();
+    svr_thread.join();
+}
+
+#endif  // BUILD_METRICS_API_SERVER
+
+// HTTPS through the libcurl transport, against a local TLS server (Python, with a throwaway
+// certificate for 127.0.0.1). The server answers 200 only when the access header arrives.
+TEST(MetricsPushClientTransport, HttpsWithCaFileAndHeaders) {
+#ifndef ADAI_METRICS_PUSH_CURL  // PUBLIC on adai_core when libcurl was found
+    GTEST_SKIP() << "built without the libcurl transport";
+#else
+    namespace fs = std::filesystem;
+    if (std::system("command -v openssl >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1") != 0)
+        GTEST_SKIP() << "needs openssl and python3";
+    const fs::path dir = fs::temp_directory_path() /
+                         ("adai_push_https_" + std::to_string(::getpid()));
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    const std::string cert = (dir / "cert.pem").string();
+    const std::string key = (dir / "key.pem").string();
+    const std::string gen = "openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=127.0.0.1 "
+                            "-addext subjectAltName=IP:127.0.0.1 -keyout " +
+                            key + " -out " + cert + " >/dev/null 2>&1";
+    ASSERT_EQ(std::system(gen.c_str()), 0);
+    const std::string script = (dir / "server.py").string();
+    {
+        std::ofstream py(script);
+        py << "import http.server, ssl, sys\n"
+              "class H(http.server.BaseHTTPRequestHandler):\n"
+              "    protocol_version = 'HTTP/1.1'\n"
+              "    def do_POST(self):\n"
+              "        self.rfile.read(int(self.headers.get('Content-Length', 0)))\n"
+              "        ok = self.headers.get('CF-Access-Client-Id') == 'abc'\n"
+              "        body = b'{}'\n"
+              "        self.send_response(200 if ok else 403)\n"
+              "        self.send_header('Content-Length', str(len(body)))\n"
+              "        self.end_headers()\n"
+              "        self.wfile.write(body)\n"
+              "    def log_message(self, *a): pass\n"
+              "s = http.server.ThreadingHTTPServer(('127.0.0.1', 0), H)\n"
+              "ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)\n"
+              "ctx.load_cert_chain(sys.argv[1], sys.argv[2])\n"
+              "s.socket = ctx.wrap_socket(s.socket, server_side=True)\n"
+              "print(s.server_address[1], flush=True)\n"
+              "s.serve_forever()\n";
+    }
+    const std::string cmd = "python3 -I " + script + " " + cert + " " + key + " & echo $!";
+    FILE* pipe = popen(cmd.c_str(), "r");
+    ASSERT_NE(pipe, nullptr);
+    char line[64] = {};
+    ASSERT_NE(std::fgets(line, sizeof(line), pipe), nullptr);
+    const int pid = std::atoi(line);
+    ASSERT_NE(std::fgets(line, sizeof(line), pipe), nullptr);  // the server prints its port
+    const int port = std::atoi(line);
+    ASSERT_GT(port, 0);
+    const std::string url = "https://127.0.0.1:" + std::to_string(port) + "/api/sessions/1-tls";
+
+    {
+        MetricsPushClient trusted(url, 3000, 1024, 30000, {"CF-Access-Client-Id: abc"}, cert);
+        EXPECT_EQ(trusted.start_session(1, 1, 10, "", ""), 200);
+    }
+    {
+        MetricsPushClient no_header(url, 3000, 1024, 30000, {}, cert);
+        EXPECT_EQ(no_header.start_session(1, 1, 10, "", ""), 403);
+    }
+    {
+        // The throwaway certificate isn't in the system store: verification fails, nothing is sent.
+        MetricsPushClient untrusted(url, 3000, 1024, 30000, {"CF-Access-Client-Id: abc"});
+        EXPECT_EQ(untrusted.start_session(1, 1, 10, "", ""), 0);
+    }
+    ::kill(pid, SIGTERM);
+    pclose(pipe);
+    fs::remove_all(dir);
+#endif
+}

@@ -191,3 +191,20 @@ deadline.
 
 Payload floats go through `jnum()`: `null` for NaN/infinity, otherwise the shortest decimal that reads back as the same value, with no more `std::fixed`. A 1e-7 learning rate used to
 be sent as 0. `end_epoch()` adds `adaptive_clip_threshold`/`adaptive_clip_spikes`.
+
+---
+
+## Addendum (October 25, 2026): libcurl transport, headers, failure warnings (TD-444)
+
+- **Transport.** With libcurl (`ADAI_METRICS_PUSH_CURL`, PUBLIC on `adai_core` when CMake finds it), every request goes through one
+  reused easy handle, `Transport` (a pimpl, behind its own mutex). That gives real HTTPS with certificate checks (`ca_file`, or the
+  system store), keep-alive, and the `extra_headers` on every request. Without it, a reused keep-alive `httplib::Client` handles
+  `http://`, and `start_session()` refuses `https://` with an error.
+- **Constructor.** Two trailing arguments: `extra_headers` (see `parse_metrics_server_headers()`, fed from `METRICS_SERVER_HEADERS`)
+  and `ca_file` (`METRICS_SERVER_CA_FILE`).
+- **Failures.** `note_failure()` warns at most once a minute about non-2xx/no-response results, with a count.
+- **Smaller fixes.** `reconnect_body_` is behind `reconnect_mutex_`. The heartbeat waits for a successful `start_session()`.
+  `detect_hostname_fragment()` keeps up to 32 characters.
+
+Tests: `ParsesSemicolonSeparatedHeaders`, `SendsExtraHeadersOnEveryRequest`, `ReusesOneConnection`,
+`NoHeartbeatBeforeTheSessionStarts`, `HttpsWithCaFileAndHeaders`.

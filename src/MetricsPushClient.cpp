@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.4.0
+// @adai-version: 1.5.0
 // @adai-reviewed: 2026-10-25
 
 #include "MetricsPushClient.hpp"
@@ -12,8 +12,11 @@
 #include <thread>
 #include "Logger.hpp"
 
-// HTTP client (optional — guarded at compile time, same as TrainingMetricsService.cpp)
-#ifdef BUILD_METRICS_API_SERVER
+// HTTP transport (TD-444): libcurl when available (real HTTPS, extra headers, keep-alive), else a
+// keep-alive httplib client for http:// only; neither means pushes are no-ops.
+#if defined(ADAI_METRICS_PUSH_CURL)
+#include <curl/curl.h>
+#elif defined(BUILD_METRICS_API_SERVER)
 #include <httplib.h>
 #endif
 
@@ -33,6 +36,7 @@ struct ParsedUrl {
     std::string host{"localhost"};
     int port{8081};
     std::string base_path;  ///< Path component, stripped of trailing slashes
+    bool https{false};
 
     static ParsedUrl from(const std::string& url) {
         ParsedUrl result;
@@ -44,9 +48,9 @@ struct ParsedUrl {
         if (s.rfind(http_prefix, 0) == 0) {
             s = s.substr(http_prefix.size());
         } else if (s.rfind(https_prefix, 0) == 0) {
-            // TODO: See TD-444 in TECHNICAL_DEBT.md - attempt_post() still uses a plain httplib::Client, so https:// can't work
             s = s.substr(https_prefix.size());
             result.port = 443;
+            result.https = true;
         }
 
         // Split authority from path
@@ -155,9 +159,13 @@ std::string escape_json_string(const std::string& s) {
 // ============================================================================
 
 MetricsPushClient::MetricsPushClient(std::string session_base_url, int timeout_ms,
-                                     size_t max_queue_depth, int heartbeat_interval_ms)
+                                     size_t max_queue_depth, int heartbeat_interval_ms,
+                                     std::vector<std::string> extra_headers, std::string ca_file)
     : session_base_url_(std::move(session_base_url)),
       timeout_ms_(timeout_ms),
+      extra_headers_(std::move(extra_headers)),
+      ca_file_(std::move(ca_file)),
+      transport_(std::make_unique<Transport>()),
       max_queue_depth_(max_queue_depth),
       heartbeat_interval_ms_(heartbeat_interval_ms) {
     push_thread_ = std::thread(&MetricsPushClient::push_loop, this);
@@ -222,7 +230,22 @@ int MetricsPushClient::start_session(int session_id, int total_epochs, int total
         reconnect_json << ",\"config\":" << config_snapshot;
     }
     reconnect_json << "}";
-    reconnect_body_ = reconnect_json.str();
+    {
+        std::lock_guard<std::mutex> lock(reconnect_mutex_);
+        reconnect_body_ = reconnect_json.str();
+    }
+
+#if !defined(ADAI_METRICS_PUSH_CURL)
+    // TD-444: without libcurl there is no TLS; this used to send plain HTTP to port 443 and train
+    // with no metrics, saying only "connection failed".
+    if (ParsedUrl::from(session_base_url_).https) {
+        adai::Logger::error(
+            "MetricsPushClient: {} needs HTTPS, but this build has no libcurl transport; no metrics "
+            "will be sent (use an http:// URL or rebuild with libcurl)",
+            session_base_url_);
+        return 0;
+    }
+#endif
 
     const int rc = attempt_post("/start", start_body);
     if (rc == 0) {
@@ -230,6 +253,8 @@ int MetricsPushClient::start_session(int session_id, int total_epochs, int total
     } else {
         adai::Logger::info("MetricsPushClient: start_session HTTP {}", rc);
     }
+    if (rc / 100 == 2)
+        session_started_ = true;
     return rc;
 }
 
@@ -561,14 +586,14 @@ void MetricsPushClient::push_loop() {
             std::string response;
             const int rc = attempt_post(event.endpoint, event.body, &response, /*retry=*/!draining);
 
-            // TODO: See TD-444 in TECHNICAL_DEBT.md - every status other than 404 is ignored (only debug-logged)
             // Session lost (server restart or eviction) — re-register and retry once.
             // Skip lifecycle endpoints: /start is already a registration, /end is a teardown.
             // TD-555: only a 404 that says the session key is unknown means the session is gone.
             // httplib also answers 404 for a route the server doesn't have (POST …/metrics/abnormal
             // used to be GET-only), and treating that as a lost session re-registered (409, still
             // live) and logged a warning on every flagged sample.
-            if (rc == 404 && !reconnect_body_.empty() && event.endpoint != "/start" &&
+            const std::string reconnect = reconnect_body();
+            if (rc == 404 && !reconnect.empty() && event.endpoint != "/start" &&
                 event.endpoint != "/end") {
                 if (response.find("Unknown session key") != std::string::npos) {
                     if (!session_loss_logged_) {
@@ -579,7 +604,7 @@ void MetricsPushClient::push_loop() {
                         session_loss_logged_ = true;
                     }
                     const int start_rc =
-                        attempt_post("/start", reconnect_body_, nullptr, /*retry=*/!draining);
+                        attempt_post("/start", reconnect, nullptr, /*retry=*/!draining);
                     if (start_rc == 200 || start_rc == 409) {
                         if (attempt_post(event.endpoint, event.body, nullptr, !draining) / 100 == 2)
                             session_loss_logged_ = false;
@@ -596,6 +621,8 @@ void MetricsPushClient::push_loop() {
                 }
             } else if (rc / 100 == 2) {
                 session_loss_logged_ = false;
+            } else {
+                note_failure(event.endpoint, rc);  // TD-444: used to be ignored (debug log only)
             }
         }
 
@@ -609,18 +636,137 @@ void MetricsPushClient::push_loop() {
         // so firing it on a plain wall-clock timer (not "queue was empty and
         // wait_for timed out") keeps the session alive under backlog too.
         const auto now = std::chrono::steady_clock::now();
-        if (!draining && now - last_heartbeat >= interval) {
+        // TD-444: not before start_session() succeeded (there is no session to keep alive).
+        if (!draining && session_started_ && now - last_heartbeat >= interval) {
             attempt_post("/heartbeat", "{}");
             last_heartbeat = now;
         }
     }
 }
 
+std::string MetricsPushClient::reconnect_body() const {
+    std::lock_guard<std::mutex> lock(reconnect_mutex_);
+    return reconnect_body_;
+}
+
+// TD-444: a rejected or failed request (4xx other than the handled 404s, 5xx after retries, no
+// connection) used to be logged at debug only, so a 400 for a malformed body or a 503 "server full"
+// went unnoticed. Warn at most once a minute, with a count of what failed meanwhile.
+void MetricsPushClient::note_failure(const std::string& endpoint, int status) {
+    ++failures_since_warn_;
+    const auto now = std::chrono::steady_clock::now();
+    if (now - last_failure_warn_ < std::chrono::minutes(1))
+        return;
+    if (status == 0) {
+        adai::Logger::warn("MetricsPushClient: POST {} failed (no response); {} failed request(s) "
+                           "in the last minute",
+                           endpoint, failures_since_warn_);
+    } else {
+        adai::Logger::warn("MetricsPushClient: POST {} rejected with HTTP {}; {} failed request(s) "
+                           "in the last minute",
+                           endpoint, status, failures_since_warn_);
+    }
+    last_failure_warn_ = now;
+    failures_since_warn_ = 0;
+}
+
 // ============================================================================
-// HTTP — conditional on BUILD_METRICS_API_SERVER
+// HTTP transport (TD-444)
 // ============================================================================
 
-#ifdef BUILD_METRICS_API_SERVER
+#if defined(ADAI_METRICS_PUSH_CURL)
+
+namespace {
+size_t collect_response(char* data, size_t size, size_t nmemb, void* out) {
+    static_cast<std::string*>(out)->append(data, size * nmemb);
+    return size * nmemb;
+}
+}  // namespace
+
+// One libcurl easy handle reused for every request, so the connection (and its TLS session) stays
+// open between events instead of a new TCP connection per event.
+struct MetricsPushClient::Transport {
+    std::mutex mutex;
+    CURL* curl = nullptr;
+    curl_slist* headers = nullptr;
+
+    ~Transport() {
+        if (curl)
+            curl_easy_cleanup(curl);
+        curl_slist_free_all(headers);
+    }
+};
+
+int MetricsPushClient::attempt_post(const std::string& endpoint, const std::string& body,
+                                    std::string* response_body, bool retry) const {
+    if (session_base_url_.empty()) {
+        return 0;
+    }
+    static std::once_flag curl_init;
+    std::call_once(curl_init, [] { curl_global_init(CURL_GLOBAL_DEFAULT); });
+
+    const std::string full_url = session_base_url_ + endpoint;
+    static constexpr int kBackoffMs[] = {0, 200, 1000};
+    static constexpr int kMaxAttempts = 3;
+    const int max_attempts = retry ? kMaxAttempts : 1;  // TD-442: no retries while draining
+
+    std::lock_guard<std::mutex> lock(transport_->mutex);
+    Transport& t = *transport_;
+    if (!t.curl) {
+        t.curl = curl_easy_init();
+        if (!t.curl)
+            return 0;
+        t.headers = curl_slist_append(t.headers, "Content-Type: application/json");
+        for (const auto& h : extra_headers_)
+            t.headers = curl_slist_append(t.headers, h.c_str());
+        curl_easy_setopt(t.curl, CURLOPT_HTTPHEADER, t.headers);
+        curl_easy_setopt(t.curl, CURLOPT_NOSIGNAL, 1L);
+        curl_easy_setopt(t.curl, CURLOPT_TCP_KEEPALIVE, 1L);
+        curl_easy_setopt(t.curl, CURLOPT_CONNECTTIMEOUT_MS, static_cast<long>(timeout_ms_));
+        curl_easy_setopt(t.curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout_ms_));
+        curl_easy_setopt(t.curl, CURLOPT_WRITEFUNCTION, collect_response);
+        if (!ca_file_.empty())
+            curl_easy_setopt(t.curl, CURLOPT_CAINFO, ca_file_.c_str());
+    }
+
+    for (int attempt = 0; attempt < max_attempts; ++attempt) {
+        if (attempt > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(kBackoffMs[attempt]));
+        }
+        std::string response;
+        curl_easy_setopt(t.curl, CURLOPT_URL, full_url.c_str());
+        curl_easy_setopt(t.curl, CURLOPT_POSTFIELDS, body.c_str());
+        curl_easy_setopt(t.curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
+        curl_easy_setopt(t.curl, CURLOPT_WRITEDATA, &response);
+        const CURLcode code = curl_easy_perform(t.curl);
+        if (code != CURLE_OK) {
+            adai::Logger::debug("MetricsPushClient: POST {} failed: {} (attempt {}/{})", full_url,
+                                curl_easy_strerror(code), attempt + 1, max_attempts);
+            continue;  // network/TLS error → retry
+        }
+        long status = 0;
+        curl_easy_getinfo(t.curl, CURLINFO_RESPONSE_CODE, &status);
+        if (status >= 500) {
+            adai::Logger::debug("MetricsPushClient: POST {} returned HTTP {} (attempt {}/{})",
+                                full_url, status, attempt + 1, max_attempts);
+            continue;  // server error → retry
+        }
+        // 2xx or 4xx — return immediately (callers handle 409 at their level)
+        if (response_body)
+            *response_body = std::move(response);
+        return static_cast<int>(status);
+    }
+    return 0;  // all attempts failed
+}
+
+#elif defined(BUILD_METRICS_API_SERVER)
+
+// http:// only (start_session() refuses https:// in this build). One keep-alive client reused for
+// every request.
+struct MetricsPushClient::Transport {
+    std::mutex mutex;
+    std::unique_ptr<httplib::Client> client;
+};
 
 int MetricsPushClient::attempt_post(const std::string& endpoint, const std::string& body,
                                     std::string* response_body, bool retry) const {
@@ -630,62 +776,72 @@ int MetricsPushClient::attempt_post(const std::string& endpoint, const std::stri
 
     const std::string full_url = session_base_url_ + endpoint;
     const ParsedUrl parsed = ParsedUrl::from(session_base_url_);
+    if (parsed.https)
+        return 0;
     const std::string path = parsed.base_path + endpoint;
 
     static constexpr int kBackoffMs[] = {0, 200, 1000};
     static constexpr int kMaxAttempts = 3;
-
     const int max_attempts = retry ? kMaxAttempts : 1;  // TD-442: no retries while draining
+
+    httplib::Headers headers;
+    for (const auto& h : extra_headers_) {
+        const auto colon = h.find(':');
+        const auto value_start = h.find_first_not_of(' ', colon + 1);
+        headers.emplace(h.substr(0, colon),
+                        value_start == std::string::npos ? "" : h.substr(value_start));
+    }
+
+    std::lock_guard<std::mutex> lock(transport_->mutex);
+    auto& client = transport_->client;
     for (int attempt = 0; attempt < max_attempts; ++attempt) {
         if (attempt > 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds(kBackoffMs[attempt]));
         }
-
         try {
-            // TODO: See TD-444 in TECHNICAL_DEBT.md - a new TCP connection per attempt, including per optimizer step
-            httplib::Client client(parsed.host, parsed.port);
-            client.set_connection_timeout(0, static_cast<long>(timeout_ms_) * 1000);
-            client.set_read_timeout(timeout_ms_ / 1000,
-                                    static_cast<long>(timeout_ms_ % 1000) * 1000);
-            client.set_write_timeout(timeout_ms_ / 1000,
-                                     static_cast<long>(timeout_ms_ % 1000) * 1000);
-
-            auto res = client.Post(path, body, "application/json");
-
+            if (!client) {
+                client = std::make_unique<httplib::Client>(parsed.host, parsed.port);
+                client->set_keep_alive(true);
+                client->set_connection_timeout(0, static_cast<long>(timeout_ms_) * 1000);
+                client->set_read_timeout(timeout_ms_ / 1000,
+                                         static_cast<long>(timeout_ms_ % 1000) * 1000);
+                client->set_write_timeout(timeout_ms_ / 1000,
+                                          static_cast<long>(timeout_ms_ % 1000) * 1000);
+            }
+            auto res = client->Post(path, headers, body, "application/json");
             if (!res) {
                 adai::Logger::debug("MetricsPushClient: POST {} — no response (attempt {}/{})",
-                                    full_url, attempt + 1, kMaxAttempts);
-                continue;  // Network error → retry
+                                    full_url, attempt + 1, max_attempts);
+                client.reset();  // reconnect on the next attempt
+                continue;
             }
-
             const int status = res->status;
             if (status >= 500) {
                 adai::Logger::debug("MetricsPushClient: POST {} returned HTTP {} (attempt {}/{})",
-                                    full_url, status, attempt + 1, kMaxAttempts);
-                continue;  // Server error → retry
+                                    full_url, status, attempt + 1, max_attempts);
+                continue;
             }
-
-            // 2xx or 4xx — return immediately (callers handle 409 at their level)
             if (response_body)
                 *response_body = res->body;
             return status;
-
         } catch (const std::exception& e) {
             adai::Logger::debug("MetricsPushClient: POST {} exception: {} (attempt {}/{})",
-                                full_url, e.what(), attempt + 1, kMaxAttempts);
+                                full_url, e.what(), attempt + 1, max_attempts);
+            client.reset();
         }
     }
-
-    return 0;  // All attempts failed
+    return 0;
 }
 
-#else  // BUILD_METRICS_API_SERVER not defined
+#else  // no HTTP transport
+
+struct MetricsPushClient::Transport {};
 
 // NOLINTBEGIN(readability-convert-member-functions-to-static)
 int MetricsPushClient::attempt_post(const std::string& /*endpoint*/, const std::string& /*body*/,
                                     std::string* /*response_body*/, bool /*retry*/) const {
-    return 0;  // No-op when httplib is not available
+    return 0;  // No-op when no HTTP transport is available
 }
 // NOLINTEND(readability-convert-member-functions-to-static)
 
-#endif  // BUILD_METRICS_API_SERVER
+#endif

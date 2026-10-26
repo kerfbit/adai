@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.4.0
+// @adai-version: 1.5.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -14,6 +14,7 @@
 #include <ctime>
 #include <deque>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <set>
@@ -58,7 +59,7 @@ inline std::string sanitize_session_key(const std::string& raw) {
     return out;
 }
 
-// TODO: See TD-444 in TECHNICAL_DEBT.md - 8-character cut makes ai-machine/ai-machine2 share session keys
+// TD-444: up to 32 characters. The old 8-character cut made ai-machine and ai-machine2 share keys.
 inline std::string detect_hostname_fragment() {
     std::string host = "host";
 #ifdef _WIN32
@@ -76,8 +77,8 @@ inline std::string detect_hostname_fragment() {
     if (host.empty()) {
         host = "host";
     }
-    if (host.size() > 8) {
-        host = host.substr(0, 8);
+    if (host.size() > 32) {
+        host = host.substr(0, 32);
     }
     return host;
 }
@@ -85,6 +86,26 @@ inline std::string detect_hostname_fragment() {
 inline std::string derive_metrics_session_key(int session_id) {
     const std::string host = detect_hostname_fragment();
     return std::to_string(session_id) + "-" + host;
+}
+
+// TD-444: METRICS_SERVER_HEADERS, e.g. "CF-Access-Client-Id: abc; CF-Access-Client-Secret: xyz",
+// split on ';' into "Name: value" lines. Entries without a ':' are skipped.
+inline std::vector<std::string> parse_metrics_server_headers(const std::string& spec) {
+    std::vector<std::string> headers;
+    std::string::size_type start = 0;
+    while (start <= spec.size()) {
+        auto end = spec.find(';', start);
+        if (end == std::string::npos)
+            end = spec.size();
+        std::string item = spec.substr(start, end - start);
+        const auto first = item.find_first_not_of(" \t");
+        const auto last = item.find_last_not_of(" \t");
+        item = first == std::string::npos ? "" : item.substr(first, last - first + 1);
+        if (item.find(':') != std::string::npos && item.front() != ':')
+            headers.push_back(item);
+        start = end + 1;
+    }
+    return headers;
 }
 
 inline std::string build_metrics_session_push_base(const std::string& metrics_server_url,
@@ -99,7 +120,7 @@ inline std::string build_metrics_session_push_base(const std::string& metrics_se
  * Format: "#{id}: {stem} ({host}, {date})"
  *   id    — numeric session ID
  *   stem  — filename stem of the model file (e.g. "chatbot_model")
- *   host  — sanitised first-8-chars of hostname
+ *   host  — sanitised hostname (first 32 characters)
  *   date  — ISO-8601 date of the training run (YYYY-MM-DD)
  */
 inline std::string derive_metrics_session_label(int session_id, const std::string& model_path) {
@@ -108,7 +129,7 @@ inline std::string derive_metrics_session_label(int session_id, const std::strin
     if (stem.empty())
         stem = "model";
 
-    // Host (first 8 chars, sanitised)
+    // Host (first 32 chars, sanitised)
     const std::string host = detect_hostname_fragment();
 
     // Date: YYYY-MM-DD
@@ -186,9 +207,18 @@ class MetricsPushClient final : public IMetricsReporter {
      * @param max_queue_depth   Maximum number of events in the queue.  Sample
      *                          events are dropped when the queue is full;
      *                          Epoch/Session events evict the oldest Sample entry.
+     * @param extra_headers     TD-444: "Name: value" headers sent with every request (e.g. a
+     *                          Cloudflare Access service token; see parse_metrics_server_headers()).
+     * @param ca_file           TD-444: CA bundle for verifying an https:// server; empty = the
+     *                          system store.
+     *
+     * https:// URLs need the libcurl transport (built when libcurl is found); without it,
+     * start_session() refuses them with an error instead of sending plain HTTP to port 443.
      */
     explicit MetricsPushClient(std::string session_base_url, int timeout_ms = 1000,
-                               size_t max_queue_depth = 1024, int heartbeat_interval_ms = 30000);
+                               size_t max_queue_depth = 1024, int heartbeat_interval_ms = 30000,
+                               std::vector<std::string> extra_headers = {},
+                               std::string ca_file = {});
     ~MetricsPushClient() override;
 
     MetricsPushClient(const MetricsPushClient&) = delete;
@@ -271,6 +301,18 @@ class MetricsPushClient final : public IMetricsReporter {
    private:
     std::string session_base_url_;
     int timeout_ms_;
+    std::vector<std::string> extra_headers_;
+    std::string ca_file_;
+    // TD-444: one connection reused by every request (keep-alive), behind its own mutex since
+    // start_session() posts from the caller's thread while the push thread runs. Defined in the .cpp.
+    struct Transport;
+    std::unique_ptr<Transport> transport_;
+    // TD-444: rate-limited warnings for rejected or failed requests (push thread only).
+    std::chrono::steady_clock::time_point last_failure_warn_{};
+    int failures_since_warn_{0};
+    void note_failure(const std::string& endpoint, int status);
+    // TD-444: the heartbeat is sent only once start_session() succeeded.
+    std::atomic<bool> session_started_{false};
     size_t max_queue_depth_;
     int heartbeat_interval_ms_;
 
@@ -331,7 +373,9 @@ class MetricsPushClient final : public IMetricsReporter {
 
     // Saved verbatim from the last start_session() call so push_loop can
     // re-register the session automatically after a 404 (server restart /
-    // session eviction).  Written once before training starts, read-only
-    // during training — no additional lock needed beyond program-order.
+    // session eviction). TD-444: written by start_session() while the push thread may be
+    // running, so guarded by reconnect_mutex_ (the push thread reads a copy).
     std::string reconnect_body_;
+    mutable std::mutex reconnect_mutex_;
+    std::string reconnect_body() const;
 };

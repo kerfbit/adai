@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.17.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.17.1
+// @adai-reviewed: 2026-10-25
 
 
 #include <chrono>
@@ -95,6 +95,8 @@ struct IncrementalConfig {
     std::string metrics_server_url;             // URL of metrics API daemon; empty = no push
     std::string metrics_session_label;          // Human-readable label; auto-derived when empty
     int metrics_push_timeout_ms = 1000;         // HTTP push timeout in milliseconds
+    std::string metrics_server_headers;         // TD-444: extra push headers ("Name: value; ...")
+    std::string metrics_server_ca_file;         // TD-444: CA bundle for an https:// server
     int metrics_heartbeat_interval_ms = 30000;  // Idle heartbeat interval in milliseconds
 
     // Model Name Service configuration

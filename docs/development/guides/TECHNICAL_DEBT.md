@@ -1249,6 +1249,8 @@ The run is complete.
   backends, `schema_version` dropped).
 - TD-446 (done in code: the sweep thread always runs and a disabled interval idles, misses log at debug, archiving runs outside the
   registry lock, and evicted services stop writing).
+- TD-444 (done in code: the push client uses libcurl, giving HTTPS, extra headers and one kept-alive connection; failures are warned,
+  rate-limited; no heartbeat before the session; longer host fragment).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -11820,7 +11822,7 @@ epoch. The `Content-Length` problem showed up first in the end-to-end test, and 
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Metrics / Push Client | October 14, 2026 | 2-4 hours |
+| LOW | Open — code fix landed October 25, 2026 | Metrics / Push Client | October 14, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `MetricsPushClient`, by inspection:
@@ -11838,9 +11840,38 @@ Found while tracing `MetricsPushClient`, by inspection:
 
 Action Items:
 
-- [ ] Support `https://` (`httplib::SSLClient` with OpenSSL) and configurable extra headers, or reject `https://` with a clear error.
-- [ ] Reuse one keep-alive client in the push thread.
-- [ ] Log non-2xx results at warn (rate-limited); guard `reconnect_body_`; consider a longer host fragment or a hash suffix.
+- [x] Support `https://` (`httplib::SSLClient` with OpenSSL) and configurable extra headers, or reject `https://` with a clear error.
+- [x] Reuse one keep-alive client in the push thread.
+- [x] Log non-2xx results at warn (rate-limited); guard `reconnect_body_`; consider a longer host fragment or a hash suffix.
+
+**Owner decision (October 25, 2026).** HTTPS through libcurl, which the trainer already uses for FTP. The other options were
+rejecting `https://`, or httplib with OpenSSL, which would have to be enabled for every file that includes httplib.
+
+**Fix (October 25, 2026).**
+- **Transport.** When libcurl is found, CMake links it into `adai_core` and defines `ADAI_METRICS_PUSH_CURL`. `MetricsPushClient` then
+  posts through one reused libcurl handle, behind a transport mutex, since `start_session()` posts from the caller's thread. That gives
+  real HTTPS with certificate checks and one kept-alive connection. Without libcurl, a reused keep-alive httplib client handles
+  `http://`, and `start_session()` refuses an `https://` URL with an error saying why.
+- **New keys.** `METRICS_SERVER_HEADERS` holds extra headers ("Name: value" pairs separated by `;`, e.g. a Cloudflare Access service
+  token). `METRICS_SERVER_CA_FILE` holds a private CA. Both go in `config.trainer.conf`/env, are mapped through `IncrementalConfig`,
+  and are used by both the chatbot and LeJEPA passes. CLOUDFLARE_TUNNEL_RELAY.md §6c covers pushing through the tunnel.
+- **Failures.** A rejected or failed request (4xx other than the handled 404s, 5xx after retries, no connection) is a warning at most
+  once a minute, with a count.
+- **Smaller fixes.** `reconnect_body_` is mutex-guarded. The heartbeat starts only after `start_session()` succeeds. The host
+  fragment in session keys and labels is now up to 32 characters, so `ai-machine` is no longer `ai-machi` and no longer collides
+  with `ai-machine2`.
+
+Tests (`metrics_push_client_test.cpp`):
+- `ParsesSemicolonSeparatedHeaders`;
+- `SendsExtraHeadersOnEveryRequest`;
+- `ReusesOneConnection`: 22 requests, one client port;
+- `NoHeartbeatBeforeTheSessionStarts`;
+- `HttpsWithCaFileAndHeaders`: a real local TLS server (Python, throwaway certificate). It returns 200 with the CA file and header,
+  403 without the header, and 0 when the certificate isn't trusted.
+
+Against the old client, `ReusesOneConnection` saw 22 connections for 22 requests, and `NoHeartbeatBeforeTheSessionStarts` saw 7
+heartbeats before any session. The other three tests need the new constructor. The API route tests (the real push client against
+the real `metrics_api_server`, now over libcurl) still pass.
 
 Location in code: `src/MetricsPushClient.cpp` (`ParsedUrl`, `attempt_post()`, `push_loop()`); `src/MetricsPushClient.hpp` (`detect_hostname_fragment()`, `reconnect_body_`); tagged `TODO: See TD-444`.
 

@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.9.0
+// @adai-version: 1.10.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -186,6 +186,13 @@ struct ServiceConfig {
 
     /// HTTP timeout for pushing metrics in milliseconds (default: 1000)
     int metrics_push_timeout_ms = 1000;
+
+    /// TD-444: extra headers for every metrics push, "Name: value" pairs separated by ';' (e.g. a
+    /// Cloudflare Access service token). Empty by default.
+    std::string metrics_server_headers;
+
+    /// TD-444: CA bundle for verifying an https:// METRICS_SERVER_URL; empty = the system store.
+    std::string metrics_server_ca_file;
 
     /// Enable persistence of metrics to disk (default: true)
     bool metrics_enable_persistence = true;

@@ -378,6 +378,21 @@ if(ENABLE_FTP_TRANSPORT)
     endif()
 endif()
 
+# TD-444: the trainer's metrics push client (MetricsPushClient, in adai_core) uses libcurl when it's
+# available: real HTTPS with certificate checks, extra headers (METRICS_SERVER_HEADERS, e.g. a
+# Cloudflare Access token) and one kept-alive connection. Without it, pushes use httplib, http:// only.
+if(NOT CURL_FOUND)
+    find_package(CURL QUIET)
+endif()
+if(CURL_FOUND)
+    target_link_libraries(adai_core PUBLIC CURL::libcurl)
+    # PUBLIC so tests can tell whether the HTTPS transport is there.
+    target_compile_definitions(adai_core PUBLIC ADAI_METRICS_PUSH_CURL)
+    message(STATUS "Metrics push client: libcurl transport (HTTPS supported)")
+else()
+    message(STATUS "Metrics push client: httplib transport (http:// only; install libcurl for HTTPS)")
+endif()
+
 # ============================================================================
 # OpenSSL — required for FTPS (TLS) and HMAC-SHA256 token signing (Phase 11/3)
 # Enable with: -DENABLE_FTPS=ON (default ON when OpenSSL is found)

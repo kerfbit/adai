@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.9.0
+// @adai-version: 1.10.0
 // @adai-reviewed: 2026-10-25
 
 #include "Config.hpp"
@@ -228,6 +228,10 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.metrics_server_url = value;
             } else if (key == "METRICS_PUSH_TIMEOUT_MS") {
                 config.metrics_push_timeout_ms = std::stoi(value);
+            } else if (key == "METRICS_SERVER_HEADERS") {
+                config.metrics_server_headers = value;
+            } else if (key == "METRICS_SERVER_CA_FILE") {
+                config.metrics_server_ca_file = value;
             } else if (key == "METRICS_HEARTBEAT_INTERVAL_MS") {
                 config.metrics_heartbeat_interval_ms = std::stoi(value);
             } else if (key == "METRICS_ENABLE_PERSISTENCE") {
@@ -628,6 +632,12 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_int("METRICS_PUSH_TIMEOUT_MS")) {
         config.metrics_push_timeout_ms = *val;
+    }
+    if (auto val = get_env("METRICS_SERVER_HEADERS")) {
+        config.metrics_server_headers = *val;
+    }
+    if (auto val = get_env("METRICS_SERVER_CA_FILE")) {
+        config.metrics_server_ca_file = *val;
     }
     if (auto val = get_env_int("METRICS_HEARTBEAT_INTERVAL_MS")) {
         config.metrics_heartbeat_interval_ms = *val;
