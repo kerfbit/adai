@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <atomic>
 #include <chrono>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <thread>
@@ -729,5 +730,139 @@ TEST(MetricsSessionRegistry, EvictionArchivesRotatedMetricsBackups) {
     }
     EXPECT_EQ(archived_backups, 2);
 
+    fs::remove_all(temp_root);
+}
+
+namespace {
+double process_cpu_seconds() {
+    return static_cast<double>(std::clock()) / CLOCKS_PER_SEC;
+}
+
+// A finished session that a 0-second TTL makes immediately evictable.
+std::shared_ptr<TrainingMetricsService> finished_session(MetricsSessionRegistry& registry,
+                                                         const std::string& key) {
+    auto svc = registry.create_or_get_session(key);
+    svc->start_session(1, 1, 1);
+    svc->end_session();
+    return svc;
+}
+}  // namespace
+
+// TD-446: setting the sweep interval to 0 while the thread runs used to make it spin (0.51
+// CPU-seconds in 2 s, taking the exclusive registry lock every pass).
+TEST(MetricsSessionRegistry, DisabledSweepIntervalDoesNotSpin) {
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, 3600, /*sweep=*/60);
+    registry.set_sweep_interval_seconds(0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    const double before = process_cpu_seconds();
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    EXPECT_LT(process_cpu_seconds() - before, 0.1);
+}
+
+// TD-446: a registry constructed with sweeping disabled never started its thread, so turning it on
+// later did nothing.
+TEST(MetricsSessionRegistry, EnablingSweepLaterStartsSweeping) {
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, /*ttl=*/0, /*sweep=*/0);
+    finished_session(registry, "late-sweep");
+    ASSERT_EQ(registry.size(), 1u);
+    registry.set_sweep_interval_seconds(1);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+    while (registry.size() != 0 && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    EXPECT_EQ(registry.size(), 0u);
+}
+
+// TD-446: a shorter interval applies at once instead of after the old (here hour-long) wait.
+TEST(MetricsSessionRegistry, ShorterSweepIntervalAppliesImmediately) {
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, /*ttl=*/0, /*sweep=*/3600);
+    finished_session(registry, "short-sweep");
+    registry.set_sweep_interval_seconds(1);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+    while (registry.size() != 0 && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    EXPECT_EQ(registry.size(), 0u);
+}
+
+// TD-446: a request still holding an evicted service can't write under the old key after archiving
+// (it used to recreate the session's files there, which a new session with that key then shared).
+TEST(MetricsSessionRegistry, EvictedServiceStopsWriting) {
+    namespace fs = std::filesystem;
+    const fs::path temp_root = fs::temp_directory_path() / "adai_metrics_registry_test_retired";
+    fs::remove_all(temp_root);
+    fs::create_directories(temp_root);
+
+    MetricsServiceConfig config;
+    config.enable_persistence = true;
+    config.persist_every_samples = 1;
+    config.metrics_file = (temp_root / "metrics.jsonl").string();
+    config.summary_file = (temp_root / "metrics_summary.json").string();
+    const std::string db_path = (temp_root / "metrics.db").string();
+    MetricsSessionRegistry registry(config, 16, /*ttl=*/0, /*sweep=*/0, "sqlite", db_path);
+    auto held = finished_session(registry, "retired-key");
+    const auto derived = held->get_config();
+    registry.evict_completed_sessions(0);
+    ASSERT_FALSE(fs::exists(derived.summary_file));
+
+    held->start_epoch(2, 10);
+    held->update_sample_metrics(1, 1.0f, 1.0f, 0.001f);
+    held->update_advanced_epoch_metrics(0.5f, 0.5f, 0.01f);
+    held->flush_to_disk();
+
+    EXPECT_FALSE(fs::exists(derived.summary_file)) << "late persist recreated the old key's file";
+    EXPECT_FALSE(fs::exists(derived.metrics_file));
+    auto* db = registry.get_database();
+    EXPECT_TRUE(db->query_history("retired-key", std::nullopt, std::nullopt, 0).empty());
+    EXPECT_TRUE(db->query_gradient_variance("retired-key", 0).empty());
+    fs::remove_all(temp_root);
+}
+
+// TD-446: archiving now runs outside the registry lock. Many threads reusing one key must neither
+// deadlock nor hand out two live services for it, and every archived run keeps its own rows.
+TEST(MetricsSessionRegistry, ConcurrentKeyReuseWithArchivingOutsideTheLock) {
+    namespace fs = std::filesystem;
+    const fs::path temp_root = fs::temp_directory_path() /
+                               ("adai_metrics_registry_test_reuse_" + std::to_string(::getpid()));
+    fs::remove_all(temp_root);
+    fs::create_directories(temp_root);
+    MetricsServiceConfig config;
+    config.enable_persistence = true;
+    config.persist_every_samples = 1;
+    config.metrics_file = (temp_root / "metrics.jsonl").string();
+    config.summary_file = (temp_root / "metrics_summary.json").string();
+    MetricsSessionRegistry registry(config, 16, 3600, /*sweep=*/0, "sqlite",
+                                    (temp_root / "metrics.db").string());
+
+    std::atomic<int> runs{0};
+    std::vector<std::thread> threads;
+    for (int t = 0; t < 4; ++t) {
+        threads.emplace_back([&] {
+            for (int i = 0; i < 15; ++i) {
+                auto result = registry.start_session_or_conflict("hot");
+                if (!result.service)
+                    continue;  // another thread's run is live
+                result.service->start_session(1, 1, 1);
+                result.service->start_epoch(1, 1);
+                result.service->update_sample_metrics(1, 1.0f, 1.0f, 0.001f);
+                result.service->end_session();
+                ++runs;
+            }
+        });
+    }
+    for (auto& th : threads)
+        th.join();
+
+    EXPECT_GT(runs.load(), 0);
+    EXPECT_LE(registry.size(), 1u);
+    // Every run's single history row ended up under exactly one key: the live one or an archive.
+    auto* db = registry.get_database();
+    size_t rows = db->query_history("hot", std::nullopt, std::nullopt, 0).size();
+    for (const auto& rec : db->list_sessions(std::nullopt)) {
+        if (rec.key.rfind("hot_archived_", 0) == 0) {
+            const auto archived = db->query_history(rec.key, std::nullopt, std::nullopt, 0);
+            EXPECT_LE(archived.size(), 1u) << rec.key << " holds rows of another run";
+            rows += archived.size();
+        }
+    }
+    EXPECT_EQ(rows, static_cast<size_t>(runs.load()));
     fs::remove_all(temp_root);
 }

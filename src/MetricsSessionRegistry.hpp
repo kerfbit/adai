@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.1
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -19,6 +19,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 #include "Logger.hpp"
@@ -78,15 +79,20 @@ class MetricsSessionRegistry {
                                     e.what());
             }
         }
-        // TODO: See TD-446 in TECHNICAL_DEBT.md - a later set_sweep_interval_seconds(>0) never starts the thread
-        if (sweep_interval_seconds_ > 0) {
-            sweep_thread_ = std::thread(&MetricsSessionRegistry::sweep_loop, this);
-        }
+        // TD-446: the thread always runs; an interval <= 0 means "disabled" and it idles until the
+        // interval changes. It used to start only for a positive interval, so a later change from 0
+        // to a positive value did nothing.
+        sweep_thread_ = std::thread(&MetricsSessionRegistry::sweep_loop, this);
     }
 
     ~MetricsSessionRegistry() {
         if (sweep_thread_.joinable()) {
-            stop_sweep_ = true;
+            {
+                // Under the sweep mutex, so the stop can't slip in between the thread checking its
+                // predicate and blocking (a disabled sweep waits with no timeout).
+                std::lock_guard<std::mutex> lock(sweep_mutex_);
+                stop_sweep_ = true;
+            }
             sweep_cv_.notify_all();
             sweep_thread_.join();
         }
@@ -96,29 +102,32 @@ class MetricsSessionRegistry {
     MetricsSessionRegistry(const MetricsSessionRegistry&) = delete;
     MetricsSessionRegistry& operator=(const MetricsSessionRegistry&) = delete;
     std::shared_ptr<TrainingMetricsService> create_or_get_session(const std::string& key) {
-        std::unique_lock<std::shared_mutex> lock(registry_mutex_);
+        // TD-446: archiving I/O runs after the registry lock is released (see archive_detached());
+        // when this key's own previous session had to be archived, retry once that is done.
+        for (;;) {
+            std::vector<PendingArchive> pending;
+            std::shared_ptr<TrainingMetricsService> result;
+            bool retry = false;
+            {
+                std::unique_lock<std::shared_mutex> lock(registry_mutex_);
+                wait_until_not_archiving(lock, key);
+                evict_completed_sessions_locked(completed_ttl_seconds_, pending);
 
-        evict_completed_sessions_locked(completed_ttl_seconds_);
-
-        auto existing = sessions_.find(key);
-        if (existing != sessions_.end()) {
-            if (should_replace_completed_session(existing->second.service)) {
-                archive_and_remove_locked(existing);
-            } else {
-                return existing->second.service;
+                auto existing = sessions_.find(key);
+                if (existing != sessions_.end() &&
+                    !should_replace_completed_session(existing->second.service)) {
+                    result = existing->second.service;
+                } else if (existing != sessions_.end()) {
+                    pending.push_back(detach_locked(existing));
+                    retry = true;
+                } else if (make_room_locked(pending)) {
+                    result = create_locked(key);
+                }
             }
+            archive_detached(pending);
+            if (!retry)
+                return result;
         }
-
-        if (!make_room_locked()) {
-            return nullptr;
-        }
-
-        auto service = std::make_shared<TrainingMetricsService>(config_for_session(key));
-        if (db_) {
-            service->set_database(db_.get(), key);
-        }
-        sessions_.emplace(key, SessionEntry{service, std::chrono::system_clock::now()});
-        return service;
     }
 
     // Atomically checks whether `key` is already held by a genuinely live session and, only if
@@ -130,39 +139,44 @@ class MetricsSessionRegistry {
     // threshold) gets silently archived and replaced by the second caller before the check can
     // see its real state.
     SessionStartResult start_session_or_conflict(const std::string& key) {
-        std::unique_lock<std::shared_mutex> lock(registry_mutex_);
+        // The decision (conflict, reclaim, create) is made under one lock acquisition. Reclaiming
+        // detaches the old session from the map under that lock; its archiving I/O runs after the
+        // lock is released (TD-446), and the new session is created only once it's done:
+        // concurrent callers for this key wait in wait_until_not_archiving() meanwhile.
+        for (;;) {
+            std::vector<PendingArchive> pending;
+            SessionStartResult result;
+            bool retry = false;
+            {
+                std::unique_lock<std::shared_mutex> lock(registry_mutex_);
+                wait_until_not_archiving(lock, key);
+                evict_completed_sessions_locked(completed_ttl_seconds_, pending);
 
-        evict_completed_sessions_locked(completed_ttl_seconds_);
-
-        auto existing = sessions_.find(key);
-        if (existing != sessions_.end()) {
-            if (should_replace_completed_session(existing->second.service)) {
-                adai::Logger::warn(
-                    "[MetricsSessionRegistry] key='{}' is stale/completed — archiving and "
-                    "allowing restart",
-                    key);
-                archive_and_remove_locked(existing);
-            } else {
-                const auto snapshot = existing->second.service->get_current_snapshot();
-                if (has_started(snapshot)) {
-                    // Genuinely live — refuse without touching the existing session.
-                    return SessionStartResult{nullptr, true};
+                auto existing = sessions_.find(key);
+                if (existing != sessions_.end()) {
+                    if (should_replace_completed_session(existing->second.service)) {
+                        adai::Logger::warn(
+                            "[MetricsSessionRegistry] key='{}' is stale/completed — archiving and "
+                            "allowing restart",
+                            key);
+                        pending.push_back(detach_locked(existing));
+                        retry = true;
+                    } else {
+                        const auto snapshot = existing->second.service->get_current_snapshot();
+                        // Genuinely live: refuse without touching it. Never started (a freshly
+                        // created placeholder): safe to hand back as-is.
+                        result = has_started(snapshot)
+                                     ? SessionStartResult{nullptr, true}
+                                     : SessionStartResult{existing->second.service, false};
+                    }
+                } else if (make_room_locked(pending)) {
+                    result = SessionStartResult{create_locked(key), false};
                 }
-                // Never started (freshly created placeholder) — safe to hand back as-is.
-                return SessionStartResult{existing->second.service, false};
             }
+            archive_detached(pending);
+            if (!retry)
+                return result;
         }
-
-        if (!make_room_locked()) {
-            return SessionStartResult{nullptr, false};
-        }
-
-        auto service = std::make_shared<TrainingMetricsService>(config_for_session(key));
-        if (db_) {
-            service->set_database(db_.get(), key);
-        }
-        sessions_.emplace(key, SessionEntry{service, std::chrono::system_clock::now()});
-        return SessionStartResult{service, false};
     }
 
     std::optional<std::shared_ptr<TrainingMetricsService>> get_session(
@@ -170,12 +184,11 @@ class MetricsSessionRegistry {
         std::shared_lock<std::shared_mutex> lock(registry_mutex_);
         auto existing = sessions_.find(key);
         if (existing == sessions_.end()) {
-            // TODO: See TD-446 in TECHNICAL_DEBT.md - one warning line per live key on every miss (Prometheus aggregate amplifies it)
-            adai::Logger::warn("[get_session] key='{}' (len={}) not found; map has {} entries:",
-                               key, key.size(), sessions_.size());
-            for (const auto& [k, _] : sessions_) {
-                adai::Logger::warn("  -> '{}' (len={})", k, k.size());
-            }
+            // TD-446: a miss is normal (completed sessions live only in the DB; the Prometheus
+            // aggregate looks every listed session up). It used to log a warning plus one line per
+            // live key.
+            adai::Logger::debug("[get_session] key='{}' not live ({} live sessions)", key,
+                                sessions_.size());
             return std::nullopt;
         }
         return existing->second.service;
@@ -185,6 +198,7 @@ class MetricsSessionRegistry {
         std::shared_lock<std::shared_mutex> lock(registry_mutex_);
 
         std::vector<MetricsSessionSummary> summaries;
+        std::unordered_set<std::string> live_keys;
         summaries.reserve(sessions_.size());
         for (const auto& [key, entry] : sessions_) {
             auto snapshot = entry.service->get_current_snapshot();
@@ -204,14 +218,16 @@ class MetricsSessionRegistry {
             summary.last_update_time = snapshot.last_update_time;
             summary.metrics_url = "/api/sessions/" + key + "/metrics/current";
             summaries.push_back(std::move(summary));
+            live_keys.insert(key);
         }
+        lock.unlock();  // TD-446: the DB query below doesn't need the registry lock
 
         // Supplement with completed sessions from DB that have been evicted (TD-020)
         if (db_) {
             try {
                 auto db_sessions = db_->list_sessions(std::optional<bool>(false));
                 for (const auto& rec : db_sessions) {
-                    if (sessions_.count(rec.key))
+                    if (live_keys.count(rec.key))
                         continue;
                     // Archived rows are permanent history kept only so their metrics can
                     // still be queried by exact key — they must never clutter the live
@@ -313,8 +329,13 @@ class MetricsSessionRegistry {
     }
 
     size_t evict_completed_sessions(int max_age_seconds) {
-        std::unique_lock<std::shared_mutex> lock(registry_mutex_);
-        return evict_completed_sessions_locked(max_age_seconds);
+        std::vector<PendingArchive> pending;
+        {
+            std::unique_lock<std::shared_mutex> lock(registry_mutex_);
+            evict_completed_sessions_locked(max_age_seconds, pending);
+        }
+        archive_detached(pending);
+        return pending.size();
     }
 
     size_t size() const {
@@ -348,15 +369,14 @@ class MetricsSessionRegistry {
         return sweep_interval_seconds_;
     }
 
-    // Safe to call while the sweep thread is running: notify_all() wakes its
-    // wait_for(), which re-reads sweep_interval_seconds_ fresh on the next loop
-    // iteration (see sweep_loop()) rather than being stuck on the duration it
-    // was constructed with.
-    // TODO: See TD-446 in TECHNICAL_DEBT.md - <= 0 makes sweep_loop() spin; 0 -> positive has no effect
+    // Takes effect at once: the sweep thread wakes and starts a fresh wait with the new interval.
+    // <= 0 disables sweeping (the thread idles). TD-446: <= 0 used to make the thread spin (0.51
+    // CPU-seconds in 2 s, taking the exclusive lock each pass), and 0 -> positive did nothing.
     void set_sweep_interval_seconds(int seconds) {
         {
             std::lock_guard<std::mutex> lock(sweep_mutex_);
             sweep_interval_seconds_ = seconds;
+            ++sweep_config_generation_;
         }
         sweep_cv_.notify_all();
     }
@@ -471,8 +491,8 @@ class MetricsSessionRegistry {
     // Renames the on-disk metrics files derived from `key` to instead be derived from
     // `archived_key`. The "0-default" key intentionally maps to fixed, shared legacy paths
     // (see config_for_session) rather than per-session paths, so there is nothing to rename.
-    void archive_session_files_locked(const std::string& key, const std::string& archived_key,
-                                      const std::shared_ptr<TrainingMetricsService>& service) {
+    void archive_session_files(const std::string& key, const std::string& archived_key,
+                               const std::shared_ptr<TrainingMetricsService>& service) {
         if (key == "0-default")
             return;
 
@@ -509,36 +529,69 @@ class MetricsSessionRegistry {
         }
     }
 
-    // Archives (renames in the DB and on disk) a session that is leaving the live map,
-    // then erases it. Must be called with registry_mutex_ held exclusively.
-    // TODO: See TD-446 in TECHNICAL_DEBT.md - DB transaction and file renames run under the exclusive registry lock
-    void archive_and_remove_locked(std::unordered_map<std::string, SessionEntry>::iterator it) {
-        const std::string key = it->first;
-        const auto service = it->second.service;
-        const std::string archived_key = make_archived_key(key);
+    // A session leaving the live map, waiting for its archiving I/O.
+    struct PendingArchive {
+        std::string key;
+        std::string archived_key;
+        std::shared_ptr<TrainingMetricsService> service;
+    };
 
-        // TD-511: write the session's pending rows (buffered gradient variance, unpersisted history)
-        // under its current key first; written after the rename they'd land under a key that no
-        // longer has a session row.
-        try {
-            service->flush_to_disk();
-        } catch (const std::exception& e) {
-            adai::Logger::warn("[MetricsSessionRegistry] flush before archiving '{}' failed: {}", key,
-                               e.what());
-        }
-
-        if (db_) {
-            try {
-                db_->archive_session(key, archived_key);
-            } catch (const std::exception& e) {
-                adai::Logger::error(
-                    "[MetricsSessionRegistry] archive_session failed for key='{}': {}", key,
-                    e.what());
-            }
-        }
-        archive_session_files_locked(key, archived_key, service);
-
+    // Removes a session from the live map and marks its key as being archived, so no new session
+    // takes the key until archive_detached() has renamed the old one's rows and files. Must be
+    // called with registry_mutex_ held exclusively.
+    PendingArchive detach_locked(std::unordered_map<std::string, SessionEntry>::iterator it) {
+        PendingArchive p{it->first, make_archived_key(it->first), it->second.service};
+        archiving_keys_.insert(p.key);
         sessions_.erase(it);
+        return p;
+    }
+
+    // Archives detached sessions: retires each service (final flush, then no more writes, so a
+    // request still holding it can't recreate its files or rows), renames its DB rows and files to
+    // the archived key, then releases the key. TD-446: this I/O used to run under the exclusive
+    // registry lock on every start and sweep. Called WITHOUT registry_mutex_.
+    void archive_detached(const std::vector<PendingArchive>& pending) {
+        if (pending.empty())
+            return;
+        for (const auto& p : pending) {
+            try {
+                p.service->retire();
+            } catch (const std::exception& e) {
+                adai::Logger::warn("[MetricsSessionRegistry] flush before archiving '{}' failed: {}",
+                                   p.key, e.what());
+            }
+            if (db_) {
+                try {
+                    db_->archive_session(p.key, p.archived_key);
+                } catch (const std::exception& e) {
+                    adai::Logger::error(
+                        "[MetricsSessionRegistry] archive_session failed for key='{}': {}", p.key,
+                        e.what());
+                }
+            }
+            archive_session_files(p.key, p.archived_key, p.service);
+        }
+        {
+            std::unique_lock<std::shared_mutex> lock(registry_mutex_);
+            for (const auto& p : pending)
+                archiving_keys_.erase(p.key);
+        }
+        archive_cv_.notify_all();
+    }
+
+    void wait_until_not_archiving(std::unique_lock<std::shared_mutex>& lock,
+                                  const std::string& key) {
+        archive_cv_.wait(lock, [&] { return archiving_keys_.count(key) == 0; });
+    }
+
+    // Must be called with registry_mutex_ held exclusively.
+    std::shared_ptr<TrainingMetricsService> create_locked(const std::string& key) {
+        auto service = std::make_shared<TrainingMetricsService>(config_for_session(key));
+        if (db_) {
+            service->set_database(db_.get(), key);
+        }
+        sessions_.emplace(key, SessionEntry{service, std::chrono::system_clock::now()});
+        return service;
     }
 
     // TD-445: whether there's room for one more session, making room if needed. A finished or stale
@@ -548,7 +601,7 @@ class MetricsSessionRegistry {
     // reuse) least recently updated first. Live sessions and never-started placeholders (e.g. the
     // startup "0-default" alias) are never evicted, so in effect only live sessions count.
     // Must be called with registry_mutex_ held exclusively.
-    bool make_room_locked() {
+    bool make_room_locked(std::vector<PendingArchive>& pending) {
         while (sessions_.size() >= max_live_sessions_) {
             auto victim = sessions_.end();
             std::chrono::system_clock::time_point victim_activity{};
@@ -570,12 +623,13 @@ class MetricsSessionRegistry {
                 "[MetricsSessionRegistry] registry full ({} sessions); archiving finished/stale "
                 "session '{}' to make room",
                 sessions_.size(), victim->first);
-            archive_and_remove_locked(victim);
+            pending.push_back(detach_locked(victim));
         }
         return true;
     }
 
-    size_t evict_completed_sessions_locked(int max_age_seconds) {
+    size_t evict_completed_sessions_locked(int max_age_seconds,
+                                           std::vector<PendingArchive>& pending) {
         std::vector<std::string> expired_keys;
         expired_keys.reserve(sessions_.size());
         for (const auto& [key, entry] : sessions_) {
@@ -587,7 +641,7 @@ class MetricsSessionRegistry {
         for (const auto& key : expired_keys) {
             auto it = sessions_.find(key);
             if (it != sessions_.end()) {
-                archive_and_remove_locked(it);
+                pending.push_back(detach_locked(it));
             }
         }
         return expired_keys.size();
@@ -596,18 +650,21 @@ class MetricsSessionRegistry {
     void sweep_loop() {
         std::unique_lock<std::mutex> lock(sweep_mutex_);
         while (!stop_sweep_) {
-            sweep_cv_.wait_for(lock, std::chrono::seconds(sweep_interval_seconds_),
-                               [this] { return stop_sweep_.load(); });
-            if (stop_sweep_)
-                break;
+            // Wait for the interval, or for any interval change (TD-446): a change restarts the
+            // wait with the new value instead of sweeping. <= 0 waits until a change or stop.
+            const auto generation = sweep_config_generation_;
+            auto woken = [&] {
+                return stop_sweep_.load() || sweep_config_generation_ != generation;
+            };
+            if (sweep_interval_seconds_ <= 0) {
+                sweep_cv_.wait(lock, woken);
+                continue;
+            }
+            if (sweep_cv_.wait_for(lock, std::chrono::seconds(sweep_interval_seconds_), woken))
+                continue;  // stopped, or the interval changed
             lock.unlock();
-            // TD-134 (fixed): completed_ttl_seconds_ is guarded by registry_mutex_
-            // everywhere else (set_completed_ttl_seconds()/completed_ttl_seconds()
-            // both take it) — reading the member directly here raced with a
-            // concurrent set_completed_ttl_seconds() call (e.g. from
-            // TrainingMetricsAPI's PUT /admin/config), an unsynchronized
-            // concurrent read/write of a non-atomic int. Routing through the
-            // mutex-protected getter closes the race.
+            // TD-134 (fixed): completed_ttl_seconds_ is guarded by registry_mutex_; read it through
+            // the locked getter, not directly (a concurrent PUT /admin/config raced with this).
             evict_completed_sessions(completed_ttl_seconds());
             const auto now = std::chrono::system_clock::now();
             if (now - last_retention_run_ >= std::chrono::hours(1)) {
@@ -628,6 +685,9 @@ class MetricsSessionRegistry {
     std::atomic<uint64_t> archive_counter_{0};
 
     std::atomic<bool> stop_sweep_{false};
+    std::uint64_t sweep_config_generation_ = 0;  ///< guarded by sweep_mutex_ (TD-446)
+    std::unordered_set<std::string> archiving_keys_;  ///< guarded by registry_mutex_ (TD-446)
+    std::condition_variable_any archive_cv_;          ///< signalled when a key finishes archiving
     std::chrono::system_clock::time_point last_retention_run_{};  ///< sweep thread only (TD-440)
     mutable std::mutex sweep_mutex_;  ///< guards sweep_cv_ wait only; mutable for the const getter
     std::condition_variable_any sweep_cv_;

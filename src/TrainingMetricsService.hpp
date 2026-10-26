@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.12.0
+// @adai-version: 0.13.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -403,6 +403,11 @@ class TrainingMetricsService {
 
     // Persistence control
     void flush_to_disk();
+
+    // TD-446: called by MetricsSessionRegistry when it evicts this session, before archiving it.
+    // Flushes everything pending, then stops all file and DB writes, so a request still holding
+    // this service can't recreate the session's files or rows under its old key after the archive.
+    void retire();
     // Clears per-sample history AND resets best_validation_loss/best_epoch
     // (persisting the reset immediately) — the explicit "force clear" for a
     // session, since start_session()'s cross-session carryover otherwise keeps

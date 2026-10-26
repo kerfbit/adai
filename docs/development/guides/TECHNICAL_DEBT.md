@@ -1247,6 +1247,8 @@ The run is complete.
 - TD-379 (done in code: BLEU-1/BLEU-2 travel from the trainer to the DB row).
 - TD-511 (done in code: SQLite busy timeout, parent directory, checked PRAGMAs and migrations, batched transactional writes in both
   backends, `schema_version` dropped).
+- TD-446 (done in code: the sweep thread always runs and a disabled interval idles, misses log at debug, archiving runs outside the
+  registry lock, and evicted services stop writing).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -11905,7 +11907,7 @@ fourth pass both started (200). Two finished sessions were archived "to make roo
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Metrics / Session Registry | October 14, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 25, 2026 | Metrics / Session Registry | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `MetricsSessionRegistry`:
@@ -11924,9 +11926,33 @@ Found while tracing `MetricsSessionRegistry`:
 
 Action Items:
 
-- [ ] Reject or clamp intervals ≤ 0 in the setter (or treat as "disabled" without spinning); start the thread when moving from 0 to positive.
-- [ ] Log misses at debug (or once), without listing every key.
-- [ ] Do archiving I/O and DB listing outside the registry lock; mark evicted services so late persists are dropped.
+- [x] Reject or clamp intervals ≤ 0 in the setter (or treat as "disabled" without spinning); start the thread when moving from 0 to positive.
+- [x] Log misses at debug (or once), without listing every key.
+- [x] Do archiving I/O and DB listing outside the registry lock; mark evicted services so late persists are dropped.
+
+**Fix (October 25, 2026).**
+- **Sweep thread.** It always runs, and an interval ≤ 0 means disabled: the thread waits with no timeout until the interval changes or
+  it's stopped. Every `set_sweep_interval_seconds()` bumps a generation counter that wakes the thread to start a fresh wait. A change
+  to a shorter interval used to wait out the old one, because `wait_for()`'s predicate only checked for a stop. The destructor sets the
+  stop flag under the sweep mutex, so the stop can't be missed.
+- **Misses.** `get_session()` logs one debug line.
+- **Archiving outside the lock.** Under the exclusive lock, a leaving session is only detached from the map and its key is marked as
+  archiving. `archive_detached()` then runs after the lock is released. It calls the new `TrainingMetricsService::retire()` (a final
+  flush, then no more file or DB writes), renames the DB rows and files, and releases the key. A start or create for a key being
+  archived waits (`archive_cv_`) until that finishes, so a new session never shares the old one's rows. `list_sessions()` queries the
+  DB after releasing its shared lock.
+- **Late writes.** These are dropped: a retired service has no DB and persistence off.
+
+Tests (`metrics_session_registry_test.cpp`):
+- `DisabledSweepIntervalDoesNotSpin`;
+- `EnablingSweepLaterStartsSweeping`;
+- `ShorterSweepIntervalAppliesImmediately`;
+- `EvictedServiceStopsWriting`;
+- `ConcurrentKeyReuseWithArchivingOutsideTheLock`: 4 threads × 15 reuses of one key; every run's row lands under exactly one key.
+
+The first four fail against the old registry: 0.28 CPU-seconds in 1 s, no sweeping after enabling, the hour-long wait kept, and a
+late persist recreating the old key's file. The registry suite is also clean under ThreadSanitizer (34 tests). TSan needs
+`setarch $(uname -m) -R` on this kernel.
 
 Location in code: `src/MetricsSessionRegistry.hpp` (`sweep_loop()`, `set_sweep_interval_seconds()`, constructor, `get_session()`, `archive_and_remove_locked()`, `list_sessions()`); tagged `TODO: See TD-446`.
 

@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.12.0
+// @adai-version: 0.13.0
 // @adai-reviewed: 2026-10-25
 
 #include "TrainingMetricsService.hpp"
@@ -803,6 +803,16 @@ std::vector<float> TrainingMetricsService::get_epoch_losses() const {
 std::vector<float> TrainingMetricsService::get_epoch_validation_losses() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return current_snapshot_.epoch_validation_losses;
+}
+
+void TrainingMetricsService::retire() {
+    flush_to_disk();
+    std::lock_guard<std::mutex> lock(mutex_);
+    flush_gradient_variance_locked();
+    pending_gradient_variance_.clear();
+    db_ = nullptr;
+    config_.enable_persistence = false;
+    config_.enable_prometheus_format = false;
 }
 
 void TrainingMetricsService::flush_to_disk() {

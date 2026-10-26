@@ -144,3 +144,16 @@ cutoff. Files that aren't archived are left alone. The sweep thread runs it at m
 `MetricsServiceConfig`, so `PUT /admin/config` changes it with `update_metrics_config()`. Archiving a session now renames its rotated
 JSONL backups (`<file>.1` … `.N`) with it. Tests: `RetentionDeletesOldSessionsAndArchivedFiles`,
 `EvictionArchivesRotatedMetricsBackups`.
+
+## Addendum (October 25, 2026): sweep interval, archiving outside the lock (TD-446)
+
+- **Sweep thread.** It's started by every constructor. An interval ≤ 0 makes it idle (it waits until the interval changes), and any
+  change wakes it to start a fresh wait with the new value.
+- **Archiving.** A leaving session is detached under the exclusive lock (`detach_locked()`, key marked in `archiving_keys_`) and
+  archived afterwards without the lock (`archive_detached()`): `TrainingMetricsService::retire()`, `archive_session()`, file renames.
+  Creating or starting that key waits on `archive_cv_` until it's done. `create_or_get_session()`/`start_session_or_conflict()` loop
+  once when they had to archive the key's own previous session.
+- **`get_session()`.** A miss logs at debug. `list_sessions()` queries the DB after releasing the shared lock.
+
+Tests: `DisabledSweepIntervalDoesNotSpin`, `EnablingSweepLaterStartsSweeping`, `ShorterSweepIntervalAppliesImmediately`,
+`EvictedServiceStopsWriting`, `ConcurrentKeyReuseWithArchivingOutsideTheLock`; TSan-clean.
