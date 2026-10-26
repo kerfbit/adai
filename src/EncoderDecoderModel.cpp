@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.23.1
+// @adai-version: 0.24.0
 // @adai-reviewed: 2026-10-26
 
 #include "EncoderDecoderModel.hpp"
@@ -20,18 +20,24 @@ using adai::Logger;
 
 namespace {
 
+// TD-347: generation stops at max_seq_length. The generated sequence (BOS included) is the
+// decoder's input, and positions past max_seq_length have no positional encoding: the model never
+// trained on them. requested <= 0 means "the stored length", still capped.
+int capped_generation_length(int requested, int stored, int max_seq_length) {
+    const int length = requested > 0 ? requested : stored;
+    return max_seq_length > 0 ? std::min(length, max_seq_length) : length;
+}
+
 // TD-359: applies one call's max_length to the generator, whose stored config is otherwise what
 // TextGenerator reads, and puts the stored value back when the call returns. max_length <= 0 keeps
-// the stored value.
+// the stored value. Either way the length is capped at max_seq_length (TD-347).
 class ScopedMaxLength {
    public:
-    ScopedMaxLength(TextGenerator& generator, int max_length)
+    ScopedMaxLength(TextGenerator& generator, int max_length, int max_seq_length)
         : generator_(generator), previous_(generator.get_config().max_length) {
-        if (max_length > 0) {
-            auto config = generator_.get_config();
-            config.max_length = max_length;
-            generator_.set_config(config);
-        }
+        auto config = generator_.get_config();
+        config.max_length = capped_generation_length(max_length, previous_, max_seq_length);
+        generator_.set_config(config);
     }
     ~ScopedMaxLength() {
         auto config = generator_.get_config();
@@ -290,7 +296,7 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
     std::lock_guard<std::mutex> lock(model_mutex_);
     // TD-359: this call's max_length (it used to be ignored: generate_response("hello world", 5)
     // produced 9 tokens with the generator at 64).
-    const ScopedMaxLength scoped_max_length(*generator, max_length);
+    const ScopedMaxLength scoped_max_length(*generator, max_length, max_seq_length);
 
     // Encode input (no special tokens for encoder input)
     // TODO: See TD-365 in TECHNICAL_DEBT.md - never truncated to max_seq_length
@@ -484,7 +490,8 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
 
     {
         TextGenerator::GenerationConfig synced_config = generator->get_config();
-        synced_config.max_length = max_length;
+        synced_config.max_length =
+            capped_generation_length(max_length, synced_config.max_length, max_seq_length);  // TD-347
         synced_config.temperature = temperature;
         synced_config.top_k = top_k;
         synced_config.top_p = top_p;
@@ -1298,7 +1305,7 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
     std::lock_guard<std::mutex> lock(model_mutex_);
 
     // TD-359: this call's max_length, as generate_response() (it used to be ignored).
-    const ScopedMaxLength scoped_max_length(*generator, max_length);
+    const ScopedMaxLength scoped_max_length(*generator, max_length, max_seq_length);
 
     // TODO: See TD-365 in TECHNICAL_DEBT.md - never truncated to max_seq_length
     std::vector<int> input_tokens = tokenizer->encode(input_text, false);
@@ -1417,7 +1424,8 @@ std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
     // last happened to hold.
     {
         TextGenerator::GenerationConfig synced_config = generator->get_config();
-        synced_config.max_length = max_length;
+        synced_config.max_length =
+            capped_generation_length(max_length, synced_config.max_length, max_seq_length);  // TD-347
         synced_config.temperature = temperature;
         synced_config.top_k = top_k;
         synced_config.top_p = top_p;

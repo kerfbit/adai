@@ -309,3 +309,8 @@ beam width only when beam search ran, so a later `generate_response()` isn't swi
 `generate_response()` and `gpu_generate_response()` apply their `max_length` for the call (`ScopedMaxLength`), restoring the
 generator's stored value afterwards; `<= 0` keeps it. Tests: `GenerateResponseHonoursMaxLength`,
 `EncoderDecoderGPUTest.GpuGenerateResponseHonoursMaxLength` (oneAPI CPU device).
+
+## Addendum (October 26, 2026): generation capped at `max_seq_length` (TD-347)
+
+All four generation entry points cap the generated length (BOS included) at `max_seq_length` (`capped_generation_length()`). Test:
+`GenerationNeverExceedsMaxSeqLength`.

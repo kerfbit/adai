@@ -224,3 +224,8 @@ them to every block, as `forward_with_encoder()` does. Each block applies them o
 
 Returns `[1, slots]`: the newest token's row of each block's `last_hippocampal_attention()`, averaged over the blocks whose hippocampal
 path ran. That makes one memory update per decode step, not one per injected layer.
+
+## Addendum (October 26, 2026): cached positional rows (TD-347)
+
+`forward_with_cache()` adds positional rows from `PositionalEncoding`'s table, with none at or past `max_seq_length`, matching the full
+forward and the GPU cached path. Test: `CachedMatchesFullPastMaxSeqLength`.

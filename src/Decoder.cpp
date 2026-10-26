@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
-// @adai-version: 0.18.0
-// @adai-reviewed: 2026-10-21
+// @adai-version: 0.18.1
+// @adai-reviewed: 2026-10-26
 
 #include "Decoder.hpp"
 #include "gpu/GPUParamSync.hpp"
@@ -225,30 +225,19 @@ Matrix LLMDecoder::forward_with_cache(const std::vector<int>& token_ids, Decoder
     Matrix embeddings = token_embedding->forward(token_ids);
     cached_embeddings = embeddings;
 
-    // TODO: See TD-347 in TECHNICAL_DEBT.md - encodes positions >= max_seq_length, unlike PositionalEncoding::forward() (cached vs full diverge)
-    // TODO: See TD-478 in TECHNICAL_DEBT.md - inline copy of PositionalEncoding's formula (identical today; three copies to keep in sync)
-    // 2. Add positional encoding (offset by current_position)
-    // We need to generate positional encoding starting from current_position
-    Matrix pos_encoded(num_new_tokens, d_model);
-
+    // 2. Add positional encoding for absolute positions current_position + pos, from the same table
+    // PositionalEncoding::forward() uses. TD-347: past max_seq_length no row is added, like the full
+    // forward; this used to recompute the formula inline for any position, so cached and full
+    // decoding diverged past max_seq_length (13.6 L1 on the last token at max_seq_length = 4). It
+    // also removes one of TD-478's three copies of the formula.
+    const Matrix& pe_table = positional_encoding->get_encoding();
+    Matrix pos_encoded = embeddings;
     for (int pos = 0; pos < num_new_tokens; ++pos) {
-        int absolute_pos = current_position + pos;
-        for (int i = 0; i < d_model; ++i) {
-            if (i % 2 == 0) {
-                // Even dimensions: sin(pos / 10000^(2i/d_model))
-                float angle =
-                    static_cast<float>(absolute_pos) /
-                    std::pow(10000.0f, (2.0f * static_cast<float>(static_cast<float>(i) / 2)) /
-                                           static_cast<float>(d_model));
-                pos_encoded(pos, i) = embeddings(pos, i) + std::sin(angle);
-            } else {
-                // Odd dimensions: cos(pos / 10000^(2i/d_model))
-                float angle =
-                    static_cast<float>(absolute_pos) /
-                    std::pow(10000.0f, static_cast<float>(i - 1) / static_cast<float>(d_model));
-                pos_encoded(pos, i) = embeddings(pos, i) + std::cos(angle);
-            }
-        }
+        const int absolute_pos = current_position + pos;
+        if (absolute_pos >= pe_table.rows)
+            continue;
+        for (int i = 0; i < d_model; ++i)
+            pos_encoded(pos, i) += pe_table(absolute_pos, i);
     }
     cached_pos_encoded = pos_encoded;
 

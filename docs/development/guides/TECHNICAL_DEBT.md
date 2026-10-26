@@ -1267,6 +1267,7 @@ The metrics pipeline run is complete.
 - TD-261 (done in code: explicit strategies ignore `num_beams`, the default is 1, and the GUI and RLHF pass the beam width only for
   beam search).
 - TD-359 (done in code: `generate_response()`/`gpu_generate_response()` apply their `max_length`; this unblocks TD-380's sample size).
+- TD-347 (done in code: the cached forward's positional rows match the full forward, and generation stops at `max_seq_length`).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -8472,7 +8473,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Transformer / Decoder | October 11, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 26, 2026 | Transformer / Decoder | October 11, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-346 and confirmed by running the real class. Within `max_seq_length` the KV-cached
@@ -8486,8 +8487,22 @@ trained on.
 
 Action Items:
 
-- [ ] Cap decoder input + generated length at `max_seq_length` in generation (truncate the oldest context or stop), and make the cached paths refuse or clamp positions ≥ `max_seq_length` consistently with `PositionalEncoding`.
-- [ ] Test: generation never exceeds `max_seq_length`; cached and full forwards agree at the boundary.
+- [x] Cap decoder input + generated length at `max_seq_length` in generation (truncate the oldest context or stop), and make the cached paths refuse or clamp positions ≥ `max_seq_length` consistently with `PositionalEncoding`.
+- [x] Test: generation never exceeds `max_seq_length`; cached and full forwards agree at the boundary.
+
+**Fix (October 26, 2026).**
+- **Cached forward.** The CPU `forward_with_cache()` takes its positional rows from `PositionalEncoding`'s table and adds none at or past
+  `max_seq_length`, like the full forward; the GPU cached path already did so (TD-547). This also removes one of TD-478's inline copies
+  of the formula.
+- **Generation cap.** Every generation entry point (`generate_response()`, `gpu_generate_response()`, and both
+  `*_with_strategy()`) caps the length at `max_seq_length` through `capped_generation_length()`, so the decoder never sees
+  positions the model has no encoding for. Generation stops there.
+
+Tests:
+- `CachedMatchesFullPastMaxSeqLength` (`inference_optimization_test.cpp`): 6 tokens at `max_seq_length = 4`, cached vs full within
+  1e-3 at every step. The old code diverged by 4.0 and 7.7 L1 at positions 4 and 5.
+- `GenerationNeverExceedsMaxSeqLength` (`encoderdecoder_test.cpp`): `max_length = 100` at `max_seq_length = 8` stays within 8
+  tokens for plain, greedy, sampling and beam generation. The old code produced 92–99.
 
 Location in code: `src/Decoder.cpp` (`forward_with_cache()`, `gpu_decode_step()` positional encoding); tagged `TODO: See TD-347`.
 
@@ -13235,7 +13250,7 @@ Action Items:
 
 - [ ] Throw `invalid_argument` when `input.cols != d_model`.
 - [ ] Log the over-length warning once (via `Logger`).
-- [ ] Add `encoding_at(absolute_pos, out_row)` (or `forward(input, start_pos)`) and use it in both decoder paths (with TD-347's max-length policy).
+- [x] Add `encoding_at(absolute_pos, out_row)` (or `forward(input, start_pos)`) and use it in both decoder paths (with TD-347's max-length policy). (Both decoder paths now read `PositionalEncoding::get_encoding()`'s table: the GPU cached path since TD-547, the CPU cached path since TD-347, October 26, 2026. No inline copy of the formula remains in the decoder.)
 
 Location in code: `src/PositionalEncoding.cpp` (`forward()`); `src/Decoder.cpp` (inline copies); tagged `TODO: See TD-478`.
 

@@ -540,6 +540,32 @@ TEST_F(InferenceOptimizationIntegrationTest, DecoderWithCacheBasic) {
 // bug once actually checked (see TD-059, LoRA's merge_with_base()), except this time the
 // investigation clears it instead. See EncoderDecoderModel.cpp's now-updated TD-050 comment: the
 // greedy-decoding workaround this finding made unnecessary has been removed.
+// TD-347: past max_seq_length the cached forward used to add positional rows the full forward adds
+// none of (the last of 6 tokens at max_seq_length = 4 differed by 13.6 L1). Both now use the same
+// table, so they agree at and past the boundary.
+TEST_F(InferenceOptimizationIntegrationTest, CachedMatchesFullPastMaxSeqLength) {
+    const int vocab_size = 50, d_model = 16, num_layers = 2, num_heads = 2, d_ff = 32;
+    const int max_seq_length = 4;
+    LLMDecoder decoder(vocab_size, d_model, num_layers, num_heads, d_ff, max_seq_length);
+    Matrix encoder_output(3, d_model);
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < d_model; ++j)
+            encoder_output(i, j) = std::sin(static_cast<float>(i * d_model + j) * 0.05f);
+
+    const std::vector<int> tokens = {3, 7, 11, 13, 17, 19};
+    DecoderKVCache kv_cache(num_layers);
+    for (size_t t = 0; t < tokens.size(); ++t) {
+        const Matrix cached = decoder.forward_with_cache({tokens[t]}, kv_cache, &encoder_output, true);
+        std::vector<int> prefix(tokens.begin(), tokens.begin() + static_cast<long>(t + 1));
+        const Matrix full = decoder.forward_with_encoder(prefix, encoder_output);
+        float l1 = 0.0f;
+        for (int j = 0; j < d_model; ++j)
+            l1 += std::fabs(cached(0, j) - full(full.rows - 1, j));
+        EXPECT_LT(l1, 1e-3f) << "step " << t << " (position " << t << ", max_seq_length "
+                             << max_seq_length << ")";
+    }
+}
+
 TEST_F(InferenceOptimizationIntegrationTest, IncrementalCacheMatchesFullRecomputePerStep) {
     int vocab_size = 200;
     int d_model = 128;

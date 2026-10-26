@@ -492,6 +492,11 @@ TEST(EncoderDecoderModelTest, GenerateWithStrategySyncsGeneratorConfig) {
     EXPECT_FLOAT_EQ(cfg.top_p, 0.6f);
 }
 
+// Tokens in a generated answer; an untrained model can stop at once, and encode("") throws.
+static size_t answer_tokens(BPETokenizer* tok, const std::string& text) {
+    return text.empty() ? 0 : tok->encode(text, false).size();
+}
+
 // TD-359: generate_response() applies its max_length for the call and keeps the generator's stored
 // value. It used to ignore the argument: generate_response("hello world", 5) gave 9 tokens with the
 // generator at 64.
@@ -507,12 +512,29 @@ TEST(EncoderDecoderModelTest, GenerateResponseHonoursMaxLength) {
     size_t longest = 0;
     for (const char* input : {"hello world", "the quick brown fox", "a b c"}) {
         const std::string shorter = model.generate_response(input, 5);
-        EXPECT_LE(model.get_tokenizer()->encode(shorter, false).size(), 5u) << input;
+        EXPECT_LE(answer_tokens(model.get_tokenizer(), shorter), 5u) << input;
         const std::string longer = model.generate_response(input, 40);
-        longest = std::max(longest, model.get_tokenizer()->encode(longer, false).size());
+        longest = std::max(longest, answer_tokens(model.get_tokenizer(), longer));
     }
     EXPECT_GT(longest, 5u) << "the model should reach past 5 tokens when allowed (test sanity)";
     EXPECT_EQ(model.get_generator()->get_config().max_length, 64) << "stored value restored";
+}
+
+// TD-347: generation stops at max_seq_length whatever max_length asks for (positions past it have no
+// positional encoding; the model never trained on them).
+TEST(EncoderDecoderModelTest, GenerationNeverExceedsMaxSeqLength) {
+    EncoderDecoderModel model(100, 32, 1, 1, 2, 64, /*max_seq_length=*/8);
+    build_test_vocab(model.get_tokenizer(), 100);
+    model.set_training(false);
+    auto* tok = model.get_tokenizer();
+    for (const char* input : {"hello world", "the quick brown fox", "a b c"}) {
+        EXPECT_LE(answer_tokens(tok, model.generate_response(input, 100)), 8u) << input;
+        for (const char* strategy : {"greedy", "sampling", "beam"}) {
+            const std::string out =
+                model.generate_response_with_strategy(input, 100, strategy, 1.0f, 50, 0.9f, 2);
+            EXPECT_LE(answer_tokens(tok, out), 8u) << input << " / " << strategy;
+        }
+    }
 }
 
 // TD-261: an explicit strategy ignores num_beams. `num_beams > 1` used to send every strategy to
@@ -2288,9 +2310,9 @@ TEST(EncoderDecoderGPUTest, GpuGenerateResponseHonoursMaxLength) {
     size_t longest = 0;
     for (const char* input : {"hello world", "the quick brown fox", "a b c"}) {
         const std::string shorter = model.gpu_generate_response(input, 5);
-        EXPECT_LE(model.get_tokenizer()->encode(shorter, false).size(), 5u) << input;
+        EXPECT_LE(answer_tokens(model.get_tokenizer(), shorter), 5u) << input;
         const std::string longer = model.gpu_generate_response(input, 40);
-        longest = std::max(longest, model.get_tokenizer()->encode(longer, false).size());
+        longest = std::max(longest, answer_tokens(model.get_tokenizer(), longer));
     }
     EXPECT_GT(longest, 5u) << "test sanity";
     EXPECT_EQ(model.get_generator()->get_config().max_length, 64);
