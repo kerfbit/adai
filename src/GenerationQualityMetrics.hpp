@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 2.0.0
 // @adai-reviewed: 2026-10-25
 
 
@@ -12,15 +12,16 @@
 /**
  * @brief BLEU/ROUGE generation quality scores for a batch of reference/hypothesis pairs.
  *
- * All fields default to -1.0 (not computed).
+ * Scores are on a 0-100 scale (TD-380; 0-1 before October 25, 2026). All fields default to -1.0
+ * (not computed).
  */
 struct GenerationQualityScore {
-    float bleu1 = -1.0f;   ///< Corpus BLEU-1  (unigram modified precision)
-    float bleu2 = -1.0f;   ///< Corpus BLEU-2  (bigram  modified precision)
-    float bleu4 = -1.0f;   ///< Corpus BLEU-4  (1- to 4-grams, standard metric)
-    float rouge1 = -1.0f;  ///< Macro-averaged ROUGE-1 F1  (unigram overlap)
-    float rouge2 = -1.0f;  ///< Macro-averaged ROUGE-2 F1  (bigram  overlap)
-    float rougeL = -1.0f;  ///< Macro-averaged ROUGE-L F1  (LCS-based)
+    float bleu1 = -1.0f;   ///< Corpus BLEU-1  (sacreBLEU, 0-100)
+    float bleu2 = -1.0f;   ///< Corpus BLEU-2  (sacreBLEU, 0-100)
+    float bleu4 = -1.0f;   ///< Corpus BLEU-4  (sacreBLEU's default, the standard metric, 0-100)
+    float rouge1 = -1.0f;  ///< Macro-averaged ROUGE-1 F1 (rouge-score, 0-100)
+    float rouge2 = -1.0f;  ///< Macro-averaged ROUGE-2 F1 (rouge-score, 0-100)
+    float rougeL = -1.0f;  ///< Macro-averaged ROUGE-L F1 (LCS-based, rouge-score, 0-100)
 };
 
 /**
@@ -28,15 +29,12 @@ struct GenerationQualityScore {
  *
  * No external dependencies.  All methods are static.
  *
- * BLEU:  evaluate() reports unsmoothed corpus BLEU-N (Papineni et al. 2002): n-gram matches and
- *        counts are summed over every pair, then BP · exp(mean log p_n) over orders 1..N. Any order
- *        with no matches makes the score 0, as in the original definition; a corpus of several pairs
- *        rarely hits that. Brevity penalty is applied at corpus level.
- *        sentence_bleu() is the explicitly smoothed single-pair score (see its comment).
- *        TD-378: add-1 smoothing used to be applied to every order, unigrams included, so an unrelated
- *        5-word answer scored BLEU-4 0.23 and an exactly correct 3-word answer 0.0067.
- *
- * ROUGE: Macro-averaged per-sentence F1 across all reference/hypothesis pairs.
+ * TD-380: the scores match the standard tools, so they can be compared with published numbers:
+ * BLEU:  sacreBLEU's defaults: 13a tokenization (punctuation split into tokens, case kept), corpus
+ *        BLEU-N with "exp" smoothing, 0-100. sentence_bleu() is sacreBLEU's sentence_bleu() (adds
+ *        effective order). TD-378 replaced the old add-1-on-every-order smoothing.
+ * ROUGE: rouge-score's defaults (lowercase, [a-z0-9] tokens, no stemming): per-pair F1, averaged
+ *        over the pairs, 0-100.
  *        ROUGE-L uses a rolling 2-row DP LCS to bound memory use.
  */
 class GenerationQualityEvaluator {
@@ -53,28 +51,19 @@ class GenerationQualityEvaluator {
                                            const std::vector<std::string>& hypotheses);
 
     /**
-     * @brief Smoothed sentence-level BLEU-N for one reference/hypothesis pair (TD-378).
-     *
-     * Unsmoothed BLEU of a single short sentence is almost always 0, so this uses the two standard
-     * sentence-level adjustments sacreBLEU applies (smooth_method="floor", effective_order=True):
-     *  - Chen & Cherry (2014) method 1: an order with no matches counts as 0.1 matches;
-     *  - effective order: orders the hypothesis is too short to have are left out, so an exactly
-     *    correct 3-word answer scores 1.0.
-     * Unrelated answers score near 0 (0.025 for 5 unrelated words against 6). Returns 0 for an empty
-     * hypothesis.
+     * @brief sacreBLEU's sentence BLEU for one pair, 0-100 (TD-380): 13a tokens, "exp" smoothing and
+     *        effective order (orders longer than the hypothesis are left out, so an exactly correct
+     *        short answer scores 100). Returns 0 when no unigram matches.
      */
     static float sentence_bleu(const std::string& reference, const std::string& hypothesis,
                                int max_n = 4);
 
-    /**
-     * @brief Tokenize a string into lowercase word tokens.
-     *
-     * Splits on whitespace then strips leading/trailing punctuation from each
-     * token and lowercases it.  Empty tokens after stripping are discarded.
-     */
-    // TODO: See TD-380 in TECHNICAL_DEBT.md - differs from sacreBLEU/rouge-score tokenization; scores aren't
-    // comparable with published numbers
-    static std::vector<std::string> tokenize(const std::string& text);
+    /// TD-380: sacreBLEU's 13a tokenizer (mteval-v13a): ASCII punctuation becomes separate tokens,
+    /// '.'/',' only when not between digits, '-' only after a digit; case is kept.
+    static std::vector<std::string> tokenize_13a(const std::string& text);
+
+    /// TD-380: rouge-score's default tokenizer: lowercase, tokens are runs of [a-z0-9].
+    static std::vector<std::string> tokenize_rouge(const std::string& text);
 
    private:
     using TokenList = std::vector<std::string>;
@@ -93,10 +82,9 @@ class GenerationQualityEvaluator {
     };
     static BleuStats bleu_stats(const std::vector<TokenList>& refs,
                                 const std::vector<TokenList>& hyps, int max_n);
-    static float brevity_penalty(int ref_len, int hyp_len);
 
-    static float compute_corpus_bleu(const std::vector<TokenList>& refs,
-                                     const std::vector<TokenList>& hyps, int max_n);
+    static float compute_bleu(const std::vector<TokenList>& refs,
+                              const std::vector<TokenList>& hyps, int max_n, bool effective_order);
 
     static float compute_corpus_rouge_n(const std::vector<TokenList>& refs,
                                         const std::vector<TokenList>& hyps, int n);

@@ -1243,7 +1243,7 @@ The run is complete.
 - TD-440 (done in code: per-session DB row cap with thinning, 90-day session retention, size-based JSONL rotation, and read routes for
   gradient variance and generation quality).
 - TD-378 (done in code: per-epoch BLEU is unsmoothed corpus BLEU, and the per-sample backfill uses a smoothed sentence BLEU with
-  effective order).
+  effective order; the smoothing was later replaced by TD-380's sacreBLEU defaults).
 - TD-379 (done in code: BLEU-1/BLEU-2 travel from the trainer to the DB row).
 - TD-511 (done in code: SQLite busy timeout, parent directory, checked PRAGMAs and migrations, batched transactional writes in both
   backends, `schema_version` dropped).
@@ -1258,6 +1258,10 @@ The run is complete.
 - TD-528 (done in code: `stop()` works before `listen()`, short shared endpoint list, `0-default` doesn't take a live-session slot).
 - TD-530 (done in code: the dead push path and `GlobalMetricsService` removed, full and valid JSONL records, history sampling
   documented).
+- TD-380 (done in code except the sample size, which waits on TD-359: BLEU/ROUGE follow sacreBLEU/rouge-score on 0–100; the
+  dashboards and lesson are updated).
+
+The metrics pipeline run is complete.
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -9378,6 +9382,10 @@ The old code fails 5 of the 6 new corpus tests: unrelated BLEU-4 0.188, scramble
 Per-epoch BLEU-4 values from before this fix aren't comparable with later ones. The old numbers were inflated for poor outputs and
 deflated for short correct ones.
 
+**Superseded (October 25, 2026, TD-380).** The scores now follow sacreBLEU's defaults (13a tokens, `exp` smoothing) on 0–100. Corpus
+BLEU is no longer unsmoothed, and `sentence_bleu()` uses `exp` instead of floor smoothing. The fix against the add-1 distortion
+stands.
+
 Location in code: `src/GenerationQualityMetrics.cpp` (`compute_corpus_bleu()`), `src/GenerationQualityMetrics.hpp` (class comment); tagged `TODO: See TD-378`.
 
 Files to Modify:
@@ -9429,7 +9437,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Metrics / GenerationQuality | October 12, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 25, 2026 | Metrics / GenerationQuality | October 12, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `GenerationQualityMetrics`, by inspection:
@@ -9443,9 +9451,31 @@ Found while tracing `GenerationQualityMetrics`, by inspection:
 
 Action Items:
 
-- [ ] Document the tokenization and scale in the header, metrics API and dashboards (or report 0–100).
-- [ ] Add a note to the lesson that the training metric isn't standard corpus BLEU.
-- [ ] Raise the default sample size (or report a confidence interval) once TD-359 makes generation length bounded.
+- [x] Document the tokenization and scale in the header, metrics API and dashboards (or report 0–100).
+- [x] Add a note to the lesson that the training metric isn't standard corpus BLEU.
+- [ ] Raise the default sample size (or report a confidence interval) once TD-359 makes generation length bounded. (Still waiting
+  on TD-359.)
+
+**Owner decision (October 25, 2026).** Standard tokenizers and the 0–100 scale.
+
+**Fix (October 25, 2026).**
+- **BLEU.** `GenerationQualityEvaluator` follows sacreBLEU's defaults: the 13a tokenizer (`tokenize_13a()`: punctuation as tokens,
+  `.`/`,` kept between digits, `-` split after a digit, entities unescaped, case kept), and sacreBLEU's `compute_bleu()`. That means
+  `exp` smoothing, 0 when no unigram matches, and an order with no hypothesis n-grams giving about 0 at corpus level.
+  `sentence_bleu()` is sacreBLEU's `sentence_bleu()` (adds effective order). This replaces TD-378's unsmoothed corpus and
+  floor-smoothed sentence scores.
+- **ROUGE.** rouge-score's defaults (`tokenize_rouge()`: lowercase, `[a-z0-9]` runs, no stemming); the F1 math was already the same.
+- **Scale and consumers.** Every score is on 0–100. The per-sample backfill stores `sentence_bleu() / 100` in `SampleMeta::quality`,
+  which stays [0, 1]. The Tizen dashboard colors at 30/10 (was 0.3/0.1) and shows 2 decimals, the Android ops dashboard shows 2
+  decimals, and the lesson notes the change.
+
+Tests (`generation_quality_test.cpp`, rewritten): tokenizer outputs and every score are checked against sacreBLEU 2.6.0 and
+rouge-score, installed in a scratch directory to produce the values. All 16 tests match within 0.001, including:
+- punctuation, case and number handling;
+- `exp`-smoothed zero-match orders;
+- the corpus/sentence effective-order difference.
+
+Stored generation-quality values before this date are on 0–1 with the old tokenization.
 
 Location in code: `src/GenerationQualityMetrics.hpp` (`tokenize()`), `src/ChatbotTrainer.hpp` (`generation_quality_sample_size`); tagged `TODO: See TD-380`.
 

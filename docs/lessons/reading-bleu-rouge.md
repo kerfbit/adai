@@ -8,6 +8,18 @@
 
 BLEU and ROUGE are n-gram overlap metrics. They measure how much of the reference text appears in the generated output, and vice versa. Neither metric tells you whether a generation is fluent, factual, or useful — they tell you whether the generated text contains the same sequences of words as the reference. Understanding what those numbers actually represent prevents you from drawing conclusions the metrics do not support.
 
+### ADAI's training metrics (TD-380)
+
+Since October 25, 2026, the per-epoch BLEU/ROUGE that training reports are the standard scores on the 0–100 scale used below:
+- BLEU is sacreBLEU's default: 13a tokenization, case kept, `exp` smoothing.
+- ROUGE is rouge-score's default: lowercase `[a-z0-9]` tokens, no stemming, F-measure.
+
+So the ranges in this lesson apply, and the numbers can be compared with published sacreBLEU/rouge-score results on the same data.
+Two cautions:
+- The epoch score comes from a small sample of validation pairs (`generation_quality_sample_size`, default 10), so it moves a lot
+  from epoch to epoch. Read the trend, not single values.
+- Values recorded before that date were on a 0–1 scale with a different tokenizer and smoothing, so they aren't comparable.
+
 ---
 
 ## BLEU

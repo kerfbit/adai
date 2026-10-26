@@ -168,3 +168,14 @@ Tokenization (TD-380) is unchanged, so the scores still aren't comparable with p
 `bleu1`/`bleu2` now reach the metrics DB. `IMetricsReporter::update_generation_quality_metrics()` takes them as two trailing arguments
 (default -1), and the push client, API and `TrainingMetricsService` carry them into the `generation_quality` row. Test:
 `PushedBleu1AndBleu2AreStored`.
+
+## Addendum (October 25, 2026): sacreBLEU/rouge-score compatibility, 0–100 (TD-380)
+
+- **Tokenization.** BLEU uses `tokenize_13a()` (sacreBLEU's 13a tokenizer, case kept) and ROUGE uses `tokenize_rouge()`
+  (rouge-score's: lowercase `[a-z0-9]` runs). The old shared `tokenize()` is gone.
+- **BLEU.** `compute_bleu()` is sacreBLEU's `compute_bleu()` with its defaults: `exp` smoothing, 0 when no unigram matches,
+  effective order only for `sentence_bleu()`. This replaces the TD-378 smoothing described above.
+- **Scale.** Every score is on 0–100. `ChatbotTrainer`'s backfill divides by 100 for `SampleMeta::quality` ([0, 1]).
+- **Tests.** `generation_quality_test.cpp` pins tokenizer outputs and scores produced by sacreBLEU 2.6.0 and rouge-score.
+
+The 10-pair default sample size is unchanged until TD-359 bounds generation length.

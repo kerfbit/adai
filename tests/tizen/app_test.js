@@ -165,15 +165,18 @@ test('applyRangeColor: null/NaN clears all color classes and sets none', () => {
     assert.ok(!el.classList.contains('val-error'));
 });
 
-test('applyGenQualColor: higher BLEU/ROUGE is better (>=0.3 good, >=0.1 warn, else error)', () => {
+// TD-380: BLEU/ROUGE are on 0-100 (sacreBLEU/rouge-score), so the bands are 30 and 10.
+test('applyGenQualColor: higher BLEU/ROUGE is better (>=30 good, >=10 warn, else error)', () => {
     const { applyGenQualColor } = extractFunctions(APP_JS, ['applyGenQualColor']);
     const el = createFakeElement();
-    applyGenQualColor(el, 0.35);
+    applyGenQualColor(el, 35);
     assert.ok(el.classList.contains('val-good'));
-    applyGenQualColor(el, 0.15);
+    applyGenQualColor(el, 15);
     assert.ok(el.classList.contains('val-warn'));
-    applyGenQualColor(el, 0.05);
+    applyGenQualColor(el, 5);
     assert.ok(el.classList.contains('val-error'));
+    applyGenQualColor(el, 0.35);
+    assert.ok(el.classList.contains('val-error'), 'a 0-1 value is now a very low score');
 });
 
 test('applyLRColor: the healthy learning-rate band is [1e-5, 1e-3]', () => {

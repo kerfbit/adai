@@ -405,6 +405,10 @@ Returns an empty `abnormal_samples` array when no anomalies have been detected.
 
 BLEU-4 and ROUGE scores for the session. All values are `-1.0` by default; opt in via `config.conf`.
 
+Scores are on a 0–100 scale and match sacreBLEU (13a tokens, `exp` smoothing) and rouge-score (lowercase `[a-z0-9]` tokens, no
+stemming) on the same text (TD-380). Before October 25, 2026 they were on 0–1 with a different tokenizer. Each epoch's value
+comes from `generation_quality_sample_size` (default 10) validation pairs, so it is noisy.
+
 **Enable in `config.conf`:**
 
 ```ini

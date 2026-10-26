@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 2.0.0
 // @adai-reviewed: 2026-10-25
 
 #include "GenerationQualityMetrics.hpp"
@@ -9,31 +9,100 @@
 #include <cmath>
 #include <sstream>
 
-// ─── tokenize ────────────────────────────────────────────────────────────────
+// ─── tokenizers (TD-380) ──────────────────────────────────────────────────────
 
-std::vector<std::string> GenerationQualityEvaluator::tokenize(const std::string& text) {
+namespace {
+
+void replace_all(std::string& s, const std::string& from, const std::string& to) {
+    for (std::size_t pos = 0; (pos = s.find(from, pos)) != std::string::npos; pos += to.size())
+        s.replace(pos, from.size(), to);
+}
+
+// The first rule of mteval-v13a: these ASCII punctuation characters become separate tokens. (Period,
+// comma, hyphen and apostrophe aren't among them; the rules below handle the first three.)
+bool is_13a_punct(unsigned char c) {
+    return (c >= '{' && c <= '~') || (c >= '[' && c <= '`') || (c >= ' ' && c <= '&') ||
+           (c >= '(' && c <= '+') || (c >= ':' && c <= '@') || c == '/';
+}
+
+bool is_digit(char c) {
+    return c >= '0' && c <= '9';
+}
+
+std::vector<std::string> split_whitespace(const std::string& s) {
     std::vector<std::string> tokens;
-    std::istringstream iss(text);
-    std::string word;
-    while (iss >> word) {
-        // Lowercase
-        std::transform(word.begin(), word.end(), word.begin(),
-                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        // Strip leading punctuation
-        size_t start = 0;
-        while (start < word.size() && std::ispunct(static_cast<unsigned char>(word[start]))) {
-            ++start;
-        }
-        // Strip trailing punctuation
-        size_t end = word.size();
-        while (end > start && std::ispunct(static_cast<unsigned char>(word[end - 1]))) {
-            --end;
-        }
-        if (start < end) {
-            tokens.push_back(word.substr(start, end - start));
+    std::istringstream iss(s);
+    std::string t;
+    while (iss >> t)
+        tokens.push_back(t);
+    return tokens;
+}
+
+}  // namespace
+
+std::vector<std::string> GenerationQualityEvaluator::tokenize_13a(const std::string& text) {
+    std::string line = text;
+    replace_all(line, "<skipped>", "");
+    replace_all(line, "-\n", "");
+    replace_all(line, "\n", " ");
+    if (line.find('&') != std::string::npos) {
+        replace_all(line, "&quot;", "\"");
+        replace_all(line, "&amp;", "&");
+        replace_all(line, "&lt;", "<");
+        replace_all(line, "&gt;", ">");
+    }
+
+    // s/([\{-\~\[-\` -\&\(-\+\:-\@\/])/ $1 /g
+    std::string a;
+    for (unsigned char c : line) {
+        if (is_13a_punct(c)) {
+            a += ' ';
+            a += static_cast<char>(c);
+            a += ' ';
+        } else {
+            a += static_cast<char>(c);
         }
     }
-    return tokens;
+    // The next three rules, each a left-to-right, non-overlapping replacement like re.sub:
+    // s/([^0-9])([\.,])/$1 $2 /g, s/([\.,])([^0-9])/ $1 $2/g, s/([0-9])(-)/$1 $2 /g
+    auto apply = [](const std::string& in, auto first_ok, auto second_ok, const char* pre,
+                    const char* mid, const char* post) {
+        std::string out;
+        std::size_t i = 0;
+        while (i < in.size()) {
+            if (i + 1 < in.size() && first_ok(in[i]) && second_ok(in[i + 1])) {
+                out += pre;
+                out += in[i];
+                out += mid;
+                out += in[i + 1];
+                out += post;
+                i += 2;
+            } else {
+                out += in[i++];
+            }
+        }
+        return out;
+    };
+    const auto not_digit = [](char c) { return !is_digit(c); };
+    const auto dot_comma = [](char c) { return c == '.' || c == ','; };
+    std::string b = apply(a, not_digit, dot_comma, "", " ", " ");
+    std::string c = apply(b, dot_comma, not_digit, " ", " ", "");
+    std::string d = apply(c, [](char ch) { return is_digit(ch); }, [](char ch) { return ch == '-'; },
+                          "", " ", " ");
+    return split_whitespace(d);
+}
+
+std::vector<std::string> GenerationQualityEvaluator::tokenize_rouge(const std::string& text) {
+    // rouge-score's default tokenizer: lowercase, every run of characters other than [a-z0-9]
+    // (non-ASCII letters included) becomes a separator, no stemming.
+    std::string s;
+    s.reserve(text.size());
+    for (unsigned char c : text) {
+        if (c >= 'A' && c <= 'Z')
+            c = static_cast<unsigned char>(c - 'A' + 'a');
+        s += ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) ? static_cast<char>(c) : ' ';
+    }
+    return split_whitespace(s);
 }
 
 // ─── evaluate ────────────────────────────────────────────────────────────────
@@ -44,21 +113,22 @@ GenerationQualityScore GenerationQualityEvaluator::evaluate(
         return {};
     }
 
-    std::vector<TokenList> ref_toks, hyp_toks;
-    ref_toks.reserve(references.size());
-    hyp_toks.reserve(hypotheses.size());
+    // TD-380: BLEU on sacreBLEU's 13a tokens, ROUGE on rouge-score's tokens, both on 0-100.
+    std::vector<TokenList> bleu_refs, bleu_hyps, rouge_refs, rouge_hyps;
     for (size_t i = 0; i < references.size(); ++i) {
-        ref_toks.push_back(tokenize(references[i]));
-        hyp_toks.push_back(tokenize(hypotheses[i]));
+        bleu_refs.push_back(tokenize_13a(references[i]));
+        bleu_hyps.push_back(tokenize_13a(hypotheses[i]));
+        rouge_refs.push_back(tokenize_rouge(references[i]));
+        rouge_hyps.push_back(tokenize_rouge(hypotheses[i]));
     }
 
     GenerationQualityScore score;
-    score.bleu1 = compute_corpus_bleu(ref_toks, hyp_toks, 1);
-    score.bleu2 = compute_corpus_bleu(ref_toks, hyp_toks, 2);
-    score.bleu4 = compute_corpus_bleu(ref_toks, hyp_toks, 4);
-    score.rouge1 = compute_corpus_rouge_n(ref_toks, hyp_toks, 1);
-    score.rouge2 = compute_corpus_rouge_n(ref_toks, hyp_toks, 2);
-    score.rougeL = compute_corpus_rouge_l(ref_toks, hyp_toks);
+    score.bleu1 = compute_bleu(bleu_refs, bleu_hyps, 1, /*effective_order=*/false);
+    score.bleu2 = compute_bleu(bleu_refs, bleu_hyps, 2, false);
+    score.bleu4 = compute_bleu(bleu_refs, bleu_hyps, 4, false);
+    score.rouge1 = 100.0f * compute_corpus_rouge_n(rouge_refs, rouge_hyps, 1);
+    score.rouge2 = 100.0f * compute_corpus_rouge_n(rouge_refs, rouge_hyps, 2);
+    score.rougeL = 100.0f * compute_corpus_rouge_l(rouge_refs, rouge_hyps);
     return score;
 }
 
@@ -99,49 +169,48 @@ GenerationQualityEvaluator::BleuStats GenerationQualityEvaluator::bleu_stats(
     return st;
 }
 
-float GenerationQualityEvaluator::brevity_penalty(int ref_len, int hyp_len) {
-    if (hyp_len <= 0)
-        return 0.0f;
-    if (hyp_len >= ref_len)
-        return 1.0f;
-    return std::exp(1.0f - static_cast<float>(ref_len) / static_cast<float>(hyp_len));
-}
-
-// TD-378: unsmoothed (Papineni et al.). The old add-1 on every order, unigrams included, plus a fixed
-// log of -20 for an order the hypotheses were too short to have, scored an unrelated 5-word answer
-// BLEU-4 0.23 and an exactly correct 3-word one 0.0067.
-float GenerationQualityEvaluator::compute_corpus_bleu(const std::vector<TokenList>& refs,
-                                                      const std::vector<TokenList>& hyps,
-                                                      int max_n) {
+// TD-380: sacreBLEU's BLEU (its compute_bleu() with the defaults): "exp" smoothing, an order with no
+// matches counting 1 / (2^k · n-grams) for its k-th such order; 0 when no unigram matches; with
+// effective_order (sentence BLEU) the orders the hypotheses are too short for are left out, otherwise
+// such an order makes the score 0 (sacreBLEU's log(0) = -9999999999). Scale 0-100.
+// (TD-378 had made the corpus score unsmoothed and the sentence score "floor"-smoothed; sacreBLEU's
+// defaults replace both, so the numbers match published sacreBLEU scores.)
+float GenerationQualityEvaluator::compute_bleu(const std::vector<TokenList>& refs,
+                                               const std::vector<TokenList>& hyps, int max_n,
+                                               bool effective_order) {
     const BleuStats st = bleu_stats(refs, hyps, max_n);
-    double log_sum = 0.0;
+    std::vector<double> precisions(max_n, 0.0);
+    int eff_order = max_n;
+    double smooth_mteval = 1.0;
     for (int n = 0; n < max_n; ++n) {
-        if (st.matches[n] == 0)
-            return 0.0f;  // includes an order with no hypothesis n-grams at all
-        log_sum += std::log(static_cast<double>(st.matches[n]) / st.totals[n]);
+        if (st.totals[n] == 0)
+            break;
+        if (effective_order)
+            eff_order = n + 1;
+        if (st.matches[n] == 0) {
+            smooth_mteval *= 2.0;
+            precisions[n] = 100.0 / (smooth_mteval * st.totals[n]);
+        } else {
+            precisions[n] = 100.0 * st.matches[n] / st.totals[n];
+        }
     }
-    return brevity_penalty(st.ref_len, st.hyp_len) *
-           static_cast<float>(std::exp(log_sum / max_n));
+    if (st.matches[0] == 0)
+        return 0.0f;
+
+    double bp = 1.0;
+    if (st.hyp_len < st.ref_len)
+        bp = st.hyp_len > 0 ? std::exp(1.0 - static_cast<double>(st.ref_len) / st.hyp_len) : 0.0;
+    double log_sum = 0.0;
+    for (int n = 0; n < eff_order; ++n)
+        log_sum += precisions[n] == 0.0 ? -9999999999.0 : std::log(precisions[n]);
+    return static_cast<float>(bp * std::exp(log_sum / eff_order));
 }
 
 float GenerationQualityEvaluator::sentence_bleu(const std::string& reference,
                                                 const std::string& hypothesis, int max_n) {
-    const std::vector<TokenList> refs = {tokenize(reference)};
-    const std::vector<TokenList> hyps = {tokenize(hypothesis)};
-    const BleuStats st = bleu_stats(refs, hyps, max_n);
-
-    constexpr double kFloor = 0.1;  // Chen & Cherry 2014 method 1 (sacreBLEU "floor")
-    int effective_order = 0;
-    double log_sum = 0.0;
-    for (int n = 0; n < max_n && st.totals[n] > 0; ++n) {
-        ++effective_order;
-        const double matches = st.matches[n] > 0 ? st.matches[n] : kFloor;
-        log_sum += std::log(matches / st.totals[n]);
-    }
-    if (effective_order == 0)
-        return 0.0f;
-    return brevity_penalty(st.ref_len, st.hyp_len) *
-           static_cast<float>(std::exp(log_sum / effective_order));
+    const std::vector<TokenList> refs = {tokenize_13a(reference)};
+    const std::vector<TokenList> hyps = {tokenize_13a(hypothesis)};
+    return compute_bleu(refs, hyps, max_n, /*effective_order=*/true);
 }
 
 // ─── compute_corpus_rouge_n ───────────────────────────────────────────────────

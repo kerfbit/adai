@@ -7,8 +7,8 @@
    ============================================================ */
 
 // @adai-status: beta        (TD-049 partially resolved — pure formatting/color/gauge-math helpers now tested; the bulk of this file's dashboard-update, polling/retry, and settings/session-picker UI logic remains untested)
-// @adai-version: 0.8.0
-// @adai-reviewed: 2026-09-12
+// @adai-version: 0.8.1
+// @adai-reviewed: 2026-10-25
 
 (function(window) {
     'use strict';
@@ -289,12 +289,12 @@
        applyRangeColor: green < warnThresh, amber < errThresh, else red
        applyLRColor:    green 1e-5..1e-3, amber nearby, else red
     ------------------------------------------------------- */
-    /* Higher = better (BLEU/ROUGE): green >= 0.3, amber >= 0.1, else red */
+    /* Higher = better (BLEU/ROUGE, 0-100 since TD-380): green >= 30, amber >= 10, else red */
     function applyGenQualColor(el, val) {
         el.classList.remove('val-good', 'val-warn', 'val-error');
         if (val == null || isNaN(val) || val < 0) return;
-        if      (val >= 0.3) el.classList.add('val-good');
-        else if (val >= 0.1) el.classList.add('val-warn');
+        if      (val >= 30) el.classList.add('val-good');
+        else if (val >= 10) el.classList.add('val-warn');
         else                 el.classList.add('val-error');
     }
 
@@ -530,10 +530,11 @@
         }
 
         if (genEnabled) {
-            setText(UI.bleu4Value,  fmt(bleu4,  4));
-            setText(UI.rouge1Value, fmt(rouge1, 4));
-            setText(UI.rouge2Value, fmt(rouge2, 4));
-            setText(UI.rougeLValue, fmt(rougeL, 4));
+            /* 0-100 scale (TD-380): two decimals */
+            setText(UI.bleu4Value,  fmt(bleu4,  2));
+            setText(UI.rouge1Value, fmt(rouge1, 2));
+            setText(UI.rouge2Value, fmt(rouge2, 2));
+            setText(UI.rougeLValue, fmt(rougeL, 2));
             /* Higher BLEU/ROUGE is better: green > 0.3, amber > 0.1, red below 0.1 */
             applyGenQualColor(UI.bleu4Value,  bleu4);
             applyGenQualColor(UI.rouge1Value, rouge1);

@@ -1,8 +1,8 @@
 package com.adai.ops.ui.metrics
 
 // @adai-status: beta        (TD-048 — SessionDetailScreenConfirmActionTest.kt now covers the admin-action confirm-dialog flow; real-device run still unverified, see below)
-// @adai-version: 0.3.1
-// @adai-reviewed: 2026-09-23
+// @adai-version: 0.3.2
+// @adai-reviewed: 2026-10-25
 
 
 import androidx.compose.foundation.layout.Arrangement
@@ -301,10 +301,11 @@ private fun GenerationQualitySection(current: CurrentMetricsDto) {
         return
     }
     Text("Generation Quality", style = MaterialTheme.typography.titleLarge)
-    MetricRow("BLEU-4", String.format(Locale.US, "%.4f", current.current_bleu4))
-    MetricRow("ROUGE-1", String.format(Locale.US, "%.4f", current.current_rouge1))
-    MetricRow("ROUGE-2", String.format(Locale.US, "%.4f", current.current_rouge2))
-    MetricRow("ROUGE-L", String.format(Locale.US, "%.4f", current.current_rougeL))
+    // TD-380: sacreBLEU/rouge-score values on 0-100 (0-1 before October 25, 2026).
+    MetricRow("BLEU-4", String.format(Locale.US, "%.2f", current.current_bleu4))
+    MetricRow("ROUGE-1", String.format(Locale.US, "%.2f", current.current_rouge1))
+    MetricRow("ROUGE-2", String.format(Locale.US, "%.2f", current.current_rouge2))
+    MetricRow("ROUGE-L", String.format(Locale.US, "%.2f", current.current_rougeL))
 }
 
 /** TD-178/TD-210: the LeJEPA-shaped replacement for MetricsSection — a world-model session has
