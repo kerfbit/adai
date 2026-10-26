@@ -4,12 +4,18 @@
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#include <unistd.h>
 #include "MetricsSessionRegistry.hpp"
+
+/** A temp directory unique to this process, so concurrent ctest runs don't share (and delete) it. */
+static std::filesystem::path test_temp_root(const std::string& name) {
+    return std::filesystem::temp_directory_path() / (name + "_" + std::to_string(::getpid()));
+}
 
 TEST(MetricsSessionRegistry, DerivesPerSessionPathsFromBaseConfig) {
     namespace fs = std::filesystem;
 
-    const fs::path temp_root = fs::temp_directory_path() / "adai_metrics_registry_test_paths";
+    const fs::path temp_root = test_temp_root("adai_metrics_registry_test_paths");
     fs::remove_all(temp_root);
 
     MetricsServiceConfig config;
@@ -117,7 +123,7 @@ TEST(MetricsSessionRegistry, ReplacesCompletedSessionOnRecreate) {
 
 TEST(MetricsSessionRegistry, ReplaceArchivesPreviousSessionInDatabase) {
     namespace fs = std::filesystem;
-    const fs::path temp_root = fs::temp_directory_path() / "adai_metrics_registry_test_replace_db";
+    const fs::path temp_root = test_temp_root("adai_metrics_registry_test_replace_db");
     fs::remove_all(temp_root);
     fs::create_directories(temp_root);
     const std::string db_path = (temp_root / "metrics.db").string();
@@ -165,7 +171,7 @@ TEST(MetricsSessionRegistry, ListSessionsExcludesArchivedRowsFromDbSupplement) {
     // burying genuinely live sessions in a picker full of dead entries.
     namespace fs = std::filesystem;
     const fs::path temp_root =
-        fs::temp_directory_path() / "adai_metrics_registry_test_list_excludes_archived";
+        test_temp_root("adai_metrics_registry_test_list_excludes_archived");
     fs::remove_all(temp_root);
     fs::create_directories(temp_root);
     const std::string db_path = (temp_root / "metrics.db").string();
@@ -215,7 +221,7 @@ TEST(MetricsSessionRegistry, ListSessionsExcludesArchivedRowsFromDbSupplement) {
 
 TEST(MetricsSessionRegistry, SweepEvictionArchivesSessionInDatabase) {
     namespace fs = std::filesystem;
-    const fs::path temp_root = fs::temp_directory_path() / "adai_metrics_registry_test_evict_db";
+    const fs::path temp_root = test_temp_root("adai_metrics_registry_test_evict_db");
     fs::remove_all(temp_root);
     fs::create_directories(temp_root);
     const std::string db_path = (temp_root / "metrics.db").string();
@@ -245,7 +251,7 @@ TEST(MetricsSessionRegistry, SweepEvictionArchivesSessionInDatabase) {
 
 TEST(MetricsSessionRegistry, EvictionRenamesPerSessionFilesOnDisk) {
     namespace fs = std::filesystem;
-    const fs::path temp_root = fs::temp_directory_path() / "adai_metrics_registry_test_evict_files";
+    const fs::path temp_root = test_temp_root("adai_metrics_registry_test_evict_files");
     fs::remove_all(temp_root);
     fs::create_directories(temp_root);
 
@@ -628,7 +634,7 @@ TEST(MetricsSessionRegistry, NeverStartedPlaceholderIsNotEvicted) {
 // recent sessions, recent archived files and files that aren't archived.
 TEST(MetricsSessionRegistry, RetentionDeletesOldSessionsAndArchivedFiles) {
     namespace fs = std::filesystem;
-    const fs::path temp_root = fs::temp_directory_path() / "adai_metrics_registry_test_retention";
+    const fs::path temp_root = test_temp_root("adai_metrics_registry_test_retention");
     fs::remove_all(temp_root);
     fs::create_directories(temp_root);
 
@@ -688,7 +694,7 @@ TEST(MetricsSessionRegistry, RetentionDeletesOldSessionsAndArchivedFiles) {
 // TD-440: a session's rotated JSONL backups are renamed with it when it is archived.
 TEST(MetricsSessionRegistry, EvictionArchivesRotatedMetricsBackups) {
     namespace fs = std::filesystem;
-    const fs::path temp_root = fs::temp_directory_path() / "adai_metrics_registry_test_backups";
+    const fs::path temp_root = test_temp_root("adai_metrics_registry_test_backups");
     fs::remove_all(temp_root);
     fs::create_directories(temp_root);
 

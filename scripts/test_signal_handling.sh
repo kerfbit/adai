@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (TD-044 resolved — real test suite added, see tests/scripts/test_signal_handling_test.sh)
-# @adai-version: 0.7.2
-# @adai-reviewed: 2026-09-11
+# @adai-version: 0.7.3
+# @adai-reviewed: 2026-10-25
 
 # Test script for signal handling verification
 
@@ -49,12 +49,14 @@ export VOCAB_PATH="${REPO_ROOT}/vocab.txt"
 export PORT=18080  # Use a non-standard port to avoid conflicts
 export LOG_LEVEL=INFO  # Enable INFO level logging for testing
 
-# Clean up any previous instances
-pkill -9 chatbot_api_server 2>/dev/null
-sleep 1
+# A log per run (SIGNAL_TEST_LOG overrides it): a fixed /tmp/signal_test.log was shared with, and
+# deleted by, concurrent runs. This script also used to `pkill -9 chatbot_api_server` first, which
+# killed every chatbot_api_server on the host, other tests' and a deployed one's included; it now
+# only ever signals the server it starts.
+LOG_FILE="${SIGNAL_TEST_LOG:-$(mktemp "${TMPDIR:-/tmp}/signal_test.XXXXXX.log")}"
 
 echo "Starting chatbot_api_server on port $PORT..."
-"${BUILD_DIR}/bin/chatbot_api_server" > /tmp/signal_test.log 2>&1 &
+"${BUILD_DIR}/bin/chatbot_api_server" > "$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 
 echo "Server started with PID: $SERVER_PID"
@@ -69,13 +71,13 @@ if ! kill -0 $SERVER_PID 2>/dev/null; then
     echo "ERROR: Server failed to start or crashed during initialization"
     echo ""
     echo "Server output:"
-    cat /tmp/signal_test.log
+    cat "$LOG_FILE"
     exit 1
 fi
 
 echo "Server is running. Checking initialization output..."
 echo ""
-head -30 /tmp/signal_test.log
+head -30 "$LOG_FILE"
 echo ""
 
 # Send SIGTERM signal
@@ -94,7 +96,7 @@ echo ""
 echo "==================================================================="
 echo "Graceful Shutdown Output:"
 echo "==================================================================="
-tail -20 /tmp/signal_test.log
+tail -20 "$LOG_FILE"
 echo ""
 
 # Verify process is no longer running
@@ -115,7 +117,7 @@ fi
 
 echo ""
 echo "==================================================================="
-echo "Full server log saved to: /tmp/signal_test.log"
+echo "Full server log saved to: $LOG_FILE"
 echo "==================================================================="
 
 if [ "$GRACEFUL_SHUTDOWN" = true ]; then

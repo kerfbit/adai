@@ -27,7 +27,8 @@ if [[ -x "${REPO_ROOT}/build/debug/src/chatbot_gui" ]]; then
     RUN_OUT="$(cd "${REPO_ROOT}/scripts" && DISPLAY=:99999 timeout 3 bash "$(basename "$TARGET")" 2>&1)"
     RUN_CODE=$?
     assert_not_contains "No such file or directory" "TD-044 regression: exec must find the real binary, not the old bare-build/src/ path"
-    pgrep -f "chatbot_gui" >/dev/null 2>&1 && pkill -9 -f "chatbot_gui_binary" 2>/dev/null
+    # No pkill: timeout already signals its whole process group, and `pkill -f chatbot_gui_binary`
+    # also killed other tests' `nm`/`file` runs on that binary.
 else
     t "(skipped: build/debug/src/chatbot_gui not built in this checkout)"
 fi

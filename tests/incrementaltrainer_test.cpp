@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#include <unistd.h>
 #include "BPETokenizer.hpp"
 #include "EncoderDecoderModel.hpp"
 #include "HippocampalMemory.hpp"
@@ -40,8 +41,10 @@ class IncrementalTrainerTest : public ::testing::Test {
         // device, TD-394.)
         Matrix::gpu_try_initialize();
 
-        // Create temporary test directory
-        test_dir = fs::temp_directory_path() / "incremental_trainer_test";
+        // Create temporary test directory, per process: another checkout's ctest run uses the
+        // same binary, and a shared directory lets its TearDown() delete this run's files.
+        test_dir = fs::temp_directory_path() /
+                   ("incremental_trainer_test_" + std::to_string(::getpid()));
         fs::create_directories(test_dir);
 
         session_dir = test_dir / "training_sessions";

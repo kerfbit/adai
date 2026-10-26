@@ -30,12 +30,15 @@ if [[ -x "${REPO_ROOT}/build/debug/src/chatbot_gui" ]]; then
     # prompt would otherwise block waiting on stdin; answering "y" lets
     # execution continue far enough to print the resolved executable path
     # this test actually checks.
-    raw="$(cd "${REPO_ROOT}/scripts" && echo y | DISPLAY=:99999 bash "$(basename "$TARGET")" 2>&1)"
+    # The GUI doesn't exit on the bogus display, so bound it: timeout signals its whole process
+    # group, the exec'd chatbot_gui_binary included. (A `pkill -f chatbot_gui_binary` afterward
+    # also killed other tests' `nm`/`file` runs on that binary, and the GUI otherwise ran until
+    # someone else's pkill ended it.)
+    raw="$(cd "${REPO_ROOT}/scripts" && echo y | DISPLAY=:99999 timeout 10 bash "$(basename "$TARGET")" 2>&1)"
     RUN_CODE=$?
     RUN_OUT="$raw"
     assert_not_contains "chatbot_gui not found" "must find the real build/debug/src/chatbot_gui, not fail with the old bare-build/ or CWD-dependent bug"
     assert_contains "${REPO_ROOT}/build/debug/src/chatbot_gui" "should report the real, resolved executable path"
-    pkill -9 -f "chatbot_gui_binary" 2>/dev/null
 else
     t "(skipped: build/debug/src/chatbot_gui not built in this checkout)"
 fi
