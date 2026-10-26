@@ -239,7 +239,9 @@ TEST_F(LeJEPAEncoderTest, EncodeShapeMatchesLLMEncoderForSameInput) {
     llm_encoder.load_tokenizer_vocab(vocab_file);
 
     Matrix lejepa_output = lejepa_encoder.encode("hello world test");
-    Matrix llm_output = llm_encoder.encode("hello world test");
+    // LeJEPAEncoder::encode() wraps the tokens in BOS/EOS; LLMEncoder::encode() does so only when
+    // asked since TD-364 (its default now matches EncoderDecoderModel's encoder input).
+    Matrix llm_output = llm_encoder.encode("hello world test", /*add_special_tokens=*/true);
 
     // Same tokenizer/text -> same token count -> same shape, even though the two encoders'
     // weights (and therefore values) differ.

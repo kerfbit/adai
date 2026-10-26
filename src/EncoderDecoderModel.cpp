@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.24.1
+// @adai-version: 0.25.0
 // @adai-reviewed: 2026-10-26
 
 #include "EncoderDecoderModel.hpp"
@@ -307,8 +307,9 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
     const ScopedMaxLength scoped_max_length(*generator, max_length, max_seq_length);
 
     // Encode input (no special tokens for encoder input)
-    // TODO: See TD-365 in TECHNICAL_DEBT.md - never truncated to max_seq_length
-    std::vector<int> input_tokens = tokenizer->encode(input_text, false);
+    // TD-365: over-long input keeps its last max_seq_length tokens, as in training (it was never
+    // truncated, so positions past max_seq_length had no positional encoding).
+    std::vector<int> input_tokens = encoder->keep_last_positions(tokenizer->encode(input_text, false));
     int input_len = static_cast<int>(input_tokens.size());
     Matrix encoder_mask(input_len, input_len);
     for (int i = 0; i < input_len; ++i) {
@@ -510,8 +511,9 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     }
 
     // Encode input (no special tokens for encoder input)
-    // TODO: See TD-365 in TECHNICAL_DEBT.md - never truncated to max_seq_length
-    std::vector<int> input_tokens = tokenizer->encode(input_text, false);
+    // TD-365: over-long input keeps its last max_seq_length tokens, as in training (it was never
+    // truncated, so positions past max_seq_length had no positional encoding).
+    std::vector<int> input_tokens = encoder->keep_last_positions(tokenizer->encode(input_text, false));
     int input_len = static_cast<int>(input_tokens.size());
     Matrix encoder_mask(input_len, input_len);
     for (int i = 0; i < input_len; ++i) {
@@ -1075,12 +1077,15 @@ std::vector<int> EncoderDecoderModel::make_decoder_input(
 }
 
 // Forward pass
-Matrix EncoderDecoderModel::forward(const std::vector<int>& input_tokens,
+Matrix EncoderDecoderModel::forward(const std::vector<int>& raw_input_tokens,
                                     const std::vector<int>& target_tokens) {
     // TD-156: see generate_response()'s identical lock above / model_mutex_'s doc comment in
     // EncoderDecoderModel.hpp. This is the entry point ChatbotAPI's plain and
     // speculative-decoding paths call directly, on the HTTP handler thread.
     std::lock_guard<std::mutex> lock(model_mutex_);
+    // TD-365: the tail-keeping rule for encoder input (ChatbotTrainer already truncates its inputs
+    // this way; ChatbotAPI's CPU callbacks pass whole conversations).
+    const std::vector<int> input_tokens = encoder->keep_last_positions(raw_input_tokens);
 
     // Cache inputs
     cached_input_tokens = input_tokens;
@@ -1216,8 +1221,9 @@ float EncoderDecoderModel::gpu_forward(const std::vector<int>& input_tokens,
     }
     gpu_targets_dev_->copy_from_host(target_tokens.data(), static_cast<size_t>(tgt_len));
 
-    // Encoder
-    gpu_encoder_out_ = std::make_unique<adai::gpu::GPUMatrix>(encoder->gpu_encode(input_tokens));
+    // Encoder (TD-365: the same tail-keeping rule as the CPU forward)
+    gpu_encoder_out_ = std::make_unique<adai::gpu::GPUMatrix>(
+        encoder->gpu_encode(encoder->keep_last_positions(input_tokens)));
 
     // Decoder (caches its block inputs/outputs for backward internally). TD-358: teacher forcing
     // feeds `[BOS] + target[:-1]` (exactly what forward() feeds) while `target_tokens` stay the
@@ -1315,8 +1321,9 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
     // TD-359: this call's max_length, as generate_response() (it used to be ignored).
     const ScopedMaxLength scoped_max_length(*generator, max_length, max_seq_length);
 
-    // TODO: See TD-365 in TECHNICAL_DEBT.md - never truncated to max_seq_length
-    std::vector<int> input_tokens = tokenizer->encode(input_text, false);
+    // TD-365: over-long input keeps its last max_seq_length tokens, as in training (it was never
+    // truncated, so positions past max_seq_length had no positional encoding).
+    std::vector<int> input_tokens = encoder->keep_last_positions(tokenizer->encode(input_text, false));
 
     // Encode once on GPU; read-only input to every decode step below.
     adai::gpu::GPUMatrix gpu_encoder_out = encoder->gpu_encode(input_tokens);
@@ -1370,7 +1377,7 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
     // every-step gpu_decode() call. Mirrors generate_response()'s own CPU cached model_fn:
     // tracks processed_length, slices only the new tokens each call, threads one
     // GPUDecoderKVCache across the whole generation.
-    // TODO: See TD-387 in TECHNICAL_DEBT.md - input longer than max_seq_length throws from the cross-attention cache
+    // TD-387: fits the cross-attention cache now that encoder input is truncated (TD-365).
     adai::gpu::GPUDecoderKVCache gpu_kv_cache(decoder_layers, max_seq_length, d_model);
     size_t processed_length = 0;
     auto model_fn = [this, &committer, &gpu_encoder_out, &gpu_kv_cache, &processed_length,
@@ -1452,8 +1459,9 @@ std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
         normalized_strategy = "nucleus";
     }
 
-    // TODO: See TD-365 in TECHNICAL_DEBT.md - never truncated to max_seq_length
-    std::vector<int> input_tokens = tokenizer->encode(input_text, false);
+    // TD-365: over-long input keeps its last max_seq_length tokens, as in training (it was never
+    // truncated, so positions past max_seq_length had no positional encoding).
+    std::vector<int> input_tokens = encoder->keep_last_positions(tokenizer->encode(input_text, false));
 
     // Encode once on GPU; read-only input to every decode step below.
     adai::gpu::GPUMatrix gpu_encoder_out = encoder->gpu_encode(input_tokens);
@@ -1495,7 +1503,7 @@ std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
         return last_logits;
     };
 
-    // TODO: See TD-387 in TECHNICAL_DEBT.md - input longer than max_seq_length throws from the cross-attention cache
+    // TD-387: fits the cross-attention cache now that encoder input is truncated (TD-365).
     adai::gpu::GPUDecoderKVCache gpu_kv_cache(decoder_layers, max_seq_length, d_model);
     size_t processed_length = 0;
     auto model_fn = [this, &committer, &gpu_encoder_out, &gpu_kv_cache, &processed_length,

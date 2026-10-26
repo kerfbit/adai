@@ -2,8 +2,8 @@
 #define MATRIX_GPU_HPP
 
 // @adai-status: beta        (TD-061 resolved — see MatrixGPU.cu's tag; this header just declares/wraps its kernels; TD-050 GPUKVCache added)
-// @adai-version: 0.13.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 0.13.1
+// @adai-reviewed: 2026-10-26
 
 
 #include <stdexcept>
@@ -546,8 +546,8 @@ class GPUDecoderKVCache {
             // Cross-attention K/V come from the encoder output, whose length is bounded by the
             // same MAX_SEQ_LENGTH config value this codebase already applies to both encoder and
             // decoder sequences — reusing it here as a safe, simple capacity upper bound.
-            // TODO: See TD-387 in TECHNICAL_DEBT.md - encoder input isn't truncated (TD-365), so an input longer
-            // than max_seq_length makes CrossAttention's first append() throw out_of_range on GPU
+            // TD-387: the encoder input keeps at most max_seq_length tokens (TD-365), so the encoder
+            // output always fits; an over-length chat input used to throw out_of_range here.
             cross_attention_caches_.emplace_back(max_seq_length, d_model);
         }
     }

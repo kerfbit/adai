@@ -216,3 +216,13 @@ this file wins:
 `TokenEmbedding::gpu_forward()` instead of a host lookup plus upload. The GPU backward calls `TokenEmbedding::gpu_backward()` instead of
 downloading the gradient for a host backward. `gpu_upload_weights()`, `gpu_download_weights()`, `gpu_download_grads()`, `gpu_zero_grads()` and
 `gpu_collect_parameters()` now include the embedding.
+
+## Addendum (October 26, 2026): model-matching `encode()`, tail truncation (TD-364, TD-365)
+
+- **`encode()`.** `encode(text, add_special_tokens = false)` defaults to the model's encoder input. With special tokens, BOS and EOS
+  survive truncation.
+- **Truncation.** `keep_last_positions(ids)` is the one truncation rule: the last `max_seq_length` ids, as `ChatbotTrainer` truncates
+  training inputs. `EncoderDecoderModel`, `RLHFTrainer` and `IntegratedInferenceEngine` apply it before encoding.
+- **Checks.** `encode_with_mask()` and `gpu_encode()` throw `invalid_argument` past `max_seq_length`.
+
+Tests: `EncodeMatchesTheModelsEncoderInput`, `OverLongInputKeepsTheTail`, `EncodeWithMaskRejectsOverLongInput`.

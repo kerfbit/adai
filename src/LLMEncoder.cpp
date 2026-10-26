@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.4.0
+// @adai-reviewed: 2026-10-26
 
 #include <algorithm>
 #include <cassert>
@@ -18,6 +18,7 @@
 #include "MultiHeadAttention.hpp"
 #include "TokenEmbedding.hpp"
 #include "encoder.hpp"
+#include <stdexcept>
 
 // LLMEncoder Implementation
 LLMEncoder::LLMEncoder(int vocab_size, int d_model, int num_layers, int num_heads, int d_ff,
@@ -48,15 +49,30 @@ LLMEncoder::LLMEncoder(int vocab_size, int d_model, int num_layers, int num_head
     std::cout << "  Max sequence length: " << max_seq_length << '\n';
 }
 
-Matrix LLMEncoder::encode(const std::string& text) {
-    // Tokenize input text
-    // TODO: See TD-364 in TECHNICAL_DEBT.md - adds BOS/EOS unlike EncoderDecoderModel's encoder input,
-    // and the truncation below drops the EOS
-    std::vector<int> token_ids = tokenizer->encode(text, true);
+std::vector<int> LLMEncoder::keep_last_positions(std::vector<int> token_ids) const {
+    const auto limit = static_cast<std::size_t>(std::max(0, max_seq_length));
+    if (token_ids.size() > limit)
+        token_ids.erase(token_ids.begin(),
+                        token_ids.end() - static_cast<std::ptrdiff_t>(limit));
+    return token_ids;
+}
 
-    // Truncate if necessary
-    if (token_ids.size() > max_seq_length) {
-        token_ids.resize(max_seq_length);
+Matrix LLMEncoder::encode(const std::string& text, bool add_special_tokens) {
+    // TD-364: without special tokens by default, as EncoderDecoderModel tokenizes encoder input.
+    // TD-365: over-long input keeps its last max_seq_length tokens, the training rule; with special
+    // tokens, BOS and EOS stay at the ends (resize() used to cut off the EOS it had just added).
+    std::vector<int> token_ids;
+    if (add_special_tokens && max_seq_length >= 2) {
+        std::vector<int> body = tokenizer->encode(text, false);
+        const auto room = static_cast<std::size_t>(max_seq_length - 2);
+        if (body.size() > room)
+            body.erase(body.begin(), body.end() - static_cast<std::ptrdiff_t>(room));
+        token_ids.reserve(body.size() + 2);
+        token_ids.push_back(tokenizer->get_bos_token_id());
+        token_ids.insert(token_ids.end(), body.begin(), body.end());
+        token_ids.push_back(tokenizer->get_eos_token_id());
+    } else {
+        token_ids = keep_last_positions(tokenizer->encode(text, false));
     }
 
     // TODO: See TD-367 in TECHNICAL_DEBT.md - std::cout on every call (and in the constructor, save/load)
@@ -91,9 +107,22 @@ Matrix LLMEncoder::encode(const std::string& text) {
     return encoded;
 }
 
-// TODO: See TD-365 in TECHNICAL_DEBT.md - no max_seq_length check (nor in gpu_encode())
+namespace {
+// TD-365: positions past max_seq_length have no positional encoding, so refuse them (they used to
+// pass with a warning: 44 of 60 positions had no order information on a max_seq_length 16 model).
+void check_encoder_length(std::size_t n, int max_seq_length, const char* where) {
+    if (max_seq_length > 0 && n > static_cast<std::size_t>(max_seq_length)) {
+        throw std::invalid_argument(std::string(where) + ": " + std::to_string(n) +
+                                    " tokens exceed max_seq_length " +
+                                    std::to_string(max_seq_length) +
+                                    " (truncate with keep_last_positions())");
+    }
+}
+}  // namespace
+
 Matrix LLMEncoder::encode_with_mask(const std::vector<int>& token_ids,
                                     const Matrix& attention_mask) {
+    check_encoder_length(token_ids.size(), max_seq_length, "LLMEncoder::encode_with_mask");
     if (requires_grad) {
         cached_token_ids = token_ids;
     }
@@ -400,8 +429,8 @@ void LLMEncoder::gpu_zero_grads() {
     final_norm->gpu_zero_grads();
 }
 
-// TODO: See TD-365 in TECHNICAL_DEBT.md - no max_seq_length check
 adai::gpu::GPUMatrix LLMEncoder::gpu_encode(const std::vector<int>& token_ids) {
+    check_encoder_length(token_ids.size(), max_seq_length, "LLMEncoder::gpu_encode");
     const int seq = static_cast<int>(token_ids.size());
 
     if (requires_grad) {

@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-12
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-10-26
 
 /**
  * Pipeline Parallelism for Encoder-Decoder Models
@@ -276,8 +276,8 @@ class PipelineInferenceEngine {
                 encoder_outputs.reserve(request.input_texts.size());
 
                 for (const auto& text : request.input_texts) {
-                    // TODO: See TD-364 in TECHNICAL_DEBT.md - encode() adds BOS/EOS; the model trains its
-                    // encoder without special tokens, so this input is out of distribution
+                    // TD-364: encode() no longer adds BOS/EOS by default, so this is the same encoder
+                    // input the model trains on (it used to be out of distribution).
                     Matrix output = encoder_->encode(text);
                     encoder_outputs.push_back(std::move(output));
                 }

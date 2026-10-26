@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-10-26
 
 
 #include <algorithm>
@@ -94,16 +94,33 @@ class LLMEncoder {
      * Encode text to contextualized embeddings
      *
      * @param text Input text to encode
-     * @return Matrix of shape [sequence_length, d_model]
+     * @param add_special_tokens Wrap the tokens in BOS/EOS. TD-364: the default is false, matching
+     *        how EncoderDecoderModel tokenizes encoder input in training and generation (it used to
+     *        be true, so a trained chat encoder got BOS/EOS it had never seen, every real token one
+     *        position later).
+     * @return Matrix of shape [sequence_length, d_model]; over-long input keeps its last
+     *         max_seq_length tokens (TD-365), with BOS and EOS kept when they were added
      */
-    Matrix encode(const std::string& text);
+    Matrix encode(const std::string& text, bool add_special_tokens = false);
+
+    /**
+     * TD-365: the last max_seq_length ids (all of them when shorter). The one truncation policy for
+     * encoder input, the same tail-keeping rule ChatbotTrainer applies to training inputs.
+     */
+    std::vector<int> keep_last_positions(std::vector<int> token_ids) const;
+
+    int get_max_seq_length() const {
+        return max_seq_length;
+    }
 
     /**
      * Encode with attention mask for padding
      *
-     * @param token_ids Vector of token IDs
+     * @param token_ids Vector of token IDs, at most max_seq_length of them
      * @param attention_mask Attention mask matrix
      * @return Matrix of shape [sequence_length, d_model]
+     * @throws std::invalid_argument for more than max_seq_length ids (TD-365: positions past it get
+     *         no positional encoding; callers truncate with keep_last_positions())
      */
     Matrix encode_with_mask(const std::vector<int>& token_ids, const Matrix& attention_mask);
 
@@ -254,7 +271,8 @@ class LLMEncoder {
     void gpu_zero_grads();
     /**
      * GPU encode: embed + positional encode on CPU, then run all encoder blocks on GPU.
-     * @param token_ids  Input token IDs
+     * @param token_ids  Input token IDs, at most max_seq_length of them (TD-365; throws
+     *                   std::invalid_argument otherwise)
      * @return GPU matrix [seq_len, d_model]
      */
     adai::gpu::GPUMatrix gpu_encode(const std::vector<int>& token_ids);

@@ -7,6 +7,8 @@
  */
 
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -603,4 +605,80 @@ TEST_F(LLMEncoderTest, BackwardWithoutRequiresGrad) {
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+
+// ============================================================================
+// TD-364/TD-365: encoder input matches the model's, and over-long input keeps its tail
+// ============================================================================
+
+namespace {
+Matrix ones(int n) {
+    Matrix m(n, n);
+    m.fill(1.0f);
+    return m;
+}
+float max_abs_diff(const Matrix& a, const Matrix& b) {
+    float d = 0.0f;
+    for (int i = 0; i < a.rows; ++i)
+        for (int j = 0; j < a.cols; ++j)
+            d = std::max(d, std::fabs(a(i, j) - b(i, j)));
+    return d;
+}
+}  // namespace
+
+// TD-364: encode() used to add BOS/EOS, so a trained chat encoder (PipelineInferenceEngine) got input
+// it had never seen; its default now gives what EncoderDecoderModel feeds the encoder.
+TEST_F(LLMEncoderTest, EncodeMatchesTheModelsEncoderInput) {
+    create_test_vocabulary();
+    LLMEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder.load_tokenizer_vocab(vocab_file);
+    BPETokenizer tok;
+    tok.load_vocab(vocab_file);
+
+    const std::string text = "hello world the test";
+    const std::vector<int> ids = tok.encode(text, false);
+    const Matrix plain = encoder.encode(text);
+    const Matrix model_input = encoder.encode_with_mask(ids, ones(static_cast<int>(ids.size())));
+    ASSERT_EQ(plain.rows, model_input.rows);
+    EXPECT_LT(max_abs_diff(plain, model_input), 1e-5f);
+}
+
+// TD-365: over-long input keeps its last max_seq_length tokens (the training rule); with special
+// tokens BOS and EOS stay at the ends (resize() used to drop the EOS).
+TEST_F(LLMEncoderTest, OverLongInputKeepsTheTail) {
+    create_test_vocabulary();
+    const int max_seq = 8;
+    LLMEncoder encoder(VOCAB_SIZE, D_MODEL, 1, NUM_HEADS, D_FF, max_seq);
+    encoder.load_tokenizer_vocab(vocab_file);
+    BPETokenizer tok;
+    tok.load_vocab(vocab_file);
+
+    const std::string text =
+        "hello world the test is a to of and hello world the test is a to of and";
+    const std::vector<int> ids = tok.encode(text, false);
+    ASSERT_GT(ids.size(), 12u);
+
+    const std::vector<int> tail(ids.end() - max_seq, ids.end());
+    EXPECT_EQ(encoder.keep_last_positions(ids), tail);
+    const Matrix plain = encoder.encode(text);
+    ASSERT_EQ(plain.rows, max_seq);
+    EXPECT_LT(max_abs_diff(plain, encoder.encode_with_mask(tail, ones(max_seq))), 1e-5f);
+
+    std::vector<int> wrapped = {tok.get_bos_token_id()};
+    wrapped.insert(wrapped.end(), ids.end() - (max_seq - 2), ids.end());
+    wrapped.push_back(tok.get_eos_token_id());
+    const Matrix special = encoder.encode(text, /*add_special_tokens=*/true);
+    ASSERT_EQ(special.rows, max_seq);
+    EXPECT_LT(max_abs_diff(special, encoder.encode_with_mask(wrapped, ones(max_seq))), 1e-5f)
+        << "BOS + the last 6 tokens + EOS";
+}
+
+// TD-365: positions past max_seq_length have no positional encoding, so encode_with_mask() refuses
+// them (60 tokens on a max_seq_length 16 model used to run with 44 positions unencoded).
+TEST_F(LLMEncoderTest, EncodeWithMaskRejectsOverLongInput) {
+    LLMEncoder encoder(VOCAB_SIZE, D_MODEL, 1, NUM_HEADS, D_FF, /*max_seq_length=*/16);
+    std::vector<int> ids(16, 5);
+    EXPECT_NO_THROW(encoder.encode_with_mask(ids, ones(16)));
+    ids.push_back(5);
+    EXPECT_THROW(encoder.encode_with_mask(ids, ones(17)), std::invalid_argument);
 }

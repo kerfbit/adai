@@ -566,6 +566,34 @@ TEST(EncoderDecoderModelTest, BeamGenerationIsDeterministicAfterLastRowProjectio
     EXPECT_EQ(a, b);
 }
 
+// TD-365: an over-long encoder input keeps its last max_seq_length tokens, as training does: forward()
+// on the long input equals forward() on its tail, and generation accepts it. It used to run with no
+// positional encoding past max_seq_length.
+TEST(EncoderDecoderModelTest, OverLongEncoderInputKeepsTheTail) {
+    EncoderDecoderModel model(100, 32, 1, 1, 2, 64, /*max_seq_length=*/16);
+    build_test_vocab(model.get_tokenizer(), 100);
+    model.set_training(false);
+    std::vector<int> long_input;
+    for (int i = 0; i < 60; ++i)
+        long_input.push_back(4 + (i * 7) % 90);
+    const std::vector<int> tail(long_input.end() - 16, long_input.end());
+    const std::vector<int> target = {5, 6, 7};
+    const Matrix a = model.forward(long_input, target);
+    const Matrix b = model.forward(tail, target);
+    ASSERT_EQ(a.rows, b.rows);
+    float diff = 0.0f;
+    for (int i = 0; i < a.rows; ++i)
+        for (int j = 0; j < a.cols; ++j)
+            diff = std::max(diff, std::fabs(a(i, j) - b(i, j)));
+    EXPECT_LT(diff, 1e-5f);
+
+    std::string long_text;
+    for (int i = 0; i < 40; ++i)
+        long_text += "hello world ";
+    EXPECT_NO_THROW(model.generate_response(long_text, 8));
+    EXPECT_NO_THROW(model.generate_response_with_strategy(long_text, 8, "beam", 1.0f, 50, 0.9f, 2));
+}
+
 // TD-261: an explicit strategy ignores num_beams. `num_beams > 1` used to send every strategy to
 // beam search (chatbot_gui's Beam Width defaults to 5; RLHFTrainer got the header default 4), so
 // sampling rollouts were deterministic beam search: 1 distinct response in 6.
@@ -2345,6 +2373,25 @@ TEST(EncoderDecoderGPUTest, GpuGenerateResponseHonoursMaxLength) {
     }
     EXPECT_GT(longest, 5u) << "test sanity";
     EXPECT_EQ(model.get_generator()->get_config().max_length, 64);
+}
+
+// TD-387: an input longer than max_seq_length used to make the GPU cross-attention cache (sized at
+// max_seq_length) throw out_of_range on the first decode step. With TD-365 the encoder input keeps its
+// last max_seq_length tokens, so it fits.
+TEST(EncoderDecoderGPUTest, GpuGenerationAcceptsOverLongInput) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
+    EncoderDecoderModel model(100, 32, 1, 1, 2, 64, /*max_seq_length=*/16);
+    build_test_vocab(model.get_tokenizer(), 100);
+    model.set_training(false);
+    std::string long_text;
+    for (int i = 0; i < 40; ++i)
+        long_text += "hello world ";
+    EXPECT_NO_THROW(model.gpu_generate_response(long_text, 8));
+    EXPECT_NO_THROW(model.gpu_generate_response_with_strategy(long_text, 8, "greedy"));
 }
 
 TEST(EncoderDecoderGPUTest, GpuForwardRejectsEmptyTarget) {

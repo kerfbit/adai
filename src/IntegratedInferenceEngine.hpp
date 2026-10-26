@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.2
-// @adai-reviewed: 2026-09-12
+// @adai-version: 1.0.3
+// @adai-reviewed: 2026-10-26
 
 /**
  * @file IntegratedInferenceEngine.hpp
@@ -384,7 +384,10 @@ class IntegratedInferenceEngine {
                     try {
                         // TODO: See TD-417 in TECHNICAL_DEBT.md - encode() adds BOS/EOS; the model trains its encoder
                         // without special tokens (TD-364's mismatch)
-                        batch.tokenized_inputs.push_back(tokenizer_->encode(req.input_text));
+                        // TD-365: the encoder's tail-keeping truncation (encode_with_mask() refuses
+                        // more than max_seq_length tokens).
+                        batch.tokenized_inputs.push_back(
+                            encoder_->keep_last_positions(tokenizer_->encode(req.input_text)));
                         tokenizable_requests.push_back(std::move(req));
                     } catch (const std::exception&) {
                         try {

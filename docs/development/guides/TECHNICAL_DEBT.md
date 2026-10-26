@@ -1271,6 +1271,8 @@ The metrics pipeline run is complete.
 - TD-421/422 (done in code: `KVCache::append()` checks shapes and grows in place, about 210× faster at 512 steps, and layer indices
   are checked).
 - TD-424 (done in code for `EncoderDecoderModel`: beam callbacks project only the last row; the `ChatbotAPI` part goes with TD-506).
+- TD-364/365 (done in code: `encode()` matches the model's encoder input, over-long input keeps its tail everywhere, and
+  `encode_with_mask()`/`gpu_encode()` refuse over-length input). TD-387's GPU overflow goes with it.
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -8914,7 +8916,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Transformer / LLMEncoder | October 11, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 26, 2026 | Transformer / LLMEncoder | October 11, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `LLMEncoder` and verified. `encode(text)` tokenizes with the encoder's own
@@ -8931,9 +8933,19 @@ just added (32 ids cut to 8, last id no longer `EOS`).
 
 Action Items:
 
-- [ ] Give `encode()` an `add_special_tokens` parameter (default matching the model: `false`), or have `PipelineInferenceEngine` tokenize with the model's tokenizer and call `encode_with_mask()`.
-- [ ] When truncating with special tokens, keep the final `EOS`.
-- [ ] Add a test that pipeline and plain generation produce the same encoder output for the same text.
+- [x] Give `encode()` an `add_special_tokens` parameter (default matching the model: `false`), or have `PipelineInferenceEngine` tokenize with the model's tokenizer and call `encode_with_mask()`.
+- [x] When truncating with special tokens, keep the final `EOS`.
+- [x] Add a test that pipeline and plain generation produce the same encoder output for the same text.
+
+**Fix (October 26, 2026, with TD-365).** `encode(text, add_special_tokens = false)`: the default gives what `EncoderDecoderModel` feeds
+the encoder, so `PipelineInferenceEngine`'s encoder stage is in distribution. With special tokens, BOS and EOS are kept at the ends
+when the input is truncated (TD-365's tail rule). RAG (`DocumentStore`) re-embeds its documents and queries with `encode()` on every
+start and saves nothing, so it stays consistent. Without special tokens it now embeds the last `max_seq_length` tokens of a long
+document instead of the first (TD-349 still applies).
+
+Tests (`llmencoder_test.cpp`):
+- `EncodeMatchesTheModelsEncoderInput`: `encode(text)` equals `encode_with_mask(tokenize(text, false))`.
+- `OverLongInputKeepsTheTail`: covers the special-token case (BOS + last 6 + EOS at `max_seq_length = 8`).
 
 Location in code: `src/LLMEncoder.cpp` (`encode()`), `src/PipelineInferenceEngine.hpp` (encoder stage); tagged `TODO: See TD-364`.
 
@@ -8950,7 +8962,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Transformer / LLMEncoder | October 11, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 26, 2026 | Transformer / LLMEncoder | October 11, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `LLMEncoder` and verified. Only `encode(text)` truncates. `encode_with_mask()` and
@@ -8963,9 +8975,29 @@ side past `max_seq_length`) and TD-294 (the conversation token budget isn't tied
 
 Action Items:
 
-- [ ] Decide on keep-the-tail truncation or rejection, and apply it once where `EncoderDecoderModel` tokenizes encoder input (CPU and GPU, training and generation).
-- [ ] Add a `max_seq_length` check (assert or throw) in `encode_with_mask()`/`gpu_encode()`.
-- [ ] Coordinate with TD-294 so the conversation context fits the encoder.
+- [x] Decide on keep-the-tail truncation or rejection, and apply it once where `EncoderDecoderModel` tokenizes encoder input (CPU and GPU, training and generation).
+- [x] Add a `max_seq_length` check (assert or throw) in `encode_with_mask()`/`gpu_encode()`.
+- [ ] Coordinate with TD-294 so the conversation context fits the encoder. (Left with TD-294: the encoder now keeps a conversation's
+  last `max_seq_length` tokens, but the context's own token budget is still unrelated to it.)
+
+**Fix (October 26, 2026).**
+- **Policy.** Keep the tail: the rule `ChatbotTrainer` already applies to training inputs (`truncate_tokens_tail()`), so serving now
+  sees inputs shaped like training's.
+- **One helper.** `LLMEncoder::keep_last_positions()` applies it, used by:
+  - `EncoderDecoderModel`: all four generation paths, `forward()` (which `ChatbotAPI`'s CPU callbacks call with whole
+    conversations) and `gpu_forward()`;
+  - `encode()`;
+  - `RLHFTrainer::encode_to_vector()`;
+  - `IntegratedInferenceEngine`'s tokenization.
+- **Checks.** `encode_with_mask()` and `gpu_encode()` throw `invalid_argument` past `max_seq_length` instead of running with
+  unencoded positions.
+
+Tests:
+- `OverLongInputKeepsTheTail` and `EncodeWithMaskRejectsOverLongInput` (`llmencoder_test.cpp`).
+- `OverLongEncoderInputKeepsTheTail` (`encoderdecoder_test.cpp`): `forward()` on 60 tokens at `max_seq_length = 16` equals `forward()`
+  on the last 16, and plain and beam generation accept a 480-character input.
+
+The RAG, pipeline and integrated engine suites still pass.
 
 Location in code: `src/EncoderDecoderModel.cpp` (input tokenization in `generate_response()`, `generate_response_with_strategy()`, both GPU generation paths), `src/LLMEncoder.cpp` (`encode_with_mask()`, `gpu_encode()`); tagged `TODO: See TD-365`.
 
@@ -9781,7 +9813,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | GPU / GPUMatrix | October 12, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 26, 2026 (with TD-365) | GPU / GPUMatrix | October 12, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `MatrixGPU.hpp`, by inspection (definite). `gpu_generate_response()` and
@@ -9796,8 +9828,14 @@ positional-encoding gap). The self-attention cache has the same cap but isn't re
 
 Action Items:
 
-- [ ] Truncate encoder input once where the model tokenizes (TD-365), which removes the overflow; or size the cross-attention caches from the actual encoder length.
-- [ ] Test (on a GPU host): an over-length prompt generates without throwing and matches the CPU path.
+- [x] Truncate encoder input once where the model tokenizes (TD-365), which removes the overflow; or size the cross-attention caches from the actual encoder length.
+- [ ] Test (on a GPU host): an over-length prompt generates without throwing and matches the CPU path. (Run on the oneAPI CPU
+  device, not a GPU host. The CPU-match part is not checked.)
+
+**Fixed by TD-365 (October 26, 2026).** Both GPU generation paths now keep the encoder input's last `max_seq_length` tokens, so the
+encoder output fits the cross-attention cache. Test `EncoderDecoderGPUTest.GpuGenerationAcceptsOverLongInput`: a 480-character input
+on a `max_seq_length = 16` model goes through `gpu_generate_response()` and `gpu_generate_response_with_strategy()` without throwing,
+on the oneAPI CPU device (`build/sycl-cpudev`, `ADAI_SYCL_ALLOW_CPU_DEVICE=1`).
 
 **Verified October 12, 2026** ([MatrixGPU_SYCL.md](../reference/source/MatrixGPU_SYCL.md)): on the
 oneAPI CPU device, appending a 12-row encoder output to a `GPUDecoderKVCache(2, max_seq_length = 8,

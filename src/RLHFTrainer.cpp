@@ -1,6 +1,6 @@
 // @adai-status: experimental        (TD-038 — new class, first real RLHF integration; see TECHNICAL_DEBT.md; run_iteration() now checks for an empty generated response before encode() instead of after, closing a real uncaught-exception crash)
-// @adai-version: 0.1.2
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.1.3
+// @adai-reviewed: 2026-10-26
 
 #include "RLHFTrainer.hpp"
 #include <algorithm>
@@ -22,11 +22,14 @@ RLHFTrainer::RLHFTrainer(EncoderDecoderModel& model, const RLHFConfig& config)
     model_.register_parameters(optimizer_);
 }
 
-std::vector<float> RLHFTrainer::encode_to_vector(const std::vector<int>& tokens) {
+std::vector<float> RLHFTrainer::encode_to_vector(const std::vector<int>& all_tokens) {
     const int d_model = model_.get_d_model();
-    if (tokens.empty()) {
+    if (all_tokens.empty()) {
         return std::vector<float>(d_model, 0.0f);
     }
+    // TD-365: the encoder's tail-keeping truncation (encode_with_mask() refuses more than
+    // max_seq_length tokens).
+    const std::vector<int> tokens = model_.get_encoder()->keep_last_positions(all_tokens);
 
     const int n = static_cast<int>(tokens.size());
     // No masking -- matches EncoderDecoderModel::forward()'s own encoder_mask construction
