@@ -133,3 +133,17 @@ recipes and examples. The test-coverage report (TEXTGENERATOR_TEST_COVERAGE.md) 
 Tests: `BeamWidthBelowOneThrows`, `TemperatureZeroOrBelowIsGreedyForEveryStrategy` (20 seeds at T = 0 and −0.5),
 `PositiveTemperatureStillSamples`. On the old code the beam test kills the process, and the temperature test fails 114 checks across all four
 strategies.
+
+## Addendum (October 26, 2026): `min_length`, early stopping, `max_length` as new tokens (TD-516)
+
+- **`max_length`** is the number of new tokens; the BOS and prompt aren't counted. Callers that capped at a sequence length adjust:
+  `EncoderDecoderModel` caps generation at `max_seq_length − 1` new tokens.
+- **`min_length`** masks EOS and PAD until that many new tokens exist, in every strategy.
+- **`early_stopping`** (default on) ends beam search once no running beam can beat the best finished one, using the length-penalty
+  bound. The output is the same as without it.
+- **Non-finite logits** (NaN, +inf, or no finite value) throw `std::runtime_error` instead of silently picking PAD.
+- **Order:** repetition penalty, then temperature, then top-k/top-p. `top_p <= 0` is top-1.
+
+The merge note's "`early_stopping` … and `min_length` … have no effect" no longer applies.
+
+Tests: `TextGeneratorTD516Test.*` (six tests).

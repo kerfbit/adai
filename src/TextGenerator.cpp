@@ -1,11 +1,12 @@
 // @adai-status: stable
-// @adai-version: 1.0.1
+// @adai-version: 2.0.0
 // @adai-reviewed: 2026-10-26
 
 #include "TextGenerator.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <numeric>
 #include <queue>
 #include <stdexcept>
@@ -63,8 +64,12 @@ std::vector<float> TextGenerator::apply_top_k(const std::vector<float>& logits, 
 
 // Apply nucleus (top-p) sampling
 std::vector<float> TextGenerator::apply_top_p(const std::vector<float>& logits, float p) {
-    if (p >= 1.0f || p <= 0.0f) {
+    if (p >= 1.0f || logits.empty()) {
         return logits;
+    }
+    // TD-516: p <= 0 keeps only the most likely token; it used to turn filtering off.
+    if (p <= 0.0f) {
+        return apply_top_k(logits, 1);
     }
 
     // Convert to probabilities first
@@ -154,8 +159,6 @@ std::vector<float> TextGenerator::softmax(const std::vector<float>& logits) {
 }
 
 // Sample from probability distribution
-// TODO: See TD-516 in TECHNICAL_DEBT.md - NaN logits pick token 0 (PAD = stop) silently; min_length is never
-// read; early_stopping has no effect; max_length counts BOS/prompt; penalty applied after top-k/top-p.
 int TextGenerator::sample_token(const std::vector<float>& probabilities) {
     std::discrete_distribution<int> dist(probabilities.begin(), probabilities.end());
     return dist(rng);
@@ -181,26 +184,52 @@ bool TextGenerator::is_stop_token(int token_id) {
     return adai::is_stop_token(token_id, token_config);
 }
 
+std::vector<int> TextGenerator::start_tokens(const std::vector<int>& prompt_tokens) const {
+    return prompt_tokens.empty() ? std::vector<int>{config.bos_token_id} : prompt_tokens;
+}
+
+// TD-516: shared by every strategy. All-NaN logits used to pick token 0 (PAD, a stop token), so a
+// broken model (e.g. a truncated checkpoint, TD-423) returned an empty response with no error, and
+// min_length was never read.
+std::vector<float> TextGenerator::next_logits(const ModelForwardFn& model_fn,
+                                              const std::vector<int>& tokens, int new_tokens) {
+    Matrix logits = model_fn(tokens);
+    if (logits.rows < 1 || logits.cols < 1) {
+        throw std::runtime_error("TextGenerator: the model returned no logits");
+    }
+
+    // Extract logits for last position [vocab_size]
+    const std::vector<float>& last = logits.data[logits.rows - 1];
+    bool any_finite = false;
+    for (float value : last) {
+        if (std::isnan(value) || value == std::numeric_limits<float>::infinity()) {
+            throw std::runtime_error("TextGenerator: the model returned non-finite logits");
+        }
+        any_finite = any_finite || std::isfinite(value);
+    }
+    if (!any_finite) {
+        throw std::runtime_error("TextGenerator: every logit is -inf");
+    }
+
+    std::vector<float> next(last.begin(), last.end());
+    if (new_tokens < config.min_length) {
+        for (int stop : {config.eos_token_id, config.pad_token_id}) {
+            if (stop >= 0 && stop < static_cast<int>(next.size())) {
+                next[stop] = -std::numeric_limits<float>::infinity();
+            }
+        }
+    }
+    return next;
+}
+
 // Greedy decoding
 std::vector<int> TextGenerator::generate_greedy(const ModelForwardFn& model_fn,
                                                 const std::vector<int>& prompt_tokens) {
-    std::vector<int> generated = prompt_tokens;
+    std::vector<int> generated = start_tokens(prompt_tokens);
 
-    // Add <bos> if empty
-    if (generated.empty()) {
-        generated.push_back(config.bos_token_id);
-    }
-
+    // TD-516: max_length counts new tokens; it used to count the BOS/prompt too.
     for (int step = 0; step < config.max_length; ++step) {
-        // Get model predictions
-        Matrix logits = model_fn(generated);
-
-        // Extract logits for last position [vocab_size]
-        int last_pos = logits.rows - 1;
-        std::vector<float> last_logits(logits.cols);
-        for (int i = 0; i < logits.cols; ++i) {
-            last_logits[i] = logits.data[last_pos][i];
-        }
+        std::vector<float> last_logits = next_logits(model_fn, generated, step);
 
         // Apply repetition penalty if enabled
         if (config.repetition_penalty != 1.0f) {
@@ -214,10 +243,6 @@ std::vector<int> TextGenerator::generate_greedy(const ModelForwardFn& model_fn,
 
         // Check stopping criteria
         if (is_stop_token(next_token)) {
-            break;
-        }
-
-        if (static_cast<int>(generated.size()) >= config.max_length) {
             break;
         }
     }
@@ -246,11 +271,10 @@ std::vector<int> TextGenerator::generate_beam_search(const ModelForwardFn& model
 
     // Initialize beams
     std::vector<BeamHypothesis> beams(num_beams);
-    beams[0].tokens = prompt_tokens;
-    if (beams[0].tokens.empty()) {
-        beams[0].tokens.push_back(config.bos_token_id);
-    }
+    beams[0].tokens = start_tokens(prompt_tokens);
     beams[0].score = 0.0f;
+    const int start_length = static_cast<int>(beams[0].tokens.size());
+    const int final_length = start_length + std::max(config.max_length, 0);
 
     // Initialize other beams with very low scores
     for (int i = 1; i < num_beams; ++i) {
@@ -259,6 +283,11 @@ std::vector<int> TextGenerator::generate_beam_search(const ModelForwardFn& model
     }
 
     std::vector<BeamHypothesis> finished_beams;
+    auto normalized = [this](float score, int length) {
+        return config.length_penalty
+                   ? score / compute_length_penalty(length, config.length_penalty_alpha)
+                   : score;
+    };
 
     for (int step = 0; step < config.max_length; ++step) {
         std::vector<std::tuple<float, size_t, int>> candidates;  // (score, beam_idx, token_id)
@@ -269,21 +298,15 @@ std::vector<int> TextGenerator::generate_beam_search(const ModelForwardFn& model
                 continue;
             }
 
-            // Get model predictions for this beam
-            Matrix logits = model_fn(beams[beam_idx].tokens);
+            // Get model predictions for this beam (min_length masks EOS/PAD, TD-516)
+            std::vector<float> last_logits = next_logits(model_fn, beams[beam_idx].tokens, step);
 
-            // Extract last position logits
-            int last_pos = logits.rows - 1;
-            std::vector<float> last_logits(logits.cols);
-            for (int i = 0; i < logits.cols; ++i) {
-                last_logits[i] = logits.data[last_pos][i];
-            }
-
-            // Convert to log probabilities
+            // Convert to log probabilities. Clamped at 0 so a beam's score never rises, which is
+            // what makes early stopping exact (the 1e-10 floor could otherwise add a hair).
             std::vector<float> log_probs(last_logits.size());
             std::vector<float> probs = softmax(last_logits);
             for (size_t i = 0; i < probs.size(); ++i) {
-                log_probs[i] = std::log(probs[i] + 1e-10f);
+                log_probs[i] = std::min(0.0f, std::log(probs[i] + 1e-10f));
             }
 
             // Get top num_beams tokens
@@ -323,17 +346,11 @@ std::vector<int> TextGenerator::generate_beam_search(const ModelForwardFn& model
             new_beam.tokens.push_back(token_id);
             new_beam.score = score;
 
-            // Check if finished
+            // Check if finished (max_length counts new tokens, TD-516)
             if (is_stop_token(token_id) ||
-                static_cast<int>(new_beam.tokens.size()) >= config.max_length) {
+                static_cast<int>(new_beam.tokens.size()) >= final_length) {
                 new_beam.is_finished = true;
-
-                // Apply length penalty if enabled
-                if (config.length_penalty) {
-                    new_beam.score /= compute_length_penalty(
-                        static_cast<int>(new_beam.tokens.size()), config.length_penalty_alpha);
-                }
-
+                new_beam.score = normalized(new_beam.score, static_cast<int>(new_beam.tokens.size()));
                 finished_beams.push_back(new_beam);
             } else {
                 new_beams.push_back(new_beam);
@@ -342,29 +359,51 @@ std::vector<int> TextGenerator::generate_beam_search(const ModelForwardFn& model
 
         beams = new_beams;
 
-        // Early stopping if all beams finished
-        if (config.early_stopping && beams.empty()) {
+        if (beams.empty()) {
             break;
         }
 
-        if (beams.empty()) {
-            break;
+        // TD-516: early stopping. A running beam's raw score only falls (log-probabilities are
+        // <= 0), so its best possible final score is its current score divided by the largest
+        // length penalty it could still get. When the best finished beam is at least that good
+        // for every running beam, nothing can change the result. The flag used to have no effect.
+        if (config.early_stopping && !finished_beams.empty()) {
+            float best_finished = -std::numeric_limits<float>::infinity();
+            for (const auto& beam : finished_beams) {
+                best_finished = std::max(best_finished, beam.score);
+            }
+            bool any_can_win = false;
+            for (const auto& beam : beams) {
+                const int length = static_cast<int>(beam.tokens.size());
+                float bound = beam.score;
+                if (config.length_penalty) {
+                    const float largest_penalty = std::max(
+                        compute_length_penalty(length, config.length_penalty_alpha),
+                        compute_length_penalty(final_length, config.length_penalty_alpha));
+                    bound = beam.score / largest_penalty;
+                }
+                if (bound > best_finished) {
+                    any_can_win = true;
+                    break;
+                }
+            }
+            if (!any_can_win) {
+                beams.clear();  // their current-length scores can't win either
+                break;
+            }
         }
     }
 
     // Add remaining beams to finished
     for (const auto& beam : beams) {
         BeamHypothesis final_beam = beam;
-        if (config.length_penalty) {
-            final_beam.score /= compute_length_penalty(static_cast<int>(final_beam.tokens.size()),
-                                                       config.length_penalty_alpha);
-        }
+        final_beam.score = normalized(final_beam.score, static_cast<int>(final_beam.tokens.size()));
         finished_beams.push_back(final_beam);
     }
 
     // Return best beam
     if (finished_beams.empty()) {
-        return prompt_tokens.empty() ? std::vector<int>{config.bos_token_id} : prompt_tokens;
+        return start_tokens(prompt_tokens);
     }
 
     auto best = std::max_element(finished_beams.begin(), finished_beams.end(),
@@ -386,29 +425,17 @@ std::vector<int> TextGenerator::generate_sampling(const ModelForwardFn& model_fn
         return generate_greedy(model_fn, prompt_tokens);
     }
 
-    std::vector<int> generated = prompt_tokens;
-    if (generated.empty()) {
-        generated.push_back(config.bos_token_id);
-    }
+    std::vector<int> generated = start_tokens(prompt_tokens);
 
     for (int step = 0; step < config.max_length; ++step) {
-        Matrix logits = model_fn(generated);
+        std::vector<float> last_logits = next_logits(model_fn, generated, step);
 
-        // Extract last position logits
-        int last_pos = logits.rows - 1;
-        std::vector<float> last_logits(logits.cols);
-        for (int i = 0; i < logits.cols; ++i) {
-            last_logits[i] = logits.data[last_pos][i];
-        }
-
-        // Apply temperature
-        last_logits = apply_temperature(last_logits, temperature);
-
-        // Apply repetition penalty
+        // Apply repetition penalty, then temperature (they commute: the penalty keeps the sign)
         if (config.repetition_penalty != 1.0f) {
             last_logits =
                 apply_repetition_penalty(last_logits, generated, config.repetition_penalty);
         }
+        last_logits = apply_temperature(last_logits, temperature);
 
         // Convert to probabilities and sample
         std::vector<float> probs = softmax(last_logits);
@@ -416,7 +443,7 @@ std::vector<int> TextGenerator::generate_sampling(const ModelForwardFn& model_fn
 
         generated.push_back(next_token);
 
-        if (is_stop_token(next_token) || static_cast<int>(generated.size()) >= config.max_length) {
+        if (is_stop_token(next_token)) {
             break;
         }
     }
@@ -431,18 +458,16 @@ std::vector<int> TextGenerator::generate_top_k(const ModelForwardFn& model_fn,
         k = config.top_k;
     }
 
-    std::vector<int> generated = prompt_tokens;
-    if (generated.empty()) {
-        generated.push_back(config.bos_token_id);
-    }
+    std::vector<int> generated = start_tokens(prompt_tokens);
 
     for (int step = 0; step < config.max_length; ++step) {
-        Matrix logits = model_fn(generated);
+        std::vector<float> last_logits = next_logits(model_fn, generated, step);
 
-        int last_pos = logits.rows - 1;
-        std::vector<float> last_logits(logits.cols);
-        for (int i = 0; i < logits.cols; ++i) {
-            last_logits[i] = logits.data[last_pos][i];
+        // TD-516: the repetition penalty runs before filtering, so a penalized token can drop out
+        // of the top k (it used to run after, leaving penalized tokens in the candidate set).
+        if (config.repetition_penalty != 1.0f) {
+            last_logits =
+                apply_repetition_penalty(last_logits, generated, config.repetition_penalty);
         }
 
         // Apply temperature
@@ -453,19 +478,13 @@ std::vector<int> TextGenerator::generate_top_k(const ModelForwardFn& model_fn,
             last_logits = apply_top_k(last_logits, k);
         }
 
-        // Apply repetition penalty
-        if (config.repetition_penalty != 1.0f) {
-            last_logits =
-                apply_repetition_penalty(last_logits, generated, config.repetition_penalty);
-        }
-
         // TD-515: temperature <= 0 takes the argmax of the filtered logits instead of sampling.
         int next_token = config.temperature <= 0.0f ? argmax(last_logits)
                                                     : sample_token(softmax(last_logits));
 
         generated.push_back(next_token);
 
-        if (is_stop_token(next_token) || static_cast<int>(generated.size()) >= config.max_length) {
+        if (is_stop_token(next_token)) {
             break;
         }
     }
@@ -480,18 +499,15 @@ std::vector<int> TextGenerator::generate_nucleus(const ModelForwardFn& model_fn,
         p = config.top_p;
     }
 
-    std::vector<int> generated = prompt_tokens;
-    if (generated.empty()) {
-        generated.push_back(config.bos_token_id);
-    }
+    std::vector<int> generated = start_tokens(prompt_tokens);
 
     for (int step = 0; step < config.max_length; ++step) {
-        Matrix logits = model_fn(generated);
+        std::vector<float> last_logits = next_logits(model_fn, generated, step);
 
-        int last_pos = logits.rows - 1;
-        std::vector<float> last_logits(logits.cols);
-        for (int i = 0; i < logits.cols; ++i) {
-            last_logits[i] = logits.data[last_pos][i];
+        // TD-516: repetition penalty before filtering (see generate_top_k()).
+        if (config.repetition_penalty != 1.0f) {
+            last_logits =
+                apply_repetition_penalty(last_logits, generated, config.repetition_penalty);
         }
 
         // Apply temperature
@@ -502,19 +518,13 @@ std::vector<int> TextGenerator::generate_nucleus(const ModelForwardFn& model_fn,
             last_logits = apply_top_p(last_logits, p);
         }
 
-        // Apply repetition penalty
-        if (config.repetition_penalty != 1.0f) {
-            last_logits =
-                apply_repetition_penalty(last_logits, generated, config.repetition_penalty);
-        }
-
         // TD-515: temperature <= 0 takes the argmax of the filtered logits instead of sampling.
         int next_token = config.temperature <= 0.0f ? argmax(last_logits)
                                                     : sample_token(softmax(last_logits));
 
         generated.push_back(next_token);
 
-        if (is_stop_token(next_token) || static_cast<int>(generated.size()) >= config.max_length) {
+        if (is_stop_token(next_token)) {
             break;
         }
     }
@@ -531,21 +541,17 @@ std::vector<int> TextGenerator::generate(const ModelForwardFn& model_fn,
     }
 
     // Otherwise use sampling with all filters
-    std::vector<int> generated = prompt_tokens;
-    if (generated.empty()) {
-        generated.push_back(config.bos_token_id);
-    }
+    std::vector<int> generated = start_tokens(prompt_tokens);
 
     for (int step = 0; step < config.max_length; ++step) {
-        Matrix logits = model_fn(generated);
+        std::vector<float> last_logits = next_logits(model_fn, generated, step);
 
-        int last_pos = logits.rows - 1;
-        std::vector<float> last_logits(logits.cols);
-        for (int i = 0; i < logits.cols; ++i) {
-            last_logits[i] = logits.data[last_pos][i];
+        // TD-516: repetition penalty first, then temperature and the filters.
+        if (config.repetition_penalty != 1.0f) {
+            last_logits =
+                apply_repetition_penalty(last_logits, generated, config.repetition_penalty);
         }
 
-        // Apply all filters in sequence
         last_logits = apply_temperature(last_logits, config.temperature);
 
         if (config.top_k > 0) {
@@ -554,11 +560,6 @@ std::vector<int> TextGenerator::generate(const ModelForwardFn& model_fn,
 
         if (config.top_p < 1.0f) {
             last_logits = apply_top_p(last_logits, config.top_p);
-        }
-
-        if (config.repetition_penalty != 1.0f) {
-            last_logits =
-                apply_repetition_penalty(last_logits, generated, config.repetition_penalty);
         }
 
         // Sample or greedy (TD-515: temperature <= 0 is greedy, as in every strategy)
@@ -572,7 +573,7 @@ std::vector<int> TextGenerator::generate(const ModelForwardFn& model_fn,
 
         generated.push_back(next_token);
 
-        if (is_stop_token(next_token) || static_cast<int>(generated.size()) >= config.max_length) {
+        if (is_stop_token(next_token)) {
             break;
         }
     }

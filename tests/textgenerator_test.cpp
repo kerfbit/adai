@@ -2,6 +2,8 @@
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <stdexcept>
 #include <vector>
 #include "../src/Matrix.hpp"
 
@@ -189,7 +191,9 @@ TEST(TextGeneratorGreedyTest, MaxLengthEnforced) {
     TextGenerator gen(config, 42);
     std::vector<int> result = gen.generate_greedy(model_fn, {2});
 
-    EXPECT_LE(result.size(), 15);
+    // TD-516: max_length counts new tokens, so the BOS prompt comes on top. EOS never wins, so
+    // generation runs to exactly max_length new tokens.
+    EXPECT_EQ(result.size(), 1u + 15u);
 }
 
 TEST(TextGeneratorGreedyTest, Deterministic) {
@@ -704,8 +708,9 @@ TEST(TextGeneratorEdgeCaseTest, VeryShortMaxLength) {
     TextGenerator gen(config, 42);
     std::vector<int> result = gen.generate_greedy(model_fn, {2});
 
-    EXPECT_LE(result.size(), 3);
-    EXPECT_GT(result.size(), 0);
+    // TD-516: at most max_length new tokens after the one-token prompt.
+    EXPECT_LE(result.size(), 1u + 3u);
+    EXPECT_GT(result.size(), 1u);
 }
 
 TEST(TextGeneratorEdgeCaseTest, LongPrompt) {
@@ -964,6 +969,179 @@ TEST(TextGeneratorSamplingTest, PositiveTemperatureStillSamples) {
     std::sort(outputs.begin(), outputs.end());
     outputs.erase(std::unique(outputs.begin(), outputs.end()), outputs.end());
     EXPECT_GT(outputs.size(), 1u);
+}
+
+// ============================================================================
+// TD-516: min_length, non-finite logits, max_length, early stopping, filter order
+// ============================================================================
+
+namespace {
+
+// Prefers EOS (id 3) at every position, as an EOS-happy model does.
+Matrix eos_first_logits(MockLanguageModel& model, const std::vector<int>& tokens) {
+    Matrix logits = model.forward(tokens);
+    for (int i = 0; i < logits.rows; ++i)
+        logits.data[i][3] = 10.0f;
+    return logits;
+}
+
+// Deterministic pseudo-random logits per context, so beam search has real competition.
+Matrix hashed_logits(const std::vector<int>& tokens, int vocab, unsigned salt) {
+    Matrix logits(static_cast<int>(tokens.size()), vocab);
+    for (int i = 0; i < logits.rows; ++i) {
+        unsigned h = 2166136261u ^ salt;
+        for (int j = 0; j <= i; ++j)
+            h = (h ^ static_cast<unsigned>(tokens[j])) * 16777619u;
+        for (int v = 0; v < vocab; ++v) {
+            unsigned x = (h ^ static_cast<unsigned>(v * 2654435761u)) * 2246822519u;
+            logits.data[i][v] = static_cast<float>(x % 1000u) / 250.0f;  // 0 .. 4
+        }
+    }
+    return logits;
+}
+
+}  // namespace
+
+TEST(TextGeneratorTD516Test, MinLengthKeepsStopTokensOutUntilReached) {
+    // min_length was never read: an EOS-preferring model ended after one token (empty response).
+    MockLanguageModel model(100, 64);
+    auto model_fn = [&model](const std::vector<int>& tokens) {
+        return eos_first_logits(model, tokens);
+    };
+    TextGenerator::GenerationConfig config;
+    config.max_length = 20;
+    config.min_length = 4;
+    config.temperature = 0.0f;
+    TextGenerator gen(config, 42);
+
+    for (const auto& out : {gen.generate_greedy(model_fn, {2}), gen.generate_top_k(model_fn, {2}, 5),
+                            gen.generate_nucleus(model_fn, {2}, 0.9f), gen.generate(model_fn, {2}),
+                            gen.generate_beam_search(model_fn, {2}, 3)}) {
+        ASSERT_EQ(out.size(), 1u + 4u + 1u);  // BOS, 4 tokens, then EOS
+        for (size_t i = 1; i <= 4; ++i) {
+            EXPECT_NE(out[i], 3);
+            EXPECT_NE(out[i], 0);
+        }
+        EXPECT_EQ(out.back(), 3);
+    }
+}
+
+TEST(TextGeneratorTD516Test, NonFiniteLogitsThrow) {
+    // All-NaN logits used to pick token 0 (PAD, a stop token) and end with an empty response.
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+    for (float bad : {nan, inf}) {
+        auto model_fn = [bad](const std::vector<int>& tokens) {
+            Matrix logits(static_cast<int>(tokens.size()), 20);
+            for (int i = 0; i < logits.rows; ++i)
+                for (int v = 0; v < 20; ++v)
+                    logits.data[i][v] = v == 7 ? bad : 0.5f;
+            return logits;
+        };
+        TextGenerator::GenerationConfig config;
+        config.max_length = 5;
+        TextGenerator gen(config, 42);
+        EXPECT_THROW(gen.generate_greedy(model_fn, {2}), std::runtime_error) << bad;
+        EXPECT_THROW(gen.generate_sampling(model_fn, {2}, 1.0f), std::runtime_error) << bad;
+        EXPECT_THROW(gen.generate_nucleus(model_fn, {2}, 0.9f), std::runtime_error) << bad;
+        EXPECT_THROW(gen.generate_beam_search(model_fn, {2}, 3), std::runtime_error) << bad;
+    }
+    auto all_masked = [inf](const std::vector<int>& tokens) {
+        Matrix logits(static_cast<int>(tokens.size()), 20);
+        for (int i = 0; i < logits.rows; ++i)
+            for (int v = 0; v < 20; ++v)
+                logits.data[i][v] = -inf;
+        return logits;
+    };
+    TextGenerator gen(TextGenerator::GenerationConfig{}, 42);
+    EXPECT_THROW(gen.generate_greedy(all_masked, {2}), std::runtime_error);
+}
+
+TEST(TextGeneratorTD516Test, MaxLengthCountsNewTokensAfterThePrompt) {
+    // max_length used to include the prompt: a 3-token prompt with max_length 4 gave 1 new token.
+    MockLanguageModel model(100, 64);
+    auto model_fn = [&model](const std::vector<int>& tokens) {
+        Matrix logits = model.forward(tokens);
+        for (int i = 0; i < logits.rows; ++i)
+            logits.data[i][3] = -100.0f;  // never EOS
+        return logits;
+    };
+    TextGenerator::GenerationConfig config;
+    config.max_length = 4;
+    config.temperature = 0.0f;
+    TextGenerator gen(config, 42);
+    const std::vector<int> prompt = {2, 5, 10};
+
+    EXPECT_EQ(gen.generate_greedy(model_fn, prompt).size(), 3u + 4u);
+    EXPECT_EQ(gen.generate_sampling(model_fn, prompt, 1.0f).size(), 3u + 4u);
+    EXPECT_EQ(gen.generate_top_k(model_fn, prompt, 5).size(), 3u + 4u);
+    EXPECT_EQ(gen.generate_nucleus(model_fn, prompt, 0.9f).size(), 3u + 4u);
+    EXPECT_EQ(gen.generate(model_fn, prompt).size(), 3u + 4u);
+    EXPECT_EQ(gen.generate_beam_search(model_fn, prompt, 3).size(), 3u + 4u);
+}
+
+TEST(TextGeneratorTD516Test, EarlyStoppingKeepsTheResultAndSavesModelCalls) {
+    // early_stopping had no effect. It now stops only when no running beam can still win, so the
+    // output must equal the full search's, with and without the length penalty.
+    const int vocab = 12;
+    int calls_full = 0;
+    int calls_early = 0;
+    for (unsigned salt = 0; salt < 40; ++salt) {
+        for (bool length_penalty : {false, true}) {
+            for (float alpha : {0.6f, -0.5f}) {
+                TextGenerator::GenerationConfig config;
+                config.max_length = 12;
+                config.length_penalty = length_penalty;
+                config.length_penalty_alpha = alpha;
+
+                config.early_stopping = false;
+                int calls = 0;
+                auto counted = [&](const std::vector<int>& t) {
+                    ++calls;
+                    return hashed_logits(t, vocab, salt);
+                };
+                const auto full = TextGenerator(config, 1).generate_beam_search(counted, {2}, 3);
+                calls_full += calls;
+
+                config.early_stopping = true;
+                calls = 0;
+                const auto early = TextGenerator(config, 1).generate_beam_search(counted, {2}, 3);
+                calls_early += calls;
+
+                EXPECT_EQ(early, full) << "salt " << salt << ", length_penalty " << length_penalty
+                                       << ", alpha " << alpha;
+            }
+        }
+    }
+    EXPECT_LT(calls_early, calls_full);
+}
+
+TEST(TextGeneratorTD516Test, RepetitionPenaltyRunsBeforeTopK) {
+    // Token 5 is the model's favourite and already in the prompt. With the penalty applied after
+    // top-1 filtering it stayed the only candidate; applied first, token 10 wins.
+    MockLanguageModel model(100, 64);
+    auto model_fn = [&model](const std::vector<int>& tokens) { return model.forward(tokens); };
+    TextGenerator::GenerationConfig config;
+    config.max_length = 1;
+    config.repetition_penalty = 10.0f;
+    TextGenerator gen(config, 42);
+
+    const auto out = gen.generate_top_k(model_fn, {2, 5}, 1);
+    ASSERT_EQ(out.size(), 3u);
+    EXPECT_NE(out.back(), 5);
+}
+
+TEST(TextGeneratorTD516Test, TopPZeroOrBelowIsTopOne) {
+    // top_p <= 0 used to switch filtering off, so nucleus sampling drew from the whole vocabulary.
+    MockLanguageModel model(100, 64);
+    auto model_fn = [&model](const std::vector<int>& tokens) { return model.forward(tokens); };
+    TextGenerator::GenerationConfig config;
+    config.max_length = 8;
+    config.temperature = 1.0f;
+    const auto greedy = TextGenerator(config, 1).generate_greedy(model_fn, {2});
+    for (unsigned seed = 1; seed <= 20; ++seed) {
+        EXPECT_EQ(TextGenerator(config, seed).generate_nucleus(model_fn, {2}, 0.0f), greedy) << seed;
+    }
 }
 
 // ============================================================================

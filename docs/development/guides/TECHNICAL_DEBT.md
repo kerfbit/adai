@@ -1276,6 +1276,8 @@ The metrics pipeline run is complete.
 - TD-506 (done in code: `ChatbotAPI`'s CPU callbacks use the aligned `next_token_logits()`, so a trained model answers correctly on a
   CPU server; it projects only the last row, finishing TD-424).
 - TD-514/515 (done in code: a beam width below 1 throws instead of crashing, and a temperature of 0 or below is greedy in every strategy).
+- TD-516 (done in code, owner's choices: `max_length` counts new tokens, `min_length` and exact beam early stopping are implemented,
+  non-finite logits throw, the repetition penalty runs before filtering, and `top_p <= 0` is top-1).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -14759,7 +14761,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | NLP / TextGenerator | October 17, 2026 | 2-4 hours |
+| LOW | Open — code fix landed October 26, 2026 | NLP / TextGenerator | October 17, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `TextGenerator.{hpp,cpp}`:
@@ -14772,10 +14774,43 @@ Found while tracing `TextGenerator.{hpp,cpp}`:
 
 Action Items:
 
-- [ ] Implement `min_length` (mask EOS/PAD until reached) and real early stopping, or remove both fields.
-- [ ] Detect non-finite logits and report an error; define `max_length` as new tokens; apply the penalty before filtering; treat `top_p <= 0` as top-1.
+- [x] Implement `min_length` (mask EOS/PAD until reached) and real early stopping, or remove both fields. (Owner chose to implement both, October 26, 2026.)
+- [x] Detect non-finite logits and report an error; define `max_length` as new tokens; apply the penalty before filtering; treat `top_p <= 0` as top-1. (Owner chose new tokens.)
 
-Location in code: `src/TextGenerator.cpp` (generation loops, `generate_beam_search()`, `sample_token()`), `src/TextGenerator.hpp` (`GenerationConfig`); tagged `TODO: See TD-516`.
+**Fix (October 26, 2026).** Every strategy now takes its next-token logits from one helper, `next_logits()`.
+- **Non-finite logits.** A NaN or +inf logit, or a row with no finite value, throws `std::runtime_error`. A broken model no longer
+  silently returns an empty response.
+- **`min_length`.** EOS and PAD are masked to −inf until `min_length` new tokens exist. This applies in greedy, sampling, top-k,
+  nucleus, `generate()` and beam search.
+- **`max_length` counts new tokens.** The BOS and prompt are no longer counted, so `max_length = 6` gives up to 6 new tokens, not 5.
+  `ChatbotAPI`'s and `MAX_GEN_LENGTH`'s "maximum response tokens" now mean what they say. `EncoderDecoderModel`'s TD-347 cap
+  (`capped_generation_length()`) becomes `max_seq_length − 1` new tokens, so the sequence with BOS still fits in `max_seq_length`.
+- **Early stopping.** With `early_stopping` (the default), beam search stops once no running beam can still win. A running beam's
+  raw score can only fall, since log-probabilities are clamped at 0. Its best possible final score is therefore its current score
+  divided by the largest length penalty it can still get (the current or the final length, whichever penalty is larger). When the
+  best finished beam is at least that for every running beam, the search ends. The result is identical to the full search.
+- **Filter order.** The repetition penalty runs before temperature and the top-k/top-p filters, in every strategy. Temperature
+  commutes with the penalty, since the penalty keeps each logit's sign.
+- **`top_p <= 0`** keeps only the top token (top-1).
+
+Not changed (by inspection, LOW):
+- beam search still calls the model once per beam per step;
+- seed 0 still means a random seed.
+
+Tests (`TextGeneratorTD516Test`, all failing on the old code):
+- `MinLengthKeepsStopTokensOutUntilReached`: five strategies, with an EOS-preferring model;
+- `NonFiniteLogitsThrow`: NaN, +inf and all −inf;
+- `MaxLengthCountsNewTokensAfterThePrompt`: six strategies;
+- `EarlyStoppingKeepsTheResultAndSavesModelCalls`: 160 hashed-logit beam searches, with and without the length penalty and with
+  α of 0.6 and −0.5, give identical output and fewer model calls;
+- `RepetitionPenaltyRunsBeforeTopK`;
+- `TopPZeroOrBelowIsTopOne`.
+
+`MaxLengthEnforced` and `VeryShortMaxLength` were updated to the new-token count. `TextGenerator` is now `@adai-version 2.0.0`, since
+the change in `max_length` breaks compatibility.
+
+Location in code: `src/TextGenerator.cpp` (`next_logits()`, `start_tokens()`, every generation loop, `generate_beam_search()`,
+`apply_top_p()`), `src/TextGenerator.hpp` (`GenerationConfig`), `src/EncoderDecoderModel.cpp` (`capped_generation_length()`).
 
 Files to Modify:
 

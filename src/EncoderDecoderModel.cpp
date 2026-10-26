@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.26.0
+// @adai-version: 0.26.1
 // @adai-reviewed: 2026-10-26
 
 #include "EncoderDecoderModel.hpp"
@@ -30,10 +30,11 @@ Matrix last_row(const Matrix& m) {
 
 // TD-347: generation stops at max_seq_length. The generated sequence (BOS included) is the
 // decoder's input, and positions past max_seq_length have no positional encoding: the model never
-// trained on them. requested <= 0 means "the stored length", still capped.
+// trained on them. requested <= 0 means "the stored length", still capped. Since TD-516 a
+// TextGenerator's max_length counts new tokens only, so BOS leaves max_seq_length - 1 of them.
 int capped_generation_length(int requested, int stored, int max_seq_length) {
     const int length = requested > 0 ? requested : stored;
-    return max_seq_length > 0 ? std::min(length, max_seq_length) : length;
+    return max_seq_length > 1 ? std::min(length, max_seq_length - 1) : length;
 }
 
 // TD-359: applies one call's max_length to the generator, whose stored config is otherwise what

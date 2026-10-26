@@ -322,3 +322,8 @@ input is that sequence as given, with a BOS put in front when it is empty or doe
 shifted targets (`[BOS] + targets[:-1]`), so its last row predicts the last given token. Use `next_token_logits()` in any
 `TextGenerator` callback. Both methods share `run_decoder()`: the same truncated encoder input and the same world-model and hippocampal
 reads. Only the last row is projected (TD-424). Test: `ChatbotAPIEchoTest.NextTokenLogitsIsTheLastRowOfTheAlignedForward`.
+
+## Addendum (October 26, 2026): generation cap in new tokens (TD-516)
+
+`TextGenerator`'s `max_length` now counts new tokens. `capped_generation_length()` therefore caps at `max_seq_length − 1` new tokens,
+and the generated sequence with its BOS still fits in `max_seq_length` (TD-347).

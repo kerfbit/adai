@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.1
+// @adai-version: 2.0.0
 // @adai-reviewed: 2026-10-26
 
 
@@ -26,7 +26,7 @@
  *   2. Model predicts next-token logits
  *   3. Apply generation strategy to select token
  *   4. Append token to sequence
- *   5. Repeat until <eos> or max_length
+ *   5. Repeat until <eos> or max_length new tokens
  *
  * Decoding Strategies:
  *   - Greedy: Select highest probability token (deterministic)
@@ -63,16 +63,16 @@ class TextGenerator {
      * Generation configuration parameters
      */
     struct GenerationConfig {
-        int max_length = 100;                           // Maximum sequence length
+        int max_length = 100;                           // Maximum new tokens (BOS and prompt not counted, TD-516)
         float temperature = 1.0f;                       // Sampling temperature (<= 0 = greedy in every strategy, TD-515)
         int top_k = 0;                                  // Top-k filtering (0 = disabled)
-        float top_p = 1.0f;                             // Nucleus sampling threshold
+        float top_p = 1.0f;                             // Nucleus sampling threshold (>= 1 = off, <= 0 = top-1)
         float repetition_penalty = 1.0f;                // Penalty for repeated tokens (1.0 = none)
         int num_beams = 1;                              // Beam width for beam search
         bool length_penalty = true;                     // Apply length normalization in beam search
         float length_penalty_alpha = 0.6f;              // Length penalty exponent
-        bool early_stopping = true;                     // Stop when all beams finish
-        int min_length = 0;                             // Minimum generation length
+        bool early_stopping = true;                     // Beam search stops once no running beam can win (TD-516)
+        int min_length = 0;                             // New tokens before EOS/PAD may be chosen (TD-516)
         int pad_token_id = adai::SpecialTokenIDs::PAD;  // Padding token ID
         int bos_token_id = adai::SpecialTokenIDs::BOS;  // Beginning of sequence token
         int eos_token_id = adai::SpecialTokenIDs::EOS;  // End of sequence token
@@ -147,6 +147,18 @@ class TextGenerator {
      * Check if token is a stopping token (<eos>, <pad>)
      */
     bool is_stop_token(int token_id);
+
+    /**
+     * TD-516: the next-token logits every strategy starts from. Calls `model_fn` and takes its last
+     * row; throws std::runtime_error when that row has a NaN or +inf, or no finite value (a broken
+     * model used to pick token 0, PAD, and end silently). While fewer than `config.min_length` new
+     * tokens exist (`new_tokens`), EOS and PAD are masked out.
+     */
+    std::vector<float> next_logits(const ModelForwardFn& model_fn, const std::vector<int>& tokens,
+                                   int new_tokens);
+
+    /** TD-516: the starting sequence (prompt, or BOS when empty). */
+    std::vector<int> start_tokens(const std::vector<int>& prompt_tokens) const;
 
    public:
     /**
