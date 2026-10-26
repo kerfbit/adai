@@ -1270,6 +1270,7 @@ The metrics pipeline run is complete.
 - TD-347 (done in code: the cached forward's positional rows match the full forward, and generation stops at `max_seq_length`).
 - TD-421/422 (done in code: `KVCache::append()` checks shapes and grows in place, about 210× faster at 512 steps, and layer indices
   are checked).
+- TD-424 (done in code for `EncoderDecoderModel`: beam callbacks project only the last row; the `ChatbotAPI` part goes with TD-506).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -11112,7 +11113,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Models / LanguageModelHead | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 26, 2026 (EncoderDecoderModel part) | Models / LanguageModelHead | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `LanguageModelHead` and measured. The uncached generation callbacks run
@@ -11125,7 +11126,17 @@ path and the pipeline/integrated engines already project only what they need.
 
 Action Items:
 
-- [ ] In generation callbacks, project only the last decoder row (keep `forward()`'s full projection for training/loss), and fix the misleading comment.
+- [ ] In generation callbacks, project only the last decoder row (keep `forward()`'s full projection for training/loss), and fix the misleading comment. (Done for `EncoderDecoderModel`'s two beam callbacks; `ChatbotAPI`'s CPU `model_fn` and `/chat/batch` go with TD-506, which replaces those callbacks.)
+
+**Fix (October 26, 2026, `EncoderDecoderModel` part).** Both beam `beam_model_fn`s project only the decoder's last row (`last_row()`),
+and the misleading "last position of output" comment is fixed; `forward()` keeps the full projection for training. This is exact
+because the LM head is row-wise. In the debug build, a 60-token beam generation (width 4, vocab 4,000, d_model 256) took 4.2 s instead
+of 6.9 s; the rest is the beam path's full decoder recompute.
+
+Tests:
+- `LastRowProjectionMatchesFullProjection`: the last row's logits match within 1e-4.
+- `BeamGenerationIsDeterministicAfterLastRowProjection`.
+- The existing beam tests still pass.
 
 Location in code: `src/EncoderDecoderModel.cpp` (both beam `beam_model_fn`s, `forward()`); tagged `TODO: See TD-424`.
 
@@ -14338,6 +14349,7 @@ Action Items:
 
 - [ ] Add an inference forward that takes the decoder input directly (e.g. `forward_decoder(input_tokens, decoder_input)`) and use it in all four `ChatbotAPI` `model_fn`s.
 - [ ] Add a regression test: a model trained on an echo task must generate it exactly through `ChatbotAPI::generate_response()` on the CPU.
+- [ ] Have that forward project only the last decoder row (TD-424's `ChatbotAPI` part; `EncoderDecoderModel`'s beam callbacks already do, October 26, 2026).
 
 Location in code: `src/ChatbotAPI.cpp` (`generate_response()` plain, speculative and batched `model_fn`s; `handle_batch_chat()`); tagged `TODO: See TD-506`.
 

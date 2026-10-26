@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.24.0
+// @adai-version: 0.24.1
 // @adai-reviewed: 2026-10-26
 
 #include "EncoderDecoderModel.hpp"
@@ -19,6 +19,14 @@
 using adai::Logger;
 
 namespace {
+
+// TD-424: the last row of a decoder output, which is all a generation step needs projected.
+Matrix last_row(const Matrix& m) {
+    Matrix row(1, m.cols);
+    if (m.rows > 0)
+        row.data[0] = m.data[m.rows - 1];
+    return row;
+}
 
 // TD-347: generation stops at max_seq_length. The generated sequence (BOS included) is the
 // decoder's input, and positions past max_seq_length have no positional encoding: the model never
@@ -368,9 +376,9 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
             if (committer.active()) {
                 committer.observe(tokens.size(), decoder->last_hippocampal_step_weights());
             }
-            // TODO: See TD-424 in TECHNICAL_DEBT.md - projects every position; only the last row is used (~30x the
-            // LM-head work per step and per beam hypothesis)
-            Matrix logits = lm_head->forward(decoder_out);
+            // TD-424: project only the last position; TextGenerator reads only the last row. This
+            // used to project every position (~30x the LM-head work per step and per hypothesis).
+            Matrix logits = lm_head->forward(last_row(decoder_out));
 
             // Mask out invalid token IDs beyond actual vocabulary size, same as
             // generate_response_with_strategy()'s beam_model_fn.
@@ -562,10 +570,9 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
                 committer.observe(tokens.size(), decoder->last_hippocampal_step_weights());
             }
 
-            // Project to vocabulary (last position of output)
-            // TODO: See TD-424 in TECHNICAL_DEBT.md - projects every position; only the last row is used (~30x the
-            // LM-head work per step and per beam hypothesis)
-            Matrix logits = lm_head->forward(decoder_out);
+            // TD-424: project only the last position; TextGenerator reads only the last row. This
+            // used to project every position (~30x the LM-head work per step and per hypothesis).
+            Matrix logits = lm_head->forward(last_row(decoder_out));
 
             // Mask out invalid token IDs beyond actual vocabulary size
             // This prevents generation of tokens that don't exist in the tokenizer
@@ -1127,8 +1134,9 @@ Matrix EncoderDecoderModel::forward(const std::vector<int>& input_tokens,
                 hippocampal_cross_reference_alpha_, hippocampal_association_decay_);
 
     // Project to vocabulary
-    // TODO: See TD-424 in TECHNICAL_DEBT.md - full projection is needed for training, but ChatbotAPI's CPU
-    // generation model_fn and /chat/batch also call forward() per step and use only the last row
+    // The full projection is what training needs. TD-424: ChatbotAPI's CPU generation model_fn and
+    // /chat/batch also call forward() per step and use only the last row; that goes with TD-506,
+    // which replaces those callbacks (their last row is also misaligned).
     Matrix logits = lm_head->forward(cached_decoder_output);
 
     return logits;

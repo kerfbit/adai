@@ -537,6 +537,35 @@ TEST(EncoderDecoderModelTest, GenerationNeverExceedsMaxSeqLength) {
     }
 }
 
+// TD-424: the beam callbacks project only the decoder's last row. That's exact because the LM head is
+// row-wise (a linear map plus bias): the last row's logits don't depend on the other rows.
+TEST(EncoderDecoderModelTest, LastRowProjectionMatchesFullProjection) {
+    EncoderDecoderModel model(300, 64, 1, 1);
+    Matrix decoder_out(40, 64);
+    for (int i = 0; i < 40; ++i)
+        for (int j = 0; j < 64; ++j)
+            decoder_out(i, j) = std::sin(0.37f * static_cast<float>(i * 64 + j));
+    const Matrix full = model.get_lm_head()->forward(decoder_out);
+    Matrix last(1, 64);
+    last.data[0] = decoder_out.data[39];
+    const Matrix one = model.get_lm_head()->forward(last);
+    ASSERT_EQ(one.rows, 1);
+    ASSERT_EQ(one.cols, full.cols);
+    for (int j = 0; j < full.cols; ++j)
+        EXPECT_NEAR(one(0, j), full(39, j), 1e-4f) << "logit " << j;
+}
+
+TEST(EncoderDecoderModelTest, BeamGenerationIsDeterministicAfterLastRowProjection) {
+    EncoderDecoderModel model(100, 64, 2, 2);
+    build_test_vocab(model.get_tokenizer(), 100);
+    model.set_training(false);
+    const std::string a = model.generate_response_with_strategy("hello world", 20, "beam", 1.0f, 50,
+                                                                0.9f, 3);
+    const std::string b = model.generate_response_with_strategy("hello world", 20, "beam", 1.0f, 50,
+                                                                0.9f, 3);
+    EXPECT_EQ(a, b);
+}
+
 // TD-261: an explicit strategy ignores num_beams. `num_beams > 1` used to send every strategy to
 // beam search (chatbot_gui's Beam Width defaults to 5; RLHFTrainer got the header default 4), so
 // sampling rollouts were deterministic beam search: 1 distinct response in 6.
