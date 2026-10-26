@@ -13,19 +13,8 @@
 #include <httplib.h>
 #endif
 
-// Port range 42200–42299 — reserved for MetricsPushClientTests
-// (incremental_trainer_registry_test uses 41800–41899)
-static constexpr int kPort_SampleDrop = 42200;
-static constexpr int kPort_EpochEviction = 42201;
-static constexpr int kPort_EpochNoDrop = 42202;
-static constexpr int kPort_5xxRetry = 42203;
-static constexpr int kPort_4xxNoRetry = 42204;
-static constexpr int kPort_409NoRetry = 42205;
-static constexpr int kPort_DrainOnEnd = 42206;
-static constexpr int kPort_StartSession = 42207;
-static constexpr int kPort_ReconnectResetBest = 42208;
-static constexpr int kPort_LayerGradientNorms = 42209;
-static constexpr int kPort_MissingRoute = 42210;
+// Test servers bind OS-assigned ports (start_server()); only the server-down test needs a fixed
+// one.
 static constexpr int kPort_ServerDown = 42211;  // never listened on
 
 #ifdef BUILD_METRICS_API_SERVER
@@ -72,12 +61,20 @@ struct Gate {
     }
 };
 
-/** Starts svr.listen() in a background thread; blocks until is_running(). */
-static std::thread start_server(httplib::Server& svr, int port) {
-    std::thread t([&svr, port]() { svr.listen("127.0.0.1", port); });
+/**
+ * Binds svr to an OS-assigned loopback port (written to port), runs listen_after_bind() in a
+ * background thread and blocks until is_running().
+ */
+static std::thread start_server(httplib::Server& svr, int& port) {
+    // Let the OS pick the port: fixed test ports sat in the ephemeral range, so under parallel
+    // ctest another test's outgoing connection could hold one and the server failed to start.
+    port = svr.bind_to_any_port("127.0.0.1");
+    if (port < 0) {
+        ADD_FAILURE() << "Server failed to bind a port";
+        return std::thread([] {});
+    }
+    std::thread t([&svr]() { svr.listen_after_bind(); });
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    // Stop at the deadline: a port that can't be bound (fixed test ports sit in the ephemeral range, so
-    // another test's outgoing connection can hold one under parallel ctest) used to loop forever.
     while (!svr.is_running()) {
         if (std::chrono::steady_clock::now() >= deadline) {
             ADD_FAILURE() << "Server failed to start on port " << port;
@@ -147,8 +144,10 @@ TEST(MetricsPushClientQueuePolicy, SampleEventDroppedWhenQueueFull) {
         res.status = 201;
     });
 
-    auto svr_thread = start_server(svr, kPort_SampleDrop);
-    MetricsPushClient client(session_url(kPort_SampleDrop), /*timeout_ms=*/500,
+    int port = 0;
+
+    auto svr_thread = start_server(svr, port);
+    MetricsPushClient client(session_url(port), /*timeout_ms=*/500,
                              /*max_queue_depth=*/3);
 
     client.start_epoch(1, 100);  // push thread pops this and enters gate.wait()
@@ -194,8 +193,10 @@ TEST(MetricsPushClientQueuePolicy, EpochEventEvictsSampleWhenQueueFull) {
         res.status = 201;
     });
 
-    auto svr_thread = start_server(svr, kPort_EpochEviction);
-    MetricsPushClient client(session_url(kPort_EpochEviction), 500, /*max_queue_depth=*/3);
+    int port = 0;
+
+    auto svr_thread = start_server(svr, port);
+    MetricsPushClient client(session_url(port), 500, /*max_queue_depth=*/3);
 
     client.start_epoch(1, 100);
     ASSERT_TRUE(wait_for_gate(gate)) << "Push thread never entered server handler";
@@ -240,9 +241,11 @@ TEST(MetricsPushClientQueuePolicy, EpochNotDroppedEvenWhenQueueHasOnlyEpochEvent
         res.status = 201;
     });
 
-    auto svr_thread = start_server(svr, kPort_EpochNoDrop);
+    int port = 0;
+
+    auto svr_thread = start_server(svr, port);
     // max_queue_depth = 2 so we can fill it with 2 Epoch events quickly.
-    MetricsPushClient client(session_url(kPort_EpochNoDrop), 500, /*max_queue_depth=*/2);
+    MetricsPushClient client(session_url(port), 500, /*max_queue_depth=*/2);
 
     client.start_epoch(1, 100);
     ASSERT_TRUE(wait_for_gate(gate)) << "Push thread never entered server handler";
@@ -285,8 +288,10 @@ TEST(MetricsPushClientRetryPolicy, RetriesOn5xxAndEventuallySucceeds) {
         }
     });
 
-    auto svr_thread = start_server(svr, kPort_5xxRetry);
-    MetricsPushClient client(session_url(kPort_5xxRetry), /*timeout_ms=*/500);
+    int port = 0;
+
+    auto svr_thread = start_server(svr, port);
+    MetricsPushClient client(session_url(port), /*timeout_ms=*/500);
 
     const int rc = client.start_session(1, 3, 100);
 
@@ -313,8 +318,10 @@ TEST(MetricsPushClientRetryPolicy, DoesNotRetryOn4xx) {
         }
     });
 
-    auto svr_thread = start_server(svr, kPort_4xxNoRetry);
-    MetricsPushClient client(session_url(kPort_4xxNoRetry), 500);
+    int port = 0;
+
+    auto svr_thread = start_server(svr, port);
+    MetricsPushClient client(session_url(port), 500);
 
     const int rc = client.start_session(1, 3, 100);
 
@@ -342,8 +349,10 @@ TEST(MetricsPushClientRetryPolicy, DoesNotRetryOn409) {
         }
     });
 
-    auto svr_thread = start_server(svr, kPort_409NoRetry);
-    MetricsPushClient client(session_url(kPort_409NoRetry), 500);
+    int port = 0;
+
+    auto svr_thread = start_server(svr, port);
+    MetricsPushClient client(session_url(port), 500);
 
     const int rc = client.start_session(1, 3, 100);
 
@@ -373,8 +382,10 @@ TEST(MetricsPushClientShutdownDrain, EndSessionDrainsAllQueuedEventsBeforeJoin) 
         res.status = 201;
     });
 
-    auto svr_thread = start_server(svr, kPort_DrainOnEnd);
-    MetricsPushClient client(session_url(kPort_DrainOnEnd), 500);
+    int port = 0;
+
+    auto svr_thread = start_server(svr, port);
+    MetricsPushClient client(session_url(port), 500);
 
     client.start_epoch(1, 200);
     client.update_sample_metrics(1, 0.8f, 1.2f, 0.001f);
@@ -437,8 +448,10 @@ TEST(MetricsPushClientStartSession, IncludesLabelAndConfigInPostBody) {
         res.status = 201;
     });
 
-    auto svr_thread = start_server(svr, kPort_StartSession);
-    MetricsPushClient client(session_url(kPort_StartSession), 500);
+    int port = 0;
+
+    auto svr_thread = start_server(svr, port);
+    MetricsPushClient client(session_url(port), 500);
 
     const int rc = client.start_session(5, 10, 500, "my-run-label", "{\"lr\":0.001}");
     client.end_session();
@@ -484,8 +497,10 @@ TEST(MetricsPushClientStartSession, ReconnectAfter404DoesNotReplayResetBest) {
         }
     });
 
-    auto svr_thread = start_server(svr, kPort_ReconnectResetBest);
-    MetricsPushClient client(session_url(kPort_ReconnectResetBest), 500);
+    int port = 0;
+
+    auto svr_thread = start_server(svr, port);
+    MetricsPushClient client(session_url(port), 500);
 
     const int rc = client.start_session(1, 3, 100, "", "", /*reset_best=*/true);
     ASSERT_EQ(rc, 200);
@@ -518,8 +533,10 @@ TEST(MetricsPushClientLayerGradientNorms, SendsBothArraysAsJson) {
         res.status = 200;
     });
 
-    auto svr_thread = start_server(svr, kPort_LayerGradientNorms);
-    MetricsPushClient client(session_url(kPort_LayerGradientNorms), 500);
+    int port = 0;
+
+    auto svr_thread = start_server(svr, port);
+    MetricsPushClient client(session_url(port), 500);
 
     client.update_layer_gradient_norms({0.5f, 0.4f, 0.3f}, {0.6f, 0.5f});
     client.end_session();
@@ -581,8 +598,9 @@ TEST(MetricsPushClientStartSession, MissingRouteIsNotTreatedAsALostSession) {
             res.status = 200;
         }
     });
-    auto svr_thread = start_server(svr, kPort_MissingRoute);
-    MetricsPushClient client(session_url(kPort_MissingRoute), 500);
+    int port = 0;
+    auto svr_thread = start_server(svr, port);
+    MetricsPushClient client(session_url(port), 500);
     ASSERT_EQ(client.start_session(1, 1, 10, "", ""), 200);
 
     AbnormalSample sample;

@@ -21,34 +21,26 @@
 #include <chrono>
 #include <thread>
 
-// Port range 44800–44899 — reserved for ModelNameClientTests
-static constexpr int kPort_RegisterModel = 44800;
-static constexpr int kPort_SetTraining = 44801;
-static constexpr int kPort_SetCandidate = 44802;
-static constexpr int kPort_PushProgress = 44803;
-static constexpr int kPort_ResolveModel = 44804;
-static constexpr int kPort_GetArchitectureFound = 44805;
-static constexpr int kPort_GetArchitectureNotFound = 44806;
-static constexpr int kPort_ResolveRole = 44807;
-static constexpr int kPort_ListModels = 44808;
-static constexpr int kPort_Promote = 44809;
-static constexpr int kPort_UpdateRunGroup = 44810;
-static constexpr int kPort_ErrorStatus = 44811;
+// Test servers bind OS-assigned ports (start_server()); only the connection-failure test needs a
+// fixed one.
 static constexpr int kPort_ConnectionFailure = 44812;
-static constexpr int kPort_GetArchitectureComposedFromEncoderDecoder = 44813;
-static constexpr int kPort_GetArchitectureLegacyChatbotFallsBackToInlineArch = 44814;
-static constexpr int kPort_GetConnection = 44815;
-static constexpr int kPort_LinkWorldModelSuccess = 44816;
-static constexpr int kPort_LinkWorldModelFailure = 44817;
 
 namespace {
 
-/** Starts svr.listen() in a background thread; blocks until is_running(). */
-std::thread start_server(httplib::Server& svr, int port) {
-    std::thread t([&svr, port]() { svr.listen("127.0.0.1", port); });
+/**
+ * Binds svr to an OS-assigned loopback port (written to port), runs listen_after_bind() in a
+ * background thread and blocks until is_running().
+ */
+std::thread start_server(httplib::Server& svr, int& port) {
+    // Let the OS pick the port: fixed test ports sat in the ephemeral range, so under parallel
+    // ctest another test's outgoing connection could hold one and the server failed to start.
+    port = svr.bind_to_any_port("127.0.0.1");
+    if (port < 0) {
+        ADD_FAILURE() << "Server failed to bind a port";
+        return std::thread([] {});
+    }
+    std::thread t([&svr]() { svr.listen_after_bind(); });
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    // Stop at the deadline: a port that can't be bound (fixed test ports sit in the ephemeral range, so
-    // another test's outgoing connection can hold one under parallel ctest) used to loop forever.
     while (!svr.is_running()) {
         if (std::chrono::steady_clock::now() >= deadline) {
             ADD_FAILURE() << "Server failed to start on port " << port;
@@ -96,9 +88,10 @@ TEST(ModelNameClientTest, RegisterModelSendsExpectedFieldsAndParsesId) {
         res.status = 201;
         res.set_content(R"({"model_id":"uuid-123"})", "application/json");
     });
-    auto t = start_server(svr, kPort_RegisterModel);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_RegisterModel));
+    adai::ModelNameClient client(base_url(port));
     std::string id = client.register_model("adai-chatbot-v3", "chatbot", make_arch(),
                                             {{"env", "test"}});
 
@@ -126,9 +119,10 @@ TEST(ModelNameClientTest, SetTrainingSendsStateAndNewRunReturnsRunId) {
         res.status = 200;
         res.set_content(R"({"run_id":"run-02"})", "application/json");
     });
-    auto t = start_server(svr, kPort_SetTraining);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_SetTraining));
+    adai::ModelNameClient client(base_url(port));
     std::string run_id = client.set_training("adai-chatbot-v3", /*new_run=*/true, "session-key-1");
 
     stop_server(svr, t);
@@ -148,9 +142,10 @@ TEST(ModelNameClientTest, SetTrainingOmitsSessionKeyWhenEmpty) {
         res.status = 200;
         res.set_content(R"({"run_id":"run-01"})", "application/json");
     });
-    auto t = start_server(svr, kPort_SetTraining + 50);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_SetTraining + 50));
+    adai::ModelNameClient client(base_url(port));
     client.set_training("m", /*new_run=*/false);
 
     stop_server(svr, t);
@@ -171,9 +166,10 @@ TEST(ModelNameClientTest, SetCandidateSendsArtifactAndSummary) {
         res.status = 200;
         res.set_content("{}", "application/json");
     });
-    auto t = start_server(svr, kPort_SetCandidate);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_SetCandidate));
+    adai::ModelNameClient client(base_url(port));
     adai::ArtifactLocation artifact;
     artifact.host = "host1";
     artifact.path = "/weights/model.bin";
@@ -203,9 +199,10 @@ TEST(ModelNameClientTest, PushProgressSendsEpochAndLossFields) {
         res.status = 200;
         res.set_content("{}", "application/json");
     });
-    auto t = start_server(svr, kPort_PushProgress);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_PushProgress));
+    adai::ModelNameClient client(base_url(port));
     EXPECT_NO_THROW(client.push_progress("m", "run-01", "session-01", 5, 1.234, 1.100));
 
     stop_server(svr, t);
@@ -228,9 +225,10 @@ TEST(ModelNameClientTest, ResolveModelParsesAllFields) {
             R"("host":"h1","path":"/p","checksum":"c1","format":"adai-native"})",
             "application/json");
     });
-    auto t = start_server(svr, kPort_ResolveModel);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_ResolveModel));
+    adai::ModelNameClient client(base_url(port));
     adai::ResolvedModel rm = client.resolve_model("m");
 
     stop_server(svr, t);
@@ -258,9 +256,10 @@ TEST(ModelNameClientTest, GetArchitectureParsesArchBlock) {
             R"("num_encoder_layers":4,"num_decoder_layers":4,"max_seq_length":512}})",
             "application/json");
     });
-    auto t = start_server(svr, kPort_GetArchitectureFound);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_GetArchitectureFound));
+    adai::ModelNameClient client(base_url(port));
     auto arch = client.get_architecture("m");
 
     stop_server(svr, t);
@@ -280,9 +279,10 @@ TEST(ModelNameClientTest, GetArchitectureReturnsNulloptOn404) {
         res.status = 404;
         res.set_content("{}", "application/json");
     });
-    auto t = start_server(svr, kPort_GetArchitectureNotFound);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_GetArchitectureNotFound));
+    adai::ModelNameClient client(base_url(port));
     auto arch = client.get_architecture("missing");
 
     stop_server(svr, t);
@@ -327,9 +327,10 @@ TEST(ModelNameClientTest, GetArchitectureComposesFromLinkedEncoderAndDecoder) {
             R"("num_encoder_layers":0,"num_decoder_layers":5,"max_seq_length":256}})",
             "application/json");
     });
-    auto t = start_server(svr, kPort_GetArchitectureComposedFromEncoderDecoder);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_GetArchitectureComposedFromEncoderDecoder));
+    adai::ModelNameClient client(base_url(port));
     auto arch = client.get_architecture("my-chatbot");
 
     stop_server(svr, t);
@@ -359,10 +360,10 @@ TEST(ModelNameClientTest, GetArchitectureLegacyChatbotFallsBackToInlineArch) {
             R"("num_encoder_layers":2,"num_decoder_layers":2,"max_seq_length":128}})",
             "application/json");
     });
-    auto t = start_server(svr, kPort_GetArchitectureLegacyChatbotFallsBackToInlineArch);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(
-        base_url(kPort_GetArchitectureLegacyChatbotFallsBackToInlineArch));
+    adai::ModelNameClient client(base_url(port));
     auto arch = client.get_architecture("legacy-chatbot");
 
     stop_server(svr, t);
@@ -393,9 +394,10 @@ TEST(ModelNameClientTest, GetConnectionParsesAllFields) {
             R"("sigreg_lambda":2.5,"sigreg_num_sketches":32}})",
             "application/json");
     });
-    auto t = start_server(svr, kPort_GetConnection);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_GetConnection));
+    adai::ModelNameClient client(base_url(port));
     auto conn = client.get_connection("my-chatbot");
 
     stop_server(svr, t);
@@ -421,9 +423,10 @@ TEST(ModelNameClientTest, GetConnectionReturnsNulloptOn404) {
         res.status = 404;
         res.set_content("{}", "application/json");
     });
-    auto t = start_server(svr, kPort_GetArchitectureNotFound + 100);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_GetArchitectureNotFound + 100));
+    adai::ModelNameClient client(base_url(port));
     auto conn = client.get_connection("missing");
 
     stop_server(svr, t);
@@ -446,9 +449,10 @@ TEST(ModelNameClientTest, LinkWorldModelSendsAllFieldsAndReturnsTrueOn200) {
                  res.set_content(R"({"status":"ok","world_model_name":"my-wm"})",
                                  "application/json");
              });
-    auto t = start_server(svr, kPort_LinkWorldModelSuccess);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_LinkWorldModelSuccess));
+    adai::ModelNameClient client(base_url(port));
     const bool ok = client.link_world_model("my-chatbot", "my-wm", /*inject_every_n_layers=*/2,
                                             /*hippocampal_memory_enabled=*/true,
                                             /*hippocampal_memory_capacity=*/256, 0.1f, 0.9f, 0.2f,
@@ -474,9 +478,10 @@ TEST(ModelNameClientTest, LinkWorldModelReturnsFalseOn409WithoutThrowing) {
                  res.status = 409;
                  res.set_content(R"({"error":"d_model mismatch"})", "application/json");
              });
-    auto t = start_server(svr, kPort_LinkWorldModelFailure);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_LinkWorldModelFailure));
+    adai::ModelNameClient client(base_url(port));
     bool ok = true;
     EXPECT_NO_THROW(ok = client.link_world_model("my-chatbot", "my-wm"));
 
@@ -500,9 +505,10 @@ TEST(ModelNameClientTest, ResolveRoleHitsProductionEndpoint) {
             R"("run_group":"","host":"","path":"","checksum":"","format":"adai-native"})",
             "application/json");
     });
-    auto t = start_server(svr, kPort_ResolveRole);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_ResolveRole));
+    adai::ModelNameClient client(base_url(port));
     adai::ResolvedModel rm = client.resolve_role("chatbot");
 
     stop_server(svr, t);
@@ -527,9 +533,10 @@ TEST(ModelNameClientTest, ListModelsAppliesFiltersAndParsesMultipleRecords) {
             R"({"model_id":"2","model_name":"m2","state":"candidate","role":"chatbot","updated_utc":"t2"}}]})",
             "application/json");
     });
-    auto t = start_server(svr, kPort_ListModels);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_ListModels));
+    adai::ModelNameClient client(base_url(port));
     auto models = client.list_models("production", "chatbot", 10);
 
     stop_server(svr, t);
@@ -564,9 +571,10 @@ TEST(ModelNameClientTest, ListModelsHandlesBraceLikeSequenceInsideFieldValue) {
             R"("checksum":"","format":""},"tags":{}}]})",
             "application/json");
     });
-    auto t = start_server(svr, kPort_ListModels);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_ListModels));
+    adai::ModelNameClient client(base_url(port));
     auto models = client.list_models();
 
     stop_server(svr, t);
@@ -593,9 +601,10 @@ TEST(ModelNameClientTest, PromoteSendsModelNameToRoleEndpoint) {
         res.status = 200;
         res.set_content("{}", "application/json");
     });
-    auto t = start_server(svr, kPort_Promote);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_Promote));
+    adai::ModelNameClient client(base_url(port));
     EXPECT_NO_THROW(client.promote("chatbot", "m2"));
 
     stop_server(svr, t);
@@ -617,9 +626,10 @@ TEST(ModelNameClientTest, UpdateRunGroupSendsNewGroup) {
         res.status = 200;
         res.set_content("{}", "application/json");
     });
-    auto t = start_server(svr, kPort_UpdateRunGroup);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_UpdateRunGroup));
+    adai::ModelNameClient client(base_url(port));
     EXPECT_NO_THROW(client.update_run_group("m", "group-b"));
 
     stop_server(svr, t);
@@ -638,9 +648,10 @@ TEST(ModelNameClientTest, NonSuccessStatusThrowsRuntimeError) {
         res.status = 409;
         res.set_content(R"({"error":"conflict"})", "application/json");
     });
-    auto t = start_server(svr, kPort_ErrorStatus);
+    int port = 0;
+    auto t = start_server(svr, port);
 
-    adai::ModelNameClient client(base_url(kPort_ErrorStatus));
+    adai::ModelNameClient client(base_url(port));
     EXPECT_THROW(client.resolve_model("m"), std::runtime_error);
 
     stop_server(svr, t);
