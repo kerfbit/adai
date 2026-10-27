@@ -14,6 +14,7 @@
 
 #include "../src/ChatbotAPI.hpp"
 #include <gtest/gtest.h>
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <thread>
@@ -98,6 +99,9 @@ class ChatbotAPITest : public ::testing::Test {
     // call_generate_response() above (TD-038).
     std::string call_handle_profile() {
         return api->handle_profile();
+    }
+    std::string call_handle_health() {
+        return api->handle_health();
     }
 
     // batched_engine_ is private; same friendship-doesn't-propagate reason as
@@ -469,6 +473,62 @@ TEST_F(ChatbotAPITest, HandleExportSession_ReturnsSerializedConversationData) {
     // (not a placeholder) crossed the HTTP boundary.
     EXPECT_NE(data.find("MAX_MESSAGES:"), std::string::npos) << data;
     EXPECT_NE(data.find("user|"), std::string::npos) << data;
+}
+
+// TD-227: turns on one session run one at a time (each holds the session's mutex from the user
+// message to the reply). The ConversationContext has no locking of its own, and concurrent turns
+// used to race on it; run under the TSan build to see the race on the old code.
+TEST_F(ChatbotAPITest, ConcurrentTurnsOnOneSessionAreSerialized) {
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 4;
+    config.strategy = "greedy";
+    api->set_generation_config(config);
+
+    constexpr int kTurns = 4;
+    std::vector<std::thread> threads;
+    std::vector<std::string> responses(kTurns);
+    for (int i = 0; i < kTurns; ++i) {
+        threads.emplace_back([&, i] {
+            responses[i] = call_handle_chat_session(
+                R"({"session_id":"shared-session","message":"hello world"})");
+        });
+    }
+    for (auto& t : threads) t.join();
+    for (const auto& r : responses) {
+        EXPECT_NE(r.find("\"success\":true"), std::string::npos) << r;
+    }
+    // Every turn added its user message and its reply: 2 * kTurns messages, in pairs.
+    const std::string exported =
+        call_handle_export_session(R"({"session_id":"shared-session"})");
+    ConversationContext restored(20, 100000);
+    restored.deserialize(api->parse_json_string(exported, "data"));
+    EXPECT_EQ(restored.get_message_count(), static_cast<size_t>(2 * kTurns)) << exported;
+}
+
+// TD-227: cleanup (run by /health) erasing a session while a request is using it. The request held a
+// raw pointer into the erased entry: a use-after-free. Sessions are shared_ptrs now, so it completes.
+TEST_F(ChatbotAPITest, CleanupDuringAnInFlightRequestKeepsTheSessionAlive) {
+    api = std::make_unique<ChatbotAPI>(model.get(), tokenizer.get(), 8080, /*session_timeout=*/0);
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 40;
+    config.strategy = "greedy";
+    api->set_generation_config(config);
+
+    std::atomic<bool> done{false};
+    std::string response;
+    std::thread request([&] {
+        response = call_handle_chat_session(R"({"session_id":"doomed","message":"hello world"})");
+        done = true;
+    });
+    int cleanups = 0;
+    while (!done) {
+        call_handle_health();  // timeout 0: erases every session, including "doomed"
+        ++cleanups;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    request.join();
+    EXPECT_GT(cleanups, 0);
+    EXPECT_NE(response.find("\"success\":true"), std::string::npos) << response;
 }
 
 TEST_F(ChatbotAPITest, HandleImportSession_MissingDataReturnsError) {

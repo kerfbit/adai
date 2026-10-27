@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.15.0
+// @adai-version: 0.16.0
 // @adai-reviewed: 2026-10-26
 
 #include "ChatbotAPI.hpp"
@@ -292,33 +292,12 @@ std::string ChatbotAPI::handle_chat_session(const std::string& request_body) {
         return create_error_response("Missing 'message' field in request");
     }
 
-    // Get or create session
-    // TODO: See TD-227 in TECHNICAL_DEBT.md - this raw pointer is used below with no lock held, across
-    // generation: same-session requests race on session->context, and cleanup can erase it.
-    Session* session = get_or_create_session(session_id);
-
-    // TD-095 (fixed): when session_id arrives empty (every first message of a
-    // new conversation — see ChatbotCLI::generate_response(), which only
-    // includes "session_id" in the request once it has one to send),
-    // get_or_create_session() allocates a fresh internal id but there was no
-    // way to recover it here — session_id stayed empty for the rest of this
-    // function, so the response below always reported "session_id":"" on
-    // session creation. The client (ChatbotCLI and anything else following
-    // the same "start empty, adopt whatever the server returns" pattern)
-    // never learns the real id, so it can never send it on the next message —
-    // every single message silently created and abandoned a brand-new
-    // session, and multi-turn history never actually accumulated.
-    // generate_batch_session_responses() already solves this exact "might be
-    // newly created" case via the same reverse pointer-lookup; mirrored here.
-    if (session_id.empty()) {
-        std::lock_guard<std::mutex> lock(sessions_mutex_);
-        for (const auto& pair : sessions_) {
-            if (pair.second.get() == session) {
-                session_id = pair.first;
-                break;
-            }
-        }
-    }
+    // Get or create session. TD-227: a shared_ptr keeps it alive if cleanup erases it mid-request,
+    // and its mutex serializes turns. Same-session requests used to race on the unlocked
+    // ConversationContext, across a generation of several seconds. TD-095: an empty session_id is
+    // set to the new session's id, so the response reports it.
+    std::shared_ptr<Session> session = get_or_create_session(session_id);
+    std::lock_guard<std::mutex> turn(session->mutex);
 
     // Add user message to conversation context
     session->context->add_user_message(message);
@@ -361,13 +340,13 @@ std::string ChatbotAPI::handle_clear_session(const std::string& request_body) {
         return create_error_response("Missing 'session_id' field in request");
     }
 
-    std::lock_guard<std::mutex> lock(sessions_mutex_);
-    auto it = sessions_.find(session_id);
-    if (it != sessions_.end()) {
-        it->second->context->clear();
-        return R"({"success":true,"message":"Session cleared"})";
+    std::shared_ptr<Session> session = find_session(session_id);
+    if (!session) {
+        return create_error_response("Session not found");
     }
-    return create_error_response("Session not found");
+    std::lock_guard<std::mutex> turn(session->mutex);  // TD-227: not in the middle of a turn
+    session->context->clear();
+    return R"({"success":true,"message":"Session cleared"})";
 }
 
 std::string ChatbotAPI::handle_export_session(const std::string& request_body) {
@@ -379,14 +358,14 @@ std::string ChatbotAPI::handle_export_session(const std::string& request_body) {
         return create_error_response("Missing 'session_id' field in request");
     }
 
+    std::shared_ptr<Session> session = find_session(session_id);
+    if (!session) {
+        return create_error_response("Session not found");
+    }
     std::string data;
     {
-        std::lock_guard<std::mutex> lock(sessions_mutex_);
-        auto it = sessions_.find(session_id);
-        if (it == sessions_.end()) {
-            return create_error_response("Session not found");
-        }
-        data = it->second->context->serialize();
+        std::lock_guard<std::mutex> turn(session->mutex);  // TD-227
+        data = session->context->serialize();
     }
 
     std::ostringstream oss;
@@ -398,9 +377,8 @@ std::string ChatbotAPI::handle_export_session(const std::string& request_body) {
 std::string ChatbotAPI::handle_import_session(const std::string& request_body) {
     // TD-053: restores a ConversationContext from previously-exported data (ChatbotCLI's /load
     // reads its local file and sends the content here verbatim). Creates a new session the same
-    // way handle_chat_session() does when session_id arrives empty — mirrors that function's
-    // TD-095 fix (recovering the newly-allocated id via the same reverse pointer-lookup) so a
-    // client with no prior session yet can still adopt one from a /load.
+    // way handle_chat_session() does when session_id arrives empty (get_or_create_session() reports
+    // the new id, TD-095), so a client with no prior session yet can still adopt one from a /load.
     const nlohmann::json request = parse_request(request_body);
     std::string session_id = string_field(request, "session_id");
     std::string data = string_field(request, "data");
@@ -409,17 +387,9 @@ std::string ChatbotAPI::handle_import_session(const std::string& request_body) {
         return create_error_response("Missing 'data' field in request");
     }
 
-    // TODO: See TD-227 in TECHNICAL_DEBT.md - raw Session* used outside sessions_mutex_ (see handle_chat_session()).
-    Session* session = get_or_create_session(session_id);
-    if (session_id.empty()) {
-        std::lock_guard<std::mutex> lock(sessions_mutex_);
-        for (const auto& pair : sessions_) {
-            if (pair.second.get() == session) {
-                session_id = pair.first;
-                break;
-            }
-        }
-    }
+    // TD-227: see handle_chat_session(); an empty session_id is set to the new session's id.
+    std::shared_ptr<Session> session = get_or_create_session(session_id);
+    std::lock_guard<std::mutex> turn(session->mutex);
 
     try {
         // TODO: See TD-291 in TECHNICAL_DEBT.md - import adopts client-supplied limits/token counts; TD-293: a bad import wipes the session
@@ -542,23 +512,31 @@ std::string ChatbotAPI::create_session_id() {
     return oss.str();
 }
 
-Session* ChatbotAPI::get_or_create_session(const std::string& session_id) {
+std::shared_ptr<Session> ChatbotAPI::get_or_create_session(std::string& session_id) {
     std::lock_guard<std::mutex> lock(sessions_mutex_);
 
     // If session_id is empty or not found, create new session
     // TODO: See TD-232 in TECHNICAL_DEBT.md - any client-chosen ID creates a session, with no ID validation or
     // session cap.
-    // TODO: See TD-227 in TECHNICAL_DEBT.md - returns a raw pointer that callers use after this lock is released.
     if (session_id.empty() || sessions_.find(session_id) == sessions_.end()) {
-        std::string new_id = session_id.empty() ? create_session_id() : session_id;
-        sessions_[new_id] = std::make_unique<Session>();
-        return sessions_[new_id].get();
+        if (session_id.empty()) {
+            session_id = create_session_id();
+        }
+        auto session = std::make_shared<Session>();
+        sessions_[session_id] = session;
+        return session;
     }
 
     // Update last access time and return existing session
-    Session* session = sessions_[session_id].get();
+    std::shared_ptr<Session> session = sessions_[session_id];
     session->last_access = std::chrono::steady_clock::now();
     return session;
+}
+
+std::shared_ptr<Session> ChatbotAPI::find_session(const std::string& session_id) {
+    std::lock_guard<std::mutex> lock(sessions_mutex_);
+    auto it = sessions_.find(session_id);
+    return it == sessions_.end() ? nullptr : it->second;
 }
 
 void ChatbotAPI::cleanup_expired_sessions() {
@@ -577,7 +555,8 @@ void ChatbotAPI::cleanup_expired_sessions() {
 
 bool ChatbotAPI::is_session_expired(const Session& session) {
     auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::minutes>(now - session.last_access);
+    auto elapsed =
+        std::chrono::duration_cast<std::chrono::minutes>(now - session.last_access.load());
     return elapsed >= session_timeout_;
 }
 
@@ -1005,33 +984,32 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_session_responses(
         formatted_inputs.reserve(inputs.size());
         actual_session_ids.reserve(inputs.size());
 
+        // TD-227: every session in the batch stays alive (shared_ptr) and locked (its mutex) from the
+        // user message to the reply. Each distinct session is locked once (a batch may name one twice),
+        // in address order, so two overlapping batches can't deadlock.
+        std::vector<std::shared_ptr<Session>> sessions;
+        sessions.reserve(inputs.size());
         for (size_t i = 0; i < inputs.size(); ++i) {
-            // Get or create session
-            // TODO: See TD-227 in TECHNICAL_DEBT.md - raw Session* used outside sessions_mutex_.
             std::string sid = (i < session_ids.size()) ? session_ids[i] : "";
-            Session* session = get_or_create_session(sid);
+            sessions.push_back(get_or_create_session(sid));  // an empty sid becomes the new id
+            actual_session_ids.push_back(sid);
+        }
+        std::vector<Session*> lock_order;
+        for (const auto& session : sessions) {
+            lock_order.push_back(session.get());
+        }
+        std::sort(lock_order.begin(), lock_order.end());
+        lock_order.erase(std::unique(lock_order.begin(), lock_order.end()), lock_order.end());
+        std::vector<std::unique_lock<std::mutex>> turns;
+        turns.reserve(lock_order.size());
+        for (Session* session : lock_order) {
+            turns.emplace_back(session->mutex);
+        }
 
-            // Add user message to context
-            session->context->add_user_message(inputs[i]);
-            session->last_access = std::chrono::steady_clock::now();
-
-            // Format context
-            std::string formatted_context = session->context->format_for_model();
-            formatted_inputs.push_back(formatted_context);
-
-            // Store actual session ID (might be newly created)
-            if (sid.empty()) {
-                // Find the session ID that was created
-                std::lock_guard<std::mutex> lock(sessions_mutex_);
-                for (const auto& pair : sessions_) {
-                    if (pair.second.get() == session) {
-                        actual_session_ids.push_back(pair.first);
-                        break;
-                    }
-                }
-            } else {
-                actual_session_ids.push_back(sid);
-            }
+        for (size_t i = 0; i < inputs.size(); ++i) {
+            sessions[i]->context->add_user_message(inputs[i]);
+            sessions[i]->last_access = std::chrono::steady_clock::now();
+            formatted_inputs.push_back(sessions[i]->context->format_for_model());
         }
 
         // Generate batch responses for formatted contexts
@@ -1043,15 +1021,9 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_session_responses(
             return batch_response;
         }
 
-        // Add assistant responses to conversation contexts
-        for (size_t i = 0; i < temp_response.responses.size(); ++i) {
-            if (i < actual_session_ids.size()) {
-                std::lock_guard<std::mutex> lock(sessions_mutex_);
-                auto it = sessions_.find(actual_session_ids[i]);
-                if (it != sessions_.end()) {
-                    it->second->context->add_assistant_message(temp_response.responses[i]);
-                }
-            }
+        // Add assistant responses to conversation contexts (the sessions are still locked)
+        for (size_t i = 0; i < temp_response.responses.size() && i < sessions.size(); ++i) {
+            sessions[i]->context->add_assistant_message(temp_response.responses[i]);
         }
 
         batch_response.responses = temp_response.responses;

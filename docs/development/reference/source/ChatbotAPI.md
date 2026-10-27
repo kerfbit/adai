@@ -375,3 +375,11 @@ Request bodies are parsed with nlohmann/json (`parse_request()`, `string_field()
 parsers that emptied any batch whose messages contained `]`, misread non-string values, and left `\uXXXX` escapes literal. A
 malformed body or a field of the wrong type gets HTTP 400 with a message naming the field. Missing fields keep their existing error
 responses (HTTP 200, TD-236). `parse_json_string()`/`parse_json_array()` remain as non-throwing readers.
+
+## Addendum (October 26, 2026): sessions are shared and locked per turn (TD-227)
+
+Sessions are `std::shared_ptr<Session>`, so cleanup can't free one a request is using. Each `Session` has a mutex held for a whole
+turn (user message, generation, reply) and by clear, export and import, so turns in one conversation run one at a time.
+`last_access` is atomic. Batch-session requests lock each distinct session once, in address order. `get_or_create_session()` reports
+a new session's id directly. Tests: `ConcurrentTurnsOnOneSessionAreSerialized`, `CleanupDuringAnInFlightRequestKeepsTheSessionAlive`
+(TSan-clean with `OMP_NUM_THREADS=1`).

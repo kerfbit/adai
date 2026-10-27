@@ -1306,6 +1306,8 @@ The generation and model math run is complete.
   model).
 - TD-226/228 (done in code: request bodies are parsed with nlohmann/json, so brackets, escapes and `\uXXXX` in messages work, and
   malformed or mistyped bodies get HTTP 400).
+- TD-227 (done in code: shared session ownership and a per-session turn mutex; TSan found races, a use-after-free and a SEGV on the old
+  code).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -4802,7 +4804,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Inference / Serving / API | October 8, 2026 | 4-6 hours |
+| **HIGH** | Open — code fix landed October 26, 2026 | Inference / Serving / API | October 8, 2026 | 4-6 hours |
 
 Description:
 Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). `get_or_create_session()` returns a raw `Session*` after releasing `sessions_mutex_`.
@@ -4821,11 +4823,31 @@ Found by reading the code paths.
 
 Action Items:
 
-- [ ] Hold sessions as `std::shared_ptr<Session>` so an in-flight request keeps its session alive after erasure.
-- [ ] Add a per-session mutex held for the read-modify-generate-append sequence (serializing turns within one conversation, which is also the correct conversational semantics).
-- [ ] Tests: concurrent same-session requests under TSan; cleanup during an in-flight request.
+- [x] Hold sessions as `std::shared_ptr<Session>` so an in-flight request keeps its session alive after erasure.
+- [x] Add a per-session mutex held for the read-modify-generate-append sequence (serializing turns within one conversation, which is also the correct conversational semantics).
+- [x] Tests: concurrent same-session requests under TSan; cleanup during an in-flight request.
 
-Location in code: `src/ChatbotAPI.{hpp,cpp}` (`Session`, `get_or_create_session()`, `handle_chat_session()`, `handle_import_session()`, `generate_batch_session_responses()`); tagged `TODO: See TD-227`.
+**Fix (October 26, 2026).**
+- **Ownership.** `sessions_` holds `std::shared_ptr<Session>`. `get_or_create_session()` returns a `shared_ptr` and sets an empty
+  `session_id` to the new id, which removes the three reverse pointer lookups. A new `find_session()` looks one up without creating it.
+- **Locking.** `Session` has a mutex, held for a whole turn: user message, generation and reply in `handle_chat_session()`, and in
+  `handle_import_session()`, `handle_clear_session()` and `handle_export_session()`. `last_access` is atomic, since cleanup reads it
+  under `sessions_mutex_`.
+- **Batches.** `generate_batch_session_responses()` keeps every session alive and locked from the user messages to the replies. It
+  locks each distinct session once, in address order, so a batch naming a session twice, or two overlapping batches, can't deadlock.
+- **Lock order.** `sessions_mutex_` is never held while waiting for a session's mutex.
+
+Tests:
+- `ChatbotAPITest.ConcurrentTurnsOnOneSessionAreSerialized`: four threads on one session; all succeed and the history holds all 8
+  messages.
+- `CleanupDuringAnInFlightRequestKeepsTheSessionAlive`: with a 0-minute timeout, `/health` cleanup erases the session during
+  generation.
+
+Under the TSan build, with `OMP_NUM_THREADS=1` (TSan reports OpenMP's parallel regions in the model math falsely, since libgomp isn't
+instrumented), the old code reports data races in `ConversationContext::add_message`, then a heap-use-after-free and a SEGV. The new
+code is clean.
+
+Location in code: `src/ChatbotAPI.{hpp,cpp}` (`Session`, `get_or_create_session()`, `find_session()`, the session handlers, `generate_batch_session_responses()`).
 
 Files to Modify:
 

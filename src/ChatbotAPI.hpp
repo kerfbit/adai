@@ -1,10 +1,11 @@
 #pragma once
 
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.11.0
+// @adai-version: 0.12.0
 // @adai-reviewed: 2026-10-26
 
 
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -27,7 +28,11 @@
  */
 struct Session {
     std::unique_ptr<ConversationContext> context;
-    std::chrono::steady_clock::time_point last_access;
+    // TD-227: written by requests under `mutex`, read by cleanup under sessions_mutex_.
+    std::atomic<std::chrono::steady_clock::time_point> last_access;
+    // TD-227: held across one turn (add the message, generate, add the reply) and by every other
+    // use of `context`, which has no locking of its own. Turns in one conversation run one at a time.
+    std::mutex mutex;
 
     // TODO: See TD-294 in TECHNICAL_DEBT.md - 2048-token budget is unrelated to the model's MAX_SEQ_LENGTH
     Session(size_t max_messages = 10, size_t max_tokens = 2048)
@@ -304,7 +309,11 @@ class ChatbotAPI {
 
     // Session management
     static std::string create_session_id();
-    Session* get_or_create_session(const std::string& session_id);
+    // TD-227: shared ownership, so a session erased by cleanup stays alive for a request using it.
+    // An empty session_id creates a session and is set to its new id.
+    std::shared_ptr<Session> get_or_create_session(std::string& session_id);
+    // The session, or nullptr; doesn't create one.
+    std::shared_ptr<Session> find_session(const std::string& session_id);
     void cleanup_expired_sessions();
     bool is_session_expired(const Session& session);
 
@@ -356,7 +365,7 @@ class ChatbotAPI {
     bool running_{false};
 
     // Session storage (thread-safe)
-    std::unordered_map<std::string, std::unique_ptr<Session>> sessions_;
+    std::unordered_map<std::string, std::shared_ptr<Session>> sessions_;  // TD-227
     mutable std::mutex sessions_mutex_;
 
     // Configuration
