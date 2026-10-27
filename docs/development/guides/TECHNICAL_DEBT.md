@@ -1308,6 +1308,8 @@ The generation and model math run is complete.
   malformed or mistyped bodies get HTTP 400).
 - TD-227 (done in code: shared session ownership and a per-session turn mutex; TSan found races, a use-after-free and a SEGV on the old
   code).
+- TD-291/292/293 (done in code: imports keep the session's limits, recompute token counts and can't wipe the history; the newest
+  message is never evicted, and an over-long chat message gets HTTP 400). All the chat-serving HIGH items are now fixed.
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6822,7 +6824,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | NLP / ConversationContext | October 9, 2026 | 2-4 hours |
+| **HIGH** | Open — code fix landed October 26, 2026 | NLP / ConversationContext | October 9, 2026 | 2-4 hours |
 
 Description:
 Found while writing the code-traced reference [ConversationContext.md](../reference/source/ConversationContext.md), and confirmed by running the real
@@ -6840,11 +6842,22 @@ limits, and combined with TD-232 it can do so across unlimited sessions.
 
 Action Items:
 
-- [ ] In `deserialize()` (or an import-specific overload), keep the caller's limits instead of adopting imported ones; ignore or clamp imported metadata.
-- [ ] Recompute token counts on import (ignore stored counts), rejecting negative values; enforce a maximum import size in `ChatbotAPI`.
-- [ ] Tests: imported limits and token counts can't exceed the receiving session's limits.
+- [x] In `deserialize()` (or an import-specific overload), keep the caller's limits instead of adopting imported ones; ignore or clamp imported metadata.
+- [x] Recompute token counts on import (ignore stored counts), rejecting negative values; enforce a maximum import size in `ChatbotAPI`.
+- [x] Tests: imported limits and token counts can't exceed the receiving session's limits.
 
-Location in code: `src/ConversationContext.cpp` (`deserialize()`), `src/ChatbotAPI.cpp` (`handle_import_session()`); tagged `TODO: See TD-291`.
+**Fix (October 26, 2026, with TD-292/293).**
+- **Limits.** `ConversationContext::deserialize()` keeps the receiving context's limits and ignores the imported `MAX_MESSAGES`,
+  `MAX_TOKENS` and `KEEP_SYSTEM` lines.
+- **Token counts.** Every message's token count is recomputed from its content; stored counts are ignored.
+- **Size cap.** `ChatbotAPI::handle_import_session()` refuses data over 1 MiB with HTTP 400.
+
+An import can no longer make a session unlimited or under-count it.
+
+Tests: `ImportKeepsTheReceivingContextsLimits` (50 messages with `MAX_*:0` into a 5-message context) and
+`ImportRecomputesTokenCounts` (counts of 1 and −100000), plus `ChatbotAPITest.OversizedImportIsRejected`. All fail on the old code.
+
+Location in code: `src/ConversationContext.cpp` (`deserialize()`), `src/ChatbotAPI.cpp` (`handle_import_session()`); no longer tagged.
 
 Files to Modify:
 
@@ -6859,7 +6872,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | NLP / ConversationContext | October 9, 2026 | 1-2 hours |
+| **HIGH** | Open — code fix landed October 26, 2026 | NLP / ConversationContext | October 9, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-291 and confirmed by running the real class. `truncate_to_limits()` evicts
@@ -6872,11 +6885,21 @@ HTTP 500, and the conversation history is gone.
 
 Action Items:
 
-- [ ] Never evict the message just added: truncate it (e.g. keep its tail) to fit, or reject it with a clear error before touching history.
-- [ ] In `ChatbotAPI`, reject over-long messages with a 4xx before adding them.
-- [ ] Test: an oversized message leaves earlier history intact and produces a clear error or truncated content.
+- [x] Never evict the message just added: truncate it (e.g. keep its tail) to fit, or reject it with a clear error before touching history.
+- [x] In `ChatbotAPI`, reject over-long messages with a 4xx before adding them.
+- [x] Test: an oversized message leaves earlier history intact and produces a clear error or truncated content.
 
-Location in code: `src/ConversationContext.cpp` (`truncate_to_limits()`); tagged `TODO: See TD-292`.
+**Fix (October 26, 2026).**
+- **Eviction.** `truncate_to_limits()` evicts the oldest messages but never the newest. A lone newest message keeps the existing
+  1.2× slack; beyond that it keeps its tail, cut on a UTF-8 boundary, within the space the system message leaves. It is evicted only
+  when the system message alone already exceeds the budget, which keeps TD-125's tests' behaviour.
+- **Serving.** `ChatbotAPI::handle_chat_session()` refuses a message larger than the session's whole budget with HTTP 400 before it
+  touches the history.
+
+Tests: `ConversationContextTest.OversizedNewestMessageKeepsItsTail` and
+`ChatbotAPITest.OversizedChatMessageIsRejectedAndTheHistoryKept` (the earlier turn survives). Both fail on the old code.
+
+Location in code: `src/ConversationContext.cpp` (`truncate_to_limits()`), `src/ChatbotAPI.cpp` (`handle_chat_session()`).
 
 Files to Modify:
 
@@ -6890,7 +6913,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | NLP / ConversationContext | October 9, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 26, 2026 | NLP / ConversationContext | October 9, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-291 and confirmed by running the real class. `deserialize()` calls
@@ -6901,10 +6924,19 @@ throws) aborts mid-parse, leaving the context empty. `ChatbotAPI::handle_import_
 
 Action Items:
 
-- [ ] Parse into a temporary `ConversationContext` and swap it in only on success (strong exception guarantee); skip or report bad lines instead of throwing mid-way.
-- [ ] Test: a malformed import leaves existing history unchanged.
+- [x] Parse into a temporary `ConversationContext` and swap it in only on success (strong exception guarantee); skip or report bad lines instead of throwing mid-way.
+- [x] Test: a malformed import leaves existing history unchanged.
 
-Location in code: `src/ConversationContext.cpp` (`deserialize()`); tagged `TODO: See TD-293`.
+**Fix (October 26, 2026, with TD-291).**
+- **Strong guarantee.** `deserialize()` parses into a temporary context and swaps it in only at the end.
+- **No mid-parse throws.** Token counts are no longer parsed (they're recomputed), so a bad count can't throw halfway.
+- **Bad lines.** Lines without the `role|count|content` shape are skipped.
+- **Non-conversations.** Data with no `---` line isn't a serialized conversation: it throws `std::invalid_argument` and leaves the
+  history unchanged. `load_from_file()` gets all of this too, since it calls `deserialize()`.
+
+Tests: `BadTokenCountNoLongerWipesTheHistory` and `NonConversationDataLeavesTheHistoryUnchanged`, both failing on the old code.
+
+Location in code: `src/ConversationContext.cpp` (`deserialize()`); no longer tagged.
 
 Files to Modify:
 

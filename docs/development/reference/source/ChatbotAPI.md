@@ -383,3 +383,8 @@ turn (user message, generation, reply) and by clear, export and import, so turns
 `last_access` is atomic. Batch-session requests lock each distinct session once, in address order. `get_or_create_session()` reports
 a new session's id directly. Tests: `ConcurrentTurnsOnOneSessionAreSerialized`, `CleanupDuringAnInFlightRequestKeepsTheSessionAlive`
 (TSan-clean with `OMP_NUM_THREADS=1`).
+
+## Addendum (October 26, 2026): over-long messages and oversized imports (TD-291, TD-292)
+
+`/chat/session` refuses a message larger than the session's token budget with HTTP 400 before touching the history, and
+`/chat/session/import` refuses data over 1 MiB with HTTP 400. Imports keep the session's own limits (see ConversationContext).

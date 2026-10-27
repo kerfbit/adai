@@ -2,8 +2,8 @@
 #define CONVERSATIONCONTEXT_HPP
 
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-09-13
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-10-26
 
 
 #include <deque>
@@ -154,6 +154,17 @@ class ConversationContext {
      */
     int get_total_tokens() const;
 
+    /** @brief The token budget (0 = unlimited). */
+    int get_max_tokens() const {
+        return max_tokens;
+    }
+
+    /**
+     * @brief The token count add_message() estimates for `content` when none is given. Public so a
+     * caller can reject an over-long message before it reaches the history (TD-292).
+     */
+    static int estimate_tokens(const std::string& content);
+
     /**
      * @brief Get current message count
      * @return Number of messages (excluding system message)
@@ -233,9 +244,17 @@ class ConversationContext {
 
     /**
      * @brief Restore conversation state from a string previously produced by serialize().
-     * Replaces all current state, the same way load_from_file() does. Added for TD-053 so
-     * ChatbotAPI can accept an uploaded conversation export over HTTP.
+     * Replaces the messages and system message, the same way load_from_file() does. Added for
+     * TD-053 so ChatbotAPI can accept an uploaded conversation export over HTTP.
+     *
+     * The data is untrusted. TD-291: this context keeps its own limits (the imported MAX_MESSAGES,
+     * MAX_TOKENS and KEEP_SYSTEM lines are ignored; 0 used to make a session unlimited) and every
+     * token count is recomputed (stored counts of 1 or negative defeated the budget). TD-293: the
+     * data is parsed into a temporary and swapped in at the end, so a malformed import leaves the
+     * current history as it was; lines that don't parse are skipped.
      * @param data Serialized conversation state, as produced by serialize().
+     * @throws std::invalid_argument if `data` has no "---" line (not a serialized conversation);
+     *         the history is unchanged.
      */
     void deserialize(const std::string& data);
 
@@ -261,13 +280,6 @@ class ConversationContext {
     int max_tokens;                    // Max total tokens
     bool keep_system_message;          // Whether to preserve system message
     int total_tokens{0};               // Cached total token count
-
-    /**
-     * @brief Estimate token count for a message
-     * @param content Message text
-     * @return Estimated token count (rough approximation)
-     */
-    static int estimate_tokens(const std::string& content);
 
     /**
      * @brief Update total token count cache

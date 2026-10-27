@@ -387,6 +387,77 @@ TEST(ConversationContextTest, TruncationEvictsSystemMessageWhenFlagFalse) {
     EXPECT_LE(context.get_total_tokens(), 10);
 }
 
+// ============================================================================
+// TD-291/292/293: imports are untrusted; the newest message is never evicted
+// ============================================================================
+
+// TD-291: imported MAX_MESSAGES/MAX_TOKENS used to replace the receiving context's limits (0 made it
+// unlimited: 500 imported messages were all kept).
+TEST(ConversationContextTest, ImportKeepsTheReceivingContextsLimits) {
+    std::string data = "MAX_MESSAGES:0\nMAX_TOKENS:0\nKEEP_SYSTEM:1\n---\n";
+    for (int i = 0; i < 50; ++i)
+        data += "user|5|message number " + std::to_string(i) + "\n";
+    ConversationContext context(5, 100);
+    context.deserialize(data);
+    EXPECT_LE(context.get_message_count(), 5);
+    EXPECT_EQ(context.get_max_tokens(), 100);
+    for (int i = 0; i < 20; ++i)
+        context.add_user_message("later message " + std::to_string(i));
+    EXPECT_LE(context.get_message_count(), 5) << "the session stays bounded after the import";
+}
+
+// TD-291: stored token counts used to be trusted; 1 on a huge message, or a negative count, defeated
+// the budget (-100000 made total_tokens negative).
+TEST(ConversationContextTest, ImportRecomputesTokenCounts) {
+    const std::string huge(4000, 'x');
+    const std::string data = "MAX_MESSAGES:20\nMAX_TOKENS:2048\nKEEP_SYSTEM:1\n---\n"
+                             "user|1|" + huge + "\nassistant|-100000|short reply\n";
+    ConversationContext context(20, 400);
+    context.deserialize(data);
+    EXPECT_GT(context.get_total_tokens(), 0);
+    EXPECT_LE(context.get_total_tokens(), 400 * 1.2);
+}
+
+// TD-293: a non-numeric token count made std::stoi throw after the history was cleared, leaving the
+// session empty. Counts are recomputed now, so that line imports.
+TEST(ConversationContextTest, BadTokenCountNoLongerWipesTheHistory) {
+    ConversationContext context(10, 1000);
+    context.add_user_message("keep me");
+    EXPECT_NO_THROW(context.deserialize("MAX_MESSAGES:10\n---\nuser|abc|hello\n"));
+    ASSERT_EQ(context.get_message_count(), 1);
+    EXPECT_EQ(context.get_last_user_message(), "hello");
+}
+
+TEST(ConversationContextTest, NonConversationDataLeavesTheHistoryUnchanged) {
+    ConversationContext context(10, 1000);
+    context.add_user_message("first");
+    context.add_assistant_message("second");
+    EXPECT_THROW(context.deserialize("this is not an export"), std::invalid_argument);
+    ASSERT_EQ(context.get_message_count(), 2);
+    EXPECT_EQ(context.get_last_user_message(), "first");
+}
+
+// TD-292: a message that alone exceeded 1.2x the budget evicted everything, itself included. The
+// newest message now stays, keeping its tail within the budget.
+TEST(ConversationContextTest, OversizedNewestMessageKeepsItsTail) {
+    ConversationContext context(10, 100);
+    context.add_user_message("earlier question");
+    context.add_assistant_message("earlier answer");
+    std::string long_message;
+    for (int i = 0; i < 400; ++i)
+        long_message += "word" + std::to_string(i) + " ";
+    long_message += "THE END";
+    context.add_user_message(long_message);
+
+    ASSERT_EQ(context.get_message_count(), 1) << "the conversation must not be emptied";
+    const std::string kept = context.get_last_user_message();
+    EXPECT_FALSE(kept.empty());
+    EXPECT_LT(kept.size(), long_message.size());
+    EXPECT_EQ(long_message.compare(long_message.size() - kept.size(), kept.size(), kept), 0)
+        << "the kept part is the message's tail";
+    EXPECT_LE(context.get_total_tokens(), 100);
+}
+
 TEST(ConversationContextTest, ManualTruncation) {
     ConversationContext context(20, 0);
 

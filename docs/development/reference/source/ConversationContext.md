@@ -225,3 +225,12 @@ limit table (unverified guidance), the "Future Enhancements" list (generic), and
 counts, automatic truncation), the API surface and examples, both output formats, the `get_statistics()`
 format, summarization semantics, custom roles, and the trade-offs (FIFO eviction, estimation vs.
 exact counting, not thread-safe).
+
+## Addendum (October 26, 2026): untrusted imports, protected newest message (TD-291, TD-292, TD-293)
+
+- **`deserialize()`.** It keeps this context's limits (imported `MAX_*`/`KEEP_SYSTEM` are ignored) and recomputes every token count.
+  It parses into a temporary that is swapped in only at the end, skips lines that don't parse, and throws `std::invalid_argument`,
+  history unchanged, for data with no `---` line.
+- **`truncate_to_limits()`.** It never evicts the newest message. Past the 1.2× slack it keeps the message's tail within the space
+  the system message leaves.
+- **New accessors.** `get_max_tokens()`, and `estimate_tokens()` is now public.

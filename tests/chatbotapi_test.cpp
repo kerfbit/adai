@@ -531,6 +531,33 @@ TEST_F(ChatbotAPITest, CleanupDuringAnInFlightRequestKeepsTheSessionAlive) {
     EXPECT_NE(response.find("\"success\":true"), std::string::npos) << response;
 }
 
+// TD-292: an over-long message used to evict the whole history (and itself), then fail with HTTP 500
+// on the empty prompt. It's refused now (HTTP 400 from the route) and the history is kept.
+TEST_F(ChatbotAPITest, OversizedChatMessageIsRejectedAndTheHistoryKept) {
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 3;
+    config.strategy = "greedy";
+    api->set_generation_config(config);
+    call_handle_chat_session(R"({"session_id":"long-test","message":"hello world"})");
+
+    std::string huge;
+    for (int i = 0; i < 3000; ++i)
+        huge += "hello ";
+    EXPECT_THROW(call_handle_chat_session(R"({"session_id":"long-test","message":")" + huge + "\"}"),
+                 std::invalid_argument);
+
+    const std::string exported = call_handle_export_session(R"({"session_id":"long-test"})");
+    ConversationContext restored(20, 100000);
+    restored.deserialize(api->parse_json_string(exported, "data"));
+    EXPECT_EQ(restored.get_message_count(), 2u) << "the earlier turn is still there";
+}
+
+// TD-291: imports are capped in size (the session's own limits bound what it keeps).
+TEST_F(ChatbotAPITest, OversizedImportIsRejected) {
+    const std::string data(2 * 1024 * 1024, 'x');
+    EXPECT_THROW(call_handle_import_session(R"({"data":")" + data + "\"}"), std::invalid_argument);
+}
+
 TEST_F(ChatbotAPITest, HandleImportSession_MissingDataReturnsError) {
     std::string response = call_handle_import_session(R"({"session_id":"whatever"})");
     EXPECT_NE(response.find(R"("success":false)"), std::string::npos) << response;

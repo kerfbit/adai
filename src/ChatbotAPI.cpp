@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.16.0
+// @adai-version: 0.16.1
 // @adai-reviewed: 2026-10-26
 
 #include "ChatbotAPI.hpp"
@@ -24,6 +24,9 @@ namespace {
 struct BadRequest : std::invalid_argument {
     using std::invalid_argument::invalid_argument;
 };
+
+// TD-291: the largest conversation import accepted (1 MiB), whatever the session would keep of it.
+constexpr size_t kMaxImportBytes = 1 << 20;
 
 nlohmann::json parse_request(const std::string& body) {
     nlohmann::json request = nlohmann::json::parse(body, nullptr, /*allow_exceptions=*/false);
@@ -299,6 +302,16 @@ std::string ChatbotAPI::handle_chat_session(const std::string& request_body) {
     std::shared_ptr<Session> session = get_or_create_session(session_id);
     std::lock_guard<std::mutex> turn(session->mutex);
 
+    // TD-292: a message bigger than the session's whole token budget is refused before it touches
+    // the history. It used to evict every message, itself included, and the empty prompt then
+    // failed the request with HTTP 500.
+    const int message_tokens = ConversationContext::estimate_tokens(message);
+    const int budget = session->context->get_max_tokens();
+    if (budget > 0 && message_tokens > budget) {
+        throw BadRequest("'message' is about " + std::to_string(message_tokens) +
+                         " tokens; a session holds at most " + std::to_string(budget));
+    }
+
     // Add user message to conversation context
     session->context->add_user_message(message);
     session->last_access = std::chrono::steady_clock::now();
@@ -386,13 +399,19 @@ std::string ChatbotAPI::handle_import_session(const std::string& request_body) {
     if (data.empty()) {
         return create_error_response("Missing 'data' field in request");
     }
+    // TD-291: the import is bounded by the session's own limits; this caps the work of parsing it.
+    if (data.size() > kMaxImportBytes) {
+        throw BadRequest("'data' is " + std::to_string(data.size()) + " bytes; imports are limited to " +
+                         std::to_string(kMaxImportBytes));
+    }
 
     // TD-227: see handle_chat_session(); an empty session_id is set to the new session's id.
     std::shared_ptr<Session> session = get_or_create_session(session_id);
     std::lock_guard<std::mutex> turn(session->mutex);
 
     try {
-        // TODO: See TD-291 in TECHNICAL_DEBT.md - import adopts client-supplied limits/token counts; TD-293: a bad import wipes the session
+        // TD-291/TD-293: deserialize() keeps this session's limits, recomputes token counts and
+        // leaves the history unchanged if the data doesn't parse.
         session->context->deserialize(data);
     } catch (const std::exception& e) {
         return create_error_response(std::string("Failed to import conversation: ") + e.what());

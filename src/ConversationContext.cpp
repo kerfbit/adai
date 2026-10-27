@@ -1,12 +1,13 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-09-13
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-10-26
 
 #include "ConversationContext.hpp"
 #include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <sstream>
+#include <stdexcept>
 
 namespace {
 
@@ -230,6 +231,27 @@ void ConversationContext::clear_all() {
     total_tokens = 0;
 }
 
+namespace {
+// TD-292: the longest tail of `content` whose estimated token count fits `max_tokens`, starting on a
+// UTF-8 character boundary.
+std::string tail_within_tokens(const std::string& content, int max_tokens) {
+    size_t lo = 0, hi = content.size();  // find the smallest start whose tail fits
+    while (lo < hi) {
+        const size_t mid = lo + (hi - lo) / 2;
+        if (ConversationContext::estimate_tokens(content.substr(mid)) <= max_tokens) {
+            hi = mid;
+        } else {
+            lo = mid + 1;
+        }
+    }
+    size_t start = lo;
+    while (start < content.size() && (static_cast<unsigned char>(content[start]) & 0xC0) == 0x80) {
+        ++start;
+    }
+    return content.substr(start);
+}
+}  // namespace
+
 void ConversationContext::truncate_to_limits() {
     // Truncate by message count
     if (max_messages > 0) {
@@ -240,13 +262,26 @@ void ConversationContext::truncate_to_limits() {
 
     // Truncate by token count
     if (max_tokens > 0) {
-        while (total_tokens > max_tokens && !messages.empty()) {
-            // Keep at least one message if possible
-            // TODO: See TD-292 in TECHNICAL_DEBT.md - the newest message isn't protected; one oversized message evicts everything, itself included
-            if (messages.size() == 1 && total_tokens <= max_tokens * 1.2) {
-                break;
-            }
+        // TD-292: evict the oldest messages, never the newest. A message that alone exceeded 1.2x
+        // the budget used to evict everything, itself included, leaving an empty conversation (and
+        // an empty prompt that failed the request).
+        while (total_tokens > max_tokens && messages.size() > 1) {
             remove_oldest_message();
+        }
+        // A lone newest message keeps the existing 1.2x slack. Past that it keeps its tail, within
+        // the space the system message leaves; only with no space left at all is it evicted.
+        if (messages.size() == 1 && total_tokens > max_tokens * 1.2) {
+            const int system_tokens = system_message.has_value() ? system_message->token_count : 0;
+            const int available = max_tokens - system_tokens;
+            Message& last = messages.back();
+            if (available > 0) {
+                total_tokens -= last.token_count;
+                last.content = tail_within_tokens(last.content, available);
+                last.token_count = estimate_tokens(last.content);
+                total_tokens += last.token_count;
+            } else {
+                remove_oldest_message();
+            }
         }
 
         // TD-125: keep_system_message previously had no effect here — the
@@ -310,9 +345,9 @@ void ConversationContext::save_to_file(const std::string& filepath) const {
 }
 
 void ConversationContext::deserialize(const std::string& data) {
-    // Clear current state
-    // TODO: See TD-293 in TECHNICAL_DEBT.md - clears before parsing, so a malformed import wipes the existing history
-    clear_all();
+    // TD-293: parse into a temporary with this context's own limits (TD-291) and swap it in at the
+    // end; clearing first used to leave the session empty when a line failed to parse.
+    ConversationContext parsed(max_messages, max_tokens, keep_system_message);
 
     std::istringstream iss(data);
     std::string line;
@@ -323,47 +358,44 @@ void ConversationContext::deserialize(const std::string& data) {
             metadata_section = false;
             continue;
         }
-
+        // TD-291: the metadata section (MAX_MESSAGES, MAX_TOKENS, KEEP_SYSTEM) is ignored: imported
+        // limits used to replace this context's, and 0 made it unlimited.
         if (metadata_section) {
-            // Parse metadata
-            size_t colon_pos = line.find(':');
-            if (colon_pos != std::string::npos) {
-                std::string key = line.substr(0, colon_pos);
-                std::string value = line.substr(colon_pos + 1);
+            continue;
+        }
 
-                if (key == "MAX_MESSAGES") {
-                    // TODO: See TD-291 in TECHNICAL_DEBT.md - imported MAX_MESSAGES/MAX_TOKENS replace the caller's limits (0 = unlimited)
-                    max_messages = std::stoi(value);
-                } else if (key == "MAX_TOKENS") {
-                    max_tokens = std::stoi(value);
-                } else if (key == "KEEP_SYSTEM") {
-                    keep_system_message = (value == "1");
-                }
-            }
+        // Parse message: role|token_count|content
+        size_t first_pipe = line.find('|');
+        if (first_pipe == std::string::npos) {
+            continue;
+        }
+
+        size_t second_pipe = line.find('|', first_pipe + 1);
+        if (second_pipe == std::string::npos) {
+            continue;
+        }
+
+        // TD-291: the stored token count is ignored and recomputed (counts of 1 or negative
+        // defeated the budget, and a non-numeric one threw mid-parse).
+        std::string role = line.substr(0, first_pipe);
+        std::string content = unescape_from_line(line.substr(second_pipe + 1));
+
+        if (role == "SYSTEM") {
+            parsed.set_system_message(content);
         } else {
-            // Parse message: role|token_count|content
-            size_t first_pipe = line.find('|');
-            if (first_pipe == std::string::npos) {
-                continue;
-            }
-
-            size_t second_pipe = line.find('|', first_pipe + 1);
-            if (second_pipe == std::string::npos) {
-                continue;
-            }
-
-            std::string role = line.substr(0, first_pipe);
-            // TODO: See TD-291 in TECHNICAL_DEBT.md - imported token counts are trusted (0/1/negative defeat the budget)
-            int token_count = std::stoi(line.substr(first_pipe + 1, second_pipe - first_pipe - 1));
-            std::string content = unescape_from_line(line.substr(second_pipe + 1));
-
-            if (role == "SYSTEM") {
-                set_system_message(content, token_count);
-            } else {
-                add_message(role, content, token_count);
-            }
+            parsed.add_message(role, content);
         }
     }
+
+    // Data without the metadata/messages separator isn't a serialized conversation: refuse it
+    // rather than replace the history with nothing.
+    if (metadata_section) {
+        throw std::invalid_argument("not a serialized conversation (no '---' line)");
+    }
+
+    messages = std::move(parsed.messages);
+    system_message = std::move(parsed.system_message);
+    total_tokens = parsed.total_tokens;
 }
 
 void ConversationContext::load_from_file(const std::string& filepath) {
