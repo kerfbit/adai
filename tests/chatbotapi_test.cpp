@@ -1917,3 +1917,44 @@ TEST_F(ChatbotAPITest, SessionCapEvictsTheLeastRecentlyUsed) {
         EXPECT_NO_THROW(call_handle_export_session(R"({"session_id":")" + sid + "\"}")) << sid;
     }
 }
+
+// ============================================================================
+// TD-234: batch endpoints use generate_response()
+// ============================================================================
+
+namespace {
+// Answers every query with "rag:" + the query, so a test sees which inputs went through RAG and in what order.
+class EchoRAG : public RAGInference {
+   public:
+    using RAGInference::RAGInference;
+    std::string generate(const std::string& query) override {
+        ++calls;
+        return "rag:" + query;
+    }
+    std::atomic<int> calls{0};
+};
+}  // namespace
+
+TEST_F(ChatbotAPITest, BatchEndpointsGoThroughTheConfiguredRagEngine) {
+    std::shared_ptr<EncoderDecoderModel> shared_model(model.get(), [](EncoderDecoderModel*) {});
+    auto rag = std::make_shared<EchoRAG>(shared_model,
+                                         std::make_shared<DocumentStore>(model->copy_encoder()));
+    api->enableRAG(rag);
+
+    const auto batch = nlohmann::json::parse(
+        call_handle_batch_chat(R"({"messages":["first","second question","3"]})"));
+    ASSERT_TRUE(batch.value("success", false)) << batch.dump();
+    EXPECT_EQ(batch["responses"],
+              nlohmann::json::array({"rag:first", "rag:second question", "rag:3"}));
+    EXPECT_EQ(rag->calls.load(), 3);
+
+    // Batch-session generates from each session's formatted conversation.
+    ChatbotAPI::GenerationConfig config;
+    const auto with_sessions = api->generate_batch_session_responses({"hello", "there"}, {"", ""}, config);
+    ASSERT_TRUE(with_sessions.success) << with_sessions.error;
+    ASSERT_EQ(with_sessions.responses.size(), 2u);
+    EXPECT_EQ(with_sessions.responses[0].rfind("rag:", 0), 0u);
+    EXPECT_NE(with_sessions.responses[0].find("hello"), std::string::npos);
+    EXPECT_NE(with_sessions.responses[1].find("there"), std::string::npos);
+    EXPECT_EQ(rag->calls.load(), 5);
+}

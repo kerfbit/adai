@@ -1317,6 +1317,8 @@ The generation and model math run is complete.
 - TD-232 (done in code, owner's choices: session ids are server-issued, so an unknown id is HTTP 404, and `MAX_SESSIONS` (10,000)
   evicts the least recently used; the CLI and Android client start a new session on 404).
 - TD-233 (done in code: session ids, and FTP session credentials, come from the OS CSPRNG via `src/SecureRandom.{hpp,cpp}`).
+- TD-234 (done in code: batch endpoints generate each input through `generate_response()`, so RAG, speculative, the engines and the
+  GPU path apply).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5096,7 +5098,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / Serving / API | October 8, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 27, 2026 | Inference / Serving / API | October 8, 2026 | 2-4 hours |
 
 Description:
 Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). `generate_batch_responses()` (behind `/chat/batch` and `/chat/batch-session`) runs its own
@@ -5107,10 +5109,17 @@ RAG answers batch requests without retrieval. Found by reading the code.
 
 Action Items:
 
-- [ ] Generate each batch input through `generate_response()` (keeping input order), so every mode applies consistently.
-- [ ] Test: with a mode enabled (e.g. a fake RAG engine), `/chat/batch` goes through it.
+- [x] Generate each batch input through `generate_response()` (keeping input order), so every mode applies consistently.
+- [x] Test: with a mode enabled (e.g. a fake RAG engine), `/chat/batch` goes through it.
 
-Location in code: `src/ChatbotAPI.cpp` (`generate_batch_responses()`); tagged `TODO: See TD-234`.
+**Fix (October 27, 2026).** `generate_batch_responses()` calls `generate_response()` for each input, in input order, so
+`/chat/batch` and `/chat/batch-session` (which generates from each session's formatted conversation through the same function) use
+every mode `/chat` uses: RAG, speculative decoding, the TD-038 engines and the GPU decode. Its own `TextGenerator` loop over the
+CPU model is gone; the TD-217 padding statistics are still computed as before. Test:
+`BatchEndpointsGoThroughTheConfiguredRagEngine` (a fake RAG engine echoing its query; on the old code the batch answered from the
+model and the engine was called 0 times).
+
+Location in code: `src/ChatbotAPI.cpp` (`generate_batch_responses()`); tagged `TD-234`.
 
 Files to Modify:
 

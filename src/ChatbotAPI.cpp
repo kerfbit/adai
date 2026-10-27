@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.18.1
+// @adai-version: 0.19.0
 // @adai-reviewed: 2026-10-27
 
 #include "ChatbotAPI.hpp"
@@ -1045,53 +1045,13 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
         // used: every input below is generated on its own, unpadded.
         batch_response.stats = compute_batch_stats(batches);
 
-        // Process each input in its original order.
-        // TODO: See TD-234 in TECHNICAL_DEBT.md - this loop bypasses generate_response(), so batch requests
-        // never use the GPU path, RAG, speculative decoding or the TD-038 engines.
+        // TD-234: each input goes through generate_response(), in input order, so batch requests use
+        // the same path as /chat: RAG, speculative decoding, the TD-038 engines and the GPU decode.
+        // This loop used to run its own TextGenerator over the CPU model, bypassing all of them.
         std::vector<std::string> all_responses;
         all_responses.reserve(inputs.size());
-
-        for (size_t input_index = 0; input_index < input_token_sequences.size(); ++input_index) {
-            const std::vector<int>& input_tokens = input_token_sequences[input_index];
-            const std::string& input_text = inputs[input_index];  // TD-363: for the world model
-            // Create TextGenerator configuration
-            TextGenerator::GenerationConfig gen_config;
-            gen_config.max_length = static_cast<int>(config.max_length);
-            gen_config.temperature = config.temperature;
-            gen_config.top_p = config.top_p;
-            gen_config.top_k = static_cast<int>(config.top_k);
-            gen_config.num_beams = static_cast<int>(config.beam_width);
-
-            TextGenerator generator(gen_config, 0);
-
-            // TD-506: aligned next-token logits, as in generate_response().
-            auto model_fn = [this, &input_tokens,
-                             &input_text](const std::vector<int>& decoder_tokens) -> Matrix {
-                return model_->next_token_logits(input_tokens, decoder_tokens, 1, &input_text);
-            };
-
-            // Generate based on strategy
-            std::vector<int> generated_tokens;
-
-            if (config.strategy == "greedy") {
-                generated_tokens = generator.generate_greedy(model_fn, {});
-            } else if (config.strategy == "beam") {
-                generated_tokens = generator.generate_beam_search(
-                    model_fn, {}, static_cast<int>(config.beam_width));
-            } else if (config.strategy == "temperature") {
-                generated_tokens =
-                    generator.generate_sampling(model_fn, {}, config.temperature);
-            } else if (config.strategy == "top_k") {
-                generated_tokens =
-                    generator.generate_top_k(model_fn, {}, static_cast<int>(config.top_k));
-            } else {
-                // Default to nucleus sampling (including explicit "nucleus" strategy)
-                generated_tokens = generator.generate_nucleus(model_fn, {}, config.top_p);
-            }
-
-            // Detokenize and add to responses
-            std::string response = tokenizer_->decode(generated_tokens);
-            all_responses.push_back(response);
+        for (const auto& input : inputs) {
+            all_responses.push_back(generate_response(input, config));
         }
 
         batch_response.responses = all_responses;

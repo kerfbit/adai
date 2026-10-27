@@ -424,3 +424,10 @@ sessions; creating one more evicts the least recently used. A request still usin
 `create_session_id()` returns `adai::secure_random_hex(16)` (`src/SecureRandom.{hpp,cpp}`): 32 hex digits, 128 bits from
 `getrandom()`/`arc4random_buf()`/`BCryptGenRandom()`. It used to draw from a static `std::mt19937`, whose output can be predicted from
 enough observed ids, while an id is the only credential for `/chat/session/export`.
+
+## Addendum (October 27, 2026): batch endpoints use `generate_response()` (TD-234)
+
+`generate_batch_responses()` generates each input with `generate_response()`, in input order, instead of its own `TextGenerator` loop
+over the CPU model. `/chat/batch` and `/chat/batch-session` therefore follow RAG, speculative decoding, the TD-038 engines and the GPU
+decode exactly as `/chat` does. Inputs are still generated one after another (TD-211); the padding statistics are unchanged
+(TD-217). Test: `BatchEndpointsGoThroughTheConfiguredRagEngine`.
