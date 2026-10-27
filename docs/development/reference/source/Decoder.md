@@ -238,3 +238,7 @@ forward and the GPU cached path. Test: `CachedMatchesFullPastMaxSeqLength`.
 - **Saving.** A failed write or flush (a full disk) throws instead of leaving a short file.
 
 Tests: `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.
+
+## Addendum (October 26, 2026): one update per step (TD-297, TD-346, TD-360)
+
+`update_weights(lr)` applies `lr` to every sub-layer and updates the final norm (TD-346); with a registered optimizer it steps it once (TD-297). Test: `EncoderDecoderModelTest.OneUpdateIsOneStepWithOrWithoutAnOptimizer`.

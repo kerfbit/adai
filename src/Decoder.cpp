@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
-// @adai-version: 0.18.2
+// @adai-version: 0.18.3
 // @adai-reviewed: 2026-10-26
 
 #include "Decoder.hpp"
@@ -331,19 +331,21 @@ void LLMDecoder::update_weights(float learning_rate) {
         return;
     }
 
-    // Update token embedding (doesn't take lr parameter)
-    token_embedding->update_weights();
+    if (optimizer_) {
+        // TD-297: one step over every registered parameter, not one per sub-layer.
+        optimizer_->step();
+        zero_grad();
+        return;
+    }
 
-    // Update decoder blocks (also don't take lr parameter)
+    // TD-346: the learning rate applies to every sub-layer (it used to be ignored), and the final
+    // norm is updated too (it used to be skipped, so it never trained on this path).
+    set_learning_rate(learning_rate);
+    token_embedding->update_weights();
     for (auto& block : decoder_blocks) {
         block->update_weights();
     }
-
-    // TODO: See TD-346 in TECHNICAL_DEBT.md - final_norm is never updated here, and the lr parameter is ignored
-    // Update final layer norm (if it has update method)
-    // LayerNorm has learnable parameters (gamma, beta) that need updating
-    // For now, we'll skip if the method doesn't exist
-    // final_norm->update_weights(lr);
+    final_norm->update_weights();
 }
 
 // Set training mode
@@ -465,6 +467,7 @@ void LLMDecoder::register_parameters_with_optimizer(Optimizer& optimizer) {
 
     // Register final layer norm parameters
     final_norm->set_optimizer(&optimizer);
+    optimizer_ = &optimizer;  // TD-297
 }
 
 #ifdef ADAI_ENABLE_GPU

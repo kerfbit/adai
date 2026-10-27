@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
-// @adai-version: 0.18.0
-// @adai-reviewed: 2026-10-21
+// @adai-version: 0.18.1
+// @adai-reviewed: 2026-10-26
 
 
 #include <algorithm>
@@ -58,6 +58,8 @@ class LLMDecoder {
     std::unique_ptr<TokenEmbedding> token_embedding;
     std::unique_ptr<PositionalEncoding> positional_encoding;
     std::vector<std::unique_ptr<DecoderBlock>> decoder_blocks;
+    // TD-297: set by register_parameters_with_optimizer(); update_weights() steps it once.
+    Optimizer* optimizer_ = nullptr;
     std::unique_ptr<LayerNorm> final_norm;
 
     int vocab_size;
@@ -226,9 +228,12 @@ class LLMDecoder {
     void backward(const Matrix& grad_output);
 
     /**
-     * Update weights using accumulated gradients
+     * Update weights using accumulated gradients, then zero them. With a registered optimizer, one
+     * optimizer step (TD-297). Otherwise plain SGD in the token embedding, every block and the final
+     * norm (TD-346: the final norm used to be skipped) at `learning_rate`, which is applied to every
+     * sub-layer first (it used to be ignored).
      *
-     * @param learning_rate Learning rate for gradient descent
+     * @param learning_rate Learning rate for gradient descent (no optimizer)
      */
     void update_weights(float learning_rate);
 

@@ -138,3 +138,7 @@ is kept as test-coverage history.
 - **Saving.** A failed write or flush (a full disk) throws instead of leaving a short file.
 
 Tests: `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.
+
+## Addendum (October 26, 2026): one update per step (TD-297, TD-346, TD-360)
+
+With a registered optimizer, `update_weights()` steps it once for the whole block (TD-297). Test: `EncoderDecoderModelTest.OneUpdateIsOneStepWithOrWithoutAnOptimizer`.

@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.28.0
+// @adai-version: 0.28.1
 // @adai-reviewed: 2026-10-26
 
 #include "EncoderDecoderModel.hpp"
@@ -766,21 +766,31 @@ void EncoderDecoderModel::set_training(bool mode) {
     decoder->set_training(mode);
 }
 
-// Set learning rate
-// TODO: See TD-360 in TECHNICAL_DEBT.md - never reaches the encoder (or the LM head)
+// Set learning rate (TD-360: the encoder and the LM head used to keep their own)
 void EncoderDecoderModel::set_learning_rate(float lr) {
     learning_rate = lr;
-    // encoder->set_learning_rate(lr);  // stale: LLMEncoder::set_learning_rate() exists (TD-093 fix); only
-    // update_weights() is missing — see TD-360
+    encoder->set_learning_rate(lr);
     decoder->set_learning_rate(lr);
+    lm_head->learning_rate = lr;
 }
 
 // Update weights
-// TODO: See TD-360 in TECHNICAL_DEBT.md - never updates the encoder; TD-346 skips the final decoder norm
 void EncoderDecoderModel::update_weights() {
-    // encoder->update_weights(learning_rate);  // LLMEncoder doesn't have this method
+    if (registered_optimizer_) {
+        // TD-297: one step over every registered parameter. Each layer's own update_weights() calls
+        // the shared optimizer's step(), which steps every group, so going through the layers moved
+        // each weight 6-10 times per update (TD-178's fix in LeJEPAEncoder, at the model level).
+        registered_optimizer_->step();
+        zero_grad();
+        return;
+    }
+    // Plain SGD in every layer. TD-360: the encoder used to be skipped (it had no update_weights()),
+    // and TD-346: the decoder's final norm.
+    encoder->set_learning_rate(learning_rate);
+    encoder->update_weights();
     decoder->update_weights(learning_rate);
-    lm_head->update_weights();  // LanguageModelHead doesn't take lr parameter
+    lm_head->learning_rate = learning_rate;
+    lm_head->update_weights();
 }
 
 // Zero gradients
@@ -800,6 +810,7 @@ void EncoderDecoderModel::register_parameters(Optimizer& optimizer) {
 
     // Register language model head parameters
     lm_head->set_optimizer(&optimizer);
+    registered_optimizer_ = &optimizer;  // TD-297
 }
 
 // TD-038: LoRA -- attach adapters to every attention layer's Q/K/V/O projections, across
@@ -839,6 +850,8 @@ void EncoderDecoderModel::register_lora_parameters(Optimizer& optimizer) {
         block->get_self_attention()->register_lora_parameters(optimizer);
         block->get_cross_attention()->register_lora_parameters(optimizer);
     }
+    // TD-297: update_weights() steps this optimizer (the adapters) rather than SGD on the frozen base.
+    registered_optimizer_ = &optimizer;
 }
 
 void EncoderDecoderModel::merge_lora() {

@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.3.0
+// @adai-version: 1.4.0
 // @adai-reviewed: 2026-10-26
 
 
@@ -50,6 +50,9 @@ class LLMEncoder {
     std::unique_ptr<PositionalEncoding> positional_encoding;
     std::vector<std::unique_ptr<EncoderBlock>> encoder_blocks;
     std::unique_ptr<LayerNorm> final_norm;
+    // TD-297/TD-360: set by register_parameters_with_optimizer(); update_weights() then steps it
+    // once instead of once per sub-layer. nullptr = plain SGD.
+    Optimizer* optimizer_ = nullptr;
 
     int vocab_size;
     int d_model;
@@ -198,6 +201,13 @@ class LLMEncoder {
      * Zero all gradients
      */
     void zero_grad();
+
+    /**
+     * TD-360: apply the accumulated gradients and zero them. With a registered optimizer, one
+     * optimizer step (TD-297); otherwise plain SGD in every sub-layer at its learning rate
+     * (set_learning_rate()).
+     */
+    void update_weights();
 
     /**
      * Get sentence embedding with gradient support

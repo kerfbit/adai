@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.2.1
+// @adai-reviewed: 2026-10-26
 
 #include "Optimizer.hpp"
 #include <cmath>
@@ -46,6 +46,17 @@ void Optimizer::add_parameter_group(Matrix* weights, Matrix* gradients) {
 
     if (weights->rows != gradients->rows || weights->cols != gradients->cols) {
         throw std::runtime_error("Weights and gradients must have same shape");
+    }
+
+    // TD-297: registering the same weights twice (set_optimizer()/register_parameters() called
+    // again with the same optimizer) used to add a second group, doubling every update.
+    for (const auto& group : parameter_groups) {
+        if (group.weights == weights) {
+            if (group.gradients != gradients) {
+                throw std::runtime_error("Parameter already registered with different gradients");
+            }
+            return;
+        }
     }
 
     parameter_groups.emplace_back(weights, gradients);

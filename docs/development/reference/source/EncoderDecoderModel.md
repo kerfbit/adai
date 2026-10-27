@@ -344,3 +344,7 @@ strategy with `num_beams > 1`), `sync_generation_config()` (stores the beam widt
 (IDs beyond the tokenizer's vocabulary, in every CPU and GPU callback) and `run_single_hypothesis()` (an unrecognized strategy runs
 `TextGenerator::generate()`, on GPU too). The same request gives the same output on either path:
 `EncoderDecoderGPUTest.GpuAndCpuGenerationAgree` and `PlainCachedPathMasksIdsTheTokenizerLacks`.
+
+## Addendum (October 26, 2026): one update per step (TD-297, TD-346, TD-360)
+
+`update_weights()` steps a registered optimizer once (TD-297), or without one runs plain SGD in the encoder (TD-360, new `LLMEncoder::update_weights()`), the decoder (final norm included, TD-346) and the head; `set_learning_rate()` reaches all three. Test: `EncoderDecoderModelTest.OneUpdateIsOneStepWithOrWithoutAnOptimizer`.

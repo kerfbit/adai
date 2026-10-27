@@ -235,3 +235,7 @@ Tests: `EncodeMatchesTheModelsEncoderInput`, `OverLongInputKeepsTheTail`, `Encod
 - **Saving.** A failed write or flush (a full disk) throws instead of leaving a short file.
 
 Tests: `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.
+
+## Addendum (October 26, 2026): one update per step (TD-297, TD-346, TD-360)
+
+New `update_weights()` (TD-360): one optimizer step when registered (TD-297), else plain SGD in the embedding, every block and the final norm. Test: `EncoderDecoderModelTest.OneUpdateIsOneStepWithOrWithoutAnOptimizer`.

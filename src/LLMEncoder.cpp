@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.4.1
+// @adai-version: 1.5.0
 // @adai-reviewed: 2026-10-26
 
 #include <algorithm>
@@ -229,6 +229,20 @@ void LLMEncoder::zero_grad() {
     final_norm->zero_grad();
 }
 
+// TD-360: EncoderDecoderModel's no-optimizer path never updated the encoder, because this didn't exist.
+void LLMEncoder::update_weights() {
+    if (optimizer_) {
+        optimizer_->step();  // TD-297: once, not once per sub-layer
+        zero_grad();
+        return;
+    }
+    token_embedding->update_weights();
+    for (auto& block : encoder_blocks) {
+        block->update_weights();
+    }
+    final_norm->update_weights();
+}
+
 void LLMEncoder::set_requires_grad(bool requires_grad) {
     this->requires_grad = requires_grad;
 }
@@ -363,6 +377,7 @@ void LLMEncoder::register_parameters_with_optimizer(Optimizer& optimizer) {
 
     // Register final layer norm parameters
     final_norm->set_optimizer(&optimizer);
+    optimizer_ = &optimizer;  // TD-297
 }
 
 #ifdef ADAI_ENABLE_GPU

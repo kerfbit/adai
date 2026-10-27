@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-174 forward_with_scores added)
-// @adai-version: 0.15.1
+// @adai-version: 0.15.2
 // @adai-reviewed: 2026-10-26
 
 #include "CrossAttention.hpp"
@@ -542,14 +542,16 @@ void CrossAttention::register_parameters() {
     }
 
     // Register all four weight matrices with optimizer
-    // TODO: See TD-297 in TECHNICAL_DEBT.md - re-registering the same optimizer adds duplicate groups
+    // (TD-297: Optimizer::add_parameter_group() ignores a matrix already registered.)
     optimizer->add_parameter_group(&W_q, &W_q_grad);
     optimizer->add_parameter_group(&W_k, &W_k_grad);
     optimizer->add_parameter_group(&W_v, &W_v_grad);
     optimizer->add_parameter_group(&W_o, &W_o_grad);
 }
 
-// TODO: See TD-297 in TECHNICAL_DEBT.md - step() on a shared optimizer steps every registered layer, not just this one
+// TD-297: step() steps every group registered with the optimizer, not just this layer's. The blocks,
+// encoder, decoder and model call step() once themselves and never this, when they hold the optimizer;
+// call this directly only for a layer with an optimizer of its own.
 void CrossAttention::update_weights() {
     if (optimizer) {
         // Use advanced optimization (Adam, AdamW, etc.)

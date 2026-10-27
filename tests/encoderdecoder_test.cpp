@@ -537,6 +537,63 @@ TEST(EncoderDecoderModelTest, GenerationNeverExceedsMaxSeqLength) {
     }
 }
 
+// TD-297/TD-346/TD-360: one update_weights() moves every parameter exactly one SGD step, with or without
+// a registered optimizer. With one, each layer used to step the shared optimizer (6-10 steps per
+// update); without one, the encoder (no update_weights()) and the decoder's final norm never moved.
+TEST(EncoderDecoderModelTest, OneUpdateIsOneStepWithOrWithoutAnOptimizer) {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "adai_ed_td297";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+
+    EncoderDecoderModel with_opt(60, 16, 2, 2, 2, 32, 16);
+    build_test_vocab(with_opt.get_tokenizer(), 60);
+    with_opt.save_model((dir / "cp.bin").string());
+    EncoderDecoderModel plain(60, 16, 2, 2, 2, 32, 16);
+    plain.load_model((dir / "cp.bin").string());
+
+    const float lr = 0.05f;
+    Optimizer sgd(OptimizerType::SGD, lr);
+    with_opt.register_parameters(sgd);
+    with_opt.register_parameters(sgd);  // registering twice must not double the update
+    with_opt.set_learning_rate(lr);
+    plain.set_learning_rate(lr);
+    with_opt.set_training(true);
+    plain.set_training(true);
+
+    const Matrix enc_before =
+        plain.get_encoder()->get_encoder_block(0)->get_self_attention()->get_Wq();
+    const Matrix norm_before = plain.get_decoder()->get_final_norm()->get_gamma();
+
+    // Token IDs, not text: BPETokenizer's thread-local cache can carry another test's IDs (TD-222).
+    with_opt.train_step_tokenized({4, 5, 6, 7}, {8, 9, 10, 3});
+    plain.train_step_tokenized({4, 5, 6, 7}, {8, 9, 10, 3});
+
+    // Both moved: the encoder and the decoder's final norm are updated on the plain path.
+    const Matrix& enc_after = plain.get_encoder()->get_encoder_block(0)->get_self_attention()->get_Wq();
+    const Matrix& norm_after = plain.get_decoder()->get_final_norm()->get_gamma();
+    float enc_moved = 0.0f, norm_moved = 0.0f;
+    for (int i = 0; i < enc_after.rows; ++i)
+        for (int j = 0; j < enc_after.cols; ++j)
+            enc_moved += std::abs(enc_after(i, j) - enc_before(i, j));
+    for (int j = 0; j < norm_after.cols; ++j)
+        norm_moved += std::abs(norm_after(0, j) - norm_before(0, j));
+    EXPECT_GT(enc_moved, 0.0f) << "TD-360: the encoder didn't move";
+    EXPECT_GT(norm_moved, 0.0f) << "TD-346: the decoder's final norm didn't move";
+
+    // And by the same single step: the two models give the same logits.
+    with_opt.set_training(false);
+    plain.set_training(false);
+    const Matrix a = with_opt.forward({4, 5, 6, 7}, {8, 9, 10});
+    const Matrix b = plain.forward({4, 5, 6, 7}, {8, 9, 10});
+    float max_diff = 0.0f;
+    for (int i = 0; i < a.rows; ++i)
+        for (int j = 0; j < a.cols; ++j)
+            max_diff = std::max(max_diff, std::abs(a(i, j) - b(i, j)));
+    EXPECT_LT(max_diff, 1e-4f) << "TD-297: the optimizer path didn't take exactly one SGD step";
+    fs::remove_all(dir);
+}
+
 // TD-362: the CPU and GPU generation paths share their strategy names, beam decision and vocab masking.
 TEST(EncoderDecoderModelTest, NormalizeStrategyAcceptsEverySpelling) {
     EXPECT_EQ(EncoderDecoderModel::normalize_strategy("temperature"), "sampling");
@@ -712,8 +769,11 @@ TEST(EncoderDecoderModelTest, EncoderReceivesGradientOnTrainStep) {
 
     std::vector<int> input_tokens = {1, 5, 10, 2};
     std::vector<int> target_tokens = {1, 3, 7, 2};
-    float loss = model.train_step_tokenized(input_tokens, target_tokens);
-    EXPECT_GT(loss, 0.0f);
+    // Forward and backward only: train_step() now also updates the encoder (TD-360), which consumes
+    // and zeroes its gradients.
+    Matrix logits = model.forward(input_tokens, target_tokens);
+    EXPECT_GT(model.compute_loss_for_training(logits, target_tokens), 0.0f);
+    model.backward_pass(model.compute_loss_gradient_for_training(logits, target_tokens));
 
     for (int i = 0; i < model.get_encoder()->get_num_layers(); ++i) {
         EXPECT_GT(model.get_encoder()->get_encoder_block(i)->get_gradient_norm(), 0.0f)

@@ -1,5 +1,5 @@
 // @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap; TD-194 gated cross-reference pull + Hebbian association strengthening added to the hippocampal path)
-// @adai-version: 1.8.1
+// @adai-version: 1.8.2
 // @adai-reviewed: 2026-10-26
 
 #include "DecoderBlock.hpp"
@@ -447,8 +447,13 @@ Matrix DecoderBlock::backward(const Matrix& grad_output, Matrix& grad_encoder_ou
     return grad_input;
 }
 
-// TODO: See TD-297 in TECHNICAL_DEBT.md - with a shared optimizer, each sub-layer's update_weights() calls step() again
 void DecoderBlock::update_weights() {
+    if (gate_optimizer_) {
+        // TD-297: one step for the block (the gates included, TD-341), not one per sub-layer.
+        gate_optimizer_->step();
+        zero_grad();
+        return;
+    }
     self_attention->update_weights();
     cross_attention->update_weights();
     feed_forward->update_weights();

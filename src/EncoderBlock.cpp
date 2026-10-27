@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.1.1
+// @adai-version: 1.1.2
 // @adai-reviewed: 2026-10-26
 
 #include "EncoderBlock.hpp"
@@ -134,6 +134,11 @@ Matrix EncoderBlock::backward(const Matrix& grad_output) {
 
 // TODO: See TD-357 in TECHNICAL_DEBT.md - overwrites sub-layer learning rates every call; no set_learning_rate(). TD-297: shared-optimizer over-step
 void EncoderBlock::update_weights() {
+    if (optimizer_) {
+        optimizer_->step();  // TD-297: once for the block, not once per sub-layer
+        zero_grad();
+        return;
+    }
     // Update all sub-components with current learning rate
     attention->learning_rate = learning_rate;
     feed_forward->learning_rate = learning_rate;
@@ -274,6 +279,7 @@ void EncoderBlock::register_parameters_with_optimizer(Optimizer& optimizer) {
     feed_forward->set_optimizer(&optimizer);
     norm1->set_optimizer(&optimizer);
     norm2->set_optimizer(&optimizer);
+    optimizer_ = &optimizer;  // TD-297
 }
 
 #ifdef ADAI_ENABLE_GPU

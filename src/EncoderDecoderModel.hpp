@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.26.0
+// @adai-version: 0.26.1
 // @adai-reviewed: 2026-10-26
 
 #include <functional>
@@ -121,6 +121,9 @@ class EncoderDecoderModel {
     // Training state
     bool requires_grad{true};
     float learning_rate{0.001};
+    // TD-297: the optimizer register_parameters()/register_lora_parameters() registered with;
+    // update_weights() steps it once. nullptr = plain SGD in every layer.
+    class Optimizer* registered_optimizer_ = nullptr;
 
     // Cached values for training
     Matrix cached_encoder_output;

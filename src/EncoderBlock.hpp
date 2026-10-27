@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.1.1
+// @adai-reviewed: 2026-10-26
 
 
 #include <vector>
@@ -58,6 +58,8 @@ class EncoderBlock {
     // Core components
     std::unique_ptr<MultiHeadAttention> attention;
     std::unique_ptr<FeedForward> feed_forward;
+    // TD-297: set by register_parameters_with_optimizer(); update_weights() steps it once.
+    class Optimizer* optimizer_ = nullptr;
     std::unique_ptr<LayerNorm> norm1;
     std::unique_ptr<LayerNorm> norm2;
 
@@ -131,7 +133,8 @@ class EncoderBlock {
      *   - Feed-forward weights (W1, W2, biases)
      *   - Layer norm parameters (gamma, beta)
      *
-     * Automatically zeros gradients after update.
+     * Automatically zeros gradients after update. With a registered optimizer, one optimizer step
+     * for the whole block (TD-297: each sub-layer used to step the shared optimizer).
      */
     void update_weights();
 

@@ -1286,6 +1286,8 @@ The metrics pipeline run is complete.
   TD-369 and the load/save-check items of TD-345, 348, 357, 367, 426, 467 and 518).
 - TD-362 (done in code: shared strategy names, beam decision, config sync, vocab masking and unknown-strategy dispatch for every CPU
   and GPU entry point, and `ChatbotAPI`'s CPU fallback takes the model's strategy path like its GPU branch).
+- TD-346/360 with TD-297 (done in code: `update_weights()` without an optimizer now trains the encoder and the decoder's final norm,
+  and with one every composite steps it exactly once; duplicate registrations are ignored).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -4552,6 +4554,8 @@ but `--pipeline-inference`'s reload of the encoder's tokenizer and any in-proces
 reload-and-retrain path are exposed. The cache comment also refers to a nonexistent
 `train_bpe()` (the real mutators are `build_vocab()`/`build_bpe_merges()`/`load_vocab()`).
 
+**Seen again October 26, 2026:** `EncoderDecoderModelTest.OneUpdateIsOneStepWithOrWithoutAnOptimizer` (TD-297) failed only after another test in the same process. A 100-token tokenizer's cached IDs encoded `"hello world"` to IDs at or above 60 for a 60-token model, so two otherwise identical models read past their embedding tables differently. The test now uses token IDs; the cache itself is still unfixed.
+
 Action Items:
 
 - [ ] Give each tokenizer a unique, never-reused instance ID plus a generation counter bumped by
@@ -6881,7 +6885,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Attention / CrossAttention | October 10, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 26, 2026 | Attention / CrossAttention | October 10, 2026 | 2-4 hours |
 
 Description:
 Found while writing the code-traced reference [CrossAttention.md](../reference/source/CrossAttention.md) and confirmed by running the real
@@ -6903,11 +6907,18 @@ over-steps whenever an optimizer is registered. `LeJEPAEncoder` hit and fixed ex
 
 Action Items:
 
-- [ ] Apply TD-178's fix at the model level: when an optimizer is registered, `EncoderDecoderModel`/`LLMDecoder`/`DecoderBlock` `update_weights()` call `step()` once at the top and only zero grads below; or have layers skip `step()` when the optimizer is shared.
-- [ ] Make `set_optimizer()`/`register_parameters()` idempotent for the same optimizer (or dedupe in `Optimizer::add_parameter_group()`).
-- [ ] Test: two layers on one optimizer each move by exactly one step per `EncoderDecoderModel::update_weights()`.
+- [x] Apply TD-178's fix at the model level: when an optimizer is registered, `EncoderDecoderModel`/`LLMDecoder`/`DecoderBlock` `update_weights()` call `step()` once at the top and only zero grads below; or have layers skip `step()` when the optimizer is shared.
+- [x] Make `set_optimizer()`/`register_parameters()` idempotent for the same optimizer (or dedupe in `Optimizer::add_parameter_group()`).
+- [x] Test: two layers on one optimizer each move by exactly one step per `EncoderDecoderModel::update_weights()`.
 
-Location in code: `src/CrossAttention.cpp` (`update_weights()`, `register_parameters()`), `src/DecoderBlock.cpp` (`update_weights()`); tagged `TODO: See TD-297`.
+**Fix (October 26, 2026, with TD-346/TD-360).** TD-178's fix is now applied at every composite level.
+- **One step.** `EncoderDecoderModel`, `LLMEncoder`, `LLMDecoder`, `EncoderBlock` and `DecoderBlock` remember the optimizer they were registered with. `update_weights()` calls its `step()` once, then zeroes the gradients. Before, every sub-layer's `update_weights()` stepped the shared optimizer again. `register_lora_parameters()` also sets the model's optimizer, so `update_weights()` steps the adapters rather than running SGD on the frozen base.
+- **Registration.** `Optimizer::add_parameter_group()` ignores a matrix that is already registered (and throws if it comes with different gradients), so registering twice no longer doubles updates.
+- **Unchanged.** Leaf layers still call `step()` in their own `update_weights()`; that is correct for a layer with an optimizer of its own.
+
+Test: `EncoderDecoderModelTest.OneUpdateIsOneStepWithOrWithoutAnOptimizer`: two copies of a 2+2-layer model, one with an SGD optimizer registered (twice) and one without, take one `train_step()`. The encoder's weights and the decoder's final norm must move, and the two models must give the same logits (within 1e-4). On the old code the encoder and the final norm didn't move, and the logits differed by up to 4.65.
+
+Location in code: `src/CrossAttention.cpp` (`update_weights()`, `register_parameters()`), `src/DecoderBlock.cpp` (`update_weights()`); no longer tagged.
 
 Files to Modify:
 
@@ -8466,7 +8477,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Transformer / Decoder | October 11, 2026 | 1 hour |
+| LOW | Open — code fix landed October 26, 2026 | Transformer / Decoder | October 11, 2026 | 1 hour |
 
 Description:
 Found while writing the code-traced reference [Decoder.md](../reference/source/Decoder.md) and confirmed by running the real class.
@@ -8479,10 +8490,12 @@ calls `optimizer->step()` and is unaffected.
 
 Action Items:
 
-- [ ] Call `final_norm->update_weights()` (in the no-optimizer case; with an optimizer, fold into TD-297's single top-level `step()`); remove or honour the unused `lr` parameter.
-- [ ] Test: `update_weights()` changes the final norm's parameters.
+- [x] Call `final_norm->update_weights()` (in the no-optimizer case; with an optimizer, fold into TD-297's single top-level `step()`); remove or honour the unused `lr` parameter.
+- [x] Test: `update_weights()` changes the final norm's parameters.
 
-Location in code: `src/Decoder.cpp` (`update_weights()`); tagged `TODO: See TD-346`.
+**Fix (October 26, 2026, with TD-297/TD-360).** Without an optimizer, `LLMDecoder::update_weights(lr)` applies `lr` to every sub-layer (`set_learning_rate()`) and updates the token embedding, every block and the final norm. With one, it steps it once (TD-297). Test: `EncoderDecoderModelTest.OneUpdateIsOneStepWithOrWithoutAnOptimizer`: two copies of a 2+2-layer model, one with an SGD optimizer registered (twice) and one without, take one `train_step()`. The encoder's weights and the decoder's final norm must move, and the two models must give the same logits (within 1e-4). On the old code the encoder and the final norm didn't move, and the logits differed by up to 4.65.
+
+Location in code: `src/Decoder.cpp` (`update_weights()`); no longer tagged.
 
 Files to Modify:
 
@@ -8810,7 +8823,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Models / EncoderDecoderModel | October 11, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 26, 2026 | Models / EncoderDecoderModel | October 11, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-358 and confirmed. `update_weights()` and `set_learning_rate()` skip the encoder
@@ -8823,9 +8836,11 @@ blocks, embeddings and head. `ChatbotTrainer` registers an optimizer and is unaf
 
 Action Items:
 
-- [ ] Add `LLMEncoder::update_weights()`, call it and the existing `LLMEncoder::set_learning_rate()`; set the head's LR; fold into TD-297's single-step design for the optimizer case.
+- [x] Add `LLMEncoder::update_weights()`, call it and the existing `LLMEncoder::set_learning_rate()`; set the head's LR; fold into TD-297's single-step design for the optimizer case.
 
-Location in code: `src/EncoderDecoderModel.cpp` (`update_weights()`, `set_learning_rate()`); tagged `TODO: See TD-360`.
+**Fix (October 26, 2026, with TD-297/TD-346).** `LLMEncoder::update_weights()` is new: it steps a registered optimizer once, or runs plain SGD in the token embedding, every block and the final norm. `EncoderDecoderModel::set_learning_rate()` reaches the encoder and the LM head. The no-optimizer `update_weights()` updates the encoder, the decoder (final norm included) and the head; with an optimizer it steps once. Test: `EncoderDecoderModelTest.OneUpdateIsOneStepWithOrWithoutAnOptimizer`: two copies of a 2+2-layer model, one with an SGD optimizer registered (twice) and one without, take one `train_step()`. The encoder's weights and the decoder's final norm must move, and the two models must give the same logits (within 1e-4). On the old code the encoder and the final norm didn't move, and the logits differed by up to 4.65.
+
+Location in code: `src/EncoderDecoderModel.cpp` (`update_weights()`, `set_learning_rate()`), `src/LLMEncoder.cpp`/`src/encoder.hpp` (`update_weights()`).
 
 Files to Modify:
 

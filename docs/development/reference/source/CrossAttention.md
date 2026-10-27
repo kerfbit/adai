@@ -315,3 +315,7 @@ as `get_last_attention_weights()`. Backward needs no change. Test: `gpu_optimize
 - **Saving.** A failed write or flush (a full disk) throws instead of leaving a short file.
 
 Tests: `CrossAttentionPersistenceTest.TruncatedOrEmptyFileThrowsAndLeavesTheLayerUnchanged`, `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.
+
+## Addendum (October 26, 2026): one update per step (TD-297, TD-346, TD-360)
+
+TD-297: the blocks, encoder, decoder and model step a shared optimizer once and don't call the layers' `update_weights()`; `Optimizer::add_parameter_group()` ignores duplicate registrations. Test: `EncoderDecoderModelTest.OneUpdateIsOneStepWithOrWithoutAnOptimizer`.
