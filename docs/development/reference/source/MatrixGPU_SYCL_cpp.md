@@ -162,3 +162,11 @@ compile-checked only.
 
 Both were checked against the host formula on the oneAPI CPU device (`gpuOptimizerTests`); the CUDA versions are compile-checked only.
 
+## Addendum (October 26, 2026): cached attention reads the KV cache in place (TD-388)
+
+`GPUKVCache` exposes its populated prefix as a view (`keys_data()`, `values_data()`, `leading_dimension()`) instead of copying it on
+every `get_keys()`/`get_values()`. The new `matrix_gemm_strided_gpu()` is a row-major GEMM with transpose flags, alpha and leading
+dimensions (`cublasSgemm` / oneMKL `gemm`). The cached self- and cross-attention paths use it to compute each head straight from the
+cache and to write each head's output into its own columns, with no prefix copies, per-row slices or scatter. A 100-token decode on
+the oneAPI CPU device went from 6.6 s to 1.4 s. Tests: `MatrixGPUTD388Test.StridedGemmMatchesHostReference`,
+`EncoderDecoderGPUTest.CachedGpuDecodeMatchesCpuOverALongGeneration`.

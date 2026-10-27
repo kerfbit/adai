@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-061 resolved — layer_norm_bwd's math bug fixed and verified analytically/numerically; most kernels still have no dedicated test and need real GPU hardware to verify, see TECHNICAL_DEBT_RESOLVED.md)
-// @adai-version: 0.12.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 0.13.0
+// @adai-reviewed: 2026-10-26
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -364,6 +364,22 @@ void matrix_multiply_gpu(const float* a, const float* b, float* c,
                              a, k,
                              &beta,
                              c, n));
+}
+
+// TD-388: row-major C = alpha * op(A) * op(B) with leading dimensions. Column-major cuBLAS sees each
+// row-major buffer as its transpose, so it computes C^T = op(B)^T * op(A)^T: the operands swap and
+// keep their own transpose flags (the same trick as matrix_multiply_gpu()).
+void matrix_gemm_strided_gpu(bool trans_a, bool trans_b, int m, int n, int k, float alpha,
+                             const float* a, int lda, const float* b, int ldb, float* c, int ldc) {
+    if (m <= 0 || n <= 0) {
+        return;
+    }
+    cublasHandle_t handle = GPUManager::get_cublas_handle();
+    std::lock_guard<std::mutex> lock(GPUManager::cublas_mutex());  // TD-382
+    const float beta = 0.0f;
+    CUBLAS_CHECK(cublasSgemm(handle, trans_b ? CUBLAS_OP_T : CUBLAS_OP_N,
+                             trans_a ? CUBLAS_OP_T : CUBLAS_OP_N, n, m, k, &alpha, b, ldb, a, lda,
+                             &beta, c, ldc));
 }
 
 void matrix_apply_activation_gpu(float* data, int size, ActivationType type) {

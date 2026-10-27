@@ -2714,6 +2714,27 @@ TEST(EncoderDecoderGPUTest, GpuAndCpuGenerationAgree) {
     EXPECT_EQ(model.get_generator()->get_config().num_beams, 1);
 }
 
+// TD-388: the GPU KV-cached decode reads each head straight out of the cache. A longer generation with
+// several heads and layers (the cache grows every step) must match the CPU output.
+TEST(EncoderDecoderGPUTest, CachedGpuDecodeMatchesCpuOverALongGeneration) {
+    if (!adai::gpu::GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(adai::gpu::GPUManager::initialize(0, 0.5f));
+
+    EncoderDecoderModel model(100, 32, 2, 2, 4, 64, 32);
+    build_test_vocab(model.get_tokenizer(), 100);
+    model.set_training(false);
+    suppress_stop_tokens(model);  // run the full 20 steps
+    for (const char* input : {"hello world", "good morning how are you"}) {
+        const std::string cpu =
+            model.generate_response_with_strategy(input, 20, "greedy", 0.0f, 50, 0.9f, 1);
+        EXPECT_EQ(model.gpu_generate_response_with_strategy(input, 20, "greedy", 0.0f, 50, 0.9f, 1),
+                  cpu)
+            << input;
+    }
+}
+
 TEST(EncoderDecoderGPUTest, GpuForwardRejectsEmptyTarget) {
     if (!adai::gpu::GPUManager::probe()) {
         GTEST_SKIP() << "No GPU device present.";

@@ -114,3 +114,12 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `add_inplace`, `softmax_backward`, `gelu_backward`, `add_row_bias`, `masked_fill_inplace`, `layer_norm`, `layer_norm_backward` don't check shapes; `GPUMatrix` memory is uninitialized; `count_below_threshold()` on empty gives `NaN`; `GPUKVCache` validates after allocating; cache layer indices unchecked (§2–3) | Caller shape bugs become silent device memory corruption or faults | By inspection | [TD-389](../../guides/TECHNICAL_DEBT.md#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches) |
 | No tests for the GPU KV caches (§5) | TD-050's GPU cache is unverified even on hardware-equipped hosts | By inspection | [TD-389](../../guides/TECHNICAL_DEBT.md#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches) |
 | Kernel race, `sum()` sync | Already tracked | — | TD-384, TD-385 |
+
+## Addendum (October 26, 2026): cached attention reads the KV cache in place (TD-388)
+
+`GPUKVCache` exposes its populated prefix as a view (`keys_data()`, `values_data()`, `leading_dimension()`) instead of copying it on
+every `get_keys()`/`get_values()`. The new `matrix_gemm_strided_gpu()` is a row-major GEMM with transpose flags, alpha and leading
+dimensions (`cublasSgemm` / oneMKL `gemm`). The cached self- and cross-attention paths use it to compute each head straight from the
+cache and to write each head's output into its own columns, with no prefix copies, per-row slices or scatter. A 100-token decode on
+the oneAPI CPU device went from 6.6 s to 1.4 s. Tests: `MatrixGPUTD388Test.StridedGemmMatchesHostReference`,
+`EncoderDecoderGPUTest.CachedGpuDecodeMatchesCpuOverALongGeneration`.

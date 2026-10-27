@@ -1292,6 +1292,8 @@ The metrics pipeline run is complete.
   `load_model()` syncs the generator; the world model sees the original text where there is one).
 - TD-366 (done in code: the encoder's never-read activation copies and unused caches are removed, serving models run in inference
   mode, and the duplicate sentence-embedding function calls the other).
+- TD-388 (done in code: cached GPU attention multiplies each head straight out of the KV cache with a new strided GEMM, with no
+  prefix copies or per-row head slices; a 100-token decode on the oneAPI CPU device went from 6.6 s to 1.4 s).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -9960,7 +9962,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | GPU / GPUMatrix | October 12, 2026 | 2-4 hours |
+| LOW | Open — code fix landed October 26, 2026 | GPU / GPUMatrix | October 12, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `MatrixGPU.hpp`, by inspection. `GPUKVCache::get_keys()`/`get_values()` allocate a
@@ -9972,9 +9974,33 @@ GPU latency benchmark.
 
 Action Items:
 
-- [ ] Return a non-owning view (pointer, rows, cols) of the populated prefix and have attention consume it directly (cuBLAS/oneMKL take a leading dimension, so no copy is needed).
+- [x] Return a non-owning view (pointer, rows, cols) of the populated prefix and have attention consume it directly (cuBLAS/oneMKL take a leading dimension, so no copy is needed).
 
-Location in code: `src/gpu/MatrixGPU.hpp` (`GPUKVCache::materialize()`); tagged `TODO: See TD-388`.
+**Fix (October 26, 2026).**
+- **Cache view.** `GPUKVCache::get_keys()`/`get_values()` (and `materialize()`) are replaced by a view: `keys_data()`,
+  `values_data()` and `leading_dimension()`.
+- **Strided GEMM.** The new `matrix_gemm_strided_gpu()` is a row-major `C = alpha·op(A)·op(B)` with leading dimensions:
+  `cublasSgemm` in CUDA and oneMKL `gemm` in SYCL, using `matrix_multiply_gpu()`'s column-major trick.
+- **Cached attention.** `MultiHeadAttention::gpu_forward_with_cache()` and `CrossAttention::gpu_forward_with_cache()` compute each
+  head as `scale·Q_h·K_hᵀ` straight from the cache, and write `scores·V_h` into that head's columns of the output.
+- **Removed per step.** Each layer used to copy the whole cache prefix twice (two allocations), copy every head's Q/K/V columns out
+  one row at a time (about `total_len × heads` device copies), transpose, scale into a new matrix and scatter the head output back.
+  All of that is gone.
+
+Measured on the oneAPI CPU device, with d_model 128, 8 heads and 2+2 layers: a 100-token GPU greedy decode took 6.6 s before and
+1.4 s after (4.6× faster). On a real GPU the removed per-row copies were separate device calls, so the gain should be larger;
+measuring it is part of TD-033/TD-050's benchmark. The CUDA backend is compile-checked only.
+
+Tests:
+- `MatrixGPUTD388Test.StridedGemmMatchesHostReference`: all four transpose combinations, offset views and wider leading
+  dimensions, and the columns outside the view are untouched.
+- `EncoderDecoderGPUTest.CachedGpuDecodeMatchesCpuOverALongGeneration`: 4 heads, 2+2 layers, 20 greedy tokens, equal to the CPU
+  output.
+- The existing GPU generation tests.
+
+Location in code: `src/gpu/MatrixGPU.hpp` (`GPUKVCache`, `matrix_gemm_strided_gpu()`), `src/gpu/MatrixGPU.cu`,
+`src/gpu/sycl/MatrixGPU_SYCL.{hpp,cpp}`, `src/MultiHeadAttention.cpp`, `src/CrossAttention.cpp`
+(`gpu_forward_with_cache()`).
 
 Files to Modify:
 

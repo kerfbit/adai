@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.13.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 0.14.0
+// @adai-reviewed: 2026-10-26
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -145,6 +145,20 @@ void matrix_multiply_gpu(const float* a, const float* b, float* c, int m, int k,
     // compute C = B * A in column-major = A * B in row-major.
     oneapi::mkl::blas::gemm(q, oneapi::mkl::transpose::nontrans, oneapi::mkl::transpose::nontrans,
                             n, m, k, alpha, b, n, a, k, beta, c, n);
+}
+
+// TD-388: row-major C = alpha * op(A) * op(B) with leading dimensions; the column-major call computes
+// C^T = op(B)^T * op(A)^T, as matrix_multiply_gpu() does.
+void matrix_gemm_strided_gpu(bool trans_a, bool trans_b, int m, int n, int k, float alpha,
+                             const float* a, int lda, const float* b, int ldb, float* c, int ldc) {
+    if (m <= 0 || n <= 0) {
+        return;
+    }
+    auto& q = GPUManager::get_queue();
+    using oneapi::mkl::transpose;
+    oneapi::mkl::blas::gemm(q, trans_b ? transpose::trans : transpose::nontrans,
+                            trans_a ? transpose::trans : transpose::nontrans, n, m, k, alpha, b,
+                            ldb, a, lda, 0.0f, c, ldc);
 }
 
 // ============================================================================

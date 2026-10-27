@@ -2,8 +2,8 @@
 #define MATRIX_GPU_SYCL_HPP
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.12.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 0.13.0
+// @adai-reviewed: 2026-10-26
 
 
 #include "../GPUOptimizerKernels.hpp"
@@ -20,6 +20,9 @@ void matrix_multiply_elementwise_gpu(const float* a, const float* b, float* c, i
 void matrix_multiply_scalar_gpu(const float* a, float scalar, float* c, int size);
 void matrix_transpose_gpu(const float* input, float* output, int rows, int cols);
 void matrix_multiply_gpu(const float* a, const float* b, float* c, int m, int k, int n);
+// TD-388: row-major strided GEMM; see MatrixGPU.hpp's declaration.
+void matrix_gemm_strided_gpu(bool trans_a, bool trans_b, int m, int n, int k, float alpha,
+                             const float* a, int lda, const float* b, int ldb, float* c, int ldc);
 void matrix_apply_activation_gpu(float* data, int size, ActivationType type);
 float matrix_sum_gpu(const float* data, int size);
 

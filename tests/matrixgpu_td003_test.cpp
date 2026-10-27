@@ -356,3 +356,56 @@ TEST(MatrixGPUTD003Test, LayerNormWideRowsMatchHost) {
         }
     }
 }
+
+// ============================================================================
+// TD-388: matrix_gemm_strided_gpu() — row-major GEMM on views (pointer offsets and leading
+// dimensions), which the cached attention paths use to read one head's columns of a KV cache in
+// place. Checked against a host reference for every transpose combination.
+// ============================================================================
+
+TEST(MatrixGPUTD388Test, StridedGemmMatchesHostReference) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f));
+
+    const int m = 3, n = 5, k = 4;
+    const int a_off = 2, b_off = 1, c_off = 3;  // views start inside wider rows
+    const float alpha = 0.75f;
+    for (bool trans_a : {false, true}) {
+        for (bool trans_b : {false, true}) {
+            // Stored shapes: A is m x k (k x m when transposed), B is k x n (n x k when transposed).
+            const int a_rows = trans_a ? k : m, a_cols = trans_a ? m : k;
+            const int b_rows = trans_b ? n : k, b_cols = trans_b ? k : n;
+            const int lda = a_cols + 4, ldb = b_cols + 3, ldc = n + 6;
+            std::vector<float> a(static_cast<size_t>(a_rows) * lda), b(static_cast<size_t>(b_rows) * ldb);
+            for (size_t i = 0; i < a.size(); ++i) a[i] = std::sin(0.37f * static_cast<float>(i));
+            for (size_t i = 0; i < b.size(); ++i) b[i] = std::cos(0.23f * static_cast<float>(i));
+            std::vector<float> c(static_cast<size_t>(m) * ldc, 99.0f);
+
+            GPUMatrix da = upload(a, a_rows, lda), db = upload(b, b_rows, ldb), dc = upload(c, m, ldc);
+            adai::gpu::matrix_gemm_strided_gpu(trans_a, trans_b, m, n, k, alpha,
+                                               da.device_ptr() + a_off, lda,
+                                               db.device_ptr() + b_off, ldb,
+                                               dc.device_ptr() + c_off, ldc);
+            const std::vector<float> out = download(dc);
+            for (int i = 0; i < m; ++i) {
+                for (int j = 0; j < n; ++j) {
+                    double ref = 0.0;
+                    for (int p = 0; p < k; ++p) {
+                        const float av = trans_a ? a[static_cast<size_t>(p) * lda + a_off + i]
+                                                 : a[static_cast<size_t>(i) * lda + a_off + p];
+                        const float bv = trans_b ? b[static_cast<size_t>(j) * ldb + b_off + p]
+                                                 : b[static_cast<size_t>(p) * ldb + b_off + j];
+                        ref += static_cast<double>(av) * bv;
+                    }
+                    ASSERT_NEAR(out[static_cast<size_t>(i) * ldc + c_off + j], alpha * ref, 1e-4)
+                        << trans_a << trans_b << " (" << i << "," << j << ")";
+                }
+                // Columns outside the view are untouched.
+                for (int j = 0; j < c_off; ++j)
+                    ASSERT_EQ(out[static_cast<size_t>(i) * ldc + j], 99.0f);
+            }
+        }
+    }
+}

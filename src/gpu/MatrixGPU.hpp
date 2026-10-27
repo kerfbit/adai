@@ -2,7 +2,7 @@
 #define MATRIX_GPU_HPP
 
 // @adai-status: beta        (TD-061 resolved — see MatrixGPU.cu's tag; this header just declares/wraps its kernels; TD-050 GPUKVCache added)
-// @adai-version: 0.13.1
+// @adai-version: 0.14.0
 // @adai-reviewed: 2026-10-26
 
 
@@ -88,6 +88,16 @@ void matrix_transpose_gpu(const float* input, float* output, int rows, int cols)
  * @param n Number of columns in B and C
  */
 void matrix_multiply_gpu(const float* a, const float* b, float* c, int m, int k, int n);
+
+/**
+ * TD-388: C[m x n] = alpha * op(A) * op(B), every matrix row-major with an explicit leading
+ * dimension (elements between consecutive rows). op(A) is m x k and op(B) is k x n; with trans_a, A
+ * is stored k x m (likewise B). A view into a wider matrix (one attention head's columns, the
+ * populated prefix of a KV cache) is just a pointer and the wider matrix's row length, so it needs
+ * no copy. C is overwritten (beta = 0).
+ */
+void matrix_gemm_strided_gpu(bool trans_a, bool trans_b, int m, int n, int k, float alpha,
+                             const float* a, int lda, const float* b, int ldb, float* c, int ldc);
 
 /**
  * @brief Apply activation function in-place on GPU
@@ -435,10 +445,10 @@ namespace gpu {
  * Unlike the CPU KVCache (KVCache.hpp), which reallocates a larger Matrix on every append() call,
  * this pre-allocates a [max_seq_length, d_model] device buffer once at construction and grows
  * current_length_ in place — no per-decode-step device malloc/free churn, per this item's own
- * action item. get_keys()/get_values() materialize a freshly-sized [current_length, d_model]
- * GPUMatrix via a single bulk device-to-device copy of the populated prefix (rows are contiguous
- * in this row-major layout, so this is one copy, not the per-row loop TD-059's column-slicing
- * helpers need for non-contiguous column ranges).
+ * action item. TD-388: keys_data()/values_data() expose the populated prefix in place (rows of
+ * leading_dimension() floats); attention multiplies straight out of it with
+ * matrix_gemm_strided_gpu(). get_keys()/get_values() used to allocate and copy that whole prefix on
+ * every call, once per layer per decode step (O(n^2 * d_model) copying per generation).
  */
 class GPUKVCache {
    public:
@@ -500,26 +510,20 @@ class GPUKVCache {
         current_length_ += new_keys.rows;
     }
 
-    /** @brief Materialize the populated [current_length, d_model] prefix as a fresh GPUMatrix. */
-    GPUMatrix get_keys() const {
-        return materialize(keys_);
+    /** @brief The populated [size(), d_model] keys, in place: valid until the next append(). */
+    const float* keys_data() const {
+        return keys_.device_ptr();
     }
-    /** @brief Materialize the populated [current_length, d_model] prefix as a fresh GPUMatrix. */
-    GPUMatrix get_values() const {
-        return materialize(values_);
+    /** @brief The populated [size(), d_model] values, in place: valid until the next append(). */
+    const float* values_data() const {
+        return values_.device_ptr();
+    }
+    /** @brief Floats between consecutive rows of keys_data()/values_data() (d_model). */
+    int leading_dimension() const {
+        return d_model_;
     }
 
    private:
-    // TODO: See TD-388 in TECHNICAL_DEBT.md - allocates and copies the whole populated prefix on every decode
-    // step (O(n^2) copying per generation); expose a view instead
-    GPUMatrix materialize(const GPUMatrix& buffer) const {
-        GPUMatrix result(current_length_, d_model_);
-        if (current_length_ > 0) {
-            matrix_copy_device_to_device_gpu(buffer.device_ptr(), result.device_ptr(),
-                                             current_length_ * d_model_);
-        }
-        return result;
-    }
 
     int max_seq_length_;
     int d_model_;

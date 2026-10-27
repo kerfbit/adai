@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-195 backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 0.13.1
+// @adai-version: 0.13.2
 // @adai-reviewed: 2026-10-26
 
 #include "MultiHeadAttention.hpp"
@@ -902,30 +902,33 @@ adai::gpu::GPUMatrix MultiHeadAttention::gpu_forward_with_cache(const adai::gpu:
     adai::gpu::GPUMatrix V_new = input * gpu_->Wv;
 
     kv_cache->append(K_new, V_new);
-    adai::gpu::GPUMatrix K_full = kv_cache->get_keys();    // [total_seq_len, d_model]
-    adai::gpu::GPUMatrix V_full = kv_cache->get_values();  // [total_seq_len, d_model]
-    const int total_seq_len = K_full.rows;
+    const int total_seq_len = kv_cache->size();
+    const float* K_full = kv_cache->keys_data();  // [total_seq_len, d_model], in place
+    const float* V_full = kv_cache->values_data();
+    const int ld = kv_cache->leading_dimension();
 
-    // TD-059's own per-head primitives, unmodified — the only difference from gpu_forward()'s
-    // loop is that K_h/V_h come from the cache (width total_seq_len) instead of from this same
-    // call's own Q/K/V (width num_new). Attention shape is [num_new, total_seq_len], exactly
-    // matching forward_with_cache()'s CPU shape.
+    // TD-388: each head multiplies straight out of the cache and writes its own columns of
+    // `concatenated`. This used to copy the whole cache prefix (get_keys()/get_values()), then copy
+    // every head's columns out of it one row at a time, every layer and decode step. Attention
+    // shape is [num_new, total_seq_len], exactly matching forward_with_cache()'s CPU shape.
     adai::gpu::GPUMatrix concatenated(num_new, d_model);
+    adai::gpu::GPUMatrix scores_h(num_new, total_seq_len);
     for (int h = 0; h < num_heads; ++h) {
-        int start_dim = h * d_k;
-        adai::gpu::GPUMatrix Q_h = gpu_slice_head_columns(Q_new, start_dim, d_k);
-        adai::gpu::GPUMatrix K_h = gpu_slice_head_columns(K_full, start_dim, d_k);
-        adai::gpu::GPUMatrix V_h = gpu_slice_head_columns(V_full, start_dim, d_k);
-
-        adai::gpu::GPUMatrix scores_h = Q_h * K_h.transpose();  // [num_new, total_seq_len]
-        scores_h = scores_h.scale(scale);
+        const int start_dim = h * d_k;
+        // scores = scale * Q_h * K_h^T
+        adai::gpu::matrix_gemm_strided_gpu(false, true, num_new, total_seq_len, d_k, scale,
+                                           Q_new.device_ptr() + start_dim, d_model,
+                                           K_full + start_dim, ld, scores_h.device_ptr(),
+                                           total_seq_len);
         if (mask != nullptr) {
             scores_h.masked_fill_inplace(*mask, -1e9f);
         }
         scores_h.softmax_rows_inplace();
-
-        adai::gpu::GPUMatrix out_h = scores_h * V_h;  // [num_new, d_k]
-        gpu_scatter_head_columns(concatenated, start_dim, out_h);
+        // concatenated[:, head] = scores * V_h
+        adai::gpu::matrix_gemm_strided_gpu(false, false, num_new, d_k, total_seq_len, 1.0f,
+                                           scores_h.device_ptr(), total_seq_len,
+                                           V_full + start_dim, ld,
+                                           concatenated.device_ptr() + start_dim, d_model);
     }
 
     return concatenated * gpu_->Wo;
