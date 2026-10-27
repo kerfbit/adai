@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.12.0
+// @adai-version: 1.13.0
 // @adai-reviewed: 2026-10-27
 
 
@@ -78,6 +78,10 @@ struct ServiceConfig {
     /// TD-232: most chat sessions held at once; creating one more evicts the least recently used.
     /// Config key MAX_SESSIONS (default: 10000).
     int max_sessions = 10000;
+
+    /// TD-235: most messages in one /chat/batch or /chat/batch-session request; larger ones get
+    /// HTTP 413. Config key MAX_BATCH_SIZE (default: 32).
+    int max_batch_size = 32;
 
     /// Logging level: DEBUG, INFO, WARN, ERROR (default: INFO)
     std::string log_level = "INFO";

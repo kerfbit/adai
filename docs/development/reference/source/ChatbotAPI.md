@@ -431,3 +431,9 @@ enough observed ids, while an id is the only credential for `/chat/session/expor
 over the CPU model. `/chat/batch` and `/chat/batch-session` therefore follow RAG, speculative decoding, the TD-038 engines and the GPU
 decode exactly as `/chat` does. Inputs are still generated one after another (TD-211); the padding statistics are unchanged
 (TD-217). Test: `BatchEndpointsGoThroughTheConfiguredRagEngine`.
+
+## Addendum (October 27, 2026): batch size limit (TD-235)
+
+`handle_batch_chat()` and `handle_batch_chat_session()` call `check_batch_size()` right after parsing: more than `max_batch_size_`
+messages (`set_max_batch_size()`, config `MAX_BATCH_SIZE`, default 32) throws `BatchTooLarge`, answered with HTTP 413 before any
+generation or session creation. Test: `OversizedBatchIsRejectedBeforeAnyGeneration`.

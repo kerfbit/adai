@@ -89,6 +89,9 @@ class ChatbotAPITest : public ::testing::Test {
     std::string call_handle_batch_chat(const std::string& request_body) {
         return api->handle_batch_chat(request_body);
     }
+    std::string call_handle_batch_chat_session(const std::string& request_body) {
+        return api->handle_batch_chat_session(request_body);
+    }
 
     // handle_export_session()/handle_import_session() are private (TD-053); same
     // friendship-doesn't-propagate reason as call_generate_response() above.
@@ -1957,4 +1960,31 @@ TEST_F(ChatbotAPITest, BatchEndpointsGoThroughTheConfiguredRagEngine) {
     EXPECT_NE(with_sessions.responses[0].find("hello"), std::string::npos);
     EXPECT_NE(with_sessions.responses[1].find("there"), std::string::npos);
     EXPECT_EQ(rag->calls.load(), 5);
+}
+
+// ============================================================================
+// TD-235: batch size limit
+// ============================================================================
+
+TEST_F(ChatbotAPITest, OversizedBatchIsRejectedBeforeAnyGeneration) {
+    std::shared_ptr<EncoderDecoderModel> shared_model(model.get(), [](EncoderDecoderModel*) {});
+    auto rag = std::make_shared<EchoRAG>(shared_model,
+                                         std::make_shared<DocumentStore>(model->copy_encoder()));
+    api->enableRAG(rag);
+    api->set_max_batch_size(3);
+
+    nlohmann::json four = {{"messages", {"a", "b", "c", "d"}}};
+    for (bool sessions : {false, true}) {
+        try {
+            sessions ? call_handle_batch_chat_session(four.dump()) : call_handle_batch_chat(four.dump());
+            FAIL() << "a batch of 4 over a limit of 3 was accepted";
+        } catch (const std::runtime_error& e) {
+            EXPECT_NE(std::string(e.what()).find("the limit is 3"), std::string::npos) << e.what();
+        }
+    }
+    EXPECT_EQ(rag->calls.load(), 0);
+    EXPECT_EQ(call_session_count(), 0u);
+
+    const auto three = nlohmann::json::parse(call_handle_batch_chat(R"({"messages":["a","b","c"]})"));
+    EXPECT_TRUE(three.value("success", false)) << three.dump();
 }

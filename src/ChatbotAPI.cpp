@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.19.0
+// @adai-version: 0.20.0
 // @adai-reviewed: 2026-10-27
 
 #include "ChatbotAPI.hpp"
@@ -23,6 +23,11 @@ namespace {
 // BadRequest, which the routes answer with HTTP 400.
 struct BadRequest : std::invalid_argument {
     using std::invalid_argument::invalid_argument;
+};
+
+// TD-235: more messages in one batch request than the server's limit; HTTP 413.
+struct BatchTooLarge : std::runtime_error {
+    using std::runtime_error::runtime_error;
 };
 
 // TD-232: a session_id the server didn't issue, or one that has expired or been evicted; HTTP 404.
@@ -219,6 +224,9 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 std::string response = handle_batch_chat(req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const BatchTooLarge& e) {  // TD-235
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 413;
             } catch (const SessionNotFound& e) {  // TD-232
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 404;
@@ -238,6 +246,9 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 std::string response = handle_batch_chat_session(req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const BatchTooLarge& e) {  // TD-235
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 413;
             } catch (const SessionNotFound& e) {  // TD-232
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 404;
@@ -520,13 +531,27 @@ std::string ChatbotAPI::handle_profile() {
     return oss.str();
 }
 
-// TODO: See TD-235 in TECHNICAL_DEBT.md - no limit on the number of messages in a batch request.
+// TD-235: a batch is generated message by message on the request's thread, so its size is capped
+// (set_max_batch_size(), config MAX_BATCH_SIZE); a larger one gets HTTP 413 before any work.
+void ChatbotAPI::check_batch_size(std::size_t messages) const {
+    const std::size_t limit = max_batch_size_.load();
+    if (messages > limit) {
+        throw BatchTooLarge("batch has " + std::to_string(messages) + " messages; the limit is " +
+                            std::to_string(limit));
+    }
+}
+
+void ChatbotAPI::set_max_batch_size(std::size_t max_batch_size) {
+    max_batch_size_ = std::max<std::size_t>(max_batch_size, 1);
+}
+
 std::string ChatbotAPI::handle_batch_chat(const std::string& request_body) {
     // Parse batch request
     std::vector<std::string> messages = string_array_field(parse_request(request_body), "messages");
     if (messages.empty()) {
         return create_error_response("Missing or empty 'messages' array in request");
     }
+    check_batch_size(messages.size());
 
     // Get generation config from request or use defaults
     GenerationConfig config;
@@ -550,6 +575,7 @@ std::string ChatbotAPI::handle_batch_chat_session(const std::string& request_bod
     if (messages.empty()) {
         return create_error_response("Missing or empty 'messages' array in request");
     }
+    check_batch_size(messages.size());  // TD-235
 
     // If session_ids not provided or size mismatch, create/use default sessions
     if (session_ids.empty() || session_ids.size() != messages.size()) {

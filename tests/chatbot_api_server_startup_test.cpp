@@ -200,7 +200,7 @@ TEST_F(ChatbotApiServerStartupTest, RagIsNotEnabledWithoutATrainedModel) {
 // TD-226/TD-228 through the real routes: malformed bodies and mistyped fields get HTTP 400, and a batch
 // whose messages contain ']' is answered (it used to be rejected as "Missing or empty 'messages'").
 TEST_F(ChatbotApiServerStartupTest, ChatRoutesParseJsonAndRejectMalformedBodies) {
-    const pid_t pid = spawn(write_config("ALLOW_UNTRAINED_MODEL=true\nMAX_GEN_LENGTH=3\n"));
+    const pid_t pid = spawn(write_config("ALLOW_UNTRAINED_MODEL=true\nMAX_GEN_LENGTH=3\nMAX_BATCH_SIZE=3\n"));
     httplib::Client client("127.0.0.1", port_);
     client.set_connection_timeout(1);
     client.set_read_timeout(60);
@@ -225,9 +225,13 @@ TEST_F(ChatbotApiServerStartupTest, ChatRoutesParseJsonAndRejectMalformedBodies)
                              "application/json");
         unknown.emplace_back(route, r ? r->status : -1);
     }
+    // TD-235: MAX_BATCH_SIZE=3 in this test's config.
+    auto too_big = client.Post("/chat/batch", R"({"messages":["a","b","c","d"]})", "application/json");
     stop(pid);
 
     for (const auto& [route, status] : unknown) EXPECT_EQ(status, 404) << route;
+    ASSERT_TRUE(too_big);
+    EXPECT_EQ(too_big->status, 413) << too_big->body;
 
     ASSERT_TRUE(malformed);
     EXPECT_EQ(malformed->status, 400) << malformed->body;

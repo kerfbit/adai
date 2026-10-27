@@ -357,6 +357,9 @@ Response:
 }
 ```
 
+**Limit (TD-235):** `/chat/batch` and `/chat/batch-session` accept at most `MAX_BATCH_SIZE` messages (default 32); a larger
+request gets HTTP 413 `{"success":false,"error":"batch has N messages; the limit is 32"}` and nothing is generated.
+
 **Note:** If `session_ids` is omitted, new sessions are created automatically; an empty entry creates one too. Every non-empty
 entry must be an id the server issued, or the whole batch gets HTTP 404 and nothing is created (TD-232).
 

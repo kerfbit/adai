@@ -62,8 +62,10 @@ TEST(TokenEmbeddingConstructorTest, UnitVarianceInitialization) {
 
     EXPECT_NEAR(mean, 0.0, 0.05);
 
-    // TD-517: unit variance (it was 1/d_model, which let positional encoding swamp the tokens)
-    EXPECT_NEAR(variance, 1.0, 0.05);
+    // TD-517: unit variance (it was 1/d_model, which let positional encoding swamp the tokens). The
+    // estimate from 6,400 samples has a standard deviation of about 0.018, so 0.05 failed about 1 run
+    // in 200; 0.1 is 5.6 of them and still far from 1/d_model = 0.016.
+    EXPECT_NEAR(variance, 1.0, 0.1);
 }
 
 // TD-517: at initialization, token identity must survive adding the positional encoding. With

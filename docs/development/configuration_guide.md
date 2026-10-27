@@ -37,6 +37,7 @@ Server Configuration:
 - `PORT` - Server port (default: 8080)
 - `SESSION_TIMEOUT` - Session timeout in minutes (default: 30)
 - `MAX_SESSIONS` - Most chat sessions held at once; a new one evicts the least recently used (default: 10000)
+- `MAX_BATCH_SIZE` - Most messages in one batch request; larger ones get HTTP 413 (default: 32)
 - `LOG_LEVEL` - Logging level: DEBUG, INFO, WARN, ERROR (default: INFO)
 
 Model Architecture:

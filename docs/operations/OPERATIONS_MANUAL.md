@@ -776,6 +776,7 @@ All settings can be provided via:
 | `PORT` | `8080` | HTTP port to listen on |
 | `SESSION_TIMEOUT` | `30` | Minutes before session expires |
 | `MAX_SESSIONS` | `10000` | Most chat sessions held at once; creating one more evicts the least recently used (TD-232) |
+| `MAX_BATCH_SIZE` | `32` | Most messages in one `/chat/batch` or `/chat/batch-session` request; larger ones get HTTP 413 (TD-235) |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN`, `ERROR` |
 
 ### Model Architecture

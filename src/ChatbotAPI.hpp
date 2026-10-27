@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.14.1
+// @adai-version: 0.15.0
 // @adai-reviewed: 2026-10-27
 
 
@@ -149,6 +149,13 @@ class ChatbotAPI {
      * the server: a request naming an id it doesn't hold gets HTTP 404.
      */
     void set_max_sessions(std::size_t max_sessions);
+
+    /**
+     * @brief Most messages one /chat/batch or /chat/batch-session request may carry (TD-235)
+     *
+     * Default 32, at least 1; a larger request gets HTTP 413 without generating anything.
+     */
+    void set_max_batch_size(std::size_t max_batch_size);
 
     /**
      * @brief Set default generation configuration
@@ -341,6 +348,7 @@ class ChatbotAPI {
     // Caller holds sessions_mutex_ (session_timeout_ is guarded by it).
     bool is_session_expired(const Session& session) const;
     void session_sweeper_loop();  // TD-231
+    void check_batch_size(std::size_t messages) const;  // TD-235: throws BatchTooLarge
 
     // Text generation
     std::string generate_response(const std::string& input, const GenerationConfig& config);
@@ -393,6 +401,7 @@ class ChatbotAPI {
     std::unordered_map<std::string, std::shared_ptr<Session>> sessions_;  // TD-227
     mutable std::mutex sessions_mutex_;
     std::size_t max_sessions_{10000};  // TD-232; guarded by sessions_mutex_
+    std::atomic<std::size_t> max_batch_size_{32};  // TD-235
 
     // TD-231: removes expired sessions every sweep_interval_. Sessions used to expire only when
     // GET /health ran, so a server nobody health-checked kept every idle session forever.

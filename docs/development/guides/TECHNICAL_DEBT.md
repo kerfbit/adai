@@ -1319,6 +1319,7 @@ The generation and model math run is complete.
 - TD-233 (done in code: session ids, and FTP session credentials, come from the OS CSPRNG via `src/SecureRandom.{hpp,cpp}`).
 - TD-234 (done in code: batch endpoints generate each input through `generate_response()`, so RAG, speculative, the engines and the
   GPU path apply).
+- TD-235 (done in code: `MAX_BATCH_SIZE` (32) caps batch requests, HTTP 413 above it).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5132,7 +5133,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / Serving / API | October 8, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 27, 2026 | Inference / Serving / API | October 8, 2026 | 1-2 hours |
 
 Description:
 Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). `/chat/batch` and `/chat/batch-session` accept any number of messages and generate them one after
@@ -5141,10 +5142,17 @@ for as long as all its generations take. Found by reading the code.
 
 Action Items:
 
-- [ ] Add a configurable maximum batch size (reject larger requests with HTTP 413/400).
-- [ ] Document the limit in `rest-api.md`.
+- [x] Add a configurable maximum batch size (reject larger requests with HTTP 413/400).
+- [x] Document the limit in `rest-api.md`.
 
-Location in code: `src/ChatbotAPI.cpp` (`handle_batch_chat()`, `handle_batch_chat_session()`); tagged `TODO: See TD-235`.
+**Fix (October 27, 2026).** `/chat/batch` and `/chat/batch-session` refuse more than `MAX_BATCH_SIZE` messages (default 32, the
+group size the batch statistics already use; at least 1) with HTTP 413 and a message naming the limit, before generating anything
+or creating a session. `chatbot_api_server` applies the key at startup (`ChatbotAPI::set_max_batch_size()`). Documented in
+`rest-api.md`, `OPERATIONS_MANUAL.md`, `configuration_guide.md` and `config.chatbot.conf`. Tests:
+`OversizedBatchIsRejectedBeforeAnyGeneration` and the real-binary `ChatRoutesParseJsonAndRejectMalformedBodies` (413 with
+`MAX_BATCH_SIZE=3`; the old server answered 200).
+
+Location in code: `src/ChatbotAPI.cpp` (`handle_batch_chat()`, `handle_batch_chat_session()`); tagged `TD-235`.
 
 Files to Modify:
 

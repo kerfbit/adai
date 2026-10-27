@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.12.0
+// @adai-version: 1.13.0
 // @adai-reviewed: 2026-10-27
 
 #include "Config.hpp"
@@ -153,6 +153,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.session_timeout = std::stoi(value);
             } else if (key == "MAX_SESSIONS") {  // TD-232
                 config.max_sessions = std::stoi(value);
+            } else if (key == "MAX_BATCH_SIZE") {  // TD-235
+                config.max_batch_size = std::stoi(value);
             } else if (key == "LOG_LEVEL") {
                 config.log_level = value;
             } else if (key == "LOG_FILE_PATH") {
@@ -520,6 +522,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_int("MAX_SESSIONS")) {  // TD-232
         config.max_sessions = *val;
+    }
+    if (auto val = get_env_int("MAX_BATCH_SIZE")) {  // TD-235
+        config.max_batch_size = *val;
     }
     if (auto val = get_env("LOG_LEVEL")) {
         config.log_level = *val;
@@ -1182,6 +1187,11 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
         valid = false;
     }
 
+    if (config.max_batch_size < 1) {  // TD-235
+        errors.push_back("Invalid max_batch_size: " + std::to_string(config.max_batch_size) +
+                         " (must be >= 1)");
+        valid = false;
+    }
     if (config.max_sessions < 1) {  // TD-232
         errors.push_back("Invalid max_sessions: " + std::to_string(config.max_sessions) +
                          " (must be >= 1)");
