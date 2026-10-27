@@ -18,7 +18,9 @@
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <fstream>
+#include <atomic>
 #include <memory>
+#include <thread>
 #include "encoder.hpp"
 
 namespace fs = std::filesystem;
@@ -542,4 +544,57 @@ TEST_F(DocumentStoreTest, MultipleAddRemoveCycles) {
     EXPECT_EQ(store->getDocument("doc1"), nullptr);
     EXPECT_NE(store->getDocument("doc2"), nullptr);
     EXPECT_NE(store->getDocument("doc3"), nullptr);
+}
+
+// ============================================================================
+// TD-350: concurrent retrieval
+// ============================================================================
+
+TEST_F(DocumentStoreTest, ConcurrentRetrieveMatchesSerialResults) {
+    store->addDocument("a", "machine learning is artificial intelligence");
+    store->addDocument("b", "python programming language");
+    store->addDocument("c", "deep neural network framework");
+
+    const std::vector<std::string> queries = {"machine learning", "python code", "neural network",
+                                              "data science"};
+    std::vector<std::vector<std::pair<std::string, float>>> expected;
+    for (const auto& q : queries) {
+        std::vector<std::pair<std::string, float>> hits;
+        for (const auto& [score, doc] : store->retrieve(q, 3)) hits.emplace_back(doc->id, score);
+        expected.push_back(hits);
+    }
+
+    // retrieve() is const but encode() writes the encoder's layer caches; without the store's lock
+    // concurrent queries race there (TSan reports it).
+    std::atomic<int> mismatches{0};
+    std::vector<std::thread> threads;
+    for (int t = 0; t < 4; ++t) {
+        threads.emplace_back([&, t] {
+            for (int i = 0; i < 5; ++i) {
+                const std::size_t qi = (t + i) % queries.size();
+                std::vector<std::pair<std::string, float>> hits;
+                for (const auto& [score, doc] : store->retrieve(queries[qi], 3))
+                    hits.emplace_back(doc->id, score);
+                if (hits != expected[qi]) ++mismatches;
+            }
+        });
+    }
+    for (auto& th : threads) th.join();
+    EXPECT_EQ(mismatches.load(), 0);
+}
+
+TEST_F(DocumentStoreTest, AddDocumentWhileRetrieving) {
+    store->addDocument("a", "machine learning is artificial intelligence");
+    std::atomic<bool> stop{false};
+    std::thread reader([&] {
+        while (!stop) {
+            auto hits = store->retrieve("machine learning", 2);
+            ASSERT_FALSE(hits.empty());
+        }
+    });
+    store->addDocument("b", "python programming language");
+    store->addDocument("c", "deep neural network framework");
+    stop = true;
+    reader.join();
+    EXPECT_EQ(store->size(), 3u);
 }

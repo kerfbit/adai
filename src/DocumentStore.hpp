@@ -1,13 +1,14 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-27
 
 
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -55,6 +56,9 @@ class DocumentStore {
     std::shared_ptr<LLMEncoder> encoder;                  // Encoder for generating embeddings
     std::vector<Document> documents;                      // Stored documents with embeddings
     std::unordered_map<std::string, size_t> id_to_index;  // Fast lookup by ID
+    // TD-350: guards the encoder (encode() writes its layers' caches) and the document list, so
+    // concurrent requests can retrieve while documents are added.
+    mutable std::mutex mutex_;
 
     /**
      * @brief Compute cosine similarity between two embedding vectors
@@ -119,6 +123,7 @@ class DocumentStore {
      *
      * Encodes the query text and performs cosine similarity search
      * against all stored documents, returning the k most similar ones.
+     * Safe to call from several threads at once (TD-350).
      *
      * The returned pointers are valid only until the next call to
      * addDocument()/removeDocument()/clear() — see removeDocument()'s note.
@@ -148,6 +153,7 @@ class DocumentStore {
      * @return size_t Number of documents
      */
     size_t size() const {
+        std::lock_guard<std::mutex> lock(mutex_);
         return documents.size();
     }
 
@@ -157,6 +163,7 @@ class DocumentStore {
      * @return bool True if no documents stored
      */
     bool empty() const {
+        std::lock_guard<std::mutex> lock(mutex_);
         return documents.empty();
     }
 

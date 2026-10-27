@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.16.2
-// @adai-reviewed: 2026-10-26
+// @adai-version: 0.16.3
+// @adai-reviewed: 2026-10-27
 
 #include "ChatbotAPI.hpp"
 #include "nlohmann/json.hpp"
@@ -789,13 +789,16 @@ std::string ChatbotAPI::generate_response(const std::string& input,
     // TODO: See TD-486 in TECHNICAL_DEBT.md - the RAG branch ignores `config` (strategy, reloaded values) and
     // skips the GPU path below.
     // Route through RAG engine when enabled
-    // TODO: See TD-230 in TECHNICAL_DEBT.md - generation below runs while holding config_mutex_, so every
-    // other request waits; copy rag_engine_ under the lock and generate after releasing it.
+    // TD-230: copy the engine under config_mutex_ and generate after releasing it. Generation used to
+    // run under the lock, so every request waited at its config copy behind it. DocumentStore and
+    // the model guard themselves (TD-350, model_mutex_).
+    std::shared_ptr<RAGInference> rag_engine;
     {
         std::lock_guard<std::mutex> lock(config_mutex_);
-        if (rag_engine_) {
-            return rag_engine_->generate(input);
-        }
+        rag_engine = rag_engine_;
+    }
+    if (rag_engine) {
+        return rag_engine->generate(input);
     }
 
     try {

@@ -130,3 +130,11 @@ this file wins:
 
 **Kept from the old doc:** the data structures, operation semantics, O(N) retrieval
 characteristics, and the in-memory/no-ANN limitations.
+
+## Addendum (October 27, 2026): thread safety (TD-350)
+
+Every `DocumentStore` method takes the store's mutex, so `retrieve()` encodes and scores a query under it and `addDocument()` can run
+while other threads retrieve. `LLMEncoder::encode()` no longer prints `Encoding N tokens...` to stdout; it logs at debug level. This
+let TD-230 release `config_mutex_` during RAG generation. Returned `Document` pointers are still valid only until the next
+add/remove/clear. Tests: `ConcurrentRetrieveMatchesSerialResults`, `AddDocumentWhileRetrieving` (old code under TSan: 74 data races,
+4 heap-use-after-frees; fixed code: none).

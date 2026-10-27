@@ -394,3 +394,10 @@ a new session's id directly. Tests: `ConcurrentTurnsOnOneSessionAreSerialized`, 
 `escape_json_string()` escapes every control character (`\b`, `\f`, `\u00XX`) and replaces invalid UTF-8 with `\ufffd`, so success,
 error and batch responses parse with a strict parser whatever the model or an exception produced. Tests:
 `EscapeJsonString_EveryControlCharacterAndInvalidUtf8ParseStrictly`, `ResponsesAreStrictJsonWhateverTheyCarry`.
+
+## Addendum (October 27, 2026): RAG generation outside `config_mutex_` (TD-230)
+
+`generate_response()` copies the RAG engine pointer under `config_mutex_` and generates after releasing it, so a RAG generation no
+longer holds up every other request's config copy or `set_generation_config()` (including `SIGHUP` reload). Retrieval is safe
+concurrently since TD-350, and the model locks itself. `RAGInference::generate()` is virtual for tests. Test:
+`SlowRagGenerationDoesNotBlockConfigChanges`.

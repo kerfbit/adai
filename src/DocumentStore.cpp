@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-27
 
 #include "DocumentStore.hpp"
 #include <algorithm>
@@ -69,6 +69,7 @@ Matrix DocumentStore::getSentenceEmbedding(const Matrix& encoder_output) {
 
 void DocumentStore::addDocument(const std::string& id, const std::string& text,
                                 const std::unordered_map<std::string, std::string>& metadata) {
+    std::lock_guard<std::mutex> lock(mutex_);
     // Check if document with this ID already exists
     if (id_to_index.find(id) != id_to_index.end()) {
         throw std::invalid_argument("Document with ID '" + id + "' already exists");
@@ -94,6 +95,7 @@ void DocumentStore::addDocument(const std::string& id, const std::string& text,
 }
 
 bool DocumentStore::removeDocument(const std::string& id) {
+    std::lock_guard<std::mutex> lock(mutex_);
     auto it = id_to_index.find(id);
     if (it == id_to_index.end()) {
         return false;  // Document not found
@@ -115,9 +117,11 @@ bool DocumentStore::removeDocument(const std::string& id) {
     return true;
 }
 
-// TODO: See TD-350 in TECHNICAL_DEBT.md - const but not thread-safe: encode() mutates encoder state (masked today by TD-230's mutex)
+// TD-350: encode() writes the encoder's layer caches, so the query is encoded and scored under the
+// store's lock. Retrieval used to be serialized only by ChatbotAPI holding config_mutex_ (TD-230).
 std::vector<std::pair<float, const Document*>> DocumentStore::retrieve(const std::string& query,
                                                                        int k) const {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (documents.empty()) {
         return {};
     }
@@ -154,6 +158,7 @@ std::vector<std::pair<float, const Document*>> DocumentStore::retrieve(const std
 }
 
 const Document* DocumentStore::getDocument(const std::string& id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
     auto it = id_to_index.find(id);
     if (it == id_to_index.end()) {
         return nullptr;
@@ -162,11 +167,13 @@ const Document* DocumentStore::getDocument(const std::string& id) const {
 }
 
 void DocumentStore::clear() {
+    std::lock_guard<std::mutex> lock(mutex_);
     documents.clear();
     id_to_index.clear();
 }
 
 std::vector<std::string> DocumentStore::getAllDocumentIds() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     std::vector<std::string> ids;
     ids.reserve(documents.size());
     for (const auto& doc : documents) {

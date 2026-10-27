@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-27
 
 
 #include <memory>
@@ -111,6 +111,7 @@ class RAGInference {
      */
     RAGInference(std::shared_ptr<EncoderDecoderModel> model,
                  std::shared_ptr<DocumentStore> doc_store, RAGConfig config = RAGConfig());
+    virtual ~RAGInference() = default;
 
     /**
      * @brief Generate response using RAG
@@ -118,10 +119,12 @@ class RAGInference {
      * Retrieves relevant documents and generates a response
      * conditioned on both the query and retrieved context.
      *
+     * Virtual so tests can stand in a controllable engine (TD-230).
+     *
      * @param query User query/question
      * @return std::string Generated response
      */
-    std::string generate(const std::string& query);
+    virtual std::string generate(const std::string& query);
 
     /**
      * @brief Generate response with detailed retrieval info

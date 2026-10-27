@@ -23,6 +23,9 @@
 #include "../src/ConversationContext.hpp"
 #include "../src/EncoderDecoderModel.hpp"
 #include "../src/Optimizer.hpp"
+#include "../src/RAGInference.hpp"
+#include <condition_variable>
+#include <future>
 
 class ChatbotAPITest : public ::testing::Test {
    protected:
@@ -1752,4 +1755,61 @@ TEST_F(ChatbotAPITest, GpuResidentPathConcurrentRequestsDoNotCrash) {
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+
+// ============================================================================
+// TD-230: RAG generation runs outside config_mutex_
+// ============================================================================
+
+namespace {
+// A RAG engine whose generate() blocks until released, standing in for a slow retrieval + generation.
+class BlockingRAG : public RAGInference {
+   public:
+    using RAGInference::RAGInference;
+    std::string generate(const std::string&) override {
+        std::unique_lock<std::mutex> lock(m);
+        entered = true;
+        cv.notify_all();
+        cv.wait(lock, [this] { return released; });
+        return "rag answer";
+    }
+    void wait_entered() {
+        std::unique_lock<std::mutex> lock(m);
+        cv.wait(lock, [this] { return entered; });
+    }
+    void release() {
+        std::lock_guard<std::mutex> lock(m);
+        released = true;
+        cv.notify_all();
+    }
+
+   private:
+    std::mutex m;
+    std::condition_variable cv;
+    bool entered = false;
+    bool released = false;
+};
+}  // namespace
+
+TEST_F(ChatbotAPITest, SlowRagGenerationDoesNotBlockConfigChanges) {
+    std::shared_ptr<EncoderDecoderModel> shared_model(model.get(), [](EncoderDecoderModel*) {});
+    auto store = std::make_shared<DocumentStore>(model->copy_encoder());
+    auto rag = std::make_shared<BlockingRAG>(shared_model, store);
+    api->enableRAG(rag);
+
+    ChatbotAPI::GenerationConfig config;
+    auto answer = std::async(std::launch::async,
+                             [&] { return call_generate_response("hello", config); });
+    rag->wait_entered();
+
+    // Used to wait for the whole RAG generation: generate_response() held config_mutex_.
+    ChatbotAPI::GenerationConfig changed;
+    changed.temperature = 0.5f;
+    auto set = std::async(std::launch::async, [&] { api->set_generation_config(changed); });
+    const auto status = set.wait_for(std::chrono::seconds(5));
+    rag->release();
+    EXPECT_EQ(status, std::future_status::ready)
+        << "set_generation_config() waited for the RAG generation";
+    EXPECT_EQ(answer.get(), "rag answer");
+    set.get();
 }

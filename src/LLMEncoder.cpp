@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.5.1
-// @adai-reviewed: 2026-10-26
+// @adai-version: 1.5.2
+// @adai-reviewed: 2026-10-27
 
 #include <algorithm>
 #include <cassert>
@@ -76,8 +76,9 @@ Matrix LLMEncoder::encode(const std::string& text, bool add_special_tokens) {
         token_ids = keep_last_positions(tokenizer->encode(text, false));
     }
 
-    // TODO: See TD-367 in TECHNICAL_DEBT.md - std::cout on every call (and in the constructor, save/load)
-    std::cout << "Encoding " << token_ids.size() << " tokens..." << '\n';
+    // TODO: See TD-367 in TECHNICAL_DEBT.md - std::cout in the constructor and save/load
+    // TD-350: this used to print to stdout on every call, including every RAG query.
+    adai::Logger::debug("Encoding {} tokens", token_ids.size());
 
     if (requires_grad) {
         cached_token_ids = token_ids;
