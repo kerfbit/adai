@@ -239,3 +239,9 @@ Tests: `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.
 ## Addendum (October 26, 2026): one update per step (TD-297, TD-346, TD-360)
 
 New `update_weights()` (TD-360): one optimizer step when registered (TD-297), else plain SGD in the embedding, every block and the final norm. Test: `EncoderDecoderModelTest.OneUpdateIsOneStepWithOrWithoutAnOptimizer`.
+
+## Addendum (October 26, 2026): no unread activation copies (TD-366)
+
+`cached_encoder_outputs`, `cached_embeddings` and `cached_pos_encoded` are removed (`backward()` uses each block's own caches). Serving
+models run in inference mode: `chatbot_api_server`'s model and draft, `chatbot_gui`'s model, and the RAG encoder.
+`get_sentence_embedding_trainable()` calls `get_sentence_embedding()`. Test: `LLMEncoderTD366Test.SentenceEmbeddingFunctionsAgreeInEitherMode`.

@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.5.0
+// @adai-version: 1.5.1
 // @adai-reviewed: 2026-10-26
 
 #include <algorithm>
@@ -89,17 +89,9 @@ Matrix LLMEncoder::encode(const std::string& text, bool add_special_tokens) {
     // Add positional encoding
     Matrix encoded = positional_encoding->forward(embeddings);
 
-    if (requires_grad) {
-        cached_encoder_outputs.clear();
-        cached_encoder_outputs.push_back(encoded);
-    }
-
     // Pass through encoder blocks
     for (int i = 0; i < num_layers; i++) {
         encoded = encoder_blocks[i]->forward(encoded);
-        if (requires_grad) {
-            cached_encoder_outputs.push_back(encoded);
-        }
     }
 
     // Apply final layer normalization
@@ -134,17 +126,9 @@ Matrix LLMEncoder::encode_with_mask(const std::vector<int>& token_ids,
     // Add positional encoding
     Matrix encoded = positional_encoding->forward(embeddings);
 
-    if (requires_grad) {
-        cached_encoder_outputs.clear();
-        cached_encoder_outputs.push_back(encoded);
-    }
-
     // Pass through encoder blocks with mask
     for (int i = 0; i < num_layers; i++) {
         encoded = encoder_blocks[i]->forward(encoded, &attention_mask);
-        if (requires_grad) {
-            cached_encoder_outputs.push_back(encoded);
-        }
     }
 
     // Apply final layer normalization
@@ -168,21 +152,10 @@ std::vector<float> LLMEncoder::get_sentence_embedding(const std::string& text) {
     return pooled;
 }
 
-// TODO: See TD-366 in TECHNICAL_DEBT.md - duplicate of get_sentence_embedding(); neither has a production caller
+// TD-366: was a copy of get_sentence_embedding(); kept as the name paired with
+// backward_sentence_embedding().
 std::vector<float> LLMEncoder::get_sentence_embedding_trainable(const std::string& text) {
-    Matrix encoded = encode(text);
-    std::vector<float> pooled(d_model);
-
-    // Average over sequence length
-    for (int j = 0; j < d_model; j++) {
-        float sum = 0.0f;
-        for (int i = 0; i < encoded.rows; i++) {
-            sum += encoded(i, j);
-        }
-        pooled[j] = sum / static_cast<float>(encoded.rows);
-    }
-
-    return pooled;
+    return get_sentence_embedding(text);
 }
 
 void LLMEncoder::backward_sentence_embedding(const std::vector<float>& grad_output) {

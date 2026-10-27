@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.4.0
+// @adai-version: 1.4.1
 // @adai-reviewed: 2026-10-26
 
 
@@ -67,17 +67,15 @@ class LLMEncoder {
     // at the start of a fresh training run (ChatbotTrainer::validate() etc.
     // only ever restore it after temporarily flipping to false), so a false
     // default here left the encoder gradient-less for the entire first epoch.
-    // TODO: See TD-366 in TECHNICAL_DEBT.md - defaults to true and is never cleared for serving encoders,
-    // so every inference call fills cached_encoder_outputs (never read); cached_embeddings and
-    // cached_pos_encoded are unused
+    // Serving encoders clear it (EncoderDecoderModel::set_training(false), the RAG encoder), so
+    // inference keeps no backward state here (TD-366).
     bool requires_grad{true};
     float learning_rate{0.001f};
 
-    // Cached values for backward pass
+    // Cached for backward_sentence_embedding(). TD-366: the per-layer output copies
+    // (cached_encoder_outputs) and two unused matrices are gone; backward() uses each block's
+    // own caches.
     std::vector<int> cached_token_ids;
-    Matrix cached_embeddings;
-    Matrix cached_pos_encoded;
-    std::vector<Matrix> cached_encoder_outputs;
 
    public:
     /**
@@ -210,7 +208,8 @@ class LLMEncoder {
     void update_weights();
 
     /**
-     * Get sentence embedding with gradient support
+     * Same as get_sentence_embedding() (TD-366: it was a copy); the name pairs it with
+     * backward_sentence_embedding(), which needs requires_grad on when this runs.
      *
      * @param text Input text
      * @return Sentence embedding vector

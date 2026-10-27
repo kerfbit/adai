@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.9.1
+// @adai-version: 1.9.2
 // @adai-reviewed: 2026-10-26
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
@@ -387,6 +387,9 @@ int main(int argc, char* argv[]) {
             // TODO: See TD-246 in TECHNICAL_DEBT.md - no MODEL_PATH also serves an untrained model.
             adai::Logger::info("  Using randomly initialized model (training required)");
         }
+        // TD-366: serving only (the encoder then caches nothing for a backward pass).
+        model->set_training(false);
+
         // TD-362: generation (CPU and GPU) tokenizes with the model's own tokenizer, which a loaded
         // checkpoint fills from its .vocab. Without one, give it VOCAB_PATH.
         if (!model_loaded) {
@@ -420,6 +423,7 @@ int main(int argc, char* argv[]) {
                     arch.vocab_size, arch.d_model, arch.encoder_layers, arch.decoder_layers,
                     arch.num_heads, arch.d_ff, arch.max_seq_length);
                 draft_model->load_model(config.draft_model_path);
+                draft_model->set_training(false);  // TD-366: serving only
                 adai::Logger::info(
                     "  Draft model weights loaded (d_model={}, layers={}+{}, heads={}, d_ff={})",
                     arch.d_model, arch.encoder_layers, arch.decoder_layers, arch.num_heads,
@@ -621,6 +625,7 @@ int main(int argc, char* argv[]) {
                     static_cast<int>(config.num_encoder_layers), static_cast<int>(config.num_heads),
                     static_cast<int>(config.d_ff), static_cast<int>(config.max_seq_length));
                 rag_encoder->load_tokenizer_vocab(config.vocab_path);
+                rag_encoder->set_requires_grad(false);  // TD-366: retrieval only
 
                 auto doc_store = std::make_shared<DocumentStore>(rag_encoder);
 

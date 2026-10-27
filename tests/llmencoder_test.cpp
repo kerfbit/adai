@@ -602,6 +602,29 @@ TEST_F(LLMEncoderTest, BackwardWithoutRequiresGrad) {
     // Should not crash
 }
 
+// TD-366: the two sentence-embedding functions were copies of each other; one now calls the other,
+// and a serving encoder (requires_grad off) gives the same embeddings as a training one.
+TEST(LLMEncoderTD366Test, SentenceEmbeddingFunctionsAgreeInEitherMode) {
+    LLMEncoder encoder(100, 32, 2, 2, 64, 32);
+    encoder.build_tokenizer({"hello world", "how are you", "test message"}, 100);
+    for (bool requires_grad : {true, false}) {
+        encoder.set_requires_grad(requires_grad);
+        const auto a = encoder.get_sentence_embedding("hello world");
+        const auto b = encoder.get_sentence_embedding_trainable("hello world");
+        ASSERT_EQ(a.size(), b.size());
+        for (size_t i = 0; i < a.size(); ++i)
+            EXPECT_FLOAT_EQ(a[i], b[i]) << requires_grad << " " << i;
+    }
+    encoder.set_requires_grad(true);
+    const Matrix training = encoder.encode("how are you");
+    encoder.set_requires_grad(false);
+    const Matrix serving = encoder.encode("how are you");
+    ASSERT_EQ(training.rows, serving.rows);
+    for (int i = 0; i < training.rows; ++i)
+        for (int j = 0; j < training.cols; ++j)
+            EXPECT_FLOAT_EQ(training(i, j), serving(i, j));
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

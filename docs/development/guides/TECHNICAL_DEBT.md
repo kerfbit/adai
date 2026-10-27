@@ -1290,6 +1290,8 @@ The metrics pipeline run is complete.
   and with one every composite steps it exactly once; duplicate registrations are ignored).
 - TD-363 (done in code: `clone()` keeps the gated paths and copies the world model, memory, settings and generation config;
   `load_model()` syncs the generator; the world model sees the original text where there is one).
+- TD-366 (done in code: the encoder's never-read activation copies and unused caches are removed, serving models run in inference
+  mode, and the duplicate sentence-embedding function calls the other).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -9102,7 +9104,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Transformer / LLMEncoder | October 11, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 26, 2026 | Transformer / LLMEncoder | October 11, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `LLMEncoder`, by inspection. `requires_grad` defaults to `true` and nothing clears it
@@ -9115,11 +9117,22 @@ production caller (`DocumentStore` pools for itself).
 
 Action Items:
 
-- [ ] Remove `cached_encoder_outputs`, `cached_embeddings` and `cached_pos_encoded`, or at least stop filling the first.
-- [ ] Clear `requires_grad` for serving instances (`EncoderDecoderModel::set_training(false)` already forwards it; make the server and RAG setup call it).
-- [ ] Merge the two sentence-embedding functions.
+- [x] Remove `cached_encoder_outputs`, `cached_embeddings` and `cached_pos_encoded`, or at least stop filling the first.
+- [x] Clear `requires_grad` for serving instances (`EncoderDecoderModel::set_training(false)` already forwards it; make the server and RAG setup call it).
+- [x] Merge the two sentence-embedding functions.
 
-Location in code: `src/encoder.hpp` (members), `src/LLMEncoder.cpp` (`get_sentence_embedding_trainable()`); tagged `TODO: See TD-366`.
+**Fix (October 26, 2026).**
+- `cached_encoder_outputs`, `cached_embeddings` and `cached_pos_encoded` are removed, along with the per-call copies into the first.
+  That was `(num_layers + 1) × seq × d_model` floats per encode, never read.
+- The serving model is put in inference mode with `set_training(false)`: `chatbot_api_server`'s model and draft model, and
+  `chatbot_gui`'s. The RAG encoder calls `set_requires_grad(false)`.
+- `get_sentence_embedding_trainable()` now calls `get_sentence_embedding()`; the name is kept as the pair of
+  `backward_sentence_embedding()`.
+
+Test: `LLMEncoderTD366Test.SentenceEmbeddingFunctionsAgreeInEitherMode` (both functions, and `encode()` with `requires_grad` on and
+off, give the same result). The removed state had no reader, so the change is otherwise behavior-neutral.
+
+Location in code: `src/encoder.hpp` (members), `src/LLMEncoder.cpp`, `src/ChatbotAPIServer.cpp`, `src/ChatbotGUI.cpp`.
 
 Files to Modify:
 

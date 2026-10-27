@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-037 — no Qt Test infrastructure in this repo; onStrategyChanged's mapping extracted to ChatbotGuiLogic.hpp, see TECHNICAL_DEBT.md)
-// @adai-version: 0.8.1
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.8.2
+// @adai-reviewed: 2026-10-26
 
 #include "ChatbotGUI.hpp"
 #include <QApplication>
@@ -78,6 +78,7 @@ bool ChatbotGUI::initializeChatbot() {
 
         // Transfer tokenizer ownership to model
         model->set_tokenizer(tokenizer.release());
+        model->set_training(false);  // TD-366: inference only
 
         // Load pre-trained weights if available
         // TODO: See TD-260 in TECHNICAL_DEBT.md - save_model() never writes a file at the bare model path
