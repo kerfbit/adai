@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.17.0
+// @adai-version: 0.18.0
 // @adai-reviewed: 2026-10-27
 
 #include "ChatbotAPI.hpp"
@@ -24,6 +24,11 @@ namespace {
 // BadRequest, which the routes answer with HTTP 400.
 struct BadRequest : std::invalid_argument {
     using std::invalid_argument::invalid_argument;
+};
+
+// TD-232: a session_id the server didn't issue, or one that has expired or been evicted; HTTP 404.
+struct SessionNotFound : std::runtime_error {
+    SessionNotFound() : std::runtime_error("Session not found") {}
 };
 
 // TD-291: the largest conversation import accepted (1 MiB), whatever the session would keep of it.
@@ -105,6 +110,9 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
             std::string response = handle_chat(req.body);
             res.set_content(response, "application/json");
             res.status = 200;
+        } catch (const SessionNotFound& e) {  // TD-232
+            res.set_content(create_error_response(e.what()), "application/json");
+            res.status = 404;
         } catch (const BadRequest& e) {  // TD-226: malformed JSON or a mistyped field
             res.set_content(create_error_response(e.what()), "application/json");
             res.status = 400;
@@ -121,6 +129,9 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 std::string response = handle_chat_session(req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const SessionNotFound& e) {  // TD-232
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 404;
             } catch (const BadRequest& e) {  // TD-226: malformed JSON or a mistyped field
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -137,6 +148,9 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 std::string response = handle_clear_session(req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const SessionNotFound& e) {  // TD-232
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 404;
             } catch (const BadRequest& e) {  // TD-226: malformed JSON or a mistyped field
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -153,6 +167,9 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 std::string response = handle_export_session(req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const SessionNotFound& e) {  // TD-232
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 404;
             } catch (const BadRequest& e) {  // TD-226: malformed JSON or a mistyped field
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -169,6 +186,9 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 std::string response = handle_import_session(req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const SessionNotFound& e) {  // TD-232
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 404;
             } catch (const BadRequest& e) {  // TD-226: malformed JSON or a mistyped field
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -200,6 +220,9 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 std::string response = handle_batch_chat(req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const SessionNotFound& e) {  // TD-232
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 404;
             } catch (const BadRequest& e) {  // TD-226: malformed JSON or a mistyped field
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -216,6 +239,9 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 std::string response = handle_batch_chat_session(req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const SessionNotFound& e) {  // TD-232
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 404;
             } catch (const BadRequest& e) {  // TD-226: malformed JSON or a mistyped field
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -390,7 +416,7 @@ std::string ChatbotAPI::handle_clear_session(const std::string& request_body) {
 
     std::shared_ptr<Session> session = find_session(session_id);
     if (!session) {
-        return create_error_response("Session not found");
+        throw SessionNotFound();  // TD-232: HTTP 404
     }
     std::lock_guard<std::mutex> turn(session->mutex);  // TD-227: not in the middle of a turn
     session->context->clear();
@@ -408,7 +434,7 @@ std::string ChatbotAPI::handle_export_session(const std::string& request_body) {
 
     std::shared_ptr<Session> session = find_session(session_id);
     if (!session) {
-        return create_error_response("Session not found");
+        throw SessionNotFound();  // TD-232: HTTP 404
     }
     std::string data;
     {
@@ -569,22 +595,38 @@ std::string ChatbotAPI::create_session_id() {
 std::shared_ptr<Session> ChatbotAPI::get_or_create_session(std::string& session_id) {
     std::lock_guard<std::mutex> lock(sessions_mutex_);
 
-    // If session_id is empty or not found, create new session
-    // TODO: See TD-232 in TECHNICAL_DEBT.md - any client-chosen ID creates a session, with no ID validation or
-    // session cap.
-    if (session_id.empty() || sessions_.find(session_id) == sessions_.end()) {
-        if (session_id.empty()) {
-            session_id = create_session_id();
-        }
-        auto session = std::make_shared<Session>();
-        sessions_[session_id] = session;
-        return session;
+    // TD-232: session ids are issued by the server. An unknown id used to create a session under
+    // that name, so any client could add sessions without limit; it now gets 404, and the client
+    // starts over with an empty id.
+    if (!session_id.empty()) {
+        auto it = sessions_.find(session_id);
+        if (it == sessions_.end()) throw SessionNotFound();
+        it->second->last_access = std::chrono::steady_clock::now();
+        return it->second;
     }
 
-    // Update last access time and return existing session
-    std::shared_ptr<Session> session = sessions_[session_id];
-    session->last_access = std::chrono::steady_clock::now();
+    // TD-232: at the cap, the least recently used session makes room. A request still using it
+    // keeps it alive (shared_ptr); its id is gone, so that client's next turn gets 404.
+    while (!sessions_.empty() && sessions_.size() >= max_sessions_) {
+        auto oldest = sessions_.begin();
+        for (auto it = sessions_.begin(); it != sessions_.end(); ++it) {
+            if (it->second->last_access.load() < oldest->second->last_access.load()) oldest = it;
+        }
+        sessions_.erase(oldest);
+        adai::Logger::info("ChatbotAPI: session cap {} reached; evicted the least recently used session",
+                           max_sessions_);
+    }
+    do {
+        session_id = create_session_id();
+    } while (sessions_.count(session_id) != 0);
+    auto session = std::make_shared<Session>();
+    sessions_[session_id] = session;
     return session;
+}
+
+void ChatbotAPI::set_max_sessions(std::size_t max_sessions) {
+    std::lock_guard<std::mutex> lock(sessions_mutex_);
+    max_sessions_ = std::max<std::size_t>(max_sessions, 1);
 }
 
 std::shared_ptr<Session> ChatbotAPI::find_session(const std::string& session_id) {
@@ -1087,6 +1129,10 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_session_responses(
         // TD-227: every session in the batch stays alive (shared_ptr) and locked (its mutex) from the
         // user message to the reply. Each distinct session is locked once (a batch may name one twice),
         // in address order, so two overlapping batches can't deadlock.
+        // TD-232: every named session must exist before any new one is created for the batch.
+        for (const auto& sid : session_ids) {
+            if (!sid.empty() && !find_session(sid)) throw SessionNotFound();
+        }
         std::vector<std::shared_ptr<Session>> sessions;
         sessions.reserve(inputs.size());
         for (size_t i = 0; i < inputs.size(); ++i) {
@@ -1130,6 +1176,8 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_session_responses(
         batch_response.session_ids = actual_session_ids;
         batch_response.stats = temp_response.stats;
 
+    } catch (const SessionNotFound&) {
+        throw;  // TD-232: the route answers 404
     } catch (const std::exception& e) {
         batch_response.success = false;
         batch_response.error = std::string("Batch session generation failed: ") + e.what();

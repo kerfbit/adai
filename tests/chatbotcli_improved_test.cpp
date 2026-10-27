@@ -450,6 +450,29 @@ TEST_F(ChatbotCLISaveLoadRoundTripTest, SaveThenLoadRestoresSessionOnAFreshClien
     }
 }
 
+// TD-232: session ids are server-issued, so once the server drops ours (expiry, eviction, restart)
+// it answers 404. The CLI starts a new session and sends the message again instead of failing.
+TEST_F(ChatbotCLISaveLoadRoundTripTest, LostSessionStartsANewOneAndTheTurnSucceeds) {
+    ChatbotCLI cli("http://127.0.0.1:" + std::to_string(port), conv_file);
+    ASSERT_TRUE(cli.initialize());
+
+    std::stringstream buffer;
+    std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
+    const std::string first = cli.generate_response("hello world");
+
+    // The server forgets every session.
+    api->set_session_expiry(std::chrono::steady_clock::duration::zero(), std::chrono::milliseconds(1));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    api->set_session_expiry(std::chrono::minutes(30), std::chrono::minutes(1));
+
+    const std::string second = cli.generate_response("hello again");
+    std::cout.rdbuf(old);
+
+    EXPECT_EQ(first.rfind("Error:", 0), std::string::npos) << first;
+    EXPECT_EQ(second.rfind("Error:", 0), std::string::npos) << second;
+    EXPECT_NE(buffer.str().find("starting a new one"), std::string::npos) << buffer.str();
+}
+
 // ============================================================================
 // Helper Function Tests (from original test suite)
 // ============================================================================

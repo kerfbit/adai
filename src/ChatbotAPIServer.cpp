@@ -1,8 +1,9 @@
 // @adai-status: stable
-// @adai-version: 2.0.1
-// @adai-reviewed: 2026-10-26
+// @adai-version: 2.1.0
+// @adai-reviewed: 2026-10-27
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -562,6 +563,7 @@ int main(int argc, char* argv[]) {
                                                 config.session_timeout, draft_model.get(),
                                                 config.speculative_num_candidates);
         api->set_model_status(model_loaded, config.model_path);  // TD-246: reported by /health
+        api->set_max_sessions(static_cast<std::size_t>(std::max(config.max_sessions, 1)));  // TD-232
 
         // TD-038: --profile enables GET /admin/profile (generate_response() timing stats).
         if (cli.profile) {

@@ -1,8 +1,8 @@
 package com.adai.chatbot.testutil
 
 // @adai-status: beta        (in-memory fakes backing both plain-JVM and instrumented tests, TD-048)
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-13
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-10-27
 
 
 import com.adai.chatbot.data.db.ConversationDao
@@ -42,6 +42,10 @@ class FakeConversationDao(seed: List<ConversationEntity> = emptyList()) : Conver
 
     override suspend fun updateTitle(id: Long, title: String) {
         state.value[id]?.let { state.value = state.value + (id to it.copy(title = title)) }
+    }
+
+    override suspend fun updateServerSessionId(id: Long, serverSessionId: String) {
+        state.value[id]?.let { state.value = state.value + (id to it.copy(serverSessionId = serverSessionId)) }
     }
 }
 

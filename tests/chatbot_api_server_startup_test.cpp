@@ -217,7 +217,17 @@ TEST_F(ChatbotApiServerStartupTest, ChatRoutesParseJsonAndRejectMalformedBodies)
                                 "application/json");
     auto brackets =
         client.Post("/chat/batch", R"({"messages":["see [1] here","second"]})", "application/json");
+    // TD-232: ids are server-issued; one the server never issued is 404 on every session route.
+    std::vector<std::pair<std::string, int>> unknown;
+    for (const char* route : {"/chat/session", "/clear-session", "/chat/session/export",
+                              "/chat/session/import"}) {
+        auto r = client.Post(route, R"({"session_id":"client-made","message":"hi","data":"x"})",
+                             "application/json");
+        unknown.emplace_back(route, r ? r->status : -1);
+    }
     stop(pid);
+
+    for (const auto& [route, status] : unknown) EXPECT_EQ(status, 404) << route;
 
     ASSERT_TRUE(malformed);
     EXPECT_EQ(malformed->status, 400) << malformed->body;

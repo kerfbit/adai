@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-09-13
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-10-27
 
 #include "ChatbotCLI.hpp"
 #include <ctime>
@@ -203,7 +203,11 @@ void ChatbotCLI::handle_command(const std::string& command) {
             // TODO: See TD-257 in TECHNICAL_DEBT.md - session_id is not escaped here (save/load escape it).
             std::string body = R"({"session_id":")" + session_id + "\"}";
             auto res = client->Post("/clear-session", body, "application/json");
-            if (res && res->status == 200) {
+            if (res && res->status == 404) {  // TD-232: the server no longer holds it
+                session_id.clear();
+                std::cout << COLOR_SYSTEM << "✅ No active session on the server" << COLOR_RESET
+                          << '\n';
+            } else if (res && res->status == 200) {
                 std::cout << COLOR_SYSTEM << "✅ Conversation history cleared (Session "
                           << session_id << ")" << COLOR_RESET << '\n';
             } else {
@@ -305,28 +309,15 @@ std::string ChatbotCLI::generate_response(const std::string& user_input) {
         return "Error: Client not initialized";
     }
 
-    std::stringstream ss;
-    ss << "{";
-    if (!session_id.empty()) {
-        // TODO: See TD-257 in TECHNICAL_DEBT.md - session_id is not escaped here.
-        ss << R"("session_id":")" << session_id << "\",";
+    // TD-232: session ids are server-issued. Once the server no longer holds ours (expired,
+    // evicted, or the server restarted) it answers 404; start a new session and send again.
+    httplib::Result res = post_chat_turn(user_input);
+    if (res && res->status == 404 && !session_id.empty()) {
+        std::cout << COLOR_SYSTEM << "ℹ️  The server no longer has this session; starting a new one"
+                  << COLOR_RESET << '\n';
+        session_id.clear();
+        res = post_chat_turn(user_input);
     }
-    // TODO: See TD-254 in TECHNICAL_DEBT.md - the generation fields below are ignored by the server.
-    ss << R"("message":")" << escape_json_string(user_input) << "\",";
-    ss << "\"max_length\":" << max_response_length << ",";
-    ss << "\"temperature\":" << temperature << ",";
-    ss << "\"top_p\":" << top_p << ",";
-    ss << "\"top_k\":" << top_k << ",";
-    ss << "\"beam_width\":" << beam_width << ",";
-    ss << R"("strategy":")" << generation_strategy << "\"";
-    ss << "}";
-
-    std::string body = ss.str();
-
-    // Choose endpoint based on session requirement
-    std::string endpoint = "/chat/session";
-
-    auto res = client->Post(endpoint, body, "application/json");
 
     if (res && res->status == 200) {
         // TODO: See TD-255 in TECHNICAL_DEBT.md - "success" isn't checked, so a {"success":false,...} reply
@@ -347,6 +338,28 @@ std::string ChatbotCLI::generate_response(const std::string& user_input) {
         err << " - " << res->body;
     }
     return err.str();
+}
+
+httplib::Result ChatbotCLI::post_chat_turn(const std::string& user_input) {
+    std::stringstream ss;
+    ss << "{";
+    if (!session_id.empty()) {
+        // TODO: See TD-257 in TECHNICAL_DEBT.md - session_id is not escaped here.
+        ss << R"("session_id":")" << session_id << "\",";
+    }
+    // TODO: See TD-254 in TECHNICAL_DEBT.md - the generation fields below are ignored by the server.
+    ss << R"("message":")" << escape_json_string(user_input) << "\",";
+    ss << "\"max_length\":" << max_response_length << ",";
+    ss << "\"temperature\":" << temperature << ",";
+    ss << "\"top_p\":" << top_p << ",";
+    ss << "\"top_k\":" << top_k << ",";
+    ss << "\"beam_width\":" << beam_width << ",";
+    ss << R"("strategy":")" << generation_strategy << "\"";
+    ss << "}";
+
+    std::string body = ss.str();
+
+    return client->Post("/chat/session", body, "application/json");
 }
 
 void ChatbotCLI::save_conversation() {
@@ -415,15 +428,21 @@ void ChatbotCLI::load_conversation() {
         return;
     }
 
-    std::stringstream ss;
-    ss << "{";
-    if (!session_id.empty()) {
-        ss << R"("session_id":")" << escape_json_string(session_id) << "\",";
+    auto post_import = [&] {
+        std::stringstream ss;
+        ss << "{";
+        if (!session_id.empty()) {
+            ss << R"("session_id":")" << escape_json_string(session_id) << "\",";
+        }
+        ss << R"("data":")" << escape_json_string(data) << "\"";
+        ss << "}";
+        return client->Post("/chat/session/import", ss.str(), "application/json");
+    };
+    auto res = post_import();
+    if (res && res->status == 404 && !session_id.empty()) {  // TD-232: import into a new session
+        session_id.clear();
+        res = post_import();
     }
-    ss << R"("data":")" << escape_json_string(data) << "\"";
-    ss << "}";
-
-    auto res = client->Post("/chat/session/import", ss.str(), "application/json");
     if (!res) {
         std::cout << COLOR_ERROR << "❌ Failed to reach server to import conversation"
                   << COLOR_RESET << '\n';

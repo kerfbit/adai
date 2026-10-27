@@ -408,3 +408,13 @@ A sweeper thread, started by the constructor and joined by the destructor, runs 
 sessions expire on a server nobody health-checks (`/health` still sweeps as well). `set_session_expiry(timeout, sweep_interval)` sets
 both; the timeout is a `steady_clock` duration, compared without rounding to whole minutes. Removals are logged as a count, not by
 session id. Tests: `IdleSessionsExpireWithoutAHealthCheck`, `ActiveSessionsSurviveTheSweeper`, `DestructorStopsTheSweeperPromptly`.
+
+## Addendum (October 27, 2026): server-issued session ids and a session cap (TD-232)
+
+Only an empty `session_id` creates a session; the reply carries its new server-generated id. An id the server doesn't hold (never
+issued, expired, evicted, or lost in a restart) throws `SessionNotFound`, answered with HTTP 404 `{"success":false,"error":"Session
+not found"}` by `/chat/session`, `/clear-session`, `/chat/session/export`, `/chat/session/import` and `/chat/batch-session` (a batch
+checks every named id before creating any session). `set_max_sessions()` (config `MAX_SESSIONS`, default 10,000) caps live
+sessions; creating one more evicts the least recently used. A request still using an evicted session finishes; its next turn gets
+404. Tests: `UnknownSessionIdIsNotFoundAndCreatesNothing`, `IssuedSessionIdContinuesTheConversation`,
+`SessionCapEvictsTheLeastRecentlyUsed`, `GenerateBatchSessionResponses_UnknownIdIsNotFound`.

@@ -218,3 +218,9 @@ output, and the "Integration with Other Components" and file-format sections no 
 aliases, generation-strategy descriptions (now framed as server-side, with the server's names),
 the `string_view` parsing and move-only design notes, and the file layout
 (`ChatbotCLI.hpp` / `ChatbotCLI.cpp` / `ChatbotCLI_main.cpp`).
+
+## Addendum (October 27, 2026): a lost server session (TD-232)
+
+Session ids are server-issued, so the server answers 404 for one it no longer holds. On a 404, `generate_response()` prints a notice,
+drops its id and sends the message again in a new session (`post_chat_turn()`); `/load` imports into a new session, and `/clear`
+reports that there is no session on the server. Test: `LostSessionStartsANewOneAndTheTurnSucceeds`.

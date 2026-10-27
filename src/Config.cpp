@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.11.0
-// @adai-reviewed: 2026-10-26
+// @adai-version: 1.12.0
+// @adai-reviewed: 2026-10-27
 
 #include "Config.hpp"
 #include <algorithm>
@@ -151,6 +151,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.port = std::stoi(value);
             } else if (key == "SESSION_TIMEOUT") {
                 config.session_timeout = std::stoi(value);
+            } else if (key == "MAX_SESSIONS") {  // TD-232
+                config.max_sessions = std::stoi(value);
             } else if (key == "LOG_LEVEL") {
                 config.log_level = value;
             } else if (key == "LOG_FILE_PATH") {
@@ -515,6 +517,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_int("SESSION_TIMEOUT")) {
         config.session_timeout = *val;
+    }
+    if (auto val = get_env_int("MAX_SESSIONS")) {  // TD-232
+        config.max_sessions = *val;
     }
     if (auto val = get_env("LOG_LEVEL")) {
         config.log_level = *val;
@@ -1173,6 +1178,12 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
     // Validate session timeout
     if (config.session_timeout < 1) {
         errors.push_back("Invalid session_timeout: " + std::to_string(config.session_timeout) +
+                         " (must be >= 1)");
+        valid = false;
+    }
+
+    if (config.max_sessions < 1) {  // TD-232
+        errors.push_back("Invalid max_sessions: " + std::to_string(config.max_sessions) +
                          " (must be >= 1)");
         valid = false;
     }

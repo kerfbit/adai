@@ -1,8 +1,8 @@
 package com.adai.chatbot.testutil
 
 // @adai-status: beta        (in-memory fakes backing both plain-JVM and instrumented tests, TD-048)
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-13
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-10-27
 
 
 import com.adai.chatbot.network.ApiClientProvider
@@ -15,7 +15,7 @@ import com.adai.chatbot.network.dto.ClearSessionRequest
 import com.adai.chatbot.network.dto.ClearSessionResponse
 import com.adai.chatbot.network.dto.HealthResponse
 
-/** Records every session_id sent, so tests can assert an empty one is never sent (the server-side echo bug). */
+/** Records every session_id sent; [nextResponse] may throw (e.g. an HttpException 404, TD-232). */
 class RecordingFakeChatApiService(
     private val nextResponse: () -> ChatSessionResponse = {
         ChatSessionResponse(success = true, response = "ok", session_id = "")

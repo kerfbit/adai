@@ -52,12 +52,15 @@ class ConversationRepositoryInstrumentedTest {
         db.close()
     }
 
+    // TD-232: the server issues session ids, so a new conversation has none until its first reply.
     @Test
-    fun newConversationsAlwaysGetANonBlankServerSessionId() = runBlocking {
+    fun newConversationsStartWithoutAServerSession() = runBlocking {
         val id = repository.createConversation()
         val conversation = db.conversationDao().getById(id)
         assertNotNull(conversation)
-        assertTrue(conversation!!.serverSessionId.isNotBlank())
+        assertEquals("", conversation!!.serverSessionId)
+        db.conversationDao().updateServerSessionId(id, "issued")
+        assertEquals("issued", db.conversationDao().getById(id)!!.serverSessionId)
     }
 
     @Test

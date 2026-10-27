@@ -2,8 +2,8 @@
 #define CHATBOT_CLI_HPP
 
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-09-13
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-10-27
 
 
 // TODO: See TD-259 in TECHNICAL_DEBT.md - this pulls all of httplib (and the COLOR_* macros below) into
@@ -89,6 +89,8 @@ class ChatbotCLI {
      * @return The generated response
      */
     std::string generate_response(const std::string& user_input);
+    // One POST /chat/session with the current session_id (none: the server issues one).
+    httplib::Result post_chat_turn(const std::string& user_input);
 
     /**
      * @brief Save the current conversation to conversation_save_path (TD-053).

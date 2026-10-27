@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.13.0
+// @adai-version: 0.14.0
 // @adai-reviewed: 2026-10-27
 
 
@@ -141,6 +141,14 @@ class ChatbotAPI {
      */
     void set_session_expiry(std::chrono::steady_clock::duration timeout,
                             std::chrono::steady_clock::duration sweep_interval);
+
+    /**
+     * @brief Cap the number of live sessions (TD-232; default 10,000, at least 1)
+     *
+     * Creating a session at the cap evicts the least recently used one. Session ids are issued by
+     * the server: a request naming an id it doesn't hold gets HTTP 404.
+     */
+    void set_max_sessions(std::size_t max_sessions);
 
     /**
      * @brief Set default generation configuration
@@ -321,7 +329,8 @@ class ChatbotAPI {
     // Session management
     static std::string create_session_id();
     // TD-227: shared ownership, so a session erased by cleanup stays alive for a request using it.
-    // An empty session_id creates a session and is set to its new id.
+    // An empty session_id creates a session and is set to its new id; an unknown one throws
+    // SessionNotFound (HTTP 404, TD-232).
     std::shared_ptr<Session> get_or_create_session(std::string& session_id);
     // The session, or nullptr; doesn't create one.
     std::shared_ptr<Session> find_session(const std::string& session_id);
@@ -380,6 +389,7 @@ class ChatbotAPI {
     // Session storage (thread-safe)
     std::unordered_map<std::string, std::shared_ptr<Session>> sessions_;  // TD-227
     mutable std::mutex sessions_mutex_;
+    std::size_t max_sessions_{10000};  // TD-232; guarded by sessions_mutex_
 
     // TD-231: removes expired sessions every sweep_interval_. Sessions used to expire only when
     // GET /health ran, so a server nobody health-checked kept every idle session forever.

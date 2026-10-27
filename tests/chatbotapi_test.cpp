@@ -107,6 +107,11 @@ class ChatbotAPITest : public ::testing::Test {
     std::string call_handle_health() {
         return api->handle_health();
     }
+    // TD-232: ids are server-issued; a first turn with no session_id creates one.
+    std::string start_session(const std::string& message = "hello world") {
+        const std::string reply = call_handle_chat_session(R"({"message":")" + message + "\"}");
+        return api->parse_json_string(reply, "session_id");
+    }
     std::size_t call_session_count() {
         std::lock_guard<std::mutex> lock(api->sessions_mutex_);
         return api->sessions_.size();
@@ -497,10 +502,14 @@ TEST_F(ChatbotAPITest, HandleExportSession_MissingSessionIdReturnsError) {
     EXPECT_NE(response.find("Missing 'session_id'"), std::string::npos) << response;
 }
 
-TEST_F(ChatbotAPITest, HandleExportSession_UnknownSessionIdReturnsError) {
-    std::string response = call_handle_export_session(R"({"session_id":"does-not-exist"})");
-    EXPECT_NE(response.find(R"("success":false)"), std::string::npos) << response;
-    EXPECT_NE(response.find("Session not found"), std::string::npos) << response;
+// TD-232: an id the server never issued is "Session not found" (HTTP 404 from the route).
+TEST_F(ChatbotAPITest, HandleExportSession_UnknownSessionIdIsNotFound) {
+    try {
+        call_handle_export_session(R"({"session_id":"does-not-exist"})");
+        FAIL() << "expected Session not found";
+    } catch (const std::runtime_error& e) {
+        EXPECT_STREQ(e.what(), "Session not found");
+    }
 }
 
 TEST_F(ChatbotAPITest, HandleExportSession_ReturnsSerializedConversationData) {
@@ -529,24 +538,25 @@ TEST_F(ChatbotAPITest, ConcurrentTurnsOnOneSessionAreSerialized) {
     api->set_generation_config(config);
 
     constexpr int kTurns = 4;
+    const std::string sid = start_session();
+    ASSERT_FALSE(sid.empty());
     std::vector<std::thread> threads;
     std::vector<std::string> responses(kTurns);
     for (int i = 0; i < kTurns; ++i) {
         threads.emplace_back([&, i] {
-            responses[i] = call_handle_chat_session(
-                R"({"session_id":"shared-session","message":"hello world"})");
+            responses[i] = call_handle_chat_session(R"({"session_id":")" + sid +
+                                                    R"(","message":"hello world"})");
         });
     }
     for (auto& t : threads) t.join();
     for (const auto& r : responses) {
         EXPECT_NE(r.find("\"success\":true"), std::string::npos) << r;
     }
-    // Every turn added its user message and its reply: 2 * kTurns messages, in pairs.
-    const std::string exported =
-        call_handle_export_session(R"({"session_id":"shared-session"})");
+    // Every turn (and the first) added its user message and its reply, in pairs.
+    const std::string exported = call_handle_export_session(R"({"session_id":")" + sid + "\"}");
     ConversationContext restored(20, 100000);
     restored.deserialize(api->parse_json_string(exported, "data"));
-    EXPECT_EQ(restored.get_message_count(), static_cast<size_t>(2 * kTurns)) << exported;
+    EXPECT_EQ(restored.get_message_count(), static_cast<size_t>(2 * (kTurns + 1))) << exported;
 }
 
 // TD-227: cleanup (run by /health) erasing a session while a request is using it. The request held a
@@ -561,12 +571,12 @@ TEST_F(ChatbotAPITest, CleanupDuringAnInFlightRequestKeepsTheSessionAlive) {
     std::atomic<bool> done{false};
     std::string response;
     std::thread request([&] {
-        response = call_handle_chat_session(R"({"session_id":"doomed","message":"hello world"})");
+        response = call_handle_chat_session(R"({"message":"hello world"})");  // a new session
         done = true;
     });
     int cleanups = 0;
     while (!done) {
-        call_handle_health();  // timeout 0: erases every session, including "doomed"
+        call_handle_health();  // timeout 0: erases every session, including the request's
         ++cleanups;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
@@ -582,15 +592,16 @@ TEST_F(ChatbotAPITest, OversizedChatMessageIsRejectedAndTheHistoryKept) {
     config.max_length = 3;
     config.strategy = "greedy";
     api->set_generation_config(config);
-    call_handle_chat_session(R"({"session_id":"long-test","message":"hello world"})");
+    const std::string sid = start_session();
+    ASSERT_FALSE(sid.empty());
 
     std::string huge;
     for (int i = 0; i < 3000; ++i)
         huge += "hello ";
-    EXPECT_THROW(call_handle_chat_session(R"({"session_id":"long-test","message":")" + huge + "\"}"),
+    EXPECT_THROW(call_handle_chat_session(R"({"session_id":")" + sid + R"(","message":")" + huge + "\"}"),
                  std::invalid_argument);
 
-    const std::string exported = call_handle_export_session(R"({"session_id":"long-test"})");
+    const std::string exported = call_handle_export_session(R"({"session_id":")" + sid + "\"}");
     ConversationContext restored(20, 100000);
     restored.deserialize(api->parse_json_string(exported, "data"));
     EXPECT_EQ(restored.get_message_count(), 2u) << "the earlier turn is still there";
@@ -871,8 +882,10 @@ TEST_F(ChatbotAPITest, GenerateBatchSessionResponses_ExistingSessions) {
 }
 
 TEST_F(ChatbotAPITest, GenerateBatchSessionResponses_MixedSessions) {
+    const std::string existing = start_session();
+    ASSERT_FALSE(existing.empty());
     std::vector<std::string> inputs = {"Msg1", "Msg2", "Msg3"};
-    std::vector<std::string> session_ids = {"existing_id", "", "another_id"};
+    std::vector<std::string> session_ids = {existing, "", existing};
 
     ChatbotAPI::GenerationConfig config;
     config.max_length = 10;
@@ -883,7 +896,17 @@ TEST_F(ChatbotAPITest, GenerateBatchSessionResponses_MixedSessions) {
 
     EXPECT_TRUE(response.success);
     EXPECT_EQ(response.responses.size(), 3);
-    EXPECT_EQ(response.session_ids.size(), 3);
+    ASSERT_EQ(response.session_ids.size(), 3);
+    EXPECT_EQ(response.session_ids[0], existing);
+    EXPECT_EQ(response.session_ids[1].size(), 32u);  // a new server-issued id
+}
+
+// TD-232: a batch naming an id the server didn't issue fails whole (HTTP 404) and creates nothing.
+TEST_F(ChatbotAPITest, GenerateBatchSessionResponses_UnknownIdIsNotFound) {
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 4;
+    EXPECT_THROW(api->generate_batch_session_responses({"a", "b"}, {"", "client-made"}, config),
+                 std::runtime_error);    EXPECT_EQ(call_session_count(), 0u);
 }
 
 // ============================================================================
@@ -1823,9 +1846,7 @@ TEST_F(ChatbotAPITest, SlowRagGenerationDoesNotBlockConfigChanges) {
 // ============================================================================
 
 TEST_F(ChatbotAPITest, IdleSessionsExpireWithoutAHealthCheck) {
-    auto reply = nlohmann::json::parse(
-        call_handle_chat_session(R"({"session_id":"idle-one","message":"hello"})"));
-    ASSERT_TRUE(reply.value("success", false)) << reply.dump();
+    ASSERT_FALSE(start_session("hello").empty());
     ASSERT_EQ(call_session_count(), 1u);
 
     // Sessions used to be removed only by handle_health(); nothing here calls it.
@@ -1838,7 +1859,7 @@ TEST_F(ChatbotAPITest, IdleSessionsExpireWithoutAHealthCheck) {
 
 TEST_F(ChatbotAPITest, ActiveSessionsSurviveTheSweeper) {
     api->set_session_expiry(std::chrono::seconds(30), std::chrono::milliseconds(5));
-    call_handle_chat_session(R"({"session_id":"busy-one","message":"hello"})");
+    ASSERT_FALSE(start_session("hello").empty());
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     EXPECT_EQ(call_session_count(), 1u);
 }
@@ -1848,4 +1869,51 @@ TEST_F(ChatbotAPITest, DestructorStopsTheSweeperPromptly) {
     const auto start = std::chrono::steady_clock::now();
     api.reset();
     EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(2));
+}
+
+// ============================================================================
+// TD-232: server-issued session ids and the session cap
+// ============================================================================
+
+TEST_F(ChatbotAPITest, UnknownSessionIdIsNotFoundAndCreatesNothing) {
+    for (const char* body : {R"({"session_id":"client-made","message":"hello"})",
+                             R"({"session_id":"client-made","data":"x"})"}) {
+        const bool import = std::string(body).find("data") != std::string::npos;
+        EXPECT_THROW(import ? call_handle_import_session(body) : call_handle_chat_session(body),
+                     std::runtime_error)
+            << body;
+    }
+    // A client-chosen id used to create a session under that name.
+    EXPECT_EQ(call_session_count(), 0u);
+}
+
+TEST_F(ChatbotAPITest, IssuedSessionIdContinuesTheConversation) {
+    const std::string sid = start_session();
+    ASSERT_EQ(sid.size(), 32u);
+    const std::string reply =
+        call_handle_chat_session(R"({"session_id":")" + sid + R"(","message":"again"})");
+    EXPECT_EQ(api->parse_json_string(reply, "session_id"), sid);
+    EXPECT_EQ(call_session_count(), 1u);
+}
+
+TEST_F(ChatbotAPITest, SessionCapEvictsTheLeastRecentlyUsed) {
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 2;
+    config.strategy = "greedy";
+    api->set_generation_config(config);
+    api->set_max_sessions(3);
+
+    const std::string a = start_session();
+    const std::string b = start_session();
+    const std::string c = start_session();
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    call_handle_chat_session(R"({"session_id":")" + a + R"(","message":"keep"})");  // a is now newest
+    const std::string d = start_session();  // at the cap: evicts b
+
+    EXPECT_EQ(call_session_count(), 3u);
+    EXPECT_THROW(call_handle_chat_session(R"({"session_id":")" + b + R"(","message":"hi"})"),
+                 std::runtime_error);
+    for (const auto& sid : {a, c, d}) {
+        EXPECT_NO_THROW(call_handle_export_session(R"({"session_id":")" + sid + "\"}")) << sid;
+    }
 }

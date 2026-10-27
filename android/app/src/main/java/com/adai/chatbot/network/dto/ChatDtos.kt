@@ -1,8 +1,8 @@
 package com.adai.chatbot.network.dto
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.4.1
+// @adai-reviewed: 2026-10-27
 
 
 import kotlinx.serialization.Serializable
@@ -12,6 +12,7 @@ import kotlinx.serialization.Serializable
  * omits keys rather than emitting nulls (e.g. error responses have no "response"
  * or "session_id" key, success responses have no "error" key).
  */
+/** session_id "" starts a new session; otherwise an id the server issued (TD-232). */
 @Serializable
 data class ChatSessionRequest(
     val session_id: String,

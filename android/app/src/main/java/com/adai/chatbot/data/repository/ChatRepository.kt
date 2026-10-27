@@ -1,8 +1,8 @@
 package com.adai.chatbot.data.repository
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-10-27
 
 
 import com.adai.chatbot.data.db.ConversationDao
@@ -17,6 +17,7 @@ import com.adai.chatbot.settings.ServerSettings
 import com.adai.chatbot.settings.SettingsRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import retrofit2.HttpException
 import java.io.IOException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
@@ -33,9 +34,10 @@ class ChatRepository(
         messageDao.getMessagesForConversation(conversationId)
 
     /**
-     * Sends [text] in [conversationId]'s conversation. The conversation's
-     * serverSessionId is fixed at creation and always non-empty, so the server
-     * never falls into the empty-session_id echo bug (ChatbotAPI.cpp:156-205).
+     * Sends [text] in [conversationId]'s conversation. TD-232: the server issues
+     * session ids. A conversation with none sends "" and stores the id the reply
+     * carries; when the server no longer holds the stored id (expiry, eviction, a
+     * restart) it answers 404, and the message is sent again in a new session.
      */
     suspend fun sendMessage(conversationId: Long, text: String): ApiResult<String> {
         val conversation = conversationDao.getById(conversationId)
@@ -83,9 +85,20 @@ class ChatRepository(
                 settings.accessClientId,
                 settings.accessClientSecret,
             )
-            val response = service.chatSession(
-                ChatSessionRequest(session_id = serverSessionId, message = text)
-            )
+            var sessionId = serverSessionId
+            val response = try {
+                service.chatSession(ChatSessionRequest(session_id = sessionId, message = text))
+            } catch (e: HttpException) {
+                if (e.code() != 404 || sessionId.isEmpty()) throw e
+                conversationDao.updateServerSessionId(conversationId, "")
+                sessionId = ""
+                service.chatSession(ChatSessionRequest(session_id = sessionId, message = text))
+            }
+
+            val issued = response.session_id
+            if (response.success && !issued.isNullOrEmpty() && issued != sessionId) {
+                conversationDao.updateServerSessionId(conversationId, issued)
+            }
 
             if (response.success && response.response != null) {
                 messageDao.updateStatus(userMessageId, MessageStatus.SENT)

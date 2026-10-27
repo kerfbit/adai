@@ -1,8 +1,8 @@
 package com.adai.chatbot.data.repository
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-10-27
 
 
 import com.adai.chatbot.data.db.ConversationDao
@@ -13,7 +13,6 @@ import com.adai.chatbot.network.dto.ClearSessionRequest
 import com.adai.chatbot.settings.SettingsRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
-import java.util.UUID
 
 class ConversationRepository(
     private val conversationDao: ConversationDao,
@@ -28,7 +27,7 @@ class ConversationRepository(
         val now = System.currentTimeMillis()
         return conversationDao.insert(
             ConversationEntity(
-                serverSessionId = UUID.randomUUID().toString(),
+                serverSessionId = "",  // TD-232: issued by the server on the first message
                 title = title.ifBlank { DEFAULT_TITLE },
                 createdAt = now,
                 updatedAt = now,
@@ -56,13 +55,14 @@ class ConversationRepository(
     }
 
     /**
-     * Best-effort server-side cleanup: /clear-session returns an error for a
-     * session the server never saw (e.g. an empty local conversation), which is
-     * harmless — local deletion is authoritative regardless of the server's response.
+     * Best-effort server-side cleanup: /clear-session answers 404 for a session the
+     * server no longer holds, which is harmless — local deletion is authoritative
+     * regardless of the server's response. A conversation with no server session yet
+     * has nothing to clear.
      */
     suspend fun deleteConversation(conversation: ConversationEntity) {
         val settings = settingsDataStore.settings.first()
-        if (settings.isConfigured) {
+        if (settings.isConfigured && conversation.serverSessionId.isNotEmpty()) {
             try {
                 apiClientProvider.serviceFor(
                     settings.host,

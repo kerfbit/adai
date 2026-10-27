@@ -1314,6 +1314,8 @@ The generation and model math run is complete.
 - TD-230/350 (done in code: RAG generation runs outside `config_mutex_`; `DocumentStore` locks its encoder and documents, and
   TSan found 74 races and 4 use-after-frees in concurrent retrieval on the old code).
 - TD-231 (done in code: a background thread removes expired sessions every minute; `/health` is no longer needed for expiry).
+- TD-232 (done in code, owner's choices: session ids are server-issued, so an unknown id is HTTP 404, and `MAX_SESSIONS` (10,000)
+  evicts the least recently used; the CLI and Android client start a new session on 404).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -4938,7 +4940,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / Serving / API | October 8, 2026 | 1 hour |
+| MEDIUM | Open — code fix landed October 27, 2026 | Inference / Serving / API | October 8, 2026 | 1 hour |
 
 Description:
 Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). In `generate_response()`, the RAG path is
@@ -4953,10 +4955,15 @@ concurrent calls, which race inside the RAG encoder; see [TD-350](#td-350-docume
 
 Action Items:
 
-- [ ] Copy the `rag_engine_` `shared_ptr` under the lock, release it, then generate.
-- [ ] Test: a slow fake RAG engine doesn't block a concurrent `set_generation_config()`.
+- [x] Copy the `rag_engine_` `shared_ptr` under the lock, release it, then generate.
+- [x] Test: a slow fake RAG engine doesn't block a concurrent `set_generation_config()`.
 
-Location in code: `src/ChatbotAPI.cpp` (`generate_response()`); tagged `TODO: See TD-230`.
+**Fix (October 27, 2026).** `generate_response()` copies the `rag_engine_` `shared_ptr` under `config_mutex_` and generates after
+releasing it. The model guards itself (`model_mutex_`) and the store now does too (TD-350). `RAGInference::generate()` is virtual so a
+test can stand in an engine that blocks: `SlowRagGenerationDoesNotBlockConfigChanges` holds a RAG generation open and calls
+`set_generation_config()`, which waited the full 5 s timeout on the old code and returns at once now.
+
+Location in code: `src/ChatbotAPI.cpp` (`generate_response()`); tagged `TD-230`.
 
 Files to Modify:
 
@@ -4969,7 +4976,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / Serving / API | October 8, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 27, 2026 | Inference / Serving / API | October 8, 2026 | 2-4 hours |
 
 Description:
 Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). `cleanup_expired_sessions()` is called only from `handle_health()`. `start()` carries a comment
@@ -4979,10 +4986,17 @@ reading the code.
 
 Action Items:
 
-- [ ] Run expiry on a background thread (or opportunistically in `get_or_create_session()`), stopped cleanly by `stop()`/the destructor.
-- [ ] Test: sessions expire without any `/health` call.
+- [x] Run expiry on a background thread (or opportunistically in `get_or_create_session()`), stopped cleanly by `stop()`/the destructor.
+- [x] Test: sessions expire without any `/health` call.
 
-Location in code: `src/ChatbotAPI.cpp` (`start()`, `cleanup_expired_sessions()`); tagged `TODO: See TD-231`.
+**Fix (October 27, 2026).** The constructor starts a sweeper thread that calls `cleanup_expired_sessions()` every minute; the
+destructor wakes and joins it at once, without waiting out the interval. `stop()` only stops the HTTP server, as before.
+`set_session_expiry(timeout, sweep_interval)` sets both (the timeout is now a `steady_clock` duration, so expiry no longer rounds the
+idle time down to whole minutes). Expired sessions are logged as a count through `adai::Logger`, not by id. `/health` still sweeps too.
+Tests: `IdleSessionsExpireWithoutAHealthCheck` (fails with the sweeper thread disabled: the session stays), `ActiveSessionsSurviveTheSweeper`,
+`DestructorStopsTheSweeperPromptly`; TSan-clean with the session tests.
+
+Location in code: `src/ChatbotAPI.cpp` (`start()`, `cleanup_expired_sessions()`); tagged `TD-231`.
 
 Files to Modify:
 
@@ -4995,7 +5009,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / Serving / API | October 8, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 27, 2026 | Inference / Serving / API | October 8, 2026 | 2-4 hours |
 
 Description:
 Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). `get_or_create_session()` creates a session under any unknown non-empty `session_id` a client
@@ -5006,11 +5020,30 @@ IDs, so the fix must keep that working. Found by reading the code.
 
 Action Items:
 
-- [ ] Cap total sessions (evict least-recently-used) and validate client IDs (length and character set).
-- [ ] Decide whether client-chosen IDs stay allowed or move to server-issued IDs only (needs a ChatbotCLI change).
-- [ ] Tests: cap enforcement and ID validation.
+- [x] Cap total sessions (evict least-recently-used) and validate client IDs (length and character set).
+- [x] Decide whether client-chosen IDs stay allowed or move to server-issued IDs only (needs a ChatbotCLI change).
+- [x] Tests: cap enforcement and ID validation.
 
-Location in code: `src/ChatbotAPI.cpp` (`get_or_create_session()`); tagged `TODO: See TD-232`.
+**Decision (owner, October 27, 2026):** session ids become server-issued only; at the cap the least recently used session is
+evicted.
+
+**Fix (October 27, 2026).** `get_or_create_session()` creates a session only for an empty `session_id` and returns a fresh
+server-generated id; an id it doesn't hold throws `SessionNotFound`, which every route answers with HTTP 404
+`{"success":false,"error":"Session not found"}` (`/chat/session`, `/clear-session`, `/chat/session/export`, `/chat/session/import`,
+`/chat/batch-session`, where every named id is checked before any session is created). So no ID validation is needed: a
+client-supplied id is only ever looked up. `set_max_sessions()` caps live sessions (config key `MAX_SESSIONS`, default 10,000, at
+least 1; `chatbot_api_server` applies it at startup): creating one more evicts the least recently used. Clients: `ChatbotCLI`
+already adopted the returned id; on a 404 it now drops its id and sends the message again in a new session (`/load` imports into a
+new session, `/clear` reports no session). The Android app creates conversations with `serverSessionId = ""`, stores the id the
+first reply carries (`ConversationDao.updateServerSessionId()`), starts a new session once on a 404 (conversations created before
+this hold a client UUID and take that path once), and skips `/clear-session` for a conversation with no session. No Room schema
+change. Tests: `UnknownSessionIdIsNotFoundAndCreatesNothing`, `IssuedSessionIdContinuesTheConversation`,
+`SessionCapEvictsTheLeastRecentlyUsed`, `GenerateBatchSessionResponses_UnknownIdIsNotFound`, the real-binary
+`ChatRoutesParseJsonAndRejectMalformedBodies` (404 on all four session routes; 200 on the old server, which created a session under
+the invented id), the CLI's `LostSessionStartsANewOneAndTheTurnSucceeds` (`Error: 404` with the old CLI), and three Android
+`ChatRepositoryTest` cases.
+
+Location in code: `src/ChatbotAPI.cpp` (`get_or_create_session()`); tagged `TD-232`.
 
 Files to Modify:
 
@@ -8779,7 +8812,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | RAG / DocumentStore | October 11, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 27, 2026 | RAG / DocumentStore | October 11, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-349, by inspection. `retrieve()` is `const` but calls `encoder->encode()`, which
@@ -8791,10 +8824,17 @@ to data races inside the encoder.
 
 Action Items:
 
-- [ ] Before (or with) TD-230: give `DocumentStore` a mutex around encode+score, or put the RAG encoder in inference mode (`set_requires_grad(false)`) and make `encode()` side-effect free; drop the stdout print.
-- [ ] Test: concurrent `retrieve()` under TSan.
+- [x] Before (or with) TD-230: give `DocumentStore` a mutex around encode+score, or put the RAG encoder in inference mode (`set_requires_grad(false)`) and make `encode()` side-effect free; drop the stdout print.
+- [x] Test: concurrent `retrieve()` under TSan.
 
-Location in code: `src/DocumentStore.cpp` (`retrieve()`); tagged `TODO: See TD-350`.
+**Fix (October 27, 2026).** `DocumentStore` has a mutex held by every method, so a query is encoded and scored under it and
+documents can be added while others retrieve. `LLMEncoder::encode()` logs its token count at debug level instead of printing to
+stdout on every call (the constructor and save/load prints stay with TD-367). Tests: `ConcurrentRetrieveMatchesSerialResults` (four
+threads get the same hits and scores as serial queries) and `AddDocumentWhileRetrieving`. Under TSan (`OMP_NUM_THREADS=1`) the old
+code reported 74 data races and 4 heap-use-after-frees in these two tests; the fixed code reports none. Pointers `retrieve()` returns
+are still valid only until the next add/remove/clear, as documented.
+
+Location in code: `src/DocumentStore.cpp` (`retrieve()`); tagged `TD-350`.
 
 Files to Modify:
 

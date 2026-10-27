@@ -701,15 +701,16 @@ curl -X POST http://localhost:8080/chat \
      -H "Content-Type: application/json" \
      -d '{"message": "Hello!"}'
 
-# Session chat (maintains context across requests)
+# Session chat (maintains context across requests). The first message has no session_id; the
+# reply carries the id the server issued, which later requests send (an unknown id gets 404).
 curl -X POST http://localhost:8080/chat/session \
      -H "Content-Type: application/json" \
-     -d '{"message": "Tell me about AI", "session_id": "user123"}'
+     -d '{"message": "Tell me about AI"}'
 
 # Clear a session
 curl -X POST http://localhost:8080/clear-session \
      -H "Content-Type: application/json" \
-     -d '{"session_id": "user123"}'
+     -d '{"session_id": "<id from the reply>"}'
 ```
 
 #### Graceful Shutdown
@@ -774,6 +775,7 @@ All settings can be provided via:
 | `ALLOW_UNTRAINED_MODEL` | `false` | Development only: serve randomly initialized weights when no model loads; `/health` then answers 503 with `"status":"untrained"` |
 | `PORT` | `8080` | HTTP port to listen on |
 | `SESSION_TIMEOUT` | `30` | Minutes before session expires |
+| `MAX_SESSIONS` | `10000` | Most chat sessions held at once; creating one more evicts the least recently used (TD-232) |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN`, `ERROR` |
 
 ### Model Architecture

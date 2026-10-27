@@ -161,7 +161,11 @@ Request Body:
 
 Parameters:
 
-- `session_id` (optional): Session identifier. If empty or not provided, a new session is created.
+- `session_id` (optional): an id the server issued. If empty or not provided, a new session is created and its id is returned.
+  Session ids are server-issued (TD-232): an id the server didn't issue, or one that has expired or been evicted, gets HTTP 404
+  `{"success":false,"error":"Session not found"}`; start a new session by sending an empty id. The same applies to
+  `/clear-session`, `/chat/session/export`, `/chat/session/import` and `/chat/batch-session`. The server holds at most
+  `MAX_SESSIONS` sessions (default 10,000); creating one more evicts the least recently used.
 - `message` (required): User message
 
 Response:
@@ -331,7 +335,7 @@ Request Body:
 ```json
 {
   "messages": ["Hello", "How are you?"],
-  "session_ids": ["user_1", "user_2"]
+  "session_ids": ["", "3f9c…"]
 }
 ```
 
@@ -341,7 +345,7 @@ Response:
 {
   "success": true,
   "responses": ["Hi! How can I help?", "I'm doing well!"],
-  "session_ids": ["user_1", "user_2"],
+  "session_ids": ["a1b2…", "3f9c…"],
   "stats": {
     "total_tokens": 100,
     "actual_tokens": 85,
@@ -353,7 +357,8 @@ Response:
 }
 ```
 
-**Note:** If `session_ids` is omitted, new sessions are created automatically.
+**Note:** If `session_ids` is omitted, new sessions are created automatically; an empty entry creates one too. Every non-empty
+entry must be an id the server issued, or the whole batch gets HTTP 404 and nothing is created (TD-232).
 
 **See:** [Batch Processing Documentation](batch-processing.md) for detailed usage and examples.
 

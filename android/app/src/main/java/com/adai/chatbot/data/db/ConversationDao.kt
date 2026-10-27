@@ -1,8 +1,8 @@
 package com.adai.chatbot.data.db
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-10-27
 
 
 import androidx.room.Dao
@@ -35,4 +35,8 @@ interface ConversationDao {
 
     @Query("UPDATE conversations SET title = :title WHERE id = :id")
     suspend fun updateTitle(id: Long, title: String)
+
+    /** TD-232: the id the server issued, or "" once the server no longer holds it. */
+    @Query("UPDATE conversations SET serverSessionId = :serverSessionId WHERE id = :id")
+    suspend fun updateServerSessionId(id: Long, serverSessionId: String)
 }

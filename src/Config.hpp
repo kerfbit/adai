@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.11.0
-// @adai-reviewed: 2026-10-26
+// @adai-version: 1.12.0
+// @adai-reviewed: 2026-10-27
 
 
 #include <cstdint>
@@ -74,6 +74,10 @@ struct ServiceConfig {
 
     /// Session timeout in minutes (default: 30)
     int session_timeout = 30;
+
+    /// TD-232: most chat sessions held at once; creating one more evicts the least recently used.
+    /// Config key MAX_SESSIONS (default: 10000).
+    int max_sessions = 10000;
 
     /// Logging level: DEBUG, INFO, WARN, ERROR (default: INFO)
     std::string log_level = "INFO";
