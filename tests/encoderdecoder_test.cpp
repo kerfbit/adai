@@ -492,11 +492,6 @@ TEST(EncoderDecoderModelTest, GenerateWithStrategySyncsGeneratorConfig) {
     EXPECT_FLOAT_EQ(cfg.top_p, 0.6f);
 }
 
-// Tokens in a generated answer; an untrained model can stop at once, and encode("") throws.
-static size_t answer_tokens(BPETokenizer* tok, const std::string& text) {
-    return text.empty() ? 0 : tok->encode(text, false).size();
-}
-
 // An untrained, unseeded model (TD-368) sometimes picks EOS at once; tests that need long outputs
 // rule out every special token.
 static void suppress_stop_tokens(EncoderDecoderModel& model) {
@@ -541,12 +536,20 @@ TEST(EncoderDecoderModelTest, GenerationNeverExceedsMaxSeqLength) {
     build_test_vocab(model.get_tokenizer(), 100);
     model.set_training(false);
     auto* tok = model.get_tokenizer();
+    // Re-tokenizing the answer can give more tokens than were generated (about 1 run in 30 gave 10),
+    // so bound its length instead: 8 tokens decode to at most the 8 longest token strings, plus a
+    // separator each. The old uncapped generation produced up to 100 tokens.
+    std::vector<size_t> lengths;
+    for (int id = 0; id < tok->get_vocab_size(); ++id) lengths.push_back(tok->decode({id}).size());
+    std::sort(lengths.rbegin(), lengths.rend());
+    size_t bound = 0;
+    for (size_t i = 0; i < 8 && i < lengths.size(); ++i) bound += lengths[i] + 1;
     for (const char* input : {"hello world", "the quick brown fox", "a b c"}) {
-        EXPECT_LE(answer_tokens(tok, model.generate_response(input, 100)), 8u) << input;
+        EXPECT_LE(model.generate_response(input, 100).size(), bound) << input;
         for (const char* strategy : {"greedy", "sampling", "beam"}) {
             const std::string out =
                 model.generate_response_with_strategy(input, 100, strategy, 1.0f, 50, 0.9f, 2);
-            EXPECT_LE(answer_tokens(tok, out), 8u) << input << " / " << strategy;
+            EXPECT_LE(out.size(), bound) << input << " / " << strategy;
         }
     }
 }

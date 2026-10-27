@@ -401,3 +401,10 @@ error and batch responses parse with a strict parser whatever the model or an ex
 longer holds up every other request's config copy or `set_generation_config()` (including `SIGHUP` reload). Retrieval is safe
 concurrently since TD-350, and the model locks itself. `RAGInference::generate()` is virtual for tests. Test:
 `SlowRagGenerationDoesNotBlockConfigChanges`.
+
+## Addendum (October 27, 2026): background session expiry (TD-231)
+
+A sweeper thread, started by the constructor and joined by the destructor, runs `cleanup_expired_sessions()` every minute, so idle
+sessions expire on a server nobody health-checks (`/health` still sweeps as well). `set_session_expiry(timeout, sweep_interval)` sets
+both; the timeout is a `steady_clock` duration, compared without rounding to whole minutes. Removals are logged as a count, not by
+session id. Tests: `IdleSessionsExpireWithoutAHealthCheck`, `ActiveSessionsSurviveTheSweeper`, `DestructorStopsTheSweeperPromptly`.

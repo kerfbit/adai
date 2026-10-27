@@ -107,6 +107,10 @@ class ChatbotAPITest : public ::testing::Test {
     std::string call_handle_health() {
         return api->handle_health();
     }
+    std::size_t call_session_count() {
+        std::lock_guard<std::mutex> lock(api->sessions_mutex_);
+        return api->sessions_.size();
+    }
 
     // batched_engine_ is private; same friendship-doesn't-propagate reason as
     // call_generate_response() above (TD-038). Used to prove generate_response() actually routed
@@ -1812,4 +1816,36 @@ TEST_F(ChatbotAPITest, SlowRagGenerationDoesNotBlockConfigChanges) {
         << "set_generation_config() waited for the RAG generation";
     EXPECT_EQ(answer.get(), "rag answer");
     set.get();
+}
+
+// ============================================================================
+// TD-231: sessions expire without GET /health
+// ============================================================================
+
+TEST_F(ChatbotAPITest, IdleSessionsExpireWithoutAHealthCheck) {
+    auto reply = nlohmann::json::parse(
+        call_handle_chat_session(R"({"session_id":"idle-one","message":"hello"})"));
+    ASSERT_TRUE(reply.value("success", false)) << reply.dump();
+    ASSERT_EQ(call_session_count(), 1u);
+
+    // Sessions used to be removed only by handle_health(); nothing here calls it.
+    api->set_session_expiry(std::chrono::milliseconds(50), std::chrono::milliseconds(10));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (call_session_count() != 0 && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    EXPECT_EQ(call_session_count(), 0u);
+}
+
+TEST_F(ChatbotAPITest, ActiveSessionsSurviveTheSweeper) {
+    api->set_session_expiry(std::chrono::seconds(30), std::chrono::milliseconds(5));
+    call_handle_chat_session(R"({"session_id":"busy-one","message":"hello"})");
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    EXPECT_EQ(call_session_count(), 1u);
+}
+
+TEST_F(ChatbotAPITest, DestructorStopsTheSweeperPromptly) {
+    // Default sweep interval is a minute; destruction must not wait for it.
+    const auto start = std::chrono::steady_clock::now();
+    api.reset();
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(2));
 }

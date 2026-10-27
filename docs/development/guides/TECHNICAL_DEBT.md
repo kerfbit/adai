@@ -1313,6 +1313,7 @@ The generation and model math run is complete.
 - TD-229 (done in code: every response is strict JSON; all control characters are escaped and invalid UTF-8 becomes U+FFFD).
 - TD-230/350 (done in code: RAG generation runs outside `config_mutex_`; `DocumentStore` locks its encoder and documents, and
   TSan found 74 races and 4 use-after-frees in concurrent retrieval on the old code).
+- TD-231 (done in code: a background thread removes expired sessions every minute; `/health` is no longer needed for expiry).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);

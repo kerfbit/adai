@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.16.3
+// @adai-version: 0.17.0
 // @adai-reviewed: 2026-10-27
 
 #include "ChatbotAPI.hpp"
@@ -12,6 +12,7 @@
 #include <iostream>
 #include <random>
 #include <sstream>
+#include "Logger.hpp"
 #include "SpecialTokens.hpp"
 
 namespace {
@@ -84,7 +85,7 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
       draft_model_(draft_model),
       speculative_num_candidates_(speculative_num_candidates),
       port_(port),
-      session_timeout_(session_timeout_minutes),
+      session_timeout_(std::chrono::minutes(session_timeout_minutes)),
 
       rag_engine_(nullptr),
       server_impl_(std::make_unique<ServerImpl>()) {
@@ -92,6 +93,7 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
     // preflight-free Content-Type); see BrowserWriteGuard.hpp.
     adai::install_browser_write_guard(server_impl_->server, "ChatbotAPI");
     adai::use_exclusive_listen_port(server_impl_->server);  // TD-551
+    sweeper_ = std::thread([this] { session_sweeper_loop(); });  // TD-231
 
     // Set up HTTP endpoints
 
@@ -230,6 +232,41 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
 
 ChatbotAPI::~ChatbotAPI() {
     stop();
+    {
+        std::lock_guard<std::mutex> lock(sweeper_mutex_);
+        sweeper_stop_ = true;
+    }
+    sweeper_cv_.notify_all();
+    if (sweeper_.joinable()) sweeper_.join();
+}
+
+void ChatbotAPI::set_session_expiry(std::chrono::steady_clock::duration timeout,
+                                    std::chrono::steady_clock::duration sweep_interval) {
+    {
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
+        session_timeout_ = timeout;
+    }
+    {
+        std::lock_guard<std::mutex> lock(sweeper_mutex_);
+        sweep_interval_ = std::max<std::chrono::steady_clock::duration>(
+            sweep_interval, std::chrono::milliseconds(1));
+    }
+    sweeper_cv_.notify_all();  // start waiting on the new interval
+}
+
+void ChatbotAPI::session_sweeper_loop() {
+    std::unique_lock<std::mutex> lock(sweeper_mutex_);
+    while (!sweeper_stop_) {
+        const auto deadline = std::chrono::steady_clock::now() + sweep_interval_;
+        const auto interval = sweep_interval_;
+        sweeper_cv_.wait_until(lock, deadline,
+                               [&] { return sweeper_stop_ || sweep_interval_ != interval; });
+        if (sweeper_stop_) break;
+        if (sweep_interval_ != interval) continue;  // re-wait on the new interval
+        lock.unlock();
+        cleanup_expired_sessions();
+        lock.lock();
+    }
 }
 
 bool ChatbotAPI::start() {
@@ -241,9 +278,7 @@ bool ChatbotAPI::start() {
     std::cout << "Starting chatbot API server on port " << port_ << "..." << '\n';
     running_ = true;
 
-    // Start periodic session cleanup (every 5 minutes)
-    // Note: In production, this should be a separate background thread
-    // TODO: See TD-231 in TECHNICAL_DEBT.md - no such thread exists; sessions only expire via GET /health.
+    // TD-231: expired sessions are removed by session_sweeper_loop(), running since construction.
 
     bool result = server_impl_->server.listen("0.0.0.0", port_);
     running_ = false;
@@ -559,24 +594,25 @@ std::shared_ptr<Session> ChatbotAPI::find_session(const std::string& session_id)
 }
 
 void ChatbotAPI::cleanup_expired_sessions() {
-    std::lock_guard<std::mutex> lock(sessions_mutex_);
-
-    auto it = sessions_.begin();
-    while (it != sessions_.end()) {
-        if (is_session_expired(*it->second)) {
-            std::cout << "Removing expired session: " << it->first << '\n';
-            it = sessions_.erase(it);
-        } else {
-            ++it;
+    std::size_t removed = 0;
+    {
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
+        auto it = sessions_.begin();
+        while (it != sessions_.end()) {
+            if (is_session_expired(*it->second)) {
+                it = sessions_.erase(it);
+                ++removed;
+            } else {
+                ++it;
+            }
         }
     }
+    // Session ids are bearer handles, so they aren't logged.
+    if (removed > 0) adai::Logger::info("ChatbotAPI: removed {} expired session(s)", removed);
 }
 
-bool ChatbotAPI::is_session_expired(const Session& session) {
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed =
-        std::chrono::duration_cast<std::chrono::minutes>(now - session.last_access.load());
-    return elapsed >= session_timeout_;
+bool ChatbotAPI::is_session_expired(const Session& session) const {
+    return std::chrono::steady_clock::now() - session.last_access.load() >= session_timeout_;
 }
 
 // ============================================================================

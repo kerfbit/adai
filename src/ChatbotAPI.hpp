@@ -1,15 +1,17 @@
 #pragma once
 
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.12.0
-// @adai-reviewed: 2026-10-26
+// @adai-version: 0.13.0
+// @adai-reviewed: 2026-10-27
 
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include "BPETokenizer.hpp"
 #include "BatchProcessor.hpp"
@@ -130,6 +132,15 @@ class ChatbotAPI {
     bool is_running() const {
         return running_;
     }
+
+    /**
+     * @brief Set how long an idle session lives and how often expired sessions are removed
+     *
+     * TD-231: a background thread, started by the constructor and joined by the destructor, removes
+     * expired sessions every sweep interval (default: one minute, the timeout from the constructor).
+     */
+    void set_session_expiry(std::chrono::steady_clock::duration timeout,
+                            std::chrono::steady_clock::duration sweep_interval);
 
     /**
      * @brief Set default generation configuration
@@ -315,7 +326,9 @@ class ChatbotAPI {
     // The session, or nullptr; doesn't create one.
     std::shared_ptr<Session> find_session(const std::string& session_id);
     void cleanup_expired_sessions();
-    bool is_session_expired(const Session& session);
+    // Caller holds sessions_mutex_ (session_timeout_ is guarded by it).
+    bool is_session_expired(const Session& session) const;
+    void session_sweeper_loop();  // TD-231
 
     // Text generation
     std::string generate_response(const std::string& input, const GenerationConfig& config);
@@ -359,7 +372,7 @@ class ChatbotAPI {
 
     // Server configuration
     int port_;
-    std::chrono::minutes session_timeout_;
+    std::chrono::steady_clock::duration session_timeout_;  // guarded by sessions_mutex_
     // TODO: See TD-237 in TECHNICAL_DEBT.md - written by start() on the server thread and stop() on the main
     // thread; make it std::atomic<bool>.
     bool running_{false};
@@ -367,6 +380,14 @@ class ChatbotAPI {
     // Session storage (thread-safe)
     std::unordered_map<std::string, std::shared_ptr<Session>> sessions_;  // TD-227
     mutable std::mutex sessions_mutex_;
+
+    // TD-231: removes expired sessions every sweep_interval_. Sessions used to expire only when
+    // GET /health ran, so a server nobody health-checked kept every idle session forever.
+    std::chrono::steady_clock::duration sweep_interval_{std::chrono::minutes(1)};  // sweeper_mutex_
+    bool sweeper_stop_{false};                                                      // sweeper_mutex_
+    std::mutex sweeper_mutex_;
+    std::condition_variable sweeper_cv_;
+    std::thread sweeper_;
 
     // Configuration
     GenerationConfig default_config_;
