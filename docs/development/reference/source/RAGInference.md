@@ -145,3 +145,8 @@ This file replaces `docs/development/api/memory/RAGInference.md` (234 lines). Wh
 
 Kept: the config fields, the members and the retrieve → format → truncate → prompt → generate pipeline. Dropped: the generic integration patterns,
 future enhancements, testing recommendations and debugging tips.
+
+## Addendum (October 26, 2026): trained retrieval encoder (TD-247)
+
+`chatbot_api_server` now gives the `DocumentStore` a copy of the trained encoder (`EncoderDecoderModel::copy_encoder()`), so documents
+and queries are embedded with learned weights and the model's tokenizer. RAG isn't enabled without a trained model.

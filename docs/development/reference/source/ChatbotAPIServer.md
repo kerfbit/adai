@@ -230,3 +230,8 @@ directory holds a checkpoint (`has_checkpoint()`), not merely exists.
 When `MODEL_PATH` is unset or fails to load, `main()` logs an error and returns 1, unless `ALLOW_UNTRAINED_MODEL=true` (config or
 environment), in which case it warns and continues. It passes the result to `ChatbotAPI::set_model_status()`. Test:
 `chatbotApiServerStartupTests` (spawns the real binary).
+
+## Addendum (October 26, 2026): RAG uses the trained encoder (TD-247)
+
+The RAG `DocumentStore` embeds with `model->copy_encoder()`: the trained weights and the model's tokenizer. It used to get a fresh
+`LLMEncoder` with random weights and `VOCAB_PATH`. Without a trained model (`ALLOW_UNTRAINED_MODEL`), RAG isn't enabled.

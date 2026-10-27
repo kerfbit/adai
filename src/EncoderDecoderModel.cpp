@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.29.1
+// @adai-version: 0.30.0
 // @adai-reviewed: 2026-10-26
 
 #include "EncoderDecoderModel.hpp"
@@ -1054,6 +1054,36 @@ std::unique_ptr<EncoderDecoderModel> EncoderDecoderModel::clone() const {
     copy->hippocampal_updates_enabled_ = hippocampal_updates_enabled_;
     copy->generator->set_config(generator->get_config());
     copy->learning_rate = learning_rate;
+    return copy;
+}
+
+std::unique_ptr<LLMEncoder> EncoderDecoderModel::copy_encoder() {
+    namespace fs = std::filesystem;
+    std::lock_guard<std::mutex> lock(model_mutex_);  // TD-156: no forward() mid-copy
+    const auto ts = std::chrono::steady_clock::now().time_since_epoch().count();
+    const fs::path dir = fs::temp_directory_path() /
+                         ("adai_encoder_copy_" +
+                          std::to_string(std::hash<const void*>{}(static_cast<const void*>(this))) +
+                          "_" + std::to_string(ts));
+    struct RemoveDir {
+        fs::path path;
+        ~RemoveDir() {
+            std::error_code ec;
+            fs::remove_all(path, ec);  // best-effort
+        }
+    } cleanup{dir};
+    fs::create_directories(dir);
+
+    // save_weights() names its component files after the path minus its extension.
+    const std::string weights = (dir / "encoder.weights").string();
+    encoder->save_weights(weights);
+    auto copy = std::make_unique<LLMEncoder>(vocab_size, d_model, encoder_layers, num_heads, d_ff,
+                                             max_seq_length);
+    copy->load_weights(weights);
+    const std::string vocab = (dir / "tokenizer.vocab").string();
+    tokenizer->save_vocab(vocab);
+    copy->load_tokenizer_vocab(vocab);
+    copy->set_requires_grad(false);
     return copy;
 }
 

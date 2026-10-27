@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 2.0.0
+// @adai-version: 2.0.1
 // @adai-reviewed: 2026-10-26
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
@@ -622,19 +622,18 @@ int main(int argc, char* argv[]) {
 
         // Optionally initialize RAG engine
         std::shared_ptr<RAGInference> rag_engine;
-        if (config.rag_enabled) {
+        if (config.rag_enabled && !model_loaded) {
+            // TD-247: retrieval embeds with the model's encoder; an untrained one ranks documents at
+            // random (ALLOW_UNTRAINED_MODEL, TD-246).
+            adai::Logger::error("[RAG] Not enabled: no trained model is loaded");
+        } else if (config.rag_enabled) {
             adai::Logger::info("");
             adai::Logger::info("[+] Initializing RAG engine...");
             try {
-                // TODO: See TD-247 in TECHNICAL_DEBT.md - this encoder is never given trained weights (no
-                // load_weights() call), so retrieval embeds with random weights; use the model's
-                // trained encoder (model->get_encoder()) instead.
-                auto rag_encoder = std::make_shared<LLMEncoder>(
-                    static_cast<int>(tokenizer->get_vocab_size()), static_cast<int>(config.d_model),
-                    static_cast<int>(config.num_encoder_layers), static_cast<int>(config.num_heads),
-                    static_cast<int>(config.d_ff), static_cast<int>(config.max_seq_length));
-                rag_encoder->load_tokenizer_vocab(config.vocab_path);
-                rag_encoder->set_requires_grad(false);  // TD-366: retrieval only
+                // TD-247: a copy of the trained encoder and its tokenizer. This used to be a fresh
+                // LLMEncoder given only the vocabulary, so documents and queries were embedded with
+                // random weights. A copy, not the model's own: retrieval would race with generation.
+                std::shared_ptr<LLMEncoder> rag_encoder = model->copy_encoder();
 
                 auto doc_store = std::make_shared<DocumentStore>(rag_encoder);
 

@@ -1370,6 +1370,43 @@ TEST(EncoderDecoderModelTest, WorldModelSeesTheOriginalInputText) {
     EXPECT_LT(same, 1e-6f) << "without text, the decoded tokens are used";
 }
 
+// TD-247: RAG retrieval embeds with copy_encoder(). It must encode exactly like the model's own
+// (trained) encoder, with the model's tokenizer; the server used to build a fresh LLMEncoder whose
+// weights were random.
+TEST(EncoderDecoderModelTest, CopyEncoderEncodesLikeTheModelsEncoder) {
+    EncoderDecoderModel model(100, 32, 2, 1, 2, 64, 32);
+    build_test_vocab(model.get_tokenizer(), 100);
+    model.set_training(false);
+    std::unique_ptr<LLMEncoder> copy = model.copy_encoder();
+    ASSERT_NE(copy, nullptr);
+
+    LLMEncoder fresh(100, 32, 2, 2, 64, 32);
+    fresh.build_tokenizer({"hello world", "how are you", "I am fine", "thank you", "good morning",
+                           "good evening", "see you later", "goodbye"},
+                          100);
+    for (const char* text : {"hello world", "good morning how are you"}) {
+        // How the model itself encodes: its own tokenizer, then encode_with_mask(). (The encoder's
+        // separate built-in tokenizer is never filled by the model, which is why the copy is given
+        // the model's vocabulary.)
+        const std::vector<int> ids = model.get_tokenizer()->encode(text, false);
+        Matrix ones(static_cast<int>(ids.size()), static_cast<int>(ids.size()));
+        ones.fill(1.0f);
+        const Matrix a = model.get_encoder()->encode_with_mask(ids, ones);
+        const Matrix b = copy->encode(text);
+        ASSERT_EQ(b.rows, a.rows) << text << ": the copy tokenizes differently";
+        float diff = 0.0f, fresh_diff = 0.0f;
+        const Matrix c = fresh.encode(text);
+        for (int i = 0; i < a.rows; ++i)
+            for (int j = 0; j < a.cols; ++j) {
+                diff = std::max(diff, std::abs(a(i, j) - b(i, j)));
+                if (c.rows == a.rows)
+                    fresh_diff = std::max(fresh_diff, std::abs(a(i, j) - c(i, j)));
+            }
+        EXPECT_LT(diff, 1e-6f) << text;
+        EXPECT_GT(fresh_diff, 1e-3f) << text << ": test sanity, a fresh encoder differs";
+    }
+}
+
 // TD-538: a checkpoint saved before the encoder-specific file names (only the shared
 // _token_emb.bin/_final_norm.bin, holding the decoder's copies) still loads, as it always did.
 TEST(EncoderDecoderModelTest, LegacyCheckpointWithoutEncoderSpecificFilesStillLoads) {

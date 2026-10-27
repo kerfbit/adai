@@ -359,3 +359,10 @@ strategy with `num_beams > 1`), `sync_generation_config()` (stores the beam widt
   `forward()` still decodes the tokens.
 
 Tests: `CloneCopiesGatedPathsAttachmentsAndSettings`, `LoadModelSyncsTheGeneratorsSpecialTokens`, `WorldModelSeesTheOriginalInputText`.
+
+## Addendum (October 26, 2026): `copy_encoder()` (TD-247)
+
+`copy_encoder()` returns an independent `LLMEncoder` with this model's encoder weights and tokenizer vocabulary, with `requires_grad`
+off, for callers that encode on their own (RAG) without racing generation on the shared encoder. Note that `LLMEncoder`'s built-in
+tokenizer is separate from the model's and is never filled by it. Encode the model's way: the model's tokenizer, then
+`encode_with_mask()`. Test: `CopyEncoderEncodesLikeTheModelsEncoder`.

@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.27.0
+// @adai-version: 0.28.0
 // @adai-reviewed: 2026-10-26
 
 #include <functional>
@@ -648,6 +648,14 @@ class EncoderDecoderModel {
      * @throws std::runtime_error if the file is missing, truncated or an unsupported format
      */
     static CheckpointArchitecture read_checkpoint_architecture(const std::string& filepath);
+
+    /**
+     * TD-247: an independent copy of the trained encoder (weights through a temporary
+     * save_weights()/load_weights(), and this model's tokenizer vocabulary), with requires_grad
+     * off. chatbot_api_server's RAG retrieval embeds with it: sharing get_encoder() would race with
+     * generation (the layers cache activations), and a fresh LLMEncoder has random weights.
+     */
+    std::unique_ptr<LLMEncoder> copy_encoder();
 
     /**
      * Get model dimensions

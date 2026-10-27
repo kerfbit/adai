@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <vector>
@@ -169,4 +170,29 @@ TEST_F(ChatbotApiServerStartupTest, OptInServesButHealthSaysUntrained) {
     EXPECT_NE(res->body.find("\"status\":\"untrained\""), std::string::npos) << res->body;
     EXPECT_NE(res->body.find("\"model_loaded\":false"), std::string::npos) << res->body;
     stop(pid);
+}
+
+// TD-247: RAG embeds with the trained model's encoder, so it stays off without a trained model.
+TEST_F(ChatbotApiServerStartupTest, RagIsNotEnabledWithoutATrainedModel) {
+    fs::create_directories(dir_ / "docs");
+    std::ofstream(dir_ / "docs" / "a.txt") << "hello world";
+    const pid_t pid = spawn(write_config("ALLOW_UNTRAINED_MODEL=true\nRAG_ENABLED=true\nRAG_DOCS_PATH=" +
+                                         (dir_ / "docs").string() + "\n"));
+    httplib::Client client("127.0.0.1", port_);
+    client.set_connection_timeout(1);
+    bool up = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    while (!up && std::chrono::steady_clock::now() < deadline) {
+        up = static_cast<bool>(client.Get("/health"));
+        if (!up) std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    stop(pid);
+    ASSERT_TRUE(up);
+    std::string logs;
+    for (const char* name : {"stdout.log", "server.log"}) {
+        std::ifstream in(dir_ / name);
+        logs.append(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+    EXPECT_NE(logs.find("[RAG] Not enabled: no trained model is loaded"), std::string::npos);
+    EXPECT_EQ(logs.find("Initializing RAG engine"), std::string::npos);
 }

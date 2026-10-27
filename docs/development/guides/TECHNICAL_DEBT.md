@@ -1302,6 +1302,8 @@ The generation and model math run is complete.
 **Chat serving correctness run (October 26, 2026)**, chosen by the owner. So far:
 - TD-246 (done in code: `chatbot_api_server` refuses to start without a loadable model unless `ALLOW_UNTRAINED_MODEL` is set, and
   `/health` reports `"untrained"` with HTTP 503).
+- TD-247 (done in code: RAG embeds with a copy of the trained encoder and the model's tokenizer, and stays off without a trained
+  model).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5378,7 +5380,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Inference / Serving / Server | October 8, 2026 | 2-4 hours |
+| **HIGH** | Open — code fix landed October 26, 2026 | Inference / Serving / Server | October 8, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-246. When `RAG_ENABLED`, `main()` builds a **new** `LLMEncoder` from the model's
@@ -5391,11 +5393,25 @@ answers look plausible over poorly chosen context. The trained encoder is alread
 
 Action Items:
 
-- [ ] Embed with the trained encoder: share `model->get_encoder()` (taking care that RAG encoding and generation don't use it concurrently outside `EncoderDecoderModel`'s locking), or load the checkpoint's encoder weights into the RAG encoder.
-- [ ] If no trained model is loaded (TD-246), refuse to enable RAG.
-- [ ] Test: retrieval ranks a document containing the query's content above unrelated ones with a trained checkpoint.
+- [x] Embed with the trained encoder: share `model->get_encoder()` (taking care that RAG encoding and generation don't use it concurrently outside `EncoderDecoderModel`'s locking), or load the checkpoint's encoder weights into the RAG encoder.
+- [x] If no trained model is loaded (TD-246), refuse to enable RAG.
+- [ ] Test: retrieval ranks a document containing the query's content above unrelated ones with a trained checkpoint. (Not done: needs
+  a trained checkpoint. The test below proves the RAG encoder has the trained weights.)
 
-Location in code: `src/ChatbotAPIServer.cpp` (RAG setup); tagged `TODO: See TD-247`.
+**Fix (October 26, 2026).** `EncoderDecoderModel::copy_encoder()` returns an independent copy of the trained encoder: weights through a
+temporary `save_weights()`/`load_weights()`, the model's own tokenizer vocabulary, and `requires_grad` off. RAG uses it. A copy, not
+`get_encoder()`: retrieval would otherwise race with generation (the layers cache activations; TD-350).
+
+The old encoder was wrong in a second way too. `LLMEncoder` has its own tokenizer, which the model never fills. The old RAG encoder
+loaded `VOCAB_PATH` into it rather than the checkpoint's `.vocab`, so documents could even tokenize differently from the model. With no
+trained model loaded (`ALLOW_UNTRAINED_MODEL`, TD-246), RAG is not enabled, and the server logs an error.
+
+Tests:
+- `EncoderDecoderModelTest.CopyEncoderEncodesLikeTheModelsEncoder`: the copy encodes exactly like the model's own encoding path (its
+  tokenizer, then `encode_with_mask()`), and differently from a fresh encoder.
+- `ChatbotApiServerStartupTest.RagIsNotEnabledWithoutATrainedModel`: on the old server RAG initialized over random weights.
+
+Location in code: `src/ChatbotAPIServer.cpp` (RAG setup), `src/EncoderDecoderModel.{hpp,cpp}` (`copy_encoder()`).
 
 Files to Modify:
 
