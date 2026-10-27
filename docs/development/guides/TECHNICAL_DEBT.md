@@ -1320,6 +1320,7 @@ The generation and model math run is complete.
 - TD-234 (done in code: batch endpoints generate each input through `generate_response()`, so RAG, speculative, the engines and the
   GPU path apply).
 - TD-235 (done in code: `MAX_BATCH_SIZE` (32) caps batch requests, HTTP 413 above it).
+- TD-236 (done in code: validation errors are 400, a failed batch is 500; Android shows the server's error text).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5166,7 +5167,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Inference / Serving / API | October 8, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 27, 2026 | Inference / Serving / API | October 8, 2026 | 1-2 hours |
 
 Description:
 Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). Handlers that *return* an error, such as "Missing 'message' field", "Session not found" or a failed
@@ -5176,10 +5177,19 @@ code.
 
 Action Items:
 
-- [ ] Return 400 for malformed/missing input and 404 for unknown sessions; keep the JSON body shape.
-- [ ] Update `rest-api.md` and check the CLI and Android clients handle the new codes.
+- [x] Return 400 for malformed/missing input and 404 for unknown sessions; keep the JSON body shape.
+- [x] Update `rest-api.md` and check the CLI and Android clients handle the new codes.
 
-Location in code: `src/ChatbotAPI.cpp` (route lambdas and handlers); tagged `TODO: See TD-236`.
+**Fix (October 27, 2026).** Every returned validation error now throws `BadRequest` (HTTP 400): the missing `message`,
+`session_id`, `data` and `messages` fields on all seven routes, and import data that doesn't parse. Unknown sessions were already
+404 since TD-232. A batch whose generation fails, which used to come back as `"success":false` with 200, throws and gets 500. The JSON
+body is unchanged. Clients: `ChatbotCLI` already treated any non-200 chat reply as an error, and its save/load/clear paths read the
+same body. The Android app used to show a 400/500 as a network error reading "HTTP 400"; `ChatRepository` now reports it as an
+API error carrying the server's `error` text (or "Server error (HTTP n)" when the body isn't JSON). Tests:
+`MissingFieldsAndBadImportsAreBadRequests`, `FailedBatchGenerationIsAServerError`, two rewritten export/import tests, the real-binary
+`ChatRoutesParseJsonAndRejectMalformedBodies` (400 on six routes; 200 on the old server), and two Android `ChatRepositoryTest` cases.
+
+Location in code: `src/ChatbotAPI.cpp` (route lambdas and handlers); tagged `TD-236`.
 
 Files to Modify:
 

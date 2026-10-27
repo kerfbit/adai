@@ -495,14 +495,14 @@ TEST_F(ChatbotAPITest, HandleChatSession_ReturnedSessionIdContinuesTheSameConver
 // ConversationContext::serialize()/deserialize()'s string format over HTTP.
 // ============================================================================
 
-TEST_F(ChatbotAPITest, HandleExportSession_MissingSessionIdReturnsError) {
-    std::string response = call_handle_export_session(R"({})");
-    // "success" is an unquoted JSON boolean, not a string -- parse_json_string() only handles
-    // quoted string values (confirmed the hard way: it mis-parses past an unquoted true/false to
-    // whatever quoted key or value comes next), so every check here matches the rest of this
-    // file's own established convention of a raw substring search for boolean/numeric fields.
-    EXPECT_NE(response.find(R"("success":false)"), std::string::npos) << response;
-    EXPECT_NE(response.find("Missing 'session_id'"), std::string::npos) << response;
+// TD-236: a missing field is a BadRequest (HTTP 400 from the route); it used to be returned with 200.
+TEST_F(ChatbotAPITest, HandleExportSession_MissingSessionIdIsABadRequest) {
+    try {
+        call_handle_export_session(R"({})");
+        FAIL() << "expected a bad request";
+    } catch (const std::invalid_argument& e) {
+        EXPECT_NE(std::string(e.what()).find("Missing 'session_id'"), std::string::npos) << e.what();
+    }
 }
 
 // TD-232: an id the server never issued is "Session not found" (HTTP 404 from the route).
@@ -616,10 +616,13 @@ TEST_F(ChatbotAPITest, OversizedImportIsRejected) {
     EXPECT_THROW(call_handle_import_session(R"({"data":")" + data + "\"}"), std::invalid_argument);
 }
 
-TEST_F(ChatbotAPITest, HandleImportSession_MissingDataReturnsError) {
-    std::string response = call_handle_import_session(R"({"session_id":"whatever"})");
-    EXPECT_NE(response.find(R"("success":false)"), std::string::npos) << response;
-    EXPECT_NE(response.find("Missing 'data'"), std::string::npos) << response;
+TEST_F(ChatbotAPITest, HandleImportSession_MissingDataIsABadRequest) {
+    try {
+        call_handle_import_session(R"({"session_id":"whatever"})");
+        FAIL() << "expected a bad request";
+    } catch (const std::invalid_argument& e) {
+        EXPECT_NE(std::string(e.what()).find("Missing 'data'"), std::string::npos) << e.what();
+    }
 }
 
 TEST_F(ChatbotAPITest, HandleImportSession_CreatesNewSessionWhenNoneGiven) {
@@ -1987,4 +1990,44 @@ TEST_F(ChatbotAPITest, OversizedBatchIsRejectedBeforeAnyGeneration) {
 
     const auto three = nlohmann::json::parse(call_handle_batch_chat(R"({"messages":["a","b","c"]})"));
     EXPECT_TRUE(three.value("success", false)) << three.dump();
+}
+
+// ============================================================================
+// TD-236: errors carry their HTTP status
+// ============================================================================
+
+TEST_F(ChatbotAPITest, MissingFieldsAndBadImportsAreBadRequests) {
+    for (const char* body : {"{}", R"({"message":""})"}) {
+        EXPECT_THROW(call_handle_chat_session(body), std::invalid_argument) << body;
+    }
+    EXPECT_THROW(call_handle_batch_chat(R"({"messages":[]})"), std::invalid_argument);
+    EXPECT_THROW(call_handle_batch_chat_session("{}"), std::invalid_argument);
+    // Data that doesn't parse as a conversation (no "---" line).
+    EXPECT_THROW(call_handle_import_session(R"({"data":"not a conversation"})"), std::invalid_argument);
+}
+
+namespace {
+class ThrowingRAG : public RAGInference {
+   public:
+    using RAGInference::RAGInference;
+    std::string generate(const std::string&) override { throw std::runtime_error("generation broke"); }
+};
+}  // namespace
+
+TEST_F(ChatbotAPITest, FailedBatchGenerationIsAServerError) {
+    std::shared_ptr<EncoderDecoderModel> shared_model(model.get(), [](EncoderDecoderModel*) {});
+    api->enableRAG(std::make_shared<ThrowingRAG>(
+        shared_model, std::make_shared<DocumentStore>(model->copy_encoder())));
+    // A runtime_error (HTTP 500), not a BadRequest; it used to be "success":false with HTTP 200.
+    for (bool sessions : {false, true}) {
+        try {
+            sessions ? call_handle_batch_chat_session(R"({"messages":["a"]})")
+                     : call_handle_batch_chat(R"({"messages":["a"]})");
+            FAIL() << "a failed generation was returned as a normal reply";
+        } catch (const std::invalid_argument& e) {
+            FAIL() << "not a client error: " << e.what();
+        } catch (const std::runtime_error& e) {
+            EXPECT_NE(std::string(e.what()).find("generation broke"), std::string::npos) << e.what();
+        }
+    }
 }

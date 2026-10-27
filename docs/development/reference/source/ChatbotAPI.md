@@ -437,3 +437,10 @@ decode exactly as `/chat` does. Inputs are still generated one after another (TD
 `handle_batch_chat()` and `handle_batch_chat_session()` call `check_batch_size()` right after parsing: more than `max_batch_size_`
 messages (`set_max_batch_size()`, config `MAX_BATCH_SIZE`, default 32) throws `BatchTooLarge`, answered with HTTP 413 before any
 generation or session creation. Test: `OversizedBatchIsRejectedBeforeAnyGeneration`.
+
+## Addendum (October 27, 2026): error statuses (TD-236)
+
+Handlers throw instead of returning an error body: a missing field or import data that doesn't parse is `BadRequest` (HTTP 400), and
+a failed batch generation is a `std::runtime_error` (HTTP 500). With TD-232's 404 and TD-235's 413, no error goes out with 200; the
+`{"success":false,"error":...}` body is unchanged. Tests: `MissingFieldsAndBadImportsAreBadRequests`,
+`FailedBatchGenerationIsAServerError`.

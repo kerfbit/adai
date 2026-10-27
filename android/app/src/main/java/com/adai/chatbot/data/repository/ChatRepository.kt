@@ -1,7 +1,7 @@
 package com.adai.chatbot.data.repository
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.5.0
+// @adai-version: 0.6.0
 // @adai-reviewed: 2026-10-27
 
 
@@ -13,10 +13,12 @@ import com.adai.chatbot.data.db.MessageStatus
 import com.adai.chatbot.network.ApiClientProvider
 import com.adai.chatbot.network.ApiResult
 import com.adai.chatbot.network.dto.ChatSessionRequest
+import com.adai.chatbot.network.dto.ChatSessionResponse
 import com.adai.chatbot.settings.ServerSettings
 import com.adai.chatbot.settings.SettingsRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.Json
 import retrofit2.HttpException
 import java.io.IOException
 import java.net.ConnectException
@@ -117,6 +119,11 @@ class ChatRepository(
                 messageDao.updateStatus(userMessageId, MessageStatus.FAILED)
                 ApiResult.ApiError(response.error ?: "Unknown server error")
             }
+        } catch (e: HttpException) {
+            // TD-236: the server answers errors with their HTTP status (400 bad input, 404 unknown
+            // session, 413 batch too large, 500 generation failure) and the usual JSON body.
+            messageDao.updateStatus(userMessageId, MessageStatus.FAILED)
+            ApiResult.ApiError(serverErrorMessage(e))
         } catch (e: Exception) {
             messageDao.updateStatus(userMessageId, MessageStatus.FAILED)
             ApiResult.NetworkError(networkErrorMessage(e))
@@ -124,6 +131,21 @@ class ChatRepository(
     }
 
     companion object {
+        private val errorJson = Json { ignoreUnknownKeys = true; isLenient = true }
+
+        /** The "error" field of an error reply's body, or the status when the body has none. */
+        fun serverErrorMessage(e: HttpException): String {
+            val body = try {
+                e.response()?.errorBody()?.string()
+            } catch (_: IOException) {
+                null
+            }
+            val error = body?.let {
+                runCatching { errorJson.decodeFromString(ChatSessionResponse.serializer(), it).error }.getOrNull()
+            }
+            return error?.takeIf { it.isNotBlank() } ?: "Server error (HTTP ${e.code()})"
+        }
+
         fun networkErrorMessage(e: Exception): String = when (e) {
             is UnknownHostException, is ConnectException ->
                 "Can't reach the server — check the host/port in Settings"

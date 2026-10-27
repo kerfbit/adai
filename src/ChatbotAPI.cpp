@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.20.0
+// @adai-version: 0.21.0
 // @adai-reviewed: 2026-10-27
 
 #include "ChatbotAPI.hpp"
@@ -338,8 +338,8 @@ std::string ChatbotAPI::handle_chat(const std::string& request_body) {
     const nlohmann::json request = parse_request(request_body);
     std::string message = string_field(request, "message");
     if (message.empty()) {
-        // TODO: See TD-236 in TECHNICAL_DEBT.md - returned errors like this one go out with HTTP 200.
-        return create_error_response("Missing 'message' field in request");
+        // TD-236: HTTP 400. Validation errors used to be returned with HTTP 200.
+        throw BadRequest("Missing 'message' field in request");
     }
 
     // TODO: See TD-239 in TECHNICAL_DEBT.md - requests can't set the config; this always uses the defaults.
@@ -363,7 +363,7 @@ std::string ChatbotAPI::handle_chat_session(const std::string& request_body) {
     std::string message = string_field(request, "message");
 
     if (message.empty()) {
-        return create_error_response("Missing 'message' field in request");
+        throw BadRequest("Missing 'message' field in request");  // TD-236: HTTP 400
     }
 
     // Get or create session. TD-227: a shared_ptr keeps it alive if cleanup erases it mid-request,
@@ -421,7 +421,7 @@ std::string ChatbotAPI::handle_clear_session(const std::string& request_body) {
     std::string session_id = string_field(parse_request(request_body), "session_id");
 
     if (session_id.empty()) {
-        return create_error_response("Missing 'session_id' field in request");
+        throw BadRequest("Missing 'session_id' field in request");  // TD-236: HTTP 400
     }
 
     std::shared_ptr<Session> session = find_session(session_id);
@@ -439,7 +439,7 @@ std::string ChatbotAPI::handle_export_session(const std::string& request_body) {
     // that field's content straight to its local file.
     std::string session_id = string_field(parse_request(request_body), "session_id");
     if (session_id.empty()) {
-        return create_error_response("Missing 'session_id' field in request");
+        throw BadRequest("Missing 'session_id' field in request");  // TD-236: HTTP 400
     }
 
     std::shared_ptr<Session> session = find_session(session_id);
@@ -468,7 +468,7 @@ std::string ChatbotAPI::handle_import_session(const std::string& request_body) {
     std::string data = string_field(request, "data");
 
     if (data.empty()) {
-        return create_error_response("Missing 'data' field in request");
+        throw BadRequest("Missing 'data' field in request");  // TD-236: HTTP 400
     }
     // TD-291: the import is bounded by the session's own limits; this caps the work of parsing it.
     if (data.size() > kMaxImportBytes) {
@@ -485,7 +485,8 @@ std::string ChatbotAPI::handle_import_session(const std::string& request_body) {
         // leaves the history unchanged if the data doesn't parse.
         session->context->deserialize(data);
     } catch (const std::exception& e) {
-        return create_error_response(std::string("Failed to import conversation: ") + e.what());
+        // TD-236: the data is the client's, so HTTP 400 (it used to go out with 200).
+        throw BadRequest(std::string("Failed to import conversation: ") + e.what());
     }
     session->last_access = std::chrono::steady_clock::now();
 
@@ -549,7 +550,7 @@ std::string ChatbotAPI::handle_batch_chat(const std::string& request_body) {
     // Parse batch request
     std::vector<std::string> messages = string_array_field(parse_request(request_body), "messages");
     if (messages.empty()) {
-        return create_error_response("Missing or empty 'messages' array in request");
+        throw BadRequest("Missing or empty 'messages' array in request");  // TD-236: HTTP 400
     }
     check_batch_size(messages.size());
 
@@ -562,6 +563,10 @@ std::string ChatbotAPI::handle_batch_chat(const std::string& request_body) {
 
     // Generate batch responses
     BatchResponse batch_response = generate_batch_responses(messages, config);
+    if (!batch_response.success) {
+        // TD-236: a failed generation is HTTP 500 (it went out with 200 and "success":false).
+        throw std::runtime_error(batch_response.error);
+    }
 
     return create_batch_json_response(batch_response);
 }
@@ -573,7 +578,7 @@ std::string ChatbotAPI::handle_batch_chat_session(const std::string& request_bod
     std::vector<std::string> session_ids = string_array_field(request, "session_ids");
 
     if (messages.empty()) {
-        return create_error_response("Missing or empty 'messages' array in request");
+        throw BadRequest("Missing or empty 'messages' array in request");  // TD-236: HTTP 400
     }
     check_batch_size(messages.size());  // TD-235
 
@@ -594,6 +599,10 @@ std::string ChatbotAPI::handle_batch_chat_session(const std::string& request_bod
 
     // Generate batch session responses
     BatchResponse batch_response = generate_batch_session_responses(messages, session_ids, config);
+    if (!batch_response.success) {
+        // TD-236: a failed generation is HTTP 500 (it went out with 200 and "success":false).
+        throw std::runtime_error(batch_response.error);
+    }
 
     return create_batch_json_response(batch_response);
 }

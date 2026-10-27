@@ -86,7 +86,7 @@ class ChatRepositoryTest {
 
         val result = repository(conversationDao, fakeService).sendMessage(conversationId, "hello")
 
-        assertTrue(result is ApiResult.NetworkError)
+        assertTrue(result is ApiResult.ApiError)
         assertEquals(listOf(""), fakeService.sentSessionIds)
     }
 
@@ -156,5 +156,42 @@ class ChatRepositoryTest {
 
         assertTrue(result is ApiResult.NetworkError)
         assertEquals(MessageStatus.FAILED, messageDao.all.single().status)
+    }
+
+    // TD-236: an error reply carries its HTTP status; the server's message is shown, not "HTTP 400".
+    @Test
+    fun `a server error reply surfaces the server's message as an API error`() = runTest {
+        val conversationDao = FakeConversationDao()
+        val messageDao = FakeMessageDao()
+        val conversationId = conversationDao.newConversation()
+        val fakeService = RecordingFakeChatApiService(nextResponse = {
+            throw HttpException(
+                Response.error<Any>(400, """{"success":false,"error":"Missing 'message' field in request"}""".toResponseBody())
+            )
+        })
+        val repository = ChatRepository(
+            messageDao = messageDao,
+            conversationDao = conversationDao,
+            apiClientProvider = FakeApiClientProvider(fakeService),
+            settingsDataStore = FakeSettingsRepository(),
+        )
+
+        val result = repository.sendMessage(conversationId, "hello")
+
+        assertEquals(ApiResult.ApiError("Missing 'message' field in request"), result)
+        assertEquals(MessageStatus.FAILED, messageDao.all.single().status)
+    }
+
+    @Test
+    fun `an error reply without a JSON body reports its status`() = runTest {
+        val conversationDao = FakeConversationDao()
+        val conversationId = conversationDao.newConversation()
+        val fakeService = RecordingFakeChatApiService(nextResponse = {
+            throw HttpException(Response.error<Any>(502, "<html>bad gateway</html>".toResponseBody()))
+        })
+
+        val result = repository(conversationDao, fakeService).sendMessage(conversationId, "hello")
+
+        assertEquals(ApiResult.ApiError("Server error (HTTP 502)"), result)
     }
 }

@@ -225,11 +225,24 @@ TEST_F(ChatbotApiServerStartupTest, ChatRoutesParseJsonAndRejectMalformedBodies)
                              "application/json");
         unknown.emplace_back(route, r ? r->status : -1);
     }
+    // TD-236: validation errors used to go out with HTTP 200.
+    std::vector<std::pair<std::string, int>> invalid;
+    for (const auto& [route, body] : std::vector<std::pair<std::string, std::string>>{
+             {"/chat", "{}"},
+             {"/chat/session", R"({"message":""})"},
+             {"/clear-session", "{}"},
+             {"/chat/session/export", "{}"},
+             {"/chat/session/import", R"({"data":"not a conversation"})"},
+             {"/chat/batch", R"({"messages":[]})"}}) {
+        auto r = client.Post(route, body, "application/json");
+        invalid.emplace_back(route, r ? r->status : -1);
+    }
     // TD-235: MAX_BATCH_SIZE=3 in this test's config.
     auto too_big = client.Post("/chat/batch", R"({"messages":["a","b","c","d"]})", "application/json");
     stop(pid);
 
     for (const auto& [route, status] : unknown) EXPECT_EQ(status, 404) << route;
+    for (const auto& [route, status] : invalid) EXPECT_EQ(status, 400) << route;
     ASSERT_TRUE(too_big);
     EXPECT_EQ(too_big->status, 413) << too_big->body;
 

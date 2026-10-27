@@ -130,6 +130,7 @@ Error Response:
 Status Codes:
 
 - `200 OK` - Success
+- `400 Bad Request` - Malformed body or missing field
 - `500 Internal Server Error` - Generation failed
 
 Example:
@@ -190,6 +191,7 @@ Error Response:
 Status Codes:
 
 - `200 OK` - Success
+- `400 Bad Request` - Malformed body or missing field
 - `500 Internal Server Error` - Generation failed
 
 Example (New Session):
@@ -261,7 +263,8 @@ Error Response:
 Status Codes:
 
 - `200 OK` - Success
-- `400 Bad Request` - Invalid session ID
+- `400 Bad Request` - Missing `session_id`
+- `404 Not Found` - The server doesn't hold that session
 
 Example:
 
@@ -602,9 +605,16 @@ Session Not Found:
 
 ### HTTP Status Codes
 
+Every error reply carries its status as well as the `{"success":false,"error":...}` body (TD-236; validation errors used to be
+sent with 200):
+
 - `200 OK` - Request successful
-- `400 Bad Request` - Invalid request (missing fields, invalid session)
-- `500 Internal Server Error` - Server error (generation failed, model error)
+- `400 Bad Request` - Malformed JSON, a field of the wrong type, a missing or empty required field, a message larger than the
+  session's token budget, import data that doesn't parse or is over 1 MiB
+- `404 Not Found` - A `session_id` the server doesn't hold (TD-232)
+- `413 Payload Too Large` - A batch over `MAX_BATCH_SIZE` messages (TD-235)
+- `500 Internal Server Error` - Generation failed (including a failed batch)
+- `503 Service Unavailable` - `GET /health` only, when no trained model is loaded (TD-246)
 
 ---
 
