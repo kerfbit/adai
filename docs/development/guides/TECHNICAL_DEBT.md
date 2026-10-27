@@ -1299,6 +1299,10 @@ The metrics pipeline run is complete.
 
 The generation and model math run is complete.
 
+**Chat serving correctness run (October 26, 2026)**, chosen by the owner. So far:
+- TD-246 (done in code: `chatbot_api_server` refuses to start without a loadable model unless `ALLOW_UNTRAINED_MODEL` is set, and
+  `/health` reports `"untrained"` with HTTP 503).
+
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
 - TD-372/373 (done in code: the FTP data connection must come from the control connection's client, and FTPS requires `AUTH TLS` and
@@ -5327,7 +5331,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Inference / Serving / Server | October 8, 2026 | 2-4 hours |
+| **HIGH** | Open — code fix landed October 26, 2026 | Inference / Serving / Server | October 8, 2026 | 2-4 hours |
 
 Description:
 Found while writing the code-traced reference [ChatbotAPIServer.md](../reference/source/ChatbotAPIServer.md). In `main()`, if
@@ -5340,11 +5344,26 @@ service. Found by reading the code.
 
 Action Items:
 
-- [ ] Fail startup (exit 1) when the model can't be loaded, unless an explicit development opt-in (e.g. `ALLOW_UNTRAINED_MODEL=true`) is set.
-- [ ] Report model state in `/health` (`model_loaded`, model path/name), and return a non-`ok` status when serving untrained weights.
-- [ ] Test: a bad `MODEL_PATH` exits non-zero by default.
+- [x] Fail startup (exit 1) when the model can't be loaded, unless an explicit development opt-in (e.g. `ALLOW_UNTRAINED_MODEL=true`) is set.
+- [x] Report model state in `/health` (`model_loaded`, model path/name), and return a non-`ok` status when serving untrained weights.
+- [x] Test: a bad `MODEL_PATH` exits non-zero by default.
 
-Location in code: `src/ChatbotAPIServer.cpp` (model load), `src/ChatbotAPI.cpp` (`handle_health()`); tagged `TODO: See TD-246`.
+**Fix (October 26, 2026).**
+- **Startup.** `chatbot_api_server` exits 1 when `MODEL_PATH` is unset or can't be loaded (logged as an error), unless the new
+  development opt-in `ALLOW_UNTRAINED_MODEL=true` (config key or environment) is set.
+- **`/health`.** It reports `model_loaded` and `model_path`, and answers `"status":"untrained"` with HTTP 503 when serving untrained
+  weights, so load balancers and monitoring see it. A loaded model gives `"ok"` with 200. `ChatbotAPI::set_model_status()` carries
+  the state; library users that build their own `ChatbotAPI` default to "loaded".
+- **Docs.** `config.chatbot.conf` and the operator docs describe both behaviours.
+
+Test: `chatbotApiServerStartupTests` spawns the real binary with a minimal environment:
+- `MissingModelFileExitsOne`;
+- `NoModelPathExitsOne`;
+- `OptInServesButHealthSaysUntrained` (503, `"untrained"`, `"model_loaded":false`).
+
+On the old server, both missing-model cases were still running after 60 s, and `/health` answered 200 without `"untrained"`.
+
+Location in code: `src/ChatbotAPIServer.cpp` (model load), `src/ChatbotAPI.{hpp,cpp}` (`handle_health()`, `set_model_status()`), `src/Config.{hpp,cpp}` (`ALLOW_UNTRAINED_MODEL`).
 
 Files to Modify:
 

@@ -770,7 +770,8 @@ All settings can be provided via:
 | Key | Default | Description |
 | --- | --- | --- |
 | `VOCAB_PATH` | `vocab.txt` | Path to vocabulary file |
-| `MODEL_PATH` | — | Path to model file (optional; starts untrained if not set) |
+| `MODEL_PATH` | — | Path to the trained checkpoint. The server exits 1 when it's unset or can't be loaded (TD-246) |
+| `ALLOW_UNTRAINED_MODEL` | `false` | Development only: serve randomly initialized weights when no model loads; `/health` then answers 503 with `"status":"untrained"` |
 | `PORT` | `8080` | HTTP port to listen on |
 | `SESSION_TIMEOUT` | `30` | Minutes before session expires |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN`, `ERROR` |

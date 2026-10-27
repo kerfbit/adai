@@ -743,6 +743,18 @@ endif()
 # entry. Needs the actual registry_server executable (not just adai_core) —
 # gated on that target existing, independent of the adai_metrics_api block
 # above.
+# TD-246: chatbot_api_server refuses to serve an untrained model. Spawns the real binary.
+if(TARGET chatbot_api_server AND HTTPLIB_INCLUDE_DIR)
+    add_executable(chatbotApiServerStartupTests chatbot_api_server_startup_test.cpp)
+    target_include_directories(chatbotApiServerStartupTests PRIVATE
+        ${CMAKE_SOURCE_DIR}/src ${HTTPLIB_INCLUDE_DIR})
+    target_compile_definitions(chatbotApiServerStartupTests PRIVATE
+        CHATBOT_API_SERVER_BINARY_PATH="$<TARGET_FILE:chatbot_api_server>")
+    target_link_libraries(chatbotApiServerStartupTests adai_nlp adai_core pthread GTest::gtest_main)
+    add_dependencies(chatbotApiServerStartupTests chatbot_api_server)
+    add_test(NAME ChatbotApiServerStartupTests COMMAND chatbotApiServerStartupTests)
+endif()
+
 if(TARGET registry_server AND HTTPLIB_INCLUDE_DIR)
     add_executable(registryFtpConfinementTests registry_ftp_confinement_test.cpp)
     target_include_directories(registryFtpConfinementTests PRIVATE

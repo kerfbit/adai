@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.9.2
+// @adai-version: 2.0.0
 // @adai-reviewed: 2026-10-26
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
@@ -378,14 +378,22 @@ int main(int argc, char* argv[]) {
                 model_loaded = true;
                 adai::Logger::info("  Model weights loaded successfully");
             } catch (const std::exception& e) {
-                // TODO: See TD-246 in TECHNICAL_DEBT.md - keeps serving random weights while /health says ok;
-                // fail startup unless an explicit development opt-in is set.
-                adai::Logger::warn("  Failed to load model weights: {}", e.what());
-                adai::Logger::warn("  Using random initialization");
+                adai::Logger::error("  Failed to load model weights: {}", e.what());
             }
         } else {
-            // TODO: See TD-246 in TECHNICAL_DEBT.md - no MODEL_PATH also serves an untrained model.
-            adai::Logger::info("  Using randomly initialized model (training required)");
+            adai::Logger::error("  No MODEL_PATH is configured");
+        }
+        // TD-246: an untrained model answers with gibberish, and /health used to say "ok" about it.
+        // Refuse to start unless the development opt-in says otherwise.
+        if (!model_loaded) {
+            if (!config.allow_untrained_model) {
+                adai::Logger::error(
+                    "  Refusing to serve an untrained model. Fix MODEL_PATH, or set "
+                    "ALLOW_UNTRAINED_MODEL=true for development (then /health reports "
+                    "\"untrained\").");
+                return 1;
+            }
+            adai::Logger::warn("  ALLOW_UNTRAINED_MODEL is set: serving randomly initialized weights");
         }
         // TD-366: serving only (the encoder then caches nothing for a backward pass).
         model->set_training(false);
@@ -553,6 +561,7 @@ int main(int argc, char* argv[]) {
         auto api = std::make_unique<ChatbotAPI>(model.get(), tokenizer.get(), config.port,
                                                 config.session_timeout, draft_model.get(),
                                                 config.speculative_num_candidates);
+        api->set_model_status(model_loaded, config.model_path);  // TD-246: reported by /health
 
         // TD-038: --profile enables GET /admin/profile (generate_response() timing stats).
         if (cli.profile) {

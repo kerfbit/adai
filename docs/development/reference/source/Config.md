@@ -238,3 +238,8 @@ training batch. SIGReg is applied across their pooled embeddings. `validate()` r
 `FTPS_PINNED_PUBLIC_KEY` and `FTPS_CA_FILE` (`ServiceConfig::ftps_pinned_public_key`/`ftps_ca_file`, file and environment, default
 empty) set how `incremental_trainer` authenticates `registry_server`'s FTPS certificate. They're mapped into `DatasetConfig` by
 `DatasetRegistry::make_config()`. See DataTransport.md.
+
+## Addendum (October 26, 2026): `ALLOW_UNTRAINED_MODEL` (TD-246)
+
+`ServiceConfig::allow_untrained_model` (config key and environment variable `ALLOW_UNTRAINED_MODEL`, default `false`): a development
+opt-in that lets `chatbot_api_server` start without a loadable `MODEL_PATH`.

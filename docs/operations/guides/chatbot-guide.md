@@ -593,7 +593,9 @@ Error: Connection failed
 
 **Solution:**
 
-1. Confirm `chatbot_api_server` is running (`curl http://localhost:8080/health`)
+1. Confirm `chatbot_api_server` is running (`curl http://localhost:8080/health`). It exits at startup when its
+   `MODEL_PATH` can't be loaded; `"status":"untrained"` (HTTP 503) means it was started with
+   `ALLOW_UNTRAINED_MODEL=true` and has no trained weights
 2. Check the `server_url` argument matches where it's actually listening
 3. See [../deployment/README.md](../deployment/README.md) for starting `chatbot_api_server`,
    including its own tokenizer/model file requirements (`chatbot` itself has none)

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-09-14
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-10-26
 
 
 #include <chrono>
@@ -281,6 +281,21 @@ class ChatbotAPI {
     std::string handle_export_session(const std::string& request_body);
     std::string handle_import_session(const std::string& request_body);
     std::string handle_health();
+
+   public:
+    /**
+     * TD-246: what /health reports about the model. A loaded model reports status "ok"; an
+     * untrained one (ALLOW_UNTRAINED_MODEL) reports "untrained" with HTTP 503. Defaults to loaded,
+     * for library users that construct ChatbotAPI around a model they trained themselves.
+     */
+    void set_model_status(bool loaded, const std::string& model_path) {
+        model_loaded_ = loaded;
+        model_path_ = model_path;
+    }
+
+   private:
+    bool model_loaded_{true};
+    std::string model_path_;
     std::string handle_profile();
 
     // Batch endpoint handlers

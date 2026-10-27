@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.10.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 1.11.0
+// @adai-reviewed: 2026-10-26
 
 #include "Config.hpp"
 #include <algorithm>
@@ -299,6 +299,11 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "GENERATION_QUALITY_ASYNC_THRESHOLD") {
                 config.generation_quality_async_threshold = std::stoi(value);
                 // RAG configuration
+            } else if (key == "ALLOW_UNTRAINED_MODEL") {  // TD-246
+                std::string lower = value;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                config.allow_untrained_model =
+                    (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
             } else if (key == "RAG_ENABLED") {
                 std::string lower = value;
                 std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
@@ -734,6 +739,10 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_int("METRICS_DB_POOL_SIZE")) {
         config.metrics_db_pool_size = *val;
+    }
+
+    if (auto val = get_env_bool("ALLOW_UNTRAINED_MODEL")) {  // TD-246
+        config.allow_untrained_model = *val;
     }
 
     // RAG configuration

@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.13.1
+// @adai-version: 0.14.0
 // @adai-reviewed: 2026-10-26
 
 #include "ChatbotAPI.hpp"
@@ -108,7 +108,7 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
     server_impl_->server.Get("/health", [this](const httplib::Request&, httplib::Response& res) {
         std::string response = handle_health();
         res.set_content(response, "application/json");
-        res.status = 200;
+        res.status = model_loaded_ ? 200 : 503;  // TD-246: load balancers see an untrained model
     });
 
     // GET /admin/profile - generate_response() timing stats (TD-038); reports disabled unless
@@ -357,8 +357,8 @@ std::string ChatbotAPI::handle_import_session(const std::string& request_body) {
     return oss.str();
 }
 
-// TODO: See TD-246 in TECHNICAL_DEBT.md - reports "ok" even when the server is running an untrained model;
-// include model-loaded state.
+// TD-246: reports the model state; "untrained" (and HTTP 503 from the route) when no trained model
+// is loaded, where it used to say "ok" about random weights.
 std::string ChatbotAPI::handle_health() {
     cleanup_expired_sessions();
 
@@ -369,7 +369,9 @@ std::string ChatbotAPI::handle_health() {
     }
 
     std::ostringstream oss;
-    oss << R"({"status":"ok","active_sessions":)" << active_sessions << "}";
+    oss << R"({"status":")" << (model_loaded_ ? "ok" : "untrained")
+        << R"(","model_loaded":)" << (model_loaded_ ? "true" : "false") << R"(,"model_path":")"
+        << escape_json_string(model_path_) << R"(","active_sessions":)" << active_sessions << "}";
     return oss.str();
 }
 

@@ -224,3 +224,9 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 The world model is loaded from `LeJEPAEncoder::resolve_checkpoint_dir(SESSION_DIR, WORLD_MODEL_ARTIFACT_PATH)`: the artifact path,
 else `<SESSION_DIR>/world_model_checkpoint`, else a pre-TD-548 `<SESSION_DIR>/world_model` checkpoint. It's used only when that
 directory holds a checkpoint (`has_checkpoint()`), not merely exists.
+
+## Addendum (October 26, 2026): no untrained serving by default (TD-246)
+
+When `MODEL_PATH` is unset or fails to load, `main()` logs an error and returns 1, unless `ALLOW_UNTRAINED_MODEL=true` (config or
+environment), in which case it warns and continues. It passes the result to `ChatbotAPI::set_model_status()`. Test:
+`chatbotApiServerStartupTests` (spawns the real binary).

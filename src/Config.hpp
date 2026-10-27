@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.10.1
+// @adai-version: 1.11.0
 // @adai-reviewed: 2026-10-26
 
 
@@ -427,6 +427,11 @@ struct ServiceConfig {
     // ============================================================
     // RAG Configuration
     // ============================================================
+
+    /// TD-246: chatbot_api_server refuses to start when no trained model loads (MODEL_PATH unset,
+    /// missing or unloadable), unless this development opt-in is set; /health then reports
+    /// "untrained". Config key ALLOW_UNTRAINED_MODEL (default: false).
+    bool allow_untrained_model = false;
 
     /// Enable Retrieval-Augmented Generation (default: false)
     bool rag_enabled = false;

@@ -363,3 +363,8 @@ Without a GPU, `generate_response()` now calls `EncoderDecoderModel::generate_re
 GPU twin. It gets the KV cache, the world-model and hippocampal paths, the `max_seq_length` cap and the same strategy handling as
 the GPU. Generation tokenizes with the model's tokenizer, which `chatbot_api_server` fills from the checkpoint's `.vocab` (or
 `VOCAB_PATH` when no checkpoint loads). Speculative, batched and `/chat/batch` still use `next_token_logits()`.
+
+## Addendum (October 26, 2026): `/health` reports the model (TD-246)
+
+`/health` returns `{"status":"ok"|"untrained","model_loaded":…,"model_path":…,"active_sessions":…}`, with HTTP 503 when the model
+isn't loaded. `set_model_status(loaded, path)` sets it; a `ChatbotAPI` built directly defaults to loaded.
