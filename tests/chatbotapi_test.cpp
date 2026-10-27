@@ -81,6 +81,9 @@ class ChatbotAPITest : public ::testing::Test {
     std::string call_handle_chat_session(const std::string& request_body) {
         return api->handle_chat_session(request_body);
     }
+    std::string call_handle_batch_chat(const std::string& request_body) {
+        return api->handle_batch_chat(request_body);
+    }
 
     // handle_export_session()/handle_import_session() are private (TD-053); same
     // friendship-doesn't-propagate reason as call_generate_response() above.
@@ -202,6 +205,48 @@ TEST_F(ChatbotAPITest, ParseJsonArray_EscapedStrings) {
     ASSERT_EQ(values.size(), 2);
     EXPECT_TRUE(values[0].find('\n') != std::string::npos);
     EXPECT_TRUE(values[1].find('"') != std::string::npos);
+}
+
+// TD-226: the array parser took the first ']' anywhere for the end of the array, so a message
+// containing ']' made the whole batch empty.
+TEST_F(ChatbotAPITest, ParseJsonArray_BracketsCommasAndQuotesInsideStrings) {
+    const std::string json = R"({"messages":["see [1] here","a, b] c","say \"hi\" [x]"]})";
+    std::vector<std::string> values = api->parse_json_array(json, "messages");
+    ASSERT_EQ(values.size(), 3u);
+    EXPECT_EQ(values[0], "see [1] here");
+    EXPECT_EQ(values[1], "a, b] c");
+    EXPECT_EQ(values[2], "say \"hi\" [x]");
+}
+
+// TD-228: the string parser returned the next key's name for a non-string value, ran past a value
+// ending in an escaped backslash, and left \uXXXX escapes literal.
+TEST_F(ChatbotAPITest, ParseJsonString_TD228Inputs) {
+    EXPECT_EQ(api->parse_json_string(R"({"session_id":123,"message":"hi"})", "session_id"), "");
+    EXPECT_EQ(api->parse_json_string(R"({"message":"path C:\\","session_id":"abc"})", "message"),
+              "path C:\\");
+    EXPECT_EQ(api->parse_json_string(R"({"message":"caf\u00e9"})", "message"), "caf\xc3\xa9");
+    EXPECT_EQ(api->parse_json_string(R"({"message":"hi"} trailing)", "message"), "")
+        << "a body that isn't one JSON object";
+}
+
+TEST_F(ChatbotAPITest, HandlersRejectMalformedBodiesAndMistypedFields) {
+    // The routes answer these with HTTP 400 (std::invalid_argument is the handlers' BadRequest).
+    EXPECT_THROW(call_handle_batch_chat(R"({"messages":["a", )"), std::invalid_argument);
+    EXPECT_THROW(call_handle_batch_chat(R"({"messages":"not an array"})"), std::invalid_argument);
+    EXPECT_THROW(call_handle_batch_chat(R"({"messages":["ok", 7]})"), std::invalid_argument);
+    EXPECT_THROW(call_handle_chat_session(R"({"session_id":123,"message":"hi"})"),
+                 std::invalid_argument);
+    EXPECT_THROW(call_handle_chat_session("not json"), std::invalid_argument);
+}
+
+TEST_F(ChatbotAPITest, BatchChatAcceptsMessagesWithBrackets) {
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 3;
+    config.strategy = "greedy";
+    api->set_generation_config(config);
+    const std::string response = call_handle_batch_chat(R"({"messages":["see [1] here","second"]})");
+    EXPECT_NE(response.find("\"success\":true"), std::string::npos) << response;
+    EXPECT_EQ(response.find("Missing or empty"), std::string::npos) << response;
 }
 
 TEST_F(ChatbotAPITest, ParseJsonArray_MissingKey) {

@@ -196,3 +196,35 @@ TEST_F(ChatbotApiServerStartupTest, RagIsNotEnabledWithoutATrainedModel) {
     EXPECT_NE(logs.find("[RAG] Not enabled: no trained model is loaded"), std::string::npos);
     EXPECT_EQ(logs.find("Initializing RAG engine"), std::string::npos);
 }
+
+// TD-226/TD-228 through the real routes: malformed bodies and mistyped fields get HTTP 400, and a batch
+// whose messages contain ']' is answered (it used to be rejected as "Missing or empty 'messages'").
+TEST_F(ChatbotApiServerStartupTest, ChatRoutesParseJsonAndRejectMalformedBodies) {
+    const pid_t pid = spawn(write_config("ALLOW_UNTRAINED_MODEL=true\nMAX_GEN_LENGTH=3\n"));
+    httplib::Client client("127.0.0.1", port_);
+    client.set_connection_timeout(1);
+    client.set_read_timeout(60);
+    bool up = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    while (!up && std::chrono::steady_clock::now() < deadline) {
+        up = static_cast<bool>(client.Get("/health"));
+        if (!up) std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    ASSERT_TRUE(up);
+
+    auto malformed = client.Post("/chat/batch", R"({"messages":["a", )", "application/json");
+    auto mistyped = client.Post("/chat/session", R"({"session_id":123,"message":"hi"})",
+                                "application/json");
+    auto brackets =
+        client.Post("/chat/batch", R"({"messages":["see [1] here","second"]})", "application/json");
+    stop(pid);
+
+    ASSERT_TRUE(malformed);
+    EXPECT_EQ(malformed->status, 400) << malformed->body;
+    ASSERT_TRUE(mistyped);
+    EXPECT_EQ(mistyped->status, 400) << mistyped->body;
+    EXPECT_NE(mistyped->body.find("'session_id' must be a string"), std::string::npos);
+    ASSERT_TRUE(brackets);
+    EXPECT_EQ(brackets->status, 200);
+    EXPECT_NE(brackets->body.find("\"success\":true"), std::string::npos) << brackets->body;
+}

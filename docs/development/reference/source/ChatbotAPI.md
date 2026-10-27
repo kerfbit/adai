@@ -368,3 +368,10 @@ the GPU. Generation tokenizes with the model's tokenizer, which `chatbot_api_ser
 
 `/health` returns `{"status":"ok"|"untrained","model_loaded":…,"model_path":…,"active_sessions":…}`, with HTTP 503 when the model
 isn't loaded. `set_model_status(loaded, path)` sets it; a `ChatbotAPI` built directly defaults to loaded.
+
+## Addendum (October 26, 2026): nlohmann/json request parsing (TD-226, TD-228)
+
+Request bodies are parsed with nlohmann/json (`parse_request()`, `string_field()`, `string_array_field()`), replacing the hand-written
+parsers that emptied any batch whose messages contained `]`, misread non-string values, and left `\uXXXX` escapes literal. A
+malformed body or a field of the wrong type gets HTTP 400 with a message naming the field. Missing fields keep their existing error
+responses (HTTP 200, TD-236). `parse_json_string()`/`parse_json_array()` remain as non-throwing readers.

@@ -427,6 +427,8 @@ if(BUILD_API_SERVER)
             pthread
         )
         target_include_directories(adai_api PRIVATE ${HTTPLIB_INCLUDE_DIR})
+        # nlohmann/json (vendored, header-only) for request parsing (TD-226/TD-228).
+        target_include_directories(adai_api PRIVATE ${CMAKE_SOURCE_DIR}/external)
         message(STATUS "Building API server (cpp-httplib found at ${HTTPLIB_INCLUDE_DIR})")
     else()
         message(WARNING "cpp-httplib not found. API server will not be built. Install with: sudo apt-get install libhttplib-dev or download from https://github.com/yhirose/cpp-httplib")

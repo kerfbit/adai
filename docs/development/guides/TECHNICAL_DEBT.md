@@ -1304,6 +1304,8 @@ The generation and model math run is complete.
   `/health` reports `"untrained"` with HTTP 503).
 - TD-247 (done in code: RAG embeds with a copy of the trained encoder and the model's tokenizer, and stays off without a trained
   model).
+- TD-226/228 (done in code: request bodies are parsed with nlohmann/json, so brackets, escapes and `\uXXXX` in messages work, and
+  malformed or mistyped bodies get HTTP 400).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -4756,7 +4758,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Inference / Serving / API | October 8, 2026 | 2-4 hours (switch request parsing to nlohmann/json; also resolves TD-228) |
+| **HIGH** | Open — code fix landed October 26, 2026 | Inference / Serving / API | October 8, 2026 | 2-4 hours (switch request parsing to nlohmann/json; also resolves TD-228) |
 
 Description:
 Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). `ChatbotAPI::parse_json_array()` finds the array's `[` and then the **first `]` anywhere after
@@ -4769,10 +4771,25 @@ traffic. The vendored nlohmann/json (`external/nlohmann/json.hpp`, already used 
 
 Action Items:
 
-- [ ] Replace `parse_json_array()` (and `parse_json_string()`, TD-228) with nlohmann/json parsing in every handler; reject malformed bodies with HTTP 400.
-- [ ] Regression test: messages containing `[`, `]`, `,` and escaped quotes round-trip through `/chat/batch`.
+- [x] Replace `parse_json_array()` (and `parse_json_string()`, TD-228) with nlohmann/json parsing in every handler; reject malformed bodies with HTTP 400.
+- [x] Regression test: messages containing `[`, `]`, `,` and escaped quotes round-trip through `/chat/batch`.
 
-Location in code: `src/ChatbotAPI.cpp` (`parse_json_array()`); tagged `TODO: See TD-226`.
+**Fix (October 26, 2026, TD-226 with TD-228).**
+- **Parsing.** Every request handler parses its body once with the vendored nlohmann/json, through `parse_request()`,
+  `string_field()` and `string_array_field()` in `ChatbotAPI.cpp`.
+- **Errors.** A body that isn't one JSON object, or a field of the wrong type (a numeric `session_id`, a non-string array element),
+  throws `BadRequest`. All seven POST routes answer it with HTTP 400 and a message naming the field.
+- **Helpers kept.** `parse_json_string()`/`parse_json_array()` are thin nlohmann readers that never throw.
+- **Not changed.** Missing fields keep their existing error responses, still sent with HTTP 200 (TD-236).
+
+Tests (all failing on the old code):
+- `ChatbotAPITest.ParseJsonArray_BracketsCommasAndQuotesInsideStrings` and `ParseJsonString_TD228Inputs` (the table's three inputs,
+  plus trailing garbage).
+- `HandlersRejectMalformedBodiesAndMistypedFields` and `BatchChatAcceptsMessagesWithBrackets`.
+- `ChatbotApiServerStartupTest.ChatRoutesParseJsonAndRejectMalformedBodies`, through the real server: the old routes answered the
+  malformed and mistyped bodies with 200.
+
+Location in code: `src/ChatbotAPI.cpp` (request handlers, routes, `parse_json_array()`/`parse_json_string()`).
 
 Files to Modify:
 
@@ -4821,7 +4838,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / Serving / API | October 8, 2026 | 1-2 hours (no extra work if done with TD-226) |
+| MEDIUM | Open — code fix landed October 26, 2026 | Inference / Serving / API | October 8, 2026 | 1-2 hours (no extra work if done with TD-226) |
 
 Description:
 Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). The hand-written key lookup in `parse_json_string()` returns wrong values for valid JSON. Verified
@@ -4838,9 +4855,9 @@ messages reach the model and the session map. nlohmann/json handles all of these
 
 Action Items:
 
-- [ ] Covered by TD-226's switch to nlohmann/json; add these three inputs as regression tests.
+- [x] Covered by TD-226's switch to nlohmann/json; add these three inputs as regression tests. (See TD-226's fix; a numeric `session_id` now gets HTTP 400.)
 
-Location in code: `src/ChatbotAPI.cpp` (`parse_json_string()`); tagged `TODO: See TD-228`.
+Location in code: `src/ChatbotAPI.cpp` (`parse_json_string()`); no longer tagged.
 
 Files to Modify:
 

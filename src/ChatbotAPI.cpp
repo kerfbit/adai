@@ -1,8 +1,9 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.14.0
+// @adai-version: 0.15.0
 // @adai-reviewed: 2026-10-26
 
 #include "ChatbotAPI.hpp"
+#include "nlohmann/json.hpp"
 #include "BrowserWriteGuard.hpp"
 #include "HttpListenSocket.hpp"
 #include <httplib.h>
@@ -12,6 +13,59 @@
 #include <random>
 #include <sstream>
 #include "SpecialTokens.hpp"
+
+namespace {
+
+// TD-226/TD-228: request bodies are parsed with nlohmann/json. The hand-written parsers took the
+// first ']' anywhere for the end of an array (so a message containing ']' emptied the batch), read
+// the next key's name as the value of a non-string field, ran past a value ending in an escaped
+// backslash, and left \uXXXX escapes literal. A malformed body or a field of the wrong type is a
+// BadRequest, which the routes answer with HTTP 400.
+struct BadRequest : std::invalid_argument {
+    using std::invalid_argument::invalid_argument;
+};
+
+nlohmann::json parse_request(const std::string& body) {
+    nlohmann::json request = nlohmann::json::parse(body, nullptr, /*allow_exceptions=*/false);
+    if (request.is_discarded() || !request.is_object()) {
+        throw BadRequest("Request body must be a JSON object");
+    }
+    return request;
+}
+
+// "" when the field is absent or null; BadRequest when it holds something other than a string.
+std::string string_field(const nlohmann::json& request, const std::string& key) {
+    const auto it = request.find(key);
+    if (it == request.end() || it->is_null()) {
+        return "";
+    }
+    if (!it->is_string()) {
+        throw BadRequest("'" + key + "' must be a string");
+    }
+    return it->get<std::string>();
+}
+
+// Empty when the field is absent or null; BadRequest unless it is an array of strings.
+std::vector<std::string> string_array_field(const nlohmann::json& request, const std::string& key) {
+    const auto it = request.find(key);
+    if (it == request.end() || it->is_null()) {
+        return {};
+    }
+    if (!it->is_array()) {
+        throw BadRequest("'" + key + "' must be an array of strings");
+    }
+    std::vector<std::string> values;
+    values.reserve(it->size());
+    for (const auto& element : *it) {
+        if (!element.is_string()) {
+            throw BadRequest("'" + key + "' must be an array of strings");
+        }
+        values.push_back(element.get<std::string>());
+    }
+    return values;
+}
+
+}  // namespace
 
 // ServerImpl using cpp-httplib
 class ChatbotAPI::ServerImpl {
@@ -46,6 +100,9 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
             std::string response = handle_chat(req.body);
             res.set_content(response, "application/json");
             res.status = 200;
+        } catch (const BadRequest& e) {  // TD-226: malformed JSON or a mistyped field
+            res.set_content(create_error_response(e.what()), "application/json");
+            res.status = 400;
         } catch (const std::exception& e) {
             res.set_content(create_error_response(e.what()), "application/json");
             res.status = 500;
@@ -59,6 +116,9 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 std::string response = handle_chat_session(req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const BadRequest& e) {  // TD-226: malformed JSON or a mistyped field
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 400;
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -72,6 +132,9 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 std::string response = handle_clear_session(req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const BadRequest& e) {  // TD-226: malformed JSON or a mistyped field
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 400;
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -85,6 +148,9 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 std::string response = handle_export_session(req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const BadRequest& e) {  // TD-226: malformed JSON or a mistyped field
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 400;
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -98,6 +164,9 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 std::string response = handle_import_session(req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const BadRequest& e) {  // TD-226: malformed JSON or a mistyped field
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 400;
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -126,6 +195,9 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 std::string response = handle_batch_chat(req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const BadRequest& e) {  // TD-226: malformed JSON or a mistyped field
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 400;
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -139,6 +211,9 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 std::string response = handle_batch_chat_session(req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const BadRequest& e) {  // TD-226: malformed JSON or a mistyped field
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 400;
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -186,7 +261,8 @@ void ChatbotAPI::stop() {
 
 std::string ChatbotAPI::handle_chat(const std::string& request_body) {
     // Parse request
-    std::string message = parse_json_string(request_body, "message");
+    const nlohmann::json request = parse_request(request_body);
+    std::string message = string_field(request, "message");
     if (message.empty()) {
         // TODO: See TD-236 in TECHNICAL_DEBT.md - returned errors like this one go out with HTTP 200.
         return create_error_response("Missing 'message' field in request");
@@ -208,8 +284,9 @@ std::string ChatbotAPI::handle_chat(const std::string& request_body) {
 
 std::string ChatbotAPI::handle_chat_session(const std::string& request_body) {
     // Parse request
-    std::string session_id = parse_json_string(request_body, "session_id");
-    std::string message = parse_json_string(request_body, "message");
+    const nlohmann::json request = parse_request(request_body);
+    std::string session_id = string_field(request, "session_id");
+    std::string message = string_field(request, "message");
 
     if (message.empty()) {
         return create_error_response("Missing 'message' field in request");
@@ -278,7 +355,7 @@ std::string ChatbotAPI::handle_chat_session(const std::string& request_body) {
 }
 
 std::string ChatbotAPI::handle_clear_session(const std::string& request_body) {
-    std::string session_id = parse_json_string(request_body, "session_id");
+    std::string session_id = string_field(parse_request(request_body), "session_id");
 
     if (session_id.empty()) {
         return create_error_response("Missing 'session_id' field in request");
@@ -297,7 +374,7 @@ std::string ChatbotAPI::handle_export_session(const std::string& request_body) {
     // TD-053: exports session_id's ConversationContext as ConversationContext::serialize()'s own
     // string format, JSON-escaped into the "data" field — the client (ChatbotCLI's /save) writes
     // that field's content straight to its local file.
-    std::string session_id = parse_json_string(request_body, "session_id");
+    std::string session_id = string_field(parse_request(request_body), "session_id");
     if (session_id.empty()) {
         return create_error_response("Missing 'session_id' field in request");
     }
@@ -324,8 +401,9 @@ std::string ChatbotAPI::handle_import_session(const std::string& request_body) {
     // way handle_chat_session() does when session_id arrives empty — mirrors that function's
     // TD-095 fix (recovering the newly-allocated id via the same reverse pointer-lookup) so a
     // client with no prior session yet can still adopt one from a /load.
-    std::string session_id = parse_json_string(request_body, "session_id");
-    std::string data = parse_json_string(request_body, "data");
+    const nlohmann::json request = parse_request(request_body);
+    std::string session_id = string_field(request, "session_id");
+    std::string data = string_field(request, "data");
 
     if (data.empty()) {
         return create_error_response("Missing 'data' field in request");
@@ -396,7 +474,7 @@ std::string ChatbotAPI::handle_profile() {
 // TODO: See TD-235 in TECHNICAL_DEBT.md - no limit on the number of messages in a batch request.
 std::string ChatbotAPI::handle_batch_chat(const std::string& request_body) {
     // Parse batch request
-    std::vector<std::string> messages = parse_json_array(request_body, "messages");
+    std::vector<std::string> messages = string_array_field(parse_request(request_body), "messages");
     if (messages.empty()) {
         return create_error_response("Missing or empty 'messages' array in request");
     }
@@ -416,8 +494,9 @@ std::string ChatbotAPI::handle_batch_chat(const std::string& request_body) {
 
 std::string ChatbotAPI::handle_batch_chat_session(const std::string& request_body) {
     // Parse batch request
-    std::vector<std::string> messages = parse_json_array(request_body, "messages");
-    std::vector<std::string> session_ids = parse_json_array(request_body, "session_ids");
+    const nlohmann::json request = parse_request(request_body);
+    std::vector<std::string> messages = string_array_field(request, "messages");
+    std::vector<std::string> session_ids = string_array_field(request, "session_ids");
 
     if (messages.empty()) {
         return create_error_response("Missing or empty 'messages' array in request");
@@ -503,179 +582,27 @@ bool ChatbotAPI::is_session_expired(const Session& session) {
 }
 
 // ============================================================================
-// JSON Utilities (Simple parser without external dependencies)
+// JSON Utilities
 // ============================================================================
 
-// TODO: See TD-228 in TECHNICAL_DEBT.md - mis-parses non-string values, values ending in an escaped backslash,
-// and \uXXXX escapes; replace with nlohmann/json (external/nlohmann/json.hpp).
+// TD-226/TD-228: thin nlohmann/json readers, kept for callers that read one field of a body or a
+// response (the handlers parse once with parse_request()). They never throw: "" / {} when the body
+// isn't a JSON object or the field is missing or of another type.
 std::string ChatbotAPI::parse_json_string(const std::string& json, const std::string& key) {
-    // Simple JSON string parser (handles basic cases)
-    // Format: {"key":"value"}
-    std::string search_key = "\"" + key + "\"";
-    size_t key_pos = json.find(search_key);
-    if (key_pos == std::string::npos) {
+    try {
+        return string_field(parse_request(json), key);
+    } catch (const BadRequest&) {
         return "";
     }
-
-    size_t colon_pos = json.find(':', key_pos);
-    if (colon_pos == std::string::npos) {
-        return "";
-    }
-
-    size_t value_start = json.find('"', colon_pos);
-    if (value_start == std::string::npos) {
-        return "";
-    }
-    value_start++;  // Skip opening quote
-
-    size_t value_end = value_start;
-    while (value_end < json.length()) {
-        if (json[value_end] == '"' && (value_end == 0 || json[value_end - 1] != '\\')) {
-            break;
-        }
-        value_end++;
-    }
-
-    if (value_end >= json.length()) {
-        return "";
-    }
-
-    std::string value = json.substr(value_start, value_end - value_start);
-
-    // Unescape common escape sequences
-    std::string unescaped;
-    for (size_t i = 0; i < value.length(); ++i) {
-        if (value[i] == '\\' && i + 1 < value.length()) {
-            char next = value[i + 1];
-            if (next == 'n') {
-                unescaped += '\n';
-                i++;
-            } else if (next == 'r') {
-                unescaped += '\r';
-                i++;
-            } else if (next == 't') {
-                unescaped += '\t';
-                i++;
-            } else if (next == '"') {
-                unescaped += '"';
-                i++;
-            } else if (next == '\\') {
-                unescaped += '\\';
-                i++;
-            } else {
-                unescaped += value[i];
-            }
-        } else {
-            unescaped += value[i];
-        }
-    }
-
-    return unescaped;
 }
 
 std::vector<std::string> ChatbotAPI::parse_json_array(const std::string& json,
                                                       const std::string& key) {
-    // Simple JSON array parser for string arrays
-    // Format: {"key":["value1","value2",...]}
-    std::vector<std::string> result;
-
-    std::string search_key = "\"" + key + "\"";
-    size_t key_pos = json.find(search_key);
-    if (key_pos == std::string::npos) {
-        return result;
+    try {
+        return string_array_field(parse_request(json), key);
+    } catch (const BadRequest&) {
+        return {};
     }
-
-    size_t colon_pos = json.find(':', key_pos);
-    if (colon_pos == std::string::npos) {
-        return result;
-    }
-
-    size_t array_start = json.find('[', colon_pos);
-    if (array_start == std::string::npos) {
-        return result;
-    }
-
-    // TODO: See TD-226 in TECHNICAL_DEBT.md - finds the first ']' anywhere, even inside a string, so any
-    // message containing ']' yields zero items; replace with nlohmann/json.
-    size_t array_end = json.find(']', array_start);
-    if (array_end == std::string::npos) {
-        return result;
-    }
-
-    // Parse array elements
-    size_t pos = array_start + 1;
-    while (pos < array_end) {
-        // Skip whitespace
-        while (pos < array_end &&
-               (json[pos] == ' ' || json[pos] == '\n' || json[pos] == '\r' || json[pos] == '\t')) {
-            pos++;
-        }
-
-        if (pos >= array_end || json[pos] == ']') {
-            break;
-        }
-
-        // Skip comma
-        if (json[pos] == ',') {
-            pos++;
-            continue;
-        }
-
-        // Find string value
-        if (json[pos] == '"') {
-            size_t value_start = pos + 1;
-            size_t value_end = value_start;
-
-            while (value_end < array_end) {
-                if (json[value_end] == '"' &&
-                    (value_end == value_start || json[value_end - 1] != '\\')) {
-                    break;
-                }
-                value_end++;
-            }
-
-            if (value_end < array_end) {
-                std::string value = json.substr(value_start, value_end - value_start);
-
-                // Unescape
-                std::string unescaped;
-                for (size_t i = 0; i < value.length(); ++i) {
-                    if (value[i] == '\\' && i + 1 < value.length()) {
-                        char next = value[i + 1];
-                        if (next == 'n') {
-                            unescaped += '\n';
-                            i++;
-                        } else if (next == 'r') {
-                            unescaped += '\r';
-                            i++;
-                        } else if (next == 't') {
-                            unescaped += '\t';
-                            i++;
-                        } else if (next == '"') {
-                            unescaped += '"';
-                            i++;
-                        } else if (next == '\\') {
-                            unescaped += '\\';
-                            i++;
-                        } else {
-                            unescaped += value[i];
-                        }
-                    } else {
-                        unescaped += value[i];
-                    }
-                }
-
-                result.push_back(unescaped);
-                pos = value_end + 1;
-            } else {
-                break;
-            }
-        } else {
-            pos++;
-        }
-    }
-
-    return result;
 }
 
 // TODO: See TD-229 in TECHNICAL_DEBT.md - other control characters (U+0000-U+001F) pass through raw,
