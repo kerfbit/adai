@@ -444,3 +444,9 @@ Handlers throw instead of returning an error body: a missing field or import dat
 a failed batch generation is a `std::runtime_error` (HTTP 500). With TD-232's 404 and TD-235's 413, no error goes out with 200; the
 `{"success":false,"error":...}` body is unchanged. Tests: `MissingFieldsAndBadImportsAreBadRequests`,
 `FailedBatchGenerationIsAServerError`.
+
+## Addendum (October 27, 2026): atomic `running_` (TD-237)
+
+`running_` is `std::atomic<bool>`: `start()` claims it with `exchange(true)` (a second concurrent `start()` returns false) and `stop()`
+releases it with `exchange(false)` before `server.stop()`. Test: `StopFromAnotherThreadEndsStart` (TSan-clean; the old code had 2
+races).

@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.15.0
+// @adai-version: 0.15.1
 // @adai-reviewed: 2026-10-27
 
 
@@ -393,9 +393,8 @@ class ChatbotAPI {
     // Server configuration
     int port_;
     std::chrono::steady_clock::duration session_timeout_;  // guarded by sessions_mutex_
-    // TODO: See TD-237 in TECHNICAL_DEBT.md - written by start() on the server thread and stop() on the main
-    // thread; make it std::atomic<bool>.
-    bool running_{false};
+    // TD-237: written by start() on the server thread and stop() on the main thread.
+    std::atomic<bool> running_{false};
 
     // Session storage (thread-safe)
     std::unordered_map<std::string, std::shared_ptr<Session>> sessions_;  // TD-227

@@ -2031,3 +2031,28 @@ TEST_F(ChatbotAPITest, FailedBatchGenerationIsAServerError) {
         }
     }
 }
+
+// ============================================================================
+// TD-237: start() and stop() on different threads
+// ============================================================================
+
+// chatbot_api_server runs start() on a server thread and stop() from the main thread. running_ was a
+// plain bool, a data race TSan reports; it's atomic now.
+TEST_F(ChatbotAPITest, StopFromAnotherThreadEndsStart) {
+    api = std::make_unique<ChatbotAPI>(model.get(), tokenizer.get(), /*port=*/0, 30);
+    std::atomic<bool> returned{false};
+    std::thread server([&] {
+        api->start();
+        returned = true;
+    });
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!api->is_running() && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    ASSERT_TRUE(api->is_running());
+    EXPECT_FALSE(api->start()) << "a second start() while running must refuse";
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));  // let listen() get going
+    api->stop();
+    server.join();
+    EXPECT_TRUE(returned.load());
+    EXPECT_FALSE(api->is_running());
+}

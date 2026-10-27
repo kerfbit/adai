@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.21.0
+// @adai-version: 0.21.1
 // @adai-reviewed: 2026-10-27
 
 #include "ChatbotAPI.hpp"
@@ -306,13 +306,14 @@ void ChatbotAPI::session_sweeper_loop() {
 }
 
 bool ChatbotAPI::start() {
-    if (running_) {
+    // TD-237: running_ is atomic; start() runs on the server thread while stop() comes from the
+    // main thread's signal handling. exchange() makes "already running" and "now running" one step.
+    if (running_.exchange(true)) {
         std::cerr << "Server is already running" << '\n';
         return false;
     }
 
     std::cout << "Starting chatbot API server on port " << port_ << "..." << '\n';
-    running_ = true;
 
     // TD-231: expired sessions are removed by session_sweeper_loop(), running since construction.
 
@@ -322,10 +323,9 @@ bool ChatbotAPI::start() {
 }
 
 void ChatbotAPI::stop() {
-    if (running_) {
+    if (running_.exchange(false)) {  // TD-237
         std::cout << "Stopping chatbot API server..." << '\n';
         server_impl_->server.stop();
-        running_ = false;
     }
 }
 

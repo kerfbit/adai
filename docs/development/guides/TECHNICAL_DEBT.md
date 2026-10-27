@@ -1321,6 +1321,7 @@ The generation and model math run is complete.
   GPU path apply).
 - TD-235 (done in code: `MAX_BATCH_SIZE` (32) caps batch requests, HTTP 413 above it).
 - TD-236 (done in code: validation errors are 400, a failed batch is 500; Android shows the server's error text).
+- TD-237 (done in code: `running_` is atomic; TSan-clean).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5203,7 +5204,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Inference / Serving / API | October 8, 2026 | 1 hour |
+| LOW | Open — code fix landed October 27, 2026 | Inference / Serving / API | October 8, 2026 | 1 hour |
 
 Description:
 Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). `chatbot_api_server` calls `start()` on a server thread (which sets and clears `running_`) and
@@ -5213,9 +5214,14 @@ reading the code.
 
 Action Items:
 
-- [ ] Make `running_` `std::atomic<bool>`.
+- [x] Make `running_` `std::atomic<bool>`.
 
-Location in code: `src/ChatbotAPI.hpp` (`running_`), `src/ChatbotAPI.cpp` (`start()`, `stop()`); tagged `TODO: See TD-237`.
+**Fix (October 27, 2026).** `running_` is `std::atomic<bool>`. `start()` sets it with `exchange(true)`, so two concurrent calls can't
+both pass the "already running" check, and `stop()` clears it with `exchange(false)` before stopping the server. Test:
+`StopFromAnotherThreadEndsStart` (start on a server thread, stop from the test thread, a second `start()` refused); under TSan the old
+code reported 2 data races on `running_`, the fixed code none. Stopping before `listen()` has bound is still lost (TD-248).
+
+Location in code: `src/ChatbotAPI.hpp` (`running_`), `src/ChatbotAPI.cpp` (`start()`, `stop()`); tagged `TD-237`.
 
 Files to Modify:
 
