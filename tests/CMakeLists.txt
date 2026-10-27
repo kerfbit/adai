@@ -998,6 +998,11 @@ if(OPENSSL_FOUND)
 endif()
 add_test(NAME FtpDataServerTests COMMAND ftpDataServerTests)
 
+# TD-233: OS CSPRNG helper.
+add_executable(securerandomTests securerandom_test.cpp)
+target_link_libraries(securerandomTests adai_core GTest::gtest_main)
+add_test(NAME SecureRandomTests COMMAND securerandomTests)
+
 # TD-028 Phase 10 (FTP transport): DataTransport unit tests
 # Compiled WITHOUT BUILD_FTP_TRANSPORT to exercise the stub implementations.
 # Also validates FileToken and AcquireResponse struct defaults.

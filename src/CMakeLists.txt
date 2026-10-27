@@ -98,8 +98,13 @@ add_library(adai_core STATIC
     # this codebase's own stack, so it's the natural place for a component whose only real
     # dependency is Matrix but that needs to be reachable from multiple higher tiers.
     HippocampalMemory.cpp
+    # TD-233: OS CSPRNG for credentials (session ids, FTP passwords).
+    SecureRandom.cpp
 )
 target_link_libraries(adai_core PUBLIC spdlog::spdlog)
+if(WIN32)
+    target_link_libraries(adai_core PUBLIC bcrypt)  # TD-233: BCryptGenRandom
+endif()
 # nlohmann/json (vendored, header-only) for TrainerAdminConfig.cpp.
 target_include_directories(adai_core PRIVATE ${CMAKE_SOURCE_DIR}/external)
 

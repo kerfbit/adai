@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.18.0
+// @adai-version: 0.18.1
 // @adai-reviewed: 2026-10-27
 
 #include "ChatbotAPI.hpp"
@@ -8,11 +8,10 @@
 #include "HttpListenSocket.hpp"
 #include <httplib.h>
 #include <algorithm>
-#include <iomanip>
 #include <iostream>
-#include <random>
 #include <sstream>
 #include "Logger.hpp"
+#include "SecureRandom.hpp"
 #include "SpecialTokens.hpp"
 
 namespace {
@@ -577,19 +576,11 @@ std::string ChatbotAPI::handle_batch_chat_session(const std::string& request_bod
 // Session Management
 // ============================================================================
 
-// TODO: See TD-233 in TECHNICAL_DEBT.md - mt19937 is not a CSPRNG, yet a session ID is the only credential
-// for POST /chat/session/export.
+// TD-233: 128 bits from the OS CSPRNG, as 32 hex digits. A session id is the only credential for a
+// conversation (POST /chat/session/export returns its history); it used to come from a static
+// std::mt19937, whose output can be predicted from enough observed ids.
 std::string ChatbotAPI::create_session_id() {
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-    static std::uniform_int_distribution<> dis(0, 15);
-
-    std::ostringstream oss;
-    oss << std::hex << std::setfill('0');
-    for (int i = 0; i < 32; ++i) {
-        oss << std::setw(1) << dis(gen);
-    }
-    return oss.str();
+    return adai::secure_random_hex(16);
 }
 
 std::shared_ptr<Session> ChatbotAPI::get_or_create_session(std::string& session_id) {

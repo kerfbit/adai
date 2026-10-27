@@ -418,3 +418,9 @@ checks every named id before creating any session). `set_max_sessions()` (config
 sessions; creating one more evicts the least recently used. A request still using an evicted session finishes; its next turn gets
 404. Tests: `UnknownSessionIdIsNotFoundAndCreatesNothing`, `IssuedSessionIdContinuesTheConversation`,
 `SessionCapEvictsTheLeastRecentlyUsed`, `GenerateBatchSessionResponses_UnknownIdIsNotFound`.
+
+## Addendum (October 27, 2026): session ids from the OS CSPRNG (TD-233)
+
+`create_session_id()` returns `adai::secure_random_hex(16)` (`src/SecureRandom.{hpp,cpp}`): 32 hex digits, 128 bits from
+`getrandom()`/`arc4random_buf()`/`BCryptGenRandom()`. It used to draw from a static `std::mt19937`, whose output can be predicted from
+enough observed ids, while an id is the only credential for `/chat/session/export`.

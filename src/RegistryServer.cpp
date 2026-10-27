@@ -1,10 +1,10 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.20.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.20.1
+// @adai-reviewed: 2026-10-27
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
-// fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) is hardened to
-// RAND_bytes(), handle_pending_add() below logs a defense-in-depth warning for an out-of-tree
+// fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) draws from a CSPRNG
+// (the OS's since TD-233), handle_pending_add() below logs a defense-in-depth warning for an out-of-tree
 // path, and tests/registry_ftp_confinement_test.cpp is a permanent regression test for the fix.
 // See TECHNICAL_DEBT_RESOLVED.md for the full writeup.
 

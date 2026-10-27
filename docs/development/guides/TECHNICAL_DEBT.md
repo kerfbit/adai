@@ -1316,6 +1316,7 @@ The generation and model math run is complete.
 - TD-231 (done in code: a background thread removes expired sessions every minute; `/health` is no longer needed for expiry).
 - TD-232 (done in code, owner's choices: session ids are server-issued, so an unknown id is HTTP 404, and `MAX_SESSIONS` (10,000)
   evicts the least recently used; the CLI and Android client start a new session on 404).
+- TD-233 (done in code: session ids, and FTP session credentials, come from the OS CSPRNG via `src/SecureRandom.{hpp,cpp}`).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5057,7 +5058,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / Serving / API | October 8, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 27, 2026 | Inference / Serving / API | October 8, 2026 | 1-2 hours |
 
 Description:
 Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). `create_session_id()` draws 32 hex digits from a `static std::mt19937` seeded once from
@@ -5067,14 +5068,27 @@ anyone who presents it. Found by reading the code.
 
 Action Items:
 
-- [ ] Generate IDs from a CSPRNG (e.g. `getrandom()` or `/dev/urandom`).
+- [x] Generate IDs from a CSPRNG (e.g. `getrandom()` or `/dev/urandom`).
 - [ ] Consider requiring an auth token for export/import if the server is reachable beyond localhost.
 
-Location in code: `src/ChatbotAPI.cpp` (`create_session_id()`); tagged `TODO: See TD-233`.
+**Fix (October 27, 2026).** New `src/SecureRandom.{hpp,cpp}` (`adai::secure_random_bytes()`, `secure_random_hex()`) reads the
+OS CSPRNG directly: `getrandom()` on Linux, `arc4random_buf()` on macOS/BSD, `BCryptGenRandom()` on Windows (`adai_core` links
+`bcrypt` there; cross-compiled with MinGW and run under Wine). It throws rather than fall back to a weaker generator.
+`create_session_id()` returns `secure_random_hex(16)`: the same 32 hex digits, now 128 bits from the OS. The same weakness existed in
+`FtpDataServer`'s `ftp_detail::random_hex()`, which makes the per-session FTP user and, by default, the password: it used `RAND_bytes()`
+only in FTPS builds and otherwise (or on failure) a `std::mt19937`; it now calls `secure_random_hex()` in every build. Tests:
+`SecureRandomTests` (length and digits, 10,000 draws without a repeat, byte-frequency chi-square on 1 MiB). Predictability itself
+isn't something a unit test can show; the fix is that no `mt19937` remains on either path.
+
+The second item stays open: export/import still need only the session id. Deployments reachable beyond localhost go through
+Cloudflare Access, so an API token is an owner decision for direct exposure.
+
+Location in code: `src/ChatbotAPI.cpp` (`create_session_id()`); tagged `TD-233`.
 
 Files to Modify:
 
 - `src/ChatbotAPI.cpp`
+- `src/SecureRandom.{hpp,cpp}` (new), `src/FtpDataServer.hpp`
 
 ---
 

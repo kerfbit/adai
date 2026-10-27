@@ -213,3 +213,9 @@ With `PROT P`, `cmd_retr()` checks that the data connection resumed a TLS sessio
 Anything else gets `522 Data connections must reuse the control connection's TLS session.` and no data. libcurl resumes the control
 session by default, so trainers are unaffected (verified under TLS 1.2 and 1.3). Tests: `FtpsSessionReuseTest.*` (TLS 1.2 and 1.3).
 
+
+## Addendum (October 27, 2026): FTP credentials from the OS CSPRNG (TD-233)
+
+`ftp_detail::random_hex()`, which makes each session's FTP user suffix and (with no `--ftp-secret`) its password, calls
+`adai::secure_random_hex()` in every build. It used `RAND_bytes()` only with `BUILD_FTPS`, and a `std::mt19937` otherwise or when
+`RAND_bytes()` failed.

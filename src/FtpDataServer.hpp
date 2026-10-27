@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-040 fully resolved — see below)
-// @adai-version: 0.12.0
-// @adai-reviewed: 2026-10-24
+// @adai-version: 0.12.1
+// @adai-reviewed: 2026-10-27
 
 /**
  * FtpDataServer — embedded read-only FTP server for dataset delivery.
@@ -35,7 +35,7 @@
  * outside data_dir over a live FTP session. Fixed in handle_acquire() itself
  * (an entry that doesn't resolve under data_dir is now never claimed for FTP
  * delivery in the first place — this class needed no change). TD-040 is now fully resolved:
- * random_hex() below is hardened to RAND_bytes(), RegistryServer.cpp's handle_pending_add() logs
+ * random_hex() below draws from a CSPRNG (the OS's since TD-233), RegistryServer.cpp's handle_pending_add() logs
  * a defense-in-depth warning for an out-of-tree path, and tests/registry_ftp_confinement_test.cpp
  * is a permanent regression test for the fix — see TECHNICAL_DEBT_RESOLVED.md for the full
  * writeup.
@@ -71,6 +71,7 @@
 #include "Logger.hpp"
 #include "PortableSocket.hpp"  // TD-161: socket_t, close_socket(), WinsockGuard, etc.
 #include "PortableTime.hpp"
+#include "SecureRandom.hpp"  // TD-233
 
 // Phase 3: OpenSSL for FTPS (TLS) and HMAC-SHA256 token signing
 #ifdef BUILD_FTPS
@@ -189,38 +190,12 @@ namespace ftp_detail {
 
 // TD-040 hardening: used for the FTP username's random suffix always, and for
 // the *password* whenever --ftp-secret is left unconfigured (the default —
-// see RegistryServer.cpp, ftp_server_secret starts empty). BUILD_FTPS already
-// links OpenSSL for HMAC/TLS, so RAND_bytes() (a real CSPRNG, seeded from the
-// OS entropy source) is available at no new dependency cost and is strictly
-// stronger than std::mt19937 for anything used as a credential. The mt19937
-// path remains as the only option when BUILD_FTPS is off (no OpenSSL linked
-// in that configuration) and as a defensive fallback for the practically
-// unreachable case where RAND_bytes() itself reports failure.
+// see RegistryServer.cpp, ftp_server_secret starts empty). TD-233: drawn from
+// the OS CSPRNG in every build. It used RAND_bytes() only with BUILD_FTPS and
+// otherwise (or if RAND_bytes() failed) a std::mt19937, which is predictable
+// for something used as a credential.
 inline std::string random_hex(std::size_t bytes) {
-    static const char hex[] = "0123456789abcdef";
-    std::string out;
-    out.reserve(bytes * 2);
-#ifdef BUILD_FTPS
-    std::vector<unsigned char> buf(bytes);
-    if (RAND_bytes(buf.data(), static_cast<int>(bytes)) == 1) {
-        for (std::size_t i = 0; i < bytes; ++i) {
-            out += hex[buf[i] >> 4];
-            out += hex[buf[i] & 0xf];
-        }
-        return out;
-    }
-    // RAND_bytes() failed (extremely rare — an unseeded/exhausted entropy
-    // source) — fall through to the PRNG fallback below rather than return
-    // an empty/short token.
-#endif
-    static thread_local std::mt19937 gen(std::random_device{}());
-    std::uniform_int_distribution<unsigned> dis(0, 255);
-    for (std::size_t i = 0; i < bytes; ++i) {
-        unsigned v = dis(gen);
-        out += hex[v >> 4];
-        out += hex[v & 0xf];
-    }
-    return out;
+    return adai::secure_random_hex(bytes);
 }
 
 // Format a time_point as ISO-8601 UTC string: "2026-06-20T14:30:00Z"
