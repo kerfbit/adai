@@ -98,3 +98,9 @@ This server installs `install_browser_write_guard()` ([BrowserWriteGuard.md](Bro
 (POST/PUT/PATCH/DELETE) carrying any `Origin` gets 403, and a write with a `text/plain`, form-encoded or multipart body gets 415. A web
 page open in an operator's browser can no longer make it execute writes. Clients that aren't browsers send no `Origin` and are unaffected
 as long as they send JSON (or, for `registry_server`'s `upload`, `application/octet-stream`).
+
+## Addendum (October 26, 2026): test harness no longer aborts under load (TD-556)
+
+`tests/trainer_admin_api_test.cpp` runs each server through an RAII thread holder (stop and join on destruction) on kernel-assigned ports, with a 10 s readiness
+wait that stops when `start()` fails. Its fixed ports in the ephemeral range used to be taken under a parallel `ctest`, and the failed
+`ASSERT` then left a joinable `std::thread` that aborted the whole binary.

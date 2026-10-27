@@ -14,10 +14,17 @@
 #include "TrainerServiceProxy.hpp"
 #include <httplib.h>
 #include <gtest/gtest.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <memory>
 #include <thread>
+#include <tuple>
+#include <utility>
 #include "TrainerAdminAPI.hpp"
 #include "TrainerControlState.hpp"
 #include "TrainerServiceControlState.hpp"
@@ -30,28 +37,84 @@ using adai::TrainerServiceProxy;
 
 namespace {
 
-// Distinct base/span from trainer_admin_api_test.cpp's own kBasePort=43700 (span 100) so the two
-// suites' ports never collide when ctest runs them in parallel.
-constexpr int kBasePort = 43900;
-constexpr int kPortSpan = 200;
-
-int pick_port(int seed) {
-    return kBasePort + (seed % kPortSpan);
+// Two distinct ports the kernel says are free. They used to come from a fixed range (43900 + pid
+// % 200) inside Linux's ephemeral range (32768-60999), where other tests' outgoing connections can
+// hold them; with exclusive listening ports (TD-551) the bind then fails and the server never
+// comes up.
+std::pair<int, int> free_port_pair() {
+    int fds[2];
+    int ports[2];
+    for (int i = 0; i < 2; ++i) {
+        fds[i] = ::socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = 0;
+        ::bind(fds[i], reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+        socklen_t len = sizeof(addr);
+        ::getsockname(fds[i], reinterpret_cast<sockaddr*>(&addr), &len);
+        ports[i] = ntohs(addr.sin_port);
+    }
+    ::close(fds[0]);
+    ::close(fds[1]);
+    return {ports[0], ports[1]};
 }
 
-/// Polls GET /health on `port` until it responds or 3s elapse — mirrors
-/// trainer_admin_api_test.cpp's start_admin_api() helper, generalized to any already-started
-/// server (both TrainerServiceProxy and TrainerAdminAPI expose the same start()-blocks/GET
-/// /health shape).
-bool wait_until_reachable(int port) {
+/// Runs a server's blocking start() on its own thread. A failed ASSERT used to return with a raw
+/// std::thread still joinable, and its destructor calls std::terminate, so the whole binary aborted
+/// ("Subprocess aborted", about 7% of runs under a parallel ctest) instead of one test failing. This
+/// stops and joins the server on destruction.
+template <typename Server>
+class ServerThread {
+   public:
+    explicit ServerThread(Server& server)
+        : server_(server), thread_([this] {
+              ok_ = server_.start();
+              finished_ = true;
+          }) {}
+    ~ServerThread() {
+        if (thread_.joinable()) {
+            server_.stop();
+            thread_.join();
+        }
+    }
+    ServerThread(const ServerThread&) = delete;
+    ServerThread& operator=(const ServerThread&) = delete;
+
+    void join() {
+        if (thread_.joinable()) {
+            thread_.join();
+        }
+    }
+    /// start() returned without serving (it returns false when the port can't be bound).
+    bool start_failed() const {
+        return finished_ && !ok_;
+    }
+
+   private:
+    Server& server_;
+    std::atomic<bool> ok_{false};
+    std::atomic<bool> finished_{false};
+    std::thread thread_;  // declared last: started once the flags exist
+};
+
+/// Polls GET /health on `port` until it responds, the server's start() fails, or 10s elapse
+/// (3s used to be too short under a loaded parallel ctest). Both TrainerServiceProxy and
+/// TrainerAdminAPI expose the same start()-blocks/GET /health shape.
+template <typename Server>
+bool wait_until_reachable(int port, const ServerThread<Server>& server_thread) {
     httplib::Client probe("127.0.0.1", port);
     probe.set_connection_timeout(std::chrono::milliseconds(200));
     probe.set_read_timeout(std::chrono::milliseconds(200));
 
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while (std::chrono::steady_clock::now() < deadline) {
         if (auto res = probe.Get("/health"); res && res->status == 200) {
             return true;
+        }
+        if (server_thread.start_failed()) {
+            ADD_FAILURE() << "the server on port " << port << " failed to start";
+            return false;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
@@ -75,9 +138,7 @@ class TrainerServiceProxyTest : public ::testing::Test {
                    ("trainer_service_proxy_test_" + std::to_string(::getpid()) + "_" +
                     std::to_string(reinterpret_cast<uintptr_t>(this)));
         fs::create_directories(test_dir);
-        const int seed = static_cast<int>(::getpid()) + static_cast<int>(reinterpret_cast<uintptr_t>(this));
-        proxy_port = pick_port(seed);
-        child_port = pick_port(seed + 1);
+        std::tie(proxy_port, child_port) = free_port_pair();
         control = std::make_shared<TrainerServiceControlState>();
     }
 
@@ -98,8 +159,8 @@ class TrainerServiceProxyTest : public ::testing::Test {
 
 TEST_F(TrainerServiceProxyTest, HealthNeverProxiedEvenWhenIdle) {
     auto proxy = make_proxy();
-    std::thread thr([&proxy] { proxy->start(); });
-    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    ServerThread thr(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
 
     httplib::Client client("127.0.0.1", proxy_port);
     auto res = client.Get("/health");
@@ -113,8 +174,8 @@ TEST_F(TrainerServiceProxyTest, HealthNeverProxiedEvenWhenIdle) {
 
 TEST_F(TrainerServiceProxyTest, StatusReportsIdleShapeWithNoChild) {
     auto proxy = make_proxy();
-    std::thread thr([&proxy] { proxy->start(); });
-    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    ServerThread thr(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
 
     httplib::Client client("127.0.0.1", proxy_port);
     auto res = client.Get("/admin/status");
@@ -129,8 +190,8 @@ TEST_F(TrainerServiceProxyTest, StatusReportsIdleShapeWithNoChild) {
 
 TEST_F(TrainerServiceProxyTest, LogsAreEmptyWithNoChild) {
     auto proxy = make_proxy();
-    std::thread thr([&proxy] { proxy->start(); });
-    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    ServerThread thr(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
 
     httplib::Client client("127.0.0.1", proxy_port);
     auto res = client.Get("/admin/logs");
@@ -144,8 +205,8 @@ TEST_F(TrainerServiceProxyTest, LogsAreEmptyWithNoChild) {
 
 TEST_F(TrainerServiceProxyTest, CheckpointRejectedWithNoChild) {
     auto proxy = make_proxy();
-    std::thread thr([&proxy] { proxy->start(); });
-    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    ServerThread thr(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
 
     httplib::Client client("127.0.0.1", proxy_port);
     auto res = client.Post("/admin/checkpoint", "", "application/json");
@@ -158,8 +219,8 @@ TEST_F(TrainerServiceProxyTest, CheckpointRejectedWithNoChild) {
 
 TEST_F(TrainerServiceProxyTest, GetConfigReturnsDefaultsWithNoChild) {
     auto proxy = make_proxy();
-    std::thread thr([&proxy] { proxy->start(); });
-    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    ServerThread thr(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
 
     httplib::Client client("127.0.0.1", proxy_port);
     auto res = client.Get("/admin/config");
@@ -181,8 +242,8 @@ TEST_F(TrainerServiceProxyTest, GetConfigReturnsDefaultsWithNoChild) {
 // process), but the write/read round-trip through the same file is.
 TEST_F(TrainerServiceProxyTest, PutConfigWhileIdlePersistsAndGetReflectsIt) {
     auto proxy = make_proxy();
-    std::thread thr([&proxy] { proxy->start(); });
-    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    ServerThread thr(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
 
     httplib::Client client("127.0.0.1", proxy_port);
     auto put_res = client.Put("/admin/config", "{\"auto_save_every_samples\":250}", "application/json");
@@ -202,8 +263,8 @@ TEST_F(TrainerServiceProxyTest, PutConfigWhileIdlePersistsAndGetReflectsIt) {
 // rejected body writes nothing to daemon_config.db.
 TEST_F(TrainerServiceProxyTest, PutConfigWhileIdleParsesSpacedJsonAndRejectsAtomically) {
     auto proxy = make_proxy();
-    std::thread thr([&proxy] { proxy->start(); });
-    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    ServerThread thr(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
 
     httplib::Client client("127.0.0.1", proxy_port);
     auto res = client.Put("/admin/config", "{\"auto_save_enabled\":false}", "application/json");
@@ -231,8 +292,8 @@ TEST_F(TrainerServiceProxyTest, PutConfigWhileIdleParsesSpacedJsonAndRejectsAtom
 
 TEST_F(TrainerServiceProxyTest, PutConfigRejectsImmutableKeyWhileIdle) {
     auto proxy = make_proxy();
-    std::thread thr([&proxy] { proxy->start(); });
-    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    ServerThread thr(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
 
     httplib::Client client("127.0.0.1", proxy_port);
     auto res = client.Put("/admin/config", "{\"port\":9999}", "application/json");
@@ -255,12 +316,12 @@ TEST_F(TrainerServiceProxyTest, StatusProxiesToLiveChildVerbatim) {
 
     auto child_api = std::make_unique<TrainerAdminAPI>(control, "127.0.0.1", child_port,
                                                         (test_dir / "child").string());
-    std::thread child_thread([&child_api] { child_api->start(); });
-    ASSERT_TRUE(wait_until_reachable(child_port));
+    ServerThread child_thread(*child_api);
+    ASSERT_TRUE(wait_until_reachable(child_port, child_thread));
 
     auto proxy = make_proxy();
-    std::thread proxy_thread([&proxy] { proxy->start(); });
-    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    ServerThread proxy_thread(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, proxy_thread));
 
     proxy->set_child_port(child_port);
 
@@ -284,12 +345,12 @@ TEST_F(TrainerServiceProxyTest, PutConfigProxiesToLiveChild) {
     auto control = std::make_shared<TrainerControlState>();
     auto child_api = std::make_unique<TrainerAdminAPI>(control, "127.0.0.1", child_port,
                                                         (test_dir / "child").string());
-    std::thread child_thread([&child_api] { child_api->start(); });
-    ASSERT_TRUE(wait_until_reachable(child_port));
+    ServerThread child_thread(*child_api);
+    ASSERT_TRUE(wait_until_reachable(child_port, child_thread));
 
     auto proxy = make_proxy();
-    std::thread proxy_thread([&proxy] { proxy->start(); });
-    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    ServerThread proxy_thread(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, proxy_thread));
 
     proxy->set_child_port(child_port);
 
@@ -309,12 +370,13 @@ TEST_F(TrainerServiceProxyTest, PutConfigProxiesToLiveChild) {
 
 TEST_F(TrainerServiceProxyTest, RequestToUnreachableChildPortReturns503) {
     auto proxy = make_proxy();
-    std::thread thr([&proxy] { proxy->start(); });
-    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    ServerThread thr(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
 
-    // A port nothing is listening on — simulates the window between the supervisor launching a
-    // child and that child's own admin API actually binding.
-    proxy->set_child_port(pick_port(999999));
+    // A port nothing is listening on (the fixture's free child_port, unused in this test) —
+    // simulates the window between the supervisor launching a child and that child's own admin
+    // API actually binding.
+    proxy->set_child_port(child_port);
 
     httplib::Client client("127.0.0.1", proxy_port);
     auto res = client.Get("/admin/status");
@@ -335,12 +397,12 @@ TEST_F(TrainerServiceProxyTest, SetChildPortBackToZeroReturnsToIdleFallback) {
     control->current_epoch = 9;
     auto child_api = std::make_unique<TrainerAdminAPI>(control, "127.0.0.1", child_port,
                                                         (test_dir / "child").string());
-    std::thread child_thread([&child_api] { child_api->start(); });
-    ASSERT_TRUE(wait_until_reachable(child_port));
+    ServerThread child_thread(*child_api);
+    ASSERT_TRUE(wait_until_reachable(child_port, child_thread));
 
     auto proxy = make_proxy();
-    std::thread proxy_thread([&proxy] { proxy->start(); });
-    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    ServerThread proxy_thread(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, proxy_thread));
 
     proxy->set_child_port(child_port);
     httplib::Client client("127.0.0.1", proxy_port);
@@ -372,8 +434,8 @@ TEST_F(TrainerServiceProxyTest, SetChildPortBackToZeroReturnsToIdleFallback) {
 
 TEST_F(TrainerServiceProxyTest, PauseWhileIdlePersistsOnTheControlState) {
     auto proxy = make_proxy();
-    std::thread thr([&proxy] { proxy->start(); });
-    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    ServerThread thr(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
 
     ASSERT_FALSE(control->paused.load());
 
@@ -397,8 +459,8 @@ TEST_F(TrainerServiceProxyTest, PauseWakesASupervisorMidWayThroughItsIdlePollSle
     // supervisor is already mid-way through its 45s "nothing pending" idle sleep must take effect
     // immediately, not only once that sleep times out on its own up to 45s later.
     auto proxy = make_proxy();
-    std::thread thr([&proxy] { proxy->start(); });
-    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    ServerThread thr(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
 
     httplib::Client client("127.0.0.1", proxy_port);
     const auto start = std::chrono::steady_clock::now();
@@ -417,8 +479,8 @@ TEST_F(TrainerServiceProxyTest, PauseWakesASupervisorMidWayThroughItsIdlePollSle
 
 TEST_F(TrainerServiceProxyTest, ResumeClearsPauseAndWakesTheSupervisorsSleep) {
     auto proxy = make_proxy();
-    std::thread thr([&proxy] { proxy->start(); });
-    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    ServerThread thr(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
 
     control->paused = true;
 
@@ -446,8 +508,8 @@ TEST_F(TrainerServiceProxyTest, ResumeClearsPauseAndWakesTheSupervisorsSleep) {
 
 TEST_F(TrainerServiceProxyTest, IdleStatusReflectsRealPausedState) {
     auto proxy = make_proxy();
-    std::thread thr([&proxy] { proxy->start(); });
-    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    ServerThread thr(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
 
     httplib::Client client("127.0.0.1", proxy_port);
     {
@@ -472,12 +534,12 @@ TEST_F(TrainerServiceProxyTest, PauseAlsoProxiesToALiveChildForPromptDraining) {
     auto child_control = std::make_shared<TrainerControlState>();
     auto child_api = std::make_unique<TrainerAdminAPI>(child_control, "127.0.0.1", child_port,
                                                         (test_dir / "child").string());
-    std::thread child_thread([&child_api] { child_api->start(); });
-    ASSERT_TRUE(wait_until_reachable(child_port));
+    ServerThread child_thread(*child_api);
+    ASSERT_TRUE(wait_until_reachable(child_port, child_thread));
 
     auto proxy = make_proxy();
-    std::thread proxy_thread([&proxy] { proxy->start(); });
-    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    ServerThread proxy_thread(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, proxy_thread));
     proxy->set_child_port(child_port);
 
     httplib::Client client("127.0.0.1", proxy_port);
@@ -509,8 +571,8 @@ TEST_F(TrainerServiceProxyTest, StatusIncludesSupervisorObservabilityFields) {
         60;  // "started" a minute ago
 
     auto proxy = make_proxy();
-    std::thread thr([&proxy] { proxy->start(); });
-    ASSERT_TRUE(wait_until_reachable(proxy_port));
+    ServerThread thr(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
 
     httplib::Client client("127.0.0.1", proxy_port);
     auto res = client.Get("/admin/status");

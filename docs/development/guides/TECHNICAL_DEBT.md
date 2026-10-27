@@ -16677,6 +16677,44 @@ Tests:
 
 ---
 
+### TD-556: Admin-API Test Binaries Abort Under a Parallel `ctest`
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open — code fix landed October 26, 2026 | Tests / Trainer admin API | October 26, 2026 | 1-2 hours |
+
+Description:
+Found October 26, 2026. `TrainerServiceProxyTests` once ended with "Subprocess aborted" in a full `ctest -j8` run, and
+`TrainerAdminAPITests` did earlier the same day; both passed when run alone. Reproduced by looping `trainerServiceProxyTests` while the
+rest of the suite ran with `-j12`: **46 of 673 runs aborted** (about 7%), each with a failed
+`ASSERT_TRUE(wait_until_reachable(...))` followed by "terminate called without an active exception". There were two causes:
+- **The abort.** Each test ran the server's blocking `start()` on a raw `std::thread`. A failed `ASSERT` returns from the test with the
+  thread still joinable, and `std::thread`'s destructor then calls `std::terminate()`, which kills the whole binary instead of failing
+  one test.
+- **The trigger.** Ports came from fixed ranges, 43900 + pid % 200 and 43700 + pid % 100. Both sit inside Linux's ephemeral range
+  (32768–60999), where the outgoing connections of other parallel tests can hold them. Since exclusive listening ports (TD-551) a bind
+  on a taken port fails, so `start()` returns false and the server never comes up. `start()` doesn't log the failure, and the tests
+  ignored its result. The readiness wait was also 3 s, short under load.
+
+Action Items:
+
+- [x] Run the servers through an RAII holder that stops and joins on destruction, so a failed assertion fails the test.
+- [x] Use kernel-assigned free ports, fail the readiness wait as soon as `start()` returns false, and allow 10 s.
+- [ ] `registry_ftp_confinement_test.cpp` still picks fixed HTTP/FTP ports from 44100 upwards, inside the ephemeral range. It runs
+  `registry_server` as a subprocess, so a taken port fails a test rather than aborting.
+
+**Fix (October 26, 2026).**
+- **`trainer_service_proxy_test.cpp`.** `ServerThread<Server>` replaces the 22 raw server threads, `free_port_pair()` provides the
+  ports, and `wait_until_reachable(port, thread)` stops waiting when `start()` has failed. The "unreachable child" test uses the free
+  `child_port` instead of another fixed port.
+- **`trainer_admin_api_test.cpp`.** `AdminThread` and `free_port()` do the same, for 17 server threads.
+
+Looping both binaries under the same full-suite load ran 632 times with no failures, and the remaining suite passed 137/137 alongside.
+
+Location in code: `tests/trainer_service_proxy_test.cpp`, `tests/trainer_admin_api_test.cpp`.
+
+---
+
 ## Resolved Items
 
 196 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.

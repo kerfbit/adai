@@ -16,6 +16,11 @@
 #include "TrainerAdminAPI.hpp"
 #include <httplib.h>
 #include <gtest/gtest.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <thread>
@@ -28,28 +33,80 @@ using adai::TrainerPhase;
 
 namespace {
 
-constexpr int kBasePort = 43700;
-constexpr int kPortSpan = 100;
-
-int pick_port(int seed) {
-    return kBasePort + (seed % kPortSpan);
+// A port the kernel says is free. It used to come from a fixed range (43700 + pid % 100) inside
+// Linux's ephemeral range (32768-60999), where other tests' outgoing connections can hold it; with
+// exclusive listening ports (TD-551) the bind then fails and the API never comes up.
+int free_port() {
+    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    ::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+    socklen_t len = sizeof(addr);
+    ::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len);
+    ::close(fd);
+    return ntohs(addr.sin_port);
 }
 
-/// Starts `api` on a background thread and polls GET /health until it
-/// responds or 3s elapse. Mirrors incremental_trainer_registry_test.cpp's
-/// start_mock_server() helper for the same class of "spin up a real server,
-/// wait for it to be reachable" need.
-bool start_admin_api(TrainerAdminAPI& api, int port, std::thread& thread) {
-    thread = std::thread([&api] { api.start(); });
+/// The admin API's server thread. A failed ASSERT used to return with a raw std::thread still
+/// joinable, and its destructor calls std::terminate, so the whole binary aborted ("Subprocess
+/// aborted" under a parallel ctest) instead of one test failing. This stops and joins the API on
+/// destruction.
+class AdminThread {
+   public:
+    AdminThread() = default;
+    ~AdminThread() {
+        if (thread_.joinable()) {
+            api_->stop();
+            thread_.join();
+        }
+    }
+    AdminThread(const AdminThread&) = delete;
+    AdminThread& operator=(const AdminThread&) = delete;
+
+    void start(TrainerAdminAPI& api) {
+        api_ = &api;
+        thread_ = std::thread([this] {
+            ok_ = api_->start();
+            finished_ = true;
+        });
+    }
+    void join() {
+        if (thread_.joinable()) {
+            thread_.join();
+        }
+    }
+    /// start() returned without serving (it returns false when the port can't be bound).
+    bool start_failed() const {
+        return finished_ && !ok_;
+    }
+
+   private:
+    TrainerAdminAPI* api_ = nullptr;
+    std::atomic<bool> ok_{false};
+    std::atomic<bool> finished_{false};
+    std::thread thread_;
+};
+
+/// Starts `api` on `thread` and polls GET /health until it responds, start() fails, or 10s elapse
+/// (3s used to be too short under a loaded parallel ctest). Mirrors
+/// incremental_trainer_registry_test.cpp's start_mock_server() helper.
+bool start_admin_api(TrainerAdminAPI& api, int port, AdminThread& thread) {
+    thread.start(api);
 
     httplib::Client probe("127.0.0.1", port);
     probe.set_connection_timeout(std::chrono::milliseconds(200));
     probe.set_read_timeout(std::chrono::milliseconds(200));
 
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while (std::chrono::steady_clock::now() < deadline) {
         if (auto res = probe.Get("/health"); res && res->status == 200) {
             return true;
+        }
+        if (thread.start_failed()) {
+            ADD_FAILURE() << "the admin API on port " << port << " failed to start";
+            return false;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
@@ -70,7 +127,7 @@ class TrainerAdminAPITest : public ::testing::Test {
                     std::to_string(reinterpret_cast<uintptr_t>(this)));
         fs::create_directories(test_dir);
         control = std::make_shared<TrainerControlState>();
-        port = pick_port(static_cast<int>(::getpid()) + static_cast<int>(reinterpret_cast<uintptr_t>(this)));
+        port = free_port();
     }
 
     void TearDown() override {
@@ -85,7 +142,7 @@ class TrainerAdminAPITest : public ::testing::Test {
 
 TEST_F(TrainerAdminAPITest, HealthReturnsOk) {
     auto api = make_api();
-    std::thread thr;
+    AdminThread thr;
     ASSERT_TRUE(start_admin_api(*api, port, thr));
 
     httplib::Client client("127.0.0.1", port);
@@ -100,7 +157,7 @@ TEST_F(TrainerAdminAPITest, HealthReturnsOk) {
 
 TEST_F(TrainerAdminAPITest, GetConfigReturnsDefaults) {
     auto api = make_api();
-    std::thread thr;
+    AdminThread thr;
     ASSERT_TRUE(start_admin_api(*api, port, thr));
 
     httplib::Client client("127.0.0.1", port);
@@ -118,7 +175,7 @@ TEST_F(TrainerAdminAPITest, GetConfigReturnsDefaults) {
 
 TEST_F(TrainerAdminAPITest, PutConfigUpdatesTunablesAndGetReflectsThem) {
     auto api = make_api();
-    std::thread thr;
+    AdminThread thr;
     ASSERT_TRUE(start_admin_api(*api, port, thr));
 
     httplib::Client client("127.0.0.1", port);
@@ -146,7 +203,7 @@ TEST_F(TrainerAdminAPITest, PutConfigUpdatesTunablesAndGetReflectsThem) {
 
 TEST_F(TrainerAdminAPITest, PutConfigRejectsImmutableKeys) {
     auto api = make_api();
-    std::thread thr;
+    AdminThread thr;
     ASSERT_TRUE(start_admin_api(*api, port, thr));
 
     httplib::Client client("127.0.0.1", port);
@@ -163,7 +220,7 @@ TEST_F(TrainerAdminAPITest, PutConfigRejectsImmutableKeys) {
 
 TEST_F(TrainerAdminAPITest, PutConfigRejectsInvalidValues) {
     auto api = make_api();
-    std::thread thr;
+    AdminThread thr;
     ASSERT_TRUE(start_admin_api(*api, port, thr));
 
     httplib::Client client("127.0.0.1", port);
@@ -197,7 +254,7 @@ TEST_F(TrainerAdminAPITest, PutConfigRejectsInvalidValues) {
 TEST_F(TrainerAdminAPITest, PutConfigAcceptsSpacedAndPrettyPrintedJson) {
     control->auto_save_enabled = false;
     auto api = make_api();
-    std::thread thr;
+    AdminThread thr;
     ASSERT_TRUE(start_admin_api(*api, port, thr));
 
     httplib::Client client("127.0.0.1", port);
@@ -223,7 +280,7 @@ TEST_F(TrainerAdminAPITest, PutConfigAcceptsSpacedAndPrettyPrintedJson) {
 // changes nothing, even keys before the bad one.
 TEST_F(TrainerAdminAPITest, PutConfigRejectedBodyChangesNothing) {
     auto api = make_api();
-    std::thread thr;
+    AdminThread thr;
     ASSERT_TRUE(start_admin_api(*api, port, thr));
     const int samples_before = control->auto_save_every_samples.load();
 
@@ -248,7 +305,7 @@ TEST_F(TrainerAdminAPITest, PutConfigRejectedBodyChangesNothing) {
 TEST_F(TrainerAdminAPITest, PutConfigPersistsAcrossRestart) {
     {
         auto api = make_api();
-        std::thread thr;
+        AdminThread thr;
         ASSERT_TRUE(start_admin_api(*api, port, thr));
 
         httplib::Client client("127.0.0.1", port);
@@ -269,7 +326,7 @@ TEST_F(TrainerAdminAPITest, PutConfigPersistsAcrossRestart) {
     ASSERT_EQ(control->max_sessions_to_keep.load(), 50);  // fresh default, not yet overlaid
 
     auto api2 = make_api();
-    std::thread thr2;
+    AdminThread thr2;
     ASSERT_TRUE(start_admin_api(*api2, port, thr2));
 
     EXPECT_EQ(control->max_sessions_to_keep.load(), 7);
@@ -292,7 +349,7 @@ TEST_F(TrainerAdminAPITest, StatusReflectsControlState) {
     control->set_model_name("ambitious-aardvark");
 
     auto api = make_api();
-    std::thread thr;
+    AdminThread thr;
     ASSERT_TRUE(start_admin_api(*api, port, thr));
 
     httplib::Client client("127.0.0.1", port);
@@ -317,7 +374,7 @@ TEST_F(TrainerAdminAPITest, LogsIncludesTheStartupEntryOnceTheServerIsUp) {
     // request can reach the server, at least that one entry always exists —
     // there is no reachable "truly empty" state to assert on here.
     auto api = make_api();
-    std::thread thr;
+    AdminThread thr;
     ASSERT_TRUE(start_admin_api(*api, port, thr));
 
     httplib::Client client("127.0.0.1", port);
@@ -337,7 +394,7 @@ TEST_F(TrainerAdminAPITest, LogsReflectsEntriesWrittenDirectlyToControlState) {
     control->log(adai::TrainerLogLevel::Error, "something bad happened");
 
     auto api = make_api();
-    std::thread thr;
+    AdminThread thr;
     ASSERT_TRUE(start_admin_api(*api, port, thr));
 
     httplib::Client client("127.0.0.1", port);
@@ -364,7 +421,7 @@ TEST_F(TrainerAdminAPITest, AdminActionsAppendMatchingLogEntries) {
     control->phase = TrainerPhase::Training;
 
     auto api = make_api();
-    std::thread thr;
+    AdminThread thr;
     ASSERT_TRUE(start_admin_api(*api, port, thr));
 
     httplib::Client client("127.0.0.1", port);
@@ -384,7 +441,7 @@ TEST_F(TrainerAdminAPITest, AdminActionsAppendMatchingLogEntries) {
 
 TEST_F(TrainerAdminAPITest, CheckpointReturns409WhenIdle) {
     auto api = make_api();
-    std::thread thr;
+    AdminThread thr;
     ASSERT_TRUE(start_admin_api(*api, port, thr));
 
     httplib::Client client("127.0.0.1", port);
@@ -401,7 +458,7 @@ TEST_F(TrainerAdminAPITest, CheckpointSetsFlagAndWaitMsObservesCompletion) {
     control->phase = TrainerPhase::Training;
 
     auto api = make_api();
-    std::thread thr;
+    AdminThread thr;
     ASSERT_TRUE(start_admin_api(*api, port, thr));
 
     // Simulate what run_training()'s sample callback does: consume the
@@ -434,7 +491,7 @@ TEST_F(TrainerAdminAPITest, CheckpointSetsFlagAndWaitMsObservesCompletion) {
 
 TEST_F(TrainerAdminAPITest, PauseSetsPausedAndIsIdempotent) {
     auto api = make_api();
-    std::thread thr;
+    AdminThread thr;
     ASSERT_TRUE(start_admin_api(*api, port, thr));
 
     httplib::Client client("127.0.0.1", port);
@@ -456,7 +513,7 @@ TEST_F(TrainerAdminAPITest, ResumeClearsPausedAndWakesSleepingLoop) {
     control->paused = true;
 
     auto api = make_api();
-    std::thread thr;
+    AdminThread thr;
     ASSERT_TRUE(start_admin_api(*api, port, thr));
 
     std::atomic<bool> awoke{false};
