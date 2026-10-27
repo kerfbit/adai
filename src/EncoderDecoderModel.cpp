@@ -1,8 +1,9 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.29.0
+// @adai-version: 0.29.1
 // @adai-reviewed: 2026-10-26
 
 #include "EncoderDecoderModel.hpp"
+#include "Activation.hpp"  // TD-216: shared softmax row primitives
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -229,22 +230,8 @@ float EncoderDecoderModel::compute_loss(const Matrix& logits,
 
     for (int t = 0; t < seq_length && t < static_cast<int>(target_tokens.size()); ++t) {
         // Softmax for current timestep
-        // TODO: See TD-216 in TECHNICAL_DEBT.md - inline copy of Activation::softmax.
         std::vector<float> probs(vocab_size);
-        float max_logit = logits.data[t][0];
-        for (int v = 1; v < vocab_size; ++v) {
-            max_logit = std::max(max_logit, logits.data[t][v]);
-        }
-
-        float sum_exp = 0.0f;
-        for (int v = 0; v < vocab_size; ++v) {
-            probs[v] = std::exp(logits.data[t][v] - max_logit);
-            sum_exp += probs[v];
-        }
-
-        for (int v = 0; v < vocab_size; ++v) {
-            probs[v] /= sum_exp;
-        }
+        Activation::softmax_row(logits.data[t].data(), probs.data(), vocab_size);  // TD-216
 
         // Cross-entropy loss for this timestep
         int target = target_tokens[t];
@@ -264,22 +251,8 @@ Matrix EncoderDecoderModel::compute_loss_gradient(const Matrix& logits,
 
     for (int t = 0; t < seq_length && t < static_cast<int>(target_tokens.size()); ++t) {
         // Softmax
-        // TODO: See TD-216 in TECHNICAL_DEBT.md - inline copy of Activation::softmax.
         std::vector<float> probs(vocab_size);
-        float max_logit = logits.data[t][0];
-        for (int v = 1; v < vocab_size; ++v) {
-            max_logit = std::max(max_logit, logits.data[t][v]);
-        }
-
-        float sum_exp = 0.0f;
-        for (int v = 0; v < vocab_size; ++v) {
-            probs[v] = std::exp(logits.data[t][v] - max_logit);
-            sum_exp += probs[v];
-        }
-
-        for (int v = 0; v < vocab_size; ++v) {
-            probs[v] /= sum_exp;
-        }
+        Activation::softmax_row(logits.data[t].data(), probs.data(), vocab_size);  // TD-216
 
         // Gradient: softmax - one_hot(target)
         int target = target_tokens[t];

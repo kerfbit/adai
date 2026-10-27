@@ -810,3 +810,15 @@ minima — re-verified numerically), ReLU/Leaky ReLU properties and α values, s
 characteristics and comparison table, swish derivative factorization and history, full softmax
 Jacobian, non-linearity necessity / universal approximation background, selection guide, and the
 future-enhancement list (updated in §10).
+
+## Addendum (October 26, 2026): guards, row primitives, shared GELU constants (TD-215, TD-216)
+
+- **TD-215.** The `softmax_derivative()` and `leaky_relu_derivative()` comments now match the code. `softmax()` of a matrix with no
+  columns is empty, and `softmax_derivative()` throws `std::invalid_argument` on mismatched shapes.
+- **TD-216, row primitives.** The allocation-free `softmax_row()`/`softmax_row_inplace()`, `softmax_row_backward()` and
+  `log_sum_exp_row()` are the one implementation behind `softmax()`/`softmax_derivative()` and every CPU hot path that used to
+  re-type them (attention forward/backward, the losses, `TextGenerator`, RLHF).
+- **TD-216, GELU constants.** They are in `ActivationConstants.hpp` (`adai::activation::kGeluCoef`, `kSqrt2OverPi`), shared with
+  the CUDA and SYCL kernels.
+
+Tests: `ActivationTD215Test.*`, `ActivationTD216Test.*`, `MatrixGPUTD216Test.GeluForwardAndBackwardMatchTheCpu`.

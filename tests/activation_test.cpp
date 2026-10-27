@@ -2,6 +2,7 @@
 #include <../gtest/gtest.h>
 #include <cmath>
 #include <stdexcept>
+#include <vector>
 #include "../src/Matrix.hpp"
 
 // Helper function for numerical gradient checking
@@ -862,6 +863,73 @@ TEST(ActivationEdgeCaseTest, LargeMatrix) {
     EXPECT_EQ(relu_out.cols, 100);
     EXPECT_EQ(gelu_out.rows, 100);
     EXPECT_EQ(gelu_out.cols, 100);
+}
+
+// ============================================================================
+// TD-215: guards; TD-216: the shared row primitives
+// ============================================================================
+
+TEST(ActivationTD215Test, SoftmaxOfAMatrixWithNoColumnsIsEmpty) {
+    // input(i, 0) used to be read out of bounds when cols == 0.
+    Matrix empty(3, 0);
+    Matrix out = Activation::softmax(empty);
+    EXPECT_EQ(out.rows, 3);
+    EXPECT_EQ(out.cols, 0);
+}
+
+TEST(ActivationTD215Test, SoftmaxDerivativeRejectsMismatchedShapes) {
+    // A smaller grad_output used to be read out of bounds.
+    Matrix y(2, 4), dy(2, 3), dy_rows(1, 4);
+    EXPECT_THROW(Activation::softmax_derivative(y, dy), std::invalid_argument);
+    EXPECT_THROW(Activation::softmax_derivative(y, dy_rows), std::invalid_argument);
+}
+
+TEST(ActivationTD216Test, RowPrimitivesMatchTheMatrixFunctionsBitForBit) {
+    Matrix x(3, 7);
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 7; ++j)
+            x(i, j) = std::sin(0.7f * i + 1.3f * j) * 5.0f;
+    const Matrix y = Activation::softmax(x);
+    Matrix dy(3, 7);
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 7; ++j)
+            dy(i, j) = std::cos(0.4f * i - 0.9f * j);
+    const Matrix dx = Activation::softmax_derivative(y, dy);
+
+    for (int i = 0; i < 3; ++i) {
+        std::vector<float> row(x.data[i].begin(), x.data[i].end());
+        Activation::softmax_row_inplace(row.data(), 7);
+        std::vector<float> grad(7);
+        Activation::softmax_row_backward(y.data[i].data(), dy.data[i].data(), grad.data(), 7);
+        float sum = 0.0f;
+        for (int j = 0; j < 7; ++j) {
+            EXPECT_EQ(row[j], y(i, j));
+            EXPECT_EQ(grad[j], dx(i, j));
+            sum += row[j];
+        }
+        EXPECT_NEAR(sum, 1.0f, 1e-6f);
+        // log-softmax through log_sum_exp_row() agrees with log(softmax)
+        const float lse = Activation::log_sum_exp_row(x.data[i].data(), 7);
+        for (int j = 0; j < 7; ++j)
+            EXPECT_NEAR(x(i, j) - lse, std::log(y(i, j)), 1e-5f);
+    }
+    // Zero-length rows do nothing; a huge logit doesn't overflow.
+    Activation::softmax_row_inplace(nullptr, 0);
+    std::vector<float> big = {1000.0f, 0.0f};
+    Activation::softmax_row_inplace(big.data(), 2);
+    EXPECT_NEAR(big[0], 1.0f, 1e-6f);
+    EXPECT_NEAR(Activation::log_sum_exp_row(std::vector<float>{1000.0f, 1000.0f}.data(), 2),
+                1000.0f + std::log(2.0f), 1e-3f);
+}
+
+TEST(ActivationTD216Test, GeluUsesTheSharedConstants) {
+    Matrix x(1, 1);
+    x(0, 0) = 1.5f;
+    const float expected =
+        0.5f * 1.5f *
+        (1.0f + std::tanh(adai::activation::kSqrt2OverPi *
+                          (1.5f + adai::activation::kGeluCoef * 1.5f * 1.5f * 1.5f)));
+    EXPECT_FLOAT_EQ(Activation::gelu(x)(0, 0), expected);
 }
 
 // ============================================================================

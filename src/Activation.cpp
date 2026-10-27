@@ -1,39 +1,67 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-26
 
 #include "Activation.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <stdexcept>
+#include <string>
+
+void Activation::softmax_row(const float* in, float* out, int n) {
+    if (n <= 0) {
+        return;
+    }
+    // Max subtraction for numerical stability
+    float max_val = in[0];
+    for (int j = 1; j < n; ++j) {
+        max_val = std::max(max_val, in[j]);
+    }
+    float sum = 0.0f;
+    for (int j = 0; j < n; ++j) {
+        out[j] = std::exp(in[j] - max_val);
+        sum += out[j];
+    }
+    if (sum > 0.0f) {
+        for (int j = 0; j < n; ++j) {
+            out[j] /= sum;
+        }
+    }
+}
+
+void Activation::softmax_row_backward(const float* y, const float* dy, float* dx, int n) {
+    float sum = 0.0f;
+    for (int k = 0; k < n; ++k) {
+        sum += y[k] * dy[k];
+    }
+    for (int j = 0; j < n; ++j) {
+        dx[j] = y[j] * (dy[j] - sum);
+    }
+}
+
+float Activation::log_sum_exp_row(const float* row, int n) {
+    if (n <= 0) {
+        return -std::numeric_limits<float>::infinity();
+    }
+    float max_val = row[0];
+    for (int j = 1; j < n; ++j) {
+        max_val = std::max(max_val, row[j]);
+    }
+    float sum = 0.0f;
+    for (int j = 0; j < n; ++j) {
+        sum += std::exp(row[j] - max_val);
+    }
+    return max_val + std::log(sum);
+}
 
 // Softmax activation
 Matrix Activation::softmax(const Matrix& input) {
     Matrix result(input.rows, input.cols);
-
-    for (int i = 0; i < input.rows; i++) {
-        // Find max value in row for numerical stability
-        // TODO: See TD-215 in TECHNICAL_DEBT.md - input(i, 0) is out of bounds when cols == 0.
-        // TODO: See TD-216 in TECHNICAL_DEBT.md - this algorithm is re-typed inline in MultiHeadAttention,
-        // TextGenerator, EncoderDecoderModel and RLHFTrainer.
-        float max_val = input(i, 0);
-        for (int j = 1; j < input.cols; j++) {
-            max_val = std::max(max_val, input(i, j));
-        }
-
-        // Compute exp(x - max) and sum
-        float sum = 0.0f;
-        for (int j = 0; j < input.cols; j++) {
-            result(i, j) = std::exp(input(i, j) - max_val);
-            sum += result(i, j);
-        }
-
-        // Normalize to get probabilities
-        for (int j = 0; j < input.cols; j++) {
-            result(i, j) /= sum;
-        }
+    // TD-215: a matrix with no columns used to read input(i, 0) out of bounds.
+    for (int i = 0; i < input.rows && input.cols > 0; i++) {
+        softmax_row(input.data[i].data(), result.data[i].data(), input.cols);
     }
-
     return result;
 }
 
@@ -86,24 +114,21 @@ Matrix Activation::gelu_derivative(const Matrix& input) {
     return result;
 }
 
-// Softmax derivative (efficient version for cross-entropy)
+// Softmax derivative: the general softmax vector-Jacobian product (TD-215: not a cross-entropy shortcut)
 Matrix Activation::softmax_derivative(const Matrix& output, const Matrix& grad_output) {
-    // TODO: See TD-215 in TECHNICAL_DEBT.md - output and grad_output shapes are not checked.
-    Matrix result(output.rows, output.cols);
-
-    for (int i = 0; i < output.rows; i++) {
-        // Compute sum of (output * grad_output) for this row
-        float sum = 0.0f;
-        for (int j = 0; j < output.cols; j++) {
-            sum += output(i, j) * grad_output(i, j);
-        }
-
-        // Compute gradient: output * (grad_output - sum)
-        for (int j = 0; j < output.cols; j++) {
-            result(i, j) = output(i, j) * (grad_output(i, j) - sum);
-        }
+    // TD-215: a smaller grad_output used to be read out of bounds.
+    if (output.rows != grad_output.rows || output.cols != grad_output.cols) {
+        throw std::invalid_argument("Activation::softmax_derivative: output is " +
+                                    std::to_string(output.rows) + "x" +
+                                    std::to_string(output.cols) + ", grad_output is " +
+                                    std::to_string(grad_output.rows) + "x" +
+                                    std::to_string(grad_output.cols));
     }
-
+    Matrix result(output.rows, output.cols);
+    for (int i = 0; i < output.rows; i++) {
+        softmax_row_backward(output.data[i].data(), grad_output.data[i].data(),
+                             result.data[i].data(), output.cols);
+    }
     return result;
 }
 

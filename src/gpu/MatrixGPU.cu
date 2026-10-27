@@ -1,11 +1,12 @@
 // @adai-status: beta        (TD-061 resolved — layer_norm_bwd's math bug fixed and verified analytically/numerically; most kernels still have no dedicated test and need real GPU hardware to verify, see TECHNICAL_DEBT_RESOLVED.md)
-// @adai-version: 0.13.0
+// @adai-version: 0.13.1
 // @adai-reviewed: 2026-10-26
 
 #ifdef ADAI_ENABLE_GPU
 
 #include "MatrixGPU.hpp"
 #include "GPUUtils.hpp"
+#include "../ActivationConstants.hpp"  // TD-216: GELU constants shared with the CPU
 #include <algorithm>
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
@@ -145,8 +146,9 @@ __device__ float apply_activation(float x, int activation_type) {
         case 2: // Tanh
             return tanhf(x);
         case 3: // GELU (approximation)
-            // TODO: See TD-216 in TECHNICAL_DEBT.md - GELU constants duplicated from Activation.hpp.
-            return 0.5f * x * (1.0f + tanhf(0.7978845608f * (x + 0.044715f * x * x * x)));
+            return 0.5f * x *
+                   (1.0f + tanhf(adai::activation::kSqrt2OverPi *
+                                 (x + adai::activation::kGeluCoef * x * x * x)));
         default:
             return x;
     }
@@ -682,13 +684,12 @@ void matrix_softmax_backward_gpu(const float* s, const float* dout, float* din,
 }
 
 // GELU'(x) = 0.5*(1+tanh(u)) + 0.5*x*sech^2(u)*c*(1+3*0.044715*x^2)
-// TODO: See TD-216 in TECHNICAL_DEBT.md - c and a below duplicate Activation.hpp's GELU constants.
 __global__ void gelu_backward_kernel(const float* pre_act, const float* dout, float* din, int size) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < size) {
         const float x = pre_act[idx];
-        constexpr float c = 0.7978845608f;
-        constexpr float a = 0.044715f;
+        constexpr float c = adai::activation::kSqrt2OverPi;  // TD-216: shared with the CPU
+        constexpr float a = adai::activation::kGeluCoef;
         const float u = c * (x + a * x * x * x);
         const float tanh_u = tanhf(u);
         const float sech2 = 1.0f - tanh_u * tanh_u;

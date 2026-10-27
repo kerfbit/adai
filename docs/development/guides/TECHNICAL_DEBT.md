@@ -1294,6 +1294,10 @@ The metrics pipeline run is complete.
   mode, and the duplicate sentence-embedding function calls the other).
 - TD-388 (done in code: cached GPU attention multiplies each head straight out of the KV cache with a new strided GEMM, with no
   prefix copies or per-row head slices; a 100-token decode on the oneAPI CPU device went from 6.6 s to 1.4 s).
+- TD-215/216 (done in code: `Activation`'s comments and guards fixed; one allocation-free softmax/backward/log-sum-exp row primitive
+  for every CPU copy, and one GELU constants header for the CPU and both GPU backends).
+
+The generation and model math run is complete.
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -4226,7 +4230,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Core Math / Activation | October 8, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 26, 2026 | Core Math / Activation | October 8, 2026 | 1-2 hours |
 
 Description:
 Found while writing the code-traced reference [Activation.md](../reference/source/Activation.md).
@@ -4253,13 +4257,21 @@ each being the cheapest form, and it's documented per function in Activation.md.
 
 Action Items:
 
-- [ ] Fix both header comments to match the code.
-- [ ] Guard `softmax` against `cols == 0` (return the empty result) and validate shapes in
+- [x] Fix both header comments to match the code.
+- [x] Guard `softmax` against `cols == 0` (return the empty result) and validate shapes in
   `softmax_derivative` (throw `std::invalid_argument`, matching `FeedForward`'s style).
-- [ ] Add tests for the two new guards.
+- [x] Add tests for the two new guards.
+
+**Fix (October 26, 2026, with TD-216).**
+- **Comments.** `softmax_derivative()`'s comment describes the general softmax vector-Jacobian product and warns against chaining
+  it after a softmax + cross-entropy gradient. `leaky_relu_derivative()`'s says 1 if x > 0, else alpha.
+- **Guards.** `softmax()` of a matrix with no columns returns the empty result, and `softmax_derivative()` throws
+  `std::invalid_argument` on mismatched shapes.
+
+Tests: `ActivationTD215Test.SoftmaxOfAMatrixWithNoColumnsIsEmpty`, `SoftmaxDerivativeRejectsMismatchedShapes`.
 
 Location in code: `src/Activation.hpp` (`softmax_derivative`, `leaky_relu_derivative` doc
-comments), `src/Activation.cpp` (`softmax`, `softmax_derivative`); tagged `TODO: See TD-215`.
+comments), `src/Activation.cpp` (`softmax`, `softmax_derivative`); no longer tagged.
 
 Files to Modify:
 
@@ -4273,7 +4285,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Core Math / Activation | October 8, 2026 | 4-6 hours |
+| LOW | Open — code fix landed October 26, 2026 | Core Math / Activation | October 8, 2026 | 4-6 hours |
 
 Description:
 Found alongside TD-215. `Activation` is meant to be the reference implementation, but the same
@@ -4300,15 +4312,35 @@ allocation-free primitive, not routing everything through the current API.
 
 Action Items:
 
-- [ ] Add an allocation-free row primitive (e.g. `Activation::softmax_row_inplace(float*, int)` and
+- [x] Add an allocation-free row primitive (e.g. `Activation::softmax_row_inplace(float*, int)` and
   a matching backward helper) and switch the CPU copies above to it. Verify with the existing
   attention gradient checks and `chatbotapiTests`/`textgeneratorTests`.
-- [ ] Move the GELU constants into a small header usable from host C++, CUDA, and SYCL device code
+- [x] Move the GELU constants into a small header usable from host C++, CUDA, and SYCL device code
   (plain `constexpr float`s) and include it in all three places.
-- [ ] Add a CPU-vs-GPU GELU agreement test to the existing GPU test targets (runs only where a GPU
+- [x] Add a CPU-vs-GPU GELU agreement test to the existing GPU test targets (runs only where a GPU
   backend is built).
 
-Location in code: every site listed above, tagged `TODO: See TD-216`.
+**Fix (October 26, 2026).**
+- **Row primitives.** `Activation` gains allocation-free `softmax_row()`/`softmax_row_inplace()`, `softmax_row_backward()` (the
+  vector-Jacobian product) and `log_sum_exp_row()`.
+- **CPU sites.** `Activation::softmax()`/`softmax_derivative()` and every inline CPU copy use them:
+  - `MultiHeadAttention::forward_parallel()` and `backward()`, `CrossAttention::backward()`;
+  - `TextGenerator::softmax()`, both loss loops in `EncoderDecoderModel`;
+  - `RLHFTrainer`'s policy gradient, and its log-probabilities through `log_sum_exp_row()`.
+
+  They run the same operations in the same order, so results are bitwise unchanged. The exception is RLHF's log-probability, which
+  is mathematically the same with a different rounding order.
+- **GELU constants.** They live in the new `src/ActivationConstants.hpp` (`adai::activation::kGeluCoef`/`kSqrt2OverPi`, namespace
+  `constexpr float`s). `Activation` and the CUDA and SYCL forward and backward kernels all include it.
+
+Tests:
+- `ActivationTD216Test.RowPrimitivesMatchTheMatrixFunctionsBitForBit` and `GeluUsesTheSharedConstants`.
+- `MatrixGPUTD216Test.GeluForwardAndBackwardMatchTheCpu`: 64 points in [−4, 4] within 1e-5, on the oneAPI CPU device; the CUDA
+  version is compile-checked only.
+- The attention gradient checks and `chatbotapiTests`/`textgeneratorTests` still pass.
+
+Location in code: `src/Activation.{hpp,cpp}`, `src/ActivationConstants.hpp`, the CPU sites above, `src/gpu/MatrixGPU.cu`,
+`src/gpu/sycl/MatrixGPU_SYCL.cpp`.
 
 Files to Modify:
 

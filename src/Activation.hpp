@@ -1,12 +1,13 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-26
 
 
 #include <algorithm>
 #include <cmath>
+#include "ActivationConstants.hpp"
 #include "Matrix.hpp"
 
 /**
@@ -27,8 +28,25 @@ class Activation {
      * @return Matrix of probabilities [batch_size, num_classes] where each row sums to 1
      *
      * Formula: softmax(x_i) = exp(x_i - max(x)) / Σ exp(x_j - max(x))
+     * A matrix with no columns gives an empty result (TD-215).
      */
     static Matrix softmax(const Matrix& input);
+
+    // TD-216: allocation-free row primitives, the one implementation of softmax and its
+    // backward for every CPU hot path (attention, the losses, sampling, RLHF), which used to
+    // re-type them inline.
+
+    /** Max-subtracted softmax of `in` (n floats) into `out` (may be `in`). n <= 0 does nothing; a
+     *  row whose exponentials sum to zero or NaN is left unnormalized. */
+    static void softmax_row(const float* in, float* out, int n);
+    static void softmax_row_inplace(float* row, int n) {
+        softmax_row(row, row, n);
+    }
+    /** The softmax vector-Jacobian product of one row: dx = y * (dy - Σ y·dy), for softmax output
+     *  y and upstream gradient dy (dx may be dy). */
+    static void softmax_row_backward(const float* y, const float* dy, float* dx, int n);
+    /** log Σ exp(row), max-subtracted (log-softmax of x_i is x_i - log_sum_exp_row()). */
+    static float log_sum_exp_row(const float* row, int n);
 
     /**
      * GELU (Gaussian Error Linear Unit) activation function
@@ -66,12 +84,12 @@ class Activation {
      * @param grad_output Gradient from upstream layer
      * @return Gradient with respect to softmax input
      *
-     * Formula: For cross-entropy loss: grad_input = output * (grad_output - sum(output *
-     * grad_output))
+     * Formula: grad_input = output * (grad_output - sum(output * grad_output)), row by row: the
+     * general softmax vector-Jacobian product, correct for any upstream gradient. Not for
+     * softmax + cross-entropy, whose gradient with respect to the logits is y - one_hot(target)
+     * directly (chaining this after it would differentiate through softmax twice). TD-215.
      *
-     * TODO: See TD-215 in TECHNICAL_DEBT.md - the "For cross-entropy loss" wording above is wrong:
-     * this is the general softmax vector-Jacobian product for any upstream gradient (for
-     * softmax + cross-entropy use y - one_hot(target) directly). Shapes are not validated.
+     * @throws std::invalid_argument if output and grad_output have different shapes
      */
     static Matrix softmax_derivative(const Matrix& output, const Matrix& grad_output);
 
@@ -167,10 +185,7 @@ class Activation {
      * @param alpha Slope for negative values (default 0.01)
      * @return Matrix of derivatives
      *
-     * Formula: LeakyReLU'(x) = alpha if x < 0, else 1
-     *
-     * TODO: See TD-215 in TECHNICAL_DEBT.md - the formula above is wrong at x == 0: the code returns
-     * alpha there (x > 0 ? 1 : alpha), and the tests encode that.
+     * Formula: LeakyReLU'(x) = 1 if x > 0, else alpha (alpha at x == 0, TD-215)
      */
     static Matrix leaky_relu_derivative(const Matrix& input, float alpha = 0.01f);
 
@@ -197,9 +212,7 @@ class Activation {
     static Matrix swish_derivative(const Matrix& input);
 
    private:
-    // Helper constant for GELU approximation
-    // TODO: See TD-216 in TECHNICAL_DEBT.md - the same literals are hardcoded separately in the CUDA
-    // and SYCL GELU kernels; move them to one shared header.
-    static constexpr float GELU_COEF = 0.044715f;
-    static constexpr float SQRT_2_OVER_PI = 0.7978845608f;  // sqrt(2/π)
+    // GELU approximation constants, shared with the CUDA and SYCL kernels (TD-216)
+    static constexpr float GELU_COEF = adai::activation::kGeluCoef;
+    static constexpr float SQRT_2_OVER_PI = adai::activation::kSqrt2OverPi;
 };

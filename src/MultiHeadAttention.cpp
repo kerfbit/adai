@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-195 backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 0.13.2
+// @adai-version: 0.13.3
 // @adai-reviewed: 2026-10-26
 
 #include "MultiHeadAttention.hpp"
@@ -184,22 +184,8 @@ Matrix MultiHeadAttention::forward_parallel(const Matrix& input, const Matrix* m
 
         // Softmax row-wise, in place — scores_head now holds this head's real attention
         // weights (cached below for backward()).
-        // TODO: See TD-216 in TECHNICAL_DEBT.md - inline copy of Activation::softmax.
         for (int i = 0; i < seq_len; ++i) {
-            float max_score = scores_head(i, 0);
-            for (int j = 1; j < seq_len; ++j) {
-                max_score = std::max(max_score, scores_head(i, j));
-            }
-
-            float sum_exp = 0.0f;
-            for (int j = 0; j < seq_len; ++j) {
-                scores_head(i, j) = std::exp(scores_head(i, j) - max_score);
-                sum_exp += scores_head(i, j);
-            }
-
-            for (int j = 0; j < seq_len; ++j) {
-                scores_head(i, j) /= sum_exp;
-            }
+            Activation::softmax_row_inplace(scores_head.data[i].data(), seq_len);  // TD-216
         }
 
         // Apply attention to values: output_h = attention_weights_h * V_h, written
@@ -439,18 +425,12 @@ Matrix MultiHeadAttention::backward(const Matrix& grad_output) {
         // grad_weights_h = grad_out_h * V_h^T
         Matrix grad_weights_h = grad_out_h * V_h.transpose();
 
-        // TODO: See TD-216 in TECHNICAL_DEBT.md - inline copy of Activation::softmax_derivative.
-        // Softmax backward, row-wise, for this head's own weights:
+        // Softmax backward, row-wise, for this head's own weights (TD-216: the shared primitive):
         // grad_scores_h(i,j) = weights_h(i,j) * (grad_weights_h(i,j) - sum_k weights_h(i,k)*grad_weights_h(i,k))
         Matrix grad_scores_h(q_rows, kv_rows);
         for (int i = 0; i < q_rows; ++i) {
-            float sum = 0.0f;
-            for (int k = 0; k < kv_rows; ++k) {
-                sum += weights_h(i, k) * grad_weights_h(i, k);
-            }
-            for (int j = 0; j < kv_rows; ++j) {
-                grad_scores_h(i, j) = weights_h(i, j) * (grad_weights_h(i, j) - sum);
-            }
+            Activation::softmax_row_backward(weights_h.data[i].data(), grad_weights_h.data[i].data(),
+                                             grad_scores_h.data[i].data(), kv_rows);
         }
         grad_scores_h = grad_scores_h.scale(scale_factor);
 

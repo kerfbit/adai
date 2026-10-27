@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <cmath>
 #include <vector>
+#include "../src/Activation.hpp"
 #include "../src/gpu/MatrixGPU.hpp"
 
 using adai::gpu::GPUManager;
@@ -407,5 +408,38 @@ TEST(MatrixGPUTD388Test, StridedGemmMatchesHostReference) {
                     ASSERT_EQ(out[static_cast<size_t>(i) * ldc + j], 99.0f);
             }
         }
+    }
+}
+
+// ============================================================================
+// TD-216: the GPU GELU forward and backward kernels agree with Activation (they share
+// ActivationConstants.hpp; the literals used to be typed separately in each backend).
+// ============================================================================
+
+TEST(MatrixGPUTD216Test, GeluForwardAndBackwardMatchTheCpu) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f));
+
+    const int n = 64;
+    std::vector<float> x(n), dout(n);
+    Matrix cpu_x(1, n);
+    for (int i = 0; i < n; ++i) {
+        x[i] = -4.0f + 8.0f * static_cast<float>(i) / (n - 1);
+        dout[i] = 0.5f + 0.01f * static_cast<float>(i);
+        cpu_x(0, i) = x[i];
+    }
+    const Matrix cpu_y = Activation::gelu(cpu_x);
+    const Matrix cpu_dy = Activation::gelu_derivative(cpu_x);
+
+    GPUMatrix y = upload(x, 1, n);
+    adai::gpu::matrix_apply_activation_gpu(y.device_ptr(), n, adai::gpu::ActivationType::GELU);
+    GPUMatrix px = upload(x, 1, n), d = upload(dout, 1, n), din(1, n);
+    adai::gpu::matrix_gelu_backward_gpu(px.device_ptr(), d.device_ptr(), din.device_ptr(), n);
+    const std::vector<float> gy = download(y), gd = download(din);
+    for (int i = 0; i < n; ++i) {
+        EXPECT_NEAR(gy[i], cpu_y(0, i), 1e-5f) << "x = " << x[i];
+        EXPECT_NEAR(gd[i], dout[i] * cpu_dy(0, i), 1e-5f) << "x = " << x[i];
     }
 }

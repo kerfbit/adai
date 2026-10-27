@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-174 forward_with_scores added)
-// @adai-version: 0.15.3
+// @adai-version: 0.15.4
 // @adai-reviewed: 2026-10-26
 
 #include "CrossAttention.hpp"
@@ -464,17 +464,11 @@ void CrossAttention::backward(const Matrix& grad_output, Matrix& grad_query_inpu
         // grad_weights_h = grad_out_h * V_h^T
         Matrix grad_weights_h = grad_out_h * V_h.transpose();
 
-        // TODO: See TD-216 in TECHNICAL_DEBT.md - inline copy of Activation::softmax_derivative.
-        // Softmax backward, row-wise, for this head's own weights
+        // Softmax backward, row-wise, for this head's own weights (TD-216: the shared primitive)
         Matrix grad_scores_h(tgt_len, src_len);
         for (int i = 0; i < tgt_len; ++i) {
-            float sum = 0.0f;
-            for (int k = 0; k < src_len; ++k) {
-                sum += weights_h(i, k) * grad_weights_h(i, k);
-            }
-            for (int j = 0; j < src_len; ++j) {
-                grad_scores_h(i, j) = weights_h(i, j) * (grad_weights_h(i, j) - sum);
-            }
+            Activation::softmax_row_backward(weights_h.data[i].data(), grad_weights_h.data[i].data(),
+                                             grad_scores_h.data[i].data(), src_len);
         }
         grad_scores_h = grad_scores_h.scale(scale_factor);
 

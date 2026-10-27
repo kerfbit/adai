@@ -1040,7 +1040,7 @@ add_test(NAME StartupSweepTests COMMAND startupSweepTests)
 # when a GPU backend is configured; adai_gpu doesn't exist otherwise.
 if(ENABLE_GPU OR ENABLE_SYCL)
     add_executable(matrixgpuTd003Tests matrixgpu_td003_test.cpp)
-    target_link_libraries(matrixgpuTd003Tests adai_gpu GTest::gtest_main)
+    target_link_libraries(matrixgpuTd003Tests adai_core adai_gpu GTest::gtest_main)  # adai_core: Activation (TD-216)
     add_test(NAME MatrixGPUTD003Tests COMMAND matrixgpuTd003Tests)
 endif()
 

@@ -1,8 +1,9 @@
 // @adai-status: stable
-// @adai-version: 2.1.0
+// @adai-version: 2.1.1
 // @adai-reviewed: 2026-10-26
 
 #include "TextGenerator.hpp"
+#include "Activation.hpp"  // TD-216: shared softmax row primitives
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -133,28 +134,10 @@ std::vector<float> TextGenerator::apply_repetition_penalty(const std::vector<flo
     return penalized;
 }
 
-// Softmax
-// TODO: See TD-216 in TECHNICAL_DEBT.md - duplicate of Activation::softmax for std::vector<float>.
+// Softmax (TD-216: the shared row primitive)
 std::vector<float> TextGenerator::softmax(const std::vector<float>& logits) {
     std::vector<float> probs(logits.size());
-
-    // Find max for numerical stability
-    float max_logit = *std::max_element(logits.begin(), logits.end());
-
-    // Compute exp(x - max)
-    float sum = 0.0f;
-    for (size_t i = 0; i < logits.size(); ++i) {
-        probs[i] = std::exp(logits[i] - max_logit);
-        sum += probs[i];
-    }
-
-    // Normalize
-    if (sum > 0.0f) {
-        for (float& p : probs) {
-            p /= sum;
-        }
-    }
-
+    Activation::softmax_row(logits.data(), probs.data(), static_cast<int>(logits.size()));
     return probs;
 }
 

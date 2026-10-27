@@ -1,10 +1,11 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.14.0
+// @adai-version: 0.14.1
 // @adai-reviewed: 2026-10-26
 
 #ifdef ADAI_ENABLE_GPU
 
 #include "MatrixGPU_SYCL.hpp"
+#include "../../ActivationConstants.hpp"  // TD-216: GELU constants shared with the CPU
 #include <algorithm>
 #include <cmath>
 #include <oneapi/mkl/blas.hpp>
@@ -176,8 +177,9 @@ static inline float apply_activation_sycl(float x, int act) {
         case 2:  // Tanh
             return sycl::tanh(x);
         case 3:  // GELU (approximation)
-            // TODO: See TD-216 in TECHNICAL_DEBT.md - GELU constants duplicated from Activation.hpp.
-            return 0.5f * x * (1.0f + sycl::tanh(0.7978845608f * (x + 0.044715f * x * x * x)));
+            return 0.5f * x *
+                   (1.0f + sycl::tanh(adai::activation::kSqrt2OverPi *
+                                      (x + adai::activation::kGeluCoef * x * x * x)));
         default:
             return x;
     }
@@ -506,15 +508,14 @@ void matrix_softmax_backward_gpu(const float* s, const float* dout, float* din, 
 // ============================================================================
 // GELU Backward
 // GELU'(x) = 0.5*(1+tanh(u)) + 0.5*x*sech²(u)*c*(1+3*0.044715*x²)
-// TODO: See TD-216 in TECHNICAL_DEBT.md - c and a below duplicate Activation.hpp's GELU constants.
 // ============================================================================
 
 void matrix_gelu_backward_gpu(const float* pre_act, const float* dout, float* din, int size) {
     auto& q = GPUManager::get_queue();
     q.parallel_for(sycl::range<1>(size), [=](sycl::id<1> idx) {
         const float x = pre_act[idx];
-        constexpr float c = 0.7978845608f;
-        constexpr float a = 0.044715f;
+        constexpr float c = adai::activation::kSqrt2OverPi;  // TD-216: shared with the CPU
+        constexpr float a = adai::activation::kGeluCoef;
         const float u = c * (x + a * x * x * x);
         const float tanh_u = sycl::tanh(u);
         const float sech2 = 1.0f - tanh_u * tanh_u;
