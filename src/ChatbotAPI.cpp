@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.21.1
+// @adai-version: 0.22.0
 // @adai-reviewed: 2026-10-27
 
 #include "ChatbotAPI.hpp"
@@ -106,8 +106,9 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
 
     // Set up HTTP endpoints
 
-    // TODO: See TD-238 in TECHNICAL_DEBT.md - every route below returns e.what() to the client; log it
-    // server-side and return a generic message instead.
+    // TD-238: errors about the request itself (400/404/413) keep their messages, which describe the
+    // request. Anything else is logged in full and answered with a generic 500 and a request id;
+    // routes used to send e.what() (paths, tokenizer and model errors) to the client.
     // POST /chat - Single-turn conversation
     server_impl_->server.Post("/chat", [this](const httplib::Request& req, httplib::Response& res) {
         try {
@@ -121,7 +122,7 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
             res.set_content(create_error_response(e.what()), "application/json");
             res.status = 400;
         } catch (const std::exception& e) {
-            res.set_content(create_error_response(e.what()), "application/json");
+            res.set_content(internal_error_response(req.path, e), "application/json");  // TD-238
             res.status = 500;
         }
     });
@@ -140,7 +141,7 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
             } catch (const std::exception& e) {
-                res.set_content(create_error_response(e.what()), "application/json");
+                res.set_content(internal_error_response(req.path, e), "application/json");  // TD-238
                 res.status = 500;
             }
         });
@@ -159,8 +160,8 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
             } catch (const std::exception& e) {
-                res.set_content(create_error_response(e.what()), "application/json");
-                res.status = 400;
+                res.set_content(internal_error_response(req.path, e), "application/json");  // TD-238
+                res.status = 500;
             }
         });
 
@@ -178,8 +179,8 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
             } catch (const std::exception& e) {
-                res.set_content(create_error_response(e.what()), "application/json");
-                res.status = 400;
+                res.set_content(internal_error_response(req.path, e), "application/json");  // TD-238
+                res.status = 500;
             }
         });
 
@@ -197,8 +198,8 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
             } catch (const std::exception& e) {
-                res.set_content(create_error_response(e.what()), "application/json");
-                res.status = 400;
+                res.set_content(internal_error_response(req.path, e), "application/json");  // TD-238
+                res.status = 500;
             }
         });
 
@@ -234,7 +235,7 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
             } catch (const std::exception& e) {
-                res.set_content(create_error_response(e.what()), "application/json");
+                res.set_content(internal_error_response(req.path, e), "application/json");  // TD-238
                 res.status = 500;
             }
         });
@@ -256,7 +257,7 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
             } catch (const std::exception& e) {
-                res.set_content(create_error_response(e.what()), "application/json");
+                res.set_content(internal_error_response(req.path, e), "application/json");  // TD-238
                 res.status = 500;
             }
         });
@@ -794,6 +795,13 @@ std::string ChatbotAPI::create_error_response(const std::string& error) {
     return create_json_response("", false, error);
 }
 
+// TD-238: the full message goes to the log under a request id; the client gets only the id.
+std::string ChatbotAPI::internal_error_response(const std::string& route, const std::exception& e) {
+    const std::string request_id = adai::secure_random_hex(8);
+    adai::Logger::error("ChatbotAPI: {} failed (request {}): {}", route, request_id, e.what());
+    return R"({"success":false,"error":"Internal server error","request_id":")" + request_id + "\"}";
+}
+
 std::string ChatbotAPI::create_batch_json_response(const BatchResponse& batch_response) {
     std::ostringstream oss;
     oss << "{\"success\":" << (batch_response.success ? "true" : "false");
@@ -1036,7 +1044,7 @@ std::string ChatbotAPI::generate_response(const std::string& input,
             static_cast<int>(config.top_k), config.top_p, static_cast<int>(config.beam_width));
 
     } catch (const std::exception& e) {
-        // TODO: See TD-238 in TECHNICAL_DEBT.md - this internal message reaches the client via the route handler.
+        // TD-238: logged by the route; the client gets a generic message.
         throw std::runtime_error(std::string("Generation failed: ") + e.what());
     }
 }

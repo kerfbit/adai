@@ -450,3 +450,9 @@ a failed batch generation is a `std::runtime_error` (HTTP 500). With TD-232's 40
 `running_` is `std::atomic<bool>`: `start()` claims it with `exchange(true)` (a second concurrent `start()` returns false) and `stop()`
 releases it with `exchange(false)` before `server.stop()`. Test: `StopFromAnotherThreadEndsStart` (TSan-clean; the old code had 2
 races).
+
+## Addendum (October 27, 2026): internal errors stay in the log (TD-238)
+
+A route's catch-all calls `internal_error_response(route, e)`, which logs the route, a 16-hex request id and the message, and returns
+HTTP 500 `{"success":false,"error":"Internal server error","request_id":"…"}`. 400/404/413 replies keep their messages, which
+describe the request. Test: `InternalErrorsAreLoggedNotSentToTheClient`.

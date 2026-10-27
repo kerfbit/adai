@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.15.1
+// @adai-version: 0.16.0
 // @adai-reviewed: 2026-10-27
 
 
@@ -282,6 +282,8 @@ class ChatbotAPI {
                                             const std::string& error = "");
     static std::string create_batch_json_response(const BatchResponse& batch_response);
     static std::string create_error_response(const std::string& error);
+    // TD-238: logs `e` with a new request id and returns a generic error body carrying that id.
+    static std::string internal_error_response(const std::string& route, const std::exception& e);
     /**
      * @brief Escape a string for embedding inside a JSON string literal
      *        (quotes, backslashes, and the standard control-character escapes).

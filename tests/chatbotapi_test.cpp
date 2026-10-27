@@ -15,6 +15,7 @@
 #include "../src/ChatbotAPI.hpp"
 #include "nlohmann/json.hpp"
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -25,6 +26,14 @@
 #include "../src/Optimizer.hpp"
 #include "../src/RAGInference.hpp"
 #include <condition_variable>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <spdlog/sinks/ostream_sink.h>
+#include <sstream>
+#include "cpp-httplib/httplib.h"
+#include "../src/Logger.hpp"
 #include <future>
 
 class ChatbotAPITest : public ::testing::Test {
@@ -2055,4 +2064,71 @@ TEST_F(ChatbotAPITest, StopFromAnotherThreadEndsStart) {
     server.join();
     EXPECT_TRUE(returned.load());
     EXPECT_FALSE(api->is_running());
+}
+
+// ============================================================================
+// TD-238: internal errors don't reach the client
+// ============================================================================
+
+namespace {
+int free_local_port() {
+    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    ::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+    socklen_t len = sizeof(addr);
+    ::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len);
+    ::close(fd);
+    return ntohs(addr.sin_port);
+}
+
+class LeakyRAG : public RAGInference {
+   public:
+    using RAGInference::RAGInference;
+    std::string generate(const std::string&) override {
+        throw std::runtime_error("cannot open /srv/adai/secret_model.bin");
+    }
+};
+}  // namespace
+
+TEST_F(ChatbotAPITest, InternalErrorsAreLoggedNotSentToTheClient) {
+    const int port = free_local_port();
+    api = std::make_unique<ChatbotAPI>(model.get(), tokenizer.get(), port, 30);
+    std::shared_ptr<EncoderDecoderModel> shared_model(model.get(), [](EncoderDecoderModel*) {});
+    api->enableRAG(std::make_shared<LeakyRAG>(shared_model,
+                                              std::make_shared<DocumentStore>(model->copy_encoder())));
+
+    std::ostringstream log;
+    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log);
+    adai::Logger::get()->sinks().push_back(sink);
+
+    std::thread server([&] { api->start(); });
+    httplib::Client client("127.0.0.1", port);
+    client.set_connection_timeout(std::chrono::milliseconds(200));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!client.Get("/health") && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    std::vector<httplib::Result> replies;
+    replies.push_back(client.Post("/chat", R"({"message":"hi"})", "application/json"));
+    replies.push_back(client.Post("/chat/batch", R"({"messages":["hi"]})", "application/json"));
+    replies.push_back(client.Post("/chat/session", R"({"message":"hi"})", "application/json"));
+    api->stop();
+    server.join();
+    auto& sinks = adai::Logger::get()->sinks();
+    sinks.erase(std::remove(sinks.begin(), sinks.end(), sink), sinks.end());
+
+    for (const auto& r : replies) {
+        ASSERT_TRUE(r);
+        EXPECT_EQ(r->status, 500) << r->body;
+        EXPECT_EQ(r->body.find("secret"), std::string::npos) << "internal detail leaked: " << r->body;
+        const auto body = nlohmann::json::parse(r->body);
+        EXPECT_EQ(body.value("error", ""), "Internal server error");
+        const std::string id = body.value("request_id", "");
+        EXPECT_EQ(id.size(), 16u);
+        // The log has the detail under the same id, for the operator.
+        EXPECT_NE(log.str().find("request " + id + "): "), std::string::npos) << log.str();
+    }
+    EXPECT_NE(log.str().find("secret_model.bin"), std::string::npos);
 }

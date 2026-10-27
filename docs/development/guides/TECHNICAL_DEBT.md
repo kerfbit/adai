@@ -1322,6 +1322,7 @@ The generation and model math run is complete.
 - TD-235 (done in code: `MAX_BATCH_SIZE` (32) caps batch requests, HTTP 413 above it).
 - TD-236 (done in code: validation errors are 400, a failed batch is 500; Android shows the server's error text).
 - TD-237 (done in code: `running_` is atomic; TSan-clean).
+- TD-238 (done in code: internal errors are logged with a request id; the client gets a generic 500 carrying the id).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5233,7 +5234,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Inference / Serving / API | October 8, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 27, 2026 | Inference / Serving / API | October 8, 2026 | 1-2 hours |
 
 Description:
 Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). Every route lambda passes `e.what()` straight into the response, and `generate_response()` wraps
@@ -5242,9 +5243,17 @@ model errors) reach any client. Found by reading the code.
 
 Action Items:
 
-- [ ] Log the full exception server-side via `adai::Logger`; return a generic message plus a request/correlation ID.
+- [x] Log the full exception server-side via `adai::Logger`; return a generic message plus a request/correlation ID.
 
-Location in code: `src/ChatbotAPI.cpp` (route lambdas, `generate_response()`); tagged `TODO: See TD-238`.
+**Fix (October 27, 2026).** Every route's catch-all now calls `ChatbotAPI::internal_error_response()`: it logs the route, a new
+16-hex request id (`adai::secure_random_hex(8)`) and the full message at error level, and answers HTTP 500
+`{"success":false,"error":"Internal server error","request_id":"…"}`. Errors about the request itself keep their messages, which
+the server writes about the client's input: 400 (`BadRequest`, including an import whose data doesn't parse), 404, 413. The
+clear/export/import routes, which answered any other exception with 400, now answer 500 like the rest. Test:
+`InternalErrorsAreLoggedNotSentToTheClient` (over HTTP, a RAG failure mentioning a file path on `/chat`, `/chat/batch` and
+`/chat/session`; the old code sent the path to the client, the fix logs it under the id the client receives).
+
+Location in code: `src/ChatbotAPI.cpp` (route lambdas, `generate_response()`); tagged `TD-238`.
 
 Files to Modify:
 

@@ -613,7 +613,8 @@ sent with 200):
   session's token budget, import data that doesn't parse or is over 1 MiB
 - `404 Not Found` - A `session_id` the server doesn't hold (TD-232)
 - `413 Payload Too Large` - A batch over `MAX_BATCH_SIZE` messages (TD-235)
-- `500 Internal Server Error` - Generation failed (including a failed batch)
+- `500 Internal Server Error` - Generation failed (including a failed batch). The body is
+  `{"success":false,"error":"Internal server error","request_id":"…"}`; the details are in the server log under that id (TD-238)
 - `503 Service Unavailable` - `GET /health` only, when no trained model is loaded (TD-246)
 
 ---
