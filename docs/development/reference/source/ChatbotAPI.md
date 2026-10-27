@@ -388,3 +388,9 @@ a new session's id directly. Tests: `ConcurrentTurnsOnOneSessionAreSerialized`, 
 
 `/chat/session` refuses a message larger than the session's token budget with HTTP 400 before touching the history, and
 `/chat/session/import` refuses data over 1 MiB with HTTP 400. Imports keep the session's own limits (see ConversationContext).
+
+## Addendum (October 26, 2026): responses are always strict JSON (TD-229)
+
+`escape_json_string()` escapes every control character (`\b`, `\f`, `\u00XX`) and replaces invalid UTF-8 with `\ufffd`, so success,
+error and batch responses parse with a strict parser whatever the model or an exception produced. Tests:
+`EscapeJsonString_EveryControlCharacterAndInvalidUtf8ParseStrictly`, `ResponsesAreStrictJsonWhateverTheyCarry`.

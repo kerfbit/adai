@@ -353,6 +353,8 @@ add_test(NAME Phase5Tests COMMAND phase5Tests)
 
 # ChatbotAPI tests (REST API with batch processing)
 add_executable(chatbotapiTests chatbotapi_test.cpp)
+# nlohmann/json (vendored): the tests parse responses strictly (TD-229).
+target_include_directories(chatbotapiTests PRIVATE ${CMAKE_SOURCE_DIR}/external)
 target_link_libraries(chatbotapiTests 
     adai_api
     adai_models 

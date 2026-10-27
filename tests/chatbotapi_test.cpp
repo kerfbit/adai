@@ -13,6 +13,7 @@
  */
 
 #include "../src/ChatbotAPI.hpp"
+#include "nlohmann/json.hpp"
 #include <gtest/gtest.h>
 #include <atomic>
 #include <chrono>
@@ -355,6 +356,42 @@ TEST_F(ChatbotAPITest, EscapeJsonString_EscapesQuotesBackslashesAndControlChars)
     EXPECT_EQ(ChatbotAPI::escape_json_string("a\\b"), "a\\\\b");
     EXPECT_EQ(ChatbotAPI::escape_json_string("line1\nline2"), "line1\\nline2");
     EXPECT_EQ(ChatbotAPI::escape_json_string("plain text"), "plain text");
+}
+
+// TD-229: control characters other than \n, \r and \t passed through raw, and strict JSON parsers
+// reject them; invalid UTF-8 (model output can split a multi-byte character) is rejected too.
+TEST_F(ChatbotAPITest, EscapeJsonString_EveryControlCharacterAndInvalidUtf8ParseStrictly) {
+    std::string input;
+    for (int c = 0; c < 0x20; ++c)
+        input += static_cast<char>(c);
+    input += "\"\\ caf\xc3\xa9 \xe6\x97\xa5 \xf0\x9f\x98\x80";  // valid 2-, 3- and 4-byte characters
+    const std::string valid_part = input;
+    input += "\xff|\xe6\x97|\xc0\xaf|\xed\xa0\x80";  // stray byte, truncated, overlong, surrogate
+
+    const std::string escaped = ChatbotAPI::escape_json_string(input);
+    nlohmann::json parsed;
+    ASSERT_NO_THROW(parsed = nlohmann::json::parse("\"" + escaped + "\"")) << escaped;
+    const std::string back = parsed.get<std::string>();
+    EXPECT_EQ(back.compare(0, valid_part.size(), valid_part), 0) << "valid text round-trips";
+    const std::string replacement = "\xef\xbf\xbd";  // U+FFFD
+    EXPECT_EQ(back.substr(valid_part.size()),
+              replacement + "|" + replacement + replacement + "|" + replacement + replacement + "|" +
+                  replacement + replacement + replacement);
+}
+
+TEST_F(ChatbotAPITest, ResponsesAreStrictJsonWhateverTheyCarry) {
+    const std::string nasty = std::string("a\x01" "b\x08" "c\x1f\"\\\n") + "\xff\xfe";
+    for (const std::string& body :
+         {api->create_json_response(nasty), api->create_error_response(nasty)}) {
+        EXPECT_NO_THROW((void)nlohmann::json::parse(body)) << body;
+    }
+    ChatbotAPI::BatchResponse batch;
+    batch.success = true;
+    batch.responses = {nasty, "plain"};
+    batch.session_ids = {nasty, "id"};
+    const std::string body = api->create_batch_json_response(batch);
+    nlohmann::json parsed;
+    ASSERT_NO_THROW(parsed = nlohmann::json::parse(body)) << body;
 }
 
 TEST_F(ChatbotAPITest, CreateErrorResponse_EscapesEmbeddedQuote) {

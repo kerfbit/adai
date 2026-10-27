@@ -1310,6 +1310,7 @@ The generation and model math run is complete.
   code).
 - TD-291/292/293 (done in code: imports keep the session's limits, recompute token counts and can't wipe the history; the newest
   message is never evicted, and an over-long chat message gets HTTP 400). All the chat-serving HIGH items are now fixed.
+- TD-229 (done in code: every response is strict JSON; all control characters are escaped and invalid UTF-8 becomes U+FFFD).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -4894,7 +4895,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / Serving / API | October 8, 2026 | 1 hour |
+| MEDIUM | Open — code fix landed October 26, 2026 | Inference / Serving / API | October 8, 2026 | 1 hour |
 
 Description:
 Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). `escape_json_string()` (the single escaping function since TD-063) escapes only `"`, `\`, `\n`,
@@ -4905,10 +4906,23 @@ correctly (`"a\u0001b\bc"`).
 
 Action Items:
 
-- [ ] Escape every control character (`\b`, `\f`, and `\u00XX` for the rest), or build responses with nlohmann/json.
-- [ ] Test that every response parses with a strict JSON parser.
+- [x] Escape every control character (`\b`, `\f`, and `\u00XX` for the rest), or build responses with nlohmann/json.
+- [x] Test that every response parses with a strict JSON parser.
 
-Location in code: `src/ChatbotAPI.cpp` (`escape_json_string()`); tagged `TODO: See TD-229`.
+**Fix (October 26, 2026).**
+- **Control characters.** `escape_json_string()` escapes every one: `\b`, `\f`, and `\u00XX` for those without a short form.
+- **Invalid UTF-8.** It is replaced with `\ufffd`, one per byte that can't start a well-formed sequence. That covers a stray byte, a
+  truncated sequence, an overlong form or a surrogate. Byte-level model output can split a multi-byte character, and strict parsers
+  reject invalid UTF-8 too.
+
+Tests (`chatbotapiTests` now compiles against the vendored nlohmann/json):
+- `EscapeJsonString_EveryControlCharacterAndInvalidUtf8ParseStrictly`: all 32 control characters, valid 2-, 3- and 4-byte
+  characters, and the four invalid cases, parsed strictly and round-tripped.
+- `ResponsesAreStrictJsonWhateverTheyCarry`: the success, error and batch responses.
+
+Both fail on the old code.
+
+Location in code: `src/ChatbotAPI.cpp` (`escape_json_string()`).
 
 Files to Modify:
 

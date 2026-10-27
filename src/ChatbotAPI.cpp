@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.16.1
+// @adai-version: 0.16.2
 // @adai-reviewed: 2026-10-26
 
 #include "ChatbotAPI.hpp"
@@ -603,26 +603,68 @@ std::vector<std::string> ChatbotAPI::parse_json_array(const std::string& json,
     }
 }
 
-// TODO: See TD-229 in TECHNICAL_DEBT.md - other control characters (U+0000-U+001F) pass through raw,
-// producing invalid JSON.
 std::string ChatbotAPI::escape_json_string(const std::string& s) {
-    std::ostringstream oss;
-    for (char c : s) {
-        if (c == '"') {
-            oss << "\\\"";
-        } else if (c == '\\') {
-            oss << "\\\\";
-        } else if (c == '\n') {
-            oss << "\\n";
-        } else if (c == '\r') {
-            oss << "\\r";
-        } else if (c == '\t') {
-            oss << "\\t";
+    // TD-229: every control character is escaped (\b, \f and \u00XX besides \n, \r, \t; they used
+    // to pass through raw, which strict JSON parsers reject), and invalid UTF-8 (model output can
+    // split a multi-byte character) becomes \ufffd, so a response is always valid JSON.
+    std::string out;
+    out.reserve(s.size() + 8);
+    const size_t n = s.size();
+    for (size_t i = 0; i < n;) {
+        const auto c = static_cast<unsigned char>(s[i]);
+        if (c < 0x80) {
+            switch (c) {
+                case '"': out += "\\\""; break;
+                case '\\': out += "\\\\"; break;
+                case '\n': out += "\\n"; break;
+                case '\r': out += "\\r"; break;
+                case '\t': out += "\\t"; break;
+                case '\b': out += "\\b"; break;
+                case '\f': out += "\\f"; break;
+                default:
+                    if (c < 0x20) {
+                        static const char* hex = "0123456789abcdef";
+                        out += "\\u00";
+                        out += hex[c >> 4];
+                        out += hex[c & 0x0F];
+                    } else {
+                        out += static_cast<char>(c);
+                    }
+            }
+            ++i;
+            continue;
+        }
+        // A multi-byte UTF-8 sequence: copy it if it's well formed, else substitute U+FFFD.
+        size_t len = 0;
+        uint32_t cp = 0;
+        if ((c & 0xE0) == 0xC0) {
+            len = 2;
+            cp = c & 0x1F;
+        } else if ((c & 0xF0) == 0xE0) {
+            len = 3;
+            cp = c & 0x0F;
+        } else if ((c & 0xF8) == 0xF0) {
+            len = 4;
+            cp = c & 0x07;
+        }
+        bool valid = len > 0 && i + len <= n;
+        for (size_t k = 1; valid && k < len; ++k) {
+            const auto cc = static_cast<unsigned char>(s[i + k]);
+            valid = (cc & 0xC0) == 0x80;
+            cp = (cp << 6) | (cc & 0x3F);
+        }
+        // No overlong forms, surrogates or values past U+10FFFF.
+        valid = valid && !(len == 2 && cp < 0x80) && !(len == 3 && cp < 0x800) &&
+                !(len == 4 && cp < 0x10000) && !(cp >= 0xD800 && cp <= 0xDFFF) && cp <= 0x10FFFF;
+        if (valid) {
+            out.append(s, i, len);
+            i += len;
         } else {
-            oss << c;
+            out += "\\ufffd";
+            ++i;
         }
     }
-    return oss.str();
+    return out;
 }
 
 std::string ChatbotAPI::create_json_response(const std::string& response, bool success,
