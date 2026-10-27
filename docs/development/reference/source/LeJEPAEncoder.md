@@ -163,3 +163,8 @@ standalone `world_model` dataset pool, so the old default collided with it.
   checkpoint.
 
 Test: `CheckpointDirectoryResolution`.
+
+## Addendum (October 26, 2026): `clone()` (TD-363)
+
+`clone()` returns an independent copy through a temporary `save()`/`load()`: weights, predictor, tokenizer vocabulary, SIGReg λ and
+sketch count, learning rate. No optimizer is attached. `EncoderDecoderModel::clone()` uses it for the copy's world model.

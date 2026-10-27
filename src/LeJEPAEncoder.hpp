@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-10-21
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-10-26
 
 #include <memory>
 #include <random>
@@ -260,6 +260,13 @@ class LeJEPAEncoder {
      * save_weights() persists for itself.
      */
     void save(const std::string& directory) const;
+
+    /**
+     * TD-363: an independent copy (weights, predictor, tokenizer vocabulary, SIGReg settings,
+     * learning rate), through a temporary save()/load(). No optimizer is attached. Used by
+     * EncoderDecoderModel::clone(), whose copy may run on another thread.
+     */
+    std::unique_ptr<LeJEPAEncoder> clone() const;
 
     /** @throws std::runtime_error if `directory` is missing its config or the saved architecture
      *  does not match this instance's own (vocab_size/d_model/num_layers/num_heads/d_ff). */

@@ -497,6 +497,17 @@ static size_t answer_tokens(BPETokenizer* tok, const std::string& text) {
     return text.empty() ? 0 : tok->encode(text, false).size();
 }
 
+// An untrained, unseeded model (TD-368) sometimes picks EOS at once; tests that need long outputs
+// rule out every special token.
+static void suppress_stop_tokens(EncoderDecoderModel& model) {
+    Matrix bias = model.get_lm_head()->get_bias();
+    // EOS and PAD stop; BOS and UNK decode to nothing.
+    for (int id : {model.get_tokenizer()->get_eos_token_id(), model.get_tokenizer()->get_pad_token_id(),
+                   model.get_tokenizer()->get_bos_token_id(), model.get_tokenizer()->get_unk_token_id()})
+        bias(0, id) = -50.0f;
+    model.get_lm_head()->set_bias(bias);
+}
+
 // TD-359: generate_response() applies its max_length for the call and keeps the generator's stored
 // value. It used to ignore the argument: generate_response("hello world", 5) gave 9 tokens with the
 // generator at 64.
@@ -504,19 +515,22 @@ TEST(EncoderDecoderModelTest, GenerateResponseHonoursMaxLength) {
     EncoderDecoderModel model(100, 64, 2, 2);
     build_test_vocab(model.get_tokenizer(), 100);
     model.set_training(false);
+    // Greedy and no stop tokens: the 5-token answer must be a strict prefix of the 40-token one.
+    // Counting tokens by re-encoding the decoded text isn't exact, and an untrained, unseeded model
+    // (TD-368) sometimes stops at once.
+    suppress_stop_tokens(model);
     auto cfg = model.get_generator()->get_config();
     cfg.max_length = 64;
     cfg.num_beams = 1;
+    cfg.temperature = 0.0f;
     model.get_generator()->set_config(cfg);
 
-    size_t longest = 0;
     for (const char* input : {"hello world", "the quick brown fox", "a b c"}) {
         const std::string shorter = model.generate_response(input, 5);
-        EXPECT_LE(answer_tokens(model.get_tokenizer(), shorter), 5u) << input;
         const std::string longer = model.generate_response(input, 40);
-        longest = std::max(longest, answer_tokens(model.get_tokenizer(), longer));
+        EXPECT_EQ(longer.compare(0, shorter.size(), shorter), 0) << input;
+        EXPECT_GT(longer.size(), shorter.size()) << input << ": 5 tokens weren't a cap";
     }
-    EXPECT_GT(longest, 5u) << "the model should reach past 5 tokens when allowed (test sanity)";
     EXPECT_EQ(model.get_generator()->get_config().max_length, 64) << "stored value restored";
 }
 
@@ -1257,6 +1271,103 @@ TEST(EncoderDecoderModelTest, EveryCheckpointFileIsCheckedOnLoad) {
     build_test_vocab(c.get_tokenizer(), 60);
     EXPECT_NO_THROW(c.load_model((dir / "cp.bin").string()));
     fs::remove_all(dir);
+}
+
+// TD-363: a world-model-enabled model (gated decoder paths) with a world model and hippocampal memory
+// attached. clone() used to build the copy without the gated paths, so load_model() threw, and the copy
+// had no world model, memory, settings or generation config even when it loaded.
+static std::unique_ptr<EncoderDecoderModel> make_gated_model() {
+    auto model = std::make_unique<EncoderDecoderModel>(100, 32, 1, 1, 2, 64, 32,
+                                                       /*world_model_inject_every_n_layers=*/1);
+    build_test_vocab(model->get_tokenizer(), 100);
+    auto wm = std::make_unique<LeJEPAEncoder>(100, 32, 1, 2, 64, 32);
+    wm->build_tokenizer({"hello world", "how are you", "hello jazz", "jazz quiz"}, 100);
+    model->set_world_model(std::move(wm));
+    auto memory = std::make_unique<HippocampalMemory>(32, 8);
+    Matrix key(1, 32);
+    key.randomize(1.0f);
+    memory->write(key, key);
+    memory->write(key, key);
+    model->set_hippocampal_memory(std::move(memory));
+    model->set_hippocampal_repetition_params(0.3f, 0.9f, 0.2f, 0.8f);
+    model->set_hippocampal_updates_enabled(false);
+    model->get_decoder()->get_decoder_block(0)->set_gate(0.8f);
+    model->get_decoder()->get_decoder_block(0)->set_gate_h(0.6f);
+    model->set_training(false);
+    return model;
+}
+
+TEST(EncoderDecoderModelTest, CloneCopiesGatedPathsAttachmentsAndSettings) {
+    auto model = make_gated_model();
+    auto cfg = model->get_generator()->get_config();
+    cfg.max_length = 7;
+    cfg.top_k = 13;
+    model->get_generator()->set_config(cfg);
+
+    std::unique_ptr<EncoderDecoderModel> copy;
+    ASSERT_NO_THROW(copy = model->clone());
+    ASSERT_NE(copy->get_world_model(), nullptr);
+    ASSERT_NE(copy->get_hippocampal_memory(), nullptr);
+    EXPECT_EQ(copy->get_hippocampal_memory()->size(), 2);
+    EXPECT_FALSE(copy->hippocampal_updates_enabled());
+    EXPECT_EQ(copy->get_generator()->get_config().max_length, 7);
+    EXPECT_EQ(copy->get_generator()->get_config().top_k, 13);
+    EXPECT_FLOAT_EQ(copy->get_decoder()->get_decoder_block(0)->get_gate(), 0.8f);
+
+    // The copy generates like the original, and its memory is its own.
+    for (const char* input : {"hello world", "how are you"}) {
+        EXPECT_EQ(copy->generate_response_with_strategy(input, 6, "greedy", 0.0f, 50, 0.9f, 1),
+                  model->generate_response_with_strategy(input, 6, "greedy", 0.0f, 50, 0.9f, 1))
+            << input;
+    }
+    Matrix key(1, 32);
+    key.fill(0.5f);
+    copy->get_hippocampal_memory()->write(key, key);
+    EXPECT_EQ(model->get_hippocampal_memory()->size(), 2);
+}
+
+TEST(EncoderDecoderModelTest, LoadModelSyncsTheGeneratorsSpecialTokens) {
+    // The generator kept its old BOS/EOS/PAD until the next strategy call.
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "adai_ed_td363_sync";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    EncoderDecoderModel a(60, 16, 1, 1, 2, 32, 16);
+    build_test_vocab(a.get_tokenizer(), 60);
+    a.save_model((dir / "cp.bin").string());
+
+    EncoderDecoderModel b(60, 16, 1, 1, 2, 32, 16);
+    auto cfg = b.get_generator()->get_config();
+    cfg.bos_token_id = cfg.eos_token_id = cfg.pad_token_id = 57;
+    b.get_generator()->set_config(cfg);
+    b.load_model((dir / "cp.bin").string());
+    EXPECT_EQ(b.get_generator()->get_config().bos_token_id, b.get_tokenizer()->get_bos_token_id());
+    EXPECT_EQ(b.get_generator()->get_config().eos_token_id, b.get_tokenizer()->get_eos_token_id());
+    EXPECT_EQ(b.get_generator()->get_config().pad_token_id, b.get_tokenizer()->get_pad_token_id());
+    fs::remove_all(dir);
+}
+
+TEST(EncoderDecoderModelTest, WorldModelSeesTheOriginalInputText) {
+    // "jazz" has letters the model's vocabulary lacks, so its tokens decode back to something else;
+    // the world model (whose vocabulary has them) must see the text the caller gave.
+    auto model = make_gated_model();
+    const std::string text = "hello jazz";
+    const std::vector<int> input = model->get_tokenizer()->encode(text, false);
+    ASSERT_NE(model->get_tokenizer()->decode(input, true), text) << "test sanity: decoding is lossy";
+    const std::vector<int> decoder_tokens = {model->get_tokenizer()->get_bos_token_id()};
+
+    const Matrix with_text = model->next_token_logits(input, decoder_tokens, 1, &text);
+    const Matrix decoded = model->next_token_logits(input, decoder_tokens);
+    const std::string decoded_text = model->get_tokenizer()->decode(input, true);
+    const Matrix with_decoded_text = model->next_token_logits(input, decoder_tokens, 1, &decoded_text);
+
+    float diff = 0.0f, same = 0.0f;
+    for (int j = 0; j < with_text.cols; ++j) {
+        diff = std::max(diff, std::abs(with_text(0, j) - decoded(0, j)));
+        same = std::max(same, std::abs(with_decoded_text(0, j) - decoded(0, j)));
+    }
+    EXPECT_GT(diff, 1e-4f) << "the original text should reach the world model";
+    EXPECT_LT(same, 1e-6f) << "without text, the decoded tokens are used";
 }
 
 // TD-538: a checkpoint saved before the encoder-specific file names (only the shared
@@ -2528,19 +2639,22 @@ TEST(EncoderDecoderGPUTest, GpuGenerateResponseHonoursMaxLength) {
     EncoderDecoderModel model(100, 64, 2, 2);
     build_test_vocab(model.get_tokenizer(), 100);
     model.set_training(false);
+    // Greedy and no stop tokens: the 5-token answer must be a strict prefix of the 40-token one.
+    // Counting tokens by re-encoding the decoded text isn't exact, and an untrained, unseeded model
+    // (TD-368) sometimes stops at once.
+    suppress_stop_tokens(model);
     auto cfg = model.get_generator()->get_config();
     cfg.max_length = 64;
     cfg.num_beams = 1;
+    cfg.temperature = 0.0f;
     model.get_generator()->set_config(cfg);
 
-    size_t longest = 0;
     for (const char* input : {"hello world", "the quick brown fox", "a b c"}) {
         const std::string shorter = model.gpu_generate_response(input, 5);
-        EXPECT_LE(answer_tokens(model.get_tokenizer(), shorter), 5u) << input;
         const std::string longer = model.gpu_generate_response(input, 40);
-        longest = std::max(longest, answer_tokens(model.get_tokenizer(), longer));
+        EXPECT_EQ(longer.compare(0, shorter.size(), shorter), 0) << input;
+        EXPECT_GT(longer.size(), shorter.size()) << input << ": 5 tokens weren't a cap";
     }
-    EXPECT_GT(longest, 5u) << "test sanity";
     EXPECT_EQ(model.get_generator()->get_config().max_length, 64);
 }
 

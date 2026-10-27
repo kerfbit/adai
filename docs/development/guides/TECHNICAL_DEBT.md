@@ -1288,6 +1288,8 @@ The metrics pipeline run is complete.
   and GPU entry point, and `ChatbotAPI`'s CPU fallback takes the model's strategy path like its GPU branch).
 - TD-346/360 with TD-297 (done in code: `update_weights()` without an optimizer now trains the encoder and the decoder's final norm,
   and with one every composite steps it exactly once; duplicate registrations are ignored).
+- TD-363 (done in code: `clone()` keeps the gated paths and copies the world model, memory, settings and generation config;
+  `load_model()` syncs the generator; the world model sees the original text where there is one).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -8810,6 +8812,8 @@ Tests:
 - `EncoderDecoderGPUTest.GpuGenerateResponseHonoursMaxLength`: the same on the GPU path, run on the oneAPI CPU device
   (`ADAI_SYCL_ALLOW_CPU_DEVICE=1`, `build/sycl-cpudev`).
 
+**Test update (October 26, 2026).** `GenerateResponseHonoursMaxLength` and its GPU twin failed about 1 run in 15: the untrained, unseeded model (TD-368) sometimes stopped before 6 tokens, and re-encoding the decoded answer doesn't count tokens exactly. Both now decode greedily with the special tokens ruled out, and check that the 5-token answer is a strict prefix of the 40-token one (40 of 40 runs pass).
+
 Location in code: `src/EncoderDecoderModel.cpp` (`generate_response()`, `gpu_generate_response()`); tagged `TODO: See TD-359`.
 
 Files to Modify:
@@ -8950,7 +8954,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Models / EncoderDecoderModel | October 11, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 26, 2026 | Models / EncoderDecoderModel | October 11, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-358, by inspection:
@@ -8964,9 +8968,32 @@ Found alongside TD-358, by inspection:
 
 Action Items:
 
-- [ ] Copy the extra state in `clone()` (or document the snapshot's scope); check reads and sync the generator in `load_model()`; pass the original text to the world model where available.
+- [x] Copy the extra state in `clone()` (or document the snapshot's scope); check reads and sync the generator in `load_model()`; pass the original text to the world model where available.
 
-Location in code: `src/EncoderDecoderModel.cpp` (`clone()`, `load_model()`, `forward()` world-model block); tagged `TODO: See TD-363`.
+**Fix (October 26, 2026).**
+- **`clone()`.** The copy is built with the original's `world_model_inject_every_n_layers`, now kept on the model. It used to be built
+  without the gated decoder paths, so for any world-model-enabled model `load_model()` threw on the gated-path flag and the per-epoch
+  quality snapshot failed. The copy also gets:
+  - an independent world model, through the new `LeJEPAEncoder::clone()` (temp save/load, tokenizer, SIGReg settings);
+  - a snapshot of the hippocampal memory;
+  - the repetition and cross-reference parameters, the hippocampal-updates flag, the generation config and the learning rate.
+- **`load_model()`.** Reads were already checked (TD-423), and it now calls `sync_special_tokens()`, so the generator's BOS/EOS/PAD
+  follow the loaded tokenizer immediately.
+- **World-model input.** The world model encodes the caller's text where one exists: `train_step()`, and the new `input_text`
+  argument of `next_token_logits()`, which `ChatbotAPI`'s speculative, batched and `/chat/batch` callbacks pass. The token-only
+  `forward()` still decodes.
+
+Not covered: LoRA adapters aren't saved (TD-302), so a clone has none. The copied memory keeps the original's swap file path;
+`ChatbotTrainer`'s copy has hippocampal updates off, so it never writes.
+
+Tests:
+- `CloneCopiesGatedPathsAttachmentsAndSettings`: on the old code `clone()` throws.
+- `LoadModelSyncsTheGeneratorsSpecialTokens`: on the old code the generator kept 57.
+- `WorldModelSeesTheOriginalInputText`: with an open gate, "hello jazz" (whose letters the model's vocabulary lacks) changes the
+  logits; without the text, the decoded tokens are used.
+
+Location in code: `src/EncoderDecoderModel.{hpp,cpp}` (`clone()`, `load_model()`, `run_decoder()`, `forward_impl()`,
+`train_step_impl()`, `next_token_logits()`), `src/LeJEPAEncoder.{hpp,cpp}` (`clone()`), `src/ChatbotAPI.cpp`.
 
 Files to Modify:
 

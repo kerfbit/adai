@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.13.0
+// @adai-version: 0.13.1
 // @adai-reviewed: 2026-10-26
 
 #include "ChatbotAPI.hpp"
@@ -844,14 +844,16 @@ std::string ChatbotAPI::generate_response(const std::string& input,
         // (0/12 vs 12/12 on a trained toy model). TD-507: the target returns its last K + 1 rows, so
         // one pass scores all K proposals plus the bonus token.
         if (draft_model_) {
+            // TD-363: the world model, if attached, encodes the request text itself.
             auto draft_model_fn =
-                [this, &input_tokens](const std::vector<int>& decoder_tokens) -> Matrix {
-                return draft_model_->next_token_logits(input_tokens, decoder_tokens);
+                [this, &input_tokens, &input](const std::vector<int>& decoder_tokens) -> Matrix {
+                return draft_model_->next_token_logits(input_tokens, decoder_tokens, 1, &input);
             };
             const int verify_rows = speculative_num_candidates_ + 1;
-            auto target_model_fn = [this, &input_tokens,
+            auto target_model_fn = [this, &input_tokens, &input,
                                     verify_rows](const std::vector<int>& decoder_tokens) -> Matrix {
-                return model_->next_token_logits(input_tokens, decoder_tokens, verify_rows);
+                return model_->next_token_logits(input_tokens, decoder_tokens, verify_rows,
+                                                 &input);
             };
 
             TextGenerator draft_gen;
@@ -900,8 +902,8 @@ std::string ChatbotAPI::generate_response(const std::string& input,
             gen_config.top_p = config.top_p;
             gen_config.top_k = static_cast<int>(config.top_k);
 
-            auto request_model_fn = [this, input_tokens](const std::vector<int>& decoder_tokens)
-                -> Matrix { return model_->next_token_logits(input_tokens, decoder_tokens); };
+            auto request_model_fn = [this, input_tokens, input](const std::vector<int>& decoder_tokens)
+                -> Matrix { return model_->next_token_logits(input_tokens, decoder_tokens, 1, &input); };
 
             auto future = batched_engine_->submit("", &gen_config, request_model_fn);
             return future.get();
@@ -1008,7 +1010,9 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
         std::vector<std::string> all_responses;
         all_responses.reserve(inputs.size());
 
-        for (const auto& input_tokens : input_token_sequences) {
+        for (size_t input_index = 0; input_index < input_token_sequences.size(); ++input_index) {
+            const std::vector<int>& input_tokens = input_token_sequences[input_index];
+            const std::string& input_text = inputs[input_index];  // TD-363: for the world model
             // Create TextGenerator configuration
             TextGenerator::GenerationConfig gen_config;
             gen_config.max_length = static_cast<int>(config.max_length);
@@ -1020,8 +1024,9 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
             TextGenerator generator(gen_config, 0);
 
             // TD-506: aligned next-token logits, as in generate_response().
-            auto model_fn = [this, &input_tokens](const std::vector<int>& decoder_tokens) -> Matrix {
-                return model_->next_token_logits(input_tokens, decoder_tokens);
+            auto model_fn = [this, &input_tokens,
+                             &input_text](const std::vector<int>& decoder_tokens) -> Matrix {
+                return model_->next_token_logits(input_tokens, decoder_tokens, 1, &input_text);
             };
 
             // Generate based on strategy

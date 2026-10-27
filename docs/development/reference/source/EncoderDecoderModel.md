@@ -348,3 +348,14 @@ strategy with `num_beams > 1`), `sync_generation_config()` (stores the beam widt
 ## Addendum (October 26, 2026): one update per step (TD-297, TD-346, TD-360)
 
 `update_weights()` steps a registered optimizer once (TD-297), or without one runs plain SGD in the encoder (TD-360, new `LLMEncoder::update_weights()`), the decoder (final norm included, TD-346) and the head; `set_learning_rate()` reaches all three. Test: `EncoderDecoderModelTest.OneUpdateIsOneStepWithOrWithoutAnOptimizer`.
+
+## Addendum (October 26, 2026): faithful clones, synced loads, original text for the world model (TD-363)
+
+- **`clone()`.** The copy is built with the same `world_model_inject_every_n_layers` (it used to throw for any world-model-enabled
+  model). It gets an independent world model (`LeJEPAEncoder::clone()`), a snapshot of the hippocampal memory, the
+  hippocampal parameters and updates flag, the generation config and the learning rate. LoRA adapters aren't copied (TD-302).
+- **`load_model()`** calls `sync_special_tokens()`.
+- **World-model text.** `train_step()` and `next_token_logits(…, input_text)` pass the original text to the world model, and
+  `forward()` still decodes the tokens.
+
+Tests: `CloneCopiesGatedPathsAttachmentsAndSettings`, `LoadModelSyncsTheGeneratorsSpecialTokens`, `WorldModelSeesTheOriginalInputText`.

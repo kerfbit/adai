@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.26.1
+// @adai-version: 0.27.0
 // @adai-reviewed: 2026-10-26
 
 #include <functional>
@@ -105,6 +105,9 @@ class EncoderDecoderModel {
     /// backfill generations don't pollute the serving memory).
     bool hippocampal_updates_enabled_{true};
 
+    // TD-363: kept so clone() builds the copy's decoder with the same gated paths.
+    int world_model_inject_every_n_layers_{0};
+
     int vocab_size;
     int d_model;
     int encoder_layers;
@@ -142,8 +145,16 @@ class EncoderDecoderModel {
     // truncated), adds the world-model and hippocampal reads, and runs the decoder on
     // `decoder_input` as given. Updates cached_encoder_output/cached_decoder_output and returns the
     // decoder output. The caller holds model_mutex_.
+    // `world_model_text`, when given, is what the world model encodes; otherwise the input tokens
+    // are decoded back to text, which is lossy (TD-224, TD-363).
     const Matrix& run_decoder(const std::vector<int>& input_tokens,
-                              const std::vector<int>& decoder_input, const char* caller);
+                              const std::vector<int>& decoder_input, const char* caller,
+                              const std::string* world_model_text = nullptr);
+    // forward() and train_step()'s shared body (TD-363: train_step() has the input text).
+    Matrix forward_impl(const std::vector<int>& raw_input_tokens,
+                        const std::vector<int>& target_tokens, const std::string* input_text);
+    float train_step_impl(const std::vector<int>& input_tokens,
+                          const std::vector<int>& target_tokens, const std::string* input_text);
 
     // TD-362: the generation steps every CPU and GPU entry point shares, so the same request gives
     // the same output either way. Each path differs only in its forward call.
@@ -803,10 +814,14 @@ class EncoderDecoderModel {
      * length): row i predicts the token after the decoder input's position `size - last_rows + i`.
      * SpeculativeDecoder scores all its proposals from one such call (TD-507).
      *
+     * `input_text`, when given, is the text the input tokens came from; the world model encodes it
+     * instead of the tokens decoded back to text (TD-363).
+     *
      * @return Logits [last_rows, vocab_size]; the last row is for the token after `decoder_tokens`
      */
     Matrix next_token_logits(const std::vector<int>& input_tokens,
-                             const std::vector<int>& decoder_tokens, int last_rows = 1);
+                             const std::vector<int>& decoder_tokens, int last_rows = 1,
+                             const std::string* input_text = nullptr);
 
     /**
      * Backward pass (for custom training loops)

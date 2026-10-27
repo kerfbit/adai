@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.28.1
+// @adai-version: 0.29.0
 // @adai-reviewed: 2026-10-26
 
 #include "EncoderDecoderModel.hpp"
@@ -140,6 +140,7 @@ EncoderDecoderModel::EncoderDecoderModel(int vocab_size, int d_model, int encode
       num_heads(num_heads),
       d_ff(d_ff),
       max_seq_length(max_seq_length) {
+    world_model_inject_every_n_layers_ = world_model_inject_every_n_layers;
     // Initialize tokenizer (will be set externally or use default)
     tokenizer = std::make_unique<BPETokenizer>();
 
@@ -680,12 +681,19 @@ float EncoderDecoderModel::train_step(const std::string& input_text,
     std::vector<int> target_tokens =
         strip_leading_bos(tokenizer->encode(target_text, true), bos_token_id);
 
-    return train_step_tokenized(input_tokens, target_tokens);
+    // TD-363: the world model sees the input text itself, not its tokens decoded back.
+    return train_step_impl(input_tokens, target_tokens, &input_text);
 }
 
 // Training step on tokenized sequences
 float EncoderDecoderModel::train_step_tokenized(const std::vector<int>& input_tokens,
                                                 const std::vector<int>& target_tokens) {
+    return train_step_impl(input_tokens, target_tokens, nullptr);
+}
+
+float EncoderDecoderModel::train_step_impl(const std::vector<int>& input_tokens,
+                                           const std::vector<int>& target_tokens,
+                                           const std::string* input_text) {
     if (!requires_grad) {
         throw std::runtime_error("Model is not in training mode");
     }
@@ -694,7 +702,7 @@ float EncoderDecoderModel::train_step_tokenized(const std::vector<int>& input_to
     zero_grad();
 
     // Forward pass
-    Matrix logits = forward(input_tokens, target_tokens);
+    Matrix logits = forward_impl(input_tokens, target_tokens, input_text);
 
     // Compute loss
     float loss = compute_loss(logits, target_tokens);
@@ -934,7 +942,6 @@ void EncoderDecoderModel::save_model(const std::string& filepath) const {
 }
 
 // Load model
-// TODO: See TD-363 in TECHNICAL_DEBT.md - special tokens not synced into the generator config
 EncoderDecoderModel::CheckpointArchitecture EncoderDecoderModel::read_checkpoint_architecture(
     const std::string& filepath) {
     adai::binio::Reader config_file(filepath + ".config");  // TD-423: checked reads
@@ -1006,10 +1013,15 @@ void EncoderDecoderModel::load_model(const std::string& filepath) {
     bos_token_id = loaded_bos;
     eos_token_id = loaded_eos;
     pad_token_id = loaded_pad;
+    // TD-363: the generator's BOS/EOS/PAD follow the loaded tokenizer now, not at the next
+    // strategy call.
+    sync_special_tokens();
 }
 
-// Clone (TD-023): deep-copy weights via save/load; no optimizer state is copied
-// TODO: See TD-363 in TECHNICAL_DEBT.md - the copy lacks world model, hippocampal memory, generation config and LoRA adapters
+// Clone (TD-023): deep-copy weights via save/load; no optimizer state is copied. TD-363: the copy is
+// built with the same gated paths and gets copies of the world model and hippocampal memory, their
+// settings and the generation config, so it generates like the original.
+// TODO: See TD-302 in TECHNICAL_DEBT.md - LoRA adapters aren't saved, so the copy has none
 std::unique_ptr<EncoderDecoderModel> EncoderDecoderModel::clone() const {
     namespace fs = std::filesystem;
 
@@ -1042,14 +1054,33 @@ std::unique_ptr<EncoderDecoderModel> EncoderDecoderModel::clone() const {
 
     std::unique_ptr<EncoderDecoderModel> copy;
     try {
-        copy = std::make_unique<EncoderDecoderModel>(
-            vocab_size, d_model, encoder_layers, decoder_layers, num_heads, d_ff, max_seq_length);
+        copy = std::make_unique<EncoderDecoderModel>(vocab_size, d_model, encoder_layers,
+                                                     decoder_layers, num_heads, d_ff,
+                                                     max_seq_length,
+                                                     world_model_inject_every_n_layers_);
         copy->load_model(tmp);  // also sets bos/eos/pad_token_id on copy
     } catch (...) {
         remove_temps();
         throw;
     }
     remove_temps();
+
+    if (world_model) {
+        copy->world_model = world_model->clone();
+    }
+    if (hippocampal_memory) {
+        // A snapshot: the copy's generations don't change the original's memory. The swap file path
+        // is copied too, so evictions in the copy append to the same file; ChatbotTrainer's copy
+        // has hippocampal updates off (TD-343), so it never writes.
+        copy->hippocampal_memory = std::make_unique<HippocampalMemory>(*hippocampal_memory);
+    }
+    copy->hippocampal_repetition_alpha_ = hippocampal_repetition_alpha_;
+    copy->hippocampal_repetition_decay_ = hippocampal_repetition_decay_;
+    copy->hippocampal_cross_reference_alpha_ = hippocampal_cross_reference_alpha_;
+    copy->hippocampal_association_decay_ = hippocampal_association_decay_;
+    copy->hippocampal_updates_enabled_ = hippocampal_updates_enabled_;
+    copy->generator->set_config(generator->get_config());
+    copy->learning_rate = learning_rate;
     return copy;
 }
 
@@ -1076,6 +1107,12 @@ std::vector<int> EncoderDecoderModel::make_decoder_input(
 // Forward pass
 Matrix EncoderDecoderModel::forward(const std::vector<int>& raw_input_tokens,
                                     const std::vector<int>& target_tokens) {
+    return forward_impl(raw_input_tokens, target_tokens, nullptr);
+}
+
+Matrix EncoderDecoderModel::forward_impl(const std::vector<int>& raw_input_tokens,
+                                         const std::vector<int>& target_tokens,
+                                         const std::string* input_text) {
     // TD-156: see generate_response()'s identical lock above / model_mutex_'s doc comment in
     // EncoderDecoderModel.hpp. Training and evaluation call this; ChatbotAPI's CPU generation
     // callbacks call next_token_logits() (TD-506).
@@ -1095,7 +1132,7 @@ Matrix EncoderDecoderModel::forward(const std::vector<int>& raw_input_tokens,
     // out-of-bounds read that crashes immediately — confirmed via ASan (SEGV).
     // `forward()` is a public, documented "custom training loops" API, so an
     // empty target_tokens is a plausible caller input, not just theoretical.
-    run_decoder(input_tokens, make_decoder_input(target_tokens), "forward");
+    run_decoder(input_tokens, make_decoder_input(target_tokens), "forward", input_text);
 
     // Project to vocabulary: the full projection is what training needs. Generation callbacks use
     // next_token_logits() instead (TD-506), which projects only the last row (TD-424).
@@ -1106,7 +1143,8 @@ Matrix EncoderDecoderModel::forward(const std::vector<int>& raw_input_tokens,
 
 const Matrix& EncoderDecoderModel::run_decoder(const std::vector<int>& input_tokens,
                                                const std::vector<int>& decoder_input,
-                                               const char* caller) {
+                                               const char* caller,
+                                               const std::string* world_model_text) {
     // Encode input
     int input_len = static_cast<int>(input_tokens.size());
     Matrix encoder_mask(input_len, input_len);
@@ -1124,8 +1162,10 @@ const Matrix& EncoderDecoderModel::run_decoder(const std::vector<int>& input_tok
     Matrix world_model_encoding;
     const Matrix* world_model_output_ptr = nullptr;
     if (world_model) {
-        // TODO: See TD-363 in TECHNICAL_DEBT.md - decoding ids back to text is lossy (TD-224); the world model sees different text
-        std::string decoded_input = tokenizer->decode(input_tokens, /*skip_special_tokens=*/true);
+        // TD-363: the caller's text when it has one; decoding the ids back is lossy (TD-224).
+        std::string decoded_input =
+            world_model_text ? *world_model_text
+                             : tokenizer->decode(input_tokens, /*skip_special_tokens=*/true);
         if (!decoded_input.empty()) {
             try {
                 world_model_encoding = world_model->encode(decoded_input);
@@ -1149,7 +1189,7 @@ const Matrix& EncoderDecoderModel::run_decoder(const std::vector<int>& input_tok
 
 Matrix EncoderDecoderModel::next_token_logits(const std::vector<int>& raw_input_tokens,
                                               const std::vector<int>& decoder_tokens,
-                                              int last_rows) {
+                                              int last_rows, const std::string* input_text) {
     // TD-156: same lock as forward(); ChatbotAPI calls this per step from request threads.
     std::lock_guard<std::mutex> lock(model_mutex_);
     const std::vector<int> input_tokens = encoder->keep_last_positions(raw_input_tokens);
@@ -1162,7 +1202,7 @@ Matrix EncoderDecoderModel::next_token_logits(const std::vector<int>& raw_input_
     }
     decoder_input.insert(decoder_input.end(), decoder_tokens.begin(), decoder_tokens.end());
 
-    const Matrix& decoder_out = run_decoder(input_tokens, decoder_input, "next_token_logits");
+    const Matrix& decoder_out = run_decoder(input_tokens, decoder_input, "next_token_logits", input_text);
     // TD-424: only the requested last rows are projected; the LM head is row-wise, so this gives the
     // same logits as the full projection's last rows.
     if (last_rows <= 1) {

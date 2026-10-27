@@ -1,11 +1,12 @@
 // @adai-status: experimental
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-10-21
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-10-26
 
 #include "LeJEPAEncoder.hpp"
 #include "Logger.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -497,6 +498,36 @@ void LeJEPAEncoder::save(const std::string& directory) const {
     predictor->save(directory + "/" + kPredictorFile);
 
     std::cout << "Saved LeJEPA encoder weights to " << directory << '\n';
+}
+
+std::unique_ptr<LeJEPAEncoder> LeJEPAEncoder::clone() const {
+    namespace fs = std::filesystem;
+    const auto ts = std::chrono::steady_clock::now().time_since_epoch().count();
+    const fs::path dir = fs::temp_directory_path() /
+                         ("adai_lejepa_clone_" +
+                          std::to_string(std::hash<const void*>{}(static_cast<const void*>(this))) +
+                          "_" + std::to_string(ts));
+    struct RemoveDir {
+        fs::path path;
+        ~RemoveDir() {
+            std::error_code ec;
+            fs::remove_all(path, ec);  // best-effort
+        }
+    } cleanup{dir};
+
+    save(dir.string());
+    auto copy = std::make_unique<LeJEPAEncoder>(vocab_size, d_model, num_layers, num_heads, d_ff,
+                                                max_seq_length, get_sigreg_num_sketches());
+    copy->load(dir.string());
+    if (tokenizer->get_vocab_size() > 0) {
+        const std::string vocab = (dir / "tokenizer.vocab").string();
+        tokenizer->save_vocab(vocab);
+        copy->tokenizer->load_vocab(vocab);
+    }
+    copy->set_sigreg_lambda(sigreg_lambda);
+    copy->set_learning_rate(learning_rate);
+    copy->set_requires_grad(requires_grad);
+    return copy;
 }
 
 void LeJEPAEncoder::load(const std::string& directory) {
