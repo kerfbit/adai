@@ -586,16 +586,19 @@ TEST_F(RAGInferenceTest, RetrievalUsesTheLatestQuestionInALongSession) {
     std::string history;
     for (int i = 0; i < 60; ++i) history += "User: " + doc_a + "\nAssistant: " + doc_a + "\n";
 
-    // The old query, the whole conversation: the encoder sees only its first max_seq_length
-    // tokens, all from the oldest turns, so the latest question takes no part.
-    const auto old_hits = rag->retrieveOnly(history + "User: " + doc_b + "\n", 1);
-    ASSERT_EQ(old_hits.size(), 1u);
-    EXPECT_EQ(old_hits[0].second->id, "a");
+    // The old query was the whole conversation: the encoder sees its last max_seq_length tokens
+    // (TD-365), mostly earlier turns, so the latest question's document no longer matches exactly.
+    // (Which document an untrained encoder ranks first then is noise, so only the score is checked.)
+    float old_b = -2.0f;
+    for (const auto& [score, doc] : rag->retrieveOnly(history + "User: " + doc_b + "\n", 2))
+        if (doc->id == "b") old_b = score;
 
     std::vector<std::pair<float, const Document*>> hits;
     rag->generateWithRetrieval(doc_b, hits, history);
     ASSERT_FALSE(hits.empty());
     EXPECT_EQ(hits[0].second->id, "b");
+    EXPECT_NEAR(hits[0].first, 1.0f, 1e-4f) << "the question alone is exactly document b's text";
+    EXPECT_LT(old_b, hits[0].first - 1e-3f) << "the whole conversation is a different query";
 }
 
 // ============================================================================

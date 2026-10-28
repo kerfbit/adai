@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.4.0
-// @adai-reviewed: 2026-10-27
+// @adai-version: 1.4.1
+// @adai-reviewed: 2026-10-28
 
 #include "RAGInference.hpp"
 #include "Logger.hpp"
@@ -177,7 +177,8 @@ std::string RAGInference::buildPrompt(const std::string& query,
                                       std::vector<std::pair<float, const Document*>>& retrieved_docs,
                                       const std::string& history) {
     // Step 1: Retrieve relevant documents. TD-485: with the latest question only; a session's whole
-    // conversation used to be the query, and the encoder keeps only its first max_seq_length tokens.
+    // conversation used to be the query, which the encoder cuts to max_seq_length tokens (the first,
+    // before TD-365; the last since), mostly earlier turns.
     retrieved_docs = doc_store->retrieve(query, config.num_retrieved_docs);
 
     // TD-487: which documents were retrieved, and with what scores.
