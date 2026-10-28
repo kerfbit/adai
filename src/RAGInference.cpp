@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-10-27
 
 #include "RAGInference.hpp"
@@ -152,9 +152,14 @@ std::string RAGInference::generate(const std::string& query, const std::string& 
     return generateWithRetrieval(query, retrieved_docs, history);
 }
 
-std::string RAGInference::generateWithRetrieval(
-    const std::string& query, std::vector<std::pair<float, const Document*>>& retrieved_docs,
-    const std::string& history) {
+std::string RAGInference::buildPrompt(const std::string& query, const std::string& history) {
+    std::vector<std::pair<float, const Document*>> retrieved_docs;
+    return buildPrompt(query, retrieved_docs, history);
+}
+
+std::string RAGInference::buildPrompt(const std::string& query,
+                                      std::vector<std::pair<float, const Document*>>& retrieved_docs,
+                                      const std::string& history) {
     // TODO: See TD-487 in TECHNICAL_DEBT.md - num_retrieved_docs <= 0 throws on every request; a threshold that
     // removes every document is silent; retrieved IDs/scores are never logged.
     // Step 1: Retrieve relevant documents. TD-485: with the latest question only; a session's whole
@@ -173,11 +178,17 @@ std::string RAGInference::generateWithRetrieval(
     std::string context = formatContext(retrieved_docs);
 
     // Steps 3-4: context + earlier conversation + question, within max_seq_length (TD-484, TD-485)
-    std::string augmented_prompt = buildBudgetedPrompt(query, context, history);
+    return buildBudgetedPrompt(query, context, history);
+}
 
-    // TODO: See TD-486 in TECHNICAL_DEBT.md - strategy is always "" (STRATEGY/BEAM_WIDTH ignored), gen_config is
-    // copied once at startup (no reload/per-request values), and this is the CPU-only path even on a GPU server.
-    // Step 5: Generate response using the model
+std::string RAGInference::generateWithRetrieval(
+    const std::string& query, std::vector<std::pair<float, const Document*>>& retrieved_docs,
+    const std::string& history) {
+    const std::string augmented_prompt = buildPrompt(query, retrieved_docs, history);
+
+    // Step 5: Generate response using the model. TD-486: this standalone path generates on the CPU
+    // with RAGConfig::gen_config; chatbot_api_server instead takes buildPrompt() and generates through
+    // ChatbotAPI's own path (the request's strategy and config, reloads, the GPU decode).
     //
     // TD-101 (fixed): this used to call generate_response(), whose max_length
     // parameter is a documented no-op (see its own body / the comment on its

@@ -1331,6 +1331,8 @@ The generation and model math run is complete.
   question).
 - TD-222 (done in code, found blocking TD-485's tests: the tokenizer cache is keyed by a never-reused id renewed on every merge
   change, bounded per thread).
+- TD-486 (done in code: RAG builds the prompt and `ChatbotAPI` generates it with the request's strategy and config, reloads and the
+  GPU decode).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -14033,7 +14035,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | RAG / RAGInference | October 17, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 27, 2026 | RAG / RAGInference | October 17, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `RAGInference.cpp` (by inspection). When RAG is enabled, `ChatbotAPI::generate_response()` returns
@@ -14047,11 +14049,21 @@ Found while tracing `RAGInference.cpp` (by inspection). When RAG is enabled, `Ch
 
 Action Items:
 
-- [ ] Give `RAGInference` a way to build the augmented prompt only, and let `ChatbotAPI` generate from it through its normal path (strategy, config, GPU).
-- [ ] Or pass the request's `GenerationConfig` (strategy included) into `generate()`.
-- [ ] Test that RAG honours `strategy` and reloaded settings.
+- [x] Give `RAGInference` a way to build the augmented prompt only, and let `ChatbotAPI` generate from it through its normal path (strategy, config, GPU).
+- [x] (Not needed: the first item covers it.) Or pass the request's `GenerationConfig` (strategy included) into `generate()`.
+- [x] Test that RAG honours `strategy` and reloaded settings.
 
-Location in code: `src/RAGInference.cpp` (`generateWithRetrieval()` step 5), `src/ChatbotAPI.cpp` (`generate_response()`'s RAG branch), `src/ChatbotAPIServer.cpp` (`rag_config` setup); tagged `TODO: See TD-486`.
+**Fix (October 27, 2026).** `RAGInference::buildPrompt(query, history)` does retrieval and the budgeted prompt only (steps 1–4).
+`ChatbotAPI::generate_response()` asks the RAG engine for the prompt and then generates from it like any other request, so the
+request's strategy and `GenerationConfig`, `SIGHUP`-reloaded settings, speculative decoding, the TD-038 engines and the GPU decode
+all apply. `RAGInference::generate()`/`generateWithRetrieval()` remain for standalone use with `RAGConfig::gen_config` on the CPU;
+`buildPrompt()` is the virtual test seam now (`generate()` no longer is), so `RAGInference.hpp` is version 2.0.0. Tests:
+`RagHonoursTheRequestStrategyAndConfig` (greedy through RAG equals greedy from the same prompt without RAG, three times, and a
+changed `max_length` reaches RAG requests) and, in GPU builds, `RagRequestsTakeTheGpuDecode` (run on the oneAPI CPU device with
+`ADAI_SYCL_ALLOW_CPU_DEVICE=1`). The old RAG path couldn't be run against these tests (the seam they override is new); by
+inspection it called `generate_response_with_strategy()` on the CPU with an empty strategy and startup settings.
+
+Location in code: `src/RAGInference.cpp` (`generateWithRetrieval()` step 5), `src/ChatbotAPI.cpp` (`generate_response()`'s RAG branch), `src/ChatbotAPIServer.cpp` (`rag_config` setup); tagged `TD-486`.
 
 Files to Modify:
 

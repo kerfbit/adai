@@ -167,3 +167,10 @@ question that alone reaches `max_seq_length`: the question alone. `chatbot_api_s
 end within the room the context leaves. `ChatbotAPI` passes the latest user message and the conversation before it
 (`ChatbotAPI::RagTurn`) for `/chat/session` and `/chat/batch-session`; `/chat` and `/chat/batch` pass the message alone. Tests:
 `RetrievalUsesTheLatestQuestionInALongSession`, `HistoryKeepsItsLatestTurnsWithinTheBudget`.
+
+## Addendum (October 27, 2026): `buildPrompt()` (TD-486)
+
+`buildPrompt(query, history)` (and an overload reporting the retrieved documents) runs retrieval and the budgeted prompt without
+generating. `chatbot_api_server` uses it: `ChatbotAPI` generates from the prompt through its own path, with the request's strategy and
+config, reloaded settings and the GPU decode. `generate()`/`generateWithRetrieval()` still generate on the CPU with
+`RAGConfig::gen_config` for standalone use. `buildPrompt()` is the virtual seam for test engines.

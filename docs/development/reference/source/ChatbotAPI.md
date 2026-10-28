@@ -467,3 +467,9 @@ removed; request bodies are parsed straight from JSON. The handler comments no l
 For a session turn, `generate_response()` gets a `RagTurn{question, history}` (the new message and the conversation before it); the
 RAG branch uses it instead of the whole formatted conversation, which other paths still receive. Test:
 `SessionTurnsGiveRagTheLatestMessageAndTheHistory`.
+
+## Addendum (October 27, 2026): RAG requests use the normal generation path (TD-486)
+
+With RAG enabled, `generate_response()` replaces its input with `rag_engine_->buildPrompt(...)` and continues as for any request:
+the request's strategy and `GenerationConfig`, reloaded settings, speculative decoding, the TD-038 engines and the GPU decode. Tests:
+`RagHonoursTheRequestStrategyAndConfig`, `RagRequestsTakeTheGpuDecode` (GPU builds).

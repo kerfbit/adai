@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.23.0
+// @adai-version: 0.24.0
 // @adai-reviewed: 2026-10-27
 
 #include "ChatbotAPI.hpp"
@@ -890,15 +890,13 @@ void ChatbotAPI::enable_integrated_inference(const IntegratedInferenceConfig& co
 // Text Generation
 // ============================================================================
 
-std::string ChatbotAPI::generate_response(const std::string& input, const GenerationConfig& config,
-                                          const RagTurn* rag_turn) {
+std::string ChatbotAPI::generate_response(const std::string& request_input,
+                                          const GenerationConfig& config, const RagTurn* rag_turn) {
     // TD-038: always timed (start()/stop() are cheap map lookups next to actual model
     // inference) — enable_profiling()/GET /admin/profile gate exposure, not collection, so
     // stats are already warm the moment profiling is turned on rather than starting from zero.
     PROFILE_SCOPE(profiler_, "generate_response");
 
-    // TODO: See TD-486 in TECHNICAL_DEBT.md - the RAG branch ignores `config` (strategy, reloaded values) and
-    // skips the GPU path below.
     // Route through RAG engine when enabled
     // TD-230: copy the engine under config_mutex_ and generate after releasing it. Generation used to
     // run under the lock, so every request waited at its config copy behind it. DocumentStore and
@@ -908,9 +906,13 @@ std::string ChatbotAPI::generate_response(const std::string& input, const Genera
         std::lock_guard<std::mutex> lock(config_mutex_);
         rag_engine = rag_engine_;
     }
+    // TD-486: RAG builds the prompt and generation continues below like any other request, with this
+    // request's strategy and config, reloaded settings, and the GPU decode. RAG used to generate
+    // itself: always the default sampling, its startup copy of the settings, and on the CPU.
+    std::string input = request_input;
     if (rag_engine) {
-        return rag_turn ? rag_engine->generate(rag_turn->question, rag_turn->history)
-                        : rag_engine->generate(input);
+        input = rag_turn ? rag_engine->buildPrompt(rag_turn->question, rag_turn->history)
+                         : rag_engine->buildPrompt(request_input);
     }
 
     try {

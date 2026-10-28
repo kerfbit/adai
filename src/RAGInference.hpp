@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.3.0
+// @adai-version: 2.0.0
 // @adai-reviewed: 2026-10-27
 
 
@@ -125,14 +125,32 @@ class RAGInference {
      * Retrieves relevant documents and generates a response
      * conditioned on both the query and retrieved context.
      *
-     * Virtual so tests can stand in a controllable engine (TD-230).
+     * Standalone generation on the CPU with RAGConfig::gen_config; chatbot_api_server uses
+     * buildPrompt() instead (TD-486).
      *
      * @param query User query/question; the only text retrieval uses (TD-485)
      * @param history The earlier conversation, if any (a /chat/session turn), placed between the
      *        context and the question within the token budget (TD-485)
      * @return std::string Generated response
      */
-    virtual std::string generate(const std::string& query, const std::string& history = {});
+    std::string generate(const std::string& query, const std::string& history = {});
+
+    /**
+     * @brief Retrieve and build the augmented prompt, without generating (TD-486)
+     *
+     * ChatbotAPI generates from this prompt through its own path, so the request's strategy and
+     * generation config, reloaded settings and the GPU decode apply to RAG too. Virtual so tests can
+     * stand in a controllable engine.
+     *
+     * @param query The question; the only text retrieval uses (TD-485)
+     * @param history The earlier conversation, if any (TD-485)
+     */
+    virtual std::string buildPrompt(const std::string& query, const std::string& history = {});
+
+    /// buildPrompt(), also reporting the retrieved documents.
+    std::string buildPrompt(const std::string& query,
+                            std::vector<std::pair<float, const Document*>>& retrieved_docs,
+                            const std::string& history);
 
     /**
      * @brief Generate response with detailed retrieval info

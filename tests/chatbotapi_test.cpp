@@ -1804,16 +1804,16 @@ int main(int argc, char** argv) {
 // ============================================================================
 
 namespace {
-// A RAG engine whose generate() blocks until released, standing in for a slow retrieval + generation.
+// A RAG engine whose buildPrompt() blocks until released, standing in for a slow retrieval.
 class BlockingRAG : public RAGInference {
    public:
     using RAGInference::RAGInference;
-    std::string generate(const std::string&, const std::string&) override {
+    std::string buildPrompt(const std::string&, const std::string&) override {
         std::unique_lock<std::mutex> lock(m);
         entered = true;
         cv.notify_all();
         cv.wait(lock, [this] { return released; });
-        return "rag answer";
+        return "hello world";
     }
     void wait_entered() {
         std::unique_lock<std::mutex> lock(m);
@@ -1852,7 +1852,7 @@ TEST_F(ChatbotAPITest, SlowRagGenerationDoesNotBlockConfigChanges) {
     rag->release();
     EXPECT_EQ(status, std::future_status::ready)
         << "set_generation_config() waited for the RAG generation";
-    EXPECT_EQ(answer.get(), "rag answer");
+    EXPECT_NO_THROW(answer.get());
     set.get();
 }
 
@@ -1938,16 +1938,19 @@ TEST_F(ChatbotAPITest, SessionCapEvictsTheLeastRecentlyUsed) {
 // ============================================================================
 
 namespace {
-// Answers every query with "rag:" + the query, so a test sees which inputs went through RAG and in what order.
+// Records every query and history, so a test sees which inputs went through RAG and in what order;
+// the prompt it returns is the query (TD-486: ChatbotAPI generates from it).
 class EchoRAG : public RAGInference {
    public:
     using RAGInference::RAGInference;
-    std::string generate(const std::string& query, const std::string& history) override {
+    std::string buildPrompt(const std::string& query, const std::string& history) override {
         ++calls;
         std::lock_guard<std::mutex> lock(m);
+        queries.push_back(query);
         histories.push_back(history);
-        return "rag:" + query;
+        return query;
     }
+    std::vector<std::string> queries;
     std::atomic<int> calls{0};
     std::mutex m;
     std::vector<std::string> histories;
@@ -1963,8 +1966,8 @@ TEST_F(ChatbotAPITest, BatchEndpointsGoThroughTheConfiguredRagEngine) {
     const auto batch = nlohmann::json::parse(
         call_handle_batch_chat(R"({"messages":["first","second question","3"]})"));
     ASSERT_TRUE(batch.value("success", false)) << batch.dump();
-    EXPECT_EQ(batch["responses"],
-              nlohmann::json::array({"rag:first", "rag:second question", "rag:3"}));
+    EXPECT_EQ(batch["responses"].size(), 3u);
+    EXPECT_EQ(rag->queries, (std::vector<std::string>{"first", "second question", "3"}));
     EXPECT_EQ(rag->calls.load(), 3);
 
     // Batch-session generates from each session's formatted conversation.
@@ -1972,10 +1975,9 @@ TEST_F(ChatbotAPITest, BatchEndpointsGoThroughTheConfiguredRagEngine) {
     const auto with_sessions = api->generate_batch_session_responses({"hello", "there"}, {"", ""}, config);
     ASSERT_TRUE(with_sessions.success) << with_sessions.error;
     ASSERT_EQ(with_sessions.responses.size(), 2u);
-    EXPECT_EQ(with_sessions.responses[0].rfind("rag:", 0), 0u);
-    EXPECT_NE(with_sessions.responses[0].find("hello"), std::string::npos);
-    EXPECT_NE(with_sessions.responses[1].find("there"), std::string::npos);
     EXPECT_EQ(rag->calls.load(), 5);
+    EXPECT_EQ(rag->queries[3], "hello");
+    EXPECT_EQ(rag->queries[4], "there");
 }
 
 // ============================================================================
@@ -2023,7 +2025,7 @@ namespace {
 class ThrowingRAG : public RAGInference {
    public:
     using RAGInference::RAGInference;
-    std::string generate(const std::string&, const std::string&) override { throw std::runtime_error("generation broke"); }
+    std::string buildPrompt(const std::string&, const std::string&) override { throw std::runtime_error("generation broke"); }
 };
 }  // namespace
 
@@ -2090,7 +2092,7 @@ int free_local_port() {
 class LeakyRAG : public RAGInference {
    public:
     using RAGInference::RAGInference;
-    std::string generate(const std::string&, const std::string&) override {
+    std::string buildPrompt(const std::string&, const std::string&) override {
         throw std::runtime_error("cannot open /srv/adai/secret_model.bin");
     }
 };
@@ -2151,11 +2153,68 @@ TEST_F(ChatbotAPITest, SessionTurnsGiveRagTheLatestMessageAndTheHistory) {
     const auto reply = nlohmann::json::parse(
         call_handle_chat_session(R"({"session_id":")" + sid + R"(","message":"second question"})"));
     // The query used to be the whole formatted conversation ("User: first question\n...").
-    EXPECT_EQ(reply.value("response", ""), "rag:second question");
-    ASSERT_EQ(rag->histories.size(), 2u);
+    ASSERT_TRUE(reply.value("success", false)) << reply.dump();
+    ASSERT_EQ(rag->queries.size(), 2u);
+    EXPECT_EQ(rag->queries[1], "second question");
     EXPECT_EQ(rag->histories[0], "") << "a first turn has no earlier conversation";
     EXPECT_NE(rag->histories[1].find("User: first question"), std::string::npos) << rag->histories[1];
-    EXPECT_NE(rag->histories[1].find("Assistant: rag:first question"), std::string::npos);
+    EXPECT_NE(rag->histories[1].find("Assistant: "), std::string::npos);
     EXPECT_EQ(rag->histories[1].find("second question"), std::string::npos)
         << "the latest message is the question, not part of the history";
 }
+
+// ============================================================================
+// TD-486: RAG requests generate through ChatbotAPI's own path
+// ============================================================================
+
+namespace {
+class FixedPromptRAG : public RAGInference {
+   public:
+    using RAGInference::RAGInference;
+    std::string buildPrompt(const std::string&, const std::string&) override { return "hello world"; }
+};
+}  // namespace
+
+TEST_F(ChatbotAPITest, RagHonoursTheRequestStrategyAndConfig) {
+    std::shared_ptr<EncoderDecoderModel> shared_model(model.get(), [](EncoderDecoderModel*) {});
+    auto rag = std::make_shared<FixedPromptRAG>(shared_model,
+                                                std::make_shared<DocumentStore>(model->copy_encoder()));
+    ChatbotAPI::GenerationConfig greedy;
+    greedy.strategy = "greedy";
+    greedy.max_length = 6;
+
+    // Without RAG, greedy generation from the prompt RAG would build.
+    const std::string expected = call_generate_response("hello world", greedy);
+
+    // RAG used to generate itself with its own startup settings and the default sampling, so its
+    // greedy answers varied run to run and ignored max_length.
+    api->enableRAG(rag);
+    for (int i = 0; i < 3; ++i) EXPECT_EQ(call_generate_response("anything", greedy), expected);
+
+    // A changed config (as a SIGHUP reload makes) reaches RAG requests.
+    ChatbotAPI::GenerationConfig shorter = greedy;
+    shorter.max_length = 2;
+    api->enableRAG(nullptr);
+    const std::string expected_short = call_generate_response("hello world", shorter);
+    api->enableRAG(rag);
+    EXPECT_EQ(call_generate_response("anything", shorter), expected_short);
+}
+
+#ifdef ADAI_ENABLE_GPU
+// TD-486: on a GPU server a RAG request takes the GPU decode like any other (it used to generate on
+// the CPU inside RAGInference). Greedy through RAG equals greedy from the same prompt without it.
+TEST_F(ChatbotAPITest, RagRequestsTakeTheGpuDecode) {
+    if (!adai::gpu::GPUManager::is_available() && !adai::gpu::GPUManager::initialize()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    std::shared_ptr<EncoderDecoderModel> shared_model(model.get(), [](EncoderDecoderModel*) {});
+    auto rag = std::make_shared<FixedPromptRAG>(shared_model,
+                                                std::make_shared<DocumentStore>(model->copy_encoder()));
+    ChatbotAPI::GenerationConfig greedy;
+    greedy.strategy = "greedy";
+    greedy.max_length = 6;
+    const std::string expected = call_generate_response("hello world", greedy);
+    api->enableRAG(rag);
+    EXPECT_EQ(call_generate_response("anything", greedy), expected);
+}
+#endif  // ADAI_ENABLE_GPU
