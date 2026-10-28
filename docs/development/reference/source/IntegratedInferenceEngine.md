@@ -1,10 +1,19 @@
-# `IntegratedInferenceEngine` — Source File Reference
+# `IntegratedInferenceEngine` — Source File Reference (Retired)
 
-- **File:** [`src/IntegratedInferenceEngine.hpp`](../../../../src/IntegratedInferenceEngine.hpp) (header-only, 780 lines)
+> **Retired October 27, 2026 (owner decision on TD-417–TD-420).** `src/IntegratedInferenceEngine.hpp`,
+> `tests/integratedinferenceengine_test.cpp`, `benchmarks/IntegratedBenchmark.cpp` (`integrated_benchmark`),
+> `ChatbotAPI::enable_integrated_inference()` and `chatbot_api_server --integrated-inference` were removed; the flag now exits 1
+> with a message saying so. The engine batched nothing through the model, answered differently from `/chat`, could take the
+> server down, and ran the model without its mutex. TD-417–TD-420 are closed in
+> [TECHNICAL_DEBT_RESOLVED.md](../../archive/TECHNICAL_DEBT_RESOLVED.md); real batching is planned in
+> [real_batching_v2_plan.md](../../../proposals/real_batching_v2_plan.md). Last version:
+> `git show 0f7cf0b:src/IntegratedInferenceEngine.hpp`. The sections below describe the code as it was.
+
+- **File:** `src/IntegratedInferenceEngine.hpp` (removed), header-only, 780 lines
 - **Namespace:** global (`IntegratedInferenceConfig`, `IntegratedInferenceStats`, `IntegratedRequest`, `IntegratedBatch`, `IntegratedEncoderOutput`, `IntegratedInferenceEngine`, alias `StandardIntegratedEngine`)
 - **Built into:** header-only; used by `ChatbotAPI` (`enable_integrated_inference()`), enabled by `chatbot_api_server --integrated-inference`
 - **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.2`, `@adai-reviewed: 2026-09-12`
-- **Tests:** [`tests/integratedinferenceengine_test.cpp`](../../../../tests/integratedinferenceengine_test.cpp) (50 tests)
+- **Tests:** `tests/integratedinferenceengine_test.cpp` (removed; 50 tests)
 - **Related:** [BatchedInferenceEngine.md](BatchedInferenceEngine.md) (its `ThreadSafeQueue`; the TD-211–TD-214 batching findings apply here too), `PipelineInferenceEngine.hpp`, [PARALLEL_OPTIMIZATIONS_QUICK_REFERENCE.md](../../guides/quick-reference/PARALLEL_OPTIMIZATIONS_QUICK_REFERENCE.md)
 - **Last traced against the code:** 2026-10-13
 
@@ -122,9 +131,9 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| No model batching despite the "27.80×/50–100×/Production Ready" claims; per-request encode and decode, decoding without KV cache (§1) | Throughput claims don't hold; latency per request is worse than the plain path | By inspection | [TD-420](../../guides/TECHNICAL_DEBT.md#td-420-integratedinferenceengine-claims-dead-config-and-fictional-stats) |
-| Generation always greedy, ignores strategy and sampling settings; special tokens added to encoder input; no masking/repetition/memory; `max_length` unbounded by `max_seq_length` (§3) | `--integrated-inference` gives different answers from normal `/chat` | **Verified** (strategy ignored; 3/3 outputs differ) | [TD-417](../../guides/TECHNICAL_DEBT.md#td-417---integrated-inference-answers-differ-from-normal-chat) |
-| Encoder/decoder-stage exceptions escape worker threads → `std::terminate()`; shutdown drops queued requests (broken promises) (§2, §4) | One bad request can crash `chatbot_api_server`; requests in flight at shutdown error out | **Verified** (shutdown); by inspection (terminate) | [TD-418](../../guides/TECHNICAL_DEBT.md#td-418-integratedinferenceengine-worker-exceptions-terminate-the-server-shutdown-drops-requests) |
-| Uses the model's components without `model_mutex_` while `/chat/batch` uses them under it (§4) | Concurrent forward passes race on shared layer caches | By inspection | [TD-419](../../guides/TECHNICAL_DEBT.md#td-419-integratedinferenceengine-uses-the-model-without-its-mutex) |
-| Dead config fields and stats; process-wide `omp_set_num_threads()`; blocking `submit()` when the queue is full; unused `prepare_encoder_inputs()` (§2, §4) | Misleading configuration and statistics | By inspection | [TD-420](../../guides/TECHNICAL_DEBT.md#td-420-integratedinferenceengine-claims-dead-config-and-fictional-stats) |
+| No model batching despite the "27.80×/50–100×/Production Ready" claims; per-request encode and decode, decoding without KV cache (§1) | Throughput claims don't hold; latency per request is worse than the plain path | By inspection | [TD-420](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-420-integratedinferenceengine-claims-dead-config-and-fictional-stats) |
+| Generation always greedy, ignores strategy and sampling settings; special tokens added to encoder input; no masking/repetition/memory; `max_length` unbounded by `max_seq_length` (§3) | `--integrated-inference` gives different answers from normal `/chat` | **Verified** (strategy ignored; 3/3 outputs differ) | [TD-417](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-417---integrated-inference-answers-differ-from-normal-chat) |
+| Encoder/decoder-stage exceptions escape worker threads → `std::terminate()`; shutdown drops queued requests (broken promises) (§2, §4) | One bad request can crash `chatbot_api_server`; requests in flight at shutdown error out | **Verified** (shutdown); by inspection (terminate) | [TD-418](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-418-integratedinferenceengine-worker-exceptions-terminate-the-server-shutdown-drops-requests) |
+| Uses the model's components without `model_mutex_` while `/chat/batch` uses them under it (§4) | Concurrent forward passes race on shared layer caches | By inspection | [TD-419](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-419-integratedinferenceengine-uses-the-model-without-its-mutex) |
+| Dead config fields and stats; process-wide `omp_set_num_threads()`; blocking `submit()` when the queue is full; unused `prepare_encoder_inputs()` (§2, §4) | Misleading configuration and statistics | By inspection | [TD-420](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-420-integratedinferenceengine-claims-dead-config-and-fictional-stats) |
 | No real batching (TD-171), batched-mode strategy/stats problems | Already tracked for `BatchedInferenceEngine` | — | TD-211, TD-213, TD-214 |

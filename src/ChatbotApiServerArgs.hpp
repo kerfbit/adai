@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.5.0
-// @adai-reviewed: 2026-09-12
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-10-27
 
 // TD-035: chatbot_api_server's argv parsing and required-config validation, pulled out of
 // ChatbotAPIServer.cpp so it's testable without loading a real tokenizer/model or starting a
@@ -42,13 +42,9 @@ struct ChatbotApiServerArgsResult {
     // same place --vocab itself is), since enable_pipeline_inference() needs an actual file to
     // reload into the model's encoder-internal tokenizer.
     bool pipeline_inference = false;
-    // TD-038: enables ChatbotAPI::enable_integrated_inference() — same "runtime toggle on the
-    // result" reasoning as the two flags above. At most one of batched_inference/
-    // pipeline_inference/integrated_inference should be set; ChatbotAPIServer.cpp only ever
-    // enables one, matching ChatbotAPI::generate_response()'s "first one wins" precedence.
-    // TODO: See TD-243 in TECHNICAL_DEBT.md - not true: the parser accepts several and main() enables
-    // every one passed; reject more than one here.
-    bool integrated_inference = false;
+    // TODO: See TD-243 in TECHNICAL_DEBT.md - batched_inference and pipeline_inference can both be set,
+    // and main() enables both; reject more than one here. (--integrated-inference was a third such
+    // flag; it was removed with IntegratedInferenceEngine, TD-417–TD-420.)
 };
 
 // Second pass: applies every flag except --config (already consumed) onto an already-loaded

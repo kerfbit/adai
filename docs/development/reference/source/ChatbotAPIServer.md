@@ -52,7 +52,7 @@ something other than what the operator asked for (§9).
  8. World model (if WORLD_MODEL_ENABLED and its checkpoint dir exists): LeJEPAEncoder, frozen
              ─► hippocampal memory (if enabled): restore <MODEL_PATH>.hippocampal(.assoc)
  9. [3/4] ChatbotAPI(model, tokenizer, port, timeout, draft, K)
-             ─► --profile / --batched-inference / --pipeline-inference / --integrated-inference
+             ─► --profile / --batched-inference / --pipeline-inference (--integrated-inference: removed Oct 27, 2026)
              ─► set_generation_config(max_gen_length, temperature, top_p, strategy)
 10. RAG (if RAG_ENABLED): new LLMEncoder + DocumentStore over RAG_DOCS_PATH/*.txt ─► enableRAG()
 11. Signals: SIGINT/SIGTERM → shutdown flag; SIGHUP → reload flag

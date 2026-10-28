@@ -2,7 +2,7 @@
 
 - **Files:** [`src/encoder.hpp`](../../../../src/encoder.hpp) (declaration), [`src/LLMEncoder.cpp`](../../../../src/LLMEncoder.cpp) (implementation)
 - **Namespace:** global (no namespace)
-- **Built into:** `adai_transformer`; used by `EncoderDecoderModel` (the chatbot's encoder), `DocumentStore` (the RAG retrieval encoder), `PipelineInferenceEngine` and `IntegratedInferenceEngine`
+- **Built into:** `adai_transformer`; used by `EncoderDecoderModel` (the chatbot's encoder), `DocumentStore` (the RAG retrieval encoder), `PipelineInferenceEngine` (and, until its retirement on October 27, 2026, `IntegratedInferenceEngine`)
 - **Status tag:** `@adai-status: stable`, `LLMEncoder.cpp` `@adai-version: 1.1.0`, `@adai-reviewed: 2026-10-18`; `encoder.hpp` `1.0.1`, `2026-09-10`
 - **Tests:** [`tests/llmencoder_test.cpp`](../../../../tests/llmencoder_test.cpp) → `llmencoderTests` (37 tests)
 - **Last traced against the code:** 2026-10-19
@@ -137,7 +137,7 @@ mask, so the two are equivalent.
 | `ChatbotAPIServer.cpp` | Builds the RAG encoder and calls `load_tokenizer_vocab()`; never loads weights (TD-247) |
 | `ChatbotAPI::enable_pipeline_inference()` | `load_tokenizer_vocab()` on the chat encoder |
 | `PipelineInferenceEngine` | `encode(text)` in its encoder stage |
-| `IntegratedInferenceEngine` | `encode_with_mask()` with its own tokenizer |
+| `IntegratedInferenceEngine` (retired October 27, 2026) | `encode_with_mask()` with its own tokenizer |
 
 `LeJEPAEncoder` (the world model) is a separate class with a similar shape; it doesn't use
 `LLMEncoder`.

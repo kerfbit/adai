@@ -290,7 +290,7 @@ These build `{"success":true,"response":…}`, `{"success":false,"error":…}`, 
 | `enable_profiling(bool)` | Gates `GET /admin/profile`. Timing is always collected; this only controls exposure |
 | `enable_batched_inference(cfg)` | Creates the `BatchedInferenceEngine` with a placeholder default `model_fn` that throws if ever used, and a non-owning `shared_ptr` to `tokenizer_` |
 | `enable_pipeline_inference(vocab_path, cfg)` | Loads `vocab_path` into the **encoder's private tokenizer**, then creates the `StandardPipelineEngine`. Throws on a bad vocab; the server catches that and disables the mode, but a mid-parse failure can leave the encoder's tokenizer gutted (TD-223) |
-| `enable_integrated_inference(cfg)` | Creates the `IntegratedInferenceEngine` with `tokenizer_` |
+| `enable_integrated_inference(cfg)` | Removed October 27, 2026 with `IntegratedInferenceEngine` (TD-417–TD-420) |
 
 At most one of the three engine modes should be enabled; if several are, path order (§5) decides
 silently. `chatbot_api_server` only ever enables one.

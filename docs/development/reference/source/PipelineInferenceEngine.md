@@ -2,10 +2,10 @@
 
 - **File:** [`src/PipelineInferenceEngine.hpp`](../../../../src/PipelineInferenceEngine.hpp) (header-only, 551 lines)
 - **Namespace:** global (`ThreadSafeQueue<T>`, `PipelineRequest`, `EncoderOutput`, `PipelineConfig`, `PipelineStats`, `PipelineInferenceEngine<…>`, `StandardPipelineEngine`)
-- **Used by:** `ChatbotAPI` when `chatbot_api_server` runs with `--pipeline-inference` (`enable_pipeline_inference()`); `IntegratedInferenceEngine.hpp` includes it for `ThreadSafeQueue`
+- **Used by:** `ChatbotAPI` when `chatbot_api_server` runs with `--pipeline-inference` (`enable_pipeline_inference()`); `IntegratedInferenceEngine.hpp` included it for `ThreadSafeQueue` until its retirement (October 27, 2026)
 - **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0`, `@adai-reviewed: 2026-09-12`
 - **Tests:** [`tests/pipelineinferenceengine_test.cpp`](../../../../tests/pipelineinferenceengine_test.cpp) (61 tests, against mock encoder/decoder/head/tokenizer); `benchmarks/PipelineBenchmark.cpp`
-- **Sibling:** [IntegratedInferenceEngine.md](IntegratedInferenceEngine.md) (TD-417–TD-420), which shares most of these patterns
+- **Sibling:** [IntegratedInferenceEngine.md](IntegratedInferenceEngine.md) (retired October 27, 2026; TD-417–TD-420), which shared most of these patterns
 - **Last traced against the code:** 2026-10-16
 
 > Code-traced reference. Behaviour marked **verified** was confirmed with scratch programs: the real engine over mock stages, and the real

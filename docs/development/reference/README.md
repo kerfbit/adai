@@ -42,7 +42,7 @@ This directory contains reference materials, technical specifications, and imple
   - [IncrementalTrainer](source/IncrementalTrainer.md) (`src/IncrementalTrainer.{hpp,cpp}`; session/checkpoint manager around `ChatbotTrainer` for every training pass)
   - [IncrementalTrainerArgs](source/IncrementalTrainerArgs.md) (`src/IncrementalTrainerArgs.{hpp,cpp}`; `incremental_trainer`/`trainer_service` global flag parser and helpers)
   - [IncrementalTrainingTool](source/IncrementalTrainingTool.md) (`src/IncrementalTrainingTool.cpp`; `incremental_trainer` main: commands, fork-to-background, LeJEPA pass)
-  - [IntegratedInferenceEngine](source/IntegratedInferenceEngine.md) (`src/IntegratedInferenceEngine.hpp`; `--integrated-inference` three-thread request pipeline)
+  - [IntegratedInferenceEngine](source/IntegratedInferenceEngine.md) (retired October 27, 2026; was `--integrated-inference`)
   - [KVCache](source/KVCache.md) (`src/KVCache.hpp`; CPU key/value cache for incremental decoding)
   - [LanguageModelHead](source/LanguageModelHead.md) (`src/LanguageModelHead.{hpp,cpp}`; output projection to vocabulary logits)
   - [LayerNorm](source/LayerNorm.md) (`src/LayerNorm.{hpp,cpp}`; per-token layer normalization)

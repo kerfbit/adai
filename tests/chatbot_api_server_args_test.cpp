@@ -207,21 +207,14 @@ TEST_F(ApplyChatbotApiServerArgsTest, PipelineInferenceFlagDefaultsFalseAndCanBe
     EXPECT_TRUE(r_on.pipeline_inference);
 }
 
-TEST_F(ApplyChatbotApiServerArgsTest, IntegratedInferenceFlagDefaultsFalseAndCanBeEnabled) {
-    // TD-038: --integrated-inference enables ChatbotAPI::enable_integrated_inference() — a
-    // runtime toggle on the result, not part of ServiceConfig, same reasoning as --profile above.
-    std::vector<std::string> raw_off = {"chatbot_api_server"};
-    auto argv_off = make_argv(raw_off);
-    auto r_off =
-        apply_chatbot_api_server_args(static_cast<int>(argv_off.size()), argv_off.data(), config);
-    EXPECT_FALSE(r_off.integrated_inference);
-
-    std::vector<std::string> raw_on = {"chatbot_api_server", "--integrated-inference"};
-    auto argv_on = make_argv(raw_on);
-    auto r_on =
-        apply_chatbot_api_server_args(static_cast<int>(argv_on.size()), argv_on.data(), config);
-    ASSERT_FALSE(r_on.error);
-    EXPECT_TRUE(r_on.integrated_inference);
+// TD-417–TD-420: --integrated-inference was removed with IntegratedInferenceEngine; it is refused with
+// a message that says so, not accepted and not reported as merely unknown.
+TEST_F(ApplyChatbotApiServerArgsTest, IntegratedInferenceFlagIsRefusedAsRemoved) {
+    std::vector<std::string> raw = {"chatbot_api_server", "--integrated-inference"};
+    auto argv = make_argv(raw);
+    auto r = apply_chatbot_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
+    EXPECT_TRUE(r.error);
+    EXPECT_NE(r.error_message.find("was removed"), std::string::npos) << r.error_message;
 }
 
 TEST_F(ApplyChatbotApiServerArgsTest, CliValueOverridesWhateverConfigAlreadyHad) {

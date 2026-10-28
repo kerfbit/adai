@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.6.0
-// @adai-reviewed: 2026-09-12
+// @adai-version: 0.7.0
+// @adai-reviewed: 2026-10-27
 
 #include "ChatbotApiServerArgs.hpp"
 #include <cstdlib>
@@ -76,7 +76,13 @@ ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
         } else if (arg == "--pipeline-inference") {
             result.pipeline_inference = true;
         } else if (arg == "--integrated-inference") {
-            result.integrated_inference = true;
+            // TD-417–TD-420: retired with IntegratedInferenceEngine, which batched nothing, answered
+            // differently from /chat, and could take the server down. Say so rather than "unknown".
+            result.error = true;
+            result.error_message =
+                "--integrated-inference was removed (October 27, 2026): the engine never batched requests and "
+                "answered differently from /chat; see docs/proposals/real_batching_v2_plan.md";
+            return result;
         } else {
             // TODO: See TD-245 in TECHNICAL_DEBT.md - a known flag missing its value (e.g. trailing --port)
             // lands here and is reported as "Unknown argument".

@@ -4,6 +4,137 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-420: `IntegratedInferenceEngine` Claims, Dead Config and Fictional Stats
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| October 27, 2026 | `src/IntegratedInferenceEngine.hpp` (removed) | Retirement of `IntegratedInferenceEngine` |
+
+Summary:
+Retired per the owner's decision (October 27, 2026). The engine batched nothing through the model, so instead of fixing TD-417–TD-419 it was deleted: `src/IntegratedInferenceEngine.hpp`, `tests/integratedinferenceengine_test.cpp` and its target, `benchmarks/IntegratedBenchmark.cpp` (`integrated_benchmark`), `ChatbotAPI::enable_integrated_inference()` and its three tests, and `chatbot_api_server --integrated-inference`, which now exits 1 with a message saying it was removed. Real batching is planned in real_batching_v2_plan.md. Filed October 13, 2026.
+
+Original description:
+Found while tracing `IntegratedInferenceEngine`, by inspection:
+- The header promises "all Priority 1–5 optimizations … Target: 50–100× improvement", and
+  `PARALLEL_OPTIMIZATIONS_QUICK_REFERENCE.md` lists it as "Production Ready, 5.5×+", but nothing is batched
+  through the model: one `encode_with_mask()` per request, one greedy decode per request (full recompute
+  each step, no KV cache). The only overlap is decoding one request while encoding the next (TD-211's gap).
+- `enable_pipeline`, `parallel_attention`, `max_tokens_per_batch` and `enable_stats` are never read;
+  `use_openmp` only gates a **process-wide** `omp_set_num_threads()`.
+- `avg_openmp_speedup`, `avg_attention_speedup`, `cumulative_speedup`, `avg_queue_depth` and
+  `requests_dropped` are never set; `pipeline_efficiency` is a formula, not a measurement; `avg_batch_size`
+  divides completed requests by batches formed.
+- `submit()` blocks when `max_queue_size` is reached; `prepare_encoder_inputs()` is unused.
+
+Action Items:
+
+- [ ] Correct the header and quick-reference claims (or retire the engine in favour of the v2 real-batching plan); remove the dead fields and stats or implement them; don't set OpenMP threads process-wide from a constructor.
+
+Location in code: `src/IntegratedInferenceEngine.hpp` (header banner, config, stats, constructor); tagged `TODO: See TD-420`.
+
+Files to Modify:
+
+- `src/IntegratedInferenceEngine.hpp`
+- `docs/development/guides/quick-reference/PARALLEL_OPTIMIZATIONS_QUICK_REFERENCE.md`
+
+---
+
+### TD-417: `--integrated-inference` Answers Differ From Normal `/chat`
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| October 27, 2026 | `src/IntegratedInferenceEngine.hpp` (removed) | Retirement of `IntegratedInferenceEngine` |
+
+Summary:
+Closed without a fix: the code was deleted when `src/IntegratedInferenceEngine.hpp` and `--integrated-inference` were retired (owner decision, October 27, 2026). Filed October 13, 2026.
+
+Original description:
+Found while tracing `IntegratedInferenceEngine` and verified against a small real model.
+`generate_from_encoder_output()` always picks the argmax; the request's `strategy` (passed through by
+`ChatbotAPI`) and its temperature/top-k/top-p/beam settings are never consulted: `submit(..., "top_k")`
+returned identical greedy output twice. The batcher tokenizes with `tokenizer_->encode(text)`, whose
+default adds `BOS`/`EOS` (the model's encoder is trained without them, TD-364). The loop also has no
+invalid-vocab masking, no repetition handling, no hippocampal/world-model inputs, and doesn't cap
+`max_length` at `max_seq_length` (TD-347). On a small untrained model, 3 of 3 prompts produced different
+text from `generate_response_with_strategy(…, "greedy", …)`. So `--integrated-inference` serves
+different answers than the normal `/chat` path, for reasons unrelated to performance.
+
+Action Items:
+
+- [ ] Generate through `EncoderDecoderModel`'s own strategy dispatch (or `TextGenerator` with the request's config) and tokenize with `encode(text, false)`, so every engine path produces the same answers as plain `/chat`.
+- [ ] Test: integrated vs. plain generation agree for the same request.
+
+Location in code: `src/IntegratedInferenceEngine.hpp` (`generate_from_encoder_output()`, batcher tokenization); tagged `TODO: See TD-417`.
+
+Files to Modify:
+
+- `src/IntegratedInferenceEngine.hpp`
+- `tests/integratedinferenceengine_test.cpp`
+
+---
+
+### TD-418: `IntegratedInferenceEngine` Worker Exceptions Terminate the Server; Shutdown Drops Requests
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| October 27, 2026 | `src/IntegratedInferenceEngine.hpp` (removed) | Retirement of `IntegratedInferenceEngine` |
+
+Summary:
+Closed without a fix: the code was deleted when `src/IntegratedInferenceEngine.hpp` and `--integrated-inference` were retired (owner decision, October 27, 2026). Filed October 13, 2026.
+
+Original description:
+Found while tracing `IntegratedInferenceEngine`; the shutdown part verified. The encoder thread calls
+`encode_with_mask()` and the decoder thread calls `forward_with_encoder()`/`lm_head_->forward()` with no
+`try`. Any exception (for example a token id outside the model's vocab when the tokenizer and model
+disagree) escapes the `std::thread` and calls `std::terminate()`, taking `chatbot_api_server` down, and
+the rest of the batch's promises are never fulfilled. `shutdown()` stops the queues and joins the
+threads without failing queued or in-flight requests: destroying an engine with three queued requests
+left all three futures throwing `std::future_error` (broken promise). Same class as TD-212 for
+`BatchedInferenceEngine`.
+
+Action Items:
+
+- [ ] Catch per request in the encoder and decoder stages and deliver the exception to that request's promise; on shutdown, drain the queues and fail pending promises with a clear "shutting down" error.
+
+Location in code: `src/IntegratedInferenceEngine.hpp` (`encoder_worker()`, `generate_from_encoder_output()`, `shutdown()`); tagged `TODO: See TD-418`.
+
+Files to Modify:
+
+- `src/IntegratedInferenceEngine.hpp`
+
+---
+
+### TD-419: `IntegratedInferenceEngine` Uses the Model Without Its Mutex
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| October 27, 2026 | `src/IntegratedInferenceEngine.hpp` (removed) | Retirement of `IntegratedInferenceEngine` |
+
+Summary:
+Closed without a fix: the code was deleted when `src/IntegratedInferenceEngine.hpp` and `--integrated-inference` were retired (owner decision, October 27, 2026). Filed October 13, 2026.
+
+Original description:
+Found while tracing `IntegratedInferenceEngine`, by inspection. The engine holds raw pointers to the
+model's encoder, decoder and LM head and runs them from its own encoder and decoder threads without
+`EncoderDecoderModel::model_mutex_`. `/chat/batch` bypasses the engine dispatcher (TD-234) and calls
+`model_->forward()`, which takes that mutex, so a batch request and an integrated `/chat` request can run
+the **same layer objects** at the same time, racing on their per-instance forward caches (the TD-156
+class of bug that `model_mutex_` exists to prevent).
+
+Action Items:
+
+- [ ] Have the engine take `model_mutex_` (via an accessor) around each encoder and decoder call, or route `/chat/batch` through the same engine (fixing TD-234 at the same time).
+
+Location in code: `src/IntegratedInferenceEngine.hpp` (constructor and worker calls); tagged `TODO: See TD-419`.
+
+Files to Modify:
+
+- `src/IntegratedInferenceEngine.hpp`
+- `src/EncoderDecoderModel.hpp`
+- `src/ChatbotAPI.cpp`
+
+---
+
 ### TD-355: `EfficientBatching` Is an Unused Duplicate of `BatchProcessor`
 
 | Resolution Date | Component | Resolved By |

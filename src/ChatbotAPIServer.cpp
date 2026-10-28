@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 2.2.3
+// @adai-version: 2.3.0
 // @adai-reviewed: 2026-10-27
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
@@ -124,9 +124,6 @@ void print_usage(const char* program_name) {
         << "  --pipeline-inference Route generation through a two-stage encoder/decoder\n"
            "                       worker-thread pipeline instead of running inline; always\n"
            "                       uses greedy decoding regardless of --strategy\n"
-        << "  --integrated-inference  Route generation through the combined batching +\n"
-           "                       pipeline + OpenMP engine; always uses greedy decoding\n"
-           "                       regardless of --strategy\n"
         << "  --help               Show this help message\n"
         << "\nEnvironment Variables:\n"
         << "  All configuration can be set via environment variables.\n"
@@ -605,15 +602,6 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // TD-038: --integrated-inference routes generate_response() through
-        // IntegratedInferenceEngine's combined batching+pipeline+OpenMP engine. Unlike pipeline
-        // inference, enable_integrated_inference() cannot fail (no vocab reload needed — it
-        // tokenizes via the same tokenizer already loaded above), so no try/catch is needed here.
-        if (cli.integrated_inference) {
-            api->enable_integrated_inference();
-            adai::Logger::info("  Integrated inference enabled");
-        }
-
         // Set generation configuration
         // TODO: See TD-244 in TECHNICAL_DEBT.md - config.top_k and config.beam_width are never copied here.
         ChatbotAPI::GenerationConfig gen_config;
@@ -742,9 +730,6 @@ int main(int argc, char* argv[]) {
         }
         if (pipeline_inference_enabled) {
             adai::Logger::info("  Pipeline inference: enabled");
-        }
-        if (cli.integrated_inference) {
-            adai::Logger::info("  Integrated inference: enabled");
         }
         // TODO: See TECHNICAL_DEBT.md Future Enhancement (Container and Deployment #2) - Add /metrics endpoint
         // Expose Prometheus metrics: request_count, request_duration, active_sessions, etc.

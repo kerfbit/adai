@@ -303,7 +303,7 @@ MEDIUM: the standalone pre-check reads the root pending list instead of the `<ki
 `train`/`status`/`history` abort without a vocab (TD-414, verified); the LeJEPA pass ignores segment
 ranges and strands claims after a crash (TD-415). One is LOW: command hygiene (TD-416).
 
-Also October 13, 2026: filed [TD-417](#td-417---integrated-inference-answers-differ-from-normal-chat) through [TD-420](#td-420-integratedinferenceengine-claims-dead-config-and-fictional-stats) from the code-traced
+Also October 13, 2026: filed [TD-417](../archive/TECHNICAL_DEBT_RESOLVED.md#td-417---integrated-inference-answers-differ-from-normal-chat) through [TD-420](../archive/TECHNICAL_DEBT_RESOLVED.md#td-420-integratedinferenceengine-claims-dead-config-and-fictional-stats) from the code-traced
 [IntegratedInferenceEngine.md](../reference/source/IntegratedInferenceEngine.md), run against a small
 real model. Three are MEDIUM: `--integrated-inference` ignores the request strategy (always greedy),
 adds special tokens to encoder input and skips the generator's masking/repetition handling, so answers
@@ -312,6 +312,12 @@ exception in the encoder/decoder worker threads terminates `chatbot_api_server`,
 queued requests with broken promises (TD-418, shutdown verified); and the engine drives the model
 without `model_mutex_` while `/chat/batch` uses it under the mutex (TD-419). One is LOW: unbatched
 despite "50–100×"/"Production Ready" claims, dead config and fictional stats (TD-420).
+
+October 27, 2026, per the owner's decision: **retired `IntegratedInferenceEngine`** rather than fixing it, since it batched
+nothing through the model. `src/IntegratedInferenceEngine.hpp`, its tests and target, `benchmarks/IntegratedBenchmark.cpp`,
+`ChatbotAPI::enable_integrated_inference()` and `chatbot_api_server --integrated-inference` (which now exits 1 saying it was
+removed) are gone. TD-417–TD-420 are in the resolved archive; [IntegratedInferenceEngine.md](../reference/source/IntegratedInferenceEngine.md)
+is kept as a retired reference. Real batching is planned in [real_batching_v2_plan.md](../../proposals/real_batching_v2_plan.md).
 
 Also October 13, 2026: filed [TD-421](#td-421-kvcacheappend-has-no-shape-checks) and [TD-422](#td-422-kvcache-copies-the-whole-cache-on-every-append) from the code-traced
 [KVCache.md](../reference/source/KVCache.md), which merges and replaces the old `kvcache.md`. One is
@@ -1335,6 +1341,8 @@ The generation and model math run is complete.
   GPU decode).
 - TD-487 (done in code: bad `RAG_NUM_DOCS`/`RAG_MAX_CONTEXT_LENGTH` refused at startup, retrieval logged, an emptying threshold
   warns). All of TD-484–TD-487 are now fixed in code.
+- TD-417–TD-420 (closed: owner chose to retire `IntegratedInferenceEngine` and `--integrated-inference`; moved to the
+  resolved archive).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -1817,10 +1825,11 @@ one-line "zero samples = failure" guard), then [TD-411](#td-411-resume-every-tra
 registry; if so, files marked trained since it went live may need re-queuing. [TD-414](#td-414-first-run-vocabulary-bootstrap-is-unreachable-from-the-cli) and
 [TD-413](#td-413-standalone-trainretrain-pre-check-reads-the-wrong-pending-pool) fix standalone first-run use; [TD-415](#td-415-lejepa-pass-ignores-segment-ranges-and-strands-claims-after-a-crash) with TD-404; [TD-416](#td-416-incremental_trainer-command-hygiene) is cleanup.
 
-**Tier 53 — Newly filed (October 13, 2026): `IntegratedInferenceEngine`.** Decide first whether to
+**Tier 53 — Done (October 27, 2026): `IntegratedInferenceEngine` retired** (owner decision); the rest of this tier is
+history. Decide first whether to
 keep `--integrated-inference` at all: it batches nothing (TD-211's gap), so v1.x could simply route
 `/chat` through the normal path and retire the engine with the v2 real-batching work. If kept, do
-[TD-418](#td-418-integratedinferenceengine-worker-exceptions-terminate-the-server-shutdown-drops-requests) and [TD-419](#td-419-integratedinferenceengine-uses-the-model-without-its-mutex) (small, prevent crashes and races), then [TD-417](#td-417---integrated-inference-answers-differ-from-normal-chat); [TD-420](#td-420-integratedinferenceengine-claims-dead-config-and-fictional-stats) is documentation.
+[TD-418](../archive/TECHNICAL_DEBT_RESOLVED.md#td-418-integratedinferenceengine-worker-exceptions-terminate-the-server-shutdown-drops-requests) and [TD-419](../archive/TECHNICAL_DEBT_RESOLVED.md#td-419-integratedinferenceengine-uses-the-model-without-its-mutex) (small, prevent crashes and races), then [TD-417](../archive/TECHNICAL_DEBT_RESOLVED.md#td-417---integrated-inference-answers-differ-from-normal-chat); [TD-420](../archive/TECHNICAL_DEBT_RESOLVED.md#td-420-integratedinferenceengine-claims-dead-config-and-fictional-stats) is documentation.
 
 **Tier 54 — Newly filed (October 13, 2026): `KVCache`.** [TD-422](#td-422-kvcache-copies-the-whole-cache-on-every-append): pre-allocate to `max_seq_length`
 like `GPUKVCache` and expose views, ideally together with TD-388 (the GPU cache's per-step copy) and
@@ -2241,10 +2250,6 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-414: First-Run Vocabulary Bootstrap Is Unreachable From the CLI](#td-414-first-run-vocabulary-bootstrap-is-unreachable-from-the-cli)
   - [TD-415: LeJEPA Pass Ignores Segment Ranges and Strands Claims After a Crash](#td-415-lejepa-pass-ignores-segment-ranges-and-strands-claims-after-a-crash)
   - [TD-416: `incremental_trainer` Command Hygiene](#td-416-incremental_trainer-command-hygiene)
-  - [TD-417: `--integrated-inference` Answers Differ From Normal `/chat`](#td-417---integrated-inference-answers-differ-from-normal-chat)
-  - [TD-418: `IntegratedInferenceEngine` Worker Exceptions Terminate the Server; Shutdown Drops Requests](#td-418-integratedinferenceengine-worker-exceptions-terminate-the-server-shutdown-drops-requests)
-  - [TD-419: `IntegratedInferenceEngine` Uses the Model Without Its Mutex](#td-419-integratedinferenceengine-uses-the-model-without-its-mutex)
-  - [TD-420: `IntegratedInferenceEngine` Claims, Dead Config and Fictional Stats](#td-420-integratedinferenceengine-claims-dead-config-and-fictional-stats)
   - [TD-421: `KVCache::append()` Has No Shape Checks](#td-421-kvcacheappend-has-no-shape-checks)
   - [TD-422: `KVCache` Copies the Whole Cache on Every Append](#td-422-kvcache-copies-the-whole-cache-on-every-append)
   - [TD-423: A Truncated `.lm_head` File Loads as All-`NaN` Logits](#td-423-a-truncated-lm_head-file-loads-as-all-nan-logits)
@@ -11327,124 +11332,9 @@ Files to Modify:
 
 ---
 
-### TD-417: `--integrated-inference` Answers Differ From Normal `/chat`
 
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / IntegratedInferenceEngine | October 13, 2026 | 2-4 hours |
 
-Description:
-Found while tracing `IntegratedInferenceEngine` and verified against a small real model.
-`generate_from_encoder_output()` always picks the argmax; the request's `strategy` (passed through by
-`ChatbotAPI`) and its temperature/top-k/top-p/beam settings are never consulted: `submit(..., "top_k")`
-returned identical greedy output twice. The batcher tokenizes with `tokenizer_->encode(text)`, whose
-default adds `BOS`/`EOS` (the model's encoder is trained without them, TD-364). The loop also has no
-invalid-vocab masking, no repetition handling, no hippocampal/world-model inputs, and doesn't cap
-`max_length` at `max_seq_length` (TD-347). On a small untrained model, 3 of 3 prompts produced different
-text from `generate_response_with_strategy(…, "greedy", …)`. So `--integrated-inference` serves
-different answers than the normal `/chat` path, for reasons unrelated to performance.
 
-Action Items:
-
-- [ ] Generate through `EncoderDecoderModel`'s own strategy dispatch (or `TextGenerator` with the request's config) and tokenize with `encode(text, false)`, so every engine path produces the same answers as plain `/chat`.
-- [ ] Test: integrated vs. plain generation agree for the same request.
-
-Location in code: `src/IntegratedInferenceEngine.hpp` (`generate_from_encoder_output()`, batcher tokenization); tagged `TODO: See TD-417`.
-
-Files to Modify:
-
-- `src/IntegratedInferenceEngine.hpp`
-- `tests/integratedinferenceengine_test.cpp`
-
----
-
-### TD-418: `IntegratedInferenceEngine` Worker Exceptions Terminate the Server; Shutdown Drops Requests
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / IntegratedInferenceEngine | October 13, 2026 | 1-2 hours |
-
-Description:
-Found while tracing `IntegratedInferenceEngine`; the shutdown part verified. The encoder thread calls
-`encode_with_mask()` and the decoder thread calls `forward_with_encoder()`/`lm_head_->forward()` with no
-`try`. Any exception (for example a token id outside the model's vocab when the tokenizer and model
-disagree) escapes the `std::thread` and calls `std::terminate()`, taking `chatbot_api_server` down, and
-the rest of the batch's promises are never fulfilled. `shutdown()` stops the queues and joins the
-threads without failing queued or in-flight requests: destroying an engine with three queued requests
-left all three futures throwing `std::future_error` (broken promise). Same class as TD-212 for
-`BatchedInferenceEngine`.
-
-Action Items:
-
-- [ ] Catch per request in the encoder and decoder stages and deliver the exception to that request's promise; on shutdown, drain the queues and fail pending promises with a clear "shutting down" error.
-
-Location in code: `src/IntegratedInferenceEngine.hpp` (`encoder_worker()`, `generate_from_encoder_output()`, `shutdown()`); tagged `TODO: See TD-418`.
-
-Files to Modify:
-
-- `src/IntegratedInferenceEngine.hpp`
-
----
-
-### TD-419: `IntegratedInferenceEngine` Uses the Model Without Its Mutex
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / IntegratedInferenceEngine | October 13, 2026 | 1-2 hours |
-
-Description:
-Found while tracing `IntegratedInferenceEngine`, by inspection. The engine holds raw pointers to the
-model's encoder, decoder and LM head and runs them from its own encoder and decoder threads without
-`EncoderDecoderModel::model_mutex_`. `/chat/batch` bypasses the engine dispatcher (TD-234) and calls
-`model_->forward()`, which takes that mutex, so a batch request and an integrated `/chat` request can run
-the **same layer objects** at the same time, racing on their per-instance forward caches (the TD-156
-class of bug that `model_mutex_` exists to prevent).
-
-Action Items:
-
-- [ ] Have the engine take `model_mutex_` (via an accessor) around each encoder and decoder call, or route `/chat/batch` through the same engine (fixing TD-234 at the same time).
-
-Location in code: `src/IntegratedInferenceEngine.hpp` (constructor and worker calls); tagged `TODO: See TD-419`.
-
-Files to Modify:
-
-- `src/IntegratedInferenceEngine.hpp`
-- `src/EncoderDecoderModel.hpp`
-- `src/ChatbotAPI.cpp`
-
----
-
-### TD-420: `IntegratedInferenceEngine` Claims, Dead Config and Fictional Stats
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Inference / IntegratedInferenceEngine | October 13, 2026 | 1-2 hours |
-
-Description:
-Found while tracing `IntegratedInferenceEngine`, by inspection:
-- The header promises "all Priority 1–5 optimizations … Target: 50–100× improvement", and
-  `PARALLEL_OPTIMIZATIONS_QUICK_REFERENCE.md` lists it as "Production Ready, 5.5×+", but nothing is batched
-  through the model: one `encode_with_mask()` per request, one greedy decode per request (full recompute
-  each step, no KV cache). The only overlap is decoding one request while encoding the next (TD-211's gap).
-- `enable_pipeline`, `parallel_attention`, `max_tokens_per_batch` and `enable_stats` are never read;
-  `use_openmp` only gates a **process-wide** `omp_set_num_threads()`.
-- `avg_openmp_speedup`, `avg_attention_speedup`, `cumulative_speedup`, `avg_queue_depth` and
-  `requests_dropped` are never set; `pipeline_efficiency` is a formula, not a measurement; `avg_batch_size`
-  divides completed requests by batches formed.
-- `submit()` blocks when `max_queue_size` is reached; `prepare_encoder_inputs()` is unused.
-
-Action Items:
-
-- [ ] Correct the header and quick-reference claims (or retire the engine in favour of the v2 real-batching plan); remove the dead fields and stats or implement them; don't set OpenMP threads process-wide from a constructor.
-
-Location in code: `src/IntegratedInferenceEngine.hpp` (header banner, config, stats, constructor); tagged `TODO: See TD-420`.
-
-Files to Modify:
-
-- `src/IntegratedInferenceEngine.hpp`
-- `docs/development/guides/quick-reference/PARALLEL_OPTIMIZATIONS_QUICK_REFERENCE.md`
-
----
 
 ### TD-421: `KVCache::append()` Has No Shape Checks
 
@@ -14006,6 +13896,10 @@ as the query. `DocumentStore::retrieve()` embeds it with `LLMEncoder::encode()`,
 conversation is longer than that, retrieval is chosen by the system message and the oldest turns, and the latest question doesn't take part. The same
 string then becomes the "Question:" after the context, compounding TD-484.
 
+**Correction (October 27, 2026):** this was written before TD-365, which made the encoder keep the **last** `max_seq_length` tokens.
+Since then the whole-conversation query does include the latest question, but mostly earlier turns, so retrieval still didn't follow
+the question; the fix below doesn't depend on which end is kept.
+
 Action Items:
 
 - [x] Pass the latest user message to RAG as the retrieval query, separately from the conversation history.
@@ -14018,7 +13912,8 @@ message (`format_for_model()`) and pass `ChatbotAPI::RagTurn{message, history}` 
 alone. `buildBudgetedPrompt(query, context, history)` builds context + history + question within `max_seq_length`: the question
 whole, the context within `max_context_length`, then as much of the history's end as fits (cut from the front at a UTF-8 boundary),
 so the oldest turns go first. Tests: `RetrievalUsesTheLatestQuestionInALongSession` (a 60-turn session about one document whose
-latest question is another; querying with the whole conversation, as before, retrieves the first, the fix the second),
+latest question is the other document's text; the fix retrieves that document with similarity 1, while the whole-conversation
+query used before scores it strictly lower; which document an untrained encoder then ranks first varies, so that isn't asserted),
 `HistoryKeepsItsLatestTurnsWithinTheBudget`, and `SessionTurnsGiveRagTheLatestMessageAndTheHistory` (the second turn's query is the
 message alone, the history holds the first turn). These tests exposed TD-222 (the tokenizer cache leaked between tokenizers at a reused address, so token counts depended on
 test order), fixed alongside; both new RAG tests also failed in the full binary on the old tokenizer.

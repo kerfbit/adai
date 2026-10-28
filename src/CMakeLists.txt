@@ -767,13 +767,6 @@ add_executable(pipeline_benchmark ../benchmarks/PipelineBenchmark.cpp)
 target_link_libraries(pipeline_benchmark adai_models adai_nlp adai_core pthread)
 message(STATUS "Building pipeline_benchmark")
 
-# Integrated Benchmark - Test all optimizations together (Priority 1-5 combined)
-add_executable(integrated_benchmark ../benchmarks/IntegratedBenchmark.cpp)
-target_link_libraries(integrated_benchmark adai_models adai_nlp adai_attention adai_core pthread)
-if(OpenMP_CXX_FOUND)
-    message(STATUS "Building integrated_benchmark with full parallelization (OpenMP + pthread)")
-endif()
-
 # Chatbot GUI - Qt-based graphical interface (optional)
 # BUILD_GUI option and Qt find_package are declared in the top-level CMakeLists.txt.
 if(BUILD_GUI)

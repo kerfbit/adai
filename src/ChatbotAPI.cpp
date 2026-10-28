@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.24.0
+// @adai-version: 0.25.0
 // @adai-reviewed: 2026-10-27
 
 #include "ChatbotAPI.hpp"
@@ -881,11 +881,6 @@ void ChatbotAPI::enable_pipeline_inference(const std::string& vocab_path,
         model_->get_encoder(), model_->get_decoder(), model_->get_lm_head(), tokenizer_, config);
 }
 
-void ChatbotAPI::enable_integrated_inference(const IntegratedInferenceConfig& config) {
-    integrated_engine_ = std::make_unique<IntegratedInferenceEngine>(
-        model_->get_encoder(), model_->get_decoder(), model_->get_lm_head(), tokenizer_, config);
-}
-
 // ============================================================================
 // Text Generation
 // ============================================================================
@@ -1005,18 +1000,6 @@ std::string ChatbotAPI::generate_response(const std::string& request_input,
         // TODO: See TD-474 in TECHNICAL_DEBT.md - runs the model without model_mutex_ while /chat/batch holds it
         if (pipeline_engine_) {
             auto future = pipeline_engine_->submit(input, static_cast<int>(config.max_length));
-            return future.get();
-        }
-
-        // TD-038: integrated inference — combines batching + pipeline + OpenMP + parallel
-        // attention into one engine (see enable_integrated_inference()'s doc comment). Like the
-        // pipeline path above, the real input text is passed directly; unlike it, no
-        // encoder-internal tokenizer reload is needed (this engine tokenizes via the same
-        // tokenizer_ this class already owns). config.strategy is passed through but never
-        // consulted by the engine's always-greedy generation loop.
-        if (integrated_engine_) {
-            auto future = integrated_engine_->submit(input, static_cast<int>(config.max_length),
-                                                      config.strategy);
             return future.get();
         }
 
