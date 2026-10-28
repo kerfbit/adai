@@ -1,11 +1,13 @@
 // @adai-status: stable
-// @adai-version: 1.1.1
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-10-27
 
 // TODO: See TD-225 in TECHNICAL_DEBT.md - std::cout/std::cerr are used throughout this file instead of
 // adai::Logger (progress output, warnings, save/load summaries).
 
 #include "BPETokenizer.hpp"
+#include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -28,9 +30,15 @@ static const char* UNICODE_PATTERN =
 // Constructor
 // ============================================================================
 
+std::uint64_t BPETokenizer::new_cache_key() {
+    static std::atomic<std::uint64_t> next{1};
+    return next.fetch_add(1, std::memory_order_relaxed);
+}
+
 BPETokenizer::BPETokenizer(TokenizerMode mode_)
     : mode(mode_),
-      token_pattern(mode_ == TokenizerMode::UNICODE ? UNICODE_PATTERN : ASCII_PATTERN) {
+      token_pattern(mode_ == TokenizerMode::UNICODE ? UNICODE_PATTERN : ASCII_PATTERN),
+      cache_key_(new_cache_key()) {
     vocab["<pad>"] = pad_token_id;
     vocab["<unk>"] = unk_token_id;
     vocab["<bos>"] = bos_token_id;
@@ -212,6 +220,7 @@ void BPETokenizer::build_bpe_merges(const std::vector<std::string>& texts, int n
         }
 
         bpe_merges.push_back(best_pair);
+        cache_key_ = new_cache_key();  // TD-222: the merges changed
 
         std::string merged = best_pair.first + best_pair.second;
         int new_id = static_cast<int>(vocab.size());
@@ -367,30 +376,36 @@ std::vector<std::string> BPETokenizer::apply_bpe(const std::string& word) {
         return {};
     }
 
-    // Per-thread memoization, keyed by (tokenizer instance, word). Natural
-    // text is extremely word-repetitive (Zipf's law — "the"/"a"/"and"/etc.
-    // dominate real-world token counts), and without this every occurrence
-    // reran the full O(bpe_merges.size()) merge scan below from scratch —
-    // this dominated preprocessing time on real text (worse still under
-    // ASAN, which instruments every one of the loop's vector allocations).
-    // thread_local avoids any synchronization: preprocess_data() already
-    // calls tokenize()/encode()/apply_bpe() concurrently from many OpenMP
-    // worker threads on one shared BPETokenizer instance, so a plain shared
-    // cache would race; a thread_local one needs none, at the cost of not
-    // sharing hits across threads. Safe only because bpe_merges is immutable
-    // for the lifetime of any concurrent tokenize() calls on a given
-    // instance — its only mutators (load_vocab(), train_bpe()) always run
-    // single-threaded, before parallel preprocessing ever starts.
+    // Per-thread memoization, keyed by (cache_key_, word). Natural text is extremely
+    // word-repetitive (Zipf's law), and without this every occurrence reran the full
+    // O(bpe_merges.size()) merge scan below from scratch, which dominated preprocessing time.
+    // thread_local avoids any synchronization: preprocess_data() calls tokenize()/encode()/
+    // apply_bpe() concurrently from many OpenMP worker threads on one shared BPETokenizer, so a
+    // shared cache would race. Safe because the merges don't change while encoding runs: their
+    // mutators (build_vocab()/build_bpe_merges()/load_vocab()) run single-threaded first.
     //
-    // TODO: See TD-222 in TECHNICAL_DEBT.md - this cache is never invalidated: load_vocab() leaves stale
-    // results, a new tokenizer at a reused address inherits them, and entries are never freed.
-    // (The comment above means build_vocab()/build_bpe_merges()/load_vocab(); there is no
-    // train_bpe().)
-    thread_local std::unordered_map<const BPETokenizer*,
-                                    std::unordered_map<std::string, std::vector<std::string>>>
-        tls_cache;
-    auto& cache = tls_cache[this];
-    if (auto it = cache.find(word); it != cache.end()) {
+    // TD-222: keyed by cache_key_, not the tokenizer's address, so a reload or a new tokenizer at a
+    // reused address starts empty instead of inheriting another state's results. Each thread keeps
+    // the caches of its last kCachedStates states (RAG alternates between two tokenizers) and drops
+    // a cache once it holds kMaxCachedWords words, so memory stays bounded.
+    constexpr std::size_t kCachedStates = 4;
+    constexpr std::size_t kMaxCachedWords = 1 << 16;
+    using WordCache = std::unordered_map<std::string, std::vector<std::string>>;
+    thread_local std::vector<std::pair<std::uint64_t, WordCache>> tls_caches;  // most recent last
+    WordCache* cache = nullptr;
+    for (auto it = tls_caches.begin(); it != tls_caches.end(); ++it) {
+        if (it->first == cache_key_) {
+            if (std::next(it) != tls_caches.end()) std::rotate(it, std::next(it), tls_caches.end());
+            cache = &tls_caches.back().second;
+            break;
+        }
+    }
+    if (!cache) {
+        if (tls_caches.size() >= kCachedStates) tls_caches.erase(tls_caches.begin());
+        tls_caches.emplace_back(cache_key_, WordCache{});
+        cache = &tls_caches.back().second;
+    }
+    if (auto it = cache->find(word); it != cache->end()) {
         return it->second;
     }
 
@@ -417,7 +432,8 @@ std::vector<std::string> BPETokenizer::apply_bpe(const std::string& word) {
         tokens = new_tokens;
     }
 
-    cache.emplace(word, tokens);
+    if (cache->size() >= kMaxCachedWords) cache->clear();
+    cache->emplace(word, tokens);
     return tokens;
 }
 
@@ -587,7 +603,7 @@ void BPETokenizer::load_vocab(const std::string& filename) {
 
     // TODO: See TD-223 in TECHNICAL_DEBT.md - tables are cleared before parsing, so any exception below
     // leaves the tokenizer gutted; parse into locals and swap on success.
-    // TODO: See TD-222 in TECHNICAL_DEBT.md - reloading doesn't invalidate apply_bpe()'s cache.
+    cache_key_ = new_cache_key();  // TD-222: results cached for the old merges no longer apply
     std::string line;
     vocab.clear();
     inverse_vocab.clear();
@@ -973,7 +989,8 @@ float BPETokenizer::measure_fertility(const std::vector<std::string>& texts,
         return 0.0f;
 
     // TODO: See TD-225 in TECHNICAL_DEBT.md - make encode() const and drop this full copy.
-    // TODO: See TD-222 in TECHNICAL_DEBT.md - each probe adds a never-freed apply_bpe() cache entry.
+    // TD-222: the probe has its own cache key; its per-thread cache is one of the few kept and is
+    // dropped as other tokenizers are used.
     // encode() is non-const (validates and mutates nothing, but the signature isn't marked const).
     // Use a shallow copy that shares our vocab/merge tables via the same header-constructed state.
     BPETokenizer probe(mode);

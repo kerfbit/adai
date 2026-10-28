@@ -475,3 +475,10 @@ frequency-threshold guidance (now tied to `recommend_vocab_size()`/`measure_fert
 **References:** Sennrich, Haddow & Birch, *Neural Machine Translation of Rare Words with Subword
 Units* (2016); Radford et al., *Language Models are Unsupervised Multitask Learners* (2019,
 GPT-2 pre-tokenizer).
+
+## Addendum (October 27, 2026): the BPE cache follows the merges (TD-222)
+
+`apply_bpe()`'s per-thread cache is keyed by `cache_key_`, a process-unique id renewed by `build_bpe_merges()` (so `build_vocab()`)
+and `load_vocab()`, instead of the tokenizer's address. A reloaded tokenizer, or a new one where a destroyed one lived, no longer
+encodes with another state's cached merges. Each thread keeps the 4 most recently used keys' caches, each cleared at 65,536 words.
+Tests: `BPETokenizerCacheTest`.

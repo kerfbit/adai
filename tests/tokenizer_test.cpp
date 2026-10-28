@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <fstream>
+#include <new>
 #include <random>
 #include <set>
 #include <sstream>
@@ -907,4 +908,68 @@ TEST_F(BPETokenizerTest, FailedSaveVocabLeavesExistingFileIntact) {
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+
+// ============================================================================
+// TD-222: apply_bpe()'s cache follows the tokenizer's current merges
+// ============================================================================
+
+namespace {
+std::string td222_vocab_path(const std::string& name) {
+    return "/tmp/adai_td222_" + std::to_string(::getpid()) + "_" + name + ".vocab";
+}
+}  // namespace
+
+TEST(BPETokenizerCacheTest, ReloadThenEncodeMatchesAFreshTokenizer) {
+    BPETokenizer big;
+    big.build_vocab({"abab abab abab abab ababab"}, 40);
+    const std::string big_path = td222_vocab_path("big");
+    big.save_vocab(big_path);
+
+    BPETokenizer tiny;
+    tiny.build_vocab({"xy"}, 8);  // no merges for "ab"
+    const std::string tiny_path = td222_vocab_path("tiny");
+    tiny.save_vocab(tiny_path);
+
+    BPETokenizer reloaded;
+    reloaded.load_vocab(big_path);
+    const auto with_merges = reloaded.encode("abab", false);
+    reloaded.load_vocab(tiny_path);  // the cache used to keep "abab"'s merged result
+
+    BPETokenizer fresh;
+    fresh.load_vocab(tiny_path);
+    EXPECT_EQ(reloaded.encode("abab", false), fresh.encode("abab", false));
+    EXPECT_NE(reloaded.encode("abab", false).size(), with_merges.size());
+    std::remove(big_path.c_str());
+    std::remove(tiny_path.c_str());
+}
+
+TEST(BPETokenizerCacheTest, ATokenizerAtAReusedAddressInheritsNothing) {
+    alignas(BPETokenizer) unsigned char storage[sizeof(BPETokenizer)];
+    auto* first = new (storage) BPETokenizer();
+    first->build_vocab({"abab abab abab abab"}, 40);
+    const auto merged = first->encode("abab", false);
+    first->~BPETokenizer();
+
+    auto* second = new (storage) BPETokenizer();  // same address
+    second->build_vocab({"xy"}, 8);
+    BPETokenizer reference;
+    reference.build_vocab({"xy"}, 8);
+    EXPECT_EQ(second->encode("abab", false), reference.encode("abab", false));
+    EXPECT_NE(second->encode("abab", false).size(), merged.size());
+    second->~BPETokenizer();
+}
+
+TEST(BPETokenizerCacheTest, AlternatingTokenizersKeepTheirOwnResults) {
+    BPETokenizer a;
+    a.build_vocab({"abab abab abab abab"}, 40);
+    BPETokenizer b;
+    b.build_vocab({"xy"}, 8);
+    const auto a_once = a.encode("abab", false);
+    const auto b_once = b.encode("abab", false);
+    ASSERT_NE(a_once.size(), b_once.size());
+    for (int i = 0; i < 20; ++i) {
+        EXPECT_EQ(a.encode("abab", false), a_once);
+        EXPECT_EQ(b.encode("abab", false), b_once);
+    }
 }

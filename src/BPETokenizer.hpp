@@ -2,8 +2,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-27
 
 
 #include <algorithm>
@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iostream>
 #include <queue>
+#include <cstdint>
 #include <regex>
 #include <sstream>
 #include <stdexcept>
@@ -88,6 +89,14 @@ class BPETokenizer {
 
     // Regex pattern for pre-tokenization (chosen at construction time based on mode)
     std::regex token_pattern;
+
+    // TD-222: identifies this tokenizer's merge state for apply_bpe()'s per-thread cache. Unique per
+    // process and never reused, and renewed by every change to the merges or the mode
+    // (build_bpe_merges(), so build_vocab(); load_vocab()), so a reloaded tokenizer, or a new one at a
+    // destroyed one's address, never sees another state's cached results. A copy shares the key
+    // until either side changes, since their merges are the same.
+    std::uint64_t cache_key_;
+    static std::uint64_t new_cache_key();
 
    public:
     /**
