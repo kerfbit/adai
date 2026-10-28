@@ -1557,9 +1557,12 @@ class ChatbotAPIEchoTest : public ChatbotAPITest {
 
     void SetUp() override {
         ChatbotAPITest::SetUp();
-        // Initialization isn't seeded (TD-368) and an occasional run doesn't converge in time, so a
-        // fresh model is tried before giving up.
-        for (int attempt = 0; attempt < 3 && !train_echo(); ++attempt) {
+        // Initialization isn't seeded (TD-368). With 300 epochs about 1 attempt in 4 stopped near
+        // loss 0.03, short of the target, and 3 failed attempts in a row failed the test about once
+        // per 100 fixtures; with 1000 (training stops early once it reaches the target) 40 of 40
+        // attempts converged, in 4 s on average. A fresh model is still tried before giving up.
+        bool trained = train_echo();
+        for (int attempt = 1; attempt < 3 && !trained; ++attempt) {
             model = std::make_unique<EncoderDecoderModel>(tokenizer->get_vocab_size(), 32, 1, 1, 2,
                                                           64, 128);
             model->get_tokenizer()->build_vocab(
@@ -1567,8 +1570,11 @@ class ChatbotAPIEchoTest : public ChatbotAPITest {
                  "test message for training"},
                 50);
             api = std::make_unique<ChatbotAPI>(model.get(), tokenizer.get(), 8080, 30);
+            trained = train_echo();
         }
-        ASSERT_LT(echo_loss(), kTrainedLoss) << "the echo model didn't train";
+        // This used to check whichever model the loop built last, which after three failed attempts
+        // was a fresh, untrained fourth one (hence the reported loss of about ln 50).
+        ASSERT_TRUE(trained) << "the echo model didn't train (loss " << echo_loss() << ")";
     }
 
     static constexpr float kTrainedLoss = 0.01f;
@@ -1578,7 +1584,7 @@ class ChatbotAPIEchoTest : public ChatbotAPITest {
     bool train_echo() {
         Optimizer optimizer(OptimizerType::ADAM, 0.01f);
         model->register_parameters(optimizer);
-        for (int epoch = 0; epoch < 300; ++epoch) {
+        for (int epoch = 0; epoch < 1000; ++epoch) {
             if (epoch % 50 == 0 && epoch >= 100) {
                 model->set_training(false);
                 if (echo_loss() < kTrainedLoss)
