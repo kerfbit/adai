@@ -461,3 +461,9 @@ describe the request. Test: `InternalErrorsAreLoggedNotSentToTheClient`.
 
 Console output in the constructor, `start()` and `stop()` goes through `adai::Logger`. `BatchRequest` (§1, declared and unused) is
 removed; request bodies are parsed straight from JSON. The handler comments no longer claim requests can set the generation config.
+
+## Addendum (October 27, 2026): RAG session turns (TD-485)
+
+For a session turn, `generate_response()` gets a `RagTurn{question, history}` (the new message and the conversation before it); the
+RAG branch uses it instead of the whole formatted conversation, which other paths still receive. Test:
+`SessionTurnsGiveRagTheLatestMessageAndTheHistory`.

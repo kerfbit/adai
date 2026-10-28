@@ -530,6 +530,27 @@ TEST_F(RAGInferenceTest, EmptyQueryHandling) {
         std::invalid_argument);  // TokenizerInputError inherits from invalid_argument
 }
 
+// TD-485: in a session longer than max_seq_length, retrieval follows the latest question.
+TEST_F(RAGInferenceTest, RetrievalUsesTheLatestQuestionInALongSession) {
+    const std::string doc_a = "python programming language data science";
+    const std::string doc_b = "deep neural network framework";
+    doc_store->addDocument("a", doc_a);
+    doc_store->addDocument("b", doc_b);
+    std::string history;
+    for (int i = 0; i < 60; ++i) history += "User: " + doc_a + "\nAssistant: " + doc_a + "\n";
+
+    // The old query, the whole conversation: the encoder sees only its first max_seq_length
+    // tokens, all from the oldest turns, so the latest question takes no part.
+    const auto old_hits = rag->retrieveOnly(history + "User: " + doc_b + "\n", 1);
+    ASSERT_EQ(old_hits.size(), 1u);
+    EXPECT_EQ(old_hits[0].second->id, "a");
+
+    std::vector<std::pair<float, const Document*>> hits;
+    rag->generateWithRetrieval(doc_b, hits, history);
+    ASSERT_FALSE(hits.empty());
+    EXPECT_EQ(hits[0].second->id, "b");
+}
+
 // ============================================================================
 // TD-484: the prompt is budgeted in real tokens
 // ============================================================================
@@ -555,6 +576,10 @@ class RAGInferencePromptBudgetTest : public ::testing::Test {
 
     std::string prompt(const std::string& query, const std::string& context) {
         return rag->buildBudgetedPrompt(query, context);
+    }
+    std::string prompt_with_history(const std::string& query, const std::string& context,
+                                    const std::string& history) {
+        return rag->buildBudgetedPrompt(query, context, history);
     }
     size_t tokens(const std::string& text) { return text.empty() ? 0 : tok->encode(text, false).size(); }
     RAGInference::RAGConfig& config() { return rag->config; }
@@ -632,4 +657,26 @@ TEST_F(RAGInferencePromptBudgetTest, NoRoomMeansTheQuestionAlone) {
     for (int i = 0; i < 60; ++i) long_query += "machine learning ";
     EXPECT_EQ(prompt(long_query, "python"), config().query_prefix + long_query)
         << "a question longer than max_seq_length gets no context";
+}
+
+// TD-485: context, then the end of the conversation, then the question, within max_seq_length.
+TEST_F(RAGInferencePromptBudgetTest, HistoryKeepsItsLatestTurnsWithinTheBudget) {
+    std::string history;
+    for (int i = 0; i < 30; ++i) history += "User: turn" + std::to_string(i) + " machine learning\n";
+    const std::string context = "python is a popular programming language for data science";
+    config().max_context_length = 12;
+
+    const std::string p = prompt_with_history("what is deep learning", context, history);
+    EXPECT_LE(tokens(p), static_cast<size_t>(kMaxSeq)) << p;
+    const std::string question = config().query_prefix + "what is deep learning";
+    EXPECT_EQ(p.substr(p.size() - question.size()), question);
+    EXPECT_EQ(p.rfind(config().context_prefix, 0), 0u) << "the context comes first";
+    // What is kept of the history is its end (token counts vary with TD-222's shared tokenizer cache,
+    // so the test doesn't depend on how much fits).
+    const size_t cut = p.rfind("...", p.size() - question.size());
+    ASSERT_NE(cut, std::string::npos) << p;
+    const std::string kept = p.substr(cut + 3, p.size() - question.size() - cut - 3);
+    ASSERT_FALSE(kept.empty()) << p;
+    EXPECT_EQ(history.substr(history.size() - kept.size()), kept) << "the history's end is kept: " << p;
+    EXPECT_EQ(p.find("turn0 "), std::string::npos) << "the oldest turns go first";
 }

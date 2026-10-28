@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-10-27
 
 
@@ -83,7 +83,8 @@ class RAGInference {
      * @param context Retrieved context string
      * @return std::string Complete prompt for generation
      */
-    std::string buildAugmentedPrompt(const std::string& query, const std::string& context) const;
+    std::string buildAugmentedPrompt(const std::string& query, const std::string& context,
+                                     const std::string& history = {}) const;
 
     /**
      * @brief The augmented prompt, budgeted in real tokens (TD-484)
@@ -91,9 +92,11 @@ class RAGInference {
      * The question and its prefix are kept whole. The context is cut from the end, at a UTF-8 boundary
      * with "...", until it fits max_context_length and the whole prompt fits the model's
      * max_seq_length; lower-ranked documents (later in the context) go first. No context fits: the
-     * question alone.
+     * question alone. TD-485: `history` (the earlier conversation) goes between the context and the
+     * question and gets the room the context leaves, keeping its latest turns.
      */
-    std::string buildBudgetedPrompt(const std::string& query, const std::string& context) const;
+    std::string buildBudgetedPrompt(const std::string& query, const std::string& context,
+                                    const std::string& history = {}) const;
 
     /// Tokens in `text` under the model's tokenizer (0 for empty text).
     size_t countTokens(const std::string& text) const;
@@ -124,20 +127,24 @@ class RAGInference {
      *
      * Virtual so tests can stand in a controllable engine (TD-230).
      *
-     * @param query User query/question
+     * @param query User query/question; the only text retrieval uses (TD-485)
+     * @param history The earlier conversation, if any (a /chat/session turn), placed between the
+     *        context and the question within the token budget (TD-485)
      * @return std::string Generated response
      */
-    virtual std::string generate(const std::string& query);
+    virtual std::string generate(const std::string& query, const std::string& history = {});
 
     /**
      * @brief Generate response with detailed retrieval info
      *
-     * @param query User query
+     * @param query User query (retrieval uses this alone)
      * @param retrieved_docs Output: Retrieved documents with scores
+     * @param history The earlier conversation, if any (TD-485)
      * @return std::string Generated response
      */
-    std::string generateWithRetrieval(
-        const std::string& query, std::vector<std::pair<float, const Document*>>& retrieved_docs);
+    std::string generateWithRetrieval(const std::string& query,
+                                      std::vector<std::pair<float, const Document*>>& retrieved_docs,
+                                      const std::string& history = {});
 
     /**
      * @brief Add document to the knowledge base

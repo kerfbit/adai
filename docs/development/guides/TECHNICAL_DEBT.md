@@ -1327,6 +1327,10 @@ The generation and model math run is complete.
   TD-226–TD-239 are now fixed in code.
 - TD-484 (done in code: the RAG prompt is budgeted in real tokens within `max_seq_length`, the question whole, cuts at UTF-8
   boundaries, lower-ranked documents dropped first).
+- TD-485 (done in code: session RAG retrieves with the latest message; the prompt is context + the end of the conversation + the
+  question).
+- TD-222 (done in code, found blocking TD-485's tests: the tokenizer cache is keyed by a never-reused id renewed on every merge
+  change, bounded per thread).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -4600,7 +4604,7 @@ on every platform.
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | NLP / Tokenizer | October 8, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 27, 2026 | NLP / Tokenizer | October 8, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-220 and confirmed by running the real code. `apply_bpe()` memoizes results in a
@@ -4625,17 +4629,26 @@ reload-and-retrain path are exposed. The cache comment also refers to a nonexist
 
 Action Items:
 
-- [ ] Give each tokenizer a unique, never-reused instance ID plus a generation counter bumped by
+- [x] Give each tokenizer a unique, never-reused instance ID plus a generation counter bumped by
   every mutator, and key the cache on `(instance_id, generation)`, dropping stale entries on
   mismatch. Alternatively, move the cache into the instance behind a lock-free or sharded
   structure.
-- [ ] Bound the cache size, and free a destroyed tokenizer's entries.
-- [ ] Fix the comment (`train_bpe()` → the real mutators).
-- [ ] Tests: reload-then-encode matches a fresh tokenizer; same-address reconstruction doesn't
+- [x] Bound the cache size, and free a destroyed tokenizer's entries.
+- [x] Fix the comment (`train_bpe()` → the real mutators).
+- [x] Tests: reload-then-encode matches a fresh tokenizer; same-address reconstruction doesn't
   inherit results.
 
+**Fix (October 27, 2026).** Found blocking TD-485's tests: they passed alone and failed after other tests in the same binary. The
+cache is keyed by `cache_key_`, a process-unique number that is never reused, set at construction and renewed by every change to the
+merges or the mode (`build_bpe_merges()`, so `build_vocab()`, and `load_vocab()`). A reload or a tokenizer at a reused address
+therefore starts with an empty cache. Each thread keeps the caches of its 4 most recently used keys (RAG alternates between the
+model's and the encoder's tokenizers) and clears a cache at 65,536 words, so a destroyed tokenizer's or `measure_fertility()`'s
+probe's entries are dropped as others are used. The comment names the real mutators. Tests: `BPETokenizerCacheTest`
+(`ReloadThenEncodeMatchesAFreshTokenizer` and `ATokenizerAtAReusedAddressInheritsNothing`, placement-new at the same address, both
+fail on the old code; `AlternatingTokenizersKeepTheirOwnResults`).
+
 Location in code: `src/BPETokenizer.cpp` (`apply_bpe()`, `load_vocab()`, `measure_fertility()`);
-tagged `TODO: See TD-222`.
+tagged `TD-222`.
 
 Files to Modify:
 
@@ -13980,7 +13993,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | RAG / RAGInference | October 17, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 27, 2026 | RAG / RAGInference | October 17, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `RAGInference.cpp` (by inspection). For `/chat/session`, `ChatbotAPI` passes the whole formatted conversation
@@ -13991,11 +14004,22 @@ string then becomes the "Question:" after the context, compounding TD-484.
 
 Action Items:
 
-- [ ] Pass the latest user message to RAG as the retrieval query, separately from the conversation history.
-- [ ] Build the prompt as context + (budgeted) history + latest question.
-- [ ] Test retrieval in a multi-turn session longer than `max_seq_length`.
+- [x] Pass the latest user message to RAG as the retrieval query, separately from the conversation history.
+- [x] Build the prompt as context + (budgeted) history + latest question.
+- [x] Test retrieval in a multi-turn session longer than `max_seq_length`.
 
-Location in code: `src/ChatbotAPI.cpp` (`handle_chat_session()` → `generate_response()`'s RAG branch), `src/RAGInference.cpp` (`generateWithRetrieval()`); tagged `TODO: See TD-485`.
+**Fix (October 27, 2026).** `handle_chat_session()` and the batch-session path capture the conversation before the new user
+message (`format_for_model()`) and pass `ChatbotAPI::RagTurn{message, history}` to `generate_response()`; its RAG branch calls
+`RAGInference::generate(question, history)`. Non-RAG paths still get the whole formatted conversation. Retrieval uses the question
+alone. `buildBudgetedPrompt(query, context, history)` builds context + history + question within `max_seq_length`: the question
+whole, the context within `max_context_length`, then as much of the history's end as fits (cut from the front at a UTF-8 boundary),
+so the oldest turns go first. Tests: `RetrievalUsesTheLatestQuestionInALongSession` (a 60-turn session about one document whose
+latest question is another; querying with the whole conversation, as before, retrieves the first, the fix the second),
+`HistoryKeepsItsLatestTurnsWithinTheBudget`, and `SessionTurnsGiveRagTheLatestMessageAndTheHistory` (the second turn's query is the
+message alone, the history holds the first turn). These tests exposed TD-222 (the tokenizer cache leaked between tokenizers at a reused address, so token counts depended on
+test order), fixed alongside; both new RAG tests also failed in the full binary on the old tokenizer.
+
+Location in code: `src/ChatbotAPI.cpp` (`handle_chat_session()` → `generate_response()`'s RAG branch), `src/RAGInference.cpp` (`generateWithRetrieval()`); tagged `TD-485`.
 
 Files to Modify:
 

@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-10-27
 
 #include "RAGInference.hpp"
@@ -46,13 +46,19 @@ std::string RAGInference::formatContext(
     return oss.str();
 }
 
-std::string RAGInference::buildAugmentedPrompt(const std::string& query,
-                                               const std::string& context) const {
+std::string RAGInference::buildAugmentedPrompt(const std::string& query, const std::string& context,
+                                               const std::string& history) const {
     std::ostringstream oss;
 
     // Add context if available
     if (!context.empty()) {
         oss << config.context_prefix << context;
+    }
+
+    // TD-485: the earlier conversation, between the context and the latest question.
+    if (!history.empty()) {
+        if (!context.empty()) oss << config.context_separator;
+        oss << history;
     }
 
     // Add query
@@ -78,55 +84,81 @@ size_t RAGInference::utf8Boundary(const std::string& s, size_t pos) {
 // order, is cut from the end at a UTF-8 boundary, so lower-ranked documents go first. This used to
 // cut the context alone at an estimated 4 characters per token (measured 1.8) and add the question
 // after it, so at the shipped 512/512 the question fell past max_seq_length.
-std::string RAGInference::buildBudgetedPrompt(const std::string& query,
-                                              const std::string& context) const {
+// TD-485: the earlier conversation gets the room left after the context, keeping its latest turns
+// (cut from the front at a UTF-8 boundary).
+std::string RAGInference::buildBudgetedPrompt(const std::string& query, const std::string& context,
+                                              const std::string& history) const {
     const std::string question_only = buildAugmentedPrompt(query, "");
-    if (context.empty() || config.max_context_length <= 0) {
-        return question_only;
-    }
     const size_t max_seq = static_cast<size_t>(std::max(model->get_max_seq_length(), 1));
-    const size_t max_context = static_cast<size_t>(config.max_context_length);
-    // A question longer than max_seq_length gets no context; the encoder keeps its last tokens.
+    // A question longer than max_seq_length gets nothing else; the encoder keeps its last tokens.
     if (countTokens(question_only) >= max_seq) {
         return question_only;
     }
 
-    auto clipped = [&](size_t n) { return n >= context.size() ? context : context.substr(0, n) + "..."; };
-    auto fits = [&](size_t n) {
-        const std::string ctx = clipped(n);
-        return countTokens(ctx) <= max_context &&
-               countTokens(buildAugmentedPrompt(query, ctx)) <= max_seq;
-    };
-    if (fits(context.size())) {
-        return buildAugmentedPrompt(query, context);
-    }
-    size_t lo = 0;
-    size_t hi = context.size() - 1;
-    while (lo < hi) {
-        const size_t mid = lo + (hi - lo + 1) / 2;
-        if (fits(utf8Boundary(context, mid))) {
-            lo = mid;
-        } else {
-            hi = mid - 1;
+    // Longest n in [0, size] with fits(n), on UTF-8 boundaries (fits(0) is taken as true).
+    auto longest = [](const std::string& text, auto&& fits_at) -> size_t {
+        if (text.empty()) return 0;
+        if (fits_at(text.size())) return text.size();
+        size_t lo = 0;
+        size_t hi = text.size() - 1;
+        while (lo < hi) {
+            const size_t mid = lo + (hi - lo + 1) / 2;
+            if (fits_at(utf8Boundary(text, mid))) {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
         }
+        const size_t n = utf8Boundary(text, lo);
+        return (n > 0 && fits_at(n)) ? n : 0;
+    };
+
+    // The context first, within max_context_length and (without history) max_seq_length.
+    std::string ctx;
+    if (!context.empty() && config.max_context_length > 0) {
+        const size_t max_context = static_cast<size_t>(config.max_context_length);
+        auto clipped = [&](size_t n) {
+            return n >= context.size() ? context : context.substr(0, n) + "...";
+        };
+        const size_t n = longest(context, [&](size_t k) {
+            const std::string c = clipped(k);
+            return countTokens(c) <= max_context && countTokens(buildAugmentedPrompt(query, c)) <= max_seq;
+        });
+        if (n > 0) ctx = clipped(n);
     }
-    const size_t n = utf8Boundary(context, lo);
-    if (n == 0 || !fits(n)) {
-        return question_only;
+
+    // Then as much of the conversation's end as still fits.
+    std::string hist;
+    if (!history.empty()) {
+        auto tail = [&](size_t n) {  // the last n bytes, starting on a UTF-8 boundary
+            if (n >= history.size()) return history;
+            size_t start = history.size() - n;
+            while (start < history.size() &&
+                   (static_cast<unsigned char>(history[start]) & 0xC0) == 0x80) {
+                ++start;
+            }
+            return "..." + history.substr(start);
+        };
+        const size_t n = longest(history, [&](size_t k) {
+            return countTokens(buildAugmentedPrompt(query, ctx, tail(k))) <= max_seq;
+        });
+        if (n > 0) hist = tail(n);
     }
-    return buildAugmentedPrompt(query, clipped(n));
+    return buildAugmentedPrompt(query, ctx, hist);
 }
 
-std::string RAGInference::generate(const std::string& query) {
+std::string RAGInference::generate(const std::string& query, const std::string& history) {
     std::vector<std::pair<float, const Document*>> retrieved_docs;
-    return generateWithRetrieval(query, retrieved_docs);
+    return generateWithRetrieval(query, retrieved_docs, history);
 }
 
 std::string RAGInference::generateWithRetrieval(
-    const std::string& query, std::vector<std::pair<float, const Document*>>& retrieved_docs) {
+    const std::string& query, std::vector<std::pair<float, const Document*>>& retrieved_docs,
+    const std::string& history) {
     // TODO: See TD-487 in TECHNICAL_DEBT.md - num_retrieved_docs <= 0 throws on every request; a threshold that
     // removes every document is silent; retrieved IDs/scores are never logged.
-    // Step 1: Retrieve relevant documents
+    // Step 1: Retrieve relevant documents. TD-485: with the latest question only; a session's whole
+    // conversation used to be the query, and the encoder keeps only its first max_seq_length tokens.
     retrieved_docs = doc_store->retrieve(query, config.num_retrieved_docs);
 
     // Filter by threshold if specified
@@ -140,10 +172,8 @@ std::string RAGInference::generateWithRetrieval(
     // Step 2: Format retrieved documents into context
     std::string context = formatContext(retrieved_docs);
 
-    // TODO: See TD-485 in TECHNICAL_DEBT.md - for /chat/session `query` is the whole conversation, so retrieval
-    // embeds only its first max_seq_length tokens (oldest turns), not the latest question.
-    // Steps 3-4: the augmented prompt, within max_seq_length and max_context_length tokens (TD-484)
-    std::string augmented_prompt = buildBudgetedPrompt(query, context);
+    // Steps 3-4: context + earlier conversation + question, within max_seq_length (TD-484, TD-485)
+    std::string augmented_prompt = buildBudgetedPrompt(query, context, history);
 
     // TODO: See TD-486 in TECHNICAL_DEBT.md - strategy is always "" (STRATEGY/BEAM_WIDTH ignored), gen_config is
     // copied once at startup (no reload/per-request values), and this is the CPU-only path even on a GPU server.

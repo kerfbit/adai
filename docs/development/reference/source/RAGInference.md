@@ -159,3 +159,11 @@ the context, cut at a UTF-8 boundary (`utf8Boundary()`) with `"..."`, such that 
 the whole prompt at most the model's `max_seq_length`. Documents are in rank order, so the lowest-ranked go first. No room, or a
 question that alone reaches `max_seq_length`: the question alone. `chatbot_api_server` caps `RAG_MAX_CONTEXT_LENGTH` to
 `max_seq_length`. Tests: `RAGInferencePromptBudgetTest`.
+
+## Addendum (October 27, 2026): session turns (TD-485)
+
+`generate(query, history)` and `generateWithRetrieval(query, docs, history)` take the earlier conversation separately. Retrieval uses
+`query` alone; `buildBudgetedPrompt(query, context, history)` places the history between the context and the question, keeping its
+end within the room the context leaves. `ChatbotAPI` passes the latest user message and the conversation before it
+(`ChatbotAPI::RagTurn`) for `/chat/session` and `/chat/batch-session`; `/chat` and `/chat/batch` pass the message alone. Tests:
+`RetrievalUsesTheLatestQuestionInALongSession`, `HistoryKeepsItsLatestTurnsWithinTheBudget`.

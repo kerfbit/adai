@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.22.1
+// @adai-version: 0.23.0
 // @adai-reviewed: 2026-10-27
 
 #include "ChatbotAPI.hpp"
@@ -381,6 +381,9 @@ std::string ChatbotAPI::handle_chat_session(const std::string& request_body) {
     }
 
     // Add user message to conversation context
+    // TD-485: RAG retrieves with the latest message alone and places the earlier conversation
+    // in its prompt; it used to get the whole formatted conversation as its query.
+    const RagTurn rag_turn{message, session->context->format_for_model()};
     session->context->add_user_message(message);
     session->last_access = std::chrono::steady_clock::now();
 
@@ -399,7 +402,7 @@ std::string ChatbotAPI::handle_chat_session(const std::string& request_body) {
     // TODO: See TD-485 in TECHNICAL_DEBT.md - with RAG enabled, this whole conversation becomes the retrieval
     // query; pass the latest user message for retrieval instead.
     // Generate response
-    std::string response = generate_response(formatted_context, config);
+    std::string response = generate_response(formatted_context, config, &rag_turn);
 
     // Add assistant response to conversation context
     session->context->add_assistant_message(response);
@@ -887,8 +890,8 @@ void ChatbotAPI::enable_integrated_inference(const IntegratedInferenceConfig& co
 // Text Generation
 // ============================================================================
 
-std::string ChatbotAPI::generate_response(const std::string& input,
-                                          const GenerationConfig& config) {
+std::string ChatbotAPI::generate_response(const std::string& input, const GenerationConfig& config,
+                                          const RagTurn* rag_turn) {
     // TD-038: always timed (start()/stop() are cheap map lookups next to actual model
     // inference) — enable_profiling()/GET /admin/profile gate exposure, not collection, so
     // stats are already warm the moment profiling is turned on rather than starting from zero.
@@ -906,7 +909,8 @@ std::string ChatbotAPI::generate_response(const std::string& input,
         rag_engine = rag_engine_;
     }
     if (rag_engine) {
-        return rag_engine->generate(input);
+        return rag_turn ? rag_engine->generate(rag_turn->question, rag_turn->history)
+                        : rag_engine->generate(input);
     }
 
     try {
@@ -1046,7 +1050,8 @@ std::string ChatbotAPI::generate_response(const std::string& input,
 }
 
 ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
-    const std::vector<std::string>& inputs, const GenerationConfig& config) {
+    const std::vector<std::string>& inputs, const GenerationConfig& config,
+    const std::vector<RagTurn>* rag_turns) {
     BatchResponse batch_response;
     batch_response.success = true;
 
@@ -1089,8 +1094,9 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
         // This loop used to run its own TextGenerator over the CPU model, bypassing all of them.
         std::vector<std::string> all_responses;
         all_responses.reserve(inputs.size());
-        for (const auto& input : inputs) {
-            all_responses.push_back(generate_response(input, config));
+        for (size_t i = 0; i < inputs.size(); ++i) {
+            const RagTurn* turn = (rag_turns && i < rag_turns->size()) ? &(*rag_turns)[i] : nullptr;
+            all_responses.push_back(generate_response(inputs[i], config, turn));
         }
 
         batch_response.responses = all_responses;
@@ -1112,6 +1118,7 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_session_responses(
     try {
         // Prepare formatted contexts for all sessions
         std::vector<std::string> formatted_inputs;
+        std::vector<RagTurn> rag_turns;  // TD-485
         std::vector<std::string> actual_session_ids;
         formatted_inputs.reserve(inputs.size());
         actual_session_ids.reserve(inputs.size());
@@ -1143,13 +1150,14 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_session_responses(
         }
 
         for (size_t i = 0; i < inputs.size(); ++i) {
+            rag_turns.push_back({inputs[i], sessions[i]->context->format_for_model()});  // TD-485
             sessions[i]->context->add_user_message(inputs[i]);
             sessions[i]->last_access = std::chrono::steady_clock::now();
             formatted_inputs.push_back(sessions[i]->context->format_for_model());
         }
 
         // Generate batch responses for formatted contexts
-        BatchResponse temp_response = generate_batch_responses(formatted_inputs, config);
+        BatchResponse temp_response = generate_batch_responses(formatted_inputs, config, &rag_turns);
 
         if (!temp_response.success) {
             batch_response.success = false;

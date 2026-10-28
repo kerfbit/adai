@@ -1808,7 +1808,7 @@ namespace {
 class BlockingRAG : public RAGInference {
    public:
     using RAGInference::RAGInference;
-    std::string generate(const std::string&) override {
+    std::string generate(const std::string&, const std::string&) override {
         std::unique_lock<std::mutex> lock(m);
         entered = true;
         cv.notify_all();
@@ -1942,11 +1942,15 @@ namespace {
 class EchoRAG : public RAGInference {
    public:
     using RAGInference::RAGInference;
-    std::string generate(const std::string& query) override {
+    std::string generate(const std::string& query, const std::string& history) override {
         ++calls;
+        std::lock_guard<std::mutex> lock(m);
+        histories.push_back(history);
         return "rag:" + query;
     }
     std::atomic<int> calls{0};
+    std::mutex m;
+    std::vector<std::string> histories;
 };
 }  // namespace
 
@@ -2019,7 +2023,7 @@ namespace {
 class ThrowingRAG : public RAGInference {
    public:
     using RAGInference::RAGInference;
-    std::string generate(const std::string&) override { throw std::runtime_error("generation broke"); }
+    std::string generate(const std::string&, const std::string&) override { throw std::runtime_error("generation broke"); }
 };
 }  // namespace
 
@@ -2086,7 +2090,7 @@ int free_local_port() {
 class LeakyRAG : public RAGInference {
    public:
     using RAGInference::RAGInference;
-    std::string generate(const std::string&) override {
+    std::string generate(const std::string&, const std::string&) override {
         throw std::runtime_error("cannot open /srv/adai/secret_model.bin");
     }
 };
@@ -2131,4 +2135,27 @@ TEST_F(ChatbotAPITest, InternalErrorsAreLoggedNotSentToTheClient) {
         EXPECT_NE(log.str().find("request " + id + "): "), std::string::npos) << log.str();
     }
     EXPECT_NE(log.str().find("secret_model.bin"), std::string::npos);
+}
+
+// ============================================================================
+// TD-485: RAG gets the latest message, not the whole conversation
+// ============================================================================
+
+TEST_F(ChatbotAPITest, SessionTurnsGiveRagTheLatestMessageAndTheHistory) {
+    std::shared_ptr<EncoderDecoderModel> shared_model(model.get(), [](EncoderDecoderModel*) {});
+    auto rag = std::make_shared<EchoRAG>(shared_model,
+                                         std::make_shared<DocumentStore>(model->copy_encoder()));
+    api->enableRAG(rag);
+
+    const std::string sid = start_session("first question");
+    const auto reply = nlohmann::json::parse(
+        call_handle_chat_session(R"({"session_id":")" + sid + R"(","message":"second question"})"));
+    // The query used to be the whole formatted conversation ("User: first question\n...").
+    EXPECT_EQ(reply.value("response", ""), "rag:second question");
+    ASSERT_EQ(rag->histories.size(), 2u);
+    EXPECT_EQ(rag->histories[0], "") << "a first turn has no earlier conversation";
+    EXPECT_NE(rag->histories[1].find("User: first question"), std::string::npos) << rag->histories[1];
+    EXPECT_NE(rag->histories[1].find("Assistant: rag:first question"), std::string::npos);
+    EXPECT_EQ(rag->histories[1].find("second question"), std::string::npos)
+        << "the latest message is the question, not part of the history";
 }

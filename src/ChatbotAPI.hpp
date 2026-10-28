@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.17.0
+// @adai-version: 0.18.0
 // @adai-reviewed: 2026-10-27
 
 
@@ -68,6 +68,15 @@ class ChatbotAPI {
     /**
      * @brief Batch response containing multiple generated responses
      */
+    /**
+     * @brief A session turn as RAG sees it (TD-485): the latest user message, which alone drives
+     * retrieval, and the conversation before it.
+     */
+    struct RagTurn {
+        std::string question;
+        std::string history;
+    };
+
     struct BatchResponse {
         std::vector<std::string> responses;
         std::vector<std::string> session_ids;  // Returned session IDs
@@ -251,7 +260,8 @@ class ChatbotAPI {
      * @return BatchResponse with generated responses and statistics
      */
     BatchResponse generate_batch_responses(const std::vector<std::string>& inputs,
-                                           const GenerationConfig& config);
+                                           const GenerationConfig& config,
+                                           const std::vector<RagTurn>* rag_turns = nullptr);
 
     /**
      * @brief Generate batch responses with sessions (stateful)
@@ -343,7 +353,10 @@ class ChatbotAPI {
     void check_batch_size(std::size_t messages) const;  // TD-235: throws BatchTooLarge
 
     // Text generation
-    std::string generate_response(const std::string& input, const GenerationConfig& config);
+    // `rag_turn`: for a session turn, the latest message and the earlier conversation, which RAG
+    // uses instead of `input` (the whole formatted conversation) (TD-485).
+    std::string generate_response(const std::string& input, const GenerationConfig& config,
+                                  const RagTurn* rag_turn = nullptr);
 
     // Model components
     EncoderDecoderModel* model_;
