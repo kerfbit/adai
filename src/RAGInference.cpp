@@ -1,8 +1,9 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
+// @adai-version: 1.4.0
 // @adai-reviewed: 2026-10-27
 
 #include "RAGInference.hpp"
+#include "Logger.hpp"
 #include <algorithm>
 #include <sstream>
 #include <stdexcept>
@@ -16,6 +17,21 @@ RAGInference::RAGInference(std::shared_ptr<EncoderDecoderModel> model,
     }
     if (!doc_store) {
         throw std::invalid_argument("RAGInference: doc_store cannot be null");
+    }
+    validateConfig(this->config);
+}
+
+// TD-487: RAG_NUM_DOCS <= 0 used to pass, and then every request failed in DocumentStore::retrieve()
+// ("k must be positive") once a document was indexed.
+void RAGInference::validateConfig(const RAGConfig& config) {
+    if (config.num_retrieved_docs < 1) {
+        throw std::invalid_argument("RAGInference: num_retrieved_docs (RAG_NUM_DOCS) must be at least 1, got " +
+                                    std::to_string(config.num_retrieved_docs));
+    }
+    if (config.max_context_length < 1) {
+        throw std::invalid_argument(
+            "RAGInference: max_context_length (RAG_MAX_CONTEXT_LENGTH) must be at least 1, got " +
+            std::to_string(config.max_context_length));
     }
 }
 
@@ -160,18 +176,27 @@ std::string RAGInference::buildPrompt(const std::string& query, const std::strin
 std::string RAGInference::buildPrompt(const std::string& query,
                                       std::vector<std::pair<float, const Document*>>& retrieved_docs,
                                       const std::string& history) {
-    // TODO: See TD-487 in TECHNICAL_DEBT.md - num_retrieved_docs <= 0 throws on every request; a threshold that
-    // removes every document is silent; retrieved IDs/scores are never logged.
     // Step 1: Retrieve relevant documents. TD-485: with the latest question only; a session's whole
     // conversation used to be the query, and the encoder keeps only its first max_seq_length tokens.
     retrieved_docs = doc_store->retrieve(query, config.num_retrieved_docs);
 
+    // TD-487: which documents were retrieved, and with what scores.
+    for (const auto& [score, doc] : retrieved_docs) {
+        adai::Logger::debug("RAG: retrieved '{}' (similarity {:.4f})", doc->id, score);
+    }
+
     // Filter by threshold if specified
     if (config.retrieval_threshold > 0.0f) {
+        const size_t before = retrieved_docs.size();
         auto it = std::remove_if(
             retrieved_docs.begin(), retrieved_docs.end(),
             [this](const auto& pair) { return pair.first < config.retrieval_threshold; });
         retrieved_docs.erase(it, retrieved_docs.end());
+        // TD-487: this used to leave the prompt without context silently.
+        if (before > 0 && retrieved_docs.empty()) {
+            adai::Logger::warn("RAG: all {} retrieved documents scored below RAG_THRESHOLD {}; answering without context",
+                               before, config.retrieval_threshold);
+        }
     }
 
     // Step 2: Format retrieved documents into context
@@ -229,6 +254,7 @@ size_t RAGInference::getNumDocuments() const {
 }
 
 void RAGInference::setConfig(const RAGConfig& new_config) {
+    validateConfig(new_config);  // TD-487
     config = new_config;
 }
 

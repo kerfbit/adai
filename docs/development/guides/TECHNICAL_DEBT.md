@@ -1333,6 +1333,8 @@ The generation and model math run is complete.
   change, bounded per thread).
 - TD-486 (done in code: RAG builds the prompt and `ChatbotAPI` generates it with the request's strategy and config, reloads and the
   GPU decode).
+- TD-487 (done in code: bad `RAG_NUM_DOCS`/`RAG_MAX_CONTEXT_LENGTH` refused at startup, retrieval logged, an emptying threshold
+  warns). All of TD-484–TD-487 are now fixed in code.
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -14077,7 +14079,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | RAG / RAGInference | October 17, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 27, 2026 | RAG / RAGInference | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `RAGInference.cpp` (by inspection):
@@ -14090,10 +14092,19 @@ Found while tracing `RAGInference.cpp` (by inspection):
 
 Action Items:
 
-- [ ] Validate `RAG_NUM_DOCS > 0` and `RAG_MAX_CONTEXT_LENGTH > 0` at startup (with TD-241/TD-288).
-- [ ] Log retrieved document IDs and scores at debug level, and warn when the threshold empties the context.
+- [x] Validate `RAG_NUM_DOCS > 0` and `RAG_MAX_CONTEXT_LENGTH > 0` at startup (with TD-241/TD-288).
+- [x] Log retrieved document IDs and scores at debug level, and warn when the threshold empties the context.
 
-Location in code: `src/RAGInference.cpp` (`generateWithRetrieval()` steps 1–2), `src/ChatbotAPIServer.cpp` (`rag_config` setup); tagged `TODO: See TD-487`.
+**Fix (October 27, 2026).** `RAGInference::validateConfig()` runs in the constructor and `setConfig()` and throws
+`std::invalid_argument` for `num_retrieved_docs` or `max_context_length` below 1 (a rejected `setConfig()` keeps the old config).
+`chatbot_api_server` builds the engine inside its RAG setup's `try`, so a bad `RAG_NUM_DOCS`/`RAG_MAX_CONTEXT_LENGTH` is logged at
+startup and the server runs without RAG, instead of failing every request. `ConfigLoader::validate()` checks both when RAG is
+enabled (it still runs only on reload, TD-241). `buildPrompt()` logs each retrieved document's id and similarity at debug level, and
+warns when `RAG_THRESHOLD` removes every retrieved document. `getConfig()`/`setConfig()` remain unsynchronized; nothing calls
+`setConfig()` while serving. Tests: `ConfigWithNoDocumentsOrNoContextIsRejected`, `RetrievalIsLoggedAndAnEmptyingThresholdWarns`
+(both fail on the old code).
+
+Location in code: `src/RAGInference.cpp` (`generateWithRetrieval()` steps 1–2), `src/ChatbotAPIServer.cpp` (`rag_config` setup); tagged `TD-487`.
 
 Files to Modify:
 

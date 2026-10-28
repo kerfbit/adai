@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 2.2.2
+// @adai-version: 2.2.3
 // @adai-reviewed: 2026-10-27
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
@@ -669,7 +669,8 @@ int main(int argc, char* argv[]) {
                     adai::Logger::warn("  RAG_DOCS_PATH not set - no documents indexed");
                 }
 
-                // TODO: See TD-487 in TECHNICAL_DEBT.md - rag_num_docs isn't validated (<= 0 breaks every request).
+                // TD-487: RAGInference's constructor rejects RAG_NUM_DOCS or RAG_MAX_CONTEXT_LENGTH below 1;
+                // the catch below then logs why and runs without RAG.
                 // TD-486: gen_config below is only for RAGInference::generate() used standalone;
                 // ChatbotAPI generates RAG requests through its own path and current config.
                 RAGInference::RAGConfig rag_config;

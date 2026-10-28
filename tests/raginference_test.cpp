@@ -18,6 +18,10 @@
 
 #include "RAGInference.hpp"
 #include <gtest/gtest.h>
+#include "../src/Logger.hpp"
+#include <algorithm>
+#include <sstream>
+#include <spdlog/sinks/ostream_sink.h>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -528,6 +532,49 @@ TEST_F(RAGInferenceTest, EmptyQueryHandling) {
     EXPECT_THROW(
         { std::string response = rag->generate(""); },
         std::invalid_argument);  // TokenizerInputError inherits from invalid_argument
+}
+
+// TD-487: a config that would fail every request is refused up front.
+TEST_F(RAGInferenceTest, ConfigWithNoDocumentsOrNoContextIsRejected) {
+    for (int bad : {0, -1}) {
+        RAGInference::RAGConfig docs;
+        docs.num_retrieved_docs = bad;
+        EXPECT_THROW(RAGInference(model, doc_store, docs), std::invalid_argument) << bad;
+        EXPECT_THROW(rag->setConfig(docs), std::invalid_argument) << bad;
+        RAGInference::RAGConfig context;
+        context.max_context_length = bad;
+        EXPECT_THROW(RAGInference(model, doc_store, context), std::invalid_argument) << bad;
+    }
+    // A rejected setConfig() leaves the old config in place, and retrieval keeps working.
+    add_sample_documents();
+    EXPECT_EQ(rag->getConfig().num_retrieved_docs, 3);
+    EXPECT_NO_THROW(rag->generate("machine learning"));
+}
+
+// TD-487: retrieval is logged, and a threshold that drops every document says so.
+TEST_F(RAGInferenceTest, RetrievalIsLoggedAndAnEmptyingThresholdWarns) {
+    add_sample_documents();
+    std::ostringstream log;
+    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log);
+    auto logger = adai::Logger::get();
+    const auto old_level = logger->level();
+    logger->sinks().push_back(sink);
+    logger->set_level(spdlog::level::debug);
+
+    RAGInference::RAGConfig strict;
+    strict.retrieval_threshold = 2.0f;  // above any cosine similarity
+    rag->setConfig(strict);
+    std::vector<std::pair<float, const Document*>> hits;
+    const std::string prompt = rag->buildPrompt("machine learning", hits, "");
+
+    logger->set_level(old_level);
+    auto& sinks = logger->sinks();
+    sinks.erase(std::remove(sinks.begin(), sinks.end(), sink), sinks.end());
+
+    EXPECT_TRUE(hits.empty());
+    EXPECT_EQ(prompt.find(strict.context_prefix), std::string::npos);
+    EXPECT_NE(log.str().find("RAG: retrieved 'doc"), std::string::npos) << log.str();
+    EXPECT_NE(log.str().find("scored below RAG_THRESHOLD"), std::string::npos) << log.str();
 }
 
 // TD-485: in a session longer than max_seq_length, retrieval follows the latest question.

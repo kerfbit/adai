@@ -174,3 +174,10 @@ end within the room the context leaves. `ChatbotAPI` passes the latest user mess
 generating. `chatbot_api_server` uses it: `ChatbotAPI` generates from the prompt through its own path, with the request's strategy and
 config, reloaded settings and the GPU decode. `generate()`/`generateWithRetrieval()` still generate on the CPU with
 `RAGConfig::gen_config` for standalone use. `buildPrompt()` is the virtual seam for test engines.
+
+## Addendum (October 27, 2026): config validation and retrieval logging (TD-487)
+
+The constructor and `setConfig()` call `validateConfig()`, which throws `std::invalid_argument` for `num_retrieved_docs` or
+`max_context_length` below 1; `chatbot_api_server` then logs the reason and runs without RAG. `buildPrompt()` logs every retrieved
+document id and score at debug level and warns when `retrieval_threshold` removes them all. Tests:
+`ConfigWithNoDocumentsOrNoContextIsRejected`, `RetrievalIsLoggedAndAnEmptyingThresholdWarns`.

@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 2.0.0
+// @adai-version: 2.1.0
 // @adai-reviewed: 2026-10-27
 
 
@@ -97,6 +97,9 @@ class RAGInference {
      */
     std::string buildBudgetedPrompt(const std::string& query, const std::string& context,
                                     const std::string& history = {}) const;
+
+    /// TD-487: throws std::invalid_argument unless num_retrieved_docs and max_context_length are >= 1.
+    static void validateConfig(const RAGConfig& config);
 
     /// Tokens in `text` under the model's tokenizer (0 for empty text).
     size_t countTokens(const std::string& text) const;
@@ -204,7 +207,7 @@ class RAGInference {
      *
      * @param new_config New configuration
      */
-    void setConfig(const RAGConfig& new_config);
+    void setConfig(const RAGConfig& new_config);  // throws std::invalid_argument for a bad config (TD-487)
 
     /**
      * @brief Get current configuration

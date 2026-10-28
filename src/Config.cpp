@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.13.0
+// @adai-version: 1.14.0
 // @adai-reviewed: 2026-10-27
 
 #include "Config.hpp"
@@ -1187,6 +1187,15 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
         valid = false;
     }
 
+    if (config.rag_enabled && config.rag_num_docs < 1) {  // TD-487
+        errors.push_back("Invalid rag_num_docs: " + std::to_string(config.rag_num_docs) + " (must be >= 1)");
+        valid = false;
+    }
+    if (config.rag_enabled && config.rag_max_context_length < 1) {  // TD-487
+        errors.push_back("Invalid rag_max_context_length: " + std::to_string(config.rag_max_context_length) +
+                         " (must be >= 1)");
+        valid = false;
+    }
     if (config.max_batch_size < 1) {  // TD-235
         errors.push_back("Invalid max_batch_size: " + std::to_string(config.max_batch_size) +
                          " (must be >= 1)");
