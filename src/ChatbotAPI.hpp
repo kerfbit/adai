@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.16.0
+// @adai-version: 0.17.0
 // @adai-reviewed: 2026-10-27
 
 
@@ -63,16 +63,6 @@ class ChatbotAPI {
         size_t top_k = 50;
         std::string strategy = "nucleus";  // "greedy", "beam", "temperature", "top_k", "nucleus"
         size_t beam_width = 4;
-    };
-
-    /**
-     * @brief Batch request for processing multiple messages
-     */
-    // TODO: See TD-239 in TECHNICAL_DEBT.md - BatchRequest is declared but never used.
-    struct BatchRequest {
-        std::vector<std::string> messages;
-        std::vector<std::string> session_ids;  // Optional: for batch session processing
-        GenerationConfig config;
     };
 
     /**

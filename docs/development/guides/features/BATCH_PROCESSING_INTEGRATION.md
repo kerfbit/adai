@@ -22,11 +22,7 @@ Files Modified:
 New Structures:
 
 ```cpp
-struct BatchRequest {
-    std::vector<std::string> messages;
-    std::vector<std::string> session_ids;
-    GenerationConfig config;
-};
+// (A BatchRequest struct was also added here; it was never used and was removed in TD-239.)
 
 struct BatchResponse {
     std::vector<std::string> responses;

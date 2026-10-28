@@ -108,15 +108,8 @@ Response:
 
 ## API Reference
 
-### BatchRequest Structure
-
-```cpp
-struct BatchRequest {
-    std::vector<std::string> messages;       // Input messages
-    std::vector<std::string> session_ids;    // Optional session IDs
-    GenerationConfig config;                  // Generation parameters
-};
-```
+Requests are plain JSON (`messages`, optional `session_ids`); there is no C++ request structure. The `BatchRequest` struct this
+section used to show was never used and was removed (TD-239).
 
 ### BatchResponse Structure
 

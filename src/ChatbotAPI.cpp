@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.22.0
+// @adai-version: 0.22.1
 // @adai-reviewed: 2026-10-27
 
 #include "ChatbotAPI.hpp"
@@ -8,7 +8,6 @@
 #include "HttpListenSocket.hpp"
 #include <httplib.h>
 #include <algorithm>
-#include <iostream>
 #include <sstream>
 #include "Logger.hpp"
 #include "SecureRandom.hpp"
@@ -262,9 +261,7 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
             }
         });
 
-    // TODO: See TD-239 in TECHNICAL_DEBT.md - std::cout/std::cerr in library code (here, start(), stop(),
-    // cleanup_expired_sessions()); use adai::Logger.
-    std::cout << "ChatbotAPI initialized on port " << port_ << '\n';
+    adai::Logger::info("ChatbotAPI initialized on port {}", port_);  // TD-239: was std::cout
 }
 
 ChatbotAPI::~ChatbotAPI() {
@@ -310,11 +307,11 @@ bool ChatbotAPI::start() {
     // TD-237: running_ is atomic; start() runs on the server thread while stop() comes from the
     // main thread's signal handling. exchange() makes "already running" and "now running" one step.
     if (running_.exchange(true)) {
-        std::cerr << "Server is already running" << '\n';
+        adai::Logger::warn("ChatbotAPI: server is already running");
         return false;
     }
 
-    std::cout << "Starting chatbot API server on port " << port_ << "..." << '\n';
+    adai::Logger::info("Starting chatbot API server on port {}...", port_);
 
     // TD-231: expired sessions are removed by session_sweeper_loop(), running since construction.
 
@@ -325,7 +322,7 @@ bool ChatbotAPI::start() {
 
 void ChatbotAPI::stop() {
     if (running_.exchange(false)) {  // TD-237
-        std::cout << "Stopping chatbot API server..." << '\n';
+        adai::Logger::info("Stopping chatbot API server...");
         server_impl_->server.stop();
     }
 }
@@ -343,8 +340,7 @@ std::string ChatbotAPI::handle_chat(const std::string& request_body) {
         throw BadRequest("Missing 'message' field in request");
     }
 
-    // TODO: See TD-239 in TECHNICAL_DEBT.md - requests can't set the config; this always uses the defaults.
-    // Get generation config from request or use defaults
+    // The server's default generation config; requests can't set it (rest-api.md documents server flags only).
     GenerationConfig config;
     {
         std::lock_guard<std::mutex> lock(config_mutex_);
@@ -555,7 +551,7 @@ std::string ChatbotAPI::handle_batch_chat(const std::string& request_body) {
     }
     check_batch_size(messages.size());
 
-    // Get generation config from request or use defaults
+    // The server's default generation config; requests can't set it.
     GenerationConfig config;
     {
         std::lock_guard<std::mutex> lock(config_mutex_);

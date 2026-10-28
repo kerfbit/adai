@@ -1323,6 +1323,8 @@ The generation and model math run is complete.
 - TD-236 (done in code: validation errors are 400, a failed batch is 500; Android shows the server's error text).
 - TD-237 (done in code: `running_` is atomic; TSan-clean).
 - TD-238 (done in code: internal errors are logged with a request id; the client gets a generic 500 carrying the id).
+- TD-239 (done in code: `adai::Logger` instead of `std::cout`, unused `BatchRequest` removed, comments corrected). All of
+  TD-226–TD-239 are now fixed in code.
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5266,7 +5268,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Inference / Serving / API | October 8, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 27, 2026 | Inference / Serving / API | October 8, 2026 | 1-2 hours |
 
 Description:
 Found while writing the code-traced reference [ChatbotAPI.md](../reference/source/ChatbotAPI.md). Small hygiene issues found while tracing the class:
@@ -5280,9 +5282,15 @@ Found while writing the code-traced reference [ChatbotAPI.md](../reference/sourc
 
 Action Items:
 
-- [ ] Switch to `adai::Logger`; remove `BatchRequest`; fix both comments.
+- [x] Switch to `adai::Logger`; remove `BatchRequest`; fix both comments.
 
-Location in code: `src/ChatbotAPI.{hpp,cpp}`; tagged `TODO: See TD-239`.
+**Fix (October 27, 2026).** The constructor, `start()` and `stop()` log through `adai::Logger` (`cleanup_expired_sessions()` already
+did since TD-231), and `ChatbotAPI.cpp` no longer includes `<iostream>`. The unused `ChatbotAPI::BatchRequest` is removed, along with
+the two API docs that presented it (`batch-processing.md`, `BATCH_PROCESSING_INTEGRATION.md`). `handle_chat()`'s and
+`handle_batch_chat()`'s comments now say requests can't set the generation config; `start()`'s cleanup comment was corrected with
+TD-231. No behaviour change; the existing suites cover it.
+
+Location in code: `src/ChatbotAPI.{hpp,cpp}`; tagged `TD-239`.
 
 Files to Modify:
 

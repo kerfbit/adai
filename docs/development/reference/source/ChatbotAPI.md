@@ -456,3 +456,8 @@ races).
 A route's catch-all calls `internal_error_response(route, e)`, which logs the route, a 16-hex request id and the message, and returns
 HTTP 500 `{"success":false,"error":"Internal server error","request_id":"…"}`. 400/404/413 replies keep their messages, which
 describe the request. Test: `InternalErrorsAreLoggedNotSentToTheClient`.
+
+## Addendum (October 27, 2026): logging and dead code (TD-239)
+
+Console output in the constructor, `start()` and `stop()` goes through `adai::Logger`. `BatchRequest` (§1, declared and unused) is
+removed; request bodies are parsed straight from JSON. The handler comments no longer claim requests can set the generation config.
