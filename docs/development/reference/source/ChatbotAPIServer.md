@@ -52,7 +52,7 @@ something other than what the operator asked for (§9).
  8. World model (if WORLD_MODEL_ENABLED and its checkpoint dir exists): LeJEPAEncoder, frozen
              ─► hippocampal memory (if enabled): restore <MODEL_PATH>.hippocampal(.assoc)
  9. [3/4] ChatbotAPI(model, tokenizer, port, timeout, draft, K)
-             ─► --profile / --batched-inference / --pipeline-inference (--integrated-inference: removed Oct 27, 2026)
+             ─► --profile / --batched-inference (--pipeline-/--integrated-inference: removed Oct 2026)
              ─► set_generation_config(max_gen_length, temperature, top_p, strategy)
 10. RAG (if RAG_ENABLED): new LLMEncoder + DocumentStore over RAG_DOCS_PATH/*.txt ─► enableRAG()
 11. Signals: SIGINT/SIGTERM → shutdown flag; SIGHUP → reload flag
@@ -141,7 +141,7 @@ architecture values, which then feed step 6's "random init on failure" fallback 
 
 `ChatbotAPI` gets raw pointers to the model, tokenizer and draft model. `main()` owns all three,
 and they outlive the API. Mode flags are applied with independent `if`s, so several can be enabled
-at once (TD-243). `--pipeline-inference` failures are caught and the mode is disabled (see
+at once (TD-243). `--pipeline-inference` (removed October 28, 2026) failures were caught and the mode disabled (see
 TD-223 for the tokenizer state that can leave behind). The generation config is built from
 `max_gen_length`, `temperature`, `top_p` and `strategy`; `top_k` and `beam_width` are never copied
 (TD-244).

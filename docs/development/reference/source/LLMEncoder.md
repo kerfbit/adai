@@ -2,7 +2,7 @@
 
 - **Files:** [`src/encoder.hpp`](../../../../src/encoder.hpp) (declaration), [`src/LLMEncoder.cpp`](../../../../src/LLMEncoder.cpp) (implementation)
 - **Namespace:** global (no namespace)
-- **Built into:** `adai_transformer`; used by `EncoderDecoderModel` (the chatbot's encoder), `DocumentStore` (the RAG retrieval encoder), `PipelineInferenceEngine` (and, until its retirement on October 27, 2026, `IntegratedInferenceEngine`)
+- **Built into:** `adai_transformer`; used by `EncoderDecoderModel` (the chatbot's encoder), `DocumentStore` (the RAG retrieval encoder), (until their retirement in October 2026) `PipelineInferenceEngine` and `IntegratedInferenceEngine`
 - **Status tag:** `@adai-status: stable`, `LLMEncoder.cpp` `@adai-version: 1.1.0`, `@adai-reviewed: 2026-10-18`; `encoder.hpp` `1.0.1`, `2026-09-10`
 - **Tests:** [`tests/llmencoder_test.cpp`](../../../../tests/llmencoder_test.cpp) → `llmencoderTests` (37 tests)
 - **Last traced against the code:** 2026-10-19
@@ -135,8 +135,8 @@ mask, so the two are equivalent.
 | `ModelSerializer` | `get_token_embedding()`, `get_encoder_block()`, `get_final_norm()` for SafeTensors save/load |
 | `DocumentStore` | `encode(text)` when adding documents and searching ([DocumentStore.md](DocumentStore.md)) |
 | `ChatbotAPIServer.cpp` | Builds the RAG encoder and calls `load_tokenizer_vocab()`; never loads weights (TD-247) |
-| `ChatbotAPI::enable_pipeline_inference()` | `load_tokenizer_vocab()` on the chat encoder |
-| `PipelineInferenceEngine` | `encode(text)` in its encoder stage |
+| `ChatbotAPI::enable_pipeline_inference()` (removed October 28, 2026) | `load_tokenizer_vocab()` on the chat encoder |
+| `PipelineInferenceEngine` (retired October 28, 2026) | `encode(text)` in its encoder stage |
 | `IntegratedInferenceEngine` (retired October 27, 2026) | `encode_with_mask()` with its own tokenizer |
 
 `LeJEPAEncoder` (the world model) is a separate class with a similar shape; it doesn't use
@@ -245,3 +245,7 @@ New `update_weights()` (TD-360): one optimizer step when registered (TD-297), el
 `cached_encoder_outputs`, `cached_embeddings` and `cached_pos_encoded` are removed (`backward()` uses each block's own caches). Serving
 models run in inference mode: `chatbot_api_server`'s model and draft, `chatbot_gui`'s model, and the RAG encoder.
 `get_sentence_embedding_trainable()` calls `get_sentence_embedding()`. Test: `LLMEncoderTD366Test.SentenceEmbeddingFunctionsAgreeInEitherMode`.
+
+## Addendum (October 28, 2026): engine modes retired
+
+`PipelineInferenceEngine` (`--pipeline-inference`) and `IntegratedInferenceEngine` (`--integrated-inference`) were removed in October 2026 (TD-474/TD-475, TD-417–TD-420); mentions of them above describe the code as it was.

@@ -550,3 +550,7 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 | `strategy` / `beam_width` not honored in batched mode (§2) | Always sampling (or greedy at temperature 0) | Documented on `ChatbotAPI::enable_batched_inference()` | [TD-214](../../guides/TECHNICAL_DEBT.md#td-214-batched-inference-mode-generates-differently-from-the-inline-path) |
 | Beam search with a cached `model_fn` would corrupt the cache (§5) | Not currently reachable | Contract documented on `InferenceRequest::model_fn` | — (not reachable; documented contract) |
 | No production consumer of `get_stats()` (§6.5) | Stats invisible outside tests | Could be exposed alongside `/admin/profile` | [TD-213](../../guides/TECHNICAL_DEBT.md#td-213-batchedinferenceengine-stats-are-misleading-and-unused-in-production) |
+
+## Addendum (October 28, 2026): engine modes retired
+
+`PipelineInferenceEngine` (`--pipeline-inference`) and `IntegratedInferenceEngine` (`--integrated-inference`) were removed in October 2026 (TD-474/TD-475, TD-417–TD-420); mentions of them above describe the code as it was.

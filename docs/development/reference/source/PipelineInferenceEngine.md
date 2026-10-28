@@ -1,10 +1,19 @@
-# `PipelineInferenceEngine` — Source File Reference
+# `PipelineInferenceEngine` — Source File Reference (Retired)
 
-- **File:** [`src/PipelineInferenceEngine.hpp`](../../../../src/PipelineInferenceEngine.hpp) (header-only, 551 lines)
+> **Retired October 28, 2026 (owner decision on TD-474/TD-475).** `src/PipelineInferenceEngine.hpp` (with its `ThreadSafeQueue`),
+> `tests/pipelineinferenceengine_test.cpp`, `benchmarks/PipelineBenchmark.cpp` (`pipeline_benchmark`),
+> `ChatbotAPI::enable_pipeline_inference()` and `chatbot_api_server --pipeline-inference` were removed; the flag now exits 1 with a
+> message saying so. Only the encoder overlapped decoding (1.017× best case), generation was greedy and uncached and differed from
+> `/chat`, shutdown stranded queued requests, and the model ran without its mutex. TD-474/TD-475 are closed in
+> [TECHNICAL_DEBT_RESOLVED.md](../../archive/TECHNICAL_DEBT_RESOLVED.md); real batching is planned in
+> [real_batching_v2_plan.md](../../../proposals/real_batching_v2_plan.md). Last version:
+> `git show b5b49f9:src/PipelineInferenceEngine.hpp`. The sections below describe the code as it was.
+
+- **File:** `src/PipelineInferenceEngine.hpp` (removed), header-only, 551 lines
 - **Namespace:** global (`ThreadSafeQueue<T>`, `PipelineRequest`, `EncoderOutput`, `PipelineConfig`, `PipelineStats`, `PipelineInferenceEngine<…>`, `StandardPipelineEngine`)
 - **Used by:** `ChatbotAPI` when `chatbot_api_server` runs with `--pipeline-inference` (`enable_pipeline_inference()`); `IntegratedInferenceEngine.hpp` included it for `ThreadSafeQueue` until its retirement (October 27, 2026)
 - **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0`, `@adai-reviewed: 2026-09-12`
-- **Tests:** [`tests/pipelineinferenceengine_test.cpp`](../../../../tests/pipelineinferenceengine_test.cpp) (61 tests, against mock encoder/decoder/head/tokenizer); `benchmarks/PipelineBenchmark.cpp`
+- **Tests:** `tests/pipelineinferenceengine_test.cpp` (removed; 61 tests, against mocks); `benchmarks/PipelineBenchmark.cpp` (removed)
 - **Sibling:** [IntegratedInferenceEngine.md](IntegratedInferenceEngine.md) (retired October 27, 2026; TD-417–TD-420), which shared most of these patterns
 - **Last traced against the code:** 2026-10-16
 
@@ -91,8 +100,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Shutdown leaves queued requests' promises alive; post-shutdown submits dropped (§2) | Callers in `future.get()` block forever after an explicit `shutdown()` | **Verified** | [TD-474](../../guides/TECHNICAL_DEBT.md#td-474-pipelineinferenceengine-strands-queued-requests-on-shutdown-and-skips-model_mutex_) |
-| Model driven without `model_mutex_` while `/chat/batch` uses it (§2) | Concurrent forward passes race on shared layer state | By inspection | [TD-474](../../guides/TECHNICAL_DEBT.md#td-474-pipelineinferenceengine-strands-queued-requests-on-shutdown-and-skips-model_mutex_) |
-| "2–3×" claim vs 1.017× best case; uncached O(n²) greedy decode; serial batch inputs; sleep-based benchmark (§2) | Pipeline mode is no faster (and slower than KV-cached `/chat`) | **Verified** (timing) | [TD-475](../../guides/TECHNICAL_DEBT.md#td-475-pipelineinferenceengine-throughput-claims-greedy-uncached-decoding-and-stats) |
-| Greedy-only answers differ from `/chat`; misleading stats; single-cv wakeups; `std::cerr`; non-`std` exceptions (§2) | Inconsistent output; misleading monitoring | By inspection | [TD-475](../../guides/TECHNICAL_DEBT.md#td-475-pipelineinferenceengine-throughput-claims-greedy-uncached-decoding-and-stats) |
+| Shutdown leaves queued requests' promises alive; post-shutdown submits dropped (§2) | Callers in `future.get()` block forever after an explicit `shutdown()` | **Verified** | [TD-474](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-474-pipelineinferenceengine-strands-queued-requests-on-shutdown-and-skips-model_mutex_) |
+| Model driven without `model_mutex_` while `/chat/batch` uses it (§2) | Concurrent forward passes race on shared layer state | By inspection | [TD-474](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-474-pipelineinferenceengine-strands-queued-requests-on-shutdown-and-skips-model_mutex_) |
+| "2–3×" claim vs 1.017× best case; uncached O(n²) greedy decode; serial batch inputs; sleep-based benchmark (§2) | Pipeline mode is no faster (and slower than KV-cached `/chat`) | **Verified** (timing) | [TD-475](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-475-pipelineinferenceengine-throughput-claims-greedy-uncached-decoding-and-stats) |
+| Greedy-only answers differ from `/chat`; misleading stats; single-cv wakeups; `std::cerr`; non-`std` exceptions (§2) | Inconsistent output; misleading monitoring | By inspection | [TD-475](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-475-pipelineinferenceengine-throughput-claims-greedy-uncached-decoding-and-stats) |
 | `encode()` adds special tokens; the integrated engine's equivalents | Already tracked | — | TD-364, TD-417–TD-420 |

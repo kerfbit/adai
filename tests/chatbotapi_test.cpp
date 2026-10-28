@@ -138,23 +138,6 @@ class ChatbotAPITest : public ::testing::Test {
         return api->batched_engine_ ? api->batched_engine_->get_stats() : BatchedInferenceStats();
     }
 
-    // pipeline_engine_ is private; same friendship-doesn't-propagate reason as
-    // call_generate_response() above (TD-038). Same discriminator role as
-    // call_get_batched_stats() above.
-    PipelineStats call_get_pipeline_stats() {
-        return api->pipeline_engine_ ? api->pipeline_engine_->get_stats() : PipelineStats();
-    }
-
-    // enable_pipeline_inference() (TD-038) needs an actual vocabulary *file* path — it reloads
-    // the same vocab into the model's encoder-internal tokenizer (see its doc comment in
-    // ChatbotAPI.hpp) — but this fixture's tokenizer only ever exists in memory
-    // (build_vocab(), never saved). Saves it out once per call so pipeline tests have a real
-    // file to point at.
-    std::string save_tokenizer_vocab_to_temp_file() {
-        std::string path = "/tmp/adai_chatbotapi_test_pipeline_vocab.txt";
-        tokenizer->save_vocab(path);
-        return path;
-    }
 };
 
 // ============================================================================
@@ -1312,104 +1295,16 @@ TEST_F(ChatbotAPITest, BatchedInference_ConcurrentRequestsAllCompleteCorrectly) 
 }
 
 // ============================================================================
-// Pipeline Inference (TD-038): PipelineInferenceEngine wiring
-// ============================================================================
-//
-// Integration tests in the same sense as the sections above — proving generate_response()
-// genuinely routes through a real StandardPipelineEngine (real encoder/decoder worker threads)
-// via real (small) inference through a real ChatbotAPI instance. This wiring also caught a real,
-// pre-existing bug: PipelineInferenceEngine::decoder_worker() called a method,
-// forward_with_cross_attention(tokens, encoder_output, nullptr), that does not exist on the real
-// LLMDecoder — its dedicated unit test suite (pipelineinferenceengine_test.cpp) never caught this
-// because it exercises the class entirely through mock encoder/decoder/lm_head types shaped to
-// match the (buggy) production call, not the real dependency's actual interface. Fixed to call
-// LLMDecoder's real forward_with_encoder(token_ids, encoder_output) instead — see
-// PipelineInferenceEngine.hpp's decoder_worker() and this file's MockDecoder for the full story.
-
-TEST_F(ChatbotAPITest, PipelineInference_DisabledByDefaultUsesNormalPathUnaffected) {
-    // No enable_pipeline_inference() call — confirms adding pipeline_engine_ didn't disturb the
-    // existing, already-covered normal generation path.
-    ChatbotAPI::GenerationConfig config;
-    config.max_length = 5;
-    config.strategy = "greedy";
-    EXPECT_NO_THROW(call_generate_response("hello", config));
-}
-
-TEST_F(ChatbotAPITest, PipelineInference_EnabledGeneratesThroughThePipelineWithoutThrowing) {
-    std::string vocab_path = save_tokenizer_vocab_to_temp_file();
-    api->enable_pipeline_inference(vocab_path);
-
-    ChatbotAPI::GenerationConfig config;
-    config.max_length = 5;
-    EXPECT_NO_THROW(call_generate_response("hello world", config));
-
-    // Falsifiable proof the request actually went through the pipeline's real encoder/decoder
-    // worker threads rather than silently falling through to the plain inline path (which would
-    // also succeed without throwing).
-    EXPECT_EQ(call_get_pipeline_stats().total_requests, 1u);
-}
-
-TEST_F(ChatbotAPITest, PipelineInference_WrongVocabPathThrows) {
-    // enable_pipeline_inference() deliberately does not catch load_tokenizer_vocab()'s own
-    // exception (see its doc comment) — callers decide whether a bad path should disable the
-    // mode or abort startup. Confirms that exception genuinely propagates out to the caller.
-    EXPECT_THROW(api->enable_pipeline_inference("/nonexistent/path/vocab.txt"),
-                std::exception);
-}
-
-TEST_F(ChatbotAPITest, PipelineInference_ConcurrentRequestsAllCompleteCorrectly) {
-    // Same reasoning as BatchedInference_ConcurrentRequestsAllCompleteCorrectly above: real proof
-    // of wiring requires exercising the pipeline's actual worker threads with genuine concurrent
-    // load, not a single call that could coincidentally succeed even if the wiring were subtly
-    // wrong.
-    std::string vocab_path = save_tokenizer_vocab_to_temp_file();
-    api->enable_pipeline_inference(vocab_path);
-
-    ChatbotAPI::GenerationConfig config;
-    config.max_length = 5;
-
-    constexpr int kNumThreads = 6;
-    std::vector<std::thread> threads;
-    std::vector<bool> threw(kNumThreads, false);
-    std::vector<std::string> errors(kNumThreads);
-
-    for (int i = 0; i < kNumThreads; ++i) {
-        threads.emplace_back([&, i]() {
-            try {
-                call_generate_response("hello world", config);
-            } catch (const std::exception& e) {
-                threw[i] = true;
-                errors[i] = e.what();
-            }
-        });
-    }
-    for (auto& t : threads) {
-        t.join();
-    }
-
-    for (int i = 0; i < kNumThreads; ++i) {
-        // Not asserting non-empty output: PipelineInferenceEngine's decoder loop is always greedy
-        // (see enable_pipeline_inference()'s doc comment) and can legitimately pick EOS as the
-        // very first token on this tiny randomly-initialized test model, producing a valid empty
-        // string via decode(..., skip_special_tokens=true) — not a wiring failure.
-        EXPECT_FALSE(threw[i]) << "concurrent request " << i << " threw unexpectedly: "
-                               << errors[i];
-    }
-
-    EXPECT_EQ(call_get_pipeline_stats().total_requests, static_cast<uint64_t>(kNumThreads));
-}
-
-// ============================================================================
 // TD-156: Plain (non-batched, non-pipelined) path concurrency
 // ============================================================================
 //
-// Unlike every concurrency test above, this one deliberately enables NONE of TD-038's
-// batched/pipeline inference modes — it exercises the plain default path every
-// chatbot_api_server deployment uses unless one of those flags is passed. That path calls
+// Unlike every concurrency test above, this one deliberately doesn't enable TD-038's
+// batched inference mode — it exercises the plain default path every
+// chatbot_api_server deployment uses unless that flag is passed. That path calls
 // model_->forward() directly on each request's own handler thread via a per-request model_fn
-// closure (see ChatbotAPI::generate_response()), with no serialization of its own; the batched/
-// pipeline engines above are all incidentally safe only because each routes every
-// call through its own single worker thread, which is exactly what makes them a poor stand-in
+// closure (see ChatbotAPI::generate_response()), with no serialization of its own; the batched
+// engine above is incidentally safe only because it routes every
+// call through its own single worker thread, which is exactly what makes it a poor stand-in
 // for testing this path.
 //
 // Before the TD-156 fix (EncoderDecoderModel::forward()/generate_response()/
@@ -1451,8 +1346,8 @@ TEST_F(ChatbotAPITest, PlainPathConcurrentRequestsDoNotCorruptTheHeap) {
         }
 
         for (int i = 0; i < kNumThreads; ++i) {
-            // Not asserting non-empty output, same reason as the batched/pipeline
-            // versions of this test above: this tiny randomly-initialized model can legitimately
+            // Not asserting non-empty output, same reason as the batched
+            // version of this test above: this tiny randomly-initialized model can legitimately
             // sample EOS as its very first token. Only an actual exception (or the process not
             // surviving to report it) indicates the bug this test targets.
             EXPECT_FALSE(threw[i]) << "round " << round << ", concurrent request " << i

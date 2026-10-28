@@ -74,7 +74,7 @@ Walks `argv` once, applying flags to `config` **in place**. Returns early with `
 | `--profile` | `result.profile` | flag |
 | `--batched-inference` | `result.batched_inference` | flag |
 | `--batch-timeout-ms <n>` | `result.batch_timeout_ms` (default 50) | `atoi` |
-| `--pipeline-inference` | `result.pipeline_inference` | flag |
+| `--pipeline-inference` | — | removed October 28, 2026: refused with an error saying so |
 | `--integrated-inference` | — | removed October 27, 2026: refused with an error saying so |
 
 The four mode flags live on the **result**, not on `ServiceConfig`: they're per-process runtime
@@ -107,7 +107,7 @@ check.
 | `--temperature hot` | accepted, `temperature = 0` | Temperature 0 means greedy decoding |
 | `--timeout -5` | accepted, `session_timeout = -5` | Every session counts as expired at the next `/health` |
 | `--strategy bogus` | accepted | `ChatbotAPI` silently treats unknown strategies as `nucleus` |
-| `--batched-inference --pipeline-inference` | both `true`, no error (a third flag, `--integrated-inference`, was removed) | See below |
+| `--batched-inference --pipeline-inference` | error: `--pipeline-inference` was removed (October 28, 2026), as was `--integrated-inference` | See below |
 | `--config` (no value) | ignored, no error | Discovery falls back to default paths silently |
 
 `atoi`/`atof` return 0 for non-numbers and stop at the first non-digit, and nothing range-checks

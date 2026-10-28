@@ -372,19 +372,6 @@ add_test(NAME ChatbotAPITests COMMAND chatbotapiTests)
 # -- see TECHNICAL_DEBT.md's resolved archive.
 
 
-# PipelineInferenceEngine tests (pipeline parallelism, ThreadSafeQueue, mock encoder/decoder)
-add_executable(pipelineinferenceengineTests pipelineinferenceengine_test.cpp)
-target_link_libraries(pipelineinferenceengineTests
-    adai_models
-    adai_nlp
-    adai_transformer
-    adai_attention
-    adai_feedforward
-    adai_layers
-    adai_core
-    GTest::gtest_main
-)
-add_test(NAME PipelineInferenceEngineTests COMMAND pipelineinferenceengineTests)
 
 # BatchedInferenceEngine tests (continuous batching, request queuing, stats)
 add_executable(batchedinferenceengineTests batchedinferenceengine_test.cpp)
@@ -1351,4 +1338,4 @@ if(_adai_all_tests)
     set_tests_properties(${_adai_all_tests} PROPERTIES TIMEOUT 1200)
 endif()
 
-message(STATUS "Configured 57+ test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, GenerationQualityAsync, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, BackgroundLaunch, integration, RAG/BERT comparison, Phase 5, DatasetRegistry, DatasetRegistryLive, DataFetcher, FtpDataServer, DataTransport, DataTransportFtp, StartupSweep, TrainingSampleMeta, and TrainerAdminAPI tests)")
+message(STATUS "Configured 57+ test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, GenerationQualityAsync, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, BackgroundLaunch, integration, RAG/BERT comparison, Phase 5, DatasetRegistry, DatasetRegistryLive, DataFetcher, FtpDataServer, DataTransport, DataTransportFtp, StartupSweep, TrainingSampleMeta, and TrainerAdminAPI tests)")

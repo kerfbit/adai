@@ -482,3 +482,7 @@ GPT-2 pre-tokenizer).
 and `load_vocab()`, instead of the tokenizer's address. A reloaded tokenizer, or a new one where a destroyed one lived, no longer
 encodes with another state's cached merges. Each thread keeps the 4 most recently used keys' caches, each cleared at 65,536 words.
 Tests: `BPETokenizerCacheTest`.
+
+## Addendum (October 28, 2026): engine modes retired
+
+`PipelineInferenceEngine` (`--pipeline-inference`) and `IntegratedInferenceEngine` (`--integrated-inference`) were removed in October 2026 (TD-474/TD-475, TD-417–TD-420); mentions of them above describe the code as it was.

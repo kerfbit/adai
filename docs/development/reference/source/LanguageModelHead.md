@@ -2,7 +2,7 @@
 
 - **Files:** [`src/LanguageModelHead.hpp`](../../../../src/LanguageModelHead.hpp), [`src/LanguageModelHead.cpp`](../../../../src/LanguageModelHead.cpp)
 - **Namespace:** global
-- **Built into:** `adai_models`; owned by `EncoderDecoderModel`; also driven by `PipelineInferenceEngine` (and `IntegratedInferenceEngine` until its retirement, October 27, 2026)
+- **Built into:** `adai_models`; owned by `EncoderDecoderModel`; also driven, until their retirement in October 2026, by `PipelineInferenceEngine` and `IntegratedInferenceEngine`
 - **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0`, `@adai-reviewed: 2026-09-10` (both files)
 - **Tests:** [`tests/languagemodelhead_test.cpp`](../../../../tests/languagemodelhead_test.cpp) (42 tests)
 - **Last traced against the code:** 2026-10-13

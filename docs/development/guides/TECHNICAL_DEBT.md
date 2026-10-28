@@ -706,12 +706,18 @@ verified with the callers' exact parsing logic: a date-only or malformed timesta
 `from`/`to` silently return everything or nothing), UTC offsets are ignored, out-of-range fields roll over, and all three callers parse fractions
 with `atoi()` (`.12` → 12 ms, microseconds → +2 minutes), so PostgreSQL timestamps read back up to ~0.9 s early.
 
-**October 16, 2026:** Filed [TD-474](#td-474-pipelineinferenceengine-strands-queued-requests-on-shutdown-and-skips-model_mutex_) and [TD-475](#td-475-pipelineinferenceengine-throughput-claims-greedy-uncached-decoding-and-stats) from the code-traced
+**October 16, 2026:** Filed [TD-474](../archive/TECHNICAL_DEBT_RESOLVED.md#td-474-pipelineinferenceengine-strands-queued-requests-on-shutdown-and-skips-model_mutex_) and [TD-475](../archive/TECHNICAL_DEBT_RESOLVED.md#td-475-pipelineinferenceengine-throughput-claims-greedy-uncached-decoding-and-stats) from the code-traced
 [PipelineInferenceEngine.md](../reference/source/PipelineInferenceEngine.md) (`--pipeline-inference`). One is MEDIUM: `shutdown()` leaves queued
 requests' promises inside the queues, so their futures never resolve (2 of 3 still pending 3 s after shutdown, verified), and pipeline mode drives
 the model without `model_mutex_` while `/chat/batch` uses it (as TD-419) (TD-474). One is LOW: the header's "2–3× throughput" can't happen, since
 only the encoder overlaps decoding (144 ms vs 8,480 ms for 50 uncached greedy steps on a real model: 1.017× best case, verified; the repo's 1.24×
 comes from a `sleep()`-based benchmark), plus greedy-only answers, misleading stats and queue wakeups (TD-475).
+
+October 28, 2026, per the owner's decision: **retired `PipelineInferenceEngine`** like `IntegratedInferenceEngine` the day before.
+`src/PipelineInferenceEngine.hpp`, its tests and target, `benchmarks/PipelineBenchmark.cpp`, `ChatbotAPI::enable_pipeline_inference()`
+and `chatbot_api_server --pipeline-inference` (which now exits 1 saying it was removed) are gone. TD-474 and TD-475 are in the
+resolved archive; [PipelineInferenceEngine.md](../reference/source/PipelineInferenceEngine.md) is kept as a retired reference.
+`--batched-inference` (TD-211–TD-214) is the only engine mode left.
 
 **October 15, 2026:** Filed [TD-473](#td-473-profiler-keeps-every-timing-forever-sorts-under-its-lock-and-uses-the-wall-clock) (LOW) from the code-traced
 [PerformanceProfiler.md](../reference/source/PerformanceProfiler.md): `ChatbotAPI` times every response whether or not profiling is enabled,
@@ -1343,6 +1349,8 @@ The generation and model math run is complete.
   warns). All of TD-484–TD-487 are now fixed in code.
 - TD-417–TD-420 (closed: owner chose to retire `IntegratedInferenceEngine` and `--integrated-inference`; moved to the
   resolved archive).
+- TD-474–TD-475 (closed: owner chose to retire `PipelineInferenceEngine` and `--pipeline-inference` too; moved to the resolved
+  archive). The chat serving category is done apart from `--batched-inference` (TD-211–TD-214).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -1932,8 +1940,8 @@ adds the adversarial tests.
 **Tier 78 — Newly filed (October 15, 2026): `PerformanceProfiler`.** [TD-473](#td-473-profiler-keeps-every-timing-forever-sorts-under-its-lock-and-uses-the-wall-clock) is small: `steady_clock`, and a bounded
 reservoir or histogram instead of the unbounded vector.
 
-**Tier 79 — Newly filed (October 16, 2026): `PipelineInferenceEngine`.** Fix [TD-474](#td-474-pipelineinferenceengine-strands-queued-requests-on-shutdown-and-skips-model_mutex_) with TD-418/TD-419 (the integrated engine's
-identical shutdown and mutex gaps). [TD-475](#td-475-pipelineinferenceengine-throughput-claims-greedy-uncached-decoding-and-stats) feeds the same decision as TD-420 and the real-batching v2 plan: whether these engines stay,
+**Tier 79 — Done (October 28, 2026): `PipelineInferenceEngine` retired** (owner decision); the rest of this tier is history. Fix [TD-474](../archive/TECHNICAL_DEBT_RESOLVED.md#td-474-pipelineinferenceengine-strands-queued-requests-on-shutdown-and-skips-model_mutex_) with TD-418/TD-419 (the integrated engine's
+identical shutdown and mutex gaps). [TD-475](../archive/TECHNICAL_DEBT_RESOLVED.md#td-475-pipelineinferenceengine-throughput-claims-greedy-uncached-decoding-and-stats) feeds the same decision as TD-420 and the real-batching v2 plan: whether these engines stay,
 given they're no faster than the plain path.
 
 **Tier 80 — Newly filed (October 16, 2026): `PortableSocket`.** Add a `send_all()` (loop + `EINTR` retry) and use it in `FtpDataServer`
@@ -2303,8 +2311,6 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-471: `ParquetReader` Trusts Declared Sizes for Allocations](#td-471-parquetreader-trusts-declared-sizes-for-allocations)
   - [TD-472: `ParquetReader` Contract, Memory Use and Test Coverage Gaps](#td-472-parquetreader-contract-memory-use-and-test-coverage-gaps)
   - [TD-473: `Profiler` Keeps Every Timing Forever, Sorts Under Its Lock and Uses the Wall Clock](#td-473-profiler-keeps-every-timing-forever-sorts-under-its-lock-and-uses-the-wall-clock)
-  - [TD-474: `PipelineInferenceEngine` Strands Queued Requests on Shutdown and Skips `model_mutex_`](#td-474-pipelineinferenceengine-strands-queued-requests-on-shutdown-and-skips-model_mutex_)
-  - [TD-475: `PipelineInferenceEngine` Throughput Claims, Greedy Uncached Decoding and Stats](#td-475-pipelineinferenceengine-throughput-claims-greedy-uncached-decoding-and-stats)
   - [TD-476: `PortableSocket` Short Writes Truncate FTP Transfers; Unchecked Socket Setup](#td-476-portablesocket-short-writes-truncate-ftp-transfers-unchecked-socket-setup)
   - [TD-477: Timestamp Parsing Turns Bad Input Into 1899, Ignores Offsets and Misreads Fractions](#td-477-timestamp-parsing-turns-bad-input-into-1899-ignores-offsets-and-misreads-fractions)
   - [TD-478: `PositionalEncoding` Width Check, Warning Spam and Duplicated Formula](#td-478-positionalencoding-width-check-warning-spam-and-duplicated-formula)
@@ -5433,6 +5439,10 @@ Found alongside TD-240 and confirmed with the real parser: `--batched-inference
 enables one", but `main()` checks each with an independent `if`. So all three engines are created
 (worker threads, plus the pipeline mode's encoder vocab reload) while
 `ChatbotAPI::generate_response()` silently uses only the first in its precedence order.
+
+**Update (October 28, 2026):** with `--pipeline-inference` and `--integrated-inference` removed (TD-474/TD-475, TD-417–TD-420),
+`--batched-inference` is the only engine-mode flag, so "every engine-mode flag passed gets started" can't happen any more. What's
+left is `--batch-timeout-ms` without `--batched-inference` being accepted silently.
 
 Action Items:
 
@@ -13504,72 +13514,7 @@ Files to Modify:
 
 ---
 
-### TD-474: `PipelineInferenceEngine` Strands Queued Requests on Shutdown and Skips `model_mutex_`
 
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / PipelineInferenceEngine | October 16, 2026 | 1-2 hours |
-
-Description:
-Found while tracing `PipelineInferenceEngine`:
-- **Stranded requests (verified).** `shutdown()` sets `running_ = false`, shuts down both `ThreadSafeQueue`s and joins the workers, which exit on
-  the next loop check and leave any queued `PipelineRequest`/`EncoderOutput` (each owning its `std::promise`) inside the queues until the engine
-  is destroyed. With 3 requests submitted and `shutdown()` called while the first was in the encoder stage: request 0 → `Broken promise`, requests
-  1–2 **still pending 3 s later** (a probe without a timeout hung for 1.5 h). `push()` after shutdown silently drops the item (the caller's future
-  fails with `Broken promise`). In `chatbot_api_server` the engine is destroyed after the HTTP server stops, so its workers drain the queue first;
-  the defect bites any direct caller of `shutdown()`.
-- **No `model_mutex_` (by inspection).** `ChatbotAPI::generate_response()` routes through the pipeline without `model_mutex_`, while
-  `/chat/batch` runs `model_->forward()` under it, so a batch request can run concurrently with the decoder thread on layers that cache forward
-  state in members. Same as TD-419.
-
-Action Items:
-
-- [ ] On shutdown, drain both queues and fail (or finish) every pending request explicitly; make `push()` after shutdown report failure to the caller.
-- [ ] Hold `model_mutex_` around the decoder stage (or give the pipeline exclusive use of the model), consistently with TD-419's fix.
-- [ ] Test: shutdown with queued requests resolves every future promptly.
-
-Location in code: `src/PipelineInferenceEngine.hpp` (`shutdown()`, workers, `ThreadSafeQueue::push()`); `src/ChatbotAPI.cpp` (pipeline branch of `generate_response()`); tagged `TODO: See TD-474`.
-
-Files to Modify:
-
-- `src/PipelineInferenceEngine.hpp`
-- `src/ChatbotAPI.cpp`
-- `tests/pipelineinferenceengine_test.cpp`
-
----
-
-### TD-475: `PipelineInferenceEngine` Throughput Claims, Greedy Uncached Decoding and Stats
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Inference / PipelineInferenceEngine | October 16, 2026 | 2-4 hours |
-
-Description:
-Found while tracing `PipelineInferenceEngine`:
-- **Throughput (verified).** The header promises "2–3× throughput", but only the encoder stage overlaps decoding. On a real model (d_model 256,
-  4+4 layers, debug build) one encoder pass took 144 ms and 50 greedy decode steps 8,480 ms: a best-case pipelining speedup of **1.017×**. The
-  decode loop re-runs the full decoder over all tokens so far each step (no KV cache, O(n²)), and a batch's inputs are decoded one at a time. The
-  documented 1.24× (PARALLEL_OPTIMIZATIONS_QUICK_REFERENCE.md) comes from `benchmarks/PipelineBenchmark.cpp`, whose stages are `sleep()`s.
-- **By inspection.** Generation is greedy only, with `BOS`/`EOS` added to encoder input (TD-364) and no repetition handling, so answers differ from
-  normal `/chat` (as TD-417). `avg_throughput_rps` divides by time since construction (decays while idle); `PipelineConfig::enable_profiling` is
-  never read. `ThreadSafeQueue` uses one condition variable with `notify_one()` for producers and the consumer, so a push can wake another blocked
-  producer instead of the consumer (up to 50 ms extra latency). Stage errors go to `std::cerr`; only `std::exception`s are caught.
-
-Action Items:
-
-- [ ] Correct the header and PARALLEL_OPTIMIZATIONS_QUICK_REFERENCE.md claims; benchmark against the real model.
-- [ ] Use the KV-cached decode path (or retire the engine in favour of the real-batching v2 plan, with TD-420).
-- [ ] Pass the request's generation settings through; fix the throughput stat; separate not-full/not-empty condition variables; `Logger` instead of `std::cerr`.
-
-Location in code: `src/PipelineInferenceEngine.hpp` (header comment, `decoder_worker()`, `ThreadSafeQueue`, stats); tagged `TODO: See TD-475`.
-
-Files to Modify:
-
-- `src/PipelineInferenceEngine.hpp`
-- `benchmarks/PipelineBenchmark.cpp`
-- `docs/development/guides/quick-reference/PARALLEL_OPTIMIZATIONS_QUICK_REFERENCE.md`
-
----
 
 ### TD-476: `PortableSocket` Short Writes Truncate FTP Transfers; Unchecked Socket Setup
 

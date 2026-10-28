@@ -69,7 +69,7 @@ This directory contains reference materials, technical specifications, and imple
   - [Optimizer](source/Optimizer.md) (`src/Optimizer.{hpp,cpp}`; SGD/momentum/Adam/AdamW over parameter groups, clipping)
   - [ParquetReader](source/ParquetReader.md) (`src/ParquetReader.{hpp,cpp}`; dependency-free Parquet → JSONL for HuggingFace fetches)
   - [PerformanceProfiler](source/PerformanceProfiler.md) (`src/PerformanceProfiler.hpp`; timers, `Profiler`, `PROFILE_SCOPE`, `Benchmark`)
-  - [PipelineInferenceEngine](source/PipelineInferenceEngine.md) (`src/PipelineInferenceEngine.hpp`; two-thread encoder/decoder pipeline behind `--pipeline-inference`)
+  - [PipelineInferenceEngine](source/PipelineInferenceEngine.md) (retired October 28, 2026; was `--pipeline-inference`)
   - [PortableSocket](source/PortableSocket.md) (`src/PortableSocket.hpp`; POSIX/Winsock socket shim for `FtpDataServer`)
   - [PortableTime](source/PortableTime.md) (`src/PortableTime.hpp`; portable UTC `gmtime`/`timegm`/`strptime`)
   - [PositionalEncoding](source/PositionalEncoding.md) (`src/PositionalEncoding.{hpp,cpp}`; fixed sinusoidal position encoding)

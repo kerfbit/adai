@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-10-27
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-10-28
 
 #include "ChatbotApiServerArgs.hpp"
 #include <cstdlib>
@@ -73,21 +73,19 @@ ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
             result.batched_inference = true;
         } else if (arg == "--batch-timeout-ms" && i + 1 < argc) {
             result.batch_timeout_ms = std::atoi(argv[++i]);
-        } else if (arg == "--pipeline-inference") {
-            result.pipeline_inference = true;
-        } else if (arg == "--integrated-inference") {
-            // TD-417–TD-420: retired with IntegratedInferenceEngine, which batched nothing, answered
-            // differently from /chat, and could take the server down. Say so rather than "unknown".
+        } else if (arg == "--pipeline-inference" || arg == "--integrated-inference") {
+            // TD-474/TD-475, TD-417–TD-420: retired with their engines, which batched nothing through
+            // the model and answered differently from /chat. Say so rather than "unknown argument".
             result.error = true;
             result.error_message =
-                "--integrated-inference was removed (October 27, 2026): the engine never batched requests and "
-                "answered differently from /chat; see docs/proposals/real_batching_v2_plan.md";
+                arg + " was removed (October 2026): the engine never batched requests and answered "
+                "differently from /chat; see docs/proposals/real_batching_v2_plan.md";
             return result;
         } else {
             // TODO: See TD-245 in TECHNICAL_DEBT.md - a known flag missing its value (e.g. trailing --port)
             // lands here and is reported as "Unknown argument".
-            // TODO: See TD-243 in TECHNICAL_DEBT.md - --batch-timeout-ms without --batched-inference and
-            // multiple engine-mode flags are accepted silently.
+            // TODO: See TD-243 in TECHNICAL_DEBT.md - --batch-timeout-ms without --batched-inference is
+            // accepted silently.
             result.error = true;
             result.error_message = "Unknown argument: " + arg;
             return result;

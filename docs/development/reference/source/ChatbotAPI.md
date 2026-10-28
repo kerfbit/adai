@@ -143,7 +143,7 @@ path:
 | 1 | **RAG** (`rag_engine_->generate(input)`) | `enableRAG()` called | No | Checked **while holding `config_mutex_`** (see below) |
 | 2 | **Speculative decoding** | constructed with a draft model | `temperature`, `max_length`; greedy iff `strategy == "greedy"` | Draft and target `TextGenerator`s + `SpeculativeDecoder` |
 | 3 | **Batched engine** | `enable_batched_inference()` | `max_length`, `temperature`, `top_p`, `top_k`; **not** `strategy`/`beam_width` | Blocks on a future; see [BatchedInferenceEngine.md](BatchedInferenceEngine.md), TD-211–214 |
-| 4 | **Pipeline engine** | `enable_pipeline_inference()` | `max_length` only; always greedy | Encoder uses the model's *private* tokenizer |
+| 4 | ~~**Pipeline engine**~~ (removed October 28, 2026) | `enable_pipeline_inference()` | `max_length` only; always greedy | Encoder used the model's *private* tokenizer |
 | 5 | **Integrated engine** | `enable_integrated_inference()` | `max_length` only; always greedy | |
 | 6 | **GPU-resident decode** | built with GPU support and `GPUManager::is_available()` | all fields | `gpu_generate_response_with_strategy()` (TD-033) |
 | 7 | **CPU `TextGenerator`** | otherwise | all fields | Fresh `TextGenerator` per request (seed 0 means random), `model_->forward()` full recompute per step; strategy switch picks `generate_greedy/beam_search/sampling/top_k/nucleus` |
@@ -289,7 +289,7 @@ These build `{"success":true,"response":…}`, `{"success":false,"error":…}`, 
 | `enableRAG(shared_ptr<RAGInference>)` | Takes over every `generate_response()` (path 1) |
 | `enable_profiling(bool)` | Gates `GET /admin/profile`. Timing is always collected; this only controls exposure |
 | `enable_batched_inference(cfg)` | Creates the `BatchedInferenceEngine` with a placeholder default `model_fn` that throws if ever used, and a non-owning `shared_ptr` to `tokenizer_` |
-| `enable_pipeline_inference(vocab_path, cfg)` | Loads `vocab_path` into the **encoder's private tokenizer**, then creates the `StandardPipelineEngine`. Throws on a bad vocab; the server catches that and disables the mode, but a mid-parse failure can leave the encoder's tokenizer gutted (TD-223) |
+| `enable_pipeline_inference(vocab_path, cfg)` | Removed October 28, 2026 with `PipelineInferenceEngine` (TD-474/TD-475) |
 | `enable_integrated_inference(cfg)` | Removed October 27, 2026 with `IntegratedInferenceEngine` (TD-417–TD-420) |
 
 At most one of the three engine modes should be enabled; if several are, path order (§5) decides
@@ -473,3 +473,9 @@ RAG branch uses it instead of the whole formatted conversation, which other path
 With RAG enabled, `generate_response()` replaces its input with `rag_engine_->buildPrompt(...)` and continues as for any request:
 the request's strategy and `GenerationConfig`, reloaded settings, speculative decoding, the TD-038 engines and the GPU decode. Tests:
 `RagHonoursTheRequestStrategyAndConfig`, `RagRequestsTakeTheGpuDecode` (GPU builds).
+
+## Addendum (October 28, 2026): engine modes retired (TD-417–TD-420, TD-474/TD-475)
+
+`enable_integrated_inference()` and `enable_pipeline_inference()` are removed with their engines, and `generate_response()` no longer
+has those branches. `enable_batched_inference()` (TD-211–TD-214) is the only engine mode left; every other request takes the plain
+path (RAG, speculative, GPU decode, CPU).

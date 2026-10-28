@@ -4,6 +4,79 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-475: `PipelineInferenceEngine` Throughput Claims, Greedy Uncached Decoding and Stats
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| October 28, 2026 | `src/PipelineInferenceEngine.hpp` (removed) | Retirement of `PipelineInferenceEngine` |
+
+Summary:
+Retired per the owner's decision (October 28, 2026), as `IntegratedInferenceEngine` was (TD-420): the engine was no faster than plain `/chat` (1.017× best case, measured) and answered differently from it. Deleted `src/PipelineInferenceEngine.hpp` (with `ThreadSafeQueue`, used by nothing else), `tests/pipelineinferenceengine_test.cpp` and its target, `benchmarks/PipelineBenchmark.cpp` (`pipeline_benchmark`), and `ChatbotAPI::enable_pipeline_inference()` with its tests. `chatbot_api_server --pipeline-inference` now exits 1 with a message saying it was removed. Real batching is planned in real_batching_v2_plan.md. Filed October 16, 2026.
+
+Original description:
+Found while tracing `PipelineInferenceEngine`:
+- **Throughput (verified).** The header promises "2–3× throughput", but only the encoder stage overlaps decoding. On a real model (d_model 256,
+  4+4 layers, debug build) one encoder pass took 144 ms and 50 greedy decode steps 8,480 ms: a best-case pipelining speedup of **1.017×**. The
+  decode loop re-runs the full decoder over all tokens so far each step (no KV cache, O(n²)), and a batch's inputs are decoded one at a time. The
+  documented 1.24× (PARALLEL_OPTIMIZATIONS_QUICK_REFERENCE.md) comes from `benchmarks/PipelineBenchmark.cpp`, whose stages are `sleep()`s.
+- **By inspection.** Generation is greedy only, with `BOS`/`EOS` added to encoder input (TD-364) and no repetition handling, so answers differ from
+  normal `/chat` (as TD-417). `avg_throughput_rps` divides by time since construction (decays while idle); `PipelineConfig::enable_profiling` is
+  never read. `ThreadSafeQueue` uses one condition variable with `notify_one()` for producers and the consumer, so a push can wake another blocked
+  producer instead of the consumer (up to 50 ms extra latency). Stage errors go to `std::cerr`; only `std::exception`s are caught.
+
+Action Items:
+
+- [ ] Correct the header and PARALLEL_OPTIMIZATIONS_QUICK_REFERENCE.md claims; benchmark against the real model.
+- [ ] Use the KV-cached decode path (or retire the engine in favour of the real-batching v2 plan, with TD-420).
+- [ ] Pass the request's generation settings through; fix the throughput stat; separate not-full/not-empty condition variables; `Logger` instead of `std::cerr`.
+
+Location in code: `src/PipelineInferenceEngine.hpp` (header comment, `decoder_worker()`, `ThreadSafeQueue`, stats); tagged `TODO: See TD-475`.
+
+Files to Modify:
+
+- `src/PipelineInferenceEngine.hpp`
+- `benchmarks/PipelineBenchmark.cpp`
+- `docs/development/guides/quick-reference/PARALLEL_OPTIMIZATIONS_QUICK_REFERENCE.md`
+
+---
+
+### TD-474: `PipelineInferenceEngine` Strands Queued Requests on Shutdown and Skips `model_mutex_`
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| October 28, 2026 | `src/PipelineInferenceEngine.hpp` (removed) | Retirement of `PipelineInferenceEngine` |
+
+Summary:
+Closed without a fix: the code was deleted when `src/PipelineInferenceEngine.hpp` and `--pipeline-inference` were retired (owner decision, October 28, 2026; see TD-475). Filed October 16, 2026.
+
+Original description:
+Found while tracing `PipelineInferenceEngine`:
+- **Stranded requests (verified).** `shutdown()` sets `running_ = false`, shuts down both `ThreadSafeQueue`s and joins the workers, which exit on
+  the next loop check and leave any queued `PipelineRequest`/`EncoderOutput` (each owning its `std::promise`) inside the queues until the engine
+  is destroyed. With 3 requests submitted and `shutdown()` called while the first was in the encoder stage: request 0 → `Broken promise`, requests
+  1–2 **still pending 3 s later** (a probe without a timeout hung for 1.5 h). `push()` after shutdown silently drops the item (the caller's future
+  fails with `Broken promise`). In `chatbot_api_server` the engine is destroyed after the HTTP server stops, so its workers drain the queue first;
+  the defect bites any direct caller of `shutdown()`.
+- **No `model_mutex_` (by inspection).** `ChatbotAPI::generate_response()` routes through the pipeline without `model_mutex_`, while
+  `/chat/batch` runs `model_->forward()` under it, so a batch request can run concurrently with the decoder thread on layers that cache forward
+  state in members. Same as TD-419.
+
+Action Items:
+
+- [ ] On shutdown, drain both queues and fail (or finish) every pending request explicitly; make `push()` after shutdown report failure to the caller.
+- [ ] Hold `model_mutex_` around the decoder stage (or give the pipeline exclusive use of the model), consistently with TD-419's fix.
+- [ ] Test: shutdown with queued requests resolves every future promptly.
+
+Location in code: `src/PipelineInferenceEngine.hpp` (`shutdown()`, workers, `ThreadSafeQueue::push()`); `src/ChatbotAPI.cpp` (pipeline branch of `generate_response()`); tagged `TODO: See TD-474`.
+
+Files to Modify:
+
+- `src/PipelineInferenceEngine.hpp`
+- `src/ChatbotAPI.cpp`
+- `tests/pipelineinferenceengine_test.cpp`
+
+---
+
 ### TD-420: `IntegratedInferenceEngine` Claims, Dead Config and Fictional Stats
 
 | Resolution Date | Component | Resolved By |

@@ -762,11 +762,6 @@ if(OpenMP_CXX_FOUND)
     message(STATUS "Building attention_head_benchmark with OpenMP support")
 endif()
 
-# Pipeline Benchmark - Test encoder-decoder pipeline parallelism (Priority 5 implementation)
-add_executable(pipeline_benchmark ../benchmarks/PipelineBenchmark.cpp)
-target_link_libraries(pipeline_benchmark adai_models adai_nlp adai_core pthread)
-message(STATUS "Building pipeline_benchmark")
-
 # Chatbot GUI - Qt-based graphical interface (optional)
 # BUILD_GUI option and Qt find_package are declared in the top-level CMakeLists.txt.
 if(BUILD_GUI)

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.28.0
-// @adai-reviewed: 2026-10-26
+// @adai-version: 0.28.1
+// @adai-reviewed: 2026-10-28
 
 #include <functional>
 #include <iostream>
@@ -180,10 +180,9 @@ class EncoderDecoderModel {
     // members' internal heap buffers, a confirmed (not theoretical) heap-corruption bug.
     // Locking this mutex for the full duration of each of those four calls serializes all
     // access to a single EncoderDecoderModel instance, closing the race at the cost of the
-    // plain/RAG inference path's concurrent throughput; real concurrency remains available via
-    // --batched-inference/--pipeline-inference, which already serialize model access safely by
-    // construction (each routes every call through its own single worker thread) and are
-    // unaffected by this lock. Not held across gpu_forward()/gpu_backward() — those are
+    // plain/RAG inference path's concurrent throughput. (--batched-inference routes every call
+    // through its own single worker thread; --pipeline-inference, which didn't take this lock,
+    // was removed, TD-474.) Not held across gpu_forward()/gpu_backward() — those are
     // training-only (ChatbotTrainer's single-threaded loop), touch a disjoint set of
     // GPU-resident members (gpu_encoder_out_ etc.), and are not reachable from
     // chatbot_api_server's live serving path at all.

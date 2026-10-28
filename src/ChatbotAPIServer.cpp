@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 2.3.0
-// @adai-reviewed: 2026-10-27
+// @adai-version: 2.4.0
+// @adai-reviewed: 2026-10-28
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
 #include <algorithm>
@@ -121,9 +121,6 @@ void print_usage(const char* program_name) {
            "                       on the HTTP handler's thread\n"
         << "  --batch-timeout-ms <n>  Max wait to collect a batch when --batched-inference is\n"
            "                       set (default: 50)\n"
-        << "  --pipeline-inference Route generation through a two-stage encoder/decoder\n"
-           "                       worker-thread pipeline instead of running inline; always\n"
-           "                       uses greedy decoding regardless of --strategy\n"
         << "  --help               Show this help message\n"
         << "\nEnvironment Variables:\n"
         << "  All configuration can be set via environment variables.\n"
@@ -569,8 +566,6 @@ int main(int argc, char* argv[]) {
             adai::Logger::info("  Profiling enabled: GET /admin/profile");
         }
 
-        // TODO: See TD-243 in TECHNICAL_DEBT.md - each mode flag below is checked independently, so passing
-        // several enables all of them; only the first is ever used by generate_response().
         // TD-038: --batched-inference routes generate_response() through a background
         // queue/worker thread (BatchedInferenceEngine) instead of running inline on the HTTP
         // handler's own thread.
@@ -582,24 +577,6 @@ int main(int argc, char* argv[]) {
             api->enable_batched_inference(batch_config);
             adai::Logger::info("  Batched inference enabled (batch timeout: {} ms)",
                                cli.batch_timeout_ms);
-        }
-
-        // TD-038: --pipeline-inference routes generate_response() through StandardPipelineEngine's
-        // own encoder/decoder worker threads. enable_pipeline_inference() throws on a bad vocab
-        // path (see its doc comment); tolerant here the same way the draft-model load above is —
-        // a load failure disables the mode for this run rather than aborting startup.
-        bool pipeline_inference_enabled = false;
-        if (cli.pipeline_inference) {
-            try {
-                api->enable_pipeline_inference(config.vocab_path);
-                pipeline_inference_enabled = true;
-                adai::Logger::info("  Pipeline inference enabled");
-            } catch (const std::exception& e) {
-                // TODO: See TD-223 in TECHNICAL_DEBT.md - a load_vocab() that fails mid-parse leaves the
-                // encoder's private tokenizer gutted even though serving continues.
-                adai::Logger::warn("  Failed to enable pipeline inference: {}", e.what());
-                adai::Logger::warn("  Pipeline inference disabled for this run");
-            }
         }
 
         // Set generation configuration
@@ -727,9 +704,6 @@ int main(int argc, char* argv[]) {
         if (cli.batched_inference) {
             adai::Logger::info("  Batched inference: enabled (batch timeout: {} ms)",
                                cli.batch_timeout_ms);
-        }
-        if (pipeline_inference_enabled) {
-            adai::Logger::info("  Pipeline inference: enabled");
         }
         // TODO: See TECHNICAL_DEBT.md Future Enhancement (Container and Deployment #2) - Add /metrics endpoint
         // Expose Prometheus metrics: request_count, request_duration, active_sessions, etc.

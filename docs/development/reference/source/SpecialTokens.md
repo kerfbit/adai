@@ -101,3 +101,7 @@ This file replaces `docs/development/SPECIAL_TOKEN_CONSOLIDATION.md` (191 lines)
   claim [reasoning_process_plan.md](../../../proposals/reasoning_process_plan.md) relied on).
 
 Kept: the token table, the helper list and the test command (`ctest -R SpecialTokensTests`). Dropped: the migration path and benefits list.
+
+## Addendum (October 28, 2026): engine modes retired
+
+`PipelineInferenceEngine` (`--pipeline-inference`) and `IntegratedInferenceEngine` (`--integrated-inference`) were removed in October 2026 (TD-474/TD-475, TD-417–TD-420); mentions of them above describe the code as it was.

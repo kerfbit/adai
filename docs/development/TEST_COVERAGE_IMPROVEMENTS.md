@@ -34,7 +34,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - **BatchProcessor Tests**: 29 comprehensive tests ✅
 - **ParallelDataLoader Tests**: 34 comprehensive tests ✅
 - **IntegratedInferenceEngine Tests**: 47 comprehensive tests (removed October 27, 2026 with the engine, TD-417–TD-420)
-- **PipelineInferenceEngine Tests**: 61 comprehensive tests ✅
+- **PipelineInferenceEngine Tests**: 61 comprehensive tests (removed October 28, 2026 with the engine, TD-474/TD-475)
 - **BatchedInferenceEngine Tests**: 51 comprehensive tests ✅
 - **SpeculativeDecoding Tests**: 53 comprehensive tests ✅
 - **VocabBuilder Tests**: 42 comprehensive tests ✅
@@ -1264,7 +1264,7 @@ RAGInference Tests:
 
 ---
 
-### 10. PipelineInferenceEngine Test Suite (61 tests) ✅ **NEW**
+### 10. PipelineInferenceEngine Test Suite (61 tests) — removed October 28, 2026 with the engine (TD-474/TD-475)
 
 **File**: `tests/pipelineinferenceengine_test.cpp`
 

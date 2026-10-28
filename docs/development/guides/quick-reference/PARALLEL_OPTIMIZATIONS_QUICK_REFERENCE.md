@@ -1,6 +1,6 @@
 # ADAI Parallel Optimizations - Quick Reference
 
-> **October 27, 2026: the integrated system is retired.** `IntegratedInferenceEngine`, `--integrated-inference` and
+> **October 27–28, 2026: the integrated and pipeline systems are retired** (the pipeline one too, TD-474/TD-475: 1.017× best case on a real model; its 1.24× came from `sleep()`-based stages). `IntegratedInferenceEngine`, `--integrated-inference` and
 > `integrated_benchmark` were removed (TD-417–TD-420): the engine batched nothing through the model, so the "5.5×+ / Production
 > Ready" figures below never described what it did, and its answers differed from `/chat`. The sections about it are kept as
 > history; real batching is planned in [real_batching_v2_plan.md](../../../proposals/real_batching_v2_plan.md).
@@ -67,7 +67,7 @@ cd /home/rodney/Repos/adai/build
 - `src/MatrixSIMD.hpp` - SIMD capability macros, CPUID detection, reduction helpers (TD-007)
 - `src/Matrix.cpp` - AVX2/FMA + NEON + BLAS code paths for all six Matrix ops (TD-007)
 - `src/MultiHeadAttention.cpp` - Parallel attention (P4)
-- `src/PipelineInferenceEngine.hpp` - Pipeline system (P5)
+- `src/PipelineInferenceEngine.hpp` - Pipeline system (P5) (removed Oct 28, 2026)
 - `src/IntegratedInferenceEngine.hpp` - Unified system (P1-P5) (removed Oct 27, 2026)
 - `src/BatchedInferenceEngine.hpp` - Batching (P3)
 
@@ -81,7 +81,7 @@ cd /home/rodney/Repos/adai/build
 - `benchmarks/AugmentationBenchmark.cpp` - P2 validation (retired October 11, 2026 with `EfficientBatching.hpp`, TD-355)
 - `benchmarks/BatchedInferenceBenchmark.cpp` - P3 validation
 - `benchmarks/AttentionHeadBenchmark.cpp` - P4 validation
-- `benchmarks/PipelineBenchmark.cpp` - P5 validation
+- `benchmarks/PipelineBenchmark.cpp` - P5 benchmark, `sleep()`-based stages (removed Oct 28, 2026)
 - `benchmarks/IntegratedBenchmark.cpp` - full system benchmark (removed Oct 27, 2026)
 
 ### Documentation
