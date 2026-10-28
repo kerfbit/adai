@@ -150,3 +150,12 @@ future enhancements, testing recommendations and debugging tips.
 
 `chatbot_api_server` now gives the `DocumentStore` a copy of the trained encoder (`EncoderDecoderModel::copy_encoder()`), so documents
 and queries are embedded with learned weights and the model's tokenizer. RAG isn't enabled without a trained model.
+
+## Addendum (October 27, 2026): token-budgeted prompt (TD-484)
+
+`truncateContext()` is replaced by `buildBudgetedPrompt(query, context)`, used by `generateWithRetrieval()` for steps 3–4. It counts
+tokens with the model's tokenizer (`countTokens()`), keeps `query_prefix + query` whole, and binary-searches the longest prefix of
+the context, cut at a UTF-8 boundary (`utf8Boundary()`) with `"..."`, such that the context is at most `max_context_length` tokens and
+the whole prompt at most the model's `max_seq_length`. Documents are in rank order, so the lowest-ranked go first. No room, or a
+question that alone reaches `max_seq_length`: the question alone. `chatbot_api_server` caps `RAG_MAX_CONTEXT_LENGTH` to
+`max_seq_length`. Tests: `RAGInferencePromptBudgetTest`.

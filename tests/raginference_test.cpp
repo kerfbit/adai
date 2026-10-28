@@ -531,53 +531,105 @@ TEST_F(RAGInferenceTest, EmptyQueryHandling) {
 }
 
 // ============================================================================
-// truncateContext() — TD-080 regression
-//
-// max_chars = max_tokens * 4 goes <= 0 when max_tokens <= 0. Passing
-// (max_chars - 3) — negative — as substr()'s unsigned `count` parameter used
-// to wrap to a huge value, which substr() silently clamps back down to the
-// *entire remaining string* — so "truncation" returned the whole untouched
-// context with "..." appended, actually *longer* than the input. Exercised
-// directly via the friend declaration since truncateContext() is private.
+// TD-484: the prompt is budgeted in real tokens
 // ============================================================================
 
-class RAGInferenceTruncateContextTest : public ::testing::Test {
+class RAGInferencePromptBudgetTest : public ::testing::Test {
    protected:
-    static std::string TruncateContext(const std::string& context, int max_tokens) {
-        return RAGInference::truncateContext(context, max_tokens);
+    static constexpr int kMaxSeq = 48;
+    std::shared_ptr<EncoderDecoderModel> model;
+    std::unique_ptr<RAGInference> rag;
+    BPETokenizer* tok = nullptr;
+
+    void SetUp() override {
+        model = std::make_shared<EncoderDecoderModel>(300, 32, 1, 1, 2, 64, kMaxSeq);
+        tok = model->get_tokenizer();
+        tok->build_vocab({"machine learning is a subset of artificial intelligence",
+                          "python is a popular programming language for data science",
+                          "deep learning uses neural networks with many layers",
+                          "what is machine learning question context"},
+                         300);
+        auto encoder = std::make_shared<LLMEncoder>(300, 32, 1, 2, 64, kMaxSeq);
+        rag = std::make_unique<RAGInference>(model, std::make_shared<DocumentStore>(encoder));
+    }
+
+    std::string prompt(const std::string& query, const std::string& context) {
+        return rag->buildBudgetedPrompt(query, context);
+    }
+    size_t tokens(const std::string& text) { return text.empty() ? 0 : tok->encode(text, false).size(); }
+    RAGInference::RAGConfig& config() { return rag->config; }
+
+    static bool valid_utf8(const std::string& s) {
+        for (size_t i = 0; i < s.size();) {
+            const unsigned char c = static_cast<unsigned char>(s[i]);
+            const size_t len = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2 : (c >> 4) == 0xE ? 3 : (c >> 3) == 0x1E ? 4 : 0;
+            if (len == 0 || i + len > s.size()) return false;
+            for (size_t k = 1; k < len; ++k)
+                if ((static_cast<unsigned char>(s[i + k]) & 0xC0) != 0x80) return false;
+            i += len;
+        }
+        return true;
     }
 };
 
-TEST_F(RAGInferenceTruncateContextTest, ZeroMaxTokensReturnsEmpty) {
-    std::string context(1000, 'x');
-    std::string result = TruncateContext(context, 0);
-    EXPECT_TRUE(result.empty());
+TEST_F(RAGInferencePromptBudgetTest, LongContextFitsMaxSeqLengthWithTheQuestionWhole) {
+    const std::string doc1 = "machine learning is a subset of artificial intelligence";
+    const std::string doc2 = "python is a popular programming language for data science";
+    const std::string doc3 = "deep learning uses neural networks with many layers";
+    const std::string context = doc1 + "\n\n" + doc2 + "\n\n" + doc3;
+    const std::string query = "what is machine learning";
+    config().max_context_length = kMaxSeq;  // as shipped: RAG_MAX_CONTEXT_LENGTH == MAX_SEQ_LENGTH
+
+    // The old rule (4 characters per token, context only) overflowed max_seq_length here.
+    const std::string old_context =
+        context.size() <= static_cast<size_t>(kMaxSeq * 4) ? context : context.substr(0, kMaxSeq * 4 - 3) + "...";
+    ASSERT_GT(tokens(config().context_prefix + old_context + config().query_prefix + query),
+              static_cast<size_t>(kMaxSeq));
+
+    const std::string p = prompt(query, context);
+    EXPECT_LE(tokens(p), static_cast<size_t>(kMaxSeq)) << p;
+    const std::string question = config().query_prefix + query;
+    ASSERT_GE(p.size(), question.size());
+    EXPECT_EQ(p.substr(p.size() - question.size()), question) << "the question must be kept whole";
+    EXPECT_NE(p.find(doc1.substr(0, 20)), std::string::npos) << "the top-ranked document goes in first";
+    EXPECT_EQ(p.find("neural"), std::string::npos) << "the lowest-ranked document is dropped first";
 }
 
-TEST_F(RAGInferenceTruncateContextTest, NegativeMaxTokensReturnsEmpty) {
-    std::string context(1000, 'x');
-    std::string result = TruncateContext(context, -5);
-    EXPECT_TRUE(result.empty());
+TEST_F(RAGInferencePromptBudgetTest, ContextThatFitsIsUnchanged) {
+    const std::string p = prompt("what is it", "machine learning");
+    EXPECT_EQ(p, config().context_prefix + "machine learning" + config().query_prefix + "what is it");
 }
 
-TEST_F(RAGInferenceTruncateContextTest, ResultNeverLongerThanInput) {
-    std::string context(1000, 'x');
-    for (int max_tokens : {-10, -1, 0, 1, 2, 3, 100}) {
-        std::string result = TruncateContext(context, max_tokens);
-        EXPECT_LE(result.size(), context.size())
-            << "max_tokens=" << max_tokens << " produced a result longer than the input";
+TEST_F(RAGInferencePromptBudgetTest, ContextIsCappedByMaxContextLength) {
+    config().max_context_length = 5;
+    const std::string p = prompt("what", "machine learning is a subset of artificial intelligence");
+    const std::string ctx = p.substr(config().context_prefix.size(),
+                                     p.size() - config().context_prefix.size() - config().query_prefix.size() - 4);
+    EXPECT_LE(tokens(ctx), 5u) << ctx;
+    EXPECT_FALSE(ctx.empty());
+}
+
+TEST_F(RAGInferencePromptBudgetTest, CutsAtUtf8Boundaries) {
+    std::string context;
+    for (int i = 0; i < 200; ++i) context += "caf\xc3\xa9 \xe2\x82\xac ";  // "café € "
+    for (int limit : {3, 4, 5, 7, 11, 20}) {
+        config().max_context_length = limit;
+        const std::string p = prompt("what", context);
+        EXPECT_TRUE(valid_utf8(p)) << "limit " << limit;
+        EXPECT_LE(tokens(p), static_cast<size_t>(kMaxSeq));
     }
 }
 
-TEST_F(RAGInferenceTruncateContextTest, NormalTruncationStillAddsEllipsis) {
-    std::string context(1000, 'x');
-    std::string result = TruncateContext(context, 100);
-    EXPECT_EQ(result.size(), 400u);
-    EXPECT_EQ(result.substr(result.size() - 3), "...");
-}
+TEST_F(RAGInferencePromptBudgetTest, NoRoomMeansTheQuestionAlone) {
+    const std::string question_only = config().query_prefix + "what";
+    config().max_context_length = 0;
+    EXPECT_EQ(prompt("what", "machine learning"), question_only);
+    config().max_context_length = -3;
+    EXPECT_EQ(prompt("what", "machine learning"), question_only);
 
-TEST_F(RAGInferenceTruncateContextTest, ContextShorterThanLimitReturnsUnchanged) {
-    std::string context = "short context";
-    std::string result = TruncateContext(context, 100);
-    EXPECT_EQ(result, context);
+    config().max_context_length = 512;
+    std::string long_query;
+    for (int i = 0; i < 60; ++i) long_query += "machine learning ";
+    EXPECT_EQ(prompt(long_query, "python"), config().query_prefix + long_query)
+        << "a question longer than max_seq_length gets no context";
 }

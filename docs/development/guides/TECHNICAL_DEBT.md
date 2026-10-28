@@ -1325,6 +1325,8 @@ The generation and model math run is complete.
 - TD-238 (done in code: internal errors are logged with a request id; the client gets a generic 500 carrying the id).
 - TD-239 (done in code: `adai::Logger` instead of `std::cout`, unused `BatchRequest` removed, comments corrected). All of
   TD-226–TD-239 are now fixed in code.
+- TD-484 (done in code: the RAG prompt is budgeted in real tokens within `max_seq_length`, the question whole, cuts at UTF-8
+  boundaries, lower-ranked documents dropped first).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -13934,7 +13936,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | RAG / RAGInference | October 17, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 27, 2026 | RAG / RAGInference | October 17, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `RAGInference.cpp` (see [RAGInference.md](../reference/source/RAGInference.md)). `truncateContext()` converts
@@ -13948,12 +13950,23 @@ position and the question lands after position 512, where the encoder adds no po
 
 Action Items:
 
-- [ ] Budget the whole prompt in real tokens (the model's tokenizer): `max_seq_length` minus the query and prefixes, the rest for context.
-- [ ] Truncate documents at token (or at least UTF-8 character) boundaries; prefer dropping whole lower-ranked documents first.
-- [ ] Clamp `RAG_MAX_CONTEXT_LENGTH` to the model's `max_seq_length` and document the relationship in `config.chatbot.conf`.
-- [ ] Test: the augmented prompt never exceeds `max_seq_length` tokens.
+- [x] Budget the whole prompt in real tokens (the model's tokenizer): `max_seq_length` minus the query and prefixes, the rest for context.
+- [x] Truncate documents at token (or at least UTF-8 character) boundaries; prefer dropping whole lower-ranked documents first.
+- [x] Clamp `RAG_MAX_CONTEXT_LENGTH` to the model's `max_seq_length` and document the relationship in `config.chatbot.conf`.
+- [x] Test: the augmented prompt never exceeds `max_seq_length` tokens.
 
-Location in code: `src/RAGInference.cpp` (`truncateContext()`, `generateWithRetrieval()` step 3); tagged `TODO: See TD-484`.
+**Fix (October 27, 2026).** `RAGInference::buildBudgetedPrompt()` replaces `truncateContext()`. It counts real tokens with the
+model's tokenizer and keeps the question (with its prefix) whole. The context, documents in rank order, is cut from the end at a
+UTF-8 boundary (`"..."` appended) by a binary search for the longest prefix with which the context fits `max_context_length` and the
+whole prompt fits the model's `max_seq_length`. Cutting from the end drops lower-ranked documents first and trims the top-ranked one
+only when it alone is too long. When no context fits, or the question alone reaches `max_seq_length`, the prompt is the question alone
+(the encoder keeps its last tokens, TD-365). `chatbot_api_server` caps `RAG_MAX_CONTEXT_LENGTH` to the model's `max_seq_length` with
+a warning, and `config.chatbot.conf`/`OPERATIONS_MANUAL.md` describe the relationship. Tests (`RAGInferencePromptBudgetTest`, which
+replaces the `truncateContext()` tests): a three-document context where the old rule overflowed `max_seq_length` now fits with the
+question whole, the top document in and the last dropped; a fitting context is unchanged; the `max_context_length` cap; UTF-8-valid
+cuts with multibyte text; question-only prompts for no budget and an over-long question.
+
+Location in code: `src/RAGInference.cpp` (`truncateContext()`, `generateWithRetrieval()` step 3); tagged `TD-484`.
 
 Files to Modify:
 

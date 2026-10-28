@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-10-27
 
 
@@ -53,7 +53,7 @@ class RAGInference {
         std::string context_separator;               // Separator between documents
         std::string context_prefix;                  // Prefix before context
         std::string query_prefix;                    // Prefix before query
-        int max_context_length{512};                 // Maximum tokens for context
+        int max_context_length{512};                 // Maximum context tokens (also capped by max_seq_length, TD-484)
         TextGenerator::GenerationConfig gen_config;  // Generation parameters
 
         RAGConfig()
@@ -86,20 +86,23 @@ class RAGInference {
     std::string buildAugmentedPrompt(const std::string& query, const std::string& context) const;
 
     /**
-     * @brief Truncate context to fit within token limit
+     * @brief The augmented prompt, budgeted in real tokens (TD-484)
      *
-     * @param context Context string
-     * @param max_tokens Maximum number of tokens
-     * @return std::string Truncated context
+     * The question and its prefix are kept whole. The context is cut from the end, at a UTF-8 boundary
+     * with "...", until it fits max_context_length and the whole prompt fits the model's
+     * max_seq_length; lower-ranked documents (later in the context) go first. No context fits: the
+     * question alone.
      */
-    static std::string truncateContext(const std::string& context, int max_tokens);
+    std::string buildBudgetedPrompt(const std::string& query, const std::string& context) const;
 
-    // Grants tests/raginference_test.cpp direct access to the private
-    // truncateContext() helper so its edge cases (max_tokens <= 0) can be
-    // unit-tested with hand-written fixture strings, without widening the
-    // public API surface or standing up a full model/document-store pipeline
-    // just to observe an internal prompt string.
-    friend class RAGInferenceTruncateContextTest;
+    /// Tokens in `text` under the model's tokenizer (0 for empty text).
+    size_t countTokens(const std::string& text) const;
+
+    /// The largest position <= pos that doesn't split a UTF-8 sequence.
+    static size_t utf8Boundary(const std::string& s, size_t pos);
+
+    // tests/raginference_test.cpp checks the budget on prompts built from fixture strings.
+    friend class RAGInferencePromptBudgetTest;
 
    public:
     /**

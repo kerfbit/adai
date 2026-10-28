@@ -1021,7 +1021,7 @@ Retrieval-Augmented Generation (RAG) allows the API server to retrieve relevant 
 | `RAG_DOCS_PATH` | — | Directory containing knowledge base `.txt` files |
 | `RAG_NUM_DOCS` | `3` | Number of documents to retrieve per query |
 | `RAG_THRESHOLD` | `0.0` | Minimum cosine similarity to include a document (0.0 = all retrieved docs) |
-| `RAG_MAX_CONTEXT_LENGTH` | `512` | Max tokens of retrieved context to prepend |
+| `RAG_MAX_CONTEXT_LENGTH` | `512` | Max tokens of retrieved context to prepend, capped to `MAX_SEQ_LENGTH`; the whole prompt (context + question) is kept within `MAX_SEQ_LENGTH` real tokens, the question whole (TD-484) |
 
 ### Activating RAG
 

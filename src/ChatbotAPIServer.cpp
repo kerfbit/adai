@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 2.2.0
+// @adai-version: 2.2.1
 // @adai-reviewed: 2026-10-27
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
@@ -674,7 +674,15 @@ int main(int argc, char* argv[]) {
                 RAGInference::RAGConfig rag_config;
                 rag_config.num_retrieved_docs = config.rag_num_docs;
                 rag_config.retrieval_threshold = config.rag_threshold;
-                rag_config.max_context_length = config.rag_max_context_length;
+                // TD-484: the context can't use more than the model's positions; the prompt is budgeted
+                // in real tokens against max_seq_length anyway, so this only keeps the setting honest.
+                rag_config.max_context_length =
+                    std::min(config.rag_max_context_length, model->get_max_seq_length());
+                if (config.rag_max_context_length > model->get_max_seq_length()) {
+                    adai::Logger::warn("  RAG_MAX_CONTEXT_LENGTH {} exceeds the model's max_seq_length {}; using {}",
+                                       config.rag_max_context_length, model->get_max_seq_length(),
+                                       rag_config.max_context_length);
+                }
                 rag_config.gen_config.max_length = static_cast<int>(config.max_gen_length);
                 rag_config.gen_config.temperature = config.temperature;
                 rag_config.gen_config.top_p = config.top_p;

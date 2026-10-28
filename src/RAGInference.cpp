@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-27
 
 #include "RAGInference.hpp"
 #include <algorithm>
@@ -61,35 +61,60 @@ std::string RAGInference::buildAugmentedPrompt(const std::string& query,
     return oss.str();
 }
 
-std::string RAGInference::truncateContext(const std::string& context, int max_tokens) {
-    // Simple truncation by character count
-    // In a production system, you'd want to truncate by actual token count
-    // For now, we use a rough approximation: ~4 chars per token
-    // TODO: See TD-484 in TECHNICAL_DEBT.md - 4 chars/token estimate (measured 1.8); only the context is
-    // budgeted, so at the shipped 512/512 the query lands past max_seq_length. Byte cut can split UTF-8.
-    int max_chars = max_tokens * 4;
+// TD-484: the tokens the model will see, counted with its own tokenizer.
+size_t RAGInference::countTokens(const std::string& text) const {
+    return text.empty() ? 0 : model->get_tokenizer()->encode(text, false).size();
+}
 
-    // max_tokens <= 0 leaves no room for any content at all.
-    if (max_chars <= 0) {
-        return "";
+// TD-484: the largest position <= pos that doesn't split a UTF-8 sequence.
+size_t RAGInference::utf8Boundary(const std::string& s, size_t pos) {
+    pos = std::min(pos, s.size());
+    while (pos > 0 && pos < s.size() && (static_cast<unsigned char>(s[pos]) & 0xC0) == 0x80) --pos;
+    return pos;
+}
+
+// TD-484: the whole prompt fits the model's max_seq_length in real tokens, and the context fits
+// max_context_length. The question (with its prefix) is kept whole; the context, documents in rank
+// order, is cut from the end at a UTF-8 boundary, so lower-ranked documents go first. This used to
+// cut the context alone at an estimated 4 characters per token (measured 1.8) and add the question
+// after it, so at the shipped 512/512 the question fell past max_seq_length.
+std::string RAGInference::buildBudgetedPrompt(const std::string& query,
+                                              const std::string& context) const {
+    const std::string question_only = buildAugmentedPrompt(query, "");
+    if (context.empty() || config.max_context_length <= 0) {
+        return question_only;
+    }
+    const size_t max_seq = static_cast<size_t>(std::max(model->get_max_seq_length(), 1));
+    const size_t max_context = static_cast<size_t>(config.max_context_length);
+    // A question longer than max_seq_length gets no context; the encoder keeps its last tokens.
+    if (countTokens(question_only) >= max_seq) {
+        return question_only;
     }
 
-    if (static_cast<int>(context.length()) <= max_chars) {
-        return context;
+    auto clipped = [&](size_t n) { return n >= context.size() ? context : context.substr(0, n) + "..."; };
+    auto fits = [&](size_t n) {
+        const std::string ctx = clipped(n);
+        return countTokens(ctx) <= max_context &&
+               countTokens(buildAugmentedPrompt(query, ctx)) <= max_seq;
+    };
+    if (fits(context.size())) {
+        return buildAugmentedPrompt(query, context);
     }
-
-    // Not enough room for a 3-character "..." suffix — hard-truncate instead.
-    // (Without this, `max_chars - 3` would go negative and, once implicitly
-    // converted to substr()'s unsigned `count` parameter, wrap to a huge
-    // value that substr() silently clamps back down to the *entire* string —
-    // i.e. "truncation" would instead return the whole untruncated context
-    // with "..." appended, longer than the original.)
-    if (max_chars <= 3) {
-        return context.substr(0, static_cast<size_t>(max_chars));
+    size_t lo = 0;
+    size_t hi = context.size() - 1;
+    while (lo < hi) {
+        const size_t mid = lo + (hi - lo + 1) / 2;
+        if (fits(utf8Boundary(context, mid))) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
     }
-
-    // Truncate and add ellipsis
-    return context.substr(0, max_chars - 3) + "...";
+    const size_t n = utf8Boundary(context, lo);
+    if (n == 0 || !fits(n)) {
+        return question_only;
+    }
+    return buildAugmentedPrompt(query, clipped(n));
 }
 
 std::string RAGInference::generate(const std::string& query) {
@@ -117,11 +142,8 @@ std::string RAGInference::generateWithRetrieval(
 
     // TODO: See TD-485 in TECHNICAL_DEBT.md - for /chat/session `query` is the whole conversation, so retrieval
     // embeds only its first max_seq_length tokens (oldest turns), not the latest question.
-    // Step 3: Truncate context if needed
-    context = truncateContext(context, config.max_context_length);
-
-    // Step 4: Build augmented prompt
-    std::string augmented_prompt = buildAugmentedPrompt(query, context);
+    // Steps 3-4: the augmented prompt, within max_seq_length and max_context_length tokens (TD-484)
+    std::string augmented_prompt = buildBudgetedPrompt(query, context);
 
     // TODO: See TD-486 in TECHNICAL_DEBT.md - strategy is always "" (STRATEGY/BEAM_WIDTH ignored), gen_config is
     // copied once at startup (no reload/per-request values), and this is the CPU-only path even on a GPU server.
