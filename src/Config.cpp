@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.14.0
-// @adai-reviewed: 2026-10-27
+// @adai-version: 1.15.0
+// @adai-reviewed: 2026-10-31
 
 #include "Config.hpp"
 #include <algorithm>
@@ -350,6 +350,12 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "REGISTRY_MAX_CONCURRENT_FETCHES") {
                 config.registry_max_concurrent_fetches = std::stoi(value);
                 // FTP Dataset Transport configuration (Phase 10)
+            } else if (key == "FTP_SERVER_ENABLED") {  // TD-284
+                std::string lower = value;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                config.ftp_server_enabled = (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+            } else if (key == "FTP_ADVERTISE_IP") {  // TD-284
+                config.ftp_advertise_ip = value;
             } else if (key == "FTP_SERVER_PORT") {
                 config.ftp_server_port = std::stoi(value);
             } else if (key == "FTP_PASV_PORT_MIN") {
@@ -358,8 +364,6 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.ftp_pasv_port_max = std::stoi(value);
             } else if (key == "FTP_TOKEN_TTL_MINUTES") {
                 config.ftp_token_ttl_minutes = std::stoi(value);
-                // TODO: See TD-284 in TECHNICAL_DEBT.md - FTP_SERVER_PORT, PASV range, FTP_DATA_SERVER_SECRET,
-                // FTPS_ENABLED and cert/key are parsed here but registry_server ignores them (CLI-only).
             } else if (key == "FTP_DATA_SERVER_SECRET") {
                 config.ftp_data_server_secret = value;
             } else if (key == "DOWNLOAD_DIR") {
@@ -833,6 +837,12 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
 
     // FTP Dataset Transport (Phase 10)
+    if (auto val = get_env_bool("FTP_SERVER_ENABLED")) {  // TD-284
+        config.ftp_server_enabled = *val;
+    }
+    if (auto val = get_env("FTP_ADVERTISE_IP")) {  // TD-284
+        config.ftp_advertise_ip = *val;
+    }
     if (auto val = get_env_int("FTP_SERVER_PORT")) {
         config.ftp_server_port = *val;
     }

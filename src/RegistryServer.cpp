@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.21.0
+// @adai-version: 0.22.0
 // @adai-reviewed: 2026-10-28
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
@@ -2132,21 +2132,6 @@ int main(int argc, char* argv[]) {
         cli.config_path.value_or(""), "config.registry.conf");
     adai::ServiceConfig file_config = adai::ConfigLoader::load(config_path);
 
-    // TODO: See TD-284 in TECHNICAL_DEBT.md - config.registry.conf ships FTPS_ENABLED/FTP_DATA_SERVER_SECRET/
-    // FTP_SERVER_PORT/PASV keys that are ignored here; FTPS/secret set in the file silently do nothing.
-    // ftp_server_port/pasv range/cert/key/ftps_enabled are CLI-only listener settings — applied
-    // directly from `cli` with no file/admin-override layer, same as before.
-    // TODO: See TD-489 in TECHNICAL_DEBT.md - FTP/FTPS flags without --ftp-enabled are ignored without a warning.
-    ftp_enabled = cli.ftp_enabled;
-    ftp_port = cli.ftp_port;
-    ftp_advertise_ip = cli.ftp_advertise_ip;
-    ftp_pasv_min = cli.ftp_pasv_min;
-    ftp_pasv_max = cli.ftp_pasv_max;
-    ftp_server_secret = cli.ftp_server_secret;
-    ftps_enabled = cli.ftps_enabled;
-    ftp_cert_file = cli.ftp_cert_file;
-    ftp_key_file = cli.ftp_key_file;
-
     int port = 0;
     // Overlay persisted admin overrides on top of the file defaults.
     try {
@@ -2178,6 +2163,18 @@ int main(int argc, char* argv[]) {
     g_max_concurrent_fetches.store(td494.max_concurrent_fetches);
     g_server_start_unix = static_cast<long long>(std::time(nullptr));
     const std::size_t max_body_bytes = static_cast<std::size_t>(td494.max_upload_mb) * 1024 * 1024;
+    // TD-284: the FTP listener (file < CLI; not admin-mutable). These used to come from the CLI
+    // only, so the config file's FTPS_ENABLED and FTP_DATA_SERVER_SECRET silently did nothing.
+    // TODO: See TD-489 in TECHNICAL_DEBT.md - FTP/FTPS settings without FTP enabled are ignored without a warning.
+    ftp_enabled = td494.ftp_enabled;
+    ftp_port = td494.ftp_port;
+    ftp_advertise_ip = td494.ftp_advertise_ip;
+    ftp_pasv_min = td494.ftp_pasv_min;
+    ftp_pasv_max = td494.ftp_pasv_max;
+    ftp_server_secret = td494.ftp_server_secret;
+    ftps_enabled = td494.ftps_enabled;
+    ftp_cert_file = td494.ftp_cert_file;
+    ftp_key_file = td494.ftp_key_file;
 
     try {
         std::lock_guard<std::mutex> lock(g_session_store_mtx);
@@ -2189,6 +2186,7 @@ int main(int argc, char* argv[]) {
     }
 
     Logger::init(Logger::Level::INFO, "registry_server");
+    for (const auto& warning : td494.warnings) Logger::warn("registry_server: {}", warning);  // TD-284
 
     adai::ignore_sighup("registry_server");  // TD-283: SIGHUP used to terminate this process
     std::signal(SIGINT, signal_handler);

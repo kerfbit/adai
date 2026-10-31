@@ -219,3 +219,15 @@ session by default, so trainers are unaffected (verified under TLS 1.2 and 1.3).
 `ftp_detail::random_hex()`, which makes each session's FTP user suffix and (with no `--ftp-secret`) its password, calls
 `adai::secure_random_hex()` in every build. It used `RAND_bytes()` only with `BUILD_FTPS`, and a `std::mt19937` otherwise or when
 `RAND_bytes()` failed.
+
+## Addendum (October 31, 2026): FTP keys honoured (TD-284)
+
+`registry_server` reads `FTP_SERVER_ENABLED`, `FTP_ADVERTISE_IP`, `FTP_SERVER_PORT`, `FTP_PASV_PORT_MIN`/`MAX`,
+`FTP_DATA_SERVER_SECRET`, `FTPS_ENABLED`, `FTP_CERT_FILE` and `FTP_KEY_FILE` from `config.registry.conf`; the matching CLI flag
+(`--ftp-enabled`, `--ftp-ip`, `--ftp-port`, `--ftp-pasv-min`/`--ftp-pasv-max`, `--ftp-secret`, `--ftps`, `--ftp-cert`/`--ftp-key`)
+overrides it, with a startup warning when they differ. They used to be CLI-only, so `FTPS_ENABLED=true` or a real secret in the file
+silently gave plaintext FTP and random token passwords. `RegistryServerArgs`' FTP fields are `std::optional` (unset = flag not
+passed) and `resolve_registry_server_config()` returns them in `RegistryServerEffectiveConfig` with `warnings`, which `main()` logs:
+a CLI override of a file value, the old placeholder secret `change-me-in-production` (ignored, since a known HMAC key would let
+anyone compute token passwords; `ServiceConfig::ftp_data_server_secret` now defaults to empty), and FTP without FTPS on a
+non-loopback advertise address. Tests: four `ResolveRegistryServerConfigTest` cases, updated parse tests.

@@ -1,10 +1,11 @@
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-10-31
 
 #include "RegistryServerArgs.hpp"
 #include <algorithm>
 #include <cctype>
+#include <type_traits>
 
 namespace adai {
 
@@ -101,6 +102,46 @@ RegistryServerEffectiveConfig resolve_registry_server_config(
     cfg.max_concurrent_fetches = std::max(
         1, args.max_concurrent_fetches.value_or(file_config.registry_max_concurrent_fetches));
 
+    // TD-284: FTP listener settings, config file < CLI. They used to come from the CLI only, so the
+    // file's FTPS_ENABLED and FTP_DATA_SERVER_SECRET silently did nothing.
+    // The CLI value if the flag was passed (warning when it differs from a non-empty file value),
+    // else the file's.
+    auto pick = [&cfg](const auto& cli, const auto& file, const char* key, const char* flag) {
+        using T = std::decay_t<decltype(file)>;
+        if (!cli) return T(file);
+        if (*cli != file && file != T{}) {
+            cfg.warnings.push_back(std::string(flag) + " overrides " + key + " from the config file");
+        }
+        return T(*cli);
+    };
+    cfg.ftp_enabled = pick(args.ftp_enabled, file_config.ftp_server_enabled, "FTP_SERVER_ENABLED", "--ftp-enabled");
+    cfg.ftp_port = pick(args.ftp_port, file_config.ftp_server_port, "FTP_SERVER_PORT", "--ftp-port");
+    cfg.ftp_advertise_ip = pick(args.ftp_advertise_ip, file_config.ftp_advertise_ip, "FTP_ADVERTISE_IP", "--ftp-ip");
+    cfg.ftp_pasv_min = pick(args.ftp_pasv_min, file_config.ftp_pasv_port_min, "FTP_PASV_PORT_MIN", "--ftp-pasv-min");
+    cfg.ftp_pasv_max = pick(args.ftp_pasv_max, file_config.ftp_pasv_port_max, "FTP_PASV_PORT_MAX", "--ftp-pasv-max");
+    cfg.ftps_enabled = pick(args.ftps_enabled, file_config.ftps_enabled, "FTPS_ENABLED", "--ftps");
+    cfg.ftp_cert_file = pick(args.ftp_cert_file, file_config.ftp_cert_file, "FTP_CERT_FILE", "--ftp-cert");
+    cfg.ftp_key_file = pick(args.ftp_key_file, file_config.ftp_key_file, "FTP_KEY_FILE", "--ftp-key");
+
+    // The shipped config file used to carry FTP_DATA_SERVER_SECRET=change-me-in-production. A
+    // publicly known HMAC key would let anyone compute token passwords, so it counts as unset.
+    std::string file_secret = file_config.ftp_data_server_secret;
+    if (file_secret == "change-me-in-production") {
+        cfg.warnings.push_back(
+            "FTP_DATA_SERVER_SECRET is the shipped placeholder 'change-me-in-production'; ignoring it "
+            "(each FTP token gets a random password). Set a real secret or remove the key.");
+        file_secret.clear();
+    }
+    cfg.ftp_server_secret =
+        pick(args.ftp_server_secret, file_secret, "FTP_DATA_SERVER_SECRET", "--ftp-secret");
+
+    if (cfg.ftp_enabled && !cfg.ftps_enabled && !cfg.ftp_advertise_ip.empty() &&
+        cfg.ftp_advertise_ip != "127.0.0.1" && cfg.ftp_advertise_ip != "::1" &&
+        cfg.ftp_advertise_ip != "localhost") {
+        cfg.warnings.push_back("FTP is enabled without FTPS on " + cfg.ftp_advertise_ip +
+                               ": token passwords and dataset files cross the network in plaintext "
+                               "(set FTPS_ENABLED=true or --ftps)");
+    }
     return cfg;
 }
 

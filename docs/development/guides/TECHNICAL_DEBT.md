@@ -1354,6 +1354,8 @@ The generation and model math run is complete.
 
 **Configuration and command-line run (October 31, 2026)**, chosen by the owner. So far:
 - TD-283 (done in code: the five non-reloading binaries ignore `SIGHUP` and log that a restart is needed; it used to kill them).
+- TD-284 (done in code: `registry_server` reads its FTP/FTPS keys from the file, CLI overriding with a warning; the placeholder
+  secret is ignored; plaintext FTP on a network address warns).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6780,7 +6782,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Config | October 9, 2026 | 2-4 hours |
+| **HIGH** | Open — code fix landed October 31, 2026 | Config | October 9, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-283. `registry_server` reads only `FTP_TOKEN_TTL_MINUTES` and
@@ -6795,11 +6797,24 @@ fields are also unread.
 
 Action Items:
 
-- [ ] Make `registry_server` honour the file keys (CLI still overriding), or remove them from `ServiceConfig` and `config.registry.conf`.
-- [ ] Warn at startup when file and CLI disagree, and when FTPS is off on a non-loopback advertise IP.
-- [ ] Until fixed, the shipped config file carries a note (annotated with this TD).
+- [x] Make `registry_server` honour the file keys (CLI still overriding), or remove them from `ServiceConfig` and `config.registry.conf`.
+- [x] Warn at startup when file and CLI disagree, and when FTPS is off on a non-loopback advertise IP.
+- [x] Until fixed, the shipped config file carries a note (annotated with this TD).
 
-Location in code: `src/Config.{hpp,cpp}` (FTP keys), `src/RegistryServer.cpp`, `src/RegistryServerArgs.cpp`, `config.registry.conf`; tagged `TODO: See TD-284`.
+**Fix (October 31, 2026).** `registry_server` honours the file keys, CLI flags overriding: `FTP_SERVER_PORT`,
+`FTP_PASV_PORT_MIN`/`MAX`, `FTP_DATA_SERVER_SECRET`, `FTPS_ENABLED`, `FTP_CERT_FILE`/`FTP_KEY_FILE`, plus two new keys,
+`FTP_SERVER_ENABLED` (for `--ftp-enabled`) and `FTP_ADVERTISE_IP` (for `--ftp-ip`), so a config-only deployment can run the listener at
+all. `RegistryServerArgs`' FTP fields became `std::optional`, and `resolve_registry_server_config()` resolves them (file < CLI) into
+`RegistryServerEffectiveConfig` together with `warnings`, logged at startup: a CLI flag overriding a different file value; the old
+placeholder secret `change-me-in-production`, now ignored (a publicly known HMAC key would let anyone compute token passwords; the
+`ServiceConfig` default is empty, meaning a random password per token); and FTP enabled without FTPS on a non-loopback advertise
+address. `config.registry.conf` now documents every key, sets `FTP_SERVER_ENABLED=false` and leaves the secret commented out. Tests:
+`FtpSettingsComeFromTheConfigFile`, `FtpCliFlagsOverrideTheFileAndSaySo`, `ThePlaceholderSecretIsIgnored`,
+`PlaintextFtpOnANetworkAddressWarns`, updated parse and config defaults tests. Verified with the real binary: `FTP_SERVER_ENABLED=true`
+and `FTPS_ENABLED=true` in the file alone started a TLS listener (`AUTH TLS` → `234`, certificate pin logged) and logged the
+placeholder warning; the old binary with the same file started no FTP listener at all.
+
+Location in code: `src/Config.{hpp,cpp}` (FTP keys), `src/RegistryServer.cpp`, `src/RegistryServerArgs.cpp`, `config.registry.conf`; tagged `TD-284`.
 
 Files to Modify:
 

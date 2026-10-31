@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.13.0
-// @adai-reviewed: 2026-10-27
+// @adai-version: 1.14.0
+// @adai-reviewed: 2026-10-31
 
 
 #include <cstdint>
@@ -354,6 +354,12 @@ struct ServiceConfig {
     // Client-side (incremental_trainer): download directory and limits.
     // ============================================================
 
+    /// TD-284: start registry_server's embedded FtpDataServer (default: false; or --ftp-enabled)
+    bool ftp_server_enabled = false;
+
+    /// TD-284: address registry_server tells trainers to connect to for FTP (or --ftp-ip)
+    std::string ftp_advertise_ip;
+
     /// FTP control port for the embedded FtpDataServer (default: 2121)
     int ftp_server_port = 2121;
 
@@ -366,10 +372,10 @@ struct ServiceConfig {
     /// Per-file FTP token TTL in minutes (default: 30)
     int ftp_token_ttl_minutes = 30;
 
-    /// HMAC key used for token signing (Phase 3); change in production
-    /// TODO: See TD-284 in TECHNICAL_DEBT.md - read by no code; registry_server takes the secret
-    /// (and FTPS/port/PASV/cert/key) from its CLI flags only.
-    std::string ftp_data_server_secret = "change-me-in-production";
+    /// HMAC key for FTP token passwords (Phase 3); empty = a random password per token. TD-284:
+    /// registry_server reads it (and the other FTP listener keys), with its CLI flags overriding;
+    /// the placeholder "change-me-in-production" the shipped file used to carry is treated as empty.
+    std::string ftp_data_server_secret;
 
     /// Trainer-owned directory for FTP downloads (default: "")
     /// Empty = disabled; FTP transport is skipped even when the server sends tokens.

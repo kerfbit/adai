@@ -1011,7 +1011,9 @@ TEST_F(ConfigTest, FtpDefaultValues) {
     EXPECT_EQ(config.ftp_pasv_port_min, 50000);
     EXPECT_EQ(config.ftp_pasv_port_max, 50099);
     EXPECT_EQ(config.ftp_token_ttl_minutes, 30);
-    EXPECT_EQ(config.ftp_data_server_secret, "change-me-in-production");
+    EXPECT_EQ(config.ftp_data_server_secret, "");  // TD-284: empty = a random password per token
+    EXPECT_FALSE(config.ftp_server_enabled);
+    EXPECT_TRUE(config.ftp_advertise_ip.empty());
     EXPECT_TRUE(config.download_dir.empty());
     EXPECT_EQ(config.max_parallel_downloads, 4);
     EXPECT_EQ(config.large_file_warn_threshold_mb, 500);

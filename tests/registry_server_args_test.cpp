@@ -32,11 +32,13 @@ TEST(ParseRegistryServerArgs, NoArgsLeavesEverythingAtDefaults) {
     EXPECT_FALSE(r.config_path.has_value());
     EXPECT_FALSE(r.port.has_value());
     EXPECT_FALSE(r.data_dir.has_value());
-    EXPECT_FALSE(r.ftp_enabled);
-    EXPECT_EQ(r.ftp_port, 2121);
-    EXPECT_EQ(r.ftp_pasv_min, 50000);
-    EXPECT_EQ(r.ftp_pasv_max, 50099);
-    EXPECT_FALSE(r.ftps_enabled);
+    // TD-284: FTP flags are optional, so the config file applies when they aren't passed.
+    EXPECT_FALSE(r.ftp_enabled.has_value());
+    EXPECT_FALSE(r.ftp_port.has_value());
+    EXPECT_FALSE(r.ftp_pasv_min.has_value());
+    EXPECT_FALSE(r.ftp_pasv_max.has_value());
+    EXPECT_FALSE(r.ftps_enabled.has_value());
+    EXPECT_FALSE(r.ftp_server_secret.has_value());
     EXPECT_FALSE(r.ftp_ttl_minutes.has_value());
     EXPECT_FALSE(r.ftp_max_sessions.has_value());
     EXPECT_FALSE(r.admin_enabled.has_value());
@@ -120,13 +122,13 @@ TEST(ParseRegistryServerArgs, FtpFlagsAllApply) {
     };
     auto argv = make_argv(raw);
     auto r = parse_registry_server_args(static_cast<int>(argv.size()), argv.data());
-    EXPECT_TRUE(r.ftp_enabled);
+    EXPECT_EQ(r.ftp_enabled, true);
     EXPECT_EQ(r.ftp_port, 3131);
     EXPECT_EQ(r.ftp_advertise_ip, "1.2.3.4");
     EXPECT_EQ(r.ftp_pasv_min, 60000);
     EXPECT_EQ(r.ftp_pasv_max, 60099);
     EXPECT_EQ(r.ftp_server_secret, "s3cr3t");
-    EXPECT_TRUE(r.ftps_enabled);
+    EXPECT_EQ(r.ftps_enabled, true);
     EXPECT_EQ(r.ftp_cert_file, "/c.pem");
     EXPECT_EQ(r.ftp_key_file, "/k.pem");
 }
@@ -163,6 +165,7 @@ class ResolveRegistryServerConfigTest : public ::testing::Test {
    protected:
     ServiceConfig file_config;
     std::map<std::string, std::string> no_overrides;
+    RegistryServerArgs args;  // no flags; tests that need some set their own
 
     void SetUp() override {
         file_config.registry_listen_port = 8082;
@@ -218,4 +221,71 @@ TEST_F(ResolveRegistryServerConfigTest, CliFlagsBeatAdminOverridesAndFileConfig)
     EXPECT_FALSE(eff.admin_enabled);
     EXPECT_EQ(eff.port, 12345);
     EXPECT_EQ(eff.data_dir, "/custom/dir");
+}
+
+// ============================================================================
+// TD-284: FTP listener settings come from the config file, with CLI flags overriding
+// ============================================================================
+
+namespace {
+bool has_warning(const adai::RegistryServerEffectiveConfig& eff, const std::string& text) {
+    for (const auto& w : eff.warnings)
+        if (w.find(text) != std::string::npos) return true;
+    return false;
+}
+}  // namespace
+
+TEST_F(ResolveRegistryServerConfigTest, FtpSettingsComeFromTheConfigFile) {
+    // These used to be CLI-only: FTPS_ENABLED and a real secret in the file did nothing.
+    file_config.ftp_server_enabled = true;
+    file_config.ftp_server_port = 3121;
+    file_config.ftp_advertise_ip = "10.0.0.5";
+    file_config.ftp_pasv_port_min = 51000;
+    file_config.ftp_pasv_port_max = 51009;
+    file_config.ftp_data_server_secret = "real-secret";
+    file_config.ftps_enabled = true;
+    file_config.ftp_cert_file = "/etc/adai/ftp.crt";
+    file_config.ftp_key_file = "/etc/adai/ftp.key";
+    const auto eff = resolve_registry_server_config(args, file_config, no_overrides);
+    EXPECT_TRUE(eff.ftp_enabled);
+    EXPECT_EQ(eff.ftp_port, 3121);
+    EXPECT_EQ(eff.ftp_advertise_ip, "10.0.0.5");
+    EXPECT_EQ(eff.ftp_pasv_min, 51000);
+    EXPECT_EQ(eff.ftp_pasv_max, 51009);
+    EXPECT_EQ(eff.ftp_server_secret, "real-secret");
+    EXPECT_TRUE(eff.ftps_enabled);
+    EXPECT_EQ(eff.ftp_cert_file, "/etc/adai/ftp.crt");
+    EXPECT_EQ(eff.ftp_key_file, "/etc/adai/ftp.key");
+    EXPECT_TRUE(eff.warnings.empty());
+}
+
+TEST_F(ResolveRegistryServerConfigTest, FtpCliFlagsOverrideTheFileAndSaySo) {
+    file_config.ftps_enabled = true;
+    file_config.ftp_server_port = 3121;
+    args.ftps_enabled = false;
+    args.ftp_port = 4121;
+    const auto eff = resolve_registry_server_config(args, file_config, no_overrides);
+    EXPECT_FALSE(eff.ftps_enabled);
+    EXPECT_EQ(eff.ftp_port, 4121);
+    EXPECT_TRUE(has_warning(eff, "--ftps overrides FTPS_ENABLED"));
+    EXPECT_TRUE(has_warning(eff, "--ftp-port overrides FTP_SERVER_PORT"));
+}
+
+TEST_F(ResolveRegistryServerConfigTest, ThePlaceholderSecretIsIgnored) {
+    // A publicly known HMAC key would let anyone compute FTP token passwords.
+    file_config.ftp_data_server_secret = "change-me-in-production";
+    const auto eff = resolve_registry_server_config(args, file_config, no_overrides);
+    EXPECT_EQ(eff.ftp_server_secret, "");
+    EXPECT_TRUE(has_warning(eff, "placeholder"));
+}
+
+TEST_F(ResolveRegistryServerConfigTest, PlaintextFtpOnANetworkAddressWarns) {
+    file_config.ftp_server_enabled = true;
+    file_config.ftp_advertise_ip = "192.168.1.16";
+    EXPECT_TRUE(has_warning(resolve_registry_server_config(args, file_config, no_overrides), "without FTPS"));
+    file_config.ftp_advertise_ip = "127.0.0.1";
+    EXPECT_FALSE(has_warning(resolve_registry_server_config(args, file_config, no_overrides), "without FTPS"));
+    file_config.ftp_advertise_ip = "192.168.1.16";
+    file_config.ftps_enabled = true;
+    EXPECT_FALSE(has_warning(resolve_registry_server_config(args, file_config, no_overrides), "without FTPS"));
 }

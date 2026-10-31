@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-10-31
 
 // TD-035 (narrower scope, per the item's own note): registry_server's argv parsing and
 // config-precedence resolution, pulled out of RegistryServer.cpp so that piece is testable
@@ -16,6 +16,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <vector>
 #include "Config.hpp"
 
 namespace adai {
@@ -25,21 +26,20 @@ struct RegistryServerArgs {
     std::optional<int> port;
     std::optional<std::string> data_dir;
 
-    // TODO: See TD-489 in TECHNICAL_DEBT.md - stale: config.registry.conf ships these keys (TD-284); they also do
-    // nothing, silently, without --ftp-enabled.
-    // FTP listener settings — CLI-only by design (see RegistryServer.cpp's own comment: these
-    // are immutable-at-runtime listener settings, not worth threading through the config file).
-    // Kept as plain fields with the same defaults the file-scope globals already use, rather than
-    // optional<>, since there's no file/admin-override layer for these to be layered under.
-    bool ftp_enabled = false;
-    int ftp_port = 2121;
-    std::string ftp_advertise_ip;
-    int ftp_pasv_min = 50000;
-    int ftp_pasv_max = 50099;
-    std::string ftp_server_secret;
-    bool ftps_enabled = false;
-    std::string ftp_cert_file;
-    std::string ftp_key_file;
+    // TD-284: FTP listener settings resolve as config file < CLI (resolve_registry_server_config());
+    // unset means "this run didn't pass the flag". They used to be CLI-only, so the FTPS and secret
+    // keys config.registry.conf ships did nothing. (Not admin-mutable: they're baked into the
+    // listener at startup.)
+    // TODO: See TD-489 in TECHNICAL_DEBT.md - FTP settings do nothing without FTP enabled; no warning.
+    std::optional<bool> ftp_enabled;
+    std::optional<int> ftp_port;
+    std::optional<std::string> ftp_advertise_ip;
+    std::optional<int> ftp_pasv_min;
+    std::optional<int> ftp_pasv_max;
+    std::optional<std::string> ftp_server_secret;
+    std::optional<bool> ftps_enabled;
+    std::optional<std::string> ftp_cert_file;
+    std::optional<std::string> ftp_key_file;
 
     // TODO: See TD-489 in TECHNICAL_DEBT.md - admin_enabled has no file/admin layer (CLI, else true).
     // Admin-mutable FTP settings — DO get the full file/admin-override/CLI precedence treatment
@@ -74,6 +74,20 @@ struct RegistryServerEffectiveConfig {
     int claim_lease_minutes = 30;     // TD-494
     int max_upload_mb = 2048;         // TD-494
     int max_concurrent_fetches = 2;   // TD-494
+
+    // TD-284: the FTP listener (config file < CLI).
+    bool ftp_enabled = false;
+    int ftp_port = 2121;
+    std::string ftp_advertise_ip;
+    int ftp_pasv_min = 50000;
+    int ftp_pasv_max = 50099;
+    std::string ftp_server_secret;  // empty = a random password per token
+    bool ftps_enabled = false;
+    std::string ftp_cert_file;
+    std::string ftp_key_file;
+    // Things the operator should see at startup: a file value a CLI flag overrides, the shipped
+    // placeholder secret (ignored), plaintext FTP on a non-loopback address.
+    std::vector<std::string> warnings;
 };
 
 // Resolves port/data_dir/ftp_ttl_minutes/ftp_max_sessions/admin_enabled from (lowest to highest
