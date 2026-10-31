@@ -243,3 +243,9 @@ empty) set how `incremental_trainer` authenticates `registry_server`'s FTPS cert
 
 `ServiceConfig::allow_untrained_model` (config key and environment variable `ALLOW_UNTRAINED_MODEL`, default `false`): a development
 opt-in that lets `chatbot_api_server` start without a loadable `MODEL_PATH`.
+
+## Addendum (October 31, 2026): SIGHUP in the other binaries (TD-283)
+
+Only `chatbot_api_server` reloads on `SIGHUP`. `incremental_trainer`, `trainer_service`, `metrics_api_server`, `mns_server` and
+`registry_server` call `adai::ignore_sighup()` (`src/SignalSetup.hpp`): `SIGHUP` is ignored and a startup log line says a restart is
+needed to apply config changes. It used to terminate them. Tests: `SighupTests`.

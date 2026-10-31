@@ -69,7 +69,7 @@ logs, counts and backs off failures (§1 step 5; addendum). With the same stub, 
 |---|---|
 | `--objective`/`--dataset-kind` not forwarded to children | TD-403 |
 | Children and supervisor share the fallback log file; `LOG_LEVEL` ignored | TD-431 |
-| SIGHUP terminates the process | TD-283 |
+| SIGHUP terminated the process (ignored since October 31, 2026, also by the child passes) | TD-283 |
 | Signal deaths report 128; failed `exec` reports 127 | TD-277, TD-278 |
 | `resume` never downloads over FTP; zero-sample passes return success | TD-411, TD-412 |
 

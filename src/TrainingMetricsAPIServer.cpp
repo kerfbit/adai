@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 1.4.0
+// @adai-reviewed: 2026-10-28
 
 #include <atomic>
 #include <csignal>
@@ -11,6 +11,7 @@
 #include <thread>
 #include <vector>
 #include "Config.hpp"
+#include "SignalSetup.hpp"
 #include "DaemonConfigStore.hpp"
 #include "MetricsApiServerArgs.hpp"
 #include "MetricsSessionRegistry.hpp"
@@ -269,8 +270,7 @@ int main(int argc, char* argv[]) {
 
         // Set up signal handlers
         g_api_server = api.get();
-        // TODO: See TD-283 in TECHNICAL_DEBT.md - no SIGHUP handler, so SIGHUP terminates this process
-        // (CLAUDE.md said incremental_trainer hot-reloads on it).
+        adai::ignore_sighup("metrics_api_server");  // TD-283: SIGHUP used to terminate this process
         std::signal(SIGINT, signal_handler);
         std::signal(SIGTERM, signal_handler);
 

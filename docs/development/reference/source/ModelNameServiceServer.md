@@ -63,7 +63,7 @@ async-signal-safe (TD-249's class); the main loop already does it.
   file logging option.
 - **Stale endpoint lists**: the file comment and `--help` omit `PUT …/progress`, `PUT …/run_group`, `POST …/link-world-model`
   (and the comment omits `/datasets` and `/admin/config`).
-- **`SIGHUP` terminates the process** (TD-283).
+- **`SIGHUP` terminated the process** (TD-283; since October 31, 2026 it's ignored, with a startup log line).
 
 ---
 

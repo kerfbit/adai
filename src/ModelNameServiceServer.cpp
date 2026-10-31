@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-28
 
 /**
  * mns_server — Model Name Service daemon
@@ -33,6 +33,7 @@
 #include <optional>
 #include <thread>
 #include "Config.hpp"
+#include "SignalSetup.hpp"
 #include "DaemonConfigStore.hpp"
 #include "Logger.hpp"
 #include "MnsServerArgs.hpp"
@@ -125,8 +126,7 @@ int main(int argc, char* argv[]) {
     // TODO: See TD-464 in TECHNICAL_DEBT.md - LOG_LEVEL ignored; --help/file comment endpoint lists are stale
     adai::Logger::init(adai::Logger::Level::INFO, "mns_server");
 
-    // TODO: See TD-283 in TECHNICAL_DEBT.md - no SIGHUP handler, so SIGHUP terminates this process
-    // (CLAUDE.md said incremental_trainer hot-reloads on it).
+    adai::ignore_sighup("mns_server");  // TD-283: SIGHUP used to terminate this process
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
 

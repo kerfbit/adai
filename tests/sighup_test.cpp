@@ -1,0 +1,191 @@
+// TD-283: SIGHUP used to terminate every binary except chatbot_api_server. Each daemon is started for
+// real, sent SIGHUP once it answers /health, and must still be running and answering afterwards.
+
+#include <gtest/gtest.h>
+
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <signal.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+#include <chrono>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "../src/SignalSetup.hpp"
+#include "cpp-httplib/httplib.h"
+
+namespace fs = std::filesystem;
+
+namespace {
+
+int free_port() {
+    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    ::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+    socklen_t len = sizeof(addr);
+    ::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len);
+    ::close(fd);
+    return ntohs(addr.sin_port);
+}
+
+class SighupTest : public ::testing::Test {
+   protected:
+    fs::path dir_;
+    pid_t pid_ = -1;
+
+    void SetUp() override {
+        dir_ = fs::temp_directory_path() /
+               ("adai_td283_" + std::to_string(::getpid()) + "_" +
+                ::testing::UnitTest::GetInstance()->current_test_info()->name());
+        fs::remove_all(dir_);
+        fs::create_directories(dir_);
+    }
+
+    void TearDown() override {
+        if (pid_ > 0) {
+            ::kill(pid_, SIGKILL);
+            ::waitpid(pid_, nullptr, 0);
+        }
+        fs::remove_all(dir_);
+    }
+
+    fs::path write_config(const std::string& name, const std::string& text) {
+        const fs::path p = dir_ / name;
+        std::ofstream(p) << text;
+        return p;
+    }
+
+    // Starts `binary` with `args` in dir_, with no service URLs inherited from the environment.
+    void spawn(const std::string& binary, const std::vector<std::string>& args) {
+        pid_ = ::fork();
+        ASSERT_GE(pid_, 0);
+        if (pid_ == 0) {
+            if (::chdir(dir_.c_str()) != 0) _exit(126);
+            for (const char* var : {"REGISTRY_SERVER_URL", "NAME_SERVICE_URL", "METRICS_SERVER_URL"})
+                ::unsetenv(var);
+            const int devnull = ::open("/dev/null", O_WRONLY);
+            ::dup2(devnull, STDOUT_FILENO);
+            ::dup2(devnull, STDERR_FILENO);
+            std::vector<char*> argv;
+            argv.push_back(const_cast<char*>(binary.c_str()));
+            for (const auto& a : args) argv.push_back(const_cast<char*>(a.c_str()));
+            argv.push_back(nullptr);
+            ::execv(binary.c_str(), argv.data());
+            _exit(127);
+        }
+    }
+
+    bool healthy(int port) {
+        httplib::Client client("127.0.0.1", port);
+        client.set_connection_timeout(std::chrono::milliseconds(300));
+        client.set_read_timeout(std::chrono::seconds(2));
+        auto res = client.Get("/health");
+        return res && res->status == 200;
+    }
+
+    bool still_running() {
+        int status = 0;
+        return ::waitpid(pid_, &status, WNOHANG) == 0;
+    }
+
+    // Waits for /health, sends SIGHUP, and checks the daemon survives and still answers.
+    void expect_survives_sighup(int port, const std::string& name) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        while (!healthy(port) && std::chrono::steady_clock::now() < deadline) {
+            ASSERT_TRUE(still_running()) << name << " exited during startup";
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        ASSERT_TRUE(healthy(port)) << name << " never answered /health";
+
+        ASSERT_EQ(::kill(pid_, SIGHUP), 0);
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        int status = 0;
+        const pid_t done = ::waitpid(pid_, &status, WNOHANG);
+        if (done == pid_) {
+            pid_ = -1;
+            FAIL() << name << " died on SIGHUP"
+                   << (WIFSIGNALED(status) ? " (signal " + std::to_string(WTERMSIG(status)) + ")"
+                                           : " (exit " + std::to_string(WEXITSTATUS(status)) + ")");
+        }
+        EXPECT_TRUE(healthy(port)) << name << " stopped answering after SIGHUP";
+
+        // SIGTERM still stops it.
+        ASSERT_EQ(::kill(pid_, SIGTERM), 0);
+        const auto stop_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+        while (::waitpid(pid_, &status, WNOHANG) == 0 &&
+               std::chrono::steady_clock::now() < stop_deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        if (::kill(pid_, 0) != 0) pid_ = -1;  // reaped
+        EXPECT_EQ(pid_, -1) << name << " didn't stop on SIGTERM";
+    }
+};
+
+}  // namespace
+
+TEST_F(SighupTest, MetricsApiServerSurvivesSighup) {
+    const int port = free_port();
+    const auto cfg = write_config("config.metrics.conf", "");
+    spawn(METRICS_API_SERVER_BINARY_PATH,
+          {"--config", cfg.string(), "--port", std::to_string(port), "--db-path",
+           (dir_ / "metrics.db").string()});
+    expect_survives_sighup(port, "metrics_api_server");
+}
+
+TEST_F(SighupTest, MnsServerSurvivesSighup) {
+    const int port = free_port();
+    const auto cfg = write_config("config.mns.conf", "");
+    spawn(MNS_SERVER_BINARY_PATH, {"--config", cfg.string(), "--port", std::to_string(port),
+                                   "--data-dir", (dir_ / "mns").string()});
+    expect_survives_sighup(port, "mns_server");
+}
+
+TEST_F(SighupTest, RegistryServerSurvivesSighup) {
+    const int port = free_port();
+    const auto cfg = write_config("config.registry.conf", "");
+    spawn(REGISTRY_SERVER_BINARY_PATH, {"--config", cfg.string(), "--port", std::to_string(port),
+                                        "--data-dir", (dir_ / "registry").string()});
+    expect_survives_sighup(port, "registry_server");
+}
+
+TEST_F(SighupTest, TrainerServiceSurvivesSighup) {
+    const int port = free_port();
+    const int child_port = free_port();
+    const auto cfg = write_config(
+        "config.trainer.conf",
+        "TRAINER_ADMIN_ENABLED=true\nTRAINER_ADMIN_HOST=127.0.0.1\nTRAINER_ADMIN_PORT=" +
+            std::to_string(port) + "\nTRAINER_CHILD_ADMIN_PORT=" + std::to_string(child_port) +
+            "\nTRAINER_ADMIN_DIR=" + (dir_ / "admin").string() + "\nSESSION_DIR=" +
+            (dir_ / "sessions").string() + "\nLOG_FILE_PATH=" + (dir_ / "trainer.log").string() +
+            "\nREGISTRY_SERVER_URL=\nNAME_SERVICE_URL=\nMETRICS_SERVER_URL=\nGPU_ENABLED=false\n"
+            "D_MODEL=32\nNUM_HEADS=2\nD_FF=64\nNUM_ENCODER_LAYERS=1\nNUM_DECODER_LAYERS=1\n"
+            "MAX_SEQ_LENGTH=16\n");
+    spawn(TRAINER_SERVICE_BINARY_PATH, {"--config", cfg.string()});
+    expect_survives_sighup(port, "trainer_service");
+}
+
+// incremental_trainer calls the same helper before a pass starts; a process that calls it ignores
+// SIGHUP (and so does anything it execs, as trainer_service's children do).
+TEST(IgnoreSighupTest, AProcessThatCallsItIgnoresSighup) {
+    const pid_t pid = ::fork();
+    ASSERT_GE(pid, 0);
+    if (pid == 0) {
+        adai::ignore_sighup("sighup_test");
+        ::raise(SIGHUP);
+        _exit(0);
+    }
+    int status = 0;
+    ASSERT_EQ(::waitpid(pid, &status, 0), pid);
+    EXPECT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 0)
+        << (WIFSIGNALED(status) ? "killed by signal " + std::to_string(WTERMSIG(status)) : "");
+}

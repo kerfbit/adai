@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.22.2
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.23.0
+// @adai-reviewed: 2026-10-28
 
 #include <array>
 #include <chrono>
@@ -14,6 +14,7 @@
 #include <thread>
 #include <utility>
 #include "Config.hpp"
+#include "SignalSetup.hpp"
 #include "DataTransport.hpp"
 #include "DatasetRegistry.hpp"
 #include "IncrementalTrainer.hpp"
@@ -810,8 +811,7 @@ int run_training_pipeline(int argc, char* argv[], const adai::ServiceConfig& svc
     // level always INFO (LOG_LEVEL ignored)
     adai::Logger::init(adai::Logger::Level::INFO,
                        {log_path, svc_config.log_max_size_mb, svc_config.log_max_files}, "adai");
-    // TODO: See TD-283 in TECHNICAL_DEBT.md - no SIGHUP handler, so SIGHUP terminates this process
-    // (CLAUDE.md said incremental_trainer hot-reloads on it).
+    adai::ignore_sighup("incremental_trainer");  // TD-283: SIGHUP used to terminate this process
     std::signal(SIGTERM, signal_handler);
     std::signal(SIGINT, signal_handler);
     init_gpu_fn();

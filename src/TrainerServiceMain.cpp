@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.3.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-10-28
 
 // TD-172: trainer_service — the thin process-supervisor binary that replaces
 // `incremental_trainer serve`. Deliberately minimal: it does not link adai_models/adai_nlp and
@@ -36,6 +36,7 @@
 #include <vector>
 #include "ChildProcess.hpp"
 #include "Config.hpp"
+#include "SignalSetup.hpp"
 #include "IncrementalTrainerArgs.hpp"
 #include "Logger.hpp"
 #include "TrainerServiceControlState.hpp"
@@ -113,8 +114,7 @@ int main(int argc, char* argv[]) {
     auto control = std::make_shared<adai::TrainerServiceControlState>();
     control->service_started_unix = unix_seconds();
     g_control = control.get();
-    // TODO: See TD-283 in TECHNICAL_DEBT.md - no SIGHUP handler, so SIGHUP terminates this process
-    // (CLAUDE.md said incremental_trainer hot-reloads on it).
+    adai::ignore_sighup("trainer_service");  // TD-283: SIGHUP used to terminate this process
     std::signal(SIGTERM, signal_handler);
     std::signal(SIGINT, signal_handler);
 

@@ -1352,6 +1352,9 @@ The generation and model math run is complete.
 - TD-474–TD-475 (closed: owner chose to retire `PipelineInferenceEngine` and `--pipeline-inference` too; moved to the resolved
   archive). The chat serving category is done apart from `--batched-inference` (TD-211–TD-214).
 
+**Configuration and command-line run (October 31, 2026)**, chosen by the owner. So far:
+- TD-283 (done in code: the five non-reloading binaries ignore `SIGHUP` and log that a restart is needed; it used to kill them).
+
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
 - TD-372/373 (done in code: the FTP data connection must come from the control connection's client, and FTPS requires `AUTH TLS` and
@@ -6735,7 +6738,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Config | October 9, 2026 | 2-4 hours |
+| **HIGH** | Open — code fix landed October 31, 2026 | Config | October 9, 2026 | 2-4 hours |
 
 Description:
 Found while writing the code-traced reference [Config.md](../reference/source/Config.md). CLAUDE.md says "Client binaries
@@ -6748,11 +6751,22 @@ supervisor and its admin API. Found by inspecting every `std::signal()` registra
 
 Action Items:
 
-- [ ] Install a `SIGHUP` handler in every long-running binary: either a real reload (where `ConfigLoader::reload()` makes sense) or `SIG_IGN` with a log line saying reload isn't supported.
-- [ ] Correct CLAUDE.md's "Configuration" paragraph (annotated with this TD for now) and the operations docs.
-- [ ] Test: `SIGHUP` doesn't terminate each daemon.
+- [x] Install a `SIGHUP` handler in every long-running binary: either a real reload (where `ConfigLoader::reload()` makes sense) or `SIG_IGN` with a log line saying reload isn't supported.
+- [x] Correct CLAUDE.md's "Configuration" paragraph (annotated with this TD for now) and the operations docs.
+- [x] Test: `SIGHUP` doesn't terminate each daemon.
 
-Location in code: `src/IncrementalTrainingTool.cpp`, `src/TrainerServiceMain.cpp`, `src/TrainingMetricsAPIServer.cpp`, `src/ModelNameServiceServer.cpp`, `src/RegistryServer.cpp` (signal registration); CLAUDE.md; tagged `TODO: See TD-283`.
+**Fix (October 31, 2026).** New `src/SignalSetup.hpp` (`adai::ignore_sighup(name)`) sets `SIGHUP` to `SIG_IGN` and logs that the
+binary doesn't reload its configuration and needs a restart. `incremental_trainer`, `trainer_service`, `metrics_api_server`, `mns_server`
+and `registry_server` call it next to their `SIGTERM`/`SIGINT` registration. `SIG_IGN` runs no handler code (nothing
+async-signal-unsafe, cf. TD-249), and an ignored disposition survives `exec()`, so `trainer_service`'s child passes ignore it too.
+A real reload wasn't added: none of these binaries applies config at runtime outside its admin API. Side effect: closing the terminal
+or SSH session of a foreground `incremental_trainer train` no longer kills the pass. CLAUDE.md's "Configuration" paragraph and
+OPERATIONS_MANUAL.md's hot-reload section now say only `chatbot_api_server` reloads. Tests: `SighupTests` starts the four daemons
+for real (temporary configs, ports and data directories), sends `SIGHUP` once `/health` answers, and checks each is still running and
+answering, then still stops on `SIGTERM`; on the old binaries all four died with signal 1. A forked-child test covers
+`ignore_sighup()` itself, as `incremental_trainer` calls it before a pass.
+
+Location in code: `src/IncrementalTrainingTool.cpp`, `src/TrainerServiceMain.cpp`, `src/TrainingMetricsAPIServer.cpp`, `src/ModelNameServiceServer.cpp`, `src/RegistryServer.cpp` (signal registration); CLAUDE.md; tagged `TD-283`.
 
 Files to Modify:
 

@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.20.1
-// @adai-reviewed: 2026-10-27
+// @adai-version: 0.21.0
+// @adai-reviewed: 2026-10-28
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) draws from a CSPRNG
@@ -78,6 +78,7 @@
 #include <thread>
 #include <vector>
 #include "Config.hpp"
+#include "SignalSetup.hpp"
 #include "DaemonConfigStore.hpp"
 #include "RegistryServerArgs.hpp"
 #include "DataFetcher.hpp"
@@ -2189,8 +2190,7 @@ int main(int argc, char* argv[]) {
 
     Logger::init(Logger::Level::INFO, "registry_server");
 
-    // TODO: See TD-283 in TECHNICAL_DEBT.md - no SIGHUP handler, so SIGHUP terminates this process
-    // (CLAUDE.md said incremental_trainer hot-reloads on it).
+    adai::ignore_sighup("registry_server");  // TD-283: SIGHUP used to terminate this process
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
 

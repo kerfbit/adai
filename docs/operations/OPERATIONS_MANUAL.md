@@ -729,6 +729,10 @@ Send `SIGHUP` to reload `config.conf` without restarting:
 kill -HUP $(pgrep chatbot_api)
 ```
 
+Only `chatbot_api_server` reloads. `incremental_trainer`, `trainer_service`, `metrics_api_server`, `mns_server` and
+`registry_server` ignore `SIGHUP` (and log at startup that they do); restart them to apply a config change. They used to be killed
+by it (TD-283).
+
 ### 6.4 Model Service Manager
 
 The `model_service.sh` script provides a convenient service wrapper for the API server.

@@ -731,6 +731,20 @@ if(TARGET chatbot_api_server AND HTTPLIB_INCLUDE_DIR)
     add_test(NAME ChatbotApiServerStartupTests COMMAND chatbotApiServerStartupTests)
 endif()
 
+# TD-283: SIGHUP doesn't terminate the daemons. Spawns the real binaries.
+if(TARGET metrics_api_server AND TARGET mns_server AND TARGET registry_server AND TARGET trainer_service AND HTTPLIB_INCLUDE_DIR)
+    add_executable(sighupTests sighup_test.cpp)
+    target_include_directories(sighupTests PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/external)
+    target_compile_definitions(sighupTests PRIVATE
+        METRICS_API_SERVER_BINARY_PATH="$<TARGET_FILE:metrics_api_server>"
+        MNS_SERVER_BINARY_PATH="$<TARGET_FILE:mns_server>"
+        REGISTRY_SERVER_BINARY_PATH="$<TARGET_FILE:registry_server>"
+        TRAINER_SERVICE_BINARY_PATH="$<TARGET_FILE:trainer_service>")
+    target_link_libraries(sighupTests adai_core pthread GTest::gtest_main)
+    add_dependencies(sighupTests metrics_api_server mns_server registry_server trainer_service incremental_trainer)
+    add_test(NAME SighupTests COMMAND sighupTests)
+endif()
+
 if(TARGET registry_server AND HTTPLIB_INCLUDE_DIR)
     add_executable(registryFtpConfinementTests registry_ftp_confinement_test.cpp)
     target_include_directories(registryFtpConfinementTests PRIVATE

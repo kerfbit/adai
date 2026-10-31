@@ -134,7 +134,7 @@ trained again as the same unit is never recorded a second time either (records a
 | Item | Tracked as |
 |---|---|
 | FTP/FTPS keys in `config.registry.conf` ignored; argument parsing | TD-284, TD-488, TD-489 |
-| `SIGHUP` terminates the server | TD-283 |
+| `SIGHUP` terminated the server (ignored since October 31, 2026) | TD-283 |
 | Session-counter atomicity, admin PUT partial apply and range checks | TD-304, TD-305, TD-306, TD-308 |
 | Gutenberg regex crash, HuggingFace `split` traversal, partial caches, Parquet hangs | TD-309, TD-310, TD-313, TD-470 |
 | Segments released/recorded by bare path; sample counts always 0 (both fixed October 19, 2026) | TD-333, TD-334 |
