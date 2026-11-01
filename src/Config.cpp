@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.24.0
+// @adai-version: 1.25.0
 // @adai-reviewed: 2026-11-01
 
 #include "Config.hpp"
@@ -462,6 +462,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.registry_listen_port = parse_int(value);
             } else if (key == "REGISTRY_DATA_DIR") {
                 config.registry_data_dir = value;
+            } else if (key == "REGISTRY_ADMIN_ENABLED") {  // TD-489
+                config.registry_admin_enabled = parse_file_bool(key, value);
             } else if (key == "REGISTRY_CLAIM_LEASE_MINUTES") {
                 config.registry_claim_lease_minutes = parse_int(value);
             } else if (key == "REGISTRY_MAX_UPLOAD_MB") {
@@ -920,6 +922,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env("REGISTRY_DATA_DIR")) {
         config.registry_data_dir = *val;
+    }
+    if (auto val = get_env_bool("REGISTRY_ADMIN_ENABLED")) {  // TD-489
+        config.registry_admin_enabled = *val;
     }
     if (auto val = get_env_int("REGISTRY_CLAIM_LEASE_MINUTES")) {
         config.registry_claim_lease_minutes = *val;
@@ -1715,6 +1720,7 @@ std::string ConfigLoader::to_string(const ServiceConfig& c) {
     item("REGISTRY_TIMEOUT_MS", num(c.registry_timeout_ms));
     item("REGISTRY_LISTEN_PORT", num(c.registry_listen_port));
     item("REGISTRY_DATA_DIR", c.registry_data_dir);
+    item("REGISTRY_ADMIN_ENABLED", flag(c.registry_admin_enabled));
     item("REGISTRY_CLAIM_LEASE_MINUTES", num(c.registry_claim_lease_minutes));
     item("REGISTRY_MAX_UPLOAD_MB", num(c.registry_max_upload_mb));
     item("REGISTRY_MAX_CONCURRENT_FETCHES", num(c.registry_max_concurrent_fetches));

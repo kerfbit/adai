@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.20.0
+// @adai-version: 1.21.0
 // @adai-reviewed: 2026-11-01
 
 
@@ -342,6 +342,9 @@ struct ServiceConfig {
     /// Root storage directory for registry_server's per-group state (default: "registry_sessions").
     /// Server-side setting, read by registry_server.
     std::string registry_data_dir = "registry_sessions";
+
+    /// TD-489: registry_server's GET/PUT /admin/config (REGISTRY_ADMIN_ENABLED; --admin-enabled overrides).
+    bool registry_admin_enabled = true;
 
     /// TD-494: minutes a claim lasts without renewal before another run may take the entry;
     /// 0 = claims never expire (the pre-TD-494 behavior).

@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.24.0
+// @adai-version: 0.25.0
 // @adai-reviewed: 2026-11-01
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
@@ -2079,7 +2079,9 @@ static void print_usage(const char* prog) {
         << "  --ftp-cert FILE       PEM certificate file for FTPS (default: self-signed)\n"
         << "  --ftp-key FILE        PEM private key file for FTPS (default: self-signed)\n"
         << "  --ftp-max-sessions N  Max concurrent FTP sessions per run_id (default: 4)\n"
-        << "  --admin-enabled BOOL  Allow PUT /admin/config to mutate settings (default: true)\n"
+        << "  --admin-enabled BOOL  Allow PUT /admin/config to mutate settings (default:\n"
+           "                        REGISTRY_ADMIN_ENABLED, true)\n"
+        << "  (The FTP flags take effect only with --ftp-enabled or FTP_SERVER_ENABLED=true.)\n"
         << "  --claim-lease-minutes N  Claim lease without renewal; 0 = never expire (default: 30)\n"
         << "  --max-upload-mb N     Largest request body (uploads), MiB (default: 2048)\n"
         << "  --max-concurrent-fetches N  Gutenberg/HuggingFace fetches at once (default: 2)\n"
@@ -2176,7 +2178,6 @@ int main(int argc, char* argv[]) {
     const std::size_t max_body_bytes = static_cast<std::size_t>(td494.max_upload_mb) * 1024 * 1024;
     // TD-284: the FTP listener (file < CLI; not admin-mutable). These used to come from the CLI
     // only, so the config file's FTPS_ENABLED and FTP_DATA_SERVER_SECRET silently did nothing.
-    // TODO: See TD-489 in TECHNICAL_DEBT.md - FTP/FTPS settings without FTP enabled are ignored without a warning.
     ftp_enabled = td494.ftp_enabled;
     ftp_port = td494.ftp_port;
     ftp_advertise_ip = td494.ftp_advertise_ip;

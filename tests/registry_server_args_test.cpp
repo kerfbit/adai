@@ -90,6 +90,21 @@ TEST(ParseRegistryServerArgs, HelpFlagShortCircuits) {
     EXPECT_TRUE(r.help);
 }
 
+// TD-489: --help used to count only if no bad argument came before it; a mistake earlier on the
+// line printed an error instead of the help text asked for.
+TEST(ParseRegistryServerArgs, HelpWinsOverAnEarlierBadArgument) {
+    for (const std::vector<std::string>& raw_const : std::vector<std::vector<std::string>>{
+             {"registry_server", "--port", "abc", "--help"},
+             {"registry_server", "--portt", "8091", "-h"},
+             {"registry_server", "--admin-enabled", "--help"}}) {
+        auto raw = raw_const;
+        auto argv = make_argv(raw);
+        auto r = parse_registry_server_args(static_cast<int>(argv.size()), argv.data());
+        EXPECT_TRUE(r.help) << raw[1];
+        EXPECT_FALSE(r.error) << raw[1] << ": " << r.error_message;
+    }
+}
+
 TEST(ParseRegistryServerArgs, ShortDashPForPort) {
     std::vector<std::string> raw = {"registry_server", "-p", "1234"};
     auto argv = make_argv(raw);
@@ -358,3 +373,46 @@ TEST_F(ResolveRegistryServerConfigTest, BadSavedOverridesAreSkippedWithAWarning)
     EXPECT_EQ(cfg.ftp_max_sessions, 4);
     EXPECT_EQ(cfg.override_warnings.size(), 2u);
 }
+
+// TD-489: REGISTRY_ADMIN_ENABLED in config.registry.conf sets the default; --admin-enabled overrides
+// it. It used to be the flag, else true, with no way to close the endpoint from the file.
+TEST_F(ResolveRegistryServerConfigTest, AdminEnabledComesFromTheConfigUnlessTheFlagIsGiven) {
+    file_config.registry_admin_enabled = false;
+    EXPECT_FALSE(resolve_registry_server_config(args, file_config, no_overrides).admin_enabled);
+    args.admin_enabled = true;
+    EXPECT_TRUE(resolve_registry_server_config(args, file_config, no_overrides).admin_enabled);
+    file_config.registry_admin_enabled = true;
+    args.admin_enabled = false;
+    EXPECT_FALSE(resolve_registry_server_config(args, file_config, no_overrides).admin_enabled);
+    args.admin_enabled.reset();
+    EXPECT_TRUE(resolve_registry_server_config(args, file_config, no_overrides).admin_enabled);
+}
+
+// TD-489: with FTP disabled, an FTP flag on the command line did nothing, silently.
+TEST_F(ResolveRegistryServerConfigTest, FtpFlagsWithFtpDisabledWarn) {
+    args.ftps_enabled = true;
+    args.ftp_cert_file = "/etc/adai/cert.pem";
+    args.ftp_port = 3121;
+    args.ftp_ttl_minutes = 10;
+    auto eff = resolve_registry_server_config(args, file_config, no_overrides);
+    EXPECT_FALSE(eff.ftp_enabled);
+    for (const std::string flag : {"--ftps", "--ftp-cert", "--ftp-port", "--ftp-ttl"}) {
+        EXPECT_TRUE(has_warning(eff, flag + " has no effect: FTP is disabled")) << flag;
+    }
+    EXPECT_FALSE(has_warning(eff, "--ftp-key has no effect"));
+
+    // Enabled from the file or the flag: no such warning.
+    file_config.ftp_server_enabled = true;
+    eff = resolve_registry_server_config(args, file_config, no_overrides);
+    EXPECT_FALSE(has_warning(eff, "has no effect"));
+    file_config.ftp_server_enabled = false;
+    args.ftp_enabled = true;
+    EXPECT_FALSE(has_warning(resolve_registry_server_config(args, file_config, no_overrides), "has no effect"));
+
+    // File values alone (config.registry.conf ships the FTP keys with FTP off) don't warn.
+    RegistryServerArgs no_flags;
+    file_config.ftps_enabled = true;
+    file_config.ftp_server_port = 3121;
+    EXPECT_FALSE(has_warning(resolve_registry_server_config(no_flags, file_config, no_overrides), "has no effect"));
+}
+

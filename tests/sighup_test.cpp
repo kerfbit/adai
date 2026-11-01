@@ -326,3 +326,25 @@ TEST_F(SighupTest, IncrementalTrainerExitsOneOnABadFlag) {
             << bad[0] << (WIFSIGNALED(status) ? " killed by signal " + std::to_string(WTERMSIG(status)) : "");
     }
 }
+
+// TD-489: REGISTRY_ADMIN_ENABLED=false in config.registry.conf closes PUT /admin/config. registry_server
+// had no file key for it, so only --admin-enabled false could.
+TEST_F(SighupTest, RegistryServerHonoursRegistryAdminEnabled) {
+    const auto cfg = write_config("config.registry.conf", "REGISTRY_ADMIN_ENABLED=false\n");
+    const int port = free_port();
+    spawn(REGISTRY_SERVER_BINARY_PATH,
+          {"--config", cfg.string(), "--port", std::to_string(port), "--data-dir", (dir_ / "registry").string()});
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (!healthy(port) && std::chrono::steady_clock::now() < deadline) {
+        ASSERT_TRUE(still_running()) << "registry_server exited during startup";
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    httplib::Client client("127.0.0.1", port);
+    auto res = client.Put("/admin/config", R"({"ftp_token_ttl_minutes":5})", "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_NE(res->status, 200) << res->body;
+    auto get = client.Get("/admin/config");
+    ASSERT_TRUE(get);
+    EXPECT_EQ(get->body.find("\"ftp_token_ttl_minutes\":5"), std::string::npos) << get->body;
+}
+

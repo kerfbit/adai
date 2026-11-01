@@ -135,3 +135,26 @@ Numbers are whole and in range (ports 1–65535; `--ftp-ttl`, `--max-upload-mb`,
 values after resolution), a value flag with no value is `Missing value for <flag>`, an unknown argument is an error, and
 `--admin-enabled` takes the shared boolean words only. `registry_server` exits 1 on any of these. Bad saved TTL/session overrides are
 skipped with a warning.
+
+---
+
+## Addendum (November 1, 2026): FTP-flag warnings, `REGISTRY_ADMIN_ENABLED` and `--help` (TD-489)
+
+- **FTP flags with FTP disabled:** `--ftp-port`, `--ftp-ip`, `--ftp-pasv-min`/`--ftp-pasv-max`,
+  `--ftp-secret`, `--ftps`, `--ftp-cert`, `--ftp-key`, `--ftp-ttl` and `--ftp-max-sessions` do nothing unless
+  FTP is enabled (`--ftp-enabled` or `FTP_SERVER_ENABLED=true`). A flag passed for one of them now adds
+  `<flag> has no effect: FTP is disabled …` to the resolved config's `warnings`, logged at startup. They
+  used to be dropped silently. File values alone don't warn, because `config.registry.conf` ships the FTP
+  keys with FTP off.
+- **`REGISTRY_ADMIN_ENABLED`:** a new key (`ServiceConfig::registry_admin_enabled`, default true, shipped in
+  `config.registry.conf`) sets whether `PUT /admin/config` may change settings; `--admin-enabled` overrides
+  it. It used to be the flag, else true, so the endpoint couldn't be closed from the file. This matches
+  `mns_server`'s `MNS_ADMIN_ENABLED` (TD-456).
+- **`--help`:** `--help`/`-h` anywhere on the line prints the usage and exits 0, even after a bad argument.
+  It used to count only if nothing bad came first.
+- **Header comments:** the stale notes (FTP settings "not worth threading through the config file",
+  `admin_enabled` "getting file/admin-override precedence") are corrected.
+
+Tests: three in `registry_server_args_test.cpp` (24 in all) and
+`SighupTest.RegistryServerHonoursRegistryAdminEnabled`, which runs the real binary.
+

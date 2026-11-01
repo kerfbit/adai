@@ -1397,6 +1397,7 @@ const std::vector<std::pair<std::string, bool ServiceConfig::*>> kBoolKeys = {
     {"FTPS_ENABLED", &ServiceConfig::ftps_enabled},
     {"FTP_SERVER_ENABLED", &ServiceConfig::ftp_server_enabled},
     {"MNS_ADMIN_ENABLED", &ServiceConfig::name_service_admin_enabled},  // TD-456
+    {"REGISTRY_ADMIN_ENABLED", &ServiceConfig::registry_admin_enabled},  // TD-489
 };
 }  // namespace
 

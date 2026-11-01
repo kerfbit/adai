@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.4.0
+// @adai-version: 0.5.0
 // @adai-reviewed: 2026-11-01
 
 #include "RegistryServerArgs.hpp"
@@ -7,6 +7,7 @@
 #include <limits>
 #include <set>
 #include <type_traits>
+#include <utility>
 
 namespace adai {
 
@@ -52,12 +53,17 @@ RegistryServerArgs parse_registry_server_args(int argc, char* argv[]) {
     static const std::set<std::string> kStringValueFlags = {"--config",     "--data-dir", "--ftp-ip",  "--ftp-secret",
                                                             "--ftp-cert",   "--ftp-key",  "--admin-enabled"};
 
+    // TD-489: --help anywhere wins; it used to count only if no bad argument came before it.
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--help" || arg == "-h") {
             result.help = true;
             return result;
         }
+    }
+
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
         const IntFlag* int_flag = nullptr;
         for (const auto& f : kIntFlags) {
             if (arg == f.flag) int_flag = &f;
@@ -140,7 +146,7 @@ RegistryServerEffectiveConfig resolve_registry_server_config(
         cfg.ftp_ttl_minutes = *args.ftp_ttl_minutes;
     if (args.ftp_max_sessions)
         cfg.ftp_max_sessions = *args.ftp_max_sessions;
-    cfg.admin_enabled = args.admin_enabled.value_or(true);
+    cfg.admin_enabled = args.admin_enabled.value_or(file_config.registry_admin_enabled);  // TD-489
     cfg.claim_lease_minutes =
         std::max(0, args.claim_lease_minutes.value_or(file_config.registry_claim_lease_minutes));
     cfg.max_upload_mb = std::max(1, args.max_upload_mb.value_or(file_config.registry_max_upload_mb));
@@ -179,6 +185,23 @@ RegistryServerEffectiveConfig resolve_registry_server_config(
     }
     cfg.ftp_server_secret =
         pick(args.ftp_server_secret, file_secret, "FTP_DATA_SERVER_SECRET", "--ftp-secret");
+
+    // TD-489: with FTP disabled the listener flags do nothing; they used to be dropped silently.
+    if (!cfg.ftp_enabled) {
+        const std::pair<bool, const char*> listener_flags[] = {
+            {args.ftp_port.has_value(), "--ftp-port"},         {args.ftp_advertise_ip.has_value(), "--ftp-ip"},
+            {args.ftp_pasv_min.has_value(), "--ftp-pasv-min"}, {args.ftp_pasv_max.has_value(), "--ftp-pasv-max"},
+            {args.ftp_server_secret.has_value(), "--ftp-secret"}, {args.ftps_enabled.has_value(), "--ftps"},
+            {args.ftp_cert_file.has_value(), "--ftp-cert"},    {args.ftp_key_file.has_value(), "--ftp-key"},
+            {args.ftp_ttl_minutes.has_value(), "--ftp-ttl"},   {args.ftp_max_sessions.has_value(), "--ftp-max-sessions"},
+        };
+        for (const auto& [given, flag] : listener_flags) {
+            if (given) {
+                cfg.warnings.push_back(std::string(flag) +
+                                       " has no effect: FTP is disabled (pass --ftp-enabled or set FTP_SERVER_ENABLED=true)");
+            }
+        }
+    }
 
     // TD-488: a PASV range emptied by the file and the flags together (each alone is checked by
     // validate() and the parser) left every data connection failing with 425.

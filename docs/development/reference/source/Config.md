@@ -319,3 +319,12 @@ or needing a restart. Both default to empty, so other callers are unchanged.
 
 `parse_strict_bool()` joins the public strict parsers (the TD-286 boolean words, `nullopt` otherwise), for command-line flags.
 `MNS_ADMIN_ENABLED` → `name_service_admin_enabled` (default true) is `mns_server`'s admin-endpoint switch.
+
+---
+
+## Addendum (November 1, 2026): `REGISTRY_ADMIN_ENABLED` (TD-489)
+
+`REGISTRY_ADMIN_ENABLED` → `registry_admin_enabled` (default true) is `registry_server`'s admin-endpoint
+switch, read from the file and the environment with the shared boolean words; `--admin-enabled`
+overrides it. Listed in `to_string()` under the registry section.
+

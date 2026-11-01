@@ -1380,6 +1380,8 @@ The generation and model math run is complete.
   aborting).
 - TD-401 (done in code: `incremental_trainer`'s `--admin-port` must be a port, `--objective=` must be `chatbot` or `lejepa`, and a
   global flag missing its value is an error; exit 1 instead of aborting).
+- TD-489 (done in code: `registry_server` warns about FTP flags passed with FTP disabled, reads a new `REGISTRY_ADMIN_ENABLED` key,
+  and honours `--help` anywhere).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -14229,7 +14231,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / Registry Server CLI | October 17, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 1, 2026 | Data / Registry Server CLI | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `RegistryServerArgs.{hpp,cpp}` (by inspection):
@@ -14240,14 +14242,27 @@ Found while tracing `RegistryServerArgs.{hpp,cpp}` (by inspection):
 
 Action Items:
 
-- [ ] Warn (or error) when FTP-only flags are given without `--ftp-enabled`.
-- [ ] Correct the header comments (or add a config key for `admin_enabled`, with TD-284).
+- [x] Warn (or error) when FTP-only flags are given without `--ftp-enabled`.
+- [x] Correct the header comments (or add a config key for `admin_enabled`, with TD-284).
 
-Location in code: `src/RegistryServerArgs.hpp` (header comments), `src/RegistryServer.cpp` (`main()`'s FTP setup); tagged `TODO: See TD-489`.
+**Fix (November 1, 2026):** an FTP listener flag (`--ftp-port`, `--ftp-ip`, `--ftp-pasv-min`/`-max`,
+`--ftp-secret`, `--ftps`, `--ftp-cert`, `--ftp-key`, `--ftp-ttl`, `--ftp-max-sessions`) passed while FTP is
+disabled now logs `<flag> has no effect: FTP is disabled (pass --ftp-enabled or set FTP_SERVER_ENABLED=true)`
+at startup; file values alone don't warn, since `config.registry.conf` ships them with FTP off. A new
+`REGISTRY_ADMIN_ENABLED` key (`ServiceConfig::registry_admin_enabled`, default true, shipped) gives
+`admin_enabled` a file layer, `--admin-enabled` overriding, as `MNS_ADMIN_ENABLED` did for `mns_server`
+(TD-456). `--help`/`-h` anywhere wins over every other argument. The stale header comments are corrected,
+and bad arguments already printed usage since TD-488. Three unit tests and
+`SighupTest.RegistryServerHonoursRegistryAdminEnabled` (the real binary refuses `PUT /admin/config` with
+`REGISTRY_ADMIN_ENABLED=false`) all fail on the old code.
+
+Location in code: `src/RegistryServerArgs.{hpp,cpp}`, `src/Config.{hpp,cpp}`, `src/RegistryServer.cpp`.
 
 Files to Modify:
 
 - `src/RegistryServerArgs.hpp`
+- `src/RegistryServerArgs.cpp`
+- `src/Config.hpp`, `src/Config.cpp`, `config.registry.conf`
 - `src/RegistryServer.cpp`
 
 ---

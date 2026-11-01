@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.4.0
+// @adai-version: 0.5.0
 // @adai-reviewed: 2026-11-01
 
 // TD-035 (narrower scope, per the item's own note): registry_server's argv parsing and
@@ -29,8 +29,8 @@ struct RegistryServerArgs {
     // TD-284: FTP listener settings resolve as config file < CLI (resolve_registry_server_config());
     // unset means "this run didn't pass the flag". They used to be CLI-only, so the FTPS and secret
     // keys config.registry.conf ships did nothing. (Not admin-mutable: they're baked into the
-    // listener at startup.)
-    // TODO: See TD-489 in TECHNICAL_DEBT.md - FTP settings do nothing without FTP enabled; no warning.
+    // listener at startup.) With FTP disabled they do nothing, and a flag passed for one of them
+    // is listed in the resolved config's warnings (TD-489).
     std::optional<bool> ftp_enabled;
     std::optional<int> ftp_port;
     std::optional<std::string> ftp_advertise_ip;
@@ -41,12 +41,13 @@ struct RegistryServerArgs {
     std::optional<std::string> ftp_cert_file;
     std::optional<std::string> ftp_key_file;
 
-    // TODO: See TD-489 in TECHNICAL_DEBT.md - admin_enabled has no file/admin layer (CLI, else true).
     // Admin-mutable FTP settings — DO get the full file/admin-override/CLI precedence treatment
     // (see resolve_registry_server_config() below), so these stay optional<>: unset means "this
     // run didn't pass the flag," not "use the CLI default."
     std::optional<int> ftp_ttl_minutes;
     std::optional<int> ftp_max_sessions;
+    // --admin-enabled, else REGISTRY_ADMIN_ENABLED from the file (TD-489; it used to be the flag,
+    // else true). Not admin-mutable: PUT /admin/config can't switch itself off.
     std::optional<bool> admin_enabled;
 
     // TD-494: file < CLI (not admin-mutable).
@@ -62,7 +63,8 @@ struct RegistryServerArgs {
     std::string error_message;
 };
 
-// Parses argv[1..]. Never throws. Numbers must be whole and in range (ports 1-65535, --ftp-ttl,
+// Parses argv[1..]. Never throws. --help/-h anywhere wins over every other argument, including a
+// bad one (TD-489). Numbers must be whole and in range (ports 1-65535, --ftp-ttl,
 // --max-upload-mb and --max-concurrent-fetches at least 1, --ftp-max-sessions and
 // --claim-lease-minutes at least 0, where 0 means unlimited / never expire). An unknown argument
 // is an error (TD-488; it used to be ignored, so --portt 8091 started on 8082).
@@ -73,7 +75,7 @@ struct RegistryServerEffectiveConfig {
     std::string data_dir;
     int ftp_ttl_minutes = 30;
     int ftp_max_sessions = 4;
-    bool admin_enabled = true;
+    bool admin_enabled = true;  // --admin-enabled, else REGISTRY_ADMIN_ENABLED (TD-489)
     int claim_lease_minutes = 30;     // TD-494
     int max_upload_mb = 2048;         // TD-494
     int max_concurrent_fetches = 2;   // TD-494
@@ -89,7 +91,8 @@ struct RegistryServerEffectiveConfig {
     std::string ftp_cert_file;
     std::string ftp_key_file;
     // Things the operator should see at startup: a file value a CLI flag overrides, the shipped
-    // placeholder secret (ignored), plaintext FTP on a non-loopback address.
+    // placeholder secret (ignored), plaintext FTP on a non-loopback address, an FTP flag passed
+    // while FTP is disabled (TD-489).
     std::vector<std::string> warnings;
     // TD-488: saved admin overrides that were skipped as out of range or not a number.
     std::vector<std::string> override_warnings;
@@ -97,10 +100,11 @@ struct RegistryServerEffectiveConfig {
     std::vector<std::string> errors;
 };
 
-// Resolves port/data_dir/ftp_ttl_minutes/ftp_max_sessions/admin_enabled from (lowest to highest
-// precedence): `file_config` < `admin_overrides` (persisted via PUT /admin/config — only
+// Resolves port/data_dir/ftp_ttl_minutes/ftp_max_sessions from (lowest to highest precedence):
+// `file_config` < `admin_overrides` (persisted via PUT /admin/config — only
 // ftp_token_ttl_minutes/ftp_max_sessions_per_run are consulted, matching kImmutableKeys) <
-// `args`' explicit CLI flags. An override value that isn't a whole number in range is skipped and
+// `args`' explicit CLI flags. admin_enabled, the FTP listener and the TD-494 limits are
+// `file_config` < CLI. An override value that isn't a whole number in range is skipped and
 // listed in override_warnings (TD-488).
 RegistryServerEffectiveConfig resolve_registry_server_config(
     const RegistryServerArgs& args, const ServiceConfig& file_config,
