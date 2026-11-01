@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.24.0
-// @adai-reviewed: 2026-10-31
+// @adai-version: 0.25.0
+// @adai-reviewed: 2026-11-01
 
 #include <array>
 #include <chrono>
@@ -852,6 +852,7 @@ int output_usage(char* argv[]) {
     std::cout << "                               LeJEPAEncoder world model instead (requires\n";
     std::cout << "                               WORLD_MODEL_ENABLED=true in config.trainer.conf).\n";
     std::cout << "                               Note the \"=\" — unlike every other flag above.\n";
+    std::cout << "                               Any other value is an error.\n";
     std::cout << "  --dataset-kind <kind>        Overrides the dataset registry sub-pool "
                  "(encoder/decoder/\n";
     std::cout << "                               world_model/chatbot, TD-202) that would "
@@ -902,6 +903,10 @@ int main(int argc, char* argv[]) {
     // Usage:  incremental_trainer [--config <path>] <command> [args...]
     // -----------------------------------------------------------------------
     adai::IncrementalTrainerGlobalArgs cli = adai::parse_incremental_trainer_global_args(argc, argv);
+    if (cli.error) {  // TD-401
+        std::cerr << "Error: " << cli.error_message << "\n\n";
+        return output_usage(argv);
+    }
     const std::string cli_model_name = cli.model_name.value_or("");
     const bool foreground = cli.foreground;
     const std::optional<int> admin_port = cli.admin_port;

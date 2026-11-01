@@ -1,12 +1,12 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.6.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.7.0
+// @adai-reviewed: 2026-11-01
 
 // TD-035: incremental_trainer's global argv parsing and a few small pure helpers, pulled out of
 // IncrementalTrainingTool.cpp so they're testable without touching a real IncrementalTrainer
-// (real training, forking, GPU init) — see IncrementalTrainerArgs_test.cpp. IncrementalTrainer
+// (real training, forking, GPU init) — see tests/incremental_trainer_args_test.cpp. IncrementalTrainer
 // itself is already covered by IncrementalTrainerTests/IncrementalTrainerBackgroundTests/
 // IncrementalTrainerControlTests/TrainerControlStateTests/TrainerAdminAPITests.
 
@@ -45,6 +45,11 @@ struct IncrementalTrainerGlobalArgs {
     // --gpu-strategy, --model, --foreground, --admin-port, --objective, and --dataset-kind are
     // stripped out before this is populated, exactly like the original inline loop.
     std::vector<std::string> args;
+    // TD-401: set (with a message) for a global flag missing its value, an --admin-port that isn't
+    // a port (1-65535), or an --objective other than chatbot/lejepa; main() prints it with the
+    // usage and exits 1.
+    bool error = false;
+    std::string error_message;
 };
 
 IncrementalTrainerGlobalArgs parse_incremental_trainer_global_args(int argc, char* argv[]);

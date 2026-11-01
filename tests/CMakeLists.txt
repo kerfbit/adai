@@ -880,9 +880,12 @@ add_test(NAME MetricsApiServerArgsTests COMMAND metricsApiServerArgsTests)
 # IncrementalTrainerTests/IncrementalTrainerBackgroundTests/IncrementalTrainerControlTests/
 # TrainerControlStateTests/TrainerAdminAPITests.
 add_executable(incrementalTrainerArgsTests incremental_trainer_args_test.cpp
-    ${CMAKE_SOURCE_DIR}/src/IncrementalTrainerArgs.cpp)
+    ${CMAKE_SOURCE_DIR}/src/IncrementalTrainerArgs.cpp
+    ${CMAKE_SOURCE_DIR}/src/Config.cpp  # TD-401: the strict number parser
+    ${CMAKE_SOURCE_DIR}/src/Logger.cpp)
 target_include_directories(incrementalTrainerArgsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(incrementalTrainerArgsTests
+    spdlog::spdlog
     GTest::gtest_main
 )
 add_test(NAME IncrementalTrainerArgsTests COMMAND incrementalTrainerArgsTests)

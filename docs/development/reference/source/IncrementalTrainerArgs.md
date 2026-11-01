@@ -110,3 +110,24 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `--dataset-kind` unvalidated; a `LocalTransport` path can escape `session_dir` (§2) | Typos select an empty pool silently; `..` writes registry files elsewhere | By inspection | [TD-402](../../guides/TECHNICAL_DEBT.md#td-402---dataset-kind-is-not-validated) |
 | `trainer_service` drops `--objective`/`--dataset-kind` (§1) | The always-on service can't run LeJEPA pretraining; the flags are silently ignored | By inspection | [TD-403](../../guides/TECHNICAL_DEBT.md#td-403-trainer_service-drops---objective-and---dataset-kind) |
 | `derive_run_id()` can collide across hosts; the LeJEPA path always uses it (§2) | Claimed-file ownership in a shared registry can collide for LeJEPA runs, or for chatbot runs without MNS | By inspection | [TD-404](../../guides/TECHNICAL_DEBT.md#td-404-derive_run_id-can-collide-across-hosts) |
+
+---
+
+## Addendum (November 1, 2026): strict global flags (TD-401)
+
+`parse_incremental_trainer_global_args()` now reports errors in `error`/`error_message`, and `main()`
+prints the message with the usage and exits 1:
+- **Missing value:** `--config`, `--gpu-strategy`, `--model`, `--admin-port` or `--dataset-kind` given no
+  value (last in argv, or followed by another `--` flag) says `Missing value for <flag>`. It used to
+  become a positional, so `status --config` ran with normal config discovery.
+- **`--admin-port`:** must be a whole number from 1 to 65535 (the shared `parse_strict_int()` from
+  `Config.hpp`). `abc` used to abort the process with SIGABRT (an uncaught `std::stoi`), and `8084x` was
+  accepted as 8084.
+- **`--objective=`:** must be `chatbot` or `lejepa`. `--objective=lejpa train` used to run chatbot
+  training silently. A bare `--objective` (no `=`) says how to write the flag.
+- **Command flags** (`reset`'s `--yes`/`--keep-data`) still pass through to the command.
+
+Tests: `incremental_trainer_args_test.cpp` (26 tests) replaces the four that asserted the permissive
+behaviour, and `SighupTest.IncrementalTrainerExitsOneOnABadFlag` runs the real binary. The §4 rows for
+TD-401 are fixed in code; `--dataset-kind` validation remains TD-402.
+

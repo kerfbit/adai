@@ -1378,6 +1378,8 @@ The generation and model math run is complete.
 - TD-456 (done in code: `mns_server` refuses a mistyped `--admin-enabled` and a bad `--port`; new `MNS_ADMIN_ENABLED` key).
 - TD-488 (done in code: `registry_server`'s flags are range-checked, a valueless or unknown flag is an error, and it exits 1 instead of
   aborting).
+- TD-401 (done in code: `incremental_trainer`'s `--admin-port` must be a port, `--objective=` must be `chatbot` or `lejepa`, and a
+  global flag missing its value is an error; exit 1 instead of aborting).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -10954,7 +10956,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / CLI | October 13, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 1, 2026 | Training / CLI | October 13, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `IncrementalTrainerArgs` and verified against `build/debug/bin/incremental_trainer`:
@@ -10971,10 +10973,20 @@ Found while tracing `IncrementalTrainerArgs` and verified against `build/debug/b
 
 Action Items:
 
-- [ ] Parse `--admin-port` with full-string, range-checked parsing (1–65535) and report a usage error; wrap the parse in `main()`'s error handling.
-- [ ] Reject unknown `--objective` values (`chatbot`/`lejepa` only) and flags missing their value, with a clear message; update the tests that assert the permissive behaviour.
+- [x] Parse `--admin-port` with full-string, range-checked parsing (1–65535) and report a usage error; wrap the parse in `main()`'s error handling.
+- [x] Reject unknown `--objective` values (`chatbot`/`lejepa` only) and flags missing their value, with a clear message; update the tests that assert the permissive behaviour.
 
-Location in code: `src/IncrementalTrainerArgs.cpp` (`parse_incremental_trainer_global_args()`); tagged `TODO: See TD-401`.
+**Fix (November 1, 2026):** `parse_incremental_trainer_global_args()` sets `error`/`error_message`, and
+`main()` prints it with the usage and exits 1 before loading any config. A global value flag (`--config`,
+`--gpu-strategy`, `--model`, `--admin-port`, `--dataset-kind`) with no value (last, or followed by another
+`--` flag) says `Missing value for <flag>`. `--admin-port` goes through the shared `parse_strict_int()` and
+must be 1–65535. `--objective=` must be `chatbot` or `lejepa`, and a bare `--objective` says to use `=`.
+Command flags such as `reset --yes` still pass through. Four tests that asserted the permissive behaviour
+were replaced; `SighupTest.IncrementalTrainerExitsOneOnABadFlag` runs the real binary, which on the old
+code aborted with SIGABRT for `--admin-port abc` and `99999` and ran on for `--objective=lejpa` and a
+trailing `--config`. `resolve_dataset_kind()` keeps its chatbot fallback, now unreachable from argv.
+
+Location in code: `src/IncrementalTrainerArgs.cpp` (`parse_incremental_trainer_global_args()`).
 
 Files to Modify:
 

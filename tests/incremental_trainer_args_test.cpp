@@ -85,16 +85,6 @@ TEST(ParseIncrementalTrainerGlobalArgs, DatasetKindFlagUnsetWhenAbsent) {
     EXPECT_FALSE(r.dataset_kind.has_value());
 }
 
-TEST(ParseIncrementalTrainerGlobalArgs, DatasetKindMissingItsValueFallsThroughAsPositional) {
-    std::vector<std::string> raw = {"incremental_trainer", "train", "--dataset-kind"};
-    auto argv = make_argv(raw);
-    auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
-    EXPECT_FALSE(r.dataset_kind.has_value());
-    ASSERT_EQ(r.args.size(), 2u);
-    EXPECT_EQ(r.args[0], "train");
-    EXPECT_EQ(r.args[1], "--dataset-kind");
-}
-
 TEST(ParseIncrementalTrainerGlobalArgs, ObjectiveFlagDefaultsToChatbotWhenAbsent) {
     // TD-183 Action Item 3: the existing chatbot teacher-forcing objective must be unaffected
     // when --objective is never mentioned at all.
@@ -126,31 +116,6 @@ TEST(ParseIncrementalTrainerGlobalArgs, ObjectiveFlagCanAppearInAnyOrderRelative
     EXPECT_EQ(r.args[0], "train");
 }
 
-TEST(ParseIncrementalTrainerGlobalArgs, BareObjectiveFlagWithNoEqualsSignFallsThroughAsPositional) {
-    // No "=" at all -- doesn't match the "--objective=" prefix, so (like every other malformed
-    // flag usage in this parser) it's collected as a plain positional instead of crashing or
-    // silently consuming the next token.
-    std::vector<std::string> raw = {"incremental_trainer", "--objective", "lejepa"};
-    auto argv = make_argv(raw);
-    auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
-    EXPECT_EQ(r.objective, "chatbot");
-    ASSERT_EQ(r.args.size(), 2u);
-    EXPECT_EQ(r.args[0], "--objective");
-    EXPECT_EQ(r.args[1], "lejepa");
-}
-
-TEST(ParseIncrementalTrainerGlobalArgs, AdminPortMissingItsValueFallsThroughAsPositional) {
-    // Same "no following value" contract as --config (see
-    // FlagMissingItsValueFallsThroughAsPositional below) — TD-172's supervisor always passes a
-    // value, but a malformed manual invocation shouldn't crash on std::stoi with no argument.
-    std::vector<std::string> raw = {"incremental_trainer", "--admin-port"};
-    auto argv = make_argv(raw);
-    auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
-    EXPECT_FALSE(r.admin_port.has_value());
-    ASSERT_EQ(r.args.size(), 1u);
-    EXPECT_EQ(r.args[0], "--admin-port");
-}
-
 TEST(ParseIncrementalTrainerGlobalArgs, FlagsCanAppearInAnyOrderRelativeToTheCommand) {
     std::vector<std::string> raw = {"incremental_trainer", "status", "--foreground"};
     auto argv = make_argv(raw);
@@ -160,16 +125,76 @@ TEST(ParseIncrementalTrainerGlobalArgs, FlagsCanAppearInAnyOrderRelativeToTheCom
     EXPECT_EQ(r.args[0], "status");
 }
 
-TEST(ParseIncrementalTrainerGlobalArgs, FlagMissingItsValueFallsThroughAsPositional) {
-    // "--config" as the very last argument has no following value — the original inline loop's
-    // `i + 1 < argc` guard means it falls through to the else branch and is collected as a plain
-    // positional arg instead of consuming (nonexistent) input.
-    std::vector<std::string> raw = {"incremental_trainer", "--config"};
+// TD-401: a global flag missing its value used to become a positional argument (`status --config`
+// ran with normal config discovery); now it's an error naming the flag.
+TEST(ParseIncrementalTrainerGlobalArgs, AGlobalFlagMissingItsValueIsAnError) {
+    for (const std::string flag : {"--config", "--gpu-strategy", "--model", "--admin-port", "--dataset-kind"}) {
+        std::vector<std::string> trailing = {"incremental_trainer", "status", flag};
+        auto argv = make_argv(trailing);
+        auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+        EXPECT_TRUE(r.error) << flag;
+        EXPECT_EQ(r.error_message, "Missing value for " + flag);
+
+        std::vector<std::string> followed = {"incremental_trainer", flag, "--foreground", "resume"};
+        argv = make_argv(followed);
+        r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+        EXPECT_TRUE(r.error) << flag << " took the next flag as its value";
+    }
+}
+
+// TD-401: std::stoi aborted the process on "abc" and took "8084x" as 8084; no range was checked.
+TEST(ParseIncrementalTrainerGlobalArgs, AdminPortMustBeAWholePortNumber) {
+    for (const std::string bad : {"abc", "8084x", "0", "-1", "65536", "99999", "", "99999999999"}) {
+        std::vector<std::string> raw = {"incremental_trainer", "--admin-port", bad, "resume"};
+        auto argv = make_argv(raw);
+        auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+        EXPECT_TRUE(r.error) << "'" << bad << "'";
+        EXPECT_NE(r.error_message.find("--admin-port"), std::string::npos);
+        EXPECT_FALSE(r.admin_port.has_value());
+    }
+    for (const std::string good : {"1", "8084", "65535"}) {
+        std::vector<std::string> raw = {"incremental_trainer", "--admin-port", good, "resume"};
+        auto argv = make_argv(raw);
+        auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+        EXPECT_FALSE(r.error) << good << ": " << r.error_message;
+        ASSERT_TRUE(r.admin_port.has_value());
+        EXPECT_EQ(*r.admin_port, std::stoi(good));
+    }
+}
+
+// TD-401: a mistyped objective (`--objective=lejpa`) silently ran chatbot training.
+TEST(ParseIncrementalTrainerGlobalArgs, ObjectiveMustBeChatbotOrLejepa) {
+    for (const std::string bad : {"--objective=lejpa", "--objective=", "--objective=LeJEPA", "--objective=world_model"}) {
+        std::vector<std::string> raw = {"incremental_trainer", bad, "train"};
+        auto argv = make_argv(raw);
+        auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+        EXPECT_TRUE(r.error) << bad;
+        EXPECT_NE(r.error_message.find("chatbot or lejepa"), std::string::npos) << r.error_message;
+    }
+    std::vector<std::string> raw = {"incremental_trainer", "--objective=chatbot", "train"};
     auto argv = make_argv(raw);
     auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
-    EXPECT_FALSE(r.config_path.has_value());
-    ASSERT_EQ(r.args.size(), 1u);
-    EXPECT_EQ(r.args[0], "--config");
+    EXPECT_FALSE(r.error) << r.error_message;
+    EXPECT_EQ(r.objective, "chatbot");
+}
+
+// A bare --objective (no "=") used to become a positional, so `--objective lejepa train` ran the
+// command "--objective"; now it says how to write the flag.
+TEST(ParseIncrementalTrainerGlobalArgs, BareObjectiveFlagSaysToUseEquals) {
+    std::vector<std::string> raw = {"incremental_trainer", "--objective", "lejepa", "train"};
+    auto argv = make_argv(raw);
+    auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+    EXPECT_TRUE(r.error);
+    EXPECT_NE(r.error_message.find("--objective=lejepa"), std::string::npos) << r.error_message;
+}
+
+// Command flags (reset's --yes/--keep-data) aren't global flags and still reach the command.
+TEST(ParseIncrementalTrainerGlobalArgs, CommandFlagsPassThroughToTheCommand) {
+    std::vector<std::string> raw = {"incremental_trainer", "reset", "--yes", "--keep-data"};
+    auto argv = make_argv(raw);
+    auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+    EXPECT_FALSE(r.error) << r.error_message;
+    EXPECT_EQ(r.args, (std::vector<std::string>{"reset", "--yes", "--keep-data"}));
 }
 
 TEST(IncrementalTrainerCommandDefersGpuInit, TrainRetrainResumeDefer) {
@@ -226,7 +251,8 @@ TEST(ResolveDatasetKind, LejepaObjectiveMapsToWorldModel) {
 
 TEST(ResolveDatasetKind, UnrecognizedObjectiveFallsBackToChatbot) {
     // Mirrors IncrementalTrainerGlobalArgs::objective's own "chatbot" default — only the
-    // literal string "lejepa" selects world_model, matching TD-183's own contract.
+    // literal string "lejepa" selects world_model, matching TD-183's own contract. Since TD-401
+    // the parser refuses any other --objective value, so this fallback is never reached from argv.
     EXPECT_EQ(resolve_dataset_kind("something-else", std::nullopt), "chatbot");
 }
 

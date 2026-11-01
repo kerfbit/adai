@@ -301,3 +301,28 @@ TEST_F(SighupTest, RegistryServerExitsOneOnABadFlag) {
             << bad[0] << (WIFSIGNALED(status) ? " killed by signal " + std::to_string(WTERMSIG(status)) : "");
     }
 }
+
+// TD-401: incremental_trainer aborted with SIGABRT on --admin-port abc (an uncaught std::stoi), and
+// a mistyped --objective or a valueless --config ran anyway. Each is now an error and exit 1.
+TEST_F(SighupTest, IncrementalTrainerExitsOneOnABadFlag) {
+    const auto cfg = write_config("config.trainer.conf", "LOG_FILE_PATH=" + (dir_ / "log.txt").string() + "\n");
+    for (const std::vector<std::string>& bad : std::vector<std::vector<std::string>>{
+             {"--admin-port", "abc", "status"},
+             {"--admin-port", "99999", "status"},
+             {"--objective=lejpa", "status"},
+             {"status", "--config"}}) {
+        std::vector<std::string> args = {"--config", cfg.string()};
+        args.insert(args.end(), bad.begin(), bad.end());
+        spawn(INCREMENTAL_TRAINER_BINARY_PATH, args);
+        int status = 0;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+        pid_t done = 0;
+        while ((done = ::waitpid(pid_, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        ASSERT_EQ(done, pid_) << bad[0] << " did not exit";
+        pid_ = -1;
+        EXPECT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 1)
+            << bad[0] << (WIFSIGNALED(status) ? " killed by signal " + std::to_string(WTERMSIG(status)) : "");
+    }
+}
