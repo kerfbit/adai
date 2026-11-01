@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 2.6.0
+// @adai-version: 2.7.0
 // @adai-reviewed: 2026-11-01
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
@@ -113,6 +113,8 @@ void print_usage(const char* program_name) {
         << "  --max-gen-len <n>    Maximum generation length (default: 100)\n"
         << "  --temperature <f>    Generation temperature (default: 1.0)\n"
         << "  --top-p <f>          Nucleus sampling threshold (default: 0.9)\n"
+        << "  --top-k <n>          Tokens kept by top_k sampling, 1-1000 (default: 50)\n"
+        << "  --beam-width <n>     Beams for the beam strategy, 1-16 (default: 4)\n"
         << "  --strategy <str>     Generation strategy: greedy, beam, temperature, top_k, nucleus "
            "(default: nucleus)\n"
         << "  --profile            Enable GET /admin/profile (generate_response() timing "
@@ -127,6 +129,24 @@ void print_usage(const char* program_name) {
         << "  All configuration can be set via environment variables.\n"
         << "  Examples: MODEL_PATH, VOCAB_PATH, PORT, LOG_LEVEL, etc.\n"
         << '\n';
+}
+
+// TD-244: the generation settings ChatbotAPI uses, built the same way at startup and on reload.
+// top_k and beam_width used to be left out, so TOP_K/BEAM_WIDTH had no effect.
+static ChatbotAPI::GenerationConfig generation_config_from(const adai::ServiceConfig& config) {
+    ChatbotAPI::GenerationConfig gen;
+    gen.max_length = config.max_gen_length;
+    gen.temperature = config.temperature;
+    gen.top_p = config.top_p;
+    gen.top_k = static_cast<size_t>(config.top_k);
+    gen.strategy = config.strategy;
+    gen.beam_width = static_cast<size_t>(config.beam_width);
+    return gen;
+}
+
+static void log_generation_config(const char* what, const ChatbotAPI::GenerationConfig& gen) {
+    adai::Logger::info("{}: max_length={} temperature={} top_p={} top_k={} strategy={} beam_width={}", what,
+                       gen.max_length, gen.temperature, gen.top_p, gen.top_k, gen.strategy, gen.beam_width);
 }
 
 int main(int argc, char* argv[]) {
@@ -581,13 +601,9 @@ int main(int argc, char* argv[]) {
         }
 
         // Set generation configuration
-        // TODO: See TD-244 in TECHNICAL_DEBT.md - config.top_k and config.beam_width are never copied here.
-        ChatbotAPI::GenerationConfig gen_config;
-        gen_config.max_length = config.max_gen_length;
-        gen_config.temperature = config.temperature;
-        gen_config.top_p = config.top_p;
-        gen_config.strategy = config.strategy;
+        const ChatbotAPI::GenerationConfig gen_config = generation_config_from(config);
         api->set_generation_config(gen_config);
+        log_generation_config("Generation configuration", gen_config);
 
         // Optionally initialize RAG engine
         std::shared_ptr<RAGInference> rag_engine;
@@ -745,7 +761,8 @@ int main(int argc, char* argv[]) {
                 // TD-285/TD-251: the keys applied below; reload() logs any other changed key as
                 // needing a restart.
                 static const std::set<std::string> kLiveKeys = {
-                    "LOG_LEVEL", "MAX_LENGTH", "MAX_GEN_LENGTH", "TEMPERATURE", "TOP_P", "STRATEGY"};
+                    "LOG_LEVEL", "MAX_LENGTH", "MAX_GEN_LENGTH", "TEMPERATURE", "TOP_P",
+                    "TOP_K",     "STRATEGY",   "BEAM_WIDTH"};  // TD-244: TOP_K, BEAM_WIDTH
                 // TD-242: the command-line flags are re-applied on top of the reloaded file and
                 // environment (they parsed at startup, so they parse again); a reload used to revert
                 // --temperature and the rest to the file's values.
@@ -761,21 +778,13 @@ int main(int argc, char* argv[]) {
                     }
 
                     // Update generation configuration
-                    // TODO: See TD-244 in TECHNICAL_DEBT.md - top_k/beam_width not applied on reload either.
                     ChatbotAPI::GenerationConfig new_gen_config;
                     {
                         std::lock_guard<std::mutex> lock(config_mutex);
-                        new_gen_config.max_length = config.max_gen_length;
-                        new_gen_config.temperature = config.temperature;
-                        new_gen_config.top_p = config.top_p;
-                        new_gen_config.strategy = config.strategy;
+                        new_gen_config = generation_config_from(config);
                     }
                     api->set_generation_config(new_gen_config);
-
-                    adai::Logger::info(
-                        "Generation configuration updated: max_length={} temperature={} top_p={} strategy={}",
-                        new_gen_config.max_length, new_gen_config.temperature, new_gen_config.top_p,
-                        new_gen_config.strategy);
+                    log_generation_config("Generation configuration updated", new_gen_config);
 
                     // Every other changed key (port, model, RAG, GPU, session timeout...) is logged by
                     // reload() as needing a restart (TD-285).

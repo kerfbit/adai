@@ -185,3 +185,9 @@ message, so `chatbot_api_server` exits 1 at startup on anything a `SIGHUP` reloa
 `ChatbotApiServerArgsResult::cli_keys` lists the config keys the flags set (`TEMPERATURE` for `--temperature`, …). On `SIGHUP`,
 `chatbot_api_server` passes `ConfigLoader::reload()` a callback that runs this parser over the original `argv` again, plus that key
 set, so CLI > env > file holds across reloads; a file change to a held key is logged as held by a command-line flag.
+
+## Addendum (November 1, 2026): `--top-k` and `--beam-width` (TD-244)
+
+Two new flags set `top_k` and `beam_width` (strict integers; `validate()` checks 1–1000 and 1–16). `chatbot_api_server` now copies
+both into `ChatbotAPI`'s generation settings at startup and on reload (`generation_config_from()`), so `TOP_K`/`BEAM_WIDTH` take
+effect; they were parsed and then ignored.

@@ -233,7 +233,7 @@ TEST(ValidateChatbotApiServerConfig, NonEmptyVocabPathPasses) {
 TEST_F(ApplyChatbotApiServerArgsTest, EveryNumericFlagRefusesANonNumberAndTrailingCharacters) {
     for (const char* flag : {"--speculative-candidates", "--port", "--timeout", "--batch-timeout-ms", "--d-model",
                              "--num-heads", "--d-ff", "--enc-layers", "--dec-layers", "--max-seq-len",
-                             "--max-gen-len", "--temperature", "--top-p"}) {
+                             "--max-gen-len", "--temperature", "--top-p", "--top-k", "--beam-width"}) {
         for (const char* value : {"abc", "8x", "", "1 2"}) {
             ServiceConfig fresh;
             std::vector<std::string> raw = {"chatbot_api_server", flag, value};
@@ -313,4 +313,27 @@ TEST_F(ApplyChatbotApiServerArgsTest, RecordsTheConfigKeysTheFlagsSet) {
     auto r = apply_chatbot_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
     ASSERT_FALSE(r.error);
     EXPECT_EQ(r.cli_keys, (std::set<std::string>{"TEMPERATURE", "PORT", "STRATEGY"}));
+}
+
+// TD-244: --top-k and --beam-width didn't exist, and TOP_K/BEAM_WIDTH never reached ChatbotAPI.
+TEST_F(ApplyChatbotApiServerArgsTest, TopKAndBeamWidthFlagsAreApplied) {
+    std::vector<std::string> raw = {"chatbot_api_server", "--top-k", "7", "--beam-width", "3"};
+    auto argv = make_argv(raw);
+    auto r = apply_chatbot_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
+    ASSERT_FALSE(r.error) << r.error_message;
+    EXPECT_EQ(config.top_k, 7);
+    EXPECT_EQ(config.beam_width, 3);
+    EXPECT_EQ(r.cli_keys, (std::set<std::string>{"TOP_K", "BEAM_WIDTH"}));
+}
+
+TEST_F(ApplyChatbotApiServerArgsTest, OutOfRangeTopKAndBeamWidthFailStartupValidation) {
+    for (const auto& c : std::vector<std::pair<std::string, std::string>>{
+             {"--top-k", "0"}, {"--top-k", "1001"}, {"--beam-width", "0"}, {"--beam-width", "17"}}) {
+        ServiceConfig fresh;
+        fresh.vocab_path = "/vocab.txt";
+        std::vector<std::string> raw = {"chatbot_api_server", c.first, c.second};
+        auto argv = make_argv(raw);
+        ASSERT_FALSE(apply_chatbot_api_server_args(static_cast<int>(argv.size()), argv.data(), fresh).error);
+        EXPECT_TRUE(validate_chatbot_api_server_config(fresh).has_value()) << c.first << " " << c.second;
+    }
 }

@@ -306,3 +306,37 @@ TEST_F(ChatbotApiServerStartupTest, ACommandLineSettingSurvivesAReload) {
     EXPECT_NE(log.find("TEMPERATURE changed in the file but is held by a command-line flag"), std::string::npos)
         << log;
 }
+
+// TD-244: TOP_K and BEAM_WIDTH were parsed but never copied into ChatbotAPI's generation settings, at
+// startup or on reload, so it always used 50 and 4.
+TEST_F(ChatbotApiServerStartupTest, TopKAndBeamWidthReachTheServer) {
+    const std::string config = write_config("ALLOW_UNTRAINED_MODEL=true\nTOP_K=7\nBEAM_WIDTH=3\n");
+    const pid_t pid = spawn(config, {"--top-k", "9"});
+    auto read_log = [&] {
+        std::stringstream s;
+        s << std::ifstream(dir_ / "server.log").rdbuf();
+        return s.str();
+    };
+    std::string log;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    while (log.find("Generation configuration:") == std::string::npos && std::chrono::steady_clock::now() < deadline) {
+        ASSERT_LT(wait_exit(pid, std::chrono::seconds(0)), 0) << "the server exited";
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        log = read_log();
+    }
+    EXPECT_NE(log.find("top_k=9 strategy=nucleus beam_width=3"), std::string::npos) << log;  // flag beats file
+
+    // A reload applies a changed BEAM_WIDTH; TOP_K stays held by --top-k.
+    write_config("ALLOW_UNTRAINED_MODEL=true\nTOP_K=11\nBEAM_WIDTH=5\n");
+    ASSERT_EQ(::kill(pid, SIGHUP), 0);
+    deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    while (log.find("Generation configuration updated") == std::string::npos &&
+           std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        log = read_log();
+    }
+    stop(pid);
+    const auto updated = log.find("Generation configuration updated");
+    ASSERT_NE(updated, std::string::npos) << log;
+    EXPECT_NE(log.find("top_k=9 strategy=nucleus beam_width=5", updated), std::string::npos) << log;
+}

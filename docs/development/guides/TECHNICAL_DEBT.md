@@ -1371,6 +1371,7 @@ The generation and model math run is complete.
   the strict parsers are public for the other daemons' flag fixes).
 - TD-241 (done in code: `chatbot_api_server` runs the full `validate()` at startup after its CLI flags, lists every error and exits 1).
 - TD-242 (done in code: a `SIGHUP` reload re-applies `chatbot_api_server`'s command-line flags and logs file changes a flag holds).
+- TD-244 (done in code: `TOP_K`/`BEAM_WIDTH` reach `ChatbotAPI` at startup and on reload; `--top-k`/`--beam-width` flags).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5522,7 +5523,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / Serving / CLI | October 8, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 1, 2026 | Inference / Serving / CLI | October 8, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-240. `ServiceConfig` parses `TOP_K` and `BEAM_WIDTH` from the config file and
@@ -5533,17 +5534,28 @@ flags either. Found by reading the code.
 
 Action Items:
 
-- [ ] Copy `config.top_k` and `config.beam_width` into the `GenerationConfig` at startup and on reload.
-- [ ] Add `--top-k` and `--beam-width` flags (and to `print_usage()`).
-- [ ] Tests: flags applied; config values reach `ChatbotAPI`.
+- [x] Copy `config.top_k` and `config.beam_width` into the `GenerationConfig` at startup and on reload.
+- [x] Add `--top-k` and `--beam-width` flags (and to `print_usage()`).
+- [x] Tests: flags applied; config values reach `ChatbotAPI`.
 
-Location in code: `src/ChatbotAPIServer.cpp` (startup and reload `GenerationConfig` construction), `src/ChatbotApiServerArgs.cpp`; tagged `TODO: See TD-244`.
+**Fix (November 1, 2026).** `ChatbotAPIServer.cpp` builds `ChatbotAPI::GenerationConfig` in one place,
+`generation_config_from(config)`, used at startup and on reload; it copies `top_k` and `beam_width` along with the other four, so
+`TOP_K`/`BEAM_WIDTH` reach every generation path (the GPU and CPU strategy calls take both; batched mode's strategy gap is TD-214).
+Both keys are now in the reload's live set, and both have flags, `--top-k` and `--beam-width` (strict integers as in TD-240, ranges
+1–1000 and 1–16 checked by `validate()` at startup since TD-241, held across reloads as in TD-242), listed in `print_usage()`. The
+server logs the generation settings at startup and on every reload (`… top_k=9 strategy=nucleus beam_width=3`). Tests:
+`TopKAndBeamWidthFlagsAreApplied`, `OutOfRangeTopKAndBeamWidthFailStartupValidation`, the two flags added to TD-240's malformed-value
+test, and `ChatbotApiServerStartupTest.TopKAndBeamWidthReachTheServer` (the real binary with `TOP_K=7`/`BEAM_WIDTH=3` and
+`--top-k 9` logs `top_k=9 … beam_width=3`; after a reload to `TOP_K=11`/`BEAM_WIDTH=5`, `top_k=9 … beam_width=5`); the three new
+tests fail on the old code.
+
+Location in code: `src/ChatbotAPIServer.cpp` (startup and reload `GenerationConfig` construction), `src/ChatbotApiServerArgs.cpp`; tagged `TD-244`.
 
 Files to Modify:
 
 - `src/ChatbotAPIServer.cpp`
 - `src/ChatbotApiServerArgs.cpp`
-- `tests/chatbot_api_server_args_test.cpp`
+- `tests/chatbot_api_server_args_test.cpp`, `tests/chatbot_api_server_startup_test.cpp`
 
 ---
 

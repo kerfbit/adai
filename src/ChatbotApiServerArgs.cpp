@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.11.0
+// @adai-version: 0.12.0
 // @adai-reviewed: 2026-11-01
 
 #include "ChatbotApiServerArgs.hpp"
@@ -17,7 +17,6 @@ std::optional<std::string> extract_config_path_arg(int argc, char* argv[]) {
     return std::nullopt;
 }
 
-// TODO: See TD-244 in TECHNICAL_DEBT.md - no --top-k/--beam-width flags.
 ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
                                                          ServiceConfig& config) {
     ChatbotApiServerArgsResult result;
@@ -111,6 +110,16 @@ ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
             const auto v = parse_strict_float(argv[++i]);
             if (!v) return bad_number(arg, argv[i], "a number");
             config.top_p = *v;
+        } else if (arg == "--top-k" && i + 1 < argc) {  // TD-244
+            result.cli_keys.insert("TOP_K");
+            const auto v = parse_strict_int(argv[++i]);
+            if (!v) return bad_number(arg, argv[i], "a whole number");
+            config.top_k = *v;
+        } else if (arg == "--beam-width" && i + 1 < argc) {  // TD-244
+            result.cli_keys.insert("BEAM_WIDTH");
+            const auto v = parse_strict_int(argv[++i]);
+            if (!v) return bad_number(arg, argv[i], "a whole number");
+            config.beam_width = *v;
         } else if (arg == "--strategy" && i + 1 < argc) {
             result.cli_keys.insert("STRATEGY");  // TD-242
             config.strategy = argv[++i];
