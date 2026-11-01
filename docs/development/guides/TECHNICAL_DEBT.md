@@ -1363,6 +1363,8 @@ The generation and model math run is complete.
   the default, in the file and the environment).
 - TD-288 (done in code: range checks for every training, port, interval and size field; five binaries validate at startup and exit 1
   on an error).
+- TD-289 (done in code: an unquoted ` #` starts a comment; five enum keys matched in any case, anything else warns and keeps the
+  default).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6996,7 +6998,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Config | October 9, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 31, 2026 | Config | October 9, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-283 and confirmed by running the real loader. `#` is a comment only at the start
@@ -7006,10 +7008,21 @@ of a line, so `MODEL_PATH=/models/chat # production model` stores the comment as
 
 Action Items:
 
-- [ ] Strip an unquoted ` #…` suffix (or document that inline comments aren't supported, and warn when a value contains ` #`).
-- [ ] Warn on unknown enum values for `TOKENIZER_MODE`, `STRATEGY`, `LOG_LEVEL`, `METRICS_STORAGE_BACKEND`, `DATASET_KIND`.
+- [x] Strip an unquoted ` #…` suffix (or document that inline comments aren't supported, and warn when a value contains ` #`).
+- [x] Warn on unknown enum values for `TOKENIZER_MODE`, `STRATEGY`, `LOG_LEVEL`, `METRICS_STORAGE_BACKEND`, `DATASET_KIND`.
 
-Location in code: `src/Config.cpp` (`load_from_file()`); tagged `TODO: See TD-289`.
+**Fix (October 31, 2026).** A file value now ends at an unquoted `#` that follows a space or tab, so
+`MODEL_PATH=/models/chat # production model` is `/models/chat` and `PORT=8080 # note` is 8080 again (TD-287 had made it refused).
+A `#` with no space before it stays (`FTP_DATA_SERVER_SECRET=abc#def`), and a value in matching quotes is taken as written, with only
+a comment allowed after the closing quote. `TOKENIZER_MODE` (`unicode`/`ascii`), `STRATEGY`, `LOG_LEVEL` (also `WARNING`, as `Logger`
+takes it, stored as `WARN`), `METRICS_STORAGE_BACKEND` (`sqlite+file`/`sqlite`/`postgres+file`/`postgres`/`file`) and `DATASET_KIND`
+(empty or `encoder`/`decoder`/`world_model`/`chatbot`) are matched in any case and stored in their canonical spelling; anything else is
+refused with a warning and the default stays, in the file and the environment. Whether this build has PostgreSQL is still TD-439's.
+Tests: `AnInlineCommentEndsTheValue`, `AnUnknownEnumValueLeavesTheDefault`, `EnumValuesAreMatchedInAnyCase`,
+`EnvironmentEnumValuesAreCheckedTheSameWay`, `ATokenizerModeTypoDoesntSwitchToAscii` (all fail on the old loader),
+`AnEmptyDatasetKindIsTheLegacyPool`; `EmptyValues` now expects an empty `LOG_LEVEL` to keep the default.
+
+Location in code: `src/Config.cpp` (`load_from_file()`); tagged `TD-289`.
 
 Files to Modify:
 

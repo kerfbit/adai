@@ -294,3 +294,10 @@ device, every metrics/registry/FTP/MNS/trainer-admin port (plus PASV min <= max,
 registry, FTP, MNS and auto-save interval, size and count. A field whose 0 means "off" or "no limit" accepts 0. `validate_or_exit()`
 logs every error and exits 1; `metrics_api_server`, `mns_server`, `registry_server`, `trainer_service` and `incremental_trainer` call
 it after loading their file (`chatbot_api_server`: TD-241). Every shipped `config.*.conf` passes (`EveryShippedConfigFilePassesValidation`).
+
+## Addendum (October 31, 2026): inline comments and enum values (TD-289)
+
+A value ends at an unquoted `#` after a space or tab (`MODEL_PATH=/models/chat # prod` → `/models/chat`); `abc#def` keeps its `#`, and
+a quoted value is taken as written. `TOKENIZER_MODE`, `STRATEGY`, `LOG_LEVEL` (plus `WARNING` → `WARN`), `METRICS_STORAGE_BACKEND` and
+`DATASET_KIND` are matched in any case and stored canonically; an unknown value (`utf8`, `nucleous`, `postgress`…) warns and keeps
+the default, in the file and the environment. This lifts the TD-287 note above: `PORT=8080 # note` reads as 8080 again.

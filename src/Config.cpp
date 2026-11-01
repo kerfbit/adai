@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.19.0
+// @adai-version: 1.20.0
 // @adai-reviewed: 2026-10-31
 
 #include "Config.hpp"
@@ -140,6 +140,66 @@ static std::string trim(const std::string& str) {
     return str.substr(first, last - first + 1);
 }
 
+namespace {
+// TD-289: a value ends at an unquoted '#' that follows whitespace ("PATH=/models/chat # prod" is
+// "/models/chat"; "SECRET=a#b" keeps its '#'). A value in matching quotes is taken as written, and
+// only a comment may follow the closing quote.
+std::string strip_quotes_and_comment(const std::string& value) {
+    if (value.size() >= 2 && (value.front() == '"' || value.front() == '\'')) {
+        const size_t close = value.find(value.front(), 1);
+        if (close != std::string::npos) {
+            const std::string rest = trim(value.substr(close + 1));
+            if (rest.empty() || rest.front() == '#') return value.substr(1, close - 1);
+        }
+    }
+    for (size_t i = 1; i < value.size(); ++i) {
+        if (value[i] == '#' && (value[i - 1] == ' ' || value[i - 1] == '\t')) return trim(value.substr(0, i));
+    }
+    return value;
+}
+
+// TD-289: the canonical spelling of an enum value, matched case-insensitively, or nullopt.
+std::optional<std::string> match_choice(const std::string& value, const std::vector<std::string>& choices) {
+    std::string lower = value;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    for (const auto& choice : choices) {
+        std::string c = choice;
+        std::transform(c.begin(), c.end(), c.begin(), ::tolower);
+        if (c == lower) return choice;
+    }
+    return std::nullopt;
+}
+
+const std::vector<std::string> kStrategies = {"greedy", "beam", "temperature", "top_k", "nucleus"};
+const std::vector<std::string> kLogLevels = {"DEBUG", "INFO", "WARN", "ERROR"};
+const std::vector<std::string> kStorageBackends = {"sqlite+file", "sqlite", "postgres+file", "postgres", "file"};
+const std::vector<std::string> kDatasetKinds = {"", "encoder", "decoder", "world_model", "chatbot"};
+const std::vector<std::string> kTokenizerModes = {"unicode", "ascii"};
+
+// An enum config value in its canonical spelling; LOG_LEVEL also takes WARNING (as Logger does).
+// Throws for anything else, so load_from_file() warns and keeps the previous value.
+std::string parse_file_choice(const std::string& key, const std::string& value,
+                              const std::vector<std::string>& choices) {
+    if (key == "LOG_LEVEL" && match_choice(value, {"WARNING"})) return "WARN";
+    if (auto c = match_choice(value, choices)) return *c;
+    std::string list;
+    for (const auto& c : choices) list += (list.empty() ? "" : ", ") + (c.empty() ? std::string("(empty)") : c);
+    throw std::invalid_argument("must be one of " + list);
+}
+
+// The same for an environment variable: warns and returns nullopt instead of throwing.
+std::optional<std::string> env_choice(const std::string& key, const std::optional<std::string>& value,
+                                      const std::vector<std::string>& choices) {
+    if (!value) return std::nullopt;
+    try {
+        return parse_file_choice(key, *value, choices);
+    } catch (const std::exception& e) {
+        std::cerr << "Warning: Invalid value for " << key << ": " << *value << " (" << e.what() << ")\n";
+        return std::nullopt;
+    }
+}
+}  // namespace
+
 void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file_path) {
     std::ifstream file(file_path);
     if (!file.is_open()) {
@@ -173,12 +233,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
         std::string key = trim(line.substr(0, pos));
         std::string value = trim(line.substr(pos + 1));
 
-        // TODO: See TD-289 in TECHNICAL_DEBT.md - inline "# comment" text is kept as part of the value.
-        // Remove quotes from value if present
-        if (value.size() >= 2 && ((value.front() == '"' && value.back() == '"') ||
-                                  (value.front() == '\'' && value.back() == '\''))) {
-            value = value.substr(1, value.size() - 2);
-        }
+        value = strip_quotes_and_comment(value);  // TD-289
 
         config.file_values[key] = value;  // TD-285: what reload() diffs
 
@@ -201,7 +256,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "MAX_BATCH_SIZE") {  // TD-235
                 config.max_batch_size = parse_int(value);
             } else if (key == "LOG_LEVEL") {
-                config.log_level = value;
+                config.log_level = parse_file_choice(key, value, kLogLevels);  // TD-289
             } else if (key == "LOG_FILE_PATH") {
                 config.log_file_path = value;
             } else if (key == "SESSION_DIR") {
@@ -262,7 +317,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "BEAM_WIDTH") {
                 config.beam_width = parse_int(value);
             } else if (key == "STRATEGY") {
-                config.strategy = value;
+                config.strategy = parse_file_choice(key, value, kStrategies);  // TD-289
                 // Training Metrics Service configuration
             } else if (key == "ENABLE_METRICS_SERVICE") {
                 config.enable_metrics_service = parse_file_bool(key, value);  // TD-286
@@ -320,7 +375,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.metrics_api_cors_allowed_origins = value;
                 // Metrics database persistence (TD-020)
             } else if (key == "METRICS_STORAGE_BACKEND") {
-                config.metrics_storage_backend = value;
+                config.metrics_storage_backend = parse_file_choice(key, value, kStorageBackends);  // TD-289
             } else if (key == "METRICS_DB_PATH") {
                 config.metrics_db_path = value;
             } else if (key == "METRICS_DB_URL") {
@@ -357,7 +412,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "RUN_ID") {
                 config.run_id = value;
             } else if (key == "DATASET_KIND") {
-                config.dataset_kind = value;
+                config.dataset_kind = parse_file_choice(key, value, kDatasetKinds);  // TD-289
             } else if (key == "CACHE_TOKENIZED_DATA") {
                 config.cache_tokenized_data = parse_file_bool(key, value);  // TD-286
             } else if (key == "TOKENIZED_CACHE_DIR") {
@@ -487,10 +542,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "GPU_STRATEGY") {
                 config.gpu_strategy = gpu_strategy_from_string(value);
             } else if (key == "TOKENIZER_MODE") {
-                // TODO: See TD-289 in TECHNICAL_DEBT.md - any value but "unicode" (e.g. "utf8") silently means ASCII.
-                std::string lower = value;
-                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-                config.unicode_tokenizer = (lower == "unicode");
+                config.unicode_tokenizer = parse_file_choice(key, value, kTokenizerModes) == "unicode";  // TD-289
             } else if (key == "VOCAB_BUILD_SIZE") {
                 config.vocab_build_size = parse_int(value);
             } else {
@@ -535,7 +587,7 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env_int("MAX_BATCH_SIZE")) {  // TD-235
         config.max_batch_size = *val;
     }
-    if (auto val = get_env("LOG_LEVEL")) {
+    if (auto val = env_choice("LOG_LEVEL", get_env("LOG_LEVEL"), kLogLevels)) {
         config.log_level = *val;
     }
     if (auto val = get_env("LOG_FILE_PATH")) {
@@ -636,7 +688,7 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env_int("BEAM_WIDTH")) {
         config.beam_width = *val;
     }
-    if (auto val = get_env("STRATEGY")) {
+    if (auto val = env_choice("STRATEGY", get_env("STRATEGY"), kStrategies)) {
         config.strategy = *val;
     }
 
@@ -747,7 +799,7 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
 
     // Metrics database persistence (TD-020)
-    if (auto val = get_env("METRICS_STORAGE_BACKEND")) {
+    if (auto val = env_choice("METRICS_STORAGE_BACKEND", get_env("METRICS_STORAGE_BACKEND"), kStorageBackends)) {
         config.metrics_storage_backend = *val;
     }
     if (auto val = get_env("METRICS_DB_PATH")) {
@@ -794,10 +846,8 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env("GPU_STRATEGY")) {
         config.gpu_strategy = gpu_strategy_from_string(*val);
     }
-    if (auto val = get_env("TOKENIZER_MODE")) {
-        std::string lower = *val;
-        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-        config.unicode_tokenizer = (lower == "unicode");
+    if (auto val = env_choice("TOKENIZER_MODE", get_env("TOKENIZER_MODE"), kTokenizerModes)) {
+        config.unicode_tokenizer = (*val == "unicode");
     }
     if (auto val = get_env_int("VOCAB_BUILD_SIZE")) {
         config.vocab_build_size = *val;
@@ -813,7 +863,7 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env("RUN_ID")) {
         config.run_id = *val;
     }
-    if (auto val = get_env("DATASET_KIND")) {
+    if (auto val = env_choice("DATASET_KIND", get_env("DATASET_KIND"), kDatasetKinds)) {
         config.dataset_kind = *val;
     }
     if (auto val = get_env_bool("CACHE_TOKENIZED_DATA")) {

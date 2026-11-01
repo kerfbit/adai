@@ -969,14 +969,13 @@ TEST_F(ConfigTest, EmptyValues) {
 
     auto config = ConfigLoader::load(test_file.string());
 
-    // Empty string values are loaded as-is (not defaults)
-    // Invalid values should be caught by validation
+    // Both are refused at load (an empty number, and an empty LOG_LEVEL since TD-289), so the
+    // defaults stay and the config is valid.
+    const ServiceConfig defaults;
+    EXPECT_EQ(config.port, defaults.port);
+    EXPECT_EQ(config.log_level, defaults.log_level);
     std::vector<std::string> errors;
-    bool valid = ConfigLoader::validate(config, errors);
-
-    // Empty LOG_LEVEL will be invalid
-    EXPECT_FALSE(valid);
-    EXPECT_FALSE(errors.empty());
+    EXPECT_TRUE(ConfigLoader::validate(config, errors));
 }
 
 TEST_F(ConfigTest, ExtremelyLargeValues) {
@@ -1627,4 +1626,81 @@ TEST_F(ConfigTest, EveryShippedConfigFilePassesValidation) {
         EXPECT_TRUE(ConfigLoader::validate(ConfigLoader::load(path.string()), errors))
             << name << ": " << (errors.empty() ? "" : errors.front());
     }
+}
+
+// ============================================================================
+// TD-289: inline comments end a value; enum values are checked at load
+// ============================================================================
+
+TEST_F(ConfigTest, AnInlineCommentEndsTheValue) {
+    std::ofstream(test_file) << "MODEL_PATH=/models/chat # production model\n"
+                                "PORT=9090\t# the API port\n"
+                                "VOCAB_PATH=\"/data/my # vocab.txt\"  # quoted: the '#' is part of it\n"
+                                "FTP_DATA_SERVER_SECRET=abc#def\n"
+                                "RUN_GROUP='group # one'\n";
+    const ServiceConfig config = ConfigLoader::load(test_file.string());
+    EXPECT_EQ(config.model_path, "/models/chat");
+    EXPECT_EQ(config.port, 9090);
+    EXPECT_EQ(config.vocab_path, "/data/my # vocab.txt");
+    EXPECT_EQ(config.ftp_data_server_secret, "abc#def");  // no space before '#': not a comment
+    EXPECT_EQ(config.run_group, "group # one");
+}
+
+TEST_F(ConfigTest, AnUnknownEnumValueLeavesTheDefault) {
+    // Each used to be stored as written; TOKENIZER_MODE=utf8 silently meant ASCII.
+    createConfigFile({{"TOKENIZER_MODE", "utf8"},
+                      {"STRATEGY", "nucleous"},
+                      {"LOG_LEVEL", "verbose"},
+                      {"METRICS_STORAGE_BACKEND", "postgress"},
+                      {"DATASET_KIND", "world-model"}});
+    const ServiceConfig defaults;
+    const ServiceConfig config = ConfigLoader::load(test_file.string());
+    EXPECT_EQ(config.unicode_tokenizer, defaults.unicode_tokenizer);
+    EXPECT_EQ(config.strategy, defaults.strategy);
+    EXPECT_EQ(config.log_level, defaults.log_level);
+    EXPECT_EQ(config.metrics_storage_backend, defaults.metrics_storage_backend);
+    EXPECT_EQ(config.dataset_kind, defaults.dataset_kind);
+}
+
+TEST_F(ConfigTest, EnumValuesAreMatchedInAnyCase) {
+    createConfigFile({{"TOKENIZER_MODE", "ASCII"},
+                      {"STRATEGY", "Beam"},
+                      {"LOG_LEVEL", "warning"},
+                      {"METRICS_STORAGE_BACKEND", "SQLite"},
+                      {"DATASET_KIND", "World_Model"}});
+    const ServiceConfig config = ConfigLoader::load(test_file.string());
+    EXPECT_FALSE(config.unicode_tokenizer);
+    EXPECT_EQ(config.strategy, "beam");
+    EXPECT_EQ(config.log_level, "WARN");
+    EXPECT_EQ(config.metrics_storage_backend, "sqlite");
+    EXPECT_EQ(config.dataset_kind, "world_model");
+    std::vector<std::string> errors;
+    EXPECT_TRUE(ConfigLoader::validate(config, errors)) << errors.front();
+}
+
+TEST_F(ConfigTest, AnEmptyDatasetKindIsTheLegacyPool) {
+    createConfigFile({{"DATASET_KIND", ""}});
+    EXPECT_EQ(ConfigLoader::load(test_file.string()).dataset_kind, "");
+}
+
+TEST_F(ConfigTest, EnvironmentEnumValuesAreCheckedTheSameWay) {
+    ::setenv("STRATEGY", "nucleous", 1);
+    ::setenv("TOKENIZER_MODE", "ASCII", 1);
+    ::setenv("DATASET_KIND", "Chatbot", 1);
+    const ServiceConfig config = ConfigLoader::load(test_file.string());
+    ::unsetenv("STRATEGY");
+    ::unsetenv("TOKENIZER_MODE");
+    ::unsetenv("DATASET_KIND");
+    EXPECT_EQ(config.strategy, ServiceConfig{}.strategy);
+    EXPECT_FALSE(config.unicode_tokenizer);
+    EXPECT_EQ(config.dataset_kind, "chatbot");
+}
+
+TEST_F(ConfigTest, ATokenizerModeTypoDoesntSwitchToAscii) {
+    // The file says unicode; a typo'd env value used to override it to ASCII without a word.
+    createConfigFile({{"TOKENIZER_MODE", "unicode"}});
+    ::setenv("TOKENIZER_MODE", "utf8", 1);
+    const bool unicode = ConfigLoader::load(test_file.string()).unicode_tokenizer;
+    ::unsetenv("TOKENIZER_MODE");
+    EXPECT_TRUE(unicode);
 }
