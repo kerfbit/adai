@@ -1,8 +1,9 @@
 // @adai-status: experimental
-// @adai-version: 0.12.0
+// @adai-version: 0.13.0
 // @adai-reviewed: 2026-11-01
 
 #include "ChatbotApiServerArgs.hpp"
+#include <set>
 #include <vector>
 
 namespace adai {
@@ -29,11 +30,27 @@ ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
         return result;
     };
 
+    // TD-245: a flag that takes a value, given none (last in argv, or followed by another "--" flag),
+    // is reported as such. It used to fall through to "Unknown argument: --port", or for a trailing
+    // --config be ignored while normal config discovery ran.
+    static const std::set<std::string> kValueFlags = {
+        "--config",    "--model",       "--vocab",      "--draft-model", "--speculative-candidates",
+        "--port",      "--timeout",     "--log-level",  "--d-model",     "--num-heads",
+        "--d-ff",      "--enc-layers",  "--dec-layers", "--max-seq-len", "--max-gen-len",
+        "--temperature", "--top-p",     "--top-k",      "--beam-width",  "--strategy",
+        "--batch-timeout-ms"};
+    bool batch_timeout_given = false;
+
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
 
         if (arg == "--help" || arg == "-h") {
             result.help = true;
+            return result;
+        }
+        if (kValueFlags.count(arg) != 0 && (i + 1 >= argc || std::string(argv[i + 1]).rfind("--", 0) == 0)) {
+            result.error = true;
+            result.error_message = "Missing value for " + arg;
             return result;
         }
         if (arg == "--config") {
@@ -128,6 +145,7 @@ ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
         } else if (arg == "--batched-inference") {
             result.batched_inference = true;
         } else if (arg == "--batch-timeout-ms" && i + 1 < argc) {
+            batch_timeout_given = true;
             const auto v = parse_strict_int(argv[++i]);
             if (!v) return bad_number(arg, argv[i], "a whole number");
             result.batch_timeout_ms = *v;
@@ -140,16 +158,17 @@ ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
                 "differently from /chat; see docs/proposals/real_batching_v2_plan.md";
             return result;
         } else {
-            // TODO: See TD-245 in TECHNICAL_DEBT.md - a known flag missing its value (e.g. trailing --port)
-            // lands here and is reported as "Unknown argument".
-            // TODO: See TD-243 in TECHNICAL_DEBT.md - --batch-timeout-ms without --batched-inference is
-            // accepted silently.
             result.error = true;
             result.error_message = "Unknown argument: " + arg;
             return result;
         }
     }
 
+    // TD-243: --batch-timeout-ms only means something with --batched-inference; alone it was ignored.
+    if (batch_timeout_given && !result.batched_inference) {
+        result.error = true;
+        result.error_message = "--batch-timeout-ms needs --batched-inference";
+    }
     return result;
 }
 

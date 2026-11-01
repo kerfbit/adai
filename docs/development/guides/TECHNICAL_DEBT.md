@@ -1372,6 +1372,7 @@ The generation and model math run is complete.
 - TD-241 (done in code: `chatbot_api_server` runs the full `validate()` at startup after its CLI flags, lists every error and exits 1).
 - TD-242 (done in code: a `SIGHUP` reload re-applies `chatbot_api_server`'s command-line flags and logs file changes a flag holds).
 - TD-244 (done in code: `TOP_K`/`BEAM_WIDTH` reach `ChatbotAPI` at startup and on reload; `--top-k`/`--beam-width` flags).
+- TD-245, TD-243 (done in code: a value flag given no value says `Missing value for --port`; `--batch-timeout-ms` alone is an error).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5489,7 +5490,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Inference / Serving / CLI | October 8, 2026 | 1 hour |
+| LOW | Open — code fix landed November 1, 2026 | Inference / Serving / CLI | October 8, 2026 | 1 hour |
 
 Description:
 Found alongside TD-240 and confirmed with the real parser: `--batched-inference
@@ -5505,12 +5506,17 @@ left is `--batch-timeout-ms` without `--batched-inference` being accepted silent
 
 Action Items:
 
-- [ ] Reject more than one mode flag with an error in `apply_chatbot_api_server_args()`.
-- [ ] Fix the header comment.
-- [ ] Also reject `--batch-timeout-ms` without `--batched-inference` (currently silently ignored).
-- [ ] Tests for both.
+- [x] Reject more than one mode flag with an error in `apply_chatbot_api_server_args()`.
+- [x] Fix the header comment.
+- [x] Also reject `--batch-timeout-ms` without `--batched-inference` (currently silently ignored).
+- [x] Tests for both.
 
-Location in code: `src/ChatbotApiServerArgs.{hpp,cpp}`, `src/ChatbotAPIServer.cpp` (mode enabling); tagged `TODO: See TD-243`.
+**Fix (November 1, 2026, with TD-245).** `--batch-timeout-ms` without `--batched-inference` is now an error
+(`--batch-timeout-ms needs --batched-inference`); with `--batched-inference` the only engine mode left, the "more than one mode" item
+is closed by the retirements, and the header comment says so. Test: `BatchTimeoutWithoutBatchedInferenceIsAnError` (fails on the old
+parser).
+
+Location in code: `src/ChatbotApiServerArgs.{hpp,cpp}`, `src/ChatbotAPIServer.cpp` (mode enabling); tagged `TD-243`.
 
 Files to Modify:
 
@@ -5563,7 +5569,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Inference / Serving / CLI | October 8, 2026 | 1 hour |
+| LOW | Open — code fix landed November 1, 2026 | Inference / Serving / CLI | October 8, 2026 | 1 hour |
 
 Description:
 Found alongside TD-240 and confirmed with the real parser:
@@ -5576,11 +5582,18 @@ Found alongside TD-240 and confirmed with the real parser:
 
 Action Items:
 
-- [ ] Report "Missing value for --port" for known flags at the end of argv, including `--config`.
-- [ ] Fix the header comment's test file name.
-- [ ] Tests for the missing-value messages.
+- [x] Report "Missing value for --port" for known flags at the end of argv, including `--config`.
+- [x] Fix the header comment's test file name.
+- [x] Tests for the missing-value messages.
 
-Location in code: `src/ChatbotApiServerArgs.{hpp,cpp}`; tagged `TODO: See TD-245`.
+**Fix (November 1, 2026).** `apply_chatbot_api_server_args()` knows its 21 value-taking flags; one given no value (last in argv, or
+followed by another `--` flag) returns `Missing value for --port`, including `--config` (whose trailing form used to be ignored while
+normal discovery ran). A value starting with a single `-` is still a value, so `--timeout -5` parses and `validate()` refuses it
+(TD-241). `--model --port 9000` used to load the model from a file named `--port`. The header names the real test file. Tests:
+`AFlagMissingItsValueSaysSo` (all 21 flags), `AFlagFollowedByAnotherFlagIsMissingItsValue`, `ANegativeNumberIsAValueNotAFlag`; the
+first two fail on the old parser.
+
+Location in code: `src/ChatbotApiServerArgs.{hpp,cpp}`; tagged `TD-245`.
 
 Files to Modify:
 

@@ -337,3 +337,46 @@ TEST_F(ApplyChatbotApiServerArgsTest, OutOfRangeTopKAndBeamWidthFailStartupValid
         EXPECT_TRUE(validate_chatbot_api_server_config(fresh).has_value()) << c.first << " " << c.second;
     }
 }
+
+// TD-245: a flag missing its value was reported as "Unknown argument: --port", and a trailing --config
+// was ignored while normal config discovery ran.
+TEST_F(ApplyChatbotApiServerArgsTest, AFlagMissingItsValueSaysSo) {
+    for (const char* flag : {"--config", "--model", "--vocab", "--draft-model", "--speculative-candidates", "--port",
+                             "--timeout", "--log-level", "--d-model", "--num-heads", "--d-ff", "--enc-layers",
+                             "--dec-layers", "--max-seq-len", "--max-gen-len", "--temperature", "--top-p", "--top-k",
+                             "--beam-width", "--strategy", "--batch-timeout-ms"}) {
+        ServiceConfig fresh;
+        std::vector<std::string> raw = {"chatbot_api_server", flag};
+        auto argv = make_argv(raw);
+        auto r = apply_chatbot_api_server_args(static_cast<int>(argv.size()), argv.data(), fresh);
+        EXPECT_TRUE(r.error) << flag;
+        EXPECT_EQ(r.error_message, std::string("Missing value for ") + flag);
+    }
+}
+
+TEST_F(ApplyChatbotApiServerArgsTest, AFlagFollowedByAnotherFlagIsMissingItsValue) {
+    // "--model --port 9000" used to load the model from a file named "--port".
+    std::vector<std::string> raw = {"chatbot_api_server", "--model", "--port", "9000"};
+    auto argv = make_argv(raw);
+    auto r = apply_chatbot_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
+    EXPECT_TRUE(r.error);
+    EXPECT_EQ(r.error_message, "Missing value for --model");
+    EXPECT_TRUE(config.model_path.empty());
+}
+
+TEST_F(ApplyChatbotApiServerArgsTest, ANegativeNumberIsAValueNotAFlag) {
+    std::vector<std::string> raw = {"chatbot_api_server", "--timeout", "-5"};
+    auto argv = make_argv(raw);
+    auto r = apply_chatbot_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
+    ASSERT_FALSE(r.error) << r.error_message;  // validate() rejects it later (TD-241)
+    EXPECT_EQ(config.session_timeout, -5);
+}
+
+// TD-243: --batch-timeout-ms without --batched-inference was accepted and ignored.
+TEST_F(ApplyChatbotApiServerArgsTest, BatchTimeoutWithoutBatchedInferenceIsAnError) {
+    std::vector<std::string> raw = {"chatbot_api_server", "--batch-timeout-ms", "5"};
+    auto argv = make_argv(raw);
+    auto r = apply_chatbot_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
+    EXPECT_TRUE(r.error);
+    EXPECT_EQ(r.error_message, "--batch-timeout-ms needs --batched-inference");
+}

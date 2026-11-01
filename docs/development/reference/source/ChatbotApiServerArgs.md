@@ -191,3 +191,9 @@ set, so CLI > env > file holds across reloads; a file change to a held key is lo
 Two new flags set `top_k` and `beam_width` (strict integers; `validate()` checks 1–1000 and 1–16). `chatbot_api_server` now copies
 both into `ChatbotAPI`'s generation settings at startup and on reload (`generation_config_from()`), so `TOP_K`/`BEAM_WIDTH` take
 effect; they were parsed and then ignored.
+
+## Addendum (November 1, 2026): missing values and `--batch-timeout-ms` (TD-245, TD-243)
+
+A value-taking flag with no value (last in argv, or followed by another `--` flag) is an error, `Missing value for <flag>`, including
+`--config`; it used to read as an unknown argument, or for `--config` be ignored. A value starting with a single `-` (a negative
+number) is still a value. `--batch-timeout-ms` without `--batched-inference` is an error instead of being ignored.
