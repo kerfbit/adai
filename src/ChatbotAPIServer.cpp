@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 2.5.0
-// @adai-reviewed: 2026-10-31
+// @adai-version: 2.6.0
+// @adai-reviewed: 2026-11-01
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
 #include <algorithm>
@@ -742,13 +742,18 @@ int main(int argc, char* argv[]) {
                 reload_config_requested.store(false);
 
                 // Reload configuration
-                // TODO: See TD-242 in TECHNICAL_DEBT.md - reload() re-reads file + env only, so CLI generation
-                // overrides (--temperature etc.) are lost here.
                 // TD-285/TD-251: the keys applied below; reload() logs any other changed key as
                 // needing a restart.
                 static const std::set<std::string> kLiveKeys = {
                     "LOG_LEVEL", "MAX_LENGTH", "MAX_GEN_LENGTH", "TEMPERATURE", "TOP_P", "STRATEGY"};
-                if (adai::ConfigLoader::reload(config, stored_config_path, config_mutex, &kLiveKeys)) {
+                // TD-242: the command-line flags are re-applied on top of the reloaded file and
+                // environment (they parsed at startup, so they parse again); a reload used to revert
+                // --temperature and the rest to the file's values.
+                const auto reapply_cli = [argc, argv](adai::ServiceConfig& reloaded) {
+                    adai::apply_chatbot_api_server_args(argc, argv, reloaded);
+                };
+                if (adai::ConfigLoader::reload(config, stored_config_path, config_mutex, &kLiveKeys, reapply_cli,
+                                               &cli.cli_keys)) {
                     // Update logger level if changed
                     {
                         std::lock_guard<std::mutex> lock(config_mutex);
@@ -767,7 +772,10 @@ int main(int argc, char* argv[]) {
                     }
                     api->set_generation_config(new_gen_config);
 
-                    adai::Logger::info("Generation configuration updated");
+                    adai::Logger::info(
+                        "Generation configuration updated: max_length={} temperature={} top_p={} strategy={}",
+                        new_gen_config.max_length, new_gen_config.temperature, new_gen_config.top_p,
+                        new_gen_config.strategy);
 
                     // Every other changed key (port, model, RAG, GPU, session timeout...) is logged by
                     // reload() as needing a restart (TD-285).

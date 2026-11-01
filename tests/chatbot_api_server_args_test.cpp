@@ -4,6 +4,7 @@
 // request-handling behavior is already covered by chatbotapiTests.
 
 #include <gtest/gtest.h>
+#include <set>
 #include <string>
 #include <vector>
 #include "ChatbotApiServerArgs.hpp"
@@ -302,4 +303,14 @@ TEST(ValidateChatbotApiServerConfig, ListsEveryError) {
     ASSERT_TRUE(err.has_value());
     EXPECT_NE(err->find("session_timeout"), std::string::npos) << *err;
     EXPECT_NE(err->find("strategy"), std::string::npos) << *err;
+}
+
+// TD-242: the keys the flags set, so a reload can re-apply them and say which file changes they hold.
+TEST_F(ApplyChatbotApiServerArgsTest, RecordsTheConfigKeysTheFlagsSet) {
+    std::vector<std::string> raw = {"chatbot_api_server", "--temperature", "0.3", "--port", "9000",
+                                    "--strategy", "greedy", "--profile"};
+    auto argv = make_argv(raw);
+    auto r = apply_chatbot_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.cli_keys, (std::set<std::string>{"TEMPERATURE", "PORT", "STRATEGY"}));
 }

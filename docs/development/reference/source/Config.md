@@ -308,3 +308,9 @@ Load-time messages use `Logger::deferred()`: on the console straight away, and r
 `Logger::init()` opens one, so start-up warnings are in the log. `gpu_strategy_from_string()` lives in `Config.cpp` and logs.
 `ConfigLoader::to_string()` lists every setting by key in 16 sections with secrets as `<hidden>`, and `print()` logs it (it wrote a
 partial listing to stdout). `HIPPOCAMPAL_COVERAGE_LOSS_WEIGHT` is reserved: accepted silently until a training loop reads it.
+
+## Addendum (November 1, 2026): reload() re-applies command-line flags (TD-242)
+
+`reload(config, path, mutex, live_keys, cli_overrides, cli_keys)`: `cli_overrides` runs on the reloaded config after the file and
+environment and before validation; a changed file key in `cli_keys` is logged as held by a command-line flag rather than as applied
+or needing a restart. Both default to empty, so other callers are unchanged.

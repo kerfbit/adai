@@ -1,11 +1,12 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.18.0
-// @adai-reviewed: 2026-10-31
+// @adai-version: 1.19.0
+// @adai-reviewed: 2026-11-01
 
 
 #include <cstdint>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -780,10 +781,17 @@ class ConfigLoader {
      * @param mutex Mutex to protect the config during update
      * @param live_keys The keys the calling binary applies after a reload; when given, every other
      *        changed key is logged as needing a restart (TD-285, TD-251)
+     * @param cli_overrides TD-242: re-applies the binary's command-line flags to the reloaded
+     *        config (after the file and environment, before validation), so CLI > env > file holds
+     *        across a reload; without it a reload silently reverted every CLI setting
+     * @param cli_keys TD-242: the keys those flags set; a file change to one is logged as held by
+     *        the flag rather than as applied or needing a restart
      * @return true if reload succeeded, false if validation failed
      */
     static bool reload(ServiceConfig& config, const std::string& config_file_path,
-                       std::mutex& mutex, const std::set<std::string>* live_keys = nullptr);
+                       std::mutex& mutex, const std::set<std::string>* live_keys = nullptr,
+                       const std::function<void(ServiceConfig&)>& cli_overrides = {},
+                       const std::set<std::string>* cli_keys = nullptr);
 
     /**
      * @brief Validate configuration parameters.

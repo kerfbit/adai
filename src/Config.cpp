@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.22.0
-// @adai-reviewed: 2026-10-31
+// @adai-version: 1.23.0
+// @adai-reviewed: 2026-11-01
 
 #include "Config.hpp"
 #include <algorithm>
@@ -1150,7 +1150,9 @@ void ConfigLoader::print(const ServiceConfig& config) {
 // ============================================================
 
 bool ConfigLoader::reload(ServiceConfig& config, const std::string& config_file_path,
-                          std::mutex& mutex, const std::set<std::string>* live_keys) {
+                          std::mutex& mutex, const std::set<std::string>* live_keys,
+                          const std::function<void(ServiceConfig&)>& cli_overrides,
+                          const std::set<std::string>* cli_keys) {
     // Get timestamp for logging
     auto now = std::chrono::system_clock::now();
     auto time_t = std::chrono::system_clock::to_time_t(now);
@@ -1171,6 +1173,9 @@ bool ConfigLoader::reload(ServiceConfig& config, const std::string& config_file_
     // Override with environment variables (maintain priority)
     load_from_env(new_config);
 
+    // TD-242: and with the command-line flags, which a reload used to drop.
+    if (cli_overrides) cli_overrides(new_config);
+
     // Validate the new configuration
     std::vector<std::string> errors;
     if (!validate(new_config, errors)) {
@@ -1190,12 +1195,15 @@ bool ConfigLoader::reload(ServiceConfig& config, const std::string& config_file_
     // (METRICS_SERVER_URL, AUTO_SAVE_*, RAG, GPU, MNS...) reported success and kept the old values.
     std::vector<std::string> changes;
     std::vector<std::string> restart_keys;
+    std::vector<std::string> held_keys;  // TD-242
     {
         std::lock_guard<std::mutex> lock(mutex);
         changes = detect_changes(config, new_config);
-        if (live_keys) {
-            for (const auto& key : changed_file_keys(config, new_config)) {
-                if (live_keys->count(key) == 0) restart_keys.push_back(key);
+        for (const auto& key : changed_file_keys(config, new_config)) {
+            if (cli_keys && cli_keys->count(key) != 0) {
+                held_keys.push_back(key);
+            } else if (live_keys && live_keys->count(key) == 0) {
+                restart_keys.push_back(key);
             }
         }
         config = new_config;
@@ -1212,6 +1220,10 @@ bool ConfigLoader::reload(ServiceConfig& config, const std::string& config_file_
     // TD-285/TD-251: changes this binary doesn't apply until it restarts.
     for (const auto& key : restart_keys) {
         Logger::warn("  {} changed but takes effect only after a restart", key);
+    }
+    // TD-242: file changes that a command-line flag overrides, so the flag's value stays.
+    for (const auto& key : held_keys) {
+        Logger::warn("  {} changed in the file but is held by a command-line flag", key);
     }
 
     Logger::info("==================================================");

@@ -1370,6 +1370,7 @@ The generation and model math run is complete.
 - TD-240 (done in code: every numeric `chatbot_api_server` flag must be a whole, valid number, else an error naming the flag and exit 1;
   the strict parsers are public for the other daemons' flag fixes).
 - TD-241 (done in code: `chatbot_api_server` runs the full `validate()` at startup after its CLI flags, lists every error and exits 1).
+- TD-242 (done in code: a `SIGHUP` reload re-applies `chatbot_api_server`'s command-line flags and logs file changes a flag holds).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5444,7 +5445,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / Serving / CLI | October 8, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 1, 2026 | Inference / Serving / CLI | October 8, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-240. `ConfigLoader::reload()` rebuilds the config from the file and env only,
@@ -5455,16 +5456,31 @@ server started with `--temperature 0.7` silently reverts to the file's temperatu
 
 Action Items:
 
-- [ ] Re-apply the original argv overrides after `reload()` (keep `argc`/`argv` or the parsed overrides), or record which keys came from the CLI and keep them fixed across reloads.
-- [ ] Log which settings changed on reload, and which were held by CLI overrides.
-- [ ] Test: CLI-set temperature survives a reload.
+- [x] Re-apply the original argv overrides after `reload()` (keep `argc`/`argv` or the parsed overrides), or record which keys came from the CLI and keep them fixed across reloads.
+- [x] Log which settings changed on reload, and which were held by CLI overrides.
+- [x] Test: CLI-set temperature survives a reload.
 
-Location in code: `src/ChatbotAPIServer.cpp` (main loop reload branch); tagged `TODO: See TD-242`.
+**Fix (November 1, 2026).** `ConfigLoader::reload()` takes two more optional arguments: a callback that re-applies the binary's
+command-line flags to the reloaded config (after the file and environment, before validation, so a flag that makes the result
+invalid is caught as at startup), and the set of keys those flags set. `apply_chatbot_api_server_args()` now records that set
+(`ChatbotApiServerArgsResult::cli_keys`, e.g. `TEMPERATURE` for `--temperature`), and `chatbot_api_server`'s reload branch passes a
+callback that runs the same parser over the original `argv` again. A file change to a held key is logged as
+"TEMPERATURE changed in the file but is held by a command-line flag" instead of as applied or needing a restart (TD-285's logging
+covers every other change), and the reload now logs the generation values it applies
+("Generation configuration updated: max_length=… temperature=… top_p=… strategy=…"). Tests:
+`ReloadReappliesCommandLineOverridesAndSaysWhichAreHeld`, `ReloadValidatesWithTheCommandLineOverridesApplied`,
+`RecordsTheConfigKeysTheFlagsSet`, and `ChatbotApiServerStartupTest.ACommandLineSettingSurvivesAReload` (the real binary with
+`--temperature 0.3`: after the file changes `TEMPERATURE` and `TOP_P` and a `SIGHUP`, temperature stays 0.3 and top_p becomes 0.5;
+fails on the old binary).
+
+Location in code: `src/ChatbotAPIServer.cpp` (main loop reload branch); tagged `TD-242`.
 
 Files to Modify:
 
 - `src/ChatbotAPIServer.cpp`
 - `src/ChatbotApiServerArgs.{hpp,cpp}`
+- `src/Config.{hpp,cpp}` (`reload()`)
+- `tests/config_test.cpp`, `tests/chatbot_api_server_args_test.cpp`, `tests/chatbot_api_server_startup_test.cpp`
 
 ---
 

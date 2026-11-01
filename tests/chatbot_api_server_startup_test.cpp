@@ -92,7 +92,7 @@ class ChatbotApiServerStartupTest : public ::testing::Test {
 
     // fork + execve with a minimal environment, so a developer's own MODEL_PATH/MNS variables
     // (which override the config file) can't leak into the server.
-    pid_t spawn(const std::string& config_path) {
+    pid_t spawn(const std::string& config_path, const std::vector<std::string>& extra_args = {}) {
         pid_t pid = ::fork();
         if (pid == 0) {
             const std::string log = (dir_ / "stdout.log").string();
@@ -104,9 +104,12 @@ class ChatbotApiServerStartupTest : public ::testing::Test {
             std::vector<char*> env;
             for (auto& e : env_strings) env.push_back(e.data());
             env.push_back(nullptr);
-            std::string b = binary_, c = "--config", cp = config_path;
-            char* argv[] = {b.data(), c.data(), cp.data(), nullptr};
-            ::execve(b.c_str(), argv, env.data());
+            std::vector<std::string> args = {binary_, "--config", config_path};
+            args.insert(args.end(), extra_args.begin(), extra_args.end());
+            std::vector<char*> argv;
+            for (auto& a : args) argv.push_back(a.data());
+            argv.push_back(nullptr);
+            ::execve(args[0].c_str(), argv.data(), env.data());
             ::_exit(127);
         }
         return pid;
@@ -268,4 +271,38 @@ TEST_F(ChatbotApiServerStartupTest, AnInvalidConfigExitsOneAtStartup) {
     std::stringstream out;
     out << std::ifstream(dir_ / "stdout.log").rdbuf();
     EXPECT_NE(out.str().find("Invalid session_timeout: -5"), std::string::npos) << out.str();
+}
+
+// TD-242: a SIGHUP reload re-read only the file and environment, so a server started with
+// --temperature 0.3 went back to the file's temperature on the first reload.
+TEST_F(ChatbotApiServerStartupTest, ACommandLineSettingSurvivesAReload) {
+    const std::string config = write_config("ALLOW_UNTRAINED_MODEL=true\nTEMPERATURE=0.7\nTOP_P=0.9\n");
+    const pid_t pid = spawn(config, {"--temperature", "0.3"});
+    httplib::Client client("127.0.0.1", port_);
+    client.set_connection_timeout(1);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    bool up = false;
+    while (!up && std::chrono::steady_clock::now() < deadline) {
+        up = static_cast<bool>(client.Get("/health"));
+        ASSERT_LT(wait_exit(pid, std::chrono::seconds(0)), 0) << "the server exited";
+        if (!up) std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    ASSERT_TRUE(up) << "the server never answered /health";
+
+    // The file changes both; only TOP_P has no flag holding it.
+    write_config("ALLOW_UNTRAINED_MODEL=true\nTEMPERATURE=0.9\nTOP_P=0.5\n");
+    ASSERT_EQ(::kill(pid, SIGHUP), 0);
+    std::string log;
+    const auto reload_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    while (log.find("Generation configuration updated") == std::string::npos &&
+           std::chrono::steady_clock::now() < reload_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::stringstream s;
+        s << std::ifstream(dir_ / "server.log").rdbuf();
+        log = s.str();
+    }
+    stop(pid);
+    EXPECT_NE(log.find("temperature=0.3 top_p=0.5"), std::string::npos) << log;
+    EXPECT_NE(log.find("TEMPERATURE changed in the file but is held by a command-line flag"), std::string::npos)
+        << log;
 }

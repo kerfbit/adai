@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-10-31
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-11-01
 
 #include "ChatbotApiServerArgs.hpp"
 #include <vector>
@@ -40,62 +40,79 @@ ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
         if (arg == "--config") {
             ++i;  // Already applied in extract_config_path_arg(); skip its value here.
         } else if (arg == "--model" && i + 1 < argc) {
+            result.cli_keys.insert("MODEL_PATH");  // TD-242
             config.model_path = argv[++i];
         } else if (arg == "--vocab" && i + 1 < argc) {
+            result.cli_keys.insert("VOCAB_PATH");  // TD-242
             config.vocab_path = argv[++i];
         } else if (arg == "--draft-model" && i + 1 < argc) {
+            result.cli_keys.insert("DRAFT_MODEL_PATH");  // TD-242
             config.draft_model_path = argv[++i];
         } else if (arg == "--speculative-candidates" && i + 1 < argc) {
+            result.cli_keys.insert("SPECULATIVE_NUM_CANDIDATES");  // TD-242
             const auto v = parse_strict_int(argv[++i]);
             if (!v) return bad_number(arg, argv[i], "a whole number");
             config.speculative_num_candidates = *v;
         } else if (arg == "--port" && i + 1 < argc) {
+            result.cli_keys.insert("PORT");  // TD-242
             const auto v = parse_strict_int(argv[++i]);
             if (!v) return bad_number(arg, argv[i], "a whole number");
             config.port = *v;
         } else if (arg == "--timeout" && i + 1 < argc) {
+            result.cli_keys.insert("SESSION_TIMEOUT");  // TD-242
             const auto v = parse_strict_int(argv[++i]);
             if (!v) return bad_number(arg, argv[i], "a whole number");
             config.session_timeout = *v;
         } else if (arg == "--log-level" && i + 1 < argc) {
+            result.cli_keys.insert("LOG_LEVEL");  // TD-242
             config.log_level = argv[++i];
         } else if (arg == "--d-model" && i + 1 < argc) {
+            result.cli_keys.insert("D_MODEL");  // TD-242
             const auto v = parse_strict_size(argv[++i]);
             if (!v) return bad_number(arg, argv[i], "a non-negative whole number");
             config.d_model = *v;
         } else if (arg == "--num-heads" && i + 1 < argc) {
+            result.cli_keys.insert("NUM_HEADS");  // TD-242
             const auto v = parse_strict_size(argv[++i]);
             if (!v) return bad_number(arg, argv[i], "a non-negative whole number");
             config.num_heads = *v;
         } else if (arg == "--d-ff" && i + 1 < argc) {
+            result.cli_keys.insert("D_FF");  // TD-242
             const auto v = parse_strict_size(argv[++i]);
             if (!v) return bad_number(arg, argv[i], "a non-negative whole number");
             config.d_ff = *v;
         } else if (arg == "--enc-layers" && i + 1 < argc) {
+            result.cli_keys.insert("NUM_ENCODER_LAYERS");  // TD-242
             const auto v = parse_strict_size(argv[++i]);
             if (!v) return bad_number(arg, argv[i], "a non-negative whole number");
             config.num_encoder_layers = *v;
         } else if (arg == "--dec-layers" && i + 1 < argc) {
+            result.cli_keys.insert("NUM_DECODER_LAYERS");  // TD-242
             const auto v = parse_strict_size(argv[++i]);
             if (!v) return bad_number(arg, argv[i], "a non-negative whole number");
             config.num_decoder_layers = *v;
         } else if (arg == "--max-seq-len" && i + 1 < argc) {
+            result.cli_keys.insert("MAX_SEQ_LENGTH");  // TD-242
             const auto v = parse_strict_size(argv[++i]);
             if (!v) return bad_number(arg, argv[i], "a non-negative whole number");
             config.max_seq_length = *v;
         } else if (arg == "--max-gen-len" && i + 1 < argc) {
+            result.cli_keys.insert("MAX_GEN_LENGTH");  // TD-242
             const auto v = parse_strict_size(argv[++i]);
             if (!v) return bad_number(arg, argv[i], "a non-negative whole number");
             config.max_gen_length = *v;
         } else if (arg == "--temperature" && i + 1 < argc) {
+            result.cli_keys.insert("TEMPERATURE");  // TD-242
             const auto v = parse_strict_float(argv[++i]);
             if (!v) return bad_number(arg, argv[i], "a number");
             config.temperature = *v;
         } else if (arg == "--top-p" && i + 1 < argc) {
+            result.cli_keys.insert("TOP_P");  // TD-242
             const auto v = parse_strict_float(argv[++i]);
             if (!v) return bad_number(arg, argv[i], "a number");
             config.top_p = *v;
         } else if (arg == "--strategy" && i + 1 < argc) {
+            result.cli_keys.insert("STRATEGY");  // TD-242
             config.strategy = argv[++i];
         } else if (arg == "--profile") {
             result.profile = true;

@@ -179,3 +179,9 @@ Every numeric flag goes through the shared strict parsers in `Config.hpp` (`pars
 `validate_chatbot_api_server_config()` runs `ConfigLoader::validate()` after the CLI flags are applied and returns every error in one
 message, so `chatbot_api_server` exits 1 at startup on anything a `SIGHUP` reload would refuse (`--timeout -5`, `--strategy bogus`,
 `--port 70000`, …). It used to check only that a vocabulary path was set.
+
+## Addendum (November 1, 2026): flags survive a reload (TD-242)
+
+`ChatbotApiServerArgsResult::cli_keys` lists the config keys the flags set (`TEMPERATURE` for `--temperature`, …). On `SIGHUP`,
+`chatbot_api_server` passes `ConfigLoader::reload()` a callback that runs this parser over the original `argv` again, plus that key
+set, so CLI > env > file holds across reloads; a file change to a held key is logged as held by a command-line flag.

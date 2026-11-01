@@ -1745,3 +1745,37 @@ TEST_F(ConfigTest, GpuStrategyIsMatchedInAnyCase) {
     createConfigFile({{"GPU_STRATEGY", "FULL"}});
     EXPECT_EQ(ConfigLoader::load(test_file.string()).gpu_strategy, GPUStrategy::FULL);
 }
+
+// ============================================================================
+// TD-242: reload() re-applies the command-line flags
+// ============================================================================
+
+TEST_F(ConfigTest, ReloadReappliesCommandLineOverridesAndSaysWhichAreHeld) {
+    createConfigFile({{"TEMPERATURE", "0.7"}, {"TOP_P", "0.9"}});
+    ServiceConfig config = ConfigLoader::load(test_file.string());
+    config.temperature = 0.3f;  // as --temperature 0.3 did at startup
+    const auto cli = [](ServiceConfig& c) { c.temperature = 0.3f; };
+    const std::set<std::string> cli_keys = {"TEMPERATURE"};
+    const std::set<std::string> live = {"TEMPERATURE", "TOP_P"};
+    std::mutex config_mutex;
+    createConfigFile({{"TEMPERATURE", "0.9"}, {"TOP_P", "0.5"}});
+
+    LogCapture log;
+    EXPECT_TRUE(ConfigLoader::reload(config, test_file.string(), config_mutex, &live, cli, &cli_keys));
+    EXPECT_FLOAT_EQ(config.temperature, 0.3f);  // used to become the file's 0.9
+    EXPECT_FLOAT_EQ(config.top_p, 0.5f);
+    EXPECT_NE(log.out.str().find("TEMPERATURE changed in the file but is held by a command-line flag"),
+              std::string::npos)
+        << log.out.str();
+    EXPECT_EQ(log.out.str().find("TOP_P changed in the file but is held"), std::string::npos);
+}
+
+TEST_F(ConfigTest, ReloadValidatesWithTheCommandLineOverridesApplied) {
+    // A flag that makes the reloaded config invalid is caught, as at startup.
+    createConfigFile({{"PORT", "8080"}});
+    ServiceConfig config = ConfigLoader::load(test_file.string());
+    std::mutex config_mutex;
+    const auto cli = [](ServiceConfig& c) { c.session_timeout = -5; };
+    EXPECT_FALSE(ConfigLoader::reload(config, test_file.string(), config_mutex, nullptr, cli));
+    EXPECT_EQ(config.session_timeout, ServiceConfig{}.session_timeout);
+}

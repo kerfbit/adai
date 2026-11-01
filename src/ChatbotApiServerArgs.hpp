@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.8.0
-// @adai-reviewed: 2026-10-31
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-11-01
 
 // TD-035: chatbot_api_server's argv parsing and required-config validation, pulled out of
 // ChatbotAPIServer.cpp so it's testable without loading a real tokenizer/model or starting a
@@ -11,6 +11,7 @@
 // class, request handlers) is already covered by chatbotapiTests.
 
 #include <optional>
+#include <set>
 #include <string>
 #include "Config.hpp"
 
@@ -37,6 +38,9 @@ struct ChatbotApiServerArgsResult {
     // BatchedInferenceEngine.hpp) so an unset flag reproduces that default exactly.
     bool batched_inference = false;
     int batch_timeout_ms = 50;
+    // TD-242: the config keys the flags set (e.g. "TEMPERATURE" for --temperature), so a SIGHUP
+    // reload can re-apply the flags and report file changes those flags hold.
+    std::set<std::string> cli_keys;
     // --pipeline-inference and --integrated-inference were removed with their engines (TD-474/TD-475,
     // TD-417–TD-420); --batched-inference is the only engine mode left, so TD-243's "several engine
     // modes at once" can no longer happen.
