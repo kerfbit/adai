@@ -1428,3 +1428,71 @@ TEST_F(ConfigTest, FtpsEnabledFromTheEnvironmentAcceptsAnyCase) {
     ::unsetenv("FTPS_ENABLED");
     EXPECT_TRUE(on);  // the env path used to bypass get_env_bool() and accept only lowercase
 }
+
+// ============================================================================
+// TD-287: a number must be the whole value, and a size can't be negative
+// ============================================================================
+
+TEST_F(ConfigTest, ANumberWithTrailingCharactersLeavesTheDefault) {
+    // stoi/stof stopped at the first bad character: PORT=8080x was read as 8080.
+    createConfigFile({{"PORT", "8080x"},
+                      {"D_MODEL", "256abc"},
+                      {"TEMPERATURE", "0.5f"},
+                      {"WORLD_MODEL_D_MODEL", "128.5"}});
+    const ServiceConfig defaults;
+    const ServiceConfig config = ConfigLoader::load(test_file.string());
+    EXPECT_EQ(config.port, defaults.port);
+    EXPECT_EQ(config.d_model, defaults.d_model);
+    EXPECT_FLOAT_EQ(config.temperature, defaults.temperature);
+    EXPECT_EQ(config.world_model_d_model, defaults.world_model_d_model);
+}
+
+TEST_F(ConfigTest, ANegativeSizeLeavesTheDefault) {
+    // stoull wrapped a negative: D_MODEL=-1 was read as 18446744073709551615.
+    createConfigFile({{"D_MODEL", "-1"},
+                      {"MAX_SEQ_LENGTH", "-512"},
+                      {"LOG_MAX_FILES", "-3"},
+                      {"HIPPOCAMPAL_MEMORY_CAPACITY", "-8"}});
+    const ServiceConfig defaults;
+    const ServiceConfig config = ConfigLoader::load(test_file.string());
+    EXPECT_EQ(config.d_model, defaults.d_model);
+    EXPECT_EQ(config.max_seq_length, defaults.max_seq_length);
+    EXPECT_EQ(config.log_max_files, defaults.log_max_files);
+    EXPECT_EQ(config.hippocampal_memory_capacity, defaults.hippocampal_memory_capacity);
+}
+
+TEST_F(ConfigTest, ANonFiniteFloatLeavesTheDefault) {
+    createConfigFile({{"LEARNING_RATE", "nan"}, {"TEMPERATURE", "inf"}});
+    const ServiceConfig defaults;
+    const ServiceConfig config = ConfigLoader::load(test_file.string());
+    EXPECT_FLOAT_EQ(config.learning_rate, defaults.learning_rate);
+    EXPECT_FLOAT_EQ(config.temperature, defaults.temperature);
+}
+
+TEST_F(ConfigTest, WellFormedNumbersStillLoad) {
+    createConfigFile({{"PORT", "9090"},
+                      {"D_MODEL", "256"},
+                      {"TEMPERATURE", "0.25"},
+                      {"LEARNING_RATE", "1e-4"},
+                      {"GPU_DEVICE_ID", "-1"}});  // a negative int is still a valid int
+    const ServiceConfig config = ConfigLoader::load(test_file.string());
+    EXPECT_EQ(config.port, 9090);
+    EXPECT_EQ(config.d_model, 256u);
+    EXPECT_FLOAT_EQ(config.temperature, 0.25f);
+    EXPECT_FLOAT_EQ(config.learning_rate, 1e-4f);
+    EXPECT_EQ(config.gpu_device_id, -1);
+}
+
+TEST_F(ConfigTest, EnvironmentNumbersAreCheckedTheSameWay) {
+    ::setenv("PORT", "8080x", 1);
+    ::setenv("D_MODEL", "-1", 1);
+    ::setenv("TEMPERATURE", "0.5abc", 1);
+    const ServiceConfig config = ConfigLoader::load(test_file.string());
+    ::unsetenv("PORT");
+    ::unsetenv("D_MODEL");
+    ::unsetenv("TEMPERATURE");
+    const ServiceConfig defaults;
+    EXPECT_EQ(config.port, defaults.port);
+    EXPECT_EQ(config.d_model, defaults.d_model);
+    EXPECT_FLOAT_EQ(config.temperature, defaults.temperature);
+}

@@ -1,10 +1,11 @@
 // @adai-status: stable
-// @adai-version: 1.17.0
+// @adai-version: 1.18.0
 // @adai-reviewed: 2026-10-31
 
 #include "Config.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <iomanip>
@@ -31,11 +32,40 @@ std::optional<std::string> ConfigLoader::get_env(const std::string& var_name) {
     return std::nullopt;
 }
 
+namespace {
+// TD-287: numbers must use the whole value. std::stoi/stoull/stof stop at the first bad character
+// (PORT=8080x read as 8080) and stoull wraps a negative (D_MODEL=-1 read as 18446744073709551615).
+// Each throws std::invalid_argument / std::out_of_range, which the callers turn into a warning
+// that keeps the setting's previous value.
+int parse_int(const std::string& value) {
+    size_t used = 0;
+    const int n = std::stoi(value, &used);
+    if (used != value.size()) throw std::invalid_argument("trailing characters after the number");
+    return n;
+}
+
+size_t parse_size(const std::string& value) {
+    if (value.find('-') != std::string::npos) throw std::invalid_argument("must not be negative");
+    size_t used = 0;
+    const unsigned long long n = std::stoull(value, &used);
+    if (used != value.size()) throw std::invalid_argument("trailing characters after the number");
+    return static_cast<size_t>(n);
+}
+
+float parse_float(const std::string& value) {
+    size_t used = 0;
+    const float f = std::stof(value, &used);
+    if (used != value.size()) throw std::invalid_argument("trailing characters after the number");
+    if (!std::isfinite(f)) throw std::out_of_range("not a finite number");
+    return f;
+}
+}  // namespace
+
 std::optional<int> ConfigLoader::get_env_int(const std::string& var_name) {
     auto value = get_env(var_name);
     if (value) {
         try {
-            return std::stoi(*value);
+            return parse_int(*value);
         } catch (...) {
             std::cerr << "Warning: Invalid integer value for " << var_name << ": " << *value
                       << '\n';
@@ -48,7 +78,7 @@ std::optional<size_t> ConfigLoader::get_env_size_t(const std::string& var_name) 
     auto value = get_env(var_name);
     if (value) {
         try {
-            return static_cast<size_t>(std::stoull(*value));
+            return parse_size(*value);
         } catch (...) {
             std::cerr << "Warning: Invalid size_t value for " << var_name << ": " << *value << '\n';
         }
@@ -60,7 +90,7 @@ std::optional<float> ConfigLoader::get_env_float(const std::string& var_name) {
     auto value = get_env(var_name);
     if (value) {
         try {
-            return std::stof(*value);
+            return parse_float(*value);
         } catch (...) {
             std::cerr << "Warning: Invalid float value for " << var_name << ": " << *value << '\n';
         }
@@ -161,15 +191,15 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "DRAFT_MODEL_PATH") {
                 config.draft_model_path = value;
             } else if (key == "SPECULATIVE_NUM_CANDIDATES") {
-                config.speculative_num_candidates = std::stoi(value);
+                config.speculative_num_candidates = parse_int(value);
             } else if (key == "PORT") {
-                config.port = std::stoi(value);
+                config.port = parse_int(value);
             } else if (key == "SESSION_TIMEOUT") {
-                config.session_timeout = std::stoi(value);
+                config.session_timeout = parse_int(value);
             } else if (key == "MAX_SESSIONS") {  // TD-232
-                config.max_sessions = std::stoi(value);
+                config.max_sessions = parse_int(value);
             } else if (key == "MAX_BATCH_SIZE") {  // TD-235
-                config.max_batch_size = std::stoi(value);
+                config.max_batch_size = parse_int(value);
             } else if (key == "LOG_LEVEL") {
                 config.log_level = value;
             } else if (key == "LOG_FILE_PATH") {
@@ -177,62 +207,60 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "SESSION_DIR") {
                 config.session_dir = value;
             } else if (key == "LOG_MAX_SIZE_MB") {
-                config.log_max_size_mb = static_cast<size_t>(std::stoull(value));
+                config.log_max_size_mb = parse_size(value);
             } else if (key == "LOG_MAX_FILES") {
-                config.log_max_files = static_cast<size_t>(std::stoull(value));
+                config.log_max_files = parse_size(value);
             } else if (key == "LOG_COMPRESS") {
                 config.log_compress = parse_file_bool(key, value);  // TD-286
-                // TODO: See TD-287 in TECHNICAL_DEBT.md - stoull wraps negatives (D_MODEL=-1 -> 1.8e19) and every
-                // sto* call here accepts trailing garbage (PORT=8080x -> 8080).
             } else if (key == "D_MODEL") {
-                config.d_model = static_cast<size_t>(std::stoull(value));
+                config.d_model = parse_size(value);
             } else if (key == "NUM_HEADS") {
-                config.num_heads = static_cast<size_t>(std::stoull(value));
+                config.num_heads = parse_size(value);
             } else if (key == "D_FF") {
-                config.d_ff = static_cast<size_t>(std::stoull(value));
+                config.d_ff = parse_size(value);
             } else if (key == "NUM_ENCODER_LAYERS") {
-                config.num_encoder_layers = static_cast<size_t>(std::stoull(value));
+                config.num_encoder_layers = parse_size(value);
             } else if (key == "NUM_DECODER_LAYERS") {
-                config.num_decoder_layers = static_cast<size_t>(std::stoull(value));
+                config.num_decoder_layers = parse_size(value);
             } else if (key == "MAX_SEQ_LENGTH") {
-                config.max_seq_length = static_cast<size_t>(std::stoull(value));
+                config.max_seq_length = parse_size(value);
                 // Training hyperparameters
             } else if (key == "LEARNING_RATE") {
-                config.learning_rate = std::stof(value);
+                config.learning_rate = parse_float(value);
             } else if (key == "NUM_EPOCHS") {
-                config.num_epochs = std::stoi(value);
+                config.num_epochs = parse_int(value);
             } else if (key == "WEIGHT_DECAY") {
-                config.weight_decay = std::stof(value);
+                config.weight_decay = parse_float(value);
             } else if (key == "GRADIENT_CLIP") {
-                config.gradient_clip = std::stof(value);
+                config.gradient_clip = parse_float(value);
             } else if (key == "GRADIENT_CLIP_ADAPTIVE") {
                 config.adaptive_gradient_clip = parse_file_bool(key, value);  // TD-286
             } else if (key == "GRADIENT_CLIP_MIN") {
-                config.gradient_clip_min = std::stof(value);
+                config.gradient_clip_min = parse_float(value);
             } else if (key == "GRADIENT_CLIP_MAX") {
-                config.gradient_clip_max = std::stof(value);
+                config.gradient_clip_max = parse_float(value);
             } else if (key == "GRADIENT_CLIP_EMA_DECAY") {
-                config.gradient_clip_ema_decay = std::stof(value);
+                config.gradient_clip_ema_decay = parse_float(value);
             } else if (key == "GRADIENT_CLIP_HEADROOM") {
-                config.gradient_clip_headroom = std::stof(value);
+                config.gradient_clip_headroom = parse_float(value);
             } else if (key == "GRADIENT_CLIP_WARMUP_STEPS") {
-                config.gradient_clip_warmup_steps = std::stoi(value);
+                config.gradient_clip_warmup_steps = parse_int(value);
             } else if (key == "GRADIENT_CLIP_SPIKE_K") {
-                config.gradient_clip_spike_k = std::stof(value);
+                config.gradient_clip_spike_k = parse_float(value);
             } else if (key == "BATCH_SIZE") {
-                config.batch_size = std::stoi(value);
+                config.batch_size = parse_int(value);
             } else if (key == "GRADIENT_ACCUMULATION_STEPS") {
-                config.gradient_accumulation_steps = std::stoi(value);
+                config.gradient_accumulation_steps = parse_int(value);
             } else if (key == "MAX_LENGTH" || key == "MAX_GEN_LENGTH") {
-                config.max_gen_length = static_cast<size_t>(std::stoull(value));
+                config.max_gen_length = parse_size(value);
             } else if (key == "TEMPERATURE") {
-                config.temperature = std::stof(value);
+                config.temperature = parse_float(value);
             } else if (key == "TOP_P") {
-                config.top_p = std::stof(value);
+                config.top_p = parse_float(value);
             } else if (key == "TOP_K") {
-                config.top_k = std::stoi(value);
+                config.top_k = parse_int(value);
             } else if (key == "BEAM_WIDTH") {
-                config.beam_width = std::stoi(value);
+                config.beam_width = parse_int(value);
             } else if (key == "STRATEGY") {
                 config.strategy = value;
                 // Training Metrics Service configuration
@@ -241,13 +269,13 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "METRICS_SERVER_URL") {
                 config.metrics_server_url = value;
             } else if (key == "METRICS_PUSH_TIMEOUT_MS") {
-                config.metrics_push_timeout_ms = std::stoi(value);
+                config.metrics_push_timeout_ms = parse_int(value);
             } else if (key == "METRICS_SERVER_HEADERS") {
                 config.metrics_server_headers = value;
             } else if (key == "METRICS_SERVER_CA_FILE") {
                 config.metrics_server_ca_file = value;
             } else if (key == "METRICS_HEARTBEAT_INTERVAL_MS") {
-                config.metrics_heartbeat_interval_ms = std::stoi(value);
+                config.metrics_heartbeat_interval_ms = parse_int(value);
             } else if (key == "METRICS_ENABLE_PERSISTENCE") {
                 config.metrics_enable_persistence = parse_file_bool(key, value);  // TD-286
             } else if (key == "METRICS_FILE") {
@@ -255,19 +283,19 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "METRICS_SUMMARY_FILE") {
                 config.metrics_summary_file = value;
             } else if (key == "METRICS_PERSIST_EVERY_SAMPLES") {
-                config.metrics_persist_every_samples = std::stoi(value);
+                config.metrics_persist_every_samples = parse_int(value);
             } else if (key == "METRICS_PERSIST_EVERY_SECONDS") {
-                config.metrics_persist_every_seconds = std::stoi(value);
+                config.metrics_persist_every_seconds = parse_int(value);
             } else if (key == "METRICS_MAX_RECORDS_IN_MEMORY") {
-                config.metrics_max_records_in_memory = std::stoi(value);
+                config.metrics_max_records_in_memory = parse_int(value);
             } else if (key == "METRICS_MAX_RECORDS_ON_DISK") {
-                config.metrics_max_records_on_disk = std::stoi(value);
+                config.metrics_max_records_on_disk = parse_int(value);
             } else if (key == "METRICS_RETENTION_DAYS") {
-                config.metrics_retention_days = std::stoi(value);
+                config.metrics_retention_days = parse_int(value);
             } else if (key == "METRICS_FILE_MAX_MB") {
-                config.metrics_file_max_mb = std::stoi(value);
+                config.metrics_file_max_mb = parse_int(value);
             } else if (key == "METRICS_FILE_BACKUPS") {
-                config.metrics_file_backups = std::stoi(value);
+                config.metrics_file_backups = parse_int(value);
             } else if (key == "METRICS_ENABLE_PROMETHEUS") {
                 config.metrics_enable_prometheus = parse_file_bool(key, value);  // TD-286
             } else if (key == "METRICS_PROMETHEUS_FILE") {
@@ -277,15 +305,15 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "METRICS_SESSION_LABEL") {
                 config.metrics_session_label = value;
             } else if (key == "METRICS_MAX_LIVE_SESSIONS") {
-                config.metrics_max_live_sessions = static_cast<size_t>(std::stoull(value));
+                config.metrics_max_live_sessions = parse_size(value);
             } else if (key == "METRICS_COMPLETED_TTL_SECONDS") {
-                config.metrics_completed_ttl_seconds = std::stoi(value);
+                config.metrics_completed_ttl_seconds = parse_int(value);
             } else if (key == "METRICS_SWEEP_INTERVAL_SECONDS") {
-                config.metrics_sweep_interval_seconds = std::stoi(value);
+                config.metrics_sweep_interval_seconds = parse_int(value);
             } else if (key == "METRICS_STALENESS_THRESHOLD_SECONDS") {
-                config.metrics_staleness_threshold_seconds = std::stoi(value);
+                config.metrics_staleness_threshold_seconds = parse_int(value);
             } else if (key == "METRICS_API_PORT") {
-                config.metrics_api_port = std::stoi(value);
+                config.metrics_api_port = parse_int(value);
             } else if (key == "METRICS_API_ALLOW_CONTROL") {
                 config.metrics_api_allow_control = parse_file_bool(key, value);  // TD-286
             } else if (key == "METRICS_API_CORS_ALLOWED_ORIGINS") {
@@ -298,16 +326,16 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "METRICS_DB_URL") {
                 config.metrics_db_url = value;
             } else if (key == "METRICS_DB_POOL_SIZE") {
-                config.metrics_db_pool_size = std::stoi(value);
+                config.metrics_db_pool_size = parse_int(value);
                 // Generation quality metrics configuration
             } else if (key == "ENABLE_GENERATION_QUALITY_METRICS") {
                 config.enable_generation_quality_metrics = parse_file_bool(key, value);  // TD-286
             } else if (key == "GENERATION_QUALITY_SAMPLE_SIZE") {
-                config.generation_quality_sample_size = std::stoi(value);
+                config.generation_quality_sample_size = parse_int(value);
             } else if (key == "GENERATION_QUALITY_MAX_TOKENS") {
-                config.generation_quality_max_tokens = std::stoi(value);
+                config.generation_quality_max_tokens = parse_int(value);
             } else if (key == "GENERATION_QUALITY_ASYNC_THRESHOLD") {
-                config.generation_quality_async_threshold = std::stoi(value);
+                config.generation_quality_async_threshold = parse_int(value);
                 // RAG configuration
             } else if (key == "ALLOW_UNTRAINED_MODEL") {  // TD-246
                 config.allow_untrained_model = parse_file_bool(key, value);  // TD-286
@@ -316,11 +344,11 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "RAG_DOCS_PATH") {
                 config.rag_docs_path = value;
             } else if (key == "RAG_NUM_DOCS") {
-                config.rag_num_docs = std::stoi(value);
+                config.rag_num_docs = parse_int(value);
             } else if (key == "RAG_THRESHOLD") {
-                config.rag_threshold = std::stof(value);
+                config.rag_threshold = parse_float(value);
             } else if (key == "RAG_MAX_CONTEXT_LENGTH") {
-                config.rag_max_context_length = std::stoi(value);
+                config.rag_max_context_length = parse_int(value);
                 // Distributed registry configuration (TD-028 Phase 9)
             } else if (key == "REGISTRY_SERVER_URL") {
                 config.registry_server_url = value;
@@ -335,45 +363,45 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "TOKENIZED_CACHE_DIR") {
                 config.tokenized_cache_dir = value;
             } else if (key == "REGISTRY_TIMEOUT_MS") {
-                config.registry_timeout_ms = std::stoi(value);
+                config.registry_timeout_ms = parse_int(value);
             } else if (key == "REGISTRY_LISTEN_PORT") {
-                config.registry_listen_port = std::stoi(value);
+                config.registry_listen_port = parse_int(value);
             } else if (key == "REGISTRY_DATA_DIR") {
                 config.registry_data_dir = value;
             } else if (key == "REGISTRY_CLAIM_LEASE_MINUTES") {
-                config.registry_claim_lease_minutes = std::stoi(value);
+                config.registry_claim_lease_minutes = parse_int(value);
             } else if (key == "REGISTRY_MAX_UPLOAD_MB") {
-                config.registry_max_upload_mb = std::stoi(value);
+                config.registry_max_upload_mb = parse_int(value);
             } else if (key == "REGISTRY_MAX_CONCURRENT_FETCHES") {
-                config.registry_max_concurrent_fetches = std::stoi(value);
+                config.registry_max_concurrent_fetches = parse_int(value);
                 // FTP Dataset Transport configuration (Phase 10)
             } else if (key == "FTP_SERVER_ENABLED") {  // TD-284
                 config.ftp_server_enabled = parse_file_bool(key, value);  // TD-286
             } else if (key == "FTP_ADVERTISE_IP") {  // TD-284
                 config.ftp_advertise_ip = value;
             } else if (key == "FTP_SERVER_PORT") {
-                config.ftp_server_port = std::stoi(value);
+                config.ftp_server_port = parse_int(value);
             } else if (key == "FTP_PASV_PORT_MIN") {
-                config.ftp_pasv_port_min = std::stoi(value);
+                config.ftp_pasv_port_min = parse_int(value);
             } else if (key == "FTP_PASV_PORT_MAX") {
-                config.ftp_pasv_port_max = std::stoi(value);
+                config.ftp_pasv_port_max = parse_int(value);
             } else if (key == "FTP_TOKEN_TTL_MINUTES") {
-                config.ftp_token_ttl_minutes = std::stoi(value);
+                config.ftp_token_ttl_minutes = parse_int(value);
             } else if (key == "FTP_DATA_SERVER_SECRET") {
                 config.ftp_data_server_secret = value;
             } else if (key == "DOWNLOAD_DIR") {
                 config.download_dir = value;
             } else if (key == "MAX_PARALLEL_DOWNLOADS") {
-                config.max_parallel_downloads = std::stoi(value);
+                config.max_parallel_downloads = parse_int(value);
             } else if (key == "LARGE_FILE_WARN_THRESHOLD_MB") {
-                config.large_file_warn_threshold_mb = std::stoi(value);
+                config.large_file_warn_threshold_mb = parse_int(value);
             } else if (key == "FTPS_CA_FILE") {
                 config.ftps_ca_file = value;
             } else if (key == "FTPS_PINNED_PUBLIC_KEY") {
                 config.ftps_pinned_public_key = value;
                 // Phase 3: security hardening
             } else if (key == "FTP_MAX_SESSIONS_PER_RUN") {
-                config.ftp_max_sessions_per_run = std::stoi(value);
+                config.ftp_max_sessions_per_run = parse_int(value);
             } else if (key == "FTPS_ENABLED") {
                 config.ftps_enabled = parse_file_bool(key, value);  // TD-286
             } else if (key == "FTP_CERT_FILE") {
@@ -384,11 +412,11 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "NAME_SERVICE_URL") {
                 config.name_service_url = value;
             } else if (key == "NAME_SERVICE_PORT") {
-                config.name_service_port = std::stoi(value);
+                config.name_service_port = parse_int(value);
             } else if (key == "NAME_SERVICE_DIR") {
                 config.name_service_dir = value;
             } else if (key == "NAME_SERVICE_TIMEOUT_MS") {
-                config.name_service_timeout_ms = std::stoi(value);
+                config.name_service_timeout_ms = parse_int(value);
             } else if (key == "MODEL_NAME") {
                 config.model_name = value;
             } else if (key == "MODEL_ROLE") {
@@ -397,65 +425,65 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "TRAINER_ADMIN_ENABLED") {
                 config.trainer_admin_enabled = parse_file_bool(key, value);  // TD-286
             } else if (key == "TRAINER_ADMIN_PORT") {
-                config.trainer_admin_port = std::stoi(value);
+                config.trainer_admin_port = parse_int(value);
             } else if (key == "TRAINER_ADMIN_HOST") {
                 config.trainer_admin_host = value;
             } else if (key == "TRAINER_ADMIN_DIR") {
                 config.trainer_admin_dir = value;
             } else if (key == "TRAINER_CHILD_ADMIN_PORT") {
-                config.trainer_child_admin_port = std::stoi(value);
+                config.trainer_child_admin_port = parse_int(value);
                 // World-model (LeJEPA) pretraining configuration (TD-183)
             } else if (key == "WORLD_MODEL_ENABLED") {
                 config.world_model_enabled = parse_file_bool(key, value);  // TD-286
             } else if (key == "WORLD_MODEL_D_MODEL") {
-                config.world_model_d_model = std::stoul(value);
+                config.world_model_d_model = parse_size(value);
             } else if (key == "WORLD_MODEL_NUM_LAYERS") {
-                config.world_model_num_layers = std::stoul(value);
+                config.world_model_num_layers = parse_size(value);
             } else if (key == "WORLD_MODEL_NUM_HEADS") {
-                config.world_model_num_heads = std::stoul(value);
+                config.world_model_num_heads = parse_size(value);
             } else if (key == "WORLD_MODEL_D_FF") {
-                config.world_model_d_ff = std::stoul(value);
+                config.world_model_d_ff = parse_size(value);
             } else if (key == "WORLD_MODEL_SIGREG_LAMBDA") {
-                config.world_model_sigreg_lambda = std::stof(value);
+                config.world_model_sigreg_lambda = parse_float(value);
             } else if (key == "WORLD_MODEL_SIGREG_NUM_SKETCHES") {
-                config.world_model_sigreg_num_sketches = std::stoul(value);
+                config.world_model_sigreg_num_sketches = parse_size(value);
             } else if (key == "WORLD_MODEL_SIGREG_BATCH_SIZE") {
-                config.world_model_sigreg_batch_size = std::stoul(value);
+                config.world_model_sigreg_batch_size = parse_size(value);
             } else if (key == "WORLD_MODEL_INJECT_EVERY_N_LAYERS") {
-                config.world_model_inject_every_n_layers = std::stoul(value);
+                config.world_model_inject_every_n_layers = parse_size(value);
             } else if (key == "WORLD_MODEL_ARTIFACT_PATH") {
                 config.world_model_artifact_path = value;
                 // Hippocampal memory configuration (TD-185 filed; TD-186 wires)
             } else if (key == "HIPPOCAMPAL_MEMORY_ENABLED") {
                 config.hippocampal_memory_enabled = parse_file_bool(key, value);  // TD-286
             } else if (key == "HIPPOCAMPAL_MEMORY_CAPACITY") {
-                config.hippocampal_memory_capacity = std::stoul(value);
+                config.hippocampal_memory_capacity = parse_size(value);
             } else if (key == "HIPPOCAMPAL_REPETITION_ALPHA") {
-                config.hippocampal_repetition_alpha = std::stof(value);
+                config.hippocampal_repetition_alpha = parse_float(value);
             } else if (key == "HIPPOCAMPAL_REPETITION_DECAY") {
-                config.hippocampal_repetition_decay = std::stof(value);
+                config.hippocampal_repetition_decay = parse_float(value);
             } else if (key == "HIPPOCAMPAL_CROSS_REFERENCE_ALPHA") {
-                config.hippocampal_cross_reference_alpha = std::stof(value);
+                config.hippocampal_cross_reference_alpha = parse_float(value);
             } else if (key == "HIPPOCAMPAL_ASSOCIATION_DECAY") {
-                config.hippocampal_association_decay = std::stof(value);
+                config.hippocampal_association_decay = parse_float(value);
                 // Auto-save / checkpoint retention configuration
             } else if (key == "AUTO_SAVE_ENABLED") {
                 config.auto_save_enabled = parse_file_bool(key, value);  // TD-286
             } else if (key == "RESUME_FROM_BEST_CHECKPOINT") {
                 config.resume_from_best_checkpoint = parse_file_bool(key, value);  // TD-286
             } else if (key == "AUTO_SAVE_EVERY_SAMPLES") {
-                config.auto_save_every_samples = std::stoi(value);
+                config.auto_save_every_samples = parse_int(value);
             } else if (key == "AUTO_SAVE_EVERY_MINUTES") {
-                config.auto_save_every_minutes = std::stoi(value);
+                config.auto_save_every_minutes = parse_int(value);
             } else if (key == "MAX_SESSIONS_TO_KEEP") {
-                config.max_sessions_to_keep = std::stoi(value);
+                config.max_sessions_to_keep = parse_int(value);
                 // GPU configuration
             } else if (key == "GPU_ENABLED") {
                 config.gpu_enabled = parse_file_bool(key, value);  // TD-286
             } else if (key == "GPU_DEVICE_ID") {
-                config.gpu_device_id = std::stoi(value);
+                config.gpu_device_id = parse_int(value);
             } else if (key == "GPU_MEMORY_FRACTION") {
-                config.gpu_memory_fraction = std::stof(value);
+                config.gpu_memory_fraction = parse_float(value);
             } else if (key == "GPU_STRATEGY") {
                 config.gpu_strategy = gpu_strategy_from_string(value);
             } else if (key == "TOKENIZER_MODE") {
@@ -464,7 +492,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
                 config.unicode_tokenizer = (lower == "unicode");
             } else if (key == "VOCAB_BUILD_SIZE") {
-                config.vocab_build_size = std::stoi(value);
+                config.vocab_build_size = parse_int(value);
             } else {
                 // TODO: See TD-290 in TECHNICAL_DEBT.md - HIPPOCAMPAL_COVERAGE_LOSS_WEIGHT (deliberately unread,
                 // but shipped in config.chatbot/trainer.conf) warns here on every load.

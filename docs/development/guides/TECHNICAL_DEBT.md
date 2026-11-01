@@ -1359,6 +1359,8 @@ The generation and model math run is complete.
 - TD-285 (done in code: reload always applies a valid config and logs every changed file key, secrets hidden, plus a restart warning
   for keys the binary doesn't apply live; TD-251's logging item with it).
 - TD-286 (done in code: one case-insensitive boolean parser for every file and env key; anything else warns and keeps the default).
+- TD-287 (done in code: numbers must be the whole value, sizes can't be negative, floats must be finite; a rejected value warns and keeps
+  the default, in the file and the environment).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6912,7 +6914,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Config | October 9, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 31, 2026 | Config | October 9, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-283 and confirmed by running the real loader. File values are parsed with
@@ -6922,10 +6924,20 @@ range-checks at load time (TD-241), so these reach model construction and port b
 
 Action Items:
 
-- [ ] Use full-consumption parsing that rejects negatives for `size_t` fields; warn and keep the default on any rejection.
-- [ ] Tests for trailing garbage and negative sizes.
+- [x] Use full-consumption parsing that rejects negatives for `size_t` fields; warn and keep the default on any rejection.
+- [x] Tests for trailing garbage and negative sizes.
 
-Location in code: `src/Config.cpp` (`load_from_file()`, `get_env_*()` helpers); tagged `TODO: See TD-287`.
+**Fix (October 31, 2026).** Every number in `load_from_file()` (about 85 call sites) and the `get_env_int()`/`get_env_size_t()`/
+`get_env_float()` helpers now goes through three strict parsers in `Config.cpp`: `parse_int()`, `parse_size()` and `parse_float()`.
+Each must consume the whole value; `parse_size()` refuses any `-` (so `D_MODEL=-1` no longer becomes 18446744073709551615), and
+`parse_float()` refuses `nan`/`inf`. A rejected file value logs "Invalid value for KEY" and keeps the previous value; a rejected env
+value warns and is ignored, as before. Signed `int` keys still accept negatives (`GPU_DEVICE_ID=-1`); range checks are TD-288's.
+Until TD-289 strips inline comments, `PORT=8080 # note` is now refused (and warned about) instead of reading as 8080; none of the
+shipped config files has one. Tests: `ANumberWithTrailingCharactersLeavesTheDefault`, `ANegativeSizeLeavesTheDefault`,
+`ANonFiniteFloatLeavesTheDefault`, `EnvironmentNumbersAreCheckedTheSameWay` (all four fail on the old parser) and
+`WellFormedNumbersStillLoad`.
+
+Location in code: `src/Config.cpp` (`load_from_file()`, `get_env_*()` helpers); tagged `TD-287`.
 
 Files to Modify:
 

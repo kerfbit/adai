@@ -276,3 +276,12 @@ Every boolean key, in the file or the environment, goes through `parse_bool()`: 
 any case. Anything else is refused with a warning and the setting keeps its default (it used to mean false for seven keys, which also
 rejected `True`/`ON`/`Yes`). `FTPS_ENABLED` from the environment now uses `get_env_bool()` too. Tests:
 `EveryBooleanKeyAcceptsAnyCaseOfTheSameWords`, `ABooleanThatIsntOneLeavesTheDefault`, `FtpsEnabledFromTheEnvironmentAcceptsAnyCase`.
+
+## Addendum (October 31, 2026): numbers must be the whole value (TD-287)
+
+Every numeric key, in the file or the environment, goes through `parse_int()`, `parse_size()` or `parse_float()`, which must consume
+the whole value: `PORT=8080x`, `D_MODEL=256abc` and `TEMPERATURE=0.5f` are refused with a warning and the setting keeps its default.
+`size_t` keys refuse negatives (`D_MODEL=-1` used to become 18446744073709551615) and floats refuse `nan`/`inf`. Signed `int` keys
+still take negatives (`GPU_DEVICE_ID=-1`); range checks are TD-288. Until TD-289, an inline comment after a number
+(`PORT=8080 # note`) is refused too. Tests: `ANumberWithTrailingCharactersLeavesTheDefault`, `ANegativeSizeLeavesTheDefault`,
+`ANonFiniteFloatLeavesTheDefault`, `EnvironmentNumbersAreCheckedTheSameWay`, `WellFormedNumbersStillLoad`.
