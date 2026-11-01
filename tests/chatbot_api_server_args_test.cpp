@@ -271,3 +271,35 @@ TEST_F(ApplyChatbotApiServerArgsTest, AnInvalidNumberStopsBeforeLaterFlagsApply)
     EXPECT_EQ(r.error_message, "Invalid value for --port: 'abc' (expected a whole number)");
     EXPECT_TRUE(config.model_path.empty());
 }
+
+// TD-241: ConfigLoader::validate() ran only on SIGHUP, so values it rejects started fine and the same
+// file was then refused on the next reload.
+TEST_F(ApplyChatbotApiServerArgsTest, OutOfRangeFlagsFailStartupValidation) {
+    const std::vector<std::vector<std::string>> cases = {
+        {"--timeout", "-5"},        {"--port", "0"},          {"--port", "70000"},
+        {"--strategy", "bogus"},    {"--temperature", "-1"},  {"--top-p", "1.5"},
+        {"--max-gen-len", "0"},     {"--d-model", "100"},     {"--log-level", "LOUD"},
+    };
+    for (const auto& c : cases) {
+        ServiceConfig fresh;
+        fresh.vocab_path = "/vocab.txt";
+        std::vector<std::string> raw = {"chatbot_api_server", c[0], c[1]};
+        auto argv = make_argv(raw);
+        ASSERT_FALSE(apply_chatbot_api_server_args(static_cast<int>(argv.size()), argv.data(), fresh).error)
+            << c[0] << " " << c[1] << " should parse";
+        auto err = validate_chatbot_api_server_config(fresh);
+        ASSERT_TRUE(err.has_value()) << c[0] << " " << c[1] << " passed validation";
+        EXPECT_NE(err->find("configuration is invalid"), std::string::npos) << *err;
+    }
+}
+
+TEST(ValidateChatbotApiServerConfig, ListsEveryError) {
+    ServiceConfig config;
+    config.vocab_path = "/vocab.txt";
+    config.session_timeout = -5;
+    config.strategy = "bogus";
+    auto err = validate_chatbot_api_server_config(config);
+    ASSERT_TRUE(err.has_value());
+    EXPECT_NE(err->find("session_timeout"), std::string::npos) << *err;
+    EXPECT_NE(err->find("strategy"), std::string::npos) << *err;
+}

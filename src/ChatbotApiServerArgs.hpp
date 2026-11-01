@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-10-28
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-10-31
 
 // TD-035: chatbot_api_server's argv parsing and required-config validation, pulled out of
 // ChatbotAPIServer.cpp so it's testable without loading a real tokenizer/model or starting a
@@ -50,7 +50,8 @@ ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
                                                          ServiceConfig& config);
 
 // Mirrors the "Validate required configuration" check in main(): returns an error message if
-// `config` isn't startable, or std::nullopt if it is.
+// `config` isn't startable (no vocab path, or any ConfigLoader::validate() error, all listed; TD-241),
+// or std::nullopt if it is.
 std::optional<std::string> validate_chatbot_api_server_config(const ServiceConfig& config);
 
 }  // namespace adai

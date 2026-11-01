@@ -173,3 +173,9 @@ Every numeric flag goes through the shared strict parsers in `Config.hpp` (`pars
 `parse_strict_float()`): the value must be the whole number, the architecture and length flags refuse negatives, and `--temperature`/
 `--top-p` refuse `nan`/`inf`. A bad value returns `error` with `Invalid value for <flag>: '<value>' (expected ...)`, and
 `chatbot_api_server` prints it and exits 1 (`--port abc` used to start on a random port, `--port 8080x` on 8080).
+
+## Addendum (October 31, 2026): full validation at startup (TD-241)
+
+`validate_chatbot_api_server_config()` runs `ConfigLoader::validate()` after the CLI flags are applied and returns every error in one
+message, so `chatbot_api_server` exits 1 at startup on anything a `SIGHUP` reload would refuse (`--timeout -5`, `--strategy bogus`,
+`--port 70000`, …). It used to check only that a vocabulary path was set.

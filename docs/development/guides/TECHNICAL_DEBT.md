@@ -1369,6 +1369,7 @@ The generation and model math run is complete.
   the reserved coverage-loss key accepted quietly).
 - TD-240 (done in code: every numeric `chatbot_api_server` flag must be a whole, valid number, else an error naming the flag and exit 1;
   the strict parsers are public for the other daemons' flag fixes).
+- TD-241 (done in code: `chatbot_api_server` runs the full `validate()` at startup after its CLI flags, lists every error and exits 1).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5394,7 +5395,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / Serving / CLI | October 8, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 31, 2026 | Inference / Serving / CLI | October 8, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-240. `ConfigLoader::validate()` (`src/Config.cpp`, port 1–65535,
@@ -5412,18 +5413,30 @@ parser: `--timeout -5` is accepted, after which every session counts as expired 
 
 Action Items:
 
-- [ ] Call `ConfigLoader::validate()` from `validate_chatbot_api_server_config()` (after CLI flags are applied) and fail startup on errors.
-- [ ] Extend `validate()` with generation settings: `strategy` in {greedy, beam, temperature, top_k, nucleus}, `temperature >= 0`, `0 < top_p <= 1`, `max_gen_length >= 1`.
-- [ ] Tests: invalid port/timeout/strategy fail validation; the default config passes.
+- [x] Call `ConfigLoader::validate()` from `validate_chatbot_api_server_config()` (after CLI flags are applied) and fail startup on errors.
+- [x] Extend `validate()` with generation settings: `strategy` in {greedy, beam, temperature, top_k, nucleus}, `temperature >= 0`, `0 < top_p <= 1`, `max_gen_length >= 1`.
+- [x] Tests: invalid port/timeout/strategy fail validation; the default config passes.
 
-Location in code: `src/ChatbotApiServerArgs.cpp` (`validate_chatbot_api_server_config()`), `src/Config.cpp` (`ConfigLoader::validate()`); tagged `TODO: See TD-241`.
+**Fix (October 31, 2026).** `validate_chatbot_api_server_config()` now runs `ConfigLoader::validate()` after the CLI flags are
+applied and returns every error in one message ("Error: the configuration is invalid:" plus one line each), which `main()` prints
+before exiting 1. So the server refuses at startup exactly what a `SIGHUP` reload would refuse. The generation checks were already in
+`validate()` (strategy, temperature 0–2, top_p 0–1, `max_gen_length` 1–4096; `top_p = 0` stays valid, TD-516 made it top-1), and since
+TD-288 it covers every other numeric field; since TD-289 an unknown `STRATEGY`/`LOG_LEVEL` in the file or environment is already
+refused at load, so `validate()` catches the CLI forms (`--strategy bogus`, `--log-level LOUD`). `chatbot_api_server` was the last
+long-running binary without a startup check. Tests: `OutOfRangeFlagsFailStartupValidation` (`--timeout -5`, `--port 0`/`70000`,
+`--strategy bogus`, `--temperature -1`, `--top-p 1.5`, `--max-gen-len 0`, `--d-model 100`, `--log-level LOUD`), `ListsEveryError`,
+and `ChatbotApiServerStartupTest.AnInvalidConfigExitsOneAtStartup` (the real binary with `SESSION_TIMEOUT=-5` exits 1 and names
+the setting; the old binary started); all three fail on the old code. The startup test's model went from `D_MODEL=32` to 64, the
+validator's minimum.
+
+Location in code: `src/ChatbotApiServerArgs.cpp` (`validate_chatbot_api_server_config()`), `src/Config.cpp` (`ConfigLoader::validate()`); tagged `TD-241`.
 
 Files to Modify:
 
 - `src/ChatbotApiServerArgs.cpp`
 - `src/Config.cpp`
 - `tests/chatbot_api_server_args_test.cpp`
-- `tests/config_test.cpp`
+- `tests/chatbot_api_server_startup_test.cpp` (`src/Config.cpp` needed no change: TD-288 covered it)
 
 ---
 

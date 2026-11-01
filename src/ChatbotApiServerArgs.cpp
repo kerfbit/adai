@@ -1,8 +1,9 @@
 // @adai-status: experimental
-// @adai-version: 0.9.0
+// @adai-version: 0.10.0
 // @adai-reviewed: 2026-10-31
 
 #include "ChatbotApiServerArgs.hpp"
+#include <vector>
 
 namespace adai {
 
@@ -126,12 +127,18 @@ ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
     return result;
 }
 
-// TODO: See TD-241 in TECHNICAL_DEBT.md - only vocab_path is checked; ConfigLoader::validate() (port,
-// timeout, ...) runs only on SIGHUP reload, and nothing validates strategy/temperature/top_p.
 std::optional<std::string> validate_chatbot_api_server_config(const ServiceConfig& config) {
     if (config.vocab_path.empty()) {
         return "Error: Vocabulary path is required (use --vocab, VOCAB_PATH env var, or config "
               "file)";
+    }
+    // TD-241: the full validator, after CLI flags are applied. It used to run only on SIGHUP, so a
+    // config it rejects (--timeout -5, --strategy bogus) started fine and was then refused on reload.
+    std::vector<std::string> errors;
+    if (!ConfigLoader::validate(config, errors)) {
+        std::string message = "Error: the configuration is invalid:";
+        for (const auto& error : errors) message += "\n  " + error;
+        return message;
     }
     return std::nullopt;
 }

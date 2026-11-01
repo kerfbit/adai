@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <iterator>
 #include <string>
 #include <thread>
@@ -83,7 +84,7 @@ class ChatbotApiServerStartupTest : public ::testing::Test {
         out << "PORT=" << port_ << "\n"
             << "VOCAB_PATH=" << (dir_ / "vocab.txt").string() << "\n"
             << "LOG_FILE_PATH=" << (dir_ / "server.log").string() << "\n"
-            << "D_MODEL=32\nNUM_HEADS=2\nD_FF=64\nNUM_ENCODER_LAYERS=1\nNUM_DECODER_LAYERS=1\n"
+            << "D_MODEL=64\nNUM_HEADS=2\nD_FF=128\nNUM_ENCODER_LAYERS=1\nNUM_DECODER_LAYERS=1\n"
             << "MAX_SEQ_LENGTH=32\nGPU_ENABLED=false\n"
             << extra;
         return path.string();
@@ -254,4 +255,17 @@ TEST_F(ChatbotApiServerStartupTest, ChatRoutesParseJsonAndRejectMalformedBodies)
     ASSERT_TRUE(brackets);
     EXPECT_EQ(brackets->status, 200);
     EXPECT_NE(brackets->body.find("\"success\":true"), std::string::npos) << brackets->body;
+}
+
+// TD-241: a config validate() rejects used to start (and was refused only on the next SIGHUP).
+TEST_F(ChatbotApiServerStartupTest, AnInvalidConfigExitsOneAtStartup) {
+    const pid_t pid = spawn(write_config("ALLOW_UNTRAINED_MODEL=true\nSESSION_TIMEOUT=-5\n"));
+    const int code = wait_exit(pid, std::chrono::seconds(30));
+    if (code < 0) {
+        stop(pid);
+    }
+    EXPECT_EQ(code, 1) << "it used to start with every session already expired";
+    std::stringstream out;
+    out << std::ifstream(dir_ / "stdout.log").rdbuf();
+    EXPECT_NE(out.str().find("Invalid session_timeout: -5"), std::string::npos) << out.str();
 }
