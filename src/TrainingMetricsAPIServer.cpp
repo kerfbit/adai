@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.4.0
-// @adai-reviewed: 2026-10-28
+// @adai-version: 1.5.0
+// @adai-reviewed: 2026-10-31
 
 #include <atomic>
 #include <csignal>
@@ -140,6 +140,7 @@ int main(int argc, char* argv[]) {
     const std::string config_path =
         adai::ConfigLoader::discover_config_path(cli_config_path, "config.metrics.conf");
     adai::ServiceConfig file_config = adai::ConfigLoader::load(config_path);
+    adai::ConfigLoader::validate_or_exit(file_config, "metrics_api_server");  // TD-288
 
     // Seed from config.metrics.conf (file < persisted admin overrides < CLI —
     // see CLAUDE.md "Daemon admin config API"). parse_metrics_api_server_args() below only

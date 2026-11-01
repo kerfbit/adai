@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.18.0
+// @adai-version: 1.19.0
 // @adai-reviewed: 2026-10-31
 
 #include "Config.hpp"
@@ -1182,9 +1182,8 @@ bool ConfigLoader::reload(ServiceConfig& config, const std::string& config_file_
     return true;
 }
 
-// TODO: See TD-288 in TECHNICAL_DEBT.md - no checks for gradient_accumulation_steps (0 crashes training),
-// learning_rate, gpu_memory_fraction, batch/epoch counts, clipping, ports/intervals/sizes outside
-// the server block, or FTP PASV min <= max. Only called from reload() (TD-241).
+// Run by reload() and, since TD-288, at startup by every daemon and incremental_trainer
+// (validate_or_exit()); chatbot_api_server's startup call is TD-241.
 bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string>& errors) {
     bool valid = true;
 
@@ -1416,7 +1415,110 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
         valid = false;
     }
 
+    // TD-288: every other numeric field that divides, allocates, binds a port or is a probability.
+    auto require = [&](bool ok, const std::string& name, const std::string& value, const char* rule) {
+        if (ok) return;
+        errors.push_back("Invalid " + name + ": " + value + " (" + rule + ")");
+        valid = false;
+    };
+    auto at_least = [&](long long v, long long min, const std::string& name) {
+        require(v >= min, name, std::to_string(v), min == 0 ? "must be >= 0" : "must be >= 1");
+    };
+    auto is_port = [&](int v, const std::string& name) {
+        require(v >= 1 && v <= 65535, name, std::to_string(v), "must be 1-65535");
+    };
+
+    // Training. gradient_accumulation_steps is a divisor and a modulus in ChatbotTrainer.
+    require(config.learning_rate > 0.0f, "learning_rate", std::to_string(config.learning_rate), "must be > 0");
+    at_least(config.num_epochs, 1, "num_epochs");
+    at_least(config.batch_size, 1, "batch_size");
+    at_least(config.gradient_accumulation_steps, 1, "gradient_accumulation_steps");
+    require(config.weight_decay >= 0.0f, "weight_decay", std::to_string(config.weight_decay), "must be >= 0");
+    require(config.gradient_clip >= 0.0f, "gradient_clip", std::to_string(config.gradient_clip), "must be >= 0");
+    // Adaptive clipping, checked even while it's off (like the world-model block above).
+    require(config.gradient_clip_min > 0.0f, "gradient_clip_min", std::to_string(config.gradient_clip_min),
+            "must be > 0");
+    require(config.gradient_clip_max >= config.gradient_clip_min, "gradient_clip_max",
+            std::to_string(config.gradient_clip_max), "must be >= gradient_clip_min");
+    require(config.gradient_clip_ema_decay > 0.0f && config.gradient_clip_ema_decay <= 1.0f,
+            "gradient_clip_ema_decay", std::to_string(config.gradient_clip_ema_decay), "must be in (0.0, 1.0]");
+    require(config.gradient_clip_headroom > 0.0f, "gradient_clip_headroom",
+            std::to_string(config.gradient_clip_headroom), "must be > 0");
+    at_least(config.gradient_clip_warmup_steps, 0, "gradient_clip_warmup_steps");
+    require(config.gradient_clip_spike_k > 0.0f, "gradient_clip_spike_k", std::to_string(config.gradient_clip_spike_k),
+            "must be > 0");
+    at_least(config.vocab_build_size, 0, "vocab_build_size");
+    at_least(config.speculative_num_candidates, 1, "speculative_num_candidates");
+
+    require(config.hippocampal_association_decay > 0.0f && config.hippocampal_association_decay <= 1.0f,
+            "hippocampal_association_decay", std::to_string(config.hippocampal_association_decay),
+            "must be in (0.0, 1.0]");
+    require(config.hippocampal_cross_reference_alpha >= 0.0f, "hippocampal_cross_reference_alpha",
+            std::to_string(config.hippocampal_cross_reference_alpha), "must be >= 0");
+
+    require(config.gpu_memory_fraction > 0.0f && config.gpu_memory_fraction <= 1.0f, "gpu_memory_fraction",
+            std::to_string(config.gpu_memory_fraction), "must be in (0.0, 1.0]");
+    at_least(config.gpu_device_id, 0, "gpu_device_id");
+
+    // Ports.
+    is_port(config.metrics_api_port, "metrics_api_port");
+    is_port(config.registry_listen_port, "registry_listen_port");
+    is_port(config.ftp_server_port, "ftp_server_port");
+    is_port(config.ftp_pasv_port_min, "ftp_pasv_port_min");
+    is_port(config.ftp_pasv_port_max, "ftp_pasv_port_max");
+    require(config.ftp_pasv_port_min <= config.ftp_pasv_port_max, "ftp_pasv_port_max",
+            std::to_string(config.ftp_pasv_port_max), "must be >= ftp_pasv_port_min");
+    is_port(config.name_service_port, "name_service_port");
+    is_port(config.trainer_admin_port, "trainer_admin_port");
+    is_port(config.trainer_child_admin_port, "trainer_child_admin_port");
+    require(config.trainer_child_admin_port != config.trainer_admin_port, "trainer_child_admin_port",
+            std::to_string(config.trainer_child_admin_port), "must differ from trainer_admin_port");
+
+    // Metrics client and daemon. 0 means "off" or "no limit" where a field allows it.
+    at_least(config.metrics_push_timeout_ms, 1, "metrics_push_timeout_ms");
+    at_least(config.metrics_heartbeat_interval_ms, 1, "metrics_heartbeat_interval_ms");
+    at_least(config.metrics_persist_every_samples, 0, "metrics_persist_every_samples");
+    at_least(config.metrics_persist_every_seconds, 0, "metrics_persist_every_seconds");
+    at_least(config.metrics_max_records_in_memory, 1, "metrics_max_records_in_memory");
+    at_least(config.metrics_max_records_on_disk, 0, "metrics_max_records_on_disk");
+    at_least(config.metrics_retention_days, 0, "metrics_retention_days");
+    at_least(config.metrics_file_max_mb, 0, "metrics_file_max_mb");
+    at_least(config.metrics_file_backups, 0, "metrics_file_backups");
+    at_least(static_cast<long long>(config.metrics_max_live_sessions), 1, "metrics_max_live_sessions");
+    at_least(config.metrics_completed_ttl_seconds, 0, "metrics_completed_ttl_seconds");
+    at_least(config.metrics_staleness_threshold_seconds, 1, "metrics_staleness_threshold_seconds");
+    at_least(config.metrics_db_pool_size, 1, "metrics_db_pool_size");
+    at_least(config.generation_quality_sample_size, 0, "generation_quality_sample_size");
+    at_least(config.generation_quality_max_tokens, 1, "generation_quality_max_tokens");
+    at_least(config.generation_quality_async_threshold, 0, "generation_quality_async_threshold");
+
+    // Registry, FTP and MNS.
+    at_least(config.registry_timeout_ms, 1, "registry_timeout_ms");
+    at_least(config.registry_claim_lease_minutes, 0, "registry_claim_lease_minutes");
+    at_least(config.registry_max_upload_mb, 1, "registry_max_upload_mb");
+    at_least(config.registry_max_concurrent_fetches, 1, "registry_max_concurrent_fetches");
+    at_least(config.ftp_token_ttl_minutes, 1, "ftp_token_ttl_minutes");
+    at_least(config.max_parallel_downloads, 1, "max_parallel_downloads");
+    at_least(config.large_file_warn_threshold_mb, 0, "large_file_warn_threshold_mb");
+    at_least(config.ftp_max_sessions_per_run, 0, "ftp_max_sessions_per_run");
+    at_least(config.name_service_timeout_ms, 1, "name_service_timeout_ms");
+
+    // Checkpointing.
+    at_least(config.auto_save_every_samples, 0, "auto_save_every_samples");
+    at_least(config.auto_save_every_minutes, 0, "auto_save_every_minutes");
+    at_least(config.max_sessions_to_keep, 0, "max_sessions_to_keep");
+
     return valid;
+}
+
+void ConfigLoader::validate_or_exit(const ServiceConfig& config, const std::string& binary_name) {
+    std::vector<std::string> errors;
+    if (validate(config, errors)) return;
+    Logger::error("{}: the configuration is invalid:", binary_name);
+    for (const auto& error : errors) {
+        Logger::error("  {}", error);
+    }
+    std::exit(1);
 }
 
 namespace {

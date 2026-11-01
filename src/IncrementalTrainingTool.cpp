@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.23.0
-// @adai-reviewed: 2026-10-28
+// @adai-version: 0.24.0
+// @adai-reviewed: 2026-10-31
 
 #include <array>
 #include <chrono>
@@ -914,6 +914,7 @@ int main(int argc, char* argv[]) {
     std::string config_path =
         adai::ConfigLoader::discover_config_path(cli.config_path.value_or(""), "config.trainer.conf");
     adai::ServiceConfig svc_config = adai::ConfigLoader::load(config_path);
+    adai::ConfigLoader::validate_or_exit(svc_config, "incremental_trainer");  // TD-288
 
     // TD-202/TD-204: pick the dataset registry's per-trainable-piece sub-pool for this
     // invocation — see adai::resolve_dataset_kind()'s own doc comment for why this is a pure

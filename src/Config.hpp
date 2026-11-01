@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.15.0
+// @adai-version: 1.16.0
 // @adai-reviewed: 2026-10-31
 
 
@@ -787,6 +787,11 @@ class ConfigLoader {
      * @return true if configuration is valid, false otherwise
      */
     static bool validate(const ServiceConfig& config, std::vector<std::string>& errors);
+
+    /**
+     * @brief TD-288: validate() at startup; logs every error and exits 1 if there are any.
+     */
+    static void validate_or_exit(const ServiceConfig& config, const std::string& binary_name);
 
     /**
      * @brief Detect and log configuration changes.

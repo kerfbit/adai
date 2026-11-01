@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-10-28
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-10-31
 
 // TD-172: trainer_service — the thin process-supervisor binary that replaces
 // `incremental_trainer serve`. Deliberately minimal: it does not link adai_models/adai_nlp and
@@ -110,6 +110,7 @@ int main(int argc, char* argv[]) {
     // processes rotate it (~27% less retained history, verified); empty LOG_FILE_PATH should mean console-only
     adai::Logger::init(adai::Logger::Level::INFO,
                        {log_path, svc_config.log_max_size_mb, svc_config.log_max_files}, "adai");
+    adai::ConfigLoader::validate_or_exit(svc_config, "trainer_service");  // TD-288
 
     auto control = std::make_shared<adai::TrainerServiceControlState>();
     control->service_started_unix = unix_seconds();

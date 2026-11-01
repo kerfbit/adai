@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <mutex>
 #include <set>
 #include <sstream>
@@ -1495,4 +1496,135 @@ TEST_F(ConfigTest, EnvironmentNumbersAreCheckedTheSameWay) {
     EXPECT_EQ(config.port, defaults.port);
     EXPECT_EQ(config.d_model, defaults.d_model);
     EXPECT_FLOAT_EQ(config.temperature, defaults.temperature);
+}
+
+// ============================================================================
+// TD-288: validate() covers every field that divides, allocates, binds or is a probability
+// ============================================================================
+
+namespace {
+// validate() on the defaults with one change; returns the errors.
+std::vector<std::string> errors_after(const std::function<void(ServiceConfig&)>& change) {
+    ServiceConfig config;
+    change(config);
+    std::vector<std::string> errors;
+    ConfigLoader::validate(config, errors);
+    return errors;
+}
+
+bool mentions(const std::vector<std::string>& errors, const std::string& field) {
+    for (const auto& e : errors) {
+        if (e.find(field) != std::string::npos) return true;
+    }
+    return false;
+}
+}  // namespace
+
+TEST_F(ConfigTest, TheDefaultsPassEveryRule) {
+    const auto errors = errors_after([](ServiceConfig&) {});
+    EXPECT_TRUE(errors.empty()) << errors.front();
+}
+
+TEST_F(ConfigTest, ValidateRejectsEachBadValue) {
+    // The three the TD found by running the old validate(), then one per new rule.
+    const std::vector<std::pair<std::string, std::function<void(ServiceConfig&)>>> cases = {
+        {"gradient_accumulation_steps", [](ServiceConfig& c) { c.gradient_accumulation_steps = 0; }},
+        {"learning_rate", [](ServiceConfig& c) { c.learning_rate = -1.0f; }},
+        {"gpu_memory_fraction", [](ServiceConfig& c) { c.gpu_memory_fraction = 7.5f; }},
+        {"gpu_memory_fraction", [](ServiceConfig& c) { c.gpu_memory_fraction = 0.0f; }},
+        {"learning_rate", [](ServiceConfig& c) { c.learning_rate = 0.0f; }},
+        {"num_epochs", [](ServiceConfig& c) { c.num_epochs = 0; }},
+        {"batch_size", [](ServiceConfig& c) { c.batch_size = 0; }},
+        {"weight_decay", [](ServiceConfig& c) { c.weight_decay = -0.1f; }},
+        {"gradient_clip", [](ServiceConfig& c) { c.gradient_clip = -1.0f; }},
+        {"gradient_clip_min", [](ServiceConfig& c) { c.gradient_clip_min = 0.0f; }},
+        {"gradient_clip_max", [](ServiceConfig& c) { c.gradient_clip_max = 0.05f; }},
+        {"gradient_clip_ema_decay", [](ServiceConfig& c) { c.gradient_clip_ema_decay = 0.0f; }},
+        {"gradient_clip_ema_decay", [](ServiceConfig& c) { c.gradient_clip_ema_decay = 1.5f; }},
+        {"gradient_clip_headroom", [](ServiceConfig& c) { c.gradient_clip_headroom = 0.0f; }},
+        {"gradient_clip_warmup_steps", [](ServiceConfig& c) { c.gradient_clip_warmup_steps = -1; }},
+        {"gradient_clip_spike_k", [](ServiceConfig& c) { c.gradient_clip_spike_k = 0.0f; }},
+        {"vocab_build_size", [](ServiceConfig& c) { c.vocab_build_size = -1; }},
+        {"speculative_num_candidates", [](ServiceConfig& c) { c.speculative_num_candidates = 0; }},
+        {"hippocampal_association_decay", [](ServiceConfig& c) { c.hippocampal_association_decay = 0.0f; }},
+        {"hippocampal_association_decay", [](ServiceConfig& c) { c.hippocampal_association_decay = 1.1f; }},
+        {"hippocampal_cross_reference_alpha", [](ServiceConfig& c) { c.hippocampal_cross_reference_alpha = -1.0f; }},
+        {"gpu_device_id", [](ServiceConfig& c) { c.gpu_device_id = -1; }},
+        {"metrics_api_port", [](ServiceConfig& c) { c.metrics_api_port = 0; }},
+        {"registry_listen_port", [](ServiceConfig& c) { c.registry_listen_port = 70000; }},
+        {"ftp_server_port", [](ServiceConfig& c) { c.ftp_server_port = -1; }},
+        {"ftp_pasv_port_min", [](ServiceConfig& c) { c.ftp_pasv_port_min = 0; }},
+        {"ftp_pasv_port_max", [](ServiceConfig& c) { c.ftp_pasv_port_max = 65536; }},
+        {"ftp_pasv_port_max", [](ServiceConfig& c) { c.ftp_pasv_port_min = 50100; c.ftp_pasv_port_max = 50000; }},
+        {"name_service_port", [](ServiceConfig& c) { c.name_service_port = 0; }},
+        {"trainer_admin_port", [](ServiceConfig& c) { c.trainer_admin_port = 0; }},
+        {"trainer_child_admin_port", [](ServiceConfig& c) { c.trainer_child_admin_port = 0; }},
+        {"trainer_child_admin_port", [](ServiceConfig& c) { c.trainer_child_admin_port = c.trainer_admin_port; }},
+        {"metrics_push_timeout_ms", [](ServiceConfig& c) { c.metrics_push_timeout_ms = 0; }},
+        {"metrics_heartbeat_interval_ms", [](ServiceConfig& c) { c.metrics_heartbeat_interval_ms = 0; }},
+        {"metrics_persist_every_samples", [](ServiceConfig& c) { c.metrics_persist_every_samples = -1; }},
+        {"metrics_persist_every_seconds", [](ServiceConfig& c) { c.metrics_persist_every_seconds = -1; }},
+        {"metrics_max_records_in_memory", [](ServiceConfig& c) { c.metrics_max_records_in_memory = 0; }},
+        {"metrics_max_records_on_disk", [](ServiceConfig& c) { c.metrics_max_records_on_disk = -1; }},
+        {"metrics_retention_days", [](ServiceConfig& c) { c.metrics_retention_days = -1; }},
+        {"metrics_file_max_mb", [](ServiceConfig& c) { c.metrics_file_max_mb = -1; }},
+        {"metrics_file_backups", [](ServiceConfig& c) { c.metrics_file_backups = -1; }},
+        {"metrics_max_live_sessions", [](ServiceConfig& c) { c.metrics_max_live_sessions = 0; }},
+        {"metrics_completed_ttl_seconds", [](ServiceConfig& c) { c.metrics_completed_ttl_seconds = -1; }},
+        {"metrics_staleness_threshold_seconds", [](ServiceConfig& c) { c.metrics_staleness_threshold_seconds = 0; }},
+        {"metrics_db_pool_size", [](ServiceConfig& c) { c.metrics_db_pool_size = 0; }},
+        {"generation_quality_sample_size", [](ServiceConfig& c) { c.generation_quality_sample_size = -1; }},
+        {"generation_quality_max_tokens", [](ServiceConfig& c) { c.generation_quality_max_tokens = 0; }},
+        {"generation_quality_async_threshold", [](ServiceConfig& c) { c.generation_quality_async_threshold = -1; }},
+        {"registry_timeout_ms", [](ServiceConfig& c) { c.registry_timeout_ms = 0; }},
+        {"registry_claim_lease_minutes", [](ServiceConfig& c) { c.registry_claim_lease_minutes = -1; }},
+        {"registry_max_upload_mb", [](ServiceConfig& c) { c.registry_max_upload_mb = 0; }},
+        {"registry_max_concurrent_fetches", [](ServiceConfig& c) { c.registry_max_concurrent_fetches = 0; }},
+        {"ftp_token_ttl_minutes", [](ServiceConfig& c) { c.ftp_token_ttl_minutes = 0; }},
+        {"max_parallel_downloads", [](ServiceConfig& c) { c.max_parallel_downloads = 0; }},
+        {"large_file_warn_threshold_mb", [](ServiceConfig& c) { c.large_file_warn_threshold_mb = -1; }},
+        {"ftp_max_sessions_per_run", [](ServiceConfig& c) { c.ftp_max_sessions_per_run = -1; }},
+        {"name_service_timeout_ms", [](ServiceConfig& c) { c.name_service_timeout_ms = 0; }},
+        {"auto_save_every_samples", [](ServiceConfig& c) { c.auto_save_every_samples = -1; }},
+        {"auto_save_every_minutes", [](ServiceConfig& c) { c.auto_save_every_minutes = -1; }},
+        {"max_sessions_to_keep", [](ServiceConfig& c) { c.max_sessions_to_keep = -1; }},
+    };
+    for (const auto& [field, change] : cases) {
+        EXPECT_TRUE(mentions(errors_after(change), field)) << field << " wasn't rejected";
+    }
+}
+
+TEST_F(ConfigTest, ValidateAcceptsTheDocumentedZeroes) {
+    // 0 means "off" or "no limit" for these, so it must stay valid.
+    const auto errors = errors_after([](ServiceConfig& c) {
+        c.metrics_max_records_on_disk = 0;
+        c.metrics_retention_days = 0;
+        c.metrics_file_max_mb = 0;
+        c.registry_claim_lease_minutes = 0;
+        c.large_file_warn_threshold_mb = 0;
+        c.ftp_max_sessions_per_run = 0;
+        c.auto_save_every_samples = 0;
+        c.auto_save_every_minutes = 0;
+        c.max_sessions_to_keep = 0;
+        c.gradient_clip = 0.0f;
+        c.weight_decay = 0.0f;
+        c.gradient_clip_warmup_steps = 0;
+        c.generation_quality_sample_size = 0;
+        c.ftp_pasv_port_min = c.ftp_pasv_port_max;  // a one-port range
+        c.gpu_memory_fraction = 1.0f;
+    });
+    EXPECT_TRUE(errors.empty()) << errors.front();
+}
+
+TEST_F(ConfigTest, EveryShippedConfigFilePassesValidation) {
+    // Every binary now refuses to start on a validate() error, so the shipped files must pass.
+    const std::filesystem::path root = std::filesystem::path(__FILE__).parent_path().parent_path();
+    for (const char* name : {"config.chatbot.conf", "config.trainer.conf", "config.metrics.conf",
+                             "config.mns.conf", "config.registry.conf", "config.conf"}) {
+        const auto path = root / name;
+        ASSERT_TRUE(std::filesystem::exists(path)) << path;
+        std::vector<std::string> errors;
+        EXPECT_TRUE(ConfigLoader::validate(ConfigLoader::load(path.string()), errors))
+            << name << ": " << (errors.empty() ? "" : errors.front());
+    }
 }

@@ -285,3 +285,12 @@ the whole value: `PORT=8080x`, `D_MODEL=256abc` and `TEMPERATURE=0.5f` are refus
 still take negatives (`GPU_DEVICE_ID=-1`); range checks are TD-288. Until TD-289, an inline comment after a number
 (`PORT=8080 # note`) is refused too. Tests: `ANumberWithTrailingCharactersLeavesTheDefault`, `ANegativeSizeLeavesTheDefault`,
 `ANonFiniteFloatLeavesTheDefault`, `EnvironmentNumbersAreCheckedTheSameWay`, `WellFormedNumbersStillLoad`.
+
+## Addendum (October 31, 2026): validate() covers every field, at startup (TD-288)
+
+`validate()` now range-checks every field that divides, allocates, binds a port or is a probability: training (learning rate,
+epochs, batch size, accumulation steps, weight decay, clipping and adaptive clipping), hippocampal decay/alpha, GPU fraction and
+device, every metrics/registry/FTP/MNS/trainer-admin port (plus PASV min <= max, admin port != child admin port), and every metrics,
+registry, FTP, MNS and auto-save interval, size and count. A field whose 0 means "off" or "no limit" accepts 0. `validate_or_exit()`
+logs every error and exits 1; `metrics_api_server`, `mns_server`, `registry_server`, `trainer_service` and `incremental_trainer` call
+it after loading their file (`chatbot_api_server`: TD-241). Every shipped `config.*.conf` passes (`EveryShippedConfigFilePassesValidation`).

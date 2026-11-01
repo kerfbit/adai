@@ -168,7 +168,7 @@ TEST_F(SighupTest, TrainerServiceSurvivesSighup) {
             "\nTRAINER_ADMIN_DIR=" + (dir_ / "admin").string() + "\nSESSION_DIR=" +
             (dir_ / "sessions").string() + "\nLOG_FILE_PATH=" + (dir_ / "trainer.log").string() +
             "\nREGISTRY_SERVER_URL=\nNAME_SERVICE_URL=\nMETRICS_SERVER_URL=\nGPU_ENABLED=false\n"
-            "D_MODEL=32\nNUM_HEADS=2\nD_FF=64\nNUM_ENCODER_LAYERS=1\nNUM_DECODER_LAYERS=1\n"
+            "D_MODEL=64\nNUM_HEADS=2\nD_FF=128\nNUM_ENCODER_LAYERS=1\nNUM_DECODER_LAYERS=1\n"
             "MAX_SEQ_LENGTH=16\n");
     spawn(TRAINER_SERVICE_BINARY_PATH, {"--config", cfg.string()});
     expect_survives_sighup(port, "trainer_service");
@@ -188,4 +188,41 @@ TEST(IgnoreSighupTest, AProcessThatCallsItIgnoresSighup) {
     ASSERT_EQ(::waitpid(pid, &status, 0), pid);
     EXPECT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 0)
         << (WIFSIGNALED(status) ? "killed by signal " + std::to_string(WTERMSIG(status)) : "");
+}
+
+// TD-288: every daemon and incremental_trainer run validate() at startup and exit 1 on an invalid
+// value instead of starting with it.
+TEST_F(SighupTest, EveryBinaryRefusesAnInvalidConfigAtStartup) {
+    struct Case {
+        std::string name, binary, file;
+        std::vector<std::string> extra_args;
+    };
+    const std::vector<Case> cases = {
+        {"metrics_api_server", METRICS_API_SERVER_BINARY_PATH, "config.metrics.conf",
+         {"--port", std::to_string(free_port()), "--db-path", (dir_ / "metrics.db").string()}},
+        {"mns_server", MNS_SERVER_BINARY_PATH, "config.mns.conf",
+         {"--port", std::to_string(free_port()), "--data-dir", (dir_ / "mns").string()}},
+        {"registry_server", REGISTRY_SERVER_BINARY_PATH, "config.registry.conf",
+         {"--port", std::to_string(free_port()), "--data-dir", (dir_ / "registry").string()}},
+        {"trainer_service", TRAINER_SERVICE_BINARY_PATH, "config.trainer.conf", {}},
+        {"incremental_trainer", INCREMENTAL_TRAINER_BINARY_PATH, "config.trainer.conf", {"status"}},
+    };
+    for (const auto& c : cases) {
+        // gradient_accumulation_steps = 0 is a divisor in ChatbotTrainer; the old validate() let it through.
+        const auto cfg = write_config(c.file, "LOG_FILE_PATH=" + (dir_ / "log.txt").string() +
+                                                  "\nGRADIENT_ACCUMULATION_STEPS=0\n");
+        std::vector<std::string> args = {"--config", cfg.string()};
+        args.insert(args.end(), c.extra_args.begin(), c.extra_args.end());
+        spawn(c.binary, args);
+        int status = 0;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+        pid_t done = 0;
+        while ((done = ::waitpid(pid_, &status, WNOHANG)) == 0 &&
+               std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        ASSERT_EQ(done, pid_) << c.name << " started with an invalid config";
+        pid_ = -1;
+        EXPECT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 1) << c.name;
+    }
 }

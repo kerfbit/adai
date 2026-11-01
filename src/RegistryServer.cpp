@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.22.0
-// @adai-reviewed: 2026-10-28
+// @adai-version: 0.23.0
+// @adai-reviewed: 2026-10-31
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) draws from a CSPRNG
@@ -2131,6 +2131,7 @@ int main(int argc, char* argv[]) {
     const std::string config_path = adai::ConfigLoader::discover_config_path(
         cli.config_path.value_or(""), "config.registry.conf");
     adai::ServiceConfig file_config = adai::ConfigLoader::load(config_path);
+    adai::ConfigLoader::validate_or_exit(file_config, "registry_server");  // TD-288
 
     int port = 0;
     // Overlay persisted admin overrides on top of the file defaults.

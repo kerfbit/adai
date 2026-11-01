@@ -1361,6 +1361,8 @@ The generation and model math run is complete.
 - TD-286 (done in code: one case-insensitive boolean parser for every file and env key; anything else warns and keeps the default).
 - TD-287 (done in code: numbers must be the whole value, sizes can't be negative, floats must be finite; a rejected value warns and keeps
   the default, in the file and the environment).
+- TD-288 (done in code: range checks for every training, port, interval and size field; five binaries validate at startup and exit 1
+  on an error).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6950,7 +6952,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Config | October 9, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 31, 2026 | Config | October 9, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-283 and confirmed by running the real `validate()`: it accepts
@@ -6962,16 +6964,31 @@ Found alongside TD-283 and confirmed by running the real `validate()`: it accept
 
 Action Items:
 
-- [ ] Add range checks for every numeric field used for division, allocation, ports or probabilities.
-- [ ] Run `validate()` at startup in every binary (TD-241 covers `chatbot_api_server`).
-- [ ] Tests for each new rule.
+- [x] Add range checks for every numeric field used for division, allocation, ports or probabilities.
+- [x] Run `validate()` at startup in every binary (TD-241 covers `chatbot_api_server`).
+- [x] Tests for each new rule.
 
-Location in code: `src/Config.cpp` (`validate()`); tagged `TODO: See TD-288`.
+**Fix (October 31, 2026).** `validate()` now also checks: `learning_rate > 0`, `num_epochs`/`batch_size`/
+`gradient_accumulation_steps >= 1`, `weight_decay`/`gradient_clip >= 0`, every adaptive-clipping field (min > 0, max >= min,
+EMA decay in (0, 1], headroom and spike k > 0, warmup >= 0), `hippocampal_association_decay` in (0, 1],
+`hippocampal_cross_reference_alpha >= 0`, `gpu_memory_fraction` in (0, 1], `gpu_device_id >= 0`, `speculative_num_candidates >= 1`,
+`vocab_build_size >= 0`, every metrics/registry/FTP/MNS/trainer-admin port in 1–65535, `FTP_PASV_PORT_MIN <= MAX`, the trainer's
+admin and child admin ports differing, and every metrics, registry, FTP, MNS and auto-save interval, size and count. Fields whose 0 means
+"off" or "no limit" (retention days, file rotation size, claim lease, auto-save intervals, `MAX_SESSIONS_TO_KEEP`…) accept 0 and refuse
+negatives; the rest need at least 1. A new `ConfigLoader::validate_or_exit()` logs every error and exits 1; `metrics_api_server`,
+`mns_server`, `registry_server`, `trainer_service` and `incremental_trainer` call it right after loading their config file
+(`chatbot_api_server`'s startup call remains TD-241's). CLI flags that override the file are checked by the per-binary items
+(TD-240/TD-438/TD-456/TD-488). Tests: `TheDefaultsPassEveryRule`, `ValidateRejectsEachBadValue` (60 cases, including the TD's three),
+`ValidateAcceptsTheDocumentedZeroes`, `EveryShippedConfigFilePassesValidation`, and `SighupTest.EveryBinaryRefusesAnInvalidConfigAtStartup`
+(each of the five real binaries with `GRADIENT_ACCUMULATION_STEPS=0` exits 1; on the old code `metrics_api_server` started).
+
+Location in code: `src/Config.cpp` (`validate()`); tagged `TD-288`.
 
 Files to Modify:
 
 - `src/Config.cpp`
 - `tests/config_test.cpp`
+- `tests/sighup_test.cpp`, the five binaries' `main()`s
 
 ---
 

@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-28
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-10-31
 
 /**
  * mns_server — Model Name Service daemon
@@ -98,6 +98,7 @@ int main(int argc, char* argv[]) {
     const std::string config_path = adai::ConfigLoader::discover_config_path(
         cli.config_path.value_or(""), "config.mns.conf");
     adai::ServiceConfig file_config = adai::ConfigLoader::load(config_path);
+    adai::ConfigLoader::validate_or_exit(file_config, "mns_server");  // TD-288
 
     // port/data_dir are resolved before the admin-override store even needs a directory to
     // live in — data_dir in particular must be final before create_directories() below.
