@@ -301,3 +301,10 @@ A value ends at an unquoted `#` after a space or tab (`MODEL_PATH=/models/chat #
 a quoted value is taken as written. `TOKENIZER_MODE`, `STRATEGY`, `LOG_LEVEL` (plus `WARNING` → `WARN`), `METRICS_STORAGE_BACKEND` and
 `DATASET_KIND` are matched in any case and stored canonically; an unknown value (`utf8`, `nucleous`, `postgress`…) warns and keeps
 the default, in the file and the environment. This lifts the TD-287 note above: `PORT=8080 # note` reads as 8080 again.
+
+## Addendum (October 31, 2026): output goes through the logger (TD-290)
+
+Load-time messages use `Logger::deferred()`: on the console straight away, and replayed into the log file when the binary's
+`Logger::init()` opens one, so start-up warnings are in the log. `gpu_strategy_from_string()` lives in `Config.cpp` and logs.
+`ConfigLoader::to_string()` lists every setting by key in 16 sections with secrets as `<hidden>`, and `print()` logs it (it wrote a
+partial listing to stdout). `HIPPOCAMPAL_COVERAGE_LOSS_WEIGHT` is reserved: accepted silently until a training loop reads it.

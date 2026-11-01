@@ -1704,3 +1704,44 @@ TEST_F(ConfigTest, ATokenizerModeTypoDoesntSwitchToAscii) {
     ::unsetenv("TOKENIZER_MODE");
     EXPECT_TRUE(unicode);
 }
+
+// ============================================================================
+// TD-290: print() logs every section through the logger, secrets hidden
+// ============================================================================
+
+TEST_F(ConfigTest, ToStringCoversEverySectionAndHidesSecrets) {
+    ServiceConfig config;
+    config.ftp_data_server_secret = "s3cret-value";
+    config.metrics_server_headers = "CF-Access-Client-Secret: abc123";
+    config.metrics_db_url = "postgresql://user:pw@db/metrics";
+    config.registry_server_url = "http://registry:8082";
+    config.world_model_d_model = 768;
+    const std::string text = ConfigLoader::to_string(config);
+    for (const char* heading : {"Server:", "Logging:", "Model architecture:", "Training:", "Checkpointing:",
+                                "Generation:", "RAG:", "GPU:", "Metrics client:", "Metrics daemon:",
+                                "Dataset registry:", "FTP:", "Model Name Service:", "Trainer admin API:",
+                                "World model:", "Hippocampal memory:"}) {
+        EXPECT_NE(text.find(heading), std::string::npos) << heading;
+    }
+    EXPECT_NE(text.find("http://registry:8082"), std::string::npos);
+    EXPECT_NE(text.find("768"), std::string::npos);
+    for (const char* secret : {"s3cret-value", "abc123", "user:pw"}) {
+        EXPECT_EQ(text.find(secret), std::string::npos) << secret << " leaked";
+    }
+    EXPECT_NE(text.find("<hidden>"), std::string::npos);
+}
+
+TEST_F(ConfigTest, PrintGoesThroughTheLoggerNotStdout) {
+    std::ostringstream captured_stdout;
+    std::streambuf* old = std::cout.rdbuf(captured_stdout.rdbuf());
+    LogCapture log;
+    ConfigLoader::print(ServiceConfig{});
+    std::cout.rdbuf(old);
+    EXPECT_TRUE(captured_stdout.str().empty()) << captured_stdout.str();
+    EXPECT_NE(log.out.str().find("TRAINER_ADMIN_PORT"), std::string::npos);
+}
+
+TEST_F(ConfigTest, GpuStrategyIsMatchedInAnyCase) {
+    createConfigFile({{"GPU_STRATEGY", "FULL"}});
+    EXPECT_EQ(ConfigLoader::load(test_file.string()).gpu_strategy, GPUStrategy::FULL);
+}

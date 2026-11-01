@@ -90,3 +90,10 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Unsynchronized lazy `init()` in `get()`: concurrent first use throws `spdlog_ex` from a log call; data race on the static `shared_ptr` (§2) | A logging call can throw or race; re-init during logging is unsafe | **Verified** (3 of 8 threads threw) | [TD-430](../../guides/TECHNICAL_DEBT.md#td-430-logger-lazy-initialization-races-and-can-throw-from-a-log-call) |
 | `trainer_service` and its children (and any `incremental_trainer` run) default to the same `chatbot_server.log`, rotated by two processes (§2) | About 27% less log history than configured; violates LOG_FILE_STANDARDS.md's opt-in rule | **Verified** | [TD-431](../../guides/TECHNICAL_DEBT.md#td-431-trainer-processes-share-one-rotating-log-file-and-ignore-log_level) |
 | `LOG_LEVEL` ignored by the trainer binaries; `init()` drops only the new name; `compress` is a no-op; `Level::ERROR` vs the Windows macro (§2) | Can't raise or lower the trainer's verbosity; minor leaks | By inspection | [TD-431](../../guides/TECHNICAL_DEBT.md#td-431-trainer-processes-share-one-rotating-log-file-and-ignore-log_level), [TD-430](../../guides/TECHNICAL_DEBT.md#td-430-logger-lazy-initialization-races-and-can-throw-from-a-log-call) |
+
+## Addendum (October 31, 2026): `Logger::deferred()` (TD-290)
+
+`deferred(level, message)` is for code that can run before the binary sets up its logger (config loading). Until `init()` is called
+it logs to the lazily created console logger and keeps the message (at most 256); the next `init()` with a log file writes the kept
+messages to that file with their original times, and a console-only `init()` drops them (they were already shown). After `init()`
+it's an ordinary log call. `get()`'s lazy console logger doesn't count as set up.

@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.20.0
+// @adai-version: 1.21.0
 // @adai-reviewed: 2026-10-31
 
 #include "Config.hpp"
@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include "Logger.hpp"
@@ -19,6 +20,13 @@
 // TODO: See TECHNICAL_DEBT.md Future Enhancement (Configuration and Service Management #2) - Configuration Profiles (dev, staging, prod)
 
 namespace adai {
+
+GPUStrategy gpu_strategy_from_string(const std::string& s) {
+    if (s == "full") return GPUStrategy::FULL;
+    if (s == "background") return GPUStrategy::BACKGROUND;
+    Logger::deferred(Logger::Level::WARN, "Unknown GPU_STRATEGY '" + s + "', using 'background'");
+    return GPUStrategy::BACKGROUND;
+}
 
 // ============================================================
 // Helper Functions
@@ -67,8 +75,7 @@ std::optional<int> ConfigLoader::get_env_int(const std::string& var_name) {
         try {
             return parse_int(*value);
         } catch (...) {
-            std::cerr << "Warning: Invalid integer value for " << var_name << ": " << *value
-                      << '\n';
+            Logger::deferred(Logger::Level::WARN, "Invalid integer value for " + var_name + ": " + *value);
         }
     }
     return std::nullopt;
@@ -80,7 +87,7 @@ std::optional<size_t> ConfigLoader::get_env_size_t(const std::string& var_name) 
         try {
             return parse_size(*value);
         } catch (...) {
-            std::cerr << "Warning: Invalid size_t value for " << var_name << ": " << *value << '\n';
+            Logger::deferred(Logger::Level::WARN, "Invalid size_t value for " + var_name + ": " + *value);
         }
     }
     return std::nullopt;
@@ -92,7 +99,7 @@ std::optional<float> ConfigLoader::get_env_float(const std::string& var_name) {
         try {
             return parse_float(*value);
         } catch (...) {
-            std::cerr << "Warning: Invalid float value for " << var_name << ": " << *value << '\n';
+            Logger::deferred(Logger::Level::WARN, "Invalid float value for " + var_name + ": " + *value);
         }
     }
     return std::nullopt;
@@ -122,7 +129,7 @@ std::optional<bool> ConfigLoader::get_env_bool(const std::string& var_name) {
     auto value = get_env(var_name);
     if (value) {
         if (auto b = parse_bool(*value)) return b;
-        std::cerr << "Warning: Invalid boolean value for " << var_name << ": " << *value << '\n';
+        Logger::deferred(Logger::Level::WARN, "Invalid boolean value for " + var_name + ": " + *value);
     }
     return std::nullopt;
 }
@@ -175,6 +182,11 @@ const std::vector<std::string> kLogLevels = {"DEBUG", "INFO", "WARN", "ERROR"};
 const std::vector<std::string> kStorageBackends = {"sqlite+file", "sqlite", "postgres+file", "postgres", "file"};
 const std::vector<std::string> kDatasetKinds = {"", "encoder", "decoder", "world_model", "chatbot"};
 const std::vector<std::string> kTokenizerModes = {"unicode", "ascii"};
+const std::vector<std::string> kGpuStrategies = {"background", "full"};
+
+// TD-290: keys the shipped config files carry for features that don't read them yet.
+// HIPPOCAMPAL_COVERAGE_LOSS_WEIGHT waits for an auxiliary coverage loss in the training loop.
+const std::set<std::string> kReservedKeys = {"HIPPOCAMPAL_COVERAGE_LOSS_WEIGHT"};
 
 // An enum config value in its canonical spelling; LOG_LEVEL also takes WARNING (as Logger does).
 // Throws for anything else, so load_from_file() warns and keeps the previous value.
@@ -194,7 +206,7 @@ std::optional<std::string> env_choice(const std::string& key, const std::optiona
     try {
         return parse_file_choice(key, *value, choices);
     } catch (const std::exception& e) {
-        std::cerr << "Warning: Invalid value for " << key << ": " << *value << " (" << e.what() << ")\n";
+        Logger::deferred(Logger::Level::WARN, "Invalid value for " + key + ": " + *value + " (" + e.what() + ")");
         return std::nullopt;
     }
 }
@@ -204,11 +216,11 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
     std::ifstream file(file_path);
     if (!file.is_open()) {
         // Config file is optional, so just log a warning
-        std::cerr << "Note: Configuration file not found: " << file_path << '\n';
+        Logger::deferred(Logger::Level::INFO, "Configuration file not found: " + file_path);
         return;
     }
 
-    std::cerr << "Loading configuration from: " << file_path << '\n';
+    Logger::deferred(Logger::Level::INFO, "Loading configuration from: " + file_path);
 
     std::string line;
     int line_number = 0;
@@ -225,8 +237,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
         // Parse key=value
         size_t pos = line.find('=');
         if (pos == std::string::npos) {
-            std::cerr << "Warning: Invalid line " << line_number << " in config file: " << line
-                      << '\n';
+            Logger::deferred(Logger::Level::WARN,
+                             "Invalid line " + std::to_string(line_number) + " in config file: " + line);
             continue;
         }
 
@@ -540,19 +552,18 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "GPU_MEMORY_FRACTION") {
                 config.gpu_memory_fraction = parse_float(value);
             } else if (key == "GPU_STRATEGY") {
-                config.gpu_strategy = gpu_strategy_from_string(value);
+                config.gpu_strategy = gpu_strategy_from_string(parse_file_choice(key, value, kGpuStrategies));
             } else if (key == "TOKENIZER_MODE") {
                 config.unicode_tokenizer = parse_file_choice(key, value, kTokenizerModes) == "unicode";  // TD-289
             } else if (key == "VOCAB_BUILD_SIZE") {
                 config.vocab_build_size = parse_int(value);
+            } else if (kReservedKeys.count(key) != 0) {
+                // TD-290: shipped in the config files for a feature that doesn't read it yet; no warning.
             } else {
-                // TODO: See TD-290 in TECHNICAL_DEBT.md - HIPPOCAMPAL_COVERAGE_LOSS_WEIGHT (deliberately unread,
-                // but shipped in config.chatbot/trainer.conf) warns here on every load.
-                std::cerr << "Warning: Unknown configuration key: " << key << '\n';
+                Logger::deferred(Logger::Level::WARN, "Unknown configuration key: " + key);
             }
         } catch (const std::exception& e) {
-            std::cerr << "Warning: Invalid value for " << key << ": " << value << " (" << e.what()
-                      << ")" << '\n';
+            Logger::deferred(Logger::Level::WARN, "Invalid value for " + key + ": " + value + " (" + e.what() + ")");
         }
     }
 }
@@ -843,7 +854,7 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env_float("GPU_MEMORY_FRACTION")) {
         config.gpu_memory_fraction = *val;
     }
-    if (auto val = get_env("GPU_STRATEGY")) {
+    if (auto val = env_choice("GPU_STRATEGY", get_env("GPU_STRATEGY"), kGpuStrategies)) {
         config.gpu_strategy = gpu_strategy_from_string(*val);
     }
     if (auto val = env_choice("TOKENIZER_MODE", get_env("TOKENIZER_MODE"), kTokenizerModes)) {
@@ -1103,60 +1114,10 @@ ServiceConfig ConfigLoader::load(const std::string& config_file_path) {
     return config;
 }
 
-// TODO: See TD-290 in TECHNICAL_DEBT.md - std::cout, and covers only server/architecture/generation/RAG.
+// TD-290: through the logger (it used to be std::cout), and every section of the config.
 void ConfigLoader::print(const ServiceConfig& config) {
-    std::cout << "==================================================" << '\n';
-    std::cout << "         ADAI Chatbot Service Configuration" << '\n';
-    std::cout << "==================================================" << '\n';
-    std::cout << "Server Settings:" << '\n';
-    std::cout << "  Model path:       "
-              << (config.model_path.empty() ? "<new model>" : config.model_path) << '\n';
-    std::cout << "  Vocabulary:       "
-              << (config.vocab_path.empty() ? "<not set>" : config.vocab_path) << '\n';
-    if (!config.draft_model_path.empty()) {
-        std::cout << "  Draft model:      " << config.draft_model_path
-                  << " (speculative decoding, K=" << config.speculative_num_candidates << ")"
-                  << '\n';
-    }
-    std::cout << "  Port:             " << config.port << '\n';
-    std::cout << "  Session timeout:  " << config.session_timeout << " minutes" << '\n';
-    std::cout << "  Log level:        " << config.log_level << '\n';
-    std::cout << "  Log file:         "
-              << (config.log_file_path.empty() ? "<console only>" : config.log_file_path) << '\n';
-    std::cout << "  Session dir:      " << config.session_dir << '\n';
-    if (!config.log_file_path.empty()) {
-        std::cout << "  Log max size:     " << config.log_max_size_mb << " MB" << '\n';
-        std::cout << "  Log max files:    " << config.log_max_files << '\n';
-        std::cout << "  Log compression:  " << (config.log_compress ? "enabled" : "disabled")
-                  << '\n';
-    }
-    std::cout << '\n';
-    std::cout << "Model Architecture:" << '\n';
-    std::cout << "  d_model:          " << config.d_model << '\n';
-    std::cout << "  num_heads:        " << config.num_heads << '\n';
-    std::cout << "  d_ff:             " << config.d_ff << '\n';
-    std::cout << "  encoder_layers:   " << config.num_encoder_layers << '\n';
-    std::cout << "  decoder_layers:   " << config.num_decoder_layers << '\n';
-    std::cout << "  max_seq_length:   " << config.max_seq_length << '\n';
-    std::cout << '\n';
-    std::cout << "Generation Parameters:" << '\n';
-    std::cout << "  max_length:       " << config.max_gen_length << '\n';
-    std::cout << "  temperature:      " << config.temperature << '\n';
-    std::cout << "  top_p:            " << config.top_p << '\n';
-    std::cout << "  top_k:            " << config.top_k << '\n';
-    std::cout << "  beam_width:       " << config.beam_width << '\n';
-    std::cout << "  strategy:         " << config.strategy << '\n';
-    std::cout << '\n';
-    std::cout << "RAG Configuration:" << '\n';
-    std::cout << "  rag_enabled:      " << (config.rag_enabled ? "true" : "false") << '\n';
-    if (config.rag_enabled) {
-        std::cout << "  rag_docs_path:    "
-                  << (config.rag_docs_path.empty() ? "<not set>" : config.rag_docs_path) << '\n';
-        std::cout << "  rag_num_docs:     " << config.rag_num_docs << '\n';
-        std::cout << "  rag_threshold:    " << config.rag_threshold << '\n';
-        std::cout << "  rag_max_context:  " << config.rag_max_context_length << " tokens" << '\n';
-    }
-    std::cout << "==================================================" << '\n';
+    std::istringstream lines(to_string(config));
+    for (std::string line; std::getline(lines, line);) Logger::info("{}", line);
 }
 
 // ============================================================
@@ -1580,6 +1541,190 @@ bool is_secret_key(const std::string& key) {
     return false;
 }
 }  // namespace
+
+std::string ConfigLoader::to_string(const ServiceConfig& c) {
+    std::ostringstream out;
+    auto section = [&](const char* name) { out << name << ":\n"; };
+    auto item = [&](const std::string& key, const std::string& value) {
+        std::string shown = value.empty() ? "<not set>" : value;
+        if (!value.empty() && (is_secret_key(key) || key == "METRICS_DB_URL")) shown = "<hidden>";
+        out << "  " << std::left << std::setw(36) << key << shown << '\n';
+    };
+    auto num = [](auto v) {
+        std::ostringstream s;
+        s << v;
+        return s.str();
+    };
+    auto flag = [](bool b) { return std::string(b ? "true" : "false"); };
+
+    out << "==================================================\n";
+    out << "               ADAI Configuration\n";
+    out << "==================================================\n";
+    section("Server");
+    item("MODEL_PATH", c.model_path);
+    item("VOCAB_PATH", c.vocab_path);
+    item("DRAFT_MODEL_PATH", c.draft_model_path);
+    item("SPECULATIVE_NUM_CANDIDATES", num(c.speculative_num_candidates));
+    item("PORT", num(c.port));
+    item("SESSION_TIMEOUT", num(c.session_timeout) + " minutes");
+    item("MAX_SESSIONS", num(c.max_sessions));
+    item("MAX_BATCH_SIZE", num(c.max_batch_size));
+    item("ALLOW_UNTRAINED_MODEL", flag(c.allow_untrained_model));
+    item("SESSION_DIR", c.session_dir);
+    section("Logging");
+    item("LOG_LEVEL", c.log_level);
+    item("LOG_FILE_PATH", c.log_file_path.empty() ? "<console only>" : c.log_file_path);
+    item("LOG_MAX_SIZE_MB", num(c.log_max_size_mb));
+    item("LOG_MAX_FILES", num(c.log_max_files));
+    item("LOG_COMPRESS", flag(c.log_compress));
+    section("Model architecture");
+    item("D_MODEL", num(c.d_model));
+    item("NUM_HEADS", num(c.num_heads));
+    item("D_FF", num(c.d_ff));
+    item("NUM_ENCODER_LAYERS", num(c.num_encoder_layers));
+    item("NUM_DECODER_LAYERS", num(c.num_decoder_layers));
+    item("MAX_SEQ_LENGTH", num(c.max_seq_length));
+    item("TOKENIZER_MODE", c.unicode_tokenizer ? "unicode" : "ascii");
+    item("VOCAB_BUILD_SIZE", num(c.vocab_build_size));
+    section("Training");
+    item("LEARNING_RATE", num(c.learning_rate));
+    item("NUM_EPOCHS", num(c.num_epochs));
+    item("BATCH_SIZE", num(c.batch_size));
+    item("GRADIENT_ACCUMULATION_STEPS", num(c.gradient_accumulation_steps));
+    item("WEIGHT_DECAY", num(c.weight_decay));
+    item("GRADIENT_CLIP", num(c.gradient_clip));
+    item("GRADIENT_CLIP_ADAPTIVE", flag(c.adaptive_gradient_clip));
+    item("GRADIENT_CLIP_MIN", num(c.gradient_clip_min));
+    item("GRADIENT_CLIP_MAX", num(c.gradient_clip_max));
+    item("GRADIENT_CLIP_EMA_DECAY", num(c.gradient_clip_ema_decay));
+    item("GRADIENT_CLIP_HEADROOM", num(c.gradient_clip_headroom));
+    item("GRADIENT_CLIP_WARMUP_STEPS", num(c.gradient_clip_warmup_steps));
+    item("GRADIENT_CLIP_SPIKE_K", num(c.gradient_clip_spike_k));
+    item("CACHE_TOKENIZED_DATA", flag(c.cache_tokenized_data));
+    item("TOKENIZED_CACHE_DIR", c.tokenized_cache_dir);
+    item("ENABLE_GENERATION_QUALITY_METRICS", flag(c.enable_generation_quality_metrics));
+    item("GENERATION_QUALITY_SAMPLE_SIZE", num(c.generation_quality_sample_size));
+    item("GENERATION_QUALITY_MAX_TOKENS", num(c.generation_quality_max_tokens));
+    item("GENERATION_QUALITY_ASYNC_THRESHOLD", num(c.generation_quality_async_threshold));
+    section("Checkpointing");
+    item("AUTO_SAVE_ENABLED", flag(c.auto_save_enabled));
+    item("AUTO_SAVE_EVERY_SAMPLES", num(c.auto_save_every_samples));
+    item("AUTO_SAVE_EVERY_MINUTES", num(c.auto_save_every_minutes));
+    item("MAX_SESSIONS_TO_KEEP", num(c.max_sessions_to_keep));
+    item("RESUME_FROM_BEST_CHECKPOINT", flag(c.resume_from_best_checkpoint));
+    section("Generation");
+    item("MAX_GEN_LENGTH", num(c.max_gen_length));
+    item("TEMPERATURE", num(c.temperature));
+    item("TOP_P", num(c.top_p));
+    item("TOP_K", num(c.top_k));
+    item("BEAM_WIDTH", num(c.beam_width));
+    item("STRATEGY", c.strategy);
+    section("RAG");
+    item("RAG_ENABLED", flag(c.rag_enabled));
+    item("RAG_DOCS_PATH", c.rag_docs_path);
+    item("RAG_NUM_DOCS", num(c.rag_num_docs));
+    item("RAG_THRESHOLD", num(c.rag_threshold));
+    item("RAG_MAX_CONTEXT_LENGTH", num(c.rag_max_context_length));
+    section("GPU");
+    item("GPU_ENABLED", flag(c.gpu_enabled));
+    item("GPU_DEVICE_ID", num(c.gpu_device_id));
+    item("GPU_MEMORY_FRACTION", num(c.gpu_memory_fraction));
+    item("GPU_STRATEGY", c.gpu_strategy == GPUStrategy::FULL ? "full" : "background");
+    section("Metrics client");
+    item("ENABLE_METRICS_SERVICE", flag(c.enable_metrics_service));
+    item("METRICS_SERVER_URL", c.metrics_server_url);
+    item("METRICS_SERVER_HEADERS", c.metrics_server_headers);
+    item("METRICS_SERVER_CA_FILE", c.metrics_server_ca_file);
+    item("METRICS_PUSH_TIMEOUT_MS", num(c.metrics_push_timeout_ms));
+    item("METRICS_HEARTBEAT_INTERVAL_MS", num(c.metrics_heartbeat_interval_ms));
+    item("METRICS_SESSION_KEY", c.metrics_session_key);
+    item("METRICS_SESSION_LABEL", c.metrics_session_label);
+    section("Metrics daemon");
+    item("METRICS_API_PORT", num(c.metrics_api_port));
+    item("METRICS_API_ALLOW_CONTROL", flag(c.metrics_api_allow_control));
+    item("METRICS_API_CORS_ALLOWED_ORIGINS", c.metrics_api_cors_allowed_origins);
+    item("METRICS_STORAGE_BACKEND", c.metrics_storage_backend);
+    item("METRICS_DB_PATH", c.metrics_db_path);
+    item("METRICS_DB_URL", c.metrics_db_url);
+    item("METRICS_DB_POOL_SIZE", num(c.metrics_db_pool_size));
+    item("METRICS_ENABLE_PERSISTENCE", flag(c.metrics_enable_persistence));
+    item("METRICS_FILE", c.metrics_file);
+    item("METRICS_SUMMARY_FILE", c.metrics_summary_file);
+    item("METRICS_PERSIST_EVERY_SAMPLES", num(c.metrics_persist_every_samples));
+    item("METRICS_PERSIST_EVERY_SECONDS", num(c.metrics_persist_every_seconds));
+    item("METRICS_MAX_RECORDS_IN_MEMORY", num(c.metrics_max_records_in_memory));
+    item("METRICS_MAX_RECORDS_ON_DISK", num(c.metrics_max_records_on_disk));
+    item("METRICS_RETENTION_DAYS", num(c.metrics_retention_days));
+    item("METRICS_FILE_MAX_MB", num(c.metrics_file_max_mb));
+    item("METRICS_FILE_BACKUPS", num(c.metrics_file_backups));
+    item("METRICS_ENABLE_PROMETHEUS", flag(c.metrics_enable_prometheus));
+    item("METRICS_PROMETHEUS_FILE", c.metrics_prometheus_file);
+    item("METRICS_MAX_LIVE_SESSIONS", num(c.metrics_max_live_sessions));
+    item("METRICS_COMPLETED_TTL_SECONDS", num(c.metrics_completed_ttl_seconds));
+    item("METRICS_SWEEP_INTERVAL_SECONDS", num(c.metrics_sweep_interval_seconds));
+    item("METRICS_STALENESS_THRESHOLD_SECONDS", num(c.metrics_staleness_threshold_seconds));
+    section("Dataset registry");
+    item("REGISTRY_SERVER_URL", c.registry_server_url);
+    item("RUN_GROUP", c.run_group);
+    item("RUN_ID", c.run_id);
+    item("DATASET_KIND", c.dataset_kind);
+    item("REGISTRY_TIMEOUT_MS", num(c.registry_timeout_ms));
+    item("REGISTRY_LISTEN_PORT", num(c.registry_listen_port));
+    item("REGISTRY_DATA_DIR", c.registry_data_dir);
+    item("REGISTRY_CLAIM_LEASE_MINUTES", num(c.registry_claim_lease_minutes));
+    item("REGISTRY_MAX_UPLOAD_MB", num(c.registry_max_upload_mb));
+    item("REGISTRY_MAX_CONCURRENT_FETCHES", num(c.registry_max_concurrent_fetches));
+    item("DOWNLOAD_DIR", c.download_dir);
+    item("MAX_PARALLEL_DOWNLOADS", num(c.max_parallel_downloads));
+    item("LARGE_FILE_WARN_THRESHOLD_MB", num(c.large_file_warn_threshold_mb));
+    section("FTP");
+    item("FTP_SERVER_ENABLED", flag(c.ftp_server_enabled));
+    item("FTP_ADVERTISE_IP", c.ftp_advertise_ip);
+    item("FTP_SERVER_PORT", num(c.ftp_server_port));
+    item("FTP_PASV_PORT_MIN", num(c.ftp_pasv_port_min));
+    item("FTP_PASV_PORT_MAX", num(c.ftp_pasv_port_max));
+    item("FTP_TOKEN_TTL_MINUTES", num(c.ftp_token_ttl_minutes));
+    item("FTP_MAX_SESSIONS_PER_RUN", num(c.ftp_max_sessions_per_run));
+    item("FTP_DATA_SERVER_SECRET", c.ftp_data_server_secret);
+    item("FTPS_ENABLED", flag(c.ftps_enabled));
+    item("FTP_CERT_FILE", c.ftp_cert_file);
+    item("FTP_KEY_FILE", c.ftp_key_file);
+    item("FTPS_CA_FILE", c.ftps_ca_file);
+    item("FTPS_PINNED_PUBLIC_KEY", c.ftps_pinned_public_key);
+    section("Model Name Service");
+    item("NAME_SERVICE_URL", c.name_service_url);
+    item("NAME_SERVICE_PORT", num(c.name_service_port));
+    item("NAME_SERVICE_DIR", c.name_service_dir);
+    item("NAME_SERVICE_TIMEOUT_MS", num(c.name_service_timeout_ms));
+    item("MODEL_NAME", c.model_name);
+    item("MODEL_ROLE", c.model_role);
+    section("Trainer admin API");
+    item("TRAINER_ADMIN_ENABLED", flag(c.trainer_admin_enabled));
+    item("TRAINER_ADMIN_HOST", c.trainer_admin_host);
+    item("TRAINER_ADMIN_PORT", num(c.trainer_admin_port));
+    item("TRAINER_ADMIN_DIR", c.trainer_admin_dir);
+    item("TRAINER_CHILD_ADMIN_PORT", num(c.trainer_child_admin_port));
+    section("World model");
+    item("WORLD_MODEL_ENABLED", flag(c.world_model_enabled));
+    item("WORLD_MODEL_ARTIFACT_PATH", c.world_model_artifact_path);
+    item("WORLD_MODEL_D_MODEL", num(c.world_model_d_model));
+    item("WORLD_MODEL_NUM_LAYERS", num(c.world_model_num_layers));
+    item("WORLD_MODEL_NUM_HEADS", num(c.world_model_num_heads));
+    item("WORLD_MODEL_D_FF", num(c.world_model_d_ff));
+    item("WORLD_MODEL_SIGREG_LAMBDA", num(c.world_model_sigreg_lambda));
+    item("WORLD_MODEL_SIGREG_NUM_SKETCHES", num(c.world_model_sigreg_num_sketches));
+    item("WORLD_MODEL_SIGREG_BATCH_SIZE", num(c.world_model_sigreg_batch_size));
+    item("WORLD_MODEL_INJECT_EVERY_N_LAYERS", num(c.world_model_inject_every_n_layers));
+    section("Hippocampal memory");
+    item("HIPPOCAMPAL_MEMORY_ENABLED", flag(c.hippocampal_memory_enabled));
+    item("HIPPOCAMPAL_MEMORY_CAPACITY", num(c.hippocampal_memory_capacity));
+    item("HIPPOCAMPAL_REPETITION_ALPHA", num(c.hippocampal_repetition_alpha));
+    item("HIPPOCAMPAL_REPETITION_DECAY", num(c.hippocampal_repetition_decay));
+    item("HIPPOCAMPAL_CROSS_REFERENCE_ALPHA", num(c.hippocampal_cross_reference_alpha));
+    item("HIPPOCAMPAL_ASSOCIATION_DECAY", num(c.hippocampal_association_decay));
+    out << "==================================================\n";
+    return out.str();
+}
 
 std::vector<std::string> ConfigLoader::changed_file_keys(const ServiceConfig& old_config,
                                                          const ServiceConfig& new_config) {

@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.16.0
+// @adai-version: 1.17.0
 // @adai-reviewed: 2026-10-31
 
 
@@ -28,16 +28,8 @@ enum class GPUStrategy : std::uint8_t {
     FULL,        ///< High-priority stream; maximises training throughput
 };
 
-/// Parse a GPU_STRATEGY string; warns and returns BACKGROUND on unknown input.
-// TODO: See TD-290 in TECHNICAL_DEBT.md - writes to std::cerr from library code.
-inline GPUStrategy gpu_strategy_from_string(const std::string& s) {
-    if (s == "full")
-        return GPUStrategy::FULL;
-    if (s == "background")
-        return GPUStrategy::BACKGROUND;
-    std::cerr << "Warning: unknown GPU_STRATEGY '" << s << "', using 'background'\n";
-    return GPUStrategy::BACKGROUND;
-}
+/// Parse a GPU_STRATEGY string; logs a warning and returns BACKGROUND on unknown input.
+GPUStrategy gpu_strategy_from_string(const std::string& s);
 
 /**
  * @brief Configuration for the ADAI chatbot service.
@@ -753,11 +745,18 @@ class ConfigLoader {
                                              const std::string& service_filename);
 
     /**
-     * @brief Print the current configuration to stdout.
+     * @brief Log to_string(config) through adai::Logger, one line per setting (TD-290; it used
+     * to write a partial listing to stdout).
      *
      * @param config The configuration to print
      */
     static void print(const ServiceConfig& config);
+
+    /**
+     * @brief TD-290: every setting, one "KEY value" line each, grouped by section. Secret values
+     * (keys containing SECRET/PASSWORD/TOKEN/HEADERS/CREDENTIAL, and METRICS_DB_URL) show as <hidden>.
+     */
+    static std::string to_string(const ServiceConfig& config);
 
     /**
      * @brief Reload configuration from file with validation.

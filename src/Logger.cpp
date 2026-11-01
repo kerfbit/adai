@@ -1,13 +1,15 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-31
 
 #include "Logger.hpp"
 #include <spdlog/pattern_formatter.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <iostream>
+#include <mutex>
 #include <vector>
 
 // File rotation implemented - see LOG_FILE_ROTATION_COMPLETE.md
@@ -19,6 +21,52 @@ namespace adai {
 
 // Static member initialization
 std::shared_ptr<spdlog::logger> Logger::logger_ = nullptr;
+bool Logger::configured_ = false;
+
+namespace {
+// TD-290: messages logged through deferred() before the binary's own init().
+struct DeferredMessage {
+    spdlog::log_clock::time_point time;
+    spdlog::level::level_enum level;
+    std::string text;
+};
+std::mutex deferred_mutex;
+std::vector<DeferredMessage> deferred_messages;
+constexpr size_t kMaxDeferredMessages = 256;
+
+spdlog::level::level_enum to_spdlog(Logger::Level level) {
+    switch (level) {
+        case Logger::Level::DEBUG: return spdlog::level::debug;
+        case Logger::Level::INFO: return spdlog::level::info;
+        case Logger::Level::WARN: return spdlog::level::warn;
+        case Logger::Level::ERROR: return spdlog::level::err;
+    }
+    return spdlog::level::info;
+}
+}  // namespace
+
+void Logger::deferred(Level level, const std::string& message) {
+    const bool configured = configured_;
+    get()->log(to_spdlog(level), "{}", message);
+    if (configured) return;
+    std::lock_guard<std::mutex> lock(deferred_mutex);
+    if (deferred_messages.size() < kMaxDeferredMessages) {
+        deferred_messages.push_back({spdlog::log_clock::now(), to_spdlog(level), message});
+    }
+}
+
+void Logger::replay_deferred_to_file(const spdlog::sink_ptr& file_sink) {
+    std::lock_guard<std::mutex> lock(deferred_mutex);
+    if (file_sink) {
+        for (const auto& m : deferred_messages) {
+            spdlog::details::log_msg msg(spdlog::source_loc{}, "adai", m.level, m.text);
+            msg.time = m.time;
+            file_sink->log(msg);
+        }
+        file_sink->flush();
+    }
+    deferred_messages.clear();
+}
 
 void Logger::init(Level level, const std::string& name) {
     // TODO: See TD-430 in TECHNICAL_DEBT.md - drops only the NEW name; re-init while other threads log is unsafe
@@ -46,6 +94,9 @@ void Logger::init(Level level, const std::string& name) {
 
     // Flush on every message (important for containerized environments)
     logger_->flush_on(spdlog::level::info);
+
+    configured_ = true;
+    replay_deferred_to_file(nullptr);  // TD-290: already on the console, and there's no file
 }
 
 void Logger::init(Level level, const FileConfig& file_config, const std::string& name) {
@@ -89,8 +140,12 @@ void Logger::init(Level level, const FileConfig& file_config, const std::string&
         }
     }
 
+    // TD-290: start-up messages logged before this init() reach the file (they were on the console).
+    replay_deferred_to_file(sinks.size() > 1 ? sinks.back() : nullptr);
+
     // Create logger with all configured sinks
     logger_ = std::make_shared<spdlog::logger>(name, sinks.begin(), sinks.end());
+    configured_ = true;
     spdlog::register_logger(logger_);
 
     // Set default level
@@ -164,6 +219,7 @@ void Logger::set_level(Level level) {
 std::shared_ptr<spdlog::logger> Logger::get() {
     if (!logger_) {
         init(Level::INFO);
+        configured_ = false;  // a lazy console logger; the binary hasn't set its own up yet
     }
     return logger_;
 }

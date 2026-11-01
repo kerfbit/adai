@@ -1365,6 +1365,8 @@ The generation and model math run is complete.
   on an error).
 - TD-289 (done in code: an unquoted ` #` starts a comment; five enum keys matched in any case, anything else warns and keeps the
   default).
+- TD-290 (done in code: start-up config messages replayed into the log file, a full `to_string()`/`print()` with secrets hidden,
+  the reserved coverage-loss key accepted quietly).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -7035,7 +7037,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Config | October 9, 2026 | 1-2 hours |
+| LOW | Open — code fix landed October 31, 2026 | Config | October 9, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-283:
@@ -7049,17 +7051,32 @@ Found alongside TD-283:
 
 Action Items:
 
-- [ ] Buffer pre-logger messages and replay them through `adai::Logger` once initialised.
-- [ ] Extend `print()` (or a `to_string()` used by every binary) to all sections, still redacting secrets.
-- [ ] Accept reserved keys silently (or remove the key from the shipped files).
+- [x] Buffer pre-logger messages and replay them through `adai::Logger` once initialised.
+- [x] Extend `print()` (or a `to_string()` used by every binary) to all sections, still redacting secrets.
+- [x] Accept reserved keys silently (or remove the key from the shipped files).
 
-Location in code: `src/Config.{hpp,cpp}`; tagged `TODO: See TD-290`.
+**Fix (October 31, 2026).** Every load-time message in `Config.cpp` (file not found, loading from, invalid line/value, unknown key,
+bad environment values, unknown `GPU_STRATEGY`) now goes through a new `Logger::deferred()`. Before the binary calls `Logger::init()`
+it prints to the console as before and keeps the message (at most 256); the next `init()` with a log file writes them to that file
+with their original times, so start-up warnings are in the log, not only on a terminal nobody watches. After `init()` it's an
+ordinary log call. `gpu_strategy_from_string()` moved out of the header into `Config.cpp` and logs instead of writing to `std::cerr`;
+`GPU_STRATEGY` is matched in any case like the TD-289 enums. A new `ConfigLoader::to_string()` lists every setting by its config key,
+grouped into 16 sections (server, logging, architecture, training, checkpointing, generation, RAG, GPU, metrics client and daemon,
+dataset registry, FTP, MNS, trainer admin, world model, hippocampal memory), with secret values (`SECRET`/`PASSWORD`/`TOKEN`/`HEADERS`/
+`CREDENTIAL` keys and `METRICS_DB_URL`) shown as `<hidden>`; `print()` logs it through `Logger` (it wrote a four-section listing to
+`std::cout`). `chatbot_api_server` is still the only caller; the daemons log their own resolved settings, which include CLI overrides.
+`HIPPOCAMPAL_COVERAGE_LOSS_WEIGHT` is a reserved key, accepted without a warning, and stays in the shipped files. Tests:
+`ConfigStartupLogTests` (its own binary, since it needs a logger nobody has set up: a load warning before `init()` reaches the log
+file, before the logger's own lines, and the reserved key isn't mentioned; fails on the old code), `ToStringCoversEverySectionAndHidesSecrets`,
+`PrintGoesThroughTheLoggerNotStdout`, `GpuStrategyIsMatchedInAnyCase`.
+
+Location in code: `src/Config.{hpp,cpp}`; tagged `TD-290`.
 
 Files to Modify:
 
 - `src/Config.{hpp,cpp}`
-- `config.chatbot.conf`
-- `config.trainer.conf`
+- `src/Logger.{hpp,cpp}`
+- `tests/config_test.cpp`, `tests/config_startup_log_test.cpp`
 ---
 
 ### TD-291: Conversation Imports Can Lift Session Limits and Budgets

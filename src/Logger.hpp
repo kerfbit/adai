@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-10-31
 
 
 #include <spdlog/sinks/basic_file_sink.h>
@@ -76,6 +76,16 @@ class Logger {
     static void set_level(Level level);
 
     /**
+     * @brief TD-290: log a message that may come before the binary has set up its logger.
+     *
+     * Once init() has been called it's an ordinary log call. Before that (config loading, for
+     * instance) the message goes to the console now and is kept, and the next init() with a log
+     * file writes it to that file with its original time, so start-up warnings reach the log.
+     * At most 256 messages are kept.
+     */
+    static void deferred(Level level, const std::string& message);
+
+    /**
      * @brief Get the spdlog logger instance
      *
      * @return Shared pointer to spdlog logger
@@ -131,7 +141,10 @@ class Logger {
     }
 
    private:
+    static void replay_deferred_to_file(const spdlog::sink_ptr& file_sink);
+
     static std::shared_ptr<spdlog::logger> logger_;
+    static bool configured_;  // init() was called by the binary, not lazily by get()
 };
 
 }  // namespace adai

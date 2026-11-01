@@ -304,6 +304,11 @@ target_link_libraries(configTests
 )
 add_test(NAME ConfigTests COMMAND configTests)
 
+# TD-290: start-up config messages reach the log file (its own binary: needs a logger nobody has set up)
+add_executable(configStartupLogTests config_startup_log_test.cpp ../src/Config.cpp ../src/Logger.cpp)
+target_link_libraries(configStartupLogTests spdlog::spdlog GTest::gtest_main)
+add_test(NAME ConfigStartupLogTests COMMAND configStartupLogTests)
+
 # Logger tests (Structured logging, file rotation, level filtering)
 add_executable(loggerTests 
     logger_test.cpp
