@@ -261,3 +261,11 @@ passed) and `resolve_registry_server_config()` returns them in `RegistryServerEf
 a CLI override of a file value, the old placeholder secret `change-me-in-production` (ignored, since a known HMAC key would let
 anyone compute token passwords; `ServiceConfig::ftp_data_server_secret` now defaults to empty), and FTP without FTPS on a
 non-loopback advertise address. Tests: four `ResolveRegistryServerConfigTest` cases, updated parse tests.
+
+## Addendum (October 31, 2026): reload applies and reports every change (TD-285)
+
+`load_from_file()` records the file's `KEY=VALUE` pairs in `ServiceConfig::file_values`. `reload()` always applies a config that passes
+validation and logs `detect_changes()`, which for file-loaded configs lists every added, changed or removed key (secret-looking values
+as `<hidden>`); `changed_file_keys()` returns just the keys. An optional `live_keys` set makes `reload()` warn for every changed key the
+caller doesn't apply live. Tests: `ReloadAppliesAndLogsAChangeToAnyKey`, `ReloadReportsAddedRemovedAndHidesSecrets`,
+`ReloadNamesChangesTheBinaryAppliesOnlyAfterARestart`.

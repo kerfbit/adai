@@ -235,3 +235,9 @@ environment), in which case it warns and continues. It passes the result to `Cha
 
 The RAG `DocumentStore` embeds with `model->copy_encoder()`: the trained weights and the model's tokenizer. It used to get a fresh
 `LLMEncoder` with random weights and `VOCAB_PATH`. Without a trained model (`ALLOW_UNTRAINED_MODEL`), RAG isn't enabled.
+
+## Addendum (October 31, 2026): reload reports unapplied changes (TD-285, TD-251)
+
+On `SIGHUP` the server passes its live keys (`LOG_LEVEL`, `MAX_LENGTH`/`MAX_GEN_LENGTH`, `TEMPERATURE`, `TOP_P`, `STRATEGY`) to
+`ConfigLoader::reload()`, which logs every changed key and warns for any other as taking effect only after a restart. The old
+port-only warning is gone. Applying more settings live and keeping the MNS-resolved fields remain under TD-251.

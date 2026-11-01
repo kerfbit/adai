@@ -1,9 +1,14 @@
 #include "../src/Config.hpp"
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <set>
+#include <sstream>
+#include <spdlog/sinks/ostream_sink.h>
+#include "../src/Logger.hpp"
 #include <thread>
 
 using namespace adai;
@@ -760,6 +765,65 @@ TEST_F(ConfigTest, ReloadInvalidConfiguration) {
 
     EXPECT_FALSE(success);
     EXPECT_EQ(config.port, 8080);  // Should keep old value
+}
+
+// TD-285: reload() applied the new config only when one of ~25 hand-picked fields changed, so a
+// reload changing only other keys reported success and kept the old values.
+namespace {
+struct LogCapture {
+    std::ostringstream out;
+    std::shared_ptr<spdlog::sinks::ostream_sink_mt> sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(out);
+    LogCapture() { adai::Logger::get()->sinks().push_back(sink); }
+    ~LogCapture() {
+        auto& sinks = adai::Logger::get()->sinks();
+        sinks.erase(std::remove(sinks.begin(), sinks.end(), sink), sinks.end());
+    }
+};
+}  // namespace
+
+TEST_F(ConfigTest, ReloadAppliesAndLogsAChangeToAnyKey) {
+    createConfigFile({{"METRICS_SERVER_URL", "http://a:8081"}, {"AUTO_SAVE_EVERY_MINUTES", "10"}});
+    ServiceConfig config = ConfigLoader::load(test_file.string());
+    std::mutex config_mutex;
+    createConfigFile({{"METRICS_SERVER_URL", "http://b:8081"}, {"AUTO_SAVE_EVERY_MINUTES", "25"}});
+
+    LogCapture log;
+    EXPECT_TRUE(ConfigLoader::reload(config, test_file.string(), config_mutex));
+    EXPECT_EQ(config.metrics_server_url, "http://b:8081");
+    EXPECT_EQ(config.auto_save_every_minutes, 25);
+    EXPECT_NE(log.out.str().find("METRICS_SERVER_URL: 'http://a:8081' -> 'http://b:8081'"), std::string::npos)
+        << log.out.str();
+    EXPECT_NE(log.out.str().find("AUTO_SAVE_EVERY_MINUTES: '10' -> '25'"), std::string::npos);
+}
+
+TEST_F(ConfigTest, ReloadReportsAddedRemovedAndHidesSecrets) {
+    createConfigFile({{"PORT", "8080"}, {"FTP_DATA_SERVER_SECRET", "old-secret"}, {"RAG_NUM_DOCS", "3"}});
+    const ServiceConfig before = ConfigLoader::load(test_file.string());
+    createConfigFile({{"PORT", "8080"}, {"FTP_DATA_SERVER_SECRET", "new-secret"}, {"TOP_P", "0.8"}});
+    const ServiceConfig after = ConfigLoader::load(test_file.string());
+
+    const auto changes = ConfigLoader::detect_changes(before, after);
+    std::string all;
+    for (const auto& c : changes) all += c + "\n";
+    EXPECT_NE(all.find("FTP_DATA_SERVER_SECRET: <hidden> -> <hidden>"), std::string::npos) << all;
+    EXPECT_EQ(all.find("secret'"), std::string::npos) << "a secret value was logged: " << all;
+    EXPECT_NE(all.find("TOP_P: added ('0.8')"), std::string::npos) << all;
+    EXPECT_NE(all.find("RAG_NUM_DOCS: removed (was '3')"), std::string::npos) << all;
+    EXPECT_EQ(all.find("PORT"), std::string::npos) << "an unchanged key was reported";
+}
+
+TEST_F(ConfigTest, ReloadNamesChangesTheBinaryAppliesOnlyAfterARestart) {
+    createConfigFile({{"PORT", "8080"}, {"TEMPERATURE", "0.7"}});
+    ServiceConfig config = ConfigLoader::load(test_file.string());
+    std::mutex config_mutex;
+    createConfigFile({{"PORT", "9090"}, {"TEMPERATURE", "0.9"}});
+
+    const std::set<std::string> live = {"TEMPERATURE"};
+    LogCapture log;
+    EXPECT_TRUE(ConfigLoader::reload(config, test_file.string(), config_mutex, &live));
+    EXPECT_NE(log.out.str().find("PORT changed but takes effect only after a restart"), std::string::npos)
+        << log.out.str();
+    EXPECT_EQ(log.out.str().find("TEMPERATURE changed but"), std::string::npos);
 }
 
 TEST_F(ConfigTest, ReloadThreadSafety) {

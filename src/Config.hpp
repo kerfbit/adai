@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.14.0
+// @adai-version: 1.15.0
 // @adai-reviewed: 2026-10-31
 
 
@@ -10,6 +10,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -708,6 +709,11 @@ struct ServiceConfig {
     /// Config key: VOCAB_BUILD_SIZE = <int>   (0 = auto)
     /// Env var:    VOCAB_BUILD_SIZE=<int>
     int vocab_build_size = 0;
+
+    /// TD-285: every KEY=VALUE the config file held when this config was loaded (values as parsed,
+    /// quotes stripped). reload() diffs these to report every changed key; detect_changes() used to
+    /// compare only ~25 hand-picked fields.
+    std::map<std::string, std::string> file_values;
 };
 
 /**
@@ -759,16 +765,19 @@ class ConfigLoader {
      * This method is thread-safe and validates the new configuration
      * before applying it. If validation fails, the current config remains unchanged.
      *
-     * TODO: See TD-285 in TECHNICAL_DEBT.md - also unchanged (but returns true) when only fields
-     * outside detect_changes()'s ~25-field list changed.
+     * TD-285: a valid new config is always applied, and every changed file key is logged (secret
+     * values masked). It used to be applied only when one of ~25 hand-picked fields changed, so a
+     * reload that changed only other keys reported success and kept the old values.
      *
      * @param config Current configuration to update
      * @param config_file_path Path to the configuration file
      * @param mutex Mutex to protect the config during update
+     * @param live_keys The keys the calling binary applies after a reload; when given, every other
+     *        changed key is logged as needing a restart (TD-285, TD-251)
      * @return true if reload succeeded, false if validation failed
      */
     static bool reload(ServiceConfig& config, const std::string& config_file_path,
-                       std::mutex& mutex);
+                       std::mutex& mutex, const std::set<std::string>* live_keys = nullptr);
 
     /**
      * @brief Validate configuration parameters.
@@ -782,12 +791,19 @@ class ConfigLoader {
     /**
      * @brief Detect and log configuration changes.
      *
+     * TD-285: when both configs came from files, every added, changed or removed key (values of
+     * keys that look secret are masked); otherwise the old hand-picked field comparison.
+     *
      * @param old_config Previous configuration
      * @param new_config New configuration
      * @return Vector of change descriptions
      */
     static std::vector<std::string> detect_changes(const ServiceConfig& old_config,
                                                    const ServiceConfig& new_config);
+
+    /// TD-285: the file keys whose values differ between the two configs (added and removed too).
+    static std::vector<std::string> changed_file_keys(const ServiceConfig& old_config,
+                                                      const ServiceConfig& new_config);
 
    private:
     /**

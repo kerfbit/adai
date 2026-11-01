@@ -1356,6 +1356,8 @@ The generation and model math run is complete.
 - TD-283 (done in code: the five non-reloading binaries ignore `SIGHUP` and log that a restart is needed; it used to kill them).
 - TD-284 (done in code: `registry_server` reads its FTP/FTPS keys from the file, CLI overriding with a warning; the placeholder
   secret is ignored; plaintext FTP on a network address warns).
+- TD-285 (done in code: reload always applies a valid config and logs every changed file key, secrets hidden, plus a restart warning
+  for keys the binary doesn't apply live; TD-251's logging item with it).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5716,7 +5718,7 @@ and architecture (unused after startup, but wrong). Found by reading the code.
 
 Action Items:
 
-- [ ] After reload, diff old vs. new config and log every changed key that wasn't applied ("requires restart").
+- [x] After reload, diff old vs. new config and log every changed key that wasn't applied ("requires restart"). (Done with TD-285, October 31, 2026.)
 - [ ] Apply what can be applied live (e.g. session timeout, via a `ChatbotAPI` setter).
 - [ ] Keep MNS-resolved fields when replacing `config`.
 
@@ -6830,7 +6832,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Config | October 9, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed October 31, 2026 | Config | October 9, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-283 and confirmed by running the real loader. `reload()` returns `true`
@@ -6843,11 +6845,22 @@ whole new config (untracked fields included) is applied, but only tracked change
 
 Action Items:
 
-- [ ] Always apply the validated new config (or compare every field, ideally via a generated field list) and log every change.
-- [ ] Separately report which changed keys the calling binary can't apply live (pairs with TD-251).
-- [ ] Test: an untracked-only change is applied and logged.
+- [x] Always apply the validated new config (or compare every field, ideally via a generated field list) and log every change.
+- [x] Separately report which changed keys the calling binary can't apply live (pairs with TD-251).
+- [x] Test: an untracked-only change is applied and logged.
 
-Location in code: `src/Config.cpp` (`reload()`, `detect_changes()`); tagged `TODO: See TD-285`.
+**Fix (October 31, 2026).** `reload()` always applies a config that passes validation. Every config loaded from a file now records the
+file's `KEY=VALUE` pairs (`ServiceConfig::file_values`), and `detect_changes()` compares those, reporting every added, changed or removed
+key (values of keys containing `SECRET`, `PASSWORD`, `TOKEN`, `HEADERS` or `CREDENTIAL` shown as `<hidden>`); configs not read from a
+file still get the old field comparison. `reload()` takes an optional set of the keys the calling binary applies live and warns
+"`KEY` changed but takes effect only after a restart" for every other changed key; `chatbot_api_server` passes its six (`LOG_LEVEL`,
+`MAX_LENGTH`/`MAX_GEN_LENGTH`, `TEMPERATURE`, `TOP_P`, `STRATEGY`), replacing its port-only warning (TD-251's logging item). Tests:
+`ReloadAppliesAndLogsAChangeToAnyKey` (`METRICS_SERVER_URL` and `AUTO_SAVE_EVERY_MINUTES`; the old loader kept both old values),
+`ReloadReportsAddedRemovedAndHidesSecrets`, `ReloadNamesChangesTheBinaryAppliesOnlyAfterARestart`. Checked on the real
+`chatbot_api_server`: changing `TEMPERATURE` and `SESSION_TIMEOUT` and sending `SIGHUP` logged both changes and the restart warning for
+`SESSION_TIMEOUT` only.
+
+Location in code: `src/Config.cpp` (`reload()`, `detect_changes()`); tagged `TD-285`.
 
 Files to Modify:
 

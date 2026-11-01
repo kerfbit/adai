@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.15.0
+// @adai-version: 1.16.0
 // @adai-reviewed: 2026-10-31
 
 #include "Config.hpp"
@@ -136,6 +136,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                                   (value.front() == '\'' && value.back() == '\''))) {
             value = value.substr(1, value.size() - 2);
         }
+
+        config.file_values[key] = value;  // TD-285: what reload() diffs
 
         // Map configuration keys to struct fields
         try {
@@ -1111,7 +1113,7 @@ void ConfigLoader::print(const ServiceConfig& config) {
 // ============================================================
 
 bool ConfigLoader::reload(ServiceConfig& config, const std::string& config_file_path,
-                          std::mutex& mutex) {
+                          std::mutex& mutex, const std::set<std::string>* live_keys) {
     // Get timestamp for logging
     auto now = std::chrono::system_clock::now();
     auto time_t = std::chrono::system_clock::to_time_t(now);
@@ -1146,32 +1148,33 @@ bool ConfigLoader::reload(ServiceConfig& config, const std::string& config_file_
 
     Logger::info("Configuration validation passed");
 
-    // Detect changes before applying new config
-    std::vector<std::string> changes = detect_changes(config, new_config);
-
-    // TODO: See TD-285 in TECHNICAL_DEBT.md - detect_changes() compares only ~25 of ~110 fields, so a reload
-    // where only untracked keys changed returns success here without applying anything.
-    if (changes.empty()) {
-        Logger::info("No configuration changes detected");
-        Logger::info("==================================================");
-        return true;
-    }
-
-    // Apply the new configuration with thread safety
+    // TD-285: the valid new config is always applied. It used to be applied only when one of the
+    // ~25 fields detect_changes() compared had changed, so a reload that changed only other keys
+    // (METRICS_SERVER_URL, AUTO_SAVE_*, RAG, GPU, MNS...) reported success and kept the old values.
+    std::vector<std::string> changes;
+    std::vector<std::string> restart_keys;
     {
         std::lock_guard<std::mutex> lock(mutex);
-
-        // Copy the old config for comparison
-        ServiceConfig old_config = config;
-
-        // Apply new configuration
+        changes = detect_changes(config, new_config);
+        if (live_keys) {
+            for (const auto& key : changed_file_keys(config, new_config)) {
+                if (live_keys->count(key) == 0) restart_keys.push_back(key);
+            }
+        }
         config = new_config;
+    }
 
-        Logger::info("Configuration updated successfully");
-        Logger::info("Changes applied:");
+    if (changes.empty()) {
+        Logger::info("No configuration changes detected");
+    } else {
+        Logger::info("Configuration updated; changes:");
         for (const auto& change : changes) {
             Logger::info("  {}", change);
         }
+    }
+    // TD-285/TD-251: changes this binary doesn't apply until it restarts.
+    for (const auto& key : restart_keys) {
+        Logger::warn("  {} changed but takes effect only after a restart", key);
     }
 
     Logger::info("==================================================");
@@ -1415,9 +1418,53 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
     return valid;
 }
 
+namespace {
+// TD-285: keys whose values shouldn't appear in a log.
+bool is_secret_key(const std::string& key) {
+    for (const char* marker : {"SECRET", "PASSWORD", "TOKEN", "HEADERS", "CREDENTIAL"}) {
+        if (key.find(marker) != std::string::npos) return true;
+    }
+    return false;
+}
+}  // namespace
+
+std::vector<std::string> ConfigLoader::changed_file_keys(const ServiceConfig& old_config,
+                                                         const ServiceConfig& new_config) {
+    std::vector<std::string> keys;
+    for (const auto& [key, value] : new_config.file_values) {
+        auto it = old_config.file_values.find(key);
+        if (it == old_config.file_values.end() || it->second != value) keys.push_back(key);
+    }
+    for (const auto& [key, value] : old_config.file_values) {
+        if (new_config.file_values.count(key) == 0) keys.push_back(key);
+    }
+    std::sort(keys.begin(), keys.end());
+    return keys;
+}
+
 std::vector<std::string> ConfigLoader::detect_changes(const ServiceConfig& old_config,
                                                       const ServiceConfig& new_config) {
     std::vector<std::string> changes;
+
+    // TD-285: configs read from files are compared key by key, so every change is reported.
+    if (!old_config.file_values.empty() || !new_config.file_values.empty()) {
+        for (const auto& key : changed_file_keys(old_config, new_config)) {
+            auto before = old_config.file_values.find(key);
+            auto after = new_config.file_values.find(key);
+            const bool secret = is_secret_key(key);
+            auto show = [secret](const std::string& v) { return secret ? std::string("<hidden>") : "'" + v + "'"; };
+            if (before == old_config.file_values.end()) {
+                changes.push_back(key + ": added (" + show(after->second) + ")");
+            } else if (after == new_config.file_values.end()) {
+                changes.push_back(key + ": removed (was " + show(before->second) + ")");
+            } else {
+                changes.push_back(key + ": " + show(before->second) + " -> " + show(after->second));
+            }
+        }
+        return changes;
+    }
+
+    // Configs not loaded from a file: compare the fields below.
 
     // Server configuration changes
     if (old_config.model_path != new_config.model_path) {

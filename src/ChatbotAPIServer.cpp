@@ -1,9 +1,10 @@
 // @adai-status: stable
-// @adai-version: 2.4.0
-// @adai-reviewed: 2026-10-28
+// @adai-version: 2.5.0
+// @adai-reviewed: 2026-10-31
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
 #include <algorithm>
+#include <set>
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -732,7 +733,6 @@ int main(int argc, char* argv[]) {
         // ================================================================
 
         // Store original port for comparison
-        int original_port = config.port;
 
         while (!shutdown_requested.load() && !server_error) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -744,7 +744,11 @@ int main(int argc, char* argv[]) {
                 // Reload configuration
                 // TODO: See TD-242 in TECHNICAL_DEBT.md - reload() re-reads file + env only, so CLI generation
                 // overrides (--temperature etc.) are lost here.
-                if (adai::ConfigLoader::reload(config, stored_config_path, config_mutex)) {
+                // TD-285/TD-251: the keys applied below; reload() logs any other changed key as
+                // needing a restart.
+                static const std::set<std::string> kLiveKeys = {
+                    "LOG_LEVEL", "MAX_LENGTH", "MAX_GEN_LENGTH", "TEMPERATURE", "TOP_P", "STRATEGY"};
+                if (adai::ConfigLoader::reload(config, stored_config_path, config_mutex, &kLiveKeys)) {
                     // Update logger level if changed
                     {
                         std::lock_guard<std::mutex> lock(config_mutex);
@@ -765,19 +769,10 @@ int main(int argc, char* argv[]) {
 
                     adai::Logger::info("Generation configuration updated");
 
-                    // Note: Some changes like port, model architecture cannot be applied
-                    // without service restart. These are validated but logged as warnings.
-                    // TODO: See TD-251 in TECHNICAL_DEBT.md - only the port gets a warning; every other unapplied
-                    // change (session timeout, RAG, model, GPU...) is dropped silently.
-                    {
-                        std::lock_guard<std::mutex> lock(config_mutex);
-                        if (config.port != original_port) {
-                            adai::Logger::warn(
-                                "Note: Port change ({} -> {}) requires service restart to take "
-                                "effect",
-                                original_port, config.port);
-                        }
-                    }
+                    // Every other changed key (port, model, RAG, GPU, session timeout...) is logged by
+                    // reload() as needing a restart (TD-285).
+                    // TODO: See TD-251 in TECHNICAL_DEBT.md - settings that could be applied live (session
+                    // timeout...) aren't, and replacing `config` drops the MNS-resolved architecture/model path.
                 } else {
                     adai::Logger::error(
                         "Configuration reload failed - continuing with current configuration");
