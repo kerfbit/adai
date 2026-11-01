@@ -1382,6 +1382,8 @@ The generation and model math run is complete.
   global flag missing its value is an error; exit 1 instead of aborting).
 - TD-489 (done in code: `registry_server` warns about FTP flags passed with FTP disabled, reads a new `REGISTRY_ADMIN_ENABLED` key,
   and honours `--help` anywhere).
+- TD-448 (done in code: `mns_cli` rejects unknown options, valueless flags, stray arguments and malformed numbers, and no longer
+  aborts; `set-training --new_run` no longer becomes the session key).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -12775,7 +12777,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | MNS / CLI | October 14, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 1, 2026 | MNS / CLI | October 14, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `MnsCliCommands` and verified (scratch program against the builders, and the real `mns_cli`):
@@ -12793,12 +12795,23 @@ Found while tracing `MnsCliCommands` and verified (scratch program against the b
 
 Action Items:
 
-- [ ] Reject unknown flags and flags missing their value with a usage error in every builder.
-- [ ] `set-training`: accept at most one positional session key and reject `-`-prefixed unknowns.
-- [ ] Parse numbers with a checked helper (whole string, positive, in range), returning `make_error()`; catch any remaining exception in `main()` with exit 2.
-- [ ] Tests for misspelled flags, stray `set-training` arguments, malformed/negative numbers.
+- [x] Reject unknown flags and flags missing their value with a usage error in every builder.
+- [x] `set-training`: accept at most one positional session key and reject `-`-prefixed unknowns.
+- [x] Parse numbers with a checked helper (whole string, positive, in range), returning `make_error()`; catch any remaining exception in `main()` with exit 2.
+- [x] Tests for misspelled flags, stray `set-training` arguments, malformed/negative numbers.
 
-Location in code: `src/MnsCliCommands.cpp` (every builder's flag loop, `build_set_training_request()`); `src/MnsCliTool.cpp` (`main()`); tagged `TODO: See TD-448`.
+**Fix (November 1, 2026):** the builders with options (`list`, `register`, `link-world-model`,
+`set-training`, `set-candidate`) read them through one `parse_options()` helper in `MnsCliCommands.cpp`: an
+unknown option, a value flag with no value (last, or followed by another `--` flag), a stray positional and a
+`--tag`/`--summary` without `key=value` are usage errors. Counts use the shared `parse_strict_size()`
+(architecture sizes, `--num-layers`, `--sigreg-num-sketches` and `--hippocampal-capacity` at least 1, layer
+counts, `--inject-every-n-layers` and `--limit` at least 0, at most `INT_MAX`), floats `parse_strict_float()`
+(finite; `--sigreg-lambda` and the alphas at least 0, the decays 0–1). `set-training` takes `--new-run` and at
+most one session key. `main()` reports a trailing `--url`/`--config` and catches anything still thrown (exit 2).
+Eight new tests, one running the real binary, all fail on the old code (it exited 134 on
+`register foo chatbot --d-model abc`). Every `mns_cli` invocation in the docs and scripts still parses.
+
+Location in code: `src/MnsCliCommands.cpp` (`parse_options()` and the builders); `src/MnsCliTool.cpp` (`main()`).
 
 Files to Modify:
 

@@ -1,8 +1,10 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-11-01
 
 #include "MnsCliCommands.hpp"
+#include <functional>
+#include <limits>
 #include <sstream>
 
 namespace adai {
@@ -66,23 +68,101 @@ MnsCliRequest make_error(std::string message) {
     r.error_message = std::move(message);
     return r;
 }
+
+// TD-448: every builder reads its options through parse_options(). They used to skip anything they
+// didn't recognise (`register m chat --dmodel 256` registered the config's d_model, permanently),
+// drop a value flag at the end of the line, and parse numbers with stoul/stoi/stof (an exception
+// aborted mns_cli; -1 wrapped to 2^64-1; 512x became 512).
+
+// Applies a flag's value; returns an error message, or nullopt on success.
+using ValueSetter = std::function<std::optional<std::string>(const std::string& flag, const std::string& value)>;
+
+// Largest count accepted: the server stores these as int.
+constexpr size_t kMaxCount = static_cast<size_t>(std::numeric_limits<int>::max());
+
+std::string invalid(const std::string& flag, const std::string& value, const std::string& expected) {
+    return "Invalid value for " + flag + ": '" + value + "' (expected " + expected + ")";
+}
+
+ValueSetter count_into(size_t& field, size_t min) {
+    return [&field, min](const std::string& flag, const std::string& value) -> std::optional<std::string> {
+        const auto n = parse_strict_size(value);
+        if (!n || *n < min || *n > kMaxCount) {
+            return invalid(flag, value, "a whole number >= " + std::to_string(min));
+        }
+        field = *n;
+        return std::nullopt;
+    };
+}
+
+ValueSetter float_into(float& field, float min, float max) {
+    return [&field, min, max](const std::string& flag, const std::string& value) -> std::optional<std::string> {
+        const auto f = parse_strict_float(value);
+        if (!f || *f < min || *f > max) {
+            std::ostringstream expected;
+            expected << "a number from " << min;
+            if (max < std::numeric_limits<float>::max()) expected << " to " << max;
+            else expected << " up";
+            return invalid(flag, value, expected.str());
+        }
+        field = *f;
+        return std::nullopt;
+    };
+}
+
+ValueSetter string_into(std::string& field) {
+    return [&field](const std::string&, const std::string& value) -> std::optional<std::string> {
+        field = value;
+        return std::nullopt;
+    };
+}
+
+// --tag/--summary key=value; a value without '=' used to be dropped silently.
+ValueSetter key_value_into(std::map<std::string, std::string>& map) {
+    return [&map](const std::string& flag, const std::string& value) -> std::optional<std::string> {
+        const auto eq = value.find('=');
+        if (eq == std::string::npos || eq == 0) return invalid(flag, value, "key=value");
+        map[value.substr(0, eq)] = value.substr(eq + 1);
+        return std::nullopt;
+    };
+}
+
+// Reads args[start..]. A flag in value_flags takes the next argument (missing, or another "--"
+// flag, is an error); a flag in switches sets its bool. Any other "-"-prefixed argument is an
+// unknown option. Other arguments go to `positionals`, or are an error when it's null.
+std::optional<std::string> parse_options(const std::vector<std::string>& args, size_t start,
+                                         const std::map<std::string, ValueSetter>& value_flags,
+                                         const std::map<std::string, bool*>& switches = {},
+                                         std::vector<std::string>* positionals = nullptr) {
+    for (size_t i = start; i < args.size(); ++i) {
+        const std::string& arg = args[i];
+        if (auto it = value_flags.find(arg); it != value_flags.end()) {
+            if (i + 1 >= args.size() || args[i + 1].rfind("--", 0) == 0) return "Missing value for " + arg;
+            if (auto error = it->second(arg, args[++i])) return error;
+        } else if (auto sw = switches.find(arg); sw != switches.end()) {
+            *sw->second = true;
+        } else if (arg.size() > 1 && arg[0] == '-') {
+            return "Unknown option: " + arg;
+        } else if (positionals) {
+            positionals->push_back(arg);
+        } else {
+            return "Unexpected argument: " + arg;
+        }
+    }
+    return std::nullopt;
+}
 }  // namespace
 
-// TODO: See TD-448 in TECHNICAL_DEBT.md - every builder silently ignores unknown flags; numbers via unchecked stoi/stoul/stof
 // TODO: See TD-449 in TECHNICAL_DEBT.md - path segments and query values aren't URL-encoded
 MnsCliRequest build_list_request(const std::vector<std::string>& args) {
     std::string state, role, kind;
-    int limit = 0;
-    for (size_t i = 0; i < args.size(); ++i) {
-        if (args[i] == "--state" && i + 1 < args.size()) {
-            state = args[++i];
-        } else if (args[i] == "--role" && i + 1 < args.size()) {
-            role = args[++i];
-        } else if (args[i] == "--kind" && i + 1 < args.size()) {
-            kind = args[++i];
-        } else if (args[i] == "--limit" && i + 1 < args.size()) {
-            limit = std::stoi(args[++i]);
-        }
+    size_t limit = 0;  // 0 = no limit
+    if (auto error = parse_options(args, 0,
+                                   {{"--state", string_into(state)},
+                                    {"--role", string_into(role)},
+                                    {"--kind", string_into(kind)},
+                                    {"--limit", count_into(limit, 0)}})) {
+        return make_error(*error + "\nUsage: list [--state S] [--role R] [--kind K] [--limit N]");
     }
     std::string path = "/models";
     std::string sep = "?";
@@ -142,41 +222,28 @@ MnsCliRequest build_register_request(const std::vector<std::string>& args,
     float sigreg_lambda = 1.0f;
     size_t sigreg_num_sketches = 64;
 
-    // TODO: See TD-448 in TECHNICAL_DEBT.md - a typo like --dmodel is ignored, registering the config default (immutable) architecture
-    for (size_t i = 2; i < args.size(); ++i) {
-        if (args[i] == "--kind" && i + 1 < args.size())
-            kind = args[++i];
-        else if (args[i] == "--d-model" && i + 1 < args.size())
-            d_model = static_cast<size_t>(std::stoul(args[++i]));
-        else if (args[i] == "--num-heads" && i + 1 < args.size())
-            num_heads = static_cast<size_t>(std::stoul(args[++i]));
-        else if (args[i] == "--d-ff" && i + 1 < args.size())
-            d_ff = static_cast<size_t>(std::stoul(args[++i]));
-        else if (args[i] == "--num-layers" && i + 1 < args.size()) {
-            num_layers = static_cast<size_t>(std::stoul(args[++i]));
-            num_layers_set = true;
-        } else if (args[i] == "--encoder-layers" && i + 1 < args.size())
-            enc_layers = static_cast<size_t>(std::stoul(args[++i]));
-        else if (args[i] == "--decoder-layers" && i + 1 < args.size())
-            dec_layers = static_cast<size_t>(std::stoul(args[++i]));
-        else if (args[i] == "--max-seq-length" && i + 1 < args.size())
-            max_seq = static_cast<size_t>(std::stoul(args[++i]));
-        else if (args[i] == "--run-group" && i + 1 < args.size())
-            run_group = args[++i];
-        else if (args[i] == "--encoder" && i + 1 < args.size())
-            encoder_name = args[++i];
-        else if (args[i] == "--decoder" && i + 1 < args.size())
-            decoder_name = args[++i];
-        else if (args[i] == "--sigreg-lambda" && i + 1 < args.size())
-            sigreg_lambda = std::stof(args[++i]);
-        else if (args[i] == "--sigreg-num-sketches" && i + 1 < args.size())
-            sigreg_num_sketches = static_cast<size_t>(std::stoul(args[++i]));
-        else if (args[i] == "--tag" && i + 1 < args.size()) {
-            const auto& kv = args[++i];
-            auto eq = kv.find('=');
-            if (eq != std::string::npos)
-                tags[kv.substr(0, eq)] = kv.substr(eq + 1);
-        }
+    auto num_layers_into = count_into(num_layers, 1);
+    if (auto error = parse_options(
+            args, 2,
+            {{"--kind", string_into(kind)},
+             {"--d-model", count_into(d_model, 1)},
+             {"--num-heads", count_into(num_heads, 1)},
+             {"--d-ff", count_into(d_ff, 1)},
+             {"--num-layers",
+              [&](const std::string& flag, const std::string& value) {
+                  num_layers_set = true;
+                  return num_layers_into(flag, value);
+              }},
+             {"--encoder-layers", count_into(enc_layers, 0)},
+             {"--decoder-layers", count_into(dec_layers, 0)},
+             {"--max-seq-length", count_into(max_seq, 1)},
+             {"--run-group", string_into(run_group)},
+             {"--encoder", string_into(encoder_name)},
+             {"--decoder", string_into(decoder_name)},
+             {"--sigreg-lambda", float_into(sigreg_lambda, 0.0f, std::numeric_limits<float>::max())},
+             {"--sigreg-num-sketches", count_into(sigreg_num_sketches, 1)},
+             {"--tag", key_value_into(tags)}})) {
+        return make_error(*error + "\nUsage: register <name> <role> [options...] (see --help)");
     }
 
     if (kind != "encoder" && kind != "decoder" && kind != "world_model" && kind != "chatbot")
@@ -274,24 +341,23 @@ MnsCliRequest build_link_world_model_request(const std::vector<std::string>& arg
     float cross_reference_alpha = 0.0f;
     float association_decay = 0.95f;
 
-    for (size_t i = 1; i < args.size(); ++i) {
-        if (args[i] == "--world-model" && i + 1 < args.size()) {
-            world_model_name = args[++i];
-            world_model_set = true;
-        } else if (args[i] == "--inject-every-n-layers" && i + 1 < args.size())
-            inject_every_n_layers = static_cast<size_t>(std::stoul(args[++i]));
-        else if (args[i] == "--hippocampal-enabled")
-            hippocampal_enabled = true;
-        else if (args[i] == "--hippocampal-capacity" && i + 1 < args.size())
-            hippocampal_capacity = static_cast<size_t>(std::stoul(args[++i]));
-        else if (args[i] == "--hippocampal-repetition-alpha" && i + 1 < args.size())
-            repetition_alpha = std::stof(args[++i]);
-        else if (args[i] == "--hippocampal-repetition-decay" && i + 1 < args.size())
-            repetition_decay = std::stof(args[++i]);
-        else if (args[i] == "--hippocampal-cross-reference-alpha" && i + 1 < args.size())
-            cross_reference_alpha = std::stof(args[++i]);
-        else if (args[i] == "--hippocampal-association-decay" && i + 1 < args.size())
-            association_decay = std::stof(args[++i]);
+    if (auto error = parse_options(
+            args, 1,
+            {{"--world-model",
+              [&](const std::string&, const std::string& value) -> std::optional<std::string> {
+                  world_model_name = value;
+                  world_model_set = true;
+                  return std::nullopt;
+              }},
+             {"--inject-every-n-layers", count_into(inject_every_n_layers, 0)},
+             {"--hippocampal-capacity", count_into(hippocampal_capacity, 1)},
+             {"--hippocampal-repetition-alpha", float_into(repetition_alpha, 0.0f, std::numeric_limits<float>::max())},
+             {"--hippocampal-repetition-decay", float_into(repetition_decay, 0.0f, 1.0f)},
+             {"--hippocampal-cross-reference-alpha",
+              float_into(cross_reference_alpha, 0.0f, std::numeric_limits<float>::max())},
+             {"--hippocampal-association-decay", float_into(association_decay, 0.0f, 1.0f)}},
+            {{"--hippocampal-enabled", &hippocampal_enabled}})) {
+        return make_error(*error + "\nUsage: link-world-model <chatbot-name> --world-model <name> [...]");
     }
 
     if (!world_model_set)
@@ -346,14 +412,17 @@ MnsCliRequest build_set_training_request(const std::vector<std::string>& args) {
     }
     const std::string& name = args[0];
     bool new_run = false;
-    std::string session_key;
-    for (size_t i = 1; i < args.size(); ++i) {
-        if (args[i] == "--new-run")
-            new_run = true;
-        else
-            // TODO: See TD-448 in TECHNICAL_DEBT.md - any stray argument (e.g. --new_run) becomes the session key
-            session_key = args[i];
+    // TD-448: at most one session key, and no unknown options; any stray argument (e.g. the typo
+    // --new_run) used to become the session key, continuing the run with a bogus metrics link.
+    std::vector<std::string> positionals;
+    if (auto error = parse_options(args, 1, {}, {{"--new-run", &new_run}}, &positionals)) {
+        return make_error(*error + "\nUsage: set-training <name> [--new-run] [session-key]");
     }
+    if (positionals.size() > 1) {
+        return make_error("Unexpected argument: " + positionals[1] +
+                          " (set-training takes at most one session key)\nUsage: set-training <name> [--new-run] [session-key]");
+    }
+    const std::string session_key = positionals.empty() ? "" : positionals[0];
 
     std::ostringstream body;
     body << "{\"state\":\"training\"" << ",\"new_run\":" << (new_run ? "true" : "false");
@@ -377,21 +446,13 @@ MnsCliRequest build_set_candidate_request(const std::vector<std::string>& args) 
     std::string art_path, art_host, art_checksum, art_format = "adai-native";
     std::map<std::string, std::string> summary;
 
-    for (size_t i = 2; i < args.size(); ++i) {
-        if (args[i] == "--artifact-path" && i + 1 < args.size())
-            art_path = args[++i];
-        else if (args[i] == "--artifact-host" && i + 1 < args.size())
-            art_host = args[++i];
-        else if (args[i] == "--artifact-checksum" && i + 1 < args.size())
-            art_checksum = args[++i];
-        else if (args[i] == "--artifact-format" && i + 1 < args.size())
-            art_format = args[++i];
-        else if (args[i] == "--summary" && i + 1 < args.size()) {
-            const auto& kv = args[++i];
-            auto eq = kv.find('=');
-            if (eq != std::string::npos)
-                summary[kv.substr(0, eq)] = kv.substr(eq + 1);
-        }
+    if (auto error = parse_options(args, 2,
+                                   {{"--artifact-path", string_into(art_path)},
+                                    {"--artifact-host", string_into(art_host)},
+                                    {"--artifact-checksum", string_into(art_checksum)},
+                                    {"--artifact-format", string_into(art_format)},
+                                    {"--summary", key_value_into(summary)}})) {
+        return make_error(*error + "\nUsage: set-candidate <name> <run-id> [options...] (see --help)");
     }
 
     std::ostringstream body;

@@ -826,11 +826,18 @@ add_test(NAME MnsServerArgsTests COMMAND mnsServerArgsTests)
 # TD-035: mns_cli's per-command argument parsing / JSON-body construction, extracted into
 # MnsCliCommands.{hpp,cpp} so it's testable without a real mns_server to talk to. No httplib
 # dependency (that stays in MnsCliTool.cpp's own send/http_* functions, untouched here).
-add_executable(mnsCliCommandsTests mns_cli_commands_test.cpp ${CMAKE_SOURCE_DIR}/src/MnsCliCommands.cpp)
+add_executable(mnsCliCommandsTests mns_cli_commands_test.cpp ${CMAKE_SOURCE_DIR}/src/MnsCliCommands.cpp
+    ${CMAKE_SOURCE_DIR}/src/Config.cpp  # TD-448: the strict number parsers
+    ${CMAKE_SOURCE_DIR}/src/Logger.cpp)
 target_include_directories(mnsCliCommandsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(mnsCliCommandsTests
+    spdlog::spdlog
     GTest::gtest_main
 )
+if(TARGET mns_cli)  # TD-448: one test runs the real binary
+    target_compile_definitions(mnsCliCommandsTests PRIVATE MNS_CLI_BINARY_PATH="$<TARGET_FILE:mns_cli>")
+    add_dependencies(mnsCliCommandsTests mns_cli)
+endif()
 add_test(NAME MnsCliCommandsTests COMMAND mnsCliCommandsTests)
 
 # TD-035: dataset_manager's per-command argument parsing, extracted into

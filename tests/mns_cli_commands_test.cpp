@@ -6,6 +6,10 @@
 // live, end to end, by real mns_server usage and MNSLiveTests on the server side).
 
 #include <gtest/gtest.h>
+#include <sys/wait.h>
+#include <cstdlib>
+#include <string>
+#include <vector>
 #include "MnsCliCommands.hpp"
 
 using adai::build_delete_request;
@@ -422,3 +426,106 @@ TEST(BuildHealthRequest, BuildsCorrectPath) {
     EXPECT_EQ(r.method, HttpMethod::Get);
     EXPECT_EQ(r.path, "/health");
 }
+
+// ---------------------------------------------------------------------------------------------
+// TD-448: unknown options, missing values, stray arguments and bad numbers are usage errors.
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+bool error_contains(const adai::MnsCliRequest& r, const std::string& text) {
+    return r.error && r.error_message.find(text) != std::string::npos;
+}
+}  // namespace
+
+TEST(Td448UnknownOptions, AMisspelledFlagIsAnErrorInEveryBuilder) {
+    ServiceConfig cfg;
+    // --dmodel used to be skipped, registering the config's d_model permanently.
+    EXPECT_TRUE(error_contains(build_register_request({"m", "chat", "--dmodel", "256"}, cfg), "Unknown option: --dmodel"));
+    EXPECT_TRUE(error_contains(build_list_request({"--stat", "training"}), "Unknown option: --stat"));
+    EXPECT_TRUE(error_contains(build_link_world_model_request({"c", "--world-model", "w", "--inject-every", "2"}),
+                               "Unknown option: --inject-every"));
+    EXPECT_TRUE(error_contains(build_set_candidate_request({"m", "run-01", "--artifact-pth", "/x"}),
+                               "Unknown option: --artifact-pth"));
+}
+
+TEST(Td448UnknownOptions, StrayPositionalArgumentsAreErrors) {
+    ServiceConfig cfg;
+    EXPECT_TRUE(error_contains(build_register_request({"m", "chat", "256"}, cfg), "Unexpected argument: 256"));
+    EXPECT_TRUE(error_contains(build_list_request({"training"}), "Unexpected argument: training"));
+}
+
+TEST(Td448MissingValues, AValueFlagWithNoValueSaysSo) {
+    ServiceConfig cfg;
+    EXPECT_TRUE(error_contains(build_register_request({"m", "chat", "--d-model"}, cfg), "Missing value for --d-model"));
+    EXPECT_TRUE(error_contains(build_register_request({"m", "chat", "--d-model", "--num-heads", "4"}, cfg),
+                               "Missing value for --d-model"));
+    EXPECT_TRUE(error_contains(build_list_request({"--limit"}), "Missing value for --limit"));
+    EXPECT_TRUE(error_contains(build_set_candidate_request({"m", "run-01", "--artifact-path"}),
+                               "Missing value for --artifact-path"));
+    // An empty value is still a value: --world-model "" detaches.
+    EXPECT_FALSE(build_link_world_model_request({"c", "--world-model", ""}).error);
+}
+
+TEST(Td448SetTraining, StrayArgumentsNoLongerBecomeTheSessionKey) {
+    // --new_run used to become the metrics session key, continuing the current run.
+    EXPECT_TRUE(error_contains(build_set_training_request({"m", "--new_run"}), "Unknown option: --new_run"));
+    EXPECT_TRUE(error_contains(build_set_training_request({"m", "key-a", "key-b"}), "Unexpected argument: key-b"));
+    auto r = build_set_training_request({"m", "key-a", "--new-run"});
+    ASSERT_FALSE(r.error) << r.error_message;
+    EXPECT_NE(r.body.find("\"new_run\":true"), std::string::npos);
+    EXPECT_NE(r.body.find("\"metrics_session_key\":\"key-a\""), std::string::npos);
+}
+
+TEST(Td448Numbers, CountsMustBeWholeAndInRange) {
+    ServiceConfig cfg;
+    // abc aborted mns_cli, -1 wrapped to 18446744073709551615, 512x became 512.
+    for (const std::string bad : {"abc", "-1", "512x", "0", "", "1e3", "99999999999"}) {
+        EXPECT_TRUE(error_contains(build_register_request({"m", "chat", "--d-model", bad}, cfg),
+                                   "Invalid value for --d-model"))
+            << "'" << bad << "'";
+    }
+    EXPECT_TRUE(error_contains(build_register_request({"m", "enc", "--kind", "encoder", "--num-layers", "0"}, cfg),
+                               "Invalid value for --num-layers"));
+    EXPECT_TRUE(error_contains(build_list_request({"--limit", "-5"}), "Invalid value for --limit"));
+    EXPECT_TRUE(error_contains(build_link_world_model_request({"c", "--world-model", "w", "--hippocampal-capacity", "x"}),
+                               "Invalid value for --hippocampal-capacity"));
+
+    auto r = build_register_request({"m", "chat", "--d-model", "256", "--encoder-layers", "0"}, cfg);
+    ASSERT_FALSE(r.error) << r.error_message;
+    EXPECT_NE(r.body.find("\"d_model\":256"), std::string::npos);
+    EXPECT_NE(r.body.find("\"num_encoder_layers\":0"), std::string::npos);
+}
+
+TEST(Td448Numbers, FloatsMustBeFiniteAndInRange) {
+    ServiceConfig cfg;
+    EXPECT_TRUE(error_contains(build_register_request({"m", "wm", "--kind", "world_model", "--sigreg-lambda", "nan"}, cfg),
+                               "Invalid value for --sigreg-lambda"));
+    EXPECT_TRUE(error_contains(build_register_request({"m", "wm", "--kind", "world_model", "--sigreg-lambda", "-1"}, cfg),
+                               "Invalid value for --sigreg-lambda"));
+    EXPECT_TRUE(error_contains(build_link_world_model_request({"c", "--world-model", "w", "--hippocampal-repetition-decay", "1.5"}),
+                               "Invalid value for --hippocampal-repetition-decay"));
+    EXPECT_TRUE(error_contains(build_link_world_model_request({"c", "--world-model", "w", "--hippocampal-repetition-alpha", "0.1x"}),
+                               "Invalid value for --hippocampal-repetition-alpha"));
+}
+
+TEST(Td448KeyValues, TagsAndSummariesNeedAnEqualsSign) {
+    ServiceConfig cfg;
+    EXPECT_TRUE(error_contains(build_register_request({"m", "chat", "--tag", "owner"}, cfg), "Invalid value for --tag"));
+    EXPECT_TRUE(error_contains(build_set_candidate_request({"m", "run-01", "--summary", "=1"}), "Invalid value for --summary"));
+}
+
+#ifdef MNS_CLI_BINARY_PATH
+// The real binary: a malformed number used to abort with a core dump (exit 134) before any request.
+TEST(Td448MnsCliBinary, AMalformedNumberIsAUsageErrorNotACrash) {
+    for (const std::string args : {"register foo chatbot --d-model abc", "register foo chatbot --dmodel 256",
+                                   "set-training foo --new_run", "list --limit", "--url"}) {
+        const std::string cmd = std::string(MNS_CLI_BINARY_PATH) + " --config /dev/null " + args + " >/dev/null 2>&1";
+        const int status = std::system(cmd.c_str());
+        ASSERT_NE(status, -1);
+        EXPECT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 1)
+            << args << (WIFSIGNALED(status) ? ": killed by signal " + std::to_string(WTERMSIG(status))
+                                            : ": exit " + std::to_string(WEXITSTATUS(status)));
+    }
+}
+#endif
+

@@ -115,3 +115,29 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Unchecked `stoul`/`stoi`/`stof`: aborts with a core dump on bad input, wraps negatives, truncates junk (§3) | Crash instead of a usage error; absurd values sent | **Verified** (real binary) | [TD-448](../../guides/TECHNICAL_DEBT.md#td-448-mns_cli-ignores-unknown-flags-misreads-set-training-arguments-and-aborts-on-bad-numbers) |
 | Standalone kind without `--num-layers` sends both layer counts (§3) | Confusing server rejection | **Verified** (request); by inspection (server) | [TD-449](../../guides/TECHNICAL_DEBT.md#td-449-mns_cli-request-building-gaps-layer-counts-relink-resets-encoding) |
 | Relink resets hippocampal settings; unencoded paths/queries; incomplete `json_escape()`; ignored `--sigreg-*`; `https://` accepted (§4) | Silent config resets; wrong endpoints or invalid JSON for unusual names | Partly verified | [TD-449](../../guides/TECHNICAL_DEBT.md#td-449-mns_cli-request-building-gaps-layer-counts-relink-resets-encoding) |
+
+---
+
+## Addendum (November 1, 2026): strict options (TD-448)
+
+Every `build_*_request()` with options (`list`, `register`, `link-world-model`, `set-training`,
+`set-candidate`) now reads them through one `parse_options()` helper and returns a usage error for:
+- **an unknown option** (`Unknown option: --dmodel`). `register m chat --dmodel 256` used to register the
+  config's `d_model`, which can't be changed afterwards;
+- **a value flag with no value**, at the end of the line or followed by another `--` flag
+  (`Missing value for --d-model`). An empty value is still a value, so `--world-model ""` detaches;
+- **a stray positional** (`Unexpected argument: 256`);
+- **a number that isn't whole and in range.** Counts go through `parse_strict_size()`: architecture sizes,
+  `--num-layers`, `--sigreg-num-sketches` and `--hippocampal-capacity` are at least 1, layer counts,
+  `--inject-every-n-layers` and `--limit` at least 0, all at most `INT_MAX`. Floats go through
+  `parse_strict_float()`: finite, `--sigreg-lambda` and the alphas at least 0, the decays 0–1. `abc` used
+  to abort `mns_cli`, `-1` wrapped to 18,446,744,073,709,551,615, and `512x` became 512;
+- **a `--tag`/`--summary` without `key=value`**, which used to be dropped.
+
+`set-training` takes `--new-run` and at most one session key; `--new_run` used to become the session key.
+In `MnsCliTool.cpp`, a trailing `--url`/`--config` is `Missing value`, and `main()` catches anything still
+thrown and exits 2. `register --help` is now an unknown option rather than a request; per-command help
+remains TD-451.
+
+Tests: eight new tests in `mns_cli_commands_test.cpp` (59 in all), one of which runs the real binary (the
+old one exited 134 on `register foo chatbot --d-model abc`).

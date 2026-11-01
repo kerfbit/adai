@@ -1,16 +1,17 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-11-01
 
 // TD-035: mns_cli's per-command argument parsing and JSON-body construction, pulled out of
 // MnsCliTool.cpp so it's testable without a real mns_server to talk to — see
-// MnsCliCommands_test.cpp. Each build_*_request() function is pure (no network I/O): it takes
+// tests/mns_cli_commands_test.cpp. Each build_*_request() function is pure (no network I/O): it takes
 // the command's own argv slice (and, for `register`, the loaded ServiceConfig for architecture
 // defaults) and returns the HTTP method/path/body mns_cli would send, or an error message if the
-// arguments don't parse. Actually sending the request and printing the response stays in
-// MnsCliTool.cpp's cmd_*() wrappers, unchanged.
+// arguments don't parse: an unknown option, a flag missing its value, a number that isn't whole
+// and in range, or a stray argument (TD-448). Actually sending the request and printing the
+// response stays in MnsCliTool.cpp's cmd_*() wrappers, unchanged.
 
 #include <map>
 #include <optional>

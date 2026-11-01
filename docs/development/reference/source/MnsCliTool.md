@@ -79,3 +79,13 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `https://` sends plain HTTP to port 8083; no custom headers (§2) | `mns_cli` can't use a TLS/tunnel endpoint | **Verified** | [TD-451](../../guides/TECHNICAL_DEBT.md#td-451-mns_cli-has-no-https-and-minor-option-handling-gaps) |
 | `--help` only as the first word; global options taken anywhere; unused include; stale comment; duplicated helpers (§2) | Minor usability and hygiene | **Verified** (`--help`); by inspection | [TD-451](../../guides/TECHNICAL_DEBT.md#td-451-mns_cli-has-no-https-and-minor-option-handling-gaps) |
 | Unknown flags ignored; uncaught number-parsing exceptions | Already tracked | — | TD-448 |
+
+---
+
+## Addendum (November 1, 2026): no more aborts (TD-448)
+
+`main()` now wraps the work in `run()` and catches any exception (exit 2); the builders report malformed
+numbers, unknown options and missing values as usage errors (exit 1), see
+[MnsCliCommands.md](MnsCliCommands.md)'s addendum. A trailing `--url` or `--config` says
+`Missing value for --url` instead of becoming the command name.
+

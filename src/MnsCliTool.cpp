@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-11-01
 
 /**
  * mns_cli — Command-line interface for the ADAI Model Name Service
@@ -261,17 +261,37 @@ static int cmd_health(const ParsedUrl& u) {
 // Main
 // ============================================================================
 
-// TODO: See TD-448 in TECHNICAL_DEBT.md - no try/catch: a malformed number (--d-model abc) aborts with a core dump
+static int run(int argc, char* argv[]);
+
+// TD-448: a malformed number (--d-model abc) used to throw out of a builder and abort mns_cli with a
+// core dump. The builders now report it as a usage error; anything still thrown exits 2.
 int main(int argc, char* argv[]) {
+    try {
+        return run(argc, argv);
+    } catch (const std::exception& e) {
+        std::cerr << "mns_cli: " << e.what() << "\n";
+    } catch (...) {
+        std::cerr << "mns_cli: unexpected error\n";
+    }
+    return 2;
+}
+
+static int run(int argc, char* argv[]) {
     std::string server_url;
     std::string config_path;
     std::vector<std::string> args;
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
-        if (a == "--url" && i + 1 < argc) {
+        if ((a == "--url" || a == "--config") && (i + 1 >= argc || std::string(argv[i + 1]).rfind("--", 0) == 0)) {
+            // TD-448: a trailing --url used to become the command name.
+            std::cerr << "Missing value for " << a << "\n";
+            std::cerr << "Run '" << argv[0] << " --help' for usage.\n";
+            return 1;
+        }
+        if (a == "--url") {
             server_url = argv[++i];
-        } else if (a == "--config" && i + 1 < argc) {
+        } else if (a == "--config") {
             config_path = argv[++i];
         } else {
             args.push_back(a);
