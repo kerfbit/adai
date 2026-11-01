@@ -846,9 +846,12 @@ add_test(NAME DatasetManagerArgsTests COMMAND datasetManagerArgsTests)
 # ChatbotApiServerArgs.{hpp,cpp} so it's testable without a real tokenizer/model/HTTP server
 # (ChatbotAPI's own request-handling is already covered by chatbotapiTests).
 add_executable(chatbotApiServerArgsTests chatbot_api_server_args_test.cpp
-    ${CMAKE_SOURCE_DIR}/src/ChatbotApiServerArgs.cpp)
+    ${CMAKE_SOURCE_DIR}/src/ChatbotApiServerArgs.cpp
+    ${CMAKE_SOURCE_DIR}/src/Config.cpp  # TD-240: the strict number parsers
+    ${CMAKE_SOURCE_DIR}/src/Logger.cpp)
 target_include_directories(chatbotApiServerArgsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(chatbotApiServerArgsTests
+    spdlog::spdlog
     GTest::gtest_main
 )
 add_test(NAME ChatbotApiServerArgsTests COMMAND chatbotApiServerArgsTests)

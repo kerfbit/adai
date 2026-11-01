@@ -226,3 +226,48 @@ TEST(ValidateChatbotApiServerConfig, NonEmptyVocabPathPasses) {
     config.vocab_path = "/vocab.txt";
     EXPECT_FALSE(validate_chatbot_api_server_config(config).has_value());
 }
+
+// TD-240: numeric flags used atoi/atof, so "--port abc" became 0 (any free port) and "--port 8080x"
+// became 8080, with no error.
+TEST_F(ApplyChatbotApiServerArgsTest, EveryNumericFlagRefusesANonNumberAndTrailingCharacters) {
+    for (const char* flag : {"--speculative-candidates", "--port", "--timeout", "--batch-timeout-ms", "--d-model",
+                             "--num-heads", "--d-ff", "--enc-layers", "--dec-layers", "--max-seq-len",
+                             "--max-gen-len", "--temperature", "--top-p"}) {
+        for (const char* value : {"abc", "8x", "", "1 2"}) {
+            ServiceConfig fresh;
+            std::vector<std::string> raw = {"chatbot_api_server", flag, value};
+            auto argv = make_argv(raw);
+            auto r = apply_chatbot_api_server_args(static_cast<int>(argv.size()), argv.data(), fresh);
+            EXPECT_TRUE(r.error) << flag << " " << value;
+            EXPECT_NE(r.error_message.find(flag), std::string::npos) << r.error_message;
+        }
+    }
+}
+
+TEST_F(ApplyChatbotApiServerArgsTest, SizeFlagsRefuseNegatives) {
+    for (const char* flag : {"--d-model", "--num-heads", "--d-ff", "--enc-layers", "--dec-layers", "--max-seq-len",
+                             "--max-gen-len"}) {
+        std::vector<std::string> raw = {"chatbot_api_server", flag, "-1"};
+        auto argv = make_argv(raw);
+        auto r = apply_chatbot_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
+        EXPECT_TRUE(r.error) << flag;
+    }
+}
+
+TEST_F(ApplyChatbotApiServerArgsTest, FloatFlagsRefuseNonFiniteValues) {
+    for (const char* value : {"nan", "inf"}) {
+        std::vector<std::string> raw = {"chatbot_api_server", "--temperature", value};
+        auto argv = make_argv(raw);
+        EXPECT_TRUE(apply_chatbot_api_server_args(static_cast<int>(argv.size()), argv.data(), config).error)
+            << value;
+    }
+}
+
+TEST_F(ApplyChatbotApiServerArgsTest, AnInvalidNumberStopsBeforeLaterFlagsApply) {
+    std::vector<std::string> raw = {"chatbot_api_server", "--port", "abc", "--model", "/m"};
+    auto argv = make_argv(raw);
+    auto r = apply_chatbot_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
+    EXPECT_TRUE(r.error);
+    EXPECT_EQ(r.error_message, "Invalid value for --port: 'abc' (expected a whole number)");
+    EXPECT_TRUE(config.model_path.empty());
+}

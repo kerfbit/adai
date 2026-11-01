@@ -166,3 +166,10 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 | `--batch-timeout-ms` without `--batched-inference` silently ignored | Minor | By inspection | [TD-243](../../guides/TECHNICAL_DEBT.md#td-243-chatbot_api_server-starts-every-engine-mode-flag-passed-not-just-one) |
 | No CLI flags for `top_k`/`beam_width`; the server never applies them even from config (§2) | Config keys have no effect | By inspection | [TD-244](../../guides/TECHNICAL_DEBT.md#td-244-chatbot_api_server-ignores-the-top_k-and-beam_width-settings) |
 | Header names the wrong test file (§5) | Stale comment | By inspection | [TD-245](../../guides/TECHNICAL_DEBT.md#td-245-chatbot_api_server-argument-errors-are-misleading-or-silent) |
+
+## Addendum (October 31, 2026): numeric flags are checked (TD-240)
+
+Every numeric flag goes through the shared strict parsers in `Config.hpp` (`parse_strict_int()`/`parse_strict_size()`/
+`parse_strict_float()`): the value must be the whole number, the architecture and length flags refuse negatives, and `--temperature`/
+`--top-p` refuse `nan`/`inf`. A bad value returns `error` with `Invalid value for <flag>: '<value>' (expected ...)`, and
+`chatbot_api_server` prints it and exits 1 (`--port abc` used to start on a random port, `--port 8080x` on 8080).

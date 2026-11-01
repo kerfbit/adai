@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.21.0
+// @adai-version: 1.22.0
 // @adai-reviewed: 2026-10-31
 
 #include "Config.hpp"
@@ -68,6 +68,31 @@ float parse_float(const std::string& value) {
     return f;
 }
 }  // namespace
+
+// Public, non-throwing forms of the parsers above, for command-line flags (TD-240).
+std::optional<int> parse_strict_int(const std::string& value) {
+    try {
+        return parse_int(value);
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
+
+std::optional<size_t> parse_strict_size(const std::string& value) {
+    try {
+        return parse_size(value);
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
+
+std::optional<float> parse_strict_float(const std::string& value) {
+    try {
+        return parse_float(value);
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
 
 std::optional<int> ConfigLoader::get_env_int(const std::string& var_name) {
     auto value = get_env(var_name);

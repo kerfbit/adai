@@ -1367,6 +1367,8 @@ The generation and model math run is complete.
   default).
 - TD-290 (done in code: start-up config messages replayed into the log file, a full `to_string()`/`print()` with secrets hidden,
   the reserved coverage-loss key accepted quietly).
+- TD-240 (done in code: every numeric `chatbot_api_server` flag must be a whole, valid number, else an error naming the flag and exit 1;
+  the strict parsers are public for the other daemons' flag fixes).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5347,7 +5349,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / Serving / CLI | October 8, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 31, 2026 | Inference / Serving / CLI | October 8, 2026 | 1-2 hours |
 
 Description:
 Found while writing the code-traced reference [ChatbotApiServerArgs.md](../reference/source/ChatbotApiServerArgs.md), and confirmed by running the real
@@ -5365,15 +5367,26 @@ The same applies to every architecture flag and `--speculative-candidates`.
 
 Action Items:
 
-- [ ] Parse with full-consumption checks (`std::from_chars` or `std::stoi`/`std::stof` plus a check that the whole string was consumed) and return `error = true` with a message naming the flag and value.
-- [ ] Tests: non-numeric and trailing-garbage values for each numeric flag are errors.
+- [x] Parse with full-consumption checks (`std::from_chars` or `std::stoi`/`std::stof` plus a check that the whole string was consumed) and return `error = true` with a message naming the flag and value.
+- [x] Tests: non-numeric and trailing-garbage values for each numeric flag are errors.
 
-Location in code: `src/ChatbotApiServerArgs.cpp` (`apply_chatbot_api_server_args()`); tagged `TODO: See TD-240`.
+**Fix (October 31, 2026).** TD-287's strict parsers are now public in `Config.hpp` (`parse_strict_int()`, `parse_strict_size()`,
+`parse_strict_float()`, returning `nullopt` on failure) so command-line flags share them with config files and environment variables;
+TD-438, TD-456 and TD-488 can reuse them. Every numeric flag of `chatbot_api_server` goes through one: the value must be the whole
+number, the seven architecture/length flags (`--d-model`, `--num-heads`, `--d-ff`, `--enc-layers`, `--dec-layers`, `--max-seq-len`,
+`--max-gen-len`) refuse negatives, and `--temperature`/`--top-p` refuse `nan`/`inf`. A bad value stops parsing with
+`Invalid value for --port: '8080x' (expected a whole number)`; the real binary prints it with the usage text and exits 1. Range
+checks (port 1–65535 and so on) are TD-241's. Tests: `EveryNumericFlagRefusesANonNumberAndTrailingCharacters` (all 13 numeric flags
+with `abc`, `8x`, an empty string and `1 2`), `SizeFlagsRefuseNegatives`, `FloatFlagsRefuseNonFiniteValues`,
+`AnInvalidNumberStopsBeforeLaterFlagsApply`; all four fail on the old parser.
+
+Location in code: `src/ChatbotApiServerArgs.cpp` (`apply_chatbot_api_server_args()`); tagged `TD-240`.
 
 Files to Modify:
 
 - `src/ChatbotApiServerArgs.cpp`
-- `tests/chatbot_api_server_args_test.cpp`
+- `src/Config.{hpp,cpp}` (public strict parsers)
+- `tests/chatbot_api_server_args_test.cpp`, `tests/CMakeLists.txt`
 
 ---
 

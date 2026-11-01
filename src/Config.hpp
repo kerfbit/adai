@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.17.0
+// @adai-version: 1.18.0
 // @adai-reviewed: 2026-10-31
 
 
@@ -30,6 +30,13 @@ enum class GPUStrategy : std::uint8_t {
 
 /// Parse a GPU_STRATEGY string; logs a warning and returns BACKGROUND on unknown input.
 GPUStrategy gpu_strategy_from_string(const std::string& s);
+
+/// TD-287/TD-240: strict number parsing shared by config files, environment variables and
+/// command-line flags. The whole string must be the number ("8080x" fails), a size can't be
+/// negative, and a float must be finite. nullopt on any failure.
+std::optional<int> parse_strict_int(const std::string& value);
+std::optional<size_t> parse_strict_size(const std::string& value);
+std::optional<float> parse_strict_float(const std::string& value);
 
 /**
  * @brief Configuration for the ADAI chatbot service.

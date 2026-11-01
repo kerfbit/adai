@@ -1,9 +1,8 @@
 // @adai-status: experimental
-// @adai-version: 0.8.0
-// @adai-reviewed: 2026-10-28
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-10-31
 
 #include "ChatbotApiServerArgs.hpp"
-#include <cstdlib>
 
 namespace adai {
 
@@ -17,12 +16,18 @@ std::optional<std::string> extract_config_path_arg(int argc, char* argv[]) {
     return std::nullopt;
 }
 
-// TODO: See TD-240 in TECHNICAL_DEBT.md - numeric flags below use atoi/atof, so non-numbers become 0
-// and trailing garbage is dropped ("--port abc" -> 0, "--port 8080x" -> 8080) with no error.
 // TODO: See TD-244 in TECHNICAL_DEBT.md - no --top-k/--beam-width flags.
 ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
                                                          ServiceConfig& config) {
     ChatbotApiServerArgsResult result;
+
+    // TD-240: numeric flags used atoi/atof, so "--port abc" became 0 and "--port 8080x" 8080. Each
+    // value must now be the whole number (a size non-negative, a float finite), else an error.
+    auto bad_number = [&](const std::string& flag, const char* value, const char* expected) {
+        result.error = true;
+        result.error_message = "Invalid value for " + flag + ": '" + value + "' (expected " + expected + ")";
+        return result;
+    };
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -40,31 +45,55 @@ ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
         } else if (arg == "--draft-model" && i + 1 < argc) {
             config.draft_model_path = argv[++i];
         } else if (arg == "--speculative-candidates" && i + 1 < argc) {
-            config.speculative_num_candidates = std::atoi(argv[++i]);
+            const auto v = parse_strict_int(argv[++i]);
+            if (!v) return bad_number(arg, argv[i], "a whole number");
+            config.speculative_num_candidates = *v;
         } else if (arg == "--port" && i + 1 < argc) {
-            config.port = std::atoi(argv[++i]);
+            const auto v = parse_strict_int(argv[++i]);
+            if (!v) return bad_number(arg, argv[i], "a whole number");
+            config.port = *v;
         } else if (arg == "--timeout" && i + 1 < argc) {
-            config.session_timeout = std::atoi(argv[++i]);
+            const auto v = parse_strict_int(argv[++i]);
+            if (!v) return bad_number(arg, argv[i], "a whole number");
+            config.session_timeout = *v;
         } else if (arg == "--log-level" && i + 1 < argc) {
             config.log_level = argv[++i];
         } else if (arg == "--d-model" && i + 1 < argc) {
-            config.d_model = std::atoi(argv[++i]);
+            const auto v = parse_strict_size(argv[++i]);
+            if (!v) return bad_number(arg, argv[i], "a non-negative whole number");
+            config.d_model = *v;
         } else if (arg == "--num-heads" && i + 1 < argc) {
-            config.num_heads = std::atoi(argv[++i]);
+            const auto v = parse_strict_size(argv[++i]);
+            if (!v) return bad_number(arg, argv[i], "a non-negative whole number");
+            config.num_heads = *v;
         } else if (arg == "--d-ff" && i + 1 < argc) {
-            config.d_ff = std::atoi(argv[++i]);
+            const auto v = parse_strict_size(argv[++i]);
+            if (!v) return bad_number(arg, argv[i], "a non-negative whole number");
+            config.d_ff = *v;
         } else if (arg == "--enc-layers" && i + 1 < argc) {
-            config.num_encoder_layers = std::atoi(argv[++i]);
+            const auto v = parse_strict_size(argv[++i]);
+            if (!v) return bad_number(arg, argv[i], "a non-negative whole number");
+            config.num_encoder_layers = *v;
         } else if (arg == "--dec-layers" && i + 1 < argc) {
-            config.num_decoder_layers = std::atoi(argv[++i]);
+            const auto v = parse_strict_size(argv[++i]);
+            if (!v) return bad_number(arg, argv[i], "a non-negative whole number");
+            config.num_decoder_layers = *v;
         } else if (arg == "--max-seq-len" && i + 1 < argc) {
-            config.max_seq_length = std::atoi(argv[++i]);
+            const auto v = parse_strict_size(argv[++i]);
+            if (!v) return bad_number(arg, argv[i], "a non-negative whole number");
+            config.max_seq_length = *v;
         } else if (arg == "--max-gen-len" && i + 1 < argc) {
-            config.max_gen_length = std::atoi(argv[++i]);
+            const auto v = parse_strict_size(argv[++i]);
+            if (!v) return bad_number(arg, argv[i], "a non-negative whole number");
+            config.max_gen_length = *v;
         } else if (arg == "--temperature" && i + 1 < argc) {
-            config.temperature = static_cast<float>(std::atof(argv[++i]));
+            const auto v = parse_strict_float(argv[++i]);
+            if (!v) return bad_number(arg, argv[i], "a number");
+            config.temperature = *v;
         } else if (arg == "--top-p" && i + 1 < argc) {
-            config.top_p = static_cast<float>(std::atof(argv[++i]));
+            const auto v = parse_strict_float(argv[++i]);
+            if (!v) return bad_number(arg, argv[i], "a number");
+            config.top_p = *v;
         } else if (arg == "--strategy" && i + 1 < argc) {
             config.strategy = argv[++i];
         } else if (arg == "--profile") {
@@ -72,7 +101,9 @@ ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
         } else if (arg == "--batched-inference") {
             result.batched_inference = true;
         } else if (arg == "--batch-timeout-ms" && i + 1 < argc) {
-            result.batch_timeout_ms = std::atoi(argv[++i]);
+            const auto v = parse_strict_int(argv[++i]);
+            if (!v) return bad_number(arg, argv[i], "a whole number");
+            result.batch_timeout_ms = *v;
         } else if (arg == "--pipeline-inference" || arg == "--integrated-inference") {
             // TD-474/TD-475, TD-417–TD-420: retired with their engines, which batched nothing through
             // the model and answered differently from /chat. Say so rather than "unknown argument".
