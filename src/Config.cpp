@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.16.0
+// @adai-version: 1.17.0
 // @adai-reviewed: 2026-10-31
 
 #include "Config.hpp"
@@ -68,17 +68,30 @@ std::optional<float> ConfigLoader::get_env_float(const std::string& var_name) {
     return std::nullopt;
 }
 
+namespace {
+// TD-286: the one boolean syntax for config files and environment variables: true/1/yes/on/enabled
+// and false/0/no/off/disabled, any case; anything else is no value (a warning, and the default stays). Seven file keys used to accept only lowercase
+// true/1/yes and read every other spelling (True, ON...) as false without a word.
+std::optional<bool> parse_bool(const std::string& value) {
+    std::string lower = value;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    if (lower == "true" || lower == "1" || lower == "yes" || lower == "on" || lower == "enabled") return true;
+    if (lower == "false" || lower == "0" || lower == "no" || lower == "off" || lower == "disabled") return false;
+    return std::nullopt;
+}
+
+// A boolean config-file value; throws for anything parse_bool() rejects, so load_from_file() warns
+// and leaves the setting at its previous value.
+bool parse_file_bool(const std::string& key, const std::string& value) {
+    if (auto b = parse_bool(value)) return *b;
+    throw std::invalid_argument("not a boolean (use true/false, yes/no, on/off, enabled/disabled or 1/0) for " + key);
+}
+}  // namespace
+
 std::optional<bool> ConfigLoader::get_env_bool(const std::string& var_name) {
     auto value = get_env(var_name);
     if (value) {
-        std::string lower = *value;
-        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-        if (lower == "true" || lower == "1" || lower == "yes" || lower == "on") {
-            return true;
-        }
-        if (lower == "false" || lower == "0" || lower == "no" || lower == "off") {
-            return false;
-        }
+        if (auto b = parse_bool(*value)) return b;
         std::cerr << "Warning: Invalid boolean value for " << var_name << ": " << *value << '\n';
     }
     return std::nullopt;
@@ -168,10 +181,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "LOG_MAX_FILES") {
                 config.log_max_files = static_cast<size_t>(std::stoull(value));
             } else if (key == "LOG_COMPRESS") {
-                std::string lower = value;
-                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-                config.log_compress =
-                    (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+                config.log_compress = parse_file_bool(key, value);  // TD-286
                 // TODO: See TD-287 in TECHNICAL_DEBT.md - stoull wraps negatives (D_MODEL=-1 -> 1.8e19) and every
                 // sto* call here accepts trailing garbage (PORT=8080x -> 8080).
             } else if (key == "D_MODEL") {
@@ -196,9 +206,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "GRADIENT_CLIP") {
                 config.gradient_clip = std::stof(value);
             } else if (key == "GRADIENT_CLIP_ADAPTIVE") {
-                // TODO: See TD-286 in TECHNICAL_DEBT.md - this and six other keys accept only lowercase
-                // true/1/yes; "True"/"On" are silently false (other keys are case-insensitive).
-                config.adaptive_gradient_clip = (value == "true" || value == "1" || value == "yes");
+                config.adaptive_gradient_clip = parse_file_bool(key, value);  // TD-286
             } else if (key == "GRADIENT_CLIP_MIN") {
                 config.gradient_clip_min = std::stof(value);
             } else if (key == "GRADIENT_CLIP_MAX") {
@@ -229,7 +237,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.strategy = value;
                 // Training Metrics Service configuration
             } else if (key == "ENABLE_METRICS_SERVICE") {
-                config.enable_metrics_service = (value == "true" || value == "1" || value == "yes");
+                config.enable_metrics_service = parse_file_bool(key, value);  // TD-286
             } else if (key == "METRICS_SERVER_URL") {
                 config.metrics_server_url = value;
             } else if (key == "METRICS_PUSH_TIMEOUT_MS") {
@@ -241,8 +249,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "METRICS_HEARTBEAT_INTERVAL_MS") {
                 config.metrics_heartbeat_interval_ms = std::stoi(value);
             } else if (key == "METRICS_ENABLE_PERSISTENCE") {
-                config.metrics_enable_persistence =
-                    (value == "true" || value == "1" || value == "yes");
+                config.metrics_enable_persistence = parse_file_bool(key, value);  // TD-286
             } else if (key == "METRICS_FILE") {
                 config.metrics_file = value;
             } else if (key == "METRICS_SUMMARY_FILE") {
@@ -262,8 +269,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "METRICS_FILE_BACKUPS") {
                 config.metrics_file_backups = std::stoi(value);
             } else if (key == "METRICS_ENABLE_PROMETHEUS") {
-                config.metrics_enable_prometheus =
-                    (value == "true" || value == "1" || value == "yes");
+                config.metrics_enable_prometheus = parse_file_bool(key, value);  // TD-286
             } else if (key == "METRICS_PROMETHEUS_FILE") {
                 config.metrics_prometheus_file = value;
             } else if (key == "METRICS_SESSION_KEY") {
@@ -281,8 +287,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "METRICS_API_PORT") {
                 config.metrics_api_port = std::stoi(value);
             } else if (key == "METRICS_API_ALLOW_CONTROL") {
-                config.metrics_api_allow_control =
-                    (value == "true" || value == "1" || value == "yes");
+                config.metrics_api_allow_control = parse_file_bool(key, value);  // TD-286
             } else if (key == "METRICS_API_CORS_ALLOWED_ORIGINS") {
                 config.metrics_api_cors_allowed_origins = value;
                 // Metrics database persistence (TD-020)
@@ -296,8 +301,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.metrics_db_pool_size = std::stoi(value);
                 // Generation quality metrics configuration
             } else if (key == "ENABLE_GENERATION_QUALITY_METRICS") {
-                config.enable_generation_quality_metrics =
-                    (value == "true" || value == "1" || value == "yes");
+                config.enable_generation_quality_metrics = parse_file_bool(key, value);  // TD-286
             } else if (key == "GENERATION_QUALITY_SAMPLE_SIZE") {
                 config.generation_quality_sample_size = std::stoi(value);
             } else if (key == "GENERATION_QUALITY_MAX_TOKENS") {
@@ -306,15 +310,9 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.generation_quality_async_threshold = std::stoi(value);
                 // RAG configuration
             } else if (key == "ALLOW_UNTRAINED_MODEL") {  // TD-246
-                std::string lower = value;
-                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-                config.allow_untrained_model =
-                    (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+                config.allow_untrained_model = parse_file_bool(key, value);  // TD-286
             } else if (key == "RAG_ENABLED") {
-                std::string lower = value;
-                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-                config.rag_enabled =
-                    (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+                config.rag_enabled = parse_file_bool(key, value);  // TD-286
             } else if (key == "RAG_DOCS_PATH") {
                 config.rag_docs_path = value;
             } else if (key == "RAG_NUM_DOCS") {
@@ -333,10 +331,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "DATASET_KIND") {
                 config.dataset_kind = value;
             } else if (key == "CACHE_TOKENIZED_DATA") {
-                std::string lower = value;
-                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-                config.cache_tokenized_data =
-                    (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+                config.cache_tokenized_data = parse_file_bool(key, value);  // TD-286
             } else if (key == "TOKENIZED_CACHE_DIR") {
                 config.tokenized_cache_dir = value;
             } else if (key == "REGISTRY_TIMEOUT_MS") {
@@ -353,9 +348,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.registry_max_concurrent_fetches = std::stoi(value);
                 // FTP Dataset Transport configuration (Phase 10)
             } else if (key == "FTP_SERVER_ENABLED") {  // TD-284
-                std::string lower = value;
-                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-                config.ftp_server_enabled = (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+                config.ftp_server_enabled = parse_file_bool(key, value);  // TD-286
             } else if (key == "FTP_ADVERTISE_IP") {  // TD-284
                 config.ftp_advertise_ip = value;
             } else if (key == "FTP_SERVER_PORT") {
@@ -382,7 +375,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "FTP_MAX_SESSIONS_PER_RUN") {
                 config.ftp_max_sessions_per_run = std::stoi(value);
             } else if (key == "FTPS_ENABLED") {
-                config.ftps_enabled = (value == "1" || value == "true" || value == "yes");
+                config.ftps_enabled = parse_file_bool(key, value);  // TD-286
             } else if (key == "FTP_CERT_FILE") {
                 config.ftp_cert_file = value;
             } else if (key == "FTP_KEY_FILE") {
@@ -402,10 +395,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.model_role = value;
                 // Incremental trainer admin API configuration
             } else if (key == "TRAINER_ADMIN_ENABLED") {
-                std::string lower = value;
-                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-                config.trainer_admin_enabled =
-                    (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+                config.trainer_admin_enabled = parse_file_bool(key, value);  // TD-286
             } else if (key == "TRAINER_ADMIN_PORT") {
                 config.trainer_admin_port = std::stoi(value);
             } else if (key == "TRAINER_ADMIN_HOST") {
@@ -416,10 +406,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.trainer_child_admin_port = std::stoi(value);
                 // World-model (LeJEPA) pretraining configuration (TD-183)
             } else if (key == "WORLD_MODEL_ENABLED") {
-                std::string lower = value;
-                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-                config.world_model_enabled =
-                    (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+                config.world_model_enabled = parse_file_bool(key, value);  // TD-286
             } else if (key == "WORLD_MODEL_D_MODEL") {
                 config.world_model_d_model = std::stoul(value);
             } else if (key == "WORLD_MODEL_NUM_LAYERS") {
@@ -440,10 +427,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.world_model_artifact_path = value;
                 // Hippocampal memory configuration (TD-185 filed; TD-186 wires)
             } else if (key == "HIPPOCAMPAL_MEMORY_ENABLED") {
-                std::string lower = value;
-                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-                config.hippocampal_memory_enabled =
-                    (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+                config.hippocampal_memory_enabled = parse_file_bool(key, value);  // TD-286
             } else if (key == "HIPPOCAMPAL_MEMORY_CAPACITY") {
                 config.hippocampal_memory_capacity = std::stoul(value);
             } else if (key == "HIPPOCAMPAL_REPETITION_ALPHA") {
@@ -456,15 +440,9 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.hippocampal_association_decay = std::stof(value);
                 // Auto-save / checkpoint retention configuration
             } else if (key == "AUTO_SAVE_ENABLED") {
-                std::string lower = value;
-                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-                config.auto_save_enabled =
-                    (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+                config.auto_save_enabled = parse_file_bool(key, value);  // TD-286
             } else if (key == "RESUME_FROM_BEST_CHECKPOINT") {
-                std::string lower = value;
-                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-                config.resume_from_best_checkpoint =
-                    (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+                config.resume_from_best_checkpoint = parse_file_bool(key, value);  // TD-286
             } else if (key == "AUTO_SAVE_EVERY_SAMPLES") {
                 config.auto_save_every_samples = std::stoi(value);
             } else if (key == "AUTO_SAVE_EVERY_MINUTES") {
@@ -473,10 +451,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.max_sessions_to_keep = std::stoi(value);
                 // GPU configuration
             } else if (key == "GPU_ENABLED") {
-                std::string lower = value;
-                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-                config.gpu_enabled =
-                    (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+                config.gpu_enabled = parse_file_bool(key, value);  // TD-286
             } else if (key == "GPU_DEVICE_ID") {
                 config.gpu_device_id = std::stoi(value);
             } else if (key == "GPU_MEMORY_FRACTION") {
@@ -879,10 +854,8 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env_int("FTP_MAX_SESSIONS_PER_RUN")) {
         config.ftp_max_sessions_per_run = *val;
     }
-    // TODO: See TD-286 in TECHNICAL_DEBT.md - bypasses get_env_bool(): lowercase-only, no warning.
-    if (const char* v = std::getenv("FTPS_ENABLED")) {
-        const std::string sv(v);
-        config.ftps_enabled = (sv == "1" || sv == "true" || sv == "yes");
+    if (auto val = get_env_bool("FTPS_ENABLED")) {  // TD-286: used to bypass get_env_bool()
+        config.ftps_enabled = *val;
     }
     if (auto val = get_env("FTP_CERT_FILE")) {
         config.ftp_cert_file = *val;

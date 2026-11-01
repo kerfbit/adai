@@ -1358,6 +1358,7 @@ The generation and model math run is complete.
   secret is ignored; plaintext FTP on a network address warns).
 - TD-285 (done in code: reload always applies a valid config and logs every changed file key, secrets hidden, plus a restart warning
   for keys the binary doesn't apply live; TD-251's logging item with it).
+- TD-286 (done in code: one case-insensitive boolean parser for every file and env key; anything else warns and keeps the default).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6873,7 +6874,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Config | October 9, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed October 31, 2026 | Config | October 9, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-283 and confirmed by running the real loader. Eight file keys accept
@@ -6886,10 +6887,19 @@ unknown values), except `FTPS_ENABLED`, which bypasses it.
 
 Action Items:
 
-- [ ] Use one shared boolean parser (the env one: case-insensitive, true/false sets, warn on anything else) for every file and env key.
-- [ ] Test each boolean key with `True`/`ON`/`Yes`.
+- [x] Use one shared boolean parser (the env one: case-insensitive, true/false sets, warn on anything else) for every file and env key.
+- [x] Test each boolean key with `True`/`ON`/`Yes`.
 
-Location in code: `src/Config.cpp` (`load_from_file()`, `load_from_env()` `FTPS_ENABLED`); tagged `TODO: See TD-286`.
+**Fix (October 31, 2026).** One parser, `parse_bool()` in `Config.cpp`, serves every boolean key in the file (18 call sites, through
+`parse_file_bool()`) and the environment (`get_env_bool()`, now also used for `FTPS_ENABLED`, which bypassed it). It accepts
+`true/1/yes/on/enabled` and `false/0/no/off/disabled` in any case (`enabled`/`disabled` added so the likeliest wording isn't refused).
+Anything else is refused: a file value logs "Invalid value for KEY" and the setting keeps its default, an env value warns as before.
+This changes one behaviour: an unrecognised value used to mean false and now leaves the default, which is true for
+`METRICS_API_ALLOW_CONTROL` (and is warned about). Tests: `EveryBooleanKeyAcceptsAnyCaseOfTheSameWords` (all 12 boolean keys with
+`True`/`ON`/`Yes`/`1`/`Enabled` and their negatives; the old parser read `True`/`ON`/`Yes` as false for exactly the seven keys above),
+`ABooleanThatIsntOneLeavesTheDefault`, `FtpsEnabledFromTheEnvironmentAcceptsAnyCase`.
+
+Location in code: `src/Config.cpp` (`load_from_file()`, `load_from_env()` `FTPS_ENABLED`); tagged `TD-286`.
 
 Files to Modify:
 

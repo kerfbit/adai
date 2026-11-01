@@ -1376,3 +1376,55 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
+
+// ============================================================================
+// TD-286: one boolean syntax for every key, file and environment
+// ============================================================================
+
+namespace {
+// Every boolean ServiceConfig key, with the field it sets.
+const std::vector<std::pair<std::string, bool ServiceConfig::*>> kBoolKeys = {
+    {"LOG_COMPRESS", &ServiceConfig::log_compress},
+    {"GRADIENT_CLIP_ADAPTIVE", &ServiceConfig::adaptive_gradient_clip},
+    {"ENABLE_METRICS_SERVICE", &ServiceConfig::enable_metrics_service},
+    {"METRICS_ENABLE_PERSISTENCE", &ServiceConfig::metrics_enable_persistence},
+    {"METRICS_ENABLE_PROMETHEUS", &ServiceConfig::metrics_enable_prometheus},
+    {"METRICS_API_ALLOW_CONTROL", &ServiceConfig::metrics_api_allow_control},
+    {"ENABLE_GENERATION_QUALITY_METRICS", &ServiceConfig::enable_generation_quality_metrics},
+    {"ALLOW_UNTRAINED_MODEL", &ServiceConfig::allow_untrained_model},
+    {"RAG_ENABLED", &ServiceConfig::rag_enabled},
+    {"GPU_ENABLED", &ServiceConfig::gpu_enabled},
+    {"FTPS_ENABLED", &ServiceConfig::ftps_enabled},
+    {"FTP_SERVER_ENABLED", &ServiceConfig::ftp_server_enabled},
+};
+}  // namespace
+
+TEST_F(ConfigTest, EveryBooleanKeyAcceptsAnyCaseOfTheSameWords) {
+    // Seven keys used to read "True", "ON" and "Yes" as false.
+    for (const auto& [key, field] : kBoolKeys) {
+        for (const char* yes : {"True", "ON", "Yes", "1", "Enabled"}) {
+            createConfigFile({{key, yes}});
+            EXPECT_TRUE(ConfigLoader::load(test_file.string()).*field) << key << "=" << yes;
+        }
+        for (const char* no : {"False", "OFF", "No", "0", "disabled"}) {
+            createConfigFile({{key, no}});
+            EXPECT_FALSE(ConfigLoader::load(test_file.string()).*field) << key << "=" << no;
+        }
+    }
+}
+
+TEST_F(ConfigTest, ABooleanThatIsntOneLeavesTheDefault) {
+    // A non-boolean used to be read as false; now it's refused with a warning and the default stays.
+    createConfigFile({{"METRICS_API_ALLOW_CONTROL", "maybe"}, {"GPU_ENABLED", "perhaps"}});
+    const ServiceConfig defaults;
+    const ServiceConfig config = ConfigLoader::load(test_file.string());
+    EXPECT_EQ(config.metrics_api_allow_control, defaults.metrics_api_allow_control);
+    EXPECT_EQ(config.gpu_enabled, defaults.gpu_enabled);
+}
+
+TEST_F(ConfigTest, FtpsEnabledFromTheEnvironmentAcceptsAnyCase) {
+    ::setenv("FTPS_ENABLED", "TRUE", 1);
+    const bool on = ConfigLoader::load(test_file.string()).ftps_enabled;
+    ::unsetenv("FTPS_ENABLED");
+    EXPECT_TRUE(on);  // the env path used to bypass get_env_bool() and accept only lowercase
+}

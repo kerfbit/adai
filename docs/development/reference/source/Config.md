@@ -269,3 +269,10 @@ validation and logs `detect_changes()`, which for file-loaded configs lists ever
 as `<hidden>`); `changed_file_keys()` returns just the keys. An optional `live_keys` set makes `reload()` warn for every changed key the
 caller doesn't apply live. Tests: `ReloadAppliesAndLogsAChangeToAnyKey`, `ReloadReportsAddedRemovedAndHidesSecrets`,
 `ReloadNamesChangesTheBinaryAppliesOnlyAfterARestart`.
+
+## Addendum (October 31, 2026): one boolean syntax (TD-286)
+
+Every boolean key, in the file or the environment, goes through `parse_bool()`: `true/1/yes/on/enabled` or `false/0/no/off/disabled`,
+any case. Anything else is refused with a warning and the setting keeps its default (it used to mean false for seven keys, which also
+rejected `True`/`ON`/`Yes`). `FTPS_ENABLED` from the environment now uses `get_env_bool()` too. Tests:
+`EveryBooleanKeyAcceptsAnyCaseOfTheSameWords`, `ABooleanThatIsntOneLeavesTheDefault`, `FtpsEnabledFromTheEnvironmentAcceptsAnyCase`.
