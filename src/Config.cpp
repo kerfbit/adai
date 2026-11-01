@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.23.0
+// @adai-version: 1.24.0
 // @adai-reviewed: 2026-11-01
 
 #include "Config.hpp"
@@ -149,6 +149,8 @@ bool parse_file_bool(const std::string& key, const std::string& value) {
     throw std::invalid_argument("not a boolean (use true/false, yes/no, on/off, enabled/disabled or 1/0) for " + key);
 }
 }  // namespace
+
+std::optional<bool> parse_strict_bool(const std::string& value) { return parse_bool(value); }
 
 std::optional<bool> ConfigLoader::get_env_bool(const std::string& var_name) {
     auto value = get_env(var_name);
@@ -509,6 +511,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.name_service_dir = value;
             } else if (key == "NAME_SERVICE_TIMEOUT_MS") {
                 config.name_service_timeout_ms = parse_int(value);
+            } else if (key == "MNS_ADMIN_ENABLED") {  // TD-456
+                config.name_service_admin_enabled = parse_file_bool(key, value);
             } else if (key == "MODEL_NAME") {
                 config.model_name = value;
             } else if (key == "MODEL_ROLE") {
@@ -990,6 +994,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_int("NAME_SERVICE_TIMEOUT_MS")) {
         config.name_service_timeout_ms = *val;
+    }
+    if (auto val = get_env_bool("MNS_ADMIN_ENABLED")) {  // TD-456
+        config.name_service_admin_enabled = *val;
     }
     if (auto val = get_env("MODEL_NAME")) {
         config.model_name = *val;
@@ -1733,6 +1740,7 @@ std::string ConfigLoader::to_string(const ServiceConfig& c) {
     item("NAME_SERVICE_PORT", num(c.name_service_port));
     item("NAME_SERVICE_DIR", c.name_service_dir);
     item("NAME_SERVICE_TIMEOUT_MS", num(c.name_service_timeout_ms));
+    item("MNS_ADMIN_ENABLED", flag(c.name_service_admin_enabled));
     item("MODEL_NAME", c.model_name);
     item("MODEL_ROLE", c.model_role);
     section("Trainer admin API");

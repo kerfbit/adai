@@ -314,3 +314,8 @@ partial listing to stdout). `HIPPOCAMPAL_COVERAGE_LOSS_WEIGHT` is reserved: acce
 `reload(config, path, mutex, live_keys, cli_overrides, cli_keys)`: `cli_overrides` runs on the reloaded config after the file and
 environment and before validation; a changed file key in `cli_keys` is logged as held by a command-line flag rather than as applied
 or needing a restart. Both default to empty, so other callers are unchanged.
+
+## Addendum (November 1, 2026): `parse_strict_bool()` and `MNS_ADMIN_ENABLED` (TD-456)
+
+`parse_strict_bool()` joins the public strict parsers (the TD-286 boolean words, `nullopt` otherwise), for command-line flags.
+`MNS_ADMIN_ENABLED` → `name_service_admin_enabled` (default true) is `mns_server`'s admin-endpoint switch.

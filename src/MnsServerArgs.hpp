@@ -1,13 +1,12 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-11-01
 
 // TD-035: argv parsing and config-precedence resolution for mns_server's main(), pulled out of
 // ModelNameServiceServer.cpp so it's testable without spinning up a real ModelNameService
-// instance — see MnsServerArgs_test.cpp.
-// TODO: See TD-456 in TECHNICAL_DEBT.md - the test file is actually mns_server_args_test.cpp
+// instance — see tests/mns_server_args_test.cpp.
 
 #include <map>
 #include <optional>
@@ -16,10 +15,6 @@
 
 namespace adai {
 
-// Same lenient boolean parsing mns_server's --admin-enabled flag has always used —
-// unrecognized values fall back to `default_value` rather than erroring, matching every other
-// flag in this file's tolerant style.
-bool parse_bool_flag(const std::string& value, bool default_value);
 
 struct MnsServerArgs {
     std::optional<std::string> config_path;
@@ -30,14 +25,15 @@ struct MnsServerArgs {
     std::optional<bool> admin_enabled;
 
     bool help = false;
-    // Set on an invalid --port value or an unrecognized argument. error_message is
+    // Set on an invalid --port (not a whole number 1-65535) or --admin-enabled (not a boolean)
+    // value, a flag missing its value, or an unrecognized argument (TD-456). error_message is
     // human-readable and already ends without a trailing newline.
     bool error = false;
     std::string error_message;
 };
 
 // Parses argv[1..] (argv[0], the program name, is not consulted). Never throws — an invalid
-// --port value or unrecognized flag sets .error/.error_message instead.
+// value, a missing value or an unrecognized flag sets .error/.error_message instead.
 MnsServerArgs parse_mns_server_args(int argc, char* argv[]);
 
 struct MnsServerEffectiveConfig {
@@ -45,7 +41,7 @@ struct MnsServerEffectiveConfig {
     std::string data_dir;
     std::string registry_url;
     std::string registry_group;
-    bool admin_enabled = true;
+    bool admin_enabled = true;  // --admin-enabled, else MNS_ADMIN_ENABLED (TD-456)
 };
 
 // Resolves the effective startup config from (lowest to highest precedence): `file_config` <

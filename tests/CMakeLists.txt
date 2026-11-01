@@ -813,9 +813,12 @@ endif()
 # MnsServerArgs.{hpp,cpp} so it's testable without a real ModelNameService/HTTP server (that
 # server-lifecycle behavior is already covered live by MNSLiveTests). No httplib dependency —
 # unlike the MNS tests above, this doesn't need to be gated on HTTPLIB_INCLUDE_DIR.
-add_executable(mnsServerArgsTests mns_server_args_test.cpp ${CMAKE_SOURCE_DIR}/src/MnsServerArgs.cpp)
+add_executable(mnsServerArgsTests mns_server_args_test.cpp ${CMAKE_SOURCE_DIR}/src/MnsServerArgs.cpp
+    ${CMAKE_SOURCE_DIR}/src/Config.cpp  # TD-456: the strict number/boolean parsers
+    ${CMAKE_SOURCE_DIR}/src/Logger.cpp)
 target_include_directories(mnsServerArgsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(mnsServerArgsTests
+    spdlog::spdlog
     GTest::gtest_main
 )
 add_test(NAME MnsServerArgsTests COMMAND mnsServerArgsTests)

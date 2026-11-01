@@ -1375,6 +1375,7 @@ The generation and model math run is complete.
 - TD-245, TD-243 (done in code: a value flag given no value says `Missing value for --port`; `--batch-timeout-ms` alone is an error).
 - TD-438 (done in code: `metrics_api_server`'s numeric flags and saved admin overrides are checked against one range table; a bad
   flag is an error and exits 1).
+- TD-456 (done in code: `mns_server` refuses a mistyped `--admin-enabled` and a bad `--port`; new `MNS_ADMIN_ENABLED` key).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -13032,7 +13033,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | MNS / Server CLI | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 1, 2026 | MNS / Server CLI | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `MnsServerArgs` and verified with the real `mns_server`:
@@ -13050,16 +13051,29 @@ Found while tracing `MnsServerArgs` and verified with the real `mns_server`:
 
 Action Items:
 
-- [ ] Make an explicit but unrecognized `--admin-enabled` value an error (keep the lenient default only when the flag is absent).
-- [ ] Parse `--port` with the shared checked helper (whole string, 1–65535) from TD-438/TD-240.
-- [ ] Report "missing value for --flag"; consider an `MNS_ADMIN_ENABLED` config key; fix the header comment.
+- [x] Make an explicit but unrecognized `--admin-enabled` value an error (keep the lenient default only when the flag is absent).
+- [x] Parse `--port` with the shared checked helper (whole string, 1–65535) from TD-438/TD-240.
+- [x] Report "missing value for --flag"; consider an `MNS_ADMIN_ENABLED` config key; fix the header comment.
 
-Location in code: `src/MnsServerArgs.cpp` (`parse_bool_flag()`, `parse_mns_server_args()`); tagged `TODO: See TD-456`.
+**Fix (November 1, 2026).** `parse_mns_server_args()` refuses an `--admin-enabled` value that isn't a boolean
+(`Invalid value for --admin-enabled: 'flase' (expected true/false, yes/no, on/off, enabled/disabled or 1/0)`), through a new public
+`parse_strict_bool()` in `Config.hpp`, the TD-286 parser; `parse_bool_flag()`, which fell back to the default, is gone. `--port`/`-p`
+must be a whole number 1–65535 (`parse_strict_int()`), and a value flag given no value says `Missing value for --port`. `main()`
+already exited 1 on a parse error. A new `MNS_ADMIN_ENABLED` key (`ServiceConfig::name_service_admin_enabled`, default true, shipped
+in `config.mns.conf` with a note that MNS has no authentication) sets the default that `--admin-enabled` overrides. The header names
+the real test file. Tests: `AnUnrecognisedAdminEnabledValueIsAnError`, `AdminEnabledAcceptsTheSharedBooleanWords`,
+`PortMustBeAWholeNumberInRange`, `AFlagMissingItsValueSaysSo`, `AdminEnabledComesFromTheConfigUnlessTheFlagIsGiven`, the key added to
+`EveryBooleanKeyAcceptsAnyCaseOfTheSameWords`, and `SighupTest.MnsServerRefusesAMistypedAdminEnabledAndHonoursTheConfigKey` (the real
+binary exits 1 on `--admin-enabled flase`, which the old binary started with, and with `MNS_ADMIN_ENABLED=false` answers
+`PUT /admin/config` with 403).
+
+Location in code: `src/MnsServerArgs.cpp` (`parse_bool_flag()`, `parse_mns_server_args()`); tagged `TD-456`.
 
 Files to Modify:
 
 - `src/MnsServerArgs.{hpp,cpp}`
-- `tests/mns_server_args_test.cpp`
+- `src/Config.{hpp,cpp}`, `config.mns.conf`
+- `tests/mns_server_args_test.cpp`, `tests/config_test.cpp`, `tests/sighup_test.cpp`, `tests/CMakeLists.txt`
 
 ---
 

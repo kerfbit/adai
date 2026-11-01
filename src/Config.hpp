@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.19.0
+// @adai-version: 1.20.0
 // @adai-reviewed: 2026-11-01
 
 
@@ -38,6 +38,8 @@ GPUStrategy gpu_strategy_from_string(const std::string& s);
 std::optional<int> parse_strict_int(const std::string& value);
 std::optional<size_t> parse_strict_size(const std::string& value);
 std::optional<float> parse_strict_float(const std::string& value);
+/// TD-286/TD-456: true/1/yes/on/enabled or false/0/no/off/disabled in any case; nullopt otherwise.
+std::optional<bool> parse_strict_bool(const std::string& value);
 
 /**
  * @brief Configuration for the ADAI chatbot service.
@@ -478,6 +480,9 @@ struct ServiceConfig {
 
     /// HTTP timeout for ModelNameClient calls in milliseconds (default: 5000)
     int name_service_timeout_ms = 5000;
+
+    /// TD-456: mns_server's GET/PUT /admin/config (MNS_ADMIN_ENABLED; --admin-enabled overrides).
+    bool name_service_admin_enabled = true;
 
     /// Human-readable model name registered in the MNS (default: "")
     std::string model_name;

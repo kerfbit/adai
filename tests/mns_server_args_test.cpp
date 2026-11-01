@@ -28,24 +28,32 @@ std::vector<char*> make_argv(std::vector<std::string>& storage) {
 
 }  // namespace
 
-TEST(ParseBoolFlag, RecognizesTrueVariants) {
-    EXPECT_TRUE(adai::parse_bool_flag("true", false));
-    EXPECT_TRUE(adai::parse_bool_flag("1", false));
-    EXPECT_TRUE(adai::parse_bool_flag("yes", false));
-    EXPECT_TRUE(adai::parse_bool_flag("on", false));
-    EXPECT_TRUE(adai::parse_bool_flag("TRUE", false)) << "must be case-insensitive";
+TEST(ParseMnsServerArgs, AdminEnabledAcceptsTheSharedBooleanWords) {
+    for (const char* yes : {"true", "1", "yes", "on", "TRUE", "Enabled"}) {
+        std::vector<std::string> raw = {"mns_server", "--admin-enabled", yes};
+        auto argv = make_argv(raw);
+        auto args = adai::parse_mns_server_args(static_cast<int>(argv.size()), argv.data());
+        ASSERT_FALSE(args.error) << yes << ": " << args.error_message;
+        EXPECT_EQ(args.admin_enabled, true) << yes;
+    }
+    for (const char* no : {"false", "0", "no", "off", "Disabled"}) {
+        std::vector<std::string> raw = {"mns_server", "--admin-enabled", no};
+        auto argv = make_argv(raw);
+        auto args = adai::parse_mns_server_args(static_cast<int>(argv.size()), argv.data());
+        ASSERT_FALSE(args.error) << no;
+        EXPECT_EQ(args.admin_enabled, false) << no;
+    }
 }
 
-TEST(ParseBoolFlag, RecognizesFalseVariants) {
-    EXPECT_FALSE(adai::parse_bool_flag("false", true));
-    EXPECT_FALSE(adai::parse_bool_flag("0", true));
-    EXPECT_FALSE(adai::parse_bool_flag("no", true));
-    EXPECT_FALSE(adai::parse_bool_flag("off", true));
-}
-
-TEST(ParseBoolFlag, UnrecognizedValueFallsBackToDefault) {
-    EXPECT_TRUE(adai::parse_bool_flag("banana", true));
-    EXPECT_FALSE(adai::parse_bool_flag("banana", false));
+// TD-456: an unrecognised value used to fall back to true, so "--admin-enabled flase" left
+// PUT /admin/config open.
+TEST(ParseMnsServerArgs, AnUnrecognisedAdminEnabledValueIsAnError) {
+    std::vector<std::string> raw = {"mns_server", "--admin-enabled", "flase"};
+    auto argv = make_argv(raw);
+    auto args = adai::parse_mns_server_args(static_cast<int>(argv.size()), argv.data());
+    EXPECT_TRUE(args.error);
+    EXPECT_NE(args.error_message.find("'flase'"), std::string::npos) << args.error_message;
+    EXPECT_FALSE(args.admin_enabled.has_value());
 }
 
 TEST(ParseMnsServerArgs, NoArgsLeavesEverythingUnset) {
@@ -116,13 +124,34 @@ TEST(ParseMnsServerArgs, UnknownArgumentSetsError) {
     EXPECT_NE(args.error_message.find("--bogus"), std::string::npos);
 }
 
-TEST(ParseMnsServerArgs, FlagMissingItsValueIsTreatedAsUnknown) {
-    // "--port" as the last argument has no following value — falls through to the "unknown
-    // argument" branch rather than reading past the end of argv.
-    std::vector<std::string> raw = {"mns_server", "--port"};
+// TD-456: a flag given no value was reported as "Unknown argument".
+TEST(ParseMnsServerArgs, AFlagMissingItsValueSaysSo) {
+    for (const char* flag : {"--config", "--port", "-p", "--data-dir", "--registry-url", "--registry-group",
+                             "--admin-enabled"}) {
+        std::vector<std::string> raw = {"mns_server", flag};
+        auto argv = make_argv(raw);
+        auto args = adai::parse_mns_server_args(static_cast<int>(argv.size()), argv.data());
+        EXPECT_TRUE(args.error) << flag;
+        EXPECT_EQ(args.error_message, std::string("Missing value for ") + flag);
+    }
+    std::vector<std::string> raw = {"mns_server", "--data-dir", "--port", "9000"};
     auto argv = make_argv(raw);
-    auto args = adai::parse_mns_server_args(static_cast<int>(argv.size()), argv.data());
-    EXPECT_TRUE(args.error);
+    EXPECT_EQ(adai::parse_mns_server_args(static_cast<int>(argv.size()), argv.data()).error_message,
+              "Missing value for --data-dir");
+}
+
+// TD-456: std::stoi took "8083x" as 8083, and --port 99999 listened on 34463 (mod 65536).
+TEST(ParseMnsServerArgs, PortMustBeAWholeNumberInRange) {
+    for (const char* value : {"8083x", "99999", "0", "-1", "65536", "1e3", ""}) {
+        std::vector<std::string> raw = {"mns_server", "--port", value};
+        auto argv = make_argv(raw);
+        auto args = adai::parse_mns_server_args(static_cast<int>(argv.size()), argv.data());
+        EXPECT_TRUE(args.error) << value;
+        EXPECT_FALSE(args.port.has_value()) << value;
+    }
+    std::vector<std::string> raw = {"mns_server", "--port", "65535"};
+    auto argv = make_argv(raw);
+    EXPECT_EQ(adai::parse_mns_server_args(static_cast<int>(argv.size()), argv.data()).port, 65535);
 }
 
 class ResolveMnsServerConfigTest : public ::testing::Test {
@@ -204,4 +233,16 @@ TEST_F(ResolveMnsServerConfigTest, CliPortAndDataDirOverrideFileConfig) {
     auto eff = adai::resolve_mns_server_config(args, file_config, no_overrides);
     EXPECT_EQ(eff.port, 12345);
     EXPECT_EQ(eff.data_dir, "/custom/data");
+}
+
+// TD-456: MNS_ADMIN_ENABLED in config.mns.conf sets the default; --admin-enabled overrides it.
+TEST_F(ResolveMnsServerConfigTest, AdminEnabledComesFromTheConfigUnlessTheFlagIsGiven) {
+    adai::MnsServerArgs args;
+    file_config.name_service_admin_enabled = false;
+    EXPECT_FALSE(adai::resolve_mns_server_config(args, file_config, no_overrides).admin_enabled);
+    args.admin_enabled = true;
+    EXPECT_TRUE(adai::resolve_mns_server_config(args, file_config, no_overrides).admin_enabled);
+    file_config.name_service_admin_enabled = true;
+    args.admin_enabled.reset();
+    EXPECT_TRUE(adai::resolve_mns_server_config(args, file_config, no_overrides).admin_enabled);
 }

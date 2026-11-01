@@ -248,3 +248,33 @@ TEST_F(SighupTest, MetricsApiServerExitsOneOnABadFlag) {
         EXPECT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 1) << bad[0];
     }
 }
+
+// TD-456: mns_server took a mistyped --admin-enabled value as true; now it's refused. And
+// MNS_ADMIN_ENABLED=false in config.mns.conf closes PUT /admin/config.
+TEST_F(SighupTest, MnsServerRefusesAMistypedAdminEnabledAndHonoursTheConfigKey) {
+    const auto cfg = write_config("config.mns.conf", "MNS_ADMIN_ENABLED=false\n");
+    spawn(MNS_SERVER_BINARY_PATH, {"--config", cfg.string(), "--port", std::to_string(free_port()), "--data-dir",
+                                   (dir_ / "mns").string(), "--admin-enabled", "flase"});
+    int status = 0;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    pid_t done = 0;
+    while ((done = ::waitpid(pid_, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    ASSERT_EQ(done, pid_) << "mns_server started with --admin-enabled flase";
+    pid_ = -1;
+    EXPECT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 1);
+
+    const int port = free_port();
+    spawn(MNS_SERVER_BINARY_PATH,
+          {"--config", cfg.string(), "--port", std::to_string(port), "--data-dir", (dir_ / "mns").string()});
+    deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (!healthy(port) && std::chrono::steady_clock::now() < deadline) {
+        ASSERT_TRUE(still_running()) << "mns_server exited during startup";
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    httplib::Client client("127.0.0.1", port);
+    auto res = client.Put("/admin/config", R"({"registry_group":"hijacked"})", "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_NE(res->status, 200) << res->body;
+}

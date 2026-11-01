@@ -80,3 +80,9 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Port not range-checked: `99999` → 34463, `8083x` → 8083, `0` → random (§2) | MNS starts where clients can't find it | **Verified** (real server) | [TD-456](../../guides/TECHNICAL_DEBT.md#td-456-mns_server-treats-a-mistyped---admin-enabled-as-true-and-doesnt-range-check---port) |
 | Missing value reported as "Unknown argument"; no config key for `--admin-enabled`; test-file name in header (§3) | Minor | By inspection | [TD-456](../../guides/TECHNICAL_DEBT.md#td-456-mns_server-treats-a-mistyped---admin-enabled-as-true-and-doesnt-range-check---port) |
 | Same parsing pattern in the other daemons | Already tracked | — | TD-438, TD-240 |
+
+## Addendum (November 1, 2026): strict flags and `MNS_ADMIN_ENABLED` (TD-456)
+
+`--admin-enabled` takes the shared boolean words (`parse_strict_bool()`, any case) and anything else is an error, instead of meaning
+true. `--port` must be a whole number 1–65535, and a flag with no value is `Missing value for <flag>`. `parse_bool_flag()` was
+removed. `MNS_ADMIN_ENABLED` in `config.mns.conf` (default true) sets whether `PUT /admin/config` is open; the flag overrides it.

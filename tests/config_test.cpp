@@ -1396,6 +1396,7 @@ const std::vector<std::pair<std::string, bool ServiceConfig::*>> kBoolKeys = {
     {"GPU_ENABLED", &ServiceConfig::gpu_enabled},
     {"FTPS_ENABLED", &ServiceConfig::ftps_enabled},
     {"FTP_SERVER_ENABLED", &ServiceConfig::ftp_server_enabled},
+    {"MNS_ADMIN_ENABLED", &ServiceConfig::name_service_admin_enabled},  // TD-456
 };
 }  // namespace
 

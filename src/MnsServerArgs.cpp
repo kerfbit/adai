@@ -1,55 +1,61 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-11-01
 
 #include "MnsServerArgs.hpp"
-#include <cctype>
+#include <set>
 
 namespace adai {
 
-// TODO: See TD-456 in TECHNICAL_DEBT.md - unrecognized text returns the default, so --admin-enabled flase stays enabled
-bool parse_bool_flag(const std::string& value, bool default_value) {
-    std::string lower = value;
-    for (auto& c : lower)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    if (lower == "true" || lower == "1" || lower == "yes" || lower == "on")
-        return true;
-    if (lower == "false" || lower == "0" || lower == "no" || lower == "off")
-        return false;
-    return default_value;
-}
-
 MnsServerArgs parse_mns_server_args(int argc, char* argv[]) {
     MnsServerArgs result;
+    auto fail = [&](const std::string& message) {
+        result.error = true;
+        result.error_message = message;
+        return result;
+    };
+    static const std::set<std::string> kValueFlags = {"--config",       "--port",           "-p",
+                                                      "--data-dir",     "--registry-url",   "--registry-group",
+                                                      "--admin-enabled"};
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--config" && i + 1 < argc) {
-            result.config_path = argv[++i];
-        } else if ((arg == "--port" || arg == "-p") && i + 1 < argc) {
-            // TODO: See TD-456 in TECHNICAL_DEBT.md - no range/whole-string check: 99999 binds 34463, 8083x -> 8083, 0 -> random
-            try {
-                result.port = std::stoi(argv[++i]);
-            } catch (...) {
-                result.error = true;
-                result.error_message = "Invalid port: " + std::string(argv[i]);
-                return result;
-            }
-        } else if (arg == "--data-dir" && i + 1 < argc) {
-            result.data_dir = argv[++i];
-        } else if (arg == "--registry-url" && i + 1 < argc) {
-            result.registry_url = argv[++i];
-        } else if (arg == "--registry-group" && i + 1 < argc) {
-            result.registry_group = argv[++i];
-        } else if (arg == "--admin-enabled" && i + 1 < argc) {
-            result.admin_enabled = parse_bool_flag(argv[++i], true);
-        } else if (arg == "--help" || arg == "-h") {
+        if (arg == "--help" || arg == "-h") {
             result.help = true;
             return result;
+        }
+        // TD-456: a flag given no value used to be reported as "Unknown argument".
+        if (kValueFlags.count(arg) != 0 && (i + 1 >= argc || std::string(argv[i + 1]).rfind("--", 0) == 0)) {
+            return fail("Missing value for " + arg);
+        }
+        if (arg == "--config") {
+            result.config_path = argv[++i];
+        } else if (arg == "--port" || arg == "-p") {
+            // TD-456: std::stoi took "8083x" as 8083, and 99999 listened on 34463.
+            const std::string value = argv[++i];
+            const auto port = parse_strict_int(value);
+            if (!port || *port < 1 || *port > 65535) {
+                return fail("Invalid value for " + arg + ": '" + value + "' (expected 1-65535)");
+            }
+            result.port = *port;
+        } else if (arg == "--data-dir") {
+            result.data_dir = argv[++i];
+        } else if (arg == "--registry-url") {
+            result.registry_url = argv[++i];
+        } else if (arg == "--registry-group") {
+            result.registry_group = argv[++i];
+        } else if (arg == "--admin-enabled") {
+            // TD-456: an unrecognised value fell back to true, so "--admin-enabled flase" left
+            // PUT /admin/config open.
+            const std::string value = argv[++i];
+            const auto enabled = parse_strict_bool(value);
+            if (!enabled) {
+                return fail("Invalid value for --admin-enabled: '" + value +
+                            "' (expected true/false, yes/no, on/off, enabled/disabled or 1/0)");
+            }
+            result.admin_enabled = *enabled;
         } else {
-            result.error = true;
-            result.error_message = "Unknown argument: " + arg;
-            return result;
+            return fail("Unknown argument: " + arg);
         }
     }
 
@@ -79,7 +85,7 @@ MnsServerEffectiveConfig resolve_mns_server_config(
         cfg.registry_url = *args.registry_url;
     if (args.registry_group)
         cfg.registry_group = *args.registry_group;
-    cfg.admin_enabled = args.admin_enabled.value_or(true);
+    cfg.admin_enabled = args.admin_enabled.value_or(file_config.name_service_admin_enabled);  // TD-456
 
     return cfg;
 }
