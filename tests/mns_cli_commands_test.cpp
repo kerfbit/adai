@@ -7,7 +7,11 @@
 
 #include <gtest/gtest.h>
 #include <sys/wait.h>
+#include <unistd.h>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 #include "MnsCliCommands.hpp"
@@ -112,18 +116,24 @@ TEST(BuildRegisterRequest, RequiresNameAndRole) {
     EXPECT_TRUE(build_register_request({}, cfg).error);
 }
 
-TEST(BuildRegisterRequest, UsesConfigDefaultsWhenNoOverridesGiven) {
+namespace {
+// TD-450: register needs the whole architecture; these supply it.
+const std::vector<std::string> kChatArch = {"--d-model", "128", "--num-heads", "4", "--d-ff", "512",
+                                            "--encoder-layers", "2", "--decoder-layers", "2", "--max-seq-length", "64"};
+const std::vector<std::string> kStandaloneArch = {"--d-model", "128", "--num-heads", "4", "--d-ff", "512",
+                                                  "--max-seq-length", "64"};
+std::vector<std::string> with(std::vector<std::string> args, const std::vector<std::string>& extra) {
+    args.insert(args.end(), extra.begin(), extra.end());
+    return args;
+}
+}  // namespace
+
+TEST(BuildRegisterRequest, TakesTheArchitectureFromTheFlags) {
     ServiceConfig cfg;
-    cfg.d_model = 128;
-    cfg.num_heads = 4;
-    cfg.d_ff = 512;
-    cfg.num_encoder_layers = 2;
-    cfg.num_decoder_layers = 2;
-    cfg.max_seq_length = 64;
     cfg.run_group = "default-group";
 
-    auto r = build_register_request({"my-model", "chatbot"}, cfg);
-    ASSERT_FALSE(r.error);
+    auto r = build_register_request(with({"my-model", "chatbot"}, kChatArch), cfg);
+    ASSERT_FALSE(r.error) << r.error_message;
     EXPECT_EQ(r.method, HttpMethod::Post);
     EXPECT_EQ(r.path, "/models");
     EXPECT_NE(r.body.find("\"model_name\":\"my-model\""), std::string::npos);
@@ -131,39 +141,32 @@ TEST(BuildRegisterRequest, UsesConfigDefaultsWhenNoOverridesGiven) {
     EXPECT_NE(r.body.find("\"run_group\":\"default-group\""), std::string::npos);
     EXPECT_NE(r.body.find("\"d_model\":128"), std::string::npos);
     EXPECT_NE(r.body.find("\"num_heads\":4"), std::string::npos);
-}
-
-TEST(BuildRegisterRequest, CliArchFlagsOverrideConfigDefaults) {
-    ServiceConfig cfg;
-    cfg.d_model = 128;
-    auto r = build_register_request({"m", "role", "--d-model", "256"}, cfg);
-    ASSERT_FALSE(r.error);
-    EXPECT_NE(r.body.find("\"d_model\":256"), std::string::npos);
-    EXPECT_EQ(r.body.find("\"d_model\":128"), std::string::npos);
+    EXPECT_NE(r.body.find("\"num_decoder_layers\":2"), std::string::npos);
+    EXPECT_NE(r.body.find("\"max_seq_length\":64"), std::string::npos);
 }
 
 TEST(BuildRegisterRequest, RunGroupFlagOverridesConfig) {
     ServiceConfig cfg;
     cfg.run_group = "from-config";
-    auto r = build_register_request({"m", "role", "--run-group", "from-cli"}, cfg);
+    auto r = build_register_request(with({"m", "role", "--run-group", "from-cli"}, kChatArch), cfg);
     ASSERT_FALSE(r.error);
     EXPECT_NE(r.body.find("\"run_group\":\"from-cli\""), std::string::npos);
 }
 
 TEST(BuildRegisterRequest, TagsAreIncludedWhenPresentAndOmittedWhenNot) {
     ServiceConfig cfg;
-    auto with_tags = build_register_request({"m", "role", "--tag", "env=prod"}, cfg);
+    auto with_tags = build_register_request(with({"m", "role", "--tag", "env=prod"}, kChatArch), cfg);
     ASSERT_FALSE(with_tags.error);
     EXPECT_NE(with_tags.body.find("\"tags\":{\"env\":\"prod\"}"), std::string::npos);
 
-    auto without_tags = build_register_request({"m", "role"}, cfg);
+    auto without_tags = build_register_request(with({"m", "role"}, kChatArch), cfg);
     ASSERT_FALSE(without_tags.error);
     EXPECT_EQ(without_tags.body.find("\"tags\""), std::string::npos);
 }
 
 TEST(BuildRegisterRequest, NameAndRoleAreJsonEscaped) {
     ServiceConfig cfg;
-    auto r = build_register_request({"weird\"name", "role"}, cfg);
+    auto r = build_register_request(with({"weird\"name", "role"}, kChatArch), cfg);
     ASSERT_FALSE(r.error);
     EXPECT_NE(r.body.find("weird\\\"name"), std::string::npos);
 }
@@ -174,7 +177,7 @@ TEST(BuildRegisterRequest, NameAndRoleAreJsonEscaped) {
 
 TEST(BuildRegisterRequest, KindDefaultsToChatbotWhenNotGiven) {
     ServiceConfig cfg;
-    auto r = build_register_request({"m", "role"}, cfg);
+    auto r = build_register_request(with({"m", "role"}, kChatArch), cfg);
     ASSERT_FALSE(r.error);
     EXPECT_NE(r.body.find("\"kind\":\"chatbot\""), std::string::npos);
 }
@@ -189,7 +192,7 @@ TEST(BuildRegisterRequest, EncoderKindNumLayersSetsOwnFieldAndZeroesDecoderLayer
     cfg.num_encoder_layers = 6;
     cfg.num_decoder_layers = 6;  // config defaults, would collide with encoder's own-field rule
                                  // if --num-layers didn't zero this out.
-    auto r = build_register_request({"m", "role", "--kind", "encoder", "--num-layers", "3"}, cfg);
+    auto r = build_register_request(with({"m", "role", "--kind", "encoder", "--num-layers", "3"}, kStandaloneArch), cfg);
     ASSERT_FALSE(r.error);
     EXPECT_NE(r.body.find("\"kind\":\"encoder\""), std::string::npos);
     EXPECT_NE(r.body.find("\"num_encoder_layers\":3"), std::string::npos);
@@ -200,7 +203,7 @@ TEST(BuildRegisterRequest, DecoderKindNumLayersSetsOwnFieldAndZeroesEncoderLayer
     ServiceConfig cfg;
     cfg.num_encoder_layers = 6;
     cfg.num_decoder_layers = 6;
-    auto r = build_register_request({"m", "role", "--kind", "decoder", "--num-layers", "4"}, cfg);
+    auto r = build_register_request(with({"m", "role", "--kind", "decoder", "--num-layers", "4"}, kStandaloneArch), cfg);
     ASSERT_FALSE(r.error);
     EXPECT_NE(r.body.find("\"num_decoder_layers\":4"), std::string::npos);
     EXPECT_NE(r.body.find("\"num_encoder_layers\":0"), std::string::npos);
@@ -209,7 +212,7 @@ TEST(BuildRegisterRequest, DecoderKindNumLayersSetsOwnFieldAndZeroesEncoderLayer
 TEST(BuildRegisterRequest, WorldModelKindNumLayersUsesEncoderLayersField) {
     ServiceConfig cfg;
     auto r =
-        build_register_request({"m", "role", "--kind", "world_model", "--num-layers", "5"}, cfg);
+        build_register_request(with({"m", "role", "--kind", "world_model", "--num-layers", "5"}, kStandaloneArch), cfg);
     ASSERT_FALSE(r.error);
     EXPECT_NE(r.body.find("\"num_encoder_layers\":5"), std::string::npos);
     EXPECT_NE(r.body.find("\"num_decoder_layers\":0"), std::string::npos);
@@ -217,8 +220,9 @@ TEST(BuildRegisterRequest, WorldModelKindNumLayersUsesEncoderLayersField) {
 
 TEST(BuildRegisterRequest, WorldModelKindIncludesSigregParamsInConnection) {
     ServiceConfig cfg;
-    auto r = build_register_request({"m", "role", "--kind", "world_model", "--num-layers", "5",
-                                     "--sigreg-lambda", "2.5", "--sigreg-num-sketches", "32"},
+    auto r = build_register_request(with({"m", "role", "--kind", "world_model", "--num-layers", "5",
+                                          "--sigreg-lambda", "2.5", "--sigreg-num-sketches", "32"},
+                                         kStandaloneArch),
                                     cfg);
     ASSERT_FALSE(r.error);
     EXPECT_NE(r.body.find("\"connection\":{"), std::string::npos);
@@ -490,7 +494,9 @@ TEST(Td448Numbers, CountsMustBeWholeAndInRange) {
     EXPECT_TRUE(error_contains(build_link_world_model_request({"c", "--world-model", "w", "--hippocampal-capacity", "x"}),
                                "Invalid value for --hippocampal-capacity"));
 
-    auto r = build_register_request({"m", "chat", "--d-model", "256", "--encoder-layers", "0"}, cfg);
+    auto r = build_register_request({"m", "chat", "--d-model", "256", "--num-heads", "4", "--d-ff", "1024",
+                                     "--encoder-layers", "0", "--decoder-layers", "2", "--max-seq-length", "64"},
+                                    cfg);
     ASSERT_FALSE(r.error) << r.error_message;
     EXPECT_NE(r.body.find("\"d_model\":256"), std::string::npos);
     EXPECT_NE(r.body.find("\"num_encoder_layers\":0"), std::string::npos);
@@ -514,6 +520,105 @@ TEST(Td448KeyValues, TagsAndSummariesNeedAnEqualsSign) {
     EXPECT_TRUE(error_contains(build_set_candidate_request({"m", "run-01", "--summary", "=1"}), "Invalid value for --summary"));
 }
 
+// ---------------------------------------------------------------------------------------------
+// TD-450: register's architecture comes from the flags or --from-config, never from mns_cli's config.
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+class Td450FromConfig : public ::testing::Test {
+protected:
+    void SetUp() override {
+        path_ = (std::filesystem::temp_directory_path() /
+                 ("td450_" + std::to_string(::getpid()) + "_" +
+                  ::testing::UnitTest::GetInstance()->current_test_info()->name() + ".conf"))
+                    .string();
+        std::ofstream(path_) << "D_MODEL=768\nNUM_HEADS=12\nD_FF=3072\nNUM_ENCODER_LAYERS=6\n"
+                                "NUM_DECODER_LAYERS=4\nMAX_SEQ_LENGTH=512\n";
+    }
+    void TearDown() override { std::filesystem::remove(path_); }
+    std::string path_;
+};
+
+ServiceConfig mns_conf_like() {
+    // config.mns.conf's old architecture block; none of it may reach a registration.
+    ServiceConfig cfg;
+    cfg.d_model = 512;
+    cfg.num_heads = 8;
+    cfg.d_ff = 2048;
+    cfg.num_encoder_layers = 6;
+    cfg.num_decoder_layers = 6;
+    cfg.max_seq_length = 1024;
+    return cfg;
+}
+}  // namespace
+
+TEST(Td450Register, AFlaglessRegisterIsAnErrorNotTheDaemonConfigsArchitecture) {
+    // It used to register mns_cli's config.mns.conf architecture (512/8), permanently.
+    auto r = build_register_request({"m", "chatbot"}, mns_conf_like());
+    ASSERT_TRUE(r.error);
+    EXPECT_NE(r.error_message.find("Missing: --d-model, --num-heads, --d-ff, --encoder-layers, --decoder-layers, "
+                                   "--max-seq-length"),
+              std::string::npos)
+        << r.error_message;
+    EXPECT_NE(r.error_message.find("--from-config"), std::string::npos);
+}
+
+TEST(Td450Register, OnlyTheMissingFieldsAreListed) {
+    auto r = build_register_request({"m", "chatbot", "--d-model", "256", "--num-heads", "8"}, mns_conf_like());
+    ASSERT_TRUE(r.error);
+    EXPECT_NE(r.error_message.find("Missing: --d-ff, --encoder-layers, --decoder-layers, --max-seq-length."),
+              std::string::npos)
+        << r.error_message;
+
+    auto standalone = build_register_request(with({"e", "enc", "--kind", "encoder"}, kStandaloneArch), mns_conf_like());
+    ASSERT_TRUE(standalone.error);
+    EXPECT_NE(standalone.error_message.find("Missing: --num-layers."), std::string::npos) << standalone.error_message;
+}
+
+TEST(Td450Register, ThePrintedNoticeShowsTheArchitectureAndItsSource) {
+    auto r = build_register_request(with({"m", "chatbot"}, kChatArch), mns_conf_like());
+    ASSERT_FALSE(r.error) << r.error_message;
+    EXPECT_EQ(r.notice,
+              "Registering m (chatbot) with d_model=128 num_heads=4 d_ff=512 num_encoder_layers=2 "
+              "num_decoder_layers=2 max_seq_length=64 (from the command line)");
+    // A linked chatbot sends no architecture, so there's nothing to print.
+    EXPECT_TRUE(build_register_request({"m", "chatbot", "--encoder", "e", "--decoder", "d"}, mns_conf_like())
+                    .notice.empty());
+}
+
+TEST_F(Td450FromConfig, TakesTheTrainersArchitectureWithFlagsOverriding) {
+    auto r = build_register_request({"m", "chatbot", "--from-config", path_, "--max-seq-length", "256"},
+                                    mns_conf_like());
+    ASSERT_FALSE(r.error) << r.error_message;
+    EXPECT_NE(r.body.find("\"arch\":{\"d_model\":768,\"num_heads\":12,\"d_ff\":3072,\"num_encoder_layers\":6,"
+                          "\"num_decoder_layers\":4,\"max_seq_length\":256}"),
+              std::string::npos)
+        << r.body;
+    EXPECT_NE(r.notice.find("(from " + path_ + " and the command line)"), std::string::npos) << r.notice;
+}
+
+TEST_F(Td450FromConfig, AStandaloneKindTakesItsOwnLayerCountAndZeroesTheOther) {
+    auto dec = build_register_request({"d", "dec", "--kind", "decoder", "--from-config", path_}, mns_conf_like());
+    ASSERT_FALSE(dec.error) << dec.error_message;
+    EXPECT_NE(dec.body.find("\"num_encoder_layers\":0,\"num_decoder_layers\":4"), std::string::npos) << dec.body;
+
+    auto wm = build_register_request({"w", "wm", "--kind", "world_model", "--from-config", path_, "--num-layers", "3"},
+                                     mns_conf_like());
+    ASSERT_FALSE(wm.error) << wm.error_message;
+    EXPECT_NE(wm.body.find("\"num_encoder_layers\":3,\"num_decoder_layers\":0"), std::string::npos) << wm.body;
+}
+
+TEST_F(Td450FromConfig, BadCombinationsAreErrors) {
+    EXPECT_TRUE(error_contains(build_register_request({"m", "chatbot", "--from-config", path_ + ".missing"}, {}),
+                               "--from-config: can't read"));
+    EXPECT_TRUE(error_contains(
+        build_register_request({"m", "chatbot", "--encoder", "e", "--decoder", "d", "--from-config", path_}, {}),
+        "cannot be combined"));
+    // --num-layers used to be ignored on a chatbot.
+    EXPECT_TRUE(error_contains(build_register_request({"m", "chatbot", "--from-config", path_, "--num-layers", "2"}, {}),
+                               "--num-layers is for --kind encoder/decoder/world_model"));
+}
+
 #ifdef MNS_CLI_BINARY_PATH
 // The real binary: a malformed number used to abort with a core dump (exit 134) before any request.
 TEST(Td448MnsCliBinary, AMalformedNumberIsAUsageErrorNotACrash) {
@@ -526,6 +631,25 @@ TEST(Td448MnsCliBinary, AMalformedNumberIsAUsageErrorNotACrash) {
             << args << (WIFSIGNALED(status) ? ": killed by signal " + std::to_string(WTERMSIG(status))
                                             : ": exit " + std::to_string(WEXITSTATUS(status)));
     }
+}
+// TD-450: the real binary refuses a flagless register before connecting, even when its own config
+// file has an architecture block (the old binary sent it and failed only on the connection).
+TEST(Td450MnsCliBinary, AFlaglessRegisterNeverReachesTheServer) {
+    const auto dir = std::filesystem::temp_directory_path() / ("td450_bin_" + std::to_string(::getpid()));
+    std::filesystem::create_directories(dir);
+    const auto conf = dir / "config.mns.conf";
+    const auto out = dir / "out.txt";
+    std::ofstream(conf) << "D_MODEL=512\nNUM_HEADS=8\nD_FF=2048\nNUM_ENCODER_LAYERS=6\nNUM_DECODER_LAYERS=6\n"
+                           "MAX_SEQ_LENGTH=1024\n";
+    const std::string cmd = std::string(MNS_CLI_BINARY_PATH) + " --config " + conf.string() +
+                            " --url http://127.0.0.1:1 register foo chatbot > " + out.string() + " 2>&1";
+    const int status = std::system(cmd.c_str());
+    std::stringstream text;
+    text << std::ifstream(out).rdbuf();
+    std::filesystem::remove_all(dir);
+    EXPECT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 1);
+    EXPECT_NE(text.str().find("Missing: --d-model"), std::string::npos) << text.str();
+    EXPECT_EQ(text.str().find("connection to"), std::string::npos) << text.str();
 }
 #endif
 

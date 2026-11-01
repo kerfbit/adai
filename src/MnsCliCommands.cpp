@@ -1,8 +1,9 @@
 // @adai-status: experimental
-// @adai-version: 0.2.0
+// @adai-version: 0.3.0
 // @adai-reviewed: 2026-11-01
 
 #include "MnsCliCommands.hpp"
+#include <fstream>
 #include <functional>
 #include <limits>
 #include <sstream>
@@ -203,40 +204,43 @@ MnsCliRequest build_register_request(const std::vector<std::string>& args,
     const std::string& name = args[0];
     const std::string& role = args[1];
 
+    // TD-450: the architecture comes from the flags, else from --from-config (the trainer's own
+    // config file), never from mns_cli's config. It used to default to mns_cli's config.mns.conf
+    // (512/8), so a flagless register permanently gave the model an architecture the trainer then
+    // adopted in place of its own config's 768/12. `cfg` now supplies only the run_group default.
     std::string kind = "chatbot";
-    size_t d_model = cfg.d_model;
-    size_t num_heads = cfg.num_heads;
-    size_t d_ff = cfg.d_ff;
-    size_t enc_layers = cfg.num_encoder_layers;
-    size_t dec_layers = cfg.num_decoder_layers;
-    size_t max_seq = cfg.max_seq_length;
+    std::optional<size_t> d_model, num_heads, d_ff, enc_layers, dec_layers, max_seq;
+    std::string from_config;
     std::string run_group = cfg.run_group;
     std::map<std::string, std::string> tags;
 
     // TD-196: --num-layers is the single layer-count flag for standalone encoder/decoder/
     // world_model records (own-kind field selected below); --encoder-layers/--decoder-layers
     // stay as-is for legacy bundled chatbot registration.
-    bool num_layers_set = false;
-    size_t num_layers = 0;
+    std::optional<size_t> num_layers;
     std::string encoder_name, decoder_name;
     float sigreg_lambda = 1.0f;
     size_t sigreg_num_sketches = 64;
 
-    auto num_layers_into = count_into(num_layers, 1);
+    auto optional_count = [](std::optional<size_t>& field, size_t min) -> ValueSetter {
+        return [&field, min](const std::string& flag, const std::string& value) -> std::optional<std::string> {
+            size_t n = 0;
+            if (auto error = count_into(n, min)(flag, value)) return error;
+            field = n;
+            return std::nullopt;
+        };
+    };
     if (auto error = parse_options(
             args, 2,
             {{"--kind", string_into(kind)},
-             {"--d-model", count_into(d_model, 1)},
-             {"--num-heads", count_into(num_heads, 1)},
-             {"--d-ff", count_into(d_ff, 1)},
-             {"--num-layers",
-              [&](const std::string& flag, const std::string& value) {
-                  num_layers_set = true;
-                  return num_layers_into(flag, value);
-              }},
-             {"--encoder-layers", count_into(enc_layers, 0)},
-             {"--decoder-layers", count_into(dec_layers, 0)},
-             {"--max-seq-length", count_into(max_seq, 1)},
+             {"--d-model", optional_count(d_model, 1)},
+             {"--num-heads", optional_count(num_heads, 1)},
+             {"--d-ff", optional_count(d_ff, 1)},
+             {"--num-layers", optional_count(num_layers, 1)},
+             {"--encoder-layers", optional_count(enc_layers, 0)},
+             {"--decoder-layers", optional_count(dec_layers, 0)},
+             {"--max-seq-length", optional_count(max_seq, 1)},
+             {"--from-config", string_into(from_config)},
              {"--run-group", string_into(run_group)},
              {"--encoder", string_into(encoder_name)},
              {"--decoder", string_into(decoder_name)},
@@ -249,40 +253,84 @@ MnsCliRequest build_register_request(const std::vector<std::string>& args,
     if (kind != "encoder" && kind != "decoder" && kind != "world_model" && kind != "chatbot")
         return make_error("--kind must be one of: encoder, decoder, world_model, chatbot");
 
+    const bool standalone = kind != "chatbot";
     const bool has_encoder_decoder = !encoder_name.empty() || !decoder_name.empty();
-    if (kind != "chatbot" && has_encoder_decoder)
+    if (standalone && has_encoder_decoder)
         return make_error("--encoder/--decoder are only valid with --kind chatbot");
-    if (kind == "chatbot" && has_encoder_decoder &&
-        (d_model != cfg.d_model || num_heads != cfg.num_heads || d_ff != cfg.d_ff ||
-         enc_layers != cfg.num_encoder_layers || dec_layers != cfg.num_decoder_layers ||
-         max_seq != cfg.max_seq_length)) {
+    const bool any_arch_flag = d_model || num_heads || d_ff || enc_layers || dec_layers || max_seq || num_layers;
+    if (has_encoder_decoder && (any_arch_flag || !from_config.empty())) {
         return make_error(
             "--encoder/--decoder (new-style linked chatbot) cannot be combined with "
-            "--d-model/--num-heads/--d-ff/--encoder-layers/--decoder-layers/--max-seq-length "
+            "--d-model/--num-heads/--d-ff/--encoder-layers/--decoder-layers/--max-seq-length/--from-config "
             "(legacy inline architecture)");
     }
+    if (num_layers && !standalone)
+        return make_error("--num-layers is for --kind encoder/decoder/world_model; a chatbot takes "
+                          "--encoder-layers and --decoder-layers");
 
-    // TODO: See TD-449 in TECHNICAL_DEBT.md - without --num-layers both config layer counts are sent; the server rejects it
-    if (kind == "encoder" || kind == "decoder" || kind == "world_model") {
-        if (num_layers_set) {
-            if (kind == "decoder") {
-                dec_layers = num_layers;
-                enc_layers = 0;
+    MnsCliRequest r;
+    if (!has_encoder_decoder) {
+        // A standalone kind has one layer count of its own (TD-196): num_encoder_layers for
+        // encoder/world_model, num_decoder_layers for decoder; the other stays 0 unless a flag
+        // sets it (the server then rejects it). TD-449: without --num-layers it used to send both
+        // of the config's counts, which the server rejected.
+        std::optional<size_t>& own_layers = kind == "decoder" ? dec_layers : enc_layers;
+        std::optional<size_t>& other_layers = kind == "decoder" ? enc_layers : dec_layers;
+        if (standalone && num_layers) own_layers = num_layers;
+
+        std::string source = "the command line";
+        if (!from_config.empty()) {
+            if (!std::ifstream(from_config)) return make_error("--from-config: can't read " + from_config);
+            const ServiceConfig file = ConfigLoader::load(from_config);
+            if (!d_model) d_model = file.d_model;
+            if (!num_heads) num_heads = file.num_heads;
+            if (!d_ff) d_ff = file.d_ff;
+            if (!max_seq) max_seq = file.max_seq_length;
+            if (standalone) {
+                if (!own_layers) own_layers = kind == "decoder" ? file.num_decoder_layers : file.num_encoder_layers;
             } else {
-                enc_layers = num_layers;
-                dec_layers = 0;
+                if (!enc_layers) enc_layers = file.num_encoder_layers;
+                if (!dec_layers) dec_layers = file.num_decoder_layers;
             }
+            source = from_config + (any_arch_flag ? " and the command line" : "");
         }
+        if (standalone && !other_layers) other_layers = 0;
+
+        std::vector<std::string> missing;
+        if (!d_model) missing.push_back("--d-model");
+        if (!num_heads) missing.push_back("--num-heads");
+        if (!d_ff) missing.push_back("--d-ff");
+        if (standalone) {
+            if (!own_layers) missing.push_back("--num-layers");
+        } else {
+            if (!enc_layers) missing.push_back("--encoder-layers");
+            if (!dec_layers) missing.push_back("--decoder-layers");
+        }
+        if (!max_seq) missing.push_back("--max-seq-length");
+        if (!missing.empty()) {
+            std::string list;
+            for (const auto& flag : missing) list += (list.empty() ? "" : ", ") + flag;
+            return make_error("register needs the whole architecture, which can't be changed afterwards. Missing: " +
+                              list +
+                              ". Pass them, or --from-config <file> to take the rest from the trainer's config "
+                              "(e.g. /etc/adai/config.trainer.conf).");
+        }
+        std::ostringstream notice;
+        notice << "Registering " << name << " (" << kind << ") with d_model=" << *d_model
+               << " num_heads=" << *num_heads << " d_ff=" << *d_ff << " num_encoder_layers=" << *enc_layers
+               << " num_decoder_layers=" << *dec_layers << " max_seq_length=" << *max_seq << " (from " << source
+               << ")";
+        r.notice = notice.str();
     }
 
     std::ostringstream body;
     body << "{\"model_name\":\"" << json_escape(name) << "\"" << ",\"role\":\"" << json_escape(role)
          << "\"" << ",\"kind\":\"" << json_escape(kind) << "\""
          << ",\"run_group\":\"" << json_escape(run_group) << "\"";
-    if (kind != "chatbot" || !has_encoder_decoder) {
-        body << ",\"arch\":{" << "\"d_model\":" << d_model << ",\"num_heads\":" << num_heads
-             << ",\"d_ff\":" << d_ff << ",\"num_encoder_layers\":" << enc_layers
-             << ",\"num_decoder_layers\":" << dec_layers << ",\"max_seq_length\":" << max_seq
+    if (!has_encoder_decoder) {
+        body << ",\"arch\":{" << "\"d_model\":" << *d_model << ",\"num_heads\":" << *num_heads
+             << ",\"d_ff\":" << *d_ff << ",\"num_encoder_layers\":" << *enc_layers
+             << ",\"num_decoder_layers\":" << *dec_layers << ",\"max_seq_length\":" << *max_seq
              << "}";
     }
     if (has_encoder_decoder || kind == "world_model") {
@@ -314,7 +362,6 @@ MnsCliRequest build_register_request(const std::vector<std::string>& args,
     }
     body << "}";
 
-    MnsCliRequest r;
     r.method = HttpMethod::Post;
     r.path = "/models";
     r.body = body.str();

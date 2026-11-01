@@ -1,14 +1,14 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.2.0
+// @adai-version: 0.3.0
 // @adai-reviewed: 2026-11-01
 
 // TD-035: mns_cli's per-command argument parsing and JSON-body construction, pulled out of
 // MnsCliTool.cpp so it's testable without a real mns_server to talk to — see
 // tests/mns_cli_commands_test.cpp. Each build_*_request() function is pure (no network I/O): it takes
-// the command's own argv slice (and, for `register`, the loaded ServiceConfig for architecture
-// defaults) and returns the HTTP method/path/body mns_cli would send, or an error message if the
+// the command's own argv slice (and, for `register`, the loaded ServiceConfig for the run_group
+// default) and returns the HTTP method/path/body mns_cli would send, or an error message if the
 // arguments don't parse: an unknown option, a flag missing its value, a number that isn't whole
 // and in range, or a stray argument (TD-448). Actually sending the request and printing the
 // response stays in MnsCliTool.cpp's cmd_*() wrappers, unchanged.
@@ -30,6 +30,10 @@ struct MnsCliRequest {
 
     bool error = false;
     std::string error_message;  // already newline-free
+
+    // Printed to stderr before the request is sent: register's architecture and where it came from
+    // (TD-450). Empty for every other command.
+    std::string notice;
 };
 
 // Same lightweight host:port splitter mns_cli has always used (kept independent of
@@ -45,6 +49,10 @@ std::string json_escape(const std::string& s);
 
 MnsCliRequest build_list_request(const std::vector<std::string>& args);
 MnsCliRequest build_get_request(const std::vector<std::string>& args);
+// TD-450: needs the whole architecture (unless it links --encoder/--decoder): every field from a
+// flag, or the missing ones from --from-config <file> (the trainer's config, read like the trainer
+// reads it, environment included). A missing field is an error; nothing comes from `cfg`, which only
+// supplies the run_group default.
 MnsCliRequest build_register_request(const std::vector<std::string>& args,
                                      const ServiceConfig& cfg);
 MnsCliRequest build_update_run_group_request(const std::vector<std::string>& args);

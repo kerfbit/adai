@@ -89,3 +89,11 @@ numbers, unknown options and missing values as usage errors (exit 1), see
 [MnsCliCommands.md](MnsCliCommands.md)'s addendum. A trailing `--url` or `--config` says
 `Missing value for --url` instead of becoming the command name.
 
+## Addendum (November 1, 2026): `register` no longer uses `config.mns.conf`'s architecture (TD-450)
+
+`register` takes every architecture field from a flag, or the ones not given from `--from-config <file>`, the trainer's
+own config (`/etc/adai/config.trainer.conf`). A field still missing is an error listing each missing flag; nothing comes
+from `--config`, which now supplies only `NAME_SERVICE_URL` and the `RUN_GROUP` default. Before sending, `mns_cli`
+prints the architecture and its source on stderr. `config.mns.conf`'s architecture block was removed (`mns_server`
+never read it). §2's first gap is closed; see [MnsCliCommands.md](MnsCliCommands.md)'s TD-450 addendum.
+

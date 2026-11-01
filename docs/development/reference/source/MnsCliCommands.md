@@ -141,3 +141,15 @@ remains TD-451.
 
 Tests: eight new tests in `mns_cli_commands_test.cpp` (59 in all), one of which runs the real binary (the
 old one exited 134 on `register foo chatbot --d-model abc`).
+
+## Addendum (November 1, 2026): `register` needs the whole architecture (TD-450)
+
+`build_register_request()` no longer fills architecture fields from its `ServiceConfig` (now used only for the
+`run_group` default). Each field comes from a flag or, for those not given, from `--from-config <file>`, loaded with
+`ConfigLoader::load()` like the trainer loads its config. A missing field returns an error naming every missing flag
+(`Missing: --d-ff, --encoder-layers, ...`) and suggesting `--from-config`. For `--kind encoder`/`decoder`/`world_model`
+the own layer count is `--num-layers`, else the file's `NUM_DECODER_LAYERS` (decoder) or `NUM_ENCODER_LAYERS`, and the
+other count is 0, which closes TD-449's layer-count item. `--num-layers` with a chatbot and `--from-config` with
+`--encoder`/`--decoder` are errors. `MnsCliRequest::notice` carries the line `mns_cli` prints on stderr before
+sending, for example `Registering m (chatbot) with d_model=768 num_heads=12 ... (from config.trainer.conf)`.
+

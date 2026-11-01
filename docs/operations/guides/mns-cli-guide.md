@@ -72,7 +72,7 @@ The server bundle install script (`scripts/install_server_bundle.sh`) copies `mn
 | 2 | `NAME_SERVICE_URL` in config file or environment | `NAME_SERVICE_URL=http://10.0.0.5:8083` |
 | 3 | Built-in default | `http://localhost:8083` |
 
-Config file discovery: `--config <path>` > `./config.conf` > `/etc/adai/config.conf`.
+Config file discovery: `--config <path>` > `./config.mns.conf` > `/etc/adai/config.mns.conf` > `./config.conf` (legacy) > `/etc/adai/config.conf` (legacy).
 
 All commands print the raw JSON response from the MNS server to stdout and set the exit code based on the HTTP status (0 for 2xx, 1 otherwise). Pipe through `jq` for formatted output:
 
@@ -153,33 +153,42 @@ The response includes identity, state, artifact location, architecture metadata,
 Register a new model in the MNS. The model enters the `initializing` state and is assigned a UUID.
 
 ```
-mns_cli register <name> <role> [architecture options] [--tag key=value ...]
+mns_cli register <name> <role> [architecture options] [--from-config <trainer config>] [--tag key=value ...]
 ```
 
-| Option | Description | Default |
+| Option | Description | When not given |
 |--------|-------------|---------|
-| `--d-model N` | Model dimension | From config.conf (`D_MODEL`) |
-| `--num-heads N` | Attention heads | From config.conf (`NUM_HEADS`) |
-| `--d-ff N` | Feed-forward dimension | From config.conf (`D_FF`) |
-| `--encoder-layers N` | Encoder layer count | From config.conf (`NUM_ENCODER_LAYERS`) |
-| `--decoder-layers N` | Decoder layer count | From config.conf (`NUM_DECODER_LAYERS`) |
-| `--max-seq-length N` | Maximum sequence length | From config.conf (`MAX_SEQ_LENGTH`) |
+| `--d-model N` | Model dimension | `--from-config` file's `D_MODEL` |
+| `--num-heads N` | Attention heads | `--from-config` file's `NUM_HEADS` |
+| `--d-ff N` | Feed-forward dimension | `--from-config` file's `D_FF` |
+| `--encoder-layers N` | Encoder layer count | `--from-config` file's `NUM_ENCODER_LAYERS` |
+| `--decoder-layers N` | Decoder layer count | `--from-config` file's `NUM_DECODER_LAYERS` |
+| `--max-seq-length N` | Maximum sequence length | `--from-config` file's `MAX_SEQ_LENGTH` |
+| `--from-config FILE` | The trainer's config, for the fields not given as flags | none |
 | `--tag key=value` | Arbitrary tag (repeatable) | none |
 
-Architecture parameters default to values from `config.conf`, so a typical registration only needs the name and role:
+The architecture can't be changed after registering, and the trainer adopts it from MNS in place of its own config, so
+`register` needs every field: as flags, or from `--from-config` pointing at the trainer's config. A missing field is an
+error that lists what's missing; nothing is sent. (Before November 1, 2026, missing fields came silently from
+`mns_cli`'s own config, `config.mns.conf`, whose 512/8 differed from the trainer's 768/12; TD-450.) `mns_cli` prints
+the architecture it's about to register, and where it came from, on stderr:
 
 ```bash
-# Uses architecture from config.conf
-mns_cli register adai-chatbot-v3 chatbot
+# Same architecture the trainer's config describes
+mns_cli register adai-chatbot-v3 chatbot --from-config /etc/adai/config.trainer.conf
 
-# Override specific architecture values
-mns_cli register adai-chatbot-v3 chatbot --d-model 256 --num-heads 8
+# The trainer's config, with one field changed
+mns_cli register adai-chatbot-v3 chatbot --from-config /etc/adai/config.trainer.conf --max-seq-length 256
 
-# Attach tags for tracking
-mns_cli register adai-chatbot-v3 chatbot \
-  --tag dataset=minipile-v2 \
-  --tag owner=rodney
+# Everything on the command line
+mns_cli register adai-chatbot-v3 chatbot --d-model 256 --num-heads 8 --d-ff 1024 \
+  --encoder-layers 4 --decoder-layers 4 --max-seq-length 512 \
+  --tag dataset=minipile-v2 --tag owner=rodney
 ```
+
+For `--kind encoder`/`decoder`/`world_model`, the layer count is `--num-layers` (or the file's `NUM_ENCODER_LAYERS`,
+`NUM_DECODER_LAYERS` for a decoder), and the other layer count is 0. A chatbot linked with `--encoder`/`--decoder`
+takes no architecture options.
 
 **Response:**
 ```json
@@ -230,22 +239,25 @@ This is the same endpoint that `chatbot_api_server` calls at startup to find its
 
 ### 4.6 set-training
 
-Transition a model from `initializing` or `candidate` to the `training` state. This acquires the training lock: only one `run_id` can hold a model in `training` at a time.
+Transition a model from `initializing` or `candidate` to the `training` state. MNS allocates the `run_id` and prints it in
+the response (`run-01` the first time a model trains); pass it to `set-candidate` later.
 
 ```
-mns_cli set-training <name> <run-id> [session-key]
+mns_cli set-training <name> [--new-run] [session-key]
 ```
 
 | Argument | Description |
 |----------|-------------|
 | `<name>` | Model name |
-| `<run-id>` | Unique run identifier (e.g. `session-42`, a UUID, or `hostname-pid`) |
+| `--new-run` | Start the next run (`run-02`, …), as `incremental_trainer retrain` does; without it the current run continues |
 | `[session-key]` | Optional metrics session key for cross-referencing with `metrics_api_server` |
+
+Anything else is a usage error (TD-448); the run ID is no longer an argument.
 
 **Example:**
 
 ```bash
-mns_cli set-training adai-chatbot-v3 run-42 metrics-key-abc
+mns_cli set-training adai-chatbot-v3 metrics-key-abc
 ```
 
 **Errors:**
@@ -278,7 +290,7 @@ mns_cli set-candidate <name> <run-id> [options...]
 **Example:**
 
 ```bash
-mns_cli set-candidate adai-chatbot-v3 run-42 \
+mns_cli set-candidate adai-chatbot-v3 run-01 \
   --artifact-path /opt/adai/checkpoints/session_3_best.bin \
   --summary epochs=15 \
   --summary final_loss=0.38 \
@@ -450,16 +462,16 @@ Every model follows a state machine. `mns_cli` commands drive transitions; inval
 This is the standard end-to-end lifecycle for a new model.
 
 ```bash
-# 1. Register the model identity
-mns_cli register adai-chatbot-v3 chatbot
+# 1. Register the model identity, with the trainer's architecture
+mns_cli register adai-chatbot-v3 chatbot --from-config /etc/adai/config.trainer.conf
 
-# 2. Start a training run (acquires training lock)
-mns_cli set-training adai-chatbot-v3 run-42
+# 2. Start a training run; the response carries the allocated run_id (run-01)
+mns_cli set-training adai-chatbot-v3
 
 # 3. (Training happens via incremental_trainer...)
 
 # 4. Mark training complete and attach the artifact
-mns_cli set-candidate adai-chatbot-v3 run-42 \
+mns_cli set-candidate adai-chatbot-v3 run-01 \
   --artifact-path /opt/adai/training_sessions/session_3_best.bin \
   --summary epochs=15 \
   --summary final_loss=0.38
@@ -483,9 +495,9 @@ When `incremental_trainer` has `NAME_SERVICE_URL` and `MODEL_NAME` configured, s
 A model in `candidate` state can be sent back to `training` for another round:
 
 ```bash
-mns_cli set-training adai-chatbot-v3 run-43
+mns_cli set-training adai-chatbot-v3 --new-run    # allocates run-02
 # ... training ...
-mns_cli set-candidate adai-chatbot-v3 run-43 \
+mns_cli set-candidate adai-chatbot-v3 run-02 \
   --artifact-path /opt/adai/training_sessions/session_4_best.bin \
   --summary epochs=10 \
   --summary final_loss=0.32
@@ -545,25 +557,17 @@ mns_cli get adai-chatbot-v3 | jq '.training_history'
 
 ## 7. Configuration
 
-`mns_cli` reads from `config.conf` for two purposes:
-
-1. **Server URL** — the `NAME_SERVICE_URL` key determines which MNS server to contact (overridden by `--url`).
-2. **Architecture defaults** — when `register` is called without explicit `--d-model`, `--num-heads`, etc., the values from config.conf are used so registration stays consistent with what the trainer will use.
-
-Relevant config keys:
+`mns_cli` reads its own config file for two keys:
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `NAME_SERVICE_URL` | (empty) | MNS server URL; `http://localhost:8083` when using the server bundle |
-| `NAME_SERVICE_TIMEOUT_MS` | `5000` | HTTP timeout for MNS calls |
-| `D_MODEL` | `512` | Model dimension (used as default for `register`) |
-| `NUM_HEADS` | `8` | Attention heads (used as default for `register`) |
-| `D_FF` | `2048` | Feed-forward dimension (used as default for `register`) |
-| `NUM_ENCODER_LAYERS` | `6` | Encoder layers (used as default for `register`) |
-| `NUM_DECODER_LAYERS` | `6` | Decoder layers (used as default for `register`) |
-| `MAX_SEQ_LENGTH` | `1024` | Maximum sequence length (used as default for `register`) |
+| `NAME_SERVICE_URL` | (empty) | MNS server URL (overridden by `--url`); `http://localhost:8083` when empty |
+| `RUN_GROUP` | (empty) | Default for `register --run-group` |
 
-Config file discovery order: `--config <path>` > `./config.conf` > `/etc/adai/config.conf`.
+It doesn't take `register`'s architecture from this file (TD-450); use `register --from-config` with the trainer's
+config instead.
+
+Config file discovery order: `--config <path>` > `./config.mns.conf` > `/etc/adai/config.mns.conf` > `./config.conf` (legacy) > `/etc/adai/config.conf` (legacy).
 
 ---
 
@@ -623,12 +627,8 @@ The state machine does not allow the requested transition. Refer to the [lifecyc
 Another process is already training this model. Only one `run_id` can hold the training lock. If the previous run crashed:
 
 ```bash
-# Complete the stale run (moves to candidate, releases lock)
-mns_cli set-candidate <name> <stale-run-id> \
-  --artifact-path /dev/null
-
-# Then start your new run
-mns_cli set-training <name> <new-run-id>
+# Start a new run; MNS archives the unfinished one in training_history as "incomplete"
+mns_cli set-training <name> --new-run
 ```
 
 ### Wrong architecture registered
@@ -637,11 +637,11 @@ Architecture is recorded at registration time and cannot be updated. If you regi
 
 ```bash
 mns_cli delete bad-model-name
-mns_cli register bad-model-name chatbot --d-model 256 --num-heads 8
+mns_cli register bad-model-name chatbot --from-config /etc/adai/config.trainer.conf
 ```
 
 This only works if the model is in `initializing` state (never trained). If it has progressed past that, you need to retire it first.
 
-### Stale config.conf values
+### Stale config values
 
-`mns_cli` reads `config.conf` once at startup. If you update the file, the next invocation picks up the changes automatically — there is no daemon to restart.
+`mns_cli` reads its config file (and `register --from-config`'s file) once per invocation. If you update the file, the next invocation picks up the changes automatically — there is no daemon to restart.

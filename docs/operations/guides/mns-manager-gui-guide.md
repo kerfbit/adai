@@ -198,7 +198,7 @@ A form for registering a new model in the MNS.
 
 Click **Register Model** to submit. On success, the models table refreshes and the status bar shows the registered name. On failure (e.g. duplicate name), a dialog shows the server error.
 
-Architecture defaults in the spin boxes are hard-coded. For config-driven defaults, use `mns_cli register` which reads `config.conf`.
+Architecture defaults in the spin boxes are hard-coded. To register the trainer's own architecture, use `mns_cli register <name> <role> --from-config /etc/adai/config.trainer.conf`.
 
 ### 4.5 Detail panel
 
@@ -353,7 +353,7 @@ The GUI and `mns_cli` are interchangeable interfaces to the same MNS server API.
 | Models tab (list) | `mns_cli list [--state S] [--role R]` |
 | Click model row | `mns_cli get <name>` |
 | Register tab | `mns_cli register <name> <role> [opts]` |
-| Set Training button | `mns_cli set-training <name> <run-id>` |
+| Set Training button | `mns_cli set-training <name> [--new-run]` (MNS allocates the run ID; TD-454) |
 | Set Candidate button | `mns_cli set-candidate <name> <run-id> --artifact-path PATH` |
 | Promote button | `mns_cli promote <role> <model-name>` |
 | Retire button | `mns_cli set-candidate <name> <run-id>` then set state to retired via API |

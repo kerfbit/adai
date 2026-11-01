@@ -1384,6 +1384,8 @@ The generation and model math run is complete.
   and honours `--help` anywhere).
 - TD-448 (done in code: `mns_cli` rejects unknown options, valueless flags, stray arguments and malformed numbers, and no longer
   aborts; `set-training --new_run` no longer becomes the session key).
+- TD-450 (done in code: `mns_cli register` takes the architecture from its flags or `--from-config <trainer config>`, never
+  from `config.mns.conf`, errors on a missing field and prints what it registers; TD-449's layer-count item with it).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -12843,7 +12845,7 @@ Found while tracing `MnsCliCommands`:
 
 Action Items:
 
-- [ ] Require `--num-layers` for standalone kinds (or derive it from the config's matching field and zero the other).
+- [x] Require `--num-layers` for standalone kinds (or derive it from the config's matching field and zero the other). (Done with TD-450, November 1, 2026: `--num-layers`, else `--from-config`'s matching key, else a usage error; the other count is 0.)
 - [ ] Make `link-world-model` send only the fields given (server-side merge), or document full replacement in its usage.
 - [ ] URL-encode path segments and query values; escape all control characters as `\u00XX`; reject `--sigreg-*` for other kinds.
 
@@ -12860,7 +12862,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | MNS / CLI | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 1, 2026 | MNS / CLI | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `MnsCliTool`, by inspection of the code, config files and guide. `main()` loads
@@ -12875,9 +12877,23 @@ what the trainer will use", which the split configuration no longer guarantees.
 
 Action Items:
 
-- [ ] Require explicit architecture flags for `register` (or a `--from-config <file>` that names the trainer's config), and print the architecture being registered before sending.
-- [ ] Decide whether `config.mns.conf` should keep an architecture block at all.
-- [ ] Update `mns_cli`'s usage text and mns-cli-guide.md.
+- [x] Require explicit architecture flags for `register` (or a `--from-config <file>` that names the trainer's config), and print the architecture being registered before sending.
+- [x] Decide whether `config.mns.conf` should keep an architecture block at all.
+- [x] Update `mns_cli`'s usage text and mns-cli-guide.md.
+
+**Fix (November 1, 2026):** `register` no longer takes any architecture field from `mns_cli`'s own config. Every field
+comes from a flag, or the ones not given from `--from-config <file>`, the trainer's config read the way the trainer reads
+it (`ConfigLoader::load()`, so the environment applies too). A field that is still missing is an error naming each missing
+flag and pointing at `--from-config` (exit 1, nothing sent). A linked chatbot (`--encoder`/`--decoder`) needs no
+architecture and can't take `--from-config`. Before sending, `mns_cli` prints the architecture and where it came from on
+stderr (`Registering m (chatbot) with d_model=768 ... (from /etc/adai/config.trainer.conf)`), so stdout stays the server's
+JSON. For a standalone kind the own layer count comes from `--num-layers`, else the file's matching key
+(`NUM_DECODER_LAYERS` for a decoder, `NUM_ENCODER_LAYERS` otherwise), and the other count is 0; this also fixes TD-449's
+layer-count item. `--num-layers` on a chatbot is now an error (it was ignored). `config.mns.conf`'s architecture block is
+gone: `mns_server` never read it, and `mns_cli` no longer does. The usage text, mns-cli-guide.md and the MNS Manager GUI
+guide are updated. Tests (`mnsCliCommandsTests`): 6 new (`Td450Register`, `Td450FromConfig`, and `Td450MnsCliBinary`,
+which runs the real binary against a config with the old 512/8 block; the old binary sent it and failed only on the
+connection), all failing on the old code; the existing register tests now pass a full architecture.
 
 Location in code: `src/MnsCliTool.cpp` (`main()`'s config loading, `cmd_register()`); tagged `TODO: See TD-450`.
 

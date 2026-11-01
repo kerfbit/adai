@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-11-01
 
 /**
@@ -98,6 +98,7 @@ static int send(const ParsedUrl& u, const MnsCliRequest& req) {
         std::cerr << req.error_message << "\n";
         return 1;
     }
+    if (!req.notice.empty()) std::cerr << req.notice << "\n";
     switch (req.method) {
         case HttpMethod::Get:
             return http_get(u, req.path);
@@ -121,7 +122,8 @@ static void print_usage(const char* prog) {
               << "Global options:\n"
               << "  --url URL              MNS server URL (default: http://localhost:8083)\n"
               << "                         Also settable via NAME_SERVICE_URL env/config key.\n"
-              << "  --config PATH          Path to config.mns.conf for URL and arch defaults.\n\n"
+              << "  --config PATH          mns_cli's own config (default discovery: config.mns.conf)\n"
+              << "                         for NAME_SERVICE_URL and register's RUN_GROUP default.\n\n"
               << "Commands:\n"
               << "  list [--state STATE] [--role ROLE] [--kind KIND] [--limit N]\n"
               << "      List registered models.  Optional filters narrow results.\n\n"
@@ -131,10 +133,15 @@ static void print_usage(const char* prog) {
               << "           [--d-model N] [--num-heads N] [--d-ff N] [--num-layers N]\n"
               << "           [--encoder-layers N] [--decoder-layers N] [--max-seq-length N]\n"
               << "           [--encoder NAME] [--decoder NAME]\n"
+              << "           [--from-config TRAINER_CONFIG]\n"
               << "           [--sigreg-lambda F] [--sigreg-num-sketches N]\n"
               << "           [--run-group GROUP] [--tag key=value ...]\n"
-              << "      Register a new model.  --kind defaults to \"chatbot\" (unaffected — every\n"
-              << "      pre-existing invocation keeps working exactly as before).\n"
+              << "      Register a new model.  --kind defaults to \"chatbot\".\n"
+              << "      The architecture must be complete: every field as a flag, or the ones not\n"
+              << "      given taken from --from-config, the trainer's config file (D_MODEL,\n"
+              << "      NUM_HEADS, D_FF, NUM_ENCODER_LAYERS, NUM_DECODER_LAYERS, MAX_SEQ_LENGTH).\n"
+              << "      A missing field is an error; nothing comes from --config. The architecture\n"
+              << "      being registered is printed (stderr) before the request is sent.\n"
               << "      For --kind encoder/decoder/world_model: register a standalone entity;\n"
               << "      --num-layers sets that kind's own layer count (num_encoder_layers for\n"
               << "      encoder/world_model, num_decoder_layers for decoder) — the other layer\n"
@@ -191,7 +198,9 @@ static void print_usage(const char* prog) {
               << "      Check MNS server health.\n\n"
               << "Examples:\n"
               << "  " << prog << " list\n"
-              << "  " << prog << " register my-chatbot-v3 chatbot --d-model 128 --num-heads 4\n"
+              << "  " << prog << " register my-chatbot-v3 chatbot --from-config /etc/adai/config.trainer.conf\n"
+              << "  " << prog << " register my-enc encoder --kind encoder --d-model 256 --num-heads 4 \\\n"
+              << "      --d-ff 1024 --num-layers 4 --max-seq-length 512\n"
               << "  " << prog << " set-training my-chatbot-v3\n"
               << "  " << prog
               << " set-candidate my-chatbot-v3 run-42 --artifact-path /opt/adai/models/v3.bin\n"
@@ -298,10 +307,10 @@ static int run(int argc, char* argv[]) {
         }
     }
 
-    // Load config for arch defaults and NAME_SERVICE_URL fallback.
-    // Discovery: --config > ./config.mns.conf > /etc/adai/config.mns.conf
-    // > ./config.conf (legacy) > /etc/adai/config.conf (legacy).
-    // TODO: See TD-450 in TECHNICAL_DEBT.md - register's architecture defaults come from the daemon's config.mns.conf (512/8), not the trainer's config (768/12)
+    // Load config for the NAME_SERVICE_URL fallback and register's RUN_GROUP default. Discovery:
+    // --config > ./config.mns.conf > /etc/adai/config.mns.conf > ./config.conf (legacy) >
+    // /etc/adai/config.conf (legacy). TD-450: register's architecture no longer comes from here
+    // (config.mns.conf's 512/8 used to be registered over the trainer's 768/12); see --from-config.
     config_path = adai::ConfigLoader::discover_config_path(config_path, "config.mns.conf");
     adai::ServiceConfig svc_config = adai::ConfigLoader::load(config_path);
 
