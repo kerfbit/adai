@@ -1373,6 +1373,8 @@ The generation and model math run is complete.
 - TD-242 (done in code: a `SIGHUP` reload re-applies `chatbot_api_server`'s command-line flags and logs file changes a flag holds).
 - TD-244 (done in code: `TOP_K`/`BEAM_WIDTH` reach `ChatbotAPI` at startup and on reload; `--top-k`/`--beam-width` flags).
 - TD-245, TD-243 (done in code: a value flag given no value says `Missing value for --port`; `--batch-timeout-ms` alone is an error).
+- TD-438 (done in code: `metrics_api_server`'s numeric flags and saved admin overrides are checked against one range table; a bad
+  flag is an error and exits 1).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -12200,7 +12202,7 @@ compiles.
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Metrics / Server CLI | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 1, 2026 | Metrics / Server CLI | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `MetricsApiServerArgs` and verified (scratch program against the real parser, and the
@@ -12220,18 +12222,32 @@ real `metrics_api_server`):
 
 Action Items:
 
-- [ ] Parse numbers with a checked helper (whole string, in range: port 1–65535, counts and intervals ≥ 1 or a documented 0 meaning) shared with TD-240; reject with a clear message.
-- [ ] Validate the saved admin overrides the same way (skip and warn on out-of-range values).
-- [ ] Exit non-zero on parse errors; report "missing value for --flag".
-- [ ] Add tests for non-numeric, partial, negative and out-of-range values.
+- [x] Parse numbers with a checked helper (whole string, in range: port 1–65535, counts and intervals ≥ 1 or a documented 0 meaning) shared with TD-240; reject with a clear message.
+- [x] Validate the saved admin overrides the same way (skip and warn on out-of-range values).
+- [x] Exit non-zero on parse errors; report "missing value for --flag".
+- [x] Add tests for non-numeric, partial, negative and out-of-range values.
 
-Location in code: `src/MetricsApiServerArgs.cpp` (`parse_metrics_api_server_args()`, `apply_metrics_admin_overrides()`); `src/TrainingMetricsAPIServer.cpp` (`main()`'s error exit); tagged `TODO: See TD-438`.
+**Fix (November 1, 2026).** `MetricsApiServerArgs.cpp` has one table of its 13 numeric settings (flag, admin-store key, range), used
+by both `parse_metrics_api_server_args()` and `apply_metrics_admin_overrides()`. Each value goes through TD-240's
+`parse_strict_int()` plus the range, which matches `ConfigLoader::validate()` (TD-288): `--port` 1–65535, `--max-live-sessions`,
+`--max-memory-records`, `--staleness-threshold-seconds` and `--db-pool-size` at least 1, the rest at least 0, where 0 is the
+documented "off"/"no limit" (`--sweep-interval-seconds 0` stays the TD-446 way to turn the sweep off; negatives no longer do). A bad
+flag returns `Invalid value for --port: '99999' (expected 1-65535)`, a value flag with no value `Missing value for --db-path`, and
+`main()` now exits 1 on any parse error. A saved admin override that fails the same check is skipped with a warning
+(`Ignoring saved admin setting max_live_sessions='-1' (expected a whole number >= 1)`); range-checking the `PUT` itself is TD-306.
+Tests: `EveryNumericFlagRefusesNonNumbersPartialsAndNegatives` (13 flags × `abc`/`8081x`/`1e3`/`-1`/empty),
+`OutOfRangeValuesAreRefused`, `AFlagMissingItsValueSaysSo`, `OutOfRangeOrPartialSavedValuesAreSkipped`, `DocumentedZeroesAreAccepted`,
+and `SighupTest.MetricsApiServerExitsOneOnABadFlag` (the real binary exits 1 for `--port abc`, `--port 99999`, `--bogus` and a
+valueless `--max-live-sessions`; the old binary started on `--port abc`); all but the zeroes guard fail on the old code.
+
+Location in code: `src/MetricsApiServerArgs.cpp` (`parse_metrics_api_server_args()`, `apply_metrics_admin_overrides()`); `src/TrainingMetricsAPIServer.cpp` (`main()`'s error exit); tagged `TD-438`.
 
 Files to Modify:
 
 - `src/MetricsApiServerArgs.cpp`
 - `src/TrainingMetricsAPIServer.cpp`
-- `tests/metrics_api_server_args_test.cpp`
+- `src/MetricsApiServerArgs.hpp`
+- `tests/metrics_api_server_args_test.cpp`, `tests/sighup_test.cpp`, `tests/CMakeLists.txt`
 
 ---
 

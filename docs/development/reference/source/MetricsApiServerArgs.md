@@ -138,3 +138,10 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 `MetricsApiServerConfig::cors_allowed_origins` is seeded from `METRICS_API_CORS_ALLOWED_ORIGINS` and overridden by
 `--cors-allowed-origins LIST`; it isn't admin-mutable. See TrainingMetricsAPI.md.
 
+## Addendum (November 1, 2026): checked numbers and exit 1 (TD-438)
+
+One table lists the 13 numeric settings with their flag, admin-store key and range (port 1–65535; sessions, memory records,
+staleness and pool size at least 1; the rest at least 0, 0 meaning off or no limit). Flags must be whole numbers in range, else
+`Invalid value for <flag>: '<value>' (expected …)`; a value flag with no value is `Missing value for <flag>`; and
+`metrics_api_server` exits 1 on any of these (it exited 0). Saved admin overrides that fail the same check are skipped with a warning
+instead of applied.

@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.5.0
-// @adai-reviewed: 2026-10-31
+// @adai-version: 1.6.0
+// @adai-reviewed: 2026-11-01
 
 #include <atomic>
 #include <csignal>
@@ -178,8 +178,7 @@ int main(int argc, char* argv[]) {
     if (cli.error) {
         std::cerr << cli.error_message << '\n';
         print_usage(argv[0]);
-        // TODO: See TD-438 in TECHNICAL_DEBT.md - exit 0 on bad arguments; systemd sees a clean stop
-        return 0;  // Matches original parse_args() behavior: invalid args exit 0, not 1.
+        return 1;  // TD-438: it exited 0, so systemd saw a clean stop and Restart=on-failure didn't apply
     }
 
     try {

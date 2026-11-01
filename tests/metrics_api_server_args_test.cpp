@@ -233,3 +233,85 @@ TEST_F(ParseMetricsApiServerArgsTest, RetentionFlagsAreApplied) {
     EXPECT_EQ(config.metrics_file_max_mb, 25);
     EXPECT_EQ(config.metrics_file_backups, 4);
 }
+
+// ============================================================================
+// TD-438: numbers are checked; a bad flag is an error
+// ============================================================================
+
+namespace {
+adai::MetricsApiServerArgsResult parse(std::vector<std::string> raw, MetricsApiServerConfig& config) {
+    raw.insert(raw.begin(), "metrics_api_server");
+    auto argv = make_argv(raw);
+    return parse_metrics_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
+}
+
+const std::vector<const char*> kNumericFlags = {
+    "--port",          "--persist-samples",       "--persist-seconds",        "--max-memory-records",
+    "--max-disk-records", "--retention-days",     "--metrics-file-max-mb",    "--metrics-file-backups",
+    "--max-live-sessions", "--completed-ttl-seconds", "--sweep-interval-seconds",
+    "--staleness-threshold-seconds", "--db-pool-size"};
+}  // namespace
+
+TEST_F(ParseMetricsApiServerArgsTest, EveryNumericFlagRefusesNonNumbersPartialsAndNegatives) {
+    // atoi/strtoul: "abc" -> 0 (port 0 listened anywhere), "8081x" -> 8081, "1e3" -> 1, "-1" wrapped.
+    for (const char* flag : kNumericFlags) {
+        for (const char* value : {"abc", "8081x", "1e3", "-1", ""}) {
+            MetricsApiServerConfig fresh;
+            auto r = parse({flag, value}, fresh);
+            EXPECT_TRUE(r.error) << flag << " " << value;
+            EXPECT_NE(r.error_message.find(flag), std::string::npos) << r.error_message;
+        }
+    }
+}
+
+TEST_F(ParseMetricsApiServerArgsTest, OutOfRangeValuesAreRefused) {
+    for (const auto& c : std::vector<std::pair<std::string, std::string>>{{"--port", "0"},
+                                                                          {"--port", "99999"},
+                                                                          {"--max-live-sessions", "0"},
+                                                                          {"--max-memory-records", "0"},
+                                                                          {"--staleness-threshold-seconds", "0"},
+                                                                          {"--db-pool-size", "0"}}) {
+        MetricsApiServerConfig fresh;
+        auto r = parse({c.first, c.second}, fresh);
+        EXPECT_TRUE(r.error) << c.first << " " << c.second;
+    }
+    auto r = parse({"--port", "99999"}, config);
+    EXPECT_EQ(r.error_message, "Invalid value for --port: '99999' (expected 1-65535)");
+    EXPECT_EQ(config.port, 8081);
+}
+
+TEST_F(ParseMetricsApiServerArgsTest, DocumentedZeroesAreAccepted) {
+    auto r = parse({"--retention-days", "0", "--metrics-file-max-mb", "0", "--max-disk-records", "0",
+                    "--sweep-interval-seconds", "0", "--completed-ttl-seconds", "0"},
+                   config);
+    ASSERT_FALSE(r.error) << r.error_message;
+    EXPECT_EQ(config.sweep_interval_seconds, 0);
+}
+
+TEST_F(ParseMetricsApiServerArgsTest, AFlagMissingItsValueSaysSo) {
+    for (const char* flag : kNumericFlags) {
+        MetricsApiServerConfig fresh;
+        EXPECT_EQ(parse({flag}, fresh).error_message, std::string("Missing value for ") + flag);
+    }
+    for (const char* flag : {"--config", "--metrics-file", "--db-url", "--storage-backend"}) {
+        MetricsApiServerConfig fresh;
+        EXPECT_EQ(parse({flag}, fresh).error_message, std::string("Missing value for ") + flag);
+    }
+    EXPECT_EQ(parse({"--db-path", "--port", "9000"}, config).error_message, "Missing value for --db-path");
+}
+
+TEST_F(ApplyMetricsAdminOverridesTest, OutOfRangeOrPartialSavedValuesAreSkipped) {
+    // stoull("-1") wrapped to no session cap; stoi("50abc") applied 50; negative TTLs were applied.
+    config.max_live_sessions = 16;
+    config.completed_ttl_seconds = 3600;
+    config.persist_every_samples = 100;
+    config.staleness_threshold_seconds = 60;
+    apply_metrics_admin_overrides(config, {{"max_live_sessions", "-1"},
+                                           {"completed_ttl_seconds", "-5"},
+                                           {"persist_every_samples", "50abc"},
+                                           {"staleness_threshold_seconds", "0"}});
+    EXPECT_EQ(config.max_live_sessions, 16u);
+    EXPECT_EQ(config.completed_ttl_seconds, 3600);
+    EXPECT_EQ(config.persist_every_samples, 100);
+    EXPECT_EQ(config.staleness_threshold_seconds, 60);
+}

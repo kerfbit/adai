@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.3.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-11-01
 
 // TD-035: metrics_api_server's config-precedence resolution (file < persisted admin overrides <
 // CLI flags) and argv parsing, pulled out of TrainingMetricsAPIServer.cpp so it's testable
@@ -50,9 +50,9 @@ struct MetricsApiServerConfig {
 MetricsApiServerConfig seed_metrics_server_config_from_file(const ServiceConfig& file_config);
 
 // Applies persisted admin overrides (see CLAUDE.md "Daemon admin config API") on top of an
-// already-seeded config, in place. Only the documented admin-mutable subset is consulted — an
-// unparseable override value for a numeric field is silently skipped (same as the original
-// inline try/catch), leaving that field at whatever it already was.
+// already-seeded config, in place. Only the documented admin-mutable subset is consulted. A numeric
+// value that isn't a whole number in the setting's range is skipped with a warning (TD-438),
+// leaving that field at whatever it already was.
 void apply_metrics_admin_overrides(MetricsApiServerConfig& config,
                                    const std::map<std::string, std::string>& overrides);
 
@@ -65,6 +65,8 @@ struct MetricsApiServerArgsResult {
 // Applies CLI flags on top of an already-seeded/overridden config, in place — the
 // highest-precedence layer. --config is recognized (and its value skipped) but not applied here;
 // its path must already have been extracted and used to load file_config before this runs.
+// .error is set for an unknown option, a flag missing its value, or a number that isn't a whole
+// number in the setting's range (TD-438; e.g. --port must be 1-65535).
 MetricsApiServerArgsResult parse_metrics_api_server_args(int argc, char* argv[],
                                                          MetricsApiServerConfig& config);
 

@@ -1,9 +1,13 @@
 // @adai-status: experimental
-// @adai-version: 0.3.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-11-01
 
 #include "MetricsApiServerArgs.hpp"
-#include <cstdlib>
+#include <algorithm>
+#include <optional>
+#include <set>
+#include <vector>
+#include "Logger.hpp"
 
 namespace adai {
 
@@ -36,45 +40,94 @@ MetricsApiServerConfig seed_metrics_server_config_from_file(const ServiceConfig&
     return config;
 }
 
-// TODO: See TD-438 in TECHNICAL_DEBT.md - no range checks; "-1" wraps, "50abc" becomes 50
+namespace {
+// TD-438: every numeric setting, with its admin-store key (empty if not admin-mutable), its flag and
+// its allowed range. Flags and saved admin overrides both go through this table; they used
+// atoi/strtoul/stoull, so --port abc listened on a random port, --port 99999 on 34463, and
+// --max-live-sessions -1 (or a saved "-1") removed the session cap. The ranges match
+// ConfigLoader::validate() (TD-288); 0 means "off" or "no limit" where it's allowed.
+struct NumericSetting {
+    const char* admin_key;
+    const char* flag;
+    int* int_field;
+    size_t* size_field;
+    long long min;
+    long long max;
+};
+
+constexpr long long kIntMax = 2147483647LL;
+
+std::vector<NumericSetting> numeric_settings(MetricsApiServerConfig& c) {
+    return {
+        {"", "--port", &c.port, nullptr, 1, 65535},
+        {"persist_every_samples", "--persist-samples", &c.persist_every_samples, nullptr, 0, kIntMax},
+        {"persist_every_seconds", "--persist-seconds", &c.persist_every_seconds, nullptr, 0, kIntMax},
+        {"max_records_in_memory", "--max-memory-records", &c.max_records_in_memory, nullptr, 1, kIntMax},
+        {"max_records_on_disk", "--max-disk-records", &c.max_records_on_disk, nullptr, 0, kIntMax},
+        {"retention_days", "--retention-days", &c.retention_days, nullptr, 0, kIntMax},
+        {"metrics_file_max_mb", "--metrics-file-max-mb", &c.metrics_file_max_mb, nullptr, 0, kIntMax},
+        {"metrics_file_backups", "--metrics-file-backups", &c.metrics_file_backups, nullptr, 0, kIntMax},
+        {"max_live_sessions", "--max-live-sessions", nullptr, &c.max_live_sessions, 1, kIntMax},
+        {"completed_ttl_seconds", "--completed-ttl-seconds", &c.completed_ttl_seconds, nullptr, 0, kIntMax},
+        // 0 turns the sweep off (TD-446); negative values used to as well.
+        {"sweep_interval_seconds", "--sweep-interval-seconds", &c.sweep_interval_seconds, nullptr, 0, kIntMax},
+        {"staleness_threshold_seconds", "--staleness-threshold-seconds", &c.staleness_threshold_seconds, nullptr, 1,
+         kIntMax},
+        {"", "--db-pool-size", &c.db_pool_size, nullptr, 1, kIntMax},
+    };
+}
+
+std::string range_text(const NumericSetting& s) {
+    if (s.max == kIntMax) return s.min == 0 ? "a whole number >= 0" : "a whole number >= 1";
+    return std::to_string(s.min) + "-" + std::to_string(s.max);
+}
+
+// The value if it's a whole number in range, else nullopt.
+std::optional<long long> parse_setting(const NumericSetting& s, const std::string& text) {
+    const auto v = parse_strict_int(text);
+    if (!v || *v < s.min || *v > s.max) return std::nullopt;
+    return *v;
+}
+
+void store(const NumericSetting& s, long long v) {
+    if (s.int_field) *s.int_field = static_cast<int>(v);
+    if (s.size_field) *s.size_field = static_cast<size_t>(v);
+}
+}  // namespace
+
 void apply_metrics_admin_overrides(MetricsApiServerConfig& config,
                                    const std::map<std::string, std::string>& overrides) {
-    auto apply_int = [&](const char* key, int& field) {
-        if (auto it = overrides.find(key); it != overrides.end()) {
-            try {
-                field = std::stoi(it->second);
-            } catch (...) {
-            }
+    for (const auto& s : numeric_settings(config)) {
+        if (s.admin_key[0] == '\0') continue;
+        auto it = overrides.find(s.admin_key);
+        if (it == overrides.end()) continue;
+        if (auto v = parse_setting(s, it->second)) {
+            store(s, *v);
+        } else {
+            // TD-438: a bad saved value (TD-306 lets PUT /admin/config store one) used to be applied.
+            Logger::warn("Ignoring saved admin setting {}='{}' (expected {})", s.admin_key, it->second,
+                         range_text(s));
         }
-    };
-    auto apply_size_t = [&](const char* key, size_t& field) {
-        if (auto it = overrides.find(key); it != overrides.end()) {
-            try {
-                field = static_cast<size_t>(std::stoull(it->second));
-            } catch (...) {
-            }
-        }
-    };
-    apply_size_t("max_live_sessions", config.max_live_sessions);
-    apply_int("completed_ttl_seconds", config.completed_ttl_seconds);
-    apply_int("sweep_interval_seconds", config.sweep_interval_seconds);
-    apply_int("persist_every_samples", config.persist_every_samples);
-    apply_int("persist_every_seconds", config.persist_every_seconds);
-    apply_int("max_records_in_memory", config.max_records_in_memory);
-    apply_int("max_records_on_disk", config.max_records_on_disk);
-    apply_int("retention_days", config.retention_days);
-    apply_int("metrics_file_max_mb", config.metrics_file_max_mb);
-    apply_int("metrics_file_backups", config.metrics_file_backups);
-    apply_int("staleness_threshold_seconds", config.staleness_threshold_seconds);
+    }
     if (auto it = overrides.find("enable_prometheus"); it != overrides.end()) {
         config.enable_prometheus = (it->second == "true");
     }
 }
 
-// TODO: See TD-438 in TECHNICAL_DEBT.md - atoi/strtoul unchecked: --port abc binds a random port, -1 sessions wraps to unlimited
 MetricsApiServerArgsResult parse_metrics_api_server_args(int argc, char* argv[],
                                                          MetricsApiServerConfig& config) {
     MetricsApiServerArgsResult result;
+    const auto settings = numeric_settings(config);
+    auto fail = [&](const std::string& message) {
+        result.error = true;
+        result.error_message = message;
+        return result;
+    };
+    // TD-438: a value-taking flag given no value (last, or followed by another "--" flag) says so;
+    // it used to be reported as "Unknown option".
+    static const std::set<std::string> kStringValueFlags = {
+        "--config",      "--metrics-file", "--summary-file",    "--prometheus-file", "--cors-allowed-origins",
+        "--name-service-url", "--storage-backend", "--db-path", "--db-url"};
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -83,37 +136,24 @@ MetricsApiServerArgsResult parse_metrics_api_server_args(int argc, char* argv[],
             result.help = true;
             return result;
         }
-        if (arg == "--port" && i + 1 < argc) {
-            config.port = std::atoi(argv[++i]);
-        } else if (arg == "--metrics-file" && i + 1 < argc) {
+        const auto numeric = std::find_if(settings.begin(), settings.end(),
+                                          [&](const NumericSetting& s) { return arg == s.flag; });
+        const bool takes_value = numeric != settings.end() || kStringValueFlags.count(arg) != 0;
+        if (takes_value && (i + 1 >= argc || std::string(argv[i + 1]).rfind("--", 0) == 0)) {
+            return fail("Missing value for " + arg);
+        }
+        if (numeric != settings.end()) {
+            const std::string value = argv[++i];
+            const auto v = parse_setting(*numeric, value);
+            if (!v) return fail("Invalid value for " + arg + ": '" + value + "' (expected " + range_text(*numeric) + ")");
+            store(*numeric, *v);
+        } else if (arg == "--metrics-file") {
             config.metrics_file = argv[++i];
-        } else if (arg == "--summary-file" && i + 1 < argc) {
+        } else if (arg == "--summary-file") {
             config.summary_file = argv[++i];
-        } else if (arg == "--prometheus-file" && i + 1 < argc) {
+        } else if (arg == "--prometheus-file") {
             config.prometheus_file = argv[++i];
-        } else if (arg == "--persist-samples" && i + 1 < argc) {
-            config.persist_every_samples = std::atoi(argv[++i]);
-        } else if (arg == "--persist-seconds" && i + 1 < argc) {
-            config.persist_every_seconds = std::atoi(argv[++i]);
-        } else if (arg == "--max-memory-records" && i + 1 < argc) {
-            config.max_records_in_memory = std::atoi(argv[++i]);
-        } else if (arg == "--max-disk-records" && i + 1 < argc) {
-            config.max_records_on_disk = std::atoi(argv[++i]);
-        } else if (arg == "--retention-days" && i + 1 < argc) {
-            config.retention_days = std::atoi(argv[++i]);
-        } else if (arg == "--metrics-file-max-mb" && i + 1 < argc) {
-            config.metrics_file_max_mb = std::atoi(argv[++i]);
-        } else if (arg == "--metrics-file-backups" && i + 1 < argc) {
-            config.metrics_file_backups = std::atoi(argv[++i]);
-        } else if (arg == "--max-live-sessions" && i + 1 < argc) {
-            config.max_live_sessions = static_cast<size_t>(std::strtoul(argv[++i], nullptr, 10));
-        } else if (arg == "--completed-ttl-seconds" && i + 1 < argc) {
-            config.completed_ttl_seconds = std::atoi(argv[++i]);
-        } else if (arg == "--sweep-interval-seconds" && i + 1 < argc) {
-            config.sweep_interval_seconds = std::atoi(argv[++i]);
-        } else if (arg == "--staleness-threshold-seconds" && i + 1 < argc) {
-            config.staleness_threshold_seconds = std::atoi(argv[++i]);
-        } else if (arg == "--config" && i + 1 < argc) {
+        } else if (arg == "--config") {
             ++i;  // handled in a first pass before this runs — see extract_config_path_arg-style
                  // helpers in ChatbotApiServerArgs.hpp for the same pattern.
         } else if (arg == "--no-persistence") {
@@ -122,25 +162,21 @@ MetricsApiServerArgsResult parse_metrics_api_server_args(int argc, char* argv[],
             config.enable_prometheus = true;
         } else if (arg == "--no-control") {
             config.allow_control = false;
-        } else if (arg == "--cors-allowed-origins" && i + 1 < argc) {
+        } else if (arg == "--cors-allowed-origins") {
             config.cors_allowed_origins = argv[++i];
-        } else if (arg == "--name-service-url" && i + 1 < argc) {
+        } else if (arg == "--name-service-url") {
             config.name_service_url = argv[++i];
         } else if (arg == "--no-name-service") {
             config.name_service_url.clear();
-        } else if (arg == "--storage-backend" && i + 1 < argc) {
+        } else if (arg == "--storage-backend") {
             // TODO: See TD-439 in TECHNICAL_DEBT.md - unknown backend accepted; registry falls back to file-only
             config.storage_backend = argv[++i];
-        } else if (arg == "--db-path" && i + 1 < argc) {
+        } else if (arg == "--db-path") {
             config.db_path = argv[++i];
-        } else if (arg == "--db-url" && i + 1 < argc) {
+        } else if (arg == "--db-url") {
             config.db_url = argv[++i];
-        } else if (arg == "--db-pool-size" && i + 1 < argc) {
-            config.db_pool_size = std::atoi(argv[++i]);
         } else {
-            result.error = true;
-            result.error_message = "Unknown option: " + arg;
-            return result;
+            return fail("Unknown option: " + arg);
         }
     }
 

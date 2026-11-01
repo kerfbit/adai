@@ -861,9 +861,12 @@ add_test(NAME ChatbotApiServerArgsTests COMMAND chatbotApiServerArgsTests)
 # server (TrainingMetricsAPI's own request-handling is already covered by
 # TrainingMetricsAPIRoutesTests/TrainingMetricsAPILiveTests).
 add_executable(metricsApiServerArgsTests metrics_api_server_args_test.cpp
-    ${CMAKE_SOURCE_DIR}/src/MetricsApiServerArgs.cpp)
+    ${CMAKE_SOURCE_DIR}/src/MetricsApiServerArgs.cpp
+    ${CMAKE_SOURCE_DIR}/src/Config.cpp  # TD-438: the strict number parsers
+    ${CMAKE_SOURCE_DIR}/src/Logger.cpp)
 target_include_directories(metricsApiServerArgsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(metricsApiServerArgsTests
+    spdlog::spdlog
     GTest::gtest_main
 )
 add_test(NAME MetricsApiServerArgsTests COMMAND metricsApiServerArgsTests)
