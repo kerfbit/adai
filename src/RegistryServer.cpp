@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.23.0
-// @adai-reviewed: 2026-10-31
+// @adai-version: 0.24.0
+// @adai-reviewed: 2026-11-01
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) draws from a CSPRNG
@@ -2127,6 +2127,11 @@ int main(int argc, char* argv[]) {
         print_usage(argv[0]);
         return 0;
     }
+    if (cli.error) {  // TD-488: bad arguments used to abort (core dump) or be ignored
+        std::cerr << cli.error_message << '\n';
+        print_usage(argv[0]);
+        return 1;
+    }
 
     const std::string config_path = adai::ConfigLoader::discover_config_path(
         cli.config_path.value_or(""), "config.registry.conf");
@@ -2141,6 +2146,7 @@ int main(int argc, char* argv[]) {
         g_config_store = std::make_unique<adai::DaemonConfigStore>(data_dir + "/daemon_config.db");
         const auto overrides = g_config_store->load_all();
         const auto effective = adai::resolve_registry_server_config(cli, file_config, overrides);
+        for (const auto& w : effective.override_warnings) Logger::deferred(Logger::Level::WARN, w);  // TD-488
         port = effective.port;
         data_dir = effective.data_dir;
         ftp_token_ttl_min.store(effective.ftp_ttl_minutes);
@@ -2160,6 +2166,10 @@ int main(int argc, char* argv[]) {
     }
     // TD-494: claim lease, upload cap and fetch concurrency (file < CLI; not admin-mutable).
     const auto td494 = adai::resolve_registry_server_config(cli, file_config, {});
+    if (!td494.errors.empty()) {  // TD-488
+        for (const auto& error : td494.errors) std::cerr << "registry_server: " << error << '\n';
+        return 1;
+    }
     g_claim_lease_seconds.store(static_cast<long long>(td494.claim_lease_minutes) * 60);
     g_max_concurrent_fetches.store(td494.max_concurrent_fetches);
     g_server_start_unix = static_cast<long long>(std::time(nullptr));

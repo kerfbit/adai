@@ -73,14 +73,14 @@ TEST(RegistryServerTd494Settings, DefaultsFileAndCliPrecedence) {
     EXPECT_EQ(cfg.max_upload_mb, 100);
     EXPECT_EQ(cfg.max_concurrent_fetches, 1);
 
-    std::vector<std::string> bad = {"registry_server", "--claim-lease-minutes", "-5",
-                                    "--max-upload-mb", "0", "--max-concurrent-fetches", "0"};
-    auto argvb = make_argv(bad);
-    cfg = resolve_registry_server_config(
-        parse_registry_server_args(static_cast<int>(argvb.size()), argvb.data()), file, {});
-    EXPECT_EQ(cfg.claim_lease_minutes, 0) << "negative lease clamps to 'never expire'";
-    EXPECT_EQ(cfg.max_upload_mb, 1);
-    EXPECT_EQ(cfg.max_concurrent_fetches, 1);
+    // TD-488: out-of-range flags are errors now (they used to be clamped).
+    for (const auto& bad : std::vector<std::vector<std::string>>{{"registry_server", "--claim-lease-minutes", "-5"},
+                                                                 {"registry_server", "--max-upload-mb", "0"},
+                                                                 {"registry_server", "--max-concurrent-fetches", "0"}}) {
+        auto copy = bad;
+        auto argvb = make_argv(copy);
+        EXPECT_TRUE(parse_registry_server_args(static_cast<int>(argvb.size()), argvb.data()).error) << bad[1];
+    }
 }
 
 TEST(ParseRegistryServerArgs, HelpFlagShortCircuits) {
@@ -98,18 +98,13 @@ TEST(ParseRegistryServerArgs, ShortDashPForPort) {
     EXPECT_EQ(*r.port, 1234);
 }
 
-TEST(ParseRegistryServerArgs, UnrecognizedArgumentIsSilentlyIgnored) {
-    // Regression-pin for a real (if minor) quirk found extracting this: unlike every sibling
-    // daemon's argv parser in this codebase, registry_server's has never reported "Unknown
-    // argument" for a bad flag — it just silently ignores it and continues. Preserved exactly
-    // rather than "fixed" as a drive-by, since a narrow args-extraction pass shouldn't also
-    // change behavior; see TECHNICAL_DEBT_RESOLVED.md for the full note.
-    std::vector<std::string> raw = {"registry_server", "--totally-bogus", "--port", "1234"};
+// TD-488: an unknown argument used to be ignored, so --portt 8091 started on 8082.
+TEST(ParseRegistryServerArgs, AnUnknownArgumentIsAnError) {
+    std::vector<std::string> raw = {"registry_server", "--portt", "8091"};
     auto argv = make_argv(raw);
     auto r = parse_registry_server_args(static_cast<int>(argv.size()), argv.data());
-    EXPECT_FALSE(r.help);
-    ASSERT_TRUE(r.port.has_value());
-    EXPECT_EQ(*r.port, 1234) << "parsing must continue past the unrecognized flag";
+    EXPECT_TRUE(r.error);
+    EXPECT_EQ(r.error_message, "Unknown argument: --portt");
 }
 
 TEST(ParseRegistryServerArgs, FtpFlagsAllApply) {
@@ -144,21 +139,77 @@ TEST(ParseRegistryServerArgs, FtpTtlAndMaxSessionsAreOptional) {
     EXPECT_EQ(*r.ftp_max_sessions, 10);
 }
 
-TEST(ParseRegistryServerArgs, AdminEnabledParsesLenientBooleans) {
-    for (const std::string& v : {"true", "1", "yes", "on", "TRUE", "On"}) {
+TEST(ParseRegistryServerArgs, AdminEnabledTakesTheSharedBooleanWords) {
+    for (const std::string& v : {"true", "1", "yes", "on", "TRUE", "On", "enabled"}) {
         std::vector<std::string> raw = {"registry_server", "--admin-enabled", v};
         auto argv = make_argv(raw);
         auto r = parse_registry_server_args(static_cast<int>(argv.size()), argv.data());
         ASSERT_TRUE(r.admin_enabled.has_value()) << "value: " << v;
         EXPECT_TRUE(*r.admin_enabled) << "value: " << v;
     }
-    for (const std::string& v : {"false", "0", "no", "off", "garbage"}) {
+    for (const std::string& v : {"false", "0", "no", "off", "Disabled"}) {
         std::vector<std::string> raw = {"registry_server", "--admin-enabled", v};
         auto argv = make_argv(raw);
         auto r = parse_registry_server_args(static_cast<int>(argv.size()), argv.data());
         ASSERT_TRUE(r.admin_enabled.has_value()) << "value: " << v;
         EXPECT_FALSE(*r.admin_enabled) << "value: " << v;
     }
+    // TD-488: anything else is an error (it used to mean false), like mns_server since TD-456.
+    std::vector<std::string> raw = {"registry_server", "--admin-enabled", "garbage"};
+    auto argv = make_argv(raw);
+    EXPECT_TRUE(parse_registry_server_args(static_cast<int>(argv.size()), argv.data()).error);
+}
+
+// TD-488: bare std::stoi aborted on "abc" (core dump), took "8090x" as 8090, and bound 34463 for 99999.
+TEST(ParseRegistryServerArgs, EveryNumericFlagIsAWholeNumberInRange) {
+    for (const char* flag : {"--port", "-p", "--ftp-port", "--ftp-pasv-min", "--ftp-pasv-max", "--ftp-ttl",
+                             "--ftp-max-sessions", "--claim-lease-minutes", "--max-upload-mb",
+                             "--max-concurrent-fetches"}) {
+        for (const char* value : {"abc", "8090x", "1e3", "-1", ""}) {
+            std::vector<std::string> raw = {"registry_server", flag, value};
+            auto argv = make_argv(raw);
+            auto r = parse_registry_server_args(static_cast<int>(argv.size()), argv.data());
+            EXPECT_TRUE(r.error) << flag << " " << value;
+            EXPECT_NE(r.error_message.find(flag), std::string::npos) << r.error_message;
+        }
+    }
+    for (const auto& c : std::vector<std::pair<std::string, std::string>>{
+             {"--port", "99999"}, {"--port", "0"}, {"--ftp-port", "70000"}, {"--ftp-ttl", "0"}}) {
+        std::vector<std::string> raw = {"registry_server", c.first, c.second};
+        auto argv = make_argv(raw);
+        EXPECT_TRUE(parse_registry_server_args(static_cast<int>(argv.size()), argv.data()).error)
+            << c.first << " " << c.second;
+    }
+    // 0 means unlimited sessions / claims that never expire.
+    std::vector<std::string> raw = {"registry_server", "--ftp-max-sessions", "0", "--claim-lease-minutes", "0"};
+    auto argv = make_argv(raw);
+    auto r = parse_registry_server_args(static_cast<int>(argv.size()), argv.data());
+    ASSERT_FALSE(r.error) << r.error_message;
+    EXPECT_EQ(r.ftp_max_sessions, 0);
+}
+
+// TD-488: a value flag with no value was dropped; a bare --admin-enabled left PUT /admin/config open.
+TEST(ParseRegistryServerArgs, AFlagMissingItsValueSaysSo) {
+    for (const char* flag : {"--config", "--port", "-p", "--data-dir", "--ftp-port", "--ftp-ip", "--ftp-pasv-min",
+                             "--ftp-pasv-max", "--ftp-ttl", "--ftp-secret", "--ftp-cert", "--ftp-key",
+                             "--claim-lease-minutes", "--max-upload-mb", "--max-concurrent-fetches",
+                             "--ftp-max-sessions", "--admin-enabled"}) {
+        std::vector<std::string> raw = {"registry_server", flag};
+        auto argv = make_argv(raw);
+        auto r = parse_registry_server_args(static_cast<int>(argv.size()), argv.data());
+        EXPECT_TRUE(r.error) << flag;
+        EXPECT_EQ(r.error_message, std::string("Missing value for ") + flag);
+    }
+    std::vector<std::string> raw = {"registry_server", "--ftp-secret", "--ftps"};
+    auto argv = make_argv(raw);
+    EXPECT_EQ(parse_registry_server_args(static_cast<int>(argv.size()), argv.data()).error_message,
+              "Missing value for --ftp-secret");
+}
+
+TEST(ParseRegistryServerArgs, PasvMinAbovePasvMaxIsAnError) {
+    std::vector<std::string> raw = {"registry_server", "--ftp-pasv-min", "60100", "--ftp-pasv-max", "60000"};
+    auto argv = make_argv(raw);
+    EXPECT_TRUE(parse_registry_server_args(static_cast<int>(argv.size()), argv.data()).error);
 }
 
 class ResolveRegistryServerConfigTest : public ::testing::Test {
@@ -288,4 +339,22 @@ TEST_F(ResolveRegistryServerConfigTest, PlaintextFtpOnANetworkAddressWarns) {
     file_config.ftp_advertise_ip = "192.168.1.16";
     file_config.ftps_enabled = true;
     EXPECT_FALSE(has_warning(resolve_registry_server_config(args, file_config, no_overrides), "without FTPS"));
+}
+
+// TD-488: a PASV range emptied by the file and a flag together, and bad saved overrides.
+TEST_F(ResolveRegistryServerConfigTest, AnEmptyPasvRangeFromFileAndFlagIsAnError) {
+    file_config.ftp_pasv_port_min = 50000;
+    file_config.ftp_pasv_port_max = 50099;
+    args.ftp_pasv_min = 51000;
+    const auto cfg = resolve_registry_server_config(args, file_config, no_overrides);
+    ASSERT_EQ(cfg.errors.size(), 1u);
+    EXPECT_NE(cfg.errors[0].find("51000"), std::string::npos) << cfg.errors[0];
+}
+
+TEST_F(ResolveRegistryServerConfigTest, BadSavedOverridesAreSkippedWithAWarning) {
+    const auto cfg = resolve_registry_server_config(
+        args, file_config, {{"ftp_token_ttl_minutes", "0"}, {"ftp_max_sessions_per_run", "50abc"}});
+    EXPECT_EQ(cfg.ftp_ttl_minutes, 30);
+    EXPECT_EQ(cfg.ftp_max_sessions, 4);
+    EXPECT_EQ(cfg.override_warnings.size(), 2u);
 }

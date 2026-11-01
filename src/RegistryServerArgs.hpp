@@ -1,12 +1,12 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.3.0
-// @adai-reviewed: 2026-10-31
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-11-01
 
 // TD-035 (narrower scope, per the item's own note): registry_server's argv parsing and
 // config-precedence resolution, pulled out of RegistryServer.cpp so that piece is testable
-// without a real HTTP server — see RegistryServerArgs_test.cpp. Everything else in
+// without a real HTTP server — see tests/registry_server_args_test.cpp. Everything else in
 // RegistryServer.cpp (the actual request handlers, the FTP listener, the file-scope globals they
 // share) stays untouched: it's already exercised live by DatasetRegistryLiveTests,
 // TrainerAdminAPITests, and RegistryFtpConfinementTests (which spawns the real compiled binary),
@@ -55,14 +55,17 @@ struct RegistryServerArgs {
     std::optional<int> max_concurrent_fetches;
 
     bool help = false;
+    // TD-488: set (with a message) on an unknown argument, a flag missing its value, a number that
+    // isn't a whole number in range, a non-boolean --admin-enabled, or --ftp-pasv-min above
+    // --ftp-pasv-max. main() prints it with the usage text and exits 1.
+    bool error = false;
+    std::string error_message;
 };
 
-// TODO: See TD-488 in TECHNICAL_DEBT.md - silently ignoring unknown arguments hides typos (--portt -> 8082).
-// Parses argv[1..]. Note this preserves the original inline loop's own behavior exactly,
-// including one quirk worth flagging rather than silently changing: an unrecognized argument is
-// simply ignored (no error, no message) — unlike every sibling daemon's argv parser in this
-// codebase, which reports "Unknown argument"/"Unknown option" and exits non-zero. Changing that
-// is outside a narrow args-extraction pass; noted in TECHNICAL_DEBT_RESOLVED.md instead.
+// Parses argv[1..]. Never throws. Numbers must be whole and in range (ports 1-65535, --ftp-ttl,
+// --max-upload-mb and --max-concurrent-fetches at least 1, --ftp-max-sessions and
+// --claim-lease-minutes at least 0, where 0 means unlimited / never expire). An unknown argument
+// is an error (TD-488; it used to be ignored, so --portt 8091 started on 8082).
 RegistryServerArgs parse_registry_server_args(int argc, char* argv[]);
 
 struct RegistryServerEffectiveConfig {
@@ -88,13 +91,17 @@ struct RegistryServerEffectiveConfig {
     // Things the operator should see at startup: a file value a CLI flag overrides, the shipped
     // placeholder secret (ignored), plaintext FTP on a non-loopback address.
     std::vector<std::string> warnings;
+    // TD-488: saved admin overrides that were skipped as out of range or not a number.
+    std::vector<std::string> override_warnings;
+    // TD-488: a combination that can't run (an empty FTP passive port range); main() exits 1.
+    std::vector<std::string> errors;
 };
 
 // Resolves port/data_dir/ftp_ttl_minutes/ftp_max_sessions/admin_enabled from (lowest to highest
 // precedence): `file_config` < `admin_overrides` (persisted via PUT /admin/config — only
 // ftp_token_ttl_minutes/ftp_max_sessions_per_run are consulted, matching kImmutableKeys) <
-// `args`' explicit CLI flags. An unparseable override value is silently skipped, same as the
-// original inline try/catch.
+// `args`' explicit CLI flags. An override value that isn't a whole number in range is skipped and
+// listed in override_warnings (TD-488).
 RegistryServerEffectiveConfig resolve_registry_server_config(
     const RegistryServerArgs& args, const ServiceConfig& file_config,
     const std::map<std::string, std::string>& admin_overrides);

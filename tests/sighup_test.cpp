@@ -278,3 +278,26 @@ TEST_F(SighupTest, MnsServerRefusesAMistypedAdminEnabledAndHonoursTheConfigKey) 
     ASSERT_TRUE(res);
     EXPECT_NE(res->status, 200) << res->body;
 }
+
+// TD-488: registry_server aborted with a core dump on --port abc (exit 134), ignored unknown arguments
+// (--portt 8091 started on 8082) and dropped a trailing --admin-enabled (leaving the admin endpoint
+// open). Each is now an error and exit 1.
+TEST_F(SighupTest, RegistryServerExitsOneOnABadFlag) {
+    const auto cfg = write_config("config.registry.conf", "");
+    for (const std::vector<std::string>& bad : std::vector<std::vector<std::string>>{
+             {"--port", "abc"}, {"--port", "99999"}, {"--portt", "8091"}, {"--admin-enabled"}}) {
+        std::vector<std::string> args = {"--config", cfg.string(), "--data-dir", (dir_ / "registry").string()};
+        args.insert(args.end(), bad.begin(), bad.end());
+        spawn(REGISTRY_SERVER_BINARY_PATH, args);
+        int status = 0;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+        pid_t done = 0;
+        while ((done = ::waitpid(pid_, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        ASSERT_EQ(done, pid_) << bad[0] << " started the server";
+        pid_ = -1;
+        EXPECT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 1)
+            << bad[0] << (WIFSIGNALED(status) ? " killed by signal " + std::to_string(WTERMSIG(status)) : "");
+    }
+}

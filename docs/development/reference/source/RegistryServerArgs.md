@@ -127,3 +127,11 @@ passed) and `resolve_registry_server_config()` returns them in `RegistryServerEf
 a CLI override of a file value, the old placeholder secret `change-me-in-production` (ignored, since a known HMAC key would let
 anyone compute token passwords; `ServiceConfig::ftp_data_server_secret` now defaults to empty), and FTP without FTPS on a
 non-loopback advertise address. Tests: four `ResolveRegistryServerConfigTest` cases, updated parse tests.
+
+## Addendum (November 1, 2026): strict flags (TD-488)
+
+Numbers are whole and in range (ports 1–65535; `--ftp-ttl`, `--max-upload-mb`, `--max-concurrent-fetches` ≥ 1; `--ftp-max-sessions`,
+`--claim-lease-minutes` ≥ 0, 0 meaning unlimited / never expire), `--ftp-pasv-min` ≤ `--ftp-pasv-max` (also checked against the file's
+values after resolution), a value flag with no value is `Missing value for <flag>`, an unknown argument is an error, and
+`--admin-enabled` takes the shared boolean words only. `registry_server` exits 1 on any of these. Bad saved TTL/session overrides are
+skipped with a warning.

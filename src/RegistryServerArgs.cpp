@@ -1,67 +1,109 @@
 // @adai-status: experimental
-// @adai-version: 0.3.0
-// @adai-reviewed: 2026-10-31
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-11-01
 
 #include "RegistryServerArgs.hpp"
 #include <algorithm>
-#include <cctype>
+#include <limits>
+#include <set>
 #include <type_traits>
 
 namespace adai {
 
+namespace {
+constexpr int kMaxInt = std::numeric_limits<int>::max();
+
+template <typename Flag>
+std::string int_range_text(const Flag& f) {
+    if (f.max == kMaxInt) return f.min == 0 ? "a whole number >= 0" : "a whole number >= 1";
+    return std::to_string(f.min) + "-" + std::to_string(f.max);
+}
+}  // namespace
+
 RegistryServerArgs parse_registry_server_args(int argc, char* argv[]) {
     RegistryServerArgs result;
+    auto fail = [&](const std::string& message) {
+        result.error = true;
+        result.error_message = message;
+        return result;
+    };
+    // TD-488: every number is a whole number in range (bare std::stoi aborted on "abc", took "8090x"
+    // as 8090 and bound 34463 for 99999); a value flag given no value, and an unknown argument, are
+    // errors (a bare --admin-enabled used to leave the admin endpoint open, and --portt 8091 started
+    // on 8082).
+    struct IntFlag {
+        const char* flag;
+        std::optional<int> RegistryServerArgs::*field;
+        int min;
+        int max;
+    };
+    static const IntFlag kIntFlags[] = {
+        {"--port", &RegistryServerArgs::port, 1, 65535},
+        {"-p", &RegistryServerArgs::port, 1, 65535},
+        {"--ftp-port", &RegistryServerArgs::ftp_port, 1, 65535},
+        {"--ftp-pasv-min", &RegistryServerArgs::ftp_pasv_min, 1, 65535},
+        {"--ftp-pasv-max", &RegistryServerArgs::ftp_pasv_max, 1, 65535},
+        {"--ftp-ttl", &RegistryServerArgs::ftp_ttl_minutes, 1, kMaxInt},
+        {"--ftp-max-sessions", &RegistryServerArgs::ftp_max_sessions, 0, kMaxInt},  // 0 = unlimited
+        {"--claim-lease-minutes", &RegistryServerArgs::claim_lease_minutes, 0, kMaxInt},  // 0 = never expire
+        {"--max-upload-mb", &RegistryServerArgs::max_upload_mb, 1, kMaxInt},
+        {"--max-concurrent-fetches", &RegistryServerArgs::max_concurrent_fetches, 1, kMaxInt},
+    };
+    static const std::set<std::string> kStringValueFlags = {"--config",     "--data-dir", "--ftp-ip",  "--ftp-secret",
+                                                            "--ftp-cert",   "--ftp-key",  "--admin-enabled"};
 
-    // TODO: See TD-488 in TECHNICAL_DEBT.md - bare std::stoi ("abc" aborts, "8090x" -> 8090, 99999 binds 34463, no
-    // ranges); a value flag with no value is dropped silently (bare --admin-enabled leaves admin open);
-    // unknown arguments are ignored.
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--config" && i + 1 < argc) {
-            result.config_path = argv[++i];
-        } else if ((arg == "--port" || arg == "-p") && i + 1 < argc) {
-            result.port = std::stoi(argv[++i]);
-        } else if (arg == "--data-dir" && i + 1 < argc) {
-            result.data_dir = argv[++i];
-        } else if (arg == "--ftp-enabled") {
-            result.ftp_enabled = true;
-        } else if (arg == "--ftp-port" && i + 1 < argc) {
-            result.ftp_port = std::stoi(argv[++i]);
-        } else if (arg == "--ftp-ip" && i + 1 < argc) {
-            result.ftp_advertise_ip = argv[++i];
-        } else if (arg == "--ftp-pasv-min" && i + 1 < argc) {
-            result.ftp_pasv_min = std::stoi(argv[++i]);
-        } else if (arg == "--ftp-pasv-max" && i + 1 < argc) {
-            result.ftp_pasv_max = std::stoi(argv[++i]);
-        } else if (arg == "--ftp-ttl" && i + 1 < argc) {
-            result.ftp_ttl_minutes = std::stoi(argv[++i]);
-        } else if (arg == "--ftp-secret" && i + 1 < argc) {
-            result.ftp_server_secret = argv[++i];
-        } else if (arg == "--ftps") {
-            result.ftps_enabled = true;
-        } else if (arg == "--ftp-cert" && i + 1 < argc) {
-            result.ftp_cert_file = argv[++i];
-        } else if (arg == "--ftp-key" && i + 1 < argc) {
-            result.ftp_key_file = argv[++i];
-        } else if (arg == "--claim-lease-minutes" && i + 1 < argc) {
-            result.claim_lease_minutes = std::stoi(argv[++i]);
-        } else if (arg == "--max-upload-mb" && i + 1 < argc) {
-            result.max_upload_mb = std::stoi(argv[++i]);
-        } else if (arg == "--max-concurrent-fetches" && i + 1 < argc) {
-            result.max_concurrent_fetches = std::stoi(argv[++i]);
-        } else if (arg == "--ftp-max-sessions" && i + 1 < argc) {
-            result.ftp_max_sessions = std::stoi(argv[++i]);
-        } else if (arg == "--admin-enabled" && i + 1 < argc) {
-            std::string v = argv[++i];
-            for (auto& c : v)
-                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            result.admin_enabled = (v == "true" || v == "1" || v == "yes" || v == "on");
-        } else if (arg == "--help" || arg == "-h") {
+        if (arg == "--help" || arg == "-h") {
             result.help = true;
             return result;
         }
-        // Note: an unrecognized argument is silently ignored here, matching the original inline
-        // loop exactly — see the doc comment on this declaration in RegistryServerArgs.hpp.
+        const IntFlag* int_flag = nullptr;
+        for (const auto& f : kIntFlags) {
+            if (arg == f.flag) int_flag = &f;
+        }
+        if ((int_flag || kStringValueFlags.count(arg) != 0) &&
+            (i + 1 >= argc || std::string(argv[i + 1]).rfind("--", 0) == 0)) {
+            return fail("Missing value for " + arg);
+        }
+        if (int_flag) {
+            const std::string value = argv[++i];
+            const auto v = parse_strict_int(value);
+            if (!v || *v < int_flag->min || *v > int_flag->max) {
+                return fail("Invalid value for " + arg + ": '" + value + "' (expected " + int_range_text(*int_flag) + ")");
+            }
+            result.*(int_flag->field) = *v;
+        } else if (arg == "--config") {
+            result.config_path = argv[++i];
+        } else if (arg == "--data-dir") {
+            result.data_dir = argv[++i];
+        } else if (arg == "--ftp-enabled") {
+            result.ftp_enabled = true;
+        } else if (arg == "--ftp-ip") {
+            result.ftp_advertise_ip = argv[++i];
+        } else if (arg == "--ftp-secret") {
+            result.ftp_server_secret = argv[++i];
+        } else if (arg == "--ftps") {
+            result.ftps_enabled = true;
+        } else if (arg == "--ftp-cert") {
+            result.ftp_cert_file = argv[++i];
+        } else if (arg == "--ftp-key") {
+            result.ftp_key_file = argv[++i];
+        } else if (arg == "--admin-enabled") {
+            const std::string value = argv[++i];
+            const auto enabled = parse_strict_bool(value);
+            if (!enabled) {
+                return fail("Invalid value for --admin-enabled: '" + value +
+                            "' (expected true/false, yes/no, on/off, enabled/disabled or 1/0)");
+            }
+            result.admin_enabled = *enabled;
+        } else {
+            return fail("Unknown argument: " + arg);
+        }
+    }
+    if (result.ftp_pasv_min && result.ftp_pasv_max && *result.ftp_pasv_min > *result.ftp_pasv_max) {
+        return fail("--ftp-pasv-min (" + std::to_string(*result.ftp_pasv_min) + ") is above --ftp-pasv-max (" +
+                    std::to_string(*result.ftp_pasv_max) + ")");
     }
 
     return result;
@@ -77,18 +119,21 @@ RegistryServerEffectiveConfig resolve_registry_server_config(
     cfg.ftp_ttl_minutes = file_config.ftp_token_ttl_minutes;
     cfg.ftp_max_sessions = file_config.ftp_max_sessions_per_run;
 
-    if (auto it = admin_overrides.find("ftp_token_ttl_minutes"); it != admin_overrides.end()) {
-        try {
-            cfg.ftp_ttl_minutes = std::stoi(it->second);
-        } catch (...) {
+    // TD-488: a saved override must be a whole number in range, like the flag; a bad one is skipped
+    // with a warning (stoi took "50abc" as 50 and applied a TTL of 0 or below).
+    auto override_int = [&](const char* key, int min, int& field) {
+        auto it = admin_overrides.find(key);
+        if (it == admin_overrides.end()) return;
+        const auto v = parse_strict_int(it->second);
+        if (v && *v >= min) {
+            field = *v;
+        } else {
+            cfg.override_warnings.push_back(std::string("Ignoring saved admin setting ") + key + "='" + it->second +
+                                            "' (expected a whole number >= " + std::to_string(min) + ")");
         }
-    }
-    if (auto it = admin_overrides.find("ftp_max_sessions_per_run"); it != admin_overrides.end()) {
-        try {
-            cfg.ftp_max_sessions = std::stoi(it->second);
-        } catch (...) {
-        }
-    }
+    };
+    override_int("ftp_token_ttl_minutes", 1, cfg.ftp_ttl_minutes);
+    override_int("ftp_max_sessions_per_run", 0, cfg.ftp_max_sessions);
 
     // This run's explicit CLI flags win over everything, including persisted admin overrides.
     if (args.ftp_ttl_minutes)
@@ -134,6 +179,13 @@ RegistryServerEffectiveConfig resolve_registry_server_config(
     }
     cfg.ftp_server_secret =
         pick(args.ftp_server_secret, file_secret, "FTP_DATA_SERVER_SECRET", "--ftp-secret");
+
+    // TD-488: a PASV range emptied by the file and the flags together (each alone is checked by
+    // validate() and the parser) left every data connection failing with 425.
+    if (cfg.ftp_pasv_min > cfg.ftp_pasv_max) {
+        cfg.errors.push_back("the FTP passive port range is empty: minimum " + std::to_string(cfg.ftp_pasv_min) +
+                             " is above maximum " + std::to_string(cfg.ftp_pasv_max));
+    }
 
     if (cfg.ftp_enabled && !cfg.ftps_enabled && !cfg.ftp_advertise_ip.empty() &&
         cfg.ftp_advertise_ip != "127.0.0.1" && cfg.ftp_advertise_ip != "::1" &&

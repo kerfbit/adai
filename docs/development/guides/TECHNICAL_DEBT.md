@@ -1376,6 +1376,8 @@ The generation and model math run is complete.
 - TD-438 (done in code: `metrics_api_server`'s numeric flags and saved admin overrides are checked against one range table; a bad
   flag is an error and exits 1).
 - TD-456 (done in code: `mns_server` refuses a mistyped `--admin-enabled` and a bad `--port`; new `MNS_ADMIN_ENABLED` key).
+- TD-488 (done in code: `registry_server`'s flags are range-checked, a valueless or unknown flag is an error, and it exits 1 instead of
+  aborting).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -14166,7 +14168,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / Registry Server CLI | October 17, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 1, 2026 | Data / Registry Server CLI | October 17, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `RegistryServerArgs.cpp` (see [RegistryServerArgs.md](../reference/source/RegistryServerArgs.md)); verified with the real
@@ -14182,17 +14184,32 @@ Found while tracing `RegistryServerArgs.cpp` (see [RegistryServerArgs.md](../ref
 
 Action Items:
 
-- [ ] Parse numbers with full-string checks and ranges (ports 1–65535, TTL and sessions > 0, PASV min ≤ max); report errors and exit non-zero instead of aborting.
-- [ ] Treat a value flag with no value, and any unknown argument, as an error with usage; update `UnrecognizedArgumentIsSilentlyIgnored`.
-- [ ] Share the helper with TD-240/TD-438/TD-456.
+- [x] Parse numbers with full-string checks and ranges (ports 1–65535, TTL and sessions > 0, PASV min ≤ max); report errors and exit non-zero instead of aborting.
+- [x] Treat a value flag with no value, and any unknown argument, as an error with usage; update `UnrecognizedArgumentIsSilentlyIgnored`.
+- [x] Share the helper with TD-240/TD-438/TD-456.
 
-Location in code: `src/RegistryServerArgs.cpp` (`parse_registry_server_args()`); tagged `TODO: See TD-488`.
+**Fix (November 1, 2026).** `parse_registry_server_args()` checks its 10 numeric flags against a range table through TD-240's
+`parse_strict_int()`: ports (`--port`/`-p`, `--ftp-port`, `--ftp-pasv-min`/`-max`) 1–65535, `--ftp-ttl`, `--max-upload-mb` and
+`--max-concurrent-fetches` at least 1, `--ftp-max-sessions` and `--claim-lease-minutes` at least 0. (0 sessions means unlimited in
+`FtpDataServer`, not "every login fails" as filed; 0 lease means claims never expire.) `--ftp-pasv-min` above `--ftp-pasv-max` is an
+error, and so is a range emptied by the file and a flag together (`RegistryServerEffectiveConfig::errors`, exit 1). A value flag given
+no value says `Missing value for --ftp-secret`, an unknown argument is `Unknown argument: --portt`, and `--admin-enabled` takes the
+shared boolean words (`parse_strict_bool()`) with anything else an error, as `mns_server` since TD-456. `main()` prints the error with
+usage and exits 1; `--port abc` used to abort with a core dump. Saved `ftp_token_ttl_minutes`/`ftp_max_sessions_per_run` overrides that
+aren't whole numbers in range are skipped with a warning (`override_warnings`). The TD-494 flags used to be clamped (`-5` → 0) and are
+now errors. Tests: `EveryNumericFlagIsAWholeNumberInRange`, `AFlagMissingItsValueSaysSo`, `AnUnknownArgumentIsAnError` (replaces
+`UnrecognizedArgumentIsSilentlyIgnored`), `AdminEnabledTakesTheSharedBooleanWords` (replaces the lenient one), `PasvMinAbovePasvMaxIsAnError`,
+`AnEmptyPasvRangeFromFileAndFlagIsAnError`, `BadSavedOverridesAreSkippedWithAWarning`, and `SighupTest.RegistryServerExitsOneOnABadFlag`
+(the real binary exits 1 for `--port abc`, `--port 99999`, `--portt 8091` and a bare `--admin-enabled`; the old one aborted with signal
+6 on the first and started on the second).
+
+Location in code: `src/RegistryServerArgs.cpp` (`parse_registry_server_args()`); tagged `TD-488`.
 
 Files to Modify:
 
 - `src/RegistryServerArgs.{hpp,cpp}`
 - `src/RegistryServer.cpp`
-- `tests/registry_server_args_test.cpp`
+- `tests/registry_server_args_test.cpp`, `tests/sighup_test.cpp`, `tests/CMakeLists.txt`
 
 ---
 
