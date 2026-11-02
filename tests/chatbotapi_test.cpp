@@ -1715,6 +1715,20 @@ TEST_F(ChatbotAPITest, SetSessionTimeoutKeepsTheSweepIntervalAndAppliesToExistin
     EXPECT_EQ(call_session_count(), 0u);
 }
 
+// TD-252: routes() lists every route the constructor registers, for chatbot_api_server's banner.
+TEST_F(ChatbotAPITest, RoutesListsEveryRegisteredRoute) {
+    std::vector<std::string> listed;
+    for (const auto& route : api->routes()) {
+        listed.push_back(route.method + " " + route.path);
+        EXPECT_FALSE(route.description.empty()) << route.path;
+    }
+    const std::vector<std::string> expected = {
+        "POST /chat",          "POST /chat/session",  "POST /clear-session",
+        "POST /chat/session/export", "POST /chat/session/import", "GET /health",
+        "GET /admin/profile",  "POST /chat/batch",    "POST /chat/batch-session"};
+    EXPECT_EQ(listed, expected);
+}
+
 TEST_F(ChatbotAPITest, DestructorStopsTheSweeperPromptly) {
     // Default sweep interval is a minute; destruction must not wait for it.
     const auto start = std::chrono::steady_clock::now();

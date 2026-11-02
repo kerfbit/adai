@@ -493,3 +493,10 @@ path (RAG, speculative, GPU decode, CPU).
 
 `set_session_timeout(timeout)` changes how long an idle session lives without touching the sweep interval;
 `chatbot_api_server` uses it to apply a reloaded `SESSION_TIMEOUT`. It applies to existing sessions too.
+
+## Addendum (November 1, 2026): `routes()` (TD-252)
+
+The constructor registers every route through two local helpers that also record it, and `routes()` returns that list
+(method, path, description, in registration order): `POST /chat`, `/chat/session`, `/clear-session`,
+`/chat/session/export`, `/chat/session/import`, `GET /health`, `/admin/profile`, `POST /chat/batch`,
+`/chat/batch-session`. `chatbot_api_server` prints its startup banner from it.

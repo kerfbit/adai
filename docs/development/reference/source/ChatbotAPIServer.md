@@ -267,3 +267,11 @@ flight keeps the engine it started with). Every other changed key is still logge
 that describe the loaded model (model and vocabulary paths, architecture, draft model, world-model and hippocampal
 setup), some of which come from MNS, are kept from the running config (`keep_loaded_model_settings()`,
 `ChatbotApiServerArgs.hpp`); a reload used to replace them with the file's values while the old model kept serving.
+
+## Addendum (November 1, 2026): accurate startup banner and usage text (TD-252)
+
+The startup banner lists every route from `ChatbotAPI::routes()`, which the constructor fills through the same calls
+that register the routes, so the listing can't drift from what is served. It used to be a hand-written list of 4 of
+the 9 routes (no `/chat/batch`, `/chat/batch-session`, `/chat/session/export` or `/chat/session/import`).
+`/admin/profile` is always listed, marked `[not enabled]` without `--profile`. `--help` now says the architecture flags
+are fallbacks that MNS's architecture and model path replace when the model resolves.

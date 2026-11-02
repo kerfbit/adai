@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.22.0
+// @adai-version: 0.23.0
 // @adai-reviewed: 2026-11-01
 
 
@@ -13,6 +13,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 #include "BPETokenizer.hpp"
 #include "BatchProcessor.hpp"
 #include "ConversationContext.hpp"
@@ -130,6 +131,23 @@ class ChatbotAPI {
      */
     bool is_running() const {
         return running_;
+    }
+
+    /// One HTTP route this server registers (TD-252).
+    struct Route {
+        std::string method;  // "GET" or "POST"
+        std::string path;
+        std::string description;
+    };
+
+    /**
+     * @brief Every route the constructor registered, in registration order (TD-252)
+     *
+     * Recorded by the same calls that register the routes, so a listing built from it (such as
+     * chatbot_api_server's startup banner) can't drift from what is served.
+     */
+    const std::vector<Route>& routes() const {
+        return routes_;
     }
 
     /**
@@ -349,6 +367,7 @@ class ChatbotAPI {
 
     // Server configuration
     int port_;
+    std::vector<Route> routes_;  // TD-252: filled by the constructor, then read-only
     std::chrono::steady_clock::duration session_timeout_;  // guarded by sessions_mutex_
     // TD-237: written by start() on the server thread and stop() on the main thread.
     std::atomic<bool> running_{false};

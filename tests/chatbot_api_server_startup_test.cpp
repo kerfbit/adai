@@ -519,3 +519,40 @@ TEST_F(ChatbotApiServerStartupTest, AReloadAppliesLiveSettingsAndKeepsTheLoadedM
         << "the running model's path should survive the reload:\n" << log;
     EXPECT_EQ(log.find("Model state: " + model_b), std::string::npos) << log;
 }
+
+// TD-252: the startup banner was a hand-written list of 4 of the 9 routes (no batch, export or import
+// routes, and /admin/profile only with --profile). It's now built from ChatbotAPI::routes().
+TEST_F(ChatbotApiServerStartupTest, TheStartupBannerListsEveryServedRoute) {
+    const pid_t pid = spawn(write_config("ALLOW_UNTRAINED_MODEL=true\nMAX_GEN_LENGTH=2\n"));
+    httplib::Client client("127.0.0.1", port_);
+    client.set_connection_timeout(std::chrono::milliseconds(200));
+    client.set_read_timeout(std::chrono::seconds(30));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    bool up = false;
+    while (!up && std::chrono::steady_clock::now() < deadline) {
+        up = static_cast<bool>(client.Get("/health"));
+        ASSERT_LT(wait_exit(pid, std::chrono::seconds(0)), 0) << "the server exited";
+        if (!up) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    ASSERT_TRUE(up) << "the server never answered /health";
+    std::stringstream s;
+    s << std::ifstream(dir_ / "server.log").rdbuf();
+    const std::string log = s.str();
+    const std::vector<std::pair<std::string, std::string>> routes = {
+        {"POST", "/chat"},          {"POST", "/chat/session"},        {"POST", "/clear-session"},
+        {"POST", "/chat/session/export"}, {"POST", "/chat/session/import"}, {"GET", "/health"},
+        {"GET", "/admin/profile"},  {"POST", "/chat/batch"},          {"POST", "/chat/batch-session"}};
+    for (const auto& [method, path] : routes) {
+        const std::string padded = path + std::string(path.size() < 22 ? 22 - path.size() : 0, ' ') + " - ";
+        EXPECT_NE(log.find(method + std::string(6 - method.size() + 1, ' ') + padded), std::string::npos)
+            << method << " " << path << " missing from the banner:\n" << log;
+        // And the server really serves it (an unregistered path is 404 with an empty body).
+        auto reply = method == "GET" ? client.Get(path) : client.Post(path, "{}", "application/json");
+        ASSERT_TRUE(reply) << path;
+        EXPECT_FALSE(reply->status == 404 && reply->body.empty()) << path << " is not served";
+    }
+    EXPECT_NE(log.find("/admin/profile         - generate_response() timing stats (enabled by --profile) [not enabled]"),
+              std::string::npos)
+        << log;
+    stop(pid);
+}

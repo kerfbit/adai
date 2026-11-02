@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 2.9.0
+// @adai-version: 2.10.0
 // @adai-reviewed: 2026-11-01
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
@@ -102,7 +102,10 @@ void print_usage(const char* program_name) {
         << "  --port <number>      Port number (default: 8080)\n"
         << "  --timeout <minutes>  Session timeout in minutes (default: 30)\n"
         << "  --log-level <level>  Logging level: DEBUG, INFO, WARN, ERROR (default: INFO)\n"
-        // TODO: See TD-252 in TECHNICAL_DEBT.md - architecture defaults below are fallbacks that MNS overrides.
+        // TD-252: these used to read as the model's architecture, with no word about MNS.
+        << "  Architecture fallbacks (used only when MNS doesn't resolve the model; with\n"
+           "  NAME_SERVICE_URL and MODEL_NAME/MODEL_ROLE set, MNS's architecture and model\n"
+           "  path replace them and --model):\n"
         << "  --d-model <number>   Model dimension (default: 512)\n"
         << "  --num-heads <number> Number of attention heads (default: 8)\n"
         << "  --d-ff <number>      Feed-forward dimension (default: 2048)\n"
@@ -715,14 +718,13 @@ int main(int argc, char* argv[]) {
         adai::Logger::info("[4/4] Starting API server...");
         adai::Logger::info("==================================================");
         adai::Logger::info("Server starting on http://0.0.0.0:{}", config.port);
-        // TODO: See TD-252 in TECHNICAL_DEBT.md - lists only 4 of the 9 registered routes.
+        // TD-252: every registered route, from the table the routes were registered with; this used to
+        // be a hand-written list of 4 of the 9.
         adai::Logger::info("Available endpoints:");
-        adai::Logger::info("  POST   /chat           - Single-turn conversation");
-        adai::Logger::info("  POST   /chat/session   - Multi-turn conversation");
-        adai::Logger::info("  POST   /clear-session  - Clear session history");
-        adai::Logger::info("  GET    /health         - Health check");
-        if (cli.profile) {
-            adai::Logger::info("  GET    /admin/profile  - generate_response() timing stats");
+        for (const auto& route : api->routes()) {
+            const bool disabled = route.path == "/admin/profile" && !cli.profile;
+            adai::Logger::info("  {:<6} {:<22} - {}{}", route.method, route.path, route.description,
+                               disabled ? " [not enabled]" : "");
         }
         if (config.rag_enabled && rag_engine) {
             adai::Logger::info("  RAG:   enabled ({} docs indexed, retrieving top-{})",

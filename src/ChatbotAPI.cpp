@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.28.0
+// @adai-version: 0.29.0
 // @adai-reviewed: 2026-11-01
 
 #include "ChatbotAPI.hpp"
@@ -104,13 +104,23 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
     adai::use_exclusive_listen_port(server_impl_->server);  // TD-551
     sweeper_ = std::thread([this] { session_sweeper_loop(); });  // TD-231
 
-    // Set up HTTP endpoints
+    // Set up HTTP endpoints. TD-252: every route is registered through these, which also record it in
+    // routes(), so chatbot_api_server's startup banner lists exactly what is served (it listed 4 of 9).
+    const auto add_post = [this](const char* path, const char* description, httplib::Server::Handler handler) {
+        routes_.push_back({"POST", path, description});
+        server_impl_->server.Post(path, std::move(handler));
+    };
+    const auto add_get = [this](const char* path, const char* description, httplib::Server::Handler handler) {
+        routes_.push_back({"GET", path, description});
+        server_impl_->server.Get(path, std::move(handler));
+    };
 
     // TD-238: errors about the request itself (400/404/413) keep their messages, which describe the
     // request. Anything else is logged in full and answered with a generic 500 and a request id;
     // routes used to send e.what() (paths, tokenizer and model errors) to the client.
     // POST /chat - Single-turn conversation
-    server_impl_->server.Post("/chat", [this](const httplib::Request& req, httplib::Response& res) {
+    add_post("/chat", "Single-turn conversation",
+             [this](const httplib::Request& req, httplib::Response& res) {
         try {
             std::string response = handle_chat(req.body);
             res.set_content(response, "application/json");
@@ -128,8 +138,8 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
     });
 
     // POST /chat/session - Multi-turn conversation with session
-    server_impl_->server.Post(
-        "/chat/session", [this](const httplib::Request& req, httplib::Response& res) {
+    add_post(
+        "/chat/session", "Multi-turn conversation (send an empty session_id to start one)", [this](const httplib::Request& req, httplib::Response& res) {
             try {
                 std::string response = handle_chat_session(req.body);
                 res.set_content(response, "application/json");
@@ -147,8 +157,8 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
         });
 
     // POST /clear-session - Clear conversation history for a session
-    server_impl_->server.Post(
-        "/clear-session", [this](const httplib::Request& req, httplib::Response& res) {
+    add_post(
+        "/clear-session", "Clear a session's history", [this](const httplib::Request& req, httplib::Response& res) {
             try {
                 std::string response = handle_clear_session(req.body);
                 res.set_content(response, "application/json");
@@ -166,8 +176,8 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
         });
 
     // POST /chat/session/export - Export a session's conversation history (TD-053)
-    server_impl_->server.Post(
-        "/chat/session/export", [this](const httplib::Request& req, httplib::Response& res) {
+    add_post(
+        "/chat/session/export", "Export a session's conversation", [this](const httplib::Request& req, httplib::Response& res) {
             try {
                 std::string response = handle_export_session(req.body);
                 res.set_content(response, "application/json");
@@ -185,8 +195,8 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
         });
 
     // POST /chat/session/import - Restore a conversation history into a session (TD-053)
-    server_impl_->server.Post(
-        "/chat/session/import", [this](const httplib::Request& req, httplib::Response& res) {
+    add_post(
+        "/chat/session/import", "Import a conversation into a session", [this](const httplib::Request& req, httplib::Response& res) {
             try {
                 std::string response = handle_import_session(req.body);
                 res.set_content(response, "application/json");
@@ -204,7 +214,8 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
         });
 
     // GET /health - Health check
-    server_impl_->server.Get("/health", [this](const httplib::Request&, httplib::Response& res) {
+    add_get("/health", "Health check (503 while serving an untrained model)",
+            [this](const httplib::Request&, httplib::Response& res) {
         std::string response = handle_health();
         res.set_content(response, "application/json");
         res.status = model_loaded_ ? 200 : 503;  // TD-246: load balancers see an untrained model
@@ -212,15 +223,15 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
 
     // GET /admin/profile - generate_response() timing stats (TD-038); reports disabled unless
     // enable_profiling() was called (see chatbot_api_server's --profile flag).
-    server_impl_->server.Get(
-        "/admin/profile", [this](const httplib::Request&, httplib::Response& res) {
+    add_get(
+        "/admin/profile", "generate_response() timing stats (enabled by --profile)", [this](const httplib::Request&, httplib::Response& res) {
             res.set_content(handle_profile(), "application/json");
             res.status = 200;
         });
 
     // POST /chat/batch - Batch processing for multiple messages
-    server_impl_->server.Post(
-        "/chat/batch", [this](const httplib::Request& req, httplib::Response& res) {
+    add_post(
+        "/chat/batch", "Several independent messages in one request", [this](const httplib::Request& req, httplib::Response& res) {
             try {
                 std::string response = handle_batch_chat(req.body);
                 res.set_content(response, "application/json");
@@ -241,8 +252,8 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
         });
 
     // POST /chat/batch-session - Batch processing with session support
-    server_impl_->server.Post(
-        "/chat/batch-session", [this](const httplib::Request& req, httplib::Response& res) {
+    add_post(
+        "/chat/batch-session", "Several messages, each in its own session", [this](const httplib::Request& req, httplib::Response& res) {
             try {
                 std::string response = handle_batch_chat_session(req.body);
                 res.set_content(response, "application/json");

@@ -1396,6 +1396,8 @@ The generation and model math run is complete.
   without a path).
 - TD-251 (done in code: a `chatbot_api_server` reload also applies the session timeout, session and batch limits, RAG
   retrieval settings and the hippocampal save interval, and keeps the loaded model's settings, MNS-resolved ones included).
+- TD-252 (done in code: `chatbot_api_server`'s startup banner lists every route from `ChatbotAPI::routes()`, recorded
+  as the routes are registered; `--help` says the architecture flags are fallbacks MNS overrides).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5883,7 +5885,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Inference / Serving / Server | October 8, 2026 | 1 hour |
+| LOW | Open — code fix landed November 1, 2026 | Inference / Serving / Server | October 8, 2026 | 1 hour |
 
 Description:
 Found alongside TD-246:
@@ -5898,14 +5900,23 @@ Found alongside TD-246:
 
 Action Items:
 
-- [ ] List every registered route (ideally generated from the same table the constructor registers).
-- [ ] Note in `print_usage()` that architecture flags are fallbacks overridden by MNS.
+- [x] List every registered route (ideally generated from the same table the constructor registers).
+- [x] Note in `print_usage()` that architecture flags are fallbacks overridden by MNS.
 
-Location in code: `src/ChatbotAPIServer.cpp` (startup banner, `print_usage()`); tagged `TODO: See TD-252`.
+**Fix (November 1, 2026):** the `ChatbotAPI` constructor registers every route through two local helpers that also
+record it, and the new `ChatbotAPI::routes()` returns that list (method, path, description). The startup banner is
+printed from it, so it lists all 9 routes and can't drift from what is served; `/admin/profile` is marked
+`[not enabled]` without `--profile`. `print_usage()` now heads the architecture flags as fallbacks that MNS's
+architecture and model path (which also replaces `--model`) override when the model resolves. Tests:
+`ChatbotAPITest.RoutesListsEveryRegisteredRoute` and, against the real binary,
+`ChatbotApiServerStartupTest.TheStartupBannerListsEveryServedRoute` (each route in the banner, and each one served).
+
+Location in code: `src/ChatbotAPIServer.cpp` (startup banner, `print_usage()`), `src/ChatbotAPI.{hpp,cpp}` (`routes()`).
 
 Files to Modify:
 
 - `src/ChatbotAPIServer.cpp`
+- `src/ChatbotAPI.{hpp,cpp}`
 ---
 
 ### TD-253: `chatbot` Spins Forever at End of Input
