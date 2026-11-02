@@ -159,3 +159,11 @@ On Linux the forked child calls `prctl(PR_SET_PDEATHSIG, SIGTERM)` before `exec`
 died; a failed `prctl()` is reported like a failed `exec`. A hard-killed `trainer_service` therefore no longer leaves
 its pass running: the pass gets SIGTERM and drains. The signal follows the thread that called `start()`
 (`trainer_service`'s main thread). No process group is used, since signalling one needs a negative pid (TD-279).
+
+## Addendum (November 2, 2026): async-signal-safe child, no leaked descriptors (TD-281)
+
+`start()` resolves the program on `PATH` before `fork()` (`resolve_program()`), and the child calls `execve()`, so
+between `fork()` and `exec` it makes only async-signal-safe calls (`prctl()`, `getppid()`, `fcntl()`, `write()`). Every
+descriptor from 3 up is marked close-on-exec in the child (`close_range()` with `CLOSE_RANGE_CLOEXEC`, else `fcntl()`
+up to `RLIMIT_NOFILE`), so nothing the supervisor has open, such as an accepted admin connection, reaches the pass.
+`posix_spawn()` was not used because it can't set the parent-death signal (TD-280).

@@ -1,10 +1,12 @@
 // @adai-status: experimental
-// @adai-version: 0.6.0
+// @adai-version: 0.7.0
 // @adai-reviewed: 2026-11-02
 
 #include "ChildProcess.hpp"
 #include <cerrno>
 #include <chrono>
+#include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <thread>
 #include "Logger.hpp"
@@ -17,7 +19,13 @@
 #ifdef __linux__
 #include <sys/prctl.h>
 #endif
+#include <sys/resource.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
+#ifdef __linux__
+#include <linux/close_range.h>
+#endif
 #include <unistd.h>
 #include <vector>
 #endif
@@ -36,6 +44,29 @@ ChildProcess::~ChildProcess() {
     int exit_code = 0;
     stop_and_wait(5000, &exit_code);
 }
+
+#ifndef _WIN32
+// TD-281: execvp()'s PATH search, done before fork() so the child only calls execve(). A name with a
+// '/' is used as given; otherwise the first executable regular file in PATH (default /usr/bin:/bin).
+// Empty when there's none.
+static std::string resolve_program(const std::string& name) {
+    if (name.find('/') != std::string::npos) return name;
+    const char* env_path = std::getenv("PATH");
+    const std::string search = (env_path && *env_path) ? env_path : "/usr/bin:/bin";
+    std::size_t start = 0;
+    while (start <= search.size()) {
+        const std::size_t end = std::min(search.find(':', start), search.size());
+        const std::string dir = end > start ? search.substr(start, end - start) : ".";
+        const std::string candidate = dir + "/" + name;
+        struct stat st{};
+        if (::stat(candidate.c_str(), &st) == 0 && S_ISREG(st.st_mode) && ::access(candidate.c_str(), X_OK) == 0) {
+            return candidate;
+        }
+        start = end + 1;
+    }
+    return {};
+}
+#endif
 
 bool ChildProcess::start(const std::vector<std::string>& argv) {
     if (running_) {
@@ -90,9 +121,21 @@ bool ChildProcess::start(const std::vector<std::string>& argv) {
     }
     c_argv.push_back(nullptr);
 
-    // TODO: See TD-281 in TECHNICAL_DEBT.md - fork() of a multithreaded process (httplib proxy threads) followed
-    // by execvp(), which isn't async-signal-safe; inherited fds (e.g. accepted admin connections)
-    // stay open in the child. Prefer posix_spawn().
+    // TD-281: the child of a multithreaded fork() may only make async-signal-safe calls. execvp()'s PATH
+    // search isn't one (it may allocate), so the program is resolved here, in the parent, and the child
+    // calls execve(). posix_spawn() would avoid fork() altogether but can't set the TD-280 parent-death
+    // signal between fork and exec.
+    const std::string program = resolve_program(argv[0]);
+    if (program.empty()) {
+        Logger::error("ChildProcess::start(): could not execute '{}': {}", argv[0], std::strerror(ENOENT));
+        return false;
+    }
+    // Highest descriptor to mark close-on-exec if close_range() isn't available; getrlimit() isn't
+    // async-signal-safe, so it's read here.
+    rlimit fd_limit{};
+    const int max_fd = (::getrlimit(RLIMIT_NOFILE, &fd_limit) == 0 && fd_limit.rlim_cur != RLIM_INFINITY)
+                           ? static_cast<int>(std::min<rlim_t>(fd_limit.rlim_cur, 65536))
+                           : 65536;
     // TD-278: a close-on-exec pipe reports a failed exec to start(). A successful exec closes the write
     // end, so the parent reads EOF; a failed one writes errno first. A failed exec used to look like a
     // launch (start() returned true) and surfaced only later as exit code 127.
@@ -129,7 +172,20 @@ bool ChildProcess::start(const std::vector<std::string>& argv) {
         }
         if (::getppid() != parent) _exit(127);  // nobody is left to read the pipe
 #endif
-        ::execvp(c_argv[0], c_argv.data());
+        // TD-281: nothing past stdin/stdout/stderr survives the exec. Accepted admin connections (httplib
+        // uses plain accept()) and anything else open without O_CLOEXEC used to stay open in the pass.
+        // exec_pipe[1] is already close-on-exec, so a failed exec can still report through it.
+        bool marked = false;
+#if defined(__linux__) && defined(SYS_close_range)
+        marked = ::syscall(SYS_close_range, 3U, ~0U, CLOSE_RANGE_CLOEXEC) == 0;
+#endif
+        if (!marked) {
+            for (int fd = 3; fd < max_fd; ++fd) {
+                const int flags = ::fcntl(fd, F_GETFD);
+                if (flags >= 0) ::fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+            }
+        }
+        ::execve(program.c_str(), c_argv.data(), environ);
         // If we get here, exec failed — this is a forked copy of the supervisor, not the
         // supervisor itself, so report errno and exit immediately rather than returning into
         // shared logic twice. Only async-signal-safe calls here.

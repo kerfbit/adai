@@ -1428,6 +1428,8 @@ The generation and model math run is complete.
   `running_` is cleared first, so a concurrent `request_stop()` can no longer send `kill(-1, SIGTERM)`).
 - TD-280 (done in code: a pass gets SIGTERM when its `trainer_service` dies, via `PR_SET_PDEATHSIG`, so a
   hard-killed supervisor no longer leaves it running).
+- TD-281 (done in code: the program is resolved before `fork()` and the child only calls async-signal-safe
+  functions ending in `execve()`; no descriptor past stdio reaches the pass).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6924,7 +6926,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / Service Supervisor | October 9, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 2, 2026 | Training / Service Supervisor | October 9, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-277. `trainer_service` runs its httplib admin proxy on other threads, so
@@ -6936,10 +6938,21 @@ launch time stays open in the pass until it exits.
 
 Action Items:
 
-- [ ] Use `posix_spawn()`/`posix_spawnp()` (also addresses TD-278), with an absolute path resolved before spawning.
-- [ ] Close inherited descriptors in the child (`close_range(3, ~0U, CLOSE_RANGE_CLOEXEC)` where available, or spawn file actions).
+- [x] ~~Use `posix_spawn()`~~ Resolve the path before forking and `execve()` it: `posix_spawn()` can't set TD-280's parent-death signal between fork and exec, so `fork()` stays, with only async-signal-safe calls in the child.
+- [x] Close inherited descriptors in the child (`close_range(3, ~0U, CLOSE_RANGE_CLOEXEC)` where available, or spawn file actions).
 
-Location in code: `src/ChildProcess.cpp` (`start()`); tagged `TODO: See TD-281`.
+**Fix (November 2, 2026):** `start()` resolves the program before `fork()` (a new `resolve_program()`: a name with a
+`/` as given, else the first executable regular file on `PATH`, `/usr/bin:/bin` if unset), and the child calls
+`execve()` with the current environment, so it makes only async-signal-safe calls. In the child, every descriptor from 3
+up is marked close-on-exec (`close_range(3, ~0U, CLOSE_RANGE_CLOEXEC)`, or `fcntl()` per descriptor up to the
+`RLIMIT_NOFILE` read before forking), so an accepted admin connection or any other descriptor opened without
+`O_CLOEXEC` no longer reaches the pass. The TD-278 error pipe is close-on-exec already, so a failed `exec` still reports
+through it. A name not found on `PATH` is now reported as `No such file or directory` by `start()` itself.
+
+Tests: `ChildProcessTest.TheChildInheritsNoDescriptorsBeyondStdio` (a descriptor opened without `O_CLOEXEC` as fd 200
+is not open in the child; the old code leaked it) and `ChildProcessTest.ABareNameIsFoundOnPath`.
+
+Location in code: `src/ChildProcess.cpp` (`start()`, `resolve_program()`).
 
 Files to Modify:
 

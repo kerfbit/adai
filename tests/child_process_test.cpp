@@ -327,3 +327,38 @@ TEST(ChildProcessTest, TheChildDiesWithAHardKilledSupervisor) {
     EXPECT_FALSE(survived) << "the pass outlived its hard-killed supervisor";
 }
 #endif
+
+#ifdef __linux__
+namespace {
+int run_to_exit(ChildProcess& child) {
+    int code = -1;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!child.poll_exit(&code) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return code;
+}
+}  // namespace
+
+// TD-281: the pass inherited every descriptor not marked close-on-exec, such as an admin connection httplib had
+// just accepted with plain accept(). A descriptor opened without O_CLOEXEC must not reach the child.
+TEST(ChildProcessTest, TheChildInheritsNoDescriptorsBeyondStdio) {
+    int fds[2];
+    ASSERT_EQ(::pipe(fds), 0);  // no O_CLOEXEC, like an accept()ed socket
+    ASSERT_EQ(::dup2(fds[0], 200), 200);
+    ChildProcess child;
+    ASSERT_TRUE(child.start({"/bin/sh", "-c", "test -e /proc/$$/fd/200 && exit 1; exit 0"}));
+    EXPECT_EQ(run_to_exit(child), 0) << "descriptor 200 was open in the child";
+    ::close(200);
+    ::close(fds[0]);
+    ::close(fds[1]);
+}
+
+// TD-281: the PATH search now happens in the parent (the child only calls execve()), with the same result.
+TEST(ChildProcessTest, ABareNameIsFoundOnPath) {
+    ChildProcess child;
+    ASSERT_TRUE(child.start({"true"}));
+    EXPECT_EQ(run_to_exit(child), 0);
+    EXPECT_FALSE(child.start({"adai-no-such-program-td281"}));
+}
+#endif
