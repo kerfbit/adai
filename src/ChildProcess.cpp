@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.4.0
+// @adai-version: 0.5.0
 // @adai-reviewed: 2026-11-02
 
 #include "ChildProcess.hpp"
@@ -145,7 +145,7 @@ bool ChildProcess::poll_exit(int* exit_code) {
     }
 
 #ifdef _WIN32
-    HANDLE h = static_cast<HANDLE>(process_handle_);
+    HANDLE h = static_cast<HANDLE>(process_handle_.load());
     DWORD code = 0;
     if (!::GetExitCodeProcess(h, &code)) {
         Logger::error("ChildProcess::poll_exit(): GetExitCodeProcess failed");
@@ -155,15 +155,17 @@ bool ChildProcess::poll_exit(int* exit_code) {
     if (code == STILL_ACTIVE) {
         return false;
     }
-    ::CloseHandle(h);
+    running_ = false;  // TD-279: before the handle
     process_handle_ = nullptr;
-    running_ = false;
+    ::CloseHandle(h);
     if (exit_code)
         *exit_code = static_cast<int>(code);
     return true;
 #else
     int status = 0;
-    const pid_t result = ::waitpid(static_cast<pid_t>(pid_), &status, WNOHANG);
+    const long long tracked = pid_.load();
+    // TD-279: waitpid(-1, ...) would reap any child of this process, not ours.
+    const pid_t result = tracked > 0 ? ::waitpid(static_cast<pid_t>(tracked), &status, WNOHANG) : -1;
     if (result == 0) {
         return false;  // still running
     }
@@ -176,7 +178,7 @@ bool ChildProcess::poll_exit(int* exit_code) {
             *exit_code = -1;
         return true;
     }
-    const long long reaped_pid = pid_;
+    const long long reaped_pid = tracked;
     running_ = false;
     pid_ = -1;
     // TD-277: a signal death is 128 + the signal number (139 for SIGSEGV, 137 for SIGKILL), the shell
@@ -214,18 +216,19 @@ void ChildProcess::request_stop() {
     // is no guarantee the child does anything graceful with it; requires CREATE_NEW_PROCESS_GROUP
     // at launch (see start()) to target this child specifically. Fall back to an immediate
     // TerminateProcess() only if even sending the event itself fails (e.g. group setup failed).
-    if (!::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT,
-                                    static_cast<DWORD>(::GetProcessId(
-                                        static_cast<HANDLE>(process_handle_))))) {
+    HANDLE handle = static_cast<HANDLE>(process_handle_.load());
+    if (handle == nullptr) return;  // TD-279: stopped meanwhile
+    if (!::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, static_cast<DWORD>(::GetProcessId(handle)))) {
         Logger::warn(
             "ChildProcess::request_stop(): GenerateConsoleCtrlEvent failed (error {}) — falling "
             "back to TerminateProcess",
             static_cast<unsigned long>(::GetLastError()));
-        ::TerminateProcess(static_cast<HANDLE>(process_handle_), 1);
+        ::TerminateProcess(handle, 1);
     }
 #else
-    // TODO: See TD-279 in TECHNICAL_DEBT.md - no pid_ > 0 guard: pid_ == -1 would signal every process.
-    ::kill(static_cast<pid_t>(pid_), SIGTERM);
+    // TD-279: read once and only a real pid; kill(-1, SIGTERM) would signal every process the user can.
+    const long long pid = pid_.load();
+    if (pid > 0) ::kill(static_cast<pid_t>(pid), SIGTERM);
 #endif
 }
 
@@ -250,9 +253,9 @@ bool ChildProcess::stop_and_wait(int timeout_ms, int* exit_code) {
         "request — force-killing",
         timeout_ms);
 #ifdef _WIN32
-    ::TerminateProcess(static_cast<HANDLE>(process_handle_), 1);
+    if (HANDLE handle = static_cast<HANDLE>(process_handle_.load())) ::TerminateProcess(handle, 1);
 #else
-    ::kill(static_cast<pid_t>(pid_), SIGKILL);
+    if (const long long pid = pid_.load(); pid > 0) ::kill(static_cast<pid_t>(pid), SIGKILL);  // TD-279
 #endif
 
     // SIGKILL/TerminateProcess cannot be blocked or ignored, so this final wait is bounded in
@@ -278,17 +281,14 @@ bool ChildProcess::stop_and_wait(int timeout_ms, int* exit_code) {
     // needs to be able to move on (e.g. launch a replacement child) rather than being stuck
     // forever believing this one is still "running" after every avenue to confirm otherwise has
     // been exhausted.
+    running_ = false;  // TD-279: cleared first, so a concurrent request_stop() returns early
 #ifdef _WIN32
-    if (process_handle_) {
-        ::CloseHandle(static_cast<HANDLE>(process_handle_));
-        process_handle_ = nullptr;
+    if (void* handle = process_handle_.exchange(nullptr)) {
+        ::CloseHandle(static_cast<HANDLE>(handle));
     }
 #else
-    // TODO: See TD-279 in TECHNICAL_DEBT.md - pid_ is cleared before running_, the order that lets a
-    // concurrent request_stop() read running_ == true with pid_ == -1.
     pid_ = -1;
 #endif
-    running_ = false;
     if (exit_code)
         *exit_code = -2;
     return true;
@@ -299,9 +299,10 @@ long long ChildProcess::pid() const {
         return 0;
     }
 #ifdef _WIN32
-    return static_cast<long long>(::GetProcessId(static_cast<HANDLE>(process_handle_)));
+    return static_cast<long long>(::GetProcessId(static_cast<HANDLE>(process_handle_.load())));
 #else
-    return pid_;
+    const long long pid = pid_.load();
+    return pid > 0 ? pid : 0;
 #endif
 }
 

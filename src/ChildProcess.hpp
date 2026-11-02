@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.4.0
+// @adai-version: 0.5.0
 // @adai-reviewed: 2026-11-02
 
 // TD-172: small cross-platform "launch and monitor one child process" helper, extracted from
@@ -12,6 +12,7 @@
 // itself starts, tracks, and can ask to stop — launch_background() only ever detaches a copy of
 // the *current* process into the background and never monitors it again afterward.
 
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -26,8 +27,6 @@ namespace adai {
  * before starting the next one, which is exactly the supervisory-loop shape
  * `IncrementalTrainingTool.cpp`'s old `serve` command already used for its in-process passes.
  *
- * TODO: See TD-279 in TECHNICAL_DEBT.md - running_/pid_ aren't atomic, so the request_stop() exception
- * below doesn't hold: a concurrent call can see pid_ == -1 and call kill(-1, SIGTERM).
  * Not thread-safe: intended to be driven from a single supervisory loop thread; `request_stop()`
  * is the one exception (safe to call from a signal handler's own thread — POSIX `kill()` and
  * Windows console-control/`TerminateProcess()` are both safe to call concurrently with
@@ -105,11 +104,14 @@ class ChildProcess {
     long long pid() const;
 
    private:
-    bool running_ = false;
+    // TD-279: atomics, so request_stop() from another thread reads a consistent pair. A stop always
+    // clears running_ before pid_/the handle, and signals are sent only to a pid > 0 (kill(-1, ...)
+    // would signal every process the user can).
+    std::atomic<bool> running_{false};
 #ifdef _WIN32
-    void* process_handle_ = nullptr;  // HANDLE, kept void* to avoid pulling <windows.h> into this header
+    std::atomic<void*> process_handle_{nullptr};  // HANDLE, kept void* to avoid pulling <windows.h> in
 #else
-    long long pid_ = -1;  // pid_t, widened to avoid pulling <sys/types.h> into this header
+    std::atomic<long long> pid_{-1};  // pid_t, widened to avoid pulling <sys/types.h> into this header
 #endif
 };
 

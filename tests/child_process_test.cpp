@@ -15,6 +15,7 @@
 #ifndef _WIN32
 
 #include <gtest/gtest.h>
+#include <atomic>
 #include <chrono>
 #include <thread>
 #include <filesystem>
@@ -250,5 +251,33 @@ TEST(ChildProcessTest, ASignalDeathIs128PlusTheSignalNumber) {
         }
         EXPECT_EQ(code, expected) << "SIG" << sig;
     }
+}
+#endif
+
+#ifndef _WIN32
+// TD-279: request_stop() read a plain running_/pid_ pair, and the give-up path cleared pid_ before running_, so
+// a concurrent call could send kill(-1, SIGTERM) to every process the user can signal. The members are atomics,
+// running_ is cleared first and only a pid > 0 is signalled.
+//
+// Deliberately no concurrent stress test: on a regression it would send SIGTERM to every process the user
+// owns, which ends the desktop session (it did, twice, against the old code). These checks only exercise the
+// stopped states, where a missing guard can't reach kill() with -1.
+TEST(ChildProcessTest, RequestStopIsANoOpWithoutALiveChild) {
+    ChildProcess idle;
+    idle.request_stop();  // never started
+    EXPECT_FALSE(idle.stop_and_wait(10, nullptr));
+    EXPECT_EQ(idle.pid(), 0);
+
+    ChildProcess finished;
+    ASSERT_TRUE(finished.start({"/bin/true"}));
+    int code = -1;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!finished.poll_exit(&code) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_EQ(code, 0);
+    EXPECT_EQ(finished.pid(), 0);
+    finished.request_stop();  // after the child is reaped
+    EXPECT_FALSE(finished.stop_and_wait(10, nullptr));
 }
 #endif

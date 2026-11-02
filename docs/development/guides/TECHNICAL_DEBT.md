@@ -1424,6 +1424,8 @@ The generation and model math run is complete.
   `trainer_service` logs the reason and backs off instead of counting exit 127 as a crashed pass).
 - TD-277 (done in code: a signal death is reported as 128 + the signal number and logged by name, so a driver
   SIGSEGV (139) and an OOM SIGKILL (137) can be told apart).
+- TD-279 (done in code: `ChildProcess` state is atomic, only a pid above 0 is signalled or waited for, and
+  `running_` is cleared first, so a concurrent `request_stop()` can no longer send `kill(-1, SIGTERM)`).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6839,7 +6841,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / Service Supervisor | October 9, 2026 | 1 hour |
+| MEDIUM | Open — code fix landed November 2, 2026 | Training / Service Supervisor | October 9, 2026 | 1 hour |
 
 Description:
 Found alongside TD-277. The header says `request_stop()` is safe to call from a signal handler's
@@ -6852,10 +6854,23 @@ documented contract invites it.
 
 Action Items:
 
-- [ ] Guard `kill()` with `pid_ > 0` (and the Windows path with a non-null handle).
-- [ ] Make `running_`/`pid_` atomic, or drop the signal-handler safety claim from the header.
+- [x] Guard `kill()` with `pid_ > 0` (and the Windows path with a non-null handle).
+- [x] Make `running_`/`pid_` atomic, or drop the signal-handler safety claim from the header.
 
-Location in code: `src/ChildProcess.{hpp,cpp}` (`request_stop()`, `stop_and_wait()`); tagged `TODO: See TD-279`.
+**Fix (November 2, 2026):** `running_`, `pid_` and the Windows handle are atomics. `request_stop()` and
+`stop_and_wait()`'s force kill read the pid once and signal only a pid above 0 (a non-null handle on Windows);
+`poll_exit()` calls `waitpid()` only with a pid above 0 (`waitpid(-1, ...)` would reap any child); and every path that
+ends a child clears `running_` before `pid_`/the handle, so a concurrent `request_stop()` returns early. A narrow window
+remains in which a stop request racing the reap can signal a PID the kernel has just recycled; that is the usual limit of
+signalling by PID and only a pidfd would close it.
+
+**Verified for real, by accident (November 2, 2026):** a stress test that called `request_stop()` from a second thread
+while children started and exited passed on the fixed code, under TSan as well. Run against the old code, it hit the race:
+`kill(-1, SIGTERM)` reached every process the user owned and ended the desktop session, twice. That test was removed so a
+regression can never do this during `ctest`. `ChildProcessTest.RequestStopIsANoOpWithoutALiveChild` checks only the
+stopped states.
+
+Location in code: `src/ChildProcess.{hpp,cpp}` (`request_stop()`, `stop_and_wait()`, `poll_exit()`).
 
 Files to Modify:
 

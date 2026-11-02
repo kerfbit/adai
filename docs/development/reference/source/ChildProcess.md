@@ -144,3 +144,11 @@ true and appear only later as exit code 127 from `poll_exit()`.
 `poll_exit()` sets `exit_code` to `128 + WTERMSIG(status)` for a child killed by a signal (139 for SIGSEGV, 137 for
 SIGKILL), and logs the signal's name and whether it dumped core: at info level for SIGTERM (the graceful stop this
 class sends), as a warning otherwise. Every signal death used to be 128.
+
+## Addendum (November 2, 2026): atomic state and pid guards (TD-279)
+
+`running_`, `pid_` and the Windows process handle are `std::atomic`. `request_stop()`, `stop_and_wait()`'s force kill
+and `poll_exit()`'s `waitpid()` read the pid once and act only on a pid above 0 (a non-null handle on Windows), and
+every path that ends a child clears `running_` first. The old code could send `kill(-1, SIGTERM)` (every process the
+user owns) when a stop request raced the give-up path; a stress test reproduced that against the old code and ended
+the desktop session, so the suite deliberately has no concurrent stress test for this.
