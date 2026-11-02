@@ -841,3 +841,82 @@ TEST(HippocampalMemoryTest, BufferTurnsOverUnderPeakedAttention) {
     EXPECT_GE(recent, 5) << "most survivors should be recent";
 }
 
+// ---------------------------------------------------------------------------------------------
+// TD-250: atomic, checked saves and a revision counter for skipping unchanged saves.
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+Matrix row_of(float v, int d) {
+    Matrix m(1, d);
+    for (int j = 0; j < d; ++j) m(0, j) = v;
+    return m;
+}
+}  // namespace
+
+TEST(Td250HippocampalSave, ASaveReplacesTheFileWholeAndLeavesNoTemporary) {
+    const auto dir = std::filesystem::temp_directory_path() / "td250_save";
+    std::filesystem::create_directories(dir);
+    const std::string path = (dir / "hm").string();
+    HippocampalMemory memory(4, 8);
+    memory.write(row_of(1.0f, 4), row_of(1.0f, 4));
+    memory.write(row_of(2.0f, 4), row_of(2.0f, 4));
+    memory.save(path);
+    memory.save_associations(path + ".assoc");
+    EXPECT_FALSE(std::filesystem::exists(path + ".tmp"));
+    EXPECT_FALSE(std::filesystem::exists(path + ".assoc.tmp"));
+    HippocampalMemory restored(4, 8);
+    restored.load(path);
+    restored.load_associations(path + ".assoc");
+    EXPECT_EQ(restored.size(), 2);
+    std::filesystem::remove_all(dir);
+}
+
+TEST(Td250HippocampalSave, AFailedSaveKeepsThePreviousFile) {
+    // The saves used to truncate the file first, so a failed or interrupted save lost the state.
+    const auto dir = std::filesystem::temp_directory_path() / "td250_failed_save";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    const std::string path = (dir / "hm").string();
+    HippocampalMemory memory(4, 8);
+    memory.write(row_of(1.0f, 4), row_of(1.0f, 4));
+    memory.save(path);
+    const auto saved_size = std::filesystem::file_size(path);
+
+    memory.write(row_of(2.0f, 4), row_of(2.0f, 4));
+    std::filesystem::create_directories(path + ".tmp");  // the temporary can't be created
+    EXPECT_THROW(memory.save(path), std::runtime_error);
+    EXPECT_EQ(std::filesystem::file_size(path), saved_size);
+    HippocampalMemory restored(4, 8);
+    restored.load(path);
+    EXPECT_EQ(restored.size(), 1) << "the previous save must still load";
+    std::filesystem::remove_all(dir);
+}
+
+TEST(Td250HippocampalSave, TheRevisionChangesOnlyWhenTheMemoryDoes) {
+    const auto dir = std::filesystem::temp_directory_path() / "td250_revision";
+    std::filesystem::create_directories(dir);
+    HippocampalMemory memory(4, 2);
+    auto r = memory.revision();
+    memory.write(row_of(1.0f, 4), row_of(1.0f, 4));
+    EXPECT_NE(memory.revision(), r);
+    r = memory.revision();
+    (void)memory.read_all();
+    memory.save((dir / "hm").string());
+    EXPECT_EQ(memory.revision(), r) << "reads and saves don't change it";
+    Matrix weights(1, 1);
+    weights(0, 0) = 1.0f;
+    memory.commit_attention(weights, 0.9f, 0.9f);
+    EXPECT_NE(memory.revision(), r);
+    r = memory.revision();
+    memory.write(row_of(2.0f, 4), row_of(2.0f, 4));
+    memory.write(row_of(3.0f, 4), row_of(3.0f, 4));  // evicts
+    EXPECT_NE(memory.revision(), r);
+    r = memory.revision();
+    memory.clear();
+    EXPECT_NE(memory.revision(), r);
+    r = memory.revision();
+    memory.load((dir / "hm").string());
+    EXPECT_NE(memory.revision(), r);
+    std::filesystem::remove_all(dir);
+}
+

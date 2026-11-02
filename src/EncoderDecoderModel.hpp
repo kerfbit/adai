@@ -1,9 +1,10 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.28.1
-// @adai-reviewed: 2026-10-28
+// @adai-version: 0.29.0
+// @adai-reviewed: 2026-11-01
 
+#include <cstdint>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -751,6 +752,17 @@ class EncoderDecoderModel {
     HippocampalMemory* get_hippocampal_memory() {
         return hippocampal_memory.get();
     }
+
+    /**
+     * TD-250: saves the attached hippocampal memory's state and association matrix (each
+     * atomically, HippocampalMemory::save()/save_associations()) under model_mutex_, so it can run
+     * while requests are generating (they change the memory under the same lock). Skips the save
+     * when the memory's revision equals `*last_saved_revision`, and updates it after a save.
+     * @return true if it saved; false with no memory attached or nothing changed
+     * @throws std::runtime_error if a file can't be written (the previous file is kept)
+     */
+    bool save_hippocampal_memory(const std::string& state_path, const std::string& association_path,
+                                 std::uint64_t* last_saved_revision);
 
     /**
      * TD-186: repetition-penalty parameters forwarded to DecoderBlock's own gated hippocampal

@@ -366,3 +366,12 @@ Tests: `CloneCopiesGatedPathsAttachmentsAndSettings`, `LoadModelSyncsTheGenerato
 off, for callers that encode on their own (RAG) without racing generation on the shared encoder. Note that `LLMEncoder`'s built-in
 tokenizer is separate from the model's and is never filled by it. Encode the model's way: the model's tokenizer, then
 `encode_with_mask()`. Test: `CopyEncoderEncodesLikeTheModelsEncoder`.
+
+## Addendum (November 1, 2026): `save_hippocampal_memory()` (TD-250)
+
+`save_hippocampal_memory(state_path, association_path, &last_saved_revision)` saves the attached hippocampal memory's
+state and association matrix under `model_mutex_` (generation changes the memory under the same lock), skipping the save
+when the memory's `revision()` equals `last_saved_revision` and updating it after a save. It returns whether it saved
+and throws if a file can't be written (the previous file is kept). `chatbot_api_server` uses it for its periodic and
+shutdown saves.
+

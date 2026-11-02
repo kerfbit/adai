@@ -249,3 +249,11 @@ called `ChatbotAPI::stop()` before httplib was listening, httplib ignored it, an
 SIGKILL, skipping the hippocampal memory save. `ChatbotAPI::stop()` now waits for httplib to be listening and stops it
 (see [ChatbotAPI.md](ChatbotAPI.md)'s TD-248 addendum), so the process exits 0. The `SIGHUP` handler no longer logs; the
 main loop logs "SIGHUP received - configuration reload requested" when it applies the reload.
+
+## Addendum (November 1, 2026): periodic hippocampal memory saves (TD-250)
+
+With hippocampal memory attached, the main loop saves it every `HIPPOCAMPAL_SAVE_INTERVAL_SECONDS` (default 300; 0 =
+only at shutdown) when it changed, and once more at shutdown, through `EncoderDecoderModel::save_hippocampal_memory()`
+(under the model lock, so requests keep being served). A crash now loses at most one interval. The files are
+`HIPPOCAMPAL_STATE_PATH` (default `MODEL_PATH.hippocampal`) plus `.assoc` and `.swap`; with neither key set the memory
+isn't attached (it used to become hidden files in the working directory).

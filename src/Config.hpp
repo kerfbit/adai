@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.22.0
+// @adai-version: 1.23.0
 // @adai-reviewed: 2026-11-01
 
 
@@ -645,6 +645,16 @@ struct ServiceConfig {
 
     /// Ring-buffer capacity (default: 512, matching config.trainer.conf's documented default).
     size_t hippocampal_memory_capacity = 512;
+
+    /// TD-250: chatbot_api_server's saved memory state; its association matrix and swap file are
+    /// this path plus ".assoc" and ".swap". Empty (default) = MODEL_PATH + ".hippocampal", the
+    /// earlier derivation; with both empty the memory isn't attached (it used to land in the
+    /// working directory as hidden files).
+    std::string hippocampal_state_path;
+
+    /// TD-250: seconds between saves of a changed memory while serving (default: 300); 0 = only at
+    /// shutdown. It used to be saved only at a graceful shutdown, so a crash lost everything.
+    int hippocampal_save_interval_seconds = 300;
 
     /// Attention-level repetition-penalty growth rate (DecoderBlock's own gated hippocampal
     /// cross-attention, TD-180). Default: 0.0 — an explicit opt-in magnitude, not just on/off,

@@ -22,6 +22,8 @@
 #include <thread>
 #include <vector>
 #include "../src/BPETokenizer.hpp"
+#include "../src/HippocampalMemory.hpp"
+#include "../src/LeJEPAEncoder.hpp"
 #include "httplib.h"
 
 namespace fs = std::filesystem;
@@ -393,3 +395,74 @@ TEST_F(ChatbotApiServerStartupTest, SigtermDuringStartupExitsPromptly) {
     }
     EXPECT_EQ(hung, 0) << hung << " of 10 trials were still running 10 s after SIGTERM";
 }
+
+// TD-250: hippocampal memory was saved only at a graceful shutdown, so a crash lost everything the
+// server had learned since it started. With a 1 s save interval, a SIGKILL after a request keeps it.
+TEST_F(ChatbotApiServerStartupTest, HippocampalMemorySurvivesACrashAfterAPeriodicSave) {
+    BPETokenizer tokenizer;
+    tokenizer.load_vocab((dir_ / "vocab.txt").string());
+    const fs::path world_model_dir = dir_ / "world_model";
+    LeJEPAEncoder(static_cast<int>(tokenizer.get_vocab_size()), 64, 1, 2, 128, 32, 64).save(world_model_dir.string());
+    const fs::path state = dir_ / "memory" / "hm";
+    fs::create_directories(state.parent_path());
+    const pid_t pid = spawn(write_config(
+        "ALLOW_UNTRAINED_MODEL=true\nMAX_GEN_LENGTH=3\nWORLD_MODEL_ENABLED=true\nWORLD_MODEL_ARTIFACT_PATH=" +
+        world_model_dir.string() +
+        "\nWORLD_MODEL_D_MODEL=64\nWORLD_MODEL_NUM_LAYERS=1\nWORLD_MODEL_NUM_HEADS=2\nWORLD_MODEL_D_FF=128\n"
+        "WORLD_MODEL_INJECT_EVERY_N_LAYERS=1\nHIPPOCAMPAL_MEMORY_ENABLED=true\nHIPPOCAMPAL_STATE_PATH=" +
+        state.string() + "\nHIPPOCAMPAL_SAVE_INTERVAL_SECONDS=1\n"));
+    httplib::Client client("127.0.0.1", port_);
+    client.set_connection_timeout(std::chrono::milliseconds(200));
+    client.set_read_timeout(std::chrono::seconds(30));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (!client.Get("/health") && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    const auto reply = client.Post("/chat", R"({"message":"hello world"})", "application/json");
+    ASSERT_TRUE(reply);
+    ASSERT_EQ(reply->status, 200) << reply->body;
+
+    const auto save_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!fs::exists(state) && std::chrono::steady_clock::now() < save_deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    ::kill(pid, SIGKILL);  // a crash: no shutdown save
+    ::waitpid(pid, nullptr, 0);
+
+    std::ifstream log_in(dir_ / "stdout.log");
+    const std::string log((std::istreambuf_iterator<char>(log_in)), std::istreambuf_iterator<char>());
+    ASSERT_NE(log.find("Hippocampal memory attached"), std::string::npos) << log;
+    ASSERT_TRUE(fs::exists(state)) << "no periodic save within 10 s:\n" << log;
+    EXPECT_TRUE(fs::exists(state.string() + ".assoc"));
+    HippocampalMemory restored(64, 512);
+    restored.load(state.string());
+    EXPECT_GE(restored.size(), 1) << "the request's episode should be in the saved memory";
+}
+
+// TD-250: with neither HIPPOCAMPAL_STATE_PATH nor MODEL_PATH, the memory used to be written to hidden
+// files in the working directory; it isn't attached now.
+TEST_F(ChatbotApiServerStartupTest, HippocampalMemoryIsNotAttachedWithoutAPath) {
+    BPETokenizer tokenizer;
+    tokenizer.load_vocab((dir_ / "vocab.txt").string());
+    const fs::path world_model_dir = dir_ / "world_model";
+    LeJEPAEncoder(static_cast<int>(tokenizer.get_vocab_size()), 64, 1, 2, 128, 32, 64).save(world_model_dir.string());
+    const pid_t pid = spawn(write_config(
+        "ALLOW_UNTRAINED_MODEL=true\nWORLD_MODEL_ENABLED=true\nWORLD_MODEL_ARTIFACT_PATH=" + world_model_dir.string() +
+        "\nWORLD_MODEL_D_MODEL=64\nWORLD_MODEL_NUM_LAYERS=1\nWORLD_MODEL_NUM_HEADS=2\nWORLD_MODEL_D_FF=128\n"
+        "WORLD_MODEL_INJECT_EVERY_N_LAYERS=1\nHIPPOCAMPAL_MEMORY_ENABLED=true\n"));
+    const fs::path stray = fs::current_path() / ".hippocampal";  // the server runs in our directory
+    const bool stray_before = fs::exists(stray);
+    httplib::Client client("127.0.0.1", port_);
+    client.set_connection_timeout(std::chrono::milliseconds(200));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (!client.Get("/health") && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    stop(pid);
+    std::ifstream log_in(dir_ / "stdout.log");
+    const std::string log((std::istreambuf_iterator<char>(log_in)), std::istreambuf_iterator<char>());
+    EXPECT_NE(log.find("neither HIPPOCAMPAL_STATE_PATH nor MODEL_PATH"), std::string::npos) << log;
+    EXPECT_EQ(log.find("Hippocampal memory attached"), std::string::npos) << log;
+    if (!stray_before) {
+        EXPECT_FALSE(fs::exists(stray)) << "nothing in the working directory";
+        fs::remove(stray);
+    }
+}
+

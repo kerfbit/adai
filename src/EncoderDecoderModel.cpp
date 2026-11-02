@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.30.0
-// @adai-reviewed: 2026-10-26
+// @adai-version: 0.31.0
+// @adai-reviewed: 2026-11-01
 
 #include "EncoderDecoderModel.hpp"
 #include "Activation.hpp"  // TD-216: shared softmax row primitives
@@ -182,6 +182,21 @@ void EncoderDecoderModel::set_world_model(std::unique_ptr<LeJEPAEncoder> wm) {
 
 void EncoderDecoderModel::set_hippocampal_memory(std::unique_ptr<HippocampalMemory> hm) {
     hippocampal_memory = std::move(hm);
+}
+
+bool EncoderDecoderModel::save_hippocampal_memory(const std::string& state_path,
+                                                  const std::string& association_path,
+                                                  std::uint64_t* last_saved_revision) {
+    std::lock_guard<std::mutex> lock(model_mutex_);  // generation changes the memory under it
+    if (!hippocampal_memory) return false;
+    const std::uint64_t revision = hippocampal_memory->revision();
+    if (last_saved_revision && *last_saved_revision == revision) return false;
+    // TD-194: the association file goes second; load() then load_associations() needs both from
+    // the same moment, which the lock guarantees.
+    hippocampal_memory->save(state_path);
+    hippocampal_memory->save_associations(association_path);
+    if (last_saved_revision) *last_saved_revision = revision;
+    return true;
 }
 
 void EncoderDecoderModel::maybe_write_hippocampal_memory(const std::string& response_text) {

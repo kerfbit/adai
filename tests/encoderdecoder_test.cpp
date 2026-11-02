@@ -1300,6 +1300,34 @@ static std::unique_ptr<EncoderDecoderModel> make_gated_model() {
     return model;
 }
 
+// TD-250: chatbot_api_server saves the memory periodically through this, under the model lock, and
+// only when it changed.
+TEST(EncoderDecoderModelTest, SaveHippocampalMemorySkipsUnchangedState) {
+    namespace fs = std::filesystem;
+    auto model = make_gated_model();
+    const auto dir = fs::temp_directory_path() / "td250_model_save";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    const std::string state = (dir / "hm").string(), assoc = (dir / "hm.assoc").string();
+    std::uint64_t saved = 0;
+    EXPECT_TRUE(model->save_hippocampal_memory(state, assoc, &saved));
+    EXPECT_TRUE(fs::exists(state) && fs::exists(assoc));
+    EXPECT_EQ(saved, model->get_hippocampal_memory()->revision());
+    EXPECT_FALSE(model->save_hippocampal_memory(state, assoc, &saved)) << "nothing changed";
+
+    model->set_hippocampal_updates_enabled(true);
+    model->generate_response("hello world", 4);  // writes an episode into the memory
+    EXPECT_TRUE(model->save_hippocampal_memory(state, assoc, &saved));
+    HippocampalMemory restored(32, 8);
+    restored.load(state);
+    restored.load_associations(assoc);
+    EXPECT_EQ(restored.size(), model->get_hippocampal_memory()->size());
+
+    EncoderDecoderModel bare(60, 16, 1, 1, 2, 32, 16);
+    EXPECT_FALSE(bare.save_hippocampal_memory(state, assoc, &saved)) << "no memory attached";
+    fs::remove_all(dir);
+}
+
 TEST(EncoderDecoderModelTest, CloneCopiesGatedPathsAttachmentsAndSettings) {
     auto model = make_gated_model();
     auto cfg = model->get_generator()->get_config();

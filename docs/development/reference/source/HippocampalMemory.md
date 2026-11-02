@@ -138,3 +138,9 @@ near-uniform attention a zero start made every new memory the least used, so it 
 `RecentWritesSurviveUnderUniformAttention` (writes 32–39 of 40 survive), `BufferTurnsOverUnderPeakedAttention`,
 `NewSlotsStartAtTheMeanCoverageOfTheOthers`.
 
+## Addendum (November 1, 2026): atomic saves and `revision()` (TD-250)
+
+`save()` and `save_associations()` write `<path>.tmp` with checked writes and rename it over the file, so a failed or
+interrupted save keeps the previous file; a failure throws `std::runtime_error`. `revision()` changes with every change
+to the slots, coverage or associations (writes, evictions, `commit_attention()`, decays, recalls, `clear()`, loads) and
+not with reads or saves, so a caller can skip saving unchanged state (`EncoderDecoderModel::save_hippocampal_memory()`).

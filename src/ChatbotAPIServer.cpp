@@ -8,6 +8,7 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -502,14 +503,24 @@ int main(int argc, char* argv[]) {
                     adai::Logger::info("  World model attached from '{}'", world_model_dir);
                     model->set_world_model(std::move(world_model));
 
-                    if (config.hippocampal_memory_enabled) {
-                        // TODO: See TD-250 in TECHNICAL_DEBT.md - with an empty MODEL_PATH these land in the working
-                        // directory; add HIPPOCAMPAL_STATE_PATH and periodic atomic saves.
-                        // Derived from the model checkpoint path, same suffix convention
-                        // load_model()/save_model() already use for ".config"/".lm_head" etc.
-                        hippocampal_state_path = config.model_path + ".hippocampal";
-                        hippocampal_association_path = config.model_path + ".hippocampal.assoc";
-                        const std::string swap_path = config.model_path + ".hippocampal.swap";
+                    // TD-250: HIPPOCAMPAL_STATE_PATH, else derived from the model checkpoint path
+                    // (same suffix convention load_model()/save_model() use for ".config" etc.).
+                    // With neither, the files used to become hidden files in the working
+                    // directory; the memory isn't attached instead.
+                    const std::string state_path = !config.hippocampal_state_path.empty()
+                                                       ? config.hippocampal_state_path
+                                                       : (config.model_path.empty()
+                                                              ? std::string()
+                                                              : config.model_path + ".hippocampal");
+                    if (config.hippocampal_memory_enabled && state_path.empty()) {
+                        adai::Logger::warn(
+                            "  HIPPOCAMPAL_MEMORY_ENABLED is set but neither HIPPOCAMPAL_STATE_PATH nor "
+                            "MODEL_PATH is, so there is nowhere to keep it — continuing without "
+                            "hippocampal memory");
+                    } else if (config.hippocampal_memory_enabled) {
+                        hippocampal_state_path = state_path;
+                        hippocampal_association_path = state_path + ".assoc";
+                        const std::string swap_path = state_path + ".swap";
 
                         auto hippocampal_memory = std::make_unique<HippocampalMemory>(
                             config.d_model,
@@ -729,6 +740,29 @@ int main(int argc, char* argv[]) {
         adai::Logger::info("Send SIGHUP (kill -HUP {}) to reload configuration", getpid());
         adai::Logger::info("==================================================");
 
+        // TD-250: saves a changed hippocampal memory (atomically, under the model lock, so requests
+        // can keep generating). Used periodically below and once at shutdown.
+        std::uint64_t hippocampal_saved_revision = 0;
+        if (auto* memory = model->get_hippocampal_memory()) {
+            hippocampal_saved_revision = memory->revision();  // as loaded; nothing to save yet
+        }
+        const auto save_hippocampal = [&](const char* indent) {
+            if (hippocampal_state_path.empty()) return;
+            try {
+                if (model->save_hippocampal_memory(hippocampal_state_path, hippocampal_association_path,
+                                                   &hippocampal_saved_revision)) {
+                    adai::Logger::info("{}Hippocampal memory saved to '{}' ({} slot(s)) and '{}'", indent,
+                                       hippocampal_state_path, model->get_hippocampal_memory()->size(),
+                                       hippocampal_association_path);
+                }
+            } catch (const std::exception& e) {
+                adai::Logger::warn("{}Failed to save hippocampal memory to '{}': {} (the previous save is kept)",
+                                   indent, hippocampal_state_path, e.what());
+            }
+        };
+        const auto hippocampal_save_interval = std::chrono::seconds(config.hippocampal_save_interval_seconds);
+        auto next_hippocampal_save = std::chrono::steady_clock::now() + hippocampal_save_interval;
+
         // Start server in a background thread to allow main thread to handle signals. TD-248: a
         // shutdown before httplib is listening used to be lost and hang the join below;
         // ChatbotAPI::stop() now retries until start() has returned.
@@ -749,6 +783,13 @@ int main(int argc, char* argv[]) {
 
         while (!shutdown_requested.load() && !server_error) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+            // TD-250: periodic save, so a crash loses at most one interval of memory.
+            if (config.hippocampal_save_interval_seconds > 0 &&
+                std::chrono::steady_clock::now() >= next_hippocampal_save) {
+                save_hippocampal("");
+                next_hippocampal_save = std::chrono::steady_clock::now() + hippocampal_save_interval;
+            }
 
             // Check if config reload was requested
             if (reload_config_requested.load()) {
@@ -829,39 +870,14 @@ int main(int argc, char* argv[]) {
                 adai::Logger::info("[2/3] Model state: not persisted (no model path configured)");
             }
 
-            // TODO: See TD-250 in TECHNICAL_DEBT.md - saved only here, so a crash or SIGKILL loses everything
-            // since the last clean stop.
             // TD-193: hippocampal memory DOES change while serving (every generated response
             // write()s a new episode into it, per EncoderDecoderModel::maybe_write_hippocampal_
             // memory()) — unlike the model weights above, its state is genuinely worth persisting
             // across restarts when attached, so it can remain persistent from conversation to
-            // conversation instead of resetting empty on every server start.
-            if (auto* hippocampal_memory = model->get_hippocampal_memory()) {
-                if (!hippocampal_state_path.empty()) {
-                    try {
-                        hippocampal_memory->save(hippocampal_state_path);
-                        adai::Logger::info("      Hippocampal memory saved to '{}' ({} slot(s))",
-                                           hippocampal_state_path, hippocampal_memory->size());
-                    } catch (const std::exception& e) {
-                        adai::Logger::warn("      Failed to save hippocampal memory to '{}': {}",
-                                           hippocampal_state_path, e.what());
-                    }
-                }
-                // TD-194: the cross-reference association matrix persists alongside the main
-                // state — same reasoning (it changes while serving, worth carrying across
-                // restarts) and same "call save() first" ordering load_associations() requires.
-                if (!hippocampal_association_path.empty()) {
-                    try {
-                        hippocampal_memory->save_associations(hippocampal_association_path);
-                        adai::Logger::info("      Hippocampal cross-reference matrix saved to '{}'",
-                                           hippocampal_association_path);
-                    } catch (const std::exception& e) {
-                        adai::Logger::warn(
-                            "      Failed to save hippocampal cross-reference matrix to '{}': {}",
-                            hippocampal_association_path, e.what());
-                    }
-                }
-            }
+            // conversation instead of resetting empty on every server start. TD-194: the
+            // cross-reference association matrix is saved with it. TD-250: also saved every
+            // HIPPOCAMPAL_SAVE_INTERVAL_SECONDS while serving; this is the final save.
+            save_hippocampal("      ");
 
             // Step 3: Cleanup resources (RAII will handle this)
             adai::Logger::info("[3/3] Cleaning up resources...");

@@ -1391,6 +1391,9 @@ The generation and model math run is complete.
   positional commands reject extra arguments).
 - TD-248, TD-249 (done in code: a `chatbot_api_server` stop that arrives before httplib is listening is no longer lost, so
   SIGTERM during startup exits instead of hanging; the `SIGHUP` handler no longer logs).
+- TD-250 (done in code: `chatbot_api_server` saves a changed hippocampal memory every `HIPPOCAMPAL_SAVE_INTERVAL_SECONDS`
+  under the model lock, each file written to a temporary and renamed; new `HIPPOCAMPAL_STATE_PATH`, and no memory
+  without a path).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5790,7 +5793,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / Serving / Server | October 8, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 1, 2026 | Inference / Serving / Server | October 8, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-246. When the world model and hippocampal memory are attached
@@ -5802,9 +5805,25 @@ files in the process's working directory.
 
 Action Items:
 
-- [ ] Save periodically (time- or write-count-based) using write-to-temp-then-rename, in addition to shutdown.
-- [ ] Add an explicit `HIPPOCAMPAL_STATE_PATH` (defaulting to the current derivation), and refuse to attach with neither it nor `MODEL_PATH` set.
-- [ ] Test: state survives a simulated crash after the periodic save.
+- [x] Save periodically (time- or write-count-based) using write-to-temp-then-rename, in addition to shutdown.
+- [x] Add an explicit `HIPPOCAMPAL_STATE_PATH` (defaulting to the current derivation), and refuse to attach with neither it nor `MODEL_PATH` set.
+- [x] Test: state survives a simulated crash after the periodic save.
+
+**Fix (November 1, 2026):** `chatbot_api_server` saves a changed memory every `HIPPOCAMPAL_SAVE_INTERVAL_SECONDS` (new,
+default 300; 0 = only at shutdown) from its main loop, and once more at shutdown, through a new
+`EncoderDecoderModel::save_hippocampal_memory()`. That takes `model_mutex_`, which every memory change happens under
+(generation), so it can save while requests are being served and both files come from the same moment. It saves only
+when the memory changed: `HippocampalMemory` has a `revision()` counter, bumped by writes, evictions,
+`commit_attention()`, decays, recalls, `clear()` and loads. `HippocampalMemory::save()`/`save_associations()` now write
+`<path>.tmp` with checked writes (`adai::binio::Writer`) and rename it over the file, so a crash or failed write mid-save
+keeps the previous file (TD-398's unchecked-write item). The state path is the new `HIPPOCAMPAL_STATE_PATH`, else
+`MODEL_PATH + ".hippocampal"` as before; the association matrix and swap file are that path plus `.assoc` and `.swap`
+(the old names when it's derived). With neither key set the memory isn't attached and a warning says why. Tests:
+`Td250HippocampalSave` (atomic save, a failed save keeps the previous file, the revision changes only with the memory),
+`EncoderDecoderModelTest.SaveHippocampalMemorySkipsUnchangedState`, config parsing/validation, and two real-binary tests:
+with a 1 s interval, a SIGKILL after one `/chat` leaves a loadable state holding the request's episode (the old binary
+wrote nothing within 10 s), and with no path the memory isn't attached (the old binary attached it and left
+`.hippocampal.assoc` in the working directory).
 
 Location in code: `src/ChatbotAPIServer.cpp` (hippocampal attach, shutdown save); tagged `TODO: See TD-250`.
 
@@ -10912,6 +10931,7 @@ Found while tracing `HippocampalMemory`, by inspection:
 Action Items:
 
 - [ ] Cache the packed key/value matrices and update them incrementally on write/evict; check stream state after saves; save both files atomically together (or into one file).
+- [x] Checked writes and atomic replacement of each file (done with TD-250, November 1, 2026: written to `<path>.tmp` through `adai::binio::Writer`, then renamed). Still open: the `read_all()` copies, and the two files are replaced one after the other (`chatbot_api_server` saves both under the model lock, so they match unless the process dies between the two renames).
 
 Location in code: `src/HippocampalMemory.cpp` (`read_all()`, `save()`, `save_associations()`); tagged `TODO: See TD-398`.
 

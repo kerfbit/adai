@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.26.0
+// @adai-version: 1.27.0
 // @adai-reviewed: 2026-11-01
 
 #include "Config.hpp"
@@ -560,6 +560,10 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.hippocampal_memory_enabled = parse_file_bool(key, value);  // TD-286
             } else if (key == "HIPPOCAMPAL_MEMORY_CAPACITY") {
                 config.hippocampal_memory_capacity = parse_size(value);
+            } else if (key == "HIPPOCAMPAL_STATE_PATH") {
+                config.hippocampal_state_path = value;
+            } else if (key == "HIPPOCAMPAL_SAVE_INTERVAL_SECONDS") {
+                config.hippocampal_save_interval_seconds = parse_int(value);
             } else if (key == "HIPPOCAMPAL_REPETITION_ALPHA") {
                 config.hippocampal_repetition_alpha = parse_float(value);
             } else if (key == "HIPPOCAMPAL_REPETITION_DECAY") {
@@ -1076,6 +1080,12 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env_size_t("HIPPOCAMPAL_MEMORY_CAPACITY")) {
         config.hippocampal_memory_capacity = *val;
     }
+    if (auto val = get_env("HIPPOCAMPAL_STATE_PATH")) {
+        config.hippocampal_state_path = *val;
+    }
+    if (auto val = get_env_int("HIPPOCAMPAL_SAVE_INTERVAL_SECONDS")) {
+        config.hippocampal_save_interval_seconds = *val;
+    }
     if (auto val = get_env_float("HIPPOCAMPAL_REPETITION_ALPHA")) {
         config.hippocampal_repetition_alpha = *val;
     }
@@ -1433,6 +1443,11 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
                          " (must be 1-65536)");
         valid = false;
     }
+    if (config.hippocampal_save_interval_seconds < 0) {  // TD-250
+        errors.push_back("Invalid hippocampal_save_interval_seconds: " +
+                         std::to_string(config.hippocampal_save_interval_seconds) + " (must be >= 0; 0 = only at shutdown)");
+        valid = false;
+    }
     if (config.hippocampal_repetition_alpha < 0.0f) {
         errors.push_back("Invalid hippocampal_repetition_alpha: " +
                          std::to_string(config.hippocampal_repetition_alpha) +
@@ -1781,6 +1796,8 @@ std::string ConfigLoader::to_string(const ServiceConfig& c) {
     section("Hippocampal memory");
     item("HIPPOCAMPAL_MEMORY_ENABLED", flag(c.hippocampal_memory_enabled));
     item("HIPPOCAMPAL_MEMORY_CAPACITY", num(c.hippocampal_memory_capacity));
+    item("HIPPOCAMPAL_STATE_PATH", c.hippocampal_state_path);
+    item("HIPPOCAMPAL_SAVE_INTERVAL_SECONDS", num(c.hippocampal_save_interval_seconds));
     item("HIPPOCAMPAL_REPETITION_ALPHA", num(c.hippocampal_repetition_alpha));
     item("HIPPOCAMPAL_REPETITION_DECAY", num(c.hippocampal_repetition_decay));
     item("HIPPOCAMPAL_CROSS_REFERENCE_ALPHA", num(c.hippocampal_cross_reference_alpha));

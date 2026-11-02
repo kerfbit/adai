@@ -1,8 +1,9 @@
 // @adai-status: experimental
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-10-21
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-11-01
 
 #include "HippocampalMemory.hpp"
+#include "BinaryIO.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -56,6 +57,7 @@ void HippocampalMemory::evict_least_used(std::deque<Slot>& slots, std::deque<flo
 }
 
 void HippocampalMemory::insert_slot(const Matrix& key, const Matrix& value) {
+    ++revision_;  // TD-250
     if (static_cast<int>(slots_.size()) >= capacity) {
         evict_least_used(slots_, coverage_, &association_);
     }
@@ -118,6 +120,7 @@ std::deque<float>& HippocampalMemory::coverage_vector() {
 }
 
 void HippocampalMemory::decay_coverage(float gamma) {
+    ++revision_;  // TD-250
     for (float& c : coverage_) {
         c *= gamma;
     }
@@ -128,6 +131,7 @@ std::deque<std::deque<float>>& HippocampalMemory::association_matrix() {
 }
 
 void HippocampalMemory::decay_associations(float gamma) {
+    ++revision_;  // TD-250
     for (auto& row : association_) {
         for (float& v : row) {
             v *= gamma;
@@ -136,6 +140,7 @@ void HippocampalMemory::decay_associations(float gamma) {
 }
 
 void HippocampalMemory::clear() {
+    ++revision_;  // TD-250
     slots_.clear();
     coverage_.clear();
     association_.clear();
@@ -228,30 +233,42 @@ bool HippocampalMemory::recall_from_swap() {
     return true;
 }
 
-// TODO: See TD-398 in TECHNICAL_DEBT.md - writes unchecked (also save_associations()); main and association
-// files are saved separately and can disagree
+// TODO: See TD-398 in TECHNICAL_DEBT.md - main and association files are saved separately and can disagree
+// (each save is checked and atomic since TD-250)
+namespace {
+// TD-250: writes `path`.tmp through `write`, then renames it over `path`, so an interrupted or
+// failed save leaves the previous file whole (both saves used to truncate the file in place, with
+// unchecked writes).
+template <typename WriteFn>
+void save_atomically(const std::string& path, WriteFn write) {
+    const std::string tmp = path + ".tmp";
+    try {
+        adai::binio::Writer out(tmp);
+        write(out);
+        out.close();
+        std::filesystem::rename(tmp, path);
+    } catch (...) {
+        std::error_code ignored;
+        std::filesystem::remove(tmp, ignored);
+        throw;
+    }
+}
+}  // namespace
+
 void HippocampalMemory::save(const std::string& filepath) const {
-    std::ofstream file(filepath, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for writing: " + filepath);
-    }
-
-    const int num_slots = static_cast<int>(slots_.size());
-    file.write(reinterpret_cast<const char*>(&d_model), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&capacity), sizeof(int));
-    file.write(reinterpret_cast<const char*>(&num_slots), sizeof(int));
-
-    int idx = 0;
-    for (const auto& slot : slots_) {
-        for (int j = 0; j < d_model; ++j) {
-            file.write(reinterpret_cast<const char*>(&slot.key(0, j)), sizeof(float));
+    save_atomically(filepath, [this](adai::binio::Writer& out) {
+        const int num_slots = static_cast<int>(slots_.size());
+        out.value(d_model, "d_model");
+        out.value(capacity, "capacity");
+        out.value(num_slots, "slot count");
+        int idx = 0;
+        for (const auto& slot : slots_) {
+            for (int j = 0; j < d_model; ++j) out.value(slot.key(0, j), "slot key");
+            for (int j = 0; j < d_model; ++j) out.value(slot.value(0, j), "slot value");
+            out.value(coverage_[idx], "slot coverage");
+            ++idx;
         }
-        for (int j = 0; j < d_model; ++j) {
-            file.write(reinterpret_cast<const char*>(&slot.value(0, j)), sizeof(float));
-        }
-        file.write(reinterpret_cast<const char*>(&coverage_[idx]), sizeof(float));
-        ++idx;
-    }
+    });
 }
 
 void HippocampalMemory::load(const std::string& filepath) {
@@ -336,21 +353,17 @@ void HippocampalMemory::load(const std::string& filepath) {
     // fresh all-zero matrix matching the just-loaded slot count; load_associations() can restore
     // real values afterward if a matching association file exists.
     association_.assign(slots_.size(), std::deque<float>(slots_.size(), 0.0f));
+    ++revision_;  // TD-250
 }
 
 void HippocampalMemory::save_associations(const std::string& filepath) const {
-    std::ofstream file(filepath, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for writing: " + filepath);
-    }
-
-    const int n = static_cast<int>(slots_.size());
-    file.write(reinterpret_cast<const char*>(&n), sizeof(int));
-    for (const auto& row : association_) {
-        for (float v : row) {
-            file.write(reinterpret_cast<const char*>(&v), sizeof(float));
+    save_atomically(filepath, [this](adai::binio::Writer& out) {
+        const int n = static_cast<int>(slots_.size());
+        out.value(n, "slot count");
+        for (const auto& row : association_) {
+            for (float v : row) out.value(v, "association");
         }
-    }
+    });
 }
 
 void HippocampalMemory::load_associations(const std::string& filepath) {
@@ -401,6 +414,7 @@ void HippocampalMemory::load_associations(const std::string& filepath) {
     }
 
     association_ = std::move(loaded);
+    ++revision_;  // TD-250
 }
 
 void HippocampalMemory::commit_attention(const Matrix& attn_weights, float repetition_decay,

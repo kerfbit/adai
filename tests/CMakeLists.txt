@@ -731,7 +731,7 @@ if(TARGET chatbot_api_server AND HTTPLIB_INCLUDE_DIR)
         ${CMAKE_SOURCE_DIR}/src ${HTTPLIB_INCLUDE_DIR})
     target_compile_definitions(chatbotApiServerStartupTests PRIVATE
         CHATBOT_API_SERVER_BINARY_PATH="$<TARGET_FILE:chatbot_api_server>")
-    target_link_libraries(chatbotApiServerStartupTests adai_nlp adai_core pthread GTest::gtest_main)
+    target_link_libraries(chatbotApiServerStartupTests adai_lejepa adai_nlp adai_core pthread GTest::gtest_main)  # TD-250: adai_lejepa
     add_dependencies(chatbotApiServerStartupTests chatbot_api_server)
     add_test(NAME ChatbotApiServerStartupTests COMMAND chatbotApiServerStartupTests)
 endif()

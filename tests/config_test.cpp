@@ -1188,6 +1188,21 @@ TEST_F(ConfigTest, HippocampalMemoryDefaultValues) {
     EXPECT_EQ(config.hippocampal_memory_capacity, 512u);
     EXPECT_FLOAT_EQ(config.hippocampal_repetition_alpha, 0.0f);
     EXPECT_FLOAT_EQ(config.hippocampal_repetition_decay, 0.95f);
+    EXPECT_EQ(config.hippocampal_state_path, "");  // TD-250: derived from MODEL_PATH
+    EXPECT_EQ(config.hippocampal_save_interval_seconds, 300);
+}
+
+// TD-250: the hippocampal memory's own path and save interval.
+TEST_F(ConfigTest, HippocampalStatePathAndSaveIntervalLoadFromFile) {
+    createConfigFile({{"HIPPOCAMPAL_STATE_PATH", "/var/lib/adai/memory.bin"},
+                      {"HIPPOCAMPAL_SAVE_INTERVAL_SECONDS", "60"}});
+    auto config = ConfigLoader::load(test_file.string());
+    EXPECT_EQ(config.hippocampal_state_path, "/var/lib/adai/memory.bin");
+    EXPECT_EQ(config.hippocampal_save_interval_seconds, 60);
+    std::vector<std::string> errors;
+    EXPECT_TRUE(ConfigLoader::validate(config, errors));
+    config.hippocampal_save_interval_seconds = 0;  // only at shutdown
+    EXPECT_TRUE(ConfigLoader::validate(config, errors));
 }
 
 TEST_F(ConfigTest, LoadWorldModelFieldsFromFile) {
@@ -1550,6 +1565,7 @@ TEST_F(ConfigTest, ValidateRejectsEachBadValue) {
         {"hippocampal_association_decay", [](ServiceConfig& c) { c.hippocampal_association_decay = 0.0f; }},
         {"hippocampal_association_decay", [](ServiceConfig& c) { c.hippocampal_association_decay = 1.1f; }},
         {"hippocampal_cross_reference_alpha", [](ServiceConfig& c) { c.hippocampal_cross_reference_alpha = -1.0f; }},
+        {"hippocampal_save_interval_seconds", [](ServiceConfig& c) { c.hippocampal_save_interval_seconds = -1; }},
         {"gpu_device_id", [](ServiceConfig& c) { c.gpu_device_id = -1; }},
         {"metrics_api_port", [](ServiceConfig& c) { c.metrics_api_port = 0; }},
         {"registry_listen_port", [](ServiceConfig& c) { c.registry_listen_port = 70000; }},

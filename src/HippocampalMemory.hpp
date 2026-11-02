@@ -1,9 +1,10 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-10-21
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-11-01
 
+#include <cstdint>
 #include <deque>
 #include <string>
 #include <utility>
@@ -95,6 +96,7 @@ class HippocampalMemory {
     std::deque<float> coverage_;  // coverage_[i] corresponds to slots_[i]; see class doc above
     std::deque<std::deque<float>> association_;  // association_[i][j]: slots_[i]<->slots_[j]
     size_t committed_steps_ = 0;  // TD-343
+    std::uint64_t revision_ = 0;  // TD-250: bumped by every change to slots, coverage or associations
                                                   // cross-reference strength; see TD-194 class doc
     int capacity;
     int d_model;
@@ -195,6 +197,12 @@ class HippocampalMemory {
         return static_cast<int>(slots_.size());
     }
 
+    /** TD-250: changes whenever the slots, coverage or associations change (write, eviction,
+     *  commit_attention(), decay, recall, clear, load), so a caller can skip saving unchanged state. */
+    std::uint64_t revision() const {
+        return revision_;
+    }
+
     int get_capacity() const {
         return capacity;
     }
@@ -231,6 +239,10 @@ class HippocampalMemory {
      * not wired into MNS/architecture-checkpoint machinery the way LeJEPAEncoder::save() is).
      * Does not touch the swap file (a separate, independently-configured archive — see the class
      * doc's TD-193 section).
+     *
+     * TD-250: written to `filepath + ".tmp"` with checked writes, then renamed over `filepath`, so a
+     * crash or failed write mid-save leaves the previous file intact.
+     * @throws std::runtime_error if the file can't be written (the previous file is untouched)
      */
     void save(const std::string& filepath) const;
 
@@ -254,6 +266,7 @@ class HippocampalMemory {
      * from save()'s own concern (the live ring buffer's slots/coverage) — see the class doc for
      * why. A `size() x size()` matrix means nothing without also knowing which slots/order it
      * belongs to, so this is meant to be called alongside save(), against the same instance.
+     * Atomic like save() (TD-250).
      */
     void save_associations(const std::string& filepath) const;
 
