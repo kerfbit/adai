@@ -281,3 +281,49 @@ TEST(ChildProcessTest, RequestStopIsANoOpWithoutALiveChild) {
     EXPECT_FALSE(finished.stop_and_wait(10, nullptr));
 }
 #endif
+
+#ifdef __linux__
+// TD-280: a pass outlived a hard-killed supervisor. The child now asks for SIGTERM when its parent dies
+// (PR_SET_PDEATHSIG). A disposable "supervisor" process forked by this test starts the child and is then
+// SIGKILLed; the child must go too. Signals go only to that supervisor and, as cleanup, to the child, each
+// a checked pid above 0 (see TD-279 for why nothing here may ever signal anything else).
+TEST(ChildProcessTest, TheChildDiesWithAHardKilledSupervisor) {
+    int fds[2];
+    ASSERT_EQ(::pipe(fds), 0);
+    const pid_t supervisor = ::fork();
+    ASSERT_GE(supervisor, 0);
+    if (supervisor == 0) {
+        ::close(fds[0]);
+        ChildProcess child;
+        long long pid = child.start({"/bin/sleep", "30"}) ? child.pid() : 0;
+        ssize_t ignored = ::write(fds[1], &pid, sizeof(pid));
+        (void)ignored;
+        for (;;) ::pause();  // until SIGKILLed
+    }
+    ::close(fds[1]);
+    long long child_pid = 0;
+    ASSERT_EQ(::read(fds[0], &child_pid, sizeof(child_pid)), static_cast<ssize_t>(sizeof(child_pid)));
+    ::close(fds[0]);
+    ASSERT_GT(child_pid, 0);
+    ASSERT_GT(supervisor, 0);
+
+    const auto alive = [](long long pid) {  // a zombie counts as gone
+        std::ifstream stat("/proc/" + std::to_string(pid) + "/stat");
+        std::string line;
+        if (!std::getline(stat, line)) return false;
+        const auto close_paren = line.rfind(')');
+        return close_paren != std::string::npos && close_paren + 2 < line.size() && line[close_paren + 2] != 'Z';
+    };
+    ASSERT_TRUE(alive(child_pid));
+
+    ::kill(supervisor, SIGKILL);
+    ::waitpid(supervisor, nullptr, 0);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (alive(child_pid) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    const bool survived = alive(child_pid);
+    if (survived) ::kill(static_cast<pid_t>(child_pid), SIGKILL);  // don't leave it behind
+    EXPECT_FALSE(survived) << "the pass outlived its hard-killed supervisor";
+}
+#endif

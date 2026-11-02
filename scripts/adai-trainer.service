@@ -70,6 +70,10 @@ WorkingDirectory=/opt/adai
 # invoked directly from a shell — trainer_service has no commands of its own at all.
 ExecStart=/opt/adai/bin/trainer_service --config /etc/adai/config.trainer.conf
 
+# TD-280: keep mixed (or control-group). systemctl stop sends SIGTERM to trainer_service only, which stops
+# its pass gracefully; after TimeoutStopSec systemd SIGKILLs the whole cgroup, the pass included. Outside
+# systemd, a hard-killed trainer_service still takes its pass down: the pass asks for SIGTERM when its
+# parent dies (PR_SET_PDEATHSIG). KillMode=process or none would leave a pass behind on SIGKILL.
 KillMode=mixed
 KillSignal=SIGTERM
 TimeoutStopSec=30

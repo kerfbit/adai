@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.5.0
+// @adai-version: 0.6.0
 // @adai-reviewed: 2026-11-02
 
 #include "ChildProcess.hpp"
@@ -14,6 +14,9 @@
 #else
 #include <fcntl.h>
 #include <signal.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 #include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
@@ -90,8 +93,6 @@ bool ChildProcess::start(const std::vector<std::string>& argv) {
     // TODO: See TD-281 in TECHNICAL_DEBT.md - fork() of a multithreaded process (httplib proxy threads) followed
     // by execvp(), which isn't async-signal-safe; inherited fds (e.g. accepted admin connections)
     // stay open in the child. Prefer posix_spawn().
-    // TODO: See TD-280 in TECHNICAL_DEBT.md - no process group / PR_SET_PDEATHSIG, so a hard-killed
-    // supervisor leaves the pass running.
     // TD-278: a close-on-exec pipe reports a failed exec to start(). A successful exec closes the write
     // end, so the parent reads EOF; a failed one writes errno first. A failed exec used to look like a
     // launch (start() returned true) and surfaced only later as exit code 127.
@@ -100,6 +101,7 @@ bool ChildProcess::start(const std::vector<std::string>& argv) {
         Logger::error("ChildProcess::start(): pipe2() failed: {}", std::strerror(errno));
         return false;
     }
+    const pid_t parent = ::getpid();  // TD-280: for the child's parent-death check below
     const pid_t pid = ::fork();
     if (pid < 0) {
         Logger::error("ChildProcess::start(): fork() failed: {}", std::strerror(errno));
@@ -110,6 +112,23 @@ bool ChildProcess::start(const std::vector<std::string>& argv) {
     if (pid == 0) {
         // Child: replace this process image entirely. execvp() only returns on failure.
         ::close(exec_pipe[0]);
+#ifdef __linux__
+        // TD-280: SIGTERM this process when the thread that started it exits, so a hard-killed
+        // supervisor (kill -9, a crash, outside systemd's cgroup kill) doesn't leave the pass running,
+        // holding its claims and the GPU, beside the pass a restarted supervisor launches. SIGTERM lets
+        // the pass drain (TD-416). The setting survives exec. If the parent died before prctl(), we've
+        // already been reparented: exit instead of running unsupervised. Note that it follows the
+        // forking *thread*: trainer_service calls start() from its main thread, which lives as long as
+        // the process. No process group is used: signalling one means kill() with a negative pid (see
+        // TD-279).
+        if (::prctl(PR_SET_PDEATHSIG, SIGTERM) != 0) {
+            const int prctl_errno = errno;  // reported like a failed exec (TD-278)
+            ssize_t ignored = ::write(exec_pipe[1], &prctl_errno, sizeof(prctl_errno));
+            (void)ignored;
+            _exit(127);
+        }
+        if (::getppid() != parent) _exit(127);  // nobody is left to read the pipe
+#endif
         ::execvp(c_argv[0], c_argv.data());
         // If we get here, exec failed — this is a forked copy of the supervisor, not the
         // supervisor itself, so report errno and exit immediately rather than returning into

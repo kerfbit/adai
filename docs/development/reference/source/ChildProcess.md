@@ -152,3 +152,10 @@ and `poll_exit()`'s `waitpid()` read the pid once and act only on a pid above 0 
 every path that ends a child clears `running_` first. The old code could send `kill(-1, SIGTERM)` (every process the
 user owns) when a stop request raced the give-up path; a stress test reproduced that against the old code and ended
 the desktop session, so the suite deliberately has no concurrent stress test for this.
+
+## Addendum (November 2, 2026): the child dies with its supervisor (TD-280)
+
+On Linux the forked child calls `prctl(PR_SET_PDEATHSIG, SIGTERM)` before `exec`, and exits if its parent already
+died; a failed `prctl()` is reported like a failed `exec`. A hard-killed `trainer_service` therefore no longer leaves
+its pass running: the pass gets SIGTERM and drains. The signal follows the thread that called `start()`
+(`trainer_service`'s main thread). No process group is used, since signalling one needs a negative pid (TD-279).

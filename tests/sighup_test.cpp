@@ -923,3 +923,48 @@ TEST_F(SighupTest, TrainerServiceReportsAChildItCannotExecute) {
               std::string::npos)
         << text.str();
 }
+
+// TD-280: SIGKILL trainer_service (as kill -9 or a crash outside systemd would) while a pass runs: the pass
+// must not keep running beside the one a restarted supervisor would launch. The stub pass records its pid and
+// sleeps. Signals go only to the trainer_service this test spawned and, as cleanup, the stub: checked pids > 0.
+TEST_F(SighupTest, APassDoesNotOutliveAHardKilledTrainerService) {
+    const fs::path bin = dir_ / "bin";
+    fs::create_directories(bin);
+    fs::copy_file(TRAINER_SERVICE_BINARY_PATH, bin / "trainer_service");
+    const fs::path pid_file = dir_ / "pass.pid";
+    {
+        std::ofstream stub(bin / "incremental_trainer");
+        stub << "#!/bin/sh\necho $$ > '" << pid_file.string() << ".tmp'\nmv '" << pid_file.string() << ".tmp' '"
+             << pid_file.string() << "'\nexec sleep 30\n";
+    }
+    fs::permissions(bin / "incremental_trainer", fs::perms::owner_all);
+    const auto cfg = write_config("config.trainer.conf", "LOG_FILE_PATH=" + (dir_ / "log.txt").string() + "\n");
+    spawn((bin / "trainer_service").string(), {"--config", cfg.string()});
+    ASSERT_GT(pid_, 0);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+    while (!fs::exists(pid_file) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    long long pass_pid = 0;
+    std::ifstream(pid_file) >> pass_pid;
+    ASSERT_GT(pass_pid, 0) << "no pass was launched";
+
+    const auto alive = [](long long pid) {  // a zombie counts as gone
+        std::ifstream stat("/proc/" + std::to_string(pid) + "/stat");
+        std::string line;
+        if (!std::getline(stat, line)) return false;
+        const auto close_paren = line.rfind(')');
+        return close_paren != std::string::npos && close_paren + 2 < line.size() && line[close_paren + 2] != 'Z';
+    };
+    ASSERT_TRUE(alive(pass_pid));
+    ::kill(pid_, SIGKILL);
+    ::waitpid(pid_, nullptr, 0);
+    pid_ = -1;
+    const auto gone_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (alive(pass_pid) && std::chrono::steady_clock::now() < gone_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    const bool survived = alive(pass_pid);
+    if (survived) ::kill(static_cast<pid_t>(pass_pid), SIGKILL);  // don't leave it behind
+    EXPECT_FALSE(survived) << "the pass outlived its hard-killed trainer_service";
+}

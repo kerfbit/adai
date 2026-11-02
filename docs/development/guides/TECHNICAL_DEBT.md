@@ -1426,6 +1426,8 @@ The generation and model math run is complete.
   SIGSEGV (139) and an OOM SIGKILL (137) can be told apart).
 - TD-279 (done in code: `ChildProcess` state is atomic, only a pid above 0 is signalled or waited for, and
   `running_` is cleared first, so a concurrent `request_stop()` can no longer send `kill(-1, SIGTERM)`).
+- TD-280 (done in code: a pass gets SIGTERM when its `trainer_service` dies, via `PR_SET_PDEATHSIG`, so a
+  hard-killed supervisor no longer leaves it running).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6882,7 +6884,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / Service Supervisor | October 9, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 2, 2026 | Training / Service Supervisor | October 9, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-277. `ChildProcess` signals only the direct child, sets no process group, and
@@ -6893,10 +6895,23 @@ restarted `trainer_service` launches a second pass.
 
 Action Items:
 
-- [ ] In the child before `exec`: `prctl(PR_SET_PDEATHSIG, SIGTERM)` (Linux), re-checking `getppid()` for the fork race; optionally a process group so stop requests reach grandchildren.
-- [ ] Document the systemd `KillMode` requirement in the service file.
+- [x] In the child before `exec`: `prctl(PR_SET_PDEATHSIG, SIGTERM)` (Linux), re-checking `getppid()` for the fork race; optionally a process group so stop requests reach grandchildren.
+- [x] Document the systemd `KillMode` requirement in the service file.
 
-Location in code: `src/ChildProcess.cpp` (`start()`); tagged `TODO: See TD-280`.
+**Fix (November 2, 2026):** on Linux the child calls `prctl(PR_SET_PDEATHSIG, SIGTERM)` before `exec` (the setting
+survives `exec`), then exits if `getppid()` no longer matches the parent (it died first); a failed `prctl()` is
+reported like a failed `exec` (TD-278). A pass whose `trainer_service` is hard-killed now gets SIGTERM and drains
+(TD-416: checkpoint, release its claims, exit). It follows the forking *thread*; `trainer_service` calls `start()` from
+its main thread, which lives as long as the process. Process groups were left out on purpose: signalling a group means
+`kill()` with a negative pid, the hazard TD-279 just removed. `adai-trainer.service` documents that `KillMode` must stay
+`mixed` or `control-group`.
+
+Tests: `ChildProcessTest.TheChildDiesWithAHardKilledSupervisor` (a disposable supervisor process forked by the test
+starts the child and is SIGKILLed) and `SighupTest.APassDoesNotOutliveAHardKilledTrainerService` (the real
+`trainer_service` with a stub pass, SIGKILLed). Each signals only processes the test spawned, with checked pids above
+0. Neither was run against the old code (see TD-279); the old `start()` has no parent-death handling at all.
+
+Location in code: `src/ChildProcess.cpp` (`start()`), `scripts/adai-trainer.service`.
 
 Files to Modify:
 
