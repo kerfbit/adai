@@ -115,3 +115,11 @@ world-model pass for `--objective=lejepa` (it ran chatbot training whatever the 
 that pass exits 3 when nothing is pending and 1 when the registry can't be asked, as the chatbot resume does (TD-523).
 The LeJEPA pass has no per-pass admin API yet: during it, `trainer_service` answers `/admin/status` from its own state
 and a pause takes effect between passes.
+
+## Addendum (November 1, 2026): the LeJEPA pass hosts the per-pass admin API (TD-403)
+
+The admin API a `trainer_service` child hosts for one pass is now a `PassAdminApi` helper used by both resume passes.
+During a LeJEPA pass, `/admin/status` reports its phase, `lejepa-` run id, epoch, samples and losses;
+`POST /admin/checkpoint` writes a world-model checkpoint; `PUT /admin/config`'s `AUTO_SAVE_*` apply live; and
+`POST /admin/pause` stops the pass at the next batch, checkpoints, releases its files to the pool and exits 1, as a
+paused chatbot pass does. Before, nothing answered these during a LeJEPA pass.

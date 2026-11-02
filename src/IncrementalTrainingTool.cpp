@@ -1,10 +1,11 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.27.0
+// @adai-version: 0.28.0
 // @adai-reviewed: 2026-11-01
 
 #include <array>
 #include <chrono>
 #include <csignal>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -243,6 +244,77 @@ static void cleanup_downloads(const std::vector<fs::path>& local_paths) {
     }
 }
 
+// TD-172/TD-403: the per-pass admin API a trainer_service child hosts on 127.0.0.1:<--admin-port>
+// for one pass; trainer_service's own listener proxies /admin/* to it while the child is alive. Shared
+// by the chatbot and LeJEPA resume passes (the LeJEPA pass had none, so during it the supervisor could
+// only answer from its own state). control() is null when no --admin-port was passed or the binary has
+// no admin API; the destructor stops the listener.
+class PassAdminApi {
+   public:
+    PassAdminApi(const std::optional<int>& admin_port, const adai::ServiceConfig& svc_config) {
+#ifdef BUILD_TRAINER_ADMIN
+        if (admin_port) {
+            control_ = std::make_shared<adai::TrainerControlState>();
+            control_->auto_save_enabled = svc_config.auto_save_enabled;
+            control_->auto_save_every_samples = svc_config.auto_save_every_samples;
+            control_->auto_save_every_minutes = svc_config.auto_save_every_minutes;
+            control_->max_sessions_to_keep = svc_config.max_sessions_to_keep;
+            control_->set_model_name(svc_config.model_name);
+
+            api_ = std::make_unique<adai::TrainerAdminAPI>(control_, "127.0.0.1", *admin_port,
+                                                           svc_config.trainer_admin_dir);
+            adai::TrainerAdminAPI* api = api_.get();
+            thread_ = std::thread([api] {
+                if (!api->start()) {
+                    adai::Logger::error(
+                        "TrainerAdminAPI failed to bind for this pass — the supervisor's "
+                        "status/control requests will see this child as unreachable "
+                        "until the next one starts");
+                }
+            });
+            // Bounded wait for the listener to actually be up before starting the pass,
+            // so a pass that finishes near-instantly (nothing pending) doesn't race
+            // stop() against a start() that hasn't reached listen() yet.
+            for (int waited_ms = 0; waited_ms < 2000 && !api->is_running(); waited_ms += 10) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        } else if (svc_config.trainer_admin_enabled) {
+            adai::Logger::debug(
+                "resume: TRAINER_ADMIN_ENABLED is set but no --admin-port was passed "
+                "(only the process-supervisor binary passes it) — running with no admin "
+                "API for this pass");
+        }
+#else
+        (void)svc_config;
+        if (admin_port) {
+            adai::Logger::warn(
+                "--admin-port given but this binary was built without the admin API "
+                "(cpp-httplib not found at configure time) — resume continues with no "
+                "admin port");
+        }
+#endif
+    }
+    ~PassAdminApi() {
+#ifdef BUILD_TRAINER_ADMIN
+        if (api_) {
+            api_->stop();
+            if (thread_.joinable()) thread_.join();
+        }
+#endif
+    }
+    PassAdminApi(const PassAdminApi&) = delete;
+    PassAdminApi& operator=(const PassAdminApi&) = delete;
+
+    const std::shared_ptr<adai::TrainerControlState>& control() const { return control_; }
+
+   private:
+    std::shared_ptr<adai::TrainerControlState> control_;
+#ifdef BUILD_TRAINER_ADMIN
+    std::unique_ptr<adai::TrainerAdminAPI> api_;
+    std::thread thread_;
+#endif
+};
+
 // ── LeJEPA world-model pretraining pass (TD-183) ────────────────────────────────
 //
 // Runs one `--objective=lejepa train` pass: acquires pending files via the SAME dataset
@@ -282,9 +354,26 @@ static std::string build_lejepa_config_snapshot(const adai::ServiceConfig& svc_c
     return json.str();
 }
 
+// TD-403: `control`, when given (a trainer_service pass), is the per-pass admin API's state: the pass
+// reports its phase and progress there, writes a checkpoint on /admin/checkpoint, takes the auto-save
+// settings live from it, and on /admin/pause stops at the next batch, checkpoints, releases its files and
+// returns kResumeExitFailed (as an aborted chatbot pass does).
 static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
                                     const std::string& default_vocab,
-                                    const std::string& world_model_dir, int epochs) {
+                                    const std::string& world_model_dir, int epochs,
+                                    const std::shared_ptr<adai::TrainerControlState>& control = nullptr) {
+    // The admin API reports idle again whichever way the pass ends.
+    struct IdleOnExit {
+        const std::shared_ptr<adai::TrainerControlState>& control;
+        ~IdleOnExit() {
+            if (control) control->phase = adai::TrainerPhase::Idle;
+        }
+    } idle_on_exit{control};
+    if (control) {
+        control->phase = adai::TrainerPhase::LoadingData;
+        control->log(adai::TrainerLogLevel::Info, "LeJEPA world-model pass starting");
+    }
+
     // Determine vocab_size the same way IncrementalTrainer.cpp's own model-construction path
     // does: load the vocab file into a throwaway tokenizer first, then size the encoder's fixed
     // TokenEmbedding to match. LeJEPAEncoder::load_tokenizer_vocab() itself does not resize
@@ -343,6 +432,7 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     // SIGTERM reclaims the files the last one claimed (registries hand a claim back to the same run id).
     // It used to be PID-based, so those files stayed claimed by an id no later process had.
     std::string run_id = adai::persistent_run_id(svc_config.run_id, world_model_dir);
+    if (control) control->set_run_id(run_id);
 
     DatasetConfig dcfg = DatasetRegistry::make_config(svc_config);
     DatasetRegistry reg(dcfg);
@@ -393,6 +483,14 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         reg.release_pending(run_id, reg_paths);
         cleanup_downloads(downloaded_paths);  // empty unless files were downloaded
         return 1;
+    }
+    if (control) {
+        control->total_epochs = epochs;
+        control->current_epoch = 0;
+        control->samples_trained_this_pass = 0;
+        control->phase = adai::TrainerPhase::Training;
+        control->log(adai::TrainerLogLevel::Info,
+                     "Training the world model on " + std::to_string(texts.size()) + " text(s)");
     }
 
     // Metrics-dashboard reporting (previously entirely absent from this path — the only
@@ -461,6 +559,30 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     // aborting the pass — the resilience feature itself must not become a new crash source.
     int samples_since_last_save = 0;
     auto last_save_time = std::chrono::steady_clock::now();
+    // One checkpoint write, reported to the admin API when there is one (TD-403).
+    const auto save_checkpoint = [&](const std::string& why) {
+        if (control) control->phase = adai::TrainerPhase::Checkpointing;
+        bool saved = false;
+        try {
+            world_model.save(world_model_dir);
+            saved = true;
+            if (control) {
+                control->checkpoints_written.fetch_add(1);
+                control->last_checkpoint_time_unix = static_cast<long long>(std::time(nullptr));
+                control->set_last_checkpoint_path(world_model_dir);
+                control->log(adai::TrainerLogLevel::Info, "Checkpoint saved (" + why + "): " + world_model_dir);
+            } else {
+                adai::Logger::info("[lejepa] Checkpoint saved to '{}' ({})", world_model_dir, why);
+            }
+        } catch (const std::exception& e) {
+            adai::Logger::warn("[lejepa] Checkpoint save failed, continuing: {}", e.what());
+        }
+        if (control) control->phase = adai::TrainerPhase::Training;
+        samples_since_last_save = 0;
+        last_save_time = std::chrono::steady_clock::now();
+        return saved;
+    };
+    bool aborted = false;
 
     // Advanced diagnostics (activation saturation / attention entropy): mirrors
     // ChatbotTrainer.cpp's own accumulate-via-hook/reset-per-epoch/report-then-clear pattern,
@@ -523,7 +645,7 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     double predictor_loss_sum = 0.0;
     double sigreg_loss_sum = 0.0;
     size_t step_count = 0;
-    for (int epoch = 0; epoch < epochs; ++epoch) {
+    for (int epoch = 0; epoch < epochs && !aborted; ++epoch) {
         if (metrics_client)
             metrics_client->start_epoch(epoch + 1, static_cast<int>(texts.size()));
 
@@ -550,6 +672,13 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         // train_batch(), as the LeJEPA paper does) rather than one text's tokens.
         const size_t batch_size = std::max<size_t>(2, svc_config.world_model_sigreg_batch_size);
         for (size_t first = 0; first < texts.size(); first += batch_size) {
+            if (control && control->paused) {  // TD-403: /admin/pause drains at a batch boundary
+                aborted = true;
+                break;
+            }
+            if (control && control->checkpoint_requested.exchange(false)) {  // POST /admin/checkpoint
+                save_checkpoint("requested");
+            }
             const size_t last = std::min(texts.size(), first + batch_size);
             const std::vector<std::string> batch(texts.begin() + static_cast<std::ptrdiff_t>(first),
                                                  texts.begin() + static_cast<std::ptrdiff_t>(last));
@@ -598,34 +727,41 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
                         static_cast<float>(svc_config.learning_rate));
                 }
 
+                if (control) {
+                    control->samples_trained_this_pass = static_cast<long long>(step_count);
+                    control->last_loss = static_cast<double>(predictor_loss);
+                }
+
                 ++samples_since_last_save;
-                if (svc_config.auto_save_enabled) {
+                // TD-403: live from the admin API when there is one (PUT /admin/config).
+                const bool auto_save = control ? control->auto_save_enabled.load() : svc_config.auto_save_enabled;
+                const int every_samples =
+                    control ? control->auto_save_every_samples.load() : svc_config.auto_save_every_samples;
+                const int every_minutes =
+                    control ? control->auto_save_every_minutes.load() : svc_config.auto_save_every_minutes;
+                if (auto_save) {
                     const auto elapsed_minutes =
                         std::chrono::duration_cast<std::chrono::minutes>(
                             std::chrono::steady_clock::now() - last_save_time)
                             .count();
-                    const bool due_by_samples = svc_config.auto_save_every_samples > 0 &&
-                        samples_since_last_save >= svc_config.auto_save_every_samples;
-                    const bool due_by_time = svc_config.auto_save_every_minutes > 0 &&
-                        elapsed_minutes >= svc_config.auto_save_every_minutes;
+                    const bool due_by_samples = every_samples > 0 && samples_since_last_save >= every_samples;
+                    const bool due_by_time = every_minutes > 0 && elapsed_minutes >= every_minutes;
                     if (due_by_samples || due_by_time) {
-                        try {
-                            world_model.save(world_model_dir);
-                            adai::Logger::info(
-                                "[lejepa] Checkpoint saved to '{}' ({} steps this pass so far)",
-                                world_model_dir, step_count);
-                        } catch (const std::exception& e) {
-                            adai::Logger::warn("[lejepa] Checkpoint save failed, continuing: {}",
-                                               e.what());
-                        }
-                        samples_since_last_save = 0;
-                        last_save_time = std::chrono::steady_clock::now();
+                        save_checkpoint(std::to_string(step_count) + " steps this pass so far");
                     }
                 }
             }
         }
+        if (aborted) break;
         adai::Logger::info("[lejepa] Epoch {}/{} complete ({} samples)", epoch + 1, epochs,
                            texts.size());
+        if (control) {
+            control->current_epoch = epoch + 1;
+            if (epoch_step_count > 0) {
+                const double avg = epoch_predictor_sum / static_cast<double>(epoch_step_count);
+                if (epoch == 0 || avg < control->best_loss.load()) control->best_loss = avg;
+            }
+        }
         if (metrics_client && epoch_step_count > 0) {
             const float avg_predictor_loss =
                 static_cast<float>(epoch_predictor_sum / static_cast<double>(epoch_step_count));
@@ -695,6 +831,21 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     for (int l = 0; l < world_model_layers; ++l) {
         world_model.get_encoder_block(l)->get_feed_forward()->clear_activation_hook();
         world_model.get_encoder_block(l)->get_self_attention()->clear_attention_hook();
+    }
+
+    if (aborted) {
+        // TD-403: like a paused chatbot pass, keep the progress but don't record the files as trained;
+        // they go back to the pool for the next pass.
+        if (control) {
+            control->log(adai::TrainerLogLevel::Warn,
+                         "LeJEPA pass paused via admin API after " + std::to_string(step_count) +
+                             " step(s) — checkpointing and releasing claimed files back to pending");
+        }
+        if (step_count > 0) save_checkpoint("paused");
+        reg.release_pending(run_id, reg_paths);
+        if (metrics_client) metrics_client->end_session();
+        cleanup_downloads(downloaded_paths);
+        return adai::kResumeExitFailed;
     }
 
     const bool ok = step_count > 0;
@@ -1421,16 +1572,16 @@ int main(int argc, char* argv[]) {
         // TD-403: trainer_service now forwards --objective, so resume (every service pass) runs the
         // world-model pass too; it used to run chatbot training whatever the objective. One pass over
         // whatever is pending, EPOCHS epochs, with resume's exit codes (0 trained, 3 nothing pending,
-        // 1 failed). This pass has no per-pass admin API yet: while it runs, trainer_service answers
-        // /admin/status from its own state and pause takes effect between passes.
+        // 1 failed). It hosts the same per-pass admin API as the chatbot pass (status, checkpoint, pause).
         if (cli.objective == "lejepa") {
             if (!lejepa_enabled()) return adai::kResumeExitFailed;
             return run_training_pipeline(
                 argc, argv, svc_config, world_model_dir, log_path,
                 "LeJEPA world-model resume started in background", {}, init_gpu,
                 [&]() -> int {
+                    PassAdminApi admin(admin_port, svc_config);  // TD-403: status, checkpoint, pause
                     return run_lejepa_training_pass(svc_config, default_vocab, world_model_dir,
-                                                    svc_config.num_epochs);
+                                                    svc_config.num_epochs, admin.control());
                 },
                 foreground);
         }
@@ -1441,62 +1592,11 @@ int main(int argc, char* argv[]) {
                 IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
                 IncrementalTrainer trainer(default_vocab, default_model, config);
 
-                // TD-172: --admin-port <N>, set only by trainer_service (the process-supervisor
-                // binary — see TrainerServiceMain.cpp) when it launches this as a single-pass
-                // child (always with --foreground too, so this process IS the worker, matching
-                // the PID the supervisor forked/waitpid()s on). Hosts a TrainerAdminAPI on
-                // 127.0.0.1:<N> for the duration of this one pass — the supervisor's own admin
-                // listener (TrainerServiceProxy) proxies /admin/* requests to it while this child
-                // is alive. TrainerControlState/TrainerAdminAPI are used completely unchanged
-                // from how the old, now-removed `serve` command used to use them; only the
-                // *lifetime* differs (one pass instead of forever) and the bind host is always
-                // loopback-only (svc_config.trainer_admin_host is the supervisor's own
-                // public-facing bind address, not meant for a per-pass child's private port).
-#ifdef BUILD_TRAINER_ADMIN
-                std::shared_ptr<adai::TrainerControlState> control;
-                std::unique_ptr<adai::TrainerAdminAPI> admin_api;
-                std::thread admin_thread;
-                if (admin_port) {
-                    control = std::make_shared<adai::TrainerControlState>();
-                    control->auto_save_enabled = svc_config.auto_save_enabled;
-                    control->auto_save_every_samples = svc_config.auto_save_every_samples;
-                    control->auto_save_every_minutes = svc_config.auto_save_every_minutes;
-                    control->max_sessions_to_keep = svc_config.max_sessions_to_keep;
-                    control->set_model_name(svc_config.model_name);
-                    trainer.set_control_state(control);
-
-                    admin_api = std::make_unique<adai::TrainerAdminAPI>(
-                        control, "127.0.0.1", *admin_port, svc_config.trainer_admin_dir);
-                    adai::TrainerAdminAPI* admin_ptr = admin_api.get();
-                    admin_thread = std::thread([admin_ptr] {
-                        if (!admin_ptr->start()) {
-                            adai::Logger::error(
-                                "TrainerAdminAPI failed to bind for this pass — the supervisor's "
-                                "status/control requests will see this child as unreachable "
-                                "until the next one starts");
-                        }
-                    });
-                    // Bounded wait for the listener to actually be up before starting the pass,
-                    // so a pass that finishes near-instantly (nothing pending) doesn't race
-                    // stop() against a start() that hasn't reached listen() yet.
-                    for (int waited_ms = 0; waited_ms < 2000 && !admin_ptr->is_running();
-                        waited_ms += 10) {
-                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                    }
-                } else if (svc_config.trainer_admin_enabled) {
-                    adai::Logger::debug(
-                        "resume: TRAINER_ADMIN_ENABLED is set but no --admin-port was passed "
-                        "(only the process-supervisor binary passes it) — running with no admin "
-                        "API for this pass");
-                }
-#else
-                if (admin_port) {
-                    adai::Logger::warn(
-                        "--admin-port given but this binary was built without the admin API "
-                        "(cpp-httplib not found at configure time) — resume continues with no "
-                        "admin port");
-                }
-#endif
+                // TD-172: --admin-port <N>, set only by trainer_service when it launches this as a
+                // single-pass child (always with --foreground, so this process IS the worker), hosts
+                // the per-pass admin API (PassAdminApi above) for the duration of this one pass.
+                PassAdminApi admin(admin_port, svc_config);
+                if (admin.control()) trainer.set_control_state(admin.control());
 
                 // MNS is the definitive source for run_id — resume continues
                 // the model's current run (not a retrain); falls back to the
@@ -1521,13 +1621,6 @@ int main(int argc, char* argv[]) {
                         return resolve_pass_files(resp, resume_dcfg, ranges, resume_downloads);
                     });
                 cleanup_downloads(resume_downloads);
-
-#ifdef BUILD_TRAINER_ADMIN
-                if (admin_api) {
-                    admin_api->stop();
-                    admin_thread.join();
-                }
-#endif
 
                 // TD-523: distinct exit codes, so trainer_service can tell an idle pass (nothing
                 // pending) from a failing one; it used to see exit 1 for both.

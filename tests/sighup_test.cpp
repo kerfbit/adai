@@ -531,3 +531,86 @@ TEST_F(SighupTest, LejepaPassTrainsEachSegmentOnceAndReclaimsAfterACrash) {
     }
     EXPECT_EQ(samples, (std::vector<int>{2, 2}));
 }
+
+// TD-403: the LeJEPA pass had no per-pass admin API, so while trainer_service ran one, /admin/status showed
+// only the supervisor's state, /admin/checkpoint did nothing and a pause waited for the pass to end. It now
+// reports progress, checkpoints on request, and drains on pause (checkpoint, release its files, exit 1).
+TEST_F(SighupTest, LejepaPassAnswersTheAdminApiAndDrainsOnPause) {
+    BPETokenizer tokenizer;
+    tokenizer.build_vocab({"hello world", "how are you", "good morning", "the cat sat"}, 60);
+    tokenizer.save_vocab((dir_ / "vocab.txt").string());
+    const fs::path data = dir_ / "pretrain.jsonl";
+    {
+        std::ofstream out(data);
+        const char* lines[] = {"hello world", "how are you", "good morning", "the cat sat"};
+        for (int i = 0; i < 400; ++i) out << "{\"input\":\"" << lines[i % 4] << " " << lines[(i + 1) % 4] << "\"}\n";
+    }
+    const fs::path sessions = dir_ / "sessions";
+    DatasetConfig dcfg;
+    dcfg.session_dir = sessions.string();
+    dcfg.dataset_kind = "world_model";
+    fs::create_directories(DatasetRegistry::local_pool_dir(dcfg));
+    {
+        DatasetRegistry reg(dcfg);
+        reg.load_registry();
+        reg.load_pending_list();
+        ASSERT_TRUE(reg.add_file(data.string()));
+        ASSERT_TRUE(reg.save_pending_list());
+    }
+    const int admin_port = free_port();
+    const auto cfg = write_config(
+        "config.trainer.conf",
+        "LOG_FILE_PATH=" + (dir_ / "log.txt").string() + "\nSESSION_DIR=" + sessions.string() +
+            "\nVOCAB_PATH=" + (dir_ / "vocab.txt").string() +
+            "\nREGISTRY_SERVER_URL=\nNAME_SERVICE_URL=\nMETRICS_SERVER_URL=\nRUN_ID=\nGPU_ENABLED=false\n"
+            "AUTO_SAVE_ENABLED=false\nNUM_EPOCHS=1000\nMAX_SEQ_LENGTH=16\nWORLD_MODEL_ENABLED=true\n"
+            "WORLD_MODEL_D_MODEL=64\nWORLD_MODEL_NUM_LAYERS=1\nWORLD_MODEL_NUM_HEADS=2\nWORLD_MODEL_D_FF=128\n"
+            "WORLD_MODEL_SIGREG_BATCH_SIZE=2\n");
+    spawn(INCREMENTAL_TRAINER_BINARY_PATH, {"--config", cfg.string(), "--foreground", "--admin-port",
+                                            std::to_string(admin_port), "--objective=lejepa", "resume"});
+    httplib::Client client("127.0.0.1", admin_port);
+    client.set_connection_timeout(std::chrono::milliseconds(300));
+    client.set_read_timeout(std::chrono::seconds(30));
+
+    // Training, with the pass's run id and progress.
+    std::string status;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    while (std::chrono::steady_clock::now() < deadline) {
+        ASSERT_TRUE(still_running()) << "the pass ended before it was seen training";
+        auto res = client.Get("/admin/status");
+        if (res && res->status == 200 && res->body.find("\"phase\":\"training\"") != std::string::npos &&
+            res->body.find("\"samples_trained_this_pass\":0,") == std::string::npos) {
+            status = res->body;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    ASSERT_FALSE(status.empty()) << "/admin/status never reported training";
+    EXPECT_NE(status.find("\"run_id\":\"lejepa-"), std::string::npos) << status;
+
+    // A requested checkpoint is written.
+    auto checkpoint = client.Post("/admin/checkpoint?wait_ms=20000", "", "application/json");
+    ASSERT_TRUE(checkpoint);
+    EXPECT_EQ(checkpoint->status, 202) << checkpoint->body;
+    EXPECT_NE(checkpoint->body.find("\"completed\":true"), std::string::npos) << checkpoint->body;
+    EXPECT_TRUE(fs::exists(sessions / "world_model_checkpoint" / "config.bin"));
+
+    // Pause drains the pass: it exits 1 (as a paused chatbot pass does) and its file goes back to the pool.
+    auto pause = client.Post("/admin/pause", "", "application/json");
+    ASSERT_TRUE(pause);
+    EXPECT_EQ(pause->status, 202);
+    int exit_status = 0;
+    pid_t done = 0;
+    const auto stop_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while ((done = ::waitpid(pid_, &exit_status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < stop_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    ASSERT_EQ(done, pid_) << "the pass didn't stop on /admin/pause";
+    pid_ = -1;
+    EXPECT_TRUE(WIFEXITED(exit_status) && WEXITSTATUS(exit_status) == 1);
+    DatasetRegistry reg(dcfg);
+    reg.load_pending_list();
+    const auto entries = reg.pending_entries();
+    ASSERT_EQ(entries.size(), 1u);
+    EXPECT_TRUE(entries[0].run_id.empty()) << "the paused pass's file is still claimed by " << entries[0].run_id;
+}

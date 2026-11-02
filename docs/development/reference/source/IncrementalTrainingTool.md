@@ -184,3 +184,11 @@ segment), and takes its run id from `persistent_run_id(RUN_ID, world_model_dir)`
 `<world_model_dir>/lejepa_run_id`, created once as `lejepa-<derive_run_id()>-<8 random hex digits>`. Registries hand a
 claim back to the run id that made it, so a pass restarted after a crash, kill or SIGTERM reclaims the last pass's
 files; with the old PID-based id they stayed claimed.
+
+## Addendum (November 1, 2026): the LeJEPA pass hosts the per-pass admin API (TD-403)
+
+The admin API a `trainer_service` child hosts for one pass is now a `PassAdminApi` helper used by both resume passes.
+During a LeJEPA pass, `/admin/status` reports its phase, `lejepa-` run id, epoch, samples and losses;
+`POST /admin/checkpoint` writes a world-model checkpoint; `PUT /admin/config`'s `AUTO_SAVE_*` apply live; and
+`POST /admin/pause` stops the pass at the next batch, checkpoints, releases its files to the pool and exits 1, as a
+paused chatbot pass does. Before, nothing answered these during a LeJEPA pass.

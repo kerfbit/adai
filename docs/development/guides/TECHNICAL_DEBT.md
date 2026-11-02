@@ -1409,6 +1409,8 @@ The generation and model math run is complete.
   world models).
 - TD-415 (done in code, after the run: the LeJEPA pass loads only each claimed segment, and keeps its run id in the
   world-model directory so a restarted pass reclaims a crashed one's files).
+- TD-403's open item (done in code: the LeJEPA pass hosts the per-pass admin API, `PassAdminApi`, reporting progress,
+  checkpointing on request and draining on pause).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -11140,7 +11142,7 @@ LeJEPA world-model pretraining.
 Action Items:
 
 - [x] Decide whether `trainer_service` should support `--objective=lejepa` (forward both flags) or reject them with a clear message. Owner decision (November 1, 2026): always forward both, since the service must be able to train every kind of model.
-- [ ] Give the LeJEPA pass the per-pass admin API (status, checkpoint, pause draining) the chatbot pass has.
+- [x] Give the LeJEPA pass the per-pass admin API (status, checkpoint, pause draining) the chatbot pass has (done November 1, 2026, below).
 
 **Fix (November 1, 2026):** the new `trainer_service_child_argv()` (`src/IncrementalTrainerArgs.{hpp,cpp}`) builds each
 pass's command line and always includes `--objective=<objective>` and `--dataset-kind <kind>`, the kind from
@@ -11158,8 +11160,15 @@ Tests: `TrainerServiceChildArgv.AlwaysPassesTheObjectiveAndTheDatasetKind`, and 
 `world_model_checkpoint/`, exit 0, then exit 3). On the old binaries the stub saw neither flag, and `--objective=lejepa
 resume` ran chatbot training, exited 1 and wrote no world-model checkpoint.
 
-Still open: the LeJEPA pass has no per-pass admin API, so while one runs `trainer_service` answers `/admin/status`
-from its own state and `/admin/pause` takes effect between passes. Its segment ranges are still TD-415.
+**Admin API for the LeJEPA pass (November 1, 2026):** the per-pass admin API hosting moved out of the chatbot `resume`
+into a `PassAdminApi` helper (`IncrementalTrainingTool.cpp`) that both resume passes use, and
+`run_lejepa_training_pass()` takes its `TrainerControlState`. The pass reports its phase (`loading_data`, `training`,
+`checkpointing`, then `idle`), run id, epoch, samples and losses; writes a checkpoint on `POST /admin/checkpoint`; takes
+`AUTO_SAVE_*` live from `PUT /admin/config`; and on `POST /admin/pause` stops at the next batch, checkpoints, releases
+its files to the pool and exits 1, as a paused chatbot pass does. Test:
+`SighupTest.LejepaPassAnswersTheAdminApiAndDrainsOnPause` (status shows training with the `lejepa-` run id, a requested
+checkpoint completes, pause exits 1 with the file unclaimed); the old binary never answered `/admin/status`. TD-415 (the
+segment ranges) was fixed the same day.
 
 Location in code: `src/TrainerServiceMain.cpp`, `src/IncrementalTrainerArgs.{hpp,cpp}` (`trainer_service_child_argv()`),
 `src/IncrementalTrainingTool.cpp` (`resume`, `run_lejepa_training_pass()`).
