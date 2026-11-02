@@ -167,3 +167,12 @@ between `fork()` and `exec` it makes only async-signal-safe calls (`prctl()`, `g
 descriptor from 3 up is marked close-on-exec in the child (`close_range()` with `CLOSE_RANGE_CLOEXEC`, else `fcntl()`
 up to `RLIMIT_NOFILE`), so nothing the supervisor has open, such as an accepted admin connection, reaches the pass.
 `posix_spawn()` was not used because it can't set the parent-death signal (TD-280).
+
+## Addendum (November 2, 2026): Windows quoting, exit detection, console stop (TD-282)
+
+`windows_command_line(argv)` builds the Windows command line with the quoting `CommandLineToArgvW` and the Microsoft
+C runtime undo (arguments ending in a backslash, embedded quotes and backslash runs before quotes all round-trip).
+`poll_exit()` waits on the process handle (`WaitForSingleObject(handle, 0)`) before reading the exit code, so exit
+code 259 (`STILL_ACTIVE`) no longer looks like a running child. `request_stop()`'s `CTRL_BREAK_EVENT` reaches the
+pass only through a shared console; without one, it falls back to `TerminateProcess()`. Checked under Wine with a
+MinGW build of the real `ChildProcess.cpp`.

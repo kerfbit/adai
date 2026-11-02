@@ -1430,6 +1430,8 @@ The generation and model math run is complete.
   hard-killed supervisor no longer leaves it running).
 - TD-281 (done in code: the program is resolved before `fork()` and the child only calls async-signal-safe
   functions ending in `execve()`; no descriptor past stdio reaches the pass).
+- TD-282 (done in code: Windows command lines quoted as `CommandLineToArgvW` expects, exit detected from the process
+  handle so exit code 259 works, the console-event stop's limit documented; checked under Wine).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6964,7 +6966,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / Service Supervisor | October 9, 2026 | 2-4 hours |
+| LOW | Open — code fix landed November 2, 2026 | Training / Service Supervisor | October 9, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-277; affects only Windows builds (none shipped today):
@@ -6975,11 +6977,28 @@ Found alongside TD-277; affects only Windows builds (none shipped today):
 
 Action Items:
 
-- [ ] Use the standard `CommandLineToArgvW`-compatible quoting algorithm.
-- [ ] Detect exit via `WaitForSingleObject(handle, 0)` instead of comparing to `STILL_ACTIVE`.
-- [ ] Document (or replace) the console-event stop mechanism.
+- [x] Use the standard `CommandLineToArgvW`-compatible quoting algorithm.
+- [x] Detect exit via `WaitForSingleObject(handle, 0)` instead of comparing to `STILL_ACTIVE`.
+- [x] Document (or replace) the console-event stop mechanism.
 
-Location in code: `src/ChildProcess.cpp` (`#ifdef _WIN32` paths); tagged `TODO: See TD-282`.
+**Fix (November 2, 2026):**
+- **Quoting.** A new `ChildProcess::windows_command_line()` (compiled on every platform, so it has ordinary unit tests)
+  quotes an argument only when it's empty or has whitespace or a quote, and inside quotes doubles backslashes before a
+  quote or the closing quote, as `CommandLineToArgvW` and the Microsoft C runtime expect.
+- **Exit detection.** `poll_exit()` waits on the process handle with `WaitForSingleObject(handle, 0)` and only then reads
+  the exit code, so a child that exits with 259 is seen as exited.
+- **Console-event stop.** Documented in `request_stop()`: `CTRL_BREAK_EVENT` reaches a pass only when it shares the
+  supervisor's console; with no console (a Windows service) the fallback `TerminateProcess()` ends it at once, without
+  a checkpoint. Run `trainer_service` from a console for graceful stops on Windows.
+
+Tests: `ChildProcessTest.WindowsCommandLineQuotesLikeCommandLineToArgvW` on Linux, and a scratch harness cross-compiled
+with MinGW against the real `src/ChildProcess.cpp` and run under Wine: it launches itself with nine awkward arguments
+(empty, spaces, `C:\dir with space\`, embedded quotes, backslashes before quotes, a tab) and gets every one back
+exactly, and a child exiting with 259 is reported as exited with 259. The same harness against the old code got the
+arguments back mangled and never saw the 259 child exit.
+
+Location in code: `src/ChildProcess.{hpp,cpp}` (`windows_command_line()`, Windows `start()`/`poll_exit()`,
+`request_stop()` documentation).
 
 Files to Modify:
 

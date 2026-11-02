@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.7.0
+// @adai-version: 0.8.0
 // @adai-reviewed: 2026-11-02
 
 #include "ChildProcess.hpp"
@@ -68,6 +68,41 @@ static std::string resolve_program(const std::string& name) {
 }
 #endif
 
+// TD-282: the quoting CommandLineToArgvW and the Microsoft C runtime undo. An argument is quoted when
+// it's empty or has a space, tab, newline, vertical tab or quote; inside quotes, backslashes are literal
+// except before a quote (2n+1 backslashes and the quote for n backslashes and a literal quote) and before
+// the closing quote (doubled). The old code escaped quotes only, so an argument ending in a backslash
+// (C:\data\) swallowed the closing quote and merged with the next argument.
+std::string ChildProcess::windows_command_line(const std::vector<std::string>& argv) {
+    std::string cmdline;
+    for (std::size_t i = 0; i < argv.size(); ++i) {
+        if (i > 0) cmdline += ' ';
+        const std::string& arg = argv[i];
+        if (!arg.empty() && arg.find_first_of(" \t\n\v\"") == std::string::npos) {
+            cmdline += arg;
+            continue;
+        }
+        cmdline += '"';
+        std::size_t backslashes = 0;
+        for (char c : arg) {
+            if (c == '\\') {
+                ++backslashes;
+                continue;
+            }
+            if (c == '"') {
+                cmdline.append(backslashes * 2 + 1, '\\');
+            } else {
+                cmdline.append(backslashes, '\\');
+            }
+            backslashes = 0;
+            cmdline += c;
+        }
+        cmdline.append(backslashes * 2, '\\');
+        cmdline += '"';
+    }
+    return cmdline;
+}
+
 bool ChildProcess::start(const std::vector<std::string>& argv) {
     if (running_) {
         Logger::warn("ChildProcess::start() called while a child is already running — ignored");
@@ -79,22 +114,8 @@ bool ChildProcess::start(const std::vector<std::string>& argv) {
     }
 
 #ifdef _WIN32
-    // Build one command line string, quoting each argument. Minimal quoting (wrap in double
-    // quotes, escape embedded quotes) — sufficient for the config paths/model names/port numbers
-    // this class is actually launched with; not a general Windows command-line-escaping library.
-    // TODO: See TD-282 in TECHNICAL_DEBT.md - quoting doesn't handle backslashes before quotes.
-    std::string cmdline;
-    for (size_t i = 0; i < argv.size(); ++i) {
-        if (i > 0)
-            cmdline += ' ';
-        cmdline += '"';
-        for (char c : argv[i]) {
-            if (c == '"')
-                cmdline += '\\';
-            cmdline += c;
-        }
-        cmdline += '"';
-    }
+    // TD-282: quoted so the child's CommandLineToArgvW/CRT parsing gets argv back exactly.
+    std::string cmdline = windows_command_line(argv);
 
     STARTUPINFOA si{};
     si.cb = sizeof(si);
@@ -221,14 +242,16 @@ bool ChildProcess::poll_exit(int* exit_code) {
 
 #ifdef _WIN32
     HANDLE h = static_cast<HANDLE>(process_handle_.load());
-    DWORD code = 0;
-    if (!::GetExitCodeProcess(h, &code)) {
-        Logger::error("ChildProcess::poll_exit(): GetExitCodeProcess failed");
+    // TD-282: the handle is signalled when the process ends. Comparing the exit code with STILL_ACTIVE
+    // (259) used to keep a child that really exited with 259 "running" forever.
+    if (::WaitForSingleObject(h, 0) != WAIT_OBJECT_0) {
         return false;
     }
-    // TODO: See TD-282 in TECHNICAL_DEBT.md - a child exiting with code 259 looks like STILL_ACTIVE forever.
-    if (code == STILL_ACTIVE) {
-        return false;
+    DWORD code = 0;
+    if (!::GetExitCodeProcess(h, &code)) {
+        Logger::error("ChildProcess::poll_exit(): GetExitCodeProcess failed (error {})",
+                      static_cast<unsigned long>(::GetLastError()));
+        code = static_cast<DWORD>(-1);
     }
     running_ = false;  // TD-279: before the handle
     process_handle_ = nullptr;

@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.5.0
+// @adai-version: 0.6.0
 // @adai-reviewed: 2026-11-02
 
 // TD-172: small cross-platform "launch and monitor one child process" helper, extracted from
@@ -71,6 +71,13 @@ class ChildProcess {
      *   running. Prefer `stop_and_wait()` when the caller needs a guaranteed-terminated outcome
      *   within a bounded time; this lower-level method exists for callers (e.g. a signal handler
      *   re-armed on repeated signals) that just want to nudge a child without blocking at all.
+     *
+     *   TD-282, Windows: `CTRL_BREAK_EVENT` reaches the child only when it shares a console with
+     *   this process. Started from a console, a pass gets it and drains like on SIGTERM. Run with
+     *   no console (as a Windows service), the event can't be delivered, so the fallback
+     *   `TerminateProcess()` ends the pass at once, with no checkpoint, and its claimed files wait
+     *   for the claim lease or the next pass with the same run id. Run trainer_service from a
+     *   console (or a console host) for graceful stops on Windows.
      */
     void request_stop();
 
@@ -102,6 +109,10 @@ class ChildProcess {
     /// The current child's PID, or 0 if none is running. For observability (e.g. GET
     /// /admin/status) — not meant for direct signaling; use request_stop()/stop_and_wait().
     long long pid() const;
+
+    /// TD-282: `argv` as one Windows command line that CommandLineToArgvW and the Microsoft C runtime
+    /// parse back exactly (used by start() on Windows; compiled everywhere so it can be tested).
+    static std::string windows_command_line(const std::vector<std::string>& argv);
 
    private:
     // TD-279: atomics, so request_stop() from another thread reads a consistent pair. A stop always

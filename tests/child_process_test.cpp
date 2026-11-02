@@ -362,3 +362,17 @@ TEST(ChildProcessTest, ABareNameIsFoundOnPath) {
     EXPECT_FALSE(child.start({"adai-no-such-program-td281"}));
 }
 #endif
+
+// TD-282: the Windows command line escaped quotes only, so an argument ending in a backslash (C:\data\) swallowed
+// its closing quote and merged with the next argument. windows_command_line() follows the CommandLineToArgvW /
+// Microsoft C runtime rules; a round trip through the real parser was checked under Wine.
+TEST(ChildProcessTest, WindowsCommandLineQuotesLikeCommandLineToArgvW) {
+    EXPECT_EQ(ChildProcess::windows_command_line({"prog", "plain"}), "prog plain");
+    EXPECT_EQ(ChildProcess::windows_command_line({"a b", ""}), "\"a b\" \"\"");
+    EXPECT_EQ(ChildProcess::windows_command_line({"C:\\data\\"}), "C:\\data\\");  // no quoting needed
+    EXPECT_EQ(ChildProcess::windows_command_line({"C:\\dir with space\\", "next"}),
+              "\"C:\\dir with space\\\\\" next");  // the trailing backslash is doubled
+    EXPECT_EQ(ChildProcess::windows_command_line({"quote\"inside"}), "\"quote\\\"inside\"");
+    EXPECT_EQ(ChildProcess::windows_command_line({"back\\\\\"q"}), "\"back\\\\\\\\\\\"q\"");  // 2 \ + " -> 5 \ + "
+    EXPECT_EQ(ChildProcess::windows_command_line({"tab\there"}), "\"tab\there\"");
+}
