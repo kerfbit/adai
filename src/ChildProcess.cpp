@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.3.0
+// @adai-version: 0.4.0
 // @adai-reviewed: 2026-11-02
 
 #include "ChildProcess.hpp"
@@ -176,12 +176,30 @@ bool ChildProcess::poll_exit(int* exit_code) {
             *exit_code = -1;
         return true;
     }
+    const long long reaped_pid = pid_;
     running_ = false;
     pid_ = -1;
-    if (exit_code) {
-        // TODO: See TD-277 in TECHNICAL_DEBT.md - should be 128 + WTERMSIG(status).
-        *exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
+    // TD-277: a signal death is 128 + the signal number (139 for SIGSEGV, 137 for SIGKILL), the shell
+    // convention. Every signal death used to be 128, so a driver segfault and an OOM kill looked alike.
+    int code = 0;
+    if (WIFEXITED(status)) {
+        code = WEXITSTATUS(status);
+    } else if (WIFSIGNALED(status)) {
+        const int sig = WTERMSIG(status);
+        code = 128 + sig;
+#ifdef WCOREDUMP
+        const char* core = WCOREDUMP(status) ? ", core dumped" : "";
+#else
+        const char* core = "";
+#endif
+        // SIGTERM is the graceful stop this class sends (request_stop()), so only other signals warn.
+        if (sig == SIGTERM) {
+            Logger::info("ChildProcess: pid {} was stopped by signal {} ({}){}", reaped_pid, sig, ::strsignal(sig), core);
+        } else {
+            Logger::warn("ChildProcess: pid {} was killed by signal {} ({}){}", reaped_pid, sig, ::strsignal(sig), core);
+        }
     }
+    if (exit_code) *exit_code = code;
     return true;
 #endif
 }

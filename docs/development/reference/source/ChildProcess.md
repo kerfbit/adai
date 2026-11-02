@@ -138,3 +138,9 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 127; the parent reads it, reaps the child, logs `could not execute '<path>': <reason>` and returns false. A successful
 `exec` closes the pipe, so the parent reads end-of-file and returns true as before. A failed `exec` used to return
 true and appear only later as exit code 127 from `poll_exit()`.
+
+## Addendum (November 2, 2026): signal deaths report 128 + the signal (TD-277)
+
+`poll_exit()` sets `exit_code` to `128 + WTERMSIG(status)` for a child killed by a signal (139 for SIGSEGV, 137 for
+SIGKILL), and logs the signal's name and whether it dumped core: at info level for SIGTERM (the graceful stop this
+class sends), as a warning otherwise. Every signal death used to be 128.

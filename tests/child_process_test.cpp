@@ -235,3 +235,20 @@ TEST(ChildProcessTest, AFailedExecIsReportedByStart) {
     EXPECT_EQ(code, 0);
 }
 #endif
+
+#ifndef _WIN32
+// TD-277: every signal death came back as 128, so a SIGSEGV (ai-machine's driver crash) and a SIGKILL (an OOM
+// kill) were indistinguishable in trainer_service's last_exit_code. It's now 128 + the signal number.
+TEST(ChildProcessTest, ASignalDeathIs128PlusTheSignalNumber) {
+    for (const auto& [sig, expected] : std::vector<std::pair<std::string, int>>{{"SEGV", 139}, {"KILL", 137}}) {
+        ChildProcess child;
+        ASSERT_TRUE(child.start({"/bin/sh", "-c", "kill -" + sig + " $$"}));
+        int code = -1;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!child.poll_exit(&code) && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        EXPECT_EQ(code, expected) << "SIG" << sig;
+    }
+}
+#endif

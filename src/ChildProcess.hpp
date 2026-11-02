@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.3.0
+// @adai-version: 0.4.0
 // @adai-reviewed: 2026-11-02
 
 // TD-172: small cross-platform "launch and monitor one child process" helper, extracted from
@@ -53,9 +53,9 @@ class ChildProcess {
     /**
      * @brief Non-blocking check for whether the current child has exited.
      * @param exit_code Out-param, set only when this returns true. The child's real exit code on
-     *   a clean exit; 128 (POSIX convention) if it was killed by a signal instead.
-     *   TODO: See TD-277 in TECHNICAL_DEBT.md - the convention is 128 + signal number; every signal
-     *   death currently reports 128, so SIGSEGV and SIGKILL are indistinguishable.
+     *   a clean exit; 128 + the signal number if it was killed by a signal (TD-277: 139 for
+     *   SIGSEGV, 137 for SIGKILL — it used to be 128 for every signal), which is also logged with
+     *   the signal's name and whether it dumped core.
      * @return true exactly once per child, the first poll_exit() call after it actually exits
      *   (or immediately, if it already exited before this call). false while still running, or if
      *   no child has ever been started, or after that one true has already been consumed.

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-11-02
 
 // TD-173: trainer_service's own process-lifetime control state — the piece missing from TD-172's
 // initial implementation. TrainerControlState (TrainerControlState.hpp) is deliberately
@@ -59,13 +59,14 @@ class TrainerServiceControlState {
     std::atomic<long long> total_passes_crashed{0};  // killed by a signal (exit code >= 128, see
                                                       // ChildProcess::poll_exit())
     // TD-523: passes that exited with a failure code (1 from `resume`, or any other code that
-    // isn't 0/3 and isn't a signal death, e.g. 127 for an exec failure).
+    // isn't 0/3 and isn't a signal death).
     std::atomic<long long> total_passes_failed{0};
     // Failed or crashed passes in a row; reset by a pass that trained or found nothing pending.
     std::atomic<int> consecutive_failures{0};
     std::atomic<std::int64_t> last_failure_unix{0};  // 0 = no failure yet
-    // TODO: See TD-277 in TECHNICAL_DEBT.md - signal deaths all report 128 today (signal lost);
-    // TODO: See TD-278 in TECHNICAL_DEBT.md - exec failures show up here as 127 with no clear log.
+    // TD-277: last_exit_code is 128 + the signal number for a signal death (139 SIGSEGV, 137 SIGKILL);
+    // it used to be 128 for every signal. TD-278: a child that couldn't be executed is a launch
+    // failure (consecutive_failures, no pass counted), no longer a pass with exit 127.
 
     /**
      * @brief Wakes a sleeping `interruptible_sleep()` call immediately — called by POST

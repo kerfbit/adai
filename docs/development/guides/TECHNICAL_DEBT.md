@@ -1422,6 +1422,8 @@ The generation and model math run is complete.
   `incremental_trainer` beside its own executable, backs off failed launches; the units can write `downloads`).
 - TD-278 (done in code: `ChildProcess::start()` reports a failed `exec` through a close-on-exec pipe, so
   `trainer_service` logs the reason and backs off instead of counting exit 127 as a crashed pass).
+- TD-277 (done in code: a signal death is reported as 128 + the signal number and logged by name, so a driver
+  SIGSEGV (139) and an OOM SIGKILL (137) can be told apart).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6759,7 +6761,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / Service Supervisor | October 9, 2026 | 1 hour |
+| MEDIUM | Open — code fix landed November 2, 2026 | Training / Service Supervisor | October 9, 2026 | 1 hour |
 
 Description:
 Found while writing the code-traced reference [ChildProcess.md](../reference/source/ChildProcess.md), and confirmed by running the real
@@ -6772,11 +6774,19 @@ apart, which removes exactly the diagnosis TD-172's process isolation was meant 
 
 Action Items:
 
-- [ ] Report `128 + WTERMSIG(status)` for signal deaths (and note core dumps via `WCOREDUMP` in a log line).
-- [ ] Update the header and `TrainerServiceControlState::last_exit_code`'s comment; keep `total_passes_crashed` counting unchanged.
-- [ ] Test: SIGSEGV → 139, SIGKILL → 137.
+- [x] Report `128 + WTERMSIG(status)` for signal deaths (and note core dumps via `WCOREDUMP` in a log line).
+- [x] Update the header and `TrainerServiceControlState::last_exit_code`'s comment; keep `total_passes_crashed` counting unchanged.
+- [x] Test: SIGSEGV → 139, SIGKILL → 137.
 
-Location in code: `src/ChildProcess.{hpp,cpp}` (`poll_exit()`), `src/TrainerServiceControlState.hpp`; tagged `TODO: See TD-277`.
+**Fix (November 2, 2026):** `poll_exit()` reports `128 + WTERMSIG(status)` for a signal death and logs the signal's
+name and whether it dumped core (`pid N was killed by signal 11 (Segmentation fault), core dumped`); SIGTERM, the
+graceful stop `ChildProcess` itself sends, logs at info level, every other signal as a warning. `total_passes_crashed`
+still counts every code of 128 and up. The header and `TrainerServiceControlState`'s comments are updated.
+
+Test: `ChildProcessTest.ASignalDeathIs128PlusTheSignalNumber` (a child that sends itself SIGSEGV reports 139, SIGKILL
+137); the old code reported 128 for both.
+
+Location in code: `src/ChildProcess.{hpp,cpp}` (`poll_exit()`), `src/TrainerServiceControlState.hpp`.
 
 Files to Modify:
 
