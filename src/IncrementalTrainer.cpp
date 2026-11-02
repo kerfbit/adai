@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.20.0
+// @adai-version: 0.21.0
 // @adai-reviewed: 2026-11-02
 
 #include "IncrementalTrainer.hpp"
@@ -337,6 +337,7 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.auto_save_every_samples = svc.auto_save_every_samples;
     cfg.auto_save_every_minutes = svc.auto_save_every_minutes;
     cfg.max_sessions_to_keep = svc.max_sessions_to_keep;
+    cfg.vocab_build_size = svc.vocab_build_size;  // TD-414
 
     // Tokenizer mode
     cfg.base_config.tokenizer_mode =
@@ -411,14 +412,7 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
     metrics_reporter_ = std::make_unique<NullMetricsReporter>();
 
     ensure_directories_exist();
-
-    if (!fs::exists(vocab_path_)) {
-        Logger::info("Vocabulary '{}' not found — will be built from first training run",
-                     vocab_path_);
-        pending_vocab_build_ = true;
-        last_save_time = std::chrono::system_clock::now();
-        return;
-    }
+    if (defer_until_vocab_exists()) return;
 
     build_model();
     load_session_history();
@@ -463,6 +457,18 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
     last_save_time = std::chrono::system_clock::now();
 }
 
+// TD-414: with no vocabulary file yet, the model can't be built; the first training pass builds the
+// vocabulary from its data (bootstrap_vocab()) and then the model. Only the config-file constructor
+// did this, and incremental_trainer uses the explicit-paths ones, so a fresh SESSION_DIR aborted with
+// VocabularyFileError.
+bool IncrementalTrainer::defer_until_vocab_exists() {
+    if (fs::exists(vocab_path_)) return false;
+    Logger::info("Vocabulary '{}' not found — it will be built from the first training pass's data", vocab_path_);
+    pending_vocab_build_ = true;
+    last_save_time = std::chrono::system_clock::now();
+    return true;
+}
+
 // ============================================================================
 // Explicit-paths constructor (low-level, uses default IncrementalConfig).
 // ============================================================================
@@ -478,10 +484,12 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
     // MetricsPushClient is created per training run; use NullMetricsReporter until then.
     metrics_reporter_ = std::make_unique<NullMetricsReporter>();
 
+    ensure_directories_exist();
+    if (defer_until_vocab_exists()) return;  // TD-414
+
     // Build model using default config.
     build_model();
 
-    ensure_directories_exist();
     load_session_history();
 
     // Initialize best checkpoint from history (TD-005)
@@ -517,10 +525,13 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
 
     // MetricsPushClient is created per training run; use NullMetricsReporter until then.
     metrics_reporter_ = std::make_unique<NullMetricsReporter>();
+    vocab_build_size_ = config.vocab_build_size;
+
+    ensure_directories_exist();
+    if (defer_until_vocab_exists()) return;  // TD-414
 
     build_model();
 
-    ensure_directories_exist();
     load_session_history();
 
     init_from_session_history();
@@ -551,7 +562,8 @@ void IncrementalTrainer::reset_model_for_config() {
     // Fresh weights: no checkpoint's training state (TD-269) belongs to them any more.
     loaded_checkpoint_path_.clear();
 
-    build_model();
+    // TD-414: with no vocabulary yet the model is built after the first pass's bootstrap anyway.
+    if (!pending_vocab_build_) build_model();
     save_session_history();
     Logger::info("Model reinitialized with fresh weights (architecture reset)");
 }

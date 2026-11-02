@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.29.0
+// @adai-version: 0.30.0
 // @adai-reviewed: 2026-11-02
 
 #include <array>
@@ -1062,7 +1062,7 @@ int output_usage(char* argv[]) {
 
 }  // namespace
 
-int main(int argc, char* argv[]) {
+static int run_main(int argc, char* argv[]) {
     // -----------------------------------------------------------------------
     // Strip the optional global flag  --config <path>  from argv so that the
     // rest of the command-dispatch logic sees a clean args list.
@@ -1364,8 +1364,7 @@ int main(int argc, char* argv[]) {
                 config.base_config.num_epochs = epochs;
                 // TD-269: warm up once per run
                 config.base_config.lr_schedule = LRSchedule::LINEAR_WARMUP;
-                // TODO: See TD-414 in TECHNICAL_DEBT.md - this 3-arg constructor builds the model unconditionally, so with
-                // no vocab it throws VocabularyFileError; the first-run vocab bootstrap is only in the config-file ctor
+                // TD-414: with no vocabulary yet, the first pass builds it from its data (VOCAB_BUILD_SIZE).
                 IncrementalTrainer trainer(default_vocab, default_model, config);
                 PassAdminApi pass(std::nullopt, svc_config);  // TD-416: a SIGTERM drains the pass
                 trainer.set_control_state(pass.control());
@@ -1698,4 +1697,17 @@ int main(int argc, char* argv[]) {
     }
 
     return 0;
+}
+
+// TD-414: an exception from any command (a missing or unreadable vocabulary, a bad checkpoint...) ends
+// with a clear message and exit 1. It used to reach std::terminate, which printed "terminate called
+// after throwing an instance of ..." and aborted with exit 134.
+int main(int argc, char* argv[]) {
+    try {
+        return run_main(argc, argv);
+    } catch (const std::exception& e) {
+        adai::Logger::error("incremental_trainer: {}", e.what());
+        std::cerr << "❌ " << e.what() << "\n";
+        return 1;
+    }
 }

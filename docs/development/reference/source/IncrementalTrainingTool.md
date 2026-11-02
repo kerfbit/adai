@@ -203,3 +203,11 @@ paused chatbot pass does. Before, nothing answered these during a LeJEPA pass.
   `AUTO_SAVE_*`. The LeJEPA pass uses `TOKENIZER_MODE`. `status`/`history` read `session_history.txt` through
   `IncrementalTrainer::read_session_history()` without building a trainer, so they need no vocabulary and delete nothing.
   The interactive MNS model pick refuses to run without a terminal on stdin.
+
+## Addendum (November 2, 2026): first-run vocabulary and exception exits (TD-414)
+
+With no vocabulary file, every `IncrementalTrainer` constructor (`defer_until_vocab_exists()`) now waits to build the
+model, and the first training pass builds the vocabulary from its data (`bootstrap_vocab()`, sized by
+`VOCAB_BUILD_SIZE` via `IncrementalConfig::vocab_build_size`) and then the model, so `incremental_trainer
+train`/`retrain`/`resume` work on a fresh `SESSION_DIR`; it used to abort with `VocabularyFileError` (exit 134).
+`incremental_trainer`'s `main()` turns an exception from any command into `❌ <message>` and exit 1.

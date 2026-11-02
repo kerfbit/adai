@@ -708,3 +708,59 @@ TEST_F(SighupTest, StatusAndHistoryAreReadOnlyAndNeedNoVocabulary) {
     }
     EXPECT_TRUE(fs::exists(stray)) << "a read-only command deleted a checkpoint file";
 }
+
+// TD-414: on a fresh SESSION_DIR with data queued and no vocabulary, `train` aborted with VocabularyFileError
+// (exit 134): the first-run vocabulary bootstrap was only in a constructor incremental_trainer never used. And
+// any exception from a command reached std::terminate.
+TEST_F(SighupTest, AFirstTrainBuildsTheVocabularyAndExceptionsExitOne) {
+    const fs::path data = dir_ / "pairs.jsonl";
+    {
+        std::ofstream out(data);
+        const char* lines[] = {"hello world", "how are you", "good morning", "the cat sat"};
+        for (int i = 0; i < 20; ++i)
+            out << "{\"input\":\"" << lines[i % 4] << "\",\"response\":\"" << lines[(i + 1) % 4] << "\"}\n";
+    }
+    const fs::path sessions = dir_ / "sessions";
+    DatasetConfig dcfg;
+    dcfg.session_dir = sessions.string();
+    dcfg.dataset_kind = "chatbot";
+    fs::create_directories(DatasetRegistry::local_pool_dir(dcfg));
+    {
+        DatasetRegistry reg(dcfg);
+        reg.load_registry();
+        reg.load_pending_list();
+        ASSERT_TRUE(reg.add_file(data.string()));
+        ASSERT_TRUE(reg.save_pending_list());
+    }
+    const auto config_with_vocab = [&](const fs::path& vocab) {
+        return write_config("config.trainer.conf",
+                            "LOG_FILE_PATH=" + (dir_ / "log.txt").string() + "\nSESSION_DIR=" + sessions.string() +
+                                "\nVOCAB_PATH=" + vocab.string() + "\nMODEL_PATH=" + (dir_ / "model.bin").string() +
+                                "\nREGISTRY_SERVER_URL=\nNAME_SERVICE_URL=\nMETRICS_SERVER_URL=\nGPU_ENABLED=false\n"
+                                "D_MODEL=64\nNUM_HEADS=2\nD_FF=128\nNUM_ENCODER_LAYERS=1\nNUM_DECODER_LAYERS=1\n"
+                                "MAX_SEQ_LENGTH=16\nVALIDATION_SPLIT=0\nVOCAB_BUILD_SIZE=60\n");
+    };
+    const auto run = [&](const fs::path& cfg, const std::vector<std::string>& command) {
+        std::vector<std::string> args = {"--config", cfg.string(), "--foreground"};
+        args.insert(args.end(), command.begin(), command.end());
+        spawn(INCREMENTAL_TRAINER_BINARY_PATH, args);
+        int status = 0;
+        pid_t done = 0;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+        while ((done = ::waitpid(pid_, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        if (done != pid_) return -1;
+        pid_ = -1;
+        return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+    };
+
+    const fs::path vocab = dir_ / "vocab.txt";
+    EXPECT_EQ(run(config_with_vocab(vocab), {"train", "1"}), 0);
+    EXPECT_TRUE(fs::exists(vocab)) << "the first pass should have built the vocabulary";
+
+    // A vocabulary path that can't be read (a directory) throws; it ends in exit 1, not an abort.
+    const fs::path unreadable = dir_ / "vocab_dir";
+    fs::create_directories(unreadable);
+    EXPECT_EQ(run(config_with_vocab(unreadable), {"init"}), 1);
+}

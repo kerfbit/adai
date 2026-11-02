@@ -290,6 +290,32 @@ TEST_F(IncrementalTrainerTest, PassThatLoadsNothingFails) {
     EXPECT_TRUE(trainer.train_on_files({good}, 1)) << "a file with pairs still trains";
 }
 
+// TD-414: with no vocabulary file, the explicit-paths constructor (the one incremental_trainer uses) threw
+// VocabularyFileError. It now waits, and the first pass builds the vocabulary from its data, then the model.
+TEST_F(IncrementalTrainerTest, FirstPassBuildsTheVocabularyWhenThereIsNone) {
+    const fs::path vocab = test_dir / "not_yet.vocab";
+    auto cfg = tiny_local_config(session_dir);
+    cfg.vocab_build_size = 60;
+    std::unique_ptr<IncrementalTrainer> trainer;
+    ASSERT_NO_THROW(trainer = std::make_unique<IncrementalTrainer>(vocab.string(), model_file.string(), cfg));
+    EXPECT_FALSE(fs::exists(vocab));
+
+    PendingFileRange file;
+    file.path = data_file1.string();
+    EXPECT_TRUE(trainer->train_on_files({file}, 1));
+    EXPECT_TRUE(fs::exists(vocab)) << "the first pass should have built the vocabulary";
+    EXPECT_EQ(trainer->get_session_history().size(), 1u);
+
+    // The two-argument constructor waits the same way.
+    EXPECT_NO_THROW(IncrementalTrainer((test_dir / "also_missing.vocab").string(), model_file.string()));
+}
+
+TEST(IncrementalConfigMapping, VocabBuildSizeIsMapped) {
+    adai::ServiceConfig svc;
+    svc.vocab_build_size = 1234;
+    EXPECT_EQ(IncrementalTrainer::make_incremental_config(svc).vocab_build_size, 1234);
+}
+
 // TD-411: resume_last_session() hands the acquired batch to the caller's resolver (the resume
 // command's FTP download step) and trains on what it returns; if the resolver fails, the batch
 // is released rather than trained on registry-host paths or left claimed.

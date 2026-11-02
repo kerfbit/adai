@@ -1414,6 +1414,8 @@ The generation and model math run is complete.
 - TD-416 (done in code: SIGTERM/SIGINT drain a pass like `/admin/pause` (checkpoint, release, exit 1) from a
   signal-safe handler; strict epoch counts; configured auto-save; `TOKENIZER_MODE` for LeJEPA; read-only
   `status`/`history`; no interactive model pick without a terminal).
+- TD-414 (done in code: `train`/`retrain`/`resume` build the vocabulary from the first pass's data when there is none,
+  and an exception from any command exits 1 with its message instead of aborting).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -11587,7 +11589,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / IncrementalTrainingTool | October 13, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 2, 2026 | Training / IncrementalTrainingTool | October 13, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `IncrementalTrainingTool` and verified with the built binary. Every command
@@ -11602,17 +11604,31 @@ deployment.
 
 Action Items:
 
-- [ ] Move the missing-vocab handling into the three-argument constructor (defer `build_model()` until `bootstrap_vocab()`), and make `status`/`history` work without a model.
-- [ ] Catch exceptions in `main()`'s command dispatch with a clear message.
+- [x] Move the missing-vocab handling into the three-argument constructor (defer `build_model()` until `bootstrap_vocab()`), and make `status`/`history` work without a model.
+- [x] Catch exceptions in `main()`'s command dispatch with a clear message.
 
 **Update (November 2, 2026):** `status` and `history` no longer build a trainer (TD-416), so they work without a
 vocabulary; `train`/`retrain`/`resume` still need one.
 
-Location in code: `src/IncrementalTrainingTool.cpp` (`train` construction, `status`), `src/IncrementalTrainer.cpp` (constructors); tagged `TODO: See TD-414`.
+**Fix (November 2, 2026):** a new `IncrementalTrainer::defer_until_vocab_exists()` is used by all three constructors:
+with no vocabulary file it sets `pending_vocab_build_` and skips building the model, and the first training pass
+(`train_on_files()`/`retrain_on_files()`, so `train`, `retrain` and `resume`) builds the vocabulary from its data with
+`bootstrap_vocab()` and then the model. Only the config-file constructor did this before. `VOCAB_BUILD_SIZE` reaches
+the explicit-paths constructors through a new `IncrementalConfig::vocab_build_size`, and `reset_model_for_config()`
+(`retrain`) skips building a model while the vocabulary is pending. `main()` now wraps the command dispatch: an
+exception logs and prints `❌ <message>` and exits 1 instead of reaching `std::terminate` (exit 134).
+
+Tests: `IncrementalTrainerTest.FirstPassBuildsTheVocabularyWhenThereIsNone`, `IncrementalConfigMapping.VocabBuildSizeIsMapped`,
+and `SighupTest.AFirstTrainBuildsTheVocabularyAndExceptionsExitOne` against the real binary (a fresh `SESSION_DIR`
+with queued data: `train 1` exits 0 and writes the vocabulary; `init` with an unreadable vocabulary path exits 1).
+The old binary exited 134 for both. By hand, `train`, `retrain` and `resume` all build the vocabulary on a fresh
+directory, and `init` leaves it for the first pass.
+
+Location in code: `src/IncrementalTrainingTool.cpp` (`train` construction, `status`), `src/IncrementalTrainer.cpp` (constructors).
 
 Files to Modify:
 
-- `src/IncrementalTrainer.cpp`
+- `src/IncrementalTrainer.{hpp,cpp}`
 - `src/IncrementalTrainingTool.cpp`
 
 ---

@@ -250,3 +250,11 @@ drain the callers' `mark_trained()` waits at most the drain deadline.
 A pass drained by SIGTERM/SIGINT (incremental_trainer sets the control state's `paused` and `stop_signal`) takes the
 existing pause path, and its log line says "stopped by SIGTERM" instead of "paused via admin API". The trainer's
 world-model attach starts the LeJEPA tokenizer in `TOKENIZER_MODE`.
+
+## Addendum (November 2, 2026): first-run vocabulary and exception exits (TD-414)
+
+With no vocabulary file, every `IncrementalTrainer` constructor (`defer_until_vocab_exists()`) now waits to build the
+model, and the first training pass builds the vocabulary from its data (`bootstrap_vocab()`, sized by
+`VOCAB_BUILD_SIZE` via `IncrementalConfig::vocab_build_size`) and then the model, so `incremental_trainer
+train`/`retrain`/`resume` work on a fresh `SESSION_DIR`; it used to abort with `VocabularyFileError` (exit 134).
+`incremental_trainer`'s `main()` turns an exception from any command into `❌ <message>` and exit 1.

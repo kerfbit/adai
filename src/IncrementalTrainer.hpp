@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.18.0
+// @adai-version: 0.19.0
 // @adai-reviewed: 2026-11-02
 
 
@@ -71,6 +71,9 @@ struct IncrementalConfig {
     // Session management
     std::string session_dir = "training_sessions";
     int max_sessions_to_keep = 50;
+
+    // TD-414: the vocabulary size a first-run bootstrap builds (VOCAB_BUILD_SIZE; 0 = auto-size).
+    int vocab_build_size = 0;
 
     // Auto-save settings
     bool auto_save_enabled = true;
@@ -441,6 +444,9 @@ class IncrementalTrainer {
      * @return true if the vocab file was written successfully, false otherwise.
      */
     bool bootstrap_vocab(const std::vector<ConversationPair>& pairs);
+    /// TD-414: true (and pending_vocab_build_ set) when the vocabulary file doesn't exist yet, so a
+    /// constructor skips building the model until the first training pass bootstraps it.
+    bool defer_until_vocab_exists();
 
     bool initialize_session();
     bool finalize_session(int samples_trained, int epochs_completed, float final_loss,
