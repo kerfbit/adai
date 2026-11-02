@@ -153,3 +153,11 @@ world-model pass for `--objective=lejepa` (it ran chatbot training whatever the 
 that pass exits 3 when nothing is pending and 1 when the registry can't be asked, as the chatbot resume does (TD-523).
 The LeJEPA pass has no per-pass admin API yet: during it, `trainer_service` answers `/admin/status` from its own state
 and a pause takes effect between passes.
+
+## Addendum (November 1, 2026): LeJEPA segments and a persistent run id (TD-415)
+
+`run_lejepa_training_pass()` loads each claimed unit with its TD-205 segment range (it loaded the whole file for every
+segment), and takes its run id from `persistent_run_id(RUN_ID, world_model_dir)`: `RUN_ID` when set, else the id in
+`<world_model_dir>/lejepa_run_id`, created once as `lejepa-<derive_run_id()>-<8 random hex digits>`. Registries hand a
+claim back to the run id that made it, so a pass restarted after a crash, kill or SIGTERM reclaims the last pass's
+files; with the old PID-based id they stayed claimed.

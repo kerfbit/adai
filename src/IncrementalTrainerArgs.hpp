@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.9.0
+// @adai-version: 0.10.0
 // @adai-reviewed: 2026-11-01
 
 // TD-035: incremental_trainer's global argv parsing and a few small pure helpers, pulled out of
@@ -80,6 +80,14 @@ bool incremental_trainer_command_defers_gpu_init(const std::string& command);
 // Derives a fallback run_id from hostname+pid when `configured` (RUN_ID from config/MNS) is
 // empty. Pure aside from the hostname/pid syscalls — no file or network I/O.
 std::string derive_run_id(const std::string& configured);
+
+// TD-415: the LeJEPA pass's run id. `configured` (RUN_ID) when set; else the id kept in
+// `<dir>/lejepa_run_id`, created on first use as "lejepa-" + derive_run_id("") + 8 random hex digits
+// (written to a temporary file and renamed). Registries hand a claim back to the run id that made it, so
+// a pass restarted after a crash or kill reclaims its own files; with a fresh PID-based id each time
+// they stayed claimed by an id no later process had. If the file can't be written the new id is still
+// returned (and a warning logged), so the pass runs; only reclaiming is lost.
+std::string persistent_run_id(const std::string& configured, const std::string& dir);
 
 // TD-202/TD-204: resolves the dataset registry sub-pool ("chatbot"/"world_model") for this
 // invocation. Deliberately takes only `objective` and `cli_override` — NOT a pre-loaded

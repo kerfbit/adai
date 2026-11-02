@@ -1407,6 +1407,8 @@ The generation and model math run is complete.
 - TD-449 (done in code: `mns_cli link-world-model` changes only the settings given (server-side merge on
   `"merge":true`), names and filter values are URL-encoded, every control character is escaped, `--sigreg-*` only for
   world models).
+- TD-415 (done in code, after the run: the LeJEPA pass loads only each claimed segment, and keeps its run id in the
+  world-model directory so a restarted pass reclaims a crashed one's files).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -11604,7 +11606,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / IncrementalTrainingTool | October 13, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 1, 2026 | Training / IncrementalTrainingTool | October 13, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `IncrementalTrainingTool`, by inspection. `run_lejepa_training_pass()` loads each
@@ -11617,13 +11619,34 @@ until released by hand.
 
 Action Items:
 
-- [ ] Pass `file_ranges()` through the LeJEPA loader; allocate a stable run id for the world model (MNS, or a persisted one per world-model directory) so a restarted pass can reclaim its own files.
+- [x] Pass `file_ranges()` through the LeJEPA loader; allocate a stable run id for the world model (MNS, or a persisted one per world-model directory) so a restarted pass can reclaim its own files.
 
-Location in code: `src/IncrementalTrainingTool.cpp` (`run_lejepa_training_pass()`); tagged `TODO: See TD-415`.
+**Fix (November 1, 2026):** done after TD-403 let `trainer_service` run LeJEPA passes, where both problems repeat
+every pass.
+- **Segments.** `run_lejepa_training_pass()` loads each claimed unit with its own segment range, as the chatbot pass
+  does, so a file queued as N segments is read once in total and each segment's trained record has its own count.
+- **Run id.** The new `persistent_run_id()` (`src/IncrementalTrainerArgs.{hpp,cpp}`) keeps the pass's run id in
+  `<world-model checkpoint dir>/lejepa_run_id`: `RUN_ID` when set, else an id created once as `lejepa-` +
+  `derive_run_id()` + 8 random hex digits (temporary file + rename). Registries hand a claim back to the run id that
+  made it, so the next pass reclaims a crashed, killed or SIGTERMed pass's files. The random part also keeps two hosts
+  from sharing an id (TD-404's collision, for this pass). If the file can't be written the pass still runs with the new
+  id and logs a warning.
+
+Tests: `PersistentRunId.ConfiguredWinsElseTheIdIsCreatedOnceAndReused` and, against the real binary,
+`SighupTest.LejepaPassTrainsEachSegmentOnceAndReclaimsAfterACrash` (a file queued as two 2-row segments, both claimed by
+a "crashed" pass under the persisted id: the next pass exits 0 and records 2 rows per segment). The old binary couldn't
+claim them and trained nothing; on unclaimed segments it recorded 4 rows for each (the whole file twice).
+
+A world-model directory is meant for one trainer at a time; two concurrent LeJEPA passes on one directory would share
+the id, as they already share the checkpoint.
+
+Location in code: `src/IncrementalTrainingTool.cpp` (`run_lejepa_training_pass()`), `src/IncrementalTrainerArgs.{hpp,cpp}`
+(`persistent_run_id()`).
 
 Files to Modify:
 
 - `src/IncrementalTrainingTool.cpp`
+- `src/IncrementalTrainerArgs.{hpp,cpp}`
 
 ---
 

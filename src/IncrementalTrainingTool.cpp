@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.26.0
+// @adai-version: 0.27.0
 // @adai-reviewed: 2026-11-01
 
 #include <array>
@@ -339,9 +339,10 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     Optimizer optimizer(OptimizerType::ADAM, svc_config.learning_rate);
     world_model.register_parameters_with_optimizer(optimizer);
 
-    // TODO: See TD-415 in TECHNICAL_DEBT.md - PID-based run id (never MNS): after a crash/SIGTERM the claimed files
-    // stay claimed by a run id no later process has (claims are only reclaimable by the same run id)
-    std::string run_id = adai::derive_run_id(svc_config.run_id);
+    // TD-415: a run id kept with the world-model checkpoint, so a pass restarted after a crash, kill or
+    // SIGTERM reclaims the files the last one claimed (registries hand a claim back to the same run id).
+    // It used to be PID-based, so those files stayed claimed by an id no later process had.
+    std::string run_id = adai::persistent_run_id(svc_config.run_id, world_model_dir);
 
     DatasetConfig dcfg = DatasetRegistry::make_config(svc_config);
     DatasetRegistry reg(dcfg);
@@ -369,16 +370,13 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         reg.release_pending(run_id, resp.file_ranges());  // TD-333: exact units
         return 1;
     }
-    std::vector<std::string> local_paths;
-    for (const auto& r : local_ranges)
-        local_paths.push_back(r.path);
-
     std::vector<std::string> texts;
-    std::vector<int> pair_counts;  // TD-334: per file, 1:1 with local_paths / resp.files
-    for (const auto& path : local_paths) {
+    std::vector<int> pair_counts;  // TD-334: per file, 1:1 with local_ranges / resp.files
+    for (const auto& range : local_ranges) {
         std::vector<ConversationPair> pairs;
-        // TODO: See TD-415 in TECHNICAL_DEBT.md - ignores TD-205 segment ranges: each claimed segment loads the whole file
-        DatasetRegistry::load_conversation_pairs(path, pairs);
+        // TD-415: only the claimed segment's rows (TD-205), as the chatbot pass loads them; every claimed
+        // segment of a file used to load the whole file.
+        DatasetRegistry::load_conversation_pairs(range.path, pairs, range.segment_start, range.segment_count);
         pair_counts.push_back(static_cast<int>(pairs.size()));
         for (const auto& pair : pairs) {
             if (!pair.input.empty())

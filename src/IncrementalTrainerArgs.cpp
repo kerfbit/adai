@@ -1,13 +1,17 @@
 // @adai-status: experimental
-// @adai-version: 0.10.0
+// @adai-version: 0.11.0
 // @adai-reviewed: 2026-11-01
 
 #include "IncrementalTrainerArgs.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <random>
 #include <set>
 #include "Config.hpp"
+#include "Logger.hpp"
 
 #ifdef _WIN32
 // TD-159: _getpid() below is declared here, not in <cstdlib>/<unistd.h> — was previously called
@@ -122,6 +126,45 @@ bool incremental_trainer_command_defers_gpu_init(const std::string& command) {
     // TD-172: "serve" removed — incremental_trainer no longer has an always-on service command
     // (see trainer_service, which never links adai_models/GPU objects at all).
     return command == "train" || command == "retrain" || command == "resume";
+}
+
+std::string persistent_run_id(const std::string& configured, const std::string& dir) {
+    if (!configured.empty()) return configured;
+    namespace fs = std::filesystem;
+    const fs::path file = fs::path(dir) / "lejepa_run_id";
+    {
+        std::ifstream in(file);
+        std::string id;
+        if (in && std::getline(in, id)) {
+            while (!id.empty() && (id.back() == '\r' || id.back() == ' ' || id.back() == '\t')) id.pop_back();
+            if (!id.empty()) return id;
+        }
+    }
+    std::random_device rd;
+    static const char* kHex = "0123456789abcdef";
+    std::string suffix;
+    for (int i = 0; i < 8; ++i) suffix += kHex[rd() & 0xF];
+    const std::string id = "lejepa-" + derive_run_id("") + "-" + suffix;
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    const fs::path tmp = file.string() + ".tmp";
+    bool written = false;
+    {
+        std::ofstream out(tmp, std::ios::trunc);
+        out << id << "\n";
+        out.flush();
+        written = static_cast<bool>(out);
+    }
+    if (written) {
+        fs::rename(tmp, file, ec);
+        written = !ec;
+    }
+    if (!written) {
+        fs::remove(tmp, ec);
+        Logger::warn("Could not save the LeJEPA run id to {}; a restarted pass won't reclaim this pass's files",
+                     file.string());
+    }
+    return id;
 }
 
 // TODO: See TD-404 in TECHNICAL_DEBT.md - 8-char hostname prefix + pid % 10000 can collide across hosts; the

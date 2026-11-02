@@ -473,3 +473,61 @@ TEST_F(SighupTest, LejepaResumeTrainsTheWorldModelAndThenReportsNothingPending) 
         << "no world-model checkpoint was written:\n" << log.str();
     EXPECT_EQ(run_resume(), 3) << "the file is trained, so the next pass has nothing pending";
 }
+
+// TD-415: the LeJEPA pass loaded the whole file for every claimed segment, and its PID-based run id left a
+// crashed pass's claims stuck. A file queued as two 2-row segments, both already claimed by a "crashed"
+// pass under the persisted run id: the next pass reclaims them and trains 2 rows per segment.
+TEST_F(SighupTest, LejepaPassTrainsEachSegmentOnceAndReclaimsAfterACrash) {
+    BPETokenizer tokenizer;
+    tokenizer.build_vocab({"hello world", "how are you", "good morning", "the cat sat"}, 60);
+    tokenizer.save_vocab((dir_ / "vocab.txt").string());
+    const fs::path data = dir_ / "pretrain.jsonl";
+    std::ofstream(data) << "{\"input\":\"hello world\"}\n{\"input\":\"how are you\"}\n"
+                        << "{\"input\":\"good morning\"}\n{\"input\":\"the cat sat\"}\n";
+    const fs::path sessions = dir_ / "sessions";
+    const fs::path checkpoint = sessions / "world_model_checkpoint";
+    fs::create_directories(checkpoint);
+    std::ofstream(checkpoint / "lejepa_run_id") << "lejepa-crashed-pass\n";
+    DatasetConfig dcfg;
+    dcfg.session_dir = sessions.string();
+    dcfg.dataset_kind = "world_model";
+    fs::create_directories(DatasetRegistry::local_pool_dir(dcfg));
+    {
+        DatasetRegistry reg(dcfg);
+        reg.load_registry();
+        reg.load_pending_list();
+        ASSERT_TRUE(reg.add_file(data.string(), 0, 2));
+        ASSERT_TRUE(reg.add_file(data.string(), 2, 2));
+        ASSERT_TRUE(reg.save_pending_list());
+        ASSERT_EQ(reg.acquire_pending("lejepa-crashed-pass").files.size(), 2u);  // then the pass "crashed"
+    }
+    const auto cfg = write_config(
+        "config.trainer.conf",
+        "LOG_FILE_PATH=" + (dir_ / "log.txt").string() + "\nSESSION_DIR=" + sessions.string() +
+            "\nVOCAB_PATH=" + (dir_ / "vocab.txt").string() +
+            "\nREGISTRY_SERVER_URL=\nNAME_SERVICE_URL=\nMETRICS_SERVER_URL=\nRUN_ID=\nGPU_ENABLED=false\n"
+            "NUM_EPOCHS=1\nMAX_SEQ_LENGTH=16\nWORLD_MODEL_ENABLED=true\nWORLD_MODEL_D_MODEL=64\n"
+            "WORLD_MODEL_NUM_LAYERS=1\nWORLD_MODEL_NUM_HEADS=2\nWORLD_MODEL_D_FF=128\n"
+            "WORLD_MODEL_SIGREG_BATCH_SIZE=2\n");
+    spawn(INCREMENTAL_TRAINER_BINARY_PATH, {"--config", cfg.string(), "--foreground", "--objective=lejepa", "resume"});
+    int status = 0;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+    pid_t done = 0;
+    while ((done = ::waitpid(pid_, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    ASSERT_EQ(done, pid_);
+    pid_ = -1;
+    EXPECT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 0) << "the crashed pass's claims weren't reclaimed";
+
+    // One trained record per segment, each with its own 2 rows (the whole file's 4 each, before).
+    std::ifstream registry(fs::path(DatasetRegistry::local_pool_dir(dcfg)) / dcfg.data_registry_file);
+    std::vector<int> samples;
+    for (std::string line; std::getline(registry, line);) {
+        std::istringstream fields(line);
+        std::string file, checksum;
+        int n = -1;
+        if (fields >> file >> checksum >> n) samples.push_back(n);
+    }
+    EXPECT_EQ(samples, (std::vector<int>{2, 2}));
+}

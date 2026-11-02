@@ -6,7 +6,10 @@
 // TrainerAdminAPITests.
 
 #include <gtest/gtest.h>
+#include <unistd.h>
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 #include "IncrementalTrainerArgs.hpp"
@@ -17,6 +20,7 @@ using adai::parse_incremental_trainer_global_args;
 using adai::parse_reset_command_args;
 using adai::parse_trainer_service_args;
 using adai::trainer_service_child_argv;
+using adai::persistent_run_id;
 using adai::resolve_dataset_kind;
 
 namespace {
@@ -393,4 +397,29 @@ TEST(TrainerServiceChildArgv, AlwaysPassesTheObjectiveAndTheDatasetKind) {
     ASSERT_NE(kind, argv.end());
     ASSERT_NE(kind + 1, argv.end());
     EXPECT_EQ(*(kind + 1), "encoder");  // an explicit kind beats the objective's default
+}
+
+// TD-415: the LeJEPA pass's run id was PID-based, so after a crash its claimed files stayed claimed by an id
+// no later process had. It's now kept in <dir>/lejepa_run_id.
+TEST(PersistentRunId, ConfiguredWinsElseTheIdIsCreatedOnceAndReused) {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / ("adai_td415_" + std::to_string(::getpid()));
+    fs::remove_all(dir);
+    EXPECT_EQ(persistent_run_id("configured-run", dir.string()), "configured-run");
+    EXPECT_FALSE(fs::exists(dir / "lejepa_run_id")) << "RUN_ID needs no file";
+
+    const std::string first = persistent_run_id("", dir.string());  // creates the directory too
+    EXPECT_EQ(first.rfind("lejepa-", 0), 0u) << first;
+    EXPECT_EQ(persistent_run_id("", dir.string()), first) << "a later pass must get the same id";
+    std::ifstream in(dir / "lejepa_run_id");
+    std::string saved;
+    std::getline(in, saved);
+    EXPECT_EQ(saved, first);
+    fs::remove_all(dir);
+
+    // A directory that can't be created (a file is in the way): still an id, no throw.
+    const fs::path blocker = fs::temp_directory_path() / ("adai_td415_file_" + std::to_string(::getpid()));
+    std::ofstream(blocker) << "x";
+    EXPECT_EQ(persistent_run_id("", (blocker / "sub").string()).rfind("lejepa-", 0), 0u);
+    fs::remove(blocker);
 }
