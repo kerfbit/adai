@@ -1,11 +1,13 @@
 // @adai-status: experimental
-// @adai-version: 0.4.0
+// @adai-version: 0.5.0
 // @adai-reviewed: 2026-11-01
 
 #include "MnsCliCommands.hpp"
 #include <fstream>
 #include <functional>
 #include <limits>
+#include <cctype>
+#include <set>
 #include <sstream>
 
 namespace adai {
@@ -75,7 +77,8 @@ std::string ParsedUrl::url_for(const std::string& path) const {
     return std::string(https ? "https://" : "http://") + host + ":" + std::to_string(port) + base_path + path;
 }
 
-// TODO: See TD-449 in TECHNICAL_DEBT.md - other control characters (< 0x20) pass through raw, producing invalid JSON
+// TD-449: every control character is escaped (other ones below 0x20 used to pass through raw,
+// producing invalid JSON).
 std::string json_escape(const std::string& s) {
     std::string out;
     for (unsigned char c : s) {
@@ -96,8 +99,30 @@ std::string json_escape(const std::string& s) {
                 out += "\\t";
                 break;
             default:
-                out += static_cast<char>(c);
+                if (c < 0x20) {
+                    static const char* kHex = "0123456789abcdef";
+                    out += "\\u00";
+                    out += kHex[c >> 4];
+                    out += kHex[c & 0xF];
+                } else {
+                    out += static_cast<char>(c);
+                }
                 break;
+        }
+    }
+    return out;
+}
+
+std::string url_encode(const std::string& s) {
+    static const char* kHex = "0123456789ABCDEF";
+    std::string out;
+    for (unsigned char c : s) {
+        if (std::isalnum(c) || c == '-' || c == '.' || c == '_' || c == '~') {
+            out += static_cast<char>(c);
+        } else {
+            out += '%';
+            out += kHex[c >> 4];
+            out += kHex[c & 0xF];
         }
     }
     return out;
@@ -195,7 +220,8 @@ std::optional<std::string> parse_options(const std::vector<std::string>& args, s
 }
 }  // namespace
 
-// TODO: See TD-449 in TECHNICAL_DEBT.md - path segments and query values aren't URL-encoded
+// TD-449: names and query values are URL-encoded here and in every path below (`get a/state` used to
+// request /models/a/state, and `list --role "a b&c"` built /models?role=a b&c).
 MnsCliRequest build_list_request(const std::vector<std::string>& args) {
     std::string state, role, kind;
     size_t limit = 0;  // 0 = no limit
@@ -209,15 +235,15 @@ MnsCliRequest build_list_request(const std::vector<std::string>& args) {
     std::string path = "/models";
     std::string sep = "?";
     if (!state.empty()) {
-        path += sep + "state=" + state;
+        path += sep + "state=" + url_encode(state);
         sep = "&";
     }
     if (!role.empty()) {
-        path += sep + "role=" + role;
+        path += sep + "role=" + url_encode(role);
         sep = "&";
     }
     if (!kind.empty()) {
-        path += sep + "kind=" + kind;
+        path += sep + "kind=" + url_encode(kind);
         sep = "&";
     }
     if (limit > 0) {
@@ -247,7 +273,7 @@ MnsCliRequest build_get_request(const std::vector<std::string>& args) {
         return make_error(*error + "\nUsage: get <name>");
     MnsCliRequest r;
     r.method = HttpMethod::Get;
-    r.path = "/models/" + args[0];
+    r.path = "/models/" + url_encode(args[0]);
     return r;
 }
 
@@ -275,6 +301,13 @@ MnsCliRequest build_register_request(const std::vector<std::string>& args,
     std::string encoder_name, decoder_name;
     float sigreg_lambda = 1.0f;
     size_t sigreg_num_sketches = 64;
+    bool sigreg_given = false;  // TD-449
+    const auto sigreg = [&sigreg_given](ValueSetter setter) -> ValueSetter {
+        return [&sigreg_given, setter](const std::string& flag, const std::string& value) {
+            sigreg_given = true;
+            return setter(flag, value);
+        };
+    };
 
     auto optional_count = [](std::optional<size_t>& field, size_t min) -> ValueSetter {
         return [&field, min](const std::string& flag, const std::string& value) -> std::optional<std::string> {
@@ -298,14 +331,18 @@ MnsCliRequest build_register_request(const std::vector<std::string>& args,
              {"--run-group", string_into(run_group)},
              {"--encoder", string_into(encoder_name)},
              {"--decoder", string_into(decoder_name)},
-             {"--sigreg-lambda", float_into(sigreg_lambda, 0.0f, std::numeric_limits<float>::max())},
-             {"--sigreg-num-sketches", count_into(sigreg_num_sketches, 1)},
+             {"--sigreg-lambda", sigreg(float_into(sigreg_lambda, 0.0f, std::numeric_limits<float>::max()))},
+             {"--sigreg-num-sketches", sigreg(count_into(sigreg_num_sketches, 1))},
              {"--tag", key_value_into(tags)}})) {
         return make_error(*error + "\nUsage: register <name> <role> [options...] (see --help)");
     }
 
     if (kind != "encoder" && kind != "decoder" && kind != "world_model" && kind != "chatbot")
         return make_error("--kind must be one of: encoder, decoder, world_model, chatbot");
+
+    // TD-449: these were silently dropped for any other kind.
+    if (sigreg_given && kind != "world_model")
+        return make_error("--sigreg-lambda/--sigreg-num-sketches are only valid with --kind world_model");
 
     const bool standalone = kind != "chatbot";
     const bool has_encoder_decoder = !encoder_name.empty() || !decoder_name.empty();
@@ -423,25 +460,35 @@ MnsCliRequest build_register_request(const std::vector<std::string>& args,
 }
 
 MnsCliRequest build_link_world_model_request(const std::vector<std::string>& args) {
-    if (args.empty()) {
-        return make_error(
-            "Usage: link-world-model <chatbot-name> --world-model <name> "
-            "[--inject-every-n-layers N] [--hippocampal-enabled] [--hippocampal-capacity N] "
-            "[--hippocampal-repetition-alpha F] [--hippocampal-repetition-decay F] "
-            "[--hippocampal-cross-reference-alpha F] [--hippocampal-association-decay F]\n"
-            "  Pass --world-model \"\" (empty) to detach.");
-    }
+    static const char* kUsage =
+        "Usage: link-world-model <chatbot-name> --world-model <name> "
+        "[--inject-every-n-layers N] [--hippocampal-enabled | --hippocampal-disabled] [--hippocampal-capacity N] "
+        "[--hippocampal-repetition-alpha F] [--hippocampal-repetition-decay F] "
+        "[--hippocampal-cross-reference-alpha F] [--hippocampal-association-decay F]\n"
+        "  Settings not given keep their current values. Pass --world-model \"\" (empty) to detach.";
+    if (args.empty()) return make_error(kUsage);
     const std::string& name = args[0];
     std::string world_model_name;
     bool world_model_set = false;
     size_t inject_every_n_layers = 0;
     bool hippocampal_enabled = false;
+    bool hippocampal_disabled = false;
     size_t hippocampal_capacity = 512;
     float repetition_alpha = 0.0f;
     float repetition_decay = 0.95f;
     float cross_reference_alpha = 0.0f;
     float association_decay = 0.95f;
 
+    // TD-449: only the settings given are sent, with "merge":true so mns_server keeps the rest. All eight
+    // used to be sent, defaults for the omitted ones, so re-running it to change --inject-every-n-layers
+    // turned hippocampal memory off and reset its tuning.
+    std::set<std::string> given;
+    const auto mark = [&given](const char* key, ValueSetter setter) -> ValueSetter {
+        return [&given, key, setter](const std::string& flag, const std::string& value) {
+            given.insert(key);
+            return setter(flag, value);
+        };
+    };
     if (auto error = parse_options(
             args, 1,
             {{"--world-model",
@@ -450,34 +497,48 @@ MnsCliRequest build_link_world_model_request(const std::vector<std::string>& arg
                   world_model_set = true;
                   return std::nullopt;
               }},
-             {"--inject-every-n-layers", count_into(inject_every_n_layers, 0)},
-             {"--hippocampal-capacity", count_into(hippocampal_capacity, 1)},
-             {"--hippocampal-repetition-alpha", float_into(repetition_alpha, 0.0f, std::numeric_limits<float>::max())},
-             {"--hippocampal-repetition-decay", float_into(repetition_decay, 0.0f, 1.0f)},
+             {"--inject-every-n-layers",
+              mark("world_model_inject_every_n_layers", count_into(inject_every_n_layers, 0))},
+             {"--hippocampal-capacity", mark("hippocampal_memory_capacity", count_into(hippocampal_capacity, 1))},
+             {"--hippocampal-repetition-alpha",
+              mark("hippocampal_repetition_alpha",
+                   float_into(repetition_alpha, 0.0f, std::numeric_limits<float>::max()))},
+             {"--hippocampal-repetition-decay",
+              mark("hippocampal_repetition_decay", float_into(repetition_decay, 0.0f, 1.0f))},
              {"--hippocampal-cross-reference-alpha",
-              float_into(cross_reference_alpha, 0.0f, std::numeric_limits<float>::max())},
-             {"--hippocampal-association-decay", float_into(association_decay, 0.0f, 1.0f)}},
-            {{"--hippocampal-enabled", &hippocampal_enabled}})) {
-        return make_error(*error + "\nUsage: link-world-model <chatbot-name> --world-model <name> [...]");
+              mark("hippocampal_cross_reference_alpha",
+                   float_into(cross_reference_alpha, 0.0f, std::numeric_limits<float>::max()))},
+             {"--hippocampal-association-decay",
+              mark("hippocampal_association_decay", float_into(association_decay, 0.0f, 1.0f))}},
+            {{"--hippocampal-enabled", &hippocampal_enabled}, {"--hippocampal-disabled", &hippocampal_disabled}})) {
+        return make_error(*error + "\n" + kUsage);
     }
 
-    if (!world_model_set)
-        return make_error("Usage: link-world-model <chatbot-name> --world-model <name> [...]");
+    if (!world_model_set) return make_error(kUsage);
+    if (hippocampal_enabled && hippocampal_disabled)
+        return make_error(std::string("--hippocampal-enabled and --hippocampal-disabled are exclusive\n") + kUsage);
 
-    // TODO: See TD-449 in TECHNICAL_DEBT.md - always sends all eight fields; omitted flags reset hippocampal settings on relink
     std::ostringstream body;
-    body << "{\"world_model_name\":\"" << json_escape(world_model_name) << "\""
-         << ",\"world_model_inject_every_n_layers\":" << inject_every_n_layers
-         << ",\"hippocampal_memory_enabled\":" << (hippocampal_enabled ? "true" : "false")
-         << ",\"hippocampal_memory_capacity\":" << hippocampal_capacity
-         << ",\"hippocampal_repetition_alpha\":" << repetition_alpha
-         << ",\"hippocampal_repetition_decay\":" << repetition_decay
-         << ",\"hippocampal_cross_reference_alpha\":" << cross_reference_alpha
-         << ",\"hippocampal_association_decay\":" << association_decay << "}";
+    body << "{\"world_model_name\":\"" << json_escape(world_model_name) << "\",\"merge\":true";
+    if (given.count("world_model_inject_every_n_layers"))
+        body << ",\"world_model_inject_every_n_layers\":" << inject_every_n_layers;
+    if (hippocampal_enabled || hippocampal_disabled)
+        body << ",\"hippocampal_memory_enabled\":" << (hippocampal_enabled ? "true" : "false");
+    if (given.count("hippocampal_memory_capacity"))
+        body << ",\"hippocampal_memory_capacity\":" << hippocampal_capacity;
+    if (given.count("hippocampal_repetition_alpha"))
+        body << ",\"hippocampal_repetition_alpha\":" << repetition_alpha;
+    if (given.count("hippocampal_repetition_decay"))
+        body << ",\"hippocampal_repetition_decay\":" << repetition_decay;
+    if (given.count("hippocampal_cross_reference_alpha"))
+        body << ",\"hippocampal_cross_reference_alpha\":" << cross_reference_alpha;
+    if (given.count("hippocampal_association_decay"))
+        body << ",\"hippocampal_association_decay\":" << association_decay;
+    body << "}";
 
     MnsCliRequest r;
     r.method = HttpMethod::Post;
-    r.path = "/models/" + name + "/link-world-model";
+    r.path = "/models/" + url_encode(name) + "/link-world-model";
     r.body = body.str();
     return r;
 }
@@ -501,7 +562,7 @@ MnsCliRequest build_update_run_group_request(const std::vector<std::string>& arg
     body << "{\"run_group\":\"" << json_escape(*run_group) << "\"}";
     MnsCliRequest r;
     r.method = HttpMethod::Put;
-    r.path = "/models/" + positionals[0] + "/run_group";
+    r.path = "/models/" + url_encode(positionals[0]) + "/run_group";
     r.body = body.str();
     return r;
 }
@@ -511,7 +572,7 @@ MnsCliRequest build_resolve_request(const std::vector<std::string>& args) {
         return make_error(*error + "\nUsage: resolve <name>");
     MnsCliRequest r;
     r.method = HttpMethod::Get;
-    r.path = "/models/" + args[0] + "/resolve";
+    r.path = "/models/" + url_encode(args[0]) + "/resolve";
     return r;
 }
 
@@ -545,7 +606,7 @@ MnsCliRequest build_set_training_request(const std::vector<std::string>& args) {
 
     MnsCliRequest r;
     r.method = HttpMethod::Put;
-    r.path = "/models/" + name + "/state";
+    r.path = "/models/" + url_encode(name) + "/state";
     r.body = body.str();
     return r;
 }
@@ -588,7 +649,7 @@ MnsCliRequest build_set_candidate_request(const std::vector<std::string>& args) 
 
     MnsCliRequest r;
     r.method = HttpMethod::Put;
-    r.path = "/models/" + name + "/state";
+    r.path = "/models/" + url_encode(name) + "/state";
     r.body = body.str();
     return r;
 }
@@ -598,7 +659,7 @@ MnsCliRequest build_delete_request(const std::vector<std::string>& args) {
         return make_error(*error + "\nUsage: delete <name>");
     MnsCliRequest r;
     r.method = HttpMethod::Delete;
-    r.path = "/models/" + args[0];
+    r.path = "/models/" + url_encode(args[0]);
     return r;
 }
 
@@ -616,7 +677,7 @@ MnsCliRequest build_resolve_role_request(const std::vector<std::string>& args) {
         return make_error(*error + "\nUsage: resolve-role <role>");
     MnsCliRequest r;
     r.method = HttpMethod::Get;
-    r.path = "/roles/" + args[0] + "/production";
+    r.path = "/roles/" + url_encode(args[0]) + "/production";
     return r;
 }
 
@@ -627,7 +688,7 @@ MnsCliRequest build_promote_request(const std::vector<std::string>& args) {
     body << "{\"model_name\":\"" << json_escape(args[1]) << "\"}";
     MnsCliRequest r;
     r.method = HttpMethod::Put;
-    r.path = "/roles/" + args[0] + "/production";
+    r.path = "/roles/" + url_encode(args[0]) + "/production";
     r.body = body.str();
     return r;
 }

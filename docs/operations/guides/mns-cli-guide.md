@@ -205,6 +205,22 @@ mns_cli register adai-chatbot-v3 chatbot --d-model 256 --num-heads 8 --d-ff 1024
 For `--kind encoder`/`decoder`/`world_model`, the layer count is `--num-layers` (or the file's `NUM_ENCODER_LAYERS`,
 `NUM_DECODER_LAYERS` for a decoder), and the other layer count is 0. A chatbot linked with `--encoder`/`--decoder`
 takes no architecture options.
+`--sigreg-lambda`/`--sigreg-num-sketches` are only accepted with `--kind world_model`.
+
+To attach a world model to a chatbot, or change its link, use `link-world-model`. Settings you don't pass keep their
+current values, so a relink can change one of them:
+
+```bash
+mns_cli link-world-model adai-chatbot-v3 --world-model adai-wm-v1 --inject-every-n-layers 1 \
+  --hippocampal-enabled --hippocampal-capacity 256
+# Later: change only the injection interval; hippocampal memory stays on at 256
+mns_cli link-world-model adai-chatbot-v3 --world-model adai-wm-v1 --inject-every-n-layers 2
+# Turn hippocampal memory off, or detach the world model
+mns_cli link-world-model adai-chatbot-v3 --world-model adai-wm-v1 --hippocampal-disabled
+mns_cli link-world-model adai-chatbot-v3 --world-model ""
+```
+
+Model names and `list` filter values are URL-encoded, so any characters work.
 
 **Response:**
 ```json

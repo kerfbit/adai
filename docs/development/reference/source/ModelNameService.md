@@ -137,3 +137,10 @@ This server installs `install_browser_write_guard()` ([BrowserWriteGuard.md](Bro
 (POST/PUT/PATCH/DELETE) carrying any `Origin` gets 403, and a write with a `text/plain`, form-encoded or multipart body gets 415. A web
 page open in an operator's browser can no longer make it execute writes. Clients that aren't browsers send no `Origin` and are unaffected
 as long as they send JSON (or, for `registry_server`'s `upload`, `application/octet-stream`).
+
+## Addendum (November 1, 2026): `link-world-model` merge (TD-449)
+
+`handle_link_world_model()` reads an optional `"merge"` boolean. With `"merge":true` every connection field the body
+leaves out keeps its current value (`mns_cli link-world-model` sends it). Without it the body still replaces the whole
+link with defaults for omitted fields, as before; the Android dashboard depends on that, since kotlinx serialization
+omits default values from its body.

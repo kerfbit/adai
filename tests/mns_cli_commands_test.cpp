@@ -31,6 +31,7 @@ using adai::build_set_training_request;
 using adai::build_update_run_group_request;
 using adai::HttpMethod;
 using adai::json_escape;
+using adai::url_encode;
 using adai::parse_url;
 using adai::ServiceConfig;
 
@@ -66,6 +67,8 @@ TEST(JsonEscape, EscapesQuotesBackslashesAndControlChars) {
     EXPECT_EQ(json_escape("a\nb"), "a\\nb");
     EXPECT_EQ(json_escape("a\tb"), "a\\tb");
     EXPECT_EQ(json_escape("plain"), "plain");
+    // TD-449: other control characters used to pass through raw (invalid JSON).
+    EXPECT_EQ(json_escape(std::string("a\x01" "b\x1f")), "a\\u0001b\\u001f");
 }
 
 TEST(BuildListRequest, NoFiltersIsBarePath) {
@@ -283,15 +286,25 @@ TEST(BuildLinkWorldModelRequest, RequiresWorldModelFlag) {
                     .error);
 }
 
-TEST(BuildLinkWorldModelRequest, BuildsCorrectPostRequestWithDefaults) {
+// TD-449: only the settings given are sent, with "merge":true, so mns_server keeps the others; all eight
+// used to be sent with defaults, which turned hippocampal memory off on every relink.
+TEST(BuildLinkWorldModelRequest, SendsOnlyTheGivenSettingsAndAsksTheServerToMerge) {
     auto r = build_link_world_model_request({"my-chatbot", "--world-model", "my-wm"});
     ASSERT_FALSE(r.error);
     EXPECT_EQ(r.method, HttpMethod::Post);
     EXPECT_EQ(r.path, "/models/my-chatbot/link-world-model");
-    EXPECT_NE(r.body.find("\"world_model_name\":\"my-wm\""), std::string::npos);
-    EXPECT_NE(r.body.find("\"world_model_inject_every_n_layers\":0"), std::string::npos);
+    EXPECT_EQ(r.body, "{\"world_model_name\":\"my-wm\",\"merge\":true}");
+
+    r = build_link_world_model_request({"my-chatbot", "--world-model", "my-wm", "--inject-every-n-layers", "2"});
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.body, "{\"world_model_name\":\"my-wm\",\"merge\":true,\"world_model_inject_every_n_layers\":2}");
+
+    r = build_link_world_model_request({"my-chatbot", "--world-model", "my-wm", "--hippocampal-disabled"});
+    ASSERT_FALSE(r.error);
     EXPECT_NE(r.body.find("\"hippocampal_memory_enabled\":false"), std::string::npos);
-    EXPECT_NE(r.body.find("\"hippocampal_memory_capacity\":512"), std::string::npos);
+    EXPECT_TRUE(build_link_world_model_request(
+                    {"c", "--world-model", "w", "--hippocampal-enabled", "--hippocampal-disabled"})
+                    .error);
 }
 
 TEST(BuildLinkWorldModelRequest, EmptyWorldModelNameBuildsDetachRequest) {
@@ -763,3 +776,29 @@ TEST(Td450MnsCliBinary, AFlaglessRegisterNeverReachesTheServer) {
 }
 #endif
 
+
+// TD-449: names and query values weren't URL-encoded: `get a/state` requested /models/a/state, and
+// `list --role "a b&c"` built /models?role=a b&c.
+TEST(UrlEncoding, NamesAndQueryValuesAreEncoded) {
+    EXPECT_EQ(url_encode("my-model_1.v2~x"), "my-model_1.v2~x");
+    EXPECT_EQ(url_encode("a/b c&d?"), "a%2Fb%20c%26d%3F");
+    EXPECT_EQ(build_get_request({"a/state"}).path, "/models/a%2Fstate");
+    EXPECT_EQ(build_list_request({"--role", "a b&c", "--state", "x=y"}).path, "/models?state=x%3Dy&role=a%20b%26c");
+    EXPECT_EQ(build_link_world_model_request({"a/b", "--world-model", "w"}).path, "/models/a%2Fb/link-world-model");
+}
+
+// TD-449: --sigreg-* were silently dropped for kinds other than world_model.
+TEST(BuildRegisterRequest, SigregFlagsAreOnlyForWorldModels) {
+    adai::ServiceConfig cfg;
+    for (const std::string kind : {"chatbot", "encoder", "decoder"}) {
+        auto r = build_register_request({"m", "r", "--kind", kind, "--sigreg-lambda", "0.5"}, cfg);
+        EXPECT_TRUE(r.error) << kind;
+        EXPECT_NE(r.error_message.find("only valid with --kind world_model"), std::string::npos) << r.error_message;
+    }
+    auto r = build_register_request({"m", "r", "--kind", "world_model", "--d-model", "64", "--num-heads", "2",
+                                     "--d-ff", "128", "--num-layers", "1", "--max-seq-length", "32",
+                                     "--sigreg-num-sketches", "16"},
+                                    cfg);
+    ASSERT_FALSE(r.error) << r.error_message;
+    EXPECT_NE(r.body.find("\"sigreg_num_sketches\":16"), std::string::npos);
+}

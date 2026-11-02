@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.4.0
+// @adai-version: 0.5.0
 // @adai-reviewed: 2026-11-01
 
 // TD-035: mns_cli's per-command argument parsing and JSON-body construction, pulled out of
@@ -51,7 +51,10 @@ struct ParsedUrl {
 };
 ParsedUrl parse_url(const std::string& raw);
 
+// TD-449: control characters below 0x20 come out as \u00XX.
 std::string json_escape(const std::string& s);
+// TD-449: percent-encodes everything except RFC 3986 unreserved characters, for path segments and query values.
+std::string url_encode(const std::string& s);
 
 MnsCliRequest build_list_request(const std::vector<std::string>& args);
 MnsCliRequest build_get_request(const std::vector<std::string>& args);

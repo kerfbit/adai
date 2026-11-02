@@ -1205,6 +1205,48 @@ TEST_F(MNSLiveTest, LinkWorldModel_AttachSucceedsAndPersists) {
     EXPECT_TRUE(json_bool(get_res->body, "hippocampal_memory_enabled"));
 }
 
+// TD-449: with "merge":true (mns_cli's relink) omitted fields keep their values; without it the body replaces
+// the link as before (the Android dashboard sends only non-default values and relies on that).
+TEST_F(MNSLiveTest, LinkWorldModel_MergeKeepsOmittedFieldsAndPlainBodyReplaces) {
+    const auto bot = make_model("linkmergebot");
+    const auto wm = make_model("linkmergewm");
+    auto c = make_client();
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + bot + "\",\"arch\":" + arch_json(128, 4, 512, 2, 2, 256) + "}",
+                          "application/json")
+                       ->status);
+    ASSERT_EQ(201, c.Post("/models",
+                          "{\"model_name\":\"" + wm + "\",\"kind\":\"world_model\",\"arch\":" +
+                              arch_json(128, 4, 512, 6, 0, 256) + "}",
+                          "application/json")
+                       ->status);
+    const std::string path = "/models/" + bot + "/link-world-model";
+    ASSERT_EQ(200, c.Post(path,
+                          "{\"world_model_name\":\"" + wm +
+                              "\",\"world_model_inject_every_n_layers\":1,\"hippocampal_memory_enabled\":true"
+                              ",\"hippocampal_memory_capacity\":64}",
+                          "application/json")
+                       ->status);
+
+    // Relink changing only the injection interval, as `mns_cli link-world-model --inject-every-n-layers 2` does.
+    ASSERT_EQ(200, c.Post(path, "{\"world_model_name\":\"" + wm + "\",\"merge\":true,\"world_model_inject_every_n_layers\":2}",
+                          "application/json")
+                       ->status);
+    auto get_res = c.Get("/models/" + bot);
+    ASSERT_TRUE(get_res);
+    EXPECT_EQ(2, json_int(get_res->body, "world_model_inject_every_n_layers"));
+    EXPECT_TRUE(json_bool(get_res->body, "hippocampal_memory_enabled")) << "the relink turned hippocampal memory off";
+    EXPECT_EQ(64, json_int(get_res->body, "hippocampal_memory_capacity"));
+
+    // Without "merge" the body is the whole link.
+    ASSERT_EQ(200, c.Post(path, "{\"world_model_name\":\"" + wm + "\"}", "application/json")->status);
+    get_res = c.Get("/models/" + bot);
+    ASSERT_TRUE(get_res);
+    EXPECT_EQ(0, json_int(get_res->body, "world_model_inject_every_n_layers"));
+    EXPECT_FALSE(json_bool(get_res->body, "hippocampal_memory_enabled"));
+    EXPECT_EQ(512, json_int(get_res->body, "hippocampal_memory_capacity"));
+}
+
 TEST_F(MNSLiveTest, LinkWorldModel_MismatchedDModelReturns409) {
     const auto bot = make_model("linkmmbot");
     const auto wm = make_model("linkmmwm");

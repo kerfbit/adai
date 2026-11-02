@@ -162,3 +162,11 @@ or another scheme sets `error` (a bad port used to be ignored). `get`, `resolve`
 `build_health_request()` take the argument list, defaulting to empty); `update` takes `--run-group` in any position.
 This matters because `mns_cli` now stops reading global options at the command word, so `delete m --url X` reaches
 `build_delete_request()` and is refused instead of deleting `m` on the default server.
+
+## Addendum (November 1, 2026): relink merge, URL encoding, escaping, `--sigreg-*` (TD-449)
+
+`build_link_world_model_request()` sends only the settings given, plus `"merge":true`, so `mns_server` keeps the rest;
+it used to send all eight with defaults, so a relink turned hippocampal memory off. `--hippocampal-disabled` (exclusive
+with `--hippocampal-enabled`) turns it off explicitly. A new `url_encode()` encodes every name in a path and every
+`list` filter value. `json_escape()` writes any other control character below 0x20 as `\u00XX`.
+`build_register_request()` refuses `--sigreg-lambda`/`--sigreg-num-sketches` for kinds other than `world_model`.

@@ -1404,6 +1404,9 @@ The generation and model math run is complete.
   `DatasetRegistry` refuses any other kind).
 - TD-403 (done in code, owner's choice: `trainer_service` passes `--objective` and `--dataset-kind` to every pass, and
   `resume` runs the LeJEPA world-model pass for `--objective=lejepa` with resume's exit codes).
+- TD-449 (done in code: `mns_cli link-world-model` changes only the settings given (server-side merge on
+  `"merge":true`), names and filter values are URL-encoded, every control character is escaped, `--sigreg-*` only for
+  world models).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -12940,7 +12943,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | MNS / CLI | October 14, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 1, 2026 | MNS / CLI | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `MnsCliCommands`:
@@ -12959,16 +12962,35 @@ Found while tracing `MnsCliCommands`:
 Action Items:
 
 - [x] Require `--num-layers` for standalone kinds (or derive it from the config's matching field and zero the other). (Done with TD-450, November 1, 2026: `--num-layers`, else `--from-config`'s matching key, else a usage error; the other count is 0.)
-- [ ] Make `link-world-model` send only the fields given (server-side merge), or document full replacement in its usage.
-- [ ] URL-encode path segments and query values; escape all control characters as `\u00XX`; reject `--sigreg-*` for other kinds.
+- [x] Make `link-world-model` send only the fields given (server-side merge), or document full replacement in its usage.
+- [x] URL-encode path segments and query values; escape all control characters as `\u00XX`; reject `--sigreg-*` for other kinds.
 - [x] `update` option order and `parse_url()`'s `https://` handling (done with TD-451, November 1, 2026: `--run-group` in any position, extra arguments rejected; `https://` is real TLS on port 443).
 
-Location in code: `src/MnsCliCommands.cpp` (`build_register_request()`, `build_link_world_model_request()`, `json_escape()`, path builders); tagged `TODO: See TD-449`.
+**Fix (November 1, 2026):** the remaining items.
+- **Relink.** `link-world-model` sends only the settings given, plus `"merge":true`; `handle_link_world_model()` then
+  keeps the current value of every field the body leaves out. Without `merge` the body still replaces the whole link,
+  omitted fields taking their defaults, because the Android dashboard sends only non-default values (kotlinx
+  serialization omits defaults) and relies on that. A new `--hippocampal-disabled` turns the memory off now that
+  omitting `--hippocampal-enabled` keeps it as it is; the two flags are exclusive.
+- **Encoding.** A new `url_encode()` percent-encodes every model and role name in a path and every `list` filter value
+  (everything but RFC 3986 unreserved characters). `json_escape()` writes every other control character below 0x20
+  as `\u00XX`.
+- **`--sigreg-*`** are a usage error for any kind but `world_model`.
+
+Tests: `mnsCliCommandsTests` (link body, `--hippocampal-disabled`, control characters, `UrlEncoding`,
+`SigregFlagsAreOnlyForWorldModels`) and `MNSLiveTest.LinkWorldModel_MergeKeepsOmittedFieldsAndPlainBodyReplaces`
+(63/63 live tests pass against a local `mns_server`). With the real binaries, relinking with only
+`--inject-every-n-layers 2` kept `hippocampal_memory_enabled:true` and capacity 64; the old binaries reset them to
+`false` and 512, and the old server fails the live test.
+
+Location in code: `src/MnsCliCommands.cpp` (`build_link_world_model_request()`, `json_escape()`, `url_encode()`, path
+builders, `build_register_request()`), `src/ModelNameService.cpp` (`handle_link_world_model()`).
 
 Files to Modify:
 
-- `src/MnsCliCommands.cpp`
-- `tests/mns_cli_commands_test.cpp`
+- `src/MnsCliCommands.{hpp,cpp}`
+- `src/ModelNameService.cpp`
+- `tests/mns_cli_commands_test.cpp`, `tests/model_name_service_live_test.cpp`
 
 ---
 

@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.1
-// @adai-reviewed: 2026-10-24
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-01
 
 #include "ModelNameService.hpp"
 #include <httplib.h>
@@ -1666,8 +1666,13 @@ std::pair<int, std::string> adai::ModelNameService::handle_link_world_model(
         return {200, "{\"status\":\"ok\",\"world_model_name\":\"\"}"};
     }
 
-    const size_t inject_every_n_layers =
-        static_cast<size_t>(json_int(body, "world_model_inject_every_n_layers", 0));
+    // TD-449: with "merge":true (mns_cli sends it), a field the body leaves out keeps its current value;
+    // without it the body replaces the whole link, omitted fields taking their defaults, as before (the
+    // Android dashboard sends only non-default values and relies on that).
+    const bool merge = json_bool(body, "merge", false);
+    const ModelConnection current = r.connection;
+    const size_t inject_every_n_layers = static_cast<size_t>(json_int(
+        body, "world_model_inject_every_n_layers", merge ? static_cast<int>(current.world_model_inject_every_n_layers) : 0));
 
     if (auto err = validate_world_model_link(r, world_model_name, inject_every_n_layers)) {
         return *err;
@@ -1675,17 +1680,18 @@ std::pair<int, std::string> adai::ModelNameService::handle_link_world_model(
 
     r.connection.world_model_name = world_model_name;
     r.connection.world_model_inject_every_n_layers = inject_every_n_layers;
-    r.connection.hippocampal_memory_enabled = json_bool(body, "hippocampal_memory_enabled", false);
-    r.connection.hippocampal_memory_capacity =
-        static_cast<size_t>(json_int(body, "hippocampal_memory_capacity", 512));
-    r.connection.hippocampal_repetition_alpha =
-        static_cast<float>(json_double(body, "hippocampal_repetition_alpha", 0.0));
-    r.connection.hippocampal_repetition_decay =
-        static_cast<float>(json_double(body, "hippocampal_repetition_decay", 0.95));
-    r.connection.hippocampal_cross_reference_alpha =
-        static_cast<float>(json_double(body, "hippocampal_cross_reference_alpha", 0.0));
-    r.connection.hippocampal_association_decay =
-        static_cast<float>(json_double(body, "hippocampal_association_decay", 0.95));
+    r.connection.hippocampal_memory_enabled =
+        json_bool(body, "hippocampal_memory_enabled", merge ? current.hippocampal_memory_enabled : false);
+    r.connection.hippocampal_memory_capacity = static_cast<size_t>(json_int(
+        body, "hippocampal_memory_capacity", merge ? static_cast<int>(current.hippocampal_memory_capacity) : 512));
+    r.connection.hippocampal_repetition_alpha = static_cast<float>(
+        json_double(body, "hippocampal_repetition_alpha", merge ? current.hippocampal_repetition_alpha : 0.0));
+    r.connection.hippocampal_repetition_decay = static_cast<float>(
+        json_double(body, "hippocampal_repetition_decay", merge ? current.hippocampal_repetition_decay : 0.95));
+    r.connection.hippocampal_cross_reference_alpha = static_cast<float>(json_double(
+        body, "hippocampal_cross_reference_alpha", merge ? current.hippocampal_cross_reference_alpha : 0.0));
+    r.connection.hippocampal_association_decay = static_cast<float>(
+        json_double(body, "hippocampal_association_decay", merge ? current.hippocampal_association_decay : 0.95));
     r.updated_utc = utc_now();
     persist_model(r);
     Logger::info("ModelNameService: '{}' linked to world model '{}' (inject_every_n_layers={})",
