@@ -466,3 +466,56 @@ TEST_F(ChatbotApiServerStartupTest, HippocampalMemoryIsNotAttachedWithoutAPath) 
     }
 }
 
+
+// TD-251: a reload applied only the log level and generation settings. MAX_BATCH_SIZE (like
+// SESSION_TIMEOUT, MAX_SESSIONS, the RAG retrieval settings and the save interval) waited for a
+// restart, and the reloaded config took the file's MODEL_PATH while the old model kept serving
+// (MNS-resolved paths and architecture were lost the same way).
+TEST_F(ChatbotApiServerStartupTest, AReloadAppliesLiveSettingsAndKeepsTheLoadedModel) {
+    const std::string model_a = (dir_ / "model_a").string();
+    const std::string model_b = (dir_ / "model_b").string();
+    const std::string config =
+        write_config("ALLOW_UNTRAINED_MODEL=true\nMAX_GEN_LENGTH=2\nMAX_BATCH_SIZE=4\nMODEL_PATH=" + model_a + "\n");
+    const pid_t pid = spawn(config);
+    httplib::Client client("127.0.0.1", port_);
+    client.set_connection_timeout(std::chrono::milliseconds(200));
+    client.set_read_timeout(std::chrono::seconds(60));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    bool up = false;
+    while (!up && std::chrono::steady_clock::now() < deadline) {
+        up = static_cast<bool>(client.Get("/health"));
+        ASSERT_LT(wait_exit(pid, std::chrono::seconds(0)), 0) << "the server exited";
+        if (!up) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    ASSERT_TRUE(up) << "the server never answered /health";
+    const std::string three = R"({"messages":["hello","world","good"]})";
+    auto before = client.Post("/chat/batch", three, "application/json");
+    ASSERT_TRUE(before);
+    EXPECT_EQ(before->status, 200) << before->body;
+
+    write_config("ALLOW_UNTRAINED_MODEL=true\nMAX_GEN_LENGTH=2\nMAX_BATCH_SIZE=2\nMODEL_PATH=" + model_b + "\n");
+    ASSERT_EQ(::kill(pid, SIGHUP), 0);
+    auto read_log = [&] {
+        std::stringstream s;
+        s << std::ifstream(dir_ / "server.log").rdbuf();
+        return s.str();
+    };
+    std::string log;
+    const auto reload_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    while (log.find("Generation configuration updated") == std::string::npos &&
+           std::chrono::steady_clock::now() < reload_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        log = read_log();
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));  // the settings after it
+    auto after = client.Post("/chat/batch", three, "application/json");
+    ASSERT_TRUE(after);
+    EXPECT_EQ(after->status, 413) << "MAX_BATCH_SIZE=2 should apply without a restart: " << after->body;
+    stop(pid);
+    log = read_log();
+    EXPECT_NE(log.find("MODEL_PATH changed but takes effect only after a restart"), std::string::npos) << log;
+    EXPECT_EQ(log.find("MAX_BATCH_SIZE changed but takes effect only after a restart"), std::string::npos) << log;
+    EXPECT_NE(log.find("Model state: " + model_a + " (read-only)"), std::string::npos)
+        << "the running model's path should survive the reload:\n" << log;
+    EXPECT_EQ(log.find("Model state: " + model_b), std::string::npos) << log;
+}

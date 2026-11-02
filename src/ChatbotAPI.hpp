@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.21.0
-// @adai-reviewed: 2026-10-28
+// @adai-version: 0.22.0
+// @adai-reviewed: 2026-11-01
 
 
 #include <atomic>
@@ -140,6 +140,14 @@ class ChatbotAPI {
      */
     void set_session_expiry(std::chrono::steady_clock::duration timeout,
                             std::chrono::steady_clock::duration sweep_interval);
+
+    /**
+     * @brief Set how long an idle session lives, keeping the sweep interval (TD-251)
+     *
+     * chatbot_api_server applies a reloaded SESSION_TIMEOUT through this; the next sweep and every
+     * lookup use the new timeout, including for sessions that already exist.
+     */
+    void set_session_timeout(std::chrono::steady_clock::duration timeout);
 
     /**
      * @brief Cap the number of live sessions (TD-232; default 10,000, at least 1)

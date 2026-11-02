@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.27.0
-// @adai-reviewed: 2026-10-28
+// @adai-version: 0.28.0
+// @adai-reviewed: 2026-11-01
 
 #include "ChatbotAPI.hpp"
 #include "nlohmann/json.hpp"
@@ -287,6 +287,11 @@ void ChatbotAPI::set_session_expiry(std::chrono::steady_clock::duration timeout,
             sweep_interval, std::chrono::milliseconds(1));
     }
     sweeper_cv_.notify_all();  // start waiting on the new interval
+}
+
+void ChatbotAPI::set_session_timeout(std::chrono::steady_clock::duration timeout) {
+    std::lock_guard<std::mutex> lock(sessions_mutex_);
+    session_timeout_ = timeout;
 }
 
 void ChatbotAPI::session_sweeper_loop() {

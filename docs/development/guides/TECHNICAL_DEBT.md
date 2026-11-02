@@ -1394,6 +1394,8 @@ The generation and model math run is complete.
 - TD-250 (done in code: `chatbot_api_server` saves a changed hippocampal memory every `HIPPOCAMPAL_SAVE_INTERVAL_SECONDS`
   under the model lock, each file written to a temporary and renamed; new `HIPPOCAMPAL_STATE_PATH`, and no memory
   without a path).
+- TD-251 (done in code: a `chatbot_api_server` reload also applies the session timeout, session and batch limits, RAG
+  retrieval settings and the hippocampal save interval, and keeps the loaded model's settings, MNS-resolved ones included).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5839,7 +5841,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Inference / Serving / Server | October 8, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 1, 2026 | Inference / Serving / Server | October 8, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-246. On `SIGHUP`, `main()` applies only the log level and four generation
@@ -5852,15 +5854,28 @@ and architecture (unused after startup, but wrong). Found by reading the code.
 Action Items:
 
 - [x] After reload, diff old vs. new config and log every changed key that wasn't applied ("requires restart"). (Done with TD-285, October 31, 2026.)
-- [ ] Apply what can be applied live (e.g. session timeout, via a `ChatbotAPI` setter).
-- [ ] Keep MNS-resolved fields when replacing `config`.
+- [x] Apply what can be applied live (e.g. session timeout, via a `ChatbotAPI` setter).
+- [x] Keep MNS-resolved fields when replacing `config`.
 
-Location in code: `src/ChatbotAPIServer.cpp` (main loop reload branch); tagged `TODO: See TD-251`.
+**Fix (November 1, 2026):** a reload now also applies `SESSION_TIMEOUT` (new `ChatbotAPI::set_session_timeout()`,
+existing sessions included), `MAX_SESSIONS`, `MAX_BATCH_SIZE`, `HIPPOCAMPAL_SAVE_INTERVAL_SECONDS` and, while RAG is
+running, `RAG_NUM_DOCS`/`RAG_THRESHOLD`/`RAG_MAX_CONTEXT_LENGTH` (a new `RAGInference` over the same documents, swapped
+in with `enableRAG()`, so a request in flight keeps the engine it started with). The new
+`keep_loaded_model_settings()` (`src/ChatbotApiServerArgs.{hpp,cpp}`) copies the loaded model's settings (model and
+vocabulary paths, architecture, draft model, world-model and hippocampal setup) from the running config into the
+reloaded one, so MNS-resolved values survive and the file's changes to them are still logged as needing a restart.
+Tests: `KeepLoadedModelSettingsTest`, `ChatbotAPITest.SetSessionTimeoutKeepsTheSweepIntervalAndAppliesToExistingSessions`,
+and `ChatbotApiServerStartupTest.AReloadAppliesLiveSettingsAndKeepsTheLoadedModel` against the real binary: after a
+reload to `MAX_BATCH_SIZE=2` a three-message `/chat/batch` gets 413 (the old binary answered 200 and logged
+`MAX_BATCH_SIZE` as needing a restart), and the shutdown log names the startup `MODEL_PATH`, not the reloaded file's.
+
+Location in code: `src/ChatbotAPIServer.cpp` (main loop reload branch).
 
 Files to Modify:
 
 - `src/ChatbotAPIServer.cpp`
-- `src/ChatbotAPI.hpp` (if adding setters)
+- `src/ChatbotAPI.{hpp,cpp}` (`set_session_timeout()`)
+- `src/ChatbotApiServerArgs.{hpp,cpp}` (`keep_loaded_model_settings()`)
 
 ---
 

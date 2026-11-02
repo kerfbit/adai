@@ -197,3 +197,10 @@ effect; they were parsed and then ignored.
 A value-taking flag with no value (last in argv, or followed by another `--` flag) is an error, `Missing value for <flag>`, including
 `--config`; it used to read as an unknown argument, or for `--config` be ignored. A value starting with a single `-` (a negative
 number) is still a value. `--batch-timeout-ms` without `--batched-inference` is an error instead of being ignored.
+
+## Addendum (November 1, 2026): `keep_loaded_model_settings()` (TD-251)
+
+`keep_loaded_model_settings(running, reloaded)` copies the loaded model's settings (model and vocabulary paths, the six
+architecture fields, the draft model path, and the world-model and hippocampal setup except the save interval) from the
+running config into a reloaded one. `chatbot_api_server` calls it after re-applying its flags on a `SIGHUP` reload, so
+the MNS-resolved model path and architecture survive the reload.

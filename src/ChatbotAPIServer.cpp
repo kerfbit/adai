@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 2.8.0
+// @adai-version: 2.9.0
 // @adai-reviewed: 2026-11-01
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
@@ -146,6 +146,27 @@ static ChatbotAPI::GenerationConfig generation_config_from(const adai::ServiceCo
 static void log_generation_config(const char* what, const ChatbotAPI::GenerationConfig& gen) {
     adai::Logger::info("{}: max_length={} temperature={} top_p={} top_k={} strategy={} beam_width={}", what,
                        gen.max_length, gen.temperature, gen.top_p, gen.top_k, gen.strategy, gen.beam_width);
+}
+
+// TD-487/TD-484: RAGInference's settings, built the same way at startup and, since TD-251, on reload.
+static RAGInference::RAGConfig rag_config_from(const adai::ServiceConfig& config, int max_seq_length) {
+    RAGInference::RAGConfig rag_config;
+    rag_config.num_retrieved_docs = config.rag_num_docs;
+    rag_config.retrieval_threshold = config.rag_threshold;
+    // TD-484: the context can't use more than the model's positions; the prompt is budgeted in real
+    // tokens against max_seq_length anyway, so this only keeps the setting honest.
+    rag_config.max_context_length = std::min(config.rag_max_context_length, max_seq_length);
+    if (config.rag_max_context_length > max_seq_length) {
+        adai::Logger::warn("  RAG_MAX_CONTEXT_LENGTH {} exceeds the model's max_seq_length {}; using {}",
+                           config.rag_max_context_length, max_seq_length, rag_config.max_context_length);
+    }
+    // TD-486: gen_config is only for RAGInference::generate() used standalone; ChatbotAPI generates
+    // RAG requests through its own path and current config.
+    rag_config.gen_config.max_length = static_cast<int>(config.max_gen_length);
+    rag_config.gen_config.temperature = config.temperature;
+    rag_config.gen_config.top_p = config.top_p;
+    rag_config.gen_config.top_k = static_cast<int>(config.top_k);
+    return rag_config;
 }
 
 int main(int argc, char* argv[]) {
@@ -616,6 +637,7 @@ int main(int argc, char* argv[]) {
 
         // Optionally initialize RAG engine
         std::shared_ptr<RAGInference> rag_engine;
+        std::shared_ptr<DocumentStore> rag_doc_store;  // TD-251: kept so a reload can rebuild rag_engine
         if (config.rag_enabled && !model_loaded) {
             // TD-247: retrieval embeds with the model's encoder; an untrained one ranks documents at
             // random (ALLOW_UNTRAINED_MODEL, TD-246).
@@ -630,6 +652,7 @@ int main(int argc, char* argv[]) {
                 std::shared_ptr<LLMEncoder> rag_encoder = model->copy_encoder();
 
                 auto doc_store = std::make_shared<DocumentStore>(rag_encoder);
+                rag_doc_store = doc_store;
 
                 int doc_count = 0;
                 if (!config.rag_docs_path.empty()) {
@@ -662,26 +685,8 @@ int main(int argc, char* argv[]) {
 
                 // TD-487: RAGInference's constructor rejects RAG_NUM_DOCS or RAG_MAX_CONTEXT_LENGTH below 1;
                 // the catch below then logs why and runs without RAG.
-                // TD-486: gen_config below is only for RAGInference::generate() used standalone;
-                // ChatbotAPI generates RAG requests through its own path and current config.
-                RAGInference::RAGConfig rag_config;
-                rag_config.num_retrieved_docs = config.rag_num_docs;
-                rag_config.retrieval_threshold = config.rag_threshold;
-                // TD-484: the context can't use more than the model's positions; the prompt is budgeted
-                // in real tokens against max_seq_length anyway, so this only keeps the setting honest.
-                rag_config.max_context_length =
-                    std::min(config.rag_max_context_length, model->get_max_seq_length());
-                if (config.rag_max_context_length > model->get_max_seq_length()) {
-                    adai::Logger::warn("  RAG_MAX_CONTEXT_LENGTH {} exceeds the model's max_seq_length {}; using {}",
-                                       config.rag_max_context_length, model->get_max_seq_length(),
-                                       rag_config.max_context_length);
-                }
-                rag_config.gen_config.max_length = static_cast<int>(config.max_gen_length);
-                rag_config.gen_config.temperature = config.temperature;
-                rag_config.gen_config.top_p = config.top_p;
-                rag_config.gen_config.top_k = static_cast<int>(config.top_k);
-
-                rag_engine = std::make_shared<RAGInference>(model, doc_store, rag_config);
+                rag_engine = std::make_shared<RAGInference>(
+                    model, doc_store, rag_config_from(config, model->get_max_seq_length()));
                 api->enableRAG(rag_engine);
                 adai::Logger::info("  RAG enabled: retrieving {} docs per query (threshold: {})",
                                    config.rag_num_docs, config.rag_threshold);
@@ -760,7 +765,7 @@ int main(int argc, char* argv[]) {
                                    indent, hippocampal_state_path, e.what());
             }
         };
-        const auto hippocampal_save_interval = std::chrono::seconds(config.hippocampal_save_interval_seconds);
+        auto hippocampal_save_interval = std::chrono::seconds(config.hippocampal_save_interval_seconds);
         auto next_hippocampal_save = std::chrono::steady_clock::now() + hippocampal_save_interval;
 
         // Start server in a background thread to allow main thread to handle signals. TD-248: a
@@ -785,7 +790,7 @@ int main(int argc, char* argv[]) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
             // TD-250: periodic save, so a crash loses at most one interval of memory.
-            if (config.hippocampal_save_interval_seconds > 0 &&
+            if (hippocampal_save_interval.count() > 0 &&
                 std::chrono::steady_clock::now() >= next_hippocampal_save) {
                 save_hippocampal("");
                 next_hippocampal_save = std::chrono::steady_clock::now() + hippocampal_save_interval;
@@ -798,17 +803,24 @@ int main(int argc, char* argv[]) {
 
                 // Reload configuration
                 // TD-285/TD-251: the keys applied below; reload() logs any other changed key as
-                // needing a restart.
-                static const std::set<std::string> kLiveKeys = {
+                // needing a restart. The RAG retrieval keys apply only while RAG is running.
+                std::set<std::string> live_keys = {
                     "LOG_LEVEL", "MAX_LENGTH", "MAX_GEN_LENGTH", "TEMPERATURE", "TOP_P",
-                    "TOP_K",     "STRATEGY",   "BEAM_WIDTH"};  // TD-244: TOP_K, BEAM_WIDTH
+                    "TOP_K",     "STRATEGY",   "BEAM_WIDTH",  // TD-244: TOP_K, BEAM_WIDTH
+                    "SESSION_TIMEOUT", "MAX_SESSIONS", "MAX_BATCH_SIZE",
+                    "HIPPOCAMPAL_SAVE_INTERVAL_SECONDS"};  // TD-251
+                if (rag_engine) {
+                    live_keys.insert({"RAG_NUM_DOCS", "RAG_THRESHOLD", "RAG_MAX_CONTEXT_LENGTH"});
+                }
                 // TD-242: the command-line flags are re-applied on top of the reloaded file and
                 // environment (they parsed at startup, so they parse again); a reload used to revert
-                // --temperature and the rest to the file's values.
-                const auto reapply_cli = [argc, argv](adai::ServiceConfig& reloaded) {
+                // --temperature and the rest to the file's values. TD-251: the loaded model's settings
+                // (some resolved from MNS) are kept; a reload used to replace them with the file's.
+                const auto reapply = [argc, argv, &config](adai::ServiceConfig& reloaded) {
                     adai::apply_chatbot_api_server_args(argc, argv, reloaded);
+                    adai::keep_loaded_model_settings(config, reloaded);
                 };
-                if (adai::ConfigLoader::reload(config, stored_config_path, config_mutex, &kLiveKeys, reapply_cli,
+                if (adai::ConfigLoader::reload(config, stored_config_path, config_mutex, &live_keys, reapply,
                                                &cli.cli_keys)) {
                     // Update logger level if changed
                     {
@@ -825,10 +837,42 @@ int main(int argc, char* argv[]) {
                     api->set_generation_config(new_gen_config);
                     log_generation_config("Generation configuration updated", new_gen_config);
 
-                    // Every other changed key (port, model, RAG, GPU, session timeout...) is logged by
-                    // reload() as needing a restart (TD-285).
-                    // TODO: See TD-251 in TECHNICAL_DEBT.md - settings that could be applied live (session
-                    // timeout...) aren't, and replacing `config` drops the MNS-resolved architecture/model path.
+                    // TD-251: the session, batch, RAG retrieval and save-interval settings apply live;
+                    // they used to wait for a restart. Every other changed key (port, model, GPU...) is
+                    // logged by reload() as needing a restart (TD-285).
+                    adai::ServiceConfig applied;
+                    {
+                        std::lock_guard<std::mutex> lock(config_mutex);
+                        applied = config;
+                    }
+                    api->set_session_timeout(std::chrono::minutes(applied.session_timeout));
+                    api->set_max_sessions(static_cast<std::size_t>(applied.max_sessions));
+                    api->set_max_batch_size(static_cast<std::size_t>(applied.max_batch_size));
+                    adai::Logger::info("Session settings: session_timeout={} min max_sessions={} max_batch_size={}",
+                                       applied.session_timeout, applied.max_sessions, applied.max_batch_size);
+                    if (rag_engine) {
+                        // A new engine over the same documents: requests hold their own copy of the
+                        // engine (TD-230), so one in flight finishes with the settings it started with.
+                        try {
+                            rag_engine = std::make_shared<RAGInference>(
+                                model, rag_doc_store, rag_config_from(applied, model->get_max_seq_length()));
+                            api->enableRAG(rag_engine);
+                            adai::Logger::info("RAG settings: retrieving {} docs per query (threshold: {})",
+                                               applied.rag_num_docs, applied.rag_threshold);
+                        } catch (const std::exception& e) {
+                            adai::Logger::error("RAG settings not applied ({}); keeping the previous ones",
+                                                e.what());
+                        }
+                    }
+                    if (applied.hippocampal_save_interval_seconds !=
+                        hippocampal_save_interval.count()) {
+                        hippocampal_save_interval = std::chrono::seconds(applied.hippocampal_save_interval_seconds);
+                        next_hippocampal_save = std::chrono::steady_clock::now() + hippocampal_save_interval;
+                        if (!hippocampal_state_path.empty()) {
+                            adai::Logger::info("Hippocampal memory save interval: {} s (0 = only at shutdown)",
+                                               applied.hippocampal_save_interval_seconds);
+                        }
+                    }
                 } else {
                     adai::Logger::error(
                         "Configuration reload failed - continuing with current configuration");

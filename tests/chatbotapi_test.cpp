@@ -1700,6 +1700,21 @@ TEST_F(ChatbotAPITest, ActiveSessionsSurviveTheSweeper) {
     EXPECT_EQ(call_session_count(), 1u);
 }
 
+// TD-251: a reloaded SESSION_TIMEOUT reaches the running server through set_session_timeout(),
+// which keeps the sweep interval.
+TEST_F(ChatbotAPITest, SetSessionTimeoutKeepsTheSweepIntervalAndAppliesToExistingSessions) {
+    api->set_session_expiry(std::chrono::seconds(30), std::chrono::milliseconds(10));
+    ASSERT_FALSE(start_session("hello").empty());
+    std::this_thread::sleep_for(std::chrono::milliseconds(60));
+    ASSERT_EQ(call_session_count(), 1u);
+
+    api->set_session_timeout(std::chrono::milliseconds(20));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (call_session_count() != 0 && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    EXPECT_EQ(call_session_count(), 0u);
+}
+
 TEST_F(ChatbotAPITest, DestructorStopsTheSweeperPromptly) {
     // Default sweep interval is a minute; destruction must not wait for it.
     const auto start = std::chrono::steady_clock::now();

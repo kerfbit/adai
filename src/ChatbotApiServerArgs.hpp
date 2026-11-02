@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.10.0
+// @adai-version: 0.11.0
 // @adai-reviewed: 2026-11-01
 
 // TD-035: chatbot_api_server's argv parsing and required-config validation, pulled out of
@@ -57,5 +57,12 @@ ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
 // `config` isn't startable (no vocab path, or any ConfigLoader::validate() error, all listed; TD-241),
 // or std::nullopt if it is.
 std::optional<std::string> validate_chatbot_api_server_config(const ServiceConfig& config);
+
+// TD-251: copies the settings that describe the model chatbot_api_server loaded at startup (model
+// and vocabulary paths, the architecture, the draft model, the world-model and hippocampal setup)
+// from the running config into a reloaded one. Several of them can come from MNS rather than the
+// file, and none applies before a restart, so a SIGHUP reload used to replace them with the file's
+// values while the old model kept serving. The save interval isn't kept: a reload applies it.
+void keep_loaded_model_settings(const ServiceConfig& running, ServiceConfig& reloaded);
 
 }  // namespace adai

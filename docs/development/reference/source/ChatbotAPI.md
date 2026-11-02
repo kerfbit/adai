@@ -488,3 +488,8 @@ path (RAG, speculative, GPU decode, CPU).
 `listen()` winds down trips httplib's assert on the closed socket), and returns after `start()` has returned. The old
 `stop()` called `Server::stop()` once and cleared `running_`; before httplib was listening that call did nothing and
 `start()` then listened forever.
+
+## Addendum (November 1, 2026): `set_session_timeout()` (TD-251)
+
+`set_session_timeout(timeout)` changes how long an idle session lives without touching the sweep interval;
+`chatbot_api_server` uses it to apply a reloaded `SESSION_TIMEOUT`. It applies to existing sessions too.

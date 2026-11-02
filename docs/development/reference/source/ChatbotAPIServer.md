@@ -257,3 +257,13 @@ only at shutdown) when it changed, and once more at shutdown, through `EncoderDe
 (under the model lock, so requests keep being served). A crash now loses at most one interval. The files are
 `HIPPOCAMPAL_STATE_PATH` (default `MODEL_PATH.hippocampal`) plus `.assoc` and `.swap`; with neither key set the memory
 isn't attached (it used to become hidden files in the working directory).
+
+## Addendum (November 1, 2026): reload applies session, batch, RAG and save-interval settings (TD-251)
+
+A `SIGHUP` reload now also applies `SESSION_TIMEOUT` (`ChatbotAPI::set_session_timeout()`, existing sessions
+included), `MAX_SESSIONS`, `MAX_BATCH_SIZE`, `HIPPOCAMPAL_SAVE_INTERVAL_SECONDS` and, while RAG is running,
+`RAG_NUM_DOCS`/`RAG_THRESHOLD`/`RAG_MAX_CONTEXT_LENGTH` (a new `RAGInference` over the same documents; a request in
+flight keeps the engine it started with). Every other changed key is still logged as needing a restart. The settings
+that describe the loaded model (model and vocabulary paths, architecture, draft model, world-model and hippocampal
+setup), some of which come from MNS, are kept from the running config (`keep_loaded_model_settings()`,
+`ChatbotApiServerArgs.hpp`); a reload used to replace them with the file's values while the old model kept serving.

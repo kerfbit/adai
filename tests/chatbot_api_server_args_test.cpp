@@ -13,6 +13,7 @@ using adai::apply_chatbot_api_server_args;
 using adai::extract_config_path_arg;
 using adai::ServiceConfig;
 using adai::validate_chatbot_api_server_config;
+using adai::keep_loaded_model_settings;
 
 namespace {
 std::vector<char*> make_argv(std::vector<std::string>& storage) {
@@ -379,4 +380,72 @@ TEST_F(ApplyChatbotApiServerArgsTest, BatchTimeoutWithoutBatchedInferenceIsAnErr
     auto r = apply_chatbot_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
     EXPECT_TRUE(r.error);
     EXPECT_EQ(r.error_message, "--batch-timeout-ms needs --batched-inference");
+}
+
+// TD-251: a SIGHUP reload replaced the loaded model's settings (some resolved from MNS) with the
+// file's, although none of them applies before a restart.
+TEST(KeepLoadedModelSettingsTest, KeepsTheLoadedModelAndTakesEverythingElseFromTheReload) {
+    ServiceConfig running;
+    running.model_path = "/models/from-mns";
+    running.vocab_path = "/models/vocab";
+    running.d_model = 768;
+    running.num_heads = 12;
+    running.d_ff = 3072;
+    running.num_encoder_layers = 6;
+    running.num_decoder_layers = 5;
+    running.max_seq_length = 256;
+    running.draft_model_path = "/models/draft";
+    running.world_model_enabled = true;
+    running.world_model_artifact_path = "/models/wm";
+    running.world_model_d_model = 768;
+    running.world_model_num_layers = 3;
+    running.world_model_num_heads = 6;
+    running.world_model_d_ff = 1024;
+    running.world_model_sigreg_num_sketches = 32;
+    running.world_model_inject_every_n_layers = 2;
+    running.hippocampal_memory_enabled = true;
+    running.hippocampal_memory_capacity = 64;
+    running.hippocampal_state_path = "/state/h";
+    running.hippocampal_repetition_alpha = 0.5f;
+    running.hippocampal_repetition_decay = 0.8f;
+    running.hippocampal_cross_reference_alpha = 0.25f;
+    running.hippocampal_association_decay = 0.7f;
+    running.session_timeout = 30;
+    running.hippocampal_save_interval_seconds = 300;
+
+    ServiceConfig reloaded;  // the file's values
+    reloaded.model_path = "/local/model";
+    reloaded.session_timeout = 5;
+    reloaded.hippocampal_save_interval_seconds = 60;
+    reloaded.temperature = 0.2f;
+
+    keep_loaded_model_settings(running, reloaded);
+    EXPECT_EQ(reloaded.model_path, "/models/from-mns");
+    EXPECT_EQ(reloaded.vocab_path, "/models/vocab");
+    EXPECT_EQ(reloaded.d_model, 768u);
+    EXPECT_EQ(reloaded.num_heads, 12u);
+    EXPECT_EQ(reloaded.d_ff, 3072u);
+    EXPECT_EQ(reloaded.num_encoder_layers, 6u);
+    EXPECT_EQ(reloaded.num_decoder_layers, 5u);
+    EXPECT_EQ(reloaded.max_seq_length, 256u);
+    EXPECT_EQ(reloaded.draft_model_path, "/models/draft");
+    EXPECT_TRUE(reloaded.world_model_enabled);
+    EXPECT_EQ(reloaded.world_model_artifact_path, "/models/wm");
+    EXPECT_EQ(reloaded.world_model_d_model, 768u);
+    EXPECT_EQ(reloaded.world_model_num_layers, 3u);
+    EXPECT_EQ(reloaded.world_model_num_heads, 6u);
+    EXPECT_EQ(reloaded.world_model_d_ff, 1024u);
+    EXPECT_EQ(reloaded.world_model_sigreg_num_sketches, 32u);
+    EXPECT_EQ(reloaded.world_model_inject_every_n_layers, 2u);
+    EXPECT_TRUE(reloaded.hippocampal_memory_enabled);
+    EXPECT_EQ(reloaded.hippocampal_memory_capacity, 64u);
+    EXPECT_EQ(reloaded.hippocampal_state_path, "/state/h");
+    EXPECT_FLOAT_EQ(reloaded.hippocampal_repetition_alpha, 0.5f);
+    EXPECT_FLOAT_EQ(reloaded.hippocampal_repetition_decay, 0.8f);
+    EXPECT_FLOAT_EQ(reloaded.hippocampal_cross_reference_alpha, 0.25f);
+    EXPECT_FLOAT_EQ(reloaded.hippocampal_association_decay, 0.7f);
+    // Settings a reload applies come from the reload.
+    EXPECT_EQ(reloaded.session_timeout, 5);
+    EXPECT_EQ(reloaded.hippocampal_save_interval_seconds, 60);
+    EXPECT_FLOAT_EQ(reloaded.temperature, 0.2f);
 }

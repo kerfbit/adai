@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.13.0
+// @adai-version: 0.14.0
 // @adai-reviewed: 2026-11-01
 
 #include "ChatbotApiServerArgs.hpp"
@@ -186,6 +186,35 @@ std::optional<std::string> validate_chatbot_api_server_config(const ServiceConfi
         return message;
     }
     return std::nullopt;
+}
+
+void keep_loaded_model_settings(const ServiceConfig& running, ServiceConfig& reloaded) {
+    reloaded.model_path = running.model_path;
+    reloaded.vocab_path = running.vocab_path;
+    reloaded.d_model = running.d_model;
+    reloaded.num_heads = running.num_heads;
+    reloaded.d_ff = running.d_ff;
+    reloaded.num_encoder_layers = running.num_encoder_layers;
+    reloaded.num_decoder_layers = running.num_decoder_layers;
+    reloaded.max_seq_length = running.max_seq_length;
+    reloaded.draft_model_path = running.draft_model_path;
+
+    reloaded.world_model_enabled = running.world_model_enabled;
+    reloaded.world_model_artifact_path = running.world_model_artifact_path;
+    reloaded.world_model_d_model = running.world_model_d_model;
+    reloaded.world_model_num_layers = running.world_model_num_layers;
+    reloaded.world_model_num_heads = running.world_model_num_heads;
+    reloaded.world_model_d_ff = running.world_model_d_ff;
+    reloaded.world_model_sigreg_num_sketches = running.world_model_sigreg_num_sketches;
+    reloaded.world_model_inject_every_n_layers = running.world_model_inject_every_n_layers;
+
+    reloaded.hippocampal_memory_enabled = running.hippocampal_memory_enabled;
+    reloaded.hippocampal_memory_capacity = running.hippocampal_memory_capacity;
+    reloaded.hippocampal_state_path = running.hippocampal_state_path;
+    reloaded.hippocampal_repetition_alpha = running.hippocampal_repetition_alpha;
+    reloaded.hippocampal_repetition_decay = running.hippocampal_repetition_decay;
+    reloaded.hippocampal_cross_reference_alpha = running.hippocampal_cross_reference_alpha;
+    reloaded.hippocampal_association_decay = running.hippocampal_association_decay;
 }
 
 }  // namespace adai
