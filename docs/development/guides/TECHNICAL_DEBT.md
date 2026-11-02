@@ -1416,6 +1416,8 @@ The generation and model math run is complete.
   `status`/`history`; no interactive model pick without a terminal).
 - TD-414 (done in code: `train`/`retrain`/`resume` build the vocabulary from the first pass's data when there is none,
   and an exception from any command exits 1 with its message instead of aborting).
+- TD-404 (done in code: fallback run ids are the full hostname, PID and a random part, and without MNS a chatbot pass
+  keeps its id in `SESSION_DIR/chatbot_run_id` so a restarted pass reclaims a crashed one's files).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -11190,7 +11192,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / CLI | October 13, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 2, 2026 | Training / CLI | October 13, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `IncrementalTrainerArgs`, by inspection. `derive_run_id()` returns
@@ -11202,9 +11204,22 @@ share ownership.
 
 Action Items:
 
-- [ ] Use the full hostname plus PID plus a random suffix (or a UUID), or allocate LeJEPA run ids from MNS like the chatbot path.
+- [x] Use the full hostname plus PID plus a random suffix (or a UUID), or allocate LeJEPA run ids from MNS like the chatbot path.
 
-Location in code: `src/IncrementalTrainerArgs.cpp` (`derive_run_id()`); tagged `TODO: See TD-404`.
+**Fix (November 2, 2026):** `derive_run_id()` is now the full hostname (sanitized), the full PID and 8 random hex
+digits, so two hosts or two processes never derive the same id. Ids that must survive a restart come from
+`persistent_run_id()`, generalized with a name: the LeJEPA pass already kept `lejepa_run_id` in its world-model directory
+(TD-415), and without MNS the chatbot `train`/`retrain`/`resume` passes now keep `SESSION_DIR/chatbot_run_id`
+(`incremental_trainer` sets `RUN_ID` from it; an explicit `RUN_ID` and an MNS-allocated run id still come first). A
+restarted chatbot pass therefore reclaims the files a crashed one claimed, as an MNS run does. `IncrementalTrainer`'s
+own last-resort fallback, for other callers, gained a random part too.
+
+Tests: `DeriveRunId.IsTheFullHostnamePidAndARandomPart`, `PersistentRunId.TheChatbotIdHasItsOwnFile`, and
+`SighupTest.AChatbotPassReclaimsACrashedPassesFilesWithoutMns` against the real binary (a file claimed under the stored id
+by a "crashed" pass: `resume` reclaims and trains it, exit 0). The old binary found nothing to claim (exit 3).
+
+Location in code: `src/IncrementalTrainerArgs.{hpp,cpp}` (`derive_run_id()`, `persistent_run_id()`),
+`src/IncrementalTrainingTool.cpp` (`run_main()`), `src/IncrementalTrainer.cpp` (`resume_last_session()`).
 
 Files to Modify:
 

@@ -764,3 +764,52 @@ TEST_F(SighupTest, AFirstTrainBuildsTheVocabularyAndExceptionsExitOne) {
     fs::create_directories(unreadable);
     EXPECT_EQ(run(config_with_vocab(unreadable), {"init"}), 1);
 }
+
+// TD-404: without MNS, the chatbot pass's run id was hostname prefix + PID, new every run (and able to
+// collide across hosts), so files a crashed pass had claimed stayed claimed. It's now kept in
+// SESSION_DIR/chatbot_run_id; the next pass reclaims them.
+TEST_F(SighupTest, AChatbotPassReclaimsACrashedPassesFilesWithoutMns) {
+    const fs::path data = dir_ / "pairs.jsonl";
+    {
+        std::ofstream out(data);
+        const char* lines[] = {"hello world", "how are you", "good morning", "the cat sat"};
+        for (int i = 0; i < 20; ++i)
+            out << "{\"input\":\"" << lines[i % 4] << "\",\"response\":\"" << lines[(i + 1) % 4] << "\"}\n";
+    }
+    const fs::path sessions = dir_ / "sessions";
+    fs::create_directories(sessions);
+    std::ofstream(sessions / "chatbot_run_id") << "chatbot-crashed-pass\n";
+    DatasetConfig dcfg;
+    dcfg.session_dir = sessions.string();
+    dcfg.dataset_kind = "chatbot";
+    fs::create_directories(DatasetRegistry::local_pool_dir(dcfg));
+    {
+        DatasetRegistry reg(dcfg);
+        reg.load_registry();
+        reg.load_pending_list();
+        ASSERT_TRUE(reg.add_file(data.string()));
+        ASSERT_TRUE(reg.save_pending_list());
+        ASSERT_EQ(reg.acquire_pending("chatbot-crashed-pass").files.size(), 1u);  // then it "crashed"
+    }
+    const auto cfg = write_config(
+        "config.trainer.conf",
+        "LOG_FILE_PATH=" + (dir_ / "log.txt").string() + "\nSESSION_DIR=" + sessions.string() +
+            "\nVOCAB_PATH=" + (dir_ / "vocab.txt").string() + "\nMODEL_PATH=" + (dir_ / "model.bin").string() +
+            "\nREGISTRY_SERVER_URL=\nNAME_SERVICE_URL=\nMETRICS_SERVER_URL=\nRUN_ID=\nGPU_ENABLED=false\n"
+            "D_MODEL=64\nNUM_HEADS=2\nD_FF=128\nNUM_ENCODER_LAYERS=1\nNUM_DECODER_LAYERS=1\nMAX_SEQ_LENGTH=16\n"
+            "VALIDATION_SPLIT=0\nVOCAB_BUILD_SIZE=60\nNUM_EPOCHS=1\n");
+    spawn(INCREMENTAL_TRAINER_BINARY_PATH, {"--config", cfg.string(), "--foreground", "resume"});
+    int status = 0;
+    pid_t done = 0;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+    while ((done = ::waitpid(pid_, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    ASSERT_EQ(done, pid_);
+    pid_ = -1;
+    EXPECT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 0)
+        << "exit " << (WIFEXITED(status) ? WEXITSTATUS(status) : -1) << ": the crashed pass's file wasn't reclaimed";
+    DatasetRegistry reg(dcfg);
+    reg.load_registry();
+    EXPECT_EQ(reg.trained_files().size(), 1u);
+}

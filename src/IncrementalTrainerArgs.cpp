@@ -1,10 +1,11 @@
 // @adai-status: experimental
-// @adai-version: 0.12.0
+// @adai-version: 0.13.0
 // @adai-reviewed: 2026-11-02
 
 #include "IncrementalTrainerArgs.hpp"
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -142,10 +143,10 @@ bool incremental_trainer_command_defers_gpu_init(const std::string& command) {
     return command == "train" || command == "retrain" || command == "resume";
 }
 
-std::string persistent_run_id(const std::string& configured, const std::string& dir) {
+std::string persistent_run_id(const std::string& configured, const std::string& dir, const std::string& name) {
     if (!configured.empty()) return configured;
     namespace fs = std::filesystem;
-    const fs::path file = fs::path(dir) / "lejepa_run_id";
+    const fs::path file = fs::path(dir) / (name + "_run_id");
     {
         std::ifstream in(file);
         std::string id;
@@ -154,11 +155,7 @@ std::string persistent_run_id(const std::string& configured, const std::string& 
             if (!id.empty()) return id;
         }
     }
-    std::random_device rd;
-    static const char* kHex = "0123456789abcdef";
-    std::string suffix;
-    for (int i = 0; i < 8; ++i) suffix += kHex[rd() & 0xF];
-    const std::string id = "lejepa-" + derive_run_id("") + "-" + suffix;
+    const std::string id = name + "-" + derive_run_id("");  // TD-404: already unique per host and process
     std::error_code ec;
     fs::create_directories(dir, ec);
     const fs::path tmp = file.string() + ".tmp";
@@ -175,14 +172,15 @@ std::string persistent_run_id(const std::string& configured, const std::string& 
     }
     if (!written) {
         fs::remove(tmp, ec);
-        Logger::warn("Could not save the LeJEPA run id to {}; a restarted pass won't reclaim this pass's files",
+        Logger::warn("Could not save the run id to {}; a restarted pass won't reclaim this pass's files",
                      file.string());
     }
     return id;
 }
 
-// TODO: See TD-404 in TECHNICAL_DEBT.md - 8-char hostname prefix + pid % 10000 can collide across hosts; the
-// LeJEPA path always uses this (never MNS), and run ids decide claimed-file ownership in a shared registry
+// TD-404: the full hostname (sanitized), the full PID and 8 random hex digits. It used to be the first 8
+// hostname characters plus pid % 10000, so two hosts sharing a prefix (ai-machine-1, ai-machine-2) could get
+// the same id and, in a shared registry, own each other's claimed files.
 std::string derive_run_id(const std::string& configured) {
     if (!configured.empty())
         return configured;
@@ -190,16 +188,21 @@ std::string derive_run_id(const std::string& configured) {
 #ifdef _WIN32
     if (const char* env_host = std::getenv("COMPUTERNAME"))
         host = env_host;
-    const int pid_tail = static_cast<int>(_getpid() % 10000);
+    const long long pid = static_cast<long long>(_getpid());
 #else
     std::array<char, 256> buf{};
-    if (gethostname(buf.data(), buf.size() - 1) == 0)
+    if (gethostname(buf.data(), buf.size() - 1) == 0 && buf[0] != '\0')
         host = buf.data();
-    const int pid_tail = static_cast<int>(getpid() % 10000);
+    const long long pid = static_cast<long long>(getpid());
 #endif
-    if (host.size() > 8)
-        host = host.substr(0, 8);
-    return host + "_" + std::to_string(pid_tail);
+    for (char& c : host) {
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '.') c = '-';
+    }
+    std::random_device rd;
+    static const char* kHex = "0123456789abcdef";
+    std::string suffix;
+    for (int i = 0; i < 8; ++i) suffix += kHex[rd() & 0xF];
+    return host + "_" + std::to_string(pid) + "_" + suffix;
 }
 
 std::string resolve_dataset_kind(const std::string& objective,

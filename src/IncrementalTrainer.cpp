@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.21.0
+// @adai-version: 0.22.0
 // @adai-reviewed: 2026-11-02
 
 #include "IncrementalTrainer.hpp"
@@ -15,6 +15,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <random>
 #include <sstream>
 #include <utility>
 #ifdef _WIN32
@@ -1125,7 +1126,11 @@ IncrementalTrainer::ResumeResult IncrementalTrainer::resume_last_session(
     // RUN_ID/hostname+pid-derived value when MNS isn't configured.
     std::string run_id = !current_run_id_.empty() ? current_run_id_ : dataset_config_.run_id;
     if (run_id.empty()) {
-        run_id = detect_hostname_fragment() + "_" + std::to_string(detect_pid_mod_10000());
+        // TD-404: incremental_trainer always sets RUN_ID here (SESSION_DIR/chatbot_run_id); this is for other
+        // callers, made unique with a random part so two hosts can't share it.
+        std::random_device rd;
+        run_id = detect_hostname_fragment() + "_" + std::to_string(detect_pid_mod_10000()) + "_" +
+                 std::to_string(rd() % 100000000u);
     }
     auto resp = reg.acquire_pending(run_id);
     if (resp.failed) {

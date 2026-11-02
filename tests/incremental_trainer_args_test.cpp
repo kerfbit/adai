@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -225,21 +226,34 @@ TEST(DeriveRunId, ReturnsConfiguredValueVerbatimWhenNonEmpty) {
     EXPECT_EQ(derive_run_id("my-configured-run"), "my-configured-run");
 }
 
-TEST(DeriveRunId, FallsBackToHostnamePidWhenConfiguredIsEmpty) {
-    // Exact hostname/pid are environment-dependent — just verify the documented shape: a
-    // non-empty string containing a single "_" separator, with the host portion capped at 8
-    // characters (see the implementation's own truncation).
-    auto id = derive_run_id("");
-    EXPECT_FALSE(id.empty());
-    auto underscore = id.find('_');
-    ASSERT_NE(underscore, std::string::npos);
-    EXPECT_LE(underscore, 8u) << "host portion must be truncated to at most 8 chars";
-    EXPECT_GT(id.size(), underscore + 1) << "must have a non-empty pid suffix after the '_'";
+// TD-404: the host was cut to 8 characters and the PID to its last 4 digits, so two hosts sharing a prefix
+// (ai-machine-1, ai-machine-2) could derive the same id. It's now the full hostname, the PID and 8 random hex
+// digits, so even two calls differ; callers that need a stable id use persistent_run_id().
+TEST(DeriveRunId, IsTheFullHostnamePidAndARandomPart) {
+    char host[256] = {};
+    ASSERT_EQ(::gethostname(host, sizeof(host) - 1), 0);
+    std::string expected_host = host;
+    for (char& c : expected_host)
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '.') c = '-';
+    const std::string id = derive_run_id("");
+    const std::string prefix = expected_host + "_" + std::to_string(::getpid()) + "_";
+    ASSERT_EQ(id.rfind(prefix, 0), 0u) << id;
+    const std::string random = id.substr(prefix.size());
+    EXPECT_EQ(random.size(), 8u) << id;
+    EXPECT_EQ(random.find_first_not_of("0123456789abcdef"), std::string::npos) << id;
+    EXPECT_NE(derive_run_id(""), derive_run_id(""));
 }
 
-TEST(DeriveRunId, IsStableAcrossRepeatedCallsInTheSameProcess) {
-    // Same process -> same pid and hostname -> same derived id both times.
-    EXPECT_EQ(derive_run_id(""), derive_run_id(""));
+TEST(PersistentRunId, TheChatbotIdHasItsOwnFile) {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / ("adai_td404_" + std::to_string(::getpid()));
+    fs::remove_all(dir);
+    const std::string chatbot = persistent_run_id("", dir.string(), "chatbot");
+    EXPECT_EQ(chatbot.rfind("chatbot-", 0), 0u) << chatbot;
+    EXPECT_TRUE(fs::exists(dir / "chatbot_run_id"));
+    EXPECT_EQ(persistent_run_id("", dir.string(), "chatbot"), chatbot);
+    EXPECT_NE(persistent_run_id("", dir.string()), chatbot) << "the LeJEPA id is kept separately";
+    fs::remove_all(dir);
 }
 
 // TD-202/TD-204: resolve_dataset_kind() is the extracted, directly-testable form of the

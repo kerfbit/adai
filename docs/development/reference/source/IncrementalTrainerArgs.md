@@ -161,3 +161,11 @@ segment), and takes its run id from `persistent_run_id(RUN_ID, world_model_dir)`
 `<world_model_dir>/lejepa_run_id`, created once as `lejepa-<derive_run_id()>-<8 random hex digits>`. Registries hand a
 claim back to the run id that made it, so a pass restarted after a crash, kill or SIGTERM reclaims the last pass's
 files; with the old PID-based id they stayed claimed.
+
+## Addendum (November 2, 2026): unique fallback run ids (TD-404)
+
+`derive_run_id("")` is now `<full hostname>_<pid>_<8 random hex digits>` (it was the first 8 hostname characters and
+`pid % 10000`, which two hosts sharing a prefix could both derive). `persistent_run_id(configured, dir, name)` keeps an
+id in `<dir>/<name>_run_id`: `lejepa` in the world-model directory for the LeJEPA pass, and, when no `RUN_ID` is set,
+`chatbot` in `SESSION_DIR` for `train`/`retrain`/`resume`, which `incremental_trainer` copies into `RUN_ID`. An
+MNS-allocated run id still comes first. A restarted pass therefore reclaims its own claimed files.

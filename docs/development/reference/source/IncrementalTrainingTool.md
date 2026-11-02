@@ -211,3 +211,11 @@ model, and the first training pass builds the vocabulary from its data (`bootstr
 `VOCAB_BUILD_SIZE` via `IncrementalConfig::vocab_build_size`) and then the model, so `incremental_trainer
 train`/`retrain`/`resume` work on a fresh `SESSION_DIR`; it used to abort with `VocabularyFileError` (exit 134).
 `incremental_trainer`'s `main()` turns an exception from any command into `❌ <message>` and exit 1.
+
+## Addendum (November 2, 2026): unique fallback run ids (TD-404)
+
+`derive_run_id("")` is now `<full hostname>_<pid>_<8 random hex digits>` (it was the first 8 hostname characters and
+`pid % 10000`, which two hosts sharing a prefix could both derive). `persistent_run_id(configured, dir, name)` keeps an
+id in `<dir>/<name>_run_id`: `lejepa` in the world-model directory for the LeJEPA pass, and, when no `RUN_ID` is set,
+`chatbot` in `SESSION_DIR` for `train`/`retrain`/`resume`, which `incremental_trainer` copies into `RUN_ID`. An
+MNS-allocated run id still comes first. A restarted pass therefore reclaims its own claimed files.

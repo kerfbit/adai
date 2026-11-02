@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.30.0
+// @adai-version: 0.31.0
 // @adai-reviewed: 2026-11-02
 
 #include <array>
@@ -1268,6 +1268,15 @@ static int run_main(int argc, char* argv[]) {
         svc_config.model_path.empty() ? "chatbot_model.bin" : svc_config.model_path;
 
     std::string command = args[0];
+
+    // TD-404: without MNS, a chatbot pass's run id (claimed-file ownership) is kept in
+    // SESSION_DIR/chatbot_run_id, unique per host and stable across restarts, so a restarted pass
+    // reclaims what a crashed one claimed. It used to be hostname prefix + PID, new every run and able
+    // to collide across hosts. RUN_ID still wins, and an MNS-allocated run id comes first in the passes.
+    if (cli.objective != "lejepa" && svc_config.run_id.empty() &&
+        (command == "train" || command == "retrain" || command == "resume")) {
+        svc_config.run_id = adai::persistent_run_id("", svc_config.session_dir, "chatbot");
+    }
 
     // TD-183/TD-403: what `--objective=lejepa` train and resume need. TD-548: the checkpoint goes to
     // WORLD_MODEL_ARTIFACT_PATH when set (it used to be ignored), else <session_dir>/world_model_checkpoint,

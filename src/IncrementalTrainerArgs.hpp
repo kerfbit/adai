@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.11.0
+// @adai-version: 0.12.0
 // @adai-reviewed: 2026-11-02
 
 // TD-035: incremental_trainer's global argv parsing and a few small pure helpers, pulled out of
@@ -77,17 +77,20 @@ std::vector<std::string> trainer_service_child_argv(const std::string& trainer_p
 // GPU immediately in main(). Pure classification, no I/O.
 bool incremental_trainer_command_defers_gpu_init(const std::string& command);
 
-// Derives a fallback run_id from hostname+pid when `configured` (RUN_ID from config/MNS) is
-// empty. Pure aside from the hostname/pid syscalls — no file or network I/O.
+// Derives a fallback run_id when `configured` (RUN_ID from config/MNS) is empty: TD-404, the full
+// hostname, the PID and 8 random hex digits, so two hosts or processes never share one. No file or
+// network I/O.
 std::string derive_run_id(const std::string& configured);
 
-// TD-415: the LeJEPA pass's run id. `configured` (RUN_ID) when set; else the id kept in
-// `<dir>/lejepa_run_id`, created on first use as "lejepa-" + derive_run_id("") + 8 random hex digits
-// (written to a temporary file and renamed). Registries hand a claim back to the run id that made it, so
-// a pass restarted after a crash or kill reclaims its own files; with a fresh PID-based id each time
-// they stayed claimed by an id no later process had. If the file can't be written the new id is still
-// returned (and a warning logged), so the pass runs; only reclaiming is lost.
-std::string persistent_run_id(const std::string& configured, const std::string& dir);
+// TD-415/TD-404: a run id that survives restarts. `configured` (RUN_ID) when set; else the id kept in
+// `<dir>/<name>_run_id`, created on first use as "<name>-" + derive_run_id("") (written to a temporary
+// file and renamed). Registries hand a claim back to the run id that made it, so a pass restarted after a
+// crash or kill reclaims its own files; with a fresh PID-based id each time they stayed claimed by an id no
+// later process had. Used by the LeJEPA pass ("lejepa", the world-model directory) and, without MNS, by
+// the chatbot passes ("chatbot", SESSION_DIR). If the file can't be written the new id is still returned
+// (and a warning logged), so the pass runs; only reclaiming is lost.
+std::string persistent_run_id(const std::string& configured, const std::string& dir,
+                              const std::string& name = "lejepa");
 
 // TD-416: `train`/`retrain`'s optional epoch count (args[1], after the command). A whole number of at
 // least 1; absent means `default_epochs`. Anything else sets `error` and returns nullopt (`train abc`
