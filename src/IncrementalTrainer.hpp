@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.17.1
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.18.0
+// @adai-reviewed: 2026-11-02
 
 
 #include <chrono>
@@ -11,6 +11,7 @@
 #include <functional>
 #include <memory>
 #include <set>
+#include <optional>
 #include <string>
 #include <vector>
 #include "BPETokenizer.hpp"
@@ -275,6 +276,8 @@ class IncrementalTrainer {
     }
     bool load_session_history();
     bool save_session_history();
+    // TD-416: parses `<session_dir>/session_history.txt` without a trainer; nullopt when it can't be read.
+    static std::optional<std::vector<TrainingSession>> read_session_history(const std::string& session_dir);
     TrainingSession get_current_session();
     std::vector<TrainingSession> get_session_history() const;
     void cleanup_old_sessions();

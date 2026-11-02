@@ -123,3 +123,8 @@ During a LeJEPA pass, `/admin/status` reports its phase, `lejepa-` run id, epoch
 `POST /admin/checkpoint` writes a world-model checkpoint; `PUT /admin/config`'s `AUTO_SAVE_*` apply live; and
 `POST /admin/pause` stops the pass at the next batch, checkpoints, releases its files to the pool and exits 1, as a
 paused chatbot pass does. Before, nothing answered these during a LeJEPA pass.
+
+## Addendum (November 2, 2026): 25 s graceful stop (TD-416)
+
+`kGracefulStopTimeoutMs` is 25 s (was 10 s), still inside the unit's `TimeoutStopSec=30`, because a child stopped by
+SIGTERM now checkpoints and releases its claimed files before exiting 1.

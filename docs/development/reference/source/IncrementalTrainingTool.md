@@ -192,3 +192,14 @@ During a LeJEPA pass, `/admin/status` reports its phase, `lejepa-` run id, epoch
 `POST /admin/checkpoint` writes a world-model checkpoint; `PUT /admin/config`'s `AUTO_SAVE_*` apply live; and
 `POST /admin/pause` stops the pass at the next batch, checkpoints, releases its files to the pool and exits 1, as a
 paused chatbot pass does. Before, nothing answered these during a LeJEPA pass.
+
+## Addendum (November 2, 2026): command hygiene (TD-416)
+
+- `signal_handler()` only stores atomics. Every `train`/`retrain`/`resume` pass builds a `PassAdminApi` (listener only
+  with `--admin-port`) whose control state the handler can reach: the first SIGTERM/SIGINT drains the pass as
+  `/admin/pause` does (checkpoint, release claimed files, exit 1, "stopped by SIGTERM" in the log); with no pass, or on
+  a second signal, the process exits 1 at once. It used to call `std::exit(0)` from the handler.
+- The epoch count is parsed by `parse_epochs_arg()` (`train abc` aborted). `init`/`retrain` keep the configured
+  `AUTO_SAVE_*`. The LeJEPA pass uses `TOKENIZER_MODE`. `status`/`history` read `session_history.txt` through
+  `IncrementalTrainer::read_session_history()` without building a trainer, so they need no vocabulary and delete nothing.
+  The interactive MNS model pick refuses to run without a terminal on stdin.

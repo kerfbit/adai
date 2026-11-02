@@ -168,3 +168,9 @@ Test: `CheckpointDirectoryResolution`.
 
 `clone()` returns an independent copy through a temporary `save()`/`load()`: weights, predictor, tokenizer vocabulary, SIGReg λ and
 sketch count, learning rate. No optimizer is attached. `EncoderDecoderModel::clone()` uses it for the copy's world model.
+
+## Addendum (November 2, 2026): `set_tokenizer_mode()` (TD-416)
+
+`set_tokenizer_mode(mode)` starts a fresh tokenizer in that mode; call it before `load_tokenizer_vocab()`.
+`get_tokenizer_mode()` reports it. The tokenizer used to be ASCII always; as for the chatbot's tokenizer, a vocabulary
+file that records its own `TOKENIZER_MODE` still overrides the mode on load.

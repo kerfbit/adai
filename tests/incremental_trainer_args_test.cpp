@@ -423,3 +423,18 @@ TEST(PersistentRunId, ConfiguredWinsElseTheIdIsCreatedOnceAndReused) {
     EXPECT_EQ(persistent_run_id("", (blocker / "sub").string()).rfind("lejepa-", 0), 0u);
     fs::remove(blocker);
 }
+
+// TD-416: `train abc` aborted through an uncaught std::stoi, and `train 5x` trained 5 epochs.
+TEST(ParseEpochsArg, AWholePositiveNumberOrTheDefault) {
+    std::string error;
+    EXPECT_EQ(adai::parse_epochs_arg({"train"}, 7, error), 7);
+    EXPECT_EQ(adai::parse_epochs_arg({"train", "3"}, 7, error), 3);
+    for (const std::string bad : {"abc", "5x", "0", "-2", ""}) {
+        error.clear();
+        EXPECT_FALSE(adai::parse_epochs_arg({"retrain", bad}, 7, error).has_value()) << bad;
+        EXPECT_EQ(error, "Invalid epoch count '" + bad + "' (expected a whole number, at least 1)");
+    }
+    error.clear();
+    EXPECT_FALSE(adai::parse_epochs_arg({"train", "3", "4"}, 7, error).has_value());
+    EXPECT_EQ(error, "Unexpected argument '4' (train takes one epoch count)");
+}

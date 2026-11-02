@@ -72,3 +72,9 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 |---|---|---|---|
 | Stale `serve` comments; `Pausing` never set; dead wake/sleep in the child; ring vs log-file mismatch; phase not reset on exception (§2) | Misleading docs and status | By inspection | [TD-522](../../guides/TECHNICAL_DEBT.md#td-522-trainercontrolstate-stale-design-text-unused-pausing-phase-and-dead-wake-logic) |
 | NaN loss JSON, `best_loss` default | Already tracked | — | TD-520 |
+
+## Addendum (November 2, 2026): `stop_signal` (TD-416)
+
+`std::atomic<int> stop_signal` (0 by default) records the SIGTERM/SIGINT that asked the pass to stop.
+`incremental_trainer`'s signal handler sets it together with `paused`, so the pass drains exactly as for
+`/admin/pause`; only the log message differs.

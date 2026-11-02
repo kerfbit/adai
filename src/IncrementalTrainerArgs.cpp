@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 0.12.0
+// @adai-reviewed: 2026-11-02
 
 #include "IncrementalTrainerArgs.hpp"
 #include <algorithm>
@@ -84,6 +84,20 @@ IncrementalTrainerGlobalArgs parse_incremental_trainer_global_args(int argc, cha
     }
 
     return result;
+}
+
+std::optional<int> parse_epochs_arg(const std::vector<std::string>& args, int default_epochs, std::string& error) {
+    if (args.size() < 2) return default_epochs;
+    if (args.size() > 2) {
+        error = "Unexpected argument '" + args[2] + "' (" + args[0] + " takes one epoch count)";
+        return std::nullopt;
+    }
+    const auto epochs = parse_strict_int(args[1]);
+    if (!epochs || *epochs < 1) {
+        error = "Invalid epoch count '" + args[1] + "' (expected a whole number, at least 1)";
+        return std::nullopt;
+    }
+    return *epochs;
 }
 
 TrainerServiceArgs parse_trainer_service_args(int argc, char* argv[]) {

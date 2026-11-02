@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-10-26
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-11-02
 
 #include <memory>
 #include <random>
@@ -236,6 +236,17 @@ class LeJEPAEncoder {
 
     /** Load tokenizer vocabulary from file — same convention as LLMEncoder. */
     void load_tokenizer_vocab(const std::string& vocab_file);
+
+    /**
+     * TD-416: starts a fresh tokenizer in @p mode (TOKENIZER_MODE); call before load_tokenizer_vocab().
+     * As for the chatbot's tokenizer, a vocabulary file that records its own TOKENIZER_MODE overrides it
+     * on load. The tokenizer used to be ASCII always, so a headerless vocabulary was read differently
+     * from the chatbot's under TOKENIZER_MODE=unicode.
+     */
+    void set_tokenizer_mode(TokenizerMode mode);
+    TokenizerMode get_tokenizer_mode() const {
+        return tokenizer->get_mode();
+    }
 
     /** Build tokenizer from a text corpus — same convention as LLMEncoder. */
     void build_tokenizer(const std::vector<std::string>& corpus, int vocab_size = 10000);

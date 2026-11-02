@@ -1,11 +1,12 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.19.1
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.20.0
+// @adai-reviewed: 2026-11-02
 
 #include "IncrementalTrainer.hpp"
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <csignal>
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
@@ -166,7 +167,7 @@ void IncrementalTrainer::maybe_attach_world_model() {
     // Same vocab-size-probe pattern IncrementalTrainingTool.cpp's own run_lejepa_training_pass()
     // uses (TD-183) — LeJEPAEncoder::load_tokenizer_vocab() doesn't resize anything, so the
     // constructor's vocab_size must already match the vocab file being loaded.
-    BPETokenizer vocab_probe;
+    BPETokenizer vocab_probe(config.base_config.tokenizer_mode);
     vocab_probe.load_vocab(vocab_path_);
 
     auto world_model = std::make_unique<LeJEPAEncoder>(
@@ -175,6 +176,7 @@ void IncrementalTrainer::maybe_attach_world_model() {
         static_cast<int>(config.world_model_num_heads),
         static_cast<int>(config.world_model_d_ff), config.base_config.max_seq_length,
         static_cast<int>(config.world_model_sigreg_num_sketches));
+    world_model->set_tokenizer_mode(config.base_config.tokenizer_mode);  // TD-416: as the chatbot's tokenizer
     world_model->load_tokenizer_vocab(vocab_path_);
 
     try {
@@ -807,7 +809,13 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
     // after /admin/resume, or a future one) picks the same files back up.
     const bool aborted = trainer.was_aborted();
     if (aborted) {
-        const std::string message = "Training pass paused via admin API (epoch " +
+        // TD-416: or stopped by SIGTERM/SIGINT, which incremental_trainer turns into the same drain.
+        const int stop_signal = control_ ? control_->stop_signal.load() : 0;
+        const std::string message =
+            std::string(stop_signal != 0 ? (stop_signal == SIGTERM ? "Training pass stopped by SIGTERM"
+                                                                   : "Training pass stopped by SIGINT")
+                                         : "Training pass paused via admin API") +
+            " (epoch " +
             std::to_string(epochs_fully_completed) + ", " +
             std::to_string(cumulative_samples_this_session) +
             " sample(s) this pass) — checkpointing and releasing claimed files back to pending";
@@ -1204,18 +1212,33 @@ IncrementalTrainer::ResumeResult IncrementalTrainer::resume_last_session(
 }
 
 bool IncrementalTrainer::load_session_history() {
-    std::string history_file = get_session_dir() + "/session_history.txt";
+    auto history = read_session_history(get_session_dir());
+    if (!history) return false;
+    session_history = std::move(*history);
+    for (const auto& session : session_history) {
+        if (session.session_id >= current_session_id) {
+            current_session_id = session.session_id + 1;
+        }
+    }
+    Logger::info("Loaded {} previous sessions", session_history.size());
+    return true;
+}
+
+// TD-416: the parser on its own, so `incremental_trainer status`/`history` can read the history without
+// building a trainer (which loads a checkpoint and deletes dead sessions).
+std::optional<std::vector<TrainingSession>> IncrementalTrainer::read_session_history(const std::string& session_dir) {
+    const std::string history_file = session_dir + "/session_history.txt";
 
     if (!fs::exists(history_file)) {
-        return false;
+        return std::nullopt;
     }
 
     std::ifstream file(history_file);
     if (!file.is_open()) {
-        return false;
+        return std::nullopt;
     }
 
-    session_history.clear();
+    std::vector<TrainingSession> session_history;
     std::string line;
 
     auto parse_float_list = [](const std::string& s, std::vector<float>& out) {
@@ -1299,14 +1322,8 @@ bool IncrementalTrainer::load_session_history() {
         }
 
         session_history.push_back(session);
-
-        if (session.session_id >= current_session_id) {
-            current_session_id = session.session_id + 1;
-        }
     }
-
-    Logger::info("Loaded {} previous sessions", session_history.size());
-    return true;
+    return session_history;
 }
 
 bool IncrementalTrainer::save_session_history() {

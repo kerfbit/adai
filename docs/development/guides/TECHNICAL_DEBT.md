@@ -1411,6 +1411,9 @@ The generation and model math run is complete.
   world-model directory so a restarted pass reclaims a crashed one's files).
 - TD-403's open item (done in code: the LeJEPA pass hosts the per-pass admin API, `PassAdminApi`, reporting progress,
   checkpointing on request and draining on pause).
+- TD-416 (done in code: SIGTERM/SIGINT drain a pass like `/admin/pause` (checkpoint, release, exit 1) from a
+  signal-safe handler; strict epoch counts; configured auto-save; `TOKENIZER_MODE` for LeJEPA; read-only
+  `status`/`history`; no interactive model pick without a terminal).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -11602,6 +11605,9 @@ Action Items:
 - [ ] Move the missing-vocab handling into the three-argument constructor (defer `build_model()` until `bootstrap_vocab()`), and make `status`/`history` work without a model.
 - [ ] Catch exceptions in `main()`'s command dispatch with a clear message.
 
+**Update (November 2, 2026):** `status` and `history` no longer build a trainer (TD-416), so they work without a
+vocabulary; `train`/`retrain`/`resume` still need one.
+
 Location in code: `src/IncrementalTrainingTool.cpp` (`train` construction, `status`), `src/IncrementalTrainer.cpp` (constructors); tagged `TODO: See TD-414`.
 
 Files to Modify:
@@ -11663,7 +11669,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / IncrementalTrainingTool | October 13, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 2, 2026 | Training / IncrementalTrainingTool | October 13, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `IncrementalTrainingTool`; the first item verified:
@@ -11681,13 +11687,42 @@ Found while tracing `IncrementalTrainingTool`; the first item verified:
 
 Action Items:
 
-- [ ] Parse epochs with validation; have the signal handler only set a flag that the training loop polls (then checkpoint, release, exit non-zero); use the configured auto-save values; thread `TOKENIZER_MODE` to LeJEPA; give `status`/`history` a read-only path.
+- [x] Parse epochs with validation; have the signal handler only set a flag that the training loop polls (then checkpoint, release, exit non-zero); use the configured auto-save values; thread `TOKENIZER_MODE` to LeJEPA; give `status`/`history` a read-only path.
 
-Location in code: `src/IncrementalTrainingTool.cpp` (`signal_handler()`, `train`/`retrain`/`init`/`status`, LeJEPA vocab probe); tagged `TODO: See TD-416`.
+**Fix (November 2, 2026):** every item.
+- **Epochs.** `parse_epochs_arg()` (`IncrementalTrainerArgs`): a whole number of at least 1, else `Invalid epoch count
+  '<v>'` and exit 1; a third argument is an error too.
+- **Signals.** The handler only stores atomics. Every `train`/`retrain`/`resume` pass now builds a `PassAdminApi` (its
+  HTTP listener still only with `--admin-port`), whose `TrainerControlState` it registers for the handler. The first
+  SIGTERM/SIGINT sets that state's `paused` and new `stop_signal`, so the pass drains as for `/admin/pause` (chatbot
+  and LeJEPA alike): it stops at the next sample or batch, checkpoints, releases its claimed files and exits 1, and
+  the log says "stopped by SIGTERM". With no pass running, or on a second signal, the process `_exit(1)`s at once.
+  `trainer_service`'s graceful-stop wait went from 10 s to 25 s (still inside the unit's `TimeoutStopSec=30`) to give
+  that checkpoint time.
+- **Auto-save.** `init` and `retrain` no longer override `AUTO_SAVE_*`.
+- **Tokenizer mode.** New `LeJEPAEncoder::set_tokenizer_mode()`; the LeJEPA pass and the trainer's world-model attach
+  use `TOKENIZER_MODE` as the chatbot does. A vocabulary that records its own mode still wins on load, as for the
+  chatbot, so only headerless vocabularies are affected.
+- **`status`/`history`** read `session_history.txt` through the new static `IncrementalTrainer::read_session_history()`
+  and print without building a trainer: no model, no checkpoint load, no `cleanup_dead_sessions()`, and no vocabulary
+  needed (TD-414's `status`/`history` crash).
+- **Model pick.** Without a terminal on stdin it now fails at once with "set MODEL_NAME or pass --model"; the choice
+  is parsed strictly.
+
+Tests: `ParseEpochsArg`, `LeJEPAEncoderTokenizerMode`, `train abc`/`retrain 0` in `SighupTest.IncrementalTrainerExitsOneOnABadFlag`,
+`SighupTest.SigtermDrainsALejepaPass` (exit 1, a checkpoint, the file unclaimed) and
+`SighupTest.StatusAndHistoryAreReadOnlyAndNeedNoVocabulary` (exit 0 with no vocabulary; an unreferenced checkpoint file
+survives). On the old binary `train abc` was killed by SIGABRT, SIGTERM exited 0 with no checkpoint and the file still
+claimed, and `status`/`history` failed. A chatbot `train 1000` pass stopped by SIGTERM was checked by hand: "stopped by
+SIGTERM (epoch 0, 68 sample(s))", its file released, exit 1.
+
+Location in code: `src/IncrementalTrainingTool.cpp` (`signal_handler()`, `PassAdminApi`, `train`/`retrain`/`init`/`status`/
+`history`, `resolve_model_name()`, LeJEPA vocab probe), `src/IncrementalTrainerArgs.{hpp,cpp}`, `src/IncrementalTrainer.{hpp,cpp}`,
+`src/LeJEPAEncoder.{hpp,cpp}`, `src/TrainerControlState.hpp`, `src/TrainerServiceMain.cpp`.
 
 Files to Modify:
 
-- `src/IncrementalTrainingTool.cpp`
+- `src/IncrementalTrainingTool.cpp` and the files listed above
 
 ---
 

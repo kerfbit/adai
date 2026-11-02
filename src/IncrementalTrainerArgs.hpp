@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-11-02
 
 // TD-035: incremental_trainer's global argv parsing and a few small pure helpers, pulled out of
 // IncrementalTrainingTool.cpp so they're testable without touching a real IncrementalTrainer
@@ -88,6 +88,11 @@ std::string derive_run_id(const std::string& configured);
 // they stayed claimed by an id no later process had. If the file can't be written the new id is still
 // returned (and a warning logged), so the pass runs; only reclaiming is lost.
 std::string persistent_run_id(const std::string& configured, const std::string& dir);
+
+// TD-416: `train`/`retrain`'s optional epoch count (args[1], after the command). A whole number of at
+// least 1; absent means `default_epochs`. Anything else sets `error` and returns nullopt (`train abc`
+// used to abort through an uncaught std::stoi, and `train 5x` trained 5 epochs).
+std::optional<int> parse_epochs_arg(const std::vector<std::string>& args, int default_epochs, std::string& error);
 
 // TD-202/TD-204: resolves the dataset registry sub-pool ("chatbot"/"world_model") for this
 // invocation. Deliberately takes only `objective` and `cli_override` — NOT a pre-loaded

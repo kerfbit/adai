@@ -1,8 +1,9 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.28.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 0.29.0
+// @adai-reviewed: 2026-11-02
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <csignal>
 #include <ctime>
@@ -45,28 +46,28 @@ namespace {
 static constexpr const char* COLOR_RESET = "\033[0m";
 static constexpr const char* COLOR_INFO = "\033[1;36m";
 
-// Graceful-stop signal handling — registered only for the actual worker
-// process (--foreground under systemd, or the detached background child; see
-// run_training_pipeline()). Not load-bearing for crash recovery: a real
-// SIGSEGV from the GPU driver never reaches a handler at all, and after the
-// dataset-registry acquire-eligibility fix (RegistryTransport.cpp/
-// RegistryServer.cpp — a resumed run can reclaim its own prior claim by
-// run_id) a subsequent `resume` recovers cleanly regardless of whether the
-// old process exited via SIGTERM or was hard-killed. This exists purely so
-// `systemctl stop`/restart produces a clean, prompt exit and a clear log line
-// instead of relying on the OS default SIGTERM action.
-// TODO: See TD-416 in TECHNICAL_DEBT.md - spdlog + std::exit(0) from a signal handler (not async-signal-safe); no
-// checkpoint or release of claimed files, and exit code 0
+// Graceful-stop signal handling — registered only for the actual worker process (--foreground under
+// systemd, or the detached background child; see run_training_pipeline()). Not load-bearing for crash
+// recovery: a real SIGSEGV from the GPU driver never reaches a handler, and a later pass reclaims its
+// own claims by run id either way.
+//
+// TD-416: the handler only stores atomics (it used to log through spdlog and call std::exit(0), neither
+// async-signal-safe, and exited 0 without a checkpoint or releasing the claimed files). The first
+// SIGTERM/SIGINT asks the running pass (its TrainerControlState, registered by PassAdminApi) to drain as
+// for /admin/pause: it stops at the next sample or batch, checkpoints, releases its files and exits 1.
+// With no pass registered, or on a second signal, the process exits at once with status 1.
+std::atomic<adai::TrainerControlState*> g_signal_control{nullptr};
+std::atomic<int> g_stop_signals{0};
+
 void signal_handler(int sig) {
-    if (sig == SIGTERM || sig == SIGINT) {
-        // Logger's underlying spdlog sink is not strictly async-signal-safe,
-        // but this file already accepts that same pragmatic tradeoff
-        // elsewhere (see ChatbotAPIServer.cpp's signal_handler, which logs
-        // from its SIGHUP branch) — acceptable here since this only fires on
-        // an operator-issued stop, not from a crash handler.
-        adai::Logger::info("Received {} — shutting down", sig == SIGTERM ? "SIGTERM" : "SIGINT");
-        std::exit(0);
+    if (sig != SIGTERM && sig != SIGINT) return;
+    adai::TrainerControlState* control = g_signal_control.load();
+    if (g_stop_signals.fetch_add(1) == 0 && control != nullptr) {
+        control->stop_signal.store(sig);
+        control->paused.store(true);
+        return;
     }
+    ::_exit(1);
 }
 
 void print_session_history(const std::vector<TrainingSession>& sessions) {
@@ -247,20 +248,22 @@ static void cleanup_downloads(const std::vector<fs::path>& local_paths) {
 // TD-172/TD-403: the per-pass admin API a trainer_service child hosts on 127.0.0.1:<--admin-port>
 // for one pass; trainer_service's own listener proxies /admin/* to it while the child is alive. Shared
 // by the chatbot and LeJEPA resume passes (the LeJEPA pass had none, so during it the supervisor could
-// only answer from its own state). control() is null when no --admin-port was passed or the binary has
-// no admin API; the destructor stops the listener.
+// only answer from its own state). TD-416: every pass (train, retrain, resume) builds one; control() is
+// always set, and the HTTP listener runs only with --admin-port in a build with the admin API. The
+// destructor stops the listener.
 class PassAdminApi {
    public:
     PassAdminApi(const std::optional<int>& admin_port, const adai::ServiceConfig& svc_config) {
+        // TD-416: every pass has a control state, admin API or not, so a SIGTERM/SIGINT can drain it.
+        control_ = std::make_shared<adai::TrainerControlState>();
+        control_->auto_save_enabled = svc_config.auto_save_enabled;
+        control_->auto_save_every_samples = svc_config.auto_save_every_samples;
+        control_->auto_save_every_minutes = svc_config.auto_save_every_minutes;
+        control_->max_sessions_to_keep = svc_config.max_sessions_to_keep;
+        control_->set_model_name(svc_config.model_name);
+        g_signal_control.store(control_.get());
 #ifdef BUILD_TRAINER_ADMIN
         if (admin_port) {
-            control_ = std::make_shared<adai::TrainerControlState>();
-            control_->auto_save_enabled = svc_config.auto_save_enabled;
-            control_->auto_save_every_samples = svc_config.auto_save_every_samples;
-            control_->auto_save_every_minutes = svc_config.auto_save_every_minutes;
-            control_->max_sessions_to_keep = svc_config.max_sessions_to_keep;
-            control_->set_model_name(svc_config.model_name);
-
             api_ = std::make_unique<adai::TrainerAdminAPI>(control_, "127.0.0.1", *admin_port,
                                                            svc_config.trainer_admin_dir);
             adai::TrainerAdminAPI* api = api_.get();
@@ -295,6 +298,7 @@ class PassAdminApi {
 #endif
     }
     ~PassAdminApi() {
+        g_signal_control.store(nullptr);
 #ifdef BUILD_TRAINER_ADMIN
         if (api_) {
             api_->stop();
@@ -379,9 +383,10 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     // TokenEmbedding to match. LeJEPAEncoder::load_tokenizer_vocab() itself does not resize
     // anything (a pre-existing gap in that method, not introduced here — flagged separately),
     // so the constructor's own vocab_size must already be correct before that call.
-    // TODO: See TD-416 in TECHNICAL_DEBT.md - TOKENIZER_MODE ignored (always ASCII) on the LeJEPA path
-    BPETokenizer vocab_probe;  // ASCII mode — matches LeJEPAEncoder's own hardcoded tokenizer
-                               // mode (TD-177); TOKENIZER_MODE is not yet threaded through it.
+    // TD-416: TOKENIZER_MODE, as for the chatbot (it used to be ASCII always); a vocabulary that records
+    // its own mode overrides it on load.
+    const TokenizerMode tokenizer_mode = svc_config.unicode_tokenizer ? TokenizerMode::UNICODE : TokenizerMode::ASCII;
+    BPETokenizer vocab_probe(tokenizer_mode);
     vocab_probe.load_vocab(default_vocab);
     const int vocab_size = vocab_probe.get_vocab_size();
 
@@ -391,6 +396,7 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
                               static_cast<int>(svc_config.world_model_d_ff),
                               static_cast<int>(svc_config.max_seq_length),
                               static_cast<int>(svc_config.world_model_sigreg_num_sketches));
+    world_model.set_tokenizer_mode(tokenizer_mode);
     world_model.load_tokenizer_vocab(default_vocab);
 
     // TD-184: genuinely incremental across separate `train` invocations — resume from a prior
@@ -903,6 +909,15 @@ std::string resolve_model_name(const adai::ServiceConfig& svc_config,
         return {};
     }
 
+    // TD-416: the pick needs someone at a terminal. Under systemd or with piped input it used to read EOF
+    // and fail with no reason given.
+#ifndef _WIN32
+    if (!::isatty(STDIN_FILENO)) {
+        std::cerr << "❌ No model to train: set MODEL_NAME or pass --model <name> (the interactive pick "
+                     "from the name service needs a terminal)\n";
+        return {};
+    }
+#endif
     std::cout << "\nAvailable models from name service:\n";
     std::cout << "  #  | State        | Role       | Model Name\n";
     std::cout << "-----|--------------|------------|---------------------------\n";
@@ -917,12 +932,8 @@ std::string resolve_model_name(const adai::ServiceConfig& svc_config,
     if (input.empty())
         return {};
 
-    int choice = 0;
-    try {
-        choice = std::stoi(input);
-    } catch (...) {
-        return {};
-    }
+    const auto parsed = adai::parse_strict_int(input);
+    const int choice = parsed.value_or(0);
     if (choice < 1 || choice > static_cast<int>(models.size())) {
         std::cerr << "Invalid selection.\n";
         return {};
@@ -1279,10 +1290,7 @@ int main(int argc, char* argv[]) {
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         // TD-269: warm up once per run
         config.base_config.lr_schedule = LRSchedule::LINEAR_WARMUP;
-        // TODO: See TD-416 in TECHNICAL_DEBT.md - hard-coded auto-save overrides AUTO_SAVE_* (also in retrain)
-        config.auto_save_enabled = true;
-        config.auto_save_every_minutes = 30;
-        config.auto_save_every_samples = 1000;
+        // TD-416: AUTO_SAVE_* as configured (init and retrain used to force 30 min / 1,000 samples).
 
         IncrementalTrainer trainer(vocab_path, model_path, config);
 
@@ -1296,8 +1304,14 @@ int main(int argc, char* argv[]) {
                   << "  max_seq=" << config.base_config.max_seq_length << "\n";
 
     } else if (command == "train") {
-        // TODO: See TD-416 in TECHNICAL_DEBT.md - uncaught std::stoi: `train abc` aborts (same in retrain)
-        int epochs = (args.size() >= 2) ? std::stoi(args[1]) : svc_config.num_epochs;
+        // TD-416: checked; `train abc` used to abort through an uncaught std::stoi (same in retrain).
+        std::string epochs_error;
+        const auto parsed_epochs = adai::parse_epochs_arg(args, svc_config.num_epochs, epochs_error);
+        if (!parsed_epochs) {
+            std::cerr << "❌ " << epochs_error << "\n";
+            return 1;
+        }
+        const int epochs = *parsed_epochs;
 
         // TD-413: counted through DatasetRegistry in both modes, so it reads the same kind
         // sub-pool (SESSION_DIR/<kind>/ locally, TD-202) and model filter the pass will acquire
@@ -1334,8 +1348,9 @@ int main(int argc, char* argv[]) {
                  {"Epochs", std::to_string(epochs)}},
                 init_gpu,
                 [&]() -> int {
-                    return run_lejepa_training_pass(svc_config, default_vocab, world_model_dir,
-                                                    epochs);
+                    PassAdminApi pass(std::nullopt, svc_config);  // TD-416: a SIGTERM drains the pass
+                    return run_lejepa_training_pass(svc_config, default_vocab, world_model_dir, epochs,
+                                                    pass.control());
                 },
                 foreground);
         }
@@ -1352,6 +1367,8 @@ int main(int argc, char* argv[]) {
                 // TODO: See TD-414 in TECHNICAL_DEBT.md - this 3-arg constructor builds the model unconditionally, so with
                 // no vocab it throws VocabularyFileError; the first-run vocab bootstrap is only in the config-file ctor
                 IncrementalTrainer trainer(default_vocab, default_model, config);
+                PassAdminApi pass(std::nullopt, svc_config);  // TD-416: a SIGTERM drains the pass
+                trainer.set_control_state(pass.control());
 
                 // MNS is the definitive source for run_id (continuing the
                 // model's current run — not a retrain); falls back to the
@@ -1402,7 +1419,13 @@ int main(int argc, char* argv[]) {
             foreground);
 
     } else if (command == "retrain") {
-        int epochs = (args.size() >= 2) ? std::stoi(args[1]) : svc_config.num_epochs;
+        std::string epochs_error;  // TD-416
+        const auto parsed_epochs = adai::parse_epochs_arg(args, svc_config.num_epochs, epochs_error);
+        if (!parsed_epochs) {
+            std::cerr << "❌ " << epochs_error << "\n";
+            return 1;
+        }
+        const int epochs = *parsed_epochs;
 
         int data_file_count = 0;
         {
@@ -1426,12 +1449,12 @@ int main(int argc, char* argv[]) {
                 config.base_config.num_epochs = epochs;
                 // TD-269: warm up once per run
                 config.base_config.lr_schedule = LRSchedule::LINEAR_WARMUP;
-                config.auto_save_enabled = true;
-                config.auto_save_every_minutes = 30;
-                config.auto_save_every_samples = 1000;
+                // TD-416: AUTO_SAVE_* as configured (this used to force 30 min / 1,000 samples).
 
                 IncrementalTrainer trainer(default_vocab, default_model, config);
                 trainer.reset_model_for_config();
+                PassAdminApi pass(std::nullopt, svc_config);  // TD-416: a SIGTERM drains the pass
+                trainer.set_control_state(pass.control());
 
                 // MNS is the definitive source for run_id — retrain always
                 // requests a fresh run (new_run=true), falling back to the
@@ -1596,7 +1619,7 @@ int main(int argc, char* argv[]) {
                 // single-pass child (always with --foreground, so this process IS the worker), hosts
                 // the per-pass admin API (PassAdminApi above) for the duration of this one pass.
                 PassAdminApi admin(admin_port, svc_config);
-                if (admin.control()) trainer.set_control_state(admin.control());
+                trainer.set_control_state(admin.control());
 
                 // MNS is the definitive source for run_id — resume continues
                 // the model's current run (not a retrain); falls back to the
@@ -1635,11 +1658,25 @@ int main(int argc, char* argv[]) {
             foreground);
 
     } else if (command == "status") {
-        // TODO: See TD-414 in TECHNICAL_DEBT.md - aborts without a vocab; TD-416: a read-only command that builds the
-        // model, loads a checkpoint and runs the deleting cleanup_dead_sessions() (also history)
-        IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
-        IncrementalTrainer trainer(default_vocab, default_model, config);
-        trainer.print_training_summary();
+        // TD-416: read-only. It used to build an IncrementalTrainer just to print, which loaded a checkpoint,
+        // ran the deleting cleanup_dead_sessions() and (TD-414) aborted without a vocabulary (also history).
+        const auto history = IncrementalTrainer::read_session_history(svc_config.session_dir).value_or(
+            std::vector<TrainingSession>{});
+        long long total_samples = 0;
+        double total_hours = 0.0;
+        for (const auto& s : history) {
+            total_samples += s.samples_trained;
+            total_hours += std::chrono::duration<double, std::ratio<3600>>(s.end_time - s.start_time).count();
+        }
+        std::cout << COLOR_INFO << "\n📊 Incremental Training Summary" << COLOR_RESET << '\n';
+        std::cout << "  Session dir   : " << svc_config.session_dir << '\n';
+        std::cout << "  Sessions      : " << history.size() << '\n';
+        std::cout << "  Total samples : " << total_samples << '\n';
+        std::cout << "  Total time    : " << std::fixed << std::setprecision(2) << total_hours << " h\n";
+        if (!history.empty()) {
+            std::cout << "  Last session  : #" << history.back().session_id << "  "
+                      << history.back().checkpoint_path << '\n';
+        }
 
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_registry();
@@ -1650,9 +1687,8 @@ int main(int argc, char* argv[]) {
         }
 
     } else if (command == "history") {
-        IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
-        IncrementalTrainer trainer(default_vocab, default_model, config);
-        print_session_history(trainer.get_session_history());
+        print_session_history(IncrementalTrainer::read_session_history(svc_config.session_dir).value_or(
+            std::vector<TrainingSession>{}));
         print_data_registry(svc_config);
 
     } else {

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-11-02
 
 
 #include <algorithm>
@@ -138,6 +138,10 @@ class TrainerControlState {
     // ---- Action flags (admin writes; training-pass/supervisor consume) ----
     std::atomic<bool> paused{false};
     std::atomic<bool> checkpoint_requested{false};
+    // TD-416: the signal (SIGTERM/SIGINT) that asked this pass to stop, or 0. incremental_trainer's
+    // signal handler sets it together with `paused`, so the pass drains exactly as for /admin/pause
+    // (checkpoint, release claimed files, exit 1); it only changes the log message.
+    std::atomic<int> stop_signal{0};
 
     // ---- Checkpoint bookkeeping (training-pass writes; admin reads) ----
     std::atomic<long long> checkpoints_written{0};

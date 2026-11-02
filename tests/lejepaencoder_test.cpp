@@ -816,3 +816,36 @@ TEST_F(LeJEPAEncoderTest, CheckpointDirectoryResolution) {
     // An artifact path (MNS or WORLD_MODEL_ARTIFACT_PATH) always wins.
     EXPECT_EQ(LeJEPAEncoder::resolve_checkpoint_dir(session, "/elsewhere/wm"), "/elsewhere/wm");
 }
+
+// TD-416: the LeJEPA tokenizer was always ASCII, so under TOKENIZER_MODE=unicode a vocabulary without a
+// TOKENIZER_MODE line was read differently from the chatbot's. The mode is set like the chatbot's, and a
+// vocabulary that records its own mode still wins.
+TEST(LeJEPAEncoderTokenizerMode, FollowsTheConfiguredModeUnlessTheVocabularyRecordsOne) {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / ("adai_td416_vocab_" + std::to_string(::getpid()));
+    fs::create_directories(dir);
+    BPETokenizer source(TokenizerMode::ASCII);
+    source.build_vocab({"hello world", "how are you"}, 40);
+    source.save_vocab((dir / "with_mode.txt").string());
+    {
+        std::ifstream in(dir / "with_mode.txt");
+        std::ofstream out(dir / "no_mode.txt");
+        for (std::string line; std::getline(in, line);)
+            if (line.rfind("TOKENIZER_MODE", 0) != 0) out << line << '\n';
+    }
+    const int vocab = static_cast<int>(source.get_vocab_size());
+
+    LeJEPAEncoder headerless(vocab, 64, 1, 2, 128, 32, 16);
+    headerless.set_tokenizer_mode(TokenizerMode::UNICODE);
+    headerless.load_tokenizer_vocab((dir / "no_mode.txt").string());
+    EXPECT_EQ(headerless.get_tokenizer_mode(), TokenizerMode::UNICODE);
+
+    LeJEPAEncoder recorded(vocab, 64, 1, 2, 128, 32, 16);
+    recorded.set_tokenizer_mode(TokenizerMode::UNICODE);
+    recorded.load_tokenizer_vocab((dir / "with_mode.txt").string());
+    EXPECT_EQ(recorded.get_tokenizer_mode(), TokenizerMode::ASCII);  // the file's own mode
+
+    LeJEPAEncoder defaulted(vocab, 64, 1, 2, 128, 32, 16);
+    EXPECT_EQ(defaulted.get_tokenizer_mode(), TokenizerMode::ASCII);
+    fs::remove_all(dir);
+}

@@ -315,6 +315,8 @@ TEST_F(SighupTest, IncrementalTrainerExitsOneOnABadFlag) {
              {"--admin-port", "99999", "status"},
              {"--objective=lejpa", "status"},
              {"--dataset-kind", "../x", "status"},  // TD-402
+             {"train", "abc"},                       // TD-416: aborted (exit 134)
+             {"retrain", "0"},                       // TD-416
              {"status", "--config"}}) {
         std::vector<std::string> args = {"--config", cfg.string()};
         args.insert(args.end(), bad.begin(), bad.end());
@@ -613,4 +615,96 @@ TEST_F(SighupTest, LejepaPassAnswersTheAdminApiAndDrainsOnPause) {
     const auto entries = reg.pending_entries();
     ASSERT_EQ(entries.size(), 1u);
     EXPECT_TRUE(entries[0].run_id.empty()) << "the paused pass's file is still claimed by " << entries[0].run_id;
+}
+
+// TD-416: SIGTERM ran a std::exit(0) from the handler: exit 0, no checkpoint, and the claimed file stayed
+// claimed. It now drains the pass like /admin/pause: checkpoint, release, exit 1.
+TEST_F(SighupTest, SigtermDrainsALejepaPass) {
+    BPETokenizer tokenizer;
+    tokenizer.build_vocab({"hello world", "how are you", "good morning", "the cat sat"}, 60);
+    tokenizer.save_vocab((dir_ / "vocab.txt").string());
+    const fs::path data = dir_ / "pretrain.jsonl";
+    {
+        std::ofstream out(data);
+        const char* lines[] = {"hello world", "how are you", "good morning", "the cat sat"};
+        for (int i = 0; i < 400; ++i) out << "{\"input\":\"" << lines[i % 4] << " " << lines[(i + 1) % 4] << "\"}\n";
+    }
+    const fs::path sessions = dir_ / "sessions";
+    DatasetConfig dcfg;
+    dcfg.session_dir = sessions.string();
+    dcfg.dataset_kind = "world_model";
+    fs::create_directories(DatasetRegistry::local_pool_dir(dcfg));
+    {
+        DatasetRegistry reg(dcfg);
+        reg.load_registry();
+        reg.load_pending_list();
+        ASSERT_TRUE(reg.add_file(data.string()));
+        ASSERT_TRUE(reg.save_pending_list());
+    }
+    const fs::path log = dir_ / "log.txt";
+    const auto cfg = write_config(
+        "config.trainer.conf",
+        "LOG_FILE_PATH=" + log.string() + "\nSESSION_DIR=" + sessions.string() +
+            "\nVOCAB_PATH=" + (dir_ / "vocab.txt").string() +
+            "\nREGISTRY_SERVER_URL=\nNAME_SERVICE_URL=\nMETRICS_SERVER_URL=\nRUN_ID=\nGPU_ENABLED=false\n"
+            "AUTO_SAVE_ENABLED=false\nNUM_EPOCHS=1000\nMAX_SEQ_LENGTH=16\nWORLD_MODEL_ENABLED=true\n"
+            "WORLD_MODEL_D_MODEL=64\nWORLD_MODEL_NUM_LAYERS=1\nWORLD_MODEL_NUM_HEADS=2\nWORLD_MODEL_D_FF=128\n"
+            "WORLD_MODEL_SIGREG_BATCH_SIZE=2\n");
+    spawn(INCREMENTAL_TRAINER_BINARY_PATH, {"--config", cfg.string(), "--foreground", "--objective=lejepa", "resume"});
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    std::string text;
+    while (text.find("Training the world model on") == std::string::npos &&
+           std::chrono::steady_clock::now() < deadline) {
+        ASSERT_TRUE(still_running()) << "the pass ended before it was training";
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::stringstream s;
+        s << std::ifstream(log).rdbuf();
+        text = s.str();
+    }
+    ASSERT_NE(text.find("Training the world model on"), std::string::npos) << "never saw training";
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));  // a few batches in
+
+    ASSERT_EQ(::kill(pid_, SIGTERM), 0);
+    int status = 0;
+    pid_t done = 0;
+    const auto stop_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while ((done = ::waitpid(pid_, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < stop_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    ASSERT_EQ(done, pid_) << "SIGTERM didn't stop the pass";
+    pid_ = -1;
+    EXPECT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 1) << "a stopped pass isn't a successful one";
+    EXPECT_TRUE(fs::exists(sessions / "world_model_checkpoint" / "config.bin")) << "no checkpoint on SIGTERM";
+    DatasetRegistry reg(dcfg);
+    reg.load_pending_list();
+    const auto entries = reg.pending_entries();
+    ASSERT_EQ(entries.size(), 1u);
+    EXPECT_TRUE(entries[0].run_id.empty()) << "the stopped pass's file is still claimed by " << entries[0].run_id;
+}
+
+// TD-416: status built a whole IncrementalTrainer (model, checkpoint load, the deleting
+// cleanup_dead_sessions()) and, with no vocabulary yet, aborted (TD-414).
+TEST_F(SighupTest, StatusAndHistoryAreReadOnlyAndNeedNoVocabulary) {
+    const fs::path sessions = dir_ / "sessions";
+    fs::create_directories(sessions);
+    const fs::path stray = sessions / "session_7_checkpoint.bin";  // unreferenced: cleanup would delete it
+    std::ofstream(stray) << "x";
+    const auto cfg = write_config("config.trainer.conf",
+                                  "LOG_FILE_PATH=" + (dir_ / "log.txt").string() + "\nSESSION_DIR=" +
+                                      sessions.string() + "\nVOCAB_PATH=" + (dir_ / "missing_vocab.txt").string() +
+                                      "\nREGISTRY_SERVER_URL=\nNAME_SERVICE_URL=\nGPU_ENABLED=false\n");
+    for (const std::string command : {"status", "history"}) {
+        spawn(INCREMENTAL_TRAINER_BINARY_PATH, {"--config", cfg.string(), command});
+        int status = 0;
+        pid_t done = 0;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        while ((done = ::waitpid(pid_, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        ASSERT_EQ(done, pid_) << command;
+        pid_ = -1;
+        EXPECT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 0)
+            << command << (WIFSIGNALED(status) ? " killed by signal " + std::to_string(WTERMSIG(status)) : "");
+    }
+    EXPECT_TRUE(fs::exists(stray)) << "a read-only command deleted a checkpoint file";
 }

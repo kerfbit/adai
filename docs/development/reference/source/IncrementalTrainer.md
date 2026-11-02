@@ -242,3 +242,11 @@ A completed pass with no validation data now records `final_validation_loss = Tr
 `run_training()` ends the push session as its last step, after the final checkpoint save, `finalize_session()` and the MNS candidate
 report, and clears `ChatbotTrainer`'s reporter pointer. A metrics outage can no longer delay the save, and with the push client's bounded
 drain the callers' `mark_trained()` waits at most the drain deadline.
+
+## Addendum (November 2, 2026): `read_session_history()` and SIGTERM drains (TD-416)
+
+`load_session_history()` now wraps a static `read_session_history(session_dir)`, which parses
+`session_history.txt` without a trainer (nullopt when it can't be read); `incremental_trainer status`/`history` use it.
+A pass drained by SIGTERM/SIGINT (incremental_trainer sets the control state's `paused` and `stop_signal`) takes the
+existing pause path, and its log line says "stopped by SIGTERM" instead of "paused via admin API". The trainer's
+world-model attach starts the LeJEPA tokenizer in `TOKENIZER_MODE`.

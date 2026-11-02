@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-10-26
+// @adai-version: 0.11.0
+// @adai-reviewed: 2026-11-02
 
 #include "LeJEPAEncoder.hpp"
 #include "Logger.hpp"
@@ -402,6 +402,10 @@ float LeJEPAEncoder::train_tokens(const std::vector<int>& token_ids, bool per_se
     }
 
     return predictor_loss;
+}
+
+void LeJEPAEncoder::set_tokenizer_mode(TokenizerMode mode) {
+    tokenizer = std::make_unique<BPETokenizer>(mode);
 }
 
 void LeJEPAEncoder::load_tokenizer_vocab(const std::string& vocab_file) {

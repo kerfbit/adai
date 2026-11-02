@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-11-02
 
 // TD-172: trainer_service — the thin process-supervisor binary that replaces
 // `incremental_trainer serve`. Deliberately minimal: it does not link adai_models/adai_nlp and
@@ -187,10 +187,11 @@ int main(int argc, char* argv[]) {
         kPollIntervalSeconds, trainer_path);
 
     // TD-173: how long a stop request waits for the current child to exit gracefully (SIGTERM)
-    // before escalating to a force kill — see ChildProcess::stop_and_wait(). Comfortably inside
+    // before escalating to a force kill — see ChildProcess::stop_and_wait(). Inside
     // scripts/adai-trainer.service's own TimeoutStopSec=30, so systemd's external hard-kill
-    // should never actually be needed; this is what makes that true even off systemd.
-    constexpr int kGracefulStopTimeoutMs = 10000;
+    // should never actually be needed; this is what makes that true even off systemd. TD-416: 25 s
+    // (was 10), since a stopped pass now writes a checkpoint and releases its files before exiting.
+    constexpr int kGracefulStopTimeoutMs = 25000;
 
     adai::ChildProcess child;
     while (!control->stop_requested.load()) {
