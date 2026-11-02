@@ -153,3 +153,12 @@ other count is 0, which closes TD-449's layer-count item. `--num-layers` with a 
 `--encoder`/`--decoder` are errors. `MnsCliRequest::notice` carries the line `mns_cli` prints on stderr before
 sending, for example `Registering m (chatbot) with d_model=768 num_heads=12 ... (from config.trainer.conf)`.
 
+## Addendum (November 1, 2026): `parse_url()` and exact arguments (TD-451)
+
+`ParsedUrl` gained `https`, `base_path`, `error` and `url_for(path)`. `https://` defaults to port 443 (`http://` and a
+bare host keep 8083), a URL path becomes a prefix for every request, `[IPv6]:port` works, and a bad port, a missing host
+or another scheme sets `error` (a bad port used to be ignored). `get`, `resolve`, `delete`, `roles`, `resolve-role`,
+`promote`, `health` and `update` now reject extra arguments and unknown options (`build_roles_request()` and
+`build_health_request()` take the argument list, defaulting to empty); `update` takes `--run-group` in any position.
+This matters because `mns_cli` now stops reading global options at the command word, so `delete m --url X` reaches
+`build_delete_request()` and is refused instead of deleting `m` on the default server.

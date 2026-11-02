@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.25.0
+// @adai-version: 1.26.0
 // @adai-reviewed: 2026-11-01
 
 #include "Config.hpp"
@@ -507,6 +507,10 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 // Model Name Service configuration
             } else if (key == "NAME_SERVICE_URL") {
                 config.name_service_url = value;
+            } else if (key == "NAME_SERVICE_HEADERS") {
+                config.name_service_headers = value;
+            } else if (key == "NAME_SERVICE_CA_FILE") {
+                config.name_service_ca_file = value;
             } else if (key == "NAME_SERVICE_PORT") {
                 config.name_service_port = parse_int(value);
             } else if (key == "NAME_SERVICE_DIR") {
@@ -990,6 +994,12 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     // Model Name Service
     if (auto val = get_env("NAME_SERVICE_URL")) {
         config.name_service_url = *val;
+    }
+    if (auto val = get_env("NAME_SERVICE_HEADERS")) {
+        config.name_service_headers = *val;
+    }
+    if (auto val = get_env("NAME_SERVICE_CA_FILE")) {
+        config.name_service_ca_file = *val;
     }
     if (auto val = get_env_int("NAME_SERVICE_PORT")) {
         config.name_service_port = *val;
@@ -1743,6 +1753,8 @@ std::string ConfigLoader::to_string(const ServiceConfig& c) {
     item("FTPS_PINNED_PUBLIC_KEY", c.ftps_pinned_public_key);
     section("Model Name Service");
     item("NAME_SERVICE_URL", c.name_service_url);
+    item("NAME_SERVICE_HEADERS", c.name_service_headers);
+    item("NAME_SERVICE_CA_FILE", c.name_service_ca_file);
     item("NAME_SERVICE_PORT", num(c.name_service_port));
     item("NAME_SERVICE_DIR", c.name_service_dir);
     item("NAME_SERVICE_TIMEOUT_MS", num(c.name_service_timeout_ms));

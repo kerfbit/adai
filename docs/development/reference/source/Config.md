@@ -328,3 +328,9 @@ or needing a restart. Both default to empty, so other callers are unchanged.
 switch, read from the file and the environment with the shared boolean words; `--admin-enabled`
 overrides it. Listed in `to_string()` under the registry section.
 
+## Addendum (November 1, 2026): `NAME_SERVICE_HEADERS`, `NAME_SERVICE_CA_FILE` and `parse_http_header_list()` (TD-451)
+
+Two keys for `mns_cli`: `NAME_SERVICE_HEADERS` (extra request headers, in `METRICS_SERVER_HEADERS`'s "Name: value; ..."
+format, hidden in `to_string()`) and `NAME_SERVICE_CA_FILE` (CA bundle for an `https://` `NAME_SERVICE_URL`), read from
+the file and the environment. The header-list parser is now `parse_http_header_list()`, inline in `Config.hpp`, shared with
+`MetricsPushClient`'s `parse_metrics_server_headers()`.

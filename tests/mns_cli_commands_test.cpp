@@ -46,10 +46,12 @@ TEST(ParseUrl, StripsHttpAndParsesPort) {
     EXPECT_EQ(u.port, 9090);
 }
 
-TEST(ParseUrl, StripsHttpsAndTrailingPath) {
-    auto u = parse_url("https://example.com:1234/some/path");
+TEST(ParseUrl, StripsHttpsAndKeepsThePathAsAPrefix) {
+    auto u = parse_url("https://example.com:1234/some/path/");
     EXPECT_EQ(u.host, "example.com");
     EXPECT_EQ(u.port, 1234);
+    EXPECT_TRUE(u.https);
+    EXPECT_EQ(u.base_path, "/some/path");
 }
 
 TEST(ParseUrl, BareHostNoPortNoScheme) {
@@ -618,6 +620,114 @@ TEST_F(Td450FromConfig, BadCombinationsAreErrors) {
     EXPECT_TRUE(error_contains(build_register_request({"m", "chatbot", "--from-config", path_, "--num-layers", "2"}, {}),
                                "--num-layers is for --kind encoder/decoder/world_model"));
 }
+
+// ---------------------------------------------------------------------------------------------
+// TD-451: https://, strict URLs, exact arguments, header lists, global options and --help.
+// ---------------------------------------------------------------------------------------------
+
+TEST(Td451ParseUrl, HttpsUsesPort443AndTheRightScheme) {
+    // https://host used to keep port 8083 and connect with plain HTTP.
+    auto u = parse_url("https://mns.example.com");
+    EXPECT_TRUE(u.error.empty()) << u.error;
+    EXPECT_TRUE(u.https);
+    EXPECT_EQ(u.port, 443);
+    EXPECT_EQ(u.url_for("/health"), "https://mns.example.com:443/health");
+
+    auto plain = parse_url("http://10.0.0.5");
+    EXPECT_FALSE(plain.https);
+    EXPECT_EQ(plain.url_for("/models"), "http://10.0.0.5:8083/models");
+
+    EXPECT_EQ(parse_url("https://proxy.example.com/mns").url_for("/health"), "https://proxy.example.com:443/mns/health");
+    auto v6 = parse_url("http://[::1]:9000");
+    EXPECT_TRUE(v6.error.empty()) << v6.error;
+    EXPECT_EQ(v6.host, "[::1]");
+    EXPECT_EQ(v6.port, 9000);
+}
+
+TEST(Td451ParseUrl, BadSchemesHostsAndPortsAreErrors) {
+    // A bad port used to be ignored (8083 kept); ftp:// was read as a host name.
+    for (const std::string bad : {"http://host:abc", "http://host:0", "http://host:99999", "http://host:",
+                                  "http://host:80x", "ftp://host", "http://", "http://:8083", "http://[::1"}) {
+        EXPECT_FALSE(parse_url(bad).error.empty()) << bad;
+    }
+}
+
+TEST(Td451ExactArguments, ExtraArgumentsAreErrorsNotIgnored) {
+    // `delete m --url X` would have deleted m on the default server once global options stop at the
+    // command word; extra arguments used to be ignored.
+    EXPECT_TRUE(error_contains(build_delete_request({"m", "--url", "http://other"}), "Unknown option: --url"));
+    EXPECT_TRUE(error_contains(build_get_request({"m", "n"}), "Unexpected argument: n"));
+    EXPECT_TRUE(error_contains(build_resolve_request({}), "Missing argument"));
+    EXPECT_TRUE(error_contains(build_resolve_role_request({"chatbot", "x"}), "Unexpected argument: x"));
+    EXPECT_TRUE(error_contains(build_promote_request({"chatbot", "m", "x"}), "Unexpected argument: x"));
+    EXPECT_TRUE(error_contains(build_roles_request({"x"}), "Unexpected argument: x"));
+    EXPECT_TRUE(error_contains(build_health_request({"--verbose"}), "Unknown option: --verbose"));
+    EXPECT_FALSE(build_health_request({}).error);
+}
+
+TEST(Td451ExactArguments, UpdateTakesItsOptionInAnyOrder) {
+    auto r = build_update_run_group_request({"--run-group", "nightly", "my-model"});
+    ASSERT_FALSE(r.error) << r.error_message;
+    EXPECT_EQ(r.path, "/models/my-model/run_group");
+    EXPECT_EQ(r.body, "{\"run_group\":\"nightly\"}");
+    EXPECT_TRUE(error_contains(build_update_run_group_request({"m", "--run-group", "a", "extra"}),
+                               "Unexpected argument: extra"));
+}
+
+TEST(Td451Headers, TheSharedHeaderListMatchesTheMetricsFormat) {
+    EXPECT_EQ(adai::parse_http_header_list(" CF-Access-Client-Id: abc ;CF-Access-Client-Secret: xyz;bad;: x; "),
+              (std::vector<std::string>{"CF-Access-Client-Id: abc", "CF-Access-Client-Secret: xyz"}));
+}
+
+#ifdef MNS_CLI_BINARY_PATH
+namespace {
+struct CliRun {
+    int exit_code = -1;
+    std::string output;
+};
+CliRun run_mns_cli(const std::string& args) {
+    const auto out = std::filesystem::temp_directory_path() / ("td451_out_" + std::to_string(::getpid()));
+    const std::string cmd = std::string(MNS_CLI_BINARY_PATH) + " " + args + " > " + out.string() + " 2>&1";
+    const int status = std::system(cmd.c_str());
+    std::stringstream text;
+    text << std::ifstream(out).rdbuf();
+    std::filesystem::remove(out);
+    return {WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status), text.str()};
+}
+}  // namespace
+
+TEST(Td451MnsCliBinary, CommandHelpPrintsThatCommandAndSendsNothing) {
+    // `list --help` used to send a list request.
+    const auto r = run_mns_cli("--config /dev/null --url http://127.0.0.1:1 list --help");
+    EXPECT_EQ(r.exit_code, 0) << r.output;
+    EXPECT_NE(r.output.find("list [--state STATE]"), std::string::npos) << r.output;
+    EXPECT_EQ(r.output.find("register <name>"), std::string::npos) << "only list's entry: " << r.output;
+    EXPECT_EQ(r.output.find("failed"), std::string::npos) << r.output;
+}
+
+TEST(Td451MnsCliBinary, GlobalOptionsStopAtTheCommandWord) {
+    const auto after = run_mns_cli("--config /dev/null --url http://127.0.0.1:1 get m --url http://127.0.0.1:2");
+    EXPECT_EQ(after.exit_code, 1);
+    EXPECT_NE(after.output.find("Unknown option: --url"), std::string::npos) << after.output;
+    const auto unknown = run_mns_cli("--config /dev/null --verbose health");
+    EXPECT_EQ(unknown.exit_code, 1);
+    EXPECT_NE(unknown.output.find("Unknown global option: --verbose"), std::string::npos) << unknown.output;
+    const auto bad_url = run_mns_cli("--config /dev/null --url http://127.0.0.1:abc health");
+    EXPECT_EQ(bad_url.exit_code, 1);
+    EXPECT_NE(bad_url.output.find("Invalid port"), std::string::npos) << bad_url.output;
+}
+
+TEST(Td451MnsCliBinary, HttpsIsSpokenNotDowngraded) {
+    // The old binary connected to 127.0.0.1:8083 with plain HTTP for https://127.0.0.1:1.
+    const auto r = run_mns_cli("--config /dev/null --url https://127.0.0.1:1 health");
+    EXPECT_EQ(r.exit_code, 1);
+#ifdef ADAI_METRICS_PUSH_CURL
+    EXPECT_NE(r.output.find("request to https://127.0.0.1:1/health failed"), std::string::npos) << r.output;
+#else
+    EXPECT_NE(r.output.find("can't use https://"), std::string::npos) << r.output;
+#endif
+}
+#endif
 
 #ifdef MNS_CLI_BINARY_PATH
 // The real binary: a malformed number used to abort with a core dump (exit 134) before any request.

@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.3.0
+// @adai-version: 0.4.0
 // @adai-reviewed: 2026-11-01
 
 #include "MnsCliCommands.hpp"
@@ -10,28 +10,69 @@
 
 namespace adai {
 
+// TD-451: https:// used to be stripped while keeping port 8083, and mns_cli then connected with
+// plain HTTP; a bad port was ignored (8083 kept) and any other scheme was read as a host name.
 ParsedUrl parse_url(const std::string& raw) {
     ParsedUrl p;
     std::string s = raw;
-    if (s.rfind("http://", 0) == 0)
-        s = s.substr(7);
-    // TODO: See TD-451 in TECHNICAL_DEBT.md - https:// is accepted but keeps port 8083 and mns_cli connects with plain HTTP
-    if (s.rfind("https://", 0) == 0)
-        s = s.substr(8);
-    auto slash = s.find('/');
-    if (slash != std::string::npos)
-        s = s.substr(0, slash);
-    auto colon = s.find(':');
-    if (colon != std::string::npos) {
-        p.host = s.substr(0, colon);
-        try {
-            p.port = std::stoi(s.substr(colon + 1));
-        } catch (...) {
+    const auto scheme_end = s.find("://");
+    if (scheme_end != std::string::npos) {
+        const std::string scheme = s.substr(0, scheme_end);
+        if (scheme == "https") {
+            p.https = true;
+            p.port = 443;
+        } else if (scheme != "http") {
+            p.error = "Unsupported URL scheme '" + scheme + "://' in " + raw + " (use http:// or https://)";
+            return p;
         }
+        s = s.substr(scheme_end + 3);
+    }
+    auto slash = s.find('/');
+    if (slash != std::string::npos) {
+        p.base_path = s.substr(slash);
+        while (!p.base_path.empty() && p.base_path.back() == '/') p.base_path.pop_back();
+        s = s.substr(0, slash);
+    }
+    std::string port_text;
+    if (!s.empty() && s.front() == '[') {  // [IPv6]:port
+        const auto close = s.find(']');
+        if (close == std::string::npos) {
+            p.error = "Invalid server URL: " + raw;
+            return p;
+        }
+        p.host = s.substr(0, close + 1);
+        if (close + 1 < s.size()) {
+            if (s[close + 1] != ':') {
+                p.error = "Invalid server URL: " + raw;
+                return p;
+            }
+            port_text = s.substr(close + 2);
+            if (port_text.empty()) port_text = "-";  // "[::1]:" has no port
+        }
+    } else if (const auto colon = s.find(':'); colon != std::string::npos) {
+        p.host = s.substr(0, colon);
+        port_text = s.substr(colon + 1);
+        if (port_text.empty()) port_text = "-";
     } else {
         p.host = s;
     }
+    if (p.host.empty()) {
+        p.error = "Invalid server URL (no host): " + raw;
+        return p;
+    }
+    if (!port_text.empty()) {
+        const auto port = parse_strict_int(port_text);
+        if (!port || *port < 1 || *port > 65535) {
+            p.error = "Invalid port in server URL " + raw + " (expected 1-65535)";
+            return p;
+        }
+        p.port = *port;
+    }
     return p;
+}
+
+std::string ParsedUrl::url_for(const std::string& path) const {
+    return std::string(https ? "https://" : "http://") + host + ":" + std::to_string(port) + base_path + path;
 }
 
 // TODO: See TD-449 in TECHNICAL_DEBT.md - other control characters (< 0x20) pass through raw, producing invalid JSON
@@ -188,9 +229,22 @@ MnsCliRequest build_list_request(const std::vector<std::string>& args) {
     return r;
 }
 
+// TD-451: the commands below take exact positional arguments. Extra ones used to be ignored, which
+// would have silently dropped a global option written after the command (`delete m --url X` would
+// delete m on the default server).
+namespace {
+std::optional<std::string> exact_args(const std::vector<std::string>& args, size_t count) {
+    std::vector<std::string> positionals;
+    if (auto error = parse_options(args, 0, {}, {}, &positionals)) return error;
+    if (positionals.size() > count) return "Unexpected argument: " + positionals[count];
+    if (positionals.size() < count) return std::string("Missing argument");
+    return std::nullopt;
+}
+}  // namespace
+
 MnsCliRequest build_get_request(const std::vector<std::string>& args) {
-    if (args.empty())
-        return make_error("Usage: get <name>");
+    if (auto error = exact_args(args, 1))
+        return make_error(*error + "\nUsage: get <name>");
     MnsCliRequest r;
     r.method = HttpMethod::Get;
     r.path = "/models/" + args[0];
@@ -429,20 +483,32 @@ MnsCliRequest build_link_world_model_request(const std::vector<std::string>& arg
 }
 
 MnsCliRequest build_update_run_group_request(const std::vector<std::string>& args) {
-    if (args.size() < 2 || args[1] != "--run-group" || args.size() < 3)
-        return make_error("Usage: update <name> --run-group <value>");
+    // TD-449/TD-451: options in any order, and nothing else (it used to need exactly
+    // `<name> --run-group <value>` and ignore anything after).
+    std::vector<std::string> positionals;
+    std::optional<std::string> run_group;
+    auto error = parse_options(args, 0,
+                               {{"--run-group",
+                                 [&](const std::string&, const std::string& value) -> std::optional<std::string> {
+                                     run_group = value;
+                                     return std::nullopt;
+                                 }}},
+                               {}, &positionals);
+    if (!error && positionals.size() > 1) error = "Unexpected argument: " + positionals[1];
+    if (!error && (positionals.empty() || !run_group)) error = std::string("Missing argument");
+    if (error) return make_error(*error + "\nUsage: update <name> --run-group <value>");
     std::ostringstream body;
-    body << "{\"run_group\":\"" << json_escape(args[2]) << "\"}";
+    body << "{\"run_group\":\"" << json_escape(*run_group) << "\"}";
     MnsCliRequest r;
     r.method = HttpMethod::Put;
-    r.path = "/models/" + args[0] + "/run_group";
+    r.path = "/models/" + positionals[0] + "/run_group";
     r.body = body.str();
     return r;
 }
 
 MnsCliRequest build_resolve_request(const std::vector<std::string>& args) {
-    if (args.empty())
-        return make_error("Usage: resolve <name>");
+    if (auto error = exact_args(args, 1))
+        return make_error(*error + "\nUsage: resolve <name>");
     MnsCliRequest r;
     r.method = HttpMethod::Get;
     r.path = "/models/" + args[0] + "/resolve";
@@ -528,15 +594,17 @@ MnsCliRequest build_set_candidate_request(const std::vector<std::string>& args) 
 }
 
 MnsCliRequest build_delete_request(const std::vector<std::string>& args) {
-    if (args.empty())
-        return make_error("Usage: delete <name>");
+    if (auto error = exact_args(args, 1))
+        return make_error(*error + "\nUsage: delete <name>");
     MnsCliRequest r;
     r.method = HttpMethod::Delete;
     r.path = "/models/" + args[0];
     return r;
 }
 
-MnsCliRequest build_roles_request() {
+MnsCliRequest build_roles_request(const std::vector<std::string>& args) {
+    if (auto error = exact_args(args, 0))
+        return make_error(*error + "\nUsage: roles");
     MnsCliRequest r;
     r.method = HttpMethod::Get;
     r.path = "/roles";
@@ -544,8 +612,8 @@ MnsCliRequest build_roles_request() {
 }
 
 MnsCliRequest build_resolve_role_request(const std::vector<std::string>& args) {
-    if (args.empty())
-        return make_error("Usage: resolve-role <role>");
+    if (auto error = exact_args(args, 1))
+        return make_error(*error + "\nUsage: resolve-role <role>");
     MnsCliRequest r;
     r.method = HttpMethod::Get;
     r.path = "/roles/" + args[0] + "/production";
@@ -553,8 +621,8 @@ MnsCliRequest build_resolve_role_request(const std::vector<std::string>& args) {
 }
 
 MnsCliRequest build_promote_request(const std::vector<std::string>& args) {
-    if (args.size() < 2)
-        return make_error("Usage: promote <role> <model-name>");
+    if (auto error = exact_args(args, 2))
+        return make_error(*error + "\nUsage: promote <role> <model-name>");
     std::ostringstream body;
     body << "{\"model_name\":\"" << json_escape(args[1]) << "\"}";
     MnsCliRequest r;
@@ -564,7 +632,9 @@ MnsCliRequest build_promote_request(const std::vector<std::string>& args) {
     return r;
 }
 
-MnsCliRequest build_health_request() {
+MnsCliRequest build_health_request(const std::vector<std::string>& args) {
+    if (auto error = exact_args(args, 0))
+        return make_error(*error + "\nUsage: health");
     MnsCliRequest r;
     r.method = HttpMethod::Get;
     r.path = "/health";

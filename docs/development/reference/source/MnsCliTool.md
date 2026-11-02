@@ -97,3 +97,12 @@ from `--config`, which now supplies only `NAME_SERVICE_URL` and the `RUN_GROUP` 
 prints the architecture and its source on stderr. `config.mns.conf`'s architecture block was removed (`mns_server`
 never read it). §2's first gap is closed; see [MnsCliCommands.md](MnsCliCommands.md)'s TD-450 addendum.
 
+## Addendum (November 1, 2026): HTTPS, global options and per-command help (TD-451)
+
+Every request goes through one `send_http()`, which uses libcurl when `adai_core` has it (`ADAI_METRICS_PUSH_CURL`, as
+for `MetricsPushClient`), so `https://` URLs are real TLS with certificate checks; without libcurl `https://` is refused.
+Extra headers come from `NAME_SERVICE_HEADERS` (file or environment, "Name: value" pairs separated by `;`, hidden in
+config dumps) and repeatable `--header 'Name: value'`; the CA bundle from `NAME_SERVICE_CA_FILE` or `--ca-file`. Global
+options (`--url`, `--config`, `--header`, `--ca-file`, `--help`) are read only before the command; an unknown one is an
+error. `<command> --help` prints that command's entry from the per-command usage table and sends nothing. §2's HTTPS gap
+and smaller items are closed.

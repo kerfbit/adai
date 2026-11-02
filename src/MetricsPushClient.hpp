@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.5.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 1.5.1
+// @adai-reviewed: 2026-11-01
 
 
 #include <atomic>
@@ -26,6 +26,7 @@
 #else
 #include <unistd.h>
 #endif
+#include "Config.hpp"
 #include "IMetricsReporter.hpp"
 
 // ============================================================================
@@ -89,23 +90,10 @@ inline std::string derive_metrics_session_key(int session_id) {
 }
 
 // TD-444: METRICS_SERVER_HEADERS, e.g. "CF-Access-Client-Id: abc; CF-Access-Client-Secret: xyz",
-// split on ';' into "Name: value" lines. Entries without a ':' are skipped.
+// split on ';' into "Name: value" lines. Entries without a ':' are skipped. (The shared
+// parse_http_header_list() since TD-451, which uses the same format for NAME_SERVICE_HEADERS.)
 inline std::vector<std::string> parse_metrics_server_headers(const std::string& spec) {
-    std::vector<std::string> headers;
-    std::string::size_type start = 0;
-    while (start <= spec.size()) {
-        auto end = spec.find(';', start);
-        if (end == std::string::npos)
-            end = spec.size();
-        std::string item = spec.substr(start, end - start);
-        const auto first = item.find_first_not_of(" \t");
-        const auto last = item.find_last_not_of(" \t");
-        item = first == std::string::npos ? "" : item.substr(first, last - first + 1);
-        if (item.find(':') != std::string::npos && item.front() != ':')
-            headers.push_back(item);
-        start = end + 1;
-    }
-    return headers;
+    return adai::parse_http_header_list(spec);
 }
 
 inline std::string build_metrics_session_push_base(const std::string& metrics_server_url,

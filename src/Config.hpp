@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.21.0
+// @adai-version: 1.22.0
 // @adai-reviewed: 2026-11-01
 
 
@@ -40,6 +40,26 @@ std::optional<size_t> parse_strict_size(const std::string& value);
 std::optional<float> parse_strict_float(const std::string& value);
 /// TD-286/TD-456: true/1/yes/on/enabled or false/0/no/off/disabled in any case; nullopt otherwise.
 std::optional<bool> parse_strict_bool(const std::string& value);
+/// TD-444/TD-451: "Name: value" pairs separated by ';' (e.g. "CF-Access-Client-Id: abc;
+/// CF-Access-Client-Secret: xyz"), trimmed, as header lines. Entries without a name and ':' are skipped.
+/// Inline because MetricsPushClient (adai_core) uses it and adai_core doesn't contain Config.cpp.
+inline std::vector<std::string> parse_http_header_list(const std::string& spec) {
+    std::vector<std::string> headers;
+    std::string::size_type start = 0;
+    while (start <= spec.size()) {
+        auto end = spec.find(';', start);
+        if (end == std::string::npos)
+            end = spec.size();
+        std::string item = spec.substr(start, end - start);
+        const auto first = item.find_first_not_of(" \t");
+        const auto last = item.find_last_not_of(" \t");
+        item = first == std::string::npos ? "" : item.substr(first, last - first + 1);
+        if (item.find(':') != std::string::npos && item.front() != ':')
+            headers.push_back(item);
+        start = end + 1;
+    }
+    return headers;
+}
 
 /**
  * @brief Configuration for the ADAI chatbot service.
@@ -474,6 +494,13 @@ struct ServiceConfig {
 
     /// URL of the ModelNameService daemon; empty = local file-path mode (default: "")
     std::string name_service_url;
+
+    /// TD-451: mns_cli's extra headers for every request, in METRICS_SERVER_HEADERS's format (e.g.
+    /// a Cloudflare Access service token for an https:// NAME_SERVICE_URL). Empty by default.
+    std::string name_service_headers;
+
+    /// TD-451: CA bundle for mns_cli to verify an https:// NAME_SERVICE_URL; empty = the system store.
+    std::string name_service_ca_file;
 
     /// Listen port for the mns_server daemon (default: 8083)
     int name_service_port = 8083;

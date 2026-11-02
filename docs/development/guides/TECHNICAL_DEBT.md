@@ -1386,6 +1386,9 @@ The generation and model math run is complete.
   aborts; `set-training --new_run` no longer becomes the session key).
 - TD-450 (done in code: `mns_cli register` takes the architecture from its flags or `--from-config <trainer config>`, never
   from `config.mns.conf`, errors on a missing field and prints what it registers; TD-449's layer-count item with it).
+- TD-451 (done in code: `mns_cli` speaks `https://` through libcurl with `NAME_SERVICE_HEADERS`/`--header` and
+  `NAME_SERVICE_CA_FILE`/`--ca-file`, reads global options only before the command, has per-command `--help`, and its
+  positional commands reject extra arguments).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -12848,6 +12851,7 @@ Action Items:
 - [x] Require `--num-layers` for standalone kinds (or derive it from the config's matching field and zero the other). (Done with TD-450, November 1, 2026: `--num-layers`, else `--from-config`'s matching key, else a usage error; the other count is 0.)
 - [ ] Make `link-world-model` send only the fields given (server-side merge), or document full replacement in its usage.
 - [ ] URL-encode path segments and query values; escape all control characters as `\u00XX`; reject `--sigreg-*` for other kinds.
+- [x] `update` option order and `parse_url()`'s `https://` handling (done with TD-451, November 1, 2026: `--run-group` in any position, extra arguments rejected; `https://` is real TLS on port 443).
 
 Location in code: `src/MnsCliCommands.cpp` (`build_register_request()`, `build_link_world_model_request()`, `json_escape()`, path builders); tagged `TODO: See TD-449`.
 
@@ -12910,7 +12914,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | MNS / CLI | October 14, 2026 | 2-4 hours |
+| LOW | Open — code fix landed November 1, 2026 | MNS / CLI | October 14, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `MnsCliTool`:
@@ -12925,9 +12929,32 @@ Found while tracing `MnsCliTool`:
 
 Action Items:
 
-- [ ] Support `https://` (`httplib::SSLClient`, port 443 by default) and optional extra headers (shared helper with TD-444), or reject `https://` clearly.
-- [ ] Recognize `--help` per command; stop global-option parsing at the command word.
-- [ ] Remove the unused include, fix the comment, fold the `http_*()` helpers into one.
+- [x] Support `https://` (`httplib::SSLClient`, port 443 by default) and optional extra headers (shared helper with TD-444), or reject `https://` clearly.
+- [x] Recognize `--help` per command; stop global-option parsing at the command word.
+- [x] Remove the unused include, fix the comment, fold the `http_*()` helpers into one.
+
+**Fix (November 1, 2026):** `mns_cli` sends every request through one function that uses libcurl whenever `adai_core`
+has it (the same `ADAI_METRICS_PUSH_CURL` build switch as `MetricsPushClient`, TD-444; the repository's builds all have
+it), so `https://` is real TLS with certificate checks rather than httplib's `SSLClient`, which would have needed OpenSSL
+support compiled into httplib. A build without libcurl refuses `https://` with a clear message. `parse_url()` now gives
+`https://` port 443 (`http://` keeps 8083), keeps a URL path as a prefix for every request, accepts `[IPv6]:port`, and
+reports a bad port (`abc`, `0`, `99999`, empty), a missing host or another scheme as an error (it used to keep 8083 for a
+bad port and read `ftp://x` as a host). Extra headers come from the new `NAME_SERVICE_HEADERS` key (file or environment,
+`METRICS_SERVER_HEADERS`'s format, hidden in config dumps) plus repeatable `--header 'Name: value'`; the CA bundle from
+the new `NAME_SERVICE_CA_FILE` or `--ca-file`. The header-list parser moved to `Config` as `parse_http_header_list()`,
+which `parse_metrics_server_headers()` now calls. Global options (`--url`, `--config`, `--header`, `--ca-file`,
+`--help`) are read only before the command word; an unknown one is an error. `<command> --help` prints that command's
+entry and sends nothing (the usage text is now a per-command table). Because a global option written after the command
+now reaches the command, the commands that took bare positionals (`get`, `resolve`, `delete`, `roles`, `resolve-role`,
+`promote`, `health`, `update`) now reject extra arguments and unknown options instead of ignoring them, so `delete m --url
+X` is an error rather than a delete on the default server; `update` takes `--run-group` in any position (TD-449's
+ordering item). The unused include is gone, the file comment is fixed, and the four `http_*()` copies are one function.
+Tests (`mnsCliCommandsTests`): 8 new (`Td451ParseUrl`, `Td451ExactArguments`, `Td451Headers`, and three
+`Td451MnsCliBinary` tests that run the real binary: `list --help` sent a request, a global option after the command and
+an unknown global option were accepted, a bad URL port was ignored, and `https://127.0.0.1:1` connected to port 8083 with
+plain HTTP; all three fail on the old binary). Verified by hand against a local TLS server with a self-signed
+certificate: refused without a CA, accepted with `--ca-file` or `NAME_SERVICE_CA_FILE`, both header sources arrive, and
+the URL path is prefixed.
 
 Location in code: `src/MnsCliTool.cpp` (`make_http()`, `main()`); `src/MnsCliCommands.cpp` (`parse_url()`); tagged `TODO: See TD-451`.
 

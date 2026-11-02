@@ -74,6 +74,22 @@ The server bundle install script (`scripts/install_server_bundle.sh`) copies `mn
 
 Config file discovery: `--config <path>` > `./config.mns.conf` > `/etc/adai/config.mns.conf` > `./config.conf` (legacy) > `/etc/adai/config.conf` (legacy).
 
+`http://` URLs default to port 8083 and `https://` URLs to port 443; a path in the URL is kept as a prefix for every
+request. For an `https://` server, such as MNS behind a Cloudflare tunnel, `mns_cli` checks the certificate against
+the system store, or `NAME_SERVICE_CA_FILE` / `--ca-file`, and sends extra headers from `NAME_SERVICE_HEADERS` and any
+`--header 'Name: value'` flags (for example a Cloudflare Access service token; keep secrets in the config file rather
+than on the command line, where they show in the process list):
+
+```bash
+mns_cli --url https://mns.example.com --header 'CF-Access-Client-Id: <id>' \
+  --header 'CF-Access-Client-Secret: <secret>' health
+```
+
+Global options (`--url`, `--config`, `--header`, `--ca-file`, `--help`) go **before** the command; after the command
+every argument belongs to it, so `mns_cli get m --url X` is an error. `mns_cli <command> --help` prints that command's
+usage and sends nothing. (Before November 1, 2026, `https://` was sent as plain HTTP to port 8083, and `--help` only
+worked as the first word; TD-451.)
+
 All commands print the raw JSON response from the MNS server to stdout and set the exit code based on the HTTP status (0 for 2xx, 1 otherwise). Pipe through `jq` for formatted output:
 
 ```bash
@@ -557,11 +573,13 @@ mns_cli get adai-chatbot-v3 | jq '.training_history'
 
 ## 7. Configuration
 
-`mns_cli` reads its own config file for two keys:
+`mns_cli` reads its own config file for these keys:
 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `NAME_SERVICE_URL` | (empty) | MNS server URL (overridden by `--url`); `http://localhost:8083` when empty |
+| `NAME_SERVICE_HEADERS` | (empty) | Extra request headers, `Name: value` pairs separated by `;` (added to by `--header`) |
+| `NAME_SERVICE_CA_FILE` | (empty) | CA bundle for an `https://` server (overridden by `--ca-file`); empty = the system store |
 | `RUN_GROUP` | (empty) | Default for `register --run-group` |
 
 It doesn't take `register`'s architecture from this file (TD-450); use `register --from-config` with the trainer's

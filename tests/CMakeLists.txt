@@ -837,6 +837,9 @@ target_link_libraries(mnsCliCommandsTests
 if(TARGET mns_cli)  # TD-448: one test runs the real binary
     target_compile_definitions(mnsCliCommandsTests PRIVATE MNS_CLI_BINARY_PATH="$<TARGET_FILE:mns_cli>")
     add_dependencies(mnsCliCommandsTests mns_cli)
+    # TD-451: mns_cli speaks https:// when adai_core has libcurl (ADAI_METRICS_PUSH_CURL).
+    target_compile_definitions(mnsCliCommandsTests PRIVATE
+        $<$<IN_LIST:ADAI_METRICS_PUSH_CURL,$<TARGET_PROPERTY:adai_core,INTERFACE_COMPILE_DEFINITIONS>>:ADAI_METRICS_PUSH_CURL>)
 endif()
 add_test(NAME MnsCliCommandsTests COMMAND mnsCliCommandsTests)
 
