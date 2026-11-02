@@ -813,3 +813,72 @@ TEST_F(SighupTest, AChatbotPassReclaimsACrashedPassesFilesWithoutMns) {
     reg.load_registry();
     EXPECT_EQ(reg.trained_files().size(), 1u);
 }
+
+// TD-524: trainer_service passed --admin-port to every pass even with TRAINER_ADMIN_ENABLED=false (each
+// pass opened a loopback port), and when started by bare name it launched whichever incremental_trainer
+// PATH found first. A decoy earlier on PATH must not run, and the port is passed only with the API on.
+TEST_F(SighupTest, TrainerServiceLaunchesItsSiblingAndPassesTheAdminPortOnlyWhenEnabled) {
+    const fs::path bin = dir_ / "bin";
+    const fs::path decoy = dir_ / "decoy";
+    fs::create_directories(bin);
+    fs::create_directories(decoy);
+    fs::copy_file(TRAINER_SERVICE_BINARY_PATH, bin / "trainer_service");
+    const fs::path recorded = dir_ / "child_args.txt";
+    const auto write_stub = [&](const fs::path& path, const std::string& marker) {
+        {
+            std::ofstream stub(path);
+            stub << "#!/bin/sh\n{ echo '" << marker << "'; printf '%s\\n' \"$@\"; } > '" << recorded.string()
+                 << ".tmp'\nmv '" << recorded.string() << ".tmp' '" << recorded.string() << "'\nexit 3\n";
+        }
+        fs::permissions(path, fs::perms::owner_all);
+    };
+    write_stub(bin / "incremental_trainer", "sibling");
+    write_stub(decoy / "incremental_trainer", "decoy");
+    const int child_port = free_port();
+
+    const auto read_args = [&](const std::string& extra_config) {
+        fs::remove(recorded);
+        const auto cfg = write_config("config.trainer.conf", "LOG_FILE_PATH=" + (dir_ / "log.txt").string() +
+                                                                 "\nTRAINER_CHILD_ADMIN_PORT=" +
+                                                                 std::to_string(child_port) + "\n" + extra_config);
+        pid_ = ::fork();
+        if (pid_ == 0) {
+            const int devnull = ::open("/dev/null", O_WRONLY);
+            ::dup2(devnull, STDOUT_FILENO);
+            ::dup2(devnull, STDERR_FILENO);
+            const std::string path = "PATH=" + decoy.string() + ":/usr/bin:/bin";
+            const std::string config = cfg.string();
+            const std::string binary = (bin / "trainer_service").string();
+            // Started by bare name, as from a shell with it on PATH.
+            char* argv[] = {const_cast<char*>("trainer_service"), const_cast<char*>("--config"),
+                            const_cast<char*>(config.c_str()), nullptr};
+            char* envp[] = {const_cast<char*>(path.c_str()), nullptr};
+            ::execve(binary.c_str(), argv, envp);
+            _exit(127);
+        }
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+        while (!fs::exists(recorded) && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        ::kill(pid_, SIGTERM);
+        ::waitpid(pid_, nullptr, 0);
+        pid_ = -1;
+        std::vector<std::string> lines;
+        std::ifstream in(recorded);
+        for (std::string line; std::getline(in, line);) lines.push_back(line);
+        return lines;
+    };
+
+    auto args = read_args("");
+    ASSERT_FALSE(args.empty()) << "no pass was launched";
+    EXPECT_EQ(args.front(), "sibling") << "the incremental_trainer on PATH ran instead of the one beside trainer_service";
+    EXPECT_EQ(std::find(args.begin(), args.end(), "--admin-port"), args.end()) << "admin API is off";
+
+    args = read_args("TRAINER_ADMIN_ENABLED=true\nTRAINER_ADMIN_HOST=127.0.0.1\nTRAINER_ADMIN_PORT=" +
+                     std::to_string(free_port()) + "\nTRAINER_ADMIN_DIR=" + (dir_ / "admin").string() + "\n");
+    ASSERT_FALSE(args.empty());
+    const auto port = std::find(args.begin(), args.end(), "--admin-port");
+    ASSERT_NE(port, args.end()) << "admin API is on";
+    ASSERT_NE(port + 1, args.end());
+    EXPECT_EQ(*(port + 1), std::to_string(child_port));
+}

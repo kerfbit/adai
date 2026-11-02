@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.13.0
+// @adai-version: 0.14.0
 // @adai-reviewed: 2026-11-02
 
 #include "IncrementalTrainerArgs.hpp"
@@ -19,6 +19,7 @@
 // with no include providing it at all, confirmed via a real cross-compile error ("'_getpid' was
 // not declared in this scope").
 #include <process.h>
+#include <windows.h>  // TD-524: GetModuleFileNameA
 #else
 #include <unistd.h>
 #endif
@@ -87,6 +88,23 @@ IncrementalTrainerGlobalArgs parse_incremental_trainer_global_args(int argc, cha
     return result;
 }
 
+std::string sibling_executable_path(const std::string& argv0, const std::string& name) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+#ifdef _WIN32
+    char module[MAX_PATH] = {};
+    const DWORD n = ::GetModuleFileNameA(nullptr, module, MAX_PATH);
+    if (n > 0 && n < MAX_PATH) return (fs::path(module).parent_path() / name).string();
+#elif defined(__linux__)
+    const fs::path self = fs::read_symlink("/proc/self/exe", ec);
+    if (!ec && self.has_parent_path()) return (self.parent_path() / name).string();
+#endif
+    const fs::path p(argv0);
+    if (p.has_parent_path()) return (p.parent_path() / name).string();
+    Logger::warn("Could not locate this executable's directory; launching '{}' from PATH", name);
+    return name;
+}
+
 std::optional<int> parse_epochs_arg(const std::vector<std::string>& args, int default_epochs, std::string& error) {
     if (args.size() < 2) return default_epochs;
     if (args.size() > 2) {
@@ -126,14 +144,17 @@ TrainerServiceArgs parse_trainer_service_args(int argc, char* argv[]) {
 }
 
 std::vector<std::string> trainer_service_child_argv(const std::string& trainer_path,
-                                                    const IncrementalTrainerGlobalArgs& cli, int admin_port) {
+                                                    const IncrementalTrainerGlobalArgs& cli,
+                                                    std::optional<int> admin_port) {
     std::vector<std::string> argv = {trainer_path};
     if (cli.config_path) argv.insert(argv.end(), {"--config", *cli.config_path});
     if (cli.model_name) argv.insert(argv.end(), {"--model", *cli.model_name});
     if (cli.gpu_strategy) argv.insert(argv.end(), {"--gpu-strategy", *cli.gpu_strategy});
     argv.push_back("--objective=" + cli.objective);
     argv.insert(argv.end(), {"--dataset-kind", resolve_dataset_kind(cli.objective, cli.dataset_kind)});
-    argv.insert(argv.end(), {"--foreground", "--admin-port", std::to_string(admin_port), "resume"});
+    argv.push_back("--foreground");
+    if (admin_port) argv.insert(argv.end(), {"--admin-port", std::to_string(*admin_port)});
+    argv.push_back("resume");
     return argv;
 }
 

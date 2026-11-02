@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.12.0
+// @adai-version: 0.13.0
 // @adai-reviewed: 2026-11-02
 
 // TD-035: incremental_trainer's global argv parsing and a few small pure helpers, pulled out of
@@ -67,10 +67,13 @@ TrainerServiceArgs parse_trainer_service_args(int argc, char* argv[]);
 
 // TD-403: the command line trainer_service runs each single-pass child with: its --config, --model
 // and --gpu-strategy when given, always --objective=<objective> and --dataset-kind <kind> (kind from
-// resolve_dataset_kind()), then `--foreground --admin-port <port> resume`. The objective and kind used
-// to be parsed and dropped, so the service could only train the chatbot on the chatbot pool.
+// resolve_dataset_kind()), then `--foreground [--admin-port <port>] resume`. The objective and kind used
+// to be parsed and dropped, so the service could only train the chatbot on the chatbot pool. TD-524:
+// --admin-port only when `admin_port` is set (TRAINER_ADMIN_ENABLED); it used to be passed always, so
+// every pass opened a loopback port even with the admin API off.
 std::vector<std::string> trainer_service_child_argv(const std::string& trainer_path,
-                                                    const IncrementalTrainerGlobalArgs& cli, int admin_port);
+                                                    const IncrementalTrainerGlobalArgs& cli,
+                                                    std::optional<int> admin_port);
 
 // train/retrain/resume/serve defer GPU init until after their fork (CUDA contexts aren't
 // fork-safe) or, for serve, until after Logger::init() runs — every other command initializes
@@ -95,6 +98,12 @@ std::string persistent_run_id(const std::string& configured, const std::string& 
 // TD-416: `train`/`retrain`'s optional epoch count (args[1], after the command). A whole number of at
 // least 1; absent means `default_epochs`. Anything else sets `error` and returns nullopt (`train abc`
 // used to abort through an uncaught std::stoi, and `train 5x` trained 5 epochs).
+// TD-524: `name` in the directory of the running executable (/proc/self/exe on Linux, the module path on
+// Windows), so trainer_service launches the incremental_trainer installed beside it. Falls back to
+// argv[0]'s directory, and to the bare name (a PATH search) only when neither is known. It used to use
+// argv[0] alone, so a trainer_service started by bare name ran whichever incremental_trainer PATH found.
+std::string sibling_executable_path(const std::string& argv0, const std::string& name);
+
 std::optional<int> parse_epochs_arg(const std::vector<std::string>& args, int default_epochs, std::string& error);
 
 // TD-202/TD-204: resolves the dataset registry sub-pool ("chatbot"/"world_model") for this

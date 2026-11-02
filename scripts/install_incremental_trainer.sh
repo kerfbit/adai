@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (TD-043, TD-158 resolved — see tests/scripts/install_incremental_trainer_test.sh; TD-172/TD-173 trainer_service copying + admin API config stubs added; fixed a misleading --with-systemd help description, an unescaped-backtick command-substitution bug in it, a stale dataset_manager mention, and remote_install()'s missing cache/trainer-admin config stubs)
-# @adai-version: 0.9.2
-# @adai-reviewed: 2026-09-14
+# @adai-version: 0.10.0
+# @adai-reviewed: 2026-11-02
 
 # ADAI Incremental Trainer Sub-System - Installation Script
 #
@@ -503,7 +503,7 @@ PrivateTmp=true
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths="${LOG_DIR}" "${SESSIONS_DIR}" "${INSTALL_PATH}/tokenized_cache"
+ReadWritePaths="${LOG_DIR}" "${SESSIONS_DIR}" "${INSTALL_PATH}/tokenized_cache" "${INSTALL_PATH}/downloads"
 PrivateDevices=no
 
 [Install]
@@ -562,6 +562,10 @@ local_install() {
     mkdir -p "${BIN_DIR}"
     mkdir -p "${CONFIG_DIR}"
     mkdir -p "${SESSIONS_DIR}"
+    # TD-524: the generated unit's ReadWritePaths name these, and systemd won't start a unit whose
+    # ReadWritePaths entry doesn't exist; DOWNLOAD_DIR=downloads is where FTP downloads land.
+    mkdir -p "${INSTALL_PATH}/tokenized_cache"
+    mkdir -p "${INSTALL_PATH}/downloads"
     mkdir -p "${GUTENBERG_DIR}"
     mkdir -p "${HUGGINGFACE_DIR}"
     mkdir -p "${LOG_DIR}"

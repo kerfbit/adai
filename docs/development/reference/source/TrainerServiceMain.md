@@ -128,3 +128,11 @@ paused chatbot pass does. Before, nothing answered these during a LeJEPA pass.
 
 `kGracefulStopTimeoutMs` is 25 s (was 10 s), still inside the unit's `TimeoutStopSec=30`, because a child stopped by
 SIGTERM now checkpoints and releases its claimed files before exiting 1.
+
+## Addendum (November 2, 2026): child port, binary resolution, launch backoff, unit paths (TD-524)
+
+Each pass gets `--admin-port` only with `TRAINER_ADMIN_ENABLED`. The child binary is `sibling_executable_path(argv[0],
+"incremental_trainer")`: the directory of the running executable (`/proc/self/exe`; the module path on Windows), then
+argv[0]'s, and a `PATH` search only as a last resort. A failed launch backs off like a failed pass (45 s doubling to
+15 min). `scripts/adai-trainer.service` can now write `/opt/adai/downloads`; optional `ReadWritePaths` entries carry a
+leading `-`. Set `LOG_FILE_PATH` under that unit, since the working directory is read-only.

@@ -452,3 +452,19 @@ TEST(ParseEpochsArg, AWholePositiveNumberOrTheDefault) {
     EXPECT_FALSE(adai::parse_epochs_arg({"train", "3", "4"}, 7, error).has_value());
     EXPECT_EQ(error, "Unexpected argument '4' (train takes one epoch count)");
 }
+
+// TD-524: --admin-port only when the admin API is on.
+TEST(TrainerServiceChildArgv, NoAdminPortWithoutTheAdminApi) {
+    adai::IncrementalTrainerGlobalArgs cli;
+    EXPECT_EQ(trainer_service_child_argv("it", cli, std::nullopt),
+              (std::vector<std::string>{"it", "--objective=chatbot", "--dataset-kind", "chatbot", "--foreground",
+                                        "resume"}));
+}
+
+// TD-524: the sibling comes from the running executable's own directory, not argv[0] or PATH.
+TEST(SiblingExecutablePath, UsesTheRunningExecutablesDirectory) {
+    namespace fs = std::filesystem;
+    const fs::path self = fs::read_symlink("/proc/self/exe");
+    EXPECT_EQ(adai::sibling_executable_path("bare_name", "incremental_trainer"),
+              (self.parent_path() / "incremental_trainer").string());
+}

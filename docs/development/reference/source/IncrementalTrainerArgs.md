@@ -169,3 +169,9 @@ files; with the old PID-based id they stayed claimed.
 id in `<dir>/<name>_run_id`: `lejepa` in the world-model directory for the LeJEPA pass, and, when no `RUN_ID` is set,
 `chatbot` in `SESSION_DIR` for `train`/`retrain`/`resume`, which `incremental_trainer` copies into `RUN_ID`. An
 MNS-allocated run id still comes first. A restarted pass therefore reclaims its own claimed files.
+
+## Addendum (November 2, 2026): optional child admin port, `sibling_executable_path()` (TD-524)
+
+`trainer_service_child_argv()` takes `std::optional<int> admin_port` and adds `--admin-port` only when it's set.
+`sibling_executable_path(argv0, name)` returns `name` in the running executable's directory, falling back to argv[0]'s
+directory and then to the bare name.

@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.8.0
+// @adai-version: 0.9.0
 // @adai-reviewed: 2026-11-02
 
 // TD-172: trainer_service — the thin process-supervisor binary that replaces
@@ -59,26 +59,6 @@ void signal_handler(int sig) {
     if ((sig == SIGTERM || sig == SIGINT) && g_control != nullptr) {
         g_control->stop_requested = true;
     }
-}
-
-// Resolves the incremental_trainer binary this process launches per pass. Both binaries are
-// installed side by side (see scripts/install_incremental_trainer.sh) — if argv[0] carries a
-// directory component, reuse it directly rather than relying on PATH; otherwise fall back to the
-// bare name, letting execvp()/CreateProcessA's own PATH search find it (matches how this process
-// itself was presumably invoked, e.g. via a systemd unit's absolute ExecStart or a bare name on
-// an operator's PATH).
-// TODO: See TD-524 in TECHNICAL_DEBT.md - bare-name fallback can launch a different incremental_trainer from PATH.
-std::string resolve_incremental_trainer_path(const std::string& argv0) {
-#ifdef _WIN32
-    const std::string name = "incremental_trainer.exe";
-#else
-    const std::string name = "incremental_trainer";
-#endif
-    const fs::path p(argv0);
-    if (p.has_parent_path()) {
-        return (p.parent_path() / name).string();
-    }
-    return name;
 }
 
 // Same `_unix` convention as TrainerControlState's own timestamp fields (e.g.
@@ -149,15 +129,20 @@ int main(int argc, char* argv[]) {
     std::signal(SIGTERM, signal_handler);
     std::signal(SIGINT, signal_handler);
 
-    const std::string trainer_path = resolve_incremental_trainer_path(argv[0]);
+#ifdef _WIN32
+    const std::string trainer_path = adai::sibling_executable_path(argv[0], "incremental_trainer.exe");
+#else
+    const std::string trainer_path = adai::sibling_executable_path(argv[0], "incremental_trainer");
+#endif
 
     // Fixed prefix for every child this process ever launches — only --admin-port's value could
     // vary in principle, but this design always uses the one fixed trainer_child_admin_port
     // (only one child runs at a time, so no per-launch port negotiation is needed). TD-403: every
     // pass gets --objective and --dataset-kind, so the service trains any objective and pool.
-    // TODO: See TD-524 in TECHNICAL_DEBT.md - --admin-port is passed even with TRAINER_ADMIN_ENABLED=false.
-    const std::vector<std::string> child_argv =
-        adai::trainer_service_child_argv(trainer_path, cli, svc_config.trainer_child_admin_port);
+    // TD-524: --admin-port only with the admin API on (each pass used to open the port regardless).
+    const std::optional<int> child_admin_port =
+        svc_config.trainer_admin_enabled ? std::optional<int>(svc_config.trainer_child_admin_port) : std::nullopt;
+    const std::vector<std::string> child_argv = adai::trainer_service_child_argv(trainer_path, cli, child_admin_port);
     adai::Logger::info("trainer_service: objective {}, dataset pool '{}'", cli.objective,
                        adai::resolve_dataset_kind(cli.objective, cli.dataset_kind));
 
@@ -205,16 +190,20 @@ int main(int argc, char* argv[]) {
         }
 
         if (!child.start(child_argv)) {
-            adai::Logger::error(
-                "trainer_service: failed to launch incremental_trainer — retrying after poll "
-                "interval");
-            control->interruptible_sleep(kPollIntervalSeconds);
+            // TD-524: backed off like a failed pass (it retried every poll interval forever).
+            control->last_failure_unix = unix_seconds();
+            const int failures = control->consecutive_failures.fetch_add(1) + 1;
+            const int wait =
+                adai::failure_backoff_seconds(failures, kPollIntervalSeconds, kMaxFailureBackoffSeconds);
+            adai::Logger::error("trainer_service: failed to launch {} ({} in a row); next attempt in {}s",
+                                trainer_path, failures, wait);
+            control->interruptible_sleep(wait);
             continue;
         }
         control->total_passes_launched.fetch_add(1);
         control->last_launch_unix = unix_seconds();
         control->current_child_pid = child.pid();
-        proxy.set_child_port(svc_config.trainer_child_admin_port);
+        if (child_admin_port) proxy.set_child_port(*child_admin_port);
 
         int exit_code = 1;
         bool exited = false;

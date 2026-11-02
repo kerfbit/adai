@@ -1418,6 +1418,8 @@ The generation and model math run is complete.
   and an exception from any command exits 1 with its message instead of aborting).
 - TD-404 (done in code: fallback run ids are the full hostname, PID and a random part, and without MNS a chatbot pass
   keeps its id in `SESSION_DIR/chatbot_run_id` so a restarted pass reclaims a crashed one's files).
+- TD-524 (done in code: `trainer_service` passes `--admin-port` only with the admin API on, launches the
+  `incremental_trainer` beside its own executable, backs off failed launches; the units can write `downloads`).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -15994,7 +15996,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / Service Supervisor | October 17, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 2, 2026 | Training / Service Supervisor | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `TrainerServiceMain.cpp` and `scripts/adai-trainer.service` (by inspection):
@@ -16010,10 +16012,31 @@ Found while tracing `TrainerServiceMain.cpp` and `scripts/adai-trainer.service` 
 
 Action Items:
 
-- [ ] Pass `--admin-port` only when the admin API is enabled; resolve the child next to the real executable path (`/proc/self/exe`), not `PATH`.
-- [ ] Exponential backoff on consecutive crashes/failures (done for failed and crashed passes with TD-523; launch failures remain); add the download directory to `ReadWritePaths` (and set `LOG_FILE_PATH` in the shipped config).
+- [x] Pass `--admin-port` only when the admin API is enabled; resolve the child next to the real executable path (`/proc/self/exe`), not `PATH`.
+- [x] Exponential backoff on consecutive crashes/failures (done for failed and crashed passes with TD-523; launch failures remain); add the download directory to `ReadWritePaths` (and set `LOG_FILE_PATH` in the shipped config).
 
-Location in code: `src/TrainerServiceMain.cpp` (`resolve_incremental_trainer_path()`, child argv, loop), `scripts/adai-trainer.service` (`ReadWritePaths`); tagged `TODO: See TD-524`.
+**Fix (November 2, 2026):**
+- **Child admin port.** `trainer_service_child_argv()` takes the port as optional; `trainer_service` passes it only with
+  `TRAINER_ADMIN_ENABLED`, so with the admin API off no pass opens a port.
+- **Binary resolution.** The new `sibling_executable_path()` (`IncrementalTrainerArgs`) finds `incremental_trainer` in
+  the running executable's own directory (`/proc/self/exe`, or the module path on Windows), then argv[0]'s, and uses a
+  `PATH` search only when neither is known (with a warning).
+- **Launch failures** back off like failed passes (45 s doubling to 15 min, counted in `consecutive_failures`).
+- **Unit.** `adai-trainer.service`'s `ReadWritePaths` gains `/opt/adai/downloads`, with a leading `-` on the optional
+  directories so a missing one doesn't stop the unit starting; the generated `--with-systemd` unit in
+  `install_incremental_trainer.sh` gains `downloads` too, and the script now creates `downloads` and `tokenized_cache`.
+  `LOG_FILE_PATH` is documented in the unit and `config.trainer.conf` as needed under `ProtectSystem=strict`; it's not
+  set in the shipped config because TD-431 decides what an empty value should mean.
+
+Tests: `TrainerServiceChildArgv.NoAdminPortWithoutTheAdminApi`, `SiblingExecutablePath.UsesTheRunningExecutablesDirectory`
+and `SighupTest.TrainerServiceLaunchesItsSiblingAndPassesTheAdminPortOnlyWhenEnabled` (a copy of `trainer_service`
+started by bare name with a decoy `incremental_trainer` first on `PATH`: the stub beside it runs, without
+`--admin-port` while the API is off and with it when on). The old binary ran the decoy and passed `--admin-port`
+with the API off. `systemd-analyze verify` accepts the unit. The launch-failure backoff has no test: a failed
+`exec` still looks like a successful launch (TD-278), so only a failed `fork` reaches that branch.
+
+Location in code: `src/TrainerServiceMain.cpp` (child argv, loop), `src/IncrementalTrainerArgs.{hpp,cpp}`,
+`scripts/adai-trainer.service`, `scripts/install_incremental_trainer.sh`, `config.trainer.conf`.
 
 Files to Modify:
 
