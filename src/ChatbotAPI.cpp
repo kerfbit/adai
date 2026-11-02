@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.26.0
+// @adai-version: 0.27.0
 // @adai-reviewed: 2026-10-28
 
 #include "ChatbotAPI.hpp"
@@ -9,6 +9,7 @@
 #include <httplib.h>
 #include <algorithm>
 #include <sstream>
+#include <thread>
 #include "Logger.hpp"
 #include "SecureRandom.hpp"
 #include "SpecialTokens.hpp"
@@ -310,6 +311,12 @@ bool ChatbotAPI::start() {
         adai::Logger::warn("ChatbotAPI: server is already running");
         return false;
     }
+    // TD-248: stop() before this point would otherwise be lost (see stop()).
+    if (stop_requested_) {
+        running_ = false;
+        adai::Logger::info("ChatbotAPI: stop requested before the server started; not listening");
+        return true;
+    }
 
     adai::Logger::info("Starting chatbot API server on port {}...", port_);
 
@@ -320,10 +327,22 @@ bool ChatbotAPI::start() {
     return result;
 }
 
+// TD-248: httplib's Server::stop() does nothing until listen() is inside its accept loop, so a stop
+// that came between start() and that point (a quick SIGTERM after launch) was lost: listen() then
+// ran forever and chatbot_api_server hung in join(). stop() is now final for this instance: it
+// marks the stop, which start() checks before listening, waits until httplib is listening if
+// start() got that far, stops it, and returns once start() has returned. Server::stop() is sent
+// once: a second call while listen() winds down trips httplib's assert on the closed socket.
+// start() runs on another thread, as in chatbot_api_server.
 void ChatbotAPI::stop() {
-    if (running_.exchange(false)) {  // TD-237
+    if (!stop_requested_.exchange(true)) {
         adai::Logger::info("Stopping chatbot API server...");
-        server_impl_->server.stop();
+    }
+    while (running_) {  // TD-237: atomic, cleared by start() once listen() returns
+        if (server_impl_->server.is_running() && !listener_stop_sent_.exchange(true)) {
+            server_impl_->server.stop();
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 }
 

@@ -1894,6 +1894,40 @@ TEST_F(ChatbotAPITest, StopFromAnotherThreadEndsStart) {
 }
 
 // ============================================================================
+// TD-248: a stop() before the server is listening isn't lost
+// ============================================================================
+
+// httplib's Server::stop() does nothing until listen() is inside its accept loop. chatbot_api_server
+// calls stop() right after launching the server thread when SIGTERM came during startup; the stop
+// was lost, start() listened forever and the process hung in join().
+TEST_F(ChatbotAPITest, StopBeforeStartIsNotLost) {
+    api = std::make_unique<ChatbotAPI>(model.get(), tokenizer.get(), /*port=*/0, 30);
+    api->stop();  // the server thread hasn't reached start() yet
+    auto started = std::async(std::launch::async, [&] { return api->start(); });
+    const bool returned = started.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+    if (!returned) api->stop();  // the old stop() was a no-op here; unblock listen() for cleanup
+    ASSERT_TRUE(returned) << "start() listened although stop() had been called";
+    EXPECT_TRUE(started.get());
+    EXPECT_FALSE(api->is_running());
+}
+
+TEST_F(ChatbotAPITest, StopRightAfterStartBeginsAlwaysEndsIt) {
+    for (int i = 0; i < 20; ++i) {
+        auto api_i = std::make_unique<ChatbotAPI>(model.get(), tokenizer.get(), /*port=*/0, 30);
+        auto started = std::async(std::launch::async, [&] { return api_i->start(); });
+        while (!api_i->is_running() && started.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        }
+        // Usually before httplib is listening.
+        auto stopped = std::async(std::launch::async, [&] { api_i->stop(); });
+        const bool ended = started.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+        if (!ended) api_i->stop();
+        ASSERT_TRUE(ended) << "trial " << i << ": start() kept listening after stop()";
+        stopped.get();
+        EXPECT_FALSE(api_i->is_running());
+    }
+}
+
+// ============================================================================
 // TD-238: internal errors don't reach the client
 // ============================================================================
 

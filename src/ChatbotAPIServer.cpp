@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 2.7.0
+// @adai-version: 2.8.0
 // @adai-reviewed: 2026-11-01
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
@@ -73,11 +73,9 @@ void signal_handler(int signal) {
         // from a signal handler. The main loop will detect the flag and stop the server.
     } else if (signal == SIGHUP) {
         // Configuration hot-reload implemented
-        // Set reload flag to trigger config reload in main thread
+        // Set reload flag to trigger config reload in main thread. TD-249: no logging here; spdlog
+        // locks and allocates, so a SIGHUP landing mid-log could deadlock. The main loop logs it.
         reload_config_requested.store(true);
-        // TODO: See TD-249 in TECHNICAL_DEBT.md - logging from a signal handler isn't async-signal-safe
-        // (spdlog locks/allocates); log from the main loop instead.
-        adai::Logger::info("SIGHUP received - configuration reload requested");
     }
     // TODO: See TECHNICAL_DEBT.md Future Enhancement (Configuration and Service Management #4) - Add SIGUSR1 handler for graceful model
     // reload SIGUSR1 should trigger background model loading and atomic swap
@@ -731,10 +729,9 @@ int main(int argc, char* argv[]) {
         adai::Logger::info("Send SIGHUP (kill -HUP {}) to reload configuration", getpid());
         adai::Logger::info("==================================================");
 
-        // TODO: See TD-248 in TECHNICAL_DEBT.md - a shutdown request before httplib is listening is lost
-        // (Server::stop() is a no-op until then) and the join below hangs; wait_until_ready()
-        // first, or retry stop() until the thread exits.
-        // Start server in a background thread to allow main thread to handle signals
+        // Start server in a background thread to allow main thread to handle signals. TD-248: a
+        // shutdown before httplib is listening used to be lost and hang the join below;
+        // ChatbotAPI::stop() now retries until start() has returned.
         std::atomic<bool> server_error{false};
         std::thread server_thread([&]() {
             if (!api->start()) {
@@ -756,6 +753,7 @@ int main(int argc, char* argv[]) {
             // Check if config reload was requested
             if (reload_config_requested.load()) {
                 reload_config_requested.store(false);
+                adai::Logger::info("SIGHUP received - configuration reload requested");  // TD-249
 
                 // Reload configuration
                 // TD-285/TD-251: the keys applied below; reload() logs any other changed key as

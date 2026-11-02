@@ -241,3 +241,11 @@ The RAG `DocumentStore` embeds with `model->copy_encoder()`: the trained weights
 On `SIGHUP` the server passes its live keys (`LOG_LEVEL`, `MAX_LENGTH`/`MAX_GEN_LENGTH`, `TEMPERATURE`, `TOP_P`, `STRATEGY`) to
 `ConfigLoader::reload()`, which logs every changed key and warns for any other as taking effect only after a restart. The old
 port-only warning is gone. Applying more settings live and keeping the MNS-resolved fields remain under TD-251.
+
+## Addendum (November 1, 2026): SIGTERM during startup, and a signal-safe `SIGHUP` handler (TD-248, TD-249)
+
+A SIGTERM that arrived between installing the signal handlers and httplib's `listen()` used to be lost: the main loop
+called `ChatbotAPI::stop()` before httplib was listening, httplib ignored it, and the process hung in `join()` until
+SIGKILL, skipping the hippocampal memory save. `ChatbotAPI::stop()` now waits for httplib to be listening and stops it
+(see [ChatbotAPI.md](ChatbotAPI.md)'s TD-248 addendum), so the process exits 0. The `SIGHUP` handler no longer logs; the
+main loop logs "SIGHUP received - configuration reload requested" when it applies the reload.

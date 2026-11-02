@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.20.0
+// @adai-version: 0.21.0
 // @adai-reviewed: 2026-10-28
 
 
@@ -118,7 +118,9 @@ class ChatbotAPI {
     bool start();
 
     /**
-     * @brief Stop the HTTP server
+     * @brief Stop the HTTP server, from a thread other than start()'s; returns once start() has
+     * returned (or at once if it isn't running). Final for this instance: a start() after it, or
+     * one that hadn't begun listening yet, returns without listening (TD-248).
      */
     void stop();
 
@@ -342,6 +344,8 @@ class ChatbotAPI {
     std::chrono::steady_clock::duration session_timeout_;  // guarded by sessions_mutex_
     // TD-237: written by start() on the server thread and stop() on the main thread.
     std::atomic<bool> running_{false};
+    std::atomic<bool> stop_requested_{false};       // TD-248
+    std::atomic<bool> listener_stop_sent_{false};   // TD-248: httplib's stop() is sent once
 
     // Session storage (thread-safe)
     std::unordered_map<std::string, std::shared_ptr<Session>> sessions_;  // TD-227

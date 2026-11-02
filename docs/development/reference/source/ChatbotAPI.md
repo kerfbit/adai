@@ -479,3 +479,12 @@ the request's strategy and `GenerationConfig`, reloaded settings, speculative de
 `enable_integrated_inference()` and `enable_pipeline_inference()` are removed with their engines, and `generate_response()` no longer
 has those branches. `enable_batched_inference()` (TD-211–TD-214) is the only engine mode left; every other request takes the plain
 path (RAG, speculative, GPU decode, CPU).
+
+## Addendum (November 1, 2026): `stop()` before the server is listening (TD-248)
+
+`stop()` is final for an instance and must come from a thread other than `start()`'s. It sets `stop_requested_`;
+`start()` checks it before listening and returns `true` without listening if it is set. `stop()` then waits while
+`start()` is running, sends httplib's `Server::stop()` once httplib is listening (exactly once: a second call while
+`listen()` winds down trips httplib's assert on the closed socket), and returns after `start()` has returned. The old
+`stop()` called `Server::stop()` once and cleared `running_`; before httplib was listening that call did nothing and
+`start()` then listened forever.

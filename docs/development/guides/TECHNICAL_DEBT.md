@@ -1389,6 +1389,8 @@ The generation and model math run is complete.
 - TD-451 (done in code: `mns_cli` speaks `https://` through libcurl with `NAME_SERVICE_HEADERS`/`--header` and
   `NAME_SERVICE_CA_FILE`/`--ca-file`, reads global options only before the command, has per-command `--help`, and its
   positional commands reject extra arguments).
+- TD-248, TD-249 (done in code: a `chatbot_api_server` stop that arrives before httplib is listening is no longer lost, so
+  SIGTERM during startup exits instead of hanging; the `SIGHUP` handler no longer logs).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5713,7 +5715,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / Serving / Server | October 8, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 1, 2026 | Inference / Serving / Server | October 8, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-246 and confirmed against the vendored cpp-httplib source.
@@ -5727,8 +5729,21 @@ hippocampal memory save (TD-250).
 
 Action Items:
 
-- [ ] After launching the server thread, wait for `httplib::Server::wait_until_ready()` before entering the main loop; or, on shutdown, call `stop()` repeatedly until the server thread exits.
-- [ ] Test: requesting shutdown immediately after start terminates promptly.
+- [x] After launching the server thread, wait for `httplib::Server::wait_until_ready()` before entering the main loop; or, on shutdown, call `stop()` repeatedly until the server thread exits.
+- [x] Test: requesting shutdown immediately after start terminates promptly.
+
+**Fix (November 1, 2026):** the fix is in `ChatbotAPI` rather than the server's main loop, so every caller gets it.
+`stop()` is final for an instance: it sets `stop_requested_`, which `start()` checks before listening (so a stop that came
+before the server thread reached `start()` makes it return without listening), then waits while `start()` is running,
+sends httplib's `Server::stop()` once httplib reports it is listening, and returns once `start()` has returned. The old
+`stop()` cleared `running_` itself, so a second call couldn't help either. `Server::stop()` is sent only once (a
+`listener_stop_sent_` flag): calling it again while `listen()` winds down trips httplib's `assert` on the already closed
+socket, which the first version of this fix hit (exit 134). Tests: `ChatbotAPITest.StopBeforeStartIsNotLost` (failed on
+the old code: `start()` listened for the full 5 s) and `StopRightAfterStartBeginsAlwaysEndsIt` (20 trials; the old code
+hung), and `ChatbotApiServerStartupTest.SigtermDuringStartupExitsPromptly`, which runs the real binary, reads its output
+through a pipe and sends SIGTERM right after `[4/4] Starting API server`: the old binary was still running 10 s later in
+10 of 10 trials, the fixed one exits 0 in well under a second. The same narrow window remains in `registry_server`
+(TD-494), `mns_server` (TD-464) and `metrics_api_server` (TD-528), which could use the same approach.
 
 Location in code: `src/ChatbotAPIServer.cpp` (server thread start, shutdown), `src/ChatbotAPI.cpp` (`start()`, `stop()`); tagged `TODO: See TD-248`.
 
@@ -5743,7 +5758,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Inference / Serving / Server | October 8, 2026 | 1 hour |
+| MEDIUM | Open — code fix landed November 1, 2026 | Inference / Serving / Server | October 8, 2026 | 1 hour |
 
 Description:
 Found alongside TD-246. `signal_handler()`'s doc comment says it "is async-signal-safe and only
@@ -5753,8 +5768,15 @@ state. The main loop's reload branch already logs the reload, so the call isn't 
 
 Action Items:
 
-- [ ] Remove the logger call from the handler; log "SIGHUP received" in the main loop when it sees the flag.
-- [ ] Check the other daemons' signal handlers for the same pattern.
+- [x] Remove the logger call from the handler; log "SIGHUP received" in the main loop when it sees the flag.
+- [x] Check the other daemons' signal handlers for the same pattern.
+
+**Fix (November 1, 2026):** the `SIGHUP` branch only sets `reload_config_requested`; the main loop logs "SIGHUP received
+- configuration reload requested" when it picks the flag up, so the handler now really only sets atomic flags. The other
+handlers: `trainer_service` and `metrics_api_server` only set flags; `mns_server` and `registry_server` call httplib's
+`Server::stop()` from the handler (it is `shutdown()`/`close()` plus an atomic exchange, but has the pre-listen gap
+tracked as TD-464 and TD-494); `incremental_trainer`'s handler logs and calls `std::exit(0)`, already tracked as TD-416
+(no checkpoint, no release of claimed files, exit code 0).
 
 Location in code: `src/ChatbotAPIServer.cpp` (`signal_handler()`); tagged `TODO: See TD-249`.
 

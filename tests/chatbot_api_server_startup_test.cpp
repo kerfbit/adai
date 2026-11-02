@@ -340,3 +340,56 @@ TEST_F(ChatbotApiServerStartupTest, TopKAndBeamWidthReachTheServer) {
     ASSERT_NE(updated, std::string::npos) << log;
     EXPECT_NE(log.find("top_k=9 strategy=nucleus beam_width=5", updated), std::string::npos) << log;
 }
+
+// TD-248: SIGTERM while the server thread is starting used to be lost, because httplib ignores
+// stop() until it's listening; the process then hung until SIGKILL. The server's output is read
+// through a pipe so the signal lands right after "[4/4] Starting API server", the first line after
+// the signal handlers are installed and a few lines before the server thread starts.
+TEST_F(ChatbotApiServerStartupTest, SigtermDuringStartupExitsPromptly) {
+    const std::string config = write_config("ALLOW_UNTRAINED_MODEL=true\n");
+    int hung = 0;
+    for (int trial = 0; trial < 10; ++trial) {
+        int fds[2];
+        ASSERT_EQ(::pipe(fds), 0);
+        const pid_t pid = ::fork();
+        if (pid == 0) {
+            ::dup2(fds[1], STDOUT_FILENO);
+            ::dup2(fds[1], STDERR_FILENO);
+            ::close(fds[0]);
+            ::close(fds[1]);
+            std::string path = "PATH=/usr/bin:/bin", home = "HOME=" + dir_.string();
+            char* env[] = {path.data(), home.data(), nullptr};
+            std::string flag = "--config", conf = config;
+            char* argv[] = {binary_.data(), flag.data(), conf.data(), nullptr};
+            ::execve(binary_.c_str(), argv, env);
+            ::_exit(127);
+        }
+        ::close(fds[1]);
+        std::string seen;
+        char buf[4096];
+        while (seen.find("[4/4] Starting API server") == std::string::npos) {
+            const ssize_t n = ::read(fds[0], buf, sizeof(buf));
+            if (n <= 0) break;
+            seen.append(buf, static_cast<size_t>(n));
+        }
+        ::kill(pid, SIGTERM);
+        // Keep draining so a full pipe can't block the server's logging.
+        std::thread drain([fd = fds[0]] {
+            char sink[4096];
+            while (::read(fd, sink, sizeof(sink)) > 0) {
+            }
+        });
+        const int code = wait_exit(pid, std::chrono::seconds(10));
+        if (code < 0) {
+            ++hung;
+            ::kill(pid, SIGKILL);
+            ::waitpid(pid, nullptr, 0);
+        } else {
+            EXPECT_EQ(code, 0) << "trial " << trial;
+        }
+        drain.join();
+        ::close(fds[0]);
+        ASSERT_NE(seen.find("[4/4] Starting API server"), std::string::npos) << seen;
+    }
+    EXPECT_EQ(hung, 0) << hung << " of 10 trials were still running 10 s after SIGTERM";
+}
