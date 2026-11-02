@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-14
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-11-02
 
 // TD-172: small cross-platform "launch and monitor one child process" helper, extracted from
 // trainer_service's own main() so the launch/poll/terminate logic is unit-testable against a real
@@ -45,6 +45,8 @@ class ChildProcess {
      * @brief Launches `argv[0]` with `argv[1..]` as its own arguments.
      * @return false if a child is already running, or if the launch itself failed
      *   (fork()/execvp() or CreateProcess() error — logged via adai::Logger, not returned here).
+     *   TD-278: a failed exec (missing or non-executable binary) is reported here; it used to
+     *   return true and show up only later as exit code 127 from poll_exit().
      */
     bool start(const std::vector<std::string>& argv);
 

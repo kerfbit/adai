@@ -1420,6 +1420,8 @@ The generation and model math run is complete.
   keeps its id in `SESSION_DIR/chatbot_run_id` so a restarted pass reclaims a crashed one's files).
 - TD-524 (done in code: `trainer_service` passes `--admin-port` only with the admin API on, launches the
   `incremental_trainer` beside its own executable, backs off failed launches; the units can write `downloads`).
+- TD-278 (done in code: `ChildProcess::start()` reports a failed `exec` through a close-on-exec pipe, so
+  `trainer_service` logs the reason and backs off instead of counting exit 127 as a crashed pass).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6788,7 +6790,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / Service Supervisor | October 9, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 2, 2026 | Training / Service Supervisor | October 9, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-277 and confirmed by running the real class: with a missing binary,
@@ -6799,11 +6801,21 @@ interval, indefinitely, without ever reporting that `incremental_trainer` couldn
 
 Action Items:
 
-- [ ] Detect exec failure in `start()`: a close-on-exec pipe the child writes `errno` to before `_exit()`, or `posix_spawn()` (which reports exec errors directly on glibc).
-- [ ] Log the exec error with the path; have `trainer_service` back off (or stop) on repeated launch failures rather than retrying silently.
-- [ ] Test: `start({"/nonexistent"})` returns false.
+- [x] Detect exec failure in `start()`: a close-on-exec pipe the child writes `errno` to before `_exit()`, or `posix_spawn()` (which reports exec errors directly on glibc).
+- [x] Log the exec error with the path; have `trainer_service` back off (or stop) on repeated launch failures rather than retrying silently.
+- [x] Test: `start({"/nonexistent"})` returns false.
 
-Location in code: `src/ChildProcess.cpp` (`start()`); tagged `TODO: See TD-278`.
+**Fix (November 2, 2026):** `start()` creates a close-on-exec pipe before `fork()`. A successful `exec` closes the
+child's end, so the parent reads end-of-file; a failed one writes `errno` first, and `start()` reaps the child, logs
+`could not execute '<path>': <reason>` and returns false. `trainer_service` then backs off as for any failed launch
+(added with TD-524: 45 s doubling to 15 min, counted in `consecutive_failures`) and counts no pass.
+
+Tests: `ChildProcessTest.AFailedExecIsReportedByStart` (a missing path and a non-executable file both return false; a
+real launch still works after) and `SighupTest.TrainerServiceReportsAChildItCannotExecute` (a non-executable
+`incremental_trainer` beside `trainer_service`: `/admin/status` shows a launch failure with 0 passes launched and 0
+crashed, and the log names the path and "Permission denied"). The old `ChildProcess` fails the second test.
+
+Location in code: `src/ChildProcess.{hpp,cpp}` (`start()`).
 
 Files to Modify:
 
@@ -16032,8 +16044,8 @@ Tests: `TrainerServiceChildArgv.NoAdminPortWithoutTheAdminApi`, `SiblingExecutab
 and `SighupTest.TrainerServiceLaunchesItsSiblingAndPassesTheAdminPortOnlyWhenEnabled` (a copy of `trainer_service`
 started by bare name with a decoy `incremental_trainer` first on `PATH`: the stub beside it runs, without
 `--admin-port` while the API is off and with it when on). The old binary ran the decoy and passed `--admin-port`
-with the API off. `systemd-analyze verify` accepts the unit. The launch-failure backoff has no test: a failed
-`exec` still looks like a successful launch (TD-278), so only a failed `fork` reaches that branch.
+with the API off. `systemd-analyze verify` accepts the unit. The launch-failure backoff is tested since TD-278 made a failed
+`exec` a launch failure (`SighupTest.TrainerServiceReportsAChildItCannotExecute`).
 
 Location in code: `src/TrainerServiceMain.cpp` (child argv, loop), `src/IncrementalTrainerArgs.{hpp,cpp}`,
 `scripts/adai-trainer.service`, `scripts/install_incremental_trainer.sh`, `config.trainer.conf`.

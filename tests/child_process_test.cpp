@@ -17,6 +17,9 @@
 #include <gtest/gtest.h>
 #include <chrono>
 #include <thread>
+#include <filesystem>
+#include <fstream>
+#include <unistd.h>
 
 using adai::ChildProcess;
 
@@ -205,3 +208,30 @@ TEST(ChildProcessTest, DestructorEscalatesToForceKillWhenChildIgnoresSigtermWith
 }
 
 #endif  // !_WIN32
+
+#ifndef _WIN32
+// TD-278: a missing or non-executable binary used to make start() return true; the failure only showed up
+// later as exit code 127, which trainer_service counted as a crashed pass and retried indefinitely.
+TEST(ChildProcessTest, AFailedExecIsReportedByStart) {
+    adai::ChildProcess missing;
+    EXPECT_FALSE(missing.start({"/nonexistent/incremental_trainer"}));
+    EXPECT_FALSE(missing.is_running());
+    EXPECT_EQ(missing.pid(), 0);
+
+    const std::string not_executable =
+        (std::filesystem::temp_directory_path() / ("adai_td278_" + std::to_string(::getpid()))).string();
+    std::ofstream(not_executable) << "#!/bin/sh\nexit 0\n";
+    adai::ChildProcess denied;
+    EXPECT_FALSE(denied.start({not_executable}));
+    std::filesystem::remove(not_executable);
+
+    // A real launch still works on the same kind of object afterwards.
+    EXPECT_TRUE(missing.start({"/bin/true"}));
+    int code = -1;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!missing.poll_exit(&code) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_EQ(code, 0);
+}
+#endif

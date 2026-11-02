@@ -882,3 +882,44 @@ TEST_F(SighupTest, TrainerServiceLaunchesItsSiblingAndPassesTheAdminPortOnlyWhen
     ASSERT_NE(port + 1, args.end());
     EXPECT_EQ(*(port + 1), std::to_string(child_port));
 }
+
+// TD-278: when incremental_trainer couldn't be executed, the launch looked successful and the pass came
+// back as exit 127, counted as a crashed pass. It's now a launch failure, logged with the reason and
+// backed off (TD-524), and no pass is counted.
+TEST_F(SighupTest, TrainerServiceReportsAChildItCannotExecute) {
+    const fs::path bin = dir_ / "bin";
+    fs::create_directories(bin);
+    fs::copy_file(TRAINER_SERVICE_BINARY_PATH, bin / "trainer_service");
+    std::ofstream(bin / "incremental_trainer") << "#!/bin/sh\nexit 0\n";  // left without execute permission
+    const int port = free_port();
+    const fs::path log = dir_ / "log.txt";
+    const auto cfg = write_config(
+        "config.trainer.conf",
+        "LOG_FILE_PATH=" + log.string() + "\nTRAINER_ADMIN_ENABLED=true\nTRAINER_ADMIN_HOST=127.0.0.1\n"
+            "TRAINER_ADMIN_PORT=" + std::to_string(port) + "\nTRAINER_CHILD_ADMIN_PORT=" + std::to_string(free_port()) +
+            "\nTRAINER_ADMIN_DIR=" + (dir_ / "admin").string() + "\n");
+    spawn((bin / "trainer_service").string(), {"--config", cfg.string()});
+    httplib::Client client("127.0.0.1", port);
+    client.set_connection_timeout(std::chrono::milliseconds(300));
+    std::string status;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    while (std::chrono::steady_clock::now() < deadline) {
+        auto res = client.Get("/admin/status");
+        if (res && res->status == 200 && res->body.find("\"consecutive_failures\":1") != std::string::npos) {
+            status = res->body;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    ::kill(pid_, SIGTERM);
+    ::waitpid(pid_, nullptr, 0);
+    pid_ = -1;
+    ASSERT_FALSE(status.empty()) << "no launch failure was recorded";
+    EXPECT_NE(status.find("\"total_passes_launched\":0"), std::string::npos) << status;
+    EXPECT_NE(status.find("\"total_passes_crashed\":0"), std::string::npos) << status;
+    std::stringstream text;
+    text << std::ifstream(log).rdbuf();
+    EXPECT_NE(text.str().find("could not execute '" + (bin / "incremental_trainer").string() + "': Permission denied"),
+              std::string::npos)
+        << text.str();
+}

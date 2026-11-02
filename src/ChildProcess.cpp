@@ -1,15 +1,18 @@
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-14
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-11-02
 
 #include "ChildProcess.hpp"
+#include <cerrno>
 #include <chrono>
+#include <cstring>
 #include <thread>
 #include "Logger.hpp"
 
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <fcntl.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -89,19 +92,46 @@ bool ChildProcess::start(const std::vector<std::string>& argv) {
     // stay open in the child. Prefer posix_spawn().
     // TODO: See TD-280 in TECHNICAL_DEBT.md - no process group / PR_SET_PDEATHSIG, so a hard-killed
     // supervisor leaves the pass running.
+    // TD-278: a close-on-exec pipe reports a failed exec to start(). A successful exec closes the write
+    // end, so the parent reads EOF; a failed one writes errno first. A failed exec used to look like a
+    // launch (start() returned true) and surfaced only later as exit code 127.
+    int exec_pipe[2];
+    if (::pipe2(exec_pipe, O_CLOEXEC) != 0) {
+        Logger::error("ChildProcess::start(): pipe2() failed: {}", std::strerror(errno));
+        return false;
+    }
     const pid_t pid = ::fork();
     if (pid < 0) {
-        Logger::error("ChildProcess::start(): fork() failed");
+        Logger::error("ChildProcess::start(): fork() failed: {}", std::strerror(errno));
+        ::close(exec_pipe[0]);
+        ::close(exec_pipe[1]);
         return false;
     }
     if (pid == 0) {
         // Child: replace this process image entirely. execvp() only returns on failure.
-        // TODO: See TD-278 in TECHNICAL_DEBT.md - an exec failure is only visible later as exit code 127;
-        // start() has already returned true to the caller.
+        ::close(exec_pipe[0]);
         ::execvp(c_argv[0], c_argv.data());
         // If we get here, exec failed — this is a forked copy of the supervisor, not the
-        // supervisor itself, so exit immediately rather than returning into shared logic twice.
+        // supervisor itself, so report errno and exit immediately rather than returning into
+        // shared logic twice. Only async-signal-safe calls here.
+        const int exec_errno = errno;
+        ssize_t ignored = ::write(exec_pipe[1], &exec_errno, sizeof(exec_errno));
+        (void)ignored;
         _exit(127);
+    }
+    ::close(exec_pipe[1]);
+    int exec_errno = 0;
+    ssize_t n = 0;
+    do {
+        n = ::read(exec_pipe[0], &exec_errno, sizeof(exec_errno));
+    } while (n < 0 && errno == EINTR);
+    ::close(exec_pipe[0]);
+    if (n == static_cast<ssize_t>(sizeof(exec_errno))) {
+        int status = 0;
+        while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+        }
+        Logger::error("ChildProcess::start(): could not execute '{}': {}", argv[0], std::strerror(exec_errno));
+        return false;
     }
     pid_ = pid;
     running_ = true;

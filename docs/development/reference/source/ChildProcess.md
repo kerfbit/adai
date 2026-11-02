@@ -131,3 +131,10 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 | No process group or parent-death signal (§4) | Orphaned passes if the supervisor is hard-killed outside systemd | By inspection | [TD-280](../../guides/TECHNICAL_DEBT.md#td-280-trainer_service-passes-can-be-orphaned-if-the-supervisor-is-hard-killed) |
 | `fork()` + `execvp()` in a multithreaded process; accepted sockets inherited (§4) | Theoretical deadlock; fd leak during a pass | By inspection | [TD-281](../../guides/TECHNICAL_DEBT.md#td-281-childprocess-forks-a-multithreaded-process-and-leaks-file-descriptors) |
 | Windows quoting / `STILL_ACTIVE` / console-event limits (§4) | Windows-only | By inspection | [TD-282](../../guides/TECHNICAL_DEBT.md#td-282-childprocess-windows-path-has-known-gaps) |
+
+## Addendum (November 2, 2026): `start()` reports a failed `exec` (TD-278)
+
+`start()` now opens a close-on-exec pipe before `fork()`. If `execvp()` fails, the child writes `errno` to it and exits
+127; the parent reads it, reaps the child, logs `could not execute '<path>': <reason>` and returns false. A successful
+`exec` closes the pipe, so the parent reads end-of-file and returns true as before. A failed `exec` used to return
+true and appear only later as exit code 127 from `poll_exit()`.
