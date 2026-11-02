@@ -137,3 +137,9 @@ TD-401 are fixed in code; `--dataset-kind` validation remains TD-402.
 `parse_trainer_service_args(argc, argv)` returns a `TrainerServiceArgs`: `help` for `--help`/`-h` anywhere, else the
 `IncrementalTrainerGlobalArgs` from `parse_incremental_trainer_global_args()` with three more errors: `--foreground`,
 `--admin-port` (what `trainer_service` passes to each pass) and any positional argument (it has no commands).
+
+## Addendum (November 1, 2026): `--dataset-kind` is validated (TD-402)
+
+`--dataset-kind` must be `encoder`, `decoder`, `world_model` or `chatbot` (`adai::is_dataset_kind()` in `Config.hpp`, the
+list `dataset_manager --kind` now shares); anything else is an error and `incremental_trainer` exits 1. It used to be
+stored as given, so a typo selected a new, empty local pool and `../x` put the registry files outside `session_dir`.

@@ -310,6 +310,7 @@ TEST_F(SighupTest, IncrementalTrainerExitsOneOnABadFlag) {
              {"--admin-port", "abc", "status"},
              {"--admin-port", "99999", "status"},
              {"--objective=lejpa", "status"},
+             {"--dataset-kind", "../x", "status"},  // TD-402
              {"status", "--config"}}) {
         std::vector<std::string> args = {"--config", cfg.string()};
         args.insert(args.end(), bad.begin(), bad.end());

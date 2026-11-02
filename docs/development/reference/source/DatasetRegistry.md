@@ -227,3 +227,11 @@ The run-less overload, used only by tests, still skips recorded units.
 When `acquire_pending()` gets `claim_lease_seconds > 0`, a private `ClaimRenewer` thread calls `transport_->renew_claims(run_id)` every
 third of the lease (at least every 5 s) and logs once if the claims are gone. `mark_trained()`, `release_pending()` and the destructor
 stop it. The class gained an out-of-line destructor and move operations. Tests: `DatasetRegistryClaimLeaseTest.*`.
+
+## Addendum (November 1, 2026): unknown dataset kinds are refused (TD-402)
+
+The constructor (through its transport factory) and `local_pool_dir()` throw `std::invalid_argument` for a
+`dataset_kind` other than the four kinds (`adai::is_dataset_kind()`); the empty legacy pool is still allowed. A bad kind
+used to name a new, empty local pool, or with `..` a directory outside `session_dir`, and a remote registry only
+answered it with 404s. The trainer's `--dataset-kind`, `dataset_manager --kind` and `DATASET_KIND` are all checked
+before a registry is built, so this is a backstop for programmatic callers.

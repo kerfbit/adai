@@ -197,6 +197,24 @@ TEST(DatasetConfigTest, MakeConfigCopiesFields) {
     EXPECT_EQ(cfg.dataset_kind, svc.dataset_kind);
 }
 
+// TD-402: an unknown kind named a new, empty local pool or, with "..", a directory outside session_dir.
+TEST(DatasetConfigTest, AnUnknownDatasetKindIsRefused) {
+    DatasetConfig cfg;
+    cfg.session_dir = "/tmp/adai_td402_session";
+    for (const std::string kind : {"encoder", "decoder", "world_model", "chatbot"}) {
+        cfg.dataset_kind = kind;
+        EXPECT_EQ(DatasetRegistry::local_pool_dir(cfg), cfg.session_dir + "/" + kind);
+    }
+    cfg.dataset_kind = "";
+    EXPECT_EQ(DatasetRegistry::local_pool_dir(cfg), cfg.session_dir);  // the legacy pool
+    for (const std::string kind : {"../escape", "chatbt"}) {
+        cfg.dataset_kind = kind;
+        EXPECT_THROW(DatasetRegistry::local_pool_dir(cfg), std::invalid_argument) << kind;
+        EXPECT_THROW(DatasetRegistry{cfg}, std::invalid_argument) << kind;
+    }
+    EXPECT_FALSE(std::filesystem::exists("/tmp/escape"));
+}
+
 TEST(DatasetConfigTest, MakeConfigEmptySessionDirKeepsDefault) {
     adai::ServiceConfig svc;
     svc.session_dir = "";

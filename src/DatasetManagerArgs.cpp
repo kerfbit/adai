@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-11-01
 
 // Calling convention note: every parse_*_args() here takes the command's OWN argument slice —
 // NOT including the command name itself (main() strips that off before dispatching, the same
@@ -8,6 +8,7 @@
 // parse_assign_args() receives {"my-model", "file1", "--count", "3"}.
 
 #include "DatasetManagerArgs.hpp"
+#include "Config.hpp"  // is_dataset_kind() (TD-402)
 #include <sstream>
 
 namespace adai {
@@ -203,7 +204,7 @@ RequeueArgs parse_requeue_args(const std::vector<std::string>& args) {
 }
 
 bool is_valid_dataset_kind(const std::string& kind) {
-    return kind == "encoder" || kind == "decoder" || kind == "world_model" || kind == "chatbot";
+    return is_dataset_kind(kind);  // TD-402: one list, shared with the trainer
 }
 
 MigrateArgs parse_migrate_args(const std::vector<std::string>& args) {

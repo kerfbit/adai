@@ -348,3 +348,23 @@ TEST(ParseTrainerServiceArgs, RejectsChildFlagsPositionalsAndParserErrors) {
         EXPECT_EQ(r.global.error_message.rfind(message, 0), 0u) << r.global.error_message;
     }
 }
+
+// TD-402: --dataset-kind was taken as given; LocalTransport joins it into a path, so "chatbt" selected a
+// new, empty pool and "../x" put the registry files outside session_dir.
+TEST(ParseIncrementalTrainerGlobalArgs, DatasetKindMustBeOneOfTheFourKinds) {
+    for (const std::string kind : {"encoder", "decoder", "world_model", "chatbot"}) {
+        std::vector<std::string> raw = {"incremental_trainer", "--dataset-kind", kind, "status"};
+        auto argv = make_argv(raw);
+        const auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+        EXPECT_FALSE(r.error) << kind << ": " << r.error_message;
+        EXPECT_EQ(r.dataset_kind.value_or(""), kind);
+    }
+    for (const std::string kind : {"chatbt", "../escape", "a/b", "Chatbot", ""}) {
+        std::vector<std::string> raw = {"incremental_trainer", "--dataset-kind", kind, "status"};
+        auto argv = make_argv(raw);
+        const auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+        EXPECT_TRUE(r.error) << "'" << kind << "' was accepted";
+        EXPECT_EQ(r.error_message, "Invalid value for --dataset-kind: '" + kind +
+                                       "' (expected encoder, decoder, world_model or chatbot)");
+    }
+}

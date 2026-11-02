@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.8.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 1.9.0
+// @adai-reviewed: 2026-11-01
 
 #include "DatasetRegistry.hpp"
 #include <algorithm>
@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <iostream>
 #include <mutex>
+#include <stdexcept>
 #include <set>
 #include <sstream>
 #include <thread>
@@ -47,6 +48,12 @@ std::string utc_now_string() {
 // ============================================================================
 
 static std::unique_ptr<RegistryTransport> build_transport(const DatasetConfig& cfg) {
+    // TD-402: an unknown kind is refused up front, remote or local (see local_pool_dir()); a remote
+    // registry only 404s on it.
+    if (!cfg.dataset_kind.empty() && !adai::is_dataset_kind(cfg.dataset_kind)) {
+        throw std::invalid_argument("unknown dataset kind '" + cfg.dataset_kind +
+                                    "' (expected encoder, decoder, world_model or chatbot)");
+    }
     if (!cfg.registry_server_url.empty()) {
 #ifdef BUILD_METRICS_API_SERVER
         const std::string group =
@@ -284,6 +291,10 @@ std::vector<PendingEntry> DatasetRegistry::pending_entries() const {
 }
 
 std::string DatasetRegistry::local_pool_dir(const DatasetConfig& cfg) {
+    if (!cfg.dataset_kind.empty() && !adai::is_dataset_kind(cfg.dataset_kind)) {  // TD-402
+        throw std::invalid_argument("unknown dataset kind '" + cfg.dataset_kind +
+                                    "' (expected encoder, decoder, world_model or chatbot)");
+    }
     return cfg.dataset_kind.empty() ? cfg.session_dir : cfg.session_dir + "/" + cfg.dataset_kind;
 }
 

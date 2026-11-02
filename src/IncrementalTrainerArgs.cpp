@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.8.0
+// @adai-version: 0.9.0
 // @adai-reviewed: 2026-11-01
 
 #include "IncrementalTrainerArgs.hpp"
@@ -65,9 +65,14 @@ IncrementalTrainerGlobalArgs parse_incremental_trainer_global_args(int argc, cha
         } else if (a == "--objective") {
             return fail("--objective takes its value after '=': --objective=chatbot or --objective=lejepa");
         } else if (a == "--dataset-kind") {
-            // TODO: See TD-402 in TECHNICAL_DEBT.md - not validated against the four kinds; LocalTransport joins it
-            // into a path (typo = new empty pool, ".." escapes session_dir)
-            result.dataset_kind = argv[++i];
+            // TD-402: it used to be taken as given. LocalTransport joins it into a path, so a typo
+            // selected a new, empty pool and ".." put the registry files outside session_dir.
+            const std::string value = argv[++i];
+            if (!is_dataset_kind(value)) {
+                return fail("Invalid value for --dataset-kind: '" + value +
+                            "' (expected encoder, decoder, world_model or chatbot)");
+            }
+            result.dataset_kind = value;
         } else {
             // The command and its own arguments, including command flags such as reset's --yes.
             result.args.push_back(a);

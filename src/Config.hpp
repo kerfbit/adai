@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.23.0
+// @adai-version: 1.24.0
 // @adai-reviewed: 2026-11-01
 
 
@@ -40,6 +40,12 @@ std::optional<size_t> parse_strict_size(const std::string& value);
 std::optional<float> parse_strict_float(const std::string& value);
 /// TD-286/TD-456: true/1/yes/on/enabled or false/0/no/off/disabled in any case; nullopt otherwise.
 std::optional<bool> parse_strict_bool(const std::string& value);
+/// TD-202/TD-402: the dataset sub-pool kinds ("encoder", "decoder", "world_model", "chatbot", MNS's
+/// own kind vocabulary). The trainer's --dataset-kind, dataset_manager's --kind and DatasetRegistry
+/// check against this; the empty legacy pool is not a kind. Inline for adai_core (see below).
+inline bool is_dataset_kind(const std::string& kind) {
+    return kind == "encoder" || kind == "decoder" || kind == "world_model" || kind == "chatbot";
+}
 /// TD-444/TD-451: "Name: value" pairs separated by ';' (e.g. "CF-Access-Client-Id: abc;
 /// CF-Access-Client-Secret: xyz"), trimmed, as header lines. Entries without a name and ':' are skipped.
 /// Inline because MetricsPushClient (adai_core) uses it and adai_core doesn't contain Config.cpp.

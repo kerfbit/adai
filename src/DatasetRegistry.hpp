@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.7.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 1.8.0
+// @adai-reviewed: 2026-11-01
 
 
 #include <memory>
@@ -240,7 +240,9 @@ class DatasetRegistry {
     std::size_t count_acquirable() const;
 
     /// The directory LocalTransport keeps `data_registry.txt`/`pending_files.txt` in for @p cfg:
-    /// `session_dir`, or `session_dir/<dataset_kind>` when a kind is set (TD-202).
+    /// `session_dir`, or `session_dir/<dataset_kind>` when a kind is set (TD-202). TD-402: throws
+    /// std::invalid_argument for a kind other than the four (`is_dataset_kind()`), which would
+    /// otherwise name a new, empty pool or, with "..", a directory outside `session_dir`.
     static std::string local_pool_dir(const DatasetConfig& cfg);
 
     /** @return Sorted vector of all file paths that have been trained. */

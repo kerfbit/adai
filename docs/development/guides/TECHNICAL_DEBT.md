@@ -1400,6 +1400,8 @@ The generation and model math run is complete.
   as the routes are registered; `--help` says the architecture flags are fallbacks MNS overrides).
 - TD-557 (filed and done in code: `trainer_service --help` prints a usage text instead of starting the service, and a
   flag error, a pass-only flag or a stray argument exits 1).
+- TD-402 (done in code: `--dataset-kind` must be one of the four kinds, one list shared with `dataset_manager`, and
+  `DatasetRegistry` refuses any other kind).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -11081,7 +11083,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / CLI | October 13, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 1, 2026 | Training / CLI | October 13, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `IncrementalTrainerArgs`, by inspection. `--dataset-kind <k>` is stored as given
@@ -11093,14 +11095,25 @@ files outside `session_dir`.
 
 Action Items:
 
-- [ ] Validate the value against the four kinds (shared with `dataset_manager --kind` and `DATASET_KIND`) and reject anything else.
+- [x] Validate the value against the four kinds (shared with `dataset_manager --kind` and `DATASET_KIND`) and reject anything else.
 
-Location in code: `src/IncrementalTrainerArgs.cpp` (`--dataset-kind`); tagged `TODO: See TD-402`.
+**Fix (November 1, 2026):** one list, `adai::is_dataset_kind()` (inline in `src/Config.hpp`), which
+`dataset_manager`'s `is_valid_dataset_kind()` now calls. `parse_incremental_trainer_global_args()` rejects any other
+`--dataset-kind` value with `Invalid value for --dataset-kind: '<v>' (expected encoder, decoder, world_model or chatbot)`,
+so `incremental_trainer` exits 1 (TD-401's error path). As a backstop for programmatic callers, `DatasetRegistry`'s
+transport factory and `DatasetRegistry::local_pool_dir()` throw `std::invalid_argument` for an unknown non-empty kind,
+remote or local. Tests: `ParseIncrementalTrainerGlobalArgs.DatasetKindMustBeOneOfTheFourKinds`,
+`DatasetConfigTest.AnUnknownDatasetKindIsRefused`, and `--dataset-kind ../x status` added to
+`SighupTest.IncrementalTrainerExitsOneOnABadFlag` (the old binary took `../x` and went on to abort). All three fail on
+the old code.
+
+Location in code: `src/IncrementalTrainerArgs.cpp` (`--dataset-kind`), `src/DatasetRegistry.cpp`, `src/Config.hpp`.
 
 Files to Modify:
 
 - `src/IncrementalTrainerArgs.cpp`
-- `src/DatasetRegistry.cpp`
+- `src/DatasetRegistry.{hpp,cpp}`
+- `src/Config.hpp`, `src/DatasetManagerArgs.cpp`
 
 ---
 
