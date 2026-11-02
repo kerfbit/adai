@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** October 25, 2026
-**Total Items:** 347
+**Total Items:** 348
 **High Priority:** 36
 **Medium Priority:** 152
-**Low Priority:** 159
+**Low Priority:** 160
 **Future Enhancements:** 19
 **Resolved Items:** 208
 **Deferred Decisions:** 3
@@ -1398,6 +1398,8 @@ The generation and model math run is complete.
   retrieval settings and the hippocampal save interval, and keeps the loaded model's settings, MNS-resolved ones included).
 - TD-252 (done in code: `chatbot_api_server`'s startup banner lists every route from `ChatbotAPI::routes()`, recorded
   as the routes are registered; `--help` says the architecture flags are fallbacks MNS overrides).
+- TD-557 (filed and done in code: `trainer_service --help` prints a usage text instead of starting the service, and a
+  flag error, a pass-only flag or a stray argument exits 1).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -2438,6 +2440,8 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-553: Per-File Versions Have No Build Number](#td-553-per-file-versions-have-no-build-number)
   - [TD-554: No Aggregate Version per CMake Build](#td-554-no-aggregate-version-per-cmake-build)
   - [TD-555: Abnormal-Sample Pushes 404 and Flood the Log With Session Re-Registration](#td-555-abnormal-sample-pushes-404-and-flood-the-log-with-session-re-registration)
+  - [TD-556: Admin-API Test Binaries Abort Under a Parallel `ctest`](#td-556-admin-api-test-binaries-abort-under-a-parallel-ctest)
+  - [TD-557: `trainer_service` Ignores `--help` and Bad Arguments](#td-557-trainer_service-ignores---help-and-bad-arguments)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -17180,6 +17184,39 @@ Action Items:
 Looping both binaries under the same full-suite load ran 632 times with no failures, and the remaining suite passed 137/137 alongside.
 
 Location in code: `tests/trainer_service_proxy_test.cpp`, `tests/trainer_admin_api_test.cpp`.
+
+---
+
+### TD-557: `trainer_service` Ignores `--help` and Bad Arguments
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open — code fix landed November 1, 2026 | Training / Service Supervisor | November 1, 2026 | 1 hour |
+
+Description:
+Found November 1, 2026 while checking `trainer_service`'s flags for TD-401 (verified with the real binary). `trainer_service`
+parses its command line with `incremental_trainer`'s global-flag parser but never looked at the result beyond the three flags it
+forwards:
+- `trainer_service --help` started the always-on service (it has no help text), so an operator asking what it accepts got a
+  running supervisor that launched training passes.
+- The parser's own errors (TD-401: `--admin-port abc`, a flag missing its value) were ignored, and so were `--foreground`,
+  `--admin-port` (what `trainer_service` itself passes to each pass) and any positional argument (`trainer_service resume`).
+
+`--objective`/`--dataset-kind` being parsed and dropped is TD-403.
+
+Action Items:
+
+- [x] `--help`/`-h` prints a usage text and exits 0.
+- [x] A parser error, `--foreground`, `--admin-port` or a positional argument prints the error and the usage and exits 1.
+
+**Fix (November 1, 2026):** `parse_trainer_service_args()` (`src/IncrementalTrainerArgs.{hpp,cpp}`) wraps the global parser:
+`--help`/`-h` anywhere sets `help`, and `--foreground`, `--admin-port` and leftover positionals become errors next to the
+parser's own. `trainer_service`'s `main()` prints a new `print_usage()` and exits 0 for help, 1 for an error, before loading
+any config or starting anything. Tests: `ParseTrainerServiceArgs` (3) and, against the real binary,
+`SighupTest.TrainerServiceHelpExitsZeroAndBadArgumentsExitOne` (`--help`/`-h` exit 0; `resume`, `--admin-port abc`, a
+valueless `--config` exit 1). The old binary started the service on `--help` and was still running after 10 s.
+
+Location in code: `src/TrainerServiceMain.cpp` (`main()`, `print_usage()`), `src/IncrementalTrainerArgs.{hpp,cpp}`.
 
 ---
 

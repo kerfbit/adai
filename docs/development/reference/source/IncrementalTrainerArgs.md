@@ -131,3 +131,9 @@ Tests: `incremental_trainer_args_test.cpp` (26 tests) replaces the four that ass
 behaviour, and `SighupTest.IncrementalTrainerExitsOneOnABadFlag` runs the real binary. The §4 rows for
 TD-401 are fixed in code; `--dataset-kind` validation remains TD-402.
 
+
+## Addendum (November 1, 2026): `parse_trainer_service_args()` (TD-557)
+
+`parse_trainer_service_args(argc, argv)` returns a `TrainerServiceArgs`: `help` for `--help`/`-h` anywhere, else the
+`IncrementalTrainerGlobalArgs` from `parse_incremental_trainer_global_args()` with three more errors: `--foreground`,
+`--admin-port` (what `trainer_service` passes to each pass) and any positional argument (it has no commands).

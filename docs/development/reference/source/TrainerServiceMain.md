@@ -98,3 +98,10 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 ## Addendum (October 19, 2026): failing passes are counted and backed off (TD-523)
 
 `incremental_trainer resume` now exits 0 (trained), 3 (nothing pending) or 1 (failed: registry unreachable, download, checkpoint, load or training failure). The supervisor classifies each exit with `classify_pass_exit()` (`IncrementalTrainerArgs.cpp`). A crash is 128 and up; every other code that isn't 0 or 3 counts as a failure, including 127. On a failure or crash the supervisor logs an error with the exit code, counts it (`total_passes_failed` or `total_passes_crashed`), and waits `failure_backoff_seconds()`. That wait is 45 s, doubled for each consecutive failure up to 900 s; `POST /admin/resume` still wakes it. Checked with the real binary and a stub child: exit 1 was counted and logged as a failure, and exit 3 stayed idle.
+
+## Addendum (November 1, 2026): `--help` and argument errors (TD-557)
+
+`main()` now parses with `parse_trainer_service_args()` before loading any config. `--help`/`-h` prints a usage text and
+exits 0 (it used to start the service). A flag error from the shared parser, `--foreground`, `--admin-port` (both set by
+`trainer_service` on its passes) or a positional argument prints the error and the usage and exits 1; all were ignored.
+`--objective`/`--dataset-kind` are still parsed and not forwarded (TD-403).

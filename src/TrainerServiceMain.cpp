@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.5.0
-// @adai-reviewed: 2026-10-31
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-11-01
 
 // TD-172: trainer_service — the thin process-supervisor binary that replaces
 // `incremental_trainer serve`. Deliberately minimal: it does not link adai_models/adai_nlp and
@@ -30,6 +30,7 @@
 #include <csignal>
 #include <cstdint>
 #include <filesystem>
+#include <iostream>
 #include <memory>
 #include <string>
 #include <thread>
@@ -90,15 +91,38 @@ std::int64_t unix_seconds() {
 
 }  // namespace
 
+static void print_usage(const char* program) {
+    std::cout << "Usage: " << program << " [--config <path>] [--model <name>] [--gpu-strategy <strategy>]\n"
+              << "\n"
+              << "Runs the always-on training service: launches `incremental_trainer resume` as a\n"
+              << "single-pass child, again and again, and serves the admin API (TRAINER_ADMIN_ENABLED,\n"
+              << "TRAINER_ADMIN_PORT) for whichever pass is running. Stop it with SIGTERM.\n"
+              << "\n"
+              << "Options (passed on to every pass):\n"
+              << "  --config <path>          config.trainer.conf to use (default: ./config.trainer.conf,\n"
+              << "                           then /etc/adai/config.trainer.conf)\n"
+              << "  --model <name>           MODEL_NAME override\n"
+              << "  --gpu-strategy <s>       GPU_STRATEGY override: background or full\n"
+              << "  --help, -h               Show this help\n";
+}
+
 int main(int argc, char* argv[]) {
     // Reuses incremental_trainer's own global-flag parser (IncrementalTrainerArgs.hpp):
     // trainer_service accepts the same --config/--model/--gpu-strategy flags, passed straight
-    // through to every child it launches. --foreground/--admin-port are meaningless for
-    // trainer_service's own invocation (they're what THIS process passes to each child, not
-    // something an operator passes to trainer_service itself); any leftover positional args are
-    // ignored — trainer_service has no "commands" of its own, unlike incremental_trainer.
-    const adai::IncrementalTrainerGlobalArgs cli =
-        adai::parse_incremental_trainer_global_args(argc, argv);
+    // through to every child it launches. TD-557: --help prints the usage (it used to start the
+    // service), and --foreground/--admin-port (what THIS process passes to each child), a
+    // positional argument (trainer_service has no commands) or a flag error exits 1; all were ignored.
+    const adai::TrainerServiceArgs parsed = adai::parse_trainer_service_args(argc, argv);
+    if (parsed.help) {
+        print_usage(argv[0]);
+        return 0;
+    }
+    if (parsed.global.error) {
+        std::cerr << parsed.global.error_message << "\n\n";
+        print_usage(argv[0]);
+        return 1;
+    }
+    const adai::IncrementalTrainerGlobalArgs& cli = parsed.global;
 
     const std::string config_path = adai::ConfigLoader::discover_config_path(
         cli.config_path.value_or(""), "config.trainer.conf");

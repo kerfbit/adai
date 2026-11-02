@@ -14,6 +14,7 @@ using adai::derive_run_id;
 using adai::incremental_trainer_command_defers_gpu_init;
 using adai::parse_incremental_trainer_global_args;
 using adai::parse_reset_command_args;
+using adai::parse_trainer_service_args;
 using adai::resolve_dataset_kind;
 
 namespace {
@@ -305,4 +306,45 @@ TEST(FailureBackoffSeconds, DoublesFromTheBaseAndCaps) {
     EXPECT_EQ(adai::failure_backoff_seconds(5, 45, 900), 720);
     EXPECT_EQ(adai::failure_backoff_seconds(6, 45, 900), 900);
     EXPECT_EQ(adai::failure_backoff_seconds(1000, 45, 900), 900);
+}
+
+// TD-557: trainer_service ignored --help (it started the service), the parser's own errors,
+// --foreground/--admin-port and stray positionals.
+TEST(ParseTrainerServiceArgs, HelpAnywhereIsHelp) {
+    for (const std::vector<std::string>& extra : std::vector<std::vector<std::string>>{
+             {"--help"}, {"-h"}, {"--config", "c.conf", "--help"}, {"bogus", "-h"}}) {
+        std::vector<std::string> raw = {"trainer_service"};
+        raw.insert(raw.end(), extra.begin(), extra.end());
+        auto argv = make_argv(raw);
+        EXPECT_TRUE(parse_trainer_service_args(static_cast<int>(argv.size()), argv.data()).help) << extra.back();
+    }
+}
+
+TEST(ParseTrainerServiceArgs, AcceptsThePassThroughFlags) {
+    std::vector<std::string> raw = {"trainer_service", "--config", "c.conf", "--model", "m", "--gpu-strategy", "full"};
+    auto argv = make_argv(raw);
+    const auto r = parse_trainer_service_args(static_cast<int>(argv.size()), argv.data());
+    ASSERT_FALSE(r.global.error) << r.global.error_message;
+    EXPECT_FALSE(r.help);
+    EXPECT_EQ(r.global.config_path.value_or(""), "c.conf");
+    EXPECT_EQ(r.global.model_name.value_or(""), "m");
+    EXPECT_EQ(r.global.gpu_strategy.value_or(""), "full");
+}
+
+TEST(ParseTrainerServiceArgs, RejectsChildFlagsPositionalsAndParserErrors) {
+    const std::vector<std::pair<std::vector<std::string>, std::string>> cases = {
+        {{"--foreground"}, "--foreground is set by trainer_service"},
+        {{"--admin-port", "8085"}, "--admin-port is set by trainer_service"},
+        {{"resume"}, "Unexpected argument 'resume' (trainer_service takes no command)"},
+        {{"--config"}, "Missing value for --config"},
+        {{"--admin-port", "abc"}, "Invalid value for --admin-port"},
+    };
+    for (const auto& [extra, message] : cases) {
+        std::vector<std::string> raw = {"trainer_service"};
+        raw.insert(raw.end(), extra.begin(), extra.end());
+        auto argv = make_argv(raw);
+        const auto r = parse_trainer_service_args(static_cast<int>(argv.size()), argv.data());
+        EXPECT_TRUE(r.global.error) << extra.front();
+        EXPECT_EQ(r.global.error_message.rfind(message, 0), 0u) << r.global.error_message;
+    }
 }

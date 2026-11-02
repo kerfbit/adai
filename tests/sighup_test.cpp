@@ -327,6 +327,28 @@ TEST_F(SighupTest, IncrementalTrainerExitsOneOnABadFlag) {
     }
 }
 
+// TD-557: trainer_service --help started the service (it never exited), and a bad flag or a stray
+// argument was ignored.
+TEST_F(SighupTest, TrainerServiceHelpExitsZeroAndBadArgumentsExitOne) {
+    const auto cfg = write_config("config.trainer.conf", "LOG_FILE_PATH=" + (dir_ / "log.txt").string() + "\n");
+    const std::vector<std::pair<std::vector<std::string>, int>> cases = {
+        {{"--help"}, 0}, {{"-h"}, 0}, {{"resume"}, 1}, {{"--admin-port", "abc"}, 1}, {{"--config"}, 1}};
+    for (const auto& [extra, expected] : cases) {
+        std::vector<std::string> args = {"--config", cfg.string()};
+        args.insert(args.end(), extra.begin(), extra.end());
+        spawn(TRAINER_SERVICE_BINARY_PATH, args);
+        int status = 0;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        pid_t done = 0;
+        while ((done = ::waitpid(pid_, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        ASSERT_EQ(done, pid_) << extra.front() << " started the service instead of exiting";
+        pid_ = -1;
+        EXPECT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == expected) << extra.front();
+    }
+}
+
 // TD-489: REGISTRY_ADMIN_ENABLED=false in config.registry.conf closes PUT /admin/config. registry_server
 // had no file key for it, so only --admin-enabled false could.
 TEST_F(SighupTest, RegistryServerHonoursRegistryAdminEnabled) {

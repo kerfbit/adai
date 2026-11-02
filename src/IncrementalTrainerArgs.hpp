@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.7.0
+// @adai-version: 0.8.0
 // @adai-reviewed: 2026-11-01
 
 // TD-035: incremental_trainer's global argv parsing and a few small pure helpers, pulled out of
@@ -53,6 +53,17 @@ struct IncrementalTrainerGlobalArgs {
 };
 
 IncrementalTrainerGlobalArgs parse_incremental_trainer_global_args(int argc, char* argv[]);
+
+// TD-557: trainer_service's command line. The same global flags as incremental_trainer, except that
+// --foreground and --admin-port (what trainer_service passes to each pass it launches) and any
+// positional argument (it has no commands) are errors; all three used to be silently ignored, as were
+// the parser's own errors, and --help started the service. `help` is set for --help/-h anywhere.
+struct TrainerServiceArgs {
+    IncrementalTrainerGlobalArgs global;
+    bool help = false;
+};
+
+TrainerServiceArgs parse_trainer_service_args(int argc, char* argv[]);
 
 // train/retrain/resume/serve defer GPU init until after their fork (CUDA contexts aren't
 // fork-safe) or, for serve, until after Logger::init() runs — every other command initializes

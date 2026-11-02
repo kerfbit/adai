@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.7.0
+// @adai-version: 0.8.0
 // @adai-reviewed: 2026-11-01
 
 #include "IncrementalTrainerArgs.hpp"
@@ -74,6 +74,30 @@ IncrementalTrainerGlobalArgs parse_incremental_trainer_global_args(int argc, cha
         }
     }
 
+    return result;
+}
+
+TrainerServiceArgs parse_trainer_service_args(int argc, char* argv[]) {
+    TrainerServiceArgs result;
+    for (int i = 1; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--help" || a == "-h") {
+            result.help = true;
+            return result;
+        }
+    }
+    result.global = parse_incremental_trainer_global_args(argc, argv);
+    auto& g = result.global;
+    if (g.error) return result;
+    if (g.foreground || g.admin_port) {
+        g.error = true;
+        g.error_message = std::string(g.foreground ? "--foreground" : "--admin-port") +
+                          " is set by trainer_service on the passes it launches, not passed to it "
+                          "(the pass's admin port is TRAINER_CHILD_ADMIN_PORT)";
+    } else if (!g.args.empty()) {
+        g.error = true;
+        g.error_message = "Unexpected argument '" + g.args.front() + "' (trainer_service takes no command)";
+    }
     return result;
 }
 
