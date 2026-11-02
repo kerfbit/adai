@@ -166,3 +166,13 @@ skipped whole, which also covers TD-429's escaping `TokenizerEncodingError` for 
 It resumes from whatever `LeJEPAEncoder::resolve_checkpoint_dir()` finds, including a pre-TD-548 `<SESSION_DIR>/world_model`
 checkpoint. A standalone `dataset_manager --kind world_model` queue no longer makes the pass fail. The metrics session label is still
 `world_model`.
+
+## Addendum (November 1, 2026): `trainer_service` forwards `--objective` and `--dataset-kind` (TD-403)
+
+Every pass `trainer_service` launches now gets `--objective=<objective>` and `--dataset-kind <kind>` (built by
+`trainer_service_child_argv()`; the kind is `resolve_dataset_kind()`'s: an explicit `--dataset-kind`, else `world_model`
+for `lejepa`, else `chatbot`). Both used to be parsed and dropped. `incremental_trainer resume` now runs the LeJEPA
+world-model pass for `--objective=lejepa` (it ran chatbot training whatever the objective), for `NUM_EPOCHS` epochs, and
+that pass exits 3 when nothing is pending and 1 when the registry can't be asked, as the chatbot resume does (TD-523).
+The LeJEPA pass has no per-pass admin API yet: during it, `trainer_service` answers `/admin/status` from its own state
+and a pause takes effect between passes.

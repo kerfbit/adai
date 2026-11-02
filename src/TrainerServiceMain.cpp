@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.6.0
+// @adai-version: 0.7.0
 // @adai-reviewed: 2026-11-01
 
 // TD-172: trainer_service — the thin process-supervisor binary that replaces
@@ -92,7 +92,9 @@ std::int64_t unix_seconds() {
 }  // namespace
 
 static void print_usage(const char* program) {
-    std::cout << "Usage: " << program << " [--config <path>] [--model <name>] [--gpu-strategy <strategy>]\n"
+    std::cout << "Usage: " << program
+              << " [--config <path>] [--model <name>] [--gpu-strategy <strategy>]\n"
+              << "       [--objective=chatbot|lejepa] [--dataset-kind <kind>]\n"
               << "\n"
               << "Runs the always-on training service: launches `incremental_trainer resume` as a\n"
               << "single-pass child, again and again, and serves the admin API (TRAINER_ADMIN_ENABLED,\n"
@@ -103,6 +105,10 @@ static void print_usage(const char* program) {
               << "                           then /etc/adai/config.trainer.conf)\n"
               << "  --model <name>           MODEL_NAME override\n"
               << "  --gpu-strategy <s>       GPU_STRATEGY override: background or full\n"
+              << "  --objective=<name>       chatbot (default) or lejepa (world-model pretraining;\n"
+              << "                           needs WORLD_MODEL_ENABLED=true)\n"
+              << "  --dataset-kind <kind>    pool to train from: encoder, decoder, world_model or chatbot\n"
+              << "                           (default: world_model for lejepa, else chatbot)\n"
               << "  --help, -h               Show this help\n";
 }
 
@@ -144,31 +150,16 @@ int main(int argc, char* argv[]) {
     std::signal(SIGINT, signal_handler);
 
     const std::string trainer_path = resolve_incremental_trainer_path(argv[0]);
-    const std::string admin_port_str = std::to_string(svc_config.trainer_child_admin_port);
 
     // Fixed prefix for every child this process ever launches — only --admin-port's value could
     // vary in principle, but this design always uses the one fixed trainer_child_admin_port
-    // (only one child runs at a time, so no per-launch port negotiation is needed).
-    // TODO: See TD-403 in TECHNICAL_DEBT.md - --objective/--dataset-kind are parsed but never forwarded, so the
-    // always-on service silently runs chatbot training only
-    std::vector<std::string> child_argv = {trainer_path};
-    if (cli.config_path) {
-        child_argv.push_back("--config");
-        child_argv.push_back(*cli.config_path);
-    }
-    if (cli.model_name) {
-        child_argv.push_back("--model");
-        child_argv.push_back(*cli.model_name);
-    }
-    if (cli.gpu_strategy) {
-        child_argv.push_back("--gpu-strategy");
-        child_argv.push_back(*cli.gpu_strategy);
-    }
+    // (only one child runs at a time, so no per-launch port negotiation is needed). TD-403: every
+    // pass gets --objective and --dataset-kind, so the service trains any objective and pool.
     // TODO: See TD-524 in TECHNICAL_DEBT.md - --admin-port is passed even with TRAINER_ADMIN_ENABLED=false.
-    child_argv.push_back("--foreground");
-    child_argv.push_back("--admin-port");
-    child_argv.push_back(admin_port_str);
-    child_argv.push_back("resume");
+    const std::vector<std::string> child_argv =
+        adai::trainer_service_child_argv(trainer_path, cli, svc_config.trainer_child_admin_port);
+    adai::Logger::info("trainer_service: objective {}, dataset pool '{}'", cli.objective,
+                       adai::resolve_dataset_kind(cli.objective, cli.dataset_kind));
 
     adai::TrainerServiceProxy proxy(svc_config.trainer_admin_host, svc_config.trainer_admin_port,
                                     svc_config.trainer_admin_dir, control);

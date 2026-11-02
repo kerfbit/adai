@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.9.0
+// @adai-version: 0.10.0
 // @adai-reviewed: 2026-11-01
 
 #include "IncrementalTrainerArgs.hpp"
@@ -104,6 +104,18 @@ TrainerServiceArgs parse_trainer_service_args(int argc, char* argv[]) {
         g.error_message = "Unexpected argument '" + g.args.front() + "' (trainer_service takes no command)";
     }
     return result;
+}
+
+std::vector<std::string> trainer_service_child_argv(const std::string& trainer_path,
+                                                    const IncrementalTrainerGlobalArgs& cli, int admin_port) {
+    std::vector<std::string> argv = {trainer_path};
+    if (cli.config_path) argv.insert(argv.end(), {"--config", *cli.config_path});
+    if (cli.model_name) argv.insert(argv.end(), {"--model", *cli.model_name});
+    if (cli.gpu_strategy) argv.insert(argv.end(), {"--gpu-strategy", *cli.gpu_strategy});
+    argv.push_back("--objective=" + cli.objective);
+    argv.insert(argv.end(), {"--dataset-kind", resolve_dataset_kind(cli.objective, cli.dataset_kind)});
+    argv.insert(argv.end(), {"--foreground", "--admin-port", std::to_string(admin_port), "resume"});
+    return argv;
 }
 
 bool incremental_trainer_command_defers_gpu_init(const std::string& command) {

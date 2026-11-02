@@ -6,6 +6,7 @@
 // TrainerAdminAPITests.
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <string>
 #include <vector>
 #include "IncrementalTrainerArgs.hpp"
@@ -15,6 +16,7 @@ using adai::incremental_trainer_command_defers_gpu_init;
 using adai::parse_incremental_trainer_global_args;
 using adai::parse_reset_command_args;
 using adai::parse_trainer_service_args;
+using adai::trainer_service_child_argv;
 using adai::resolve_dataset_kind;
 
 namespace {
@@ -367,4 +369,28 @@ TEST(ParseIncrementalTrainerGlobalArgs, DatasetKindMustBeOneOfTheFourKinds) {
         EXPECT_EQ(r.error_message, "Invalid value for --dataset-kind: '" + kind +
                                        "' (expected encoder, decoder, world_model or chatbot)");
     }
+}
+
+// TD-403: every pass gets --objective and --dataset-kind; they used to be dropped.
+TEST(TrainerServiceChildArgv, AlwaysPassesTheObjectiveAndTheDatasetKind) {
+    adai::IncrementalTrainerGlobalArgs cli;  // defaults: chatbot, no kind
+    EXPECT_EQ(trainer_service_child_argv("/opt/adai/incremental_trainer", cli, 8085),
+              (std::vector<std::string>{"/opt/adai/incremental_trainer", "--objective=chatbot", "--dataset-kind",
+                                        "chatbot", "--foreground", "--admin-port", "8085", "resume"}));
+
+    cli.config_path = "/etc/adai/config.trainer.conf";
+    cli.model_name = "m";
+    cli.gpu_strategy = "full";
+    cli.objective = "lejepa";
+    EXPECT_EQ(trainer_service_child_argv("it", cli, 9),
+              (std::vector<std::string>{"it", "--config", "/etc/adai/config.trainer.conf", "--model", "m",
+                                        "--gpu-strategy", "full", "--objective=lejepa", "--dataset-kind",
+                                        "world_model", "--foreground", "--admin-port", "9", "resume"}));
+
+    cli.dataset_kind = "encoder";
+    const auto argv = trainer_service_child_argv("it", cli, 9);
+    const auto kind = std::find(argv.begin(), argv.end(), "--dataset-kind");
+    ASSERT_NE(kind, argv.end());
+    ASSERT_NE(kind + 1, argv.end());
+    EXPECT_EQ(*(kind + 1), "encoder");  // an explicit kind beats the objective's default
 }

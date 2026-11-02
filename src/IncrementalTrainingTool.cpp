@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.25.0
+// @adai-version: 0.26.0
 // @adai-reviewed: 2026-11-01
 
 #include <array>
@@ -349,9 +349,15 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     startup_sweep(reg, run_id, dcfg.download_dir);  // loads the pending list itself (TD-512)
 
     auto resp = reg.acquire_pending(run_id);
+    // TD-403: the same exit codes as the chatbot resume (TD-523), now that trainer_service runs this
+    // pass too: an unreachable registry is a failure, an empty pool means idle.
+    if (resp.failed) {
+        adai::Logger::error("[lejepa] Could not ask the dataset registry for pending files");
+        return adai::kResumeExitFailed;
+    }
     if (resp.files.empty()) {
         adai::Logger::warn("[lejepa] No pending data files to train on");
-        return 1;
+        return adai::kResumeExitNothingPending;
     }
 
     // TD-411: the same download step as train/retrain/resume. This pass used to download only
@@ -1103,6 +1109,19 @@ int main(int argc, char* argv[]) {
 
     std::string command = args[0];
 
+    // TD-183/TD-403: what `--objective=lejepa` train and resume need. TD-548: the checkpoint goes to
+    // WORLD_MODEL_ARTIFACT_PATH when set (it used to be ignored), else <session_dir>/world_model_checkpoint,
+    // which no longer collides with the standalone `world_model` dataset pool.
+    const std::string world_model_dir = !svc_config.world_model_artifact_path.empty()
+                                            ? svc_config.world_model_artifact_path
+                                            : LeJEPAEncoder::default_checkpoint_dir(svc_config.session_dir);
+    const auto lejepa_enabled = [&svc_config]() {
+        if (svc_config.world_model_enabled) return true;
+        std::cerr << "❌ --objective=lejepa requires WORLD_MODEL_ENABLED=true in "
+                     "config.trainer.conf (or the WORLD_MODEL_ENABLED env var)\n";
+        return false;
+    };
+
     if (command == "init") {
         // init <vocab> <model>  -- paths from args override config
         std::string vocab_path = (args.size() >= 2) ? args[1] : default_vocab;
@@ -1158,18 +1177,7 @@ int main(int argc, char* argv[]) {
         // invocation (no --objective, or --objective=chatbot) falls through to the unmodified
         // code beneath unchanged (Action Item 3).
         if (cli.objective == "lejepa") {
-            if (!svc_config.world_model_enabled) {
-                std::cerr << "❌ --objective=lejepa requires WORLD_MODEL_ENABLED=true in "
-                             "config.trainer.conf (or the WORLD_MODEL_ENABLED env var)\n";
-                return 1;
-            }
-            // TD-548: WORLD_MODEL_ARTIFACT_PATH when set (it used to be ignored here), else
-            // <session_dir>/world_model_checkpoint, which no longer collides with the
-            // standalone `world_model` dataset pool.
-            const std::string world_model_dir =
-                !svc_config.world_model_artifact_path.empty()
-                    ? svc_config.world_model_artifact_path
-                    : LeJEPAEncoder::default_checkpoint_dir(svc_config.session_dir);
+            if (!lejepa_enabled()) return 1;
             return run_training_pipeline(
                 argc, argv, svc_config, world_model_dir, log_path,
                 "LeJEPA world-model pretraining started in background",
@@ -1411,6 +1419,23 @@ int main(int argc, char* argv[]) {
     } else if (command == "resume") {
         const std::string log_path =
             svc_config.log_file_path.empty() ? "chatbot_server.log" : svc_config.log_file_path;
+
+        // TD-403: trainer_service now forwards --objective, so resume (every service pass) runs the
+        // world-model pass too; it used to run chatbot training whatever the objective. One pass over
+        // whatever is pending, EPOCHS epochs, with resume's exit codes (0 trained, 3 nothing pending,
+        // 1 failed). This pass has no per-pass admin API yet: while it runs, trainer_service answers
+        // /admin/status from its own state and pause takes effect between passes.
+        if (cli.objective == "lejepa") {
+            if (!lejepa_enabled()) return adai::kResumeExitFailed;
+            return run_training_pipeline(
+                argc, argv, svc_config, world_model_dir, log_path,
+                "LeJEPA world-model resume started in background", {}, init_gpu,
+                [&]() -> int {
+                    return run_lejepa_training_pass(svc_config, default_vocab, world_model_dir,
+                                                    svc_config.num_epochs);
+                },
+                foreground);
+        }
 
         return run_training_pipeline(
             argc, argv, svc_config, default_model, log_path, "Resume started in background", {},

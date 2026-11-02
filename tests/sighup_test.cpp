@@ -11,7 +11,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
+#include <sstream>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -19,6 +21,8 @@
 #include <thread>
 #include <vector>
 
+#include "../src/BPETokenizer.hpp"
+#include "../src/DatasetRegistry.hpp"
 #include "../src/SignalSetup.hpp"
 #include "cpp-httplib/httplib.h"
 
@@ -371,3 +375,101 @@ TEST_F(SighupTest, RegistryServerHonoursRegistryAdminEnabled) {
     EXPECT_EQ(get->body.find("\"ftp_token_ttl_minutes\":5"), std::string::npos) << get->body;
 }
 
+
+// TD-403: trainer_service parsed --objective/--dataset-kind and dropped them, so the always-on service
+// could only train the chatbot from the chatbot pool. A stub incremental_trainer beside a copy of the
+// binary records the arguments each pass gets.
+TEST_F(SighupTest, TrainerServicePassesObjectiveAndDatasetKindToEveryPass) {
+    const fs::path bin = dir_ / "bin";
+    fs::create_directories(bin);
+    fs::copy_file(TRAINER_SERVICE_BINARY_PATH, bin / "trainer_service");
+    const fs::path recorded = dir_ / "child_args.txt";
+    {
+        std::ofstream stub(bin / "incremental_trainer");
+        stub << "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" << recorded.string() << ".tmp'\n"
+             << "mv '" << recorded.string() << ".tmp' '" << recorded.string() << "'\nexit 3\n";
+    }
+    fs::permissions(bin / "incremental_trainer", fs::perms::owner_all);
+    const auto cfg = write_config("config.trainer.conf", "LOG_FILE_PATH=" + (dir_ / "log.txt").string() +
+                                                             "\nTRAINER_CHILD_ADMIN_PORT=" +
+                                                             std::to_string(free_port()) + "\n");
+    const auto read_args = [&](const std::vector<std::string>& flags) {
+        fs::remove(recorded);
+        std::vector<std::string> args = {"--config", cfg.string()};
+        args.insert(args.end(), flags.begin(), flags.end());
+        spawn((bin / "trainer_service").string(), args);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+        while (!fs::exists(recorded) && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        ::kill(pid_, SIGTERM);
+        ::waitpid(pid_, nullptr, 0);
+        pid_ = -1;
+        std::vector<std::string> lines;
+        std::ifstream in(recorded);
+        for (std::string line; std::getline(in, line);) lines.push_back(line);
+        return lines;
+    };
+    const auto has = [](const std::vector<std::string>& v, const std::vector<std::string>& seq) {
+        return std::search(v.begin(), v.end(), seq.begin(), seq.end()) != v.end();
+    };
+
+    auto args = read_args({"--objective=lejepa"});
+    ASSERT_FALSE(args.empty()) << "no pass was launched";
+    EXPECT_TRUE(has(args, {"--objective=lejepa"}));
+    EXPECT_TRUE(has(args, {"--dataset-kind", "world_model"}));  // the objective's default pool
+    EXPECT_EQ(args.back(), "resume");
+
+    args = read_args({"--dataset-kind", "encoder"});
+    EXPECT_TRUE(has(args, {"--objective=chatbot"}));
+    EXPECT_TRUE(has(args, {"--dataset-kind", "encoder"}));
+}
+
+// TD-403: resume, the command every trainer_service pass runs, ignored --objective and always ran
+// chatbot training. With --objective=lejepa it now runs the world-model pass, with resume's exit codes.
+TEST_F(SighupTest, LejepaResumeTrainsTheWorldModelAndThenReportsNothingPending) {
+    BPETokenizer tokenizer;
+    tokenizer.build_vocab({"hello world", "how are you", "good morning", "the cat sat"}, 60);
+    tokenizer.save_vocab((dir_ / "vocab.txt").string());
+    const fs::path data = dir_ / "pretrain.jsonl";
+    std::ofstream(data) << "{\"input\":\"hello world\"}\n{\"input\":\"how are you\"}\n"
+                        << "{\"input\":\"good morning\"}\n{\"input\":\"the cat sat\"}\n";
+    const fs::path sessions = dir_ / "sessions";
+    {
+        DatasetConfig dcfg;
+        dcfg.session_dir = sessions.string();
+        dcfg.dataset_kind = "world_model";
+        fs::create_directories(DatasetRegistry::local_pool_dir(dcfg));
+        DatasetRegistry reg(dcfg);
+        reg.load_registry();
+        reg.load_pending_list();
+        ASSERT_TRUE(reg.add_file(data.string()));
+        ASSERT_TRUE(reg.save_pending_list());
+    }
+    const auto cfg = write_config(
+        "config.trainer.conf",
+        "LOG_FILE_PATH=" + (dir_ / "log.txt").string() + "\nSESSION_DIR=" + sessions.string() +
+            "\nVOCAB_PATH=" + (dir_ / "vocab.txt").string() +
+            "\nREGISTRY_SERVER_URL=\nNAME_SERVICE_URL=\nMETRICS_SERVER_URL=\nGPU_ENABLED=false\n"
+            "NUM_EPOCHS=1\nMAX_SEQ_LENGTH=16\nWORLD_MODEL_ENABLED=true\nWORLD_MODEL_D_MODEL=64\n"
+            "WORLD_MODEL_NUM_LAYERS=1\nWORLD_MODEL_NUM_HEADS=2\nWORLD_MODEL_D_FF=128\n"
+            "WORLD_MODEL_SIGREG_BATCH_SIZE=2\n");
+    const auto run_resume = [&]() {
+        spawn(INCREMENTAL_TRAINER_BINARY_PATH, {"--config", cfg.string(), "--foreground", "--objective=lejepa", "resume"});
+        int status = 0;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+        pid_t done = 0;
+        while ((done = ::waitpid(pid_, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        if (done != pid_) return -1;
+        pid_ = -1;
+        return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+    };
+    std::stringstream log;
+    EXPECT_EQ(run_resume(), 0);
+    log << std::ifstream(dir_ / "log.txt").rdbuf();
+    EXPECT_TRUE(fs::exists(sessions / "world_model_checkpoint" / "config.bin"))
+        << "no world-model checkpoint was written:\n" << log.str();
+    EXPECT_EQ(run_resume(), 3) << "the file is trained, so the next pass has nothing pending";
+}

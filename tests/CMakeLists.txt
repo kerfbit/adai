@@ -746,7 +746,7 @@ if(TARGET metrics_api_server AND TARGET mns_server AND TARGET registry_server AN
         REGISTRY_SERVER_BINARY_PATH="$<TARGET_FILE:registry_server>"
         TRAINER_SERVICE_BINARY_PATH="$<TARGET_FILE:trainer_service>"
         INCREMENTAL_TRAINER_BINARY_PATH="$<TARGET_FILE:incremental_trainer>")
-    target_link_libraries(sighupTests adai_core pthread GTest::gtest_main)
+    target_link_libraries(sighupTests adai_core adai_nlp pthread GTest::gtest_main)  # TD-403: adai_nlp for a vocab
     add_dependencies(sighupTests metrics_api_server mns_server registry_server trainer_service incremental_trainer)
     add_test(NAME SighupTests COMMAND sighupTests)
 endif()

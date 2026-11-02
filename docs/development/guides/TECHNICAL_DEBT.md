@@ -1402,6 +1402,8 @@ The generation and model math run is complete.
   flag error, a pass-only flag or a stray argument exits 1).
 - TD-402 (done in code: `--dataset-kind` must be one of the four kinds, one list shared with `dataset_manager`, and
   `DatasetRegistry` refuses any other kind).
+- TD-403 (done in code, owner's choice: `trainer_service` passes `--objective` and `--dataset-kind` to every pass, and
+  `resume` runs the LeJEPA world-model pass for `--objective=lejepa` with resume's exit codes).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -11121,7 +11123,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / CLI | October 13, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 1, 2026 | Training / CLI | October 13, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `IncrementalTrainerArgs`, by inspection. `trainer_service` parses its command
@@ -11132,13 +11134,36 @@ LeJEPA world-model pretraining.
 
 Action Items:
 
-- [ ] Decide whether `trainer_service` should support `--objective=lejepa` (forward both flags) or reject them with a clear message.
+- [x] Decide whether `trainer_service` should support `--objective=lejepa` (forward both flags) or reject them with a clear message. Owner decision (November 1, 2026): always forward both, since the service must be able to train every kind of model.
+- [ ] Give the LeJEPA pass the per-pass admin API (status, checkpoint, pause draining) the chatbot pass has.
 
-Location in code: `src/TrainerServiceMain.cpp` (child argument list); tagged `TODO: See TD-403`.
+**Fix (November 1, 2026):** the new `trainer_service_child_argv()` (`src/IncrementalTrainerArgs.{hpp,cpp}`) builds each
+pass's command line and always includes `--objective=<objective>` and `--dataset-kind <kind>`, the kind from
+`resolve_dataset_kind()` (an explicit `--dataset-kind`, else `world_model` for `lejepa` and `chatbot` otherwise).
+`trainer_service` logs both at startup and lists them in `--help`. Forwarding alone wasn't enough: `resume`, the command
+every pass runs, ignored `--objective` and always ran chatbot training. It now runs the LeJEPA pass for
+`--objective=lejepa` (needs `WORLD_MODEL_ENABLED=true`, `NUM_EPOCHS` epochs over whatever is pending), and that pass now
+uses resume's exit codes (TD-523): 3 when nothing is pending, 1 when the registry can't be asked. It used to return 1
+for both, which `trainer_service` would count as a failure and back off.
+
+Tests: `TrainerServiceChildArgv.AlwaysPassesTheObjectiveAndTheDatasetKind`, and against the real binaries
+`SighupTest.TrainerServicePassesObjectiveAndDatasetKindToEveryPass` (a copy of `trainer_service` with a stub
+`incremental_trainer` beside it records each pass's arguments) and
+`SighupTest.LejepaResumeTrainsTheWorldModelAndThenReportsNothingPending` (a queued `world_model` file is trained into
+`world_model_checkpoint/`, exit 0, then exit 3). On the old binaries the stub saw neither flag, and `--objective=lejepa
+resume` ran chatbot training, exited 1 and wrote no world-model checkpoint.
+
+Still open: the LeJEPA pass has no per-pass admin API, so while one runs `trainer_service` answers `/admin/status`
+from its own state and `/admin/pause` takes effect between passes. Its segment ranges are still TD-415.
+
+Location in code: `src/TrainerServiceMain.cpp`, `src/IncrementalTrainerArgs.{hpp,cpp}` (`trainer_service_child_argv()`),
+`src/IncrementalTrainingTool.cpp` (`resume`, `run_lejepa_training_pass()`).
 
 Files to Modify:
 
 - `src/TrainerServiceMain.cpp`
+- `src/IncrementalTrainerArgs.{hpp,cpp}`
+- `src/IncrementalTrainingTool.cpp`
 
 ---
 

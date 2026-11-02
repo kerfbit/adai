@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.8.0
+// @adai-version: 0.9.0
 // @adai-reviewed: 2026-11-01
 
 // TD-035: incremental_trainer's global argv parsing and a few small pure helpers, pulled out of
@@ -64,6 +64,13 @@ struct TrainerServiceArgs {
 };
 
 TrainerServiceArgs parse_trainer_service_args(int argc, char* argv[]);
+
+// TD-403: the command line trainer_service runs each single-pass child with: its --config, --model
+// and --gpu-strategy when given, always --objective=<objective> and --dataset-kind <kind> (kind from
+// resolve_dataset_kind()), then `--foreground --admin-port <port> resume`. The objective and kind used
+// to be parsed and dropped, so the service could only train the chatbot on the chatbot pool.
+std::vector<std::string> trainer_service_child_argv(const std::string& trainer_path,
+                                                    const IncrementalTrainerGlobalArgs& cli, int admin_port);
 
 // train/retrain/resume/serve defer GPU init until after their fork (CUDA contexts aren't
 // fork-safe) or, for serve, until after Logger::init() runs — every other command initializes

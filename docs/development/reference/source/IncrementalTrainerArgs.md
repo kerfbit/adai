@@ -143,3 +143,13 @@ TD-401 are fixed in code; `--dataset-kind` validation remains TD-402.
 `--dataset-kind` must be `encoder`, `decoder`, `world_model` or `chatbot` (`adai::is_dataset_kind()` in `Config.hpp`, the
 list `dataset_manager --kind` now shares); anything else is an error and `incremental_trainer` exits 1. It used to be
 stored as given, so a typo selected a new, empty local pool and `../x` put the registry files outside `session_dir`.
+
+## Addendum (November 1, 2026): `trainer_service` forwards `--objective` and `--dataset-kind` (TD-403)
+
+Every pass `trainer_service` launches now gets `--objective=<objective>` and `--dataset-kind <kind>` (built by
+`trainer_service_child_argv()`; the kind is `resolve_dataset_kind()`'s: an explicit `--dataset-kind`, else `world_model`
+for `lejepa`, else `chatbot`). Both used to be parsed and dropped. `incremental_trainer resume` now runs the LeJEPA
+world-model pass for `--objective=lejepa` (it ran chatbot training whatever the objective), for `NUM_EPOCHS` epochs, and
+that pass exits 3 when nothing is pending and 1 when the registry can't be asked, as the chatbot resume does (TD-523).
+The LeJEPA pass has no per-pass admin API yet: during it, `trainer_service` answers `/admin/status` from its own state
+and a pause takes effect between passes.
