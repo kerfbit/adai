@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.27.0
+// @adai-version: 0.27.1
 // @adai-reviewed: 2026-11-03
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
@@ -2144,8 +2144,11 @@ int main(int argc, char* argv[]) {
         ftp_max_sessions = effective.ftp_max_sessions;
         admin_enabled = effective.admin_enabled;
     } catch (const std::exception& e) {
-        std::cerr << "Warning: daemon_config.db unavailable (" << e.what()
-                  << "); admin config changes won't persist across restarts\n";
+        // TD-307: the store can open and still fail to read (load_all() throws rather than
+        // returning part of it); only a store that didn't open means changes won't be saved.
+        std::cerr << "Warning: saved admin settings not loaded from daemon_config.db (" << e.what()
+                  << "); using file/CLI settings"
+                  << (g_config_store ? "" : "; admin config changes won't persist across restarts") << "\n";
         // No persisted overrides available — resolve with an empty override map instead, so
         // file/CLI precedence still applies even though the DB itself couldn't be opened.
         const auto effective = adai::resolve_registry_server_config(cli, file_config, {});

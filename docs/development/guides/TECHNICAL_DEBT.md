@@ -1453,6 +1453,8 @@ The generation and model math run is complete.
   before applying them, under a per-handler mutex; a failed save answers 500 and changes nothing).
 - TD-304 (done in code: `DaemonConfigStore` waits up to 5 s for another writer, and session numbers come from an atomic
   `increment()`, so processes sharing `session_counters.db` never get the same one; TD-308's per-allocation scan with it).
+- TD-307 (done in code: `DaemonConfigStore::load_all()` throws on a read error instead of returning part of the settings, so
+  a daemon starts from all its saved settings or from its file with a warning; a store not using WAL is logged).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -7984,7 +7986,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Core / DaemonConfigStore | October 11, 2026 | 1 hour |
+| LOW | Open — code fix landed November 3, 2026 | Core / DaemonConfigStore | October 11, 2026 | 1 hour |
 
 Description:
 Found alongside TD-304, by inspection. `load_all()` stops at the first non-`SQLITE_ROW` step result
@@ -7995,13 +7997,35 @@ overlay can silently drop persisted overrides.
 
 Action Items:
 
-- [ ] Check the final step result and warn (or throw) on errors; log when WAL couldn't be enabled.
+- [x] Check the final step result and warn (or throw) on errors; log when WAL couldn't be enabled.
 
-Location in code: `src/DaemonConfigStore.cpp` (constructor, `load_all()`); tagged `TODO: See TD-307`.
+Location in code: `src/DaemonConfigStore.cpp` (constructor, `load_all()`); the `TODO: See TD-307` tags are removed.
+
+**Fix (November 3, 2026):**
+- **Read errors throw.** `load_all()` throws `std::runtime_error` when a step fails partway through
+  (`read failed after N row(s): …`) or when the table can't be prepared at all. These used to end silently with the rows
+  before the error, or an empty map with a warning. Every caller already catches the throw and starts from its file/CLI
+  settings with a warning, so a daemon now loads all of its saved settings or none of them, and says which.
+- **Accurate warnings.** `registry_server` and the trainer's per-pass admin API said "admin config changes won't persist"
+  for any failure. A store that opened but couldn't be read still saves later PUTs, so they now say that only when the store
+  didn't open.
+- **WAL checked.** The constructor reads back the mode `PRAGMA journal_mode=WAL` actually set, keeps it as
+  `journal_mode()`, and logs a warning when it isn't `wal`.
+
+Tests:
+- `daemonConfigStoreTests` gained three:
+  - a view in place of the table whose second row fails to evaluate makes `load_all()` throw `read failed after 1 row(s)`;
+    the old code returned the first row;
+  - a dropped table makes it throw; the old code returned an empty map;
+  - `journal_mode()` is `wal` for a file and `memory` for `:memory:`, which logs the warning.
+- With the real `registry_server`, a `daemon_config.db` whose second saved row can't be read:
+  - the old binary silently applied the first saved setting (`ftp_max_sessions_per_run` 9) and dropped the other;
+  - the new one warns and starts from the file values (4 and 30).
 
 Files to Modify:
 
-- `src/DaemonConfigStore.cpp`
+- `src/DaemonConfigStore.{hpp,cpp}`, `src/RegistryServer.cpp`, `src/TrainerAdminAPI.cpp` (warning text)
+- `tests/daemonconfigstore_test.cpp`
 
 ---
 

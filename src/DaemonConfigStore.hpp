@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-11-03
 
 
@@ -47,8 +47,15 @@ class DaemonConfigStore {
     DaemonConfigStore(const DaemonConfigStore&) = delete;
     DaemonConfigStore& operator=(const DaemonConfigStore&) = delete;
 
-    /// Returns every stored key/value pair.
+    /// Returns every stored key/value pair. Throws std::runtime_error if the table can't be read in
+    /// full (TD-307: a read error used to end the scan silently, returning only the rows before it,
+    /// so a daemon's startup overlay could drop saved settings without a word). Callers fall back
+    /// to their file/CLI settings with a warning.
     std::map<std::string, std::string> load_all() const;
+
+    /// TD-307: the journal mode SQLite actually set ("wal" normally). Anything else is logged at
+    /// open, since without WAL a reader can be blocked by an admin write.
+    const std::string& journal_mode() const { return journal_mode_; }
 
     /// Upserts a single key/value pair, stamping updated_utc.
     void set(const std::string& key, const std::string& value);
@@ -66,6 +73,7 @@ class DaemonConfigStore {
 
    private:
     sqlite3* db_ = nullptr;
+    std::string journal_mode_;
 };
 
 }  // namespace adai

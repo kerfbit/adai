@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-11-03
 
 #include "DaemonConfigStore.hpp"
@@ -42,9 +42,20 @@ DaemonConfigStore::DaemonConfigStore(const std::string& db_path, int busy_timeou
     // standalone trainers share session_counters.db).
     sqlite3_busy_timeout(db_, busy_timeout_ms);
 
-    // WAL mode: avoid blocking a long-running daemon's own reads on an admin write.
-    // TODO: See TD-307 in TECHNICAL_DEBT.md - result ignored; without WAL, readers can be blocked
-    sqlite3_exec(db_, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
+    // WAL mode: avoid blocking a long-running daemon's own reads on an admin write. TD-307: the
+    // pragma answers with the mode SQLite actually set (e.g. "delete" on a filesystem without shared
+    // memory, "memory" for an in-memory database); say so when it isn't WAL.
+    sqlite3_exec(
+        db_, "PRAGMA journal_mode=WAL;",
+        [](void* out, int columns, char** values, char**) {
+            if (columns > 0 && values[0]) *static_cast<std::string*>(out) = values[0];
+            return 0;
+        },
+        &journal_mode_, nullptr);
+    if (journal_mode_ != "wal") {
+        Logger::warn("DaemonConfigStore: {} isn't using WAL journalling (mode '{}'); a read can wait for an admin write",
+                     db_path, journal_mode_.empty() ? std::string(sqlite3_errmsg(db_)) : journal_mode_);
+    }
 
     static const char* kSchema =
         "CREATE TABLE IF NOT EXISTS daemon_config ("
@@ -72,17 +83,25 @@ std::map<std::string, std::string> DaemonConfigStore::load_all() const {
     std::map<std::string, std::string> out;
     sqlite3_stmt* stmt = nullptr;
     static const char* kQuery = "SELECT key, value FROM daemon_config;";
+    // TD-307: a failure to prepare or a step error mid-scan throws. The prepare failure used to
+    // return an empty map with a warning, and a step error ended the loop silently with only the
+    // rows before it.
     if (sqlite3_prepare_v2(db_, kQuery, -1, &stmt, nullptr) != SQLITE_OK) {
-        Logger::warn("DaemonConfigStore::load_all: prepare failed: {}", sqlite3_errmsg(db_));
-        return out;
+        throw std::runtime_error(std::string("DaemonConfigStore::load_all: prepare failed: ") + sqlite3_errmsg(db_));
     }
-    // TODO: See TD-307 in TECHNICAL_DEBT.md - a step error ends the loop silently (partial map, no warning)
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         const auto* key = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
         const auto* value = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
         if (key && value) {
             out[key] = value;
         }
+    }
+    if (rc != SQLITE_DONE) {
+        const std::string err = std::string("DaemonConfigStore::load_all: read failed after ") +
+                                std::to_string(out.size()) + " row(s): " + sqlite3_errmsg(db_);
+        sqlite3_finalize(stmt);
+        throw std::runtime_error(err);
     }
     sqlite3_finalize(stmt);
     return out;

@@ -186,4 +186,12 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
   `registry_server`'s `session/next` use it in place of `load_all()` + `set()`, so concurrent processes never share a number
   and an allocation reads one key, not the whole table (TD-308's scan). The counters still live in a table named
   `daemon_config` (the rest of TD-308).
-- **Status tag:** `@adai-version` 1.2.0 for both files, reviewed 2026-11-03.
+
+## Addendum (November 3, 2026): read errors and journal mode (TD-307)
+
+- **`load_all()`** throws `std::runtime_error` if the table can't be prepared or a step fails partway through
+  (`read failed after N row(s): …`). It used to return the rows read so far, or an empty map, so a daemon's startup overlay
+  could drop saved settings without a word. All five callers catch it and start from their file/CLI settings with a warning.
+- **`journal_mode()`** returns the mode `PRAGMA journal_mode=WAL` actually set (`wal` normally, `memory` for `:memory:`, a
+  rollback mode where the filesystem has no shared memory); the constructor logs a warning when it isn't `wal`.
+- **Status tag:** `@adai-version` 1.3.0 for both files, reviewed 2026-11-03.

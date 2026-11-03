@@ -191,4 +191,50 @@ TEST_F(DaemonConfigStoreTest, ConcurrentIncrementsAreNeverLostOrDuplicated) {
     EXPECT_EQ(adai::DaemonConfigStore(db_path_).load_all().at("model|run-01"), std::to_string(kThreads * kPerThread));
 }
 
+// TD-307: a read error partway through the scan throws instead of returning the rows before it.
+// The table is swapped for a view whose second row fails to evaluate (integer overflow).
+TEST_F(DaemonConfigStoreTest, LoadAllThrowsOnAReadErrorMidScan) {
+    {
+        sqlite3* raw = nullptr;
+        ASSERT_EQ(sqlite3_open(db_path_.c_str(), &raw), SQLITE_OK);
+        ASSERT_EQ(sqlite3_exec(raw,
+                               "CREATE TABLE rows (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_utc TEXT);"
+                               "INSERT INTO rows VALUES ('a', '1', ''), ('b', '2', ''), ('c', '3', '');"
+                               "CREATE VIEW daemon_config AS SELECT key, CASE WHEN key = 'b' "
+                               "THEN abs(-9223372036854775807 - 1) ELSE value END AS value FROM rows ORDER BY key;",
+                               nullptr, nullptr, nullptr),
+                  SQLITE_OK)
+            << sqlite3_errmsg(raw);
+        sqlite3_close(raw);
+    }
+    adai::DaemonConfigStore store(db_path_);
+    try {
+        store.load_all();
+        FAIL() << "expected load_all() to throw";
+    } catch (const std::runtime_error& e) {
+        EXPECT_NE(std::string(e.what()).find("read failed after 1 row"), std::string::npos) << e.what();
+    }
+}
+
+// TD-307: a table that can't be read at all throws too (it used to come back as an empty map).
+TEST_F(DaemonConfigStoreTest, LoadAllThrowsWhenTheTableCantBeRead) {
+    adai::DaemonConfigStore store(db_path_);
+    store.set("a", "1");
+    sqlite3* raw = nullptr;
+    ASSERT_EQ(sqlite3_open(db_path_.c_str(), &raw), SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(raw, "DROP TABLE daemon_config;", nullptr, nullptr, nullptr), SQLITE_OK);
+    sqlite3_close(raw);
+    EXPECT_THROW(store.load_all(), std::runtime_error);
+}
+
+// TD-307: the store reports the journal mode SQLite actually set: WAL for a file, something else
+// (here "memory") where WAL isn't available, which is also logged.
+TEST_F(DaemonConfigStoreTest, ReportsTheJournalModeInUse) {
+    EXPECT_EQ(adai::DaemonConfigStore(db_path_).journal_mode(), "wal");
+    adai::DaemonConfigStore in_memory(":memory:");
+    EXPECT_EQ(in_memory.journal_mode(), "memory");
+    in_memory.set("a", "1");
+    EXPECT_EQ(in_memory.load_all().at("a"), "1");
+}
+
 }  // namespace

@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.6.0
+// @adai-version: 1.6.1
 // @adai-reviewed: 2026-11-03
 
 #include "TrainerAdminAPI.hpp"
@@ -185,9 +185,11 @@ bool adai::TrainerAdminAPI::start() {
             if (u.auto_save_every_minutes) control_->auto_save_every_minutes = *u.auto_save_every_minutes;
             if (u.max_sessions_to_keep) control_->max_sessions_to_keep = *u.max_sessions_to_keep;
         } catch (const std::exception& e) {
+            // TD-307: the store can open and still fail to read; then PUTs are still saved.
             control_->log(TrainerLogLevel::Warn,
-                          std::string("daemon_config.db unavailable (") + e.what() +
-                              "); admin config changes won't persist across restarts");
+                          std::string("saved admin settings not loaded from daemon_config.db (") + e.what() +
+                              "); using the configured values" +
+                              (config_store_ ? "" : "; admin config changes won't persist across restarts"));
         }
     }
 
