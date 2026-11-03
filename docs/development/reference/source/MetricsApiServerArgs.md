@@ -3,7 +3,7 @@
 - **Files:** [`src/MetricsApiServerArgs.hpp`](../../../../src/MetricsApiServerArgs.hpp), [`src/MetricsApiServerArgs.cpp`](../../../../src/MetricsApiServerArgs.cpp) (198 lines together)
 - **Namespace:** `adai`
 - **Built into:** `metrics_api_server` (compiled into the executable, not a library); used only by its `main()` in [`src/TrainingMetricsAPIServer.cpp`](../../../../src/TrainingMetricsAPIServer.cpp)
-- **Status tag:** `@adai-status: experimental`, `@adai-version: 0.1.0`, `@adai-reviewed: 2026-09-11` (both files)
+- **Status tag:** `@adai-status: experimental`, `@adai-version: 0.5.0`, `@adai-reviewed: 2026-11-03` (both files)
 - **Tests:** [`tests/metrics_api_server_args_test.cpp`](../../../../tests/metrics_api_server_args_test.cpp) (13 tests; the header calls it `MetricsApiServerArgs_test.cpp`)
 - **Sibling:** [ChatbotApiServerArgs.md](ChatbotApiServerArgs.md) (same pattern, same `atoi` problems: TD-240, TD-245)
 - **User docs:** [TRAINING_METRICS_API.md](../../TRAINING_METRICS_API.md) (CLI options), [OPERATIONS_MANUAL.md](../../../operations/OPERATIONS_MANUAL.md)
@@ -145,3 +145,17 @@ staleness and pool size at least 1; the rest at least 0, 0 meaning off or no lim
 `Invalid value for <flag>: '<value>' (expected …)`; a value flag with no value is `Missing value for <flag>`; and
 `metrics_api_server` exits 1 on any of these (it exited 0). Saved admin overrides that fail the same check are skipped with a warning
 instead of applied.
+
+## Addendum (November 3, 2026): backend names, admin store location, override warnings (TD-439)
+
+- **`--storage-backend`.** It must be one of `metrics_storage_backend_names()` (`Config.hpp`, the list the config file and
+  environment use too), matched in any case and stored lower-case; anything else is a usage error.
+- **`check_metrics_storage_backend(name, with_postgres)`** returns the startup error for a name the build can't use.
+  `supported_metrics_storage_backends()` lists the usable names; postgres ones need `ADAI_ENABLE_POSTGRES` (the build option
+  `ENABLE_POSTGRES_METRICS`), reported as `kMetricsPostgresBuilt`. `main()` runs the check on the final value before it opens
+  anything.
+- **`metrics_admin_store_dir(config)`** is the final `db_path`'s directory, or `.` when there is none. `main()` parses the
+  flags onto a copy first to find it, then applies saved overrides and the flags again, so the flags still win.
+- **Override warnings.** `MetricsApiServerArgsResult::admin_keys_from_flags` names the admin-mutable settings a flag set, and
+  `flag_overridden_admin_settings()` warns once for each saved value a flag replaced with a different one.
+- **Header.** The header comment names `metrics_api_server_args_test.cpp`.

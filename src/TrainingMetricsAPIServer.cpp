@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.6.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 1.7.0
+// @adai-reviewed: 2026-11-03
 
 #include <atomic>
 #include <csignal>
@@ -105,10 +105,13 @@ void print_usage(const char* program_name) {
     std::cout << "  --name-service-url URL       Model Name Service URL (default: "
                  "http://localhost:8083)\n";
     std::cout << "  --no-name-service            Disable name service integration\n";
-    std::cout << "  --storage-backend NAME       Metrics DB backend: sqlite+file|sqlite|postgres "
-                 "(default: sqlite+file)\n";
-    std::cout << "  --db-path PATH               SQLite database file path (default: "
-                 "training_sessions/metrics.db)\n";
+    std::string backends;
+    for (const auto& name : adai::supported_metrics_storage_backends()) {
+        backends += (backends.empty() ? "" : "|") + name;
+    }
+    std::cout << "  --storage-backend NAME       Metrics DB backend: " << backends << " (default: sqlite+file)\n";
+    std::cout << "  --db-path PATH               SQLite database file path; daemon_config.db (admin settings) goes\n"
+                 "                               in the same directory (default: training_sessions/metrics.db)\n";
     std::cout << "  --db-url URL                 PostgreSQL connection URL (storage-backend=postgres)\n";
     std::cout << "  --db-pool-size N             PostgreSQL connection pool size (default: 4)\n";
     std::cout << "  --help                       Show this help message\n\n";
@@ -148,29 +151,12 @@ int main(int argc, char* argv[]) {
     // here keeps whatever the file (or the DB overlay right after) set.
     MetricsApiServerConfig server_config = adai::seed_metrics_server_config_from_file(file_config);
 
-    // db_path (file/CLI-resolved final value comes later, but the admin store's
-    // directory only needs to be *a* stable location — it's never itself
-    // admin-mutable, so deriving it from the file-configured db_path here,
-    // before CLI parsing, avoids a chicken-and-egg dependency on parse_args).
-    // TODO: See TD-439 in TECHNICAL_DEBT.md - ignores --db-path; read-only under the installer's unit with a custom --metrics-dir
-    const std::string admin_config_db_dir =
-        std::filesystem::path(server_config.db_path).parent_path().empty()
-            ? "."
-            : std::filesystem::path(server_config.db_path).parent_path().string();
-
-    // Overlay persisted admin overrides on top of the file defaults.
-    try {
-        std::filesystem::create_directories(admin_config_db_dir);
-        adai::DaemonConfigStore config_store(admin_config_db_dir + "/daemon_config.db");
-        adai::apply_metrics_admin_overrides(server_config, config_store.load_all());
-    } catch (const std::exception& e) {
-        std::cerr << "Warning: daemon_config.db unavailable (" << e.what()
-                  << "); using file/CLI settings\n";
-    }
-
-    // This run's explicit CLI flags win over everything, including persisted
-    // admin overrides.
-    auto cli = adai::parse_metrics_api_server_args(argc, argv, server_config);
+    // TD-439: daemon_config.db goes in the final db_path's directory, after the CLI flags (it used to
+    // be the file-configured one, read-only under the installer's unit with a custom --metrics-dir). The
+    // flags are parsed onto a copy first to find it; db_path isn't admin-mutable, so the overrides below
+    // can't move it.
+    MetricsApiServerConfig flags_only = server_config;
+    auto cli = adai::parse_metrics_api_server_args(argc, argv, flags_only);
     if (cli.help) {
         print_usage(argv[0]);
         return 0;
@@ -179,6 +165,34 @@ int main(int argc, char* argv[]) {
         std::cerr << cli.error_message << '\n';
         print_usage(argv[0]);
         return 1;  // TD-438: it exited 0, so systemd saw a clean stop and Restart=on-failure didn't apply
+    }
+    // TD-439: an unknown backend, or postgres in a build without it, used to run file-only while the
+    // banner printed the name as the backend. The backend isn't admin-mutable, so this is final; checked
+    // before anything is created on disk.
+    if (const auto backend_error = adai::check_metrics_storage_backend(flags_only.storage_backend)) {
+        std::cerr << "Error: " << *backend_error << '\n';
+        return 1;
+    }
+    const std::string admin_config_db_dir = adai::metrics_admin_store_dir(flags_only);
+
+    // Overlay persisted admin overrides on top of the file defaults.
+    std::map<std::string, std::string> saved_overrides;
+    try {
+        std::filesystem::create_directories(admin_config_db_dir);
+        adai::DaemonConfigStore config_store(admin_config_db_dir + "/daemon_config.db");
+        saved_overrides = config_store.load_all();
+        adai::apply_metrics_admin_overrides(server_config, saved_overrides);
+    } catch (const std::exception& e) {
+        std::cerr << "Warning: daemon_config.db unavailable in " << admin_config_db_dir << " (" << e.what()
+                  << "); using file/CLI settings\n";
+    }
+
+    // This run's explicit CLI flags win over everything, including persisted admin overrides; say
+    // so when one replaces a saved value (TD-439), since a flag in the unit undoes every PUT on restart.
+    cli = adai::parse_metrics_api_server_args(argc, argv, server_config);
+    for (const auto& warning :
+         adai::flag_overridden_admin_settings(server_config, saved_overrides, cli.admin_keys_from_flags)) {
+        std::cerr << "Warning: " << warning << '\n';
     }
 
     try {

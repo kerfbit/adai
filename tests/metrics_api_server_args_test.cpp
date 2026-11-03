@@ -5,6 +5,8 @@
 // TrainingMetricsAPIRoutesTests/TrainingMetricsAPILiveTests.
 
 #include <gtest/gtest.h>
+#include <map>
+#include <set>
 #include <string>
 #include <vector>
 #include "MetricsApiServerArgs.hpp"
@@ -314,4 +316,83 @@ TEST_F(ApplyMetricsAdminOverridesTest, OutOfRangeOrPartialSavedValuesAreSkipped)
     EXPECT_EQ(config.completed_ttl_seconds, 3600);
     EXPECT_EQ(config.persist_every_samples, 100);
     EXPECT_EQ(config.staleness_threshold_seconds, 60);
+}
+
+// TD-439: --storage-backend used to accept any name; the server then ran file-only while its banner
+// printed that name as the backend.
+TEST_F(ParseMetricsApiServerArgsTest, StorageBackendNameIsCheckedInAnyCase) {
+    std::vector<std::string> raw = {"metrics_api_server", "--storage-backend", "SQLite+File"};
+    auto argv = make_argv(raw);
+    auto r = parse_metrics_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
+    ASSERT_FALSE(r.error) << r.error_message;
+    EXPECT_EQ(config.storage_backend, "sqlite+file");
+
+    std::vector<std::string> typo = {"metrics_api_server", "--storage-backend", "postgress"};
+    auto argv2 = make_argv(typo);
+    r = parse_metrics_api_server_args(static_cast<int>(argv2.size()), argv2.data(), config);
+    EXPECT_TRUE(r.error);
+    EXPECT_NE(r.error_message.find("postgress"), std::string::npos) << r.error_message;
+    EXPECT_EQ(config.storage_backend, "sqlite+file");  // unchanged
+}
+
+TEST(CheckMetricsStorageBackend, PostgresNeedsABuildWithIt) {
+    EXPECT_EQ(adai::supported_metrics_storage_backends(false),
+              (std::vector<std::string>{"sqlite+file", "sqlite", "file"}));
+    EXPECT_EQ(adai::supported_metrics_storage_backends(true),
+              (std::vector<std::string>{"sqlite+file", "sqlite", "postgres+file", "postgres", "file"}));
+
+    for (const char* ok : {"sqlite+file", "sqlite", "file"}) {
+        EXPECT_FALSE(adai::check_metrics_storage_backend(ok, false)) << ok;
+        EXPECT_FALSE(adai::check_metrics_storage_backend(ok, true)) << ok;
+    }
+    for (const char* pg : {"postgres", "postgres+file"}) {
+        EXPECT_FALSE(adai::check_metrics_storage_backend(pg, true)) << pg;
+        const auto error = adai::check_metrics_storage_backend(pg, false);
+        ASSERT_TRUE(error) << pg;
+        EXPECT_NE(error->find("ENABLE_POSTGRES_METRICS"), std::string::npos) << *error;
+    }
+    const auto unknown = adai::check_metrics_storage_backend("postgress", true);
+    ASSERT_TRUE(unknown);
+    EXPECT_NE(unknown->find("Unknown storage backend 'postgress'"), std::string::npos) << *unknown;
+}
+
+// TD-439: daemon_config.db went next to the file-configured db_path, ignoring --db-path.
+TEST_F(ParseMetricsApiServerArgsTest, AdminStoreFollowsTheFinalDbPath) {
+    config.db_path = "/opt/adai/training_sessions/metrics.db";  // from the config file
+    std::vector<std::string> raw = {"metrics_api_server", "--db-path", "/var/lib/adai-metrics/metrics.db"};
+    auto argv = make_argv(raw);
+    auto r = parse_metrics_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
+    ASSERT_FALSE(r.error) << r.error_message;
+    EXPECT_EQ(adai::metrics_admin_store_dir(config), "/var/lib/adai-metrics");
+
+    MetricsApiServerConfig bare;
+    bare.db_path = "metrics.db";
+    EXPECT_EQ(adai::metrics_admin_store_dir(bare), ".");
+}
+
+// TD-439: flags beat saved admin settings, so a flag in the unit's ExecStart silently undid every
+// PUT /admin/config on restart; now each replaced value is reported.
+TEST_F(ParseMetricsApiServerArgsTest, FlagsThatReplaceSavedAdminSettingsAreReported) {
+    const std::map<std::string, std::string> saved = {
+        {"retention_days", "30"}, {"max_live_sessions", "8"}, {"enable_prometheus", "false"},
+        {"persist_every_seconds", "15"}};
+    apply_metrics_admin_overrides(config, saved);
+    std::vector<std::string> raw = {"metrics_api_server",  "--retention-days", "7", "--port", "9090",
+                                    "--max-live-sessions", "8",                "--enable-prometheus"};
+    auto argv = make_argv(raw);
+    auto r = parse_metrics_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
+    ASSERT_FALSE(r.error) << r.error_message;
+    EXPECT_EQ(r.admin_keys_from_flags,
+              (std::set<std::string>{"retention_days", "max_live_sessions", "enable_prometheus"}));
+
+    const auto warnings = adai::flag_overridden_admin_settings(config, saved, r.admin_keys_from_flags);
+    ASSERT_EQ(warnings.size(), 2u);  // max_live_sessions is the same value; --port isn't admin-mutable
+    EXPECT_NE(warnings[0].find("--retention-days 7 replaces the saved admin setting retention_days=30"),
+              std::string::npos)
+        << warnings[0];
+    EXPECT_NE(warnings[1].find("--enable-prometheus replaces the saved admin setting enable_prometheus=false"),
+              std::string::npos)
+        << warnings[1];
+
+    EXPECT_TRUE(adai::flag_overridden_admin_settings(config, {}, r.admin_keys_from_flags).empty());
 }

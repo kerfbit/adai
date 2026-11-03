@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.27.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 1.27.1
+// @adai-reviewed: 2026-11-03
 
 #include "Config.hpp"
 #include <algorithm>
@@ -206,7 +206,7 @@ std::optional<std::string> match_choice(const std::string& value, const std::vec
 
 const std::vector<std::string> kStrategies = {"greedy", "beam", "temperature", "top_k", "nucleus"};
 const std::vector<std::string> kLogLevels = {"DEBUG", "INFO", "WARN", "ERROR"};
-const std::vector<std::string> kStorageBackends = {"sqlite+file", "sqlite", "postgres+file", "postgres", "file"};
+const std::vector<std::string>& kStorageBackends = metrics_storage_backend_names();  // TD-439: shared
 const std::vector<std::string> kDatasetKinds = {"", "encoder", "decoder", "world_model", "chatbot"};
 const std::vector<std::string> kTokenizerModes = {"unicode", "ascii"};
 const std::vector<std::string> kGpuStrategies = {"background", "full"};

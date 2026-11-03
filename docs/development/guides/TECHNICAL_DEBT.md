@@ -1445,6 +1445,8 @@ The generation and model math run is complete.
   until a pass reports one; the Android dashboard takes nullable losses).
 - TD-522 (done in code: comments describe the per-pass design; a pending pause reports `pausing`; the unused per-pass wake/sleep
   is removed; the log ring follows the logger level, caps messages at 4 KiB and serves `?limit=`; an exception resets the phase).
+- TD-439 (done in code: `metrics_api_server` refuses an unknown storage backend and a postgres one in a build without it, keeps
+  `daemon_config.db` beside the final `--db-path`, and warns when a flag replaces a saved admin setting).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -12625,7 +12627,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Metrics / Server CLI | October 14, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 3, 2026 | Metrics / Server CLI | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `MetricsApiServerArgs`:
@@ -12644,17 +12646,40 @@ Found while tracing `MetricsApiServerArgs`:
 
 Action Items:
 
-- [ ] Validate `--storage-backend` against the compiled-in backends and fail at startup on an unknown one.
-- [ ] Locate the admin store from the final `db_path` (or a dedicated `--admin-dir`), and warn when a CLI flag overrides a saved admin value.
-- [ ] Fix the header comment.
+- [x] Validate `--storage-backend` against the compiled-in backends and fail at startup on an unknown one.
+- [x] Locate the admin store from the final `db_path` (or a dedicated `--admin-dir`), and warn when a CLI flag overrides a saved admin value.
+- [x] Fix the header comment.
 
-Location in code: `src/MetricsApiServerArgs.{hpp,cpp}`; `src/TrainingMetricsAPIServer.cpp` (`admin_config_db_dir`); tagged `TODO: See TD-439`.
+Location in code: `src/MetricsApiServerArgs.{hpp,cpp}`; `src/TrainingMetricsAPIServer.cpp` (`admin_config_db_dir`); the `TODO: See TD-439` tags are removed.
+
+**Fix (November 3, 2026):**
+- **Backend name.** `--storage-backend` must be one of the five names, in any case, stored lower-case; anything else is a
+  usage error. `metrics_storage_backend_names()` in `Config.hpp` is now the one list, also used by the config-file and
+  environment parsers.
+- **Backend support.** Before anything is written to disk, `main()` checks the final backend, whichever layer set it, with
+  `check_metrics_storage_backend()`. A postgres backend in a build without `ENABLE_POSTGRES_METRICS` exits 1 with a message
+  naming the backends this build has (`supported_metrics_storage_backends()`, also listed in `--help`).
+- **Admin store.** `main()` first parses the flags onto a copy to find the final `db_path` (`db_path` isn't admin-mutable, so
+  saved settings can't move it), then opens `daemon_config.db` in that directory (`metrics_admin_store_dir()`). Under the
+  installer's unit, that is the writable `--metrics-dir`.
+- **Override warnings.** The parser records which admin-mutable settings a flag set (`admin_keys_from_flags`).
+  `flag_overridden_admin_settings()` then warns once for each saved value that a flag replaced with a different one.
+- **Header.** The header names the right test file.
+
+Tests:
+- `metricsApiServerArgsTests` gained four tests: the backend name in any case and a typo, postgres with and without support,
+  the admin store following `--db-path`, and the override warnings.
+- With the real binary:
+  - `--storage-backend postgres`, or `METRICS_STORAGE_BACKEND=postgres` in the file, exits 1 without creating anything.
+  - `--storage-backend postgress` exits 1; the old binary ran with it.
+  - `--db-path <dir>/metrics.db` puts `daemon_config.db` in `<dir>`; the old binary put it in `./training_sessions`.
 
 Files to Modify:
 
 - `src/MetricsApiServerArgs.hpp`
 - `src/MetricsApiServerArgs.cpp`
 - `src/TrainingMetricsAPIServer.cpp`
+- `src/Config.{hpp,cpp}`, `tests/metrics_api_server_args_test.cpp`
 
 ---
 

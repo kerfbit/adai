@@ -77,3 +77,16 @@ prints the retention settings. TD-528's "unenforced flag" item no longer applies
 - `0-default` doesn't take a `max_live_sessions` slot.
 
 Tests: `StopBeforeStartIsNotLost`, `StopRacingStartAlwaysEndsIt`, `DefaultSessionDoesNotTakeALiveSlot`.
+
+## Addendum (November 3, 2026): startup order and backend check (TD-439)
+
+`main()` now does these steps in order:
+1. Loads the config file.
+2. Parses the flags onto a copy and exits on a usage error.
+3. Checks the final storage backend and exits 1 before creating anything on disk if this build can't use it (an unknown
+   name, or postgres without `ENABLE_POSTGRES_METRICS`).
+4. Opens `daemon_config.db` in the directory of the final `db_path`.
+5. Applies the saved admin settings, then the flags again.
+6. Prints a warning for each saved setting a flag replaced.
+
+`--help` lists the backends the build supports and says where `daemon_config.db` goes.

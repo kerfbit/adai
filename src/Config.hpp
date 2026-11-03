@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.24.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 1.25.0
+// @adai-reviewed: 2026-11-03
 
 
 #include <cstdint>
@@ -45,6 +45,12 @@ std::optional<bool> parse_strict_bool(const std::string& value);
 /// check against this; the empty legacy pool is not a kind. Inline for adai_core (see below).
 inline bool is_dataset_kind(const std::string& kind) {
     return kind == "encoder" || kind == "decoder" || kind == "world_model" || kind == "chatbot";
+}
+/// TD-289/TD-439: every METRICS_STORAGE_BACKEND / --storage-backend name. Whether this build can use a
+/// postgres one is metrics_api_server's check (MetricsApiServerArgs.hpp).
+inline const std::vector<std::string>& metrics_storage_backend_names() {
+    static const std::vector<std::string> names = {"sqlite+file", "sqlite", "postgres+file", "postgres", "file"};
+    return names;
 }
 /// TD-444/TD-451: "Name: value" pairs separated by ';' (e.g. "CF-Access-Client-Id: abc;
 /// CF-Access-Client-Secret: xyz"), trimmed, as header lines. Entries without a name and ':' are skipped.

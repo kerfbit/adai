@@ -1,9 +1,11 @@
 // @adai-status: experimental
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-11-03
 
 #include "MetricsApiServerArgs.hpp"
 #include <algorithm>
+#include <cctype>
+#include <filesystem>
 #include <optional>
 #include <set>
 #include <vector>
@@ -93,7 +95,66 @@ void store(const NumericSetting& s, long long v) {
     if (s.int_field) *s.int_field = static_cast<int>(v);
     if (s.size_field) *s.size_field = static_cast<size_t>(v);
 }
+
+long long load(const NumericSetting& s) {
+    return s.int_field ? *s.int_field : static_cast<long long>(*s.size_field);
+}
+
+std::string join(const std::vector<std::string>& items) {
+    std::string out;
+    for (const auto& item : items) out += (out.empty() ? "" : ", ") + item;
+    return out;
+}
 }  // namespace
+
+std::vector<std::string> supported_metrics_storage_backends(bool with_postgres) {
+    std::vector<std::string> out;
+    for (const auto& name : metrics_storage_backend_names()) {
+        if (with_postgres || name.rfind("postgres", 0) != 0) out.push_back(name);
+    }
+    return out;
+}
+
+std::optional<std::string> check_metrics_storage_backend(const std::string& backend, bool with_postgres) {
+    const auto supported = supported_metrics_storage_backends(with_postgres);
+    if (std::find(supported.begin(), supported.end(), backend) != supported.end()) return std::nullopt;
+    const auto& known = metrics_storage_backend_names();
+    if (std::find(known.begin(), known.end(), backend) != known.end()) {
+        return "Storage backend '" + backend + "' needs PostgreSQL support, which this build of metrics_api_server " +
+               "doesn't have (rebuild with -DENABLE_POSTGRES_METRICS=ON); this build supports: " + join(supported);
+    }
+    return "Unknown storage backend '" + backend + "' (expected one of: " + join(supported) + ")";
+}
+
+std::string metrics_admin_store_dir(const MetricsApiServerConfig& config) {
+    const auto dir = std::filesystem::path(config.db_path).parent_path();
+    return dir.empty() ? "." : dir.string();
+}
+
+std::vector<std::string> flag_overridden_admin_settings(const MetricsApiServerConfig& config,
+                                                       const std::map<std::string, std::string>& overrides,
+                                                       const std::set<std::string>& admin_keys_from_flags) {
+    std::vector<std::string> warnings;
+    auto warn = [&](const std::string& key, const std::string& flag_text) {
+        warnings.push_back(flag_text + " replaces the saved admin setting " + key + "=" +
+                           overrides.at(key) + " (flags win; remove the flag to keep PUT /admin/config changes)");
+    };
+    MetricsApiServerConfig copy = config;  // numeric_settings() takes a mutable config
+    for (const auto& s : numeric_settings(copy)) {
+        if (s.admin_key[0] == '\0' || admin_keys_from_flags.count(s.admin_key) == 0) continue;
+        const auto it = overrides.find(s.admin_key);
+        if (it == overrides.end()) continue;
+        const auto saved = parse_strict_int(it->second);
+        if (!saved || *saved != load(s)) warn(s.admin_key, std::string(s.flag) + " " + std::to_string(load(s)));
+    }
+    if (admin_keys_from_flags.count("enable_prometheus") != 0) {
+        const auto it = overrides.find("enable_prometheus");
+        if (it != overrides.end() && (it->second == "true") != config.enable_prometheus) {
+            warn("enable_prometheus", "--enable-prometheus");
+        }
+    }
+    return warnings;
+}
 
 void apply_metrics_admin_overrides(MetricsApiServerConfig& config,
                                    const std::map<std::string, std::string>& overrides) {
@@ -147,6 +208,7 @@ MetricsApiServerArgsResult parse_metrics_api_server_args(int argc, char* argv[],
             const auto v = parse_setting(*numeric, value);
             if (!v) return fail("Invalid value for " + arg + ": '" + value + "' (expected " + range_text(*numeric) + ")");
             store(*numeric, *v);
+            if (numeric->admin_key[0] != '\0') result.admin_keys_from_flags.insert(numeric->admin_key);
         } else if (arg == "--metrics-file") {
             config.metrics_file = argv[++i];
         } else if (arg == "--summary-file") {
@@ -160,6 +222,7 @@ MetricsApiServerArgsResult parse_metrics_api_server_args(int argc, char* argv[],
             config.enable_persistence = false;
         } else if (arg == "--enable-prometheus") {
             config.enable_prometheus = true;
+            result.admin_keys_from_flags.insert("enable_prometheus");
         } else if (arg == "--no-control") {
             config.allow_control = false;
         } else if (arg == "--cors-allowed-origins") {
@@ -169,8 +232,17 @@ MetricsApiServerArgsResult parse_metrics_api_server_args(int argc, char* argv[],
         } else if (arg == "--no-name-service") {
             config.name_service_url.clear();
         } else if (arg == "--storage-backend") {
-            // TODO: See TD-439 in TECHNICAL_DEBT.md - unknown backend accepted; registry falls back to file-only
-            config.storage_backend = argv[++i];
+            // TD-439: any case, stored lower-case; whether this build supports it is checked in main()
+            // for the final value, whichever layer set it.
+            std::string name = argv[++i];
+            std::transform(name.begin(), name.end(), name.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            const auto& known = metrics_storage_backend_names();
+            if (std::find(known.begin(), known.end(), name) == known.end()) {
+                return fail("Invalid value for --storage-backend: '" + std::string(argv[i]) + "' (expected one of: " +
+                            join(known) + ")");
+            }
+            config.storage_backend = name;
         } else if (arg == "--db-path") {
             config.db_path = argv[++i];
         } else if (arg == "--db-url") {

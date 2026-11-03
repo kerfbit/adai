@@ -1,21 +1,31 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-11-03
 
 // TD-035: metrics_api_server's config-precedence resolution (file < persisted admin overrides <
 // CLI flags) and argv parsing, pulled out of TrainingMetricsAPIServer.cpp so it's testable
-// without starting a real MetricsSessionRegistry/HTTP server — see MetricsApiServerArgs_test.cpp.
-// TODO: See TD-439 in TECHNICAL_DEBT.md - the test file is actually metrics_api_server_args_test.cpp
+// without starting a real MetricsSessionRegistry/HTTP server — see metrics_api_server_args_test.cpp.
 // TrainingMetricsAPI's own request-handling is already covered by
 // TrainingMetricsAPIRoutesTests/TrainingMetricsAPILiveTests.
 
 #include <map>
+#include <optional>
+#include <set>
 #include <string>
+#include <vector>
 #include "Config.hpp"
 
 namespace adai {
+
+// TD-439: whether this build has the PostgreSQL metrics backend (ENABLE_POSTGRES_METRICS, which
+// defines ADAI_ENABLE_POSTGRES for everything linking adai_core).
+#ifdef ADAI_ENABLE_POSTGRES
+inline constexpr bool kMetricsPostgresBuilt = true;
+#else
+inline constexpr bool kMetricsPostgresBuilt = false;
+#endif
 
 struct MetricsApiServerConfig {
     int port = 8081;
@@ -60,13 +70,36 @@ struct MetricsApiServerArgsResult {
     bool help = false;
     bool error = false;
     std::string error_message;
+    // TD-439: the admin-store keys whose flag this run passed, so main() can warn when one replaces a
+    // saved PUT /admin/config value (flags win, so a flag in ExecStart undoes the PUT on every restart).
+    std::set<std::string> admin_keys_from_flags;
 };
+
+// TD-439: the backends `with_postgres` builds can use, in metrics_storage_backend_names() order.
+std::vector<std::string> supported_metrics_storage_backends(bool with_postgres = kMetricsPostgresBuilt);
+
+// TD-439: nullopt when this build can use `backend`, else the startup error. An unknown or
+// unsupported name used to run the server file-only while it printed the name as its backend.
+std::optional<std::string> check_metrics_storage_backend(const std::string& backend,
+                                                         bool with_postgres = kMetricsPostgresBuilt);
+
+// TD-439: where daemon_config.db lives — the directory of the final db_path (after CLI flags), or "."
+// when db_path has none. It used to be the file-configured db_path's directory, so --db-path under the
+// installer's unit (ProtectSystem=strict, only the metrics dir writable) left it read-only.
+std::string metrics_admin_store_dir(const MetricsApiServerConfig& config);
+
+// TD-439: one warning per saved admin setting that a flag in `admin_keys_from_flags` replaced with a
+// different value; `config` is the final, flag-applied config.
+std::vector<std::string> flag_overridden_admin_settings(const MetricsApiServerConfig& config,
+                                                       const std::map<std::string, std::string>& overrides,
+                                                       const std::set<std::string>& admin_keys_from_flags);
 
 // Applies CLI flags on top of an already-seeded/overridden config, in place — the
 // highest-precedence layer. --config is recognized (and its value skipped) but not applied here;
 // its path must already have been extracted and used to load file_config before this runs.
-// .error is set for an unknown option, a flag missing its value, or a number that isn't a whole
-// number in the setting's range (TD-438; e.g. --port must be 1-65535).
+// .error is set for an unknown option, a flag missing its value, a number that isn't a whole
+// number in the setting's range (TD-438; e.g. --port must be 1-65535), or a --storage-backend that
+// isn't one of metrics_storage_backend_names() (TD-439; matched in any case, stored lower-case).
 MetricsApiServerArgsResult parse_metrics_api_server_args(int argc, char* argv[],
                                                          MetricsApiServerConfig& config);
 
