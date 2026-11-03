@@ -106,8 +106,8 @@ ProtectHome=yes
 # TD-524: /opt/adai/downloads (the default DOWNLOAD_DIR=downloads) is where FTP downloads land; it was
 # missing, so every remote pass failed to write its files. A leading '-' lets the unit start when an
 # optional directory hasn't been created yet. Under ProtectSystem=strict the working directory is
-# read-only, so set LOG_FILE_PATH (e.g. /var/log/adai/trainer.log) in /etc/adai/config.trainer.conf;
-# with it empty the log falls back to /opt/adai/chatbot_server.log, which can't be written here.
+# read-only. With LOG_FILE_PATH empty, trainer_service and its passes log to the journal (TD-431); set it
+# (e.g. /var/log/adai/trainer.log) for files: trainer_service writes that one, each pass trainer.pass.log.
 ReadWritePaths=/var/log/adai /opt/adai/models /opt/adai/training_sessions -/opt/adai/tokenized_cache -/opt/adai/trainer_admin -/opt/adai/downloads
 
 NoNewPrivileges=true

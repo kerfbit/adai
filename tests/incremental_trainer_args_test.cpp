@@ -468,3 +468,46 @@ TEST(SiblingExecutablePath, UsesTheRunningExecutablesDirectory) {
     EXPECT_EQ(adai::sibling_executable_path("bare_name", "incremental_trainer"),
               (self.parent_path() / "incremental_trainer").string());
 }
+
+// TD-431: each trainer_service pass logs to its own file; trainer_service and every pass used to share and rotate one.
+TEST(PassLogPath, AddsPassBeforeTheExtension) {
+    EXPECT_EQ(adai::pass_log_path("/var/log/adai/trainer.log"), "/var/log/adai/trainer.pass.log");
+    EXPECT_EQ(adai::pass_log_path("trainer"), "trainer.pass");
+    EXPECT_EQ(adai::pass_log_path("logs/trainer.out.log"), "logs/trainer.out.pass.log");
+}
+
+TEST(TrainerServiceChildArgv, PassesThePassLogFile) {
+    adai::IncrementalTrainerGlobalArgs cli;
+    const auto argv = trainer_service_child_argv("it", cli, std::nullopt, "/var/log/adai/trainer.pass.log");
+    const auto flag = std::find(argv.begin(), argv.end(), "--log-file");
+    ASSERT_NE(flag, argv.end());
+    ASSERT_NE(flag + 1, argv.end());
+    EXPECT_EQ(*(flag + 1), "/var/log/adai/trainer.pass.log");
+    const auto without = trainer_service_child_argv("it", cli, std::nullopt);
+    EXPECT_EQ(std::find(without.begin(), without.end(), "--log-file"), without.end());
+}
+
+TEST(ParseIncrementalTrainerGlobalArgs, LogFileFlag) {
+    std::vector<std::string> raw = {"incremental_trainer", "--log-file", "/tmp/x.log", "status"};
+    auto argv = make_argv(raw);
+    const auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+    ASSERT_FALSE(r.error) << r.error_message;
+    EXPECT_EQ(r.log_file.value_or(""), "/tmp/x.log");
+
+    std::vector<std::string> service = {"trainer_service", "--log-file", "/tmp/x.log"};
+    auto service_argv = make_argv(service);
+    const auto s = parse_trainer_service_args(static_cast<int>(service_argv.size()), service_argv.data());
+    EXPECT_TRUE(s.global.error) << "trainer_service takes LOG_FILE_PATH, not --log-file";
+}
+
+TEST(DefaultBackgroundLogPath, UsesTheXdgStateDirectory) {
+    namespace fs = std::filesystem;
+    const fs::path state = fs::temp_directory_path() / ("adai_td431_" + std::to_string(::getpid()));
+    const char* saved = std::getenv("XDG_STATE_HOME");
+    const std::string saved_value = saved ? saved : "";
+    ::setenv("XDG_STATE_HOME", state.c_str(), 1);
+    EXPECT_EQ(adai::default_background_log_path(), (state / "adai" / "log" / "incremental_trainer.log").string());
+    EXPECT_TRUE(fs::is_directory(state / "adai" / "log"));
+    if (saved) ::setenv("XDG_STATE_HOME", saved_value.c_str(), 1); else ::unsetenv("XDG_STATE_HOME");
+    fs::remove_all(state);
+}

@@ -968,3 +968,83 @@ TEST_F(SighupTest, APassDoesNotOutliveAHardKilledTrainerService) {
     if (survived) ::kill(static_cast<pid_t>(pass_pid), SIGKILL);  // don't leave it behind
     EXPECT_FALSE(survived) << "the pass outlived its hard-killed trainer_service";
 }
+
+// TD-431: trainer_service and every pass wrote and rotated one file (chatbot_server.log in the working directory
+// when LOG_FILE_PATH was empty), losing about a quarter of the history, and LOG_LEVEL was ignored. Owner decision:
+// with LOG_FILE_PATH set, each pass gets <name>.pass<ext>; empty means console only.
+TEST_F(SighupTest, TrainerServicePassesLogToTheirOwnFileAndLogLevelApplies) {
+    const fs::path bin = dir_ / "bin";
+    fs::create_directories(bin);
+    fs::copy_file(TRAINER_SERVICE_BINARY_PATH, bin / "trainer_service");
+    const fs::path recorded = dir_ / "child_args.txt";
+    {
+        std::ofstream stub(bin / "incremental_trainer");
+        stub << "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" << recorded.string() << ".tmp'\nmv '" << recorded.string()
+             << ".tmp' '" << recorded.string() << "'\nexit 3\n";
+    }
+    fs::permissions(bin / "incremental_trainer", fs::perms::owner_all);
+    const auto run = [&](const std::string& extra_config) {
+        fs::remove(recorded);
+        const auto cfg = write_config("config.trainer.conf", extra_config);
+        spawn((bin / "trainer_service").string(), {"--config", cfg.string()});
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+        while (!fs::exists(recorded) && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        if (pid_ > 0) {
+            ::kill(pid_, SIGTERM);
+            ::waitpid(pid_, nullptr, 0);
+        }
+        pid_ = -1;
+        std::vector<std::string> lines;
+        std::ifstream in(recorded);
+        for (std::string line; std::getline(in, line);) lines.push_back(line);
+        return lines;
+    };
+
+    const fs::path log = dir_ / "trainer.log";
+    auto args = run("LOG_FILE_PATH=" + log.string() + "\nLOG_LEVEL=WARN\n");
+    ASSERT_FALSE(args.empty()) << "no pass was launched";
+    const auto flag = std::find(args.begin(), args.end(), "--log-file");
+    ASSERT_NE(flag, args.end());
+    ASSERT_NE(flag + 1, args.end());
+    EXPECT_EQ(*(flag + 1), (dir_ / "trainer.pass.log").string());
+    std::stringstream text;
+    text << std::ifstream(log).rdbuf();
+    EXPECT_EQ(text.str().find("[info]"), std::string::npos) << "LOG_LEVEL=WARN, yet info lines:\n" << text.str();
+
+    // Empty LOG_FILE_PATH: console only; nothing lands in the working directory.
+    args = run("LOG_FILE_PATH=\n");
+    ASSERT_FALSE(args.empty());
+    EXPECT_EQ(std::find(args.begin(), args.end(), "--log-file"), args.end());
+    EXPECT_FALSE(fs::exists(dir_ / "chatbot_server.log")) << "the old fallback file was written";
+}
+
+// TD-431: incremental_trainer fell back to chatbot_server.log in the working directory when LOG_FILE_PATH was empty.
+// A foreground run now logs to the console only, and --log-file names the file.
+TEST_F(SighupTest, IncrementalTrainerLogsToTheConsoleOrItsLogFile) {
+    const auto cfg = write_config("config.trainer.conf",
+                                  "LOG_FILE_PATH=\nSESSION_DIR=" + (dir_ / "sessions").string() +
+                                      "\nREGISTRY_SERVER_URL=\nNAME_SERVICE_URL=\nMETRICS_SERVER_URL=\nGPU_ENABLED=false\n");
+    const auto run = [&](const std::vector<std::string>& extra) {
+        std::vector<std::string> args = {"--config", cfg.string()};
+        args.insert(args.end(), extra.begin(), extra.end());
+        spawn(INCREMENTAL_TRAINER_BINARY_PATH, args);
+        int status = 0;
+        pid_t done = 0;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+        while ((done = ::waitpid(pid_, &status, WNOHANG)) == 0 && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        pid_ = -1;
+        return done;
+    };
+    // Nothing is queued, so these passes end at once (exit 3).
+    ASSERT_GT(run({"--foreground", "resume"}), 0);
+    EXPECT_FALSE(fs::exists(dir_ / "chatbot_server.log")) << "the old fallback file was written";
+
+    const fs::path log = dir_ / "named.log";
+    ASSERT_GT(run({"--log-file", log.string(), "--foreground", "resume"}), 0);
+    EXPECT_TRUE(fs::exists(log));
+    EXPECT_FALSE(fs::exists(dir_ / "chatbot_server.log"));
+}

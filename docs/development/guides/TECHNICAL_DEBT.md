@@ -1432,6 +1432,9 @@ The generation and model math run is complete.
   functions ending in `execve()`; no descriptor past stdio reaches the pass).
 - TD-282 (done in code: Windows command lines quoted as `CommandLineToArgvW` expects, exit detected from the process
   handle so exit code 259 works, the console-event stop's limit documented; checked under Wine).
+- TD-431 (done in code, owner's choice: with `LOG_FILE_PATH` set each `trainer_service` pass logs to its own
+  `.pass` file; empty means the console, or the per-user state directory for a detached run; `LOG_LEVEL` applies to both
+  trainer binaries).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -12227,7 +12230,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Core / Logger | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 2, 2026 | Core / Logger | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `Logger` and verified. When `LOG_FILE_PATH` is empty, `trainer_service`
@@ -12243,15 +12246,40 @@ suggests the chatbot server's log. Separately, both trainer binaries always init
 
 Action Items:
 
-- [ ] Give each process its own file (for example `<LOG_FILE_PATH>.child` or `incremental_trainer.log`), or log the children to stderr and let `trainer_service` capture it; use console-only when `LOG_FILE_PATH` is empty.
-- [ ] Apply `LOG_LEVEL` in both trainer binaries.
+- [x] Give each process its own file (for example `<LOG_FILE_PATH>.child` or `incremental_trainer.log`), or log the children to stderr and let `trainer_service` capture it; use console-only when `LOG_FILE_PATH` is empty.
+- [x] Apply `LOG_LEVEL` in both trainer binaries.
 
-Location in code: `src/TrainerServiceMain.cpp` (log path), `src/IncrementalTrainingTool.cpp` (`run_training_pipeline()`'s `Logger::init`); tagged `TODO: See TD-431`.
+**Fix (November 2, 2026), owner's choice of a file per pass:**
+- **`trainer_service`** logs to `LOG_FILE_PATH`, or the console when it's empty (the journal under systemd), and gives
+  each pass `--log-file <pass_log_path()>`: the same name with `.pass` before the extension (`trainer.log` →
+  `trainer.pass.log`). Each file is now rotated by one process. With `LOG_FILE_PATH` empty the passes inherit the
+  console.
+- **`incremental_trainer`** has a new global `--log-file <path>` (also usable by hand; `trainer_service` itself refuses
+  it). It logs to `--log-file`, else `LOG_FILE_PATH`; empty means the console for a foreground run, and, for a detached
+  run whose stdout/stderr go to `/dev/null`, `default_background_log_path()`: `$XDG_STATE_HOME` (else
+  `~/.local/state`)`/adai/log/incremental_trainer.log`, `%LOCALAPPDATA%\adai\Logs` on Windows, as
+  LOG_FILE_STANDARDS.md says. `chatbot_server.log` is no longer used by either.
+- **`LOG_LEVEL`** reaches both through `Logger::init(Logger::parse_level(...))` (new), and the replay of start-up messages
+  logged before `init()` (TD-290) now skips those below the level, so `LOG_LEVEL=WARN` writes no INFO line.
+- The guides (`training-guide.md`, `COMMANDS.md`, `OPERATIONS_MANUAL.md`, `TRAINING_FIX_STRATEGY.md`), the unit and
+  `config.trainer.conf` no longer point at `chatbot_server.log`.
+
+Tests: `PassLogPath`, `TrainerServiceChildArgv.PassesThePassLogFile`, `ParseIncrementalTrainerGlobalArgs.LogFileFlag`,
+`DefaultBackgroundLogPath.UsesTheXdgStateDirectory`, and against the real binaries
+`SighupTest.TrainerServicePassesLogToTheirOwnFileAndLogLevelApplies` (with `LOG_FILE_PATH` set, the pass gets
+`--log-file <dir>/trainer.pass.log` and `LOG_LEVEL=WARN` leaves no INFO line in `trainer_service`'s file; with it empty,
+no `--log-file` and no `chatbot_server.log`) and `SighupTest.IncrementalTrainerLogsToTheConsoleOrItsLogFile`. Both fail
+on the old binaries.
+
+Location in code: `src/TrainerServiceMain.cpp`, `src/IncrementalTrainingTool.cpp` (`run_training_pipeline()`),
+`src/IncrementalTrainerArgs.{hpp,cpp}` (`--log-file`, `pass_log_path()`, `default_background_log_path()`),
+`src/Logger.{hpp,cpp}` (`parse_level()`, replay level).
 
 Files to Modify:
 
 - `src/TrainerServiceMain.cpp`
 - `src/IncrementalTrainingTool.cpp`
+- `src/IncrementalTrainerArgs.{hpp,cpp}`, `src/Logger.{hpp,cpp}`
 
 ---
 

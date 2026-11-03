@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-31
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-02
 
 #include "Logger.hpp"
 #include <spdlog/pattern_formatter.h>
@@ -55,10 +55,11 @@ void Logger::deferred(Level level, const std::string& message) {
     }
 }
 
-void Logger::replay_deferred_to_file(const spdlog::sink_ptr& file_sink) {
+void Logger::replay_deferred_to_file(const spdlog::sink_ptr& file_sink, Level min_level) {
     std::lock_guard<std::mutex> lock(deferred_mutex);
     if (file_sink) {
         for (const auto& m : deferred_messages) {
+            if (m.level < to_spdlog(min_level)) continue;  // TD-431: LOG_LEVEL applies to the replay too
             spdlog::details::log_msg msg(spdlog::source_loc{}, "adai", m.level, m.text);
             msg.time = m.time;
             file_sink->log(msg);
@@ -141,7 +142,7 @@ void Logger::init(Level level, const FileConfig& file_config, const std::string&
     }
 
     // TD-290: start-up messages logged before this init() reach the file (they were on the console).
-    replay_deferred_to_file(sinks.size() > 1 ? sinks.back() : nullptr);
+    replay_deferred_to_file(sinks.size() > 1 ? sinks.back() : nullptr, level);
 
     // Create logger with all configured sinks
     logger_ = std::make_shared<spdlog::logger>(name, sinks.begin(), sinks.end());
@@ -167,6 +168,15 @@ void Logger::init(Level level, const FileConfig& file_config, const std::string&
             logger_->info("  Use logrotate or similar tool to compress old log files.");
         }
     }
+}
+
+Logger::Level Logger::parse_level(const std::string& level_str) {
+    std::string upper = level_str;
+    std::transform(upper.begin(), upper.end(), upper.begin(), [](unsigned char c) { return std::toupper(c); });
+    if (upper == "DEBUG") return Level::DEBUG;
+    if (upper == "WARN" || upper == "WARNING") return Level::WARN;
+    if (upper == "ERROR") return Level::ERROR;
+    return Level::INFO;
 }
 
 void Logger::set_level(const std::string& level_str) {

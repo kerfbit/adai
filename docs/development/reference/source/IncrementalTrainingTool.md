@@ -219,3 +219,12 @@ train`/`retrain`/`resume` work on a fresh `SESSION_DIR`; it used to abort with `
 id in `<dir>/<name>_run_id`: `lejepa` in the world-model directory for the LeJEPA pass, and, when no `RUN_ID` is set,
 `chatbot` in `SESSION_DIR` for `train`/`retrain`/`resume`, which `incremental_trainer` copies into `RUN_ID`. An
 MNS-allocated run id still comes first. A restarted pass therefore reclaims its own claimed files.
+
+## Addendum (November 2, 2026): per-process log files and `LOG_LEVEL` (TD-431)
+
+Owner's choice: with `LOG_FILE_PATH` set, `trainer_service` logs there and gives each pass `--log-file` with `.pass`
+before the extension (`trainer.log` → `trainer.pass.log`), so no file is rotated by two processes. Empty means the
+console (the journal under systemd); a detached `incremental_trainer` run, whose stdout/stderr go to `/dev/null`, logs
+to `~/.local/state/adai/log/incremental_trainer.log` (`$XDG_STATE_HOME/adai/log/` if set). Neither binary uses
+`chatbot_server.log` any more. Both apply `LOG_LEVEL` via `Logger::init(Logger::parse_level(...))`, and the replay of
+start-up messages logged before `init()` skips those below the level.

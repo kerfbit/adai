@@ -45,7 +45,7 @@ mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(np
 ./build/bin/incremental_trainer train 25
 
 # 5. Monitor progress
-tail -f chatbot_server.log
+tail -f ~/.local/state/adai/log/incremental_trainer.log   # or LOG_FILE_PATH, if set
 
 # 6. Check status when done
 ./build/bin/incremental_trainer status
@@ -62,7 +62,7 @@ The training system is split across two binaries that operate independently:
 | `dataset_manager` | Manages the dataset queue (DatasetRegistry) — add files, download from Gutenberg or HuggingFace |
 | `incremental_trainer` | Consumes the queue and trains the model |
 
-**All training commands (`train`, `retrain`, `resume`) fork into the background automatically.** The launcher prints the PID and log path, then exits. Output goes to the log file only (default: `chatbot_server.log`; set `LOG_FILE_PATH` in `config.conf`).
+**All training commands (`train`, `retrain`, `resume`) fork into the background automatically.** The launcher prints the PID and log path, then exits. Output goes to the log file only: `LOG_FILE_PATH` (in `config.trainer.conf`) or `--log-file`, else `~/.local/state/adai/log/incremental_trainer.log` (`$XDG_STATE_HOME/adai/log/` if set). With `--foreground` and no log file it goes to the console (TD-431).
 
 **All hyperparameters come from `config.conf`.** There are no per-run CLI flags for learning rate, epochs, or batch size. Set them once in the config file; every training run picks them up at startup.
 
@@ -367,7 +367,7 @@ Best for building a chatbot focused on a specific domain (medical, legal, techni
 ### Follow the training log
 
 ```bash
-tail -f chatbot_server.log
+tail -f ~/.local/state/adai/log/incremental_trainer.log   # or LOG_FILE_PATH, if set
 ```
 
 Set `LOG_FILE_PATH` in `config.conf` to change the log location.
@@ -492,10 +492,10 @@ wget "https://www.gutenberg.org/files/1342/1342-0.txt" -O my_book.txt
 Training runs in the background; all output goes to the log file, not the terminal.
 
 ```bash
-tail -f chatbot_server.log
+tail -f ~/.local/state/adai/log/incremental_trainer.log   # or LOG_FILE_PATH, if set
 ```
 
-If the log file does not exist, check `LOG_FILE_PATH` in `config.conf`. If it is empty, training logs go to `chatbot_server.log` in the working directory.
+If the log file does not exist, check `LOG_FILE_PATH` in `config.trainer.conf`. If it is empty, a background run logs to `~/.local/state/adai/log/incremental_trainer.log` (`$XDG_STATE_HOME/adai/log/` if set) and a `--foreground` run to the console (TD-431).
 
 ---
 
@@ -514,7 +514,7 @@ If the log file does not exist, check `LOG_FILE_PATH` in `config.conf`. If it is
 | Check session status | `./build/bin/incremental_trainer status` |
 | View session history | `./build/bin/incremental_trainer history` |
 | Reset to fresh model | `./build/bin/incremental_trainer reset --keep-data --yes` |
-| Follow training log | `tail -f chatbot_server.log` |
+| Follow training log | `tail -f ~/.local/state/adai/log/incremental_trainer.log   # or LOG_FILE_PATH, if set` |
 | Start metrics daemon | `./build/bin/metrics_api_server` |
 | Poll current metrics | `curl http://localhost:8081/api/metrics/current` |
 

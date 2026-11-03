@@ -97,3 +97,12 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 it logs to the lazily created console logger and keeps the message (at most 256); the next `init()` with a log file writes the kept
 messages to that file with their original times, and a console-only `init()` drops them (they were already shown). After `init()`
 it's an ordinary log call. `get()`'s lazy console logger doesn't count as set up.
+
+## Addendum (November 2, 2026): per-process log files and `LOG_LEVEL` (TD-431)
+
+Owner's choice: with `LOG_FILE_PATH` set, `trainer_service` logs there and gives each pass `--log-file` with `.pass`
+before the extension (`trainer.log` → `trainer.pass.log`), so no file is rotated by two processes. Empty means the
+console (the journal under systemd); a detached `incremental_trainer` run, whose stdout/stderr go to `/dev/null`, logs
+to `~/.local/state/adai/log/incremental_trainer.log` (`$XDG_STATE_HOME/adai/log/` if set). Neither binary uses
+`chatbot_server.log` any more. Both apply `LOG_LEVEL` via `Logger::init(Logger::parse_level(...))`, and the replay of
+start-up messages logged before `init()` skips those below the level.

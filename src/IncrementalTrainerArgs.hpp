@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.13.0
+// @adai-version: 0.14.0
 // @adai-reviewed: 2026-11-02
 
 // TD-035: incremental_trainer's global argv parsing and a few small pure helpers, pulled out of
@@ -41,6 +41,9 @@ struct IncrementalTrainerGlobalArgs {
     // IncrementalTrainingTool.cpp's main(). Empty (unset) means "use the automatic default" —
     // explicitly passing e.g. "--dataset-kind chatbot" always wins over that default.
     std::optional<std::string> dataset_kind;
+    // TD-431: --log-file <path> overrides LOG_FILE_PATH for this run. trainer_service uses it to give
+    // each pass its own file (pass_log_path()); it's also usable by hand.
+    std::optional<std::string> log_file;
     // args[0] is the command (e.g. "train"), args[1..] are its own arguments — --config,
     // --gpu-strategy, --model, --foreground, --admin-port, --objective, and --dataset-kind are
     // stripped out before this is populated, exactly like the original inline loop.
@@ -73,7 +76,20 @@ TrainerServiceArgs parse_trainer_service_args(int argc, char* argv[]);
 // every pass opened a loopback port even with the admin API off.
 std::vector<std::string> trainer_service_child_argv(const std::string& trainer_path,
                                                     const IncrementalTrainerGlobalArgs& cli,
-                                                    std::optional<int> admin_port);
+                                                    std::optional<int> admin_port,
+                                                    const std::string& pass_log_file = "");
+
+// TD-431 (owner decision, November 2, 2026): the file each trainer_service pass logs to when LOG_FILE_PATH
+// is set: the same name with ".pass" before the extension (trainer.log -> trainer.pass.log; trainer ->
+// trainer.pass). trainer_service keeps LOG_FILE_PATH itself, so each file is rotated by one process; both
+// used to write and rotate one file, losing about a quarter of the configured history.
+std::string pass_log_path(const std::string& log_path);
+
+// TD-431: where a detached (background) incremental_trainer run logs when LOG_FILE_PATH is empty, since its
+// stdout/stderr go to /dev/null: LOG_FILE_STANDARDS.md's per-user location, $XDG_STATE_HOME (else
+// ~/.local/state)/adai/log/incremental_trainer.log, or %LOCALAPPDATA%\adai\Logs on Windows. Creates the
+// directory. A foreground run with LOG_FILE_PATH empty logs to the console only (the journal under systemd).
+std::string default_background_log_path();
 
 // train/retrain/resume/serve defer GPU init until after their fork (CUDA contexts aren't
 // fork-safe) or, for serve, until after Logger::init() runs — every other command initializes

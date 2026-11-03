@@ -36,7 +36,7 @@ Training runs through two tools:
 ./build/bin/incremental_trainer history
 
 # Follow the active log
-tail -f chatbot_server.log    # or whatever LOG_FILE_PATH is set to
+tail -f ~/.local/state/adai/log/incremental_trainer.log   # or LOG_FILE_PATH, if set
 ```
 
 ---

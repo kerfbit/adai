@@ -84,7 +84,7 @@ cd /home/rodney/Repos/adai && ./build/bin/incremental_trainer history
 cd /home/rodney/Repos/adai && ./build/bin/incremental_trainer reset --keep-data --yes
 
 # Follow training log
-cd /home/rodney/Repos/adai && tail -f chatbot_server.log
+tail -f ~/.local/state/adai/log/incremental_trainer.log   # or LOG_FILE_PATH, if set
 ```
 
 Hyperparameters (`LEARNING_RATE`, `NUM_EPOCHS`, `BATCH_SIZE`, etc.) are set in `config.conf`.
@@ -177,7 +177,7 @@ mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(np
 ./build/bin/incremental_trainer train 25
 
 # 5. Follow training log
-tail -f chatbot_server.log
+tail -f ~/.local/state/adai/log/incremental_trainer.log   # or LOG_FILE_PATH, if set
 
 # 6. Start the API server and chat
 ./build/src/chatbot_api_server -c config.conf &
@@ -226,7 +226,7 @@ ls -lh chatbot_model.bin*
 cd /home/rodney/Repos/adai
 ./build/bin/dataset_manager add new_data.txt
 ./build/bin/incremental_trainer train 15
-tail -f chatbot_server.log
+tail -f ~/.local/state/adai/log/incremental_trainer.log   # or LOG_FILE_PATH, if set
 ```
 
 ### Need a full retrain from scratch?
@@ -234,7 +234,7 @@ tail -f chatbot_server.log
 ```bash
 cd /home/rodney/Repos/adai
 ./build/bin/incremental_trainer retrain 25
-tail -f chatbot_server.log
+tail -f ~/.local/state/adai/log/incremental_trainer.log   # or LOG_FILE_PATH, if set
 ```
 
 ### Loss not improving / high perplexity?

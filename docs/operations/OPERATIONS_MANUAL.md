@@ -327,7 +327,7 @@ Config is auto-discovered: `--config` flag → `./config.conf` → `/etc/adai/co
 
 # 3. Train (runs in background; follow the log)
 ./build/bin/incremental_trainer train 25
-tail -f chatbot_server.log
+tail -f ~/.local/state/adai/log/incremental_trainer.log   # or LOG_FILE_PATH, if set
 ```
 
 #### Adding More Data Later
@@ -376,10 +376,10 @@ ls -lh chatbot_model.bin*
 
 #### Monitoring Training
 
-Training output goes to the log file (default `chatbot_server.log`; set `LOG_FILE_PATH` in `config.conf`):
+Training output goes to the log file (`LOG_FILE_PATH` in `config.trainer.conf`, else `~/.local/state/adai/log/incremental_trainer.log` for a background run; TD-431):
 
 ```bash
-tail -f chatbot_server.log
+tail -f ~/.local/state/adai/log/incremental_trainer.log   # or LOG_FILE_PATH, if set
 ```
 
 Healthy dynamics:
@@ -1842,7 +1842,7 @@ cmake --build . --target incremental_trainer -j$(nproc)
 ./build/bin/incremental_trainer history
 
 # Follow training log
-tail -f chatbot_server.log
+tail -f ~/.local/state/adai/log/incremental_trainer.log   # or LOG_FILE_PATH, if set
 
 # Live metrics (requires metrics_api_server running)
 ./build/bin/metrics_api_server &

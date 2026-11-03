@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.9.0
+// @adai-version: 0.10.0
 // @adai-reviewed: 2026-11-02
 
 // TD-172: trainer_service — the thin process-supervisor binary that replaces
@@ -114,11 +114,12 @@ int main(int argc, char* argv[]) {
         cli.config_path.value_or(""), "config.trainer.conf");
     const adai::ServiceConfig svc_config = adai::ConfigLoader::load(config_path);
 
-    const std::string log_path =
-        svc_config.log_file_path.empty() ? "chatbot_server.log" : svc_config.log_file_path;
-    // TODO: See TD-431 in TECHNICAL_DEBT.md - every child incremental_trainer pass falls back to the SAME file, so two
-    // processes rotate it (~27% less retained history, verified); empty LOG_FILE_PATH should mean console-only
-    adai::Logger::init(adai::Logger::Level::INFO,
+    // TD-431: LOG_FILE_PATH for trainer_service itself, and pass_log_path() of it for every pass (so each
+    // file is rotated by one process; both used to share the file, and with it empty, chatbot_server.log in
+    // the working directory). Empty means console only, which systemd puts in the journal, and the passes
+    // inherit that console. LOG_LEVEL is applied (it used to be ignored).
+    const std::string log_path = svc_config.log_file_path;
+    adai::Logger::init(adai::Logger::parse_level(svc_config.log_level),
                        {log_path, svc_config.log_max_size_mb, svc_config.log_max_files}, "adai");
     adai::ConfigLoader::validate_or_exit(svc_config, "trainer_service");  // TD-288
 
@@ -142,9 +143,12 @@ int main(int argc, char* argv[]) {
     // TD-524: --admin-port only with the admin API on (each pass used to open the port regardless).
     const std::optional<int> child_admin_port =
         svc_config.trainer_admin_enabled ? std::optional<int>(svc_config.trainer_child_admin_port) : std::nullopt;
-    const std::vector<std::string> child_argv = adai::trainer_service_child_argv(trainer_path, cli, child_admin_port);
-    adai::Logger::info("trainer_service: objective {}, dataset pool '{}'", cli.objective,
-                       adai::resolve_dataset_kind(cli.objective, cli.dataset_kind));
+    const std::string pass_log = log_path.empty() ? std::string() : adai::pass_log_path(log_path);
+    const std::vector<std::string> child_argv =
+        adai::trainer_service_child_argv(trainer_path, cli, child_admin_port, pass_log);
+    adai::Logger::info("trainer_service: objective {}, dataset pool '{}', passes log to {}", cli.objective,
+                       adai::resolve_dataset_kind(cli.objective, cli.dataset_kind),
+                       pass_log.empty() ? std::string("the console") : pass_log);
 
     adai::TrainerServiceProxy proxy(svc_config.trainer_admin_host, svc_config.trainer_admin_port,
                                     svc_config.trainer_admin_dir, control);

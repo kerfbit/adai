@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.14.0
+// @adai-version: 0.15.0
 // @adai-reviewed: 2026-11-02
 
 #include "IncrementalTrainerArgs.hpp"
@@ -38,7 +38,7 @@ IncrementalTrainerGlobalArgs parse_incremental_trainer_global_args(int argc, cha
     // "--" flag), is an error. It used to land in args as a positional, so `status --config` ran
     // with normal config discovery.
     static const std::set<std::string> kValueFlags = {"--config", "--gpu-strategy", "--model", "--admin-port",
-                                                      "--dataset-kind"};
+                                                      "--dataset-kind", "--log-file"};
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -70,6 +70,8 @@ IncrementalTrainerGlobalArgs parse_incremental_trainer_global_args(int argc, cha
             result.objective = value;
         } else if (a == "--objective") {
             return fail("--objective takes its value after '=': --objective=chatbot or --objective=lejepa");
+        } else if (a == "--log-file") {  // TD-431
+            result.log_file = argv[++i];
         } else if (a == "--dataset-kind") {
             // TD-402: it used to be taken as given. LocalTransport joins it into a path, so a typo
             // selected a new, empty pool and ".." put the registry files outside session_dir.
@@ -105,6 +107,31 @@ std::string sibling_executable_path(const std::string& argv0, const std::string&
     return name;
 }
 
+std::string pass_log_path(const std::string& log_path) {
+    namespace fs = std::filesystem;
+    const fs::path p(log_path);
+    if (!p.has_extension()) return log_path + ".pass";
+    return (p.parent_path() / (p.stem().string() + ".pass" + p.extension().string())).string();
+}
+
+std::string default_background_log_path() {
+    namespace fs = std::filesystem;
+    fs::path dir;
+#ifdef _WIN32
+    if (const char* local = std::getenv("LOCALAPPDATA"); local && *local) dir = fs::path(local) / "adai" / "Logs";
+#else
+    if (const char* state = std::getenv("XDG_STATE_HOME"); state && *state) {
+        dir = fs::path(state) / "adai" / "log";
+    } else if (const char* home = std::getenv("HOME"); home && *home) {
+        dir = fs::path(home) / ".local" / "state" / "adai" / "log";
+    }
+#endif
+    if (dir.empty()) return "incremental_trainer.log";  // no usable home: the working directory
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    return (dir / "incremental_trainer.log").string();
+}
+
 std::optional<int> parse_epochs_arg(const std::vector<std::string>& args, int default_epochs, std::string& error) {
     if (args.size() < 2) return default_epochs;
     if (args.size() > 2) {
@@ -131,7 +158,10 @@ TrainerServiceArgs parse_trainer_service_args(int argc, char* argv[]) {
     result.global = parse_incremental_trainer_global_args(argc, argv);
     auto& g = result.global;
     if (g.error) return result;
-    if (g.foreground || g.admin_port) {
+    if (g.log_file) {  // TD-431: trainer_service picks each pass's file from LOG_FILE_PATH
+        g.error = true;
+        g.error_message = "--log-file is set by trainer_service on the passes it launches; set LOG_FILE_PATH instead";
+    } else if (g.foreground || g.admin_port) {
         g.error = true;
         g.error_message = std::string(g.foreground ? "--foreground" : "--admin-port") +
                           " is set by trainer_service on the passes it launches, not passed to it "
@@ -145,13 +175,15 @@ TrainerServiceArgs parse_trainer_service_args(int argc, char* argv[]) {
 
 std::vector<std::string> trainer_service_child_argv(const std::string& trainer_path,
                                                     const IncrementalTrainerGlobalArgs& cli,
-                                                    std::optional<int> admin_port) {
+                                                    std::optional<int> admin_port,
+                                                    const std::string& pass_log_file) {
     std::vector<std::string> argv = {trainer_path};
     if (cli.config_path) argv.insert(argv.end(), {"--config", *cli.config_path});
     if (cli.model_name) argv.insert(argv.end(), {"--model", *cli.model_name});
     if (cli.gpu_strategy) argv.insert(argv.end(), {"--gpu-strategy", *cli.gpu_strategy});
     argv.push_back("--objective=" + cli.objective);
     argv.insert(argv.end(), {"--dataset-kind", resolve_dataset_kind(cli.objective, cli.dataset_kind)});
+    if (!pass_log_file.empty()) argv.insert(argv.end(), {"--log-file", pass_log_file});  // TD-431
     argv.push_back("--foreground");
     if (admin_port) argv.insert(argv.end(), {"--admin-port", std::to_string(*admin_port)});
     argv.push_back("resume");

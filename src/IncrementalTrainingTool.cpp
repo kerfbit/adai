@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.31.0
+// @adai-version: 0.32.0
 // @adai-reviewed: 2026-11-02
 
 #include <array>
@@ -958,6 +958,9 @@ int run_training_pipeline(int argc, char* argv[], const adai::ServiceConfig& svc
     // fallback below), so this reuses it with no new branches. Needed for
     // systemd Type=simple, which tracks/restarts whatever ExecStart's PID
     // actually is — that can't be a process that forks and exits immediately.
+    // TD-431: a detached run's stdout/stderr go to /dev/null, so with no log file it needs one anyway.
+    const std::string effective_log_path =
+        (log_path.empty() && !foreground) ? adai::default_background_log_path() : log_path;
     const long long child_pid = foreground ? 0 : launch_background(argc, argv);
     if (child_pid > 0) {
         std::cout << "[ADAI] " << title << " — PID " << child_pid << "\n"
@@ -966,17 +969,15 @@ int run_training_pipeline(int argc, char* argv[], const adai::ServiceConfig& svc
             label.resize(7, ' ');
             std::cout << "       " << label << ": " << value << "\n";
         }
-        std::cout << "       Log    : " << log_path << "\n"
+        std::cout << "       Log    : " << effective_log_path << "\n"
                   << "       Stop   : kill " << child_pid << "\n";
         return 0;
     }
     if (child_pid < 0)
         adai::Logger::warn("[background] fork failed — running in foreground");
 
-    // TODO: See TD-431 in TECHNICAL_DEBT.md - log_path falls back to chatbot_server.log (shared with trainer_service);
-    // level always INFO (LOG_LEVEL ignored)
-    adai::Logger::init(adai::Logger::Level::INFO,
-                       {log_path, svc_config.log_max_size_mb, svc_config.log_max_files}, "adai");
+    adai::Logger::init(adai::Logger::parse_level(svc_config.log_level),  // TD-431: it used to stay at INFO
+                       {effective_log_path, svc_config.log_max_size_mb, svc_config.log_max_files}, "adai");
     adai::ignore_sighup("incremental_trainer");  // TD-283: SIGHUP used to terminate this process
     std::signal(SIGTERM, signal_handler);
     std::signal(SIGINT, signal_handler);
@@ -1019,6 +1020,9 @@ int output_usage(char* argv[]) {
     std::cout << "                               WORLD_MODEL_ENABLED=true in config.trainer.conf).\n";
     std::cout << "                               Note the \"=\" — unlike every other flag above.\n";
     std::cout << "                               Any other value is an error.\n";
+    std::cout << "  --log-file <path>            Log to this file instead of LOG_FILE_PATH (empty LOG_FILE_PATH:\n"
+                 "                               console only, or ~/.local/state/adai/log/incremental_trainer.log\n"
+                 "                               when running in the background)\n";
     std::cout << "  --dataset-kind <kind>        Overrides the dataset registry sub-pool "
                  "(encoder/decoder/\n";
     std::cout << "                               world_model/chatbot, TD-202) that would "
@@ -1269,6 +1273,11 @@ static int run_main(int argc, char* argv[]) {
 
     std::string command = args[0];
 
+    // TD-431: --log-file (what trainer_service gives each pass), else LOG_FILE_PATH. Empty means console only,
+    // or the per-user default file for a detached run (run_training_pipeline()). It used to fall back to
+    // chatbot_server.log in the working directory, the same file trainer_service wrote and rotated.
+    const std::string training_log_path = cli.log_file.value_or(svc_config.log_file_path);
+
     // TD-404: without MNS, a chatbot pass's run id (claimed-file ownership) is kept in
     // SESSION_DIR/chatbot_run_id, unique per host and stable across restarts, so a restarted pass
     // reclaims what a crashed one claimed. It used to be hostname prefix + PID, new every run and able
@@ -1340,7 +1349,7 @@ static int run_main(int argc, char* argv[]) {
         }
 
         const std::string log_path =
-            svc_config.log_file_path.empty() ? "chatbot_server.log" : svc_config.log_file_path;
+            training_log_path;  // TD-431
 
         // TD-183: --objective=lejepa reuses the pending-data check above and the same
         // run_training_pipeline() fork/background/logging wrapper, but trains the standalone
@@ -1446,7 +1455,7 @@ static int run_main(int argc, char* argv[]) {
         }
 
         const std::string log_path =
-            svc_config.log_file_path.empty() ? "chatbot_server.log" : svc_config.log_file_path;
+            training_log_path;  // TD-431
 
         return run_training_pipeline(
             argc, argv, svc_config, default_model, log_path, "Full retrain started in background",
@@ -1598,7 +1607,7 @@ static int run_main(int argc, char* argv[]) {
 
     } else if (command == "resume") {
         const std::string log_path =
-            svc_config.log_file_path.empty() ? "chatbot_server.log" : svc_config.log_file_path;
+            training_log_path;  // TD-431
 
         // TD-403: trainer_service now forwards --objective, so resume (every service pass) runs the
         // world-model pass too; it used to run chatbot training whatever the objective. One pass over

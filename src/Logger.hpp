@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-31
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-02
 
 
 #include <spdlog/sinks/basic_file_sink.h>
@@ -67,6 +67,10 @@ class Logger {
      * @param level_str Level as string: "DEBUG", "INFO", "WARN", "ERROR"
      */
     static void set_level(const std::string& level_str);
+
+    /// TD-431: DEBUG/INFO/WARN(ING)/ERROR in any case, else INFO. For passing LOG_LEVEL to init(), so
+    /// init()'s own start-up lines and the replayed deferred messages honour it too.
+    static Level parse_level(const std::string& level_str);
 
     /**
      * @brief Set logging level
@@ -141,7 +145,7 @@ class Logger {
     }
 
    private:
-    static void replay_deferred_to_file(const spdlog::sink_ptr& file_sink);
+    static void replay_deferred_to_file(const spdlog::sink_ptr& file_sink, Level min_level = Level::DEBUG);
 
     static std::shared_ptr<spdlog::logger> logger_;
     static bool configured_;  // init() was called by the binary, not lazily by get()
