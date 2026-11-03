@@ -1457,6 +1457,8 @@ The generation and model math run is complete.
   a daemon starts from all its saved settings or from its file with a warning; a store not using WAL is logged).
 - TD-308 (done in code: session counters have their own `SessionCounterStore` and `session_counters` table; an existing
   `session_counters.db` has its counters moved over when opened, so numbering continues).
+- TD-253 (done in code: `chatbot` treats end of input (Ctrl+D, piped input running out) as `/exit`, saving and exiting 0;
+  it used to print prompts forever, or re-send a last line that had no newline on every pass).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5984,7 +5986,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Client / CLI | October 8, 2026 | 1-2 hours |
+| **HIGH** | Open — code fix landed November 3, 2026 | Client / CLI | October 8, 2026 | 1-2 hours |
 
 Description:
 Found while writing the code-traced reference [ChatbotCLI.md](../reference/source/ChatbotCLI.md), and confirmed by running the real
@@ -5997,15 +5999,36 @@ also never reaches the `/exit` auto-save. The old internals doc listed Ctrl+D as
 
 Action Items:
 
-- [ ] Break out of the loop when `std::getline()` fails (`if (!std::getline(std::cin, user_input)) break;`), running the same auto-save as `/exit`.
-- [ ] Test: `chatbot < /dev/null` against a stub server exits promptly with status 0.
+- [x] Break out of the loop when `std::getline()` fails (`if (!std::getline(std::cin, user_input)) break;`), running the same auto-save as `/exit`.
+- [x] Test: `chatbot < /dev/null` against a stub server exits promptly with status 0.
 
-Location in code: `src/ChatbotCLI.cpp` (`run()`); tagged `TODO: See TD-253`.
+Location in code: `src/ChatbotCLI.cpp` (`run()`); the `TODO: See TD-253` tag is removed.
+
+**Fix (November 3, 2026):**
+- **End of input is `/exit`.** `run()` checks `std::getline()`'s result; when it fails it finishes the `You: ` line and
+  handles the input as `/exit`, so the conversation is saved (when a message was sent) and `Goodbye!` printed, and the
+  process exits 0.
+- **A second symptom, found while testing.** When the input's last line has no newline (`printf 'hello' | chatbot`),
+  the old loop didn't spin on an empty line: a failed `getline()` leaves the string unchanged, so it sent `hello` to the
+  server again on every pass. Against a stub server the old binary sent **4,322 requests in 3 seconds**, never saved, and
+  had to be killed. The fix covers it too: that line is sent once.
+- The user guide says Ctrl+D and the end of piped input end (and save) the session, and its batch example no longer
+  needs a trailing `/exit`.
+
+Tests:
+- `chatbotcliImprovedTests` gained three, each running the real `run()` against the test `ChatbotAPI` with `std::cin`
+  fed from a string. A guard on `std::cout` feeds `/exit` after 50 prompts, so the old code fails instead of hanging:
+  - empty input ends the session after one prompt without saving; the old code hit the guard;
+  - a message, a blank line and then end of input saves the conversation (2 messages); the old code hit the guard;
+  - a last line without a newline is sent once and saved; the old code re-sent it until the guard.
+- The real `chatbot` against a stub server: `< /dev/null` exits 0 at once (817 bytes of output); `printf 'hello' |`
+  sends one `/chat/session` and one `/chat/session/export` request, then exits 0.
 
 Files to Modify:
 
-- `src/ChatbotCLI.cpp`
+- `src/ChatbotCLI.{hpp,cpp}`
 - `tests/chatbotcli_improved_test.cpp`
+- `docs/operations/guides/chatbot-guide.md`
 
 ---
 

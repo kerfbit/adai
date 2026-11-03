@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 #include "../src/BPETokenizer.hpp"
@@ -471,6 +472,87 @@ TEST_F(ChatbotCLISaveLoadRoundTripTest, LostSessionStartsANewOneAndTheTurnSuccee
     EXPECT_EQ(first.rfind("Error:", 0), std::string::npos) << first;
     EXPECT_EQ(second.rfind("Error:", 0), std::string::npos) << second;
     EXPECT_NE(buffer.str().find("starting a new one"), std::string::npos) << buffer.str();
+}
+
+// TD-253: run() ends at end of input like /exit. The old loop ignored getline's failure: at EOF it
+// printed "You: " forever, or, when the last line had no newline, sent that line to the server again
+// on every pass (a failed getline leaves the string as it was). These tests feed std::cin from a
+// string; a guard on std::cout stands in for the user typing /exit after 50 prompts, so the old code
+// fails instead of hanging the test.
+namespace {
+
+class EndOfInputGuard : public std::stringbuf {
+   public:
+    explicit EndOfInputGuard(std::istringstream& in) : in_(in) {}
+    bool tripped() const { return tripped_; }
+    int prompts() const { return prompts_; }
+
+   protected:
+    std::streamsize xsputn(const char* s, std::streamsize n) override {
+        if (std::string_view(s, static_cast<size_t>(n)) == "You: " && ++prompts_ == kMaxPrompts) {
+            tripped_ = true;
+            in_.clear();
+            in_.str("/exit\n");
+            std::cin.clear();
+        }
+        return prompts_ > kMaxPrompts ? n : std::stringbuf::xsputn(s, n);  // keep the output short
+    }
+
+   private:
+    static constexpr int kMaxPrompts = 50;
+    std::istringstream& in_;
+    int prompts_ = 0;
+    bool tripped_ = false;
+};
+
+struct RunResult {
+    std::string output;
+    bool guard_tripped = false;
+    int prompts = 0;
+};
+
+RunResult run_with_input(ChatbotCLI& cli, const std::string& input) {
+    std::istringstream in(input);
+    EndOfInputGuard out(in);
+    std::streambuf* old_in = std::cin.rdbuf(in.rdbuf());
+    std::streambuf* old_out = std::cout.rdbuf(&out);
+    cli.run();
+    std::cout.rdbuf(old_out);
+    std::cin.rdbuf(old_in);
+    std::cin.clear();
+    return {out.str(), out.tripped(), out.prompts()};
+}
+
+}  // namespace
+
+TEST_F(ChatbotCLISaveLoadRoundTripTest, EmptyInputEndsTheSession) {
+    ChatbotCLI cli("http://127.0.0.1:" + std::to_string(port), conv_file);
+    const RunResult r = run_with_input(cli, "");
+    EXPECT_FALSE(r.guard_tripped) << "run() kept prompting after end of input";
+    EXPECT_EQ(r.prompts, 1);
+    EXPECT_NE(r.output.find("Goodbye"), std::string::npos) << r.output.substr(0, 2000);
+    EXPECT_EQ(r.output.find("Conversation saved to"), std::string::npos);  // no session, nothing to save
+}
+
+TEST_F(ChatbotCLISaveLoadRoundTripTest, EndOfInputSavesTheConversationLikeExit) {
+    ChatbotCLI cli("http://127.0.0.1:" + std::to_string(port), conv_file);
+    const RunResult r = run_with_input(cli, "hello world\n\n");  // a message, a blank line, then EOF
+    EXPECT_FALSE(r.guard_tripped) << "run() kept prompting after end of input";
+    EXPECT_NE(r.output.find("Conversation saved to"), std::string::npos) << r.output.substr(0, 2000);
+    EXPECT_NE(r.output.find("Goodbye"), std::string::npos);
+    ConversationContext saved;
+    ASSERT_NO_THROW(saved.load_from_file(conv_file));
+    EXPECT_EQ(saved.get_message_count(), 2);
+}
+
+// A last line without a newline is still sent before the session ends.
+TEST_F(ChatbotCLISaveLoadRoundTripTest, LastLineWithoutNewlineIsStillSent) {
+    ChatbotCLI cli("http://127.0.0.1:" + std::to_string(port), conv_file);
+    const RunResult r = run_with_input(cli, "hello world");
+    EXPECT_FALSE(r.guard_tripped) << "run() kept sending the last line";
+    EXPECT_EQ(r.prompts, 2);
+    EXPECT_NE(r.output.find("Bot:"), std::string::npos) << r.output.substr(0, 2000);
+    EXPECT_NE(r.output.find("Conversation saved to"), std::string::npos);
 }
 
 // ============================================================================

@@ -161,7 +161,7 @@ You: [your message here]
 Bot: [response]
 ```
 
-Press `Enter` to send. Type `/exit` or `/quit` to leave.
+Press `Enter` to send. Type `/exit` or `/quit`, or press Ctrl+D, to leave.
 
 ---
 
@@ -276,7 +276,8 @@ You: /system You are a helpful programming assistant
 #### `/exit` or `/quit`
 
 Exit the chatbot. `/exit` and `/quit` automatically save the conversation first (equivalent to
-running `/save`), skipped silently if no message was ever sent in the session:
+running `/save`), skipped silently if no message was ever sent in the session. End of input (Ctrl+D,
+or piped input running out) does the same:
 
 ```text
 You: /exit
@@ -573,8 +574,10 @@ Bot: [more focused, deterministic response]
 For scripted interactions, redirect input:
 
 ```bash
-echo -e "Hello\nWhat is AI?\n/exit" | ./src/chatbot
+echo -e "Hello\nWhat is AI?" | ./src/chatbot
 ```
+
+The session ends, and is saved, when the input runs out; a trailing `/exit` is no longer needed.
 
 ---
 

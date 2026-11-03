@@ -224,3 +224,15 @@ the `string_view` parsing and move-only design notes, and the file layout
 Session ids are server-issued, so the server answers 404 for one it no longer holds. On a 404, `generate_response()` prints a notice,
 drops its id and sends the message again in a new session (`post_chat_turn()`); `/load` imports into a new session, and `/clear`
 reports that there is no session on the server. Test: `LostSessionStartsANewOneAndTheTurnSucceeds`.
+
+## Addendum (November 3, 2026): end of input (TD-253)
+
+- **`run()` ends at end of input.** When `std::getline()` fails (Ctrl+D, or piped/redirected stdin running out) the loop
+  finishes the `You: ` line and handles the input as `/exit`: it saves the conversation if a message was sent, prints
+  `Goodbye!` and returns, so `chatbot` exits 0. §4's "end of input never exits" and §9's "Ctrl+D exits" note no longer
+  apply.
+- **A second symptom.** With a last line that has no newline, the old loop re-sent that line on every pass, because a
+  failed `getline()` leaves the string unchanged (4,322 requests to a stub server in 3 seconds). It is now sent once.
+- **Tests:** three `run()` tests in `chatbotcliImprovedTests` (empty input, end of input after a message, a last line
+  without a newline), each guarded so the old code fails rather than hangs.
+- **Status tag:** `@adai-version` 1.2.1 for `ChatbotCLI.{hpp,cpp}`, reviewed 2026-11-03.

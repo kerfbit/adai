@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-10-27
+// @adai-version: 1.2.1
+// @adai-reviewed: 2026-11-03
 
 #include "ChatbotCLI.hpp"
 #include <ctime>
@@ -482,9 +482,14 @@ void ChatbotCLI::run() {
     // TODO: See TD-258 in TECHNICAL_DEBT.md - no SIGINT handling: Ctrl+C exits without the /exit auto-save.
     while (running) {
         std::cout << COLOR_USER << "You: " << COLOR_RESET;
-        // TODO: See TD-253 in TECHNICAL_DEBT.md - getline's result isn't checked: at EOF it fails with an empty
-        // line, the empty-line check below continues, and this loop spins forever.
-        std::getline(std::cin, user_input);
+        // TD-253: end of input (Ctrl+D, or piped/redirected stdin running out) ends the session like
+        // /exit. getline's result used to go unchecked, so at EOF the empty line was skipped and the
+        // loop printed prompts forever (18.6 million in 3 s) without ever saving.
+        const bool at_end = !std::getline(std::cin, user_input);
+        if (at_end) {
+            std::cout << '\n';  // finish the "You: " line
+            user_input = "/exit";
+        }
 
         user_input.erase(0, user_input.find_first_not_of(" \t\n\r"));
         user_input.erase(user_input.find_last_not_of(" \t\n\r") + 1);

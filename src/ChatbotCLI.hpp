@@ -2,8 +2,8 @@
 #define CHATBOT_CLI_HPP
 
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-10-27
+// @adai-version: 1.2.1
+// @adai-reviewed: 2026-11-03
 
 
 // TODO: See TD-259 in TECHNICAL_DEBT.md - this pulls all of httplib (and the COLOR_* macros below) into
@@ -52,7 +52,8 @@ class ChatbotCLI {
     bool initialize();
 
     /**
-     * @brief Run the main chatbot loop (interactive REPL)
+     * @brief Run the main chatbot loop (interactive REPL). Returns on /exit, /quit or end of input
+     * (Ctrl+D, or piped stdin running out; TD-253), saving the conversation in each case.
      */
     void run();
 
@@ -101,7 +102,7 @@ class ChatbotCLI {
      * to the local file, rather than serializing anything held in this object directly. Prints
      * a clear message either way (success, "nothing to save yet" if no session exists, or a
      * network/file error) — called both by the explicit /save command and automatically on
-     * /exit and /quit.
+     * /exit, /quit and end of input (TD-253).
      */
     void save_conversation();
 
