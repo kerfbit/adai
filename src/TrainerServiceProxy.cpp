@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.5.1
+// @adai-version: 0.5.2
 // @adai-reviewed: 2026-11-02
 
 #include "TrainerServiceProxy.hpp"
@@ -278,8 +278,9 @@ std::string adai::TrainerServiceProxy::idle_status_json() const {
          ",\"current_epoch\":0"
          ",\"total_epochs\":0"
          ",\"samples_trained_this_pass\":0"
-         ",\"last_loss\":0"
-         ",\"best_loss\":0"
+         ",\"last_loss\":null"  // TD-520: no pass, no loss
+         ",\"best_loss\":null"
+         ",\"loss_diverged\":false"
          ",\"checkpoints_written\":0"
          ",\"last_checkpoint_path\":\"\""
          ",\"last_checkpoint_time_unix\":0}";

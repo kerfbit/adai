@@ -13,6 +13,7 @@
 
 #include "TrainerControlState.hpp"
 #include <gtest/gtest.h>
+#include <cmath>
 #include <chrono>
 #include <thread>
 
@@ -26,8 +27,9 @@ TEST(TrainerControlStateTest, DefaultsAreSaneAndIdle) {
     EXPECT_EQ(state.current_epoch.load(), 0);
     EXPECT_EQ(state.total_epochs.load(), 0);
     EXPECT_EQ(state.samples_trained_this_pass.load(), 0);
-    EXPECT_DOUBLE_EQ(state.last_loss.load(), 0.0);
-    EXPECT_DOUBLE_EQ(state.best_loss.load(), 0.0);
+    // TD-520: no loss yet is NaN (null in /admin/status), not a perfect 0.
+    EXPECT_TRUE(std::isnan(state.last_loss.load()));
+    EXPECT_TRUE(std::isnan(state.best_loss.load()));
     EXPECT_FALSE(state.paused.load());
     EXPECT_FALSE(state.checkpoint_requested.load());
     EXPECT_EQ(state.checkpoints_written.load(), 0);

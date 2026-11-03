@@ -1441,6 +1441,8 @@ The generation and model math run is complete.
   504 for a child that doesn't answer in time vs 503 for one that isn't there, and the idle config from `config.trainer.conf`).
 - TD-521 (done in code: per-pass admin API header rewritten, `wait_ms` capped at 60 s in the pass and the proxy, requested
   checkpoints numbered so only one written for the request completes it, saved overrides checked on load).
+- TD-520 (done in code: `/admin/status` sends a non-finite loss as `null` with `loss_diverged`, and both losses are `null`
+  until a pass reports one; the Android dashboard takes nullable losses).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -15985,7 +15987,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / Admin API | October 17, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 2, 2026 | Training / Admin API | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `TrainerAdminAPI.cpp`; verified. `handle_status()` streams `last_loss`/`best_loss` as raw doubles; with `last_loss = NaN` (a
@@ -15995,16 +15997,29 @@ the event an operator needs to see (the TD-443/TD-458/TD-510 class). `best_loss`
 
 Action Items:
 
-- [ ] Emit non-finite losses as `null` (or a string), and `best_loss` as `null` until a validation loss exists.
-- [ ] Test with NaN and infinity.
+- [x] Emit non-finite losses as `null` (or a string), and `best_loss` as `null` until a validation loss exists.
+- [x] Test with NaN and infinity.
 
-Location in code: `src/TrainerAdminAPI.cpp` (`handle_status()`); tagged `TODO: See TD-520`.
+Location in code: `src/TrainerAdminAPI.cpp` (`handle_status()`); the `TODO: See TD-520` tag is removed.
+
+**Fix (November 2, 2026):** `handle_status()` sends a non-finite `last_loss`/`best_loss` as `null` and adds `loss_diverged`, true when the
+pass has trained samples and its last loss isn't finite, so a diverged pass is told apart from one that hasn't reported a loss yet.
+`TrainerControlState::last_loss`/`best_loss` start as NaN (no loss yet), so `best_loss` is `null` until a validation loss exists
+instead of a perfect-looking 0. The LeJEPA pass only takes a finite epoch average as its best loss. `TrainerServiceProxy`'s idle
+status sends `null` losses and `loss_diverged: false`. Finite losses are written with 17 significant digits. The Android ops
+dashboard's `TrainerStatusDto` takes nullable losses and `loss_diverged` (the old non-null `Double` would have rejected `null`), and
+the Trainer screen shows "(none yet)" or "diverged (NaN/inf)". Tests: `trainerAdminApiTests` parses the status strictly with
+NaN, +inf and -inf losses and before any loss, `trainerServiceProxyTests` does the same for the idle body and a diverged child
+proxied through, `trainerControlStateTests` checks the NaN defaults, and the dashboard's `TrainerStatusDtoTest` decodes `null`,
+diverged and older numeric bodies. The first three fail on the old code.
 
 Files to Modify:
 
 - `src/TrainerAdminAPI.cpp`
 - `src/TrainerControlState.hpp`
 - `tests/trainer_admin_api_test.cpp`
+- `src/TrainerServiceProxy.cpp`, `src/IncrementalTrainingTool.cpp`, `tests/trainer_service_proxy_test.cpp`, `tests/trainer_control_state_test.cpp`
+- `android/opsdashboard/.../TrainerDtos.kt`, `TrainerScreen.kt`, `TrainerStatusDtoTest.kt`
 
 ---
 

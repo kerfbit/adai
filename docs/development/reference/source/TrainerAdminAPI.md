@@ -115,3 +115,10 @@ requests with `take_checkpoint_request()` and calls `mark_checkpoint_served()` o
 `start()` applies saved `daemon_config.db` settings through `parse_trainer_admin_overrides()`, the `PUT` checks per key; an
 invalid value is logged ("Ignoring invalid saved admin setting …") and the seeded config value kept.
 
+
+## Addendum (November 2, 2026): valid status JSON for non-finite losses (TD-520)
+
+`handle_status()` writes a non-finite `last_loss` or `best_loss` as `null` instead of a raw `nan`/`inf`, which made the whole body
+invalid JSON while a pass diverged. A new `loss_diverged` field is true when the pass has trained samples and its last loss isn't
+finite. Both losses are `null` until the pass reports one, since `TrainerControlState` now starts them at NaN, so `best_loss` no
+longer reads as a perfect 0 before validation. Finite losses are written with 17 significant digits.

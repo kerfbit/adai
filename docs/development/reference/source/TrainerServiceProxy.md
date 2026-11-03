@@ -128,3 +128,8 @@ accept is logged. During a pass `paused` is still the child's flag; `supervisor_
 `TrainerAdminAPI` enforces. The idle `GET /admin/config` reads saved settings through `parse_trainer_admin_overrides()`, so
 a value that `PUT` would reject is skipped with a warning and the `config.trainer.conf` value is reported.
 
+
+## Addendum (November 2, 2026): idle status losses (TD-520)
+
+The idle `/admin/status` body sends `"last_loss":null,"best_loss":null,"loss_diverged":false` (it used to send zeros). A child's status
+is still relayed unchanged, and the child now writes a non-finite loss as `null`, so a diverged pass's status is valid JSON through the proxy too.

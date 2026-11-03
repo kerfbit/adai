@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-11-02
 
 
@@ -11,6 +11,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -134,8 +135,10 @@ class TrainerControlState {
     std::atomic<int> current_epoch{0};
     std::atomic<int> total_epochs{0};
     std::atomic<long long> samples_trained_this_pass{0};
-    std::atomic<double> last_loss{0.0};
-    std::atomic<double> best_loss{0.0};
+    // TD-520: NaN until the pass reports a loss (GET /admin/status sends null), so an unset best_loss
+    // no longer reads as a perfect 0. A non-finite last_loss after a sample means the pass diverged.
+    std::atomic<double> last_loss{std::numeric_limits<double>::quiet_NaN()};
+    std::atomic<double> best_loss{std::numeric_limits<double>::quiet_NaN()};
 
     // ---- Action flags (admin writes; training-pass/supervisor consume) ----
     std::atomic<bool> paused{false};

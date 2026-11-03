@@ -1153,8 +1153,9 @@ if(HTTPLIB_INCLUDE_DIR)
         trainer_admin_api_test.cpp
         ../src/TrainerAdminAPI.cpp
     )
+    # nlohmann/json (vendored): /admin/status is parsed strictly (TD-520).
     target_include_directories(trainerAdminApiTests PRIVATE ${CMAKE_SOURCE_DIR}/src
-        ${HTTPLIB_INCLUDE_DIR})
+        ${HTTPLIB_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/external)
     target_link_libraries(trainerAdminApiTests
         adai_core
         spdlog::spdlog
@@ -1176,8 +1177,9 @@ if(HTTPLIB_INCLUDE_DIR)
         ../src/TrainerServiceProxy.cpp
         ../src/TrainerAdminAPI.cpp
     )
+    # nlohmann/json (vendored): /admin/status is parsed strictly (TD-520).
     target_include_directories(trainerServiceProxyTests PRIVATE ${CMAKE_SOURCE_DIR}/src
-        ${HTTPLIB_INCLUDE_DIR})
+        ${HTTPLIB_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/external)
     target_link_libraries(trainerServiceProxyTests
         adai_core
         spdlog::spdlog

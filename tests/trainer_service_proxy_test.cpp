@@ -21,10 +21,12 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <thread>
 #include <tuple>
 #include <utility>
+#include <nlohmann/json.hpp>
 #include "TrainerAdminAPI.hpp"
 #include "TrainerControlState.hpp"
 #include "TrainerServiceControlState.hpp"
@@ -528,6 +530,46 @@ TEST_F(TrainerServiceProxyTest, IdleStatusReflectsRealPausedState) {
 
     proxy->stop();
     thr.join();
+}
+
+// TD-520: the idle body and a proxied child body with a NaN loss are both valid JSON.
+TEST_F(TrainerServiceProxyTest, StatusIsValidJsonIdleAndWithADivergedChild) {
+    auto proxy = make_proxy();
+    ServerThread proxy_thread(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, proxy_thread));
+    httplib::Client client("127.0.0.1", proxy_port);
+    {
+        auto res = client.Get("/admin/status");
+        ASSERT_TRUE(res);
+        nlohmann::json j;
+        ASSERT_NO_THROW(j = nlohmann::json::parse(res->body)) << res->body;
+        EXPECT_TRUE(j["last_loss"].is_null());
+        EXPECT_TRUE(j["best_loss"].is_null());
+        EXPECT_FALSE(j["loss_diverged"].get<bool>());
+    }
+
+    auto child_control = std::make_shared<TrainerControlState>();
+    child_control->samples_trained_this_pass = 5;
+    child_control->last_loss = std::numeric_limits<double>::quiet_NaN();
+    auto child_api = std::make_unique<TrainerAdminAPI>(child_control, "127.0.0.1", child_port,
+                                                        (test_dir / "child").string());
+    ServerThread child_thread(*child_api);
+    ASSERT_TRUE(wait_until_reachable(child_port, child_thread));
+    proxy->set_child_port(child_port);
+    {
+        auto res = client.Get("/admin/status");
+        ASSERT_TRUE(res);
+        nlohmann::json j;
+        ASSERT_NO_THROW(j = nlohmann::json::parse(res->body)) << res->body;
+        EXPECT_TRUE(j["last_loss"].is_null());
+        EXPECT_TRUE(j["loss_diverged"].get<bool>());
+        EXPECT_TRUE(j.contains("supervisor_paused"));
+    }
+
+    proxy->stop();
+    proxy_thread.join();
+    child_api->stop();
+    child_thread.join();
 }
 
 TEST_F(TrainerServiceProxyTest, PauseAlsoProxiesToALiveChildForPromptDraining) {

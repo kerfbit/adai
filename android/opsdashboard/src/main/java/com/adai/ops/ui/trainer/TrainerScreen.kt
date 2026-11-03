@@ -1,8 +1,8 @@
 package com.adai.ops.ui.trainer
 
 // @adai-status: beta        (TD-048 — TrainerScreenConfirmActionTest.kt now covers the control-action ConfirmActionDialog flow (Pause, representative of Checkpoint/Resume/config-field edits); real-device run still unverified, see below)
-// @adai-version: 0.3.0
-// @adai-reviewed: 2026-09-13
+// @adai-version: 0.3.1
+// @adai-reviewed: 2026-11-02
 
 
 import androidx.compose.foundation.background
@@ -218,8 +218,11 @@ private fun StatusSection(status: TrainerStatusDto?, error: String?) {
         DetailRow("Session ID", status.session_id.ifEmpty { "(none)" })
         DetailRow("Epoch", "${status.current_epoch} / ${status.total_epochs}")
         DetailRow("Samples trained (this pass)", status.samples_trained_this_pass.toString())
-        DetailRow("Last loss", status.last_loss.toString())
-        DetailRow("Best loss", status.best_loss.toString())
+        DetailRow(
+            "Last loss",
+            status.last_loss?.toString() ?: if (status.loss_diverged) "diverged (NaN/inf)" else "(none yet)",
+        )
+        DetailRow("Best loss", status.best_loss?.toString() ?: "(none yet)")
         DetailRow("Checkpoints written", status.checkpoints_written.toString())
         DetailRow("Last checkpoint", status.last_checkpoint_path.ifEmpty { "(none)" })
         if (status.last_checkpoint_time_unix > 0) {

@@ -1,8 +1,8 @@
 package com.adai.ops.network.dto
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-11-02
 
 
 import kotlinx.serialization.Serializable
@@ -46,8 +46,11 @@ data class TrainerStatusDto(
     val current_epoch: Int = 0,
     val total_epochs: Int = 0,
     val samples_trained_this_pass: Long = 0,
-    val last_loss: Double = 0.0,
-    val best_loss: Double = 0.0,
+    // TD-520: null until the pass reports a loss, and for a non-finite (NaN/inf) loss;
+    // loss_diverged is true for the latter.
+    val last_loss: Double? = null,
+    val best_loss: Double? = null,
+    val loss_diverged: Boolean = false,
     val checkpoints_written: Long = 0,
     val last_checkpoint_path: String = "",
     val last_checkpoint_time_unix: Long = 0,

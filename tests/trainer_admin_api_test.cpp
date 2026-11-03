@@ -23,6 +23,8 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <limits>
+#include <nlohmann/json.hpp>
 #include <thread>
 #include "DaemonConfigStore.hpp"
 #include "TrainerControlState.hpp"
@@ -364,6 +366,69 @@ TEST_F(TrainerAdminAPITest, StatusReflectsControlState) {
     EXPECT_NE(res->body.find("\"run_id\":\"run-02\""), std::string::npos);
     EXPECT_NE(res->body.find("\"model_name\":\"ambitious-aardvark\""), std::string::npos);
     EXPECT_NE(res->body.find("\"paused\":false"), std::string::npos);
+
+    api->stop();
+    thr.join();
+}
+
+// TD-520: a diverged pass's NaN/inf loss used to be streamed as `nan`/`inf`, which made the whole
+// status invalid JSON exactly when an operator needed it.
+TEST_F(TrainerAdminAPITest, StatusIsValidJsonWhenTheLossIsNotFinite) {
+    control->phase = TrainerPhase::Training;
+    control->samples_trained_this_pass = 10;
+    control->best_loss = 0.5;
+
+    auto api = make_api();
+    AdminThread thr;
+    ASSERT_TRUE(start_admin_api(*api, port, thr));
+    httplib::Client client("127.0.0.1", port);
+
+    for (const double bad : {std::numeric_limits<double>::quiet_NaN(),
+                             std::numeric_limits<double>::infinity(),
+                             -std::numeric_limits<double>::infinity()}) {
+        control->last_loss = bad;
+        auto res = client.Get("/admin/status");
+        ASSERT_TRUE(res);
+        EXPECT_EQ(res->status, 200);
+        nlohmann::json j;
+        ASSERT_NO_THROW(j = nlohmann::json::parse(res->body)) << res->body;
+        EXPECT_TRUE(j["last_loss"].is_null()) << res->body;
+        EXPECT_TRUE(j["loss_diverged"].get<bool>());
+        EXPECT_DOUBLE_EQ(j["best_loss"].get<double>(), 0.5);
+        EXPECT_EQ(j["phase"], "training");
+    }
+
+    api->stop();
+    thr.join();
+}
+
+TEST_F(TrainerAdminAPITest, StatusLossesAreNullUntilAPassReportsOne) {
+    auto api = make_api();
+    AdminThread thr;
+    ASSERT_TRUE(start_admin_api(*api, port, thr));
+    httplib::Client client("127.0.0.1", port);
+
+    {
+        auto res = client.Get("/admin/status");
+        ASSERT_TRUE(res);
+        const auto j = nlohmann::json::parse(res->body);
+        EXPECT_TRUE(j["last_loss"].is_null());
+        EXPECT_TRUE(j["best_loss"].is_null()) << "an unset best loss must not read as a perfect 0";
+        EXPECT_FALSE(j["loss_diverged"].get<bool>());
+    }
+
+    // Finite losses come through exactly.
+    control->samples_trained_this_pass = 3;
+    control->last_loss = 0.1234567890123;
+    control->best_loss = 1e-7;
+    {
+        auto res = client.Get("/admin/status");
+        ASSERT_TRUE(res);
+        const auto j = nlohmann::json::parse(res->body);
+        EXPECT_DOUBLE_EQ(j["last_loss"].get<double>(), 0.1234567890123);
+        EXPECT_DOUBLE_EQ(j["best_loss"].get<double>(), 1e-7);
+        EXPECT_FALSE(j["loss_diverged"].get<bool>());
+    }
 
     api->stop();
     thr.join();

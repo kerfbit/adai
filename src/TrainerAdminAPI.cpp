@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
+// @adai-version: 1.4.0
 // @adai-reviewed: 2026-11-02
 
 #include "TrainerAdminAPI.hpp"
@@ -7,6 +7,7 @@
 #include "BrowserWriteGuard.hpp"
 #include "HttpListenSocket.hpp"
 #include <charconv>
+#include <cmath>
 #include <chrono>
 #include <filesystem>
 #include <sstream>
@@ -256,6 +257,17 @@ std::pair<int, std::string> adai::TrainerAdminAPI::handle_put_config(const std::
 }
 
 std::pair<int, std::string> adai::TrainerAdminAPI::handle_status() {
+    // TD-520: a non-finite loss is null (a raw nan/inf is invalid JSON and lost the whole status), and
+    // loss_diverged tells a diverged pass apart from one that hasn't reported a loss yet.
+    const auto number_or_null = [](double v) {
+        std::ostringstream n;
+        n.precision(17);
+        if (std::isfinite(v)) n << v; else n << "null";
+        return n.str();
+    };
+    const double last_loss = control_->last_loss.load();
+    const bool loss_diverged =
+        control_->samples_trained_this_pass.load() > 0 && !std::isfinite(last_loss);
     std::ostringstream j;
     j << "{\"phase\":\"" << to_string(control_->phase.load()) << "\""
       << ",\"paused\":" << (control_->paused.load() ? "true" : "false")
@@ -265,9 +277,9 @@ std::pair<int, std::string> adai::TrainerAdminAPI::handle_status() {
       << ",\"current_epoch\":" << control_->current_epoch.load()
       << ",\"total_epochs\":" << control_->total_epochs.load()
       << ",\"samples_trained_this_pass\":" << control_->samples_trained_this_pass.load()
-      // TODO: See TD-520 in TECHNICAL_DEBT.md - NaN is streamed as `nan` (invalid JSON); best_loss starts at 0.
-      << ",\"last_loss\":" << control_->last_loss.load()
-      << ",\"best_loss\":" << control_->best_loss.load()
+      << ",\"last_loss\":" << number_or_null(last_loss)
+      << ",\"best_loss\":" << number_or_null(control_->best_loss.load())
+      << ",\"loss_diverged\":" << (loss_diverged ? "true" : "false")
       << ",\"checkpoints_written\":" << control_->checkpoints_written.load()
       << ",\"last_checkpoint_path\":\"" << json_escape(control_->get_last_checkpoint_path()) << "\""
       << ",\"last_checkpoint_time_unix\":" << control_->last_checkpoint_time_unix.load() << "}";

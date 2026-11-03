@@ -78,3 +78,9 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 `std::atomic<int> stop_signal` (0 by default) records the SIGTERM/SIGINT that asked the pass to stop.
 `incremental_trainer`'s signal handler sets it together with `paused`, so the pass drains exactly as for
 `/admin/pause`; only the log message differs.
+
+
+## Addendum (November 2, 2026): losses start as NaN (TD-520)
+
+`last_loss` and `best_loss` start as NaN, meaning no loss has been reported yet; `GET /admin/status` sends them as `null`.
+`best_loss` used to start at 0, which read as a perfect loss until validation ran. The LeJEPA pass only stores a finite epoch average as `best_loss`.

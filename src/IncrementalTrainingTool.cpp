@@ -1,10 +1,11 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.33.0
+// @adai-version: 0.33.1
 // @adai-reviewed: 2026-11-02
 
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <csignal>
 #include <ctime>
 #include <filesystem>
@@ -765,7 +766,9 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
             control->current_epoch = epoch + 1;
             if (epoch_step_count > 0) {
                 const double avg = epoch_predictor_sum / static_cast<double>(epoch_step_count);
-                if (epoch == 0 || avg < control->best_loss.load()) control->best_loss = avg;
+                // TD-520: best_loss starts NaN; only a finite average can become it.
+                const double best = control->best_loss.load();
+                if (std::isfinite(avg) && (!std::isfinite(best) || avg < best)) control->best_loss = avg;
             }
         }
         if (metrics_client && epoch_step_count > 0) {
