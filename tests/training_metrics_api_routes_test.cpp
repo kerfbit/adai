@@ -988,6 +988,50 @@ TEST_F(TrainingMetricsAPIRoutesTest, RetentionSettingsAreAdminMutable) {
     EXPECT_EQ(cfg.metrics_file_backups, 1);
 }
 
+// TD-306: PUT /admin/config checks every value against metrics_admin_int_settings() before applying
+// any of them. A negative max_live_sessions used to become a huge size_t (no cap), and a bad key next
+// to good ones still let the good ones apply.
+TEST_F(TrainingMetricsAPIRoutesTest, AdminConfigRejectsOutOfRangeValuesAndAppliesNothing) {
+    auto client = make_client();
+    const auto before = registry_->base_metrics_config();
+    const auto live_before = registry_->max_live_sessions();
+    for (const char* body :
+         {R"({"max_live_sessions": -1})", R"({"max_live_sessions": 0})", R"({"staleness_threshold_seconds": 0})",
+          R"({"max_records_in_memory": 0})", R"({"retention_days": -3})", R"({"persist_every_samples": "100"})",
+          R"({"metrics_file_backups": 1.5})", R"({"completed_ttl_seconds": 3000000000})",
+          R"({"enable_prometheus": "yes"})", R"({"retention_days": 7, "max_live_sessions": -1})"}) {
+        auto res = client.Put("/admin/config", body, "application/json");
+        ASSERT_TRUE(res);
+        EXPECT_EQ(res->status, 400) << body << " -> " << res->body;
+        EXPECT_FALSE(nlohmann::json::parse(res->body, nullptr, false).is_discarded()) << res->body;
+    }
+    EXPECT_EQ(registry_->max_live_sessions(), live_before);
+    EXPECT_EQ(registry_->base_metrics_config().retention_days, before.retention_days)
+        << "the valid key in a rejected body must not apply";
+
+    auto res = client.Put("/admin/config", R"({"max_live_sessions": -1})", "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_NE(res->body.find("'max_live_sessions' must be a whole number >= 1"), std::string::npos) << res->body;
+
+    res = client.Put("/admin/config", "not json", "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(TrainingMetricsAPIRoutesTest, AdminConfigAcceptsBoundaryValuesInAnyJsonSpacing) {
+    auto client = make_client();
+    auto res = client.Put("/admin/config",
+                          R"({ "max_live_sessions" : 1, "sweep_interval_seconds" : 0, "retention_days" : 0,
+                               "enable_prometheus" : true })",
+                          "application/json");
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200) << res->body;
+    EXPECT_EQ(registry_->max_live_sessions(), 1u);
+    EXPECT_EQ(registry_->sweep_interval_seconds(), 0);
+    EXPECT_EQ(registry_->base_metrics_config().retention_days, 0);
+    EXPECT_TRUE(registry_->base_metrics_config().enable_prometheus_format);
+}
+
 // TD-379: BLEU-1/BLEU-2 travel from the push client through the API into the DB row. They used to
 // be dropped on the way, so the bleu1/bleu2 columns always held -1.
 TEST_F(TrainingMetricsAPIDbRoutesTest, PushedBleu1AndBleu2AreStored) {

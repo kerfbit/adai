@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.25.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 0.25.1
+// @adai-reviewed: 2026-11-03
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) draws from a CSPRNG
@@ -301,11 +301,6 @@ static int json_int(const std::string& body, const std::string& key, int def = 0
 static bool json_bool(const std::string& body, const std::string& key, bool def = false) {
     const auto* v = json_field(body, key);
     return (v && v->is_boolean()) ? v->get<bool>() : def;
-}
-
-// Presence check — distinguishes "key not sent" from "sent with its zero/default value".
-static bool json_has_key(const std::string& body, const std::string& key) {
-    return json_field(body, key) != nullptr;
 }
 
 // The string elements of an array (non-string elements are skipped).
@@ -1944,44 +1939,23 @@ static void handle_admin_put_config(const httplib::Request& req, httplib::Respon
         return;
     }
 
-    static const char* kImmutableKeys[] = {
-        "port",         "data_dir",   "ftp_server_port", "ftp_pasv_port_min",
-        "ftp_pasv_port_max", "ftps_enabled", "ftp_cert_file",    "ftp_key_file"};
-    for (const auto* key : kImmutableKeys) {
-        if (json_has_key(req.body, key)) {
-            res.status = 400;
-            res.set_content(std::string("{\"error\":\"'") + key +
-                                "' is immutable at runtime; set it via config.registry.conf or "
-                                "the matching --flag and restart\"}",
-                            "application/json");
-            return;
-        }
+    // TD-306: the whole body is checked first (immutable keys, ranges); nothing is applied if any
+    // of it is wrong. Values used to be applied and persisted unchecked.
+    const auto update = adai::parse_registry_admin_config(req.body);
+    if (!update.error.empty()) {
+        res.status = 400;
+        res.set_content(nlohmann::json{{"error", update.error}}.dump(), "application/json");
+        return;
     }
-
-    bool changed = false;
-
-    if (json_has_key(req.body, "ftp_token_ttl_minutes")) {
-        // TODO: See TD-306 in TECHNICAL_DEBT.md - no range check (negative values accepted and persisted)
-        ftp_token_ttl_min.store(json_int(req.body, "ftp_token_ttl_minutes", ftp_token_ttl_min));
-        changed = true;
-    }
+    if (update.ftp_token_ttl_minutes)
+        ftp_token_ttl_min.store(*update.ftp_token_ttl_minutes);
     // ftp_max_sessions_per_run is recorded for next restart but does not affect
     // the already-constructed FtpDataServer instance — see the comment on
     // ftp_max_sessions's declaration.
     bool max_sessions_applied_live = true;
-    if (json_has_key(req.body, "ftp_max_sessions_per_run")) {
-        ftp_max_sessions = json_int(req.body, "ftp_max_sessions_per_run", ftp_max_sessions);
+    if (update.ftp_max_sessions_per_run) {
+        ftp_max_sessions = *update.ftp_max_sessions_per_run;
         max_sessions_applied_live = !ftp_enabled;  // only "live" if there's no running instance
-        changed = true;
-    }
-
-    if (!changed) {
-        res.status = 400;
-        res.set_content(
-            "{\"error\":\"no recognized mutable keys in body (ftp_token_ttl_minutes, "
-            "ftp_max_sessions_per_run)\"}",
-            "application/json");
-        return;
     }
 
     if (g_config_store) {

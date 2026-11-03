@@ -915,7 +915,8 @@ add_executable(registryServerArgsTests registry_server_args_test.cpp
     ${CMAKE_SOURCE_DIR}/src/RegistryServerArgs.cpp
     ${CMAKE_SOURCE_DIR}/src/Config.cpp  # TD-488: the strict number/boolean parsers
     ${CMAKE_SOURCE_DIR}/src/Logger.cpp)
-target_include_directories(registryServerArgsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# TD-306: parse_registry_admin_config() uses the vendored nlohmann/json.
+target_include_directories(registryServerArgsTests PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/external)
 target_link_libraries(registryServerArgsTests
     spdlog::spdlog
     GTest::gtest_main

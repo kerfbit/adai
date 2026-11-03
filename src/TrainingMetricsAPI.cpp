@@ -1,9 +1,10 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.15.2
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.16.0
+// @adai-reviewed: 2026-11-03
 
 #include "TrainingMetricsAPI.hpp"
 #include "BrowserWriteGuard.hpp"
+#include "Config.hpp"
 #include "HttpListenSocket.hpp"
 #include "PortableTime.hpp"
 #include "nlohmann/json.hpp"
@@ -15,6 +16,7 @@
 #include <thread>
 #include <iomanip>
 #include <limits>
+#include <map>
 #include <optional>
 #include <sstream>
 #include <utility>
@@ -1861,39 +1863,6 @@ std::string TrainingMetricsAPI::handle_health_check() {
     return json.str();
 }
 
-namespace {
-
-bool json_has_key(const std::string& body, const std::string& key) {
-    return body.find("\"" + key + "\"") != std::string::npos;
-}
-
-std::optional<long long> json_int_value(const std::string& body, const std::string& key) {
-    const std::string needle = "\"" + key + "\":";
-    const auto pos = body.find(needle);
-    if (pos == std::string::npos)
-        return std::nullopt;
-    try {
-        return std::stoll(body.substr(pos + needle.size()));
-    } catch (...) {
-        return std::nullopt;
-    }
-}
-
-std::optional<bool> json_bool_value(const std::string& body, const std::string& key) {
-    const std::string needle = "\"" + key + "\":";
-    const auto pos = body.find(needle);
-    if (pos == std::string::npos)
-        return std::nullopt;
-    const auto start = pos + needle.size();
-    if (body.compare(start, 4, "true") == 0)
-        return true;
-    if (body.compare(start, 5, "false") == 0)
-        return false;
-    return std::nullopt;
-}
-
-}  // namespace
-
 std::string TrainingMetricsAPI::handle_admin_get_config() {
     const auto cfg = session_registry_->base_metrics_config();
     std::ostringstream j;
@@ -1914,11 +1883,19 @@ std::string TrainingMetricsAPI::handle_admin_get_config() {
 }
 
 std::pair<int, std::string> TrainingMetricsAPI::handle_admin_put_config(const std::string& body) {
+    // TD-306: the body is parsed with nlohmann/json and every value is checked against
+    // metrics_admin_int_settings() before anything is applied. Values used to be applied unchecked
+    // (a negative max_live_sessions became a huge size_t, removing the cap), and a key written as
+    // `"key" : 5` or with a non-number value was skipped silently.
+    const auto j = nlohmann::json::parse(body, nullptr, /*allow_exceptions=*/false);
+    if (j.is_discarded() || !j.is_object()) {
+        return {400, R"({"error":"body must be a JSON object"})"};
+    }
     static const char* kImmutableKeys[] = {"port",       "storage_backend", "db_path",
                                            "db_url",     "db_pool_size",    "metrics_file",
                                            "summary_file", "prometheus_file", "allow_control"};
     for (const auto* key : kImmutableKeys) {
-        if (json_has_key(body, key)) {
+        if (j.contains(key)) {
             return {400,
                     std::string("{\"error\":\"'") + key +
                         "' is immutable at runtime; set it via config.metrics.conf or the "
@@ -1926,78 +1903,27 @@ std::pair<int, std::string> TrainingMetricsAPI::handle_admin_put_config(const st
         }
     }
 
-    bool changed = false;
-
-    // TODO: See TD-306 in TECHNICAL_DEBT.md - no range checks on these tunables (negative max_live_sessions becomes a huge size_t)
-    if (auto v = json_int_value(body, "max_live_sessions")) {
-        session_registry_->set_max_live_sessions(static_cast<size_t>(*v));
-        changed = true;
+    std::map<std::string, int> ints;
+    for (const auto& s : adai::metrics_admin_int_settings()) {
+        const auto it = j.find(s.key);
+        if (it == j.end()) continue;
+        const bool in_range = it->is_number_integer() && it->get<long long>() >= s.min &&
+                              it->get<long long>() <= s.max;
+        if (!in_range) {
+            return {400, nlohmann::json{{"error", std::string("'") + s.key + "' must be " +
+                                                      adai::admin_int_range_text(s)}}
+                             .dump()};
+        }
+        ints[s.key] = static_cast<int>(it->get<long long>());
     }
-    if (auto v = json_int_value(body, "completed_ttl_seconds")) {
-        session_registry_->set_completed_ttl_seconds(static_cast<int>(*v));
-        changed = true;
+    std::optional<bool> prometheus;
+    if (const auto it = j.find("enable_prometheus"); it != j.end()) {
+        if (!it->is_boolean()) {
+            return {400, R"({"error":"'enable_prometheus' must be true or false"})"};
+        }
+        prometheus = it->get<bool>();
     }
-    if (auto v = json_int_value(body, "sweep_interval_seconds")) {
-        session_registry_->set_sweep_interval_seconds(static_cast<int>(*v));
-        changed = true;
-    }
-    if (auto v = json_int_value(body, "persist_every_samples")) {
-        const int n = static_cast<int>(*v);
-        session_registry_->update_metrics_config(
-            [n](MetricsServiceConfig& c) { c.persist_every_samples = n; });
-        changed = true;
-    }
-    if (auto v = json_int_value(body, "persist_every_seconds")) {
-        const int n = static_cast<int>(*v);
-        session_registry_->update_metrics_config(
-            [n](MetricsServiceConfig& c) { c.persist_every_seconds = n; });
-        changed = true;
-    }
-    if (auto v = json_int_value(body, "max_records_in_memory")) {
-        const int n = static_cast<int>(*v);
-        session_registry_->update_metrics_config(
-            [n](MetricsServiceConfig& c) { c.max_records_in_memory = n; });
-        changed = true;
-    }
-    if (auto v = json_int_value(body, "max_records_on_disk")) {
-        const int n = static_cast<int>(*v);
-        session_registry_->update_metrics_config(
-            [n](MetricsServiceConfig& c) { c.max_records_on_disk = n; });
-        changed = true;
-    }
-    // TD-440: retention settings, applied to future persists and the next retention sweep.
-    if (auto v = json_int_value(body, "retention_days")) {
-        const int n = static_cast<int>(*v);
-        session_registry_->update_metrics_config(
-            [n](MetricsServiceConfig& c) { c.retention_days = n; });
-        changed = true;
-    }
-    if (auto v = json_int_value(body, "metrics_file_max_mb")) {
-        const int n = static_cast<int>(*v);
-        session_registry_->update_metrics_config(
-            [n](MetricsServiceConfig& c) { c.metrics_file_max_mb = n; });
-        changed = true;
-    }
-    if (auto v = json_int_value(body, "metrics_file_backups")) {
-        const int n = static_cast<int>(*v);
-        session_registry_->update_metrics_config(
-            [n](MetricsServiceConfig& c) { c.metrics_file_backups = n; });
-        changed = true;
-    }
-    if (auto v = json_bool_value(body, "enable_prometheus")) {
-        const bool b = *v;
-        session_registry_->update_metrics_config(
-            [b](MetricsServiceConfig& c) { c.enable_prometheus_format = b; });
-        changed = true;
-    }
-    if (auto v = json_int_value(body, "staleness_threshold_seconds")) {
-        const int n = static_cast<int>(*v);
-        session_registry_->update_metrics_config(
-            [n](MetricsServiceConfig& c) { c.staleness_threshold_seconds = n; });
-        changed = true;
-    }
-
-    if (!changed) {
+    if (ints.empty() && !prometheus) {
         return {400,
                 "{\"error\":\"no recognized mutable keys in body (max_live_sessions, "
                 "completed_ttl_seconds, sweep_interval_seconds, persist_every_samples, "
@@ -2005,6 +1931,27 @@ std::pair<int, std::string> TrainingMetricsAPI::handle_admin_put_config(const st
                 "retention_days, metrics_file_max_mb, metrics_file_backups, "
                 "enable_prometheus, staleness_threshold_seconds)\"}"};
     }
+
+    // Everything is valid; apply it.
+    const auto get = [&ints](const char* key) -> std::optional<int> {
+        const auto it = ints.find(key);
+        return it == ints.end() ? std::nullopt : std::optional<int>(it->second);
+    };
+    if (auto v = get("max_live_sessions")) session_registry_->set_max_live_sessions(static_cast<size_t>(*v));
+    if (auto v = get("completed_ttl_seconds")) session_registry_->set_completed_ttl_seconds(*v);
+    if (auto v = get("sweep_interval_seconds")) session_registry_->set_sweep_interval_seconds(*v);
+    session_registry_->update_metrics_config([&](MetricsServiceConfig& c) {
+        if (auto v = get("persist_every_samples")) c.persist_every_samples = *v;
+        if (auto v = get("persist_every_seconds")) c.persist_every_seconds = *v;
+        if (auto v = get("max_records_in_memory")) c.max_records_in_memory = *v;
+        if (auto v = get("max_records_on_disk")) c.max_records_on_disk = *v;
+        // TD-440: retention settings, applied to future persists and the next retention sweep.
+        if (auto v = get("retention_days")) c.retention_days = *v;
+        if (auto v = get("metrics_file_max_mb")) c.metrics_file_max_mb = *v;
+        if (auto v = get("metrics_file_backups")) c.metrics_file_backups = *v;
+        if (prometheus) c.enable_prometheus_format = *prometheus;
+        if (auto v = get("staleness_threshold_seconds")) c.staleness_threshold_seconds = *v;
+    });
 
     if (config_store_) {
         const auto cfg = session_registry_->base_metrics_config();

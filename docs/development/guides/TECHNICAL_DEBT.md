@@ -1447,6 +1447,8 @@ The generation and model math run is complete.
   is removed; the log ring follows the logger level, caps messages at 4 KiB and serves `?limit=`; an exception resets the phase).
 - TD-439 (done in code: `metrics_api_server` refuses an unknown storage backend and a postgres one in a build without it, keeps
   `daemon_config.db` beside the final `--db-path`, and warns when a flag replaces a saved admin setting).
+- TD-306 (done in code: `registry_server`'s and `metrics_api_server`'s `PUT /admin/config` check every value against one range
+  table per daemon, shared with the saved overrides and flags, before applying any; a bad body gets 400 and changes nothing).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -7870,7 +7872,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Admin config API | October 11, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 3, 2026 | Admin config API | October 11, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-304, by inspection. `registry_server`'s `PUT /admin/config` accepts any integer
@@ -7881,14 +7883,39 @@ ranges.
 
 Action Items:
 
-- [ ] Add range checks matching each setting's meaning and return 400 for out-of-range values (validating all keys first, per TD-305).
+- [x] Add range checks matching each setting's meaning and return 400 for out-of-range values (validating all keys first, per TD-305).
 
-Location in code: `src/RegistryServer.cpp` (admin PUT handler), `src/TrainingMetricsAPI.cpp` (admin PUT handler); tagged `TODO: See TD-306`.
+Location in code: `src/RegistryServer.cpp` (admin PUT handler), `src/TrainingMetricsAPI.cpp` (admin PUT handler); the `TODO: See TD-306` tags are removed.
+
+**Fix (November 3, 2026):**
+- **One range table per daemon.** `Config.hpp` has `metrics_admin_int_settings()` (11 settings) and
+  `registry_admin_int_settings()` (2), with minimums matching `ConfigLoader::validate()`: TTL, live sessions, memory records
+  and the staleness threshold at least 1, the rest at least 0 (0 meaning off or no limit), all at most `INT_MAX`. The PUT
+  handlers, the saved-override loaders and `metrics_api_server`'s flags all read them, so the three can't drift.
+- **Whole body first.** Both handlers parse the body with nlohmann/json and check every key before applying any. A value
+  that isn't a whole number in range, a non-boolean `enable_prometheus`, an immutable key, a body that isn't a JSON object,
+  or no recognized key gets 400 naming the key and its range (`'max_live_sessions' must be a whole number >= 1`), and nothing
+  changes. `registry_server`'s check is `parse_registry_admin_config()` in `RegistryServerArgs`, so it is unit-tested.
+- **Spacing.** `metrics_api_server` used to find keys by substring, so `"key" : 5` (a space before the colon) was skipped
+  silently. Any JSON spacing now works.
+
+Tests:
+- `registryServerArgsTests` gained four tests: valid values, out-of-range and non-integer values rejected with nothing
+  applied (including a valid key next to a bad one), immutable, unknown and malformed bodies, and a saved override held to the
+  same range.
+- `trainingMetricsApiRoutesTests` gained two: ten bad bodies each get 400 and change nothing (these got 200 on the old code),
+  and boundary values (`max_live_sessions` 1, sweep 0, retention 0) are accepted with any spacing.
+- With the real binaries: `{"ftp_token_ttl_minutes": -5}` gets 400 and `daemon_config.db` keeps its value; the old
+  `registry_server` answered 200 and saved `-5`, which issues FTP tokens that are already expired.
+  `{"max_live_sessions": -1}` gets 400 from `metrics_api_server`.
+
+TD-305's atomic multi-key persistence is still open.
 
 Files to Modify:
 
-- `src/RegistryServer.cpp`
-- `src/TrainingMetricsAPI.cpp`
+- `src/RegistryServer.cpp`, `src/RegistryServerArgs.{hpp,cpp}`
+- `src/TrainingMetricsAPI.cpp`, `src/MetricsApiServerArgs.cpp`, `src/Config.hpp`
+- `tests/registry_server_args_test.cpp`, `tests/training_metrics_api_routes_test.cpp`, `tests/CMakeLists.txt`
 
 ---
 

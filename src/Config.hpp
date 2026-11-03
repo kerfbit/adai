@@ -1,10 +1,11 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.25.0
+// @adai-version: 1.26.0
 // @adai-reviewed: 2026-11-03
 
 
+#include <climits>
 #include <cstdint>
 #include <functional>
 #include <iostream>
@@ -51,6 +52,44 @@ inline bool is_dataset_kind(const std::string& kind) {
 inline const std::vector<std::string>& metrics_storage_backend_names() {
     static const std::vector<std::string> names = {"sqlite+file", "sqlite", "postgres+file", "postgres", "file"};
     return names;
+}
+/// TD-306: an admin-mutable whole-number setting (PUT /admin/config key) and its allowed range.
+struct AdminIntSetting {
+    const char* key;
+    long long min;
+    long long max;
+};
+/// TD-306: metrics_api_server's admin-mutable whole-number settings. PUT /admin/config, saved admin
+/// overrides and the matching flags (MetricsApiServerArgs.cpp) all check against this; the minimums
+/// match ConfigLoader::validate() (TD-288), and 0 means "off" or "no limit" where it's allowed.
+inline const std::vector<AdminIntSetting>& metrics_admin_int_settings() {
+    static const std::vector<AdminIntSetting> settings = {
+        {"max_live_sessions", 1, INT_MAX},     {"completed_ttl_seconds", 0, INT_MAX},
+        {"sweep_interval_seconds", 0, INT_MAX}, {"persist_every_samples", 0, INT_MAX},
+        {"persist_every_seconds", 0, INT_MAX},  {"max_records_in_memory", 1, INT_MAX},
+        {"max_records_on_disk", 0, INT_MAX},    {"retention_days", 0, INT_MAX},
+        {"metrics_file_max_mb", 0, INT_MAX},    {"metrics_file_backups", 0, INT_MAX},
+        {"staleness_threshold_seconds", 1, INT_MAX}};
+    return settings;
+}
+/// TD-306: registry_server's admin-mutable whole-number settings, checked by its PUT /admin/config and
+/// its saved overrides (RegistryServerArgs.cpp). ftp_max_sessions_per_run 0 means unlimited.
+inline const std::vector<AdminIntSetting>& registry_admin_int_settings() {
+    static const std::vector<AdminIntSetting> settings = {{"ftp_token_ttl_minutes", 1, INT_MAX},
+                                                          {"ftp_max_sessions_per_run", 0, INT_MAX}};
+    return settings;
+}
+/// TD-306: the entry for @p key in @p settings, or nullptr.
+inline const AdminIntSetting* find_admin_int_setting(const std::vector<AdminIntSetting>& settings,
+                                                     const std::string& key) {
+    for (const auto& s : settings)
+        if (key == s.key) return &s;
+    return nullptr;
+}
+/// TD-306: "a whole number >= 1" or "a whole number in 1-65535", for error messages.
+inline std::string admin_int_range_text(const AdminIntSetting& s) {
+    if (s.max == INT_MAX) return "a whole number >= " + std::to_string(s.min);
+    return "a whole number in " + std::to_string(s.min) + "-" + std::to_string(s.max);
 }
 /// TD-444/TD-451: "Name: value" pairs separated by ';' (e.g. "CF-Access-Client-Id: abc;
 /// CF-Access-Client-Secret: xyz"), trimmed, as header lines. Entries without a name and ':' are skipped.

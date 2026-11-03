@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.5.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-11-03
 
 // TD-035 (narrower scope, per the item's own note): registry_server's argv parsing and
 // config-precedence resolution, pulled out of RegistryServer.cpp so that piece is testable
@@ -109,5 +109,17 @@ struct RegistryServerEffectiveConfig {
 RegistryServerEffectiveConfig resolve_registry_server_config(
     const RegistryServerArgs& args, const ServiceConfig& file_config,
     const std::map<std::string, std::string>& admin_overrides);
+
+// TD-306: a PUT /admin/config body, checked as a whole before registry_server applies any of it.
+// error is set (and both values unset) for a body that isn't a JSON object, an immutable key, a value
+// that isn't a whole number in registry_admin_int_settings()'s range (ftp_token_ttl_minutes >= 1,
+// ftp_max_sessions_per_run >= 0), or no recognized key. Values used to be applied and persisted
+// unchecked, so a TTL of -5 made every FTP token expire on issue.
+struct RegistryAdminConfigUpdate {
+    std::string error;
+    std::optional<int> ftp_token_ttl_minutes;
+    std::optional<int> ftp_max_sessions_per_run;
+};
+RegistryAdminConfigUpdate parse_registry_admin_config(const std::string& body);
 
 }  // namespace adai

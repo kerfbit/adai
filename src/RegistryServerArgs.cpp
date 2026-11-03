@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.5.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-11-03
 
 #include "RegistryServerArgs.hpp"
 #include <algorithm>
@@ -8,6 +8,7 @@
 #include <set>
 #include <type_traits>
 #include <utility>
+#include "nlohmann/json.hpp"
 
 namespace adai {
 
@@ -127,19 +128,21 @@ RegistryServerEffectiveConfig resolve_registry_server_config(
 
     // TD-488: a saved override must be a whole number in range, like the flag; a bad one is skipped
     // with a warning (stoi took "50abc" as 50 and applied a TTL of 0 or below).
-    auto override_int = [&](const char* key, int min, int& field) {
+    // The ranges are registry_admin_int_settings(), which PUT /admin/config checks too (TD-306).
+    auto override_int = [&](const char* key, int& field) {
         auto it = admin_overrides.find(key);
         if (it == admin_overrides.end()) return;
+        const auto& s = *find_admin_int_setting(registry_admin_int_settings(), key);
         const auto v = parse_strict_int(it->second);
-        if (v && *v >= min) {
+        if (v && *v >= s.min && *v <= s.max) {
             field = *v;
         } else {
             cfg.override_warnings.push_back(std::string("Ignoring saved admin setting ") + key + "='" + it->second +
-                                            "' (expected a whole number >= " + std::to_string(min) + ")");
+                                            "' (expected " + admin_int_range_text(s) + ")");
         }
     };
-    override_int("ftp_token_ttl_minutes", 1, cfg.ftp_ttl_minutes);
-    override_int("ftp_max_sessions_per_run", 0, cfg.ftp_max_sessions);
+    override_int("ftp_token_ttl_minutes", cfg.ftp_ttl_minutes);
+    override_int("ftp_max_sessions_per_run", cfg.ftp_max_sessions);
 
     // This run's explicit CLI flags win over everything, including persisted admin overrides.
     if (args.ftp_ttl_minutes)
@@ -218,6 +221,42 @@ RegistryServerEffectiveConfig resolve_registry_server_config(
                                "(set FTPS_ENABLED=true or --ftps)");
     }
     return cfg;
+}
+
+RegistryAdminConfigUpdate parse_registry_admin_config(const std::string& body) {
+    RegistryAdminConfigUpdate u;
+    const auto j = nlohmann::json::parse(body, nullptr, /*allow_exceptions=*/false);
+    if (j.is_discarded() || !j.is_object()) {
+        u.error = "body must be a JSON object";
+        return u;
+    }
+    for (const char* key : {"port", "data_dir", "ftp_server_port", "ftp_pasv_port_min", "ftp_pasv_port_max",
+                            "ftps_enabled", "ftp_cert_file", "ftp_key_file"}) {
+        if (j.contains(key)) {
+            u.error = std::string("'") + key +
+                      "' is immutable at runtime; set it via config.registry.conf or the matching --flag and restart";
+            return u;
+        }
+    }
+    const std::pair<const char*, std::optional<int>*> fields[] = {
+        {"ftp_token_ttl_minutes", &u.ftp_token_ttl_minutes},
+        {"ftp_max_sessions_per_run", &u.ftp_max_sessions_per_run}};
+    for (const auto& [key, out] : fields) {
+        const auto it = j.find(key);
+        if (it == j.end()) continue;
+        const auto& s = *find_admin_int_setting(registry_admin_int_settings(), key);
+        if (!it->is_number_integer() || it->get<long long>() < s.min || it->get<long long>() > s.max) {
+            u.error = std::string("'") + key + "' must be " + admin_int_range_text(s);
+            u.ftp_token_ttl_minutes.reset();
+            u.ftp_max_sessions_per_run.reset();
+            return u;
+        }
+        *out = static_cast<int>(it->get<long long>());
+    }
+    if (!u.ftp_token_ttl_minutes && !u.ftp_max_sessions_per_run) {
+        u.error = "no recognized mutable keys in body (ftp_token_ttl_minutes, ftp_max_sessions_per_run)";
+    }
+    return u;
 }
 
 }  // namespace adai

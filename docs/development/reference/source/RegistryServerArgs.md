@@ -158,3 +158,13 @@ skipped with a warning.
 Tests: three in `registry_server_args_test.cpp` (24 in all) and
 `SighupTest.RegistryServerHonoursRegistryAdminEnabled`, which runs the real binary.
 
+
+## Addendum (November 3, 2026): admin PUT parsing and shared ranges (TD-306)
+
+- **`parse_registry_admin_config(body)`** returns a `RegistryAdminConfigUpdate`: `error`, or the values to apply
+  (`ftp_token_ttl_minutes`, `ftp_max_sessions_per_run`). The body must be a JSON object with no immutable key and at least
+  one recognized key, and each value a whole number in its range; on any error both values are unset. `registry_server`'s
+  `PUT /admin/config` uses it.
+- **Shared ranges.** The ranges come from `registry_admin_int_settings()` in `Config.hpp` (TTL >= 1, sessions >= 0, both
+  at most `INT_MAX`), which `resolve_registry_server_config()` also uses for saved overrides. Override warnings now read
+  `expected a whole number >= 1`.

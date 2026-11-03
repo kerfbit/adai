@@ -3,7 +3,7 @@
 - **Files:** [`src/MetricsApiServerArgs.hpp`](../../../../src/MetricsApiServerArgs.hpp), [`src/MetricsApiServerArgs.cpp`](../../../../src/MetricsApiServerArgs.cpp) (198 lines together)
 - **Namespace:** `adai`
 - **Built into:** `metrics_api_server` (compiled into the executable, not a library); used only by its `main()` in [`src/TrainingMetricsAPIServer.cpp`](../../../../src/TrainingMetricsAPIServer.cpp)
-- **Status tag:** `@adai-status: experimental`, `@adai-version: 0.5.0`, `@adai-reviewed: 2026-11-03` (both files)
+- **Status tag:** `@adai-status: experimental`, `@adai-version: 0.5.0` (`.hpp`) / `0.5.1` (`.cpp`), `@adai-reviewed: 2026-11-03` (both files)
 - **Tests:** [`tests/metrics_api_server_args_test.cpp`](../../../../tests/metrics_api_server_args_test.cpp) (13 tests; the header calls it `MetricsApiServerArgs_test.cpp`)
 - **Sibling:** [ChatbotApiServerArgs.md](ChatbotApiServerArgs.md) (same pattern, same `atoi` problems: TD-240, TD-245)
 - **User docs:** [TRAINING_METRICS_API.md](../../TRAINING_METRICS_API.md) (CLI options), [OPERATIONS_MANUAL.md](../../../operations/OPERATIONS_MANUAL.md)

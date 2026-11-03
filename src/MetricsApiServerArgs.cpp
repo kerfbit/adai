@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.5.0
+// @adai-version: 0.5.1
 // @adai-reviewed: 2026-11-03
 
 #include "MetricsApiServerArgs.hpp"
@@ -59,22 +59,29 @@ struct NumericSetting {
 
 constexpr long long kIntMax = 2147483647LL;
 
+// TD-306: an admin-mutable row takes its range from metrics_admin_int_settings(), the table
+// PUT /admin/config checks too.
+NumericSetting admin_row(const char* key, const char* flag, int* int_field, size_t* size_field) {
+    const auto* s = find_admin_int_setting(metrics_admin_int_settings(), key);
+    return {key, flag, int_field, size_field, s->min, s->max};
+}
+
 std::vector<NumericSetting> numeric_settings(MetricsApiServerConfig& c) {
     return {
         {"", "--port", &c.port, nullptr, 1, 65535},
-        {"persist_every_samples", "--persist-samples", &c.persist_every_samples, nullptr, 0, kIntMax},
-        {"persist_every_seconds", "--persist-seconds", &c.persist_every_seconds, nullptr, 0, kIntMax},
-        {"max_records_in_memory", "--max-memory-records", &c.max_records_in_memory, nullptr, 1, kIntMax},
-        {"max_records_on_disk", "--max-disk-records", &c.max_records_on_disk, nullptr, 0, kIntMax},
-        {"retention_days", "--retention-days", &c.retention_days, nullptr, 0, kIntMax},
-        {"metrics_file_max_mb", "--metrics-file-max-mb", &c.metrics_file_max_mb, nullptr, 0, kIntMax},
-        {"metrics_file_backups", "--metrics-file-backups", &c.metrics_file_backups, nullptr, 0, kIntMax},
-        {"max_live_sessions", "--max-live-sessions", nullptr, &c.max_live_sessions, 1, kIntMax},
-        {"completed_ttl_seconds", "--completed-ttl-seconds", &c.completed_ttl_seconds, nullptr, 0, kIntMax},
+        admin_row("persist_every_samples", "--persist-samples", &c.persist_every_samples, nullptr),
+        admin_row("persist_every_seconds", "--persist-seconds", &c.persist_every_seconds, nullptr),
+        admin_row("max_records_in_memory", "--max-memory-records", &c.max_records_in_memory, nullptr),
+        admin_row("max_records_on_disk", "--max-disk-records", &c.max_records_on_disk, nullptr),
+        admin_row("retention_days", "--retention-days", &c.retention_days, nullptr),
+        admin_row("metrics_file_max_mb", "--metrics-file-max-mb", &c.metrics_file_max_mb, nullptr),
+        admin_row("metrics_file_backups", "--metrics-file-backups", &c.metrics_file_backups, nullptr),
+        admin_row("max_live_sessions", "--max-live-sessions", nullptr, &c.max_live_sessions),
+        admin_row("completed_ttl_seconds", "--completed-ttl-seconds", &c.completed_ttl_seconds, nullptr),
         // 0 turns the sweep off (TD-446); negative values used to as well.
-        {"sweep_interval_seconds", "--sweep-interval-seconds", &c.sweep_interval_seconds, nullptr, 0, kIntMax},
-        {"staleness_threshold_seconds", "--staleness-threshold-seconds", &c.staleness_threshold_seconds, nullptr, 1,
-         kIntMax},
+        admin_row("sweep_interval_seconds", "--sweep-interval-seconds", &c.sweep_interval_seconds, nullptr),
+        admin_row("staleness_threshold_seconds", "--staleness-threshold-seconds", &c.staleness_threshold_seconds,
+                  nullptr),
         {"", "--db-pool-size", &c.db_pool_size, nullptr, 1, kIntMax},
     };
 }
@@ -165,7 +172,7 @@ void apply_metrics_admin_overrides(MetricsApiServerConfig& config,
         if (auto v = parse_setting(s, it->second)) {
             store(s, *v);
         } else {
-            // TD-438: a bad saved value (TD-306 lets PUT /admin/config store one) used to be applied.
+            // TD-438: a bad saved value (PUT /admin/config could store one before TD-306) used to be applied.
             Logger::warn("Ignoring saved admin setting {}='{}' (expected {})", s.admin_key, it->second,
                          range_text(s));
         }

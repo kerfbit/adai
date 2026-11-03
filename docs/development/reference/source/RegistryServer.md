@@ -275,3 +275,10 @@ the store.
 - **Fetch cap:** `with_fetch_slot()` caps concurrent fetches (`--max-concurrent-fetches`, default 2) and answers 429 with
   `Retry-After: 30` otherwise.
 - **Upload cap:** `set_payload_max_length()` caps request bodies (`--max-upload-mb`, default 2048); larger ones get 413.
+
+## Addendum (November 3, 2026): admin PUT range checks (TD-306)
+
+`PUT /admin/config` hands the body to `parse_registry_admin_config()` (RegistryServerArgs.md) and applies nothing unless the
+whole body passes: `ftp_token_ttl_minutes` a whole number >= 1, `ftp_max_sessions_per_run` >= 0, no immutable key, a JSON
+object with at least one recognized key. Otherwise it answers 400 with `{"error": ...}` naming the key and its range. A
+negative TTL used to be applied and saved, so every FTP token was issued already expired.

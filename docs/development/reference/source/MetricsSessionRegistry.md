@@ -75,7 +75,7 @@ the cap applies only to live sessions as its name says.
 
 ### Setting the sweep interval at runtime misbehaves
 
-`PUT /admin/config` can change `sweep_interval_seconds` (with no range check, TD-306):
+`PUT /admin/config` can change `sweep_interval_seconds` (range-checked since TD-306, November 3, 2026):
 - **To 0 or less while the thread runs**, `wait_for(0)` returns immediately and the loop spins: the
   probe used **0.51 CPU-seconds in 2 seconds** of wall time with an empty registry, taking the
   registry's exclusive lock on every iteration (each pass is an eviction scan).

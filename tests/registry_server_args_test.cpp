@@ -12,6 +12,7 @@
 
 using adai::parse_registry_server_args;
 using adai::resolve_registry_server_config;
+using adai::parse_registry_admin_config;
 using adai::RegistryServerArgs;
 using adai::ServiceConfig;
 
@@ -416,3 +417,48 @@ TEST_F(ResolveRegistryServerConfigTest, FtpFlagsWithFtpDisabledWarn) {
     EXPECT_FALSE(has_warning(resolve_registry_server_config(no_flags, file_config, no_overrides), "has no effect"));
 }
 
+
+// TD-306: PUT /admin/config bodies are checked as a whole against registry_admin_int_settings().
+// Values used to be applied and persisted unchecked (a TTL of -5 issued already-expired FTP tokens).
+TEST(ParseRegistryAdminConfig, ValidValuesAreAccepted) {
+    auto u = parse_registry_admin_config(R"({"ftp_token_ttl_minutes" : 10, "ftp_max_sessions_per_run": 0})");
+    EXPECT_EQ(u.error, "");
+    EXPECT_EQ(u.ftp_token_ttl_minutes, 10);
+    EXPECT_EQ(u.ftp_max_sessions_per_run, 0) << "0 means unlimited";
+
+    u = parse_registry_admin_config(R"({"ftp_max_sessions_per_run": 8})");
+    EXPECT_EQ(u.error, "");
+    EXPECT_FALSE(u.ftp_token_ttl_minutes.has_value());
+    EXPECT_EQ(u.ftp_max_sessions_per_run, 8);
+}
+
+TEST(ParseRegistryAdminConfig, OutOfRangeOrNonIntegerValuesAreRejectedWhole) {
+    for (const char* body : {R"({"ftp_token_ttl_minutes": -5})", R"({"ftp_token_ttl_minutes": 0})",
+                             R"({"ftp_max_sessions_per_run": -1})", R"({"ftp_token_ttl_minutes": "10"})",
+                             R"({"ftp_token_ttl_minutes": 2.5})", R"({"ftp_token_ttl_minutes": 3000000000})",
+                             R"({"ftp_max_sessions_per_run": 2, "ftp_token_ttl_minutes": -1})"}) {
+        const auto u = parse_registry_admin_config(body);
+        EXPECT_NE(u.error, "") << body;
+        EXPECT_FALSE(u.ftp_token_ttl_minutes.has_value()) << body;
+        EXPECT_FALSE(u.ftp_max_sessions_per_run.has_value()) << body << ": nothing applies when any key is bad";
+    }
+    EXPECT_NE(parse_registry_admin_config(R"({"ftp_token_ttl_minutes": -5})").error.find(">= 1"), std::string::npos);
+}
+
+TEST(ParseRegistryAdminConfig, ImmutableUnknownAndMalformedBodiesAreRejected) {
+    EXPECT_NE(parse_registry_admin_config(R"({"port": 9000, "ftp_token_ttl_minutes": 10})").error.find("immutable"),
+              std::string::npos);
+    EXPECT_NE(parse_registry_admin_config(R"({"ftp_ttl": 10})").error.find("no recognized"), std::string::npos);
+    EXPECT_NE(parse_registry_admin_config("not json").error, "");
+    EXPECT_NE(parse_registry_admin_config("[1]").error, "");
+}
+
+// TD-306: a saved override is held to the same range as the PUT.
+TEST_F(ResolveRegistryServerConfigTest, SavedOverridesUseTheAdminRanges) {
+    const auto cfg = resolve_registry_server_config(
+        args, file_config, {{"ftp_token_ttl_minutes", "-5"}, {"ftp_max_sessions_per_run", "0"}});
+    EXPECT_EQ(cfg.ftp_ttl_minutes, 30);
+    EXPECT_EQ(cfg.ftp_max_sessions, 0);
+    ASSERT_EQ(cfg.override_warnings.size(), 1u);
+    EXPECT_NE(cfg.override_warnings[0].find("a whole number >= 1"), std::string::npos) << cfg.override_warnings[0];
+}

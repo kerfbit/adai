@@ -170,3 +170,12 @@ Push handlers read bodies through `PushBody` (nlohmann/json): defaults for absen
 wrongly typed field, and a 400 for invalid JSON. `parse_json_float()`/`parse_json_float_array()` are gone. `metrics/current` logs at
 debug. `metrics/history` caps `max_records` at `kMaxHistoryRecords` (10,000) and adds `timestamp_ms`. Tests:
 `PushBodiesParseAsJsonWithFieldErrors`, `HistoryHasMillisecondTimestampsAndCappedMaxRecords`.
+
+## Addendum (November 3, 2026): admin PUT range checks (TD-306)
+
+`handle_admin_put_config()` parses the body with nlohmann/json and checks every key against `metrics_admin_int_settings()`
+(`Config.hpp`; the same ranges `metrics_api_server`'s flags and saved overrides use) before applying any. A value out of
+range or not a whole number, a non-boolean `enable_prometheus`, an immutable key, a body that isn't a JSON object, or no
+recognized key gets 400 naming the problem (`'max_live_sessions' must be a whole number >= 1`), and nothing changes. A
+negative `max_live_sessions` used to become a huge `size_t`, and a key with a space before its colon was skipped silently.
+Multi-key persistence is still not atomic (TD-305).
