@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.19.0
+// @adai-version: 0.20.0
 // @adai-reviewed: 2026-11-02
 
 
@@ -457,7 +457,8 @@ class IncrementalTrainer {
     // this->model) — saves via the ChatbotTrainer's own live model instead of
     // this->model, which is still null/stale at that point. Null (default) for
     // the post-release_model() call site, where this->model is already correct.
-    void perform_auto_save(int current_epoch, int cumulative_samples_trained,
+    // Returns whether the checkpoint was written (TD-521: a requested one is reported served only then).
+    bool perform_auto_save(int current_epoch, int cumulative_samples_trained,
                            ChatbotTrainer* live_trainer = nullptr);
     std::string generate_session_checkpoint_path();
     std::string get_session_dir() const;

@@ -24,6 +24,7 @@
 #include <chrono>
 #include <filesystem>
 #include <thread>
+#include "DaemonConfigStore.hpp"
 #include "TrainerControlState.hpp"
 
 namespace fs = std::filesystem;
@@ -466,9 +467,10 @@ TEST_F(TrainerAdminAPITest, CheckpointSetsFlagAndWaitMsObservesCompletion) {
     std::atomic<bool> stop_worker{false};
     std::thread worker([&] {
         while (!stop_worker.load()) {
-            if (control->checkpoint_requested.exchange(false)) {
+            if (const long long ticket = control->take_checkpoint_request()) {
                 control->set_last_checkpoint_path("/tmp/auto_save_session_1.bin");
                 control->checkpoints_written.fetch_add(1);
+                control->mark_checkpoint_served(ticket);
                 break;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -485,6 +487,85 @@ TEST_F(TrainerAdminAPITest, CheckpointSetsFlagAndWaitMsObservesCompletion) {
 
     stop_worker = true;
     worker.join();
+    api->stop();
+    thr.join();
+}
+
+// TD-521: an auto-save landing during the wait isn't the requested checkpoint (completion used to be
+// "checkpoints_written went up").
+TEST_F(TrainerAdminAPITest, AnAutoSaveDuringTheWaitIsNotTheRequestedCheckpoint) {
+    control->phase = TrainerPhase::Training;
+    auto api = make_api();
+    AdminThread thr;
+    ASSERT_TRUE(start_admin_api(*api, port, thr));
+
+    std::thread auto_saver([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        control->checkpoints_written.fetch_add(1);  // an auto-save; the request isn't taken
+    });
+
+    httplib::Client client("127.0.0.1", port);
+    client.set_read_timeout(std::chrono::seconds(5));
+    auto res = client.Post("/admin/checkpoint?wait_ms=600");
+    auto_saver.join();
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 202);
+    EXPECT_NE(res->body.find("\"completed\":false"), std::string::npos) << res->body;
+    EXPECT_TRUE(control->checkpoint_requested.load());  // still pending for the pass
+
+    api->stop();
+    thr.join();
+}
+
+TEST_F(TrainerAdminAPITest, CheckpointRejectsAMalformedOrOversizedWait) {
+    control->phase = TrainerPhase::Training;
+    auto api = make_api();
+    AdminThread thr;
+    ASSERT_TRUE(start_admin_api(*api, port, thr));
+
+    httplib::Client client("127.0.0.1", port);
+    client.set_read_timeout(std::chrono::seconds(5));
+    for (const char* bad : {"abc", "100x", "-1", "60001", "99999999999"}) {
+        auto res = client.Post(std::string("/admin/checkpoint?wait_ms=") + bad);
+        ASSERT_TRUE(res) << bad;
+        EXPECT_EQ(res->status, 400) << bad;
+        EXPECT_NE(res->body.find("wait_ms"), std::string::npos) << bad;
+    }
+    EXPECT_FALSE(control->checkpoint_requested.load());
+    EXPECT_EQ(control->checkpoint_requests_made.load(), 0);
+
+    api->stop();
+    thr.join();
+}
+
+// TD-521: saved overrides used to be applied unchecked on load (only PUT validated); a bad one is now
+// skipped and logged, keeping the config file's value.
+TEST_F(TrainerAdminAPITest, InvalidSavedOverridesAreIgnoredOnLoad) {
+    {
+        adai::DaemonConfigStore store((test_dir / "daemon_config.db").string());
+        store.set("auto_save_every_samples", "-5");
+        store.set("max_sessions_to_keep", "0");
+        store.set("auto_save_enabled", "maybe");
+        store.set("auto_save_every_minutes", "12");
+    }
+    control->auto_save_every_samples = 250;
+    control->max_sessions_to_keep = 9;
+    control->auto_save_enabled = false;
+
+    auto api = make_api();
+    AdminThread thr;
+    ASSERT_TRUE(start_admin_api(*api, port, thr));
+
+    EXPECT_EQ(control->auto_save_every_samples.load(), 250);
+    EXPECT_EQ(control->max_sessions_to_keep.load(), 9);
+    EXPECT_FALSE(control->auto_save_enabled.load());
+    EXPECT_EQ(control->auto_save_every_minutes.load(), 12);
+
+    httplib::Client client("127.0.0.1", port);
+    auto res = client.Get("/admin/logs");
+    ASSERT_TRUE(res);
+    EXPECT_NE(res->body.find("auto_save_every_samples='-5'"), std::string::npos) << res->body;
+
     api->stop();
     thr.join();
 }

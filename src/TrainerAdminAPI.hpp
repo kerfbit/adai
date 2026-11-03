@@ -1,33 +1,29 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-11-02
 
 
 #include <atomic>
 #include <memory>
 #include <string>
 #include <utility>
+#include "TrainerAdminConfig.hpp"
 #include "TrainerControlState.hpp"
 
 namespace adai {
 
 class DaemonConfigStore;
 
-// TODO: See TD-521 in TECHNICAL_DEBT.md - stale: `serve` was removed by TD-172; this now runs per child pass behind
-// trainer_service's TrainerServiceProxy.
 /**
- * @brief Always-on HTTP admin daemon for `incremental_trainer serve`.
+ * @brief One training pass's HTTP admin API (TD-172, TD-521).
  *
- * Constructed and started once at `serve` startup and stays alive for the
- * process's entire lifetime — independent of any single training pass. This
- * is what makes the admin API genuinely always-on rather than reachable only
- * while a `resume` process instance happens to be alive between systemd
- * restart cycles (see the "incremental_trainer admin control daemon
- * (always-on)" plan). Talks only to an in-process TrainerControlState — no
- * IPC, no companion CLI (curl is the documented interface, matching the
- * precedent of the other three daemons' /admin/config).
+ * `incremental_trainer --admin-port N resume`, launched by `trainer_service` for each single pass,
+ * starts this on 127.0.0.1:N for that pass only; `trainer_service`'s TrainerServiceProxy is the
+ * always-on listener operators talk to, and forwards /admin/* here while a pass runs. It talks only
+ * to the pass's in-process TrainerControlState — no companion CLI (curl is the documented
+ * interface, matching the other daemons' /admin/config).
  *
  * Endpoints:
  *   GET  /health
@@ -39,7 +35,9 @@ class DaemonConfigStore;
  *                                     ring buffer (see TrainerControlState::log()) —
  *                                     the same messages that land in the daemon's own
  *                                     log file/journal, not a separate UI-only stream
- *   POST /admin/checkpoint[?wait_ms=N]
+ *   POST /admin/checkpoint[?wait_ms=N] — N a whole number up to kMaxCheckpointWaitMs (60 s), else
+ *                                     400; `completed` is true only once a checkpoint written
+ *                                     for this request exists (an auto-save doesn't count)
  *   POST /admin/pause
  *   POST /admin/resume
  *
@@ -49,9 +47,8 @@ class DaemonConfigStore;
 class TrainerAdminAPI {
    public:
     /**
-     * @param control          Shared in-process state; also handed to every
-     *                         IncrementalTrainer the `serve` loop constructs
-     *                         via set_control_state().
+     * @param control          The pass's in-process state, also handed to its
+     *                         IncrementalTrainer via set_control_state().
      * @param host             Bind host (default config: "127.0.0.1").
      * @param port             Bind port (default config: 8084).
      * @param config_store_dir Directory for this daemon's daemon_config.db
@@ -62,6 +59,9 @@ class TrainerAdminAPI {
     TrainerAdminAPI(std::shared_ptr<TrainerControlState> control, std::string host, int port,
                     std::string config_store_dir);
     ~TrainerAdminAPI();
+
+    /// TD-521: the longest checkpoint wait_ms accepted (TrainerAdminConfig.hpp).
+    static constexpr int kMaxCheckpointWaitMs = adai::kMaxCheckpointWaitMs;
 
     TrainerAdminAPI(const TrainerAdminAPI&) = delete;
     TrainerAdminAPI& operator=(const TrainerAdminAPI&) = delete;

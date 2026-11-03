@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.22.0
+// @adai-version: 0.23.0
 // @adai-reviewed: 2026-11-02
 
 #include "IncrementalTrainer.hpp"
@@ -780,10 +780,12 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
             control_->last_loss = static_cast<double>(running_loss);
             // Forced checkpoint (POST /admin/checkpoint) — independent of the
             // auto-save cadence, consumed once via exchange().
-            if (control_->checkpoint_requested.exchange(false)) {
+            if (const long long ticket = control_->take_checkpoint_request()) {
                 control_->phase = adai::TrainerPhase::Checkpointing;
-                perform_auto_save(epochs_fully_completed + 1, cumulative_samples_this_session,
-                                  &trainer);
+                if (perform_auto_save(epochs_fully_completed + 1, cumulative_samples_this_session,
+                                      &trainer)) {
+                    control_->mark_checkpoint_served(ticket);  // TD-521
+                }
                 control_->phase = adai::TrainerPhase::Training;
             }
         }
@@ -2030,7 +2032,7 @@ bool IncrementalTrainer::should_auto_save() {
     return false;
 }
 
-void IncrementalTrainer::perform_auto_save(int current_epoch, int cumulative_samples_trained,
+bool IncrementalTrainer::perform_auto_save(int current_epoch, int cumulative_samples_trained,
                                            ChatbotTrainer* live_trainer) {
     std::string auto_save_path =
         get_session_dir() + "/auto_save_session_" + std::to_string(current_session_id) + ".bin";
@@ -2097,6 +2099,7 @@ void IncrementalTrainer::perform_auto_save(int current_epoch, int cumulative_sam
                          cumulative_samples_trained, current_epoch);
         }
     }
+    return saved;
 }
 
 std::string IncrementalTrainer::generate_session_checkpoint_path() {

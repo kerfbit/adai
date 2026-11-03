@@ -104,3 +104,14 @@ as long as they send JSON (or, for `registry_server`'s `upload`, `application/oc
 `tests/trainer_admin_api_test.cpp` runs each server through an RAII thread holder (stop and join on destruction) on kernel-assigned ports, with a 10 s readiness
 wait that stops when `start()` fails. Its fixed ports in the ephemeral range used to be taken under a parallel `ctest`, and the failed
 `ASSERT` then left a joinable `std::thread` that aborted the whole binary.
+
+## Addendum (November 2, 2026): `wait_ms` limit, checkpoint tickets, checked overrides (TD-521)
+
+The class now documents itself as one pass's admin API behind `trainer_service`'s proxy (the `serve` description was stale
+since TD-172). `POST /admin/checkpoint?wait_ms=N` takes a whole number from 0 to `kMaxCheckpointWaitMs` (60,000 ms), else 400
+and no request is made. Each request gets a ticket from `TrainerControlState::request_checkpoint()`; the pass takes pending
+requests with `take_checkpoint_request()` and calls `mark_checkpoint_served()` once the checkpoint is written, so
+`completed` means a checkpoint written for this request: an auto-save during the wait, or a failed save, no longer counts.
+`start()` applies saved `daemon_config.db` settings through `parse_trainer_admin_overrides()`, the `PUT` checks per key; an
+invalid value is logged ("Ignoring invalid saved admin setting …") and the seeded config value kept.
+

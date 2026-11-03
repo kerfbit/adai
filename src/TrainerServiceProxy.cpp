@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.5.0
+// @adai-version: 0.5.1
 // @adai-reviewed: 2026-11-02
 
 #include "TrainerServiceProxy.hpp"
@@ -10,6 +10,7 @@
 #include <chrono>
 #include <optional>
 #include <sstream>
+#include <vector>
 #include "DaemonConfigStore.hpp"
 #include "TrainerAdminConfig.hpp"
 #include "Logger.hpp"
@@ -327,28 +328,16 @@ std::pair<int, std::string> adai::TrainerServiceProxy::handle_get_config_idle() 
 
     try {
         DaemonConfigStore store(child_admin_dir_ + "/daemon_config.db");
-        const auto overrides = store.load_all();
-        if (auto it = overrides.find("auto_save_enabled"); it != overrides.end()) {
-            auto_save_enabled = (it->second == "true" || it->second == "1");
+        // TD-521: the same checks a pass applies when it loads them; a bad saved value is skipped.
+        std::vector<std::string> rejected;
+        const auto u = parse_trainer_admin_overrides(store.load_all(), &rejected);
+        for (const auto& r : rejected) {
+            Logger::warn("TrainerServiceProxy: ignoring invalid saved admin setting {}", r);
         }
-        if (auto it = overrides.find("auto_save_every_samples"); it != overrides.end()) {
-            try {
-                auto_save_every_samples = std::stoi(it->second);
-            } catch (...) {
-            }
-        }
-        if (auto it = overrides.find("auto_save_every_minutes"); it != overrides.end()) {
-            try {
-                auto_save_every_minutes = std::stoi(it->second);
-            } catch (...) {
-            }
-        }
-        if (auto it = overrides.find("max_sessions_to_keep"); it != overrides.end()) {
-            try {
-                max_sessions_to_keep = std::stoi(it->second);
-            } catch (...) {
-            }
-        }
+        if (u.auto_save_enabled) auto_save_enabled = *u.auto_save_enabled;
+        if (u.auto_save_every_samples) auto_save_every_samples = *u.auto_save_every_samples;
+        if (u.auto_save_every_minutes) auto_save_every_minutes = *u.auto_save_every_minutes;
+        if (u.max_sessions_to_keep) max_sessions_to_keep = *u.max_sessions_to_keep;
     } catch (const std::exception& e) {
         Logger::warn("TrainerServiceProxy: daemon_config.db unavailable while idle ({})", e.what());
     }

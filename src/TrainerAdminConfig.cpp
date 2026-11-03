@@ -1,8 +1,9 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-11-02
 
 #include "TrainerAdminConfig.hpp"
+#include <charconv>
 #include <climits>
 #include "nlohmann/json.hpp"
 
@@ -78,6 +79,39 @@ TrainerAdminConfigParse parse_trainer_admin_config(const std::string& body) {
             "auto_save_every_minutes, max_sessions_to_keep)";
     }
     return result;
+}
+
+TrainerAdminConfigUpdate parse_trainer_admin_overrides(const std::map<std::string, std::string>& overrides,
+                                                       std::vector<std::string>* rejected) {
+    TrainerAdminConfigUpdate u;
+    const auto reject = [&](const std::string& key, const std::string& value, const char* why) {
+        if (rejected) rejected->push_back(key + "='" + value + "' (" + why + ")");
+    };
+    if (const auto it = overrides.find("auto_save_enabled"); it != overrides.end()) {
+        if (it->second == "true" || it->second == "1") {
+            u.auto_save_enabled = true;
+        } else if (it->second == "false" || it->second == "0") {
+            u.auto_save_enabled = false;
+        } else {
+            reject(it->first, it->second, "must be true or false");
+        }
+    }
+    const auto read = [&](const char* key, int min_value, std::optional<int>& out) {
+        const auto it = overrides.find(key);
+        if (it == overrides.end()) return;
+        const std::string& v = it->second;
+        int value = 0;
+        const auto [ptr, ec] = std::from_chars(v.data(), v.data() + v.size(), value);
+        if (v.empty() || ec != std::errc() || ptr != v.data() + v.size() || value < min_value) {
+            reject(key, v, min_value == 0 ? "must be a whole number >= 0" : "must be a whole number >= 1");
+            return;
+        }
+        out = value;
+    };
+    read("auto_save_every_samples", 0, u.auto_save_every_samples);
+    read("auto_save_every_minutes", 0, u.auto_save_every_minutes);
+    read("max_sessions_to_keep", 1, u.max_sessions_to_keep);
+    return u;
 }
 
 }  // namespace adai

@@ -1,15 +1,17 @@
 // @adai-status: stable
-// @adai-version: 1.2.1
-// @adai-reviewed: 2026-10-24
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-11-02
 
 #include "TrainerAdminAPI.hpp"
 #include <httplib.h>
 #include "BrowserWriteGuard.hpp"
 #include "HttpListenSocket.hpp"
+#include <charconv>
 #include <chrono>
 #include <filesystem>
 #include <sstream>
 #include <thread>
+#include <vector>
 #include "DaemonConfigStore.hpp"
 #include "TrainerAdminConfig.hpp"
 #include "Logger.hpp"
@@ -112,13 +114,18 @@ adai::TrainerAdminAPI::TrainerAdminAPI(std::shared_ptr<TrainerControlState> cont
     });
 
     svr.Post("/admin/checkpoint", [this](const httplib::Request& req, httplib::Response& res) {
-        // TODO: See TD-521 in TECHNICAL_DEBT.md - wait_ms is unbounded (ties up a worker); completion is judged by
-        // the checkpoint counter, so an auto-save in the window counts.
+        // TD-521: a whole number up to kMaxCheckpointWaitMs (each wait holds a worker thread), else 400.
         int wait_ms = 0;
         if (req.has_param("wait_ms")) {
-            try {
-                wait_ms = std::stoi(req.get_param_value("wait_ms"));
-            } catch (...) {
+            const std::string v = req.get_param_value("wait_ms");
+            const auto [ptr, ec] = std::from_chars(v.data(), v.data() + v.size(), wait_ms);
+            if (v.empty() || ec != std::errc() || ptr != v.data() + v.size() || wait_ms < 0 ||
+                wait_ms > kMaxCheckpointWaitMs) {
+                res.status = 400;
+                res.set_content("{\"error\":\"wait_ms must be a whole number from 0 to " +
+                                    std::to_string(kMaxCheckpointWaitMs) + "\"}",
+                                "application/json");
+                return;
             }
         }
         auto [status, body] = handle_checkpoint(wait_ms);
@@ -152,28 +159,16 @@ bool adai::TrainerAdminAPI::start() {
             // Overlay any persisted tunables onto the control state — file/
             // constructor-seeded defaults < persisted admin overrides, same
             // precedence every other daemon's admin config follows.
-            const auto overrides = config_store_->load_all();
-            if (auto it = overrides.find("auto_save_enabled"); it != overrides.end()) {
-                control_->auto_save_enabled = (it->second == "true" || it->second == "1");
+            // TD-521: overrides get the PUT checks; an invalid one is logged and the file value kept.
+            std::vector<std::string> rejected;
+            const auto u = parse_trainer_admin_overrides(config_store_->load_all(), &rejected);
+            for (const auto& r : rejected) {
+                control_->log(TrainerLogLevel::Warn, "Ignoring invalid saved admin setting " + r);
             }
-            if (auto it = overrides.find("auto_save_every_samples"); it != overrides.end()) {
-                try {
-                    control_->auto_save_every_samples = std::stoi(it->second);
-                } catch (...) {
-                }
-            }
-            if (auto it = overrides.find("auto_save_every_minutes"); it != overrides.end()) {
-                try {
-                    control_->auto_save_every_minutes = std::stoi(it->second);
-                } catch (...) {
-                }
-            }
-            if (auto it = overrides.find("max_sessions_to_keep"); it != overrides.end()) {
-                try {
-                    control_->max_sessions_to_keep = std::stoi(it->second);
-                } catch (...) {
-                }
-            }
+            if (u.auto_save_enabled) control_->auto_save_enabled = *u.auto_save_enabled;
+            if (u.auto_save_every_samples) control_->auto_save_every_samples = *u.auto_save_every_samples;
+            if (u.auto_save_every_minutes) control_->auto_save_every_minutes = *u.auto_save_every_minutes;
+            if (u.max_sessions_to_keep) control_->max_sessions_to_keep = *u.max_sessions_to_keep;
         } catch (const std::exception& e) {
             control_->log(TrainerLogLevel::Warn,
                           std::string("daemon_config.db unavailable (") + e.what() +
@@ -292,20 +287,19 @@ std::pair<int, std::string> adai::TrainerAdminAPI::handle_checkpoint(int wait_ms
     }
 
     control_->log(TrainerLogLevel::Info, "Checkpoint requested via admin API");
-    const long long before = control_->checkpoints_written.load();
-    control_->checkpoint_requested = true;
+    // TD-521: completed means a checkpoint written for this request (its ticket served), not any
+    // checkpoint; an auto-save landing in the wait used to count.
+    const long long ticket = control_->request_checkpoint();
+    const auto served = [&] { return control_->checkpoint_requests_served.load() >= ticket; };
 
     if (wait_ms > 0) {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(wait_ms);
-        while (std::chrono::steady_clock::now() < deadline) {
-            if (control_->checkpoints_written.load() > before) {
-                break;
-            }
+        while (!served() && std::chrono::steady_clock::now() < deadline) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     }
 
-    const bool completed = control_->checkpoints_written.load() > before;
+    const bool completed = served();
     std::ostringstream j;
     j << "{\"requested\":true,\"completed\":" << (completed ? "true" : "false")
       << ",\"checkpoints_written\":" << control_->checkpoints_written.load()

@@ -609,7 +609,10 @@ TEST_F(TrainerServiceProxyTest, CheckpointWaitLongerThanFiveSecondsIsRelayed) {
 
     std::thread checkpointer([child_control] {
         std::this_thread::sleep_for(std::chrono::seconds(6));
+        // As the pass does (TD-521): take the request, write, report it served.
+        const long long ticket = child_control->take_checkpoint_request();
         ++child_control->checkpoints_written;
+        child_control->mark_checkpoint_served(ticket);
     });
 
     httplib::Client client("127.0.0.1", proxy_port);
@@ -619,7 +622,7 @@ TEST_F(TrainerServiceProxyTest, CheckpointWaitLongerThanFiveSecondsIsRelayed) {
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 202) << res->body;  // the child accepted it
     EXPECT_NE(res->body.find("\"completed\":true"), std::string::npos) << res->body;
-    EXPECT_TRUE(child_control->checkpoint_requested.load());
+    EXPECT_EQ(child_control->checkpoint_requests_made.load(), 1);
 }
 
 TEST_F(TrainerServiceProxyTest, CheckpointRejectsAMalformedOrOversizedWait) {
@@ -629,7 +632,7 @@ TEST_F(TrainerServiceProxyTest, CheckpointRejectsAMalformedOrOversizedWait) {
     proxy->set_child_port(child_port);  // nothing listens there; a valid request would get a 503
 
     httplib::Client client("127.0.0.1", proxy_port);
-    for (const char* bad : {"abc", "100x", "-1", "300001", "99999999999"}) {
+    for (const char* bad : {"abc", "100x", "-1", "60001", "99999999999"}) {
         auto res = client.Post(std::string("/admin/checkpoint?wait_ms=") + bad, "", "application/json");
         ASSERT_TRUE(res);
         EXPECT_EQ(res->status, 400) << bad;

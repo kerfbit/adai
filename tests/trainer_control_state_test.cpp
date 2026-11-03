@@ -91,6 +91,23 @@ TEST(TrainerControlStateTest, CheckpointRequestedIsConsumedOnceViaExchange) {
     EXPECT_FALSE(state.checkpoint_requested.load());
 }
 
+// TD-521: requests are numbered; a checkpoint the pass writes serves every request made before it.
+TEST(TrainerControlStateTest, CheckpointRequestsAreServedByTicket) {
+    TrainerControlState state;
+    EXPECT_EQ(state.take_checkpoint_request(), 0);
+    const long long first = state.request_checkpoint();
+    const long long second = state.request_checkpoint();
+    EXPECT_EQ(second, first + 1);
+    const long long serving = state.take_checkpoint_request();
+    EXPECT_EQ(serving, second);
+    EXPECT_EQ(state.take_checkpoint_request(), 0);  // consumed once
+    EXPECT_LT(state.checkpoint_requests_served.load(), first);
+    state.mark_checkpoint_served(serving);
+    EXPECT_GE(state.checkpoint_requests_served.load(), second);
+    state.mark_checkpoint_served(first);  // never moves backwards
+    EXPECT_EQ(state.checkpoint_requests_served.load(), second);
+}
+
 TEST(TrainerControlStateTest, InterruptibleSleepReturnsEarlyOnWake) {
     TrainerControlState state;
     std::atomic<bool> awoke{false};

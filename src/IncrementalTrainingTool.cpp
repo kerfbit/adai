@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.32.0
+// @adai-version: 0.33.0
 // @adai-reviewed: 2026-11-02
 
 #include <array>
@@ -682,8 +682,8 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
                 aborted = true;
                 break;
             }
-            if (control && control->checkpoint_requested.exchange(false)) {  // POST /admin/checkpoint
-                save_checkpoint("requested");
+            if (const long long ticket = control ? control->take_checkpoint_request() : 0) {  // POST /admin/checkpoint
+                if (save_checkpoint("requested")) control->mark_checkpoint_served(ticket);  // TD-521
             }
             const size_t last = std::min(texts.size(), first + batch_size);
             const std::vector<std::string> batch(texts.begin() + static_cast<std::ptrdiff_t>(first),

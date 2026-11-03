@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.3.0
+// @adai-version: 0.3.1
 // @adai-reviewed: 2026-11-02
 
 // TD-172: trainer_service's own admin HTTP listener. Unlike TrainerAdminAPI (which answers every
@@ -26,6 +26,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include "TrainerAdminConfig.hpp"
 #include "TrainerServiceControlState.hpp"
 
 namespace adai {
@@ -60,9 +61,9 @@ class TrainerServiceProxy {
                         std::shared_ptr<TrainerServiceControlState> control,
                         TrainerAdminDefaults idle_defaults = {});
 
-    /// TD-525: the longest checkpoint wait_ms the proxy forwards (5 minutes); above it, or not a whole
-    /// number, is a 400.
-    static constexpr int kMaxCheckpointWaitMs = 300000;
+    /// TD-525: the longest checkpoint wait_ms the proxy forwards, the pass's own limit (TD-521, 60 s);
+    /// above it, or not a whole number, is a 400.
+    static constexpr int kMaxCheckpointWaitMs = adai::kMaxCheckpointWaitMs;
     ~TrainerServiceProxy();
 
     TrainerServiceProxy(const TrainerServiceProxy&) = delete;

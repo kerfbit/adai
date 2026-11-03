@@ -1437,8 +1437,10 @@ The generation and model math run is complete.
   trainer binaries).
 - TD-430 (done in code: `Logger` initialization serialized and `logger_` accessed atomically, so concurrent first use
   and re-init while logging are safe and a log call never throws; the previous name dropped; `Level::ERROR` renamed `ERR`).
-- TD-525 (done in code: the proxy waits `wait_ms` + 5 s for a checkpoint, `wait_ms` a checked number up to 5 minutes,
+- TD-525 (done in code: the proxy waits `wait_ms` + 5 s for a checkpoint, `wait_ms` a checked number up to 60 s since TD-521,
   504 for a child that doesn't answer in time vs 503 for one that isn't there, and the idle config from `config.trainer.conf`).
+- TD-521 (done in code: per-pass admin API header rewritten, `wait_ms` capped at 60 s in the pass and the proxy, requested
+  checkpoints numbered so only one written for the request completes it, saved overrides checked on load).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -16010,7 +16012,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / Admin API | October 17, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 2, 2026 | Training / Admin API | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `TrainerAdminAPI.{hpp,cpp}` (by inspection): the header still calls the class the "always-on HTTP admin daemon for
@@ -16020,14 +16022,31 @@ landing during the wait is reported as the requested checkpoint; persisted overr
 
 Action Items:
 
-- [ ] Rewrite the header for the TD-172 design; cap `wait_ms` (e.g. 60 s); track forced checkpoints separately; validate overrides on load.
+- [x] Rewrite the header for the TD-172 design; cap `wait_ms` (e.g. 60 s); track forced checkpoints separately; validate overrides on load.
 
-Location in code: `src/TrainerAdminAPI.hpp` (class comment), `src/TrainerAdminAPI.cpp` (checkpoint route, `start()`); tagged `TODO: See TD-521`.
+**Fix (November 2, 2026):** the class comment describes the per-pass API behind `trainer_service`'s proxy. `wait_ms`
+must be a whole number from 0 to `kMaxCheckpointWaitMs` (60,000, `TrainerAdminConfig.hpp`), else 400, and the proxy
+uses the same limit (it was 300,000 under TD-525). Requested checkpoints are numbered: `POST /admin/checkpoint` takes a
+ticket (`TrainerControlState::request_checkpoint()`), the pass takes the request with `take_checkpoint_request()` and,
+once the checkpoint is written, records it with `mark_checkpoint_served()` (chatbot and LeJEPA passes;
+`IncrementalTrainer::perform_auto_save()` now reports whether it saved). `completed` is true only when this request's ticket
+is served, so an auto-save in the window no longer counts, and a failed save isn't reported as complete.
+Saved overrides go through the new `parse_trainer_admin_overrides()`, the `PUT` checks per key, in `start()` and in
+`trainer_service`'s idle config; an invalid one is logged and the config file's value kept. Tests: an auto-save during the
+wait leaves `completed:false`; malformed and oversized `wait_ms` are 400s with no request made; invalid saved overrides are
+ignored and logged on load (these three fail on the old code, the oversized wait holding the old server for 60 s);
+ticket accounting and the override parser have unit tests, and the real-binary LeJEPA test still sees its requested
+checkpoint complete.
+
+Location in code: `src/TrainerAdminAPI.{hpp,cpp}`, `src/TrainerControlState.hpp`, `src/TrainerAdminConfig.{hpp,cpp}`,
+`src/IncrementalTrainer.cpp` (`run_training()`, `perform_auto_save()`), `src/IncrementalTrainingTool.cpp` (LeJEPA pass).
 
 Files to Modify:
 
 - `src/TrainerAdminAPI.{hpp,cpp}`
 - `src/TrainerControlState.hpp`
+- `src/TrainerAdminConfig.{hpp,cpp}`, `src/TrainerServiceProxy.{hpp,cpp}`
+- `src/IncrementalTrainer.{hpp,cpp}`, `src/IncrementalTrainingTool.cpp`
 
 ---
 
@@ -16196,8 +16215,8 @@ Action Items:
 - [x] Pass the loaded `ServiceConfig` tunables to the proxy as the idle defaults.
 - [x] Encode `wait_ms` (or parse it as an integer); log failed pause/resume proxies.
 
-**Fix (November 2, 2026):** the proxy parses `wait_ms` as a whole number from 0 to 300,000 (5 minutes,
-`TrainerServiceProxy::kMaxCheckpointWaitMs`; anything else is a 400), rebuilds the proxied path from the number, and waits
+**Fix (November 2, 2026):** the proxy parses `wait_ms` as a whole number from 0 to 300,000 (5 minutes, lowered to the
+pass's own 60,000 by TD-521 the same day, `TrainerServiceProxy::kMaxCheckpointWaitMs`; anything else is a 400), rebuilds the proxied path from the number, and waits
 `wait_ms` + 5 s for the child's answer. One `proxy()` replaces the three per-method helpers and tells failures apart: a
 refused connection is still 503 "starting or exiting", while a child that took the request and didn't answer in time is
 504 "did not answer within N s; the request may still have been applied". `trainer_service` passes the loaded

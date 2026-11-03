@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-11-02
 
 
@@ -113,9 +113,11 @@ struct TrainerLogEntry {
  *    new pass, and it doubles as ChatbotTrainer's cooperative abort flag
  *    (passed directly to ChatbotTrainer::set_abort_flag()) so a pass in
  *    flight drains at its next optimizer-step boundary.
- *  - `checkpoint_requested`: admin thread sets via POST /admin/checkpoint;
- *    the active pass consumes it with exchange(false) and forces an
- *    immediate checkpoint write, independent of the auto-save cadence.
+ *  - `checkpoint_requested`: admin thread sets via POST /admin/checkpoint
+ *    (request_checkpoint()); the active pass consumes it with
+ *    take_checkpoint_request() and forces an immediate checkpoint write,
+ *    independent of the auto-save cadence, then reports it with
+ *    mark_checkpoint_served() (TD-521: an auto-save doesn't count).
  *  - `checkpoints_written` / `last_checkpoint_time_unix`: active pass
  *    increments/stamps after any checkpoint write (auto-save, forced, or
  *    abort-drain); admin thread reads for GET /admin/status.
@@ -146,6 +148,32 @@ class TrainerControlState {
     // ---- Checkpoint bookkeeping (training-pass writes; admin reads) ----
     std::atomic<long long> checkpoints_written{0};
     std::atomic<long long> last_checkpoint_time_unix{0};
+
+    // TD-521: requested checkpoints are numbered, so POST /admin/checkpoint?wait_ms= waits for one
+    // written for its own request rather than any checkpoint (an auto-save used to count).
+    std::atomic<long long> checkpoint_requests_made{0};    // admin side: the last ticket handed out
+    std::atomic<long long> checkpoint_requests_served{0};  // pass side: tickets up to this one are written
+
+    /// Admin side: asks the pass for a checkpoint; returns this request's ticket.
+    long long request_checkpoint() {
+        const long long ticket = checkpoint_requests_made.fetch_add(1) + 1;
+        checkpoint_requested = true;
+        return ticket;
+    }
+
+    /// Pass side: 0 when no checkpoint was asked for, else the newest ticket the checkpoint about to
+    /// be written answers (every request made before it is written counts as served by it).
+    long long take_checkpoint_request() {
+        if (!checkpoint_requested.exchange(false)) return 0;
+        return checkpoint_requests_made.load();
+    }
+
+    /// Pass side: the checkpoint for take_checkpoint_request()'s ticket was written.
+    void mark_checkpoint_served(long long ticket) {
+        long long current = checkpoint_requests_served.load();
+        while (current < ticket && !checkpoint_requests_served.compare_exchange_weak(current, ticket)) {
+        }
+    }
 
     // ---- Tunables (admin writes via PUT /admin/config; training-pass reads) ----
     std::atomic<bool> auto_save_enabled{true};

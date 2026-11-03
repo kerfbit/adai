@@ -6,6 +6,8 @@
 
 #include <gtest/gtest.h>
 #include "TrainerAdminConfig.hpp"
+#include <string>
+#include <vector>
 
 using adai::parse_trainer_admin_config;
 
@@ -42,5 +44,33 @@ TEST(TrainerAdminConfigTest, RejectsWrongTypesRangesAndMalformedBodies) {
           "{\"max_sessions_to_keep\":4294967296}", "{\"port\":8084}", "{\"dir\":\"/tmp\"}",
           "{\"auto_save_enabled\":true,\"max_sessions_to_keep\":0}"}) {
         EXPECT_FALSE(parse_trainer_admin_config(body).error.empty()) << body;
+    }
+}
+
+// TD-521: saved daemon_config.db overrides get the PUT checks, key by key.
+TEST(TrainerAdminConfigTest, SavedOverridesKeepValidKeysAndRejectTheRest) {
+    std::vector<std::string> rejected;
+    const auto u = adai::parse_trainer_admin_overrides({{"auto_save_enabled", "maybe"},
+                                                        {"auto_save_every_samples", "-5"},
+                                                        {"auto_save_every_minutes", "12"},
+                                                        {"max_sessions_to_keep", "0"},
+                                                        {"unrelated", "x"}},
+                                                       &rejected);
+    EXPECT_FALSE(u.auto_save_enabled);
+    EXPECT_FALSE(u.auto_save_every_samples);
+    ASSERT_TRUE(u.auto_save_every_minutes);
+    EXPECT_EQ(*u.auto_save_every_minutes, 12);
+    EXPECT_FALSE(u.max_sessions_to_keep);
+    EXPECT_EQ(rejected.size(), 3u);
+
+    const auto ok = adai::parse_trainer_admin_overrides(
+        {{"auto_save_enabled", "0"}, {"auto_save_every_samples", "0"}, {"max_sessions_to_keep", "3"}});
+    ASSERT_TRUE(ok.auto_save_enabled);
+    EXPECT_FALSE(*ok.auto_save_enabled);
+    EXPECT_EQ(*ok.auto_save_every_samples, 0);
+    EXPECT_EQ(*ok.max_sessions_to_keep, 3);
+    for (const char* bad : {"", "12x", " 12", "99999999999"}) {
+        EXPECT_FALSE(adai::parse_trainer_admin_overrides({{"auto_save_every_minutes", bad}}).auto_save_every_minutes)
+            << bad;
     }
 }

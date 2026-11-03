@@ -1,13 +1,19 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-11-02
 
 #pragma once
 
+#include <map>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace adai {
+
+/// TD-521: the longest `POST /admin/checkpoint?wait_ms=` a pass's admin API (and trainer_service's proxy
+/// in front of it) accepts; each wait holds an HTTP worker thread.
+constexpr int kMaxCheckpointWaitMs = 60000;
 
 /**
  * @brief TD-519: one validated `PUT /admin/config` body for the trainer's four mutable keys.
@@ -39,5 +45,16 @@ struct TrainerAdminConfigParse {
  * mutable keys. Other keys are ignored.
  */
 TrainerAdminConfigParse parse_trainer_admin_config(const std::string& body);
+
+/**
+ * @brief TD-521: the daemon_config.db overrides (DaemonConfigStore::load_all()) that pass the same checks
+ * as a PUT body, key by key.
+ *
+ * `auto_save_enabled` must be `true`/`false` (or `1`/`0`), the numbers whole decimal values in the PUT
+ * ranges. Each other value of the four keys is left out and described in @p rejected (when given), so
+ * the caller keeps its config-file value and can log why. Other keys are ignored.
+ */
+TrainerAdminConfigUpdate parse_trainer_admin_overrides(const std::map<std::string, std::string>& overrides,
+                                                       std::vector<std::string>* rejected = nullptr);
 
 }  // namespace adai
