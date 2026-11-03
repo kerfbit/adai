@@ -1437,6 +1437,8 @@ The generation and model math run is complete.
   trainer binaries).
 - TD-430 (done in code: `Logger` initialization serialized and `logger_` accessed atomically, so concurrent first use
   and re-init while logging are safe and a log call never throws; the previous name dropped; `Level::ERROR` renamed `ERR`).
+- TD-525 (done in code: the proxy waits `wait_ms` + 5 s for a checkpoint, `wait_ms` a checked number up to 5 minutes,
+  504 for a child that doesn't answer in time vs 503 for one that isn't there, and the idle config from `config.trainer.conf`).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -16175,7 +16177,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / Service Supervisor | October 17, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 2, 2026 | Training / Service Supervisor | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `TrainerServiceProxy.cpp` (see [TrainerServiceProxy.md](../reference/source/TrainerServiceProxy.md)); verified with the real proxy and
@@ -16190,11 +16192,23 @@ a real child `TrainerAdminAPI`:
 
 Action Items:
 
-- [ ] Set the checkpoint proxy's read timeout from `wait_ms` (capped, with TD-521); return a distinct error for a timeout vs a refused connection.
-- [ ] Pass the loaded `ServiceConfig` tunables to the proxy as the idle defaults.
-- [ ] Encode `wait_ms` (or parse it as an integer); log failed pause/resume proxies.
+- [x] Set the checkpoint proxy's read timeout from `wait_ms` (capped, with TD-521); return a distinct error for a timeout vs a refused connection.
+- [x] Pass the loaded `ServiceConfig` tunables to the proxy as the idle defaults.
+- [x] Encode `wait_ms` (or parse it as an integer); log failed pause/resume proxies.
 
-Location in code: `src/TrainerServiceProxy.cpp` (checkpoint route, `proxy_post()`, `handle_get_config_idle()`); tagged `TODO: See TD-525`.
+**Fix (November 2, 2026):** the proxy parses `wait_ms` as a whole number from 0 to 300,000 (5 minutes,
+`TrainerServiceProxy::kMaxCheckpointWaitMs`; anything else is a 400), rebuilds the proxied path from the number, and waits
+`wait_ms` + 5 s for the child's answer. One `proxy()` replaces the three per-method helpers and tells failures apart: a
+refused connection is still 503 "starting or exiting", while a child that took the request and didn't answer in time is
+504 "did not answer within N s; the request may still have been applied". `trainer_service` passes the loaded
+`config.trainer.conf` tunables to the proxy (`TrainerAdminDefaults`), and the idle `GET /admin/config` overlays
+`daemon_config.db` on them, as the next pass does. A pause or resume the running pass doesn't accept is logged. `paused`
+meaning the child's flag during a pass is left as is: `supervisor_paused` already reports the service's flag. New tests
+(`trainer_service_proxy_test.cpp`): a checkpoint that completes 6 s into a 10 s wait is relayed as the child's 202
+(503 on the old code), malformed and oversized `wait_ms` are 400s, a child that never answers is a 504, and the idle
+config reports the given defaults with an override on top.
+
+Location in code: `src/TrainerServiceProxy.{hpp,cpp}` (checkpoint route, `proxy()`, `handle_get_config_idle()`), `src/TrainerServiceMain.cpp`.
 
 Files to Modify:
 

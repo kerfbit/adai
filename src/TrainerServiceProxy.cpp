@@ -1,12 +1,14 @@
 // @adai-status: experimental
-// @adai-version: 0.4.1
-// @adai-reviewed: 2026-10-24
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-11-02
 
 #include "TrainerServiceProxy.hpp"
 #include <httplib.h>
 #include "BrowserWriteGuard.hpp"
 #include "HttpListenSocket.hpp"
+#include <charconv>
 #include <chrono>
+#include <optional>
 #include <sstream>
 #include "DaemonConfigStore.hpp"
 #include "TrainerAdminConfig.hpp"
@@ -61,8 +63,25 @@ std::string json_escape(const std::string& s) {
 // distinct from the "no child at all" idle default below — same HTTP status, different message,
 // so an operator can tell the two situations apart from the response body alone.
 constexpr int kChildUnreachableStatus = 503;
+// TD-525: the whole value must be a decimal number in [0, max].
+std::optional<int> parse_wait_ms(const std::string& value, int max) {
+    int out = 0;
+    const char* end = value.data() + value.size();
+    const auto [ptr, ec] = std::from_chars(value.data(), end, out);
+    if (value.empty() || ec != std::errc() || ptr != end || out < 0 || out > max) return std::nullopt;
+    return out;
+}
+
 std::string child_unreachable_json() {
     return "{\"error\":\"training pass is starting or exiting; try again shortly\"}";
+}
+
+// TD-525: the child took the request but didn't answer in time, so it may have acted on it (an
+// accepted checkpoint used to come back as "starting or exiting", inviting a second request).
+constexpr int kChildTimeoutStatus = 504;
+std::string child_timeout_json(int read_timeout_ms) {
+    return "{\"error\":\"training pass did not answer within " + std::to_string((read_timeout_ms + 999) / 1000) +
+           " s; the request may still have been applied\"}";
 }
 
 }  // namespace
@@ -73,11 +92,13 @@ std::string child_unreachable_json() {
 
 adai::TrainerServiceProxy::TrainerServiceProxy(std::string host, int port,
                                                std::string child_admin_dir,
-                                               std::shared_ptr<TrainerServiceControlState> control)
+                                               std::shared_ptr<TrainerServiceControlState> control,
+                                               TrainerAdminDefaults idle_defaults)
     : host_(std::move(host)),
       port_(port),
       child_admin_dir_(std::move(child_admin_dir)),
       control_(std::move(control)),
+      idle_defaults_(idle_defaults),
       server_impl_(std::make_unique<ServerImpl>()) {
     auto& svr = server_impl_->server;
     // TD-550: refuse writes a web page could make from an operator's browser (an unlisted Origin, or a
@@ -94,13 +115,13 @@ adai::TrainerServiceProxy::TrainerServiceProxy(std::string host, int port,
 
     svr.Get("/admin/config", [this](const httplib::Request&, httplib::Response& res) {
         auto [status, body] =
-            child_port_.load() != 0 ? proxy_get("/admin/config") : handle_get_config_idle();
+            child_port_.load() != 0 ? proxy("GET", "/admin/config", "") : handle_get_config_idle();
         res.status = status;
         res.set_content(body, "application/json");
     });
 
     svr.Put("/admin/config", [this](const httplib::Request& req, httplib::Response& res) {
-        auto [status, body] = child_port_.load() != 0 ? proxy_put("/admin/config", req.body)
+        auto [status, body] = child_port_.load() != 0 ? proxy("PUT", "/admin/config", req.body)
                                                        : handle_put_config_idle(req.body);
         res.status = status;
         res.set_content(body, "application/json");
@@ -108,7 +129,7 @@ adai::TrainerServiceProxy::TrainerServiceProxy(std::string host, int port,
 
     svr.Get("/admin/status", [this](const httplib::Request&, httplib::Response& res) {
         auto [status, body] =
-            child_port_.load() != 0 ? proxy_get("/admin/status") : std::pair{200, idle_status_json()};
+            child_port_.load() != 0 ? proxy("GET", "/admin/status", "") : std::pair{200, idle_status_json()};
         if (status == 200) {
             body = with_supervisor_fields(body);
         }
@@ -118,20 +139,30 @@ adai::TrainerServiceProxy::TrainerServiceProxy(std::string host, int port,
 
     svr.Get("/admin/logs", [this](const httplib::Request&, httplib::Response& res) {
         auto [status, body] =
-            child_port_.load() != 0 ? proxy_get("/admin/logs") : std::pair{200, std::string("{\"entries\":[]}")};
+            child_port_.load() != 0 ? proxy("GET", "/admin/logs", "") : std::pair{200, std::string("{\"entries\":[]}")};
         res.status = status;
         res.set_content(body, "application/json");
     });
 
     svr.Post("/admin/checkpoint", [this](const httplib::Request& req, httplib::Response& res) {
-        // TODO: See TD-525 in TECHNICAL_DEBT.md - proxy read timeout is 5 s regardless of wait_ms (an accepted checkpoint
-        // came back as 503 "starting or exiting", verified); wait_ms is re-inserted unencoded.
-        std::string path = "/admin/checkpoint";
+        // TD-525: wait_ms is parsed here and the proxy waits that long plus 5 s for the child's answer
+        // (a fixed 5 s used to turn an accepted checkpoint into a 503), and the path is rebuilt from the number.
+        int wait_ms = 0;
         if (req.has_param("wait_ms")) {
-            path += "?wait_ms=" + req.get_param_value("wait_ms");
+            const auto parsed = parse_wait_ms(req.get_param_value("wait_ms"), kMaxCheckpointWaitMs);
+            if (!parsed) {
+                res.status = 400;
+                res.set_content("{\"error\":\"wait_ms must be a whole number from 0 to " +
+                                    std::to_string(kMaxCheckpointWaitMs) + "\"}",
+                                "application/json");
+                return;
+            }
+            wait_ms = *parsed;
         }
+        std::string path = "/admin/checkpoint";
+        if (wait_ms > 0) path += "?wait_ms=" + std::to_string(wait_ms);
         auto [status, body] = child_port_.load() != 0
-            ? proxy_post(path, "")
+            ? proxy("POST", path, "", wait_ms + 5000)
             : std::pair{409, std::string("{\"error\":\"no active training pass; nothing to checkpoint\"}")};
         res.status = status;
         res.set_content(body, "application/json");
@@ -151,7 +182,11 @@ adai::TrainerServiceProxy::TrainerServiceProxy(std::string host, int port,
         // here — a real thread, not a signal handler.
         control_->wake();
         if (child_port_.load() != 0) {
-            proxy_post("/admin/pause", "");  // best-effort; response not surfaced to the caller
+            // Best-effort; the response isn't surfaced to the caller, but a failure is logged (TD-525).
+            if (const auto [status, body] = proxy("POST", "/admin/pause", ""); status >= 400) {
+                Logger::warn("trainer_service: couldn't pause the running pass ({}: {}); it stops at its end", status,
+                             body);
+            }
         }
         res.status = 202;
         res.set_content("{\"paused\":true}", "application/json");
@@ -161,7 +196,10 @@ adai::TrainerServiceProxy::TrainerServiceProxy(std::string host, int port,
         control_->paused = false;
         control_->wake();  // safe here — a real thread, not a signal handler
         if (child_port_.load() != 0) {
-            proxy_post("/admin/resume", "");  // best-effort; response not surfaced to the caller
+            // Best-effort; the response isn't surfaced to the caller, but a failure is logged (TD-525).
+            if (const auto [status, body] = proxy("POST", "/admin/resume", ""); status >= 400) {
+                Logger::warn("trainer_service: couldn't resume the running pass ({}: {})", status, body);
+            }
         }
         res.status = 202;
         res.set_content("{\"paused\":false}", "application/json");
@@ -199,40 +237,22 @@ bool adai::TrainerServiceProxy::is_running() const {
 // Proxying to the current child
 // ============================================================================
 
-std::pair<int, std::string> adai::TrainerServiceProxy::proxy_get(const std::string& path) {
+std::pair<int, std::string> adai::TrainerServiceProxy::proxy(const std::string& method, const std::string& path,
+                                                             const std::string& body, int read_timeout_ms) {
     const int port = child_port_.load();
     httplib::Client cli("127.0.0.1", port);
     cli.set_connection_timeout(1, 0);  // 1s — a live child's admin API answers near-instantly
-    cli.set_read_timeout(5, 0);        // 5s — generous for e.g. a large /admin/logs response
-    auto res = cli.Get(path);
+    cli.set_read_timeout(std::chrono::milliseconds(read_timeout_ms));  // 5 s default, generous for /admin/logs
+    httplib::Result res = method == "GET"   ? cli.Get(path)
+                          : method == "PUT" ? cli.Put(path, body, "application/json")
+                                            : cli.Post(path, body, "application/json");
     if (!res) {
-        return {kChildUnreachableStatus, child_unreachable_json()};
-    }
-    return {res->status, res->body};
-}
-
-std::pair<int, std::string> adai::TrainerServiceProxy::proxy_post(const std::string& path,
-                                                                  const std::string& body) {
-    const int port = child_port_.load();
-    httplib::Client cli("127.0.0.1", port);
-    cli.set_connection_timeout(1, 0);
-    cli.set_read_timeout(5, 0);
-    auto res = cli.Post(path, body, "application/json");
-    if (!res) {
-        return {kChildUnreachableStatus, child_unreachable_json()};
-    }
-    return {res->status, res->body};
-}
-
-std::pair<int, std::string> adai::TrainerServiceProxy::proxy_put(const std::string& path,
-                                                                 const std::string& body) {
-    const int port = child_port_.load();
-    httplib::Client cli("127.0.0.1", port);
-    cli.set_connection_timeout(1, 0);
-    cli.set_read_timeout(5, 0);
-    auto res = cli.Put(path, body, "application/json");
-    if (!res) {
-        return {kChildUnreachableStatus, child_unreachable_json()};
+        const auto err = res.error();
+        if (err == httplib::Error::Connection || err == httplib::Error::ConnectionTimeout) {
+            return {kChildUnreachableStatus, child_unreachable_json()};
+        }
+        Logger::warn("trainer_service: {} {} to the running pass failed: {}", method, path, httplib::to_string(err));
+        return {kChildTimeoutStatus, child_timeout_json(read_timeout_ms)};
     }
     return {res->status, res->body};
 }
@@ -295,15 +315,15 @@ std::string adai::TrainerServiceProxy::with_supervisor_fields(const std::string&
 }
 
 std::pair<int, std::string> adai::TrainerServiceProxy::handle_get_config_idle() {
-    // Same defaults as TrainerControlState's own field initializers (TrainerControlState.hpp),
+    // The loaded config.trainer.conf values (what a pass seeds its TrainerControlState from),
     // overlaid with whatever a previous pass (or a previous idle PUT, see below) persisted to the
     // shared daemon_config.db — mirrors TrainerAdminAPI::start()'s own overlay-on-construction
     // logic, just performed directly here instead of via a live TrainerControlState.
-    // TODO: See TD-525 in TECHNICAL_DEBT.md - hardcoded defaults, not config.trainer.conf's values the next child uses.
-    bool auto_save_enabled = true;
-    int auto_save_every_samples = 1000;
-    int auto_save_every_minutes = 30;
-    int max_sessions_to_keep = 50;
+    // TD-525: the config file's values (idle_defaults_), as the next pass seeds from, not hardcoded ones.
+    bool auto_save_enabled = idle_defaults_.auto_save_enabled;
+    int auto_save_every_samples = idle_defaults_.auto_save_every_samples;
+    int auto_save_every_minutes = idle_defaults_.auto_save_every_minutes;
+    int max_sessions_to_keep = idle_defaults_.max_sessions_to_keep;
 
     try {
         DaemonConfigStore store(child_admin_dir_ + "/daemon_config.db");

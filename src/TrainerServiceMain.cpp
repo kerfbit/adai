@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.10.0
+// @adai-version: 0.11.0
 // @adai-reviewed: 2026-11-02
 
 // TD-172: trainer_service — the thin process-supervisor binary that replaces
@@ -150,8 +150,14 @@ int main(int argc, char* argv[]) {
                        adai::resolve_dataset_kind(cli.objective, cli.dataset_kind),
                        pass_log.empty() ? std::string("the console") : pass_log);
 
+    // TD-525: idle GET /admin/config reports the config file's tunables, as the next pass seeds from.
+    adai::TrainerAdminDefaults idle_defaults;
+    idle_defaults.auto_save_enabled = svc_config.auto_save_enabled;
+    idle_defaults.auto_save_every_samples = svc_config.auto_save_every_samples;
+    idle_defaults.auto_save_every_minutes = svc_config.auto_save_every_minutes;
+    idle_defaults.max_sessions_to_keep = svc_config.max_sessions_to_keep;
     adai::TrainerServiceProxy proxy(svc_config.trainer_admin_host, svc_config.trainer_admin_port,
-                                    svc_config.trainer_admin_dir, control);
+                                    svc_config.trainer_admin_dir, control, idle_defaults);
     std::thread proxy_thread;
     if (svc_config.trainer_admin_enabled) {
         adai::TrainerServiceProxy* proxy_ptr = &proxy;

@@ -110,3 +110,15 @@ as long as they send JSON (or, for `registry_server`'s `upload`, `application/oc
 `tests/trainer_service_proxy_test.cpp` runs each server through an RAII thread holder (stop and join on destruction) on kernel-assigned ports, with a 10 s readiness
 wait that stops when `start()` fails. Its fixed ports in the ephemeral range used to be taken under a parallel `ctest`, and the failed
 `ASSERT` then left a joinable `std::thread` that aborted the whole binary.
+
+## Addendum (November 2, 2026): checkpoint waits, timeouts and idle defaults (TD-525)
+
+`POST /admin/checkpoint?wait_ms=N` takes a whole number from 0 to 300,000 (`kMaxCheckpointWaitMs`, 5 minutes), else 400, and
+the proxy waits N ms + 5 s for the child's answer, so an accepted checkpoint is relayed as the child's 202 instead of a 503.
+Every proxied request goes through one `proxy(method, path, body, read_timeout_ms)`. A refused connection is 503 "training pass
+is starting or exiting", and a child that accepted the connection but didn't answer in time is 504 "did not answer within N s;
+the request may still have been applied", so a caller doesn't retry a request that may have been applied. The constructor's
+`TrainerAdminDefaults` (from `config.trainer.conf` in `trainer_service`) are what the idle `GET`/`PUT /admin/config` report
+under the `daemon_config.db` overlay, matching what the next pass seeds from. A pause or resume the running pass doesn't
+accept is logged. During a pass `paused` is still the child's flag; `supervisor_paused` is the service's.
+

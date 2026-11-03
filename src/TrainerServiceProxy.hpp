@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-14
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-11-02
 
 // TD-172: trainer_service's own admin HTTP listener. Unlike TrainerAdminAPI (which answers every
 // request from an in-process TrainerControlState it owns directly), this class is a thin reverse
@@ -30,6 +30,16 @@
 
 namespace adai {
 
+/// TD-525: what a pass starts from before daemon_config.db overrides apply, i.e. the loaded
+/// config.trainer.conf values. The idle GET /admin/config reports these with the same overlay, so it
+/// matches what the next pass will use.
+struct TrainerAdminDefaults {
+    bool auto_save_enabled = true;
+    int auto_save_every_samples = 1000;
+    int auto_save_every_minutes = 30;
+    int max_sessions_to_keep = 50;
+};
+
 class TrainerServiceProxy {
    public:
     /**
@@ -43,9 +53,16 @@ class TrainerServiceProxy {
      * @param control          The supervisor's own process-lifetime control state (TD-173) —
      *                         pause/resume/status read and write this directly, in addition to
      *                         whatever proxying to a live child also happens.
+     * @param idle_defaults    TD-525: the config file's tunables, reported while idle under the
+     *                         daemon_config.db overlay.
      */
     TrainerServiceProxy(std::string host, int port, std::string child_admin_dir,
-                        std::shared_ptr<TrainerServiceControlState> control);
+                        std::shared_ptr<TrainerServiceControlState> control,
+                        TrainerAdminDefaults idle_defaults = {});
+
+    /// TD-525: the longest checkpoint wait_ms the proxy forwards (5 minutes); above it, or not a whole
+    /// number, is a 400.
+    static constexpr int kMaxCheckpointWaitMs = 300000;
     ~TrainerServiceProxy();
 
     TrainerServiceProxy(const TrainerServiceProxy&) = delete;
@@ -65,9 +82,11 @@ class TrainerServiceProxy {
     bool is_running() const;
 
    private:
-    std::pair<int, std::string> proxy_get(const std::string& path);
-    std::pair<int, std::string> proxy_post(const std::string& path, const std::string& body);
-    std::pair<int, std::string> proxy_put(const std::string& path, const std::string& body);
+    /// TD-525: forwards one request to the current child. A refused connection (the pass is starting
+    /// or exiting) is a 503; no answer within the read timeout is a 504, since the child may already
+    /// have acted on it.
+    std::pair<int, std::string> proxy(const std::string& method, const std::string& path, const std::string& body,
+                                      int read_timeout_ms = 5000);
 
     std::pair<int, std::string> handle_get_config_idle();
     std::pair<int, std::string> handle_put_config_idle(const std::string& body);
@@ -84,6 +103,7 @@ class TrainerServiceProxy {
     int port_;
     std::string child_admin_dir_;
     std::shared_ptr<TrainerServiceControlState> control_;
+    TrainerAdminDefaults idle_defaults_;
     std::atomic<int> child_port_{0};
     std::atomic<bool> running_{false};
 

@@ -587,3 +587,106 @@ TEST_F(TrainerServiceProxyTest, StatusIncludesSupervisorObservabilityFields) {
     proxy->stop();
     thr.join();
 }
+
+// ============================================================================
+// TD-525: checkpoint waits, timeouts and idle config defaults
+// ============================================================================
+
+// A checkpoint wait longer than the proxy's old fixed 5 s read timeout used to come back as 503
+// "starting or exiting" although the child had accepted it. The checkpoint completes 6 s in.
+TEST_F(TrainerServiceProxyTest, CheckpointWaitLongerThanFiveSecondsIsRelayed) {
+    auto child_control = std::make_shared<TrainerControlState>();
+    child_control->phase = adai::TrainerPhase::Training;
+    auto child_api = std::make_unique<TrainerAdminAPI>(child_control, "127.0.0.1", child_port,
+                                                        (test_dir / "child").string());
+    ServerThread child_thread(*child_api);
+    ASSERT_TRUE(wait_until_reachable(child_port, child_thread));
+
+    auto proxy = make_proxy();
+    ServerThread proxy_thread(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, proxy_thread));
+    proxy->set_child_port(child_port);
+
+    std::thread checkpointer([child_control] {
+        std::this_thread::sleep_for(std::chrono::seconds(6));
+        ++child_control->checkpoints_written;
+    });
+
+    httplib::Client client("127.0.0.1", proxy_port);
+    client.set_read_timeout(std::chrono::seconds(30));
+    auto res = client.Post("/admin/checkpoint?wait_ms=10000", "", "application/json");
+    checkpointer.join();
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 202) << res->body;  // the child accepted it
+    EXPECT_NE(res->body.find("\"completed\":true"), std::string::npos) << res->body;
+    EXPECT_TRUE(child_control->checkpoint_requested.load());
+}
+
+TEST_F(TrainerServiceProxyTest, CheckpointRejectsAMalformedOrOversizedWait) {
+    auto proxy = make_proxy();
+    ServerThread thr(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
+    proxy->set_child_port(child_port);  // nothing listens there; a valid request would get a 503
+
+    httplib::Client client("127.0.0.1", proxy_port);
+    for (const char* bad : {"abc", "100x", "-1", "300001", "99999999999"}) {
+        auto res = client.Post(std::string("/admin/checkpoint?wait_ms=") + bad, "", "application/json");
+        ASSERT_TRUE(res);
+        EXPECT_EQ(res->status, 400) << bad;
+        EXPECT_NE(res->body.find("wait_ms"), std::string::npos) << bad;
+    }
+}
+
+// A child that accepts the connection but never answers is a 504 saying the request may have been
+// applied, not the "starting or exiting" 503 a refused connection gets.
+TEST_F(TrainerServiceProxyTest, ChildThatNeverAnswersIsA504) {
+    const int silent_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    ASSERT_GE(silent_fd, 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons(static_cast<uint16_t>(child_port));
+    ASSERT_EQ(::bind(silent_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)), 0);
+    ASSERT_EQ(::listen(silent_fd, 8), 0);  // the kernel completes connections; nothing ever reads
+
+    auto proxy = make_proxy();
+    ServerThread thr(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
+    proxy->set_child_port(child_port);
+
+    httplib::Client client("127.0.0.1", proxy_port);
+    client.set_read_timeout(std::chrono::seconds(30));
+    auto res = client.Get("/admin/status");
+    ::close(silent_fd);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 504);
+    EXPECT_NE(res->body.find("may still have been applied"), std::string::npos) << res->body;
+}
+
+// Idle GET /admin/config reports the config file's values the next pass seeds from (they used to be
+// hardcoded), with daemon_config.db overrides on top.
+TEST_F(TrainerServiceProxyTest, IdleConfigReportsTheConfigFileDefaults) {
+    adai::TrainerAdminDefaults defaults;
+    defaults.auto_save_enabled = false;
+    defaults.auto_save_every_samples = 250;
+    defaults.auto_save_every_minutes = 7;
+    defaults.max_sessions_to_keep = 9;
+    TrainerServiceProxy proxy("127.0.0.1", proxy_port, test_dir.string(), control, defaults);
+    ServerThread thr(proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
+
+    httplib::Client client("127.0.0.1", proxy_port);
+    auto res = client.Get("/admin/config");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_NE(res->body.find("\"auto_save_enabled\":false"), std::string::npos) << res->body;
+    EXPECT_NE(res->body.find("\"auto_save_every_samples\":250"), std::string::npos) << res->body;
+    EXPECT_NE(res->body.find("\"auto_save_every_minutes\":7"), std::string::npos) << res->body;
+    EXPECT_NE(res->body.find("\"max_sessions_to_keep\":9"), std::string::npos) << res->body;
+
+    res = client.Put("/admin/config", "{\"auto_save_every_minutes\":12}", "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_NE(res->body.find("\"auto_save_every_minutes\":12"), std::string::npos) << res->body;
+    EXPECT_NE(res->body.find("\"auto_save_every_samples\":250"), std::string::npos) << res->body;
+}
