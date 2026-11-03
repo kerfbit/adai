@@ -320,6 +320,13 @@ target_link_libraries(loggerTests
 )
 add_test(NAME LoggerTests COMMAND loggerTests)
 
+# TD-430: concurrent first use and re-init (its own binary: needs a process with no logger yet; forks)
+if(UNIX)
+    add_executable(loggerInitRaceTests logger_init_race_test.cpp ../src/Logger.cpp)
+    target_link_libraries(loggerInitRaceTests spdlog::spdlog GTest::gtest_main)
+    add_test(NAME LoggerInitRaceTests COMMAND loggerInitRaceTests)
+endif()
+
 # IncrementalTrainer tests (Session management, checkpoints, data registry)
 add_executable(incrementaltrainerTests 
     incrementaltrainer_test.cpp

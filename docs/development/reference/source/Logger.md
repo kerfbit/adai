@@ -106,3 +106,13 @@ console (the journal under systemd); a detached `incremental_trainer` run, whose
 to `~/.local/state/adai/log/incremental_trainer.log` (`$XDG_STATE_HOME/adai/log/` if set). Neither binary uses
 `chatbot_server.log` any more. Both apply `LOG_LEVEL` via `Logger::init(Logger::parse_level(...))`, and the replay of
 start-up messages logged before `init()` skips those below the level.
+
+## Addendum (November 2, 2026): safe initialization (TD-430)
+
+`init()` and the lazy init in `get()` share one mutex, and the static `logger_` is only read and written with
+`std::atomic_load`/`std::atomic_store`. Concurrent first log calls create one logger and never throw; a thread that logs
+while another re-initializes gets the old or the new logger. The console logger is built directly instead of with
+`spdlog::stderr_color_mt()`, which threw when its name was registered. Re-initializing drops the previous logger's
+own name from spdlog's registry, and registration never throws. `Level::ERROR` is now `Level::ERR`, so `Logger.hpp`
+compiles after `<windows.h>`'s `ERROR` macro. `FileConfig::compress` still only logs a start-up note. Tests:
+`logger_init_race_test.cpp` (its own binary, Unix only; each race runs in a forked child).

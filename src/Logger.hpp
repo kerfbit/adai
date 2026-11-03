@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-11-02
 
 
@@ -9,6 +9,7 @@
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -31,8 +32,8 @@ class Logger {
     /**
      * @brief Logging levels
      */
-    // TODO: See TD-430 in TECHNICAL_DEBT.md - ERROR collides with the Windows <wingdi.h> macro
-    enum class Level : std::uint8_t { DEBUG, INFO, WARN, ERROR };
+    // TD-430: ERR, not ERROR, which the Windows <wingdi.h> header defines as a macro.
+    enum class Level : std::uint8_t { DEBUG, INFO, WARN, ERR };
 
     /**
      * @brief Log file configuration
@@ -41,11 +42,15 @@ class Logger {
         std::string path;         // Log file path (empty = disabled)
         size_t max_size_mb = 10;  // Max file size before rotation (MB)
         size_t max_files = 5;     // Max number of rotated files
-        bool compress = false;    // Enable compression (future enhancement)
+        bool compress = false;    // Only logs a start-up note: spdlog doesn't compress rotated files
     };
 
     /**
      * @brief Initialize the logger
+     *
+     * TD-430: init(), and get()'s lazy init, are serialized, and a thread may log while another
+     * re-initializes: it gets the old or the new logger. Re-initializing drops the previous logger's
+     * name from spdlog's registry.
      *
      * @param level Logging level
      * @param name Logger name (default: "adai")
@@ -64,7 +69,7 @@ class Logger {
     /**
      * @brief Set logging level from string
      *
-     * @param level_str Level as string: "DEBUG", "INFO", "WARN", "ERROR"
+     * @param level_str Level as string: "DEBUG", "INFO", "WARN", "ERROR" (Level::ERR)
      */
     static void set_level(const std::string& level_str);
 
@@ -146,9 +151,12 @@ class Logger {
 
    private:
     static void replay_deferred_to_file(const spdlog::sink_ptr& file_sink, Level min_level = Level::DEBUG);
+    // The caller holds the init mutex (Logger.cpp).
+    static void init_console_locked(Level level, const std::string& name);
+    static void install(const std::shared_ptr<spdlog::logger>& logger, Level level);
 
-    static std::shared_ptr<spdlog::logger> logger_;
-    static bool configured_;  // init() was called by the binary, not lazily by get()
+    static std::shared_ptr<spdlog::logger> logger_;  // TD-430: std::atomic_load/std::atomic_store only
+    static std::atomic<bool> configured_;            // init() was called by the binary, not lazily by get()
 };
 
 }  // namespace adai

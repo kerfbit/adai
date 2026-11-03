@@ -153,7 +153,7 @@ TEST_F(LoggerTest, SetLevelFromEnum) {
     EXPECT_NO_THROW(Logger::set_level(Logger::Level::DEBUG));
     EXPECT_NO_THROW(Logger::set_level(Logger::Level::INFO));
     EXPECT_NO_THROW(Logger::set_level(Logger::Level::WARN));
-    EXPECT_NO_THROW(Logger::set_level(Logger::Level::ERROR));
+    EXPECT_NO_THROW(Logger::set_level(Logger::Level::ERR));
 }
 
 TEST_F(LoggerTest, SetLevelFromString) {
@@ -472,7 +472,7 @@ TEST_F(LoggerTest, LevelChangeDuringLogging) {
     Logger::init(Logger::Level::DEBUG, config);
 
     Logger::debug("Debug 1");
-    Logger::set_level(Logger::Level::ERROR);
+    Logger::set_level(Logger::Level::ERR);
     Logger::debug("Debug 2");  // Should not appear
     Logger::error("Error 1");  // Should appear
 

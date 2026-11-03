@@ -1435,6 +1435,8 @@ The generation and model math run is complete.
 - TD-431 (done in code, owner's choice: with `LOG_FILE_PATH` set each `trainer_service` pass logs to its own
   `.pass` file; empty means the console, or the per-user state directory for a detached run; `LOG_LEVEL` applies to both
   trainer binaries).
+- TD-430 (done in code: `Logger` initialization serialized and `logger_` accessed atomically, so concurrent first use
+  and re-init while logging are safe and a log call never throws; the previous name dropped; `Level::ERROR` renamed `ERR`).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -12199,7 +12201,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Core / Logger | October 14, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 2, 2026 | Core / Logger | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `Logger` and verified. `Logger::get()` lazily calls `init(INFO)` when `logger_` is
@@ -12215,14 +12217,25 @@ collides with the Windows `<wingdi.h>` `ERROR` macro.
 
 Action Items:
 
-- [ ] Guard initialization with `std::call_once` (or a mutex) and make `logger_` an atomic `shared_ptr`/`spdlog::default_logger()`; never throw from a log call; drop the previous logger's own name on re-init; rename `Level::ERROR` (or `#undef` guard).
+- [x] Guard initialization with `std::call_once` (or a mutex) and make `logger_` an atomic `shared_ptr`/`spdlog::default_logger()`; never throw from a log call; drop the previous logger's own name on re-init; rename `Level::ERROR` (or `#undef` guard).
 
-Location in code: `src/Logger.{hpp,cpp}` (`get()`, `init()`, `Level`); tagged `TODO: See TD-430`.
+**Fix (November 2, 2026):** `init()` and `get()`'s lazy init share one mutex, and `logger_` is only read and
+written with `std::atomic_load`/`std::atomic_store`, so concurrent first use creates one logger and a thread logging
+during a re-init gets the old or the new logger. The console logger is built directly instead of with
+`spdlog::stderr_color_mt()`, which threw when the name was taken, and registering it can't throw. Re-init drops the
+previous logger's own name. `Level::ERROR` is now `Level::ERR`, so `Logger.hpp` compiles after `<wingdi.h>`.
+`FileConfig::compress` is documented as only logging a start-up note. `tests/logger_init_race_test.cpp` (its own
+binary; each race runs in a forked child that only it waits for): 8 threads' first log calls in 50 fresh processes,
+200 re-inits while 4 threads log, the previous name dropped, `ERR` with the Windows `ERROR` macro defined. On the old
+code the file doesn't compile, and with the names adapted three of four fail (a throw on trial 0, a segfault during
+re-init, the old name still registered). TSan-clean, children included.
+
+Location in code: `src/Logger.{hpp,cpp}` (`get()`, `init()`, `install()`, `Level`).
 
 Files to Modify:
 
 - `src/Logger.{hpp,cpp}`
-- `tests/logger_test.cpp`
+- `tests/logger_test.cpp`, `tests/logger_init_race_test.cpp`
 
 ---
 
