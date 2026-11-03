@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.33.1
-// @adai-reviewed: 2026-11-02
+// @adai-version: 0.33.2
+// @adai-reviewed: 2026-11-03
 
 #include <array>
 #include <atomic>
@@ -371,11 +371,11 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     struct IdleOnExit {
         const std::shared_ptr<adai::TrainerControlState>& control;
         ~IdleOnExit() {
-            if (control) control->phase = adai::TrainerPhase::Idle;
+            if (control) control->set_phase(adai::TrainerPhase::Idle);
         }
     } idle_on_exit{control};
     if (control) {
-        control->phase = adai::TrainerPhase::LoadingData;
+        control->set_phase(adai::TrainerPhase::LoadingData);
         control->log(adai::TrainerLogLevel::Info, "LeJEPA world-model pass starting");
     }
 
@@ -495,7 +495,7 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         control->total_epochs = epochs;
         control->current_epoch = 0;
         control->samples_trained_this_pass = 0;
-        control->phase = adai::TrainerPhase::Training;
+        control->set_phase(adai::TrainerPhase::Training);
         control->log(adai::TrainerLogLevel::Info,
                      "Training the world model on " + std::to_string(texts.size()) + " text(s)");
     }
@@ -568,7 +568,7 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
     auto last_save_time = std::chrono::steady_clock::now();
     // One checkpoint write, reported to the admin API when there is one (TD-403).
     const auto save_checkpoint = [&](const std::string& why) {
-        if (control) control->phase = adai::TrainerPhase::Checkpointing;
+        if (control) control->set_phase(adai::TrainerPhase::Checkpointing);
         bool saved = false;
         try {
             world_model.save(world_model_dir);
@@ -584,7 +584,7 @@ static int run_lejepa_training_pass(const adai::ServiceConfig& svc_config,
         } catch (const std::exception& e) {
             adai::Logger::warn("[lejepa] Checkpoint save failed, continuing: {}", e.what());
         }
-        if (control) control->phase = adai::TrainerPhase::Training;
+        if (control) control->set_phase(adai::TrainerPhase::Training);
         samples_since_last_save = 0;
         last_save_time = std::chrono::steady_clock::now();
         return saved;

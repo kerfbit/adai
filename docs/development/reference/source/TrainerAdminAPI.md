@@ -122,3 +122,11 @@ invalid value is logged ("Ignoring invalid saved admin setting …") and the see
 invalid JSON while a pass diverged. A new `loss_diverged` field is true when the pass has trained samples and its last loss isn't
 finite. Both losses are `null` until the pass reports one, since `TrainerControlState` now starts them at NaN, so `best_loss` no
 longer reads as a perfect 0 before validation. Finite losses are written with 17 significant digits.
+
+## Addendum (November 3, 2026): `pausing` and the logs limit (TD-522)
+
+`POST /admin/pause` calls `TrainerControlState::request_pause()`, so `GET /admin/status` reports `pausing` while a working pass
+drains (`checkpointing` while it saves, then `idle`). `POST /admin/resume` calls `clear_pause()`, which restores the previous
+phase. It no longer calls a `wake()` that nothing waited on. `GET /admin/logs` takes `?limit=N`, a whole number from 0 to 200
+(else 400), and returns the newest N entries. The ring now holds only messages at or above the logger's level, each at most
+4 KiB.

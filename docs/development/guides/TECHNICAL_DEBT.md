@@ -1443,6 +1443,8 @@ The generation and model math run is complete.
   checkpoints numbered so only one written for the request completes it, saved overrides checked on load).
 - TD-520 (done in code: `/admin/status` sends a non-finite loss as `null` with `loss_diverged`, and both losses are `null`
   until a pass reports one; the Android dashboard takes nullable losses).
+- TD-522 (done in code: comments describe the per-pass design; a pending pause reports `pausing`; the unused per-pass wake/sleep
+  is removed; the log ring follows the logger level, caps messages at 4 KiB and serves `?limit=`; an exception resets the phase).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -16069,7 +16071,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / Admin API | October 17, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 3, 2026 | Training / Admin API | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `TrainerControlState.hpp` (see [TrainerControlState.md](../reference/source/TrainerControlState.md)); by inspection:
@@ -16085,16 +16087,45 @@ Found while tracing `TrainerControlState.hpp` (see [TrainerControlState.md](../r
 
 Action Items:
 
-- [ ] Update the comments for the TD-172 design; set `Pausing` while draining (or remove it from the enum and CLAUDE.md).
-- [ ] Remove or share the wake/sleep code; skip ring entries below the logger level; cap message length; reset the phase on exceptions.
+- [x] Update the comments for the TD-172 design; set `Pausing` while draining (or remove it from the enum and CLAUDE.md).
+- [x] Remove or share the wake/sleep code; skip ring entries below the logger level; cap message length; reset the phase on exceptions.
 
-Location in code: `src/TrainerControlState.hpp` (class/enum comments, `wake()`, `log()`); tagged `TODO: See TD-522`.
+Location in code: `src/TrainerControlState.hpp` (class/enum comments, `wake()`, `log()`); the `TODO: See TD-522` tags are removed.
+
+**Fix (November 3, 2026):** The comments now describe the per-pass design: one `TrainerControlState` per `resume --admin-port`
+pass, with `trainer_service` keeping its own state. The pass now reports `pausing`:
+- The pass writes its phase through `set_phase()`.
+- `/admin/pause` calls `request_pause()`, which shows a loading, tokenizing or training pass as `Pausing` straight away.
+- Later phase updates stay `Pausing` until the pass drains, except `Checkpointing` and `Idle`, so a draining pass reports
+  `pausing`, `checkpointing`, then `idle`.
+- `/admin/resume` calls `clear_pause()`, which restores the phase the pass had.
+- SIGTERM/SIGINT can only store `paused` (no locking in a signal handler), so their drain shows from the pass's next phase update.
+
+The other changes:
+- **Wake code.** The per-pass `wake()`/`interruptible_sleep()` copy is removed. Nothing sleeps in a pass, and
+  `TrainerServiceControlState` keeps the supervisor's copy, the one in use.
+- **Log ring.** `log()` skips messages below the logger's level, so the ring holds what the pass's log file holds. The ring's
+  copy of a message is cut to 4 KiB at a UTF-8 boundary, marked " [truncated]".
+- **`?limit=`.** `GET /admin/logs` takes `?limit=N` (0–200, else 400) in the pass and in the proxy, which checks it and passes
+  it on. `kMaxAdminLogEntries` lives in `TrainerAdminConfig.hpp`.
+- **Phase after an exception.** A new `TrainerPhaseResetOnThrow` guard in `train_on_files()`/`retrain_on_files()` resets the
+  phase to `Idle` when an exception leaves the pass. The LeJEPA pass already did this.
+
+Tests:
+- `trainerControlStateTests` cover the pause transitions, the signal path, the exception guard, level filtering and the
+  character-safe cut. They replace the three removed sleep tests.
+- `trainerAdminApiTests` cover `pausing` and its restore in `/admin/status`, and the logs limit.
+- `trainerServiceProxyTests` cover the limit, both checked and forwarded. That test fails on the old code: a bad limit was
+  accepted and every entry returned.
+- The other new tests call API the old code doesn't have.
 
 Files to Modify:
 
 - `src/TrainerControlState.hpp`
 - `src/IncrementalTrainer.cpp`
 - `CLAUDE.md`
+- `src/TrainerAdminAPI.{hpp,cpp}`, `src/TrainerAdminConfig.hpp`, `src/TrainerServiceProxy.cpp`, `src/TrainerServiceControlState.hpp`, `src/IncrementalTrainingTool.cpp`
+- `tests/trainer_control_state_test.cpp`, `tests/trainer_admin_api_test.cpp`, `tests/trainer_service_proxy_test.cpp`
 
 ---
 

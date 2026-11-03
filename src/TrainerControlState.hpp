@@ -1,42 +1,41 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-11-02
+// @adai-version: 1.4.0
+// @adai-reviewed: 2026-11-03
 
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <exception>
 #include <limits>
 #include <mutex>
 #include <string>
 #include <vector>
 #include "Logger.hpp"
+#include "TrainerAdminConfig.hpp"
 
 namespace adai {
 
-// TODO: See TD-522 in TECHNICAL_DEBT.md - stale since TD-172 (serve removed; per-pass state now), and Pausing is never set.
 /**
- * @brief Lifecycle phase of the `incremental_trainer serve` supervisory loop,
- *        surfaced verbatim by GET /admin/status.
+ * @brief Phase of one `incremental_trainer` training pass, reported by GET /admin/status.
  *
- * No `Stopped`/`Finished` value — the supervisor itself doesn't finish during
- * normal operation, it just cycles between Idle and the active-pass phases
- * for as long as the process runs.
+ * TD-522: since TD-172 a TrainerControlState lives for one pass (the `resume --admin-port` child
+ * trainer_service launches); trainer_service answers `idle` itself between passes. A pass starts
+ * in Idle and goes back to Idle when it ends, however it ends.
  */
 enum class TrainerPhase {
-    Idle,          ///< No pass active; polling for pending work.
+    Idle,          ///< No pass active (before it starts, after it ends).
     LoadingData,   ///< Reading/parsing the acquired dataset files from disk.
     Tokenizing,    ///< ChatbotTrainer::train()'s internal preprocess_data() step.
     Training,      ///< At least one training sample has been processed this pass.
     Checkpointing, ///< A checkpoint write is in flight (best-effort — brief).
-    Pausing,       ///< Draining after /admin/pause; returns to Idle once the
-                   ///< current optimizer-step boundary is reached and a
-                   ///< checkpoint has been written.
+    Pausing,       ///< TD-522: asked to pause (/admin/pause, SIGTERM/SIGINT) while loading,
+                   ///< tokenizing or training; the pass stops at the next optimizer-step
+                   ///< boundary, reports Checkpointing while it saves, then Idle.
 };
 
 inline const char* to_string(TrainerPhase p) {
@@ -91,14 +90,13 @@ struct TrainerLogEntry {
 };
 
 /**
- * @brief In-process shared state between `incremental_trainer serve`'s
- *        supervisory loop (and whichever training pass it's currently
- *        running) and TrainerAdminAPI's HTTP handlers, which run on a
- *        separate thread. No IPC — both live in the same process for the
- *        whole lifetime of `serve`; this is what makes the admin API
- *        genuinely always-on rather than only reachable while a single
- *        `resume` process instance happens to be alive between systemd
- *        restart cycles. See CLAUDE.md / the "admin control daemon" plan.
+ * @brief State shared between one training pass and its TrainerAdminAPI's HTTP handlers, which run
+ *        on another thread of the same process.
+ *
+ * TD-522: since TD-172 this lives for one pass only: `incremental_trainer --admin-port N resume`, a
+ * child of trainer_service, creates it. trainer_service keeps its own process-lifetime state
+ * (TrainerServiceControlState: the service-level pause, its idle-poll sleep and wake) and proxies
+ * /admin/* to this pass while it runs.
  *
  * Ownership / threading contract (each field is written from exactly one
  * side and read from the other — no field is read-modify-written from both):
@@ -109,11 +107,14 @@ struct TrainerLogEntry {
  *  - Progress fields (phase, current_epoch, total_epochs,
  *    samples_trained_this_pass, last_loss, best_loss): the active training
  *    pass writes; admin thread reads for GET /admin/status.
- *  - `paused`: admin thread sets via POST /admin/pause and clears via
- *    POST /admin/resume; the supervisory loop reads it to skip starting a
- *    new pass, and it doubles as ChatbotTrainer's cooperative abort flag
- *    (passed directly to ChatbotTrainer::set_abort_flag()) so a pass in
- *    flight drains at its next optimizer-step boundary.
+ *  - `paused`: admin thread sets it with request_pause() (POST /admin/pause) and
+ *    clears it with clear_pause() (POST /admin/resume); incremental_trainer's
+ *    signal handler stores it directly (async-signal-safe). It doubles as
+ *    ChatbotTrainer's cooperative abort flag (ChatbotTrainer::set_abort_flag()),
+ *    so the pass drains at its next optimizer-step boundary.
+ *  - `phase`: anyone reads it; it's written only through set_phase(),
+ *    request_pause() and clear_pause(), which keep it Pausing while a pause
+ *    is pending (TD-522).
  *  - `checkpoint_requested`: admin thread sets via POST /admin/checkpoint
  *    (request_checkpoint()); the active pass consumes it with
  *    take_checkpoint_request() and forces an immediate checkpoint write,
@@ -131,6 +132,7 @@ struct TrainerLogEntry {
 class TrainerControlState {
    public:
     // ---- Phase / progress (training-pass writes; admin reads) ----
+    // TD-522: read freely; write through set_phase() (the pass) or request_pause()/clear_pause() (admin).
     std::atomic<TrainerPhase> phase{TrainerPhase::Idle};
     std::atomic<int> current_epoch{0};
     std::atomic<int> total_epochs{0};
@@ -140,7 +142,7 @@ class TrainerControlState {
     std::atomic<double> last_loss{std::numeric_limits<double>::quiet_NaN()};
     std::atomic<double> best_loss{std::numeric_limits<double>::quiet_NaN()};
 
-    // ---- Action flags (admin writes; training-pass/supervisor consume) ----
+    // ---- Action flags (admin writes; training-pass consumes) ----
     std::atomic<bool> paused{false};
     std::atomic<bool> checkpoint_requested{false};
     // TD-416: the signal (SIGTERM/SIGINT) that asked this pass to stop, or 0. incremental_trainer's
@@ -184,37 +186,38 @@ class TrainerControlState {
     std::atomic<int> auto_save_every_minutes{30};
     std::atomic<int> max_sessions_to_keep{50};
 
-    /// Short-circuits the supervisory loop's idle poll sleep — called by
-    /// POST /admin/resume so a newly-queued dataset (or a pause being
-    /// cleared) doesn't have to wait out the full poll interval. Spurious
-    /// early wakeups are harmless: the loop just re-checks for pending work
-    /// and, finding none, goes back to sleep.
-    ///
-    /// wake_requested_ (guarded by wake_mutex_, consumed by
-    /// interruptible_sleep) exists so a wake() that lands *before*
-    /// interruptible_sleep() starts waiting is not silently lost: a bare
-    /// notify_all() with no one yet parked in wait_for() reaches no one and
-    /// is forgotten, so a wake() arriving during the (typically brief, but
-    /// nonzero) window where the supervisory loop is doing work between
-    /// sleeps — e.g. resume_last_session() concluding there is nothing
-    /// pending, right before the loop calls interruptible_sleep() — would
-    /// otherwise make the very next sleep run the full interval instead of
-    /// returning immediately, defeating /admin/resume's documented
-    /// "wake the idle-poll sleep so pending work is checked immediately".
-    // TODO: See TD-522 in TECHNICAL_DEBT.md - unused in the per-pass child (nothing sleeps); duplicated in
-    // TrainerServiceControlState.
-    void wake() {
-        std::lock_guard<std::mutex> lock(wake_mutex_);
-        wake_requested_ = true;
-        wake_cv_.notify_all();
+    // ---- Phase transitions (TD-522) ----
+
+    /// Pass side: enters `p`. While a pause is pending a working phase (loading, tokenizing,
+    /// training) is reported as Pausing instead; Checkpointing and Idle are reported as they are.
+    void set_phase(TrainerPhase p) {
+        std::lock_guard<std::mutex> lock(phase_mutex_);
+        if (paused.load() && is_working(p)) {
+            phase_before_pause_ = p;
+            p = TrainerPhase::Pausing;
+        }
+        phase.store(p);
     }
 
-    /// Sleeps up to `seconds`, returning early if wake() is called — either
-    /// while this call is waiting, or already pending from before it started.
-    void interruptible_sleep(int seconds) {
-        std::unique_lock<std::mutex> lock(wake_mutex_);
-        wake_cv_.wait_for(lock, std::chrono::seconds(seconds), [this] { return wake_requested_; });
-        wake_requested_ = false;
+    /// Admin side (POST /admin/pause): asks the pass to drain, and reports Pausing at once if it's
+    /// working. Not async-signal-safe (it locks); a signal handler stores `paused` directly, and the
+    /// pass's next set_phase() turns that into Pausing.
+    void request_pause() {
+        std::lock_guard<std::mutex> lock(phase_mutex_);
+        paused.store(true);
+        const TrainerPhase current = phase.load();
+        if (is_working(current)) {
+            phase_before_pause_ = current;
+            phase.store(TrainerPhase::Pausing);
+        }
+    }
+
+    /// Admin side (POST /admin/resume): cancels a pending pause. A pass that hasn't reached its
+    /// next optimizer-step boundary yet carries on, so it reports the phase it had again.
+    void clear_pause() {
+        std::lock_guard<std::mutex> lock(phase_mutex_);
+        paused.store(false);
+        if (phase.load() == TrainerPhase::Pausing) phase.store(phase_before_pause_);
     }
 
     // ---- Identity strings (mutex-guarded) ----
@@ -253,17 +256,22 @@ class TrainerControlState {
 
     // ---- Log ring buffer (GET /admin/logs) ----
 
+    /// The most entries the ring keeps (and GET /admin/logs?limit= accepts).
+    static constexpr std::size_t kMaxLogEntries = kMaxAdminLogEntries;
+    /// TD-522: the longest message the ring keeps, in bytes; the log file gets the whole message.
+    static constexpr std::size_t kMaxLogMessageBytes = 4096;
+
     /**
-     * @brief Records `message` into the in-memory ring buffer GET /admin/logs
-     *        serves, and also emits it through the real adai::Logger at the
-     *        matching level — this is the single call site every serve-loop/
-     *        admin-action log line should go through instead of calling
-     *        adai::Logger directly, so a message that should be visible in the
-     *        Android ops dashboard's activity log never needs to remember to
-     *        also log normally, and vice versa. Safe to call from any thread.
+     * @brief Emits `message` through adai::Logger at the matching level and records it in the
+     *        ring buffer GET /admin/logs serves, so the ops dashboard's activity log shows what the
+     *        pass's log file shows. Safe to call from any thread.
+     *
+     * TD-522: a message below the logger's level goes to neither (the ring used to keep Debug
+     * entries the log file never got), and the ring's copy is cut to kMaxLogMessageBytes at a
+     * UTF-8 character boundary, with " [truncated]" added.
      */
-    // TODO: See TD-522 in TECHNICAL_DEBT.md - stores Debug entries the logger filters out; messages unbounded.
     void log(TrainerLogLevel level, const std::string& message) {
+        if (!Logger::get()->should_log(to_spdlog_level(level))) return;
         {
             std::lock_guard<std::mutex> lock(log_mutex_);
             log_entries_.push_back(TrainerLogEntry{
@@ -272,7 +280,7 @@ class TrainerControlState {
                     std::chrono::system_clock::now().time_since_epoch())
                     .count(),
                 level,
-                message,
+                capped_log_message(message),
             });
             while (log_entries_.size() > kMaxLogEntries) {
                 log_entries_.pop_front();
@@ -303,20 +311,66 @@ class TrainerControlState {
     }
 
    private:
+    static bool is_working(TrainerPhase p) {
+        return p == TrainerPhase::LoadingData || p == TrainerPhase::Tokenizing ||
+               p == TrainerPhase::Training;
+    }
+
+    static spdlog::level::level_enum to_spdlog_level(TrainerLogLevel level) {
+        switch (level) {
+            case TrainerLogLevel::Debug:
+                return spdlog::level::debug;
+            case TrainerLogLevel::Info:
+                return spdlog::level::info;
+            case TrainerLogLevel::Warn:
+                return spdlog::level::warn;
+            case TrainerLogLevel::Error:
+                return spdlog::level::err;
+        }
+        return spdlog::level::info;
+    }
+
+    static std::string capped_log_message(const std::string& message) {
+        if (message.size() <= kMaxLogMessageBytes) return message;
+        std::size_t cut = kMaxLogMessageBytes;
+        // Back up over UTF-8 continuation bytes (10xxxxxx) so a character isn't split.
+        while (cut > 0 && (static_cast<unsigned char>(message[cut]) & 0xC0) == 0x80) --cut;
+        return message.substr(0, cut) + " [truncated]";
+    }
+
+    std::mutex phase_mutex_;
+    TrainerPhase phase_before_pause_ = TrainerPhase::Idle;  ///< guarded by phase_mutex_
+
     mutable std::mutex identity_mutex_;
     std::string run_id_;
     std::string session_id_;
     std::string model_name_;
     std::string last_checkpoint_path_;
 
-    std::mutex wake_mutex_;
-    std::condition_variable wake_cv_;
-    bool wake_requested_ = false;  ///< guarded by wake_mutex_
-
-    static constexpr std::size_t kMaxLogEntries = 200;
     mutable std::mutex log_mutex_;
     std::deque<TrainerLogEntry> log_entries_;
     std::atomic<std::uint64_t> next_log_id_{1};
+};
+
+/**
+ * @brief TD-522: sets a pass's phase back to Idle when the scope is left by an exception (only the
+ *        normal and pause paths used to), so GET /admin/status doesn't report a dead pass as working.
+ */
+class TrainerPhaseResetOnThrow {
+   public:
+    explicit TrainerPhaseResetOnThrow(TrainerControlState* control)
+        : control_(control), exceptions_(std::uncaught_exceptions()) {}
+    ~TrainerPhaseResetOnThrow() {
+        if (control_ != nullptr && std::uncaught_exceptions() > exceptions_) {
+            control_->set_phase(TrainerPhase::Idle);
+        }
+    }
+    TrainerPhaseResetOnThrow(const TrainerPhaseResetOnThrow&) = delete;
+    TrainerPhaseResetOnThrow& operator=(const TrainerPhaseResetOnThrow&) = delete;
+
+   private:
+    TrainerControlState* control_;
+    int exceptions_;
 };
 
 }  // namespace adai

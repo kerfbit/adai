@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.5.2
-// @adai-reviewed: 2026-11-02
+// @adai-version: 0.5.3
+// @adai-reviewed: 2026-11-03
 
 #include "TrainerServiceProxy.hpp"
 #include <httplib.h>
@@ -64,7 +64,7 @@ std::string json_escape(const std::string& s) {
 // distinct from the "no child at all" idle default below — same HTTP status, different message,
 // so an operator can tell the two situations apart from the response body alone.
 constexpr int kChildUnreachableStatus = 503;
-// TD-525: the whole value must be a decimal number in [0, max].
+// TD-525: the whole value must be a decimal number in [0, max] (also used for /admin/logs' limit, TD-522).
 std::optional<int> parse_wait_ms(const std::string& value, int max) {
     int out = 0;
     const char* end = value.data() + value.size();
@@ -138,9 +138,22 @@ adai::TrainerServiceProxy::TrainerServiceProxy(std::string host, int port,
         res.set_content(body, "application/json");
     });
 
-    svr.Get("/admin/logs", [this](const httplib::Request&, httplib::Response& res) {
+    svr.Get("/admin/logs", [this](const httplib::Request& req, httplib::Response& res) {
+        // TD-522: ?limit=N is checked here and passed on rebuilt from the number, like wait_ms.
+        std::string path = "/admin/logs";
+        if (req.has_param("limit")) {
+            const auto limit = parse_wait_ms(req.get_param_value("limit"), kMaxAdminLogEntries);
+            if (!limit) {
+                res.status = 400;
+                res.set_content("{\"error\":\"limit must be a whole number from 0 to " +
+                                    std::to_string(kMaxAdminLogEntries) + "\"}",
+                                "application/json");
+                return;
+            }
+            path += "?limit=" + std::to_string(*limit);
+        }
         auto [status, body] =
-            child_port_.load() != 0 ? proxy("GET", "/admin/logs", "") : std::pair{200, std::string("{\"entries\":[]}")};
+            child_port_.load() != 0 ? proxy("GET", path, "") : std::pair{200, std::string("{\"entries\":[]}")};
         res.status = status;
         res.set_content(body, "application/json");
     });

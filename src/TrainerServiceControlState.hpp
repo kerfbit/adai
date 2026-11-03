@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.3.0
-// @adai-reviewed: 2026-11-02
+// @adai-version: 0.3.1
+// @adai-reviewed: 2026-11-03
 
 // TD-173: trainer_service's own process-lifetime control state — the piece missing from TD-172's
 // initial implementation. TrainerControlState (TrainerControlState.hpp) is deliberately
@@ -11,9 +11,9 @@
 // `serve`'s own single, process-lifetime TrainerControlState used to play for "should the
 // *service* keep launching passes at all" — this class is that missing piece, owned by
 // trainer_service's own main() for its entire lifetime, independent of how many children come and
-// go. Mirrors TrainerControlState's own atomic-fields-plus-condvar-wake conventions deliberately
-// (same shape, proven pattern) rather than sharing code with it — the two classes have unrelated
-// lifetimes and no reason to be coupled.
+// go. It follows TrainerControlState's atomic-field conventions without sharing code with it — the
+// two classes have unrelated lifetimes. TD-522: the wake/sleep pair lives only here now; the per-pass
+// state had an unused copy (nothing sleeps in a pass).
 
 #include <atomic>
 #include <chrono>
@@ -81,8 +81,8 @@ class TrainerServiceControlState {
      * ~1s latency the rest of this codebase's signal handling already accepts).
      *
      * wake_requested_ (guarded by wake_mutex_, consumed by interruptible_sleep) exists so a
-     * wake() landing *before* interruptible_sleep() starts waiting is not silently lost — same
-     * reasoning as TrainerControlState::wake()'s own identical mechanism.
+     * wake() landing *before* interruptible_sleep() starts waiting is not silently lost (a bare
+     * notify_all() with no waiter yet reaches no one, so the next sleep would run its full interval).
      */
     void wake() {
         std::lock_guard<std::mutex> lock(wake_mutex_);

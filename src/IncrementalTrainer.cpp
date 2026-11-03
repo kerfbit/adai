@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.23.0
-// @adai-reviewed: 2026-11-02
+// @adai-version: 0.23.1
+// @adai-reviewed: 2026-11-03
 
 #include "IncrementalTrainer.hpp"
 #include <algorithm>
@@ -673,13 +673,13 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
     }
     trainer.set_metrics_reporter(metrics_reporter_.get());
 
-    // `serve`'s admin API: /admin/pause sets control_->paused, which doubles
+    // The pass's admin API: /admin/pause sets control_->paused, which doubles
     // as ChatbotTrainer's cooperative abort flag — checked only at
     // optimizer-step boundaries, so a pause never leaves a half-applied
-    // gradient update. No-op (nullptr) outside of `serve`.
+    // gradient update. No-op (nullptr) without --admin-port.
     if (control_) {
         trainer.set_abort_flag(&control_->paused);
-        control_->phase = adai::TrainerPhase::Tokenizing;
+        control_->set_phase(adai::TrainerPhase::Tokenizing);
         control_->total_epochs = num_epochs;
         control_->current_epoch = 0;
         control_->log(adai::TrainerLogLevel::Info,
@@ -769,7 +769,7 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
                 if (epochs_fully_completed == 0) {
                     control_->log(adai::TrainerLogLevel::Info, "Training started");
                 }
-                control_->phase = adai::TrainerPhase::Training;
+                control_->set_phase(adai::TrainerPhase::Training);
             }
         }
 
@@ -781,12 +781,12 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
             // Forced checkpoint (POST /admin/checkpoint) — independent of the
             // auto-save cadence, consumed once via exchange().
             if (const long long ticket = control_->take_checkpoint_request()) {
-                control_->phase = adai::TrainerPhase::Checkpointing;
+                control_->set_phase(adai::TrainerPhase::Checkpointing);
                 if (perform_auto_save(epochs_fully_completed + 1, cumulative_samples_this_session,
                                       &trainer)) {
                     control_->mark_checkpoint_served(ticket);  // TD-521
                 }
-                control_->phase = adai::TrainerPhase::Training;
+                control_->set_phase(adai::TrainerPhase::Training);
             }
         }
         if (should_auto_save()) {
@@ -836,13 +836,13 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
             " sample(s) this pass) — checkpointing and releasing claimed files back to pending";
         if (control_) {
             control_->log(adai::TrainerLogLevel::Warn, message);
-            control_->phase = adai::TrainerPhase::Checkpointing;
+            control_->set_phase(adai::TrainerPhase::Checkpointing);
         } else {
             Logger::info("{}", message);
         }
         perform_auto_save(epochs_fully_completed + 1, cumulative_samples_this_session);
         if (control_) {
-            control_->phase = adai::TrainerPhase::Idle;
+            control_->set_phase(adai::TrainerPhase::Idle);
         }
     }
 
@@ -946,7 +946,7 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
     metrics_reporter_ = std::make_unique<NullMetricsReporter>();
 
     if (control_ && !aborted) {
-        control_->phase = adai::TrainerPhase::Idle;
+        control_->set_phase(adai::TrainerPhase::Idle);
     }
 
     return success && !aborted;
@@ -987,7 +987,7 @@ bool IncrementalTrainer::fail_empty_pass(std::size_t file_count) {
                             "marked trained";
     if (control_) {
         control_->log(adai::TrainerLogLevel::Error, msg);
-        control_->phase = adai::TrainerPhase::Idle;
+        control_->set_phase(adai::TrainerPhase::Idle);
     } else {
         Logger::error("{}", msg);
     }
@@ -996,11 +996,12 @@ bool IncrementalTrainer::fail_empty_pass(std::size_t file_count) {
 
 bool IncrementalTrainer::train_on_files(const std::vector<PendingFileRange>& files,
                                         int num_epochs) {
+    const adai::TrainerPhaseResetOnThrow phase_reset(control_.get());  // TD-522
     const std::string start_message = "Starting incremental training session #" +
         std::to_string(current_session_id + 1) + " (" + std::to_string(files.size()) + " file(s))";
     if (control_) {
         control_->log(adai::TrainerLogLevel::Info, start_message);
-        control_->phase = adai::TrainerPhase::LoadingData;
+        control_->set_phase(adai::TrainerPhase::LoadingData);
     } else {
         Logger::info("{}", start_message);
     }
@@ -1071,10 +1072,11 @@ bool IncrementalTrainer::train_on_files(const std::vector<PendingFileRange>& fil
 
 bool IncrementalTrainer::retrain_on_files(const std::vector<PendingFileRange>& files,
                                           int num_epochs) {
+    const adai::TrainerPhaseResetOnThrow phase_reset(control_.get());  // TD-522
     const std::string start_message = "Starting full retrain on " + std::to_string(files.size()) + " file(s)";
     if (control_) {
         control_->log(adai::TrainerLogLevel::Info, start_message);
-        control_->phase = adai::TrainerPhase::LoadingData;
+        control_->set_phase(adai::TrainerPhase::LoadingData);
     } else {
         Logger::info("{}", start_message);
     }

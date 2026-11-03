@@ -1,11 +1,12 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-11-02
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-03
 
 
 #include <atomic>
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
@@ -31,10 +32,10 @@ class DaemonConfigStore;
  *   PUT  /admin/config             — auto_save_enabled/auto_save_every_samples/
  *                                     auto_save_every_minutes/max_sessions_to_keep
  *   GET  /admin/status             — phase, run/session identity, progress, paused
- *   GET  /admin/logs               — recent entries from TrainerControlState's log
- *                                     ring buffer (see TrainerControlState::log()) —
- *                                     the same messages that land in the daemon's own
- *                                     log file/journal, not a separate UI-only stream
+ *   GET  /admin/logs[?limit=N]     — the newest N (default and at most 200) entries of
+ *                                     TrainerControlState's log ring (see
+ *                                     TrainerControlState::log()): the messages the
+ *                                     pass's log file gets at its LOG_LEVEL
  *   POST /admin/checkpoint[?wait_ms=N] — N a whole number up to kMaxCheckpointWaitMs (60 s), else
  *                                     400; `completed` is true only once a checkpoint written
  *                                     for this request exists (an auto-save doesn't count)
@@ -82,7 +83,7 @@ class TrainerAdminAPI {
     std::pair<int, std::string> handle_get_config();
     std::pair<int, std::string> handle_put_config(const std::string& body);
     std::pair<int, std::string> handle_status();
-    std::pair<int, std::string> handle_logs();
+    std::pair<int, std::string> handle_logs(std::size_t limit);
     std::pair<int, std::string> handle_checkpoint(int wait_ms);
     std::pair<int, std::string> handle_pause();
     std::pair<int, std::string> handle_resume();

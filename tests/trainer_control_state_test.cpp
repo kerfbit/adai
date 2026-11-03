@@ -1,21 +1,20 @@
 /**
  * @file trainer_control_state_test.cpp
  * @brief Unit tests for TrainerControlState — the in-process shared state
- *        between `incremental_trainer serve`'s supervisory loop / active
- *        training pass and TrainerAdminAPI's HTTP handlers.
+ *        between one training pass and its TrainerAdminAPI's HTTP handlers.
  *
  * No httplib/HTTP involved here at all — these tests exercise only the
- * struct itself (defaults, atomics, identity accessors, the wake()/
- * interruptible_sleep() primitive the supervisory loop's idle poll is built
- * on) so they build and run unconditionally, unlike trainer_admin_api_test.cpp
+ * struct itself (defaults, atomics, identity accessors, phase transitions,
+ * the log ring) so they build and run unconditionally, unlike trainer_admin_api_test.cpp
  * which is gated on HTTPLIB_INCLUDE_DIR.
  */
 
 #include "TrainerControlState.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
-#include <chrono>
-#include <thread>
+#include <stdexcept>
+#include <string>
+#include "Logger.hpp"
 
 using adai::TrainerControlState;
 using adai::TrainerLogLevel;
@@ -110,67 +109,95 @@ TEST(TrainerControlStateTest, CheckpointRequestsAreServedByTicket) {
     EXPECT_EQ(state.checkpoint_requests_served.load(), second);
 }
 
-TEST(TrainerControlStateTest, InterruptibleSleepReturnsEarlyOnWake) {
-    TrainerControlState state;
-    std::atomic<bool> awoke{false};
-
-    std::thread sleeper([&] {
-        state.interruptible_sleep(30);  // would otherwise block for 30s
-        awoke = true;
-    });
-
-    // Give the sleeper a moment to actually enter the wait before waking it,
-    // so this test's intent — "wake interrupts an in-progress sleep" — is the
-    // thing actually being exercised (the separate "wake lands first" case is
-    // covered by InterruptibleSleepDoesNotMissAWakeThatArrivesBeforeItStarts
-    // below).
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    EXPECT_FALSE(awoke.load());
-
-    const auto t0 = std::chrono::steady_clock::now();
-    state.wake();
-    sleeper.join();
-    const auto elapsed = std::chrono::steady_clock::now() - t0;
-
-    EXPECT_TRUE(awoke.load());
-    // Should return in well under the 30s sleep duration — a couple of
-    // seconds of slack covers CI/build-machine scheduling jitter.
-    EXPECT_LT(std::chrono::duration_cast<std::chrono::seconds>(elapsed).count(), 5);
+// TD-522: the per-pass state had an unused wake()/interruptible_sleep() copy (nothing sleeps in a
+// pass); it's gone, and trainer_service's own TrainerServiceControlState keeps the tested one. A
+// pending pause is now reported as `pausing` (it used to be listed but never set).
+TEST(TrainerControlStateTest, RequestPauseReportsPausingWhileThePassIsWorking) {
+    for (const TrainerPhase working :
+         {TrainerPhase::LoadingData, TrainerPhase::Tokenizing, TrainerPhase::Training}) {
+        TrainerControlState state;
+        state.set_phase(working);
+        state.request_pause();
+        EXPECT_TRUE(state.paused.load());
+        EXPECT_EQ(state.phase.load(), TrainerPhase::Pausing);
+        // The pass keeps reporting progress until its next optimizer-step boundary.
+        state.set_phase(TrainerPhase::Training);
+        EXPECT_EQ(state.phase.load(), TrainerPhase::Pausing);
+    }
 }
 
-// TD-077 regression: a wake() that lands *before* interruptible_sleep()
-// starts waiting must not be lost. A plain condition_variable::wait_for()
-// with no predicate has no memory of a notify_all() that happened before
-// anyone was waiting — it would park for the full requested duration
-// regardless. This is exactly the window between the supervisory loop
-// finishing its own work (e.g. resume_last_session() concluding nothing is
-// pending) and it calling interruptible_sleep(): a concurrent
-// POST /admin/resume's wake() landing in that window must still make the
-// upcoming sleep return immediately, per its documented contract ("wake the
-// idle-poll sleep so pending work is checked immediately").
-TEST(TrainerControlStateTest, InterruptibleSleepDoesNotMissAWakeThatArrivesBeforeItStarts) {
+TEST(TrainerControlStateTest, PausingPassReportsCheckpointingThenIdle) {
     TrainerControlState state;
-
-    state.wake();  // no one is waiting yet
-
-    const auto t0 = std::chrono::steady_clock::now();
-    state.interruptible_sleep(5);
-    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                std::chrono::steady_clock::now() - t0)
-                                .count();
-
-    // Should return almost immediately, not wait out the full 5s interval.
-    EXPECT_LT(elapsed_ms, 1000);
+    state.set_phase(TrainerPhase::Training);
+    state.request_pause();
+    state.set_phase(TrainerPhase::Checkpointing);  // the drain checkpoint
+    EXPECT_EQ(state.phase.load(), TrainerPhase::Checkpointing);
+    state.set_phase(TrainerPhase::Idle);
+    EXPECT_EQ(state.phase.load(), TrainerPhase::Idle);
 }
 
-TEST(TrainerControlStateTest, InterruptibleSleepWithoutWakeRunsTheFullDuration) {
+TEST(TrainerControlStateTest, RequestPauseWhileIdleOrCheckpointingKeepsThePhase) {
+    TrainerControlState idle;
+    idle.request_pause();
+    EXPECT_EQ(idle.phase.load(), TrainerPhase::Idle);
+
+    TrainerControlState saving;
+    saving.set_phase(TrainerPhase::Checkpointing);
+    saving.request_pause();
+    EXPECT_EQ(saving.phase.load(), TrainerPhase::Checkpointing);
+    saving.set_phase(TrainerPhase::Training);  // back to work after the save: now draining
+    EXPECT_EQ(saving.phase.load(), TrainerPhase::Pausing);
+}
+
+TEST(TrainerControlStateTest, ClearPauseRestoresTheWorkingPhase) {
     TrainerControlState state;
-    const auto t0 = std::chrono::steady_clock::now();
-    state.interruptible_sleep(1);
-    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                std::chrono::steady_clock::now() - t0)
-                                .count();
-    EXPECT_GE(elapsed_ms, 900);  // small slack under 1000ms for scheduling jitter
+    state.set_phase(TrainerPhase::Tokenizing);
+    state.request_pause();
+    state.clear_pause();
+    EXPECT_FALSE(state.paused.load());
+    EXPECT_EQ(state.phase.load(), TrainerPhase::Tokenizing);
+    state.set_phase(TrainerPhase::Training);
+    EXPECT_EQ(state.phase.load(), TrainerPhase::Training);
+}
+
+// incremental_trainer's SIGTERM/SIGINT handler can only store `paused` (no locking in a signal
+// handler); the pass's next phase update reports the drain.
+TEST(TrainerControlStateTest, PausedStoredDirectlyIsReportedAtTheNextPhaseUpdate) {
+    TrainerControlState state;
+    state.set_phase(TrainerPhase::Training);
+    state.paused.store(true);
+    EXPECT_EQ(state.phase.load(), TrainerPhase::Training);
+    state.set_phase(TrainerPhase::Training);
+    EXPECT_EQ(state.phase.load(), TrainerPhase::Pausing);
+}
+
+// TD-522: a pass that throws used to stay `training`/`loading_data` in /admin/status.
+TEST(TrainerControlStateTest, PhaseResetOnThrowSetsIdleOnlyWhenAnExceptionLeavesTheScope) {
+    TrainerControlState state;
+    try {
+        const adai::TrainerPhaseResetOnThrow guard(&state);
+        state.set_phase(TrainerPhase::Training);
+        throw std::runtime_error("pass failed");
+    } catch (const std::runtime_error&) {
+    }
+    EXPECT_EQ(state.phase.load(), TrainerPhase::Idle);
+
+    {
+        const adai::TrainerPhaseResetOnThrow guard(&state);
+        state.set_phase(TrainerPhase::Checkpointing);
+    }
+    EXPECT_EQ(state.phase.load(), TrainerPhase::Checkpointing);  // normal exit: untouched
+
+    // Created inside a catch handler (an exception already in flight): only a new one counts.
+    try {
+        throw std::runtime_error("outer");
+    } catch (const std::runtime_error&) {
+        const adai::TrainerPhaseResetOnThrow guard(&state);
+        state.set_phase(TrainerPhase::Training);
+    }
+    EXPECT_EQ(state.phase.load(), TrainerPhase::Training);
+
+    const adai::TrainerPhaseResetOnThrow no_state(nullptr);  // no admin API: a no-op
 }
 
 TEST(TrainerControlStateTest, ToStringCoversEveryLogLevel) {
@@ -227,4 +254,41 @@ TEST(TrainerControlStateTest, RecentLogsHonorsAnExplicitSmallerLimit) {
     ASSERT_EQ(entries.size(), 2u);
     EXPECT_EQ(entries[0].message, "b");
     EXPECT_EQ(entries[1].message, "c");
+}
+
+// TD-522: the ring used to keep Debug entries the log file (at LOG_LEVEL) never got.
+TEST(TrainerControlStateTest, LogSkipsMessagesBelowTheLoggerLevel) {
+    const auto previous = adai::Logger::get()->level();
+    adai::Logger::set_level(adai::Logger::Level::INFO);
+    TrainerControlState state;
+    state.log(TrainerLogLevel::Debug, "hidden");
+    state.log(TrainerLogLevel::Info, "shown");
+    adai::Logger::set_level(adai::Logger::Level::DEBUG);
+    state.log(TrainerLogLevel::Debug, "debug shown");
+    adai::Logger::set_level(adai::Logger::Level::ERR);
+    state.log(TrainerLogLevel::Warn, "warn hidden");
+    state.log(TrainerLogLevel::Error, "error shown");
+    adai::Logger::get()->set_level(previous);
+
+    const auto entries = state.recent_logs();
+    ASSERT_EQ(entries.size(), 3u);
+    EXPECT_EQ(entries[0].message, "shown");
+    EXPECT_EQ(entries[1].message, "debug shown");
+    EXPECT_EQ(entries[2].message, "error shown");
+}
+
+// TD-522: messages were unbounded (a whole exception text or file list per entry, 200 entries).
+TEST(TrainerControlStateTest, LogCapsLongMessagesAtACharacterBoundary) {
+    TrainerControlState state;
+    const std::size_t cap = TrainerControlState::kMaxLogMessageBytes;
+    state.log(TrainerLogLevel::Warn, std::string(cap, 'x'));        // exactly the cap: kept whole
+    state.log(TrainerLogLevel::Warn, std::string(cap * 3, 'y'));    // cut
+    // A two-byte character (é = C3 A9) straddling the cap is dropped whole, not split.
+    state.log(TrainerLogLevel::Warn, std::string(cap - 1, 'z') + "\xC3\xA9" + "tail");
+
+    const auto entries = state.recent_logs();
+    ASSERT_EQ(entries.size(), 3u);
+    EXPECT_EQ(entries[0].message, std::string(cap, 'x'));
+    EXPECT_EQ(entries[1].message, std::string(cap, 'y') + " [truncated]");
+    EXPECT_EQ(entries[2].message, std::string(cap - 1, 'z') + " [truncated]");
 }

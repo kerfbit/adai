@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-11-02
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-11-03
 
 #pragma once
 
@@ -14,6 +14,9 @@ namespace adai {
 /// TD-521: the longest `POST /admin/checkpoint?wait_ms=` a pass's admin API (and trainer_service's proxy
 /// in front of it) accepts; each wait holds an HTTP worker thread.
 constexpr int kMaxCheckpointWaitMs = 60000;
+
+/// TD-522: the most log entries a pass keeps for `GET /admin/logs`, and the largest `?limit=` accepted.
+constexpr int kMaxAdminLogEntries = 200;
 
 /**
  * @brief TD-519: one validated `PUT /admin/config` body for the trainer's four mutable keys.

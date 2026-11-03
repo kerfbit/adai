@@ -5,7 +5,7 @@
 - **Used by:** one `incremental_trainer --admin-port <N> resume` child pass: created fresh per pass in `IncrementalTrainingTool.cpp`, shared between that
   pass's `IncrementalTrainer` (`set_control_state()`) and its [`TrainerAdminAPI`](TrainerAdminAPI.md). The supervisor (`trainer_service`) has its own,
   separate `TrainerServiceControlState`
-- **Status tag:** `@adai-status: stable`, `@adai-version: 1.0.0`, `@adai-reviewed: 2026-09-10`
+- **Status tag:** `@adai-status: stable`, `@adai-version: 1.4.0`, `@adai-reviewed: 2026-11-03`
 - **Tests:** [`tests/trainer_control_state_test.cpp`](../../../../tests/trainer_control_state_test.cpp) (12 tests, `trainerControlStateTests`; all pass); exercised through `incremental_trainer_control_test.cpp` and `trainer_admin_api_test.cpp`
 - **Last traced against the code:** 2026-10-17
 
@@ -84,3 +84,23 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 `last_loss` and `best_loss` start as NaN, meaning no loss has been reported yet; `GET /admin/status` sends them as `null`.
 `best_loss` used to start at 0, which read as a perfect loss until validation ran. The LeJEPA pass only stores a finite epoch average as `best_loss`.
+
+## Addendum (November 3, 2026): per-pass design, `Pausing`, log ring (TD-522)
+
+- **Comments.** The header comments now describe one state per `resume --admin-port` pass. `trainer_service` keeps its own
+  `TrainerServiceControlState`.
+- **Phase writes.** `phase` is still read directly but written only through these methods:
+  - `set_phase(p)`, called by the pass. While `paused` is set, a loading, tokenizing or training phase is stored as `Pausing`;
+    `Checkpointing` and `Idle` are stored as they are.
+  - `request_pause()`, called by `/admin/pause`. It sets `paused` and shows a working pass as `Pausing` at once.
+  - `clear_pause()`, called by `/admin/resume`. It restores the phase the pass had before the pause.
+
+  A draining pass now reports `pausing`, `checkpointing`, then `idle`. A signal handler still stores `paused` directly, since
+  it can't lock, and the next `set_phase()` reports the drain.
+- **Wake code removed.** `wake()`/`interruptible_sleep()` are gone from this class. Nothing in a pass sleeps;
+  `TrainerServiceControlState` keeps the supervisor's copy.
+- **Log ring.** `log()` drops a message below the logger's level, so it goes to neither the file nor the ring. The ring's copy
+  is cut to `kMaxLogMessageBytes` (4096) at a UTF-8 character boundary, with " [truncated]" added. `kMaxLogEntries` is public
+  and equals `kMaxAdminLogEntries` (200, `TrainerAdminConfig.hpp`), the largest `GET /admin/logs?limit=`.
+- **`TrainerPhaseResetOnThrow`.** This guard sets the phase back to `Idle` when an exception leaves its scope.
+  `IncrementalTrainer::train_on_files()`/`retrain_on_files()` use it.

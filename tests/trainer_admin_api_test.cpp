@@ -32,6 +32,7 @@
 namespace fs = std::filesystem;
 using adai::TrainerAdminAPI;
 using adai::TrainerControlState;
+using adai::TrainerLogLevel;
 using adai::TrainerPhase;
 
 namespace {
@@ -650,33 +651,67 @@ TEST_F(TrainerAdminAPITest, PauseSetsPausedAndIsIdempotent) {
     ASSERT_TRUE(res2);
     EXPECT_EQ(res2->status, 202);
     EXPECT_TRUE(control->paused.load());
+    EXPECT_EQ(control->phase.load(), TrainerPhase::Idle);  // nothing to drain
 
     api->stop();
     thr.join();
 }
 
-TEST_F(TrainerAdminAPITest, ResumeClearsPausedAndWakesSleepingLoop) {
-    control->paused = true;
+// TD-522: a pause used to leave the reported phase at `training` until the pass ended; `pausing`
+// was listed but never set. /admin/resume no longer calls a wake() nothing waits on.
+TEST_F(TrainerAdminAPITest, PauseReportsPausingAndResumeRestoresThePhase) {
+    control->set_phase(TrainerPhase::Training);
 
     auto api = make_api();
     AdminThread thr;
     ASSERT_TRUE(start_admin_api(*api, port, thr));
-
-    std::atomic<bool> awoke{false};
-    std::thread sleeper([&] {
-        control->interruptible_sleep(30);
-        awoke = true;
-    });
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
     httplib::Client client("127.0.0.1", port);
+
+    ASSERT_TRUE(client.Post("/admin/pause"));
+    auto status = client.Get("/admin/status");
+    ASSERT_TRUE(status);
+    EXPECT_EQ(nlohmann::json::parse(status->body)["phase"], "pausing") << status->body;
+
     auto res = client.Post("/admin/resume");
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 202);
     EXPECT_FALSE(control->paused.load());
+    status = client.Get("/admin/status");
+    ASSERT_TRUE(status);
+    EXPECT_EQ(nlohmann::json::parse(status->body)["phase"], "training") << status->body;
 
-    sleeper.join();
-    EXPECT_TRUE(awoke.load());
+    api->stop();
+    thr.join();
+}
+
+// TD-522: GET /admin/logs?limit=N returns the newest N entries; the limit used to be ignored.
+TEST_F(TrainerAdminAPITest, LogsHonorsAndChecksTheLimit) {
+    auto api = make_api();
+    AdminThread thr;
+    ASSERT_TRUE(start_admin_api(*api, port, thr));
+    control->log(TrainerLogLevel::Info, "one");  // after the API's own startup entries
+    control->log(TrainerLogLevel::Info, "two");
+    control->log(TrainerLogLevel::Info, "three");
+    httplib::Client client("127.0.0.1", port);
+
+    auto res = client.Get("/admin/logs?limit=2");
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200);
+    const auto entries = nlohmann::json::parse(res->body)["entries"];
+    ASSERT_EQ(entries.size(), 2u) << res->body;
+    EXPECT_EQ(entries[0]["message"], "two");
+    EXPECT_EQ(entries[1]["message"], "three");
+
+    res = client.Get("/admin/logs?limit=0");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_TRUE(nlohmann::json::parse(res->body)["entries"].empty());
+
+    for (const char* bad : {"abc", "-1", "201", "2x", ""}) {
+        res = client.Get(std::string("/admin/logs?limit=") + bad);
+        ASSERT_TRUE(res);
+        EXPECT_EQ(res->status, 400) << "limit=" << bad;
+    }
 
     api->stop();
     thr.join();

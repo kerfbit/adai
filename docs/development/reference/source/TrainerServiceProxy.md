@@ -133,3 +133,8 @@ a value that `PUT` would reject is skipped with a warning and the `config.traine
 
 The idle `/admin/status` body sends `"last_loss":null,"best_loss":null,"loss_diverged":false` (it used to send zeros). A child's status
 is still relayed unchanged, and the child now writes a non-finite loss as `null`, so a diverged pass's status is valid JSON through the proxy too.
+
+## Addendum (November 3, 2026): `GET /admin/logs?limit=` (TD-522)
+
+The proxy checks `?limit=N` (0 to `kMaxAdminLogEntries`, 200) the same way it checks `wait_ms`, answers 400 for anything else
+even with no child, and passes the limit on rebuilt from the number. With no child it still returns `{"entries":[]}`.

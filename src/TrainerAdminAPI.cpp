@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.4.0
-// @adai-reviewed: 2026-11-02
+// @adai-version: 1.5.0
+// @adai-reviewed: 2026-11-03
 
 #include "TrainerAdminAPI.hpp"
 #include <httplib.h>
@@ -108,8 +108,22 @@ adai::TrainerAdminAPI::TrainerAdminAPI(std::shared_ptr<TrainerControlState> cont
         res.set_content(body, "application/json");
     });
 
-    svr.Get("/admin/logs", [this](const httplib::Request&, httplib::Response& res) {
-        auto [status, body] = handle_logs();
+    svr.Get("/admin/logs", [this](const httplib::Request& req, httplib::Response& res) {
+        // TD-522: ?limit=N returns the newest N entries (0 to TrainerControlState::kMaxLogEntries).
+        std::size_t limit = TrainerControlState::kMaxLogEntries;
+        if (req.has_param("limit")) {
+            const std::string v = req.get_param_value("limit");
+            const auto [ptr, ec] = std::from_chars(v.data(), v.data() + v.size(), limit);
+            if (v.empty() || ec != std::errc() || ptr != v.data() + v.size() ||
+                limit > TrainerControlState::kMaxLogEntries) {
+                res.status = 400;
+                res.set_content("{\"error\":\"limit must be a whole number from 0 to " +
+                                    std::to_string(TrainerControlState::kMaxLogEntries) + "\"}",
+                                "application/json");
+                return;
+            }
+        }
+        auto [status, body] = handle_logs(limit);
         res.status = status;
         res.set_content(body, "application/json");
     });
@@ -320,23 +334,22 @@ std::pair<int, std::string> adai::TrainerAdminAPI::handle_checkpoint(int wait_ms
 }
 
 std::pair<int, std::string> adai::TrainerAdminAPI::handle_pause() {
-    control_->paused = true;
+    control_->request_pause();  // TD-522: reports `pausing` until the pass drains
     control_->log(TrainerLogLevel::Warn, "Pause requested via admin API");
     return {202, "{\"paused\":true}"};
 }
 
 std::pair<int, std::string> adai::TrainerAdminAPI::handle_resume() {
-    control_->paused = false;
-    control_->wake();
+    control_->clear_pause();
     control_->log(TrainerLogLevel::Info, "Resume requested via admin API");
     return {202, "{\"paused\":false}"};
 }
 
-std::pair<int, std::string> adai::TrainerAdminAPI::handle_logs() {
+std::pair<int, std::string> adai::TrainerAdminAPI::handle_logs(std::size_t limit) {
     std::ostringstream j;
     j << "{\"entries\":[";
     bool first = true;
-    for (const auto& entry : control_->recent_logs()) {
+    for (const auto& entry : control_->recent_logs(limit)) {
         if (!first) {
             j << ",";
         }

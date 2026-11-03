@@ -205,6 +205,48 @@ TEST_F(TrainerServiceProxyTest, LogsAreEmptyWithNoChild) {
     thr.join();
 }
 
+// TD-522: ?limit=N is checked by the proxy and passed on to the child.
+TEST_F(TrainerServiceProxyTest, LogsLimitIsCheckedAndPassedToTheChild) {
+    auto control = std::make_shared<TrainerControlState>();
+    auto child_api = std::make_unique<TrainerAdminAPI>(control, "127.0.0.1", child_port,
+                                                        (test_dir / "child").string());
+    ServerThread child_thread(*child_api);
+    ASSERT_TRUE(wait_until_reachable(child_port, child_thread));
+    control->log(adai::TrainerLogLevel::Info, "first");  // after the child API's startup entries
+    control->log(adai::TrainerLogLevel::Info, "second");
+    control->log(adai::TrainerLogLevel::Info, "third");
+    auto proxy = make_proxy();
+    ServerThread proxy_thread(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, proxy_thread));
+    httplib::Client client("127.0.0.1", proxy_port);
+
+    auto res = client.Get("/admin/logs?limit=abc");  // checked even with no child
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+    res = client.Get("/admin/logs?limit=1");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_NE(res->body.find("\"entries\":[]"), std::string::npos);
+
+    proxy->set_child_port(child_port);
+    res = client.Get("/admin/logs?limit=1");
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200);
+    const auto entries = nlohmann::json::parse(res->body)["entries"];
+    ASSERT_EQ(entries.size(), 1u) << res->body;
+    EXPECT_EQ(entries[0]["message"], "third");
+    for (const char* bad : {"201", "-1", "1x"}) {
+        res = client.Get(std::string("/admin/logs?limit=") + bad);
+        ASSERT_TRUE(res);
+        EXPECT_EQ(res->status, 400) << "limit=" << bad;
+    }
+
+    proxy->stop();
+    proxy_thread.join();
+    child_api->stop();
+    child_thread.join();
+}
+
 TEST_F(TrainerServiceProxyTest, CheckpointRejectedWithNoChild) {
     auto proxy = make_proxy();
     ServerThread thr(*proxy);
