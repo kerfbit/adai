@@ -289,3 +289,9 @@ After the body passes `parse_registry_admin_config()`, the handler saves both re
 `DaemonConfigStore::set_many()` transaction under a static mutex, and only then updates `ftp_token_ttl_min`/
 `ftp_max_sessions`. A failed save answers 500 (`could not save the admin config (<reason>); nothing was changed`) and
 changes neither.
+
+## Addendum (November 3, 2026): atomic session numbers (TD-304)
+
+`handle_session_next` allocates with `DaemonConfigStore::increment()` (one transaction, 5 s busy timeout) instead of
+`load_all()` + `set()` under `g_session_store_mtx`, which only covered this process. Two `registry_server` processes sharing a
+data directory hand out different numbers, and a failure answers 500 with JSON instead of escaping the handler.

@@ -1,10 +1,11 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-11-03
 
 #include "DaemonConfigStore.hpp"
 #include <sqlite3.h>
 #include <chrono>
+#include <climits>
 #include <ctime>
 #include <stdexcept>
 #include "Logger.hpp"
@@ -26,8 +27,7 @@ std::string utc_now() {
 
 namespace adai {
 
-// TODO: See TD-304 in TECHNICAL_DEBT.md - no sqlite3_busy_timeout(), so a concurrent writer makes set() fail immediately
-DaemonConfigStore::DaemonConfigStore(const std::string& db_path) {
+DaemonConfigStore::DaemonConfigStore(const std::string& db_path, int busy_timeout_ms) {
     if (sqlite3_open(db_path.c_str(), &db_) != SQLITE_OK) {
         const std::string err = db_ ? sqlite3_errmsg(db_) : "unknown error";
         if (db_) {
@@ -36,6 +36,11 @@ DaemonConfigStore::DaemonConfigStore(const std::string& db_path) {
         }
         throw std::runtime_error("DaemonConfigStore: failed to open " + db_path + ": " + err);
     }
+
+    // TD-304: wait for another connection's write lock instead of failing at once with
+    // "database is locked" (trainer_service and its pass share one daemon_config.db, and
+    // standalone trainers share session_counters.db).
+    sqlite3_busy_timeout(db_, busy_timeout_ms);
 
     // WAL mode: avoid blocking a long-running daemon's own reads on an admin write.
     // TODO: See TD-307 in TECHNICAL_DEBT.md - result ignored; without WAL, readers can be blocked
@@ -134,6 +139,49 @@ void DaemonConfigStore::set_many(const std::map<std::string, std::string>& value
     }
     sqlite3_finalize(stmt);
     if (sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr) != SQLITE_OK) fail("commit failed");
+}
+
+int DaemonConfigStore::increment(const std::string& key) {
+    if (sqlite3_exec(db_, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        throw std::runtime_error(std::string("DaemonConfigStore::increment: begin failed: ") + sqlite3_errmsg(db_));
+    }
+    const auto fail = [this](sqlite3_stmt* stmt, const char* what) {
+        const std::string err = std::string("DaemonConfigStore::increment: ") + what + ": " + sqlite3_errmsg(db_);
+        sqlite3_finalize(stmt);
+        sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
+        throw std::runtime_error(err);
+    };
+
+    long long current = 0;
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, "SELECT CAST(value AS INTEGER) FROM daemon_config WHERE key = ?;", -1, &stmt,
+                           nullptr) != SQLITE_OK)
+        fail(stmt, "prepare failed");
+    sqlite3_bind_text(stmt, 1, key.c_str(), -1, SQLITE_TRANSIENT);
+    const int rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) {
+        current = sqlite3_column_int64(stmt, 0);
+    } else if (rc != SQLITE_DONE) {
+        fail(stmt, "read failed");
+    }
+    sqlite3_finalize(stmt);
+    stmt = nullptr;
+    if (current < 0 || current >= INT_MAX) current = 0;
+    const int next = static_cast<int>(current) + 1;
+
+    static const char* kUpsert =
+        "INSERT INTO daemon_config (key, value, updated_utc) VALUES (?, ?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_utc = excluded.updated_utc;";
+    if (sqlite3_prepare_v2(db_, kUpsert, -1, &stmt, nullptr) != SQLITE_OK) fail(stmt, "prepare failed");
+    const std::string value = std::to_string(next);
+    const std::string now = utc_now();
+    sqlite3_bind_text(stmt, 1, key.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, value.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, now.c_str(), -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_DONE) fail(stmt, "write failed");
+    sqlite3_finalize(stmt);
+    if (sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr) != SQLITE_OK) fail(nullptr, "commit failed");
+    return next;
 }
 
 }  // namespace adai

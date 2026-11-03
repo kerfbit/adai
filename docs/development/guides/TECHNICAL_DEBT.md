@@ -1451,6 +1451,8 @@ The generation and model math run is complete.
   table per daemon, shared with the saved overrides and flags, before applying any; a bad body gets 400 and changes nothing).
 - TD-305 (done in code: every daemon's `PUT /admin/config` saves its keys in one `DaemonConfigStore::set_many()` transaction
   before applying them, under a per-handler mutex; a failed save answers 500 and changes nothing).
+- TD-304 (done in code: `DaemonConfigStore` waits up to 5 s for another writer, and session numbers come from an atomic
+  `increment()`, so processes sharing `session_counters.db` never get the same one; TD-308's per-allocation scan with it).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -7791,7 +7793,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Core / DaemonConfigStore | October 11, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 3, 2026 | Core / DaemonConfigStore | October 11, 2026 | 2-4 hours |
 
 Description:
 Found while writing the code-traced reference [DaemonConfigStore.md](../reference/source/DaemonConfigStore.md) and confirmed by running the real
@@ -7814,18 +7816,45 @@ fails instead of waiting.
 
 Action Items:
 
-- [ ] Set `sqlite3_busy_timeout()` (e.g. 5 s) in the constructor.
-- [ ] Add an atomic `increment(key)` (`BEGIN IMMEDIATE` read-modify-write, or `UPDATE … RETURNING`) and use it in both `next_session()` implementations.
-- [ ] Tests: two connections writing concurrently both succeed; concurrent increments are never lost or duplicated.
+- [x] Set `sqlite3_busy_timeout()` (e.g. 5 s) in the constructor.
+- [x] Add an atomic `increment(key)` (`BEGIN IMMEDIATE` read-modify-write, or `UPDATE … RETURNING`) and use it in both `next_session()` implementations.
+- [x] Tests: two connections writing concurrently both succeed; concurrent increments are never lost or duplicated.
 
-Location in code: `src/DaemonConfigStore.cpp` (constructor, `set()`), `src/RegistryTransport.cpp` (`LocalTransport::next_session()`), `src/RegistryServer.cpp` (`handle_session_next`); tagged `TODO: See TD-304`.
+Location in code: `src/DaemonConfigStore.cpp` (constructor, `set()`), `src/RegistryTransport.cpp` (`LocalTransport::next_session()`), `src/RegistryServer.cpp` (`handle_session_next`); the `TODO: See TD-304` tags are removed.
+
+**Fix (November 3, 2026):**
+- **Busy timeout.** The constructor sets `sqlite3_busy_timeout()` before anything else touches the file. The default is
+  `DaemonConfigStore::kDefaultBusyTimeoutMs` (5 s), and a constructor parameter lets tests shorten it. A write that meets
+  another writer now waits for it rather than failing at once, which also covers `trainer_service` and its pass sharing
+  `daemon_config.db`.
+- **Atomic counter.** `increment(key)` reads the key's value and writes it back plus one inside a single `BEGIN IMMEDIATE`
+  transaction, and returns the new number. A missing or non-numeric value counts as 0, as before. Both
+  `LocalTransport::next_session()` and `registry_server`'s `handle_session_next` use it, so processes sharing
+  `session_counters.db` can no longer be handed the same number. It reads one key instead of `load_all()` (TD-308's scan).
+- **Errors.** `handle_session_next` answers 500 with JSON when `increment()` throws. It used to let the exception escape.
+  `LocalTransport`'s throw still reaches `IncrementalTrainer::begin_run()`, which logs it and continues without a session id.
+
+Tests:
+- `daemonConfigStoreTests` gained three:
+  - `set()`, `set_many()` and `increment()` all wait for a writer that releases the lock after 300 ms;
+  - `increment()` counts per key and treats a non-numeric value as 0;
+  - four threads, each with its own connection, run 400 increments with no failures, no repeated number, and a final count
+    of 400.
+- With `sqlite3_busy_timeout()` taken out, all three writes in the first test throw `database is locked`.
+- The TD-305 handler tests used a held write lock to make a save fail; with the timeout that would now wait. They use a
+  trigger that rejects writes instead.
+- With the real binaries: two `registry_server` processes on one data directory, each sent 100 concurrent
+  `session/next` requests for the same run. All 200 answers were different numbers and the counter ended at 200. On the old
+  code, the second process couldn't open `session_counters.db` at startup (no busy timeout while the first held the lock), so
+  its 100 requests got `session_counters.db unavailable`.
 
 Files to Modify:
 
 - `src/DaemonConfigStore.{hpp,cpp}`
 - `src/RegistryTransport.cpp`
 - `src/RegistryServer.cpp`
-- `tests/daemonconfigstore_test.cpp`
+- `tests/daemonconfigstore_test.cpp`; the TD-305 tests in `tests/trainer_admin_api_test.cpp`,
+  `tests/trainer_service_proxy_test.cpp` and `tests/training_metrics_api_routes_test.cpp`
 
 ---
 
@@ -7884,8 +7913,8 @@ Tests:
 - With the real `mns_server` and `registry_server`, a PUT made while a Python script holds the lock answers 500, and
   `GET /admin/config` and `daemon_config.db` keep their previous values.
 
-`DaemonConfigStore` still has no busy timeout, so a save that overlaps another writer fails at once rather than waiting
-(TD-304).
+Since TD-304, a save that overlaps another writer waits up to 5 s for it, and the handler tests use a trigger to
+make the save fail.
 
 Files to Modify:
 
@@ -7980,7 +8009,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Core / DaemonConfigStore | October 11, 2026 | 1-2 hours |
+| LOW | Open — per-allocation scan fixed November 3, 2026 (with TD-304) | Core / DaemonConfigStore | October 11, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-304, by inspection. `registry_server` and `LocalTransport` keep session counters
@@ -7991,9 +8020,11 @@ scale but confusing and O(runs) per allocation.
 
 Action Items:
 
-- [ ] Add `get(key)` (or fold this into TD-304's `increment(key)`), and consider a dedicated counter class or table name.
+- [x] Add `get(key)` (or fold this into TD-304's `increment(key)`). Done November 3, 2026: `increment(key)` reads and writes
+  the one key in a transaction.
+- [ ] Consider a dedicated counter class or table name (the counters still live in a table named `daemon_config`).
 
-Location in code: `src/RegistryTransport.cpp` (`LocalTransport::next_session()`), `src/RegistryServer.cpp` (`handle_session_next`); tagged `TODO: See TD-308`.
+Location in code: `src/RegistryTransport.cpp` (`LocalTransport::next_session()`), `src/RegistryServer.cpp` (`handle_session_next`); the `TODO: See TD-308` tags went with TD-304's fix.
 
 Files to Modify:
 

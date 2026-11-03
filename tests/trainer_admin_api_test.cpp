@@ -38,6 +38,20 @@ using adai::TrainerPhase;
 
 namespace {
 
+// TD-305/TD-304: while `on`, triggers make every write to the daemon_config table fail at once, so a
+// PUT's save fails deterministically (a held write lock would now be waited for, TD-304).
+void reject_config_writes(const std::filesystem::path& db, bool on) {
+    sqlite3* raw = nullptr;
+    ASSERT_EQ(sqlite3_open(db.string().c_str(), &raw), SQLITE_OK);
+    const char* sql = on ? "CREATE TRIGGER reject_insert BEFORE INSERT ON daemon_config "
+                           "BEGIN SELECT RAISE(ABORT, 'writes rejected by test'); END;"
+                           "CREATE TRIGGER reject_update BEFORE UPDATE ON daemon_config "
+                           "BEGIN SELECT RAISE(ABORT, 'writes rejected by test'); END;"
+                         : "DROP TRIGGER reject_insert; DROP TRIGGER reject_update;";
+    EXPECT_EQ(sqlite3_exec(raw, sql, nullptr, nullptr, nullptr), SQLITE_OK) << sqlite3_errmsg(raw);
+    sqlite3_close(raw);
+}
+
 // A port the kernel says is free. It used to come from a fixed range (43700 + pid % 100) inside
 // Linux's ephemeral range (32768-60999), where other tests' outgoing connections can hold it; with
 // exclusive listening ports (TD-551) the bind then fails and the API never comes up.
@@ -307,7 +321,7 @@ TEST_F(TrainerAdminAPITest, PutConfigRejectedBodyChangesNothing) {
     thr.join();
 }
 
-// TD-305: when daemon_config.db can't be written (here another connection holds its write lock), the
+// TD-305: when daemon_config.db can't be written (here a trigger rejects every write), the
 // PUT answers 500 and changes nothing, in memory or on disk. Keys used to be applied in memory first
 // and then saved one at a time, and the exception escaped the handler.
 TEST_F(TrainerAdminAPITest, PutConfigSaveFailureChangesNothing) {
@@ -319,13 +333,10 @@ TEST_F(TrainerAdminAPITest, PutConfigSaveFailureChangesNothing) {
     ASSERT_TRUE(res);
     ASSERT_EQ(res->status, 200);
 
-    sqlite3* blocker = nullptr;
-    ASSERT_EQ(sqlite3_open((test_dir / "daemon_config.db").string().c_str(), &blocker), SQLITE_OK);
-    ASSERT_EQ(sqlite3_exec(blocker, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr), SQLITE_OK);
+    reject_config_writes(test_dir / "daemon_config.db", true);
     res = client.Put("/admin/config", "{\"auto_save_enabled\":false,\"max_sessions_to_keep\":3}",
                      "application/json");
-    sqlite3_exec(blocker, "ROLLBACK;", nullptr, nullptr, nullptr);
-    sqlite3_close(blocker);
+    reject_config_writes(test_dir / "daemon_config.db", false);
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 500) << res->body;
     EXPECT_NE(res->body.find("nothing was changed"), std::string::npos) << res->body;

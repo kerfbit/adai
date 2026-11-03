@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.26.0
+// @adai-version: 0.27.0
 // @adai-reviewed: 2026-11-03
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
@@ -2027,17 +2027,18 @@ static void handle_session_next(const httplib::Request& req, httplib::Response& 
         return;
     }
 
-    const std::string key = model_name + "|" + run_id;
-    int next = 1;
-    // TODO: See TD-304 in TECHNICAL_DEBT.md - read-modify-write is atomic only within this process (TD-308: full-table scan)
-    if (const auto all = g_session_store->load_all(); all.count(key)) {
-        try {
-            next = std::stoi(all.at(key)) + 1;
-        } catch (...) {
-        }
+    // TD-304: one transaction, so another process sharing session_counters.db can't hand out the
+    // same number (g_session_store_mtx only covers this process), and a lock held by another writer
+    // is waited for rather than failing at once.
+    int next = 0;
+    try {
+        next = g_session_store->increment(model_name + "|" + run_id);
+    } catch (const std::exception& e) {
+        Logger::error("registry_server: session/next failed: {}", e.what());
+        res.status = 500;
+        res.set_content("{\"error\":\"could not allocate a session number\"}", "application/json");
+        return;
     }
-    g_session_store->set(key, std::to_string(next));
-
     const std::string session_str = std::to_string(next);
     const std::string padded = session_str.size() < 2 ? "0" + session_str : session_str;
     res.set_content("{\"session_id\":\"session-" + padded + "\"}", "application/json");

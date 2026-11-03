@@ -175,5 +175,15 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 - **Callers.** Every daemon's `PUT /admin/config` now saves its resulting values with `set_many()` before it applies them in
   memory, holding a per-handler mutex across both, and answers 500 (`… nothing was changed`) when the save throws. The class
   comment now says so; it used to say callers already serialized access, which wasn't true for httplib's thread pool.
-- **Still open.** There is no busy timeout, so a save that overlaps another writer fails at once (TD-304).
-- **Status tag:** `@adai-version` 1.1.0 for both files, reviewed 2026-11-03.
+
+## Addendum (November 3, 2026): busy timeout and `increment()` (TD-304)
+
+- **Busy timeout.** The constructor takes `busy_timeout_ms` (default `kDefaultBusyTimeoutMs`, 5000) and sets
+  `sqlite3_busy_timeout()` first, so a write that meets another connection's write lock waits for it instead of failing with
+  `database is locked`.
+- **`increment(key)`** adds 1 to the key's integer value (a missing or non-numeric value counts as 0), stores it and returns
+  it, inside one `BEGIN IMMEDIATE` transaction; on failure it rolls back and throws. `LocalTransport::next_session()` and
+  `registry_server`'s `session/next` use it in place of `load_all()` + `set()`, so concurrent processes never share a number
+  and an allocation reads one key, not the whole table (TD-308's scan). The counters still live in a table named
+  `daemon_config` (the rest of TD-308).
+- **Status tag:** `@adai-version` 1.2.0 for both files, reviewed 2026-11-03.

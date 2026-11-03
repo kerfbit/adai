@@ -26,6 +26,20 @@
 
 namespace {
 
+// TD-305/TD-304: while `on`, triggers make every write to the daemon_config table fail at once, so a
+// PUT's save fails deterministically (a held write lock would now be waited for, TD-304).
+void reject_config_writes(const std::filesystem::path& db, bool on) {
+    sqlite3* raw = nullptr;
+    ASSERT_EQ(sqlite3_open(db.string().c_str(), &raw), SQLITE_OK);
+    const char* sql = on ? "CREATE TRIGGER reject_insert BEFORE INSERT ON daemon_config "
+                           "BEGIN SELECT RAISE(ABORT, 'writes rejected by test'); END;"
+                           "CREATE TRIGGER reject_update BEFORE UPDATE ON daemon_config "
+                           "BEGIN SELECT RAISE(ABORT, 'writes rejected by test'); END;"
+                         : "DROP TRIGGER reject_insert; DROP TRIGGER reject_update;";
+    EXPECT_EQ(sqlite3_exec(raw, sql, nullptr, nullptr, nullptr), SQLITE_OK) << sqlite3_errmsg(raw);
+    sqlite3_close(raw);
+}
+
 int candidate_test_port(int attempt) {
     constexpr int kStartPort = 39080;
     constexpr int kPortSpan = 800;
@@ -1058,7 +1072,7 @@ class TrainingMetricsAPIAdminStoreRoutesTest : public TrainingMetricsAPIRoutesTe
     std::filesystem::path dir_;
 };
 
-// TD-305: when daemon_config.db can't be written (another connection holds its write lock), the PUT
+// TD-305: when daemon_config.db can't be written (here a trigger rejects every write), the PUT
 // answers 500 and changes nothing in memory or on disk. Settings used to be applied first and then
 // saved one key at a time, and the exception escaped the handler.
 TEST_F(TrainingMetricsAPIAdminStoreRoutesTest, AdminConfigSaveFailureChangesNothing) {
@@ -1070,12 +1084,9 @@ TEST_F(TrainingMetricsAPIAdminStoreRoutesTest, AdminConfigSaveFailureChangesNoth
     EXPECT_EQ(adai::DaemonConfigStore(db).load_all().at("retention_days"), "30");
 
     const auto live_before = registry_->max_live_sessions();
-    sqlite3* blocker = nullptr;
-    ASSERT_EQ(sqlite3_open(db.c_str(), &blocker), SQLITE_OK);
-    ASSERT_EQ(sqlite3_exec(blocker, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr), SQLITE_OK);
+    reject_config_writes(db, true);
     res = client.Put("/admin/config", R"({"retention_days": 5, "max_live_sessions": 3})", "application/json");
-    sqlite3_exec(blocker, "ROLLBACK;", nullptr, nullptr, nullptr);
-    sqlite3_close(blocker);
+    reject_config_writes(db, false);
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 500) << res->body;
     EXPECT_FALSE(nlohmann::json::parse(res->body, nullptr, false).is_discarded()) << res->body;
@@ -1087,7 +1098,7 @@ TEST_F(TrainingMetricsAPIAdminStoreRoutesTest, AdminConfigSaveFailureChangesNoth
     EXPECT_EQ(saved.at("retention_days"), "30");
     EXPECT_EQ(saved.at("max_live_sessions"), std::to_string(live_before));
 
-    // And once the lock is gone the same PUT goes through, in memory and on disk.
+    // And once writes work again the same PUT goes through, in memory and on disk.
     res = client.Put("/admin/config", R"({"retention_days": 5, "max_live_sessions": 3})", "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 200) << res->body;

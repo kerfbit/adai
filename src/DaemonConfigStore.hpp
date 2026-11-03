@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-11-03
 
 
@@ -36,8 +36,12 @@ namespace adai {
  */
 class DaemonConfigStore {
    public:
-    /// Opens (creating if necessary) the daemon_config table at db_path.
-    explicit DaemonConfigStore(const std::string& db_path);
+    /// TD-304: how long a write waits for another connection's write lock before failing.
+    static constexpr int kDefaultBusyTimeoutMs = 5000;
+
+    /// Opens (creating if necessary) the daemon_config table at db_path. A write that finds
+    /// another connection writing waits up to busy_timeout_ms (TD-304; it used to fail at once).
+    explicit DaemonConfigStore(const std::string& db_path, int busy_timeout_ms = kDefaultBusyTimeoutMs);
     ~DaemonConfigStore();
 
     DaemonConfigStore(const DaemonConfigStore&) = delete;
@@ -52,6 +56,13 @@ class DaemonConfigStore {
     /// TD-305: upserts every pair in one transaction, stamping updated_utc. Either all of them
     /// are stored or, when anything fails (which throws std::runtime_error), none are.
     void set_many(const std::map<std::string, std::string>& values);
+
+    /// TD-304: adds 1 to the integer stored at key (a missing or non-numeric value counts as 0),
+    /// stores it and returns it, as one transaction, so concurrent callers in any process each get
+    /// a different number. Throws std::runtime_error on failure, storing nothing. Session counters
+    /// use it; they used to read every key with load_all() and then set(), so two processes could
+    /// get the same number.
+    int increment(const std::string& key);
 
    private:
     sqlite3* db_ = nullptr;

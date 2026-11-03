@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.6.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 1.6.1
+// @adai-reviewed: 2026-11-03
 
 #include "RegistryTransport.hpp"
 #include <fcntl.h>  // open(), O_RDWR
@@ -479,16 +479,10 @@ std::string LocalTransport::next_session(const std::string& model_name,
         }
     }
 
-    const std::string key = model_name + "|" + run_id;
-    int next = 1;
-    // TODO: See TD-304 in TECHNICAL_DEBT.md - non-atomic, unlocked read-modify-write; concurrent processes can get duplicate session numbers (TD-308: full-table scan)
-    if (const auto all = session_store_->load_all(); all.count(key)) {
-        try {
-            next = std::stoi(all.at(key)) + 1;
-        } catch (...) {
-        }
-    }
-    session_store_->set(key, std::to_string(next));
+    // TD-304: one transaction, so two standalone trainers sharing session_counters.db never get the
+    // same number (a load_all() + set() read-modify-write could, and a concurrent write failed at once).
+    // A throw reaches IncrementalTrainer::begin_run(), which continues without a session id.
+    const int next = session_store_->increment(model_name + "|" + run_id);
     return "session-" + zero_pad2(next);
 }
 
