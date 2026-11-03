@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.27.1
+// @adai-version: 0.27.2
 // @adai-reviewed: 2026-11-03
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
@@ -80,6 +80,7 @@
 #include "Config.hpp"
 #include "SignalSetup.hpp"
 #include "DaemonConfigStore.hpp"
+#include "SessionCounterStore.hpp"
 #include "RegistryServerArgs.hpp"
 #include "DataFetcher.hpp"
 #include "FtpDataServer.hpp"
@@ -212,8 +213,9 @@ static std::unique_ptr<adai::DaemonConfigStore> g_config_store;
 
 // Session-number counter (Phase 3 run/session numbering): keyed by
 // "model_name|run_id" -> current count, persisted separately from
-// daemon_config.db since it's business data, not an admin setting.
-static std::unique_ptr<adai::DaemonConfigStore> g_session_store;
+// daemon_config.db since it's business data, not an admin setting (TD-308: in
+// its own SessionCounterStore and table).
+static std::unique_ptr<adai::SessionCounterStore> g_session_store;
 static std::mutex g_session_store_mtx;
 
 // TD-494: claim leases. A claim older than the lease (claimed_unix + lease) may be taken by
@@ -2032,7 +2034,7 @@ static void handle_session_next(const httplib::Request& req, httplib::Response& 
     // is waited for rather than failing at once.
     int next = 0;
     try {
-        next = g_session_store->increment(model_name + "|" + run_id);
+        next = g_session_store->next(model_name + "|" + run_id);
     } catch (const std::exception& e) {
         Logger::error("registry_server: session/next failed: {}", e.what());
         res.status = 500;
@@ -2183,7 +2185,7 @@ int main(int argc, char* argv[]) {
     try {
         std::lock_guard<std::mutex> lock(g_session_store_mtx);
         g_session_store =
-            std::make_unique<adai::DaemonConfigStore>(data_dir + "/session_counters.db");
+            std::make_unique<adai::SessionCounterStore>(data_dir + "/session_counters.db");
     } catch (const std::exception& e) {
         std::cerr << "Warning: session_counters.db unavailable (" << e.what()
                   << "); POST /registry/<group>/session/next will fail\n";

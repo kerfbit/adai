@@ -87,6 +87,7 @@ add_library(adai_core STATIC
     SQLiteMetricsDatabase.cpp
     MetricsDatabase.cpp  # TD-441: IMetricsDatabase factory and shared helpers
     DaemonConfigStore.cpp
+    SessionCounterStore.cpp  # TD-308: run/session counters, split out of DaemonConfigStore
     # TD-526/TD-550: shared refusal of browser-originated writes for every HTTP daemon.
     BrowserWriteGuard.cpp
     # TD-519: shared PUT /admin/config parser for TrainerAdminAPI and TrainerServiceProxy.

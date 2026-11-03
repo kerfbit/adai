@@ -295,3 +295,10 @@ changes neither.
 `handle_session_next` allocates with `DaemonConfigStore::increment()` (one transaction, 5 s busy timeout) instead of
 `load_all()` + `set()` under `g_session_store_mtx`, which only covered this process. Two `registry_server` processes sharing a
 data directory hand out different numbers, and a failure answers 500 with JSON instead of escaping the handler.
+
+## Addendum (November 3, 2026): session counters (TD-308)
+
+`session/next` takes its number from `SessionCounterStore::next()` (`src/SessionCounterStore.{hpp,cpp}`) instead of
+`DaemonConfigStore::increment()`. The counters keep the same file, `<data_dir>/session_counters.db`, in a table named
+`session_counters` rather than `daemon_config`; on startup a file written by an older `registry_server` has its counters
+moved over and logged, so numbering continues. `RegistryServer.cpp` is `@adai-version` 0.27.2.

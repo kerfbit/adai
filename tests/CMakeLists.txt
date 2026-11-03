@@ -612,6 +612,18 @@ if(SQLITE3_FOUND)
 endif()
 add_test(NAME DaemonConfigStoreTests COMMAND daemonConfigStoreTests)
 
+# TD-308: run/session counters (registry_server session/next, LocalTransport::next_session)
+add_executable(sessionCounterStoreTests sessioncounterstore_test.cpp)
+target_include_directories(sessionCounterStoreTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(sessionCounterStoreTests
+    adai_core
+    GTest::gtest_main
+)
+if(SQLITE3_FOUND)
+    target_include_directories(sessionCounterStoreTests PRIVATE ${SQLITE3_INCLUDE_DIR})
+endif()
+add_test(NAME SessionCounterStoreTests COMMAND sessionCounterStoreTests)
+
 # Native Parquet -> JSONL reader (replaces the Python pandas/pyarrow subprocess)
 add_executable(parquetReaderTests parquet_reader_test.cpp)
 target_include_directories(parquetReaderTests PRIVATE ${CMAKE_SOURCE_DIR}/src)

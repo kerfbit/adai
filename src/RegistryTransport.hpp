@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.7.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 1.7.1
+// @adai-reviewed: 2026-11-03
 
 
 #include <cstddef>
@@ -10,7 +10,7 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "DaemonConfigStore.hpp"
+#include "SessionCounterStore.hpp"
 
 // ============================================================================
 // Data types shared between DatasetRegistry and all transport implementations
@@ -580,11 +580,9 @@ class LocalTransport : public RegistryTransport {
     std::string pending_path_;
 
     // Session-number counter (Phase 3), lazily opened next to pending_path_ as
-    // "session_counters.db" on first next_session() call. Kept as a raw
-    // pointer behind a small helper rather than <memory> to avoid pulling
-    // DaemonConfigStore's sqlite3 forward-declare into every RegistryTransport
-    // consumer; see RegistryTransport.cpp for the definition.
-    std::unique_ptr<adai::DaemonConfigStore> session_store_;
+    // "session_counters.db" on first next_session() call (TD-308: its own
+    // SessionCounterStore, no longer a DaemonConfigStore).
+    std::unique_ptr<adai::SessionCounterStore> session_store_;
 
     // Hold an exclusive flock on pending_path_ + ".lock" for the duration of
     // an acquire/release cycle and return the fd, or -1 on failure.

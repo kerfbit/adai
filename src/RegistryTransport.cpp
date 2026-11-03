@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.6.1
+// @adai-version: 1.6.2
 // @adai-reviewed: 2026-11-03
 
 #include "RegistryTransport.hpp"
@@ -469,7 +469,7 @@ std::string LocalTransport::next_session(const std::string& model_name,
         try {
             const fs::path db_path = fs::path(pending_path_).parent_path() / "session_counters.db";
             fs::create_directories(db_path.parent_path());
-            session_store_ = std::make_unique<adai::DaemonConfigStore>(db_path.string());
+            session_store_ = std::make_unique<adai::SessionCounterStore>(db_path.string());
         } catch (const std::exception& e) {
             Logger::warn(
                 "LocalTransport::next_session — session_counters.db unavailable ({}); session "
@@ -482,7 +482,8 @@ std::string LocalTransport::next_session(const std::string& model_name,
     // TD-304: one transaction, so two standalone trainers sharing session_counters.db never get the
     // same number (a load_all() + set() read-modify-write could, and a concurrent write failed at once).
     // A throw reaches IncrementalTrainer::begin_run(), which continues without a session id.
-    const int next = session_store_->increment(model_name + "|" + run_id);
+    // TD-308: the counters have their own store and table rather than DaemonConfigStore's.
+    const int next = session_store_->next(model_name + "|" + run_id);
     return "session-" + zero_pad2(next);
 }
 

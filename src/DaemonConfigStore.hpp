@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.3.0
+// @adai-version: 2.0.0
 // @adai-reviewed: 2026-11-03
 
 
@@ -63,13 +63,7 @@ class DaemonConfigStore {
     /// TD-305: upserts every pair in one transaction, stamping updated_utc. Either all of them
     /// are stored or, when anything fails (which throws std::runtime_error), none are.
     void set_many(const std::map<std::string, std::string>& values);
-
-    /// TD-304: adds 1 to the integer stored at key (a missing or non-numeric value counts as 0),
-    /// stores it and returns it, as one transaction, so concurrent callers in any process each get
-    /// a different number. Throws std::runtime_error on failure, storing nothing. Session counters
-    /// use it; they used to read every key with load_all() and then set(), so two processes could
-    /// get the same number.
-    int increment(const std::string& key);
+    // TD-308: increment() (TD-304) moved to SessionCounterStore with the session counters.
 
    private:
     sqlite3* db_ = nullptr;

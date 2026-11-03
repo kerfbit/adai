@@ -1455,6 +1455,8 @@ The generation and model math run is complete.
   `increment()`, so processes sharing `session_counters.db` never get the same one; TD-308's per-allocation scan with it).
 - TD-307 (done in code: `DaemonConfigStore::load_all()` throws on a read error instead of returning part of the settings, so
   a daemon starts from all its saved settings or from its file with a warning; a store not using WAL is logged).
+- TD-308 (done in code: session counters have their own `SessionCounterStore` and `session_counters` table; an existing
+  `session_counters.db` has its counters moved over when opened, so numbering continues).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -8033,7 +8035,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open — per-allocation scan fixed November 3, 2026 (with TD-304) | Core / DaemonConfigStore | October 11, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 3, 2026 (per-allocation scan with TD-304) | Core / DaemonConfigStore | October 11, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-304, by inspection. `registry_server` and `LocalTransport` keep session counters
@@ -8046,15 +8048,40 @@ Action Items:
 
 - [x] Add `get(key)` (or fold this into TD-304's `increment(key)`). Done November 3, 2026: `increment(key)` reads and writes
   the one key in a transaction.
-- [ ] Consider a dedicated counter class or table name (the counters still live in a table named `daemon_config`).
+- [x] Consider a dedicated counter class or table name. Done November 3, 2026: `SessionCounterStore`, table
+  `session_counters`.
 
 Location in code: `src/RegistryTransport.cpp` (`LocalTransport::next_session()`), `src/RegistryServer.cpp` (`handle_session_next`); the `TODO: See TD-308` tags went with TD-304's fix.
 
+**Fix (November 3, 2026):**
+- **A dedicated store.** New `src/SessionCounterStore.{hpp,cpp}` keeps the counters in their own `session_counters` table
+  with an integer `value` column. `next(key)` adds 1 and returns the new value in one `BEGIN IMMEDIATE` transaction (the
+  TD-304 behaviour, including the 5 s busy timeout and the restart at 1 past `INT_MAX`); `current(key)` reads one counter.
+  `LocalTransport::next_session()` and `registry_server`'s `session/next` use it.
+- **`DaemonConfigStore` holds admin settings only.** `increment()` is removed (version 2.0.0).
+- **Existing files keep counting.** Opening a `session_counters.db` written before the change moves its `daemon_config`
+  rows into `session_counters` and drops the old table, in one write transaction, so a restarted registry or trainer
+  continues at the next number instead of handing out `session-01` again for a run it already numbered. A key in both
+  tables keeps the larger value. The move is logged with its count. Upgrade every binary that shares one
+  `session_counters.db` (a `registry_server`, or standalone trainers sharing a `SESSION_DIR`) together: an older binary
+  that opens the file after the move would recreate an empty `daemon_config` table and start again at 1 (the next newer
+  open merges it back, keeping the larger value).
+
+Tests:
+- New `sessionCounterStoreTests` (9): counting per key, persistence across reopen, the table name (no `daemon_config`
+  table in the file), moving pre-TD-308 counters and continuing from them (7 → 8; a non-numeric value counts as 0), the
+  larger value winning when both tables count a key, four concurrent opens of an old file moving it exactly once,
+  restarting at 1 past `INT_MAX` or below 0, waiting for and then giving up on another writer, and 400 concurrent `next()`
+  calls over four connections with no number lost or repeated. The `increment()` tests moved here from
+  `daemonConfigStoreTests`.
+- The real `registry_server` on a `session_counters.db` written by the old code (`m1|run-01` at 7): `session/next` answered
+  `session-08` then `session-09`, logged the move, and the file was left with only the `session_counters` table.
+
 Files to Modify:
 
-- `src/DaemonConfigStore.{hpp,cpp}`
-- `src/RegistryTransport.cpp`
-- `src/RegistryServer.cpp`
+- `src/SessionCounterStore.{hpp,cpp}` (new), `src/DaemonConfigStore.{hpp,cpp}`
+- `src/RegistryTransport.{hpp,cpp}`, `src/RegistryServer.cpp`, `src/CMakeLists.txt`
+- `tests/sessioncounterstore_test.cpp` (new), `tests/daemonconfigstore_test.cpp`, `tests/CMakeLists.txt`
 ---
 
 ### TD-309: Gutenberg Sentence Splitting Can Crash `registry_server`

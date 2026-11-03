@@ -195,3 +195,13 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 - **`journal_mode()`** returns the mode `PRAGMA journal_mode=WAL` actually set (`wal` normally, `memory` for `:memory:`, a
   rollback mode where the filesystem has no shared memory); the constructor logs a warning when it isn't `wal`.
 - **Status tag:** `@adai-version` 1.3.0 for both files, reviewed 2026-11-03.
+
+## Addendum (November 3, 2026): counters moved out (TD-308)
+
+- **`increment()` is removed.** Session counters moved to their own class, `SessionCounterStore`
+  (`src/SessionCounterStore.{hpp,cpp}`), with a `session_counters` table and an integer value; `next(key)` behaves as
+  `increment()` did. `DaemonConfigStore` now holds only admin settings, and `session_counters.db` no longer contains a
+  `daemon_config` table: opening a file written before the change moves its rows into `session_counters` (a key in both
+  keeps the larger value) and drops the old table, in one transaction. See
+  [TD-308](../../guides/TECHNICAL_DEBT.md#td-308-session-counters-reuse-the-config-stores-table-and-scan-it-per-allocation).
+- **Status tag:** `@adai-version` 2.0.0 for both files (an API removal), reviewed 2026-11-03.

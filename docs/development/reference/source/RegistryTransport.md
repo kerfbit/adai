@@ -174,6 +174,6 @@ units. A path can now have several trained records, one per pass; `requeue_train
 
 ## Addendum (November 3, 2026): atomic session numbers (TD-304)
 
-`LocalTransport::next_session()` gets its number from `DaemonConfigStore::increment()`, one transaction that waits up to
+`LocalTransport::next_session()` gets its number from `DaemonConfigStore::increment()` (`SessionCounterStore::next()` since TD-308), one transaction that waits up to
 5 s for another writer, so standalone trainers sharing `session_counters.db` never get the same session number. A failure
 throws to `IncrementalTrainer::begin_run()`, which continues without a session id as before.
