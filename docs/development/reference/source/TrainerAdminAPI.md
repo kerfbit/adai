@@ -130,3 +130,11 @@ drains (`checkpointing` while it saves, then `idle`). `POST /admin/resume` calls
 phase. It no longer calls a `wake()` that nothing waited on. `GET /admin/logs` takes `?limit=N`, a whole number from 0 to 200
 (else 400), and returns the newest N entries. The ring now holds only messages at or above the logger's level, each at most
 4 KiB.
+
+## Addendum (November 3, 2026): save before applying (TD-305)
+
+`handle_put_config()` works out the four resulting settings and saves them all with one `DaemonConfigStore::set_many()`
+transaction. It holds `put_config_mutex_` while it saves and then sets the atomics, and only sets them once the save
+worked. A failed save logs an `Error` entry and answers 500 with JSON (`could not save the admin config (<reason>); nothing
+was changed`). Before, the settings changed in memory first, then each key was saved with its own `set()`, and a throw
+escaped the handler as httplib's non-JSON 500 page.

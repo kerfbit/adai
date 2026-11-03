@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable        (TD-197 — validate_world_model_link() declared, shared by handle_register()/handle_link_world_model())
-// @adai-version: 1.1.1
-// @adai-reviewed: 2026-09-19
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-03
 
 
 #include <atomic>
@@ -10,6 +10,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
@@ -259,6 +260,8 @@ class ModelNameService {
     // Persists live-mutable admin/config overrides (registry_url, registry_group)
     // in <data_dir_>/daemon_config.db, separate from models.db. Opened in start().
     std::unique_ptr<DaemonConfigStore> config_store_;
+    // TD-305: held by PUT /admin/config across saving and applying, so two PUTs can't interleave.
+    std::mutex admin_config_mutex_;
 
     mutable std::shared_mutex mutex_;
     std::unordered_map<std::string, ModelRecord> models_;  ///< key: model_name

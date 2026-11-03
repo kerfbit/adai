@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-11-03
 
 #include "ModelNameService.hpp"
 #include <httplib.h>
@@ -1954,15 +1954,20 @@ std::pair<int, std::string> adai::ModelNameService::handle_admin_put_config(
                 "config.mns.conf or --port/--data-dir and restart\"}"};
     }
 
+    // TD-305: work out the new values, save them in one transaction, and apply them only once
+    // that worked. They were applied first and then saved one set() at a time, so a failed save
+    // left memory and daemon_config.db disagreeing and the exception escaped the handler.
+    std::lock_guard<std::mutex> lock(admin_config_mutex_);
+    std::string url = registry_url_;
+    std::string group = registry_group_;
     bool changed = false;
-    // TODO: See TD-462 in TECHNICAL_DEBT.md - written without a lock while handle_datasets() reads them
     if (json_has_string_key(body, "registry_url")) {
-        registry_url_ = json_string(body, "registry_url");
+        url = json_string(body, "registry_url");
         changed = true;
     }
     if (json_has_string_key(body, "registry_group")) {
-        const std::string group = json_string(body, "registry_group");
-        registry_group_ = group.empty() ? "default" : group;
+        group = json_string(body, "registry_group");
+        if (group.empty()) group = "default";
         changed = true;
     }
     if (!changed) {
@@ -1972,10 +1977,17 @@ std::pair<int, std::string> adai::ModelNameService::handle_admin_put_config(
     }
 
     if (config_store_) {
-        // TODO: See TD-305 in TECHNICAL_DEBT.md - per-key set() with no transaction; memory already updated
-        config_store_->set("registry_url", registry_url_);
-        config_store_->set("registry_group", registry_group_);
+        try {
+            config_store_->set_many({{"registry_url", url}, {"registry_group", group}});
+        } catch (const std::exception& e) {
+            Logger::error("ModelNameService: could not save daemon_config.db: {}", e.what());
+            return {500, "{\"error\":\"could not save the admin config (" + json_escape(e.what()) +
+                             "); nothing was changed\"}"};
+        }
     }
+    // TODO: See TD-462 in TECHNICAL_DEBT.md - written without a lock while handle_datasets() reads them
+    registry_url_ = url;
+    registry_group_ = group;
     Logger::info("ModelNameService: admin config updated (registry_url={}, registry_group={})",
                 registry_url_, registry_group_);
     return handle_admin_get_config();

@@ -138,3 +138,9 @@ is still relayed unchanged, and the child now writes a non-finite loss as `null`
 
 The proxy checks `?limit=N` (0 to `kMaxAdminLogEntries`, 200) the same way it checks `wait_ms`, answers 400 for anything else
 even with no child, and passes the limit on rebuilt from the number. With no child it still returns `{"entries":[]}`.
+
+## Addendum (November 3, 2026): idle saves in one transaction (TD-305)
+
+`handle_put_config_idle()` saves the body's keys with one `DaemonConfigStore::set_many()` call, under
+`idle_config_mutex_`, so a failure stores none of them. The 500 now reads `could not save the admin config while idle
+(<reason>); nothing was changed`.

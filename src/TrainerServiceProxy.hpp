@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.3.1
-// @adai-reviewed: 2026-11-02
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-11-03
 
 // TD-172: trainer_service's own admin HTTP listener. Unlike TrainerAdminAPI (which answers every
 // request from an in-process TrainerControlState it owns directly), this class is a thin reverse
@@ -24,6 +24,7 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 #include "TrainerAdminConfig.hpp"
@@ -103,6 +104,8 @@ class TrainerServiceProxy {
     std::string host_;
     int port_;
     std::string child_admin_dir_;
+    // TD-305: serializes idle PUT /admin/config saves.
+    std::mutex idle_config_mutex_;
     std::shared_ptr<TrainerServiceControlState> control_;
     TrainerAdminDefaults idle_defaults_;
     std::atomic<int> child_port_{0};

@@ -282,3 +282,10 @@ the store.
 whole body passes: `ftp_token_ttl_minutes` a whole number >= 1, `ftp_max_sessions_per_run` >= 0, no immutable key, a JSON
 object with at least one recognized key. Otherwise it answers 400 with `{"error": ...}` naming the key and its range. A
 negative TTL used to be applied and saved, so every FTP token was issued already expired.
+
+## Addendum (November 3, 2026): admin PUT saves before applying (TD-305)
+
+After the body passes `parse_registry_admin_config()`, the handler saves both resulting settings with one
+`DaemonConfigStore::set_many()` transaction under a static mutex, and only then updates `ftp_token_ttl_min`/
+`ftp_max_sessions`. A failed save answers 500 (`could not save the admin config (<reason>); nothing was changed`) and
+changes neither.

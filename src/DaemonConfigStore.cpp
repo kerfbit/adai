@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-12
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-11-03
 
 #include "DaemonConfigStore.hpp"
 #include <sqlite3.h>
@@ -83,7 +83,6 @@ std::map<std::string, std::string> DaemonConfigStore::load_all() const {
     return out;
 }
 
-// TODO: See TD-305 in TECHNICAL_DEBT.md - no multi-key/transactional variant, so multi-key PUTs persist non-atomically
 void DaemonConfigStore::set(const std::string& key, const std::string& value) {
     static const char* kUpsert =
         "INSERT INTO daemon_config (key, value, updated_utc) VALUES (?, ?, ?) "
@@ -103,6 +102,38 @@ void DaemonConfigStore::set(const std::string& key, const std::string& value) {
         throw std::runtime_error(std::string("DaemonConfigStore::set: step failed: ") +
                                  sqlite3_errmsg(db_));
     }
+}
+
+void DaemonConfigStore::set_many(const std::map<std::string, std::string>& values) {
+    if (values.empty()) return;
+    const auto fail = [this](const char* what) {
+        const std::string err = std::string("DaemonConfigStore::set_many: ") + what + ": " + sqlite3_errmsg(db_);
+        sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
+        throw std::runtime_error(err);
+    };
+    if (sqlite3_exec(db_, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        throw std::runtime_error(std::string("DaemonConfigStore::set_many: begin failed: ") + sqlite3_errmsg(db_));
+    }
+    static const char* kUpsert =
+        "INSERT INTO daemon_config (key, value, updated_utc) VALUES (?, ?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_utc = excluded.updated_utc;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, kUpsert, -1, &stmt, nullptr) != SQLITE_OK) fail("prepare failed");
+    const std::string now = utc_now();
+    for (const auto& [key, value] : values) {
+        sqlite3_reset(stmt);
+        sqlite3_bind_text(stmt, 1, key.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, value.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, now.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) != SQLITE_DONE) {
+            const std::string err = std::string("DaemonConfigStore::set_many: step failed: ") + sqlite3_errmsg(db_);
+            sqlite3_finalize(stmt);
+            sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
+            throw std::runtime_error(err);
+        }
+    }
+    sqlite3_finalize(stmt);
+    if (sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr) != SQLITE_OK) fail("commit failed");
 }
 
 }  // namespace adai

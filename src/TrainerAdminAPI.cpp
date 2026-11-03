@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.5.0
+// @adai-version: 1.6.0
 // @adai-reviewed: 2026-11-03
 
 #include "TrainerAdminAPI.hpp"
@@ -238,26 +238,31 @@ std::pair<int, std::string> adai::TrainerAdminAPI::handle_put_config(const std::
         return {400, "{\"error\":\"" + json_escape(parsed.error) + "\"}"};
     }
     const auto& u = parsed.update;
-    if (u.auto_save_enabled)
-        control_->auto_save_enabled = *u.auto_save_enabled;
-    if (u.auto_save_every_samples)
-        control_->auto_save_every_samples = *u.auto_save_every_samples;
-    if (u.auto_save_every_minutes)
-        control_->auto_save_every_minutes = *u.auto_save_every_minutes;
-    if (u.max_sessions_to_keep)
-        control_->max_sessions_to_keep = *u.max_sessions_to_keep;
-
+    // TD-305: save first, in one transaction, and apply only once that worked. Keys were applied
+    // in memory and then saved one set() at a time, so a failed save left the live pass and
+    // daemon_config.db disagreeing (and the exception escaped the handler).
+    std::lock_guard<std::mutex> lock(put_config_mutex_);
+    const bool enabled = u.auto_save_enabled.value_or(control_->auto_save_enabled.load());
+    const int samples = u.auto_save_every_samples.value_or(control_->auto_save_every_samples.load());
+    const int minutes = u.auto_save_every_minutes.value_or(control_->auto_save_every_minutes.load());
+    const int keep = u.max_sessions_to_keep.value_or(control_->max_sessions_to_keep.load());
     if (config_store_) {
-        // TODO: See TD-305 in TECHNICAL_DEBT.md - per-key set() with no transaction
-        config_store_->set("auto_save_enabled",
-                           control_->auto_save_enabled.load() ? "true" : "false");
-        config_store_->set("auto_save_every_samples",
-                           std::to_string(control_->auto_save_every_samples.load()));
-        config_store_->set("auto_save_every_minutes",
-                           std::to_string(control_->auto_save_every_minutes.load()));
-        config_store_->set("max_sessions_to_keep",
-                           std::to_string(control_->max_sessions_to_keep.load()));
+        try {
+            config_store_->set_many({{"auto_save_enabled", enabled ? "true" : "false"},
+                                     {"auto_save_every_samples", std::to_string(samples)},
+                                     {"auto_save_every_minutes", std::to_string(minutes)},
+                                     {"max_sessions_to_keep", std::to_string(keep)}});
+        } catch (const std::exception& e) {
+            control_->log(TrainerLogLevel::Error,
+                          std::string("PUT /admin/config: could not save daemon_config.db: ") + e.what());
+            return {500, "{\"error\":\"could not save the admin config (" + json_escape(e.what()) +
+                             "); nothing was changed\"}"};
+        }
     }
+    control_->auto_save_enabled = enabled;
+    control_->auto_save_every_samples = samples;
+    control_->auto_save_every_minutes = minutes;
+    control_->max_sessions_to_keep = keep;
     {
         std::ostringstream msg;
         msg << "Admin config updated via PUT /admin/config (auto_save_enabled="

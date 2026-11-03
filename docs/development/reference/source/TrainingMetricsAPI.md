@@ -178,4 +178,10 @@ debug. `metrics/history` caps `max_records` at `kMaxHistoryRecords` (10,000) and
 range or not a whole number, a non-boolean `enable_prometheus`, an immutable key, a body that isn't a JSON object, or no
 recognized key gets 400 naming the problem (`'max_live_sessions' must be a whole number >= 1`), and nothing changes. A
 negative `max_live_sessions` used to become a huge `size_t`, and a key with a space before its colon was skipped silently.
-Multi-key persistence is still not atomic (TD-305).
+
+## Addendum (November 3, 2026): admin PUT saves before applying (TD-305)
+
+Once a body passes the TD-306 checks, `handle_admin_put_config()` saves all 12 resulting settings with one
+`DaemonConfigStore::set_many()` transaction, holding `admin_config_mutex_`, and applies them to the session registry only
+after the save worked. A failed save logs the reason and answers 500 (`could not save the admin config (<reason>); nothing
+was changed`), and the live settings stay as they were.

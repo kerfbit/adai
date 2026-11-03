@@ -1,13 +1,14 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-11-03
 
 
 #include <atomic>
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 #include "TrainerAdminConfig.hpp"
@@ -93,6 +94,8 @@ class TrainerAdminAPI {
     int port_;
     std::string config_store_dir_;
     std::unique_ptr<DaemonConfigStore> config_store_;
+    // TD-305: held by PUT /admin/config across saving and applying, so two PUTs can't interleave.
+    std::mutex put_config_mutex_;
     std::atomic<bool> running_{false};
 
     class ServerImpl;

@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.16.0
+// @adai-version: 0.17.0
 // @adai-reviewed: 2026-11-03
 
 #include "TrainingMetricsAPI.hpp"
@@ -17,6 +17,7 @@
 #include <iomanip>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <utility>
@@ -1932,11 +1933,46 @@ std::pair<int, std::string> TrainingMetricsAPI::handle_admin_put_config(const st
                 "enable_prometheus, staleness_threshold_seconds)\"}"};
     }
 
-    // Everything is valid; apply it.
     const auto get = [&ints](const char* key) -> std::optional<int> {
         const auto it = ints.find(key);
         return it == ints.end() ? std::nullopt : std::optional<int>(it->second);
     };
+
+    // TD-305: everything is valid. Save the resulting settings in one transaction first, and apply
+    // them only once that worked. They were applied and then saved one set() at a time, so a failed
+    // save left memory and daemon_config.db disagreeing and the exception escaped the handler.
+    std::lock_guard<std::mutex> lock(admin_config_mutex_);
+    if (config_store_) {
+        const auto cfg = session_registry_->base_metrics_config();
+        const auto value = [&get](const char* key, long long current) {
+            const auto v = get(key);
+            return std::to_string(v ? *v : current);
+        };
+        try {
+            config_store_->set_many({
+                {"max_live_sessions",
+                 value("max_live_sessions", static_cast<long long>(session_registry_->max_live_sessions()))},
+                {"completed_ttl_seconds", value("completed_ttl_seconds", session_registry_->completed_ttl_seconds())},
+                {"sweep_interval_seconds", value("sweep_interval_seconds", session_registry_->sweep_interval_seconds())},
+                {"persist_every_samples", value("persist_every_samples", cfg.persist_every_samples)},
+                {"persist_every_seconds", value("persist_every_seconds", cfg.persist_every_seconds)},
+                {"max_records_in_memory", value("max_records_in_memory", cfg.max_records_in_memory)},
+                {"max_records_on_disk", value("max_records_on_disk", cfg.max_records_on_disk)},
+                {"retention_days", value("retention_days", cfg.retention_days)},
+                {"metrics_file_max_mb", value("metrics_file_max_mb", cfg.metrics_file_max_mb)},
+                {"metrics_file_backups", value("metrics_file_backups", cfg.metrics_file_backups)},
+                {"enable_prometheus", prometheus.value_or(cfg.enable_prometheus_format) ? "true" : "false"},
+                {"staleness_threshold_seconds",
+                 value("staleness_threshold_seconds", cfg.staleness_threshold_seconds)},
+            });
+        } catch (const std::exception& e) {
+            adai::Logger::error("TrainingMetricsAPI: could not save daemon_config.db: {}", e.what());
+            return {500, nlohmann::json{{"error", std::string("could not save the admin config (") + e.what() +
+                                                      "); nothing was changed"}}
+                             .dump()};
+        }
+    }
+
     if (auto v = get("max_live_sessions")) session_registry_->set_max_live_sessions(static_cast<size_t>(*v));
     if (auto v = get("completed_ttl_seconds")) session_registry_->set_completed_ttl_seconds(*v);
     if (auto v = get("sweep_interval_seconds")) session_registry_->set_sweep_interval_seconds(*v);
@@ -1952,27 +1988,6 @@ std::pair<int, std::string> TrainingMetricsAPI::handle_admin_put_config(const st
         if (prometheus) c.enable_prometheus_format = *prometheus;
         if (auto v = get("staleness_threshold_seconds")) c.staleness_threshold_seconds = *v;
     });
-
-    if (config_store_) {
-        const auto cfg = session_registry_->base_metrics_config();
-        // TODO: See TD-305 in TECHNICAL_DEBT.md - per-key set() with no transaction; memory already updated
-        config_store_->set("max_live_sessions",
-                           std::to_string(session_registry_->max_live_sessions()));
-        config_store_->set("completed_ttl_seconds",
-                           std::to_string(session_registry_->completed_ttl_seconds()));
-        config_store_->set("sweep_interval_seconds",
-                           std::to_string(session_registry_->sweep_interval_seconds()));
-        config_store_->set("persist_every_samples", std::to_string(cfg.persist_every_samples));
-        config_store_->set("persist_every_seconds", std::to_string(cfg.persist_every_seconds));
-        config_store_->set("max_records_in_memory", std::to_string(cfg.max_records_in_memory));
-        config_store_->set("max_records_on_disk", std::to_string(cfg.max_records_on_disk));
-        config_store_->set("retention_days", std::to_string(cfg.retention_days));
-        config_store_->set("metrics_file_max_mb", std::to_string(cfg.metrics_file_max_mb));
-        config_store_->set("metrics_file_backups", std::to_string(cfg.metrics_file_backups));
-        config_store_->set("enable_prometheus", cfg.enable_prometheus_format ? "true" : "false");
-        config_store_->set("staleness_threshold_seconds",
-                           std::to_string(cfg.staleness_threshold_seconds));
-    }
 
     return {200, handle_admin_get_config()};
 }

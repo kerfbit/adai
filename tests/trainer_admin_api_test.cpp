@@ -19,6 +19,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sqlite3.h>
 #include <unistd.h>
 #include <atomic>
 #include <chrono>
@@ -301,6 +302,40 @@ TEST_F(TrainerAdminAPITest, PutConfigRejectedBodyChangesNothing) {
     }
     EXPECT_TRUE(control->auto_save_enabled.load());
     EXPECT_EQ(control->auto_save_every_samples.load(), samples_before);
+
+    api->stop();
+    thr.join();
+}
+
+// TD-305: when daemon_config.db can't be written (here another connection holds its write lock), the
+// PUT answers 500 and changes nothing, in memory or on disk. Keys used to be applied in memory first
+// and then saved one at a time, and the exception escaped the handler.
+TEST_F(TrainerAdminAPITest, PutConfigSaveFailureChangesNothing) {
+    auto api = make_api();
+    AdminThread thr;
+    ASSERT_TRUE(start_admin_api(*api, port, thr));
+    httplib::Client client("127.0.0.1", port);
+    auto res = client.Put("/admin/config", "{\"max_sessions_to_keep\":9}", "application/json");
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200);
+
+    sqlite3* blocker = nullptr;
+    ASSERT_EQ(sqlite3_open((test_dir / "daemon_config.db").string().c_str(), &blocker), SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(blocker, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr), SQLITE_OK);
+    res = client.Put("/admin/config", "{\"auto_save_enabled\":false,\"max_sessions_to_keep\":3}",
+                     "application/json");
+    sqlite3_exec(blocker, "ROLLBACK;", nullptr, nullptr, nullptr);
+    sqlite3_close(blocker);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 500) << res->body;
+    EXPECT_NE(res->body.find("nothing was changed"), std::string::npos) << res->body;
+    EXPECT_FALSE(nlohmann::json::parse(res->body, nullptr, false).is_discarded()) << res->body;
+
+    EXPECT_TRUE(control->auto_save_enabled.load());
+    EXPECT_EQ(control->max_sessions_to_keep.load(), 9);
+    const auto saved = adai::DaemonConfigStore((test_dir / "daemon_config.db").string()).load_all();
+    EXPECT_EQ(saved.at("auto_save_enabled"), "true");
+    EXPECT_EQ(saved.at("max_sessions_to_keep"), "9");
 
     api->stop();
     thr.join();

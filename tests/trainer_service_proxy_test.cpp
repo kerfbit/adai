@@ -17,6 +17,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sqlite3.h>
 #include <unistd.h>
 #include <atomic>
 #include <chrono>
@@ -27,6 +28,7 @@
 #include <tuple>
 #include <utility>
 #include <nlohmann/json.hpp>
+#include "DaemonConfigStore.hpp"
 #include "TrainerAdminAPI.hpp"
 #include "TrainerControlState.hpp"
 #include "TrainerServiceControlState.hpp"
@@ -329,6 +331,36 @@ TEST_F(TrainerServiceProxyTest, PutConfigWhileIdleParsesSpacedJsonAndRejectsAtom
     ASSERT_TRUE(get_res);
     EXPECT_EQ(get_res->body.find("\"auto_save_every_samples\":77"), std::string::npos)
         << get_res->body;
+
+    proxy->stop();
+    thr.join();
+}
+
+// TD-305: while idle, a body's keys are saved in one transaction, so a failed save (here another
+// connection holds daemon_config.db's write lock) stores none of them and answers 500.
+TEST_F(TrainerServiceProxyTest, PutConfigWhileIdleSaveFailureStoresNothing) {
+    auto proxy = make_proxy();
+    ServerThread thr(*proxy);
+    ASSERT_TRUE(wait_until_reachable(proxy_port, thr));
+    httplib::Client client("127.0.0.1", proxy_port);
+    auto res = client.Put("/admin/config", "{\"auto_save_every_samples\":250}", "application/json");
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200);
+
+    sqlite3* blocker = nullptr;
+    ASSERT_EQ(sqlite3_open((test_dir / "daemon_config.db").string().c_str(), &blocker), SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(blocker, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr), SQLITE_OK);
+    res = client.Put("/admin/config", "{\"auto_save_every_samples\":77,\"max_sessions_to_keep\":5}",
+                     "application/json");
+    sqlite3_exec(blocker, "ROLLBACK;", nullptr, nullptr, nullptr);
+    sqlite3_close(blocker);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 500) << res->body;
+    EXPECT_NE(res->body.find("nothing was changed"), std::string::npos) << res->body;
+
+    const auto saved = adai::DaemonConfigStore((test_dir / "daemon_config.db").string()).load_all();
+    EXPECT_EQ(saved.at("auto_save_every_samples"), "250");
+    EXPECT_EQ(saved.count("max_sessions_to_keep"), 0u);
 
     proxy->stop();
     thr.join();

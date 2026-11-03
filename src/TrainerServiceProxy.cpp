@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.5.3
+// @adai-version: 0.6.0
 // @adai-reviewed: 2026-11-03
 
 #include "TrainerServiceProxy.hpp"
@@ -7,6 +7,7 @@
 #include "BrowserWriteGuard.hpp"
 #include "HttpListenSocket.hpp"
 #include <charconv>
+#include <map>
 #include <chrono>
 #include <optional>
 #include <sstream>
@@ -373,19 +374,20 @@ std::pair<int, std::string> adai::TrainerServiceProxy::handle_put_config_idle(
         return {400, "{\"error\":\"" + json_escape(parsed.error) + "\"}"};
     }
     const auto& u = parsed.update;
+    // TD-305: every key in one transaction, so a failure stores none of them (one set() per key
+    // could leave the first keys stored and the rest not).
+    std::map<std::string, std::string> values;
+    if (u.auto_save_enabled) values["auto_save_enabled"] = *u.auto_save_enabled ? "true" : "false";
+    if (u.auto_save_every_samples) values["auto_save_every_samples"] = std::to_string(*u.auto_save_every_samples);
+    if (u.auto_save_every_minutes) values["auto_save_every_minutes"] = std::to_string(*u.auto_save_every_minutes);
+    if (u.max_sessions_to_keep) values["max_sessions_to_keep"] = std::to_string(*u.max_sessions_to_keep);
     try {
+        std::lock_guard<std::mutex> lock(idle_config_mutex_);
         DaemonConfigStore store(child_admin_dir_ + "/daemon_config.db");
-        if (u.auto_save_enabled)
-            store.set("auto_save_enabled", *u.auto_save_enabled ? "true" : "false");
-        if (u.auto_save_every_samples)
-            store.set("auto_save_every_samples", std::to_string(*u.auto_save_every_samples));
-        if (u.auto_save_every_minutes)
-            store.set("auto_save_every_minutes", std::to_string(*u.auto_save_every_minutes));
-        if (u.max_sessions_to_keep)
-            store.set("max_sessions_to_keep", std::to_string(*u.max_sessions_to_keep));
+        store.set_many(values);
     } catch (const std::exception& e) {
-        return {500, std::string("{\"error\":\"daemon_config.db unavailable while idle (") +
-                        json_escape(e.what()) + ")\"}"};
+        return {500, std::string("{\"error\":\"could not save the admin config while idle (") +
+                        json_escape(e.what()) + "); nothing was changed\"}"};
     }
 
     return handle_get_config_idle();

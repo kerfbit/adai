@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-11-03
 
 
 #include <map>
@@ -29,9 +29,10 @@ namespace adai {
  * On startup, a daemon should load its config.<service>.conf file first (the seed/
  * bootstrap values), then overlay load_all() on top — DB values represent live
  * admin-applied state and take precedence over the file. Thread safety: not
- * synchronized internally; callers are expected to serialize access (all three
- * daemons currently only touch this from the single request-handling context that
- * already guards config mutation).
+ * synchronized internally; callers serialize access. Each daemon's PUT /admin/config
+ * holds its own admin mutex while it saves with set_many() and then applies the
+ * change in memory (TD-305), so a failed save changes nothing and two PUTs can't
+ * interleave.
  */
 class DaemonConfigStore {
    public:
@@ -47,6 +48,10 @@ class DaemonConfigStore {
 
     /// Upserts a single key/value pair, stamping updated_utc.
     void set(const std::string& key, const std::string& value);
+
+    /// TD-305: upserts every pair in one transaction, stamping updated_utc. Either all of them
+    /// are stored or, when anything fails (which throws std::runtime_error), none are.
+    void set_many(const std::map<std::string, std::string>& values);
 
    private:
     sqlite3* db_ = nullptr;

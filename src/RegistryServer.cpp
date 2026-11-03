@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.25.1
+// @adai-version: 0.26.0
 // @adai-reviewed: 2026-11-03
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
@@ -1947,21 +1947,35 @@ static void handle_admin_put_config(const httplib::Request& req, httplib::Respon
         res.set_content(nlohmann::json{{"error", update.error}}.dump(), "application/json");
         return;
     }
-    if (update.ftp_token_ttl_minutes)
-        ftp_token_ttl_min.store(*update.ftp_token_ttl_minutes);
+    // TD-305: save the resulting settings in one transaction first, and apply them only once that
+    // worked. They were applied and then saved one set() at a time, so a failed save left memory and
+    // daemon_config.db disagreeing and the exception escaped the handler.
+    static std::mutex admin_config_mtx;  // across saving and applying, so two PUTs can't interleave
+    std::lock_guard<std::mutex> lock(admin_config_mtx);
+    const int ttl = update.ftp_token_ttl_minutes.value_or(ftp_token_ttl_min.load());
+    const int max_sessions = update.ftp_max_sessions_per_run.value_or(ftp_max_sessions);
+    if (g_config_store) {
+        try {
+            g_config_store->set_many({{"ftp_token_ttl_minutes", std::to_string(ttl)},
+                                      {"ftp_max_sessions_per_run", std::to_string(max_sessions)}});
+        } catch (const std::exception& e) {
+            Logger::error("registry_server: could not save daemon_config.db: {}", e.what());
+            res.status = 500;
+            res.set_content(nlohmann::json{{"error", std::string("could not save the admin config (") + e.what() +
+                                                         "); nothing was changed"}}
+                                .dump(),
+                            "application/json");
+            return;
+        }
+    }
+    ftp_token_ttl_min.store(ttl);
     // ftp_max_sessions_per_run is recorded for next restart but does not affect
     // the already-constructed FtpDataServer instance — see the comment on
     // ftp_max_sessions's declaration.
     bool max_sessions_applied_live = true;
     if (update.ftp_max_sessions_per_run) {
-        ftp_max_sessions = *update.ftp_max_sessions_per_run;
+        ftp_max_sessions = max_sessions;
         max_sessions_applied_live = !ftp_enabled;  // only "live" if there's no running instance
-    }
-
-    if (g_config_store) {
-        // TODO: See TD-305 in TECHNICAL_DEBT.md - per-key set() with no transaction; a failure leaves memory and DB inconsistent
-        g_config_store->set("ftp_token_ttl_minutes", std::to_string(ftp_token_ttl_min.load()));
-        g_config_store->set("ftp_max_sessions_per_run", std::to_string(ftp_max_sessions));
     }
     Logger::info("registry_server: admin config updated (ftp_token_ttl_minutes={}, "
                 "ftp_max_sessions_per_run={})",

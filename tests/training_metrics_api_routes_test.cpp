@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <sqlite3.h>
 #include <unistd.h>
 #include <algorithm>
 #include <atomic>
@@ -16,6 +17,7 @@
 
 #include <httplib.h>
 
+#include "DaemonConfigStore.hpp"
 #include "GenerationQualityMetrics.hpp"
 #include "MetricsPushClient.hpp"
 #include "nlohmann/json.hpp"
@@ -60,6 +62,10 @@ class TrainingMetricsAPIRoutesTest : public ::testing::Test {
     virtual bool use_sqlite_db() const {
         return false;
     }
+    // TD-305: where the API keeps daemon_config.db; empty means no admin store.
+    virtual std::string admin_config_dir() const {
+        return "";
+    }
 
     void SetUp() override {
         const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
@@ -99,7 +105,7 @@ class TrainingMetricsAPIRoutesTest : public ::testing::Test {
 
         for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
             port_ = candidate_test_port(attempt + static_cast<int>(::getpid()));
-            api_ = std::make_unique<TrainingMetricsAPI>(registry_, port_, true, "", "",
+            api_ = std::make_unique<TrainingMetricsAPI>(registry_, port_, true, "", admin_config_dir(),
                                                         cors_allowed_origins());
 
             server_exit_code_.store(-1);
@@ -1030,6 +1036,63 @@ TEST_F(TrainingMetricsAPIRoutesTest, AdminConfigAcceptsBoundaryValuesInAnyJsonSp
     EXPECT_EQ(registry_->sweep_interval_seconds(), 0);
     EXPECT_EQ(registry_->base_metrics_config().retention_days, 0);
     EXPECT_TRUE(registry_->base_metrics_config().enable_prometheus_format);
+}
+
+// TD-305: a fixture whose API keeps its admin settings in daemon_config.db.
+class TrainingMetricsAPIAdminStoreRoutesTest : public TrainingMetricsAPIRoutesTest {
+   protected:
+    void SetUp() override {
+        dir_ = std::filesystem::temp_directory_path() /
+               ("metrics_admin_store_test_" + std::to_string(::getpid()));
+        std::filesystem::remove_all(dir_);
+        std::filesystem::create_directories(dir_);
+        TrainingMetricsAPIRoutesTest::SetUp();
+    }
+    void TearDown() override {
+        TrainingMetricsAPIRoutesTest::TearDown();
+        std::filesystem::remove_all(dir_);
+    }
+    std::string admin_config_dir() const override {
+        return dir_.string();
+    }
+    std::filesystem::path dir_;
+};
+
+// TD-305: when daemon_config.db can't be written (another connection holds its write lock), the PUT
+// answers 500 and changes nothing in memory or on disk. Settings used to be applied first and then
+// saved one key at a time, and the exception escaped the handler.
+TEST_F(TrainingMetricsAPIAdminStoreRoutesTest, AdminConfigSaveFailureChangesNothing) {
+    auto client = make_client();
+    auto res = client.Put("/admin/config", R"({"retention_days": 30})", "application/json");
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200) << res->body;
+    const auto db = (dir_ / "daemon_config.db").string();
+    EXPECT_EQ(adai::DaemonConfigStore(db).load_all().at("retention_days"), "30");
+
+    const auto live_before = registry_->max_live_sessions();
+    sqlite3* blocker = nullptr;
+    ASSERT_EQ(sqlite3_open(db.c_str(), &blocker), SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(blocker, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr), SQLITE_OK);
+    res = client.Put("/admin/config", R"({"retention_days": 5, "max_live_sessions": 3})", "application/json");
+    sqlite3_exec(blocker, "ROLLBACK;", nullptr, nullptr, nullptr);
+    sqlite3_close(blocker);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 500) << res->body;
+    EXPECT_FALSE(nlohmann::json::parse(res->body, nullptr, false).is_discarded()) << res->body;
+    EXPECT_NE(res->body.find("nothing was changed"), std::string::npos) << res->body;
+
+    EXPECT_EQ(registry_->base_metrics_config().retention_days, 30);
+    EXPECT_EQ(registry_->max_live_sessions(), live_before);
+    const auto saved = adai::DaemonConfigStore(db).load_all();
+    EXPECT_EQ(saved.at("retention_days"), "30");
+    EXPECT_EQ(saved.at("max_live_sessions"), std::to_string(live_before));
+
+    // And once the lock is gone the same PUT goes through, in memory and on disk.
+    res = client.Put("/admin/config", R"({"retention_days": 5, "max_live_sessions": 3})", "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200) << res->body;
+    EXPECT_EQ(registry_->base_metrics_config().retention_days, 5);
+    EXPECT_EQ(adai::DaemonConfigStore(db).load_all().at("max_live_sessions"), "3");
 }
 
 // TD-379: BLEU-1/BLEU-2 travel from the push client through the API into the DB row. They used to

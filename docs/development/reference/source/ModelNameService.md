@@ -144,3 +144,10 @@ as long as they send JSON (or, for `registry_server`'s `upload`, `application/oc
 leaves out keeps its current value (`mns_cli link-world-model` sends it). Without it the body still replaces the whole
 link with defaults for omitted fields, as before; the Android dashboard depends on that, since kotlinx serialization
 omits default values from its body.
+
+## Addendum (November 3, 2026): admin PUT saves before applying (TD-305)
+
+`handle_admin_put_config()` works out the new `registry_url`/`registry_group`, saves both with one
+`DaemonConfigStore::set_many()` transaction while holding `admin_config_mutex_`, and assigns the members only after the save
+worked. A failed save answers 500 (`could not save the admin config (<reason>); nothing was changed`) and keeps the old
+values. The unlocked read in `handle_datasets()` is still TD-462.

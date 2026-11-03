@@ -166,3 +166,14 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 | `registry_server`/`metrics_api_server` PUTs don't range-check values (§5) | Negative limits accepted and persisted | By inspection; fixed in code November 3, 2026 | [TD-306](../../guides/TECHNICAL_DEBT.md#td-306-registry_server-and-metrics_api_server-admin-puts-dont-range-check-values) |
 | `load_all()` treats a step error as end of data; WAL pragma unchecked (§2, §6) | Persisted overrides can be silently dropped at startup | By inspection | [TD-307](../../guides/TECHNICAL_DEBT.md#td-307-daemonconfigstoreload_all-hides-read-errors) |
 | Counter store reuses the config table and scans it per allocation (§3) | Naming confusion; O(runs) per allocation, unbounded growth | By inspection | [TD-308](../../guides/TECHNICAL_DEBT.md#td-308-session-counters-reuse-the-config-stores-table-and-scan-it-per-allocation) |
+
+## Addendum (November 3, 2026): `set_many()` and save-then-apply (TD-305)
+
+- **`set_many(values)`** upserts every pair inside `BEGIN IMMEDIATE … COMMIT`, with one `updated_utc` stamp. On any
+  failure it rolls back and throws `std::runtime_error`, so either every pair is stored or none is; an empty map does
+  nothing. `set()` is unchanged; the session counters still use it.
+- **Callers.** Every daemon's `PUT /admin/config` now saves its resulting values with `set_many()` before it applies them in
+  memory, holding a per-handler mutex across both, and answers 500 (`… nothing was changed`) when the save throws. The class
+  comment now says so; it used to say callers already serialized access, which wasn't true for httplib's thread pool.
+- **Still open.** There is no busy timeout, so a save that overlaps another writer fails at once (TD-304).
+- **Status tag:** `@adai-version` 1.1.0 for both files, reviewed 2026-11-03.

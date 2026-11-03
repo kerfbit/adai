@@ -1,5 +1,6 @@
 #include "DaemonConfigStore.hpp"
 #include <gtest/gtest.h>
+#include <sqlite3.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <atomic>
@@ -59,6 +60,60 @@ TEST_F(DaemonConfigStoreTest, ValuesPersistAcrossReopen) {
     auto all = reopened.load_all();
     ASSERT_EQ(all.size(), 1u);
     EXPECT_EQ(all.at("port"), "8082");
+}
+
+// TD-305: set_many() stores every pair in one transaction.
+TEST_F(DaemonConfigStoreTest, SetManyStoresEveryPair) {
+    adai::DaemonConfigStore store(db_path_);
+    store.set("a", "old");
+    store.set_many({{"a", "1"}, {"b", "2"}, {"c", "3"}});
+    const auto all = store.load_all();
+    ASSERT_EQ(all.size(), 3u);
+    EXPECT_EQ(all.at("a"), "1");
+    EXPECT_EQ(all.at("b"), "2");
+    EXPECT_EQ(all.at("c"), "3");
+    store.set_many({});  // nothing to store is not an error
+    EXPECT_EQ(store.load_all().size(), 3u);
+}
+
+// TD-305: a failure partway through stores none of the pairs. Per-key set() calls used to leave the
+// keys before the failure stored and the rest not.
+TEST_F(DaemonConfigStoreTest, SetManyFailurePartwayStoresNothing) {
+    adai::DaemonConfigStore store(db_path_);
+    store.set("a", "old");
+    sqlite3* raw = nullptr;
+    ASSERT_EQ(sqlite3_open(db_path_.c_str(), &raw), SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(raw,
+                           "CREATE TRIGGER reject_bad BEFORE INSERT ON daemon_config WHEN NEW.key = 'bad' "
+                           "BEGIN SELECT RAISE(ABORT, 'rejected by test'); END;",
+                           nullptr, nullptr, nullptr),
+              SQLITE_OK);
+    sqlite3_close(raw);
+
+    // "a" and "aa" sort (and are written) before "bad"; "c" after it.
+    EXPECT_THROW(store.set_many({{"a", "new"}, {"aa", "1"}, {"bad", "x"}, {"c", "3"}}), std::runtime_error);
+    const auto all = store.load_all();
+    ASSERT_EQ(all.size(), 1u);
+    EXPECT_EQ(all.at("a"), "old");
+
+    // The store still works afterwards (the failed transaction was rolled back).
+    store.set_many({{"a", "newer"}, {"c", "3"}});
+    EXPECT_EQ(store.load_all().at("a"), "newer");
+}
+
+// TD-305: when another connection holds the write lock, set_many() throws and stores nothing.
+TEST_F(DaemonConfigStoreTest, SetManyThrowsWhileAnotherWriterHoldsTheLock) {
+    adai::DaemonConfigStore store(db_path_);
+    store.set("a", "old");
+    sqlite3* raw = nullptr;
+    ASSERT_EQ(sqlite3_open(db_path_.c_str(), &raw), SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(raw, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr), SQLITE_OK);
+    EXPECT_THROW(store.set_many({{"a", "new"}, {"b", "2"}}), std::runtime_error);
+    sqlite3_exec(raw, "ROLLBACK;", nullptr, nullptr, nullptr);
+    sqlite3_close(raw);
+    const auto all = store.load_all();
+    ASSERT_EQ(all.size(), 1u);
+    EXPECT_EQ(all.at("a"), "old");
 }
 
 }  // namespace

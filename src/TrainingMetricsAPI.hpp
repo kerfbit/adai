@@ -1,12 +1,13 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.15.1
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.16.0
+// @adai-reviewed: 2026-11-03
 
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <string>
 #include <utility>
@@ -205,6 +206,8 @@ class TrainingMetricsAPI {
     std::atomic<bool> starting_{false};        // TD-528: start() between entry and return
     std::atomic<bool> stop_requested_{false};  // TD-528: a stop() came, perhaps before start()
     std::unique_ptr<adai::DaemonConfigStore> config_store_;
+    // TD-305: held by PUT /admin/config across saving and applying, so two PUTs can't interleave.
+    std::mutex admin_config_mutex_;
 
     // HTTP server implementation (forward declaration to avoid including httplib.h in header)
     class ServerImpl;

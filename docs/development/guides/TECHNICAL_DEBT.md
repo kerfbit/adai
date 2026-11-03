@@ -1449,6 +1449,8 @@ The generation and model math run is complete.
   `daemon_config.db` beside the final `--db-path`, and warns when a flag replaces a saved admin setting).
 - TD-306 (done in code: `registry_server`'s and `metrics_api_server`'s `PUT /admin/config` check every value against one range
   table per daemon, shared with the saved overrides and flags, before applying any; a bad body gets 400 and changes nothing).
+- TD-305 (done in code: every daemon's `PUT /admin/config` saves its keys in one `DaemonConfigStore::set_many()` transaction
+  before applying them, under a per-handler mutex; a failed save answers 500 and changes nothing).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -7831,7 +7833,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — trainer validate-first part fixed October 19, 2026 (with TD-519) | Admin config API | October 11, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 3, 2026 (validate-first part October 19, 2026, with TD-519) | Admin config API | October 11, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-304, by inspection. Two problems:
@@ -7852,19 +7854,49 @@ Action Items:
 
 - [x] Validate every key in the body before applying or persisting any of them. Done October 19, 2026 for both trainer handlers with TD-519's
   shared `parse_trainer_admin_config()`; the tests now include a body whose third key is invalid, which changes nothing.
-- [ ] Add `DaemonConfigStore::set_many()` (one transaction) and persist before (or atomically with) updating in-memory state; return a clear 500 when persistence fails.
-- [ ] Tests: a body with one invalid key changes nothing; a persistence failure leaves memory and DB consistent.
+- [x] Add `DaemonConfigStore::set_many()` (one transaction) and persist before (or atomically with) updating in-memory state; return a clear 500 when persistence fails.
+- [x] Tests: a body with one invalid key changes nothing; a persistence failure leaves memory and DB consistent.
 
-Location in code: `src/TrainerAdminAPI.cpp` (`handle_put_config()`), `src/TrainerServiceProxy.cpp` (`handle_put_config_idle()`), `src/DaemonConfigStore.hpp`; tagged `TODO: See TD-305`.
+Location in code: `src/TrainerAdminAPI.cpp` (`handle_put_config()`), `src/TrainerServiceProxy.cpp` (`handle_put_config_idle()`), `src/DaemonConfigStore.hpp`; the `TODO: See TD-305` tags are removed.
+
+**Fix (November 3, 2026):**
+- **One transaction.** `DaemonConfigStore::set_many()` writes every pair inside `BEGIN IMMEDIATE … COMMIT`. If anything
+  fails, it rolls back and throws, so either all the pairs are stored or none are.
+- **Save, then apply.** All five `PUT /admin/config` handlers (the trainer's per-pass API, `trainer_service`'s idle proxy,
+  `mns_server`, `metrics_api_server` and `registry_server`) work out the resulting values and save them with `set_many()`.
+  They change the in-memory settings only after the save worked. A failed save answers 500 with valid JSON
+  (`could not save the admin config (<reason>); nothing was changed`), logs the reason, and leaves memory and
+  `daemon_config.db` as they were. Before, the exception escaped the handler: the trainer API answered with httplib's
+  non-JSON error page after already changing its settings in memory.
+- **One PUT at a time.** Each handler holds its own mutex while it saves and applies, so two concurrent PUTs can't save in
+  one order and apply in the other. `DaemonConfigStore`'s comment used to claim callers already serialized access, but the
+  httplib handlers run on a thread pool.
+
+Tests:
+- `daemonConfigStoreTests` gained three: `set_many()` stores every pair; a failure partway through, forced by a trigger that
+  rejects one key, stores none of them, and the store still works afterwards; and a write lock held by another connection
+  makes it throw and store nothing.
+- `trainerAdminApiTests`, `trainerServiceProxyTests` and `trainingMetricsApiRoutesTests` each gained one: while another
+  connection holds `daemon_config.db`'s write lock, a PUT answers 500 and changes nothing in memory or on disk. On the old
+  handlers, the trainer API answered with a non-JSON page after turning auto-save off and changing retention in memory; the
+  metrics API changed `retention_days` and `max_live_sessions` in memory; the idle proxy failed only the message check,
+  because its first `set()` already failed there.
+- With the real `mns_server` and `registry_server`, a PUT made while a Python script holds the lock answers 500, and
+  `GET /admin/config` and `daemon_config.db` keep their previous values.
+
+`DaemonConfigStore` still has no busy timeout, so a save that overlaps another writer fails at once rather than waiting
+(TD-304).
 
 Files to Modify:
 
 - `src/DaemonConfigStore.{hpp,cpp}`
-- `src/TrainerAdminAPI.cpp`
-- `src/TrainerServiceProxy.cpp`
-- `src/ModelNameService.cpp`
-- `src/TrainingMetricsAPI.cpp`
+- `src/TrainerAdminAPI.{hpp,cpp}`
+- `src/TrainerServiceProxy.{hpp,cpp}`
+- `src/ModelNameService.{hpp,cpp}`
+- `src/TrainingMetricsAPI.{hpp,cpp}`
 - `src/RegistryServer.cpp`
+- `tests/daemonconfigstore_test.cpp`, `tests/trainer_admin_api_test.cpp`, `tests/trainer_service_proxy_test.cpp`,
+  `tests/training_metrics_api_routes_test.cpp`
 
 ---
 

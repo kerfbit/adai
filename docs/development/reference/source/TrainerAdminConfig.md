@@ -39,8 +39,8 @@ Other keys are ignored. Any valid JSON spacing, including pretty-printed bodies,
 
 ## 2. Gaps
 
-None known. Persisting several keys is still one `DaemonConfigStore::set()` per key with no transaction, in the callers (TD-305's other
-half). Responses are still hand-written JSON (TD-453).
+None known. Since November 3, 2026 the callers save several keys in one `DaemonConfigStore::set_many()` transaction before
+applying them (TD-305's other half). Responses are still hand-written JSON (TD-453).
 
 ---
 
