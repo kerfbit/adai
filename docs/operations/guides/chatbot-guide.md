@@ -173,22 +173,21 @@ All commands start with `/` and are case-sensitive.
 
 #### `/help`
 
-Display available commands and usage information.
+Display every command, then each `/set` parameter with its other names and the range the server accepts.
 
 ```text
 You: /help
 ```
 
+`/set` on its own shows the same parameter list with its usage.
+
 #### `/stats`
 
-Show conversation statistics.
+Conversation statistics aren't available from `chatbot_api_server`; the command only says so.
 
 ```text
 You: /stats
-
-📊 Conversation Statistics:
-  Total messages: 12
-  Estimated tokens: 487
+Stats not available in API mode.
 ```
 
 #### `/settings`
@@ -532,14 +531,7 @@ client has no active session yet, creates a new one populated from the file).
 - **Max messages:** 20 (oldest auto-pruned)
 - **Max tokens:** 2048 (context window)
 
-View current usage:
-
-```text
-You: /stats
-📊 Conversation Statistics:
-  Total messages: 12
-  Estimated tokens: 487
-```
+The client can't show current usage: `/stats` isn't available from `chatbot_api_server`.
 
 ---
 

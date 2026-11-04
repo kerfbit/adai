@@ -275,6 +275,57 @@ TEST_F(ChatbotCLITest, HandleSettingNonNumericValueDoesNotThrow) {
 }
 
 // ============================================================================
+// TD-256: /help lists every command, and a bare /set shows its usage
+// ============================================================================
+
+namespace {
+std::string command_output(ChatbotCLI& cli, const std::string& command) {
+    std::stringstream buffer;
+    std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
+    cli.handle_command(command);
+    std::cout.rdbuf(old);
+    return buffer.str();
+}
+}  // namespace
+
+TEST_F(ChatbotCLITest, HelpListsEveryCommand) {
+    ChatbotCLI cli(server_url, conv_file);
+    const std::string help = command_output(cli, "/help");
+    for (const char* command : {"/help", "/settings", "/set", "/clear", "/save", "/load", "/stats", "/exit", "/quit"}) {
+        const bool listed = help.find(std::string(command) + " ") != std::string::npos ||
+                            help.find(std::string(command) + ",") != std::string::npos;
+        EXPECT_TRUE(listed) << command << " missing from:\n" << help;
+    }
+    for (const char* parameter : {"strategy", "length", "temperature", "top_p", "top_k", "beam_width"}) {
+        EXPECT_NE(help.find(std::string("    ") + parameter), std::string::npos) << parameter << " missing from:\n"
+                                                                              << help;
+    }
+    // The ranges are the server's limits.
+    EXPECT_NE(help.find("1 to 4096"), std::string::npos) << help;
+    EXPECT_NE(help.find("0 to 2"), std::string::npos) << help;
+    EXPECT_NE(help.find("1 to 16"), std::string::npos) << help;
+}
+
+// Every command /help lists (but /exit and /quit, which run() handles) is one handle_command() accepts.
+TEST_F(ChatbotCLITest, EveryCommandInHelpIsAccepted) {
+    ChatbotCLI cli(server_url, conv_file);
+    for (const char* command : {"/help", "/settings", "/clear", "/save", "/load", "/stats"}) {
+        EXPECT_EQ(command_output(cli, command).find("Unknown command"), std::string::npos) << command;
+    }
+}
+
+TEST_F(ChatbotCLITest, BareSetShowsItsUsage) {
+    ChatbotCLI cli(server_url, conv_file);
+    for (const char* command : {"/set", "/set ", "/set strategy"}) {
+        const std::string out = command_output(cli, command);
+        EXPECT_EQ(out.find("Unknown command"), std::string::npos) << command << ":\n" << out;
+        EXPECT_NE(out.find("Usage: /set <parameter> <value>"), std::string::npos) << command << ":\n" << out;
+        EXPECT_NE(out.find("beam_width   1 to 16"), std::string::npos) << command << ":\n" << out;
+    }
+    EXPECT_NE(command_output(cli, "/setx").find("Unknown command"), std::string::npos);
+}
+
+// ============================================================================
 // TD-254: /set settings are sent, and only those
 // ============================================================================
 

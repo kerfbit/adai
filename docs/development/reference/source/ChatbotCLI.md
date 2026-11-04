@@ -263,3 +263,15 @@ reports that there is no session on the server. Test: `LostSessionStartsANewOneA
   an `error`; 400; 500 with a request id; 502 with HTML; a success; `run()`'s colour) and one against the real test
   `ChatbotAPI` (a refused temperature).
 - **Status tag:** `@adai-version` 1.4.0 for `ChatbotCLI.{hpp,cpp}`, reviewed 2026-11-03.
+
+## Addendum (November 3, 2026): the help banner lists every command (TD-256)
+
+- **§3's `print_welcome()` row no longer holds.** The banner (also `/help`) lists `/help`, `/settings`,
+  `/set <param> <value>`, `/set <param> default`, `/clear`, `/save`, `/load`, `/stats` (marked unavailable from the API
+  server) and `/exit`/`/quit`, then a `/set parameters` block with each parameter, its other names and its range,
+  printed from `adai::GenerationLimits`.
+- `/set`, `/set ` and `/set <param>` without a value print the usage and the same block (a file-local
+  `print_set_parameters()`); a bare `/set` used to be `Unknown command`.
+- **Tests:** three in `chatbotcliImprovedTests` (every command and parameter listed, every listed command accepted, bare
+  `/set` usage); the first and third fail on the old code.
+- **Status tag:** `@adai-version` 1.4.1 for `ChatbotCLI.{hpp,cpp}`, reviewed 2026-11-03.

@@ -1464,6 +1464,8 @@ The generation and model math run is complete.
   changed with `/set`, checked the same way; TD-259's `/set` parsing item with it).
 - TD-255 (done in code: `chatbot` shows a failed turn as `Error: <status> - <error>` in red, with the request id when there
   is one, instead of an empty reply or the raw JSON).
+- TD-256 (done in code: `/help` lists every command and each `/set` parameter with its range, taken from the server's
+  limits; a bare `/set` shows its usage).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);

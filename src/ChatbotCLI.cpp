@@ -1,8 +1,9 @@
 // @adai-status: stable
-// @adai-version: 1.4.0
+// @adai-version: 1.4.1
 // @adai-reviewed: 2026-11-03
 
 #include "ChatbotCLI.hpp"
+#include <algorithm>
 #include <cerrno>
 #include <climits>
 #include <cmath>
@@ -167,20 +168,44 @@ bool ChatbotCLI::initialize() {
     }
 }
 
+namespace {
+
+// TD-256: the /set parameters, their other names and their ranges (the server's GenerationLimits).
+void print_set_parameters() {
+    using Limits = adai::GenerationLimits;
+    std::cout << "  " << COLOR_SYSTEM << "/set parameters:" << COLOR_RESET << '\n';
+    std::cout << "    strategy     greedy, beam, temperature (or sampling), top_k (or top-k), nucleus (or top_p)"
+              << '\n';
+    std::cout << "    length       " << Limits::kMinMaxLength << " to " << Limits::kMaxMaxLength
+              << " new tokens (or max_length)" << '\n';
+    std::cout << "    temperature  " << Limits::kMinTemperature << " to " << Limits::kMaxTemperature
+              << " (or temp)" << '\n';
+    std::cout << "    top_p        " << Limits::kMinTopP << " to " << Limits::kMaxTopP << " (or top-p)" << '\n';
+    std::cout << "    top_k        " << Limits::kMinTopK << " to " << Limits::kMaxTopK << " (or top-k)" << '\n';
+    std::cout << "    beam_width   " << Limits::kMinBeamWidth << " to " << Limits::kMaxBeamWidth
+              << " (or beam-width)" << '\n';
+}
+
+}  // namespace
+
 void ChatbotCLI::print_welcome() {
     std::cout << "╔═══════════════════════════════════════════════════════════╗" << '\n';
     std::cout << "║          🤖 ADAI Chatbot API Client v1.0                 ║" << '\n';
     std::cout << "╚═══════════════════════════════════════════════════════════╝" << '\n';
     std::cout << '\n';
-    // TODO: See TD-256 in TECHNICAL_DEBT.md - omits /save, /load and /stats, which handle_command() accepts.
+    // TD-256: every command handle_command() accepts.
     std::cout << COLOR_SYSTEM << "Commands:" << COLOR_RESET << '\n';
-    std::cout << "  /help         - Show this help message" << '\n';
-    std::cout << "  /clear        - Clear conversation history" << '\n';
-    std::cout << "  /settings     - Show current settings" << '\n';
-    std::cout << "  /set <param> <value>   - Change a generation setting for your messages:" << '\n';
-    std::cout << "                 strategy, length, temperature, top_p, top_k, beam_width" << '\n';
+    std::cout << "  /help                 - Show this help message" << '\n';
+    std::cout << "  /settings             - Show the generation settings your messages use" << '\n';
+    std::cout << "  /set <param> <value>  - Change a generation setting for your messages" << '\n';
     std::cout << "  /set <param> default  - Go back to the server's default" << '\n';
-    std::cout << "  /exit, /quit  - Exit the chatbot" << '\n';
+    std::cout << "  /clear                - Clear the conversation on the server" << '\n';
+    std::cout << "  /save                 - Save the conversation to the save file" << '\n';
+    std::cout << "  /load                 - Load the conversation from the save file" << '\n';
+    std::cout << "  /stats                - Conversation statistics (not available from the API server)" << '\n';
+    std::cout << "  /exit, /quit          - Save the conversation and exit (end of input, Ctrl+D, too)" << '\n';
+    std::cout << '\n';
+    print_set_parameters();
     std::cout << '\n';
 }
 
@@ -236,8 +261,8 @@ void ChatbotCLI::handle_command(const std::string& command) {
         print_stats();
     } else if (command == "/settings") {
         print_settings();
-    } else if (cmd_view.size() > 5 && cmd_view.substr(0, 5) == "/set ") {
-        handle_setting(cmd_view.substr(5));
+    } else if (command == "/set" || cmd_view.substr(0, 5) == "/set ") {
+        handle_setting(cmd_view.substr(std::min<size_t>(5, cmd_view.size())));  // TD-256: bare /set shows usage
     } else if (command == "/save") {
         save_conversation();
     } else if (command == "/load") {
@@ -285,6 +310,7 @@ void ChatbotCLI::handle_setting(std::string_view setting) {
     if (space_pos == std::string_view::npos) {
         std::cout << COLOR_ERROR << "❌ Usage: /set <parameter> <value>  (or /set <parameter> default)"
                   << COLOR_RESET << '\n';
+        print_set_parameters();  // TD-256
         return;
     }
 

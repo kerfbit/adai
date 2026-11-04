@@ -2,7 +2,7 @@
 #define CHATBOT_CLI_HPP
 
 // @adai-status: stable
-// @adai-version: 1.4.0
+// @adai-version: 1.4.1
 // @adai-reviewed: 2026-11-03
 
 
