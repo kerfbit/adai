@@ -275,3 +275,11 @@ reports that there is no session on the server. Test: `LostSessionStartsANewOneA
 - **Tests:** three in `chatbotcliImprovedTests` (every command and parameter listed, every listed command accepted, bare
   `/set` usage); the first and third fail on the old code.
 - **Status tag:** `@adai-version` 1.4.1 for `ChatbotCLI.{hpp,cpp}`, reviewed 2026-11-03.
+
+## Addendum (November 3, 2026): `session_id` escaped in every request (TD-257)
+
+- **§6's second paragraph no longer holds.** `/clear` and `chat_turn_body()` escape `session_id` with
+  `escape_json_string()`, like `/save` and `/load`, so an id containing `"` or `\` no longer breaks the request JSON.
+- **Tests:** `ChatbotCLIRequestTest.SessionIdIsEscapedInEveryRequest` in `chatbotcliImprovedTests`, against a stub
+  server issuing `a"b\c`; it fails on the old code.
+- **Status tag:** `@adai-version` 1.4.2 for `ChatbotCLI.{hpp,cpp}`, reviewed 2026-11-03.

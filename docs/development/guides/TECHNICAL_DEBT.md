@@ -1466,6 +1466,7 @@ The generation and model math run is complete.
   is one, instead of an empty reply or the raw JSON).
 - TD-256 (done in code: `/help` lists every command and each `/set` parameter with its range, taken from the server's
   limits; a bare `/set` shows its usage).
+- TD-257 (done in code: `/clear` and the chat request escape `session_id`, like `/save` and `/load`).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6188,7 +6189,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Client / CLI | October 8, 2026 | 1 hour |
+| LOW | Open — code fix landed November 3, 2026 | Client / CLI | October 8, 2026 | 1 hour |
 
 Description:
 Found alongside TD-253. `/clear` and `generate_response()` put `session_id` into the request
@@ -6199,13 +6200,26 @@ injected request JSON.
 
 Action Items:
 
-- [ ] Escape `session_id` in every request body (or build request bodies with nlohmann/json).
+- [x] Escape `session_id` in every request body (or build request bodies with nlohmann/json).
 
-Location in code: `src/ChatbotCLI.cpp` (`handle_command()` `/clear`, `generate_response()`); tagged `TODO: See TD-257`.
+Location in code: `src/ChatbotCLI.cpp` (`handle_command()` `/clear`, `generate_response()`); the `TODO: See TD-257` tags are removed.
+
+**Fix (November 3, 2026):** `/clear` and `chat_turn_body()` (the chat request) pass `session_id` through
+`escape_json_string()`, as `/save` and `/load` already did, so every request body the CLI sends escapes it. Moving the
+request bodies to nlohmann/json is left to TD-259's helper cleanup.
+
+Tests:
+- `chatbotcliImprovedTests` gained `ChatbotCLIRequestTest.SessionIdIsEscapedInEveryRequest`: a stub server issues the id
+  `a"b\c`; the next chat request and `/clear` must both parse as JSON with that `session_id`. On the old code the chat
+  request fails to parse.
+- The old and new `chatbot` binaries were run against a stub server issuing that id (`one`, `two`, `/clear`, `/exit`):
+  the old binary's second chat request and its `/clear-session` request were invalid JSON; the new binary's were valid
+  and carried the id unchanged.
 
 Files to Modify:
 
-- `src/ChatbotCLI.cpp`
+- `src/ChatbotCLI.{hpp,cpp}`
+- `tests/chatbotcli_improved_test.cpp`, `tests/CMakeLists.txt` (the test parses with the vendored nlohmann/json)
 
 ---
 
@@ -8161,6 +8175,12 @@ Tests:
   `daemonConfigStoreTests`.
 - The real `registry_server` on a `session_counters.db` written by the old code (`m1|run-01` at 7): `session/next` answered
   `session-08` then `session-09`, logged the move, and the file was left with only the `session_counters` table.
+- Test fix (November 3, 2026): a full parallel `ctest` run failed `sessionCounterStoreTests` once. Under heavy disk-sync
+  load a commit can take seconds, so a thread in the concurrent-`next()` test waited past the 5 s default busy timeout,
+  and its store's constructor threw outside the test's `try`, aborting the binary (reproduced: every run aborted with
+  four `dd conv=fsync` loops and six CPU loops running). The two concurrency tests now open their stores with a
+  120 s busy timeout (they check that nothing is lost or repeated; the timeout has its own test) and count a constructor
+  failure as a test failure. Under the same load the binary then ran 198 times without a failure. No product change.
 
 Files to Modify:
 

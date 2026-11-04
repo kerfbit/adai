@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <mutex>
 #include <thread>
 #include <vector>
 #include "../src/BPETokenizer.hpp"
@@ -13,6 +14,7 @@
 #include "../src/ChatbotCLI.hpp"
 #include "../src/ConversationContext.hpp"
 #include "../src/EncoderDecoderModel.hpp"
+#include "nlohmann/json.hpp"
 
 // ============================================================================
 // Test Fixtures
@@ -736,9 +738,14 @@ class StubChatServer {
         server_.Get("/health", [](const httplib::Request&, httplib::Response& res) {
             res.set_content(R"({"status":"ok"})", "application/json");
         });
-        server_.Post("/chat/session", [status, body](const httplib::Request&, httplib::Response& res) {
+        server_.Post("/chat/session", [this, status, body](const httplib::Request& req, httplib::Response& res) {
+            record(req);
             res.status = status;
             res.set_content(body, "application/json");
+        });
+        server_.Post("/clear-session", [this](const httplib::Request& req, httplib::Response& res) {
+            record(req);
+            res.set_content(R"({"success":true})", "application/json");
         });
         port_ = server_.bind_to_any_port("127.0.0.1");
         thread_ = std::thread([this] { server_.listen_after_bind(); });
@@ -749,8 +756,20 @@ class StubChatServer {
         if (thread_.joinable()) thread_.join();
     }
     std::string url() const { return "http://127.0.0.1:" + std::to_string(port_); }
+    /// Every request body received, as "<path> <body>", oldest first.
+    std::vector<std::string> requests() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return requests_;
+    }
 
    private:
+    void record(const httplib::Request& req) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        requests_.push_back(req.path + " " + req.body);
+    }
+
+    mutable std::mutex mutex_;
+    std::vector<std::string> requests_;
     httplib::Server server_;
     std::thread thread_;
     int port_ = 0;
@@ -824,6 +843,32 @@ TEST(ChatbotCLIErrorReplyTest, RunPrintsTheErrorInErrorColor) {
     const RunResult r = run_with_input(cli, "hello\n/exit\n");
     EXPECT_NE(r.output.find(std::string(COLOR_ERROR) + "Error: model is busy" + COLOR_RESET), std::string::npos)
         << r.output.substr(0, 2000);
+}
+
+// TD-257: every request body escapes session_id. A server-issued id containing '"' and '\' used to
+// produce malformed JSON in the chat and /clear requests (/save and /load already escaped it).
+TEST(ChatbotCLIRequestTest, SessionIdIsEscapedInEveryRequest) {
+    const std::string id = R"(a"b\c)";
+    StubChatServer stub(200, R"({"success":true,"response":"hi","session_id":"a\"b\\c"})");
+    ChatbotCLI cli(stub.url(), "test_cli_stub_unused.txt");
+    std::stringstream buffer;
+    std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
+    ASSERT_TRUE(cli.initialize());
+    cli.generate_response("first");   // adopts the id
+    cli.generate_response("second");  // sends it
+    cli.handle_command("/clear");     // sends it
+    std::cout.rdbuf(old);
+
+    const std::vector<std::string> requests = stub.requests();
+    ASSERT_EQ(requests.size(), 3u);
+    for (std::size_t i = 1; i < requests.size(); ++i) {
+        const std::string& request = requests[i];
+        const std::string body = request.substr(request.find(' ') + 1);
+        nlohmann::json parsed;
+        ASSERT_NO_THROW(parsed = nlohmann::json::parse(body)) << request;
+        EXPECT_EQ(parsed.value("session_id", std::string()), id) << request;
+    }
+    EXPECT_EQ(requests[2].rfind("/clear-session ", 0), 0u) << requests[2];
 }
 
 // ============================================================================

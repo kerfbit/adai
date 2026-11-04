@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.4.1
+// @adai-version: 1.4.2
 // @adai-reviewed: 2026-11-03
 
 #include "ChatbotCLI.hpp"
@@ -241,8 +241,8 @@ void ChatbotCLI::handle_command(const std::string& command) {
         print_welcome();
     } else if (command == "/clear") {
         if (!session_id.empty()) {
-            // TODO: See TD-257 in TECHNICAL_DEBT.md - session_id is not escaped here (save/load escape it).
-            std::string body = R"({"session_id":")" + session_id + "\"}";
+            // TD-257: escaped like every request body's session_id.
+            std::string body = R"({"session_id":")" + escape_json_string(session_id) + "\"}";
             auto res = client->Post("/clear-session", body, "application/json");
             if (res && res->status == 404) {  // TD-232: the server no longer holds it
                 session_id.clear();
@@ -451,8 +451,7 @@ std::string ChatbotCLI::chat_turn_body(const std::string& user_input) const {
     std::stringstream ss;
     ss << "{";
     if (!session_id.empty()) {
-        // TODO: See TD-257 in TECHNICAL_DEBT.md - session_id is not escaped here.
-        ss << R"("session_id":")" << session_id << "\",";
+        ss << R"("session_id":")" << escape_json_string(session_id) << "\",";  // TD-257
     }
     ss << R"("message":")" << escape_json_string(user_input) << "\"";
     // TD-254: only the settings changed with /set; the server's defaults apply to the rest.

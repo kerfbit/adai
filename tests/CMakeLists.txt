@@ -278,6 +278,8 @@ target_link_libraries(chatbotcliImprovedTests
 if(HTTPLIB_INCLUDE_DIR)
     target_include_directories(chatbotcliImprovedTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
 endif()
+# nlohmann/json (vendored): request bodies are parsed strictly (TD-257).
+target_include_directories(chatbotcliImprovedTests PRIVATE ${CMAKE_SOURCE_DIR}/external)
 add_test(NAME ChatbotCLIImprovedTests COMMAND chatbotcliImprovedTests)
 
 # Dataset tests retired with src/Dataset.hpp (TD-315, October 11, 2026)
