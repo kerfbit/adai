@@ -6,6 +6,7 @@
 #include <fstream>
 #include <memory>
 #include <numeric>
+#include <set>
 #include "../src/IMetricsReporter.hpp"
 #include "../src/TrainingSampleMeta.hpp"
 
@@ -1130,6 +1131,11 @@ class ChatbotTrainerCacheTest : public ::testing::Test {
         return cfg;
     }
 
+    // TD-271 hook
+    static void Split(ChatbotTrainer& t) {
+        t.split_data();
+    }
+
     static TrainingConfig quiet_config() {
         TrainingConfig cfg;
         cfg.log_level = LogLevel::SILENT;
@@ -1606,3 +1612,132 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
+
+// ============================================================================
+// TD-271: the validation split is deterministic, and a tokenized cache only loads for its own split
+// ============================================================================
+
+namespace {
+std::vector<ConversationPair> td271_pairs(int n) {
+    std::vector<ConversationPair> pairs;
+    for (int i = 0; i < n; ++i) {
+        pairs.emplace_back("question number " + std::to_string(i), "answer number " + std::to_string(i));
+    }
+    return pairs;
+}
+
+// Each pair as "input\nresponse", so pairs sharing an input stay distinct.
+std::set<std::string> inputs_of(const std::vector<ConversationPair>& pairs) {
+    std::set<std::string> inputs;
+    for (const auto& p : pairs) inputs.insert(p.input + "\n" + p.response);
+    return inputs;
+}
+}  // namespace
+
+TEST_F(ChatbotTrainerCacheTest, SplitIsTheSameEveryTimeAndIndependentOfLoadOrder) {
+    TrainingConfig cfg = quiet_config();
+    cfg.validation_split = 5;
+    std::vector<ConversationPair> pairs = td271_pairs(40);
+
+    ChatbotTrainer first(cfg);
+    SetTrainingData(first, pairs);
+    Split(first);
+    ASSERT_EQ(GetValidationData(first).size(), 8u);
+    ASSERT_EQ(GetTrainingData(first).size(), 32u);
+
+    ChatbotTrainer again(cfg);
+    SetTrainingData(again, pairs);
+    Split(again);
+    EXPECT_EQ(inputs_of(GetValidationData(again)), inputs_of(GetValidationData(first)));
+    for (std::size_t i = 0; i < GetTrainingData(first).size(); ++i) {
+        EXPECT_EQ(GetTrainingData(again)[i].input, GetTrainingData(first)[i].input) << "load order kept";
+    }
+
+    std::vector<ConversationPair> reversed(pairs.rbegin(), pairs.rend());
+    ChatbotTrainer reordered(cfg);
+    SetTrainingData(reordered, reversed);
+    Split(reordered);
+    EXPECT_EQ(inputs_of(GetValidationData(reordered)), inputs_of(GetValidationData(first)));
+    EXPECT_EQ(inputs_of(GetTrainingData(reordered)), inputs_of(GetTrainingData(first)));
+}
+
+// The old code wrote a cache in one split and loaded it in another as long as the counts matched.
+TEST_F(ChatbotTrainerCacheTest, CacheFromADifferentSplitIsNotLoaded) {
+    const std::string path = cache_dir + "/other_split.cache";
+    std::vector<ConversationPair> train = td271_pairs(3);
+    std::vector<ConversationPair> val = {ConversationPair("held out", "kept aside")};
+    auto tokenized = [](const std::vector<ConversationPair>& raw) {
+        std::vector<TokenizedPair> out;
+        for (const auto& p : raw) out.emplace_back(std::vector<int>{4, 5}, std::vector<int>{6, 3}, p.input, p.response);
+        return out;
+    };
+
+    ChatbotTrainer writer(quiet_config());
+    SetTrainingData(writer, train);
+    SetValidationData(writer, val);
+    SetTokenized(writer, tokenized(train), tokenized(val));
+    SaveCache(writer, path);
+
+    ChatbotTrainer same(quiet_config());
+    SetTrainingData(same, train);
+    SetValidationData(same, val);
+    EXPECT_TRUE(LoadCache(same, path));
+
+    // Same counts, but a training pair and the validation pair swapped places.
+    std::vector<ConversationPair> other_train = {train[0], train[1], val[0]};
+    std::vector<ConversationPair> other_val = {train[2]};
+    ChatbotTrainer other(quiet_config());
+    SetTrainingData(other, other_train);
+    SetValidationData(other, other_val);
+    EXPECT_FALSE(LoadCache(other, path));
+    EXPECT_TRUE(GetTokenizedTraining(other).empty());
+
+    // A skipped pair's empty placeholder matches whatever raw pair is at its index.
+    std::vector<TokenizedPair> with_placeholder = tokenized(train);
+    with_placeholder[1] = TokenizedPair();
+    SetTokenized(writer, with_placeholder, tokenized(val));
+    SaveCache(writer, path);
+    EXPECT_TRUE(LoadCache(same, path));
+}
+
+// End to end: two passes over the same data with the cache on train on aligned raw/tokenized pairs.
+TEST_F(ChatbotTrainerCacheTest, SecondPassWithCacheKeepsRawAndTokenizedPairsAligned) {
+    Matrix::gpu_try_initialize();
+    TrainingConfig cfg = tiny_training_config(1);
+    cfg.validation_split = 4;
+    cfg.cache_tokenized_data = true;
+    cfg.tokenized_cache_dir = cache_dir;
+    cfg.tokenized_cache_key = "td271";
+    std::filesystem::create_directories(cache_dir);
+    const std::vector<std::string> words = {"hello", "world", "how", "are", "you", "fine", "thanks",
+                                            "good", "morning", "evening", "see", "later"};
+    std::vector<std::pair<std::string, std::string>> pairs;
+    for (std::size_t i = 0; i < words.size(); ++i) {  // 12 distinct pairs
+        pairs.emplace_back(words[i % words.size()] + " " + words[(i * 5 + 1) % words.size()],
+                           words[(i * 7 + 2) % words.size()] + " " + words[(i + 3) % words.size()]);
+    }
+    std::vector<std::string> corpus = words;
+
+    std::set<std::string> first_validation;
+    for (int pass = 0; pass < 2; ++pass) {
+        ChatbotTrainer t(cfg);
+        ASSERT_TRUE(t.build_vocabulary(corpus, 100, cache_dir + "/vocab.txt"));
+        for (const auto& [in, out] : pairs) t.add_training_pair(in, out);
+        ASSERT_TRUE(t.train(1));
+        ASSERT_TRUE(std::filesystem::exists(cache_dir + "/td271.cache"));
+        ASSERT_EQ(GetTrainingData(t).size(), GetTokenizedTraining(t).size());
+        for (std::size_t i = 0; i < GetTrainingData(t).size(); ++i) {
+            EXPECT_EQ(GetTokenizedTraining(t)[i].input_text, GetTrainingData(t)[i].input) << "pass " << pass;
+        }
+        for (std::size_t i = 0; i < GetValidationData(t).size(); ++i) {
+            EXPECT_EQ(GetTokenizedValidation(t)[i].input_text, GetValidationData(t)[i].input) << "pass " << pass;
+        }
+        if (pass == 0) {
+            first_validation = inputs_of(GetValidationData(t));
+            ASSERT_EQ(first_validation.size(), 3u);
+        } else {
+            EXPECT_EQ(inputs_of(GetValidationData(t)), first_validation) << "same validation samples";
+        }
+    }
+}
+

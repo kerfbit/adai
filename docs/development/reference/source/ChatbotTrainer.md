@@ -411,3 +411,20 @@ Checked with a real `incremental_trainer` pass (6 pairs, so no validation set) p
 3 epochs trained and the session summary showed `total_epochs_completed: 0` and empty `epoch_losses`; after, 3 epochs with the
 trainer's logged losses, validation losses 0, the epoch-average gradient norm and real durations.
 
+## Addendum (November 4, 2026): a deterministic validation split, checked against the cache (TD-271)
+
+`split_data()` no longer shuffles with `std::random_device`. Each pair gets a rank from its own input and response text
+(FNV-1a 64), and the validation set is the `size / validation_split` pairs with the lowest ranks (ties by load order); both
+sets keep the load order. The same data therefore splits the same way on every pass and whatever order its files were
+loaded in, so validation losses on the same data are measured on the same pairs. Different data (a later pass with other
+files) still has its own validation set; see TD-405 for what that means for checkpoint selection.
+
+`load_tokenized_cache()` now also checks that every cached pair's stored input and response texts are the raw pair at the
+same index (a skipped pair's empty placeholder matches anything) and treats a mismatch as a miss, logging that the cache holds
+a different split. `kPreprocessFormatVersion` is 4, so caches written with the old random splits aren't reused, and
+`IncrementalTrainer`'s cache key includes `validation_split`.
+
+Checked with real `incremental_trainer` passes (20 pairs, `CACHE_TOKENIZED_DATA=true`): two passes with the cache cleared
+between them wrote different cache files with the old binary (different validation pairs) and byte-identical ones with the
+new; a third pass hit the cache with both, which for the old binary meant tokenized pairs from another split.
+

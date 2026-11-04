@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.17.5
+// @adai-version: 0.18.0
 // @adai-reviewed: 2026-11-04
 
 #include "ChatbotTrainer.hpp"
@@ -176,43 +176,69 @@ bool ChatbotTrainer::load_conversation_data(const std::string& filepath) {
     return pair_count > 0;
 }
 
+namespace {
+// TD-271: a pair's place in the validation split, from its own text only (FNV-1a 64), so the same
+// data always splits the same way whatever order it was loaded in, on any platform.
+std::uint64_t split_rank(const ConversationPair& pair) {
+    std::uint64_t h = 1469598103934665603ULL;
+    auto mix = [&h](const std::string& s) {
+        for (unsigned char c : s) {
+            h ^= c;
+            h *= 1099511628211ULL;
+        }
+        h ^= 0xFF;  // separator: ("ab","c") and ("a","bc") differ
+        h *= 1099511628211ULL;
+    };
+    mix(pair.input);
+    mix(pair.response);
+    return h;
+}
+}  // namespace
+
 /**
- * @brief Split data into training and validation sets with random shuffling
+ * @brief Split data into training and validation sets
+ *
+ * TD-271: deterministic. The validation set is the `size / validation_split` pairs with the lowest
+ * split_rank() (ties by load order), and both sets keep the load order. The same data gives the
+ * same split on every pass, so validation losses compare and a tokenized cache matches the split.
  */
-// TODO: See TD-271 in TECHNICAL_DEBT.md - fresh random_device shuffle every pass (validation not comparable
-// across passes), and it runs before preprocess_data() may load a cache built from a different split.
 void ChatbotTrainer::split_data() {
     if (config.validation_split <= 0) {
         adai::Logger::warn("⚠️  No validation split, using all data for training");
         return;
     }
 
-    int validation_size = static_cast<int>(training_data.size()) / config.validation_split;
+    const std::size_t validation_size =
+        training_data.size() / static_cast<std::size_t>(config.validation_split);
     if (validation_size == 0) {
         adai::Logger::warn("⚠️  Not enough data for validation split");
         return;
     }
 
-    // Randomly shuffle data before splitting
-    std::vector<int> indices(training_data.size());
-    std::iota(indices.begin(), indices.end(), 0);
-    std::random_device rd;
-    std::mt19937 g(rd());
-    std::shuffle(indices.begin(), indices.end(), g);
-
-    // Split based on shuffled indices
-    for (int i = 0; i < validation_size; i++) {
-        validation_data.push_back(training_data[indices[i]]);
+    std::vector<std::pair<std::uint64_t, std::size_t>> ranked(training_data.size());
+    for (std::size_t i = 0; i < training_data.size(); ++i) {
+        ranked[i] = {split_rank(training_data[i]), i};
+    }
+    std::nth_element(ranked.begin(),
+                     ranked.begin() + static_cast<std::ptrdiff_t>(validation_size - 1),
+                     ranked.end());
+    std::vector<bool> is_validation(training_data.size(), false);
+    for (std::size_t i = 0; i < validation_size; ++i) {
+        is_validation[ranked[i].second] = true;
     }
 
-    // Keep remaining for training
     std::vector<ConversationPair> temp_training;
-    for (int i = validation_size; i < indices.size(); i++) {
-        temp_training.push_back(training_data[indices[i]]);
+    temp_training.reserve(training_data.size() - validation_size);
+    for (std::size_t i = 0; i < training_data.size(); ++i) {
+        if (is_validation[i]) {
+            validation_data.push_back(std::move(training_data[i]));
+        } else {
+            temp_training.push_back(std::move(training_data[i]));
+        }
     }
     training_data = std::move(temp_training);
 
-    adai::Logger::info("📊 Data split (randomly shuffled):");
+    adai::Logger::info("📊 Data split (deterministic, by content):");
     adai::Logger::info("  Training: {} pairs", training_data.size());
     adai::Logger::info("  Validation: {} pairs", validation_data.size());
 }
@@ -421,6 +447,26 @@ bool ChatbotTrainer::load_tokenized_cache(const std::string& cache_path) {
             return false;
     }
 
+    // TD-271: each cached pair must be the raw pair at the same index (the cache stores both texts;
+    // a skipped pair is an empty placeholder). Anything else is a different split or load order.
+    auto aligned = [](const std::vector<ConversationPair>& raw,
+                      const std::vector<TokenizedPair>& tok) {
+        for (std::size_t i = 0; i < raw.size(); ++i) {
+            const bool placeholder = tok[i].input_tokens.empty() && tok[i].target_tokens.empty() &&
+                                     tok[i].input_text.empty() && tok[i].target_text.empty();
+            if (!placeholder &&
+                (tok[i].input_text != raw[i].input || tok[i].target_text != raw[i].response)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    if (!aligned(training_data, loaded_train) || !aligned(validation_data, loaded_val)) {
+        adai::Logger::info("Tokenized-data cache '{}' holds a different split; preprocessing again",
+                           cache_path);
+        return false;
+    }
+
     tokenized_training_data = std::move(loaded_train);
     tokenized_validation_data = std::move(loaded_val);
     return true;
@@ -512,8 +558,8 @@ void ChatbotTrainer::preprocess_data() {
             ? config.tokenized_cache_dir + "/" + config.tokenized_cache_key + ".cache"
             : std::string();
 
-    // TODO: See TD-271 in TECHNICAL_DEBT.md - the cache holds the split from the run that wrote it; after
-    // split_data()'s new random split, tokenized_*_data[i] no longer matches training_data[i].
+    // TD-271: split_data() is deterministic, and load_tokenized_cache() checks the cache matches
+    // this split.
     if (!cache_path.empty() && load_tokenized_cache(cache_path)) {
         // load_tokenized_cache() only populates tokenized_training_data/
         // tokenized_validation_data — restore the two things the encode loops

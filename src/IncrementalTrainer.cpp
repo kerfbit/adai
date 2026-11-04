@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.23.1
-// @adai-reviewed: 2026-11-03
+// @adai-version: 0.23.2
+// @adai-reviewed: 2026-11-04
 
 #include "IncrementalTrainer.hpp"
 #include <algorithm>
@@ -62,10 +62,11 @@ int detect_pid_mod_10000() {
 // cache filename short and filesystem-safe regardless of how many files or
 // how long their paths are.
 // TD-409: ChatbotTrainer::kPreprocessFormatVersion is part of the key, so bumping it with any
-// change to preprocessing output invalidates caches built by older code.
+// change to preprocessing output invalidates caches built by older code. TD-271: so is the
+// validation split ratio, since the cache holds that split's two sets.
 std::string compute_tokenized_cache_key(std::vector<PendingFileRange> files,
-                                        const std::string& vocab_path,
-                                        TokenizerMode tokenizer_mode, int max_seq_length) {
+                                        const std::string& vocab_path, TokenizerMode tokenizer_mode,
+                                        int max_seq_length, int validation_split) {
     // TD-205: sort/hash by (path, segment_start, segment_count) — two different segments of
     // the same physical file must never collide on the same cache key (their path and
     // whole-file checksum are identical; only the range distinguishes them).
@@ -82,8 +83,9 @@ std::string compute_tokenized_cache_key(std::vector<PendingFileRange> files,
             << ':' << f.segment_count << '|';
     }
     oss << "vocab:" << DatasetRegistry::compute_checksum(vocab_path) << '|'
-        << "mode:" << static_cast<int>(tokenizer_mode) << '|' << "maxlen:" << max_seq_length
-        << '|' << "pp:" << ChatbotTrainer::kPreprocessFormatVersion;
+        << "mode:" << static_cast<int>(tokenizer_mode) << '|' << "maxlen:" << max_seq_length << '|'
+        << "pp:" << ChatbotTrainer::kPreprocessFormatVersion << '|'
+        << "split:" << validation_split;  // TD-271: the split decides which pairs the cache holds
 
     std::ostringstream hex;
     hex << std::hex << std::hash<std::string>{}(oss.str());
@@ -1042,7 +1044,8 @@ bool IncrementalTrainer::train_on_files(const std::vector<PendingFileRange>& fil
     initialize_session();
 
     config.base_config.tokenized_cache_key = compute_tokenized_cache_key(
-        files, vocab_path_, config.base_config.tokenizer_mode, config.base_config.max_seq_length);
+        files, vocab_path_, config.base_config.tokenizer_mode, config.base_config.max_seq_length,
+        config.base_config.validation_split);
     ChatbotTrainer trainer(config.base_config);
     trainer.set_model(std::move(model));
     // TD-269: continue the optimizer moments, run-level step (so the LR warmup happens once per
@@ -1109,7 +1112,8 @@ bool IncrementalTrainer::retrain_on_files(const std::vector<PendingFileRange>& f
     initialize_session();
 
     config.base_config.tokenized_cache_key = compute_tokenized_cache_key(
-        files, vocab_path_, config.base_config.tokenizer_mode, config.base_config.max_seq_length);
+        files, vocab_path_, config.base_config.tokenizer_mode, config.base_config.max_seq_length,
+        config.base_config.validation_split);
     ChatbotTrainer trainer(config.base_config);
     trainer.set_model(std::move(model));
     // A full retrain is a new run: fresh optimizer and schedule, state saved under its run id.

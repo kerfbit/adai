@@ -1474,6 +1474,7 @@ The generation and model math run is complete.
 - TD-264 (done in code: the `chatbot_gui` wrapper removes only snap entries from `LD_LIBRARY_PATH`/`QT_PLUGIN_PATH`, keeping the user's in order, and under snap sets the build's own Qt platform plugin directory from CMake; the launcher scripts no longer set x86_64 Qt5 paths).
 - TD-266 (done in code: a loaded conversation's messages are shown, as the server holds them after the import; the line format is shared through `ConversationFormat`). The `chatbot_gui` items TD-260–TD-266 are all fixed in code or closed.
 - TD-268 (done in code: `ChatbotTrainer` ends every epoch on the metrics reporter, with validation loss 0 when there is no validation data, the epoch-average gradient norm and the epoch's duration; runs without a validation split used to record no epochs on the dashboard).
+- TD-271 (done in code: the validation split is chosen from each pair's own text, so the same data splits the same way on every pass; a tokenized cache loads only if it holds that split, and caches from the old random splits aren't reused).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6802,7 +6803,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / ChatbotTrainer | October 9, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 4, 2026 | Training / ChatbotTrainer | October 9, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-267. `train()` runs `split_data()` (a fresh `std::random_device` shuffle)
@@ -6815,15 +6816,31 @@ one pass to the next. Only the misalignment depends on `cache_tokenized_data` (d
 
 Action Items:
 
-- [ ] Make the split deterministic (seed from the cache key or dataset checksum), or cache the split itself (indices) alongside the tokenized data.
-- [ ] Include the split seed or validation membership in the cache key.
-- [ ] Test: two `train()` calls with caching produce aligned raw/tokenized pairs.
+- [x] Make the split deterministic (seed from the cache key or dataset checksum), or cache the split itself (indices) alongside the tokenized data. Deterministic from each pair's own text, so also independent of load order.
+- [x] Include the split seed or validation membership in the cache key. The key includes `validation_split`; membership follows from the data already in it, and a load checks it.
+- [x] Test: two `train()` calls with caching produce aligned raw/tokenized pairs.
 
-Location in code: `src/ChatbotTrainer.cpp` (`split_data()`, `preprocess_data()`); tagged `TODO: See TD-271`.
+Fix (November 4, 2026): `split_data()` ranks each pair by a hash of its own input and response (FNV-1a 64, the same on
+every platform) and takes the `size / validation_split` lowest-ranked pairs as validation, ties by load order; both sets
+keep the load order. The same data splits the same way on every pass, in any load order, so a cache written by an earlier
+pass matches, and validation losses over the same data are measured on the same pairs. `load_tokenized_cache()` also checks
+that each cached pair's stored texts are the raw pair at its index (an empty placeholder for a skipped pair matches) and
+otherwise reports a miss. `kPreprocessFormatVersion` is 4, so caches holding old random splits aren't reused, and
+`compute_tokenized_cache_key()` includes `validation_split`.
+
+Tests: `ChatbotTrainerCacheTest.SplitIsTheSameEveryTimeAndIndependentOfLoadOrder`, `CacheFromADifferentSplitIsNotLoaded`
+and `SecondPassWithCacheKeepsRawAndTokenizedPairsAligned` (two real `train()` passes with the cache on: aligned pairs, the
+same validation set). All three fail on the old code (3 of 3 runs). Checked with real `incremental_trainer` passes over 20
+pairs with `CACHE_TOKENIZED_DATA=true`: two passes with the cache cleared between them wrote different cache files with the
+old binary and byte-identical ones with the new; a third pass hit the cache with both, which for the old binary meant pairs
+tokenized under another split.
+
+Location in code: `src/ChatbotTrainer.cpp` (`split_data()`, `load_tokenized_cache()`), `src/IncrementalTrainer.cpp`
+(`compute_tokenized_cache_key()`).
 
 Files to Modify:
 
-- `src/ChatbotTrainer.cpp`
+- `src/ChatbotTrainer.{hpp,cpp}`
 - `src/IncrementalTrainer.cpp` (cache key)
 - `tests/chatbottrainer_test.cpp`
 

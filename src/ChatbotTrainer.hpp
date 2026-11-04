@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added)
-// @adai-version: 0.13.1
+// @adai-version: 0.13.2
 // @adai-reviewed: 2026-11-04
 
 
@@ -477,8 +477,9 @@ class ChatbotTrainer {
     /// Bump whenever preprocess_data()'s tokenization output changes for the same input, so
     /// on-disk tokenized caches built by older code are not reused (TD-409). History:
     /// 2 = TD-531/TD-532 JSONL decoding, TD-275 target truncation (October 2026);
-    /// 3 = TD-361 targets without the leading <bos> (October 2026).
-    static constexpr int kPreprocessFormatVersion = 3;
+    /// 3 = TD-361 targets without the leading <bos> (October 2026);
+    /// 4 = TD-271 deterministic validation split; caches hold old random splits (November 2026).
+    static constexpr int kPreprocessFormatVersion = 4;
 
     /**
      * @brief Calculate token-level accuracy (fraction of positions where predictions match targets)
