@@ -327,6 +327,9 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.base_config.generation_quality_sample_size = svc.generation_quality_sample_size;
     cfg.base_config.generation_quality_max_tokens = svc.generation_quality_max_tokens;
     cfg.base_config.generation_quality_async_threshold = svc.generation_quality_async_threshold;
+    // TD-273: per-sample quality scores, reported to metrics_api_server.
+    cfg.base_config.enable_loss_quality_backfill = svc.loss_quality_backfill;
+    cfg.base_config.enable_generation_quality_backfill = svc.generation_quality_backfill;
 
     // Session directory
     if (!svc.session_dir.empty()) {
@@ -1056,7 +1059,7 @@ bool IncrementalTrainer::train_on_files(const std::vector<PendingFileRange>& fil
         trainer.load_training_state(loaded_checkpoint_path_ + ".optimizer");
     }
     for (const auto& pair : all_pairs)
-        trainer.add_training_pair(pair.input, pair.response);
+        trainer.add_training_pair(pair);  // TD-273: with its dataset metadata
 
     // Each call gets its own metrics session key (derived from current_session_id),
     // so there is never a genuine same-lineage session to preserve best-loss
@@ -1119,7 +1122,7 @@ bool IncrementalTrainer::retrain_on_files(const std::vector<PendingFileRange>& f
     // A full retrain is a new run: fresh optimizer and schedule, state saved under its run id.
     trainer.set_run_id(current_run_id_);
     for (const auto& pair : all_pairs)
-        trainer.add_training_pair(pair.input, pair.response);
+        trainer.add_training_pair(pair);  // TD-273: with its dataset metadata
 
     return run_training(trainer, num_epochs, training_sample_count, total,
                         /*enable_best_model_snapshot=*/true, /*reset_best_tracking=*/true);

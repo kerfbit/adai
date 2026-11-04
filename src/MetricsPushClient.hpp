@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.5.1
-// @adai-reviewed: 2026-11-01
-
+// @adai-version: 1.6.0
+// @adai-reviewed: 2026-11-04
 
 #include <atomic>
 #include <chrono>
@@ -285,6 +284,7 @@ class MetricsPushClient final : public IMetricsReporter {
     void update_lejepa_advanced_metrics(float masking_ratio, float predictor_target_cosine_sim,
                                         float sigreg_variance_mean,
                                         float sigreg_variance_stddev) override;
+    void report_sample_quality(const SampleQualityReport& report) override;  // TD-273
 
    private:
     std::string session_base_url_;

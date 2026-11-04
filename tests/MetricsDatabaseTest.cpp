@@ -44,7 +44,7 @@ TEST_F(MetricsDatabaseTest, SchemaBootstrap) {
     // Every table exists. (schema_version was dropped by TD-511: written, never read.)
     sqlite3_stmt* stmt = nullptr;
     for (const char* table : {"sessions", "metrics_history", "gradient_variance_history",
-                              "generation_quality", "abnormal_samples"}) {
+                              "generation_quality", "abnormal_samples", "sample_quality"}) {
         sqlite3_prepare_v2(raw_db, "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
                            -1, &stmt, nullptr);
         sqlite3_bind_text(stmt, 1, table, -1, SQLITE_TRANSIENT);
@@ -1415,9 +1415,16 @@ TEST_F(MetricsDatabaseTest, DeleteSessionsUpdatedBeforeRemovesAllTheirRows) {
         AbnormalSample sample;
         sample.timestamp = now;
         db.insert_abnormal_sample(key, sample);
+        SampleQualityReport quality;  // TD-273
+        quality.source = "loss";
+        quality.split = "train";
+        quality.timestamp = now;
+        db.insert_sample_quality(key, quality);
     }
 
     EXPECT_EQ(db.delete_sessions_updated_before(now - std::chrono::hours(24 * 90)), 1);
+    EXPECT_TRUE(db.query_sample_quality("old").empty());
+    EXPECT_EQ(db.query_sample_quality("new").size(), 1u);
     EXPECT_FALSE(db.get_session("old").has_value());
     EXPECT_TRUE(db.query_history("old", std::nullopt, std::nullopt, 0).empty());
     EXPECT_TRUE(db.query_gradient_variance("old", 0).empty());
@@ -1673,4 +1680,60 @@ TEST_F(MetricsDatabaseTest, GradientVarianceStepsContinueAcrossServiceInstances)
     EXPECT_EQ(*steps.begin(), 1);
     EXPECT_EQ(*steps.rbegin(), 10);
     EXPECT_EQ(db->max_gradient_variance_step("no-such-session"), 0);
+}
+
+// TD-273: per-sample quality reports round-trip, keep the newest `limit`, and follow an archive.
+TEST_F(MetricsDatabaseTest, SampleQualityRoundTripLimitAndArchive) {
+    SQLiteMetricsDatabase db(db_path_);
+    add_test_session(db, "quality", std::chrono::system_clock::now());
+    for (int epoch = 1; epoch <= 3; ++epoch) {
+        SampleQualityReport r;
+        r.epoch = epoch;
+        r.source = epoch == 3 ? "generation" : "loss";
+        r.split = "validation";
+        r.count = 10 * epoch;
+        r.mean = 0.5f;
+        r.min = 0.1f;
+        r.p10 = 0.2f;
+        r.median = 0.5f;
+        r.p90 = 0.8f;
+        r.max = std::nanf("");
+        r.lowest = {{0.1f, "first \"in\"\nput", "out"}, {0.15f, "second", "\u00e9t\u00e9"}};
+        r.timestamp = std::chrono::system_clock::now();
+        db.insert_sample_quality("quality", r);
+    }
+
+    const auto all = db.query_sample_quality("quality");
+    ASSERT_EQ(all.size(), 3u);
+    EXPECT_EQ(all[0].epoch, 1) << "oldest first";
+    EXPECT_EQ(all[2].source, "generation");
+    EXPECT_EQ(all[1].count, 20);
+    EXPECT_FLOAT_EQ(all[0].p90, 0.8f);
+    EXPECT_TRUE(std::isnan(all[0].max)) << "NaN reads back as NaN";
+    ASSERT_EQ(all[0].lowest.size(), 2u);
+    EXPECT_EQ(all[0].lowest[0].input_text, "first \"in\"\nput");
+    EXPECT_EQ(all[0].lowest[1].target_text, "\u00e9t\u00e9");
+    EXPECT_FLOAT_EQ(all[0].lowest[1].quality, 0.15f);
+
+    const auto newest = db.query_sample_quality("quality", 2);
+    ASSERT_EQ(newest.size(), 2u);
+    EXPECT_EQ(newest[0].epoch, 2);
+    EXPECT_EQ(newest[1].epoch, 3);
+
+    db.archive_session("quality", "quality_archived_1");
+    EXPECT_TRUE(db.query_sample_quality("quality").empty());
+    EXPECT_EQ(db.query_sample_quality("quality_archived_1").size(), 3u);
+}
+
+TEST(LowQualitySampleJson, EncodesAndDecodes) {
+    const std::vector<LowQualitySample> samples = {{0.25f, "a\"b", "c\nd"},
+                                                   {std::nanf(""), "", "x"}};
+    const auto back = decode_low_quality_samples(encode_low_quality_samples(samples));
+    ASSERT_EQ(back.size(), 2u);
+    EXPECT_FLOAT_EQ(back[0].quality, 0.25f);
+    EXPECT_EQ(back[0].input_text, "a\"b");
+    EXPECT_EQ(back[0].target_text, "c\nd");
+    EXPECT_TRUE(std::isnan(back[1].quality));
+    EXPECT_TRUE(decode_low_quality_samples("").empty());
+    EXPECT_TRUE(decode_low_quality_samples("{\"not\":\"an array\"}").empty());
 }

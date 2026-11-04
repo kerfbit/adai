@@ -62,6 +62,7 @@ class RecordingMetricsReporter final : public IMetricsReporter {
     }
     void update_lejepa_metrics(float, float) override {}
     void update_lejepa_advanced_metrics(float, float, float, float) override {}
+    void report_sample_quality(const SampleQualityReport&) override {}
 };
 
 /**

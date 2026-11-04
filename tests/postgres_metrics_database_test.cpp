@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <future>
@@ -696,6 +697,45 @@ TEST_F(PostgresMetricsDatabaseTest, GenerationQualityRoundTrip) {
     TearDownRawConn();
 }
 
+// TD-273: per-sample quality reports round-trip, keep the newest `limit`, and follow an archive.
+TEST_F(PostgresMetricsDatabaseTest, SampleQualityRoundTripLimitAndArchive) {
+    PostgresMetricsDatabase db(db_url_, 2);
+    SessionRecord session;
+    session.key = "quality-test";
+    session.session_id = 1;
+    session.created_at = session.last_update_at = std::chrono::system_clock::now();
+    db.upsert_session(session);
+    for (int epoch = 1; epoch <= 3; ++epoch) {
+        SampleQualityReport r;
+        r.epoch = epoch;
+        r.source = epoch == 3 ? "generation" : "loss";
+        r.split = "train";
+        r.count = 10 * epoch;
+        r.mean = 0.5f;
+        r.p10 = 0.2f;
+        r.max = std::nanf("");
+        r.lowest = {{0.1f, "first \"in\"\nput", "\u00e9t\u00e9"}};
+        r.timestamp = std::chrono::system_clock::now();
+        db.insert_sample_quality("quality-test", r);
+    }
+    const auto all = db.query_sample_quality("quality-test");
+    ASSERT_EQ(all.size(), 3u);
+    EXPECT_EQ(all[0].epoch, 1);
+    EXPECT_EQ(all[2].source, "generation");
+    EXPECT_EQ(all[1].count, 20);
+    EXPECT_FLOAT_EQ(all[0].p10, 0.2f);
+    EXPECT_TRUE(std::isnan(all[0].max));
+    ASSERT_EQ(all[0].lowest.size(), 1u);
+    EXPECT_EQ(all[0].lowest[0].input_text, "first \"in\"\nput");
+    EXPECT_EQ(all[0].lowest[0].target_text, "\u00e9t\u00e9");
+    const auto newest = db.query_sample_quality("quality-test", 2);
+    ASSERT_EQ(newest.size(), 2u);
+    EXPECT_EQ(newest[0].epoch, 2);
+    db.archive_session("quality-test", "quality-test_archived_1");
+    EXPECT_TRUE(db.query_sample_quality("quality-test").empty());
+    EXPECT_EQ(db.query_sample_quality("quality-test_archived_1").size(), 3u);
+}
+
 // TD-479: the service wrote the session row only after the first history batch and the per-step
 // gradient-variance rows, so Postgres's foreign keys rejected those inserts, each stalled ~0.5 s in
 // retries, and they were dropped — a fresh session ended with 0 history rows. start_session() now
@@ -878,6 +918,11 @@ TEST_F(PostgresMetricsDatabaseTest, RetentionAndReadersWork) {
     AbnormalSample sample;
     sample.timestamp = now;
     db.insert_abnormal_sample("old", sample);
+    SampleQualityReport quality;  // TD-273
+    quality.source = "loss";
+    quality.split = "train";
+    quality.timestamp = now;
+    db.insert_sample_quality("old", quality);
 
     const auto newest = db.query_gradient_variance("cap", 3);
     ASSERT_EQ(newest.size(), 3u);
@@ -905,7 +950,8 @@ TEST_F(PostgresMetricsDatabaseTest, RetentionAndReadersWork) {
         "SELECT (SELECT COUNT(*) FROM metrics_history WHERE session_key='old') + "
         "(SELECT COUNT(*) FROM gradient_variance_history WHERE session_key='old') + "
         "(SELECT COUNT(*) FROM generation_quality WHERE session_key='old') + "
-        "(SELECT COUNT(*) FROM abnormal_samples WHERE session_key='old')");
+        "(SELECT COUNT(*) FROM abnormal_samples WHERE session_key='old') + "
+        "(SELECT COUNT(*) FROM sample_quality WHERE session_key='old')");
     ASSERT_EQ(PQresultStatus(res), PGRES_TUPLES_OK) << PQerrorMessage(raw_conn_);
     EXPECT_EQ(std::atoi(PQgetvalue(res, 0, 0)), 0);
     PQclear(res);

@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.4.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 1.5.0
+// @adai-reviewed: 2026-11-04
 
 #include "SQLiteMetricsDatabase.hpp"
 #include "GenerationQualityMetrics.hpp"
@@ -181,6 +181,26 @@ void SQLiteMetricsDatabase::bootstrap_schema() {
 
         CREATE INDEX IF NOT EXISTS idx_generation_quality_session_epoch
             ON generation_quality (session_key, epoch);
+
+        CREATE TABLE IF NOT EXISTS sample_quality (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_key TEXT    NOT NULL REFERENCES sessions(key),
+            recorded_at TEXT    NOT NULL,
+            epoch       INTEGER NOT NULL,
+            source      TEXT    NOT NULL,
+            split       TEXT    NOT NULL,
+            count       INTEGER NOT NULL,
+            mean        REAL,
+            min         REAL,
+            p10         REAL,
+            median      REAL,
+            p90         REAL,
+            max         REAL,
+            lowest_json TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sample_quality_session
+            ON sample_quality (session_key, id);
 
         CREATE TABLE IF NOT EXISTS abnormal_samples (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -462,6 +482,8 @@ void SQLiteMetricsDatabase::archive_session(const std::string& key,
             {archived_key, key});
         run("UPDATE abnormal_samples SET session_key = ?1 WHERE session_key = ?2;",
             {archived_key, key});
+        run("UPDATE sample_quality SET session_key = ?1 WHERE session_key = ?2;",
+            {archived_key, key});
         run("DELETE FROM sessions WHERE key = ?1;", {key});
     } catch (...) {
         sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
@@ -630,6 +652,36 @@ void SQLiteMetricsDatabase::insert_generation_quality(const std::string& session
     sqlite3_bind_double(stmt_insert_gen_quality_, 9, static_cast<double>(score.rougeL));
 
     check_sqlite(sqlite3_step(stmt_insert_gen_quality_), db_, "insert_generation_quality");
+}
+
+// TD-273
+void SQLiteMetricsDatabase::insert_sample_quality(const std::string& session_key,
+                                                  const SampleQualityReport& report) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const std::string ts = format_timestamp(report.timestamp);
+    const std::string lowest = encode_low_quality_samples(report.lowest);
+    sqlite3_stmt* stmt = nullptr;
+    check_sqlite(sqlite3_prepare_v2(db_,
+                                    "INSERT INTO sample_quality (session_key, recorded_at, epoch, "
+                                    "source, split, count, mean, min, p10, median, p90, max, "
+                                    "lowest_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, "
+                                    "?11, ?12, ?13);",
+                                    -1, &stmt, nullptr),
+                 db_, "insert_sample_quality prepare");
+    sqlite3_bind_text(stmt, 1, session_key.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, ts.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 3, report.epoch);
+    sqlite3_bind_text(stmt, 4, report.source.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, report.split.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 6, report.count);
+    int col = 7;
+    for (float v : {report.mean, report.min, report.p10, report.median, report.p90, report.max}) {
+        sqlite3_bind_double(stmt, col++, static_cast<double>(v));
+    }
+    sqlite3_bind_text(stmt, 13, lowest.c_str(), -1, SQLITE_TRANSIENT);
+    const int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    check_sqlite(rc, db_, "insert_sample_quality");
 }
 
 // ============================================================================
@@ -883,6 +935,47 @@ std::vector<GenerationQualityRecord> SQLiteMetricsDatabase::query_generation_qua
     return results;
 }
 
+// TD-273
+std::vector<SampleQualityReport> SQLiteMetricsDatabase::query_sample_quality(
+    const std::string& session_key, int limit) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::string sql =
+        "SELECT recorded_at, epoch, source, split, count, mean, min, p10, median, p90, max, "
+        "lowest_json FROM sample_quality WHERE session_key = ?1 ORDER BY id DESC";
+    if (limit > 0) {
+        sql += " LIMIT " + std::to_string(limit);
+    }
+    sqlite3_stmt* stmt = nullptr;
+    check_sqlite(sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr), db_,
+                 "query_sample_quality prepare");
+    sqlite3_bind_text(stmt, 1, session_key.c_str(), -1, SQLITE_TRANSIENT);
+
+    auto text = [&](int col) {
+        const auto* s = reinterpret_cast<const char*>(sqlite3_column_text(stmt, col));
+        return std::string(s ? s : "");
+    };
+    std::vector<SampleQualityReport> results;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        SampleQualityReport rec;
+        rec.timestamp = parse_timestamp(text(0));
+        rec.epoch = sqlite3_column_int(stmt, 1);
+        rec.source = text(2);
+        rec.split = text(3);
+        rec.count = sqlite3_column_int(stmt, 4);
+        rec.mean = sqlite_nan_float(stmt, 5);
+        rec.min = sqlite_nan_float(stmt, 6);
+        rec.p10 = sqlite_nan_float(stmt, 7);
+        rec.median = sqlite_nan_float(stmt, 8);
+        rec.p90 = sqlite_nan_float(stmt, 9);
+        rec.max = sqlite_nan_float(stmt, 10);
+        rec.lowest = decode_low_quality_samples(text(11));
+        results.push_back(std::move(rec));
+    }
+    sqlite3_finalize(stmt);
+    std::reverse(results.begin(), results.end());
+    return results;
+}
+
 int SQLiteMetricsDatabase::max_gradient_variance_step(const std::string& session_key) {
     std::lock_guard<std::mutex> lock(mutex_);
     sqlite3_stmt* stmt = nullptr;
@@ -966,15 +1059,16 @@ long long SQLiteMetricsDatabase::delete_sessions_updated_before(
                  "delete_sessions_updated_before:begin");
     long long sessions = 0;
     try {
-        for (const char* sql :
-             {"DELETE FROM metrics_history WHERE session_key IN "
-              "(SELECT key FROM sessions WHERE last_update_at < ?1);",
-              "DELETE FROM gradient_variance_history WHERE session_key IN "
-              "(SELECT key FROM sessions WHERE last_update_at < ?1);",
-              "DELETE FROM generation_quality WHERE session_key IN "
-              "(SELECT key FROM sessions WHERE last_update_at < ?1);",
-              "DELETE FROM abnormal_samples WHERE session_key IN "
-              "(SELECT key FROM sessions WHERE last_update_at < ?1);"}) {
+        for (const char* sql : {"DELETE FROM metrics_history WHERE session_key IN "
+                                "(SELECT key FROM sessions WHERE last_update_at < ?1);",
+                                "DELETE FROM gradient_variance_history WHERE session_key IN "
+                                "(SELECT key FROM sessions WHERE last_update_at < ?1);",
+                                "DELETE FROM generation_quality WHERE session_key IN "
+                                "(SELECT key FROM sessions WHERE last_update_at < ?1);",
+                                "DELETE FROM abnormal_samples WHERE session_key IN "
+                                "(SELECT key FROM sessions WHERE last_update_at < ?1);",
+                                "DELETE FROM sample_quality WHERE session_key IN "
+                                "(SELECT key FROM sessions WHERE last_update_at < ?1);"}) {
             run(sql);
         }
         sessions = run("DELETE FROM sessions WHERE last_update_at < ?1;");

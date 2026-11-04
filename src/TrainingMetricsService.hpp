@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.14.0
-// @adai-reviewed: 2026-10-25
-
+// @adai-version: 0.15.0
+// @adai-reviewed: 2026-11-04
 
 #include <atomic>
 #include <chrono>
@@ -385,6 +384,12 @@ class TrainingMetricsService {
     void flag_abnormal_sample(const AbnormalSample& sample);
     std::vector<AbnormalSample> get_abnormal_samples() const;
 
+    // TD-273: per-sample quality reports from the trainer, kept in memory (the newest
+    // kMaxSampleQualityReports) and stored in the database's sample_quality table.
+    static constexpr std::size_t kMaxSampleQualityReports = 500;
+    void record_sample_quality(const SampleQualityReport& report);
+    std::vector<SampleQualityReport> get_sample_quality() const;
+
     // Polling interface (thread-safe, non-blocking)
     TrainingMetricsSnapshot get_current_snapshot() const;
     std::string to_json() const;
@@ -491,6 +496,7 @@ class TrainingMetricsService {
     // Outlier storage & persistence (TD-013)
     std::vector<AbnormalSample> abnormal_samples_;  // in-memory list of flagged samples
     void persist_abnormal_samples();                // write all to abnormal_samples_file
+    std::vector<SampleQualityReport> sample_quality_;  // TD-273
 
     // SQL database persistence (TD-020)
     IMetricsDatabase* db_ = nullptr;

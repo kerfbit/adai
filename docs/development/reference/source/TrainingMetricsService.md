@@ -160,3 +160,8 @@ first.
   TRAINING_METRICS_API.md.
 
 Test: `TrainingMetricsServiceJsonl.LinesAreValidJsonWithEveryField`.
+
+## Addendum (November 4, 2026): sample-quality reports (TD-273)
+
+`record_sample_quality()` keeps the newest `kMaxSampleQualityReports` (500) reports in memory and inserts each into the database
+(`insert_sample_quality()`), logging a failure; `get_sample_quality()` returns the in-memory copy.

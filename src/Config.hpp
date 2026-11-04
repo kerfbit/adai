@@ -515,6 +515,16 @@ struct ServiceConfig {
     /// Below this threshold the existing synchronous path is used.
     int generation_quality_async_threshold = 50;
 
+    /// TD-273: score every training and validation pair with exp(-loss) each epoch and report the
+    /// scores' distribution and lowest pairs to metrics_api_server (LOSS_QUALITY_BACKFILL, default
+    /// on).
+    bool loss_quality_backfill = true;
+
+    /// TD-273: after training, generate a reply for every pair and score it (sentence BLEU-4 /
+    /// 100), reported the same way. One full generation per pair, so slow
+    /// (GENERATION_QUALITY_BACKFILL, default off).
+    bool generation_quality_backfill = false;
+
     // ============================================================
     // RAG Configuration
     // ============================================================

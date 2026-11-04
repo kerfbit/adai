@@ -431,8 +431,12 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.generation_quality_max_tokens = parse_int(value);
             } else if (key == "GENERATION_QUALITY_ASYNC_THRESHOLD") {
                 config.generation_quality_async_threshold = parse_int(value);
+            } else if (key == "LOSS_QUALITY_BACKFILL") {  // TD-273
+                config.loss_quality_backfill = parse_file_bool(key, value);
+            } else if (key == "GENERATION_QUALITY_BACKFILL") {  // TD-273
+                config.generation_quality_backfill = parse_file_bool(key, value);
                 // RAG configuration
-            } else if (key == "ALLOW_UNTRAINED_MODEL") {  // TD-246
+            } else if (key == "ALLOW_UNTRAINED_MODEL") {                     // TD-246
                 config.allow_untrained_model = parse_file_bool(key, value);  // TD-286
             } else if (key == "RAG_ENABLED") {
                 config.rag_enabled = parse_file_bool(key, value);  // TD-286
@@ -472,9 +476,9 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "REGISTRY_MAX_CONCURRENT_FETCHES") {
                 config.registry_max_concurrent_fetches = parse_int(value);
                 // FTP Dataset Transport configuration (Phase 10)
-            } else if (key == "FTP_SERVER_ENABLED") {  // TD-284
+            } else if (key == "FTP_SERVER_ENABLED") {                     // TD-284
                 config.ftp_server_enabled = parse_file_bool(key, value);  // TD-286
-            } else if (key == "FTP_ADVERTISE_IP") {  // TD-284
+            } else if (key == "FTP_ADVERTISE_IP") {                       // TD-284
                 config.ftp_advertise_ip = value;
             } else if (key == "FTP_SERVER_PORT") {
                 config.ftp_server_port = parse_int(value);
@@ -827,6 +831,12 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_int("GENERATION_QUALITY_ASYNC_THRESHOLD")) {
         config.generation_quality_async_threshold = *val;
+    }
+    if (auto val = get_env_bool("LOSS_QUALITY_BACKFILL")) {  // TD-273
+        config.loss_quality_backfill = *val;
+    }
+    if (auto val = get_env_bool("GENERATION_QUALITY_BACKFILL")) {  // TD-273
+        config.generation_quality_backfill = *val;
     }
 
     // Multi-instance metrics configuration
@@ -1682,6 +1692,8 @@ std::string ConfigLoader::to_string(const ServiceConfig& c) {
     item("GENERATION_QUALITY_SAMPLE_SIZE", num(c.generation_quality_sample_size));
     item("GENERATION_QUALITY_MAX_TOKENS", num(c.generation_quality_max_tokens));
     item("GENERATION_QUALITY_ASYNC_THRESHOLD", num(c.generation_quality_async_threshold));
+    item("LOSS_QUALITY_BACKFILL", flag(c.loss_quality_backfill));
+    item("GENERATION_QUALITY_BACKFILL", flag(c.generation_quality_backfill));
     section("Checkpointing");
     item("AUTO_SAVE_ENABLED", flag(c.auto_save_enabled));
     item("AUTO_SAVE_EVERY_SAMPLES", num(c.auto_save_every_samples));

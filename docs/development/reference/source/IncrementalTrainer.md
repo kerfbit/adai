@@ -258,3 +258,9 @@ model, and the first training pass builds the vocabulary from its data (`bootstr
 `VOCAB_BUILD_SIZE` via `IncrementalConfig::vocab_build_size`) and then the model, so `incremental_trainer
 train`/`retrain`/`resume` work on a fresh `SESSION_DIR`; it used to abort with `VocabularyFileError` (exit 134).
 `incremental_trainer`'s `main()` turns an exception from any command into `❌ <message>` and exit 1.
+
+## Addendum (November 4, 2026): pairs keep their metadata; quality switches mapped (TD-273)
+
+`train`/`retrain` hand each loaded `ConversationPair` to `ChatbotTrainer::add_training_pair(ConversationPair)` with its dataset
+metadata (it used to pass only input and response), and `make_incremental_config()` maps `LOSS_QUALITY_BACKFILL`/
+`GENERATION_QUALITY_BACKFILL`.

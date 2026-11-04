@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-042 resolved — real test coverage added; still not built by default)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-11-04
 
 #ifdef ADAI_ENABLE_POSTGRES
 
@@ -281,6 +281,26 @@ void PostgresMetricsDatabase::bootstrap_schema(PGconn* conn) {
         CREATE INDEX IF NOT EXISTS idx_generation_quality_session_epoch
             ON generation_quality (session_key, epoch);
 
+        CREATE TABLE IF NOT EXISTS sample_quality (
+            id          SERIAL PRIMARY KEY,
+            session_key TEXT    NOT NULL REFERENCES sessions(key),
+            recorded_at TIMESTAMPTZ NOT NULL,
+            epoch       INTEGER NOT NULL,
+            source      TEXT    NOT NULL,
+            split       TEXT    NOT NULL,
+            count       INTEGER NOT NULL,
+            mean        REAL,
+            min         REAL,
+            p10         REAL,
+            median      REAL,
+            p90         REAL,
+            max         REAL,
+            lowest_json TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sample_quality_session
+            ON sample_quality (session_key, id);
+
         CREATE TABLE IF NOT EXISTS abnormal_samples (
             id          SERIAL PRIMARY KEY,
             session_key TEXT    NOT NULL REFERENCES sessions(key),
@@ -533,7 +553,8 @@ void PostgresMetricsDatabase::archive_session(const std::string& key,
             run("UPDATE gradient_variance_history SET session_key = $1 WHERE session_key = $2", 2,
                 p2) &&
             run("UPDATE generation_quality SET session_key = $1 WHERE session_key = $2", 2, p2) &&
-            run("UPDATE abnormal_samples SET session_key = $1 WHERE session_key = $2", 2, p2);
+            run("UPDATE abnormal_samples SET session_key = $1 WHERE session_key = $2", 2, p2) &&
+            run("UPDATE sample_quality SET session_key = $1 WHERE session_key = $2", 2, p2);
 
         const char* p1[] = {key.c_str()};
         step_ok = step_ok && run("DELETE FROM sessions WHERE key = $1", 1, p1);
@@ -779,6 +800,40 @@ void PostgresMetricsDatabase::insert_generation_quality(const std::string& sessi
     });
 }
 
+// TD-273
+void PostgresMetricsDatabase::insert_sample_quality(const std::string& session_key,
+                                                    const SampleQualityReport& report) {
+    execute_with_retry("insert_sample_quality", [&](PGconn* conn) -> bool {
+        const std::string ts = format_timestamp(report.timestamp);
+        const std::string ep = std::to_string(report.epoch);
+        const std::string n = std::to_string(report.count);
+        const std::string mean = pg_float_to_string(report.mean);
+        const std::string mn = pg_float_to_string(report.min);
+        const std::string p10 = pg_float_to_string(report.p10);
+        const std::string med = pg_float_to_string(report.median);
+        const std::string p90 = pg_float_to_string(report.p90);
+        const std::string mx = pg_float_to_string(report.max);
+        const std::string lowest = encode_low_quality_samples(report.lowest);
+        const char* params[] = {session_key.c_str(),   ts.c_str(),           ep.c_str(),
+                                report.source.c_str(), report.split.c_str(), n.c_str(),
+                                mean.c_str(),          mn.c_str(),           p10.c_str(),
+                                med.c_str(),           p90.c_str(),          mx.c_str(),
+                                lowest.c_str()};
+        PGresult* res = PQexecParams(
+            conn,
+            "INSERT INTO sample_quality (session_key, recorded_at, epoch, source, split, count, "
+            "mean, min, p10, median, p90, max, lowest_json) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+            13, nullptr, params, nullptr, nullptr, 0);
+        bool ok = PQresultStatus(res) == PGRES_COMMAND_OK;
+        if (!ok)
+            adai::Logger::error("[PostgresMetricsDB] insert_sample_quality: {}",
+                                PQerrorMessage(conn));
+        PQclear(res);
+        return ok;
+    });
+}
+
 // ============================================================================
 // Query Operations
 // ============================================================================
@@ -1009,6 +1064,49 @@ std::optional<SessionRecord> PostgresMetricsDatabase::get_session(const std::str
 // TD-440: readers for the formerly write-only tables, and retention
 // ============================================================================
 
+// TD-273
+std::vector<SampleQualityReport> PostgresMetricsDatabase::query_sample_quality(
+    const std::string& session_key, int limit) {
+    std::vector<SampleQualityReport> results;
+    execute_with_retry("query_sample_quality", [&](PGconn* conn) -> bool {
+        results.clear();
+        // Newest `limit` reports (by insertion order), returned oldest first.
+        std::string sql =
+            "SELECT recorded_at, epoch, source, split, count, mean, min, p10, median, p90, max, "
+            "lowest_json FROM sample_quality WHERE session_key = $1 ORDER BY id DESC";
+        if (limit > 0)
+            sql += " LIMIT " + std::to_string(limit);
+        const char* params[] = {session_key.c_str()};
+        PGresult* res = PQexecParams(conn, sql.c_str(), 1, nullptr, params, nullptr, nullptr, 0);
+        if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+            adai::Logger::error("[PostgresMetricsDB] query_sample_quality: {}",
+                                PQerrorMessage(conn));
+            PQclear(res);
+            return false;
+        }
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        for (int i = PQntuples(res) - 1; i >= 0; --i) {
+            SampleQualityReport rec;
+            rec.timestamp = parse_timestamp(PQgetvalue(res, i, 0));
+            rec.epoch = std::atoi(PQgetvalue(res, i, 1));
+            rec.source = PQgetvalue(res, i, 2);
+            rec.split = PQgetvalue(res, i, 3);
+            rec.count = std::atoi(PQgetvalue(res, i, 4));
+            rec.mean = pg_opt_float(res, i, 5, nan);
+            rec.min = pg_opt_float(res, i, 6, nan);
+            rec.p10 = pg_opt_float(res, i, 7, nan);
+            rec.median = pg_opt_float(res, i, 8, nan);
+            rec.p90 = pg_opt_float(res, i, 9, nan);
+            rec.max = pg_opt_float(res, i, 10, nan);
+            rec.lowest = decode_low_quality_samples(PQgetvalue(res, i, 11));
+            results.push_back(std::move(rec));
+        }
+        PQclear(res);
+        return true;
+    });
+    return results;
+}
+
 std::vector<GradientVarianceRecord> PostgresMetricsDatabase::query_gradient_variance(
     const std::string& session_key, int limit) {
     std::vector<GradientVarianceRecord> results;
@@ -1181,15 +1279,16 @@ long long PostgresMetricsDatabase::delete_sessions_updated_before(
         };
         // Children first: they reference sessions(key).
         bool step_ok = true;
-        for (const char* sql :
-             {"DELETE FROM metrics_history WHERE session_key IN "
-              "(SELECT key FROM sessions WHERE last_update_at < $1)",
-              "DELETE FROM gradient_variance_history WHERE session_key IN "
-              "(SELECT key FROM sessions WHERE last_update_at < $1)",
-              "DELETE FROM generation_quality WHERE session_key IN "
-              "(SELECT key FROM sessions WHERE last_update_at < $1)",
-              "DELETE FROM abnormal_samples WHERE session_key IN "
-              "(SELECT key FROM sessions WHERE last_update_at < $1)"}) {
+        for (const char* sql : {"DELETE FROM metrics_history WHERE session_key IN "
+                                "(SELECT key FROM sessions WHERE last_update_at < $1)",
+                                "DELETE FROM gradient_variance_history WHERE session_key IN "
+                                "(SELECT key FROM sessions WHERE last_update_at < $1)",
+                                "DELETE FROM generation_quality WHERE session_key IN "
+                                "(SELECT key FROM sessions WHERE last_update_at < $1)",
+                                "DELETE FROM abnormal_samples WHERE session_key IN "
+                                "(SELECT key FROM sessions WHERE last_update_at < $1)",
+                                "DELETE FROM sample_quality WHERE session_key IN "
+                                "(SELECT key FROM sessions WHERE last_update_at < $1)"}) {
             step_ok = step_ok && run(sql) >= 0;
         }
         long long n = step_ok ? run("DELETE FROM sessions WHERE last_update_at < $1") : -1;

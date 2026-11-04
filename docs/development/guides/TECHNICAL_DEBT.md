@@ -18,6 +18,10 @@ after the owner asked about frequent "session gone, re-registering" warnings in 
 to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
 session: it re-registers, gets 409 because the session is live, retries into another 404, and the sample is never stored.
 
+**November 4, 2026:** Filed [TD-558](#td-558-android-ops-dashboard-doesnt-show-per-sample-quality-reports) and
+[TD-559](#td-559-tizen-dashboard-doesnt-show-per-sample-quality-reports) at the owner's request with TD-273 (LOW): `metrics_api_server` now
+serves per-sample quality reports (`…/metrics/sample-quality`), but neither the Android ops dashboard nor the Tizen TV dashboard reads them.
+
 **October 24, 2026:** Filed [TD-554](#td-554-no-aggregate-version-per-cmake-build) at the owner's request (LOW): derive an aggregate version
 for each CMake build (preset × executable target) from the per-file versions of the sources it compiles. Builds on TD-553.
 
@@ -1475,6 +1479,7 @@ The generation and model math run is complete.
 - TD-266 (done in code: a loaded conversation's messages are shown, as the server holds them after the import; the line format is shared through `ConversationFormat`). The `chatbot_gui` items TD-260–TD-266 are all fixed in code or closed.
 - TD-268 (done in code: `ChatbotTrainer` ends every epoch on the metrics reporter, with validation loss 0 when there is no validation data, the epoch-average gradient norm and the epoch's duration; runs without a validation split used to record no epochs on the dashboard).
 - TD-271 (done in code: the validation split is chosen from each pair's own text, so the same data splits the same way on every pass; a tokenized cache loads only if it holds that split, and caches from the old random splits aren't reused).
+- TD-273 (done in code, owner decision: both quality backfills report to `metrics_api_server`, a per-epoch distribution and the lowest-scoring pairs per split; the loss score on by default (`LOSS_QUALITY_BACKFILL`), the per-pair generation score opt-in (`GENERATION_QUALITY_BACKFILL`); new `…/metrics/sample-quality` routes and `sample_quality` table).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -2515,6 +2520,8 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-555: Abnormal-Sample Pushes 404 and Flood the Log With Session Re-Registration](#td-555-abnormal-sample-pushes-404-and-flood-the-log-with-session-re-registration)
   - [TD-556: Admin-API Test Binaries Abort Under a Parallel `ctest`](#td-556-admin-api-test-binaries-abort-under-a-parallel-ctest)
   - [TD-557: `trainer_service` Ignores `--help` and Bad Arguments](#td-557-trainer_service-ignores---help-and-bad-arguments)
+  - [TD-558: Android Ops Dashboard Doesn't Show Per-Sample Quality Reports](#td-558-android-ops-dashboard-doesnt-show-per-sample-quality-reports)
+  - [TD-559: Tizen Dashboard Doesn't Show Per-Sample Quality Reports](#td-559-tizen-dashboard-doesnt-show-per-sample-quality-reports)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -6897,7 +6904,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / ChatbotTrainer | October 9, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 4, 2026 (owner decision) | Training / ChatbotTrainer | October 9, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-267. `enable_loss_quality_backfill` and `enable_generation_quality_backfill`
@@ -6908,15 +6915,45 @@ generation per sample for nothing if enabled in code.
 
 Action Items:
 
-- [ ] Owner decision: remove both backfills, or wire them up (pass `SampleMeta` in, expose the updated metadata, add config keys, persist quality back to the dataset).
+- [x] Owner decision: remove both backfills, or wire them up (pass `SampleMeta` in, expose the updated metadata, add config keys, persist quality back to the dataset). Decided November 4, 2026: wire up both, reporting to `metrics_api_server` rather than writing back to the dataset; the loss score on by default, the generation score opt-in.
 
-Location in code: `src/ChatbotTrainer.cpp` (`backfill_generation_quality()`, loss backfill in `train_epoch()`/`validate()`); tagged `TODO: See TD-273`.
+Fix (November 4, 2026): the scores are reported to `metrics_api_server`.
+
+- Trainer: `enable_loss_quality_backfill` defaults to on (`LOSS_QUALITY_BACKFILL`), `enable_generation_quality_backfill` stays off
+  (`GENERATION_QUALITY_BACKFILL`); `IncrementalTrainer` maps both keys. `train_epoch()`/`validate()` reset the scores before scoring, so
+  each report is one epoch's. After every epoch `train()` sends a `SampleQualityReport` per split (source `"loss"`), and after the
+  generation backfill one per split (source `"generation"`), through a new `IMetricsReporter::report_sample_quality()`. A report
+  carries the count, mean, min, 10th/50th/90th percentiles, max and the 5 lowest-scoring pairs with their text
+  (`ChatbotTrainer::summarize_sample_quality()`). `IncrementalTrainer` now passes each pair with its dataset metadata
+  (`add_training_pair(ConversationPair)`), and `get_training_pairs()`/`get_validation_pairs()` expose the scored pairs.
+- `MetricsPushClient` posts the report to `…/metrics/sample-quality` at epoch priority.
+- `metrics_api_server`: `POST …/metrics/sample-quality` (validated, at most 20 pairs, texts cut to 4 KiB), `GET …/metrics/sample-quality`
+  (the newest 500 in memory) and `GET …/metrics/db-sample-quality[?limit=N]`; a new `sample_quality` table in SQLite and Postgres,
+  moved on archive and deleted by retention like the other per-session tables.
+
+Not done: neither dashboard shows the reports yet ([TD-558](#td-558-android-ops-dashboard-doesnt-show-per-sample-quality-reports) for Android, [TD-559](#td-559-tizen-dashboard-doesnt-show-per-sample-quality-reports) for Tizen), and nothing reads a dataset's own `quality` field (TD-533).
+
+Tests: `SampleQualitySummaryTest.StatisticsAndLowestPairs`; `MetricsTrackerWiringTest.ReportsLossQualityEachEpochAndKeepsPairMetadata`
+and `ReportsGenerationQualityAfterTrainingWhenEnabled` (real `train()` runs with a recording reporter); route tests
+`PushedSampleQualityReportIsStoredAndReadable` and `PushClientSampleQualityReachesTheServer`, and the push-client endpoint test now
+covers the new route; `MetricsDatabaseTest.SampleQualityRoundTripLimitAndArchive`, `LowQualitySampleJson.EncodesAndDecodes` and the
+retention test; the Postgres equivalents; the boolean-key and environment config tests and `IncrementalConfigMapping`. Checked with
+real binaries: a 2-epoch `incremental_trainer` pass over 20 pairs against a real `metrics_api_server` stored and served four loss
+reports (train 18 and validation 2 pairs, per epoch) with their lowest pairs, also in the database; a retrain with only
+`GENERATION_QUALITY_BACKFILL=true` reported generation scores for both splits. Against the old binaries the route was a 404 and the
+table didn't exist.
+
+Location in code: `src/ChatbotTrainer.{hpp,cpp}` (`summarize_sample_quality()`, `report_sample_quality()`, `train()`), `src/IMetricsReporter.hpp`,
+`src/MetricsPushClient.cpp`, `src/TrainingMetricsAPI.cpp`, `src/TrainingMetricsService.cpp`, `src/{MetricsDatabase,SQLiteMetricsDatabase,PostgresMetricsDatabase}.{hpp,cpp}`.
 
 Files to Modify:
 
-- `src/ChatbotTrainer.{hpp,cpp}`
-- `src/IncrementalTrainer.cpp`
-- `src/Config.{hpp,cpp}`
+- `src/ChatbotTrainer.{hpp,cpp}`, `src/IncrementalTrainer.cpp`, `src/Config.{hpp,cpp}`, `config.trainer.conf`
+- `src/IMetricsReporter.hpp`, `src/MetricsPushClient.{hpp,cpp}`
+- `src/TrainingMetricsAPI.{hpp,cpp}`, `src/TrainingMetricsService.{hpp,cpp}`
+- `src/MetricsDatabase.{hpp,cpp}`, `src/SQLiteMetricsDatabase.{hpp,cpp}`, `src/PostgresMetricsDatabase.{hpp,cpp}`
+- tests: `chatbottrainer_test.cpp`, `generation_quality_async_test.cpp`, `training_metrics_api_routes_test.cpp`, `MetricsDatabaseTest.cpp`,
+  `postgres_metrics_database_test.cpp`, `config_test.cpp`, `incrementaltrainer_test.cpp`
 
 ---
 
@@ -17990,6 +18027,85 @@ any config or starting anything. Tests: `ParseTrainerServiceArgs` (3) and, again
 valueless `--config` exit 1). The old binary started the service on `--help` and was still running after 10 s.
 
 Location in code: `src/TrainerServiceMain.cpp` (`main()`, `print_usage()`), `src/IncrementalTrainerArgs.{hpp,cpp}`.
+
+---
+
+### TD-558: Android Ops Dashboard Doesn't Show Per-Sample Quality Reports
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Android / Ops dashboard | November 4, 2026 | 3-5 hours |
+
+Description:
+Filed at the owner's request with TD-273. Since TD-273 the trainer sends `metrics_api_server` a per-sample quality report after every
+epoch: for each split, the distribution of each pair's score (`exp(-loss)`, or BLEU-4 / 100 from the opt-in generation backfill) as
+`count`/`mean`/`min`/`p10`/`median`/`p90`/`max`, plus the lowest-scoring pairs with their input and target text. The server serves them at
+`GET /api/sessions/{key}/metrics/sample-quality` (the newest 500, oldest first, in memory) and `…/metrics/db-sample-quality[?limit=N]`
+(the database), documented in [TRAINING_METRICS_API.md](../TRAINING_METRICS_API.md). The Android ops dashboard's session detail screen
+(`SessionDetailScreen.kt`) shows current metrics, advanced diagnostics, generation quality and per-epoch history charts, but nothing
+reads the new route, so the lowest-scoring pairs (the data the model fits worst: noisy, mislabelled or truncated examples) are only
+visible with `curl`.
+
+Action Items:
+
+- [ ] `MetricsApiService.sampleQuality(key)` for `GET api/sessions/{key}/metrics/sample-quality`, with `SampleQualityResponseDto`/
+      `SampleQualityReportDto`/`LowQualitySampleDto` (nullable statistics: the server sends `null` for a non-finite value; keep
+      `ignoreUnknownKeys`), a `MetricsRepository.sampleQuality()` and a `sampleQuality` field in `SessionDetailUiState`, refreshed with the
+      other per-session reads in `SessionDetailViewModel`.
+- [ ] A "Sample quality" section on the session detail screen for chatbot sessions (not LeJEPA ones, which send no reports): for the
+      latest epoch, a row per split and source with count, mean, p10 and median; a per-epoch chart of the training and validation `p10`
+      and `mean` (`MetricHistoryChart`), so a falling worst decile is visible; and the latest report's lowest-scoring pairs as an expandable
+      list showing score, input and target (the server caps texts at 4 KiB; clip further in the list, full text on expand).
+- [ ] Say which score a report is (loss vs generation) and that higher is better; show "No sample-quality reports" for a session that has
+      none (an older trainer, `LOSS_QUALITY_BACKFILL=false`, or a LeJEPA pass), and tolerate a 404 from an older `metrics_api_server`.
+- [ ] Tests: DTO parsing including `null` statistics, the ViewModel state, and a Compose UI test of the section (empty, one split, both
+      splits, generation reports), matching the existing session-detail tests.
+- [ ] Update the file status tags, and note the section in [TRAINING_METRICS_API.md](../TRAINING_METRICS_API.md)'s sample-quality entry (the ops dashboard has no operator guide of its own).
+
+Location in code: `android/opsdashboard/src/main/java/com/adai/ops/network/MetricsApiService.kt`, `network/dto/`,
+`data/metrics/MetricsRepository.kt`, `ui/metrics/SessionDetailViewModel.kt`, `ui/metrics/SessionDetailScreen.kt`.
+
+Files to Modify:
+
+- `android/opsdashboard/src/main/java/com/adai/ops/network/MetricsApiService.kt` and a DTO file under `network/dto/`
+- `android/opsdashboard/src/main/java/com/adai/ops/data/metrics/MetricsRepository.kt`
+- `android/opsdashboard/src/main/java/com/adai/ops/ui/metrics/SessionDetailViewModel.kt`, `SessionDetailScreen.kt`
+- the matching tests under `android/opsdashboard/src/test/` (and `androidTest/` for the Compose UI test)
+
+---
+
+### TD-559: Tizen Dashboard Doesn't Show Per-Sample Quality Reports
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Tizen / Metrics dashboard | November 4, 2026 | 2-4 hours |
+
+Description:
+Filed at the owner's request with TD-273, as TD-558 for the Android app. The Tizen TV dashboard (`tizen-metrics-app/`) polls
+`…/metrics/current` and `…/metrics/history` (`poll()`, `applyMetrics()` in `js/app.js`) and shows primary, loss and auxiliary metric columns,
+but doesn't read `GET /api/sessions/{key}/metrics/sample-quality`, so the per-epoch quality distribution and lowest-scoring pairs the
+trainer now reports aren't on the TV.
+
+Action Items:
+
+- [ ] Fetch `…/metrics/sample-quality` with `fetchJSON()` for the selected session, less often than the live metrics (reports arrive once
+      per epoch, so once per epoch change or every 30 s is enough), and tolerate a 404 from an older `metrics_api_server`.
+- [ ] Show the latest epoch's training and validation `mean`/`p10`/`median` in the auxiliary column, colored like the generation-quality
+      tiles (`applyGenQualColor()`), with the score type (loss or generation) labelled.
+- [ ] A remote-navigable panel (`js/navigation.js` focus handling) listing the latest report's lowest-scoring pairs: score, input and
+      target, escaped with `escapeHtml()` and clipped to a few lines for a 10-foot UI. `null` statistics show as "—".
+- [ ] Optional: plot the per-epoch training/validation `p10` with `js/chart.js` alongside the loss chart.
+- [ ] Check it on the TV (or the Tizen emulator) against a real `metrics_api_server`. The app reads with `fetch(…, {mode: 'cors'})`, so
+      the new route needs the same `METRICS_API_CORS_ALLOWED_ORIGINS` entry as the existing ones (TD-526); no server change is expected.
+- [ ] Update `tizen-metrics-app/README.md` and the file status tags.
+
+Location in code: `tizen-metrics-app/js/app.js` (`poll()`, `applyMetrics()`), `js/navigation.js`, `js/chart.js`, `index.html`, `css/`.
+
+Files to Modify:
+
+- `tizen-metrics-app/js/app.js`, `js/navigation.js`, `js/chart.js`
+- `tizen-metrics-app/index.html`, `tizen-metrics-app/css/`
+- `tizen-metrics-app/README.md`
 
 ---
 

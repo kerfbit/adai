@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.17.0
-// @adai-reviewed: 2026-11-03
+// @adai-version: 0.18.0
+// @adai-reviewed: 2026-11-04
 
 #include "TrainingMetricsAPI.hpp"
 #include "BrowserWriteGuard.hpp"
@@ -126,6 +126,16 @@ class PushBody {
             return nlohmann::json();
         if (!v->is_object())
             throw bad_field(key, "an object");
+        return *v;
+    }
+
+    // A JSON array field; an empty array when absent or null.
+    nlohmann::json get_array(const char* key) const {
+        const auto* v = find(key);
+        if (!v || v->is_null())
+            return nlohmann::json::array();
+        if (!v->is_array())
+            throw bad_field(key, "an array");
         return *v;
     }
 
@@ -568,6 +578,36 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                 res.status = 500;
             }
         });
+    // TD-273: per-sample quality reports, from memory and from the database.
+    server_impl_->server.Get(
+        "/api/sessions/" + key_pattern + "/metrics/sample-quality",
+        [this](const httplib::Request& req, httplib::Response& res) {
+            try {
+                res.set_content(handle_sample_quality(req.matches[1]), "application/json");
+                res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
+            } catch (const std::exception& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 500;
+            }
+        });
+    server_impl_->server.Get(
+        "/api/sessions/" + key_pattern + "/metrics/db-sample-quality",
+        [this](const httplib::Request& req, httplib::Response& res) {
+            try {
+                std::string query_params;
+                if (req.has_param("limit"))
+                    query_params = "limit=" + req.get_param_value("limit");
+                res.set_content(handle_db_sample_quality(req.matches[1], query_params),
+                                "application/json");
+                res.status = 200;
+            } catch (const std::exception& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 500;
+            }
+        });
     server_impl_->server.Get(
         "/api/sessions/" + key_pattern + "/metrics/db-generation-quality",
         [this](const httplib::Request& req, httplib::Response& res) {
@@ -722,6 +762,23 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
             try {
                 std::string response = handle_post_best_metrics(req.matches[1], req.body);
                 res.set_content(response, "application/json");
+                res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
+            } catch (const std::exception& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 400;
+            }
+        });
+
+    // TD-273: the trainer pushes per-sample quality reports here.
+    server_impl_->server.Post(
+        "/api/sessions/" + key_pattern + "/metrics/sample-quality",
+        [this](const httplib::Request& req, httplib::Response& res) {
+            try {
+                res.set_content(handle_post_sample_quality(req.matches[1], req.body),
+                                "application/json");
                 res.status = 200;
             } catch (const ApiRequestError& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
@@ -2313,6 +2370,103 @@ std::string TrainingMetricsAPI::handle_post_abnormal_sample(const std::string& s
     sample.target_text = truncate_sample_text(b.get_string("target_text"));
     sample.timestamp = std::chrono::system_clock::now();
     service->flag_abnormal_sample(sample);
+    return R"({"status":"ok"})";
+}
+
+namespace {
+// TD-273: reports as JSON; NaN statistics are written as null.
+nlohmann::json sample_quality_json(const SampleQualityReport& r) {
+    auto num = [](float v) { return std::isfinite(v) ? nlohmann::json(v) : nlohmann::json(); };
+    nlohmann::json lowest = nlohmann::json::array();
+    for (const LowQualitySample& s : r.lowest) {
+        lowest.push_back({{"quality", num(s.quality)},
+                          {"input_text", s.input_text},
+                          {"target_text", s.target_text}});
+    }
+    return {{"timestamp", std::chrono::system_clock::to_time_t(r.timestamp)},
+            {"epoch", r.epoch},
+            {"source", r.source},
+            {"split", r.split},
+            {"count", r.count},
+            {"mean", num(r.mean)},
+            {"min", num(r.min)},
+            {"p10", num(r.p10)},
+            {"median", num(r.median)},
+            {"p90", num(r.p90)},
+            {"max", num(r.max)},
+            {"lowest", lowest}};
+}
+
+std::string sample_quality_response(const std::string& session_key,
+                                    const std::vector<SampleQualityReport>& reports) {
+    nlohmann::json out = {{"session_key", session_key}, {"count", reports.size()}};
+    out["reports"] = nlohmann::json::array();
+    for (const auto& r : reports) {
+        out["reports"].push_back(sample_quality_json(r));
+    }
+    return out.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+}
+}  // namespace
+
+std::string TrainingMetricsAPI::handle_sample_quality(const std::string& session_key) {
+    auto service = resolve_session_service(session_key, false);
+    return sample_quality_response(session_key, service->get_sample_quality());
+}
+
+std::string TrainingMetricsAPI::handle_db_sample_quality(const std::string& session_key,
+                                                         const std::string& query_params) {
+    auto* db = session_registry_->get_database();
+    if (!db) {
+        return create_error_response("No database backend configured");
+    }
+    const int limit = parse_query_param_int(query_params, "limit", 0);
+    return sample_quality_response(session_key, db->query_sample_quality(session_key, limit));
+}
+
+// TD-273: {"epoch", "source" ("loss"|"generation"), "split" ("train"|"validation"), "count",
+// "mean", "min", "p10", "median", "p90", "max", "lowest": [{"quality", "input_text",
+// "target_text"}, ...]}. At most 20 lowest pairs are kept, their texts cut to 4 KiB like abnormal
+// samples.
+std::string TrainingMetricsAPI::handle_post_sample_quality(const std::string& session_key,
+                                                           const std::string& body) {
+    auto service = resolve_session_service(session_key, false);
+    const PushBody b(body);
+    SampleQualityReport report;
+    report.epoch = b.get_int("epoch", 0);
+    report.source = b.get_string("source");
+    report.split = b.get_string("split");
+    if (report.source != "loss" && report.source != "generation") {
+        throw ApiRequestError(400, "field 'source' must be \"loss\" or \"generation\"");
+    }
+    if (report.split != "train" && report.split != "validation") {
+        throw ApiRequestError(400, "field 'split' must be \"train\" or \"validation\"");
+    }
+    report.count = b.get_int("count", 0);
+    if (report.epoch < 0 || report.count < 0) {
+        throw ApiRequestError(400, "fields 'epoch' and 'count' can't be negative");
+    }
+    report.mean = b.get_float("mean", std::numeric_limits<float>::quiet_NaN());
+    report.min = b.get_float("min", std::numeric_limits<float>::quiet_NaN());
+    report.p10 = b.get_float("p10", std::numeric_limits<float>::quiet_NaN());
+    report.median = b.get_float("median", std::numeric_limits<float>::quiet_NaN());
+    report.p90 = b.get_float("p90", std::numeric_limits<float>::quiet_NaN());
+    report.max = b.get_float("max", std::numeric_limits<float>::quiet_NaN());
+    constexpr std::size_t kMaxLowest = 20;
+    for (const auto& item : b.get_array("lowest")) {
+        if (report.lowest.size() == kMaxLowest) {
+            break;
+        }
+        if (!item.is_object()) {
+            throw ApiRequestError(400, "field 'lowest' must be an array of objects");
+        }
+        const PushBody entry(item.dump());
+        report.lowest.push_back(
+            {entry.get_float("quality", std::numeric_limits<float>::quiet_NaN()),
+             truncate_sample_text(entry.get_string("input_text")),
+             truncate_sample_text(entry.get_string("target_text"))});
+    }
+    report.timestamp = std::chrono::system_clock::now();
+    service->record_sample_quality(report);
     return R"({"status":"ok"})";
 }
 

@@ -90,6 +90,7 @@ The server uses a session-keyed design. Each training run opens a named **sessio
 | **GET** | `/api/sessions/{key}/metrics/summary` | Aggregated session summary |
 | **GET** | `/api/sessions/{key}/metrics/history` | Historical records (`max_records`, `session_id`) |
 | **GET** | `/api/sessions/{key}/metrics/abnormal` | Anomalous samples flagged by outlier detection |
+| **GET** | `/api/sessions/{key}/metrics/sample-quality` | TD-273: per-sample quality distributions and lowest-scoring pairs, per epoch and split |
 | **GET** | `/api/sessions/{key}/metrics/generation-quality` | BLEU/ROUGE scores per epoch |
 | **GET** | `/api/sessions/{key}/metrics/padding-efficiency` | Padding efficiency per epoch |
 | **GET** | `/api/sessions/{key}/metrics/lejepa` | TD-178: LeJEPA predictor/SIGReg loss per epoch |
@@ -102,6 +103,7 @@ The server uses a session-keyed design. Each training run opens a named **sessio
 | **GET** | `/api/sessions/{key}/metrics/db-history` | DB-backed time-range history (`from`, `to`, `limit`) |
 | **GET** | `/api/sessions/{key}/metrics/db-gradient-variance` | Per-optimizer-step gradient variance from the DB (`limit` = newest N) |
 | **GET** | `/api/sessions/{key}/metrics/db-generation-quality` | Per-epoch BLEU/ROUGE scores from the DB |
+| **GET** | `/api/sessions/{key}/metrics/db-sample-quality` | TD-273: per-sample quality reports from the DB (`limit` = newest N) |
 | **GET** | `/api/sessions/{key}/metrics/export` | History export, newest 200,000 records (`format=csv\|json`) |
 | **GET** | `/api/metrics/compare` | Cross-session metric comparison (`keys`, `metric`) |
 | **GET** | `/health` | Server health and active session count |
@@ -119,6 +121,7 @@ The server uses a session-keyed design. Each training run opens a named **sessio
 | **POST** | `/api/sessions/{key}/metrics/best` | Record best epoch checkpoint |
 | **POST** | `/api/sessions/{key}/metrics/advanced` | Push advanced diagnostic metrics |
 | **POST** | `/api/sessions/{key}/metrics/generation-quality` | Push BLEU/ROUGE scores |
+| **POST** | `/api/sessions/{key}/metrics/sample-quality` | TD-273: push a per-sample quality report |
 | **POST** | `/api/sessions/{key}/control/flush` | Force flush to disk |
 | **POST** | `/api/sessions/{key}/control/clear` | Clear in-memory history |
 
@@ -398,6 +401,28 @@ Response:
 ```
 
 Returns an empty `abnormal_samples` array when no anomalies have been detected.
+
+### `GET /api/sessions/{key}/metrics/sample-quality`
+
+TD-273 (November 4, 2026). Per-sample quality reports the trainer sent for this session, oldest first, as this server holds
+them (the newest 500; `…/metrics/db-sample-quality[?limit=N]` reads the database copy). Each report covers one epoch, one
+`source` and one `split`:
+
+- `source` `"loss"`: every pair scored `exp(-loss)` with its training or validation loss that epoch (`LOSS_QUALITY_BACKFILL`,
+  on by default), sent after each epoch;
+- `source` `"generation"`: every pair's sentence BLEU-4 / 100 for a reply generated after training
+  (`GENERATION_QUALITY_BACKFILL`, off by default: one generation per pair), sent once after training.
+
+Both are in [0, 1], higher is better. `count` is the number of pairs scored; `mean`, `min`, `p10`, `median`, `p90`, `max`
+describe their distribution (null when not finite); `lowest` lists the lowest-scoring pairs, lowest first (the trainer sends 5,
+the server keeps at most 20, texts cut to 4 KiB).
+
+```json
+{"session_key":"1-Alexandrite","count":1,"reports":[
+  {"timestamp":1793830000,"epoch":2,"source":"loss","split":"validation","count":2,
+   "mean":0.0127,"min":0.0089,"p10":0.0096,"median":0.0127,"p90":0.0157,"max":0.0164,
+   "lowest":[{"quality":0.0089,"input_text":"question 9 about item 27","target_text":"answer 9 for item 63"}]}]}
+```
 
 ---
 
@@ -859,6 +884,14 @@ Push BLEU/ROUGE scores for the current epoch.
 
 `bleu1`/`bleu2` are optional (TD-379, October 25, 2026). They're stored in the DB's generation quality row, served by
 `…/metrics/db-generation-quality`; when absent they're stored as -1.
+
+Response: `{"status":"ok"}`
+
+#### `POST /api/sessions/{key}/metrics/sample-quality`
+
+TD-273: one per-sample quality report, the shape the GET above returns without `timestamp` (the server sets it). `source`
+must be `"loss"` or `"generation"` and `split` `"train"` or `"validation"`, `epoch` and `count` can't be negative, and
+`lowest` must be an array of objects; anything else is a 400 naming the field. Stored in the `sample_quality` table.
 
 Response: `{"status":"ok"}`
 

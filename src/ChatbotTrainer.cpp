@@ -1020,6 +1020,12 @@ float ChatbotTrainer::train_epoch(int epoch) {
     float total_grad_norm = 0.0f;
     int num_samples = static_cast<int>(tokenized_training_data.size());
     int effective_batch_size = config.batch_size * config.gradient_accumulation_steps;
+    // TD-273: this epoch's scores only; a pair that fails this epoch reports no score.
+    if (config.enable_loss_quality_backfill) {
+        for (auto& pair : training_data) {
+            pair.meta.quality = -1.0f;
+        }
+    }
 
     long long epoch_tokens = 0;
     for (const auto& tp : tokenized_training_data) {
@@ -1832,6 +1838,11 @@ float ChatbotTrainer::validate() {
     }
 
     adai::Logger::info("🔍 Validating...");
+    if (config.enable_loss_quality_backfill) {  // TD-273: this validation's scores only
+        for (auto& pair : validation_data) {
+            pair.meta.quality = -1.0f;
+        }
+    }
 
     // Set model to evaluation mode
     model->set_training(false);
@@ -2046,8 +2057,26 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
                                                          score.rougeL, score.bleu1, score.bleu2);
 }
 
-// TODO: See TD-273 in TECHNICAL_DEBT.md - writes meta.quality into private copies nobody reads (no accessor;
-// IncrementalTrainer passes pairs without metadata) and has no config key.
+// TD-273: the scores are reported (report_sample_quality()) and readable with get_training_pairs()/
+// get_validation_pairs(); GENERATION_QUALITY_BACKFILL turns this on.
+void ChatbotTrainer::report_sample_quality(int epoch, const std::string& source) const {
+    if (!metrics_reporter_) {
+        return;
+    }
+    const std::size_t lowest_n =
+        static_cast<std::size_t>(std::max(0, config.quality_report_lowest_samples));
+    for (const auto& [split, pairs] :
+         {std::pair<const char*, const std::vector<ConversationPair>*>{"train", &training_data},
+          std::pair<const char*, const std::vector<ConversationPair>*>{"validation",
+                                                                       &validation_data}}) {
+        SampleQualityReport report =
+            summarize_sample_quality(*pairs, epoch, source, split, lowest_n);
+        if (report.count > 0) {
+            metrics_reporter_->report_sample_quality(report);
+        }
+    }
+}
+
 void ChatbotTrainer::backfill_generation_quality() {
     if (!model) {
         return;
@@ -2189,6 +2218,9 @@ bool ChatbotTrainer::train(int num_epochs) {
                 metrics_reporter_->end_epoch(epoch + 1, epoch_loss, val_loss, current_learning_rate,
                                              std::exp(epoch_loss), epoch_grad_norm, epoch_seconds);
             }
+            if (config.enable_loss_quality_backfill) {
+                report_sample_quality(epoch + 1, "loss");  // TD-273
+            }
 
             // Early stopping check (epochs_without_improvement maintained by validate())
             if (has_validation && config.enable_early_stopping &&
@@ -2243,6 +2275,8 @@ bool ChatbotTrainer::train(int num_epochs) {
         if (config.enable_generation_quality_backfill) {
             join_generation_quality_thread();  // finish any async scoring before backfill
             backfill_generation_quality();
+            report_sample_quality(static_cast<int>(training_losses.size()),
+                                  "generation");  // TD-273
         }
 
         return true;
@@ -2320,6 +2354,65 @@ void ChatbotTrainer::add_training_pair(const std::string& input, const std::stri
 
 void ChatbotTrainer::add_validation_pair(const std::string& input, const std::string& response) {
     validation_data.emplace_back(input, response);
+}
+
+void ChatbotTrainer::add_training_pair(ConversationPair pair) {
+    training_data.push_back(std::move(pair));
+}
+
+void ChatbotTrainer::add_validation_pair(ConversationPair pair) {
+    validation_data.push_back(std::move(pair));
+}
+
+SampleQualityReport ChatbotTrainer::summarize_sample_quality(
+    const std::vector<ConversationPair>& pairs, int epoch, const std::string& source,
+    const std::string& split, std::size_t lowest_n) {
+    SampleQualityReport report;
+    report.epoch = epoch;
+    report.source = source;
+    report.split = split;
+    report.timestamp = std::chrono::system_clock::now();
+
+    std::vector<std::size_t> scored;
+    for (std::size_t i = 0; i < pairs.size(); ++i) {
+        const float q = pairs[i].meta.quality;
+        if (std::isfinite(q) && q >= 0.0f) {
+            scored.push_back(i);
+        }
+    }
+    if (scored.empty()) {
+        return report;
+    }
+    // Lowest first, ties in data order.
+    std::stable_sort(scored.begin(), scored.end(), [&pairs](std::size_t a, std::size_t b) {
+        return pairs[a].meta.quality < pairs[b].meta.quality;
+    });
+    const std::size_t n = scored.size();
+    auto value = [&](std::size_t rank) { return pairs[scored[rank]].meta.quality; };
+    // Linear interpolation between the closest ranks.
+    auto percentile = [&](double q) {
+        const double pos = q * static_cast<double>(n - 1);
+        const std::size_t lo = static_cast<std::size_t>(std::floor(pos));
+        const std::size_t hi = std::min(lo + 1, n - 1);
+        return static_cast<float>(value(lo) +
+                                  (pos - static_cast<double>(lo)) * (value(hi) - value(lo)));
+    };
+    double sum = 0.0;
+    for (std::size_t r = 0; r < n; ++r) {
+        sum += value(r);
+    }
+    report.count = static_cast<int>(n);
+    report.mean = static_cast<float>(sum / static_cast<double>(n));
+    report.min = value(0);
+    report.p10 = percentile(0.10);
+    report.median = percentile(0.50);
+    report.p90 = percentile(0.90);
+    report.max = value(n - 1);
+    for (std::size_t r = 0; r < std::min(lowest_n, n); ++r) {
+        const ConversationPair& p = pairs[scored[r]];
+        report.lowest.push_back({p.meta.quality, p.input, p.response});
+    }
+    return report;
 }
 
 float ChatbotTrainer::get_final_training_loss() const {

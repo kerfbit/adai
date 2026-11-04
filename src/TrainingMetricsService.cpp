@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.14.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.15.0
+// @adai-reviewed: 2026-11-04
 
 #include "TrainingMetricsService.hpp"
 #include <algorithm>
@@ -1637,6 +1637,29 @@ void TrainingMetricsService::flag_abnormal_sample(const AbnormalSample& sample) 
 
         persist_abnormal_samples();
     }
+}
+
+void TrainingMetricsService::record_sample_quality(const SampleQualityReport& report) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (sample_quality_.size() >= kMaxSampleQualityReports) {
+        sample_quality_.erase(sample_quality_.begin());
+    }
+    sample_quality_.push_back(report);
+    if (db_ && !session_key_.empty()) {
+        try {
+            db_->insert_sample_quality(session_key_, report);
+        } catch (const std::exception& e) {
+            adai::Logger::error("Failed to insert sample quality report to DB: {}", e.what());
+        }
+    }
+    adai::Logger::debug(
+        "Sample quality — epoch={} source={} split={} count={} mean={:.4f} p10={:.4f}",
+        report.epoch, report.source, report.split, report.count, report.mean, report.p10);
+}
+
+std::vector<SampleQualityReport> TrainingMetricsService::get_sample_quality() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return sample_quality_;
 }
 
 std::vector<AbnormalSample> TrainingMetricsService::get_abnormal_samples() const {

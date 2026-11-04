@@ -162,3 +162,11 @@ through them. Tests: `BatchInsertsAreAllOrNothing` (SQLite and live PostgreSQL).
 - **Factory.** `MetricsDatabaseFactory::create()` and `plan_row_cap()` live in `src/MetricsDatabase.cpp`.
 
 Tests: `LimitClause`, `GradientVarianceStepsContinueAcrossServiceInstances`, `LimitKeepsNewestAndMaxStep` (PostgreSQL).
+
+## Addendum (November 4, 2026): the `sample_quality` table (TD-273)
+
+`IMetricsDatabase` gains `insert_sample_quality()` and `query_sample_quality(session_key, limit = 0)` (oldest first, `limit` keeps the
+newest). Both backends create `sample_quality` (session key, recorded_at, epoch, source, split, count, mean, min, p10, median, p90, max,
+`lowest_json`), move its rows in `archive_session()` and delete them in `delete_sessions_updated_before()`. The lowest pairs are stored
+as JSON through the shared `encode_low_quality_samples()`/`decode_low_quality_samples()` (`MetricsDatabase.cpp`, nlohmann/json; text
+that isn't such an array decodes to an empty list). Per-epoch rows are few, so `cap_session_rows()` doesn't cover the table.

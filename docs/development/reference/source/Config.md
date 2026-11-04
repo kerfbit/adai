@@ -334,3 +334,9 @@ Two keys for `mns_cli`: `NAME_SERVICE_HEADERS` (extra request headers, in `METRI
 format, hidden in `to_string()`) and `NAME_SERVICE_CA_FILE` (CA bundle for an `https://` `NAME_SERVICE_URL`), read from
 the file and the environment. The header-list parser is now `parse_http_header_list()`, inline in `Config.hpp`, shared with
 `MetricsPushClient`'s `parse_metrics_server_headers()`.
+
+## Addendum (November 4, 2026): `LOSS_QUALITY_BACKFILL`, `GENERATION_QUALITY_BACKFILL` (TD-273)
+
+Two boolean `config.trainer.conf` keys (file and environment, the shared boolean parser): `loss_quality_backfill` (default `true`) and
+`generation_quality_backfill` (default `false`), mapped by `IncrementalTrainer::make_incremental_config()` to
+`TrainingConfig::enable_loss_quality_backfill`/`enable_generation_quality_backfill`. Shown by `to_string()`.

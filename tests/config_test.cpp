@@ -1411,8 +1411,10 @@ const std::vector<std::pair<std::string, bool ServiceConfig::*>> kBoolKeys = {
     {"GPU_ENABLED", &ServiceConfig::gpu_enabled},
     {"FTPS_ENABLED", &ServiceConfig::ftps_enabled},
     {"FTP_SERVER_ENABLED", &ServiceConfig::ftp_server_enabled},
-    {"MNS_ADMIN_ENABLED", &ServiceConfig::name_service_admin_enabled},  // TD-456
-    {"REGISTRY_ADMIN_ENABLED", &ServiceConfig::registry_admin_enabled},  // TD-489
+    {"MNS_ADMIN_ENABLED", &ServiceConfig::name_service_admin_enabled},             // TD-456
+    {"REGISTRY_ADMIN_ENABLED", &ServiceConfig::registry_admin_enabled},            // TD-489
+    {"LOSS_QUALITY_BACKFILL", &ServiceConfig::loss_quality_backfill},              // TD-273
+    {"GENERATION_QUALITY_BACKFILL", &ServiceConfig::generation_quality_backfill},  // TD-273
 };
 }  // namespace
 
@@ -1437,6 +1439,21 @@ TEST_F(ConfigTest, ABooleanThatIsntOneLeavesTheDefault) {
     const ServiceConfig config = ConfigLoader::load(test_file.string());
     EXPECT_EQ(config.metrics_api_allow_control, defaults.metrics_api_allow_control);
     EXPECT_EQ(config.gpu_enabled, defaults.gpu_enabled);
+}
+
+// TD-273: the loss score is on and the per-pair generation one off unless configured; both can come
+// from the environment.
+TEST_F(ConfigTest, QualityBackfillDefaultsAndEnvironment) {
+    const ServiceConfig defaults;
+    EXPECT_TRUE(defaults.loss_quality_backfill);
+    EXPECT_FALSE(defaults.generation_quality_backfill);
+    ::setenv("LOSS_QUALITY_BACKFILL", "off", 1);
+    ::setenv("GENERATION_QUALITY_BACKFILL", "Yes", 1);
+    const ServiceConfig config = ConfigLoader::load(test_file.string());
+    ::unsetenv("LOSS_QUALITY_BACKFILL");
+    ::unsetenv("GENERATION_QUALITY_BACKFILL");
+    EXPECT_FALSE(config.loss_quality_backfill);
+    EXPECT_TRUE(config.generation_quality_backfill);
 }
 
 TEST_F(ConfigTest, FtpsEnabledFromTheEnvironmentAcceptsAnyCase) {

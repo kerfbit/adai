@@ -428,3 +428,19 @@ Checked with real `incremental_trainer` passes (20 pairs, `CACHE_TOKENIZED_DATA=
 between them wrote different cache files with the old binary (different validation pairs) and byte-identical ones with the
 new; a third pass hit the cache with both, which for the old binary meant tokenized pairs from another split.
 
+## Addendum (November 4, 2026): quality backfills reported to the metrics server (TD-273)
+
+Owner decision: wire up both backfills and report them to `metrics_api_server`, the loss score on by default and the
+generation score opt-in.
+
+- `TrainingConfig::enable_loss_quality_backfill` now defaults to `true` (`LOSS_QUALITY_BACKFILL`); `enable_generation_quality_backfill`
+  stays `false` (`GENERATION_QUALITY_BACKFILL`); `quality_report_lowest_samples` (5) sets how many lowest-scoring pairs a report carries.
+  `IncrementalTrainer::make_incremental_config()` maps both keys.
+- `train_epoch()` and `validate()` reset `meta.quality` to -1 before scoring, so a report counts only that epoch's scores (a pair
+  that fails reports none).
+- After each completed epoch, `train()` calls `report_sample_quality(epoch, "loss")`; after the generation backfill, once with
+  `"generation"`. Each builds one `SampleQualityReport` per split with scored pairs through the public static
+  `summarize_sample_quality()` (count, mean, min, p10/median/p90 by linear interpolation, max, the lowest pairs, lowest first, ties in
+  data order; negative or non-finite scores left out) and sends it with `IMetricsReporter::report_sample_quality()`.
+- `add_training_pair(ConversationPair)`/`add_validation_pair(ConversationPair)` keep a pair's dataset metadata; `IncrementalTrainer`
+  now passes its loaded pairs that way. `get_training_pairs()`/`get_validation_pairs()` expose the pairs with their scores.

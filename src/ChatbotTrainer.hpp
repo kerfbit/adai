@@ -147,10 +147,12 @@ struct TrainingConfig {
     /// Below this threshold the synchronous path is used (no extra memory cost).
     int generation_quality_async_threshold = 50;
 
-    // Quality score backfill into SampleMeta
-    bool enable_loss_quality_backfill = false;  // Write exp(-loss) into meta.quality each epoch
+    // Quality score backfill into SampleMeta (TD-273: reported to the metrics reporter as
+    // SampleQualityReports; read back with get_training_pairs()/get_validation_pairs())
+    bool enable_loss_quality_backfill = true;  // exp(-loss) into meta.quality each epoch
     bool enable_generation_quality_backfill =
-        false;  // Overwrite meta.quality with BLEU4 after training (slow)
+        false;  // Overwrite meta.quality with BLEU4 / 100 after training (slow)
+    int quality_report_lowest_samples = 5;  // lowest-scoring pairs sent with each report
     int generation_backfill_max_tokens =
         50;  // max_length passed to generate_response() during backfill
 
@@ -386,6 +388,10 @@ class ChatbotTrainer {
      */
     void backfill_generation_quality();
 
+    /// TD-273: sends a SampleQualityReport per split that has scored pairs (no-op without a
+    /// reporter).
+    void report_sample_quality(int epoch, const std::string& source) const;
+
    public:
     /**
      * @brief Construct trainer with configuration
@@ -431,6 +437,29 @@ class ChatbotTrainer {
     // Data management
     void add_training_pair(const std::string& input, const std::string& response);
     void add_validation_pair(const std::string& input, const std::string& response);
+    /// TD-273: with the pair's dataset metadata (domain, task type, ...), kept with the pair.
+    void add_training_pair(ConversationPair pair);
+    void add_validation_pair(ConversationPair pair);
+
+    /// TD-273: the pairs after train(), with their metadata; meta.quality holds the last quality
+    /// score (exp(-loss) of the last epoch, or BLEU-4 / 100 after the generation backfill), or a
+    /// negative value for a pair that wasn't scored.
+    const std::vector<ConversationPair>& get_training_pairs() const {
+        return training_data;
+    }
+    const std::vector<ConversationPair>& get_validation_pairs() const {
+        return validation_data;
+    }
+
+    /**
+     * @brief TD-273: the distribution of `pairs`' quality scores for a SampleQualityReport. Pairs
+     *        with a negative or non-finite meta.quality (not scored) are left out. `lowest` holds
+     *        the `lowest_n` lowest-scoring pairs, lowest first (ties in data order).
+     */
+    static SampleQualityReport summarize_sample_quality(const std::vector<ConversationPair>& pairs,
+                                                        int epoch, const std::string& source,
+                                                        const std::string& split,
+                                                        std::size_t lowest_n);
 
     // Access final metrics
     float get_final_training_loss() const;

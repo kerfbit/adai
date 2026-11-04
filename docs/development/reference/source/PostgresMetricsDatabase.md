@@ -98,3 +98,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 Test: `FreshServiceSessionKeepsFirstRowsWithoutRetryStalls` writes through the real service with a fresh key and no upsert first. All 5
 history and 5 gradient-variance rows are stored, in about 1 s. The old code stored none and took 5.5 s. This closes the "not covered"
 gap above.
+
+## Addendum (November 4, 2026): `sample_quality` (TD-273)
+
+Implements `insert_sample_quality()`/`query_sample_quality()` on a new `sample_quality` table, included in `archive_session()` and
+retention; see [MetricsDatabase.md](MetricsDatabase.md)'s addendum. A NaN statistic reads back as NaN.

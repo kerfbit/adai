@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-10-25
-
+// @adai-version: 1.4.0
+// @adai-reviewed: 2026-11-04
 
 #include <chrono>
 #include <limits>
@@ -15,6 +14,13 @@
 struct PersistentMetricsRecord;
 struct AbnormalSample;
 struct GenerationQualityScore;
+struct SampleQualityReport;
+struct LowQualitySample;
+
+// TD-273: SampleQualityReport::lowest as stored in the sample_quality table's lowest_json column,
+// shared by both backends. Decoding text that isn't such a JSON array gives an empty list.
+std::string encode_low_quality_samples(const std::vector<LowQualitySample>& samples);
+std::vector<LowQualitySample> decode_low_quality_samples(const std::string& json);
 
 struct SessionRecord {
     std::string key;
@@ -130,6 +136,10 @@ class IMetricsDatabase {
     virtual void insert_generation_quality(const std::string& session_key, int epoch,
                                            const GenerationQualityScore& score) = 0;
 
+    // TD-273: one per-sample quality report (one epoch, source and split) per row.
+    virtual void insert_sample_quality(const std::string& session_key,
+                                       const SampleQualityReport& report) = 0;
+
     virtual std::vector<PersistentMetricsRecord> query_history(
         const std::string& session_key,
         std::optional<std::chrono::system_clock::time_point> from = std::nullopt,
@@ -149,15 +159,18 @@ class IMetricsDatabase {
         const std::string& session_key, int limit = 0) = 0;
     virtual std::vector<GenerationQualityRecord> query_generation_quality(
         const std::string& session_key) = 0;
+    // TD-273: oldest first; `limit` > 0 keeps the newest `limit` reports.
+    virtual std::vector<SampleQualityReport> query_sample_quality(const std::string& session_key,
+                                                                  int limit = 0) = 0;
 
     // TD-440: applies plan_row_cap() to the session's metrics_history and gradient_variance_history
     // rows. Returns the number of rows deleted. max_rows <= 0 does nothing.
     virtual long long cap_session_rows(const std::string& session_key, int max_rows) = 0;
 
     // TD-440: deletes every session whose last_update_at is before `cutoff`, with all of its rows
-    // (metrics, gradient variance, generation quality, abnormal samples). A live session updates its
-    // row at every persist, so only dead or archived sessions are old enough. Returns the number of
-    // sessions deleted.
+    // (metrics, gradient variance, generation quality, abnormal samples, sample quality). A live
+    // session updates its row at every persist, so only dead or archived sessions are old enough.
+    // Returns the number of sessions deleted.
     virtual long long delete_sessions_updated_before(
         std::chrono::system_clock::time_point cutoff) = 0;
 };

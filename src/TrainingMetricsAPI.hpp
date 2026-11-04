@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.16.0
-// @adai-reviewed: 2026-11-03
-
+// @adai-version: 0.17.0
+// @adai-reviewed: 2026-11-04
 
 #include <atomic>
 #include <memory>
@@ -138,6 +137,12 @@ class TrainingMetricsAPI {
     std::string handle_session_status(const std::string& session_key);
     std::string handle_epoch_metrics(const std::string& session_key);
     std::string handle_abnormal_samples(const std::string& session_key);  // TD-013: outlier samples
+    // TD-273: GET …/metrics/sample-quality (this server's memory) and …/metrics/db-sample-quality
+    // [?limit=N] (the database); POST …/metrics/sample-quality from the trainer.
+    std::string handle_sample_quality(const std::string& session_key);
+    std::string handle_db_sample_quality(const std::string& session_key,
+                                         const std::string& query_params);
+    std::string handle_post_sample_quality(const std::string& session_key, const std::string& body);
     std::string handle_generation_quality_metrics(const std::string& session_key);  // BLEU/ROUGE
     std::string handle_padding_efficiency_metrics(const std::string& session_key);  // Batch padding
     std::string handle_lejepa_metrics(const std::string& session_key);  // TD-178: predictor/sigreg loss

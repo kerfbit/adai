@@ -265,6 +265,24 @@ GENERATION_QUALITY_ASYNC_THRESHOLD=50  # run scoring in background thread when s
 
 Disable (`false`) during exploratory runs; enable for final evaluation passes.
 
+### Per-sample quality scores
+
+Each epoch the trainer scores every training and validation pair `exp(-loss)` (0 to 1, higher is better) and sends
+`metrics_api_server` the distribution (mean, min, 10th/50th/90th percentile, max) and the five lowest-scoring pairs with
+their text, per split. Low scorers are the pairs the model fits worst: often noisy, mislabelled or truncated data. Read them
+with:
+
+```bash
+curl -s http://localhost:8081/api/sessions/<session-key>/metrics/sample-quality
+```
+
+```ini
+LOSS_QUALITY_BACKFILL=true         # default; cheap, uses the losses training computes anyway
+GENERATION_QUALITY_BACKFILL=false  # true: after training, generate a reply for every pair and report its BLEU-4 / 100
+```
+
+The generation score runs one generation per pair after training, so enable it only on small or evaluation passes.
+
 ---
 
 ## Training Metrics Service

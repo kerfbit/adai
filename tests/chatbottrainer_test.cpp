@@ -468,17 +468,19 @@ TEST(GradientAccumulationTest, EffectiveBatchSize_Large) {
 // Quality Backfill Configuration Tests
 // ============================================================================
 
-TEST(QualityBackfillTest, Config_DefaultsAllDisabled) {
+// TD-273: the cheap loss score is on by default; the per-pair generation one stays opt-in.
+TEST(QualityBackfillTest, Config_DefaultsLossOnGenerationOff) {
     TrainingConfig config;
-    EXPECT_FALSE(config.enable_loss_quality_backfill);
+    EXPECT_TRUE(config.enable_loss_quality_backfill);
+    EXPECT_EQ(config.quality_report_lowest_samples, 5);
     EXPECT_FALSE(config.enable_generation_quality_backfill);
     EXPECT_EQ(config.generation_backfill_max_tokens, 50);
 }
 
-TEST(QualityBackfillTest, Config_CanEnableLossBackfill) {
+TEST(QualityBackfillTest, Config_CanDisableLossBackfill) {
     TrainingConfig config;
-    config.enable_loss_quality_backfill = true;
-    EXPECT_TRUE(config.enable_loss_quality_backfill);
+    config.enable_loss_quality_backfill = false;
+    EXPECT_FALSE(config.enable_loss_quality_backfill);
     EXPECT_FALSE(config.enable_generation_quality_backfill);
 }
 
@@ -732,6 +734,7 @@ class EpochRecordingReporter final : public IMetricsReporter {
     };
     std::vector<int> started;
     std::vector<Ended> ended;
+    std::vector<SampleQualityReport> quality;  // TD-273
 
     void start_epoch(int epoch, int /*total_samples*/) override { started.push_back(epoch); }
     void end_epoch(int epoch, float loss, float validation_loss, float learning_rate, float perplexity,
@@ -753,6 +756,9 @@ class EpochRecordingReporter final : public IMetricsReporter {
     void update_generation_quality_metrics(float, float, float, float, float, float) override {}
     void update_lejepa_metrics(float, float) override {}
     void update_lejepa_advanced_metrics(float, float, float, float) override {}
+    void report_sample_quality(const SampleQualityReport& report) override {
+        quality.push_back(report);
+    }
 };
 
 // TD-268: a run without validation data (validation_split = 0) used to start every epoch on the
@@ -811,6 +817,121 @@ TEST_F(MetricsTrackerWiringTest, EndsEachEpochOnceWithItsValidationLoss) {
     for (int i = 0; i < num_epochs; ++i) {
         EXPECT_FLOAT_EQ(reporter.ended[i].validation_loss, trainer.get_validation_losses()[i]);
         EXPECT_FLOAT_EQ(reporter.ended[i].gradient_norm, trainer.get_gradient_norms()[i]);
+    }
+}
+
+// TD-273: the quality summary sent to the metrics server.
+TEST(SampleQualitySummaryTest, StatisticsAndLowestPairs) {
+    std::vector<ConversationPair> pairs;
+    const float scores[] = {0.9f, -1.0f, 0.1f, 0.5f, 0.3f, std::nanf(""), 0.7f};
+    for (int i = 0; i < 7; ++i) {
+        SampleMeta m;
+        m.quality = scores[i];
+        pairs.emplace_back("in" + std::to_string(i), "out" + std::to_string(i), m);
+    }
+    const SampleQualityReport r =
+        ChatbotTrainer::summarize_sample_quality(pairs, 3, "loss", "train", 2);
+    EXPECT_EQ(r.epoch, 3);
+    EXPECT_EQ(r.source, "loss");
+    EXPECT_EQ(r.split, "train");
+    EXPECT_EQ(r.count, 5) << "unscored (negative) and non-finite scores are left out";
+    EXPECT_NEAR(r.mean, 0.5f, 1e-6f);
+    EXPECT_FLOAT_EQ(r.min, 0.1f);
+    EXPECT_FLOAT_EQ(r.max, 0.9f);
+    EXPECT_NEAR(r.median, 0.5f, 1e-6f);
+    EXPECT_NEAR(r.p10, 0.18f, 1e-6f);  // 0.1 + 0.4 * (0.3 - 0.1)
+    EXPECT_NEAR(r.p90, 0.82f, 1e-6f);  // 0.7 + 0.6 * (0.9 - 0.7)
+    ASSERT_EQ(r.lowest.size(), 2u);
+    EXPECT_EQ(r.lowest[0].input_text, "in2");
+    EXPECT_EQ(r.lowest[0].target_text, "out2");
+    EXPECT_FLOAT_EQ(r.lowest[0].quality, 0.1f);
+    EXPECT_EQ(r.lowest[1].input_text, "in4");
+
+    EXPECT_EQ(ChatbotTrainer::summarize_sample_quality({}, 1, "loss", "train", 5).count, 0);
+}
+
+// TD-273: every epoch's loss scores reach the reporter (they used to stay in private copies nobody
+// read), per split, with the pairs' dataset metadata kept.
+TEST_F(MetricsTrackerWiringTest, ReportsLossQualityEachEpochAndKeepsPairMetadata) {
+    TrainingConfig config = tiny_config();
+    ASSERT_TRUE(config.enable_loss_quality_backfill) << "on by default";
+    config.quality_report_lowest_samples = 2;
+    ChatbotTrainer trainer(config);
+    EpochRecordingReporter reporter;
+    trainer.set_metrics_reporter(&reporter);
+    ASSERT_TRUE(trainer.build_vocabulary({"hello world", "how are you", "I am fine", "thank you"},
+                                         100, vocab_path_.string()));
+    SampleMeta meta;
+    meta.domain = "smalltalk";
+    trainer.add_training_pair(ConversationPair("hello world", "how are you", meta));
+    trainer.add_training_pair(ConversationPair("I am fine", "thank you", meta));
+    trainer.add_training_pair(ConversationPair("how are you", "hello world", meta));
+    trainer.add_validation_pair(ConversationPair("thank you", "I am fine", meta));
+
+    const int num_epochs = 2;
+    ASSERT_TRUE(trainer.train(num_epochs));
+    ASSERT_EQ(reporter.quality.size(), static_cast<size_t>(2 * num_epochs))
+        << "train + validation per epoch";
+    for (int e = 0; e < num_epochs; ++e) {
+        const SampleQualityReport& train = reporter.quality[2 * e];
+        const SampleQualityReport& val = reporter.quality[2 * e + 1];
+        EXPECT_EQ(train.epoch, e + 1);
+        EXPECT_EQ(train.source, "loss");
+        EXPECT_EQ(train.split, "train");
+        EXPECT_EQ(train.count, 3);
+        EXPECT_EQ(train.lowest.size(), 2u);
+        EXPECT_GT(train.min, 0.0f);
+        EXPECT_LE(train.max, 1.0f);
+        EXPECT_EQ(val.split, "validation");
+        EXPECT_EQ(val.count, 1);
+        // exp(-loss) of the pair's own validation loss.
+        EXPECT_NEAR(val.mean, std::exp(-trainer.get_validation_losses()[e]), 1e-4f);
+    }
+    ASSERT_EQ(trainer.get_training_pairs().size(), 3u);
+    for (const auto& pair : trainer.get_training_pairs()) {
+        EXPECT_EQ(pair.meta.domain, "smalltalk");
+        EXPECT_GT(pair.meta.quality, 0.0f);
+    }
+
+    ChatbotTrainer off_trainer([&] {
+        TrainingConfig off = tiny_config();
+        off.enable_loss_quality_backfill = false;
+        return off;
+    }());
+    EpochRecordingReporter off_reporter;
+    off_trainer.set_metrics_reporter(&off_reporter);
+    ASSERT_TRUE(
+        off_trainer.build_vocabulary({"hello world", "how are you"}, 100, vocab_path_.string()));
+    off_trainer.add_training_pair("hello world", "how are you");
+    ASSERT_TRUE(off_trainer.train(1));
+    EXPECT_TRUE(off_reporter.quality.empty());
+}
+
+// TD-273: the generation backfill (opt-in) reports once after training, per split.
+TEST_F(MetricsTrackerWiringTest, ReportsGenerationQualityAfterTrainingWhenEnabled) {
+    TrainingConfig config = tiny_config();
+    config.enable_loss_quality_backfill = false;
+    config.enable_generation_quality_backfill = true;
+    config.generation_backfill_max_tokens = 4;
+    ChatbotTrainer trainer(config);
+    EpochRecordingReporter reporter;
+    trainer.set_metrics_reporter(&reporter);
+    ASSERT_TRUE(trainer.build_vocabulary({"hello world", "how are you", "I am fine", "thank you"},
+                                         100, vocab_path_.string()));
+    trainer.add_training_pair("hello world", "how are you");
+    trainer.add_training_pair("I am fine", "thank you");
+    trainer.add_validation_pair("how are you", "I am fine");
+    ASSERT_TRUE(trainer.train(2));
+    ASSERT_EQ(reporter.quality.size(), 2u);
+    EXPECT_EQ(reporter.quality[0].source, "generation");
+    EXPECT_EQ(reporter.quality[0].split, "train");
+    EXPECT_EQ(reporter.quality[0].epoch, 2);
+    EXPECT_EQ(reporter.quality[0].count, 2);
+    EXPECT_EQ(reporter.quality[1].split, "validation");
+    EXPECT_EQ(reporter.quality[1].count, 1);
+    for (const auto& r : reporter.quality) {
+        EXPECT_GE(r.min, 0.0f);
+        EXPECT_LE(r.max, 1.0f);
     }
 }
 

@@ -808,6 +808,95 @@ TEST_F(TrainingMetricsAPIRoutesTest, PushedAbnormalSampleIsStoredAndReadable) {
     EXPECT_NE(res->body.find("Unknown session key"), std::string::npos) << res->body;
 }
 
+// TD-273: per-sample quality reports are stored, readable, validated, and their texts bounded.
+TEST_F(TrainingMetricsAPIRoutesTest, PushedSampleQualityReportIsStoredAndReadable) {
+    auto client = make_client();
+    const std::string long_text(10000, 'x');
+    std::string lowest = "[";
+    for (int i = 0; i < 25; ++i) {
+        lowest += std::string(i ? "," : "") + R"({"quality":0.)" + std::to_string(i % 10) +
+                  R"(,"input_text":"in)" + std::to_string(i) + R"(","target_text":")" +
+                  (i == 0 ? long_text : std::string("out")) + R"("})";
+    }
+    lowest += "]";
+    const std::string body =
+        R"({"epoch":3,"source":"loss","split":"validation","count":40,)"
+        R"("mean":0.6,"min":0.01,"p10":0.2,"median":0.65,"p90":0.9,"max":null,)"
+        R"("lowest":)" +
+        lowest + "}";
+    auto res =
+        client.Post("/api/sessions/0-default/metrics/sample-quality", body, "application/json");
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200) << res->body;
+
+    auto get = client.Get("/api/sessions/0-default/metrics/sample-quality");
+    ASSERT_TRUE(get);
+    ASSERT_EQ(get->status, 200);
+    const nlohmann::json j = nlohmann::json::parse(get->body);
+    ASSERT_EQ(j["count"], 1);
+    const auto& r = j["reports"][0];
+    EXPECT_EQ(r["epoch"], 3);
+    EXPECT_EQ(r["source"], "loss");
+    EXPECT_EQ(r["split"], "validation");
+    EXPECT_EQ(r["count"], 40);
+    EXPECT_NEAR(r["p10"].get<double>(), 0.2, 1e-6);
+    EXPECT_TRUE(r["max"].is_null()) << "a null statistic stays null";
+    ASSERT_EQ(r["lowest"].size(), 20u) << "at most 20 lowest pairs are kept";
+    EXPECT_LT(r["lowest"][0]["target_text"].get<std::string>().size(), 4200u)
+        << "texts are cut to 4 KiB";
+    EXPECT_EQ(r["lowest"][1]["input_text"], "in1");
+
+    // The database read route exists; this fixture has no database (MetricsDatabaseTest covers
+    // storage).
+    auto db_get = client.Get("/api/sessions/0-default/metrics/db-sample-quality?limit=5");
+    ASSERT_TRUE(db_get);
+    EXPECT_EQ(db_get->status, 200);
+    EXPECT_NE(db_get->body.find("No database backend configured"), std::string::npos)
+        << db_get->body;
+
+    for (const std::string bad :
+         {std::string(R"({"source":"bleu","split":"train"})"),
+          std::string(R"({"source":"loss","split":"test"})"),
+          std::string(R"({"source":"loss","split":"train","count":-1})"),
+          std::string(R"({"source":"loss","split":"train","lowest":[1]})"),
+          std::string(R"({"source":"loss","split":"train","lowest":{}})")}) {
+        res =
+            client.Post("/api/sessions/0-default/metrics/sample-quality", bad, "application/json");
+        ASSERT_TRUE(res);
+        EXPECT_EQ(res->status, 400) << bad << " -> " << res->body;
+    }
+    res = client.Post("/api/sessions/nosuch1/metrics/sample-quality", body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 404);
+}
+
+// TD-273 end to end: the real push client's report reaches the real API.
+TEST_F(TrainingMetricsAPIRoutesTest, PushClientSampleQualityReachesTheServer) {
+    MetricsPushClient pc("http://127.0.0.1:" + std::to_string(port_) + "/api/sessions/pushedq",
+                         2000);
+    ASSERT_EQ(pc.start_session(1, 1, 10, "", ""), 200);
+    SampleQualityReport report;
+    report.epoch = 2;
+    report.source = "generation";
+    report.split = "train";
+    report.count = 7;
+    report.mean = 0.25f;
+    report.min = std::nanf("");
+    report.lowest.push_back({0.0f, "question \"quoted\"\nline", "answer"});
+    pc.report_sample_quality(report);
+    pc.end_session();  // drains the queue
+
+    auto client = make_client();
+    auto get = client.Get("/api/sessions/pushedq/metrics/sample-quality");
+    ASSERT_TRUE(get);
+    const nlohmann::json j = nlohmann::json::parse(get->body);
+    ASSERT_EQ(j["count"], 1) << get->body;
+    EXPECT_EQ(j["reports"][0]["source"], "generation");
+    EXPECT_EQ(j["reports"][0]["count"], 7);
+    EXPECT_TRUE(j["reports"][0]["min"].is_null());
+    EXPECT_EQ(j["reports"][0]["lowest"][0]["input_text"], "question \"quoted\"\nline");
+}
+
 // TD-555 end to end: the real push client flags a sample against the real API; it is stored.
 TEST_F(TrainingMetricsAPIRoutesTest, PushClientAbnormalSampleReachesTheServer) {
     MetricsPushClient pc("http://127.0.0.1:" + std::to_string(port_) + "/api/sessions/pushed1", 2000);
@@ -867,6 +956,13 @@ TEST_F(TrainingMetricsAPIRoutesTest, EveryPushClientEndpointHasAPostRoute) {
         pc.update_generation_quality_metrics(0.1f, 0.2f, 0.3f, 0.4f);
         pc.update_lejepa_metrics(0.5f, 0.01f);
         pc.update_lejepa_advanced_metrics(0.3f, 0.9f, 1.0f, 0.1f);
+        SampleQualityReport q;  // TD-273
+        q.epoch = 1;
+        q.source = "loss";
+        q.split = "train";
+        q.count = 1;
+        q.lowest.push_back({0.5f, "in", "out"});
+        pc.report_sample_quality(q);
         pc.end_epoch(1, 0.5f, 0.6f, 0.001f, 1.6f, 1.0f, 2.0);
         // The queue is FIFO: once /epoch/end (queued last) has arrived, every earlier event has been
         // sent. end_session() would otherwise drop step events still queued (TD-442).
@@ -896,7 +992,8 @@ TEST_F(TrainingMetricsAPIRoutesTest, EveryPushClientEndpointHasAPostRoute) {
         EXPECT_NE(res->status, 404) << "the API has no POST route for " << path << ": " << res->body;
     }
     // The recorder saw the lifecycle and the per-event endpoints, not just a few of them.
-    for (const char* e : {"/start", "/epoch/start", "/metrics/sample", "/metrics/abnormal", "/end"})
+    for (const char* e : {"/start", "/epoch/start", "/metrics/sample", "/metrics/abnormal",
+                          "/metrics/sample-quality", "/end"})
         EXPECT_EQ(endpoints.count(e), 1u) << e << " was never posted";
 }
 

@@ -316,6 +316,18 @@ TEST(IncrementalConfigMapping, VocabBuildSizeIsMapped) {
     EXPECT_EQ(IncrementalTrainer::make_incremental_config(svc).vocab_build_size, 1234);
 }
 
+// TD-273: the quality backfill switches reach the trainer.
+TEST(IncrementalConfigMapping, QualityBackfillSwitchesAreMapped) {
+    adai::ServiceConfig svc;
+    svc.loss_quality_backfill = false;
+    svc.generation_quality_backfill = true;
+    const IncrementalConfig cfg = IncrementalTrainer::make_incremental_config(svc);
+    EXPECT_FALSE(cfg.base_config.enable_loss_quality_backfill);
+    EXPECT_TRUE(cfg.base_config.enable_generation_quality_backfill);
+    EXPECT_TRUE(IncrementalTrainer::make_incremental_config(adai::ServiceConfig{})
+                    .base_config.enable_loss_quality_backfill);
+}
+
 // TD-411: resume_last_session() hands the acquired batch to the caller's resolver (the resume
 // command's FTP download step) and trains on what it returns; if the resolver fails, the batch
 // is released rather than trained on registry-host paths or left claimed.

@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-11-04
 
 // TD-441: the IMetricsDatabase factory and the shared row-cap planner, moved out of
 // SQLiteMetricsDatabase.cpp (the factory picks a backend, so it doesn't belong to one).
@@ -8,11 +8,51 @@
 #include "MetricsDatabase.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <memory>
 #include <string>
 
+#include "IMetricsReporter.hpp"
 #include "Logger.hpp"
 #include "SQLiteMetricsDatabase.hpp"
+#include "nlohmann/json.hpp"
+
+std::string encode_low_quality_samples(const std::vector<LowQualitySample>& samples) {
+    nlohmann::json out = nlohmann::json::array();
+    for (const LowQualitySample& s : samples) {
+        out.push_back(
+            {{"quality", std::isfinite(s.quality) ? nlohmann::json(s.quality) : nlohmann::json()},
+             {"input_text", s.input_text},
+             {"target_text", s.target_text}});
+    }
+    return out.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+}
+
+std::vector<LowQualitySample> decode_low_quality_samples(const std::string& json) {
+    std::vector<LowQualitySample> samples;
+    const nlohmann::json in = nlohmann::json::parse(json, nullptr, false);
+    if (!in.is_array()) {
+        return samples;
+    }
+    for (const auto& item : in) {
+        if (!item.is_object()) {
+            continue;
+        }
+        LowQualitySample s;
+        const auto q = item.find("quality");
+        s.quality = (q != item.end() && q->is_number()) ? q->get<float>()
+                                                        : std::numeric_limits<float>::quiet_NaN();
+        const auto in_text = item.find("input_text");
+        const auto target = item.find("target_text");
+        s.input_text =
+            (in_text != item.end() && in_text->is_string()) ? in_text->get<std::string>() : "";
+        s.target_text =
+            (target != item.end() && target->is_string()) ? target->get<std::string>() : "";
+        samples.push_back(std::move(s));
+    }
+    return samples;
+}
 
 RowCapPlan plan_row_cap(long long count, int max_rows) {
     RowCapPlan plan;

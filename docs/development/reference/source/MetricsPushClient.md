@@ -208,3 +208,8 @@ be sent as 0. `end_epoch()` adds `adaptive_clip_threshold`/`adaptive_clip_spikes
 
 Tests: `ParsesSemicolonSeparatedHeaders`, `SendsExtraHeadersOnEveryRequest`, `ReusesOneConnection`,
 `NoHeartbeatBeforeTheSessionStarts`, `HttpsWithCaFileAndHeaders`.
+
+## Addendum (November 4, 2026): `report_sample_quality()` (TD-273)
+
+Posts a `SampleQualityReport` to `…/metrics/sample-quality` at epoch priority (not dropped under backpressure). Non-finite
+statistics go as `null` (TD-443's `jnum()`), and each lowest pair's texts are cut to 4 KiB on a UTF-8 boundary before queueing.

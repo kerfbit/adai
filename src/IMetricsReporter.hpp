@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-25
-
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-04
 
 #include <chrono>
 #include <string>
@@ -27,6 +26,35 @@ struct AbnormalSample {
     std::string reason;      ///< e.g. "loss_outlier", "grad_norm_outlier"
     std::string input_text;
     std::string target_text;
+    std::chrono::system_clock::time_point timestamp;
+};
+
+/// One of the lowest-scoring pairs in a SampleQualityReport (TD-273).
+struct LowQualitySample {
+    float quality = 0.0f;
+    std::string input_text;  ///< truncated by the sender and the server (4 KiB)
+    std::string target_text;
+};
+
+/**
+ * @brief The distribution of per-sample quality scores for one epoch, source and split (TD-273).
+ *
+ * `source` is "loss" (exp(-loss) of each pair's training or validation loss) or "generation" (the
+ * sentence BLEU-4 of a generated reply against the target, divided by 100). Both are in [0, 1],
+ * higher is better. Only pairs scored this epoch are counted.
+ */
+struct SampleQualityReport {
+    int epoch = 0;       ///< 1-based epoch the scores come from
+    std::string source;  ///< "loss" or "generation"
+    std::string split;   ///< "train" or "validation"
+    int count = 0;
+    float mean = 0.0f;
+    float min = 0.0f;
+    float p10 = 0.0f;
+    float median = 0.0f;
+    float p90 = 0.0f;
+    float max = 0.0f;
+    std::vector<LowQualitySample> lowest;  ///< lowest-scoring pairs, lowest first
     std::chrono::system_clock::time_point timestamp;
 };
 
@@ -190,6 +218,11 @@ class IMetricsReporter {
                                                 float predictor_target_cosine_sim,
                                                 float sigreg_variance_mean,
                                                 float sigreg_variance_stddev) = 0;
+    // ── Per-sample quality (TD-273) ───────────────────────────────────────────
+
+    /// One epoch's per-sample quality distribution for one source and split (loss scores after
+    /// each epoch, generation scores once after training). Sent immediately, never dropped.
+    virtual void report_sample_quality(const SampleQualityReport& report) = 0;
 };
 
 /**
@@ -231,4 +264,5 @@ class NullMetricsReporter final : public IMetricsReporter {
                                         float /*predictor_target_cosine_sim*/,
                                         float /*sigreg_variance_mean*/,
                                         float /*sigreg_variance_stddev*/) override {}
+    void report_sample_quality(const SampleQualityReport& /*report*/) override {}
 };

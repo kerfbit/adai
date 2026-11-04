@@ -99,3 +99,10 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `AbnormalSample` carries full, untruncated training texts into the push queue and the metrics DB (§2) | Large payloads and training data stored on the metrics server | By inspection | [TD-399](../../guides/TECHNICAL_DEBT.md#td-399-imetricsreporter-buffering-and-ordering-contract-is-undocumented) |
 | No `bleu1`/`bleu2` in `update_generation_quality_metrics()` | Already tracked | — | TD-379 |
 | No dedicated tests; only a recording test double | — | By inspection | — |
+
+## Addendum (November 4, 2026): `report_sample_quality()` (TD-273)
+
+New pure virtual `report_sample_quality(const SampleQualityReport&)` with the `SampleQualityReport`/`LowQualitySample` structs:
+one epoch's per-sample quality distribution for one `source` (`"loss"`: exp(-loss); `"generation"`: sentence BLEU-4 / 100; both in
+[0, 1]) and `split` (`"train"`/`"validation"`), plus its lowest-scoring pairs. Sent immediately and never dropped (epoch priority in
+`MetricsPushClient`). `NullMetricsReporter` ignores it.

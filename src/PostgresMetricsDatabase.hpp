@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (TD-042 resolved — real test coverage added; still not built by default)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-10-25
-
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-11-04
 
 #ifdef ADAI_ENABLE_POSTGRES
 
@@ -45,6 +44,9 @@ class PostgresMetricsDatabase : public IMetricsDatabase {
     void insert_generation_quality(const std::string& session_key, int epoch,
                                    const GenerationQualityScore& score) override;
 
+    void insert_sample_quality(const std::string& session_key,
+                               const SampleQualityReport& report) override;  // TD-273
+
     std::vector<PersistentMetricsRecord> query_history(
         const std::string& session_key, std::optional<std::chrono::system_clock::time_point> from,
         std::optional<std::chrono::system_clock::time_point> to, int limit) override;
@@ -57,6 +59,8 @@ class PostgresMetricsDatabase : public IMetricsDatabase {
                                                                 int limit) override;
     std::vector<GenerationQualityRecord> query_generation_quality(
         const std::string& session_key) override;
+    std::vector<SampleQualityReport> query_sample_quality(const std::string& session_key,
+                                                          int limit = 0) override;  // TD-273
 
     int max_gradient_variance_step(const std::string& session_key) override;
     long long cap_session_rows(const std::string& session_key, int max_rows) override;

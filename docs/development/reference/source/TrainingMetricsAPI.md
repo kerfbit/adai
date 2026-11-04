@@ -185,3 +185,13 @@ Once a body passes the TD-306 checks, `handle_admin_put_config()` saves all 12 r
 `DaemonConfigStore::set_many()` transaction, holding `admin_config_mutex_`, and applies them to the session registry only
 after the save worked. A failed save logs the reason and answers 500 (`could not save the admin config (<reason>); nothing
 was changed`), and the live settings stay as they were.
+
+## Addendum (November 4, 2026): per-sample quality routes (TD-273)
+
+- `POST …/metrics/sample-quality` parses the report with `PushBody` (new `get_array()`), requires `source` `loss`/`generation` and
+  `split` `train`/`validation`, refuses a negative `epoch`/`count` or a `lowest` that isn't an array of objects (400 naming the
+  field), keeps at most 20 lowest pairs with texts cut by `truncate_sample_text()`, and hands it to
+  `TrainingMetricsService::record_sample_quality()`.
+- `GET …/metrics/sample-quality` returns the service's reports; `GET …/metrics/db-sample-quality[?limit=N]` the database's. Both are
+  written with nlohmann/json, so a non-finite statistic is `null`.
+- `EveryPushClientEndpointHasAPostRoute` now drives `report_sample_quality()` too.

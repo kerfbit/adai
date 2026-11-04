@@ -117,3 +117,8 @@ Tests: `FoundGetSessionDoesNotBlockWalCheckpoints`, `NanLossesReadBackAsNanNotZe
 
 Tests: `CreatesMissingParentDirectory`, `WriteWaitsForAnotherConnectionsTransaction`, `BatchInsertsAreAllOrNothing`,
 `ServiceBatchesGradientVarianceRows`, `NewDatabaseHasNoUnusedSchemaVersionTable`, `FailedMigrationFailsTheOpen`.
+
+## Addendum (November 4, 2026): `sample_quality` (TD-273)
+
+Implements `insert_sample_quality()`/`query_sample_quality()` on a new `sample_quality` table, included in `archive_session()` and
+retention; see [MetricsDatabase.md](MetricsDatabase.md)'s addendum. A NaN statistic reads back as NaN.

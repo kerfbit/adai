@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.5.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 1.6.0
+// @adai-reviewed: 2026-11-04
 
 #include "MetricsPushClient.hpp"
 #include <algorithm>
@@ -393,6 +393,35 @@ void MetricsPushClient::flag_abnormal_sample(const AbnormalSample& sample) {
          << escape_json_string(sample.input_text) << "\"" << ",\"target_text\":\""
          << escape_json_string(sample.target_text) << "\"" << "}";
     enqueue({EventPriority::Epoch, "/metrics/abnormal", json.str()});
+}
+
+// TD-273: one epoch's per-sample quality distribution and its lowest pairs. Texts are cut to 4 KiB
+// on a UTF-8 boundary here as well as by the server, so a report of long samples stays small in the
+// queue.
+void MetricsPushClient::report_sample_quality(const SampleQualityReport& report) {
+    auto clip = [](const std::string& s) {
+        constexpr std::size_t kMaxBytes = 4096;
+        if (s.size() <= kMaxBytes)
+            return s;
+        std::size_t cut = kMaxBytes;
+        while (cut > 0 && (static_cast<unsigned char>(s[cut]) & 0xC0) == 0x80)
+            --cut;
+        return s.substr(0, cut);
+    };
+    std::ostringstream json;
+    json << "{\"epoch\":" << report.epoch << ",\"source\":\"" << escape_json_string(report.source)
+         << "\",\"split\":\"" << escape_json_string(report.split) << "\",\"count\":" << report.count
+         << ",\"mean\":" << jnum(report.mean) << ",\"min\":" << jnum(report.min)
+         << ",\"p10\":" << jnum(report.p10) << ",\"median\":" << jnum(report.median)
+         << ",\"p90\":" << jnum(report.p90) << ",\"max\":" << jnum(report.max) << ",\"lowest\":[";
+    for (std::size_t i = 0; i < report.lowest.size(); ++i) {
+        const LowQualitySample& s = report.lowest[i];
+        json << (i ? "," : "") << "{\"quality\":" << jnum(s.quality) << ",\"input_text\":\""
+             << escape_json_string(clip(s.input_text)) << "\",\"target_text\":\""
+             << escape_json_string(clip(s.target_text)) << "\"}";
+    }
+    json << "]}";
+    enqueue({EventPriority::Epoch, "/metrics/sample-quality", json.str()});
 }
 
 // ============================================================================

@@ -822,6 +822,8 @@ All settings can be provided via:
 | `GENERATION_QUALITY_SAMPLE_SIZE` | `10` | Validation pairs sampled for scoring per epoch |
 | `GENERATION_QUALITY_MAX_TOKENS` | `50` | Max tokens per scoring call |
 | `GENERATION_QUALITY_ASYNC_THRESHOLD` | `50` | Sample size at which scoring runs in a background thread |
+| `LOSS_QUALITY_BACKFILL` | `true` | TD-273: score every pair `exp(-loss)` each epoch and report the distribution and lowest pairs to `metrics_api_server` (`…/metrics/sample-quality`) |
+| `GENERATION_QUALITY_BACKFILL` | `false` | TD-273: after training, generate a reply for every pair and report its BLEU-4 / 100 the same way; one generation per pair, so slow |
 
 ### Distributed Registry
 
@@ -937,6 +939,9 @@ GENERATION_QUALITY_MAX_TOKENS=50
 # Async threshold: scoring runs in background thread when sample size >= this value.
 # Memory overhead: one full model weight copy (~50-150 MB).
 GENERATION_QUALITY_ASYNC_THRESHOLD=50
+# TD-273: per-sample quality scores, reported to metrics_api_server (…/metrics/sample-quality).
+LOSS_QUALITY_BACKFILL=true
+GENERATION_QUALITY_BACKFILL=false
 
 # ============================================================================
 # Training Metrics Service
