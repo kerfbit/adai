@@ -617,6 +617,18 @@ Error: Connection failed
 3. See [../deployment/README.md](../deployment/README.md) for starting `chatbot_api_server`,
    including its own tokenizer/model file requirements (`chatbot` itself has none)
 
+#### **`Error: <status> - <message>` instead of a reply**
+
+The server refused or failed the message, and the line shows its reason, for example:
+
+```text
+Error: 400 - "temperature" must be between 0 and 2
+Error: 500 - Internal server error (request id 3f9c…)
+```
+
+A 400 names the problem with the request. A 500 is a server failure; give the request id to whoever runs
+`chatbot_api_server`, whose log has the details under that id.
+
 #### **Conversation not loading**
 
 ```text

@@ -2,7 +2,7 @@
 #define CHATBOT_CLI_HPP
 
 // @adai-status: stable
-// @adai-version: 1.3.0
+// @adai-version: 1.4.0
 // @adai-reviewed: 2026-11-03
 
 
@@ -88,9 +88,14 @@ class ChatbotCLI {
     /**
      * @brief Generate a response to user input
      * @param user_input The user's message
-     * @return The generated response
+     * @return The generated response, or "Error: ..." with the server's error message when the turn
+     * failed (TD-255; did_last_turn_fail() then returns true)
      */
     std::string generate_response(const std::string& user_input);
+    /// Whether the last generate_response() call failed (TD-255).
+    bool did_last_turn_fail() const {
+        return last_turn_failed;
+    }
     // One POST /chat/session with the current session_id (none: the server issues one).
     httplib::Result post_chat_turn(const std::string& user_input);
 
@@ -183,6 +188,7 @@ class ChatbotCLI {
     std::string server_url;
     std::string conversation_save_path;
     std::string session_id;
+    bool last_turn_failed{false};  // TD-255
 
     std::unique_ptr<httplib::Client> client;
 

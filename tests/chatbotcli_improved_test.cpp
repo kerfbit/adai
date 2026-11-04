@@ -658,6 +658,123 @@ TEST_F(ChatbotCLISaveLoadRoundTripTest, LastLineWithoutNewlineIsStillSent) {
     EXPECT_NE(r.output.find("Conversation saved to"), std::string::npos);
 }
 
+// TD-255: a failed turn shows the server's error message, never an empty reply or the raw JSON. With
+// HTTP 400/500 (TD-236) and with HTTP 200 + "success":false (older servers).
+TEST_F(ChatbotCLISaveLoadRoundTripTest, RefusedSettingShowsTheServersError) {
+    ChatbotCLI cli("http://127.0.0.1:" + std::to_string(port), conv_file);
+    ASSERT_TRUE(cli.initialize());
+    cli.set_temperature(9.0f);  // the setter skips /set's checks; the server refuses it
+
+    std::stringstream buffer;
+    std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
+    const std::string reply = cli.generate_response("hello world");
+    std::cout.rdbuf(old);
+
+    EXPECT_TRUE(cli.did_last_turn_fail());
+    EXPECT_EQ(reply.rfind("Error: 400 - ", 0), 0u) << reply;
+    EXPECT_NE(reply.find("temperature"), std::string::npos) << reply;
+    EXPECT_EQ(reply.find('{'), std::string::npos) << reply;
+}
+
+namespace {
+
+/// A /chat/session that always answers with `status` and `body`, on a kernel-assigned port.
+class StubChatServer {
+   public:
+    StubChatServer(int status, std::string body) {
+        server_.Get("/health", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content(R"({"status":"ok"})", "application/json");
+        });
+        server_.Post("/chat/session", [status, body](const httplib::Request&, httplib::Response& res) {
+            res.status = status;
+            res.set_content(body, "application/json");
+        });
+        port_ = server_.bind_to_any_port("127.0.0.1");
+        thread_ = std::thread([this] { server_.listen_after_bind(); });
+        server_.wait_until_ready();
+    }
+    ~StubChatServer() {
+        server_.stop();
+        if (thread_.joinable()) thread_.join();
+    }
+    std::string url() const { return "http://127.0.0.1:" + std::to_string(port_); }
+
+   private:
+    httplib::Server server_;
+    std::thread thread_;
+    int port_ = 0;
+};
+
+std::string reply_from(const StubChatServer& stub, bool& failed) {
+    ChatbotCLI cli(stub.url(), "test_cli_stub_unused.txt");
+    std::stringstream buffer;
+    std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
+    const bool connected = cli.initialize();
+    const std::string reply = connected ? cli.generate_response("hello") : "not connected";
+    std::cout.rdbuf(old);
+    failed = cli.did_last_turn_fail();
+    return reply;
+}
+
+}  // namespace
+
+TEST(ChatbotCLIErrorReplyTest, SuccessFalseWithHttp200ShowsTheError) {
+    StubChatServer stub(200, R"({"success":false,"error":"model is busy","session_id":"abc"})");
+    bool failed = false;
+    const std::string reply = reply_from(stub, failed);
+    EXPECT_TRUE(failed);
+    EXPECT_EQ(reply, "Error: model is busy");
+}
+
+TEST(ChatbotCLIErrorReplyTest, SuccessFalseWithoutAReasonIsStillAnError) {
+    StubChatServer stub(200, R"({"success":false})");
+    bool failed = false;
+    const std::string reply = reply_from(stub, failed);
+    EXPECT_TRUE(failed);
+    EXPECT_EQ(reply.rfind("Error:", 0), 0u) << reply;
+    EXPECT_GT(reply.size(), std::string("Error: ").size());
+}
+
+TEST(ChatbotCLIErrorReplyTest, ErrorStatusShowsOnlyTheErrorField) {
+    StubChatServer stub(400, R"({"success":false,"error":"\"temperature\" must be between 0 and 2"})");
+    bool failed = false;
+    const std::string reply = reply_from(stub, failed);
+    EXPECT_TRUE(failed);
+    EXPECT_EQ(reply, R"(Error: 400 - "temperature" must be between 0 and 2)");
+}
+
+TEST(ChatbotCLIErrorReplyTest, ServerErrorShowsItsRequestId) {
+    StubChatServer stub(500, R"({"success":false,"error":"Internal server error","request_id":"r-42"})");
+    bool failed = false;
+    const std::string reply = reply_from(stub, failed);
+    EXPECT_TRUE(failed);
+    EXPECT_EQ(reply, "Error: 500 - Internal server error (request id r-42)");
+}
+
+TEST(ChatbotCLIErrorReplyTest, ErrorBodyThatIsNotJsonShowsTheStatusOnly) {
+    StubChatServer stub(502, "<html>Bad Gateway</html>");
+    bool failed = false;
+    const std::string reply = reply_from(stub, failed);
+    EXPECT_TRUE(failed);
+    EXPECT_EQ(reply, "Error: 502");
+}
+
+TEST(ChatbotCLIErrorReplyTest, SuccessfulReplyIsNotAnError) {
+    StubChatServer stub(200, R"({"success":true,"response":"hi there","session_id":"abc"})");
+    bool failed = true;
+    const std::string reply = reply_from(stub, failed);
+    EXPECT_FALSE(failed);
+    EXPECT_EQ(reply, "hi there");
+}
+
+TEST(ChatbotCLIErrorReplyTest, RunPrintsTheErrorInErrorColor) {
+    StubChatServer stub(200, R"({"success":false,"error":"model is busy"})");
+    ChatbotCLI cli(stub.url(), "test_cli_stub_unused.txt");
+    const RunResult r = run_with_input(cli, "hello\n/exit\n");
+    EXPECT_NE(r.output.find(std::string(COLOR_ERROR) + "Error: model is busy" + COLOR_RESET), std::string::npos)
+        << r.output.substr(0, 2000);
+}
+
 // ============================================================================
 // Helper Function Tests (from original test suite)
 // ============================================================================

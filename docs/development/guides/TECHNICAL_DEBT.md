@@ -1462,6 +1462,8 @@ The generation and model math run is complete.
 - TD-254 (done in code, owner's choice: `ChatbotAPI` applies a request's own `max_length`/`temperature`/`top_p`/`top_k`/
   `beam_width`/`strategy`, checked against limits shared with `validate()` (400 otherwise); `chatbot` sends only settings
   changed with `/set`, checked the same way; TD-259's `/set` parsing item with it).
+- TD-255 (done in code: `chatbot` shows a failed turn as `Error: <status> - <error>` in red, with the request id when there
+  is one, instead of an empty reply or the raw JSON).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6108,7 +6110,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Client / CLI | October 8, 2026 | 1 hour |
+| MEDIUM | Open — code fix landed November 3, 2026 | Client / CLI | October 8, 2026 | 1 hour |
 
 Description:
 Found alongside TD-253 and confirmed against a stub server. `generate_response()` treats any
@@ -6119,16 +6121,39 @@ errors (HTTP 500) are printed as the raw JSON body.
 
 Action Items:
 
-- [ ] Check `success`; on `false`, print the `error` field in `COLOR_ERROR`.
-- [ ] Print only the `error` field (not the raw JSON) for non-200 replies.
-- [ ] Test with a stub returning `success:false`.
+- [x] Check `success`; on `false`, print the `error` field in `COLOR_ERROR`.
+- [x] Print only the `error` field (not the raw JSON) for non-200 replies.
+- [x] Test with a stub returning `success:false`.
 
-Location in code: `src/ChatbotCLI.cpp` (`generate_response()`); tagged `TODO: See TD-255`.
+Location in code: `src/ChatbotCLI.cpp` (`generate_response()`, `run()`); the `TODO: See TD-255` tag is removed.
+
+**Fix (November 3, 2026):** since TD-236 the server sends its errors with HTTP 400 or 500, so the raw-JSON case is the
+one users meet today; HTTP 200 with `"success":false` is still handled for older servers.
+- `generate_response()` treats a reply as a success only when it is HTTP 200 and `success` isn't `false`. Otherwise it
+  returns `Error: <status> - <error>` (no status for a 200), adds `(request id …)` when the server sent one (TD-238's
+  500s), says the server gave no reason when a `success:false` reply has no `error`, and shows only the status for a body
+  with no `error` field (for example a proxy's HTML page).
+- `did_last_turn_fail()` reports whether the last turn failed, and `run()` prints a failed turn in `COLOR_ERROR`.
+
+Tests:
+- `chatbotcliImprovedTests` gained eight. Against a stub server: HTTP 200 with `success:false` (with and without an
+  `error`), a 400 whose message contains quotes, a 500 with a request id, a 502 with an HTML body, a successful reply,
+  and `run()` printing the error in `COLOR_ERROR`. Against the real test `ChatbotAPI`: a temperature of 9 set through the
+  setter, which skips `/set`'s checks, comes back as `Error: 400 - …temperature…` with no JSON.
+- The new tests call `did_last_turn_fail()`, which the old code doesn't have, so the old and new `chatbot` binaries were
+  compared against a stub server instead (`printf 'hello\n' | chatbot <url>`):
+  - 200 `{"success":false,"error":"model is busy"}`: the old binary printed an empty `Bot:` line, the new one
+    `Error: model is busy` in red;
+  - 400: old `Error: 400 - {"success":false,"error":"\"temperature\" must be between 0 and 2"}`, new
+    `Error: 400 - "temperature" must be between 0 and 2`;
+  - 500: old `Error: 500 - {"success":false,"error":"Internal server error","request_id":"r-42"}`, new
+    `Error: 500 - Internal server error (request id r-42)`.
 
 Files to Modify:
 
-- `src/ChatbotCLI.cpp`
+- `src/ChatbotCLI.{hpp,cpp}`
 - `tests/chatbotcli_improved_test.cpp`
+- `docs/operations/guides/chatbot-guide.md`
 
 ---
 

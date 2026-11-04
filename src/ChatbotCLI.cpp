@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
+// @adai-version: 1.4.0
 // @adai-reviewed: 2026-11-03
 
 #include "ChatbotCLI.hpp"
@@ -381,9 +381,14 @@ std::string ChatbotCLI::generate_response(const std::string& user_input) {
         res = post_chat_turn(user_input);
     }
 
-    if (res && res->status == 200) {
-        // TODO: See TD-255 in TECHNICAL_DEBT.md - "success" isn't checked, so a {"success":false,...} reply
-        // (which ChatbotAPI sends with HTTP 200) is shown as an empty response.
+    // TD-255: an error reply is {"success":false,"error":...} -- with HTTP 400/500 since TD-236, with 200
+    // from older servers. Show its error field, never an empty reply or the raw JSON.
+    last_turn_failed = true;
+    if (!res) {
+        return "Error: Connection failed";
+    }
+    if (res->status == 200 && parse_json_value(res->body, "success") != "false") {
+        last_turn_failed = false;
         std::string response = parse_json_value(res->body, "response");
 
         // Update session ID if provided
@@ -395,9 +400,19 @@ std::string ChatbotCLI::generate_response(const std::string& user_input) {
         return response;
     }
     std::stringstream err;
-    err << "Error: " << (res ? std::to_string(res->status) : "Connection failed");
-    if (res && !res->body.empty()) {
-        err << " - " << res->body;
+    err << "Error: ";
+    if (res->status != 200) {
+        err << res->status;
+    }
+    const std::string error = parse_json_value(res->body, "error");
+    if (!error.empty()) {
+        err << (res->status != 200 ? " - " : "") << error;
+    } else if (res->status == 200) {
+        err << "the server reported a failure without a reason";
+    }
+    const std::string request_id = parse_json_value(res->body, "request_id");
+    if (!request_id.empty()) {
+        err << " (request id " << request_id << ")";
     }
     return err.str();
 }
@@ -584,7 +599,11 @@ void ChatbotCLI::run() {
 
         // If message is very short, response might be fast, but if long, we should wait
         std::string response = generate_response(user_input);
-        std::cout << response << '\n' << '\n';
+        if (last_turn_failed) {
+            std::cout << COLOR_ERROR << response << COLOR_RESET << '\n' << '\n';  // TD-255
+        } else {
+            std::cout << response << '\n' << '\n';
+        }
     }
 
     std::cout << COLOR_SYSTEM << "👋 Goodbye!" << COLOR_RESET << '\n';

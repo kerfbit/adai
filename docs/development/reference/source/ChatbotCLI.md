@@ -251,3 +251,15 @@ reports that there is no session on the server. Test: `LostSessionStartsANewOneA
   aliases), `/set … default`, refused partial and out-of-range values, `/settings`, and a `/set length 1` turn against
   the real test `ChatbotAPI` that comes back as at most one token.
 - **Status tag:** `@adai-version` 1.3.0 for `ChatbotCLI.{hpp,cpp}`, reviewed 2026-11-03.
+
+## Addendum (November 3, 2026): server errors are shown (TD-255)
+
+- **§6's first paragraph no longer holds.** `generate_response()` treats a reply as a success only when it is HTTP 200
+  and `success` isn't `false`. Since TD-236 the server's errors come with HTTP 400 or 500; either way the CLI now shows
+  `Error: <status> - <error>` (no status for a 200), plus `(request id …)` when the server sent one, instead of an empty
+  `Bot:` line or the raw JSON body. A body with no `error` field shows only the status.
+- `did_last_turn_fail()` reports whether the last turn failed; `run()` prints a failed turn in `COLOR_ERROR`.
+- **Tests:** eight in `chatbotcliImprovedTests`, seven against a stub server (200 with `success:false`, with and without
+  an `error`; 400; 500 with a request id; 502 with HTML; a success; `run()`'s colour) and one against the real test
+  `ChatbotAPI` (a refused temperature).
+- **Status tag:** `@adai-version` 1.4.0 for `ChatbotCLI.{hpp,cpp}`, reviewed 2026-11-03.
