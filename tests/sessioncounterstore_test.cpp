@@ -122,6 +122,11 @@ TEST_F(SessionCounterStoreTest, MigrationKeepsTheLargerOfTwoCounters) {
     EXPECT_EQ(store.next("m|run-03"), 5);   // legacy 4 beats 2
 }
 
+// The concurrency tests check that nothing is lost or duplicated, not the busy timeout (tested below), so
+// they wait far longer than the 5 s default: under heavy disk-sync load (a parallel ctest run) a commit can
+// take seconds, and a waiter can be passed over for longer than 5 s.
+constexpr int kPatientBusyTimeoutMs = 120000;
+
 // Several processes opening a pre-TD-308 file at once move its counters exactly once.
 TEST_F(SessionCounterStoreTest, ConcurrentOpensMigrateOnce) {
     write_legacy({{"m|run-01", "7"}});
@@ -132,7 +137,7 @@ TEST_F(SessionCounterStoreTest, ConcurrentOpensMigrateOnce) {
     for (int t = 0; t < kThreads; ++t) {
         threads.emplace_back([&] {
             try {
-                moved += adai::SessionCounterStore(db_path_).migrated_count();
+                moved += adai::SessionCounterStore(db_path_, kPatientBusyTimeoutMs).migrated_count();
             } catch (const std::exception&) {
                 ++failures;
             }
@@ -184,15 +189,19 @@ TEST_F(SessionCounterStoreTest, ConcurrentNextIsNeverLostOrDuplicated) {
     std::vector<std::thread> threads;
     for (int t = 0; t < kThreads; ++t) {
         threads.emplace_back([&] {
-            adai::SessionCounterStore store(db_path_);
-            for (int i = 0; i < kPerThread; ++i) {
-                try {
-                    const int n = store.next("model|run-01");
-                    std::lock_guard<std::mutex> lock(mu);
-                    got.push_back(n);
-                } catch (const std::exception&) {
-                    ++failures;
+            try {
+                adai::SessionCounterStore store(db_path_, kPatientBusyTimeoutMs);
+                for (int i = 0; i < kPerThread; ++i) {
+                    try {
+                        const int n = store.next("model|run-01");
+                        std::lock_guard<std::mutex> lock(mu);
+                        got.push_back(n);
+                    } catch (const std::exception&) {
+                        ++failures;
+                    }
                 }
+            } catch (const std::exception&) {  // a throwing constructor must fail the test, not abort it
+                failures += kPerThread;
             }
         });
     }
