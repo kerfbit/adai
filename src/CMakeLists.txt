@@ -483,7 +483,8 @@ if(NOT HTTPLIB_INCLUDE_DIR)
                         "an HTTP client to chatbot_api_server). Install libhttplib-dev, or "
                         "confirm external/cpp-httplib/httplib.h is present.")
 endif()
-target_include_directories(chatbot PRIVATE ${HTTPLIB_INCLUDE_DIR})
+# nlohmann/json (vendored) builds request bodies and reads replies (TD-259).
+target_include_directories(chatbot PRIVATE ${HTTPLIB_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/external)
 find_package(Threads)
 target_link_libraries(chatbot Threads::Threads)
 # TD-159: Windows' own Winsock2 import library (ws2_32, ships with every Windows install — not

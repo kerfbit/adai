@@ -870,7 +870,8 @@ TEST(ChatbotCLIErrorReplyTest, RunPrintsTheErrorInErrorColor) {
     StubChatServer stub(200, R"({"success":false,"error":"model is busy"})");
     ChatbotCLI cli(stub.url(), "test_cli_stub_unused.txt");
     const RunResult r = run_with_input(cli, "hello\n/exit\n");
-    EXPECT_NE(r.output.find(std::string(COLOR_ERROR) + "Error: model is busy" + COLOR_RESET), std::string::npos)
+    // Red ("\033[1;31m") on, then reset ("\033[0m").
+    EXPECT_NE(r.output.find("\033[1;31mError: model is busy\033[0m"), std::string::npos)
         << r.output.substr(0, 2000);
 }
 
@@ -1213,15 +1214,69 @@ TEST(StrategyValidationTest, RejectInvalidStrategies) {
 }
 
 // ============================================================================
-// Color Code Tests
+// TD-259: header weight and JSON handling
 // ============================================================================
 
-TEST(ColorCodeTest, ColorCodesAreDefined) {
-    EXPECT_STREQ(COLOR_RESET, "\033[0m");
-    EXPECT_STREQ(COLOR_USER, "\033[1;36m");
-    EXPECT_STREQ(COLOR_BOT, "\033[1;32m");
-    EXPECT_STREQ(COLOR_SYSTEM, "\033[1;33m");
-    EXPECT_STREQ(COLOR_ERROR, "\033[1;31m");
+// See chatbotcli_header_test.cpp, which includes only ChatbotCLI.hpp.
+bool chatbotcli_header_defines_colour_macros();
+bool chatbotcli_header_includes_httplib();
+std::string td259_own_global_json_helper();
+
+TEST(ChatbotCLIHeaderTest, HeaderDoesNotDefineColourMacros) {
+    EXPECT_FALSE(chatbotcli_header_defines_colour_macros());
+}
+
+TEST(ChatbotCLIHeaderTest, HeaderDoesNotIncludeHttplib) {
+    EXPECT_FALSE(chatbotcli_header_includes_httplib());
+}
+
+// Another file's global escape_json_string()/unescape_json_string()/parse_json_value() link (they
+// collided with ChatbotCLI.cpp's) and are the ones called.
+TEST(ChatbotCLIHeaderTest, OtherFilesMayDefineTheSameGlobalHelpers) {
+    EXPECT_EQ(td259_own_global_json_helper(), "escape|unescape|parse");
+}
+
+TEST(ChatbotCLIErrorReplyTest, UnicodeEscapesInTheReplyAreDecoded) {
+    StubChatServer stub(200, R"({"success":true,"response":"caf\u00e9 \ud83d\ude00 a\u0009b"})");
+    bool failed = true;
+    EXPECT_EQ(reply_from(stub, failed), "caf\xc3\xa9 \xf0\x9f\x98\x80 a\tb");
+    EXPECT_FALSE(failed);
+}
+
+TEST(ChatbotCLIErrorReplyTest, OnlyTopLevelFieldsAreRead) {
+    StubChatServer stub(200, R"({"meta":{"response":"wrong","success":false},"success":true,"response":"right"})");
+    bool failed = true;
+    EXPECT_EQ(reply_from(stub, failed), "right");
+    EXPECT_FALSE(failed);
+}
+
+TEST(ChatbotCLIErrorReplyTest, PrettyPrintedReplyIsRead) {
+    StubChatServer stub(400, "{\n  \"success\": false,\n  \"error\": \"bad\",\n  \"request_id\": 7\n}");
+    bool failed = false;
+    EXPECT_EQ(reply_from(stub, failed), "Error: 400 - bad (request id 7)");
+    EXPECT_TRUE(failed);
+}
+
+TEST(ChatbotCLIErrorReplyTest, ReplyThatIsNotJsonIsAnError) {
+    StubChatServer stub(502, "<html>Bad gateway</html>");
+    bool failed = false;
+    EXPECT_EQ(reply_from(stub, failed), "Error: 502");
+    EXPECT_TRUE(failed);
+}
+
+TEST_F(ChatbotCLITest, InvalidUtf8IsSentAsValidJson) {
+    ChatbotCLI cli(server_url, conv_file);
+    const std::string body = cli.chat_turn_body("caf\xe9");
+    nlohmann::json parsed;
+    ASSERT_NO_THROW(parsed = nlohmann::json::parse(body)) << body;
+    EXPECT_EQ(parsed["message"], "caf\xef\xbf\xbd");  // U+FFFD
+}
+
+TEST_F(ChatbotCLITest, SettingsAreSentAsTyped) {
+    ChatbotCLI cli(server_url, conv_file);
+    set_quietly(cli, "temp 0.7");
+    set_quietly(cli, "top_p 0.95");
+    EXPECT_EQ(cli.chat_turn_body("hi"), R"({"message":"hi","temperature":0.7,"top_p":0.95})");
 }
 
 // ============================================================================

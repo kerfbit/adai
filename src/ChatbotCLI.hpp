@@ -2,19 +2,18 @@
 #define CHATBOT_CLI_HPP
 
 // @adai-status: stable
-// @adai-version: 1.5.0
+// @adai-version: 1.6.0
 // @adai-reviewed: 2026-11-03
 
-
-// TODO: See TD-259 in TECHNICAL_DEBT.md - this pulls all of httplib (and the COLOR_* macros below) into
-// every includer; forward-declare httplib::Client instead.
-#include <../external/cpp-httplib/httplib.h>
 #include <memory>
 #include <set>
 #include <string>
 #include <string_view>
 
-// Forward declarations removed: BPETokenizer, EncoderDecoderModel, ConversationContext
+// TD-259: only ChatbotCLI.cpp needs all of httplib.h.
+namespace httplib {
+class Client;
+}
 
 /**
  * @brief Interactive command-line interface for the ADAI transformer-based chatbot
@@ -42,9 +41,9 @@ class ChatbotCLI {
     ChatbotCLI(const ChatbotCLI&) = delete;
     ChatbotCLI& operator=(const ChatbotCLI&) = delete;
 
-    // Allow moving
-    ChatbotCLI(ChatbotCLI&&) = default;
-    ChatbotCLI& operator=(ChatbotCLI&&) = default;
+    // Allow moving (defined in the .cpp, where httplib::Client is complete)
+    ChatbotCLI(ChatbotCLI&&) noexcept;
+    ChatbotCLI& operator=(ChatbotCLI&&) noexcept;
 
     /**
      * @brief Initialize the chatbot (connect to server)
@@ -98,8 +97,6 @@ class ChatbotCLI {
     bool did_last_turn_fail() const {
         return last_turn_failed;
     }
-    // One POST /chat/session with the current session_id (none: the server issues one).
-    httplib::Result post_chat_turn(const std::string& user_input);
 
     /**
      * @brief Save the current conversation to conversation_save_path (TD-053).
@@ -194,7 +191,7 @@ class ChatbotCLI {
         overridden.insert("beam_width");
     }
 
-    /// The JSON body post_chat_turn() sends for user_input (TD-254: only overridden settings).
+    /// The JSON body POST /chat/session sends for user_input (TD-254: only overridden settings).
     std::string chat_turn_body(const std::string& user_input) const;
 
    private:
@@ -223,12 +220,5 @@ class ChatbotCLI {
     int beam_width{5};
     std::string generation_strategy;
 };
-
-// ANSI color codes for better CLI experience
-#define COLOR_RESET "\033[0m"
-#define COLOR_USER "\033[1;36m"    // Cyan
-#define COLOR_BOT "\033[1;32m"     // Green
-#define COLOR_SYSTEM "\033[1;33m"  // Yellow
-#define COLOR_ERROR "\033[1;31m"   // Red
 
 #endif  // CHATBOT_CLI_HPP

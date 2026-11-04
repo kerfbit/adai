@@ -265,6 +265,7 @@ add_test(NAME ChatbotCLITests COMMAND chatbotcliTests)
 # layer, since /save and /load are now real network round-trips (see ChatbotCLI.cpp).
 add_executable(chatbotcliImprovedTests
     chatbotcli_improved_test.cpp
+    chatbotcli_header_test.cpp  # TD-259: includes only ChatbotCLI.hpp
     ../src/ChatbotCLI.cpp  # Include implementation
     ../src/Config.cpp
     ../src/GenerationSettings.cpp  # TD-254: Config.cpp uses the shared generation limits

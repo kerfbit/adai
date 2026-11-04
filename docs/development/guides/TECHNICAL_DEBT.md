@@ -1468,6 +1468,7 @@ The generation and model math run is complete.
   limits; a bare `/set` shows its usage).
 - TD-257 (done in code: `/clear` and the chat request escape `session_id`, like `/save` and `/load`).
 - TD-258 (done in code: Ctrl+C saves and exits, a save keeps a file this session didn't load and goes to a dated file, saves are written to a temporary file and renamed, a lost session is reported).
+- TD-259 (done in code: the chatbot's JSON goes through nlohmann/json, its header forward-declares `httplib::Client`, and the colours are `constexpr` constants in the `.cpp`).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6301,7 +6302,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open — `/set` value checks fixed November 3, 2026 (with TD-254) | Client / CLI | October 8, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 3, 2026 (`/set` value checks with TD-254) | Client / CLI | October 8, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-253:
@@ -6317,14 +6318,34 @@ Found alongside TD-253:
 Action Items:
 
 - [x] Use full-consumption parsing and range checks for `/set` values. Done November 3, 2026 with TD-254 (`GenerationLimits`).
-- [ ] Move the JSON helpers into an anonymous namespace (or replace them with nlohmann/json).
-- [ ] Forward-declare `httplib::Client` in the header (pimpl or `unique_ptr` to an incomplete type) and move the colour macros to `constexpr` values in the `.cpp`.
+- [x] Move the JSON helpers into an anonymous namespace (or replace them with nlohmann/json). Replaced with nlohmann/json.
+- [x] Forward-declare `httplib::Client` in the header (pimpl or `unique_ptr` to an incomplete type) and move the colour macros to `constexpr` values in the `.cpp`.
 
-Location in code: `src/ChatbotCLI.{hpp,cpp}`; tagged `TODO: See TD-259`.
+**Fix (November 3, 2026):**
+
+- The three global helpers are gone. Request bodies are `nlohmann::ordered_json` dumped with invalid UTF-8 replaced
+  by U+FFFD (a Latin-1 `café` used to make the chat request invalid JSON). Replies are parsed once and only their
+  top-level fields read, so `\uXXXX` escapes are decoded (`caf\u00e9` used to be shown as written), a nested field of the same name is no longer read in place of the real one, and pretty-printed
+  replies read cleanly. A reply that isn't JSON is an error with its status. `/set` floats are sent in their shortest
+  form.
+- `ChatbotCLI.hpp` forward-declares `httplib::Client` and no longer includes `httplib.h`; the move operations are
+  defaulted in the `.cpp`, and `post_chat_turn()` became a lambda in `generate_response()`. The `COLOR_*` macros are
+  `constexpr` constants in `ChatbotCLI.cpp`. The `chatbot` target adds `external/` for nlohmann/json.
+- Checked with the real binaries against a stub server: given `café` from a Latin-1 terminal and a reply holding a
+  nested `response`, the old `chatbot` sent invalid JSON and printed the nested value; the new one sent valid JSON and
+  printed `café ok`.
+
+Tests: in `chatbotcliImprovedTests`, `ChatbotCLIHeaderTest` (3, using the new `tests/chatbotcli_header_test.cpp`,
+which includes only `ChatbotCLI.hpp` and defines the old global helper names), four `ChatbotCLIErrorReplyTest`
+reply-parsing tests and two request-body tests. On the old code the binary fails to link (multiple definition of
+the helpers); with those names renamed, six tests fail. `ColorCodeTest` was removed.
 
 Files to Modify:
 
 - `src/ChatbotCLI.{hpp,cpp}`
+- `src/CMakeLists.txt`
+- `tests/chatbotcli_improved_test.cpp`, `tests/chatbotcli_header_test.cpp` (new), `tests/CMakeLists.txt`
+- `docs/development/reference/source/ChatbotCLI.md`
 ---
 
 ### TD-260: `chatbot_gui` Never Loads a Trained Checkpoint

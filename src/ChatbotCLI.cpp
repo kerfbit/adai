@@ -1,9 +1,11 @@
 // @adai-status: stable
-// @adai-version: 1.5.0
+// @adai-version: 1.6.0
 // @adai-reviewed: 2026-11-03
 
 #include "ChatbotCLI.hpp"
+#include <httplib.h>
 #include <algorithm>
+#include <charconv>
 #include <cerrno>
 #include <climits>
 #include <cmath>
@@ -13,126 +15,52 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
 #include <iostream>
-#include <regex>
 #include <sstream>
 #include <utility>
 #include "GenerationSettings.hpp"
-
-// TODO: See TD-259 in TECHNICAL_DEBT.md - these three helpers have external linkage at global scope; put
-// them in an anonymous namespace.
-// Helper to escape JSON string
-std::string escape_json_string(const std::string& input) {
-    std::ostringstream ss;
-    for (char c : input) {
-        if (c == '"') {
-            ss << "\\\"";
-        } else if (c == '\\') {
-            ss << "\\\\";
-        } else if (c == '\b') {
-            ss << "\\b";
-        } else if (c == '\f') {
-            ss << "\\f";
-        } else if (c == '\n') {
-            ss << "\\n";
-        } else if (c == '\r') {
-            ss << "\\r";
-        } else if (c == '\t') {
-            ss << "\\t";
-        } else if (static_cast<unsigned char>(c) < 0x20) {
-            ss << "\\u" << std::hex << std::setw(4) << std::setfill('0') << (int)c;
-        } else {
-            ss << c;
-        }
-    }
-    return ss.str();
-}
-
-std::string unescape_json_string(const std::string& s) {
-    std::string res;
-    res.reserve(s.length());
-    for (size_t i = 0; i < s.length(); ++i) {
-        if (s[i] == '\\' && i + 1 < s.length()) {
-            switch (s[i + 1]) {
-                case '"':
-                    res += '"';
-                    break;
-                case '\\':
-                    res += '\\';
-                    break;
-                case '/':
-                    res += '/';
-                    break;
-                case 'b':
-                    res += '\b';
-                    break;
-                case 'f':
-                    res += '\f';
-                    break;
-                case 'n':
-                    res += '\n';
-                    break;
-                case 'r':
-                    res += '\r';
-                    break;
-                case 't':
-                    res += '\t';
-                    break;
-                default:
-                    res += s[i];
-                    i--;
-                    break;
-            }
-            i++;
-        } else {
-            res += s[i];
-        }
-    }
-    return res;
-}
-
-std::string parse_json_value(const std::string& json, const std::string& key) {
-    size_t key_pos = json.find("\"" + key + "\"");
-    if (key_pos == std::string::npos) {
-        return "";
-    }
-
-    size_t colon_pos = json.find(':', key_pos);
-    if (colon_pos == std::string::npos) {
-        return "";
-    }
-
-    size_t value_start = json.find_first_not_of(" \t\n\r", colon_pos + 1);
-    if (value_start == std::string::npos) {
-        return "";
-    }
-
-    if (json[value_start] == '"') {
-        // String value
-        size_t value_end = value_start + 1;
-        bool escaped = false;
-        while (value_end < json.length()) {
-            if (json[value_end] == '"' && !escaped) {
-                break;
-            }
-            if (json[value_end] == '\\') {
-                escaped = !escaped;
-            } else {
-                escaped = false;
-            }
-            value_end++;
-        }
-        return unescape_json_string(json.substr(value_start + 1, value_end - value_start - 1));
-    }  // Number/boolean/null
-    size_t value_end = json.find_first_of(" ,}", value_start);
-    if (value_end == std::string::npos) {
-        value_end = json.length();
-    }
-    return json.substr(value_start, value_end - value_start);
-}
+#include "nlohmann/json.hpp"
 
 namespace {
+
+// ANSI colours for the terminal (TD-259: constants here rather than macros in the header).
+constexpr const char* COLOR_RESET = "\033[0m";
+constexpr const char* COLOR_USER = "\033[1;36m";    // Cyan
+constexpr const char* COLOR_BOT = "\033[1;32m";     // Green
+constexpr const char* COLOR_SYSTEM = "\033[1;33m";  // Yellow
+constexpr const char* COLOR_ERROR = "\033[1;31m";   // Red
+
+// TD-259: request bodies are built and replies read with nlohmann/json, not hand-written helpers.
+// Invalid UTF-8 in the user's text is sent as U+FFFD instead of making the body invalid JSON.
+std::string to_body(const nlohmann::ordered_json& body) {
+    return body.dump(-1, ' ', false, nlohmann::ordered_json::error_handler_t::replace);
+}
+
+// A /set float as its shortest decimal form, so 0.7 is sent as 0.7, not 0.699999988079071.
+double wire_number(float value) {
+    char text[32];
+    const auto result = std::to_chars(text, text + sizeof text, value);
+    return std::strtod(std::string(text, result.ptr).c_str(), nullptr);
+}
+
+// A reply's JSON object; empty when the body isn't one (an HTML error page, say).
+nlohmann::json parse_reply(const std::string& body) {
+    nlohmann::json reply = nlohmann::json::parse(body, nullptr, false);
+    return reply.is_object() ? reply : nlohmann::json::object();
+}
+
+// A reply field as text: a string as is, a number or boolean as written, anything else empty.
+std::string reply_field(const nlohmann::json& reply, const char* key) {
+    const auto it = reply.find(key);
+    if (it == reply.end() || it->is_null()) {
+        return {};
+    }
+    if (it->is_string()) {
+        return it->get<std::string>();
+    }
+    return it->is_primitive() ? it->dump() : std::string{};
+}
+
 
 // TD-258: set by Ctrl+C (SIGINT) while run() is active; run() then saves and exits.
 volatile std::sig_atomic_t g_interrupted = 0;
@@ -243,6 +171,8 @@ ChatbotCLI::ChatbotCLI(std::string server_url, std::string conv_save_file)
       generation_strategy("nucleus") {}
 
 ChatbotCLI::~ChatbotCLI() = default;
+ChatbotCLI::ChatbotCLI(ChatbotCLI&&) noexcept = default;
+ChatbotCLI& ChatbotCLI::operator=(ChatbotCLI&&) noexcept = default;
 
 bool ChatbotCLI::initialize() {
     std::cout << COLOR_SYSTEM << "🤖 Connecting to Chatbot API at " << server_url << "..."
@@ -348,7 +278,7 @@ void ChatbotCLI::handle_command(const std::string& command) {
     } else if (command == "/clear") {
         if (!session_id.empty()) {
             // TD-257: escaped like every request body's session_id.
-            std::string body = R"({"session_id":")" + escape_json_string(session_id) + "\"}";
+            const std::string body = to_body({{"session_id", session_id}});
             auto res = client->Post("/clear-session", body, "application/json");
             if (res && res->status == 404) {  // TD-232: the server no longer holds it
                 report_lost_session();
@@ -503,12 +433,15 @@ std::string ChatbotCLI::generate_response(const std::string& user_input) {
 
     // TD-232: session ids are server-issued. Once the server no longer holds ours (expired,
     // evicted, or the server restarted) it answers 404; start a new session and send again.
-    httplib::Result res = post_chat_turn(user_input);
+    auto post_chat_turn = [&] {
+        return client->Post("/chat/session", chat_turn_body(user_input), "application/json");
+    };
+    httplib::Result res = post_chat_turn();
     if (res && res->status == 404 && !session_id.empty()) {
         report_lost_session();
         std::cout << COLOR_SYSTEM << "ℹ️  Sending this message in a new session"
                   << COLOR_RESET << '\n';
-        res = post_chat_turn(user_input);
+        res = post_chat_turn();
     }
 
     // TD-255: an error reply is {"success":false,"error":...} -- with HTTP 400/500 since TD-236, with 200
@@ -517,12 +450,13 @@ std::string ChatbotCLI::generate_response(const std::string& user_input) {
     if (!res) {
         return "Error: Connection failed";
     }
-    if (res->status == 200 && parse_json_value(res->body, "success") != "false") {
+    const nlohmann::json reply = parse_reply(res->body);
+    if (res->status == 200 && reply_field(reply, "success") != "false") {
         last_turn_failed = false;
-        std::string response = parse_json_value(res->body, "response");
+        std::string response = reply_field(reply, "response");
 
         // Update session ID if provided
-        std::string new_sid = parse_json_value(res->body, "session_id");
+        std::string new_sid = reply_field(reply, "session_id");
         if (!new_sid.empty() && new_sid != session_id) {
             session_id = new_sid;
         }
@@ -534,13 +468,13 @@ std::string ChatbotCLI::generate_response(const std::string& user_input) {
     if (res->status != 200) {
         err << res->status;
     }
-    const std::string error = parse_json_value(res->body, "error");
+    const std::string error = reply_field(reply, "error");
     if (!error.empty()) {
         err << (res->status != 200 ? " - " : "") << error;
     } else if (res->status == 200) {
         err << "the server reported a failure without a reason";
     }
-    const std::string request_id = parse_json_value(res->body, "request_id");
+    const std::string request_id = reply_field(reply, "request_id");
     if (!request_id.empty()) {
         err << " (request id " << request_id << ")";
     }
@@ -566,26 +500,20 @@ void ChatbotCLI::report_lost_session() {
     owns_save_file = false;
 }
 
-httplib::Result ChatbotCLI::post_chat_turn(const std::string& user_input) {
-    return client->Post("/chat/session", chat_turn_body(user_input), "application/json");
-}
-
 std::string ChatbotCLI::chat_turn_body(const std::string& user_input) const {
-    std::stringstream ss;
-    ss << "{";
+    nlohmann::ordered_json body;
     if (!session_id.empty()) {
-        ss << R"("session_id":")" << escape_json_string(session_id) << "\",";  // TD-257
+        body["session_id"] = session_id;  // TD-257
     }
-    ss << R"("message":")" << escape_json_string(user_input) << "\"";
+    body["message"] = user_input;
     // TD-254: only the settings changed with /set; the server's defaults apply to the rest.
-    if (is_overridden("max_length")) ss << ",\"max_length\":" << max_response_length;
-    if (is_overridden("temperature")) ss << ",\"temperature\":" << temperature;
-    if (is_overridden("top_p")) ss << ",\"top_p\":" << top_p;
-    if (is_overridden("top_k")) ss << ",\"top_k\":" << top_k;
-    if (is_overridden("beam_width")) ss << ",\"beam_width\":" << beam_width;
-    if (is_overridden("strategy")) ss << R"(,"strategy":")" << escape_json_string(generation_strategy) << "\"";
-    ss << "}";
-    return ss.str();
+    if (is_overridden("max_length")) body["max_length"] = max_response_length;
+    if (is_overridden("temperature")) body["temperature"] = wire_number(temperature);
+    if (is_overridden("top_p")) body["top_p"] = wire_number(top_p);
+    if (is_overridden("top_k")) body["top_k"] = top_k;
+    if (is_overridden("beam_width")) body["beam_width"] = beam_width;
+    if (is_overridden("strategy")) body["strategy"] = generation_strategy;
+    return to_body(body);
 }
 
 void ChatbotCLI::save_conversation() {
@@ -601,7 +529,7 @@ void ChatbotCLI::save_conversation() {
         return;
     }
 
-    std::string body = R"({"session_id":")" + escape_json_string(session_id) + "\"}";
+    const std::string body = to_body({{"session_id", session_id}});
     auto res = client->Post("/chat/session/export", body, "application/json");
     if (!res) {
         std::cout << COLOR_ERROR << "❌ Failed to reach server to export conversation"
@@ -614,8 +542,9 @@ void ChatbotCLI::save_conversation() {
                   << COLOR_RESET << '\n';
         return;
     }
-    if (parse_json_value(res->body, "success") != "true") {
-        std::string error = parse_json_value(res->body, "error");
+    const nlohmann::json reply = parse_reply(res->body);
+    if (reply_field(reply, "success") != "true") {
+        std::string error = reply_field(reply, "error");
         std::cout << COLOR_ERROR << "❌ " << (error.empty() ? "Export failed" : error)
                   << COLOR_RESET << '\n';
         return;
@@ -629,7 +558,7 @@ void ChatbotCLI::save_conversation() {
     if (keep_existing) {
         target = dated_save_path(target);
     }
-    const std::string error = write_file_atomically(target, parse_json_value(res->body, "data"));
+    const std::string error = write_file_atomically(target, reply_field(reply, "data"));
     if (!error.empty()) {
         std::cout << COLOR_ERROR << "❌ " << error << COLOR_RESET << '\n';
         return;
@@ -670,14 +599,12 @@ void ChatbotCLI::load_conversation() {
     }
 
     auto post_import = [&] {
-        std::stringstream ss;
-        ss << "{";
+        nlohmann::ordered_json body;
         if (!session_id.empty()) {
-            ss << R"("session_id":")" << escape_json_string(session_id) << "\",";
+            body["session_id"] = session_id;
         }
-        ss << R"("data":")" << escape_json_string(data) << "\"";
-        ss << "}";
-        return client->Post("/chat/session/import", ss.str(), "application/json");
+        body["data"] = data;
+        return client->Post("/chat/session/import", to_body(body), "application/json");
     };
     auto res = post_import();
     if (res && res->status == 404 && !session_id.empty()) {  // TD-232: import into a new session
@@ -689,14 +616,15 @@ void ChatbotCLI::load_conversation() {
                   << COLOR_RESET << '\n';
         return;
     }
-    if (parse_json_value(res->body, "success") != "true") {
-        std::string error = parse_json_value(res->body, "error");
+    const nlohmann::json reply = parse_reply(res->body);
+    if (reply_field(reply, "success") != "true") {
+        std::string error = reply_field(reply, "error");
         std::cout << COLOR_ERROR << "❌ " << (error.empty() ? "Import failed" : error)
                   << COLOR_RESET << '\n';
         return;
     }
 
-    std::string new_sid = parse_json_value(res->body, "session_id");
+    std::string new_sid = reply_field(reply, "session_id");
     if (!new_sid.empty()) {
         session_id = new_sid;
     }
@@ -704,7 +632,7 @@ void ChatbotCLI::load_conversation() {
     owns_save_file = true;
 
     std::cout << COLOR_SYSTEM << "✅ Conversation loaded from " << conversation_save_path;
-    std::string message_count = parse_json_value(res->body, "message_count");
+    std::string message_count = reply_field(reply, "message_count");
     if (!message_count.empty()) {
         std::cout << " (" << message_count << " messages)";
     }

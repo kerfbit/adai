@@ -301,3 +301,23 @@ reports that there is no session on the server. Test: `LostSessionStartsANewOneA
 - **Tests:** six `ChatbotCLISaveTest` and two `ChatbotCLIInterruptTest` tests in `chatbotcliImprovedTests`; the stub
   server gained export and import routes and a chat hook.
 - **Status tag:** `@adai-version` 1.5.0 for `ChatbotCLI.{hpp,cpp}`, reviewed 2026-11-03.
+
+## Addendum (November 3, 2026): JSON through nlohmann/json, a lighter header (TD-259)
+
+- **§3's "File-local helpers" no longer holds.** `escape_json_string()`, `unescape_json_string()` and
+  `parse_json_value()` are gone. Request bodies are built as `nlohmann::ordered_json` (field order unchanged) and
+  dumped with invalid UTF-8 replaced by U+FFFD, so a message typed in a Latin-1 terminal is still valid JSON. Replies
+  are parsed once (`parse_reply()`) and only top-level fields are read (`reply_field()`). `\uXXXX` escapes are now
+  decoded, a nested field of the same name is no longer read in place of the real one, and pretty-printed replies
+  read cleanly. A reply that isn't JSON (an HTML gateway page) is an error with its status. `/set` floats are sent in
+  their shortest form (`0.7`, not `0.699999988079071`).
+- **The header no longer includes `httplib.h` or defines the colour macros.** It forward-declares `httplib::Client`;
+  the move constructor and assignment are defaulted in the `.cpp`, where `Client` is complete. `post_chat_turn()` is
+  now a lambda inside `generate_response()`. The colours are `constexpr` constants in `ChatbotCLI.cpp`. The `chatbot`
+  target adds `external/` to its include path for nlohmann/json.
+- **Tests:** in `chatbotcliImprovedTests`, three `ChatbotCLIHeaderTest` tests use a new
+  `chatbotcli_header_test.cpp`, which includes only `ChatbotCLI.hpp` and defines the three old global helper names.
+  Four reply-parsing tests and two request-body tests were added. On the old code the binary doesn't link (multiple
+  definition); with the helper names renamed, six tests fail. `ColorCodeTest` is removed, and the error-colour test
+  checks the escape codes literally.
+- **Status tag:** `@adai-version` 1.6.0 for `ChatbotCLI.{hpp,cpp}`, reviewed 2026-11-03.
