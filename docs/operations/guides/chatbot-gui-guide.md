@@ -289,7 +289,7 @@ distribution-specific paths (TD-264).
 
 1. Click **"Load Conversation"** button
 2. Select a previously saved conversation file (from the GUI or the `chatbot` CLI)
-3. The server continues that conversation. Its earlier messages aren't redisplayed yet (TD-266)
+3. The window shows the conversation's messages as the server holds them (the server may drop the oldest to fit its limits), and the server continues it from there (TD-266)
 
 #### Clear Chat
 
@@ -430,7 +430,7 @@ Generation runs in `chatbot_api_server`; these settings change how much work it 
 Planned features for future versions:
 
 - [x] Asynchronous generation (non-blocking UI) (TD-263, November 4, 2026)
-- [ ] Redisplay a loaded conversation's messages (TD-266)
+- [x] Redisplay a loaded conversation's messages (TD-266, November 4, 2026)
 - [ ] Stop a reply in progress (the server has no way to cancel a generation yet)
 - [ ] Conversation export to multiple formats (JSON, Markdown)
 - [ ] Syntax highlighting for code in messages

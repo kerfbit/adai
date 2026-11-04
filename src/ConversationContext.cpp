@@ -1,75 +1,17 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-10-26
+// @adai-version: 1.3.1
+// @adai-reviewed: 2026-11-04
 
 #include "ConversationContext.hpp"
+#include "ConversationFormat.hpp"
 #include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
 
-namespace {
-
-// TD-071 (fixed): save_to_file()/load_from_file() use one line per message
-// ("role|token_count|content"), read back with std::getline() — so a
-// message whose content contains an embedded newline (extremely common for
-// a chatbot: a multi-line user message, a multi-paragraph assistant reply)
-// used to split across multiple lines on disk. On load, only the first
-// line was parsed as the message (truncating its content); every
-// continuation line had no '|' delimiter and was silently dropped —
-// permanent, silent data loss on every save+load round-trip for any
-// multi-line message. Escape '\\', '\n', and '\r' so each message is
-// always exactly one line on disk, and unescape on the way back in.
-std::string escape_for_line(const std::string& s) {
-    std::string out;
-    out.reserve(s.size());
-    for (char c : s) {
-        switch (c) {
-            case '\\':
-                out += "\\\\";
-                break;
-            case '\n':
-                out += "\\n";
-                break;
-            case '\r':
-                out += "\\r";
-                break;
-            default:
-                out += c;
-        }
-    }
-    return out;
-}
-
-std::string unescape_from_line(const std::string& s) {
-    std::string out;
-    out.reserve(s.size());
-    for (size_t i = 0; i < s.size(); ++i) {
-        if (s[i] == '\\' && i + 1 < s.size()) {
-            const char next = s[i + 1];
-            if (next == '\\') {
-                out += '\\';
-                ++i;
-                continue;
-            }
-            if (next == 'n') {
-                out += '\n';
-                ++i;
-                continue;
-            }
-            if (next == 'r') {
-                out += '\r';
-                ++i;
-                continue;
-            }
-        }
-        out += s[i];
-    }
-    return out;
-}
-
-}  // namespace
+// TD-266: the line format (escaping and parsing) lives in ConversationFormat, shared with chatbot_gui.
+using adai::conversation_format::escape_line;
 
 ConversationContext::ConversationContext(int max_messages, int max_tokens, bool keep_system_message)
     : max_messages(max_messages),
@@ -322,13 +264,13 @@ std::string ConversationContext::serialize() const {
     // Write system message if exists
     if (system_message.has_value()) {
         oss << "SYSTEM|" << system_message->token_count << "|"
-            << escape_for_line(system_message->content) << "\n";
+            << escape_line(system_message->content) << "\n";
     }
 
     // Write all messages
     for (const auto& msg : messages) {
         // TODO: See TD-295 in TECHNICAL_DEBT.md - roles are written unescaped; '|' or a newline in a role corrupts the line
-        oss << msg.role << "|" << msg.token_count << "|" << escape_for_line(msg.content) << "\n";
+        oss << msg.role << "|" << msg.token_count << "|" << escape_line(msg.content) << "\n";
     }
 
     return oss.str();
@@ -349,48 +291,18 @@ void ConversationContext::deserialize(const std::string& data) {
     // end; clearing first used to leave the session empty when a line failed to parse.
     ConversationContext parsed(max_messages, max_tokens, keep_system_message);
 
-    std::istringstream iss(data);
-    std::string line;
-    bool metadata_section = true;
-
-    while (std::getline(iss, line)) {
-        if (line == "---") {
-            metadata_section = false;
-            continue;
-        }
-        // TD-291: the metadata section (MAX_MESSAGES, MAX_TOKENS, KEEP_SYSTEM) is ignored: imported
-        // limits used to replace this context's, and 0 made it unlimited.
-        if (metadata_section) {
-            continue;
-        }
-
-        // Parse message: role|token_count|content
-        size_t first_pipe = line.find('|');
-        if (first_pipe == std::string::npos) {
-            continue;
-        }
-
-        size_t second_pipe = line.find('|', first_pipe + 1);
-        if (second_pipe == std::string::npos) {
-            continue;
-        }
-
-        // TD-291: the stored token count is ignored and recomputed (counts of 1 or negative
-        // defeated the budget, and a non-numeric one threw mid-parse).
-        std::string role = line.substr(0, first_pipe);
-        std::string content = unescape_from_line(line.substr(second_pipe + 1));
-
-        if (role == "SYSTEM") {
-            parsed.set_system_message(content);
-        } else {
-            parsed.add_message(role, content);
-        }
-    }
-
+    const adai::conversation_format::Parsed lines = adai::conversation_format::parse(data);
     // Data without the metadata/messages separator isn't a serialized conversation: refuse it
     // rather than replace the history with nothing.
-    if (metadata_section) {
+    if (!lines.has_separator) {
         throw std::invalid_argument("not a serialized conversation (no '---' line)");
+    }
+    // TD-291: token counts are recomputed by add_message(), not taken from the file.
+    if (lines.system_message) {
+        parsed.set_system_message(*lines.system_message);
+    }
+    for (const auto& [role, content] : lines.messages) {
+        parsed.add_message(role, content);
     }
 
     messages = std::move(parsed.messages);

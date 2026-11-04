@@ -92,7 +92,7 @@ target_link_libraries(mnsjsonhelpersTests GTest::gtest_main)
 add_test(NAME MnsJsonHelpersTests COMMAND mnsjsonhelpersTests)
 
 # ChatbotGuiLogic tests (TD-037 — pure Qt-free logic extracted from ChatbotGUI)
-add_executable(chatbotguilogicTests chatbotguilogic_test.cpp)
+add_executable(chatbotguilogicTests chatbotguilogic_test.cpp ../src/ConversationFormat.cpp)
 target_link_libraries(chatbotguilogicTests GTest::gtest_main)
 add_test(NAME ChatbotGuiLogicTests COMMAND chatbotguilogicTests)
 
@@ -226,6 +226,11 @@ add_test(NAME TextGeneratorTests COMMAND textgeneratorTests)
 add_executable(conversationcontextTests conversationcontext_test.cpp)
 target_link_libraries(conversationcontextTests adai_nlp GTest::gtest_main)
 add_test(NAME ConversationContextTests COMMAND conversationcontextTests)
+
+# ConversationFormat tests (TD-266 — the serialized conversation format, shared with chatbot_gui)
+add_executable(conversationformatTests conversationformat_test.cpp)
+target_link_libraries(conversationformatTests adai_nlp GTest::gtest_main)
+add_test(NAME ConversationFormatTests COMMAND conversationformatTests)
 
 # Inference Optimization tests (KV Cache, Batch Processing, Profiling)
 add_executable(inferenceOptimizationTests inference_optimization_test.cpp)

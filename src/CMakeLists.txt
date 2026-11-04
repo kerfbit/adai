@@ -317,6 +317,7 @@ add_library(adai_nlp STATIC
     BPETokenizer.cpp
     TextGenerator.cpp
     ConversationContext.cpp
+    ConversationFormat.cpp
 )
 target_link_libraries(adai_nlp adai_core)
 
@@ -782,6 +783,7 @@ if(BUILD_GUI)
             ChatbotGUI_main.cpp
             ChatbotGUI.cpp
             ChatbotClient.cpp
+            ConversationFormat.cpp
             GenerationSettings.cpp
         )
         target_include_directories(chatbot_gui_binary PRIVATE ${HTTPLIB_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/external)

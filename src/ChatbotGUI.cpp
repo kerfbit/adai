@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-037 — no Qt Test infrastructure in this repo; onStrategyChanged's mapping extracted to ChatbotGuiLogic.hpp, see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.0
+// @adai-version: 0.10.0
 // @adai-reviewed: 2026-11-04
 
 #include "ChatbotGUI.hpp"
@@ -427,10 +427,16 @@ void ChatbotGUI::onLoadConversation() {
         QMessageBox::critical(this, "Error", QString("%1 is empty.").arg(fileName));
         return;
     }
-    // TD-053: the server imports the conversation into this session (or a new one).
+    // TD-053: the server imports the conversation into this session (or a new one). TD-266: then the
+    // GUI shows the server's copy, which is what the conversation continues from (the server may have
+    // trimmed it to its own limits, TD-291/TD-292).
     runRequest("Loading...", [this, data, path = fileName.toStdString()] {
         const ChatbotClient::Import imported = client.import_session(data);
-        return [this, imported, path] {
+        ChatbotClient::Export history;
+        if (imported.ok) {
+            history = client.export_session();
+        }
+        return [this, imported, history, path] {
             if (!imported.ok) {
                 QMessageBox::critical(this, "Error",
                                       QString("Failed to load conversation:\n%1")
@@ -439,12 +445,22 @@ void ChatbotGUI::onLoadConversation() {
             }
             conversation_save_path = path;
             chatDisplay->clear();
-            // TODO: See TD-266 in TECHNICAL_DEBT.md - loaded messages are not redisplayed.
             QString text = QString("Conversation loaded from %1").arg(QString::fromStdString(path));
             if (!imported.message_count.empty()) {
                 text += QString(" (%1 messages)").arg(QString::fromStdString(imported.message_count));
             }
-            addMessage("System", text + ". The server continues it from here.", false);
+            if (history.status == ChatbotClient::Export::Status::Ok) {
+                for (const auto& message : chatbot_gui::conversation_messages(history.data)) {
+                    addMessage(QString::fromStdString(message.sender), QString::fromStdString(message.text),
+                               message.is_user);
+                }
+                addMessage("System", text + ". The server continues it from here.", false);
+                return;
+            }
+            addMessage("System",
+                       text + ". The server continues it from here, but couldn't send its messages back to "
+                              "show them here.",
+                       false);
         };
     });
 }

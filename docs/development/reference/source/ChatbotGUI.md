@@ -207,7 +207,7 @@ TD-265 no longer apply (TD-262 and TD-265 closed as moot and moved to the resolv
   `client.cancel()` and joins the thread; Qt drops the result posted to the destroyed window.
 - Send shows the reply, or the server's error as a System message (TD-255), after a note when the server had lost the
   session. Clear clears the server's session. Save exports and writes the file atomically. Load imports into the
-  server; loaded messages still aren't redisplayed (TD-266).
+  server; since TD-266 (below) the loaded messages are shown.
 - Settings: the strategy list starts with "Server default", and each spin box starts one step below the server's
   range (`adai::GenerationLimits`), shown as "server default". `chatbot_gui::apply_strategy()`,
   `apply_int_setting()` and `apply_real_setting()` (`ChatbotGuiLogic.hpp`) record a value in the client's overrides,
@@ -242,3 +242,25 @@ changes it returns before `execvp`:
 Tests: `chatbotguilaunchenvTests` (7) and three end-to-end cases in `tests/smoke/chatbot_gui_wrapper_test.sh`, which
 start the wrapper with a snap-like environment and read the environment `chatbot_gui_binary` got from `/proc`. The old
 wrapper fails 6 of those checks. Qt6 was not available to build against here; its plugin target name is the same.
+
+## Addendum (November 4, 2026): a loaded conversation's messages are shown (TD-266)
+
+After `/chat/session/import` succeeds, the load request also calls `ChatbotClient::export_session()` on the worker
+thread, and the GUI shows what the server now holds rather than the file: the server may trim an imported conversation
+to its own limits (TD-291/TD-292), and that copy is what it continues from. `chatbot_gui::conversation_messages()`
+(`ChatbotGuiLogic.hpp`) turns the exported data into chat-pane messages in order: the system message first as
+"System", then "user" as "You", "assistant" as "Bot", "system" (a summary) as "System", any other role by its name.
+The closing note keeps the server's own `message_count`. If the export fails after a successful import, the note says
+the server continues the conversation but couldn't send its messages back.
+
+The line format is parsed by `adai::conversation_format` (`src/ConversationFormat.{hpp,cpp}`), moved out of
+`ConversationContext.cpp` so the GUI can use it without linking `adai_nlp`; `ConversationContext::serialize()`/
+`deserialize()` use the same code, unchanged in behaviour.
+
+Checked by driving the real class headless against a real `chatbot_api_server`: Load Conversation, answering the
+file dialog, then a message. The old code showed only "Conversation loaded … (4 messages)"; the new code shows the
+system message and all four messages, then continues in the same session.
+
+Not changed: `addMessage()` escapes text into HTML without converting line breaks, so a multi-line message (loaded or
+live) is shown on one line.
+

@@ -65,8 +65,8 @@ sending it. The ranges are the server's own.
 - **Clear Chat** clears the conversation on the server.
 - **Save Conversation** asks the server for the conversation and writes it to the file you choose (the
   same format the `chatbot` CLI saves).
-- **Load Conversation** sends a saved file to the server, which continues that conversation. The earlier
-  messages aren't redisplayed in the window yet (TD-266).
+- **Load Conversation** sends a saved file to the server, which continues that conversation. The window then
+  shows its messages as the server holds them (TD-266).
 - If the server restarts or the conversation expires, the next message says so and starts a new one.
 
 The window stays responsive while the server generates: input, buttons and settings are disabled until the

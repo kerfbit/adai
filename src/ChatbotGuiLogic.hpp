@@ -1,11 +1,13 @@
 #pragma once
 
 // @adai-status: beta        (TD-037 — covered by chatbotguilogicTests)
-// @adai-version: 0.2.0
+// @adai-version: 0.3.0
 // @adai-reviewed: 2026-11-04
 
 #include <string>
+#include <vector>
 #include "ChatbotClient.hpp"
+#include "ConversationFormat.hpp"
 
 namespace chatbot_gui {
 
@@ -100,6 +102,36 @@ inline ConnectionNotice connection_notice(const std::string& server_url,
 inline std::string session_lost_notice() {
     return "The server no longer had this conversation (it expired or the server restarted), so "
            "earlier messages are forgotten. This message started a new conversation.";
+}
+
+// TD-266: one message of a loaded conversation, as the chat pane shows it.
+struct DisplayedMessage {
+    std::string sender;
+    std::string text;
+    bool is_user = false;
+};
+
+// TD-266: the server's copy of a conversation (/chat/session/export data) as chat-pane messages, in
+// order: the system message first, then each message. "user" is shown as "You", "assistant" as "Bot",
+// a system message as "System", and any other role by its own name.
+inline std::vector<DisplayedMessage> conversation_messages(const std::string& data) {
+    const adai::conversation_format::Parsed parsed = adai::conversation_format::parse(data);
+    std::vector<DisplayedMessage> shown;
+    if (parsed.system_message) {
+        shown.push_back({"System", *parsed.system_message, false});
+    }
+    for (const auto& [role, content] : parsed.messages) {
+        if (role == "user") {
+            shown.push_back({"You", content, true});
+        } else if (role == "assistant") {
+            shown.push_back({"Bot", content, false});
+        } else if (role == "system") {
+            shown.push_back({"System", content, false});
+        } else {
+            shown.push_back({role, content, false});
+        }
+    }
+    return shown;
 }
 
 }  // namespace chatbot_gui

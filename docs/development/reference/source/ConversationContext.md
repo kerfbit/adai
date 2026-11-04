@@ -234,3 +234,14 @@ exact counting, not thread-safe).
 - **`truncate_to_limits()`.** It never evicts the newest message. Past the 1.2× slack it keeps the message's tail within the space
   the system message leaves.
 - **New accessors.** `get_max_tokens()`, and `estimate_tokens()` is now public.
+
+## Addendum (November 4, 2026): the line format moved to `ConversationFormat` (TD-266)
+
+`escape_for_line()`/`unescape_from_line()` and the parsing loop of `deserialize()` moved, unchanged, to
+`adai::conversation_format` (`src/ConversationFormat.{hpp,cpp}`, in `adai_nlp`): `escape_line()`, `unescape_line()`
+and `parse()`, which returns whether a `---` line was seen, the `SYSTEM` message and the (role, content) pairs.
+`serialize()` calls `escape_line()`; `deserialize()` calls `parse()`, still refuses data with no `---` line, and still
+adds each message through `add_message()`, so token counts are recomputed and limits applied (TD-291). `chatbot_gui`
+compiles the same file to show a loaded conversation, without linking the model or tokenizer. Tests:
+`conversationformatTests`, including a round trip of what `serialize()` writes; `conversationcontextTests` pass unchanged.
+

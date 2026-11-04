@@ -1472,6 +1472,7 @@ The generation and model math run is complete.
 - TD-260 (done in code, owner decision: `chatbot_gui` is a client of `chatbot_api_server` through `ChatbotClient`, shared with the CLI, instead of running its own copy of the model; with it TD-263 (requests on a worker thread) is fixed and TD-262, TD-265 and two TD-266 items are moot).
 - TD-262, TD-265 (closed as moot after TD-260: the server resolves the architecture and builds every prompt; moved to the resolved archive).
 - TD-264 (done in code: the `chatbot_gui` wrapper removes only snap entries from `LD_LIBRARY_PATH`/`QT_PLUGIN_PATH`, keeping the user's in order, and under snap sets the build's own Qt platform plugin directory from CMake; the launcher scripts no longer set x86_64 Qt5 paths).
+- TD-266 (done in code: a loaded conversation's messages are shown, as the server holds them after the import; the line format is shared through `ConversationFormat`). The `chatbot_gui` items TD-260–TD-266 are all fixed in code or closed.
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6560,7 +6561,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open (two of four items moot since November 4, 2026, TD-260; `--help` fixed) | Client / GUI | October 9, 2026 | 2-4 hours |
+| LOW | Open — code fix landed November 4, 2026 (two of four items moot after TD-260) | Client / GUI | October 9, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-260:
@@ -6575,17 +6576,35 @@ Found alongside TD-260:
 Action Items:
 
 - [x] Derive the context limit from the model's `max_seq_length` minus the response budget. Moot: the server keeps the conversation.
-- [ ] Redisplay loaded messages (needs a message accessor on `ConversationContext`). Now: parse the file the server exports (it holds the messages) or have `/chat/session/import` return them.
+- [x] Redisplay loaded messages (needs a message accessor on `ConversationContext`). Now: parse the file the server exports (it holds the messages) or have `/chat/session/import` return them. Done: after the import the GUI exports the server's copy and shows its messages.
 - [x] Handle `--help` before constructing `QApplication`. Done November 4, 2026 with TD-260 (on this machine the old binary's `--help` also ran without a display).
 - [x] Honour `GPU_ENABLED` the way `chatbot_api_server` does. Moot: the server generates, on its GPU when it has one.
 
-Location in code: `src/ChatbotGUI.cpp`, `src/ChatbotGUI_main.cpp`; tagged `TODO: See TD-266`.
+Fix (November 4, 2026): a successful load also calls `ChatbotClient::export_session()` on the worker thread, and the
+chat pane shows what the server now holds, which is what it continues from (it may have trimmed the import to its
+limits, TD-291/TD-292), not the file. `chatbot_gui::conversation_messages()` (`ChatbotGuiLogic.hpp`) maps the exported
+data to chat-pane messages: the system message first, then "user" as "You", "assistant" as "Bot", "system" as "System",
+other roles by name. The note after them keeps the server's message count; if the export fails, the note says the
+messages couldn't be shown. No server change was needed. The line format's escaping and parsing moved from
+`ConversationContext.cpp` to `adai::conversation_format` (`src/ConversationFormat.{hpp,cpp}`, in `adai_nlp` and compiled
+into the GUI, which links no model library); `ConversationContext::serialize()`/`deserialize()` use it with unchanged
+behaviour.
+
+Tests: `conversationformatTests` (4: escaping round trip, metadata and malformed lines skipped, no separator, a round trip
+of `ConversationContext::serialize()`); `chatbotguilogicTests` +2 (each role's sender and order, escaped content,
+empty or unrecognized data); `conversationcontextTests` (75) unchanged. Checked by driving the real `ChatbotGUI` headless
+against a real `chatbot_api_server` (Load Conversation through its file dialog, then a message): the old code showed only
+the "Conversation loaded … (4 messages)" note, the new code the system message and all four messages, and the next reply
+continued the same session. Noticed, not changed: `addMessage()` doesn't turn line breaks into `<br>`, so multi-line
+messages are shown on one line.
+
+Location in code: `src/ChatbotGUI.cpp` (`onLoadConversation()`), `src/ChatbotGuiLogic.hpp`, `src/ConversationFormat.{hpp,cpp}`.
 
 Files to Modify:
 
-- `src/ChatbotGUI.{hpp,cpp}`
-- `src/ChatbotGUI_main.cpp`
-- `src/ConversationContext.hpp`
+- `src/ChatbotGUI.cpp`, `src/ChatbotGuiLogic.hpp`
+- `src/ConversationFormat.{hpp,cpp}` (new), `src/ConversationContext.cpp`, `src/CMakeLists.txt`
+- `tests/conversationformat_test.cpp` (new), `tests/chatbotguilogic_test.cpp`, `tests/CMakeLists.txt`
 ---
 
 ### TD-267: ChatbotTrainer Keeps Skipped Pairs, Biasing Validation Loss Low

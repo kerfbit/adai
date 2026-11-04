@@ -110,3 +110,32 @@ TEST(ConnectionNoticeTest, SomethingElseAnswering) {
     EXPECT_FALSE(notice.ok);
     EXPECT_NE(notice.text.find("HTTP 404"), std::string::npos) << notice.text;
 }
+
+// TD-266: a loaded conversation's messages, from the data /chat/session/export returns.
+TEST(ConversationMessagesTest, ShowsEachMessageInOrderUnderItsSender) {
+    const std::string data =
+        "MAX_MESSAGES:20\nMAX_TOKENS:2048\nKEEP_SYSTEM:1\n---\n"
+        "SYSTEM|5|Be brief.\n"
+        "user|3|Hi | there\\nsecond line\n"
+        "assistant|2|Hello\\\\world\n"
+        "system|4|[Summary of earlier conversation: x]\n"
+        "tool|1|ran\n";
+    const auto shown = chatbot_gui::conversation_messages(data);
+    ASSERT_EQ(shown.size(), 5u);
+    EXPECT_EQ(shown[0].sender, "System");
+    EXPECT_EQ(shown[0].text, "Be brief.");
+    EXPECT_EQ(shown[1].sender, "You");
+    EXPECT_EQ(shown[1].text, "Hi | there\nsecond line");
+    EXPECT_TRUE(shown[1].is_user);
+    EXPECT_EQ(shown[2].sender, "Bot");
+    EXPECT_EQ(shown[2].text, "Hello\\world");
+    EXPECT_FALSE(shown[2].is_user);
+    EXPECT_EQ(shown[3].sender, "System");
+    EXPECT_EQ(shown[4].sender, "tool");
+}
+
+TEST(ConversationMessagesTest, EmptyOrUnrecognizedDataShowsNothing) {
+    EXPECT_TRUE(chatbot_gui::conversation_messages("").empty());
+    EXPECT_TRUE(chatbot_gui::conversation_messages("MAX_MESSAGES:20\n---\n").empty());
+    EXPECT_TRUE(chatbot_gui::conversation_messages("user|1|no separator, so not a conversation\n").empty());
+}
