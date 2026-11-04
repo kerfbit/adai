@@ -1,26 +1,33 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-11-04
 
 /**
  * @file ChatbotGUI_wrapper.cpp
  * @brief Wrapper to launch chatbot_gui with correct environment settings
  *
- * This wrapper fixes library path conflicts (especially with snap) by:
+ * This wrapper fixes library path conflicts with snap by:
  * - Unsetting problematic snap environment variables
- * - Setting correct library paths to system libraries
+ * - Removing snap entries from LD_LIBRARY_PATH and QT_PLUGIN_PATH, keeping the user's own in order
+ * - Under snap, pointing Qt at the platform plugins of the Qt the GUI was built with
  * - Then exec'ing the actual GUI application
+ * See adai::gui_launch::launch_environment() (TD-264).
  */
 
 #include <limits.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <string>
 #include <vector>
+#include "ChatbotGuiLaunchEnv.hpp"
 
-extern char** environ;
+// TD-264: the platform plugin directory of the Qt chatbot_gui_binary was built with, from CMake.
+#ifndef ADAI_QT_PLATFORM_PLUGIN_DIR
+#define ADAI_QT_PLATFORM_PLUGIN_DIR ""
+#endif
 
 // Resolve the directory this executable actually lives in.
 //
@@ -59,36 +66,25 @@ int main(int argc, char* argv[]) {
     // Path to the actual GUI executable
     std::string gui_executable = exe_dir + "/chatbot_gui_binary";
 
-    // Environment variables to unset (snap-related)
-    const char* unset_vars[] = {"GTK_PATH", "SNAP", "SNAP_COMMON", "SNAP_DATA", nullptr};
-
-    // Unset problematic variables
-    for (int i = 0; unset_vars[i] != nullptr; ++i) {
-        unsetenv(unset_vars[i]);
+    // The platform plugins of the Qt this GUI was built with, if they're still there.
+    std::string qt_platform_plugin_dir = ADAI_QT_PLATFORM_PLUGIN_DIR;
+    struct stat st {};
+    if (qt_platform_plugin_dir.empty() || stat(qt_platform_plugin_dir.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) {
+        qt_platform_plugin_dir.clear();
     }
 
-    // TODO: See TD-264 in TECHNICAL_DEBT.md - x86_64 Debian paths are hardcoded, system paths are put before
-    // the user's LD_LIBRARY_PATH, and any LD_LIBRARY_PATH containing /snap/ is dropped entirely.
-    // Set correct library paths (system libraries, not snap)
-    // Preserve any existing non-snap paths
-    const char* old_ld_path = getenv("LD_LIBRARY_PATH");
-    std::string new_ld_path = "/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu";
-
-    if (old_ld_path && strstr(old_ld_path, "/snap/") == nullptr) {
-        // If there's an existing LD_LIBRARY_PATH that doesn't contain snap paths, append it
-        new_ld_path += ":";
-        new_ld_path += old_ld_path;
+    const adai::gui_launch::EnvChanges changes = adai::gui_launch::launch_environment(
+        [](const std::string& name) -> std::optional<std::string> {
+            const char* value = getenv(name.c_str());
+            return value ? std::optional<std::string>(value) : std::nullopt;
+        },
+        qt_platform_plugin_dir);
+    for (const std::string& name : changes.unset) {
+        unsetenv(name.c_str());
     }
-
-    setenv("LD_LIBRARY_PATH", new_ld_path.c_str(), 1);
-
-    // Set Qt plugin path
-    // TODO: See TD-264 in TECHNICAL_DEBT.md - always Qt5, but CMake builds chatbot_gui_binary against Qt6
-    // when it's available.
-    setenv("QT_QPA_PLATFORM_PLUGIN_PATH", "/usr/lib/x86_64-linux-gnu/qt5/plugins", 1);
-
-    // Suppress GTK warnings
-    setenv("GTK_MODULES", "", 1);
+    for (const auto& [name, value] : changes.set) {
+        setenv(name.c_str(), value.c_str(), 1);
+    }
 
     // Prepare arguments for exec
     std::vector<char*> new_argv;

@@ -13,30 +13,24 @@ Full Error:
 Cause:
 Conflict between snap-provided libraries and system Qt libraries.
 
-Solution 1 - Use the Fixed Launcher (Recommended):
+Solution 1 - Run the `chatbot_gui` wrapper (Recommended):
 
 ```bash
-./chatbot_gui_fixed.sh
-# or
-./run_chatbot_gui.sh
+./build/debug/src/chatbot_gui
+# or a launcher, which runs the wrapper
+./scripts/run_chatbot_gui.sh
 ```
 
-Solution 2 - Run Directly with Environment Fix:
+The wrapper (not `chatbot_gui_binary`) unsets `SNAP*`, `GTK_PATH` and a snap `GIO_MODULE_DIR`, removes
+only the snap entries from `LD_LIBRARY_PATH` and `QT_PLUGIN_PATH` (your own entries stay, in order), and under
+snap points Qt at the platform plugins of the Qt the GUI was built with, Qt5 or Qt6 (TD-264).
+
+Solution 2 - Run the binary directly with the same fix by hand:
 
 ```bash
-env -u LD_LIBRARY_PATH \
-    -u GTK_PATH \
-    LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu \
-    ./build/src/chatbot_gui
-```
-
-Solution 3 - Unset Variables in Current Shell:
-
-```bash
-unset LD_LIBRARY_PATH
-unset GTK_PATH
-export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu
-./build/src/chatbot_gui
+env -u GTK_PATH -u GIO_MODULE_DIR -u SNAP \
+    LD_LIBRARY_PATH="$(printf '%s' "$LD_LIBRARY_PATH" | tr ':' '\n' | grep -v /snap/ | paste -sd:)" \
+    ./build/debug/src/chatbot_gui_binary
 ```
 
 ---
@@ -138,13 +132,18 @@ qt.qpa.plugin: Could not load the Qt platform plugin "xcb"
 Solution:
 
 ```bash
-# Install required Qt plugins
+# Install required Qt plugins (Qt5 shown; Qt6 is qt6-base-dev / libqt6gui6)
 sudo apt-get install libqt5gui5 libqt5widgets5 qt5-qmake
 
-# Set plugin path explicitly
-export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/lib/x86_64-linux-gnu/qt5/plugins
-./build/src/chatbot_gui
+# Set the platform plugin directory explicitly: the "platforms" directory itself,
+# under the Qt the GUI was built with (cmake prints it as "chatbot_gui wrapper: Qt<N> platform plugins in ...")
+export QT_QPA_PLATFORM_PLUGIN_PATH="$(qmake -query QT_INSTALL_PLUGINS)/platforms"   # Qt6: qtpaths6 --plugin-dir
+./build/debug/src/chatbot_gui
 ```
+
+`QT_QPA_PLATFORM_PLUGIN_PATH` must name the `platforms` directory. The value these docs and the wrapper used to give,
+`/usr/lib/x86_64-linux-gnu/qt5/plugins`, is one level too high: Qt found nothing there and fell back to its own
+search, so it never had an effect (TD-264).
 
 ---
 

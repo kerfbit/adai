@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # @adai-status: beta        (TD-044 resolved — real test suite added, see tests/scripts/run_chatbot_gui_test.sh)
-# @adai-version: 0.9.0
+# @adai-version: 0.10.0
 # @adai-reviewed: 2026-11-04
 
 
@@ -81,15 +81,8 @@ echo "Executable: ${GUI_BIN}"
 echo "Server:     ${SERVER_URL} (start chatbot_api_server there first)"
 echo ""
 
-# Fix for snap/system library conflicts
-# Unset problematic environment variables that snap sets
-unset GTK_PATH
-unset LD_LIBRARY_PATH
-
-# Use system libraries, not snap libraries
-export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/lib/x86_64-linux-gnu/qt5/plugins
-export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu
-export GTK_MODULES=""
+# The chatbot_gui wrapper itself removes snap library/GTK/Qt paths from the environment and, under snap,
+# points Qt at the platform plugins of the Qt it was built with (TD-264), so nothing is set here.
 
 # Launch the GUI
 exec "${GUI_BIN}" "$@"

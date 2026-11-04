@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (TD-044 resolved — workaround for a specific Qt threading bug, see THREAD_ERROR_FIX.md; real test suite added)
-# @adai-version: 0.7.1
-# @adai-reviewed: 2026-09-11
+# @adai-version: 0.8.0
+# @adai-reviewed: 2026-11-04
 
 
 # Wrapper script to run chatbot_gui with correct library paths
@@ -51,25 +51,10 @@ BUILD_DIR="$(find_build_dir src/chatbot_gui)" || {
     exit 1
 }
 
-# Unset snap-related environment variables that cause conflicts
-unset GTK_PATH
-unset LD_LIBRARY_PATH
-unset SNAP
-unset SNAP_COMMON
-unset SNAP_DATA
+# The chatbot_gui wrapper itself removes snap library/GTK/Qt paths from the environment and, under snap,
+# points Qt at the platform plugins of the Qt it was built with (TD-264). This script used to set
+# x86_64 Qt5 paths here, which also replaced the user's LD_LIBRARY_PATH.
 
-# Set Qt plugin path to system location
-export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/lib/x86_64-linux-gnu/qt5/plugins
-
-# Ensure we're using system libraries
-export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu
-
-# Suppress harmless GTK warnings
-export GTK_MODULES=""
-
-# Run the GUI. cd to REPO_ROOT first (not just resolve BUILD_DIR to an
-# absolute path) since the GUI itself may do its own relative-path lookups
-# (vocab.txt, model files) that are meant to resolve from the repo root,
-# matching every sibling launcher script's convention.
+# Run the GUI from REPO_ROOT, matching every sibling launcher script's convention.
 cd "$REPO_ROOT"
 exec "${BUILD_DIR}/src/chatbot_gui" "$@"

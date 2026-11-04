@@ -1,5 +1,11 @@
 # C++ Wrapper Solution - Thread Error Fix
 
+> **Update (November 4, 2026, TD-264):** the wrapper no longer sets the x86_64 Qt5 paths shown below. It
+> removes only snap entries from `LD_LIBRARY_PATH` and `QT_PLUGIN_PATH`, keeping yours in order, and under snap
+> points Qt at the platform plugins of the Qt it was built with (from CMake). The `QT_QPA_PLATFORM_PLUGIN_PATH`
+> value below was one level above `platforms/` and never had an effect. See
+> [ChatbotGUI.md](../../../development/reference/source/ChatbotGUI.md); the rest of this page is history.
+
 ## Problem
 
 Running `./build/src/chatbot_gui` directly caused a fatal pthread symbol error:

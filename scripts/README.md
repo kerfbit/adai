@@ -165,7 +165,7 @@ Launches the chatbot client, automatically starting the API server in the backgr
 
 ### run_chatbot_gui.sh
 
-Quick launcher for the Qt-based chatbot GUI, a client of `chatbot_api_server` (TD-260). Checks for a graphical display and the binary, and passes the server URL (default `http://localhost:8080`). Fixes snap/system library conflicts by resetting library paths.
+Quick launcher for the Qt-based chatbot GUI, a client of `chatbot_api_server` (TD-260). Checks for a graphical display and the binary, and passes the server URL (default `http://localhost:8080`). The `chatbot_gui` wrapper it runs removes snap library, GTK and Qt paths itself (TD-264).
 
 ```bash
 ./scripts/run_chatbot_gui.sh [server_url]
@@ -173,7 +173,7 @@ Quick launcher for the Qt-based chatbot GUI, a client of `chatbot_api_server` (T
 
 ### chatbot_gui_fixed.sh
 
-Minimal wrapper to run `chatbot_gui` with correct system library paths, working around snap/system library conflicts.
+Minimal launcher: finds the built `chatbot_gui` wrapper and runs it from the repository root. The wrapper itself removes snap library, GTK and Qt paths (TD-264); this script no longer sets x86_64 Qt5 paths of its own.
 
 ```bash
 ./scripts/chatbot_gui_fixed.sh

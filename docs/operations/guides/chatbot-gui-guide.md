@@ -230,6 +230,12 @@ When the window opens, the chat pane says whether the server was reached. If the
 untrained model (`ALLOW_UNTRAINED_MODEL=true`, which makes `/health` answer 503 `"untrained"`), it warns that
 the replies are random. If the server can't be reached, it says so; messages are sent once the server is up.
 
+`chatbot_gui` is a small launcher that runs `chatbot_gui_binary` beside it. It removes what a snap (such as a snap
+VS Code's terminal) leaks into the environment: the `SNAP*` and `GTK_PATH` variables, a snap `GIO_MODULE_DIR`, and
+the snap entries of `LD_LIBRARY_PATH` and `QT_PLUGIN_PATH`, keeping your own entries in order. Under snap it also
+points Qt at the platform plugins of the Qt the GUI was built with (Qt5 or Qt6). It sets no architecture- or
+distribution-specific paths (TD-264).
+
 ## Using the GUI
 
 ### Basic Usage

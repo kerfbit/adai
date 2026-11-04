@@ -80,9 +80,12 @@ scp build/portable/bin/mns_manager_gui user@workstation:/usr/local/bin/
 If you encounter Qt plugin errors on snap-based systems, set the plugin path before launching:
 
 ```bash
-export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/lib/x86_64-linux-gnu/qt5/plugins
+export QT_QPA_PLATFORM_PLUGIN_PATH="$(qmake -query QT_INSTALL_PLUGINS)/platforms"   # Qt6: qtpaths6 --plugin-dir
 mns_manager_gui
 ```
+
+The value must be the `platforms` directory itself; `/usr/lib/x86_64-linux-gnu/qt5/plugins`, given here before,
+is one level too high and had no effect (TD-264).
 
 ---
 

@@ -1,6 +1,6 @@
 # `ChatbotGUI` — Source File Reference
 
-- **Files:** [`src/ChatbotGUI.hpp`](../../../../src/ChatbotGUI.hpp), [`src/ChatbotGUI.cpp`](../../../../src/ChatbotGUI.cpp), [`src/ChatbotGuiLogic.hpp`](../../../../src/ChatbotGuiLogic.hpp), [`src/ChatbotGUI_main.cpp`](../../../../src/ChatbotGUI_main.cpp), [`src/ChatbotGUI_wrapper.cpp`](../../../../src/ChatbotGUI_wrapper.cpp)
+- **Files:** [`src/ChatbotGUI.hpp`](../../../../src/ChatbotGUI.hpp), [`src/ChatbotGUI.cpp`](../../../../src/ChatbotGUI.cpp), [`src/ChatbotGuiLogic.hpp`](../../../../src/ChatbotGuiLogic.hpp), [`src/ChatbotGUI_main.cpp`](../../../../src/ChatbotGUI_main.cpp), [`src/ChatbotGUI_wrapper.cpp`](../../../../src/ChatbotGUI_wrapper.cpp), [`src/ChatbotGuiLaunchEnv.{hpp,cpp}`](../../../../src/ChatbotGuiLaunchEnv.hpp) (TD-264)
 - **Built into:** `chatbot_gui_binary` (main + class + `Config.cpp`; links `adai_models`, `adai_nlp`, `adai_attention`, `adai_core`, Qt6 or Qt5 Widgets) and `chatbot_gui` (the launcher wrapper). Only when `BUILD_GUI=ON` (the default) and Qt is found; CMake prefers **Qt6**, falling back to Qt5
 - **Status tags:** class `beta` 0.7.0/0.8.0 (capped by TD-037, no Qt Test infrastructure); `ChatbotGuiLogic.hpp` `beta` 0.1.0; main and wrapper `stable` 1.0.0
 - **Tests:** [`tests/chatbotguilogic_test.cpp`](../../../../tests/chatbotguilogic_test.cpp) → `chatbotguilogicTests` (2 tests; strategy mapping only). The widget class is untested (TD-037)
@@ -217,3 +217,28 @@ TD-265 no longer apply (TD-262 and TD-265 closed as moot and moved to the resolv
 
 Checked by driving the real class headless against a real `chatbot_api_server`; see TD-260's entry.
 
+## Addendum (November 4, 2026): the wrapper removes only what a snap adds (TD-264)
+
+§2's steps 3–4 and its three gotchas no longer apply. The wrapper now calls
+`adai::gui_launch::launch_environment()` (`src/ChatbotGuiLaunchEnv.{hpp,cpp}`, no Qt dependency) and applies the
+changes it returns before `execvp`:
+
+- Always: unset `GTK_PATH`, `SNAP`, `SNAP_COMMON`, `SNAP_DATA`; set `GTK_MODULES` empty (as before).
+- `LD_LIBRARY_PATH` and `QT_PLUGIN_PATH`: only entries containing `/snap/` are removed, the rest keep their order,
+  and a list left empty is unset. No system directory is added (the dynamic linker searches the system's own).
+  The old wrapper put `/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu` first and dropped a list with any snap
+  entry entirely. `GIO_MODULE_DIR` is unset only when it points into a snap.
+- `QT_QPA_PLATFORM_PLUGIN_PATH` is set only in a snap environment (`SNAP` set, or a library, GTK, GIO or Qt plugin
+  path in a snap), only when the user hasn't set it outside a snap, and only to `ADAI_QT_PLATFORM_PLUGIN_DIR`: the
+  directory of the Qt the GUI is built with, which `src/CMakeLists.txt` takes from the `Qt<5|6>::QOffscreenIntegrationPlugin`
+  target's location (then `QXcbIntegrationPlugin`, `QMinimalIntegrationPlugin`) and the wrapper uses only if it still
+  exists. A snap value is unset when there is no build directory to replace it with.
+- The old value, `/usr/lib/x86_64-linux-gnu/qt5/plugins`, never worked anyway: Qt loads platform plugins from that
+  variable's directory itself, not its `platforms/` subdirectory, so it found nothing there and fell back to its own
+  search (seen with `QT_DEBUG_PLUGINS=1`). With the fix Qt loads `libqoffscreen.so` from the build's `platforms/`.
+- `scripts/run_chatbot_gui.sh` and `scripts/chatbot_gui_fixed.sh` ran the wrapper after setting the same x86_64
+  Qt5 paths and replacing `LD_LIBRARY_PATH` themselves; they now leave the environment to the wrapper.
+
+Tests: `chatbotguilaunchenvTests` (7) and three end-to-end cases in `tests/smoke/chatbot_gui_wrapper_test.sh`, which
+start the wrapper with a snap-like environment and read the environment `chatbot_gui_binary` got from `/proc`. The old
+wrapper fails 6 of those checks. Qt6 was not available to build against here; its plugin target name is the same.

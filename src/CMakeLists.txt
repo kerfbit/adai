@@ -795,7 +795,31 @@ if(BUILD_GUI)
         endif()
 
         # Build the wrapper that fixes environment issues
-        add_executable(chatbot_gui ChatbotGUI_wrapper.cpp)
+        add_executable(chatbot_gui ChatbotGUI_wrapper.cpp ChatbotGuiLaunchEnv.cpp)
+
+        # TD-264: under snap the wrapper points Qt at the platform plugins of the Qt this GUI is built
+        # with (Qt5 or Qt6, any architecture), found from the offscreen platform plugin every qtbase ships.
+        if(Qt6_FOUND)
+            set(_adai_qt_major 6)
+        else()
+            set(_adai_qt_major 5)
+        endif()
+        set(_adai_qt_platform_plugin_dir "")
+        foreach(_plugin QOffscreenIntegrationPlugin QXcbIntegrationPlugin QMinimalIntegrationPlugin)
+            if(NOT _adai_qt_platform_plugin_dir AND TARGET Qt${_adai_qt_major}::${_plugin})
+                get_target_property(_plugin_location Qt${_adai_qt_major}::${_plugin} LOCATION)
+                if(_plugin_location)
+                    get_filename_component(_adai_qt_platform_plugin_dir "${_plugin_location}" DIRECTORY)
+                endif()
+            endif()
+        endforeach()
+        if(_adai_qt_platform_plugin_dir)
+            target_compile_definitions(chatbot_gui PRIVATE
+                ADAI_QT_PLATFORM_PLUGIN_DIR="${_adai_qt_platform_plugin_dir}")
+            message(STATUS "chatbot_gui wrapper: Qt${_adai_qt_major} platform plugins in ${_adai_qt_platform_plugin_dir}")
+        else()
+            message(STATUS "chatbot_gui wrapper: Qt${_adai_qt_major} platform plugin directory not found; Qt's own is used")
+        endif()
         
         # Make sure the binary is built before the wrapper
         add_dependencies(chatbot_gui chatbot_gui_binary)

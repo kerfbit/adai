@@ -96,6 +96,11 @@ add_executable(chatbotguilogicTests chatbotguilogic_test.cpp)
 target_link_libraries(chatbotguilogicTests GTest::gtest_main)
 add_test(NAME ChatbotGuiLogicTests COMMAND chatbotguilogicTests)
 
+# ChatbotGuiLaunchEnv tests (TD-264 — the environment the chatbot_gui wrapper builds; no Qt needed)
+add_executable(chatbotguilaunchenvTests chatbotguilaunchenv_test.cpp ../src/ChatbotGuiLaunchEnv.cpp)
+target_link_libraries(chatbotguilaunchenvTests GTest::gtest_main)
+add_test(NAME ChatbotGuiLaunchEnvTests COMMAND chatbotguilaunchenvTests)
+
 # ChatbotClient tests (TD-260: the HTTP session shared by the chatbot CLI and chatbot_gui), against a stub server
 add_executable(chatbotclientTests chatbotclient_test.cpp ../src/ChatbotClient.cpp)
 target_include_directories(chatbotclientTests PRIVATE ${HTTPLIB_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/external)

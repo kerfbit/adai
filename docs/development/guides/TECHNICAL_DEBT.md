@@ -1471,6 +1471,7 @@ The generation and model math run is complete.
 - TD-259 (done in code: the chatbot's JSON goes through nlohmann/json, its header forward-declares `httplib::Client`, and the colours are `constexpr` constants in the `.cpp`).
 - TD-260 (done in code, owner decision: `chatbot_gui` is a client of `chatbot_api_server` through `ChatbotClient`, shared with the CLI, instead of running its own copy of the model; with it TD-263 (requests on a worker thread) is fixed and TD-262, TD-265 and two TD-266 items are moot).
 - TD-262, TD-265 (closed as moot after TD-260: the server resolves the architecture and builds every prompt; moved to the resolved archive).
+- TD-264 (done in code: the `chatbot_gui` wrapper removes only snap entries from `LD_LIBRARY_PATH`/`QT_PLUGIN_PATH`, keeping the user's in order, and under snap sets the build's own Qt platform plugin directory from CMake; the launcher scripts no longer set x86_64 Qt5 paths).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6506,7 +6507,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Client / GUI | October 9, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 4, 2026 | Client / GUI | October 9, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-260. `ChatbotGUI_wrapper.cpp` always sets
@@ -6518,16 +6519,40 @@ puts system paths **before** the user's `LD_LIBRARY_PATH` and drops it entirely 
 
 Action Items:
 
-- [ ] Pass the Qt major version and plugin directory from CMake (`configure_file` or a compile definition), or only set `QT_QPA_PLATFORM_PLUGIN_PATH` when running under snap.
-- [ ] Derive library paths from the build (or don't override them unless snap is detected).
-- [ ] Preserve the user's `LD_LIBRARY_PATH` order, removing only `/snap/` entries.
+- [x] Pass the Qt major version and plugin directory from CMake (`configure_file` or a compile definition), or only set `QT_QPA_PLATFORM_PLUGIN_PATH` when running under snap. Both: CMake passes the build's Qt platform plugin directory (`ADAI_QT_PLATFORM_PLUGIN_DIR`), and the wrapper sets it only under snap.
+- [x] Derive library paths from the build (or don't override them unless snap is detected). No library directory is set at all; only snap entries are removed.
+- [x] Preserve the user's `LD_LIBRARY_PATH` order, removing only `/snap/` entries. Also for `QT_PLUGIN_PATH`.
 
-Location in code: `src/ChatbotGUI_wrapper.cpp`; tagged `TODO: See TD-264`.
+Fix (November 4, 2026): the wrapper applies the changes `adai::gui_launch::launch_environment()` returns
+(`src/ChatbotGuiLaunchEnv.{hpp,cpp}`, Qt-free so it is unit-tested). It still unsets `GTK_PATH`/`SNAP`/`SNAP_COMMON`/
+`SNAP_DATA` and empties `GTK_MODULES`. From `LD_LIBRARY_PATH` and `QT_PLUGIN_PATH` it removes only entries containing
+`/snap/`, keeping the others in order (a list left empty is unset), and adds no system directory; a snap
+`GIO_MODULE_DIR` is unset. `QT_QPA_PLATFORM_PLUGIN_PATH` is set only in a snap environment, never over a value the user
+set outside a snap, to the platform plugin directory of the Qt the GUI is built with: `src/CMakeLists.txt` takes it
+from the `Qt<5|6>::QOffscreenIntegrationPlugin` target (falling back to the xcb and minimal plugins), and the wrapper
+uses it only if it still exists. Found while fixing: the old value, `/usr/lib/x86_64-linux-gnu/qt5/plugins`, never
+had an effect, because Qt loads platform plugins from that directory itself rather than its `platforms/`
+subdirectory (seen with `QT_DEBUG_PLUGINS=1`); Qt now loads `libqoffscreen.so` from the configured directory. The two
+launcher scripts, `run_chatbot_gui.sh` and `chatbot_gui_fixed.sh`, set the same x86_64 Qt5 paths and replaced
+`LD_LIBRARY_PATH` before running the wrapper; they now leave the environment to it. The operator docs' manual
+`QT_QPA_PLATFORM_PLUGIN_PATH` examples (GUI troubleshooting, MNS Manager GUI guide) now name the `platforms`
+directory via `qmake -query`/`qtpaths6`.
+
+Tests: `chatbotguilaunchenvTests` (7: path filtering keeps order, snap detection, no system paths added, the platform
+plugin path only under snap and from the build, a user's own value kept, snap variables unset); three cases in
+`tests/smoke/chatbot_gui_wrapper_test.sh` that start the real wrapper with a snap-like environment and read the
+environment `chatbot_gui_binary` received from `/proc/<pid>/environ` (the old wrapper fails 6 of their checks). Not
+built against Qt6 (not installed here); the plugin target has the same name in Qt6.
+
+Location in code: `src/ChatbotGUI_wrapper.cpp`, `src/ChatbotGuiLaunchEnv.{hpp,cpp}`, `src/CMakeLists.txt`.
 
 Files to Modify:
 
 - `src/ChatbotGUI_wrapper.cpp`
+- `src/ChatbotGuiLaunchEnv.{hpp,cpp}` (new)
 - `src/CMakeLists.txt`
+- `tests/chatbotguilaunchenv_test.cpp` (new), `tests/CMakeLists.txt`, `tests/smoke/chatbot_gui_wrapper_test.sh`
+- `scripts/run_chatbot_gui.sh`, `scripts/chatbot_gui_fixed.sh`
 
 ---
 
