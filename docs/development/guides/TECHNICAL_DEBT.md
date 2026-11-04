@@ -1469,6 +1469,8 @@ The generation and model math run is complete.
 - TD-257 (done in code: `/clear` and the chat request escape `session_id`, like `/save` and `/load`).
 - TD-258 (done in code: Ctrl+C saves and exits, a save keeps a file this session didn't load and goes to a dated file, saves are written to a temporary file and renamed, a lost session is reported).
 - TD-259 (done in code: the chatbot's JSON goes through nlohmann/json, its header forward-declares `httplib::Client`, and the colours are `constexpr` constants in the `.cpp`).
+- TD-260 (done in code, owner decision: `chatbot_gui` is a client of `chatbot_api_server` through `ChatbotClient`, shared with the CLI, instead of running its own copy of the model; with it TD-263 (requests on a worker thread) is fixed and TD-262, TD-265 and two TD-266 items are moot).
+- TD-262, TD-265 (closed as moot after TD-260: the server resolves the architecture and builds every prompt; moved to the resolved archive).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -1776,8 +1778,8 @@ go together. [TD-256](#td-256-chatbots-help-banner-omits-save-load-and-stats), [
 **Tier 19 — Newly filed (October 9, 2026): `chatbot_gui` and strategy dispatch.** [TD-260](#td-260-chatbot_gui-never-loads-a-trained-checkpoint) is HIGH
 and about an hour: until it's fixed the GUI can't be used with any trained model. [TD-261](#td-261-generate_response_with_strategy-forces-beam-search-whenever-num_beams--1) is HIGH
 and lives in `EncoderDecoderModel`, not the GUI; it also changes RLHF rollouts, so re-check any
-RLHF results produced before the fix. [TD-262](#td-262-chatbot_gui-ignores-mns-architecture-and-becomes-unusable-on-init-failure) (architecture/init) pairs with TD-260. [TD-263](#td-263-chatbot_gui-freezes-while-generating)
-and [TD-264](#td-264-chatbot_gui-launcher-hardcodes-qt5-and-x86_64-paths) are independent. [TD-265](#td-265-chatbot_gui-and-chatbot_api_server-format-conversation-context-differently) needs a format decision shared with the server.
+RLHF results produced before the fix. [TD-262](../archive/TECHNICAL_DEBT_RESOLVED.md#td-262-chatbot_gui-ignores-mns-architecture-and-becomes-unusable-on-init-failure) (architecture/init) pairs with TD-260. [TD-263](#td-263-chatbot_gui-freezes-while-generating)
+and [TD-264](#td-264-chatbot_gui-launcher-hardcodes-qt5-and-x86_64-paths) are independent. [TD-265](../archive/TECHNICAL_DEBT_RESOLVED.md#td-265-chatbot_gui-and-chatbot_api_server-format-conversation-context-differently) needs a format decision shared with the server.
 [TD-266](#td-266-chatbot_gui-minor-gaps) is cleanup.
 
 **Tier 20 — Newly filed (October 9, 2026): `ChatbotTrainer`.** [TD-267](#td-267-chatbottrainer-keeps-skipped-pairs-biasing-validation-loss-low) is HIGH and small: fix
@@ -2231,10 +2233,8 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-259: `chatbot` Code Hygiene: Unchecked `/set` Values, Global Helpers, Heavy Header](#td-259-chatbot-code-hygiene-unchecked-set-values-global-helpers-heavy-header)
   - [TD-260: `chatbot_gui` Never Loads a Trained Checkpoint](#td-260-chatbot_gui-never-loads-a-trained-checkpoint)
   - [TD-261: `generate_response_with_strategy()` Forces Beam Search Whenever `num_beams > 1`](#td-261-generate_response_with_strategy-forces-beam-search-whenever-num_beams--1)
-  - [TD-262: `chatbot_gui` Ignores MNS Architecture and Becomes Unusable on Init Failure](#td-262-chatbot_gui-ignores-mns-architecture-and-becomes-unusable-on-init-failure)
   - [TD-263: `chatbot_gui` Freezes While Generating](#td-263-chatbot_gui-freezes-while-generating)
   - [TD-264: `chatbot_gui` Launcher Hardcodes Qt5 and x86_64 Paths](#td-264-chatbot_gui-launcher-hardcodes-qt5-and-x86_64-paths)
-  - [TD-265: `chatbot_gui` and `chatbot_api_server` Format Conversation Context Differently](#td-265-chatbot_gui-and-chatbot_api_server-format-conversation-context-differently)
   - [TD-266: `chatbot_gui` Minor Gaps](#td-266-chatbot_gui-minor-gaps)
   - [TD-267: ChatbotTrainer Keeps Skipped Pairs, Biasing Validation Loss Low](#td-267-chatbottrainer-keeps-skipped-pairs-biasing-validation-loss-low)
   - [TD-268: ChatbotTrainer Only Ends Metrics Epochs When There Is Validation Data](#td-268-chatbottrainer-only-ends-metrics-epochs-when-there-is-validation-data)
@@ -6352,7 +6352,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open | Client / GUI | October 9, 2026 | 1 hour |
+| **HIGH** | Open — code fix landed November 4, 2026 (owner decision: the GUI is a client of `chatbot_api_server`) | Client / GUI | October 9, 2026 | 1 hour |
 
 Description:
 Found while writing the code-traced reference [ChatbotGUI.md](../reference/source/ChatbotGUI.md). `ChatbotGUI::initializeChatbot()`
@@ -6367,17 +6367,52 @@ unconditionally") and checks the five sidecars instead. Passing an existing side
 
 Action Items:
 
-- [ ] Check for the sidecars (or just call `load_model()` and handle its exception), the same way `IncrementalTrainer` does; consider a shared `EncoderDecoderModel::checkpoint_exists(path)` helper.
-- [ ] When no checkpoint is found, show a clear warning in the chat pane that the model is untrained (matching TD-246's server-side stance).
-- [ ] Update the default/usage text (`chatbot_model.bin`) to describe a checkpoint base path.
+- [x] Check for the sidecars (or just call `load_model()` and handle its exception), the same way `IncrementalTrainer` does; consider a shared `EncoderDecoderModel::checkpoint_exists(path)` helper. Superseded: the GUI loads no checkpoint at all now; the server does.
+- [x] When no checkpoint is found, show a clear warning in the chat pane that the model is untrained (matching TD-246's server-side stance). The pane warns when the server reports an untrained model.
+- [x] Update the default/usage text (`chatbot_model.bin`) to describe a checkpoint base path. The usage is now `chatbot_gui [server_url]`.
 
-Location in code: `src/ChatbotGUI.cpp` (`initializeChatbot()`); tagged `TODO: See TD-260`.
+**Fix (November 4, 2026), owner decision:** a first fix made the GUI find and load the checkpoint's files. The owner
+rejected it: the GUI shouldn't run its own copy of the model at all, but be a client of the served model, like the
+`chatbot` CLI. So:
+
+- `ChatbotClient` (`src/ChatbotClient.{hpp,cpp}`, new) is the HTTP session with `chatbot_api_server`, taken out of
+  `ChatbotCLI`: `POST /chat/session` with only the changed settings (TD-254), a new session when the server answers
+  404 (TD-232), `/clear-session`, `/chat/session/export` and `/import`, and `cancel()` for a request in flight. It
+  prints nothing; each call returns what happened. `ChatbotCLI` keeps its public API, its messages and its save-file
+  policy (TD-258) and delegates to it; its 66 tests pass unchanged.
+- `chatbot_gui [server_url]` (default `http://localhost:8080`) builds no model, tokenizer or `ConversationContext`
+  and links none of the model libraries. Its settings start at "server default" and are sent once changed, with the
+  server's ranges (`GenerationLimits`). Save writes the server's export (temp file + rename), Load imports into the
+  server, Clear clears the server's session. On connecting, the chat pane says whether the server was reached and
+  warns when it reports an untrained model (`/health` 503, TD-246). The old `[vocab_file] [model_file]` form exits 1
+  saying why.
+- Requests run on a worker thread (TD-263). The launcher scripts, the GUI build checks and the operator guides
+  describe the server client.
+- Checked by driving the real `ChatbotGUI` class headless (offscreen Qt) against a real `chatbot_api_server`: two
+  turns went to one server session and got the server's replies, and the event loop ran about 21,000 times during
+  one reply. An unreachable server and an `ALLOW_UNTRAINED_MODEL` server each gave their notice.
+
+Tests: `chatbotclientTests` (11, new, against a stub server: health including an untrained server, session adoption,
+only changed settings sent, a lost session retried in a new one, clear/export/import outcomes, `cancel()` ending a
+request in flight, the atomic write); `chatbotguilogicTests` (9: the server's strategy names with "Server default"
+first, which settings are sent, the connection notices); the GUI smoke tests (usage, and the old two-argument form
+exits 1, which the old binary instead ran with); the launcher script test (it names the server, not `vocab.txt`).
+`chatbotcliImprovedTests` (66) pass unchanged on the refactored CLI.
+
+Location in code: `src/ChatbotGUI.cpp` (`initializeChatbot()`, removed).
 
 Files to Modify:
 
-- `src/ChatbotGUI.cpp`
-- `src/ChatbotGUI_main.cpp`
-- `src/EncoderDecoderModel.{hpp,cpp}` (optional helper)
+- `src/ChatbotClient.{hpp,cpp}` (new), `src/ChatbotCLI.{hpp,cpp}`, `src/ChatbotGUI.{hpp,cpp}`, `src/ChatbotGUI_main.cpp`,
+  `src/ChatbotGuiLogic.hpp`, `src/CMakeLists.txt`
+- `tests/chatbotclient_test.cpp` (new), `tests/chatbotguilogic_test.cpp`, `tests/CMakeLists.txt`,
+  `tests/smoke/chatbot_gui_binary_main_test.sh`, `tests/smoke/chatbot_gui_wrapper_test.sh`,
+  `tests/scripts/run_chatbot_gui_test.sh`
+- `scripts/run_chatbot_gui.sh`, `scripts/verify_gui_parallel.sh`, `scripts/test_chatbot_gui.sh`,
+  `scripts/test_chatbot_gui_comprehensive.sh`
+- `docs/operations/guides/chatbot-gui-guide.md`, `GUI_QUICK_START.md`, `GUI_QUICK_REFERENCE.md`,
+  `CHATBOT_GUI_TROUBLESHOOTING.md`, `COMMANDS.md`, `OPERATIONS_MANUAL.md`
+- `docs/development/reference/source/ChatbotGUI.md`, `ChatbotCLI.md`, `ChatbotClient.md` (new)
 
 ---
 
@@ -6441,42 +6476,11 @@ Files to Modify:
 
 ---
 
-### TD-262: `chatbot_gui` Ignores MNS Architecture and Becomes Unusable on Init Failure
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Client / GUI | October 9, 2026 | 2-4 hours |
-
-Description:
-Found alongside TD-260. `initializeChatbot()` takes the model architecture only from
-`config.chatbot.conf` (discovered from the working directory), not from MNS (which
-`chatbot_api_server` and the trainer treat as authoritative) or the checkpoint's own `.config`.
-A checkpoint trained under a different architecture fails to load. Any exception during init then:
-
-- shows a warning saying "Using default/random initialization", which is wrong;
-- returns `false`, so the constructor shows a **second**, critical dialog;
-- leaves `context` null, so every message answers "[Error: Chatbot not initialized]".
-
-Action Items:
-
-- [ ] Read the architecture from the checkpoint's `.config` (or resolve via MNS when `NAME_SERVICE_URL`/`MODEL_NAME` are configured), falling back to the config file.
-- [ ] Show one accurate error dialog, and keep the GUI usable (or disable Send) with a clear status.
-- [ ] Add a `--config` option instead of relying on the working directory.
-
-Location in code: `src/ChatbotGUI.cpp` (`initializeChatbot()`, constructor); tagged `TODO: See TD-262`.
-
-Files to Modify:
-
-- `src/ChatbotGUI.{hpp,cpp}`
-- `src/ChatbotGUI_main.cpp`
-
----
-
 ### TD-263: `chatbot_gui` Freezes While Generating
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Client / GUI | October 9, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 4, 2026 (with TD-260) | Client / GUI | October 9, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-260. `onSendMessage()` calls `generateResponse()` synchronously on the GUI
@@ -6486,10 +6490,10 @@ close, and desktops may flag it as "not responding".
 
 Action Items:
 
-- [ ] Run generation on a worker thread (`QtConcurrent::run` + `QFutureWatcher`, or a `QThread`), posting the result back to the GUI thread; disable settings while it runs.
-- [ ] Add a cancel/stop control if the generator can support it.
+- [x] Run generation on a worker thread (`QtConcurrent::run` + `QFutureWatcher`, or a `QThread`), posting the result back to the GUI thread; disable settings while it runs. Each request runs on a `std::thread`, its result posted back with `QMetaObject::invokeMethod`; input, buttons and settings are disabled until it arrives. Closing the window cancels the request (`ChatbotClient::cancel()`) instead of waiting up to the 300 s read timeout.
+- [ ] Add a cancel/stop control if the generator can support it. Still open: `chatbot_api_server` can't stop a generation, so a Stop button would only stop waiting while the server still adds the turn to the session.
 
-Location in code: `src/ChatbotGUI.cpp` (`onSendMessage()`); tagged `TODO: See TD-263`.
+Location in code: `src/ChatbotGUI.cpp` (`runRequest()`, `onSendMessage()`).
 
 Files to Modify:
 
@@ -6527,36 +6531,11 @@ Files to Modify:
 
 ---
 
-### TD-265: `chatbot_gui` and `chatbot_api_server` Format Conversation Context Differently
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Client / GUI | October 9, 2026 | 1-2 hours |
-
-Description:
-Found alongside TD-260. The GUI builds each prompt with
-`ConversationContext::format_with_special_tokens()` (`<bos> [USER] … <sep>` tags, which
-`BPETokenizer` treats as ordinary characters, not special tokens). `ChatbotAPI` sessions use
-`format_for_model()` (`User: …` / `Assistant: …`). The same model sees differently shaped
-prompts depending on the client, so behaviour isn't comparable between them.
-
-Action Items:
-
-- [ ] Owner decision: pick one multi-turn format (ideally whatever the training data uses) and use it in both clients.
-
-Location in code: `src/ChatbotGUI.cpp` (`generateResponse()`); tagged `TODO: See TD-265`.
-
-Files to Modify:
-
-- `src/ChatbotGUI.cpp` and/or `src/ChatbotAPI.cpp`
-
----
-
 ### TD-266: `chatbot_gui` Minor Gaps
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Client / GUI | October 9, 2026 | 2-4 hours |
+| LOW | Open (two of four items moot since November 4, 2026, TD-260; `--help` fixed) | Client / GUI | October 9, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-260:
@@ -6570,10 +6549,10 @@ Found alongside TD-260:
 
 Action Items:
 
-- [ ] Derive the context limit from the model's `max_seq_length` minus the response budget.
-- [ ] Redisplay loaded messages (needs a message accessor on `ConversationContext`).
-- [ ] Handle `--help` before constructing `QApplication`.
-- [ ] Honour `GPU_ENABLED` the way `chatbot_api_server` does.
+- [x] Derive the context limit from the model's `max_seq_length` minus the response budget. Moot: the server keeps the conversation.
+- [ ] Redisplay loaded messages (needs a message accessor on `ConversationContext`). Now: parse the file the server exports (it holds the messages) or have `/chat/session/import` return them.
+- [x] Handle `--help` before constructing `QApplication`. Done November 4, 2026 with TD-260 (on this machine the old binary's `--help` also ran without a display).
+- [x] Honour `GPU_ENABLED` the way `chatbot_api_server` does. Moot: the server generates, on its GPU when it has one.
 
 Location in code: `src/ChatbotGUI.cpp`, `src/ChatbotGUI_main.cpp`; tagged `TODO: See TD-266`.
 

@@ -2,7 +2,14 @@
 
 ## Overview
 
-The ADAI Chatbot GUI is a modern, user-friendly graphical interface for interacting with the transformer-based chatbot. Built with Qt (C++), it provides an intuitive chat experience with real-time configuration and conversation management.
+The ADAI Chatbot GUI is a graphical client for `chatbot_api_server`, built with Qt (C++). Like the `chatbot` CLI,
+it sends your messages to the model the server serves, and the server keeps the conversation. It provides a chat
+window, generation settings and conversation management.
+
+> **Since November 4, 2026 (TD-260)** the GUI no longer loads a vocabulary or model of its own (it used to take
+> `[vocab_file] [model_file]` and run a separate copy of the model on the CPU, which never actually loaded a
+> trained checkpoint). It now takes the server's URL, so it always talks to the same trained model as every other
+> client, with the server's architecture (MNS), GPU and prompt format.
 
 ## Quick Install & Run
 
@@ -17,7 +24,7 @@ cd build
 cmake .. -DBUILD_GUI=ON
 make chatbot_gui -j$(nproc)
 
-# Run
+# Run (with chatbot_api_server running on localhost:8080)
 ./src/chatbot_gui
 ```
 
@@ -32,7 +39,7 @@ cd build
 cmake .. -DBUILD_GUI=ON -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5)
 make chatbot_gui -j$(nproc)
 
-# Run
+# Run (with chatbot_api_server running on localhost:8080)
 ./src/chatbot_gui
 ```
 
@@ -43,24 +50,26 @@ make chatbot_gui -j$(nproc)
 - **Clean message display** with color-coded user and bot messages
 - **Timestamp** for each message
 - **Auto-scrolling** to latest messages
-- **Real-time response generation**
+- **Responsive while the server generates**: each request runs on a worker thread (TD-263)
 
 ### Generation Settings Panel
 
-Configure all generation parameters in real-time:
+Each setting starts at **server default**: it isn't sent, so `chatbot_api_server`'s configuration applies.
+Change one and it is sent with every message after that (the server checks it against the same ranges);
+set it back to server default to stop sending it.
 
-- **Generation Strategy**: Nucleus (Top-p), Top-k, Greedy, Beam Search, Sampling
-- **Temperature**: Control randomness (0.1 - 2.0)
-- **Top-p (Nucleus)**: Probability mass cutoff (0.1 - 1.0)
-- **Top-k**: Number of top tokens to consider (1 - 200)
-- **Max Response Length**: Maximum tokens in response (10 - 500)
-- **Beam Width**: For beam search strategy (1 - 10)
+- **Generation Strategy**: Server default, Nucleus (Top-p), Top-k, Greedy, Beam Search, Sampling (Temperature)
+- **Temperature**: Control randomness (0 - 2; 0 is greedy)
+- **Top-p (Nucleus)**: Probability mass cutoff (0 - 1)
+- **Top-k**: Number of top tokens to consider (1 - 1000)
+- **Max Response Length**: New tokens in the response (1 - 4096)
+- **Beam Width**: For beam search strategy (1 - 16)
 
 ### Conversation Management
 
-- **Clear Chat**: Reset conversation history
-- **Save Conversation**: Export chat history to file
-- **Load Conversation**: Import previous conversations
+- **Clear Chat**: Clear the conversation on the server
+- **Save Conversation**: Export the server's copy of the conversation to a file (the `chatbot` CLI's format)
+- **Load Conversation**: Send a saved conversation to the server, which continues it
 
 ## Screenshots
 
@@ -189,30 +198,37 @@ make chatbot_gui -j$(nproc)
 
 ### Command-Line Usage
 
+Start `chatbot_api_server` first (see the [CLI guide](chatbot-guide.md)), then:
+
 ```bash
-# From the build directory
+# From the build directory; connects to http://localhost:8080
 ./src/chatbot_gui
 
-# With custom vocabulary
-./src/chatbot_gui vocab.txt
-
-# With custom vocabulary and model
-./src/chatbot_gui vocab.txt chatbot_model.bin
+# Another server
+./src/chatbot_gui http://ai-machine:8080
 ```
 
 ### Command-Line Options
 
 ```bash
-# Show help
+# Show help (works without a display)
 ./src/chatbot_gui --help
 
 # Example output:
-# Usage: chatbot_gui [vocab_file] [model_file]
+# Usage: chatbot_gui [server_url]
+#
+# A desktop client for chatbot_api_server, like the chatbot CLI: messages go to the model
+# the server serves, and the server keeps the conversation.
 #
 # Default values:
-#   vocab_file: vocab.txt
-#   model_file: chatbot_model.bin
+#   server_url: http://localhost:8080
 ```
+
+The old `chatbot_gui vocab.txt model.bin` form exits with an error saying the GUI no longer loads them.
+
+When the window opens, the chat pane says whether the server was reached. If the server is running an
+untrained model (`ALLOW_UNTRAINED_MODEL=true`, which makes `/health` answer 503 `"untrained"`), it warns that
+the replies are random. If the server can't be reached, it says so; messages are sent once the server is up.
 
 ## Using the GUI
 
@@ -220,15 +236,16 @@ make chatbot_gui -j$(nproc)
 
 1. **Type your message** in the input field
 2. **Press Enter or click Send**
-3. **Wait for response** (GUI shows "Generating...")
+3. **Wait for response** (Send shows "Generating..."; input and settings are disabled until the reply arrives,
+   and the window stays responsive)
 4. **Adjust settings** in real-time on the right panel
 
 ### Starting a Conversation
 
-1. **Launch the application**
+1. **Start `chatbot_api_server`, then launch the application**
 
    ```bash
-   ./src/chatbot_gui
+   ./src/chatbot_gui http://localhost:8080
    ```
 
 2. **Type your message** in the input field at the bottom
@@ -241,7 +258,7 @@ make chatbot_gui -j$(nproc)
 
 1. **Open the Settings Panel** on the right side of the window
 
-2. **Select a generation strategy**:
+2. **Select a generation strategy** (or leave it at **Server default**):
    - **Nucleus (Top-p)**: Best for creative, diverse responses
    - **Top-k Sampling**: Good balance of quality and diversity
    - **Greedy**: Most predictable, deterministic output
@@ -260,19 +277,19 @@ make chatbot_gui -j$(nproc)
 
 1. Click **"Save Conversation"** button
 2. Choose a location and filename
-3. Conversation is saved in plain text format
+3. The server's copy of the conversation is written there (replacing the file only once it's fully written)
 
 #### Load Conversation
 
 1. Click **"Load Conversation"** button
-2. Select a previously saved conversation file
-3. Context is restored for the chatbot
+2. Select a previously saved conversation file (from the GUI or the `chatbot` CLI)
+3. The server continues that conversation. Its earlier messages aren't redisplayed yet (TD-266)
 
 #### Clear Chat
 
 1. Click **"Clear Chat"** button
 2. Confirm the action
-3. Chat display and conversation context are reset
+3. The server clears the conversation and the chat display is reset
 
 ## Keyboard Shortcuts
 
@@ -298,32 +315,24 @@ find /usr -name "Qt6Config.cmake" 2>/dev/null
 cmake .. -DCMAKE_PREFIX_PATH=/path/to/qt -DBUILD_GUI=ON
 ```
 
-### Model Loading Fails
+### Server Not Reachable
 
-**Problem**: "Failed to initialize chatbot components"
+**Problem**: "Could not reach chatbot_api_server at …"
 
 **Solution**:
 
-1. Ensure `vocab.txt` exists in the working directory
-2. Train a model first using `chatbot_trainer`
-3. Or specify correct paths:
+1. Start `chatbot_api_server` (see the [CLI guide](chatbot-guide.md))
+2. Or pass its URL: `./src/chatbot_gui http://<host>:8080`
 
-   ```bash
-   ./src/chatbot_gui /path/to/vocab.txt /path/to/model.bin
-   ```
+### Gibberish Replies or "untrained model" Warning
+
+The server's model is untrained or undertrained. Train it with `incremental_trainer` and restart the server
+on the new checkpoint; the GUI needs no change.
 
 ### Slow Response Generation
 
-**Problem**: GUI freezes during response generation
-
-**Explanation**: Response generation happens in the main thread. For large models or long responses, this may take time.
-
-**Solutions**:
-
-- Reduce **Max Response Length**
-- Use **Greedy** strategy instead of Beam Search
-- Train a smaller model for faster inference
-- Future enhancement: Add threading for async generation
+Generation runs in the server, so its speed is the server's (GPU, threads, model size). The GUI stays
+responsive while waiting. Reduce **Max Response Length** or use **Greedy** for faster replies.
 
 ### Black/Empty Chat Display
 
@@ -332,29 +341,13 @@ cmake .. -DCMAKE_PREFIX_PATH=/path/to/qt -DBUILD_GUI=ON
 **Solution**:
 
 1. Check Qt version compatibility
-2. Verify model initialization succeeded
+2. Check the chat pane's connection message
 3. Check terminal output for error messages
 
-## Configuration Files
+## Configuration
 
-### Default Locations
-
-- **Vocabulary**: `vocab.txt` (in working directory)
-- **Model**: `chatbot_model.bin` (in working directory)
-- **Saved Conversations**: User-specified location
-
-### Custom Paths
-
-Always use absolute paths or run from the correct directory:
-
-```bash
-# Run from build directory
-cd build
-./src/chatbot_gui
-
-# Or use absolute paths
-./src/chatbot_gui ~/adai/vocab.txt ~/adai/models/chatbot_model.bin
-```
+The GUI reads no configuration file. The model, vocabulary, architecture and default generation settings are
+`chatbot_api_server`'s (`config.chatbot.conf`, or MNS). Saved conversations go where you choose.
 
 ## Architecture
 
@@ -368,13 +361,16 @@ cd build
 
 2. **ChatbotGUI_main.cpp**: Application entry point
    - Qt application initialization
-   - Command-line argument parsing
+   - Command-line argument parsing (the server URL)
    - Window creation and display
 
-3. **Integration**:
-   - Uses existing `BPETokenizer` for text processing
-   - Uses `EncoderDecoderModel` for generation
-   - Uses `ConversationContext` for multi-turn dialogue
+3. **ChatbotClient.hpp/cpp** (TD-260): the HTTP session with `chatbot_api_server`, shared with the `chatbot`
+   CLI
+   - `POST /chat/session` with the changed settings, `/clear-session`, `/chat/session/export` and `/import`
+   - Starts a new session when the server has forgotten one (it answers 404)
+
+4. **ChatbotGuiLogic.hpp**: the Qt-free parts (strategy names, which settings are sent, connection messages),
+   unit-tested
 
 ### Qt Features Used
 
@@ -399,11 +395,10 @@ ChatbotGUI (Qt QMainWindow)
     │   ├── Temperature (QDoubleSpinBox)
     │   ├── Top-p (QDoubleSpinBox)
     │   ├── Top-k (QSpinBox)
-    │   └── Max Length (QSpinBox)
-    └── Chatbot Backend
-        ├── BPETokenizer
-        ├── EncoderDecoderModel
-        └── ConversationContext
+    │   ├── Max Length (QSpinBox)
+    │   └── Beam Width (QSpinBox)
+    └── ChatbotClient (worker thread)
+        └── HTTP → chatbot_api_server (model, tokenizer, conversation)
 ```
 
 ### Files Created
@@ -411,9 +406,13 @@ ChatbotGUI (Qt QMainWindow)
 - `src/ChatbotGUI.hpp` - GUI header with Qt class definition
 - `src/ChatbotGUI.cpp` - GUI implementation with Qt widgets
 - `src/ChatbotGUI_main.cpp` - Application entry point
-- `src/CMakeLists.txt` - Updated build configuration (Qt target)
+- `src/ChatbotClient.hpp/cpp` - HTTP client of chatbot_api_server, shared with the CLI
+- `src/ChatbotGuiLogic.hpp` - Qt-free logic
+- `src/CMakeLists.txt` - Build configuration (Qt target)
 
 ## Performance Tips
+
+Generation runs in `chatbot_api_server`; these settings change how much work it does per reply.
 
 1. **Use Greedy or Nucleus** for fastest generation
 2. **Limit max_response_length** to 50-100 tokens for real-time feel
@@ -424,7 +423,9 @@ ChatbotGUI (Qt QMainWindow)
 
 Planned features for future versions:
 
-- [ ] Asynchronous generation (non-blocking UI)
+- [x] Asynchronous generation (non-blocking UI) (TD-263, November 4, 2026)
+- [ ] Redisplay a loaded conversation's messages (TD-266)
+- [ ] Stop a reply in progress (the server has no way to cancel a generation yet)
 - [ ] Conversation export to multiple formats (JSON, Markdown)
 - [ ] Syntax highlighting for code in messages
 - [ ] Custom themes and color schemes
@@ -442,7 +443,8 @@ Planned features for future versions:
 |**Configuration**|Real-time sliders|Command syntax|
 |**Message History**|Scrollable display|Terminal scrollback|
 |**Conversation Save**|GUI dialog|Auto-save|
-|**Performance**|Same|Same|
+|**Model**|chatbot_api_server|chatbot_api_server|
+|**Performance**|Same (the server's)|Same (the server's)|
 |**Portability**|Requires Qt|Terminal only|
 
 ## Examples
@@ -486,27 +488,24 @@ Message: "What's your favorite hobby?"
 ## Requirements
 
 - **Qt5** or **Qt6** (Qt5 recommended)
-- **Trained chatbot model** (`chatbot_model.bin`)
-- **Vocabulary file** (`vocab.txt`)
+- **A running `chatbot_api_server`** serving a trained model
 - **C++17 compiler** (GCC 7+, Clang 5+, MSVC 2019+)
 
 ## Next Steps
 
-1. **Train a model** if you haven't:
+1. **Train a model** with `incremental_trainer` if you haven't (see the training guide)
+
+2. **Start the server** on it: `chatbot_api_server` (see the [CLI guide](chatbot-guide.md))
+
+3. **Run the GUI**:
 
    ```bash
-   ./src/chatbot_trainer --data training_data.txt --vocab vocab.txt
+   ./src/chatbot_gui http://localhost:8080
    ```
 
-2. **Run the GUI**:
+4. **Experiment with settings** to find what works best for your use case
 
-   ```bash
-   ./src/chatbot_gui
-   ```
-
-3. **Experiment with settings** to find what works best for your use case
-
-4. **Save interesting conversations** for later review
+5. **Save interesting conversations** for later review
 
 ## See Also
 
@@ -521,11 +520,11 @@ For issues, questions, or contributions:
 - Review ChatbotCLI guide for similar functionality
 - Examine the source code in `src/ChatbotGUI.cpp`
 
-The GUI uses the same underlying components as the CLI, so:
+The GUI and the CLI are both clients of `chatbot_api_server`, through the same `ChatbotClient`, so:
 
-- Generation quality is identical
-- All features from CLI are available
-- Settings behave the same way
+- Both talk to the same model, and generation quality is identical
+- Saved conversations are interchangeable
+- Settings behave the same way (only changed settings are sent)
 
 For detailed information about generation strategies and parameters, see the main chatbot documentation.
 

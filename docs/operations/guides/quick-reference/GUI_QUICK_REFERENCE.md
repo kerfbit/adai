@@ -26,22 +26,19 @@ Also works:
 
 ## COMMAND LINE OPTIONS
 
-Default (uses vocab.txt and chatbot_model.bin):
+The GUI is a client of `chatbot_api_server` (TD-260): its one argument is the server's URL. Start the server
+first.
+
+Default (`http://localhost:8080`):
 
 ```bash
 ./scripts/chatbot_gui_fixed.sh
 ```
 
-Custom vocab:
+Another server:
 
 ```bash
-./scripts/chatbot_gui_fixed.sh my_vocab.txt
-```
-
-Custom vocab and model:
-
-```bash
-./scripts/chatbot_gui_fixed.sh my_vocab.txt my_model.bin
+./scripts/chatbot_gui_fixed.sh http://ai-machine:8080
 ```
 
 Show help:
@@ -61,10 +58,13 @@ Show help:
 **Fix:** `ssh -X user@host` OR use VNC
 
 **Issue:** Slow responses
-**Fix:** Reduce max length, use Greedy strategy
+**Fix:** Generation runs in the server; reduce max length, use Greedy strategy
 
-**Issue:** Model not loading
-**Fix:** Run from `/home/rodney/Repos/adai` directory
+**Issue:** "Could not reach chatbot_api_server"
+**Fix:** Start the server, or pass its URL
+
+**Issue:** "the server is running an untrained model"
+**Fix:** Start the server on a trained checkpoint (it was started with `ALLOW_UNTRAINED_MODEL=true`)
 
 ---
 
@@ -84,8 +84,7 @@ Show help:
 **Launcher:** `scripts/chatbot_gui_fixed.sh` ⭐
 **Alt launcher:** `scripts/run_chatbot_gui.sh`
 
-**Required:** `vocab.txt` (in current directory)
-**Optional:** `chatbot_model.bin*` (trained model)
+**Required:** a running `chatbot_api_server` (it holds the model and vocabulary)
 
 Documentation:
 
@@ -104,7 +103,7 @@ Verify it works:
 Expected output:
 
 ```text
-Usage: ./build/src/chatbot_gui [vocab_file] [model_file]
+Usage: ./build/src/chatbot_gui [server_url]
 ...
 ```
 
@@ -112,6 +111,7 @@ Usage: ./build/src/chatbot_gui [vocab_file] [model_file]
 
 ## GENERATION STRATEGIES
 
+- **Server default** → the server's configured strategy (each setting starts at server default and is sent only once changed)
 - **Nucleus (Top-p)** ⭐ Recommended - balanced creativity
 - **Top-k Sampling** → Good quality, controlled randomness
 - **Greedy** → Fastest, deterministic

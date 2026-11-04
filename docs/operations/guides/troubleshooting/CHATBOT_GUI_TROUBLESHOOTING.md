@@ -148,175 +148,42 @@ export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/lib/x86_64-linux-gnu/qt5/plugins
 
 ---
 
-### Issue 6: Model Loading Fails
+### Issue 6: Server Not Reachable
 
-Error in GUI:
+Since November 4, 2026 (TD-260) the GUI is a client of `chatbot_api_server`: it loads no vocabulary or model
+itself. The chat pane says when it can't reach the server:
 
 ```text
-Failed to initialize chatbot components
+Could not reach chatbot_api_server at http://localhost:8080 (Could not establish connection). ...
 ```
 
 Solutions:
 
-1. Check Files Exist:
+1. Start `chatbot_api_server`, and check it answers: `curl -s http://localhost:8080/health`
+2. Pass the right URL: `./build/src/chatbot_gui http://<host>:8080`
 
-```bash
-ls -lh vocab.txt chatbot_model.bin*
-```
-
-2. Use Correct Paths:
-
-```bash
-# Run from project root
-cd /home/rodney/Repos/adai
-./build/src/chatbot_gui
-
-# Or use absolute paths
-./build/src/chatbot_gui /absolute/path/to/vocab.txt /absolute/path/to/model.bin
-```
-
-3. Check Model Format:
-
-Ensure model files were created with the same version of the code.
+The old `chatbot_gui vocab.txt model.bin` form now exits with an error saying so.
 
 ---
 
-### Issue 7: Slow Response Generation / GUI Freezes
+### Issue 7: Slow Responses
 
-Cause:
-Large model or long max_length setting.
+Generation runs in the server, so the GUI stays responsive while it waits (TD-263); input and settings are
+disabled until the reply arrives.
 
 Solutions:
-
-1. Reduce Settings:
 
 - Lower max response length (50-100 tokens)
 - Use "Greedy" strategy instead of "Beam Search"
-- Reduce beam width to 3-5
-
-2. Use Smaller Model:
-
-Train with fewer layers/smaller dimensions.
-
-3. Future Enhancement:
-
-This is a known limitation. Future versions will support async generation.
+- Check the server: it should be using its GPU if it has one
 
 ---
 
-### Issue 8: Segmentation Fault / Crashes
+### Issue 8: Gibberish Replies / "untrained model" Warning
 
-Possible Causes:
-
-1. Model/Vocab Mismatch:
-
-```bash
-# Ensure vocab size matches model
-head -1 chatbot_model.bin.config  # check vocab_size
-wc -l vocab.txt                   # should match
-```
-
-2. Corrupted Model Files:
-
-Re-train or use a different checkpoint.
-
-3. Memory Issues:
-
-Check available RAM:
-
-```bash
-free -h
-```
-
----
-
-## Best Practices
-
-### Running the GUI
-
-Always use the launcher scripts:
-
-```bash
-# Best option - handles all environment issues
-./chatbot_gui_fixed.sh
-
-# Alternative
-./run_chatbot_gui.sh
-```
-
-Don't run directly unless you know what you're doing:
-
-```bash
-# Avoid this (may have library conflicts)
-./build/src/chatbot_gui
-```
-
-### Development/Debugging
-
-Enable Qt Debug Output:
-
-```bash
-export QT_DEBUG_PLUGINS=1
-export QT_LOGGING_RULES="*.debug=true"
-./build/src/chatbot_gui
-```
-
-Check Library Dependencies:
-
-```bash
-ldd build/src/chatbot_gui | grep -i qt
-```
-
-Verify Symbols:
-
-```bash
-nm build/src/chatbot_gui | grep ChatbotGUI
-```
-
----
-
-## Environment-Specific Issues
-
-### Ubuntu with Snap
-
-**Problem:** Library conflicts with snap packages.
-
-**Solution:** Use the provided launcher scripts which handle this automatically.
-
-### WSL (Windows Subsystem for Linux)
-
-**Problem:** No native display server.
-
-Solutions:
-
-1. Install VcXsrv or Xming on Windows
-2. Set DISPLAY environment variable
-3. Use WSLg (Windows 11 22H2+)
-
-```bash
-# WSL 1/2 with X server on Windows
-export DISPLAY=:0
-
-# WSLg (Windows 11)
-# Should work automatically
-```
-
-### Docker/Container
-
-**Problem:** No display access.
-
-Solutions:
-
-```bash
-# Share X11 socket
-docker run -e DISPLAY=$DISPLAY \
-           -v /tmp/.X11-unix:/tmp/.X11-unix \
-           your-container \
-           ./build/src/chatbot_gui
-
-# Allow X11 connections first
-xhost +local:docker
-```
+The server's model is untrained or undertrained. A server started with `ALLOW_UNTRAINED_MODEL=true` makes the
+GUI warn when it connects. Train the model with `incremental_trainer` and restart the server on the new
+checkpoint.
 
 ---
 
@@ -329,8 +196,8 @@ file build/src/chatbot_gui
 # Check Qt libraries are linked
 ldd build/src/chatbot_gui | grep Qt5
 
-# Verify required files
-ls -lh vocab.txt chatbot_model.bin.config
+# Verify the server is up (the GUI's default URL)
+curl -s http://localhost:8080/health
 
 # Test with help flag (minimal initialization)
 ./chatbot_gui_fixed.sh --help
@@ -383,8 +250,8 @@ If issues persist:
 |No display|SSH with `-X` or use VNC|
 |Qt plugin missing|`sudo apt install libqt5gui5`|
 |GTK warnings|`export GTK_MODULES=""`|
-|Model not found|Run from project root|
+|Server not reachable|Start `chatbot_api_server` or pass its URL|
 |Slow generation|Reduce max length, use greedy|
-|Segfault|Check vocab/model match|
+|Gibberish replies|Train the server's model|
 
 **Remember:** Always use the provided launcher scripts for the smoothest experience!

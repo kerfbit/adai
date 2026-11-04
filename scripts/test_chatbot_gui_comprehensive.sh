@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (TD-044 resolved — real test suite added, see tests/scripts/test_chatbot_gui_comprehensive_test.sh)
-# @adai-version: 0.7.2
-# @adai-reviewed: 2026-09-11
+# @adai-version: 0.8.0
+# @adai-reviewed: 2026-11-04
 
 
 # Comprehensive test suite for chatbot_gui
@@ -122,8 +122,8 @@ else
 fi
 
 # chatbot_gui is a thin exec() launcher (ChatbotGUI_wrapper.cpp) that execs
-# chatbot_gui_binary — the real Qt GUI logic (ChatbotGUI, BPETokenizer,
-# EncoderDecoderModel, ConversationContext, Qt linkage, MOC-generated slots)
+# chatbot_gui_binary — the real Qt GUI logic (ChatbotGUI, its ChatbotClient
+# since TD-260, Qt linkage, MOC-generated slots)
 # lives in chatbot_gui_binary, not the wrapper. Every size/Qt-linkage/symbol
 # check below previously targeted the wrapper, which by design contains none
 # of it — confirmed empirically (0 matching symbols vs. 743; zero Qt5
@@ -202,22 +202,11 @@ else
     fail "ChatbotGUI class not found in binary"
 fi
 
-if nm "$GUI_BINARY" 2>/dev/null | grep -q "BPETokenizer"; then
-    pass "BPETokenizer integrated"
+# TD-260: the GUI is a client of chatbot_api_server; the model runs in the server.
+if nm "$GUI_BINARY" 2>/dev/null | grep -q "ChatbotClient"; then
+    pass "ChatbotClient (chatbot_api_server client) integrated"
 else
-    fail "BPETokenizer not integrated"
-fi
-
-if nm "$GUI_BINARY" 2>/dev/null | grep -q "EncoderDecoderModel"; then
-    pass "EncoderDecoderModel integrated"
-else
-    fail "EncoderDecoderModel not integrated"
-fi
-
-if nm "$GUI_BINARY" 2>/dev/null | grep -q "ConversationContext"; then
-    pass "ConversationContext integrated"
-else
-    fail "ConversationContext not integrated"
+    fail "ChatbotClient not integrated"
 fi
 
 # Test 6: Qt Signals/Slots
@@ -244,26 +233,8 @@ fi
 # Test 7: Required Files
 section "Test 7: Runtime Requirements"
 
-if [ -f "vocab.txt" ]; then
-    VOCAB_SIZE=$(wc -l < vocab.txt)
-    pass "vocab.txt exists ($VOCAB_SIZE entries)"
-else
-    warn "vocab.txt not found (required for running)"
-fi
-
-if [ -f "chatbot_model.bin.config" ]; then
-    pass "Model configuration exists"
-    
-    # Check for associated model files
-    MODEL_PREFIX="chatbot_model.bin"
-    if ls ${MODEL_PREFIX}*.decoder >/dev/null 2>&1; then
-        pass "Model decoder files found"
-    else
-        warn "Model decoder files not found"
-    fi
-else
-    warn "Model configuration not found (will use random init)"
-fi
+# TD-260: the GUI loads no vocabulary or model; it needs a running chatbot_api_server.
+warn "Running the GUI needs a chatbot_api_server (default http://localhost:8080); not checked here"
 
 # Test 8: Documentation
 section "Test 8: Documentation"
@@ -349,8 +320,8 @@ if [ $FAIL_COUNT -eq 0 ]; then
     echo ""
     echo "The chatbot_gui is ready to use!"
     echo ""
-    echo "To run (requires graphical environment):"
-    echo "  ${LAUNCHER}"
+    echo "To run (requires graphical environment and a running chatbot_api_server):"
+    echo "  ${LAUNCHER} http://localhost:8080"
     echo ""
     exit 0
 else

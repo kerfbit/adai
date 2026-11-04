@@ -165,10 +165,10 @@ Launches the chatbot client, automatically starting the API server in the backgr
 
 ### run_chatbot_gui.sh
 
-Quick launcher for the Qt-based chatbot GUI. Checks for graphical display, binary, vocab file, and model availability. Fixes snap/system library conflicts by resetting library paths.
+Quick launcher for the Qt-based chatbot GUI, a client of `chatbot_api_server` (TD-260). Checks for a graphical display and the binary, and passes the server URL (default `http://localhost:8080`). Fixes snap/system library conflicts by resetting library paths.
 
 ```bash
-./scripts/run_chatbot_gui.sh
+./scripts/run_chatbot_gui.sh [server_url]
 ```
 
 ### chatbot_gui_fixed.sh
@@ -303,7 +303,7 @@ Verifies the chatbot GUI executable is properly built and linked (checks existen
 
 ### test_chatbot_gui_comprehensive.sh
 
-Comprehensive test suite for the chatbot GUI covering build verification, dependency checks, integration tests, and code quality.
+Comprehensive test suite for the chatbot GUI covering build verification, dependency checks, its `ChatbotClient` integration, and code quality.
 
 ```bash
 ./scripts/test_chatbot_gui_comprehensive.sh
@@ -319,7 +319,7 @@ Verifies OpenMP parallel processing is correctly linked in the CLI chatbot binar
 
 ### verify_gui_parallel.sh
 
-Verifies parallel processing support in the chatbot GUI binary (checks OpenMP linkage and wrapper script).
+Verifies the chatbot GUI build: binary, wrapper, Qt linkage, `--help`, and that it is a server client without inference libraries (TD-260; the name predates that).
 
 ```bash
 ./scripts/verify_gui_parallel.sh

@@ -56,7 +56,7 @@ assert_exit 0
 
 t "chatbot_gui (wrapper) passes --help through to chatbot_gui_binary's real usage text"
 assert_contains "Usage:"
-assert_contains "vocab_file"
+assert_contains "[server_url]"  # TD-260
 
 t "TD-103 regression: wrapper resolves its sibling binary via /proc/self/exe, not CWD, when invoked by absolute path from elsewhere"
 SCRATCH="$(mktemp_dir)"

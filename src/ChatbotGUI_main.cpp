@@ -1,15 +1,45 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 2.0.0
+// @adai-reviewed: 2026-11-04
 
 #include <QApplication>
 #include <iostream>
 #include <string>
 #include "ChatbotGUI.hpp"
 
+namespace {
+
+void print_usage(const char* program, std::ostream& out) {
+    out << "Usage: " << program << " [server_url]" << '\n';
+    out << '\n';
+    out << "A desktop client for chatbot_api_server, like the chatbot CLI: messages go to the model" << '\n';
+    out << "the server serves, and the server keeps the conversation." << '\n';
+    out << '\n';
+    out << "Default values:" << '\n';
+    out << "  server_url: http://localhost:8080" << '\n';
+    out << '\n';
+    out << "Example: " << program << " http://ai-machine:8080" << '\n';
+}
+
+}  // namespace
+
 int main(int argc, char* argv[]) {
-    // TODO: See TD-266 in TECHNICAL_DEBT.md - QApplication is created before the --help check below, so
-    // --help needs a display.
+    // TD-266: --help is handled before QApplication exists, so it works without a display.
+    if (argc > 1 && (std::string(argv[1]) == "--help" || std::string(argv[1]) == "-h")) {
+        print_usage(argv[0], std::cout);
+        return 0;
+    }
+    // TD-260: the GUI used to take [vocab_file] [model_file] and run its own copy of the model.
+    if (argc > 2) {
+        std::cerr << "chatbot_gui takes one argument, the server's URL; it no longer loads a vocabulary "
+                     "or model itself (chatbot_api_server does)."
+                  << '\n'
+                  << '\n';
+        print_usage(argv[0], std::cerr);
+        return 1;
+    }
+    const std::string server_url = argc > 1 ? argv[1] : "http://localhost:8080";
+
     // Create Qt application
     QApplication app(argc, argv);
 
@@ -18,33 +48,8 @@ int main(int argc, char* argv[]) {
     QApplication::setApplicationVersion("1.0");
     QApplication::setOrganizationName("ADAI");
 
-    // Default paths
-    std::string vocab_path = "vocab.txt";
-    std::string model_path = "chatbot_model.bin";
-
-    // Parse command line arguments
-    if (argc > 1) {
-        vocab_path = argv[1];
-    }
-    if (argc > 2) {
-        model_path = argv[2];
-    }
-
-    // Show usage if help requested
-    if (argc > 1 && (std::string(argv[1]) == "--help" || std::string(argv[1]) == "-h")) {
-        std::cout << "Usage: " << argv[0] << " [vocab_file] [model_file]" << std::endl;
-        std::cout << std::endl;
-        std::cout << "Default values:" << std::endl;
-        std::cout << "  vocab_file: vocab.txt" << std::endl;
-        std::cout << "  model_file: chatbot_model.bin" << std::endl;
-        std::cout << std::endl;
-        std::cout << "Example:" << std::endl;
-        std::cout << "  " << argv[0] << " my_vocab.txt my_model.bin" << std::endl;
-        return 0;
-    }
-
     // Create and show the main window
-    ChatbotGUI window(vocab_path, model_path);
+    ChatbotGUI window(server_url);
     window.show();
 
     // Run the application event loop

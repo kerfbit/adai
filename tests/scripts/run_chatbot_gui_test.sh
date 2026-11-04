@@ -25,11 +25,8 @@ assert_contains "No graphical display found"
 # ---------------------------------------------------------------------------
 t "TD-044 regression: with DISPLAY set, runs correctly regardless of caller's CWD"
 if [[ -x "${REPO_ROOT}/build/debug/src/chatbot_gui" ]]; then
-    # vocab.txt genuinely doesn't exist in every checkout (it's a generated
-    # artifact, not tracked) — the script's own "Continue anyway? (y/n)"
-    # prompt would otherwise block waiting on stdin; answering "y" lets
-    # execution continue far enough to print the resolved executable path
-    # this test actually checks.
+    # The script used to ask "Continue anyway? (y/n)" when vocab.txt was missing; since TD-260 the GUI
+    # is a server client and the script asks nothing. The "y" on stdin is harmless.
     # The GUI doesn't exit on the bogus display, so bound it: timeout signals its whole process
     # group, the exec'd chatbot_gui_binary included. (A `pkill -f chatbot_gui_binary` afterward
     # also killed other tests' `nm`/`file` runs on that binary, and the GUI otherwise ran until
@@ -39,6 +36,8 @@ if [[ -x "${REPO_ROOT}/build/debug/src/chatbot_gui" ]]; then
     RUN_OUT="$raw"
     assert_not_contains "chatbot_gui not found" "must find the real build/debug/src/chatbot_gui, not fail with the old bare-build/ or CWD-dependent bug"
     assert_contains "${REPO_ROOT}/build/debug/src/chatbot_gui" "should report the real, resolved executable path"
+    assert_contains "Server:     http://localhost:8080" "TD-260: the GUI connects to chatbot_api_server"
+    assert_not_contains "vocab.txt" "TD-260: the GUI no longer loads a local vocabulary"
 else
     t "(skipped: build/debug/src/chatbot_gui not built in this checkout)"
 fi

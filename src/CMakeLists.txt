@@ -469,7 +469,7 @@ endif()
 # ============================================================================
 
 # Chatbot CLI - Interactive chatbot API client
-add_executable(chatbot ChatbotCLI_main.cpp ChatbotCLI.cpp GenerationSettings.cpp)  # TD-254
+add_executable(chatbot ChatbotCLI_main.cpp ChatbotCLI.cpp ChatbotClient.cpp GenerationSettings.cpp)  # TD-254, TD-260
 # TD-159: was unconditional (no if(HTTPLIB_INCLUDE_DIR) guard) — on any platform where httplib
 # genuinely isn't found, that fed a literal NOTFOUND value into target_include_directories(),
 # which CMake treats as a hard configure-time error ("used in this project but set to NOTFOUND")
@@ -776,41 +776,24 @@ if(BUILD_GUI)
         set(CMAKE_AUTORCC ON)
         
         # Build the actual GUI binary (will be renamed)
+        # TD-260: an HTTP client of chatbot_api_server (ChatbotClient, shared with the chatbot CLI); it
+        # no longer links the model libraries or loads a model itself.
         add_executable(chatbot_gui_binary
             ChatbotGUI_main.cpp
             ChatbotGUI.cpp
-            Config.cpp
+            ChatbotClient.cpp
+            GenerationSettings.cpp
         )
-        
-        # Link with appropriate Qt version and full parallel processing libraries
+        target_include_directories(chatbot_gui_binary PRIVATE ${HTTPLIB_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/external)
+        find_package(Threads)
         if(Qt6_FOUND)
-            target_link_libraries(chatbot_gui_binary 
-                adai_models 
-                adai_nlp
-                adai_attention    # Priority 4: Parallel attention heads
-                adai_core         # Priority 1: OpenMP matrix operations
-                Qt6::Widgets
-            )
-            if(OpenMP_CXX_FOUND)
-                message(STATUS "Building chatbot_gui with Qt6 and full parallel optimizations (OpenMP + parallel attention)")
-            else()
-                message(STATUS "Building chatbot_gui with Qt6")
-            endif()
+            target_link_libraries(chatbot_gui_binary Qt6::Widgets Threads::Threads)
+            message(STATUS "Building chatbot_gui with Qt6")
         else()
-            target_link_libraries(chatbot_gui_binary 
-                adai_models 
-                adai_nlp
-                adai_attention    # Priority 4: Parallel attention heads
-                adai_core         # Priority 1: OpenMP matrix operations
-                Qt5::Widgets
-            )
-            if(OpenMP_CXX_FOUND)
-                message(STATUS "Building chatbot_gui with Qt5 and full parallel optimizations (OpenMP + parallel attention)")
-            else()
-                message(STATUS "Building chatbot_gui with Qt5")
-            endif()
+            target_link_libraries(chatbot_gui_binary Qt5::Widgets Threads::Threads)
+            message(STATUS "Building chatbot_gui with Qt5")
         endif()
-        
+
         # Build the wrapper that fixes environment issues
         add_executable(chatbot_gui ChatbotGUI_wrapper.cpp)
         

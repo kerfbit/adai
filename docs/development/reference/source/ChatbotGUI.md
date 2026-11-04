@@ -177,10 +177,10 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 |---|---|---|---|
 | Weights load only if a file exists at the bare model path, which `save_model()` never writes (§4) | GUI never loads a trained checkpoint; silently random | `save_model()`'s file list; `IncrementalTrainer`'s own note | [TD-260](../../guides/TECHNICAL_DEBT.md#td-260-chatbot_gui-never-loads-a-trained-checkpoint) |
 | `num_beams > 1` forces beam search for every strategy; GUI default 5; `RLHFTrainer` gets default 4 (§4) | Strategy choice ignored; RLHF sampling replaced by beam search | Code order in `generate_response_with_strategy()` | [TD-261](../../guides/TECHNICAL_DEBT.md#td-261-generate_response_with_strategy-forces-beam-search-whenever-num_beams--1) |
-| Architecture from local config only, not MNS; init failure leaves the GUI unusable with two contradictory dialogs (§4) | Mismatched checkpoints can't load; confusing errors | By inspection | [TD-262](../../guides/TECHNICAL_DEBT.md#td-262-chatbot_gui-ignores-mns-architecture-and-becomes-unusable-on-init-failure) |
+| Architecture from local config only, not MNS; init failure leaves the GUI unusable with two contradictory dialogs (§4) | Mismatched checkpoints can't load; confusing errors | By inspection | [TD-262](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-262-chatbot_gui-ignores-mns-architecture-and-becomes-unusable-on-init-failure) |
 | Generation runs on the GUI thread (§4) | Window freezes for the whole generation | By inspection | [TD-263](../../guides/TECHNICAL_DEBT.md#td-263-chatbot_gui-freezes-while-generating) |
 | Wrapper forces Qt5 plugin path though CMake prefers Qt6; hardcoded x86_64 paths; overrides `LD_LIBRARY_PATH` order (§2) | Qt6 builds pointed at Qt5 plugins; non-x86_64 broken | By inspection | [TD-264](../../guides/TECHNICAL_DEBT.md#td-264-chatbot_gui-launcher-hardcodes-qt5-and-x86_64-paths) |
-| Different multi-turn prompt format from the server (§4) | Inconsistent model behaviour across clients | By inspection | [TD-265](../../guides/TECHNICAL_DEBT.md#td-265-chatbot_gui-and-chatbot_api_server-format-conversation-context-differently) |
+| Different multi-turn prompt format from the server (§4) | Inconsistent model behaviour across clients | By inspection | [TD-265](../../archive/TECHNICAL_DEBT_RESOLVED.md#td-265-chatbot_gui-and-chatbot_api_server-format-conversation-context-differently) |
 | Hardcoded 480-token context; load doesn't redisplay history; `--help` needs a display; no GPU (§3–4) | Minor | By inspection | [TD-266](../../guides/TECHNICAL_DEBT.md#td-266-chatbot_gui-minor-gaps) |
 | Widget class untested | Already TD-037 | — | TD-037 |
 
@@ -188,3 +188,32 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 
 `generateResponse()` passes the Beam Width setting only when the strategy is `"beam"` (otherwise 1). With the model-side fix, Nucleus,
 Top-k, Greedy and Sampling now run as chosen; they used to be beam search at the default width of 5.
+
+## Addendum (November 4, 2026): a client of `chatbot_api_server` (TD-260, TD-263)
+
+Owner decision: the GUI no longer runs its own copy of the model. Most of §4 above (`initializeChatbot()`, the
+local architecture, checkpoint loading, `ConversationContext`) describes code that is gone; TD-260, TD-262 and
+TD-265 no longer apply (TD-262 and TD-265 closed as moot and moved to the resolved archive).
+
+- `chatbot_gui [server_url]` (default `http://localhost:8080`) holds a [`ChatbotClient`](ChatbotClient.md), the HTTP
+  session the `chatbot` CLI uses too, and links only Qt, `ChatbotClient` and `GenerationSettings`. Two arguments
+  (the old `[vocab_file] [model_file]`) exit 1 with an explanation; `--help` is handled before `QApplication`.
+- The constructor calls `client.open()`, then connects on the worker thread. The chat pane gets
+  `chatbot_gui::connection_notice()`: connected, unreachable (with how to give a URL), an untrained model on the
+  server (`/health` 503, TD-246), or something else answering.
+- `runRequest(busyText, work)` runs `work` on a `std::thread` and posts the function it returns back to the GUI
+  thread with `QMetaObject::invokeMethod`. `setBusy()` disables the input, all four buttons and the settings panel
+  meanwhile, so only one request runs and the worker never reads settings mid-change (TD-263). The destructor calls
+  `client.cancel()` and joins the thread; Qt drops the result posted to the destroyed window.
+- Send shows the reply, or the server's error as a System message (TD-255), after a note when the server had lost the
+  session. Clear clears the server's session. Save exports and writes the file atomically. Load imports into the
+  server; loaded messages still aren't redisplayed (TD-266).
+- Settings: the strategy list starts with "Server default", and each spin box starts one step below the server's
+  range (`adai::GenerationLimits`), shown as "server default". `chatbot_gui::apply_strategy()`,
+  `apply_int_setting()` and `apply_real_setting()` (`ChatbotGuiLogic.hpp`) record a value in the client's overrides,
+  or reset it at "server default", so only changed settings are sent (TD-254). Strategy names are the server's
+  (`top_k`, `temperature`), and beam width is sent whenever it's changed; the server decides when it applies.
+- `clearInputButton` (Clear beside Send) is now a member, so `setBusy()` can disable it.
+
+Checked by driving the real class headless against a real `chatbot_api_server`; see TD-260's entry.
+

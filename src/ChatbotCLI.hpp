@@ -2,18 +2,12 @@
 #define CHATBOT_CLI_HPP
 
 // @adai-status: stable
-// @adai-version: 1.6.0
-// @adai-reviewed: 2026-11-03
+// @adai-version: 1.7.0
+// @adai-reviewed: 2026-11-04
 
-#include <memory>
-#include <set>
 #include <string>
 #include <string_view>
-
-// TD-259: only ChatbotCLI.cpp needs all of httplib.h.
-namespace httplib {
-class Client;
-}
+#include "ChatbotClient.hpp"  // TD-260: the HTTP session, shared with chatbot_gui
 
 /**
  * @brief Interactive command-line interface for the ADAI transformer-based chatbot
@@ -129,25 +123,25 @@ class ChatbotCLI {
 
     // Accessors for testing
     const std::string& get_generation_strategy() const {
-        return generation_strategy;
+        return client.settings().strategy;
     }
     int get_max_response_length() const {
-        return max_response_length;
+        return client.settings().max_length;
     }
     float get_temperature() const {
-        return temperature;
+        return client.settings().temperature;
     }
     float get_top_p() const {
-        return top_p;
+        return client.settings().top_p;
     }
     int get_top_k() const {
-        return top_k;
+        return client.settings().top_k;
     }
     int get_beam_width() const {
-        return beam_width;
+        return client.settings().beam_width;
     }
     const std::string& get_server_url() const {
-        return server_url;
+        return client.server_url();
     }
     const std::string& get_conversation_save_path() const {
         return conversation_save_path;
@@ -162,42 +156,37 @@ class ChatbotCLI {
     /// strategy) was changed by /set or a setter, and so is sent with each message. The others use
     /// the server's defaults.
     bool is_overridden(const std::string& setting) const {
-        return overridden.count(setting) > 0;
+        return client.settings().is_overridden(setting);
     }
 
     // Setters for testing; each one also sends that setting with each message (TD-254)
     void set_generation_strategy(const std::string& strategy) {
-        generation_strategy = strategy;
-        overridden.insert("strategy");
+        client.settings().set_strategy(strategy);
     }
     void set_max_response_length(int length) {
-        max_response_length = length;
-        overridden.insert("max_length");
+        client.settings().set_max_length(length);
     }
     void set_temperature(float temp) {
-        temperature = temp;
-        overridden.insert("temperature");
+        client.settings().set_temperature(temp);
     }
     void set_top_p(float p) {
-        top_p = p;
-        overridden.insert("top_p");
+        client.settings().set_top_p(p);
     }
     void set_top_k(int k) {
-        top_k = k;
-        overridden.insert("top_k");
+        client.settings().set_top_k(k);
     }
     void set_beam_width(int width) {
-        beam_width = width;
-        overridden.insert("beam_width");
+        client.settings().set_beam_width(width);
     }
 
     /// The JSON body POST /chat/session sends for user_input (TD-254: only overridden settings).
-    std::string chat_turn_body(const std::string& user_input) const;
+    std::string chat_turn_body(const std::string& user_input) const {
+        return client.chat_turn_body(user_input);
+    }
 
    private:
-    std::string server_url;
+    ChatbotClient client;  // TD-260: server session, settings and requests
     std::string conversation_save_path;
-    std::string session_id;
     bool last_turn_failed{false};  // TD-255
 
     // TD-258: where this session's conversation is saved, and whether that file holds it (this
@@ -205,20 +194,9 @@ class ChatbotCLI {
     std::string active_save_path;
     bool owns_save_file{false};
 
-    // TD-258: the server no longer holds session_id; tells the user and forgets the session.
+    // TD-258: the server no longer holds this session; tells the user and stops treating the save
+    // file as this conversation's. The client has already forgotten the session id.
     void report_lost_session();
-
-    std::unique_ptr<httplib::Client> client;
-
-    // Generation parameters. TD-254: only those in `overridden` are sent; the server's own defaults
-    // apply to the rest, so these initial values are just placeholders.
-    std::set<std::string> overridden;
-    int max_response_length{100};
-    float temperature{1.0f};
-    float top_p{0.9f};
-    int top_k{50};
-    int beam_width{5};
-    std::string generation_strategy;
 };
 
 #endif  // CHATBOT_CLI_HPP

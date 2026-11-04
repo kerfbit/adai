@@ -129,11 +129,11 @@ cd /home/rodney/Repos/adai && ./build/bin/chatbot http://localhost:8080 my_conve
 ## Run GUI Chatbot
 
 ```bash
-# Launch GUI (loads vocab.txt and chatbot_model.bin from current directory)
+# Launch GUI: a client of chatbot_api_server, which must be running (default http://localhost:8080)
 cd /home/rodney/Repos/adai && ./build/src/chatbot_gui
 
-# Specify vocab and model explicitly
-cd /home/rodney/Repos/adai && ./build/src/chatbot_gui vocab.txt chatbot_model.bin
+# Another server
+cd /home/rodney/Repos/adai && ./build/src/chatbot_gui http://ai-machine:8080
 ```
 
 ## Model Service (script wrapper for API server)

@@ -17,6 +17,7 @@ This directory contains reference materials, technical specifications, and imple
   - [ChatbotApiServerArgs](source/ChatbotApiServerArgs.md) (`src/ChatbotApiServerArgs.{hpp,cpp}`)
   - [ChatbotAPIServer](source/ChatbotAPIServer.md) (`src/ChatbotAPIServer.cpp`, `chatbot_api_server`'s `main()`)
   - [ChatbotCLI](source/ChatbotCLI.md) (`src/ChatbotCLI.{hpp,cpp}`, `src/ChatbotCLI_main.cpp`; the `chatbot` client)
+  - [ChatbotClient](source/ChatbotClient.md) (`src/ChatbotClient.{hpp,cpp}`; the HTTP session with `chatbot_api_server` shared by `chatbot` and `chatbot_gui`)
   - [ChatbotGUI](source/ChatbotGUI.md) (`src/ChatbotGUI.{hpp,cpp}`, `ChatbotGuiLogic.hpp`, `ChatbotGUI_main.cpp`, `ChatbotGUI_wrapper.cpp`; `chatbot_gui`)
   - [ChatbotTrainer](source/ChatbotTrainer.md) (`src/ChatbotTrainer.{hpp,cpp}`; the supervised training pass)
   - [ChildProcess](source/ChildProcess.md) (`src/ChildProcess.{hpp,cpp}`; `trainer_service`'s child launcher)

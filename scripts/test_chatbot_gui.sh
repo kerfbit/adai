@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (TD-044 resolved — real test suite added, see tests/scripts/test_chatbot_gui_test.sh)
-# @adai-version: 0.7.2
-# @adai-reviewed: 2026-09-11
+# @adai-version: 0.8.0
+# @adai-reviewed: 2026-11-04
 
 
 # Test script for chatbot_gui
@@ -13,7 +13,7 @@ echo "Chatbot GUI Build Verification"
 echo "========================================"
 echo ""
 
-# TD-044: bare relative paths ("build/src/...", "vocab.txt" further down)
+# TD-044: bare relative paths ("build/src/...")
 # with no anchor to the script's own location — only worked when the
 # caller's CWD happened to already be the repo root. Resolved via
 # SCRIPT_DIR/REPO_ROOT, matching every sibling launcher script, then cd to
@@ -51,8 +51,8 @@ fi
 LAUNCHER="${BUILD_DIR}/src/chatbot_gui"
 
 # chatbot_gui is a thin exec() launcher (ChatbotGUI_wrapper.cpp) that execs
-# chatbot_gui_binary — the actual Qt GUI logic (ChatbotGUI, BPETokenizer,
-# EncoderDecoderModel, ConversationContext) is compiled into
+# chatbot_gui_binary — the actual Qt GUI logic (ChatbotGUI and, since TD-260,
+# the ChatbotClient it talks to chatbot_api_server with) is compiled into
 # chatbot_gui_binary, not the wrapper. Every check below that inspects size,
 # Qt5 linkage, or symbol content was previously run against the wrapper,
 # which contains none of those things by design — confirmed empirically
@@ -122,41 +122,12 @@ else
     SYMBOL_CHECK_FAILED=true
 fi
 
-if nm "$GUI_BINARY" | grep -q "BPETokenizer"; then
-    echo "✅ BPETokenizer integration found"
+# TD-260: the GUI is a client of chatbot_api_server; the model runs in the server.
+if nm "$GUI_BINARY" | grep -q "ChatbotClient"; then
+    echo "✅ ChatbotClient (chatbot_api_server client) found"
 else
-    echo "❌ BPETokenizer integration not found"
+    echo "❌ ChatbotClient not found"
     SYMBOL_CHECK_FAILED=true
-fi
-
-if nm "$GUI_BINARY" | grep -q "EncoderDecoderModel"; then
-    echo "✅ EncoderDecoderModel integration found"
-else
-    echo "❌ EncoderDecoderModel integration not found"
-    SYMBOL_CHECK_FAILED=true
-fi
-
-if nm "$GUI_BINARY" | grep -q "ConversationContext"; then
-    echo "✅ ConversationContext integration found"
-else
-    echo "❌ ConversationContext integration not found"
-    SYMBOL_CHECK_FAILED=true
-fi
-
-# Check required files
-echo ""
-echo "Checking required files:"
-if [ -f "vocab.txt" ]; then
-    VOCAB_SIZE=$(wc -l < vocab.txt)
-    echo "✅ vocab.txt found ($VOCAB_SIZE entries)"
-else
-    echo "⚠️  vocab.txt not found (required for running)"
-fi
-
-if [ -f "chatbot_model.bin.config" ]; then
-    echo "✅ Model configuration found"
-else
-    echo "⚠️  chatbot_model.bin.config not found (will use random init)"
 fi
 
 echo ""
@@ -177,13 +148,11 @@ echo "The chatbot_gui has been successfully built!"
 echo ""
 echo "Note: To run the GUI, you need:"
 echo "  1. An X11 display (graphical environment)"
-echo "  2. vocab.txt file"
-echo "  3. Optionally: trained model files"
+echo "  2. A running chatbot_api_server (it serves the model)"
 echo ""
 echo "Usage:"
-echo "  ${LAUNCHER}"
-echo "  ${LAUNCHER} vocab.txt"
-echo "  ${LAUNCHER} vocab.txt model_prefix"
+echo "  ${LAUNCHER}                          (http://localhost:8080)"
+echo "  ${LAUNCHER} http://<host>:8080"
 echo ""
 echo "For headless testing, the GUI cannot be fully tested"
 echo "but the build is verified to be correct."

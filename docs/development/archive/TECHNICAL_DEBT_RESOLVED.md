@@ -4,6 +4,68 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-262: `chatbot_gui` Ignores MNS Architecture and Becomes Unusable on Init Failure
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 4, 2026 | `src/ChatbotGUI.{hpp,cpp}`, `src/ChatbotGUI_main.cpp` | Moot after TD-260 (`chatbot_gui` became a `chatbot_api_server` client) |
+
+Summary:
+Closed as moot (owner decision, November 4, 2026). TD-260 made `chatbot_gui` a client of `chatbot_api_server` through the shared `ChatbotClient`: the GUI no longer builds, configures or loads a model, so `initializeChatbot()` and its two init dialogs are gone. The architecture is resolved by the server (MNS first, then `config.chatbot.conf`), the GUI reads no configuration file (its one argument is the server URL), and the chat pane states whether the server was reached or is serving an untrained model, with the GUI staying usable either way. Filed October 9, 2026.
+
+Original description:
+Found alongside TD-260. `initializeChatbot()` takes the model architecture only from
+`config.chatbot.conf` (discovered from the working directory), not from MNS (which
+`chatbot_api_server` and the trainer treat as authoritative) or the checkpoint's own `.config`.
+A checkpoint trained under a different architecture fails to load. Any exception during init then:
+
+- shows a warning saying "Using default/random initialization", which is wrong;
+- returns `false`, so the constructor shows a **second**, critical dialog;
+- leaves `context` null, so every message answers "[Error: Chatbot not initialized]".
+
+Action Items:
+
+- [x] Read the architecture from the checkpoint's `.config` (or resolve via MNS when `NAME_SERVICE_URL`/`MODEL_NAME` are configured), falling back to the config file. Moot: `chatbot_api_server` resolves the architecture (MNS first).
+- [x] Show one accurate error dialog, and keep the GUI usable (or disable Send) with a clear status. The init dialogs are gone; the chat pane states the connection result and the GUI stays usable.
+- [x] Add a `--config` option instead of relying on the working directory. Moot: the GUI reads no configuration; its one argument is the server URL.
+
+Location in code: `src/ChatbotGUI.cpp` (`initializeChatbot()`, constructor); tagged `TODO: See TD-262`.
+
+Files to Modify:
+
+- `src/ChatbotGUI.{hpp,cpp}`
+- `src/ChatbotGUI_main.cpp`
+
+---
+
+### TD-265: `chatbot_gui` and `chatbot_api_server` Format Conversation Context Differently
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| November 4, 2026 | `src/ChatbotGUI.cpp` | Moot after TD-260 (`chatbot_gui` became a `chatbot_api_server` client) |
+
+Summary:
+Closed as moot (owner decision, November 4, 2026). TD-260 made `chatbot_gui` a client of `chatbot_api_server`, so the GUI no longer builds prompts: both clients send plain messages and the server's sessions format every prompt with `format_for_model()`, so one model sees one prompt shape whichever client is used. Whether that format matches the training data is a separate question, not tracked here. Filed October 9, 2026.
+
+Original description:
+Found alongside TD-260. The GUI builds each prompt with
+`ConversationContext::format_with_special_tokens()` (`<bos> [USER] … <sep>` tags, which
+`BPETokenizer` treats as ordinary characters, not special tokens). `ChatbotAPI` sessions use
+`format_for_model()` (`User: …` / `Assistant: …`). The same model sees differently shaped
+prompts depending on the client, so behaviour isn't comparable between them.
+
+Action Items:
+
+- [x] Owner decision: pick one multi-turn format (ideally whatever the training data uses) and use it in both clients. Moot: both clients send messages to `chatbot_api_server`, whose sessions use `format_for_model()`. Whether that format matches the training data is still worth checking.
+
+Location in code: `src/ChatbotGUI.cpp` (`generateResponse()`); tagged `TODO: See TD-265`.
+
+Files to Modify:
+
+- `src/ChatbotGUI.cpp` and/or `src/ChatbotAPI.cpp`
+
+---
+
 ### TD-475: `PipelineInferenceEngine` Throughput Claims, Greedy Uncached Decoding and Stats
 
 | Resolution Date | Component | Resolved By |

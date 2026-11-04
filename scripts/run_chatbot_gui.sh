@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (TD-044 resolved — real test suite added, see tests/scripts/run_chatbot_gui_test.sh)
-# @adai-version: 0.8.1
-# @adai-reviewed: 2026-09-11
+# @adai-version: 0.9.0
+# @adai-reviewed: 2026-11-04
 
 
 # Quick start script for chatbot_gui
@@ -18,8 +18,8 @@ echo ""
 # worked when the caller's CWD happened to already be the repo root — cd
 # scripts/ && ./run_chatbot_gui.sh looked for scripts/build/src/chatbot_gui
 # instead. Resolved via SCRIPT_DIR, matching every sibling launcher script,
-# then cd to REPO_ROOT so every relative path below (vocab.txt, the model
-# config, build/) resolves the same way regardless of caller CWD.
+# then cd to REPO_ROOT so every relative path below (build/) resolves the
+# same way regardless of caller CWD.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
 cd "${REPO_ROOT}" || exit 1
@@ -71,34 +71,14 @@ if [ -z "$BUILD_DIR" ]; then
 fi
 GUI_BIN="${BUILD_DIR}/src/chatbot_gui"
 
-# Check for vocab file
-if [ ! -f "vocab.txt" ]; then
-    echo "⚠️  WARNING: vocab.txt not found in current directory"
-    echo ""
-    echo "The chatbot needs a vocabulary file to run."
-    echo "Please ensure vocab.txt is in: $(pwd)"
-    echo ""
-    read -p "Continue anyway? (y/n) " -n 1 -r
-    echo ""
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
-    fi
-fi
-
-# Check for model
-if [ ! -f "chatbot_model.bin.config" ]; then
-    echo "ℹ️  INFO: No trained model found"
-    echo ""
-    echo "The chatbot will use random initialization."
-    echo "For better results, train a model first with chatbot_trainer."
-    echo ""
-fi
+# TD-260: chatbot_gui is a client of chatbot_api_server, which serves the trained model; it no
+# longer loads vocab.txt or a model from the current directory. Its one argument is the server URL.
+SERVER_URL="${1:-http://localhost:8080}"
 
 echo "🚀 Launching Chatbot GUI..."
 echo ""
 echo "Executable: ${GUI_BIN}"
-echo "Vocab file: vocab.txt"
-echo "Model: chatbot_model.bin (if available)"
+echo "Server:     ${SERVER_URL} (start chatbot_api_server there first)"
 echo ""
 
 # Fix for snap/system library conflicts

@@ -1,198 +1,94 @@
-# Chatbot GUI - Quick Start with Parallel Processing
+# Chatbot GUI - Quick Start
+
+`chatbot_gui` is a desktop client for `chatbot_api_server`, like the `chatbot` CLI: your messages go to the
+model the server serves, and the server keeps the conversation. Since November 4, 2026 (TD-260) the GUI no
+longer loads a vocabulary or model of its own, so it always talks to the same trained model as every other
+client, with the server's architecture (MNS), checkpoint, GPU and prompt format.
 
 ---
 
-## REBUILD GUI WITH PARALLEL PROCESSING
-
-Quick Rebuild:
+## BUILD
 
 ```bash
-./scripts/build_and_vocab.sh build-gui
+cmake --preset=debug -DBUILD_GUI=ON
+cmake --build --preset=debug --target chatbot_gui
 ```
 
-Verify Parallel Support:
+Check the build:
 
 ```bash
-./scripts/build_and_vocab.sh verify-gui
-```
-
-Manual Rebuild:
-
-```bash
-cd build && cmake .. && make chatbot_gui_binary chatbot_gui -j$(nproc)
-```
-
----
-
-## RUN GUI
-
-Standard Run:
-
-```bash
-./build/src/chatbot_gui --vocab vocab.txt --model chatbot_model.bin
-```
-
-With Convenience Script:
-
-```bash
-./scripts/run_chatbot_gui.sh
-```
-
-Maximum Performance (Set OpenMP Threads):
-
-```bash
-export OMP_NUM_THREADS=8
-./build/src/chatbot_gui --vocab vocab.txt --model chatbot_model.bin
-```
-
-With Specific Model Epoch:
-
-```bash
-./build/src/chatbot_gui --vocab vocab.txt \
-                         --model chatbot_model.bin.epoch10
+./scripts/verify_gui_parallel.sh
 ```
 
 ---
 
-## PARALLEL PROCESSING STATUS
+## RUN
 
-### Enabled Features
+Start `chatbot_api_server` first (see the [chatbot guide](../chatbot-guide.md)), then give the GUI its URL
+(default `http://localhost:8080`):
 
-- ✅ Priority 1: OpenMP matrix operations (adai_core)
-- ✅ Priority 4: Parallel attention heads (adai_attention)
-- ✅ Multi-core CPU utilization (8 cores available)
-- ✅ Vectorized operations with SIMD
-- ✅ Optimized memory access patterns
+```bash
+./build/debug/src/chatbot_gui http://localhost:8080
+```
 
-### Build Configuration
+With the convenience script:
 
-- **Build Type:** Release (-O3 -march=native)
-- **OpenMP Flags:** -fopenmp
-- **Binary Size:** 881K
-- **Linked OpenMP:** ✅ libgomp.so.1
+```bash
+./scripts/run_chatbot_gui.sh http://ai-machine:8080
+```
+
+The chat pane says whether the GUI reached the server. If the server is running an untrained model
+(`ALLOW_UNTRAINED_MODEL=true`), the pane warns that its replies are random. If the server isn't reachable,
+the pane says so, and messages are sent once it is up.
 
 ---
 
-## PERFORMANCE MONITORING
+## SETTINGS
 
-Watch CPU Usage:
+Each setting starts at **server default**: it isn't sent, so `chatbot_api_server`'s own configuration
+applies. Change one and it's sent with every message after that; set it back to server default to stop
+sending it. The ranges are the server's own.
 
-```bash
-# Run GUI, then in another terminal:
-htop
-# Look for 60-100% usage across multiple cores during generation
-```
-
-Detailed Thread View:
-
-```bash
-top -H -p $(pgrep chatbot_gui)
-```
-
-Check OpenMP Threads:
-
-```bash
-# See how many threads are configured
-echo $OMP_NUM_THREADS
-# If empty, it uses all available cores by default
-```
+| Setting | Range |
+|---|---|
+| Strategy | Nucleus (Top-p), Top-k Sampling, Greedy, Beam Search, Sampling (Temperature) |
+| Temperature | 0 to 2 (0 is greedy) |
+| Top-p | 0 to 1 |
+| Top-k | 1 to 1000 |
+| Max Response Length | 1 to 4096 new tokens |
+| Beam Width | 1 to 16, used by beam search |
 
 ---
 
-## GENERATION SETTINGS IN GUI
+## CONVERSATIONS
 
-Best Settings for Quality:
+- **Clear Chat** clears the conversation on the server.
+- **Save Conversation** asks the server for the conversation and writes it to the file you choose (the
+  same format the `chatbot` CLI saves).
+- **Load Conversation** sends a saved file to the server, which continues that conversation. The earlier
+  messages aren't redisplayed in the window yet (TD-266).
+- If the server restarts or the conversation expires, the next message says so and starts a new one.
 
-- Strategy: Nucleus (top-p sampling)
-- Temperature: 0.7 - 0.8
-- Max Length: 100 - 150 tokens
-
-For Faster Response:
-
-- Strategy: Greedy
-- Temperature: 0.3 - 0.5
-- Max Length: 50 - 100 tokens
-
-For Creative Output:
-
-- Strategy: Sampling
-- Temperature: 1.0 - 1.2
-- Max Length: 150 - 200 tokens
+The window stays responsive while the server generates: input, buttons and settings are disabled until the
+reply arrives. Closing the window stops waiting for a reply.
 
 ---
 
 ## TROUBLESHOOTING
 
-### GUI Won't Start?
-
-- ✓ Check if vocab and model files exist
-- ✓ Try: `./scripts/run_chatbot_gui.sh` (uses wrapper to fix library paths)
-- ✓ Verify Qt5 is installed: `apt list --installed | grep qt5`
-
-### Slow Generation?
-
-- ✓ Verify OpenMP is linked: `ldd build/src/chatbot_gui_binary | grep gomp`
-- ✓ Set threads: `export OMP_NUM_THREADS=8`
-- ✓ Use greedy strategy for faster responses
-- ✓ Reduce max length
-
-### Model Generates Gibberish?
-
-- ✓ Train for more epochs (20-50)
-- ✓ Lower temperature (0.3-0.7)
-- ✓ Use greedy strategy initially
-- ✓ Verify training loss decreased
-
-### GUI Freezes During Generation?
-
-- ✓ This is expected - generation is compute-intensive
-- ✓ Parallel processing helps but UI still blocks
-- ✓ Check CPU usage - should be high during generation
+- **"Could not reach chatbot_api_server"**: start the server, or pass its URL.
+- **Replies are gibberish**: the server's model is untrained or undertrained; train it with
+  `incremental_trainer` and restart the server on the new checkpoint.
+- **Slow replies**: generation speed is the server's (its GPU and threads); lower Max Response Length or use
+  Greedy.
+- **No display**: use `ssh -X user@host` or VNC. `chatbot_gui --help` works without a display.
 
 ---
 
-## EXPECTED PERFORMANCE
+## FILES
 
-- **Matrix Operations:** Up to 8x faster with 8 cores
-- **Attention Computation:** Parallelized across attention heads
-- **Overall Inference:** 2-4x faster than sequential version
-- **CPU Utilization:** 60-100% across all cores during generation
-
----
-
-## COMPARISON WITH CLI
-
-|Feature|CLI Chatbot|GUI Chatbot|
-|-------|-----------|-----------|
-|OpenMP Support|✅|✅|
-|Parallel Attention|✅|✅|
-|Multi-core Usage|✅|✅|
-|Optimization Level|Release|Release|
-|Build Flags|-O3 -march|-O3 -march|
-
-Both now have IDENTICAL parallel processing capabilities!
-
----
-
-## FILES AND DOCUMENTATION
-
-### Executables
-
-- `build/src/chatbot_gui_binary` - Main GUI executable
-- `build/src/chatbot_gui` - Wrapper (fixes library paths)
-
-### Scripts
-
-- `scripts/run_chatbot_gui.sh` - Convenience launcher
-- `scripts/build_and_vocab.sh` - Build automation
-- `scripts/verify_gui_parallel.sh` - Verification tool
-
-### Documentation
-
-- [CHATBOT_GUI_PARALLEL_REBUILD.md](../../../development/archive/CHATBOT_GUI_PARALLEL_REBUILD.md) - Technical details
-- [CHATBOT_GUI_PARALLEL_COMPLETE_SUMMARY.md](../../../development/archive/CHATBOT_GUI_PARALLEL_COMPLETE_SUMMARY.md) - Complete summary
-- [GUI_QUICK_START.md](GUI_QUICK_START.md) - This file
-
----
-
-> **🚀 Your GUI chatbot now runs with full parallel processing!**
+- `build/<preset>/src/chatbot_gui_binary` - the GUI
+- `build/<preset>/src/chatbot_gui` - wrapper that fixes library paths
+- `scripts/run_chatbot_gui.sh`, `scripts/chatbot_gui_fixed.sh` - launchers
+- `scripts/verify_gui_parallel.sh` - build check
+- [chatbot-gui-guide.md](../chatbot-gui-guide.md) - full guide

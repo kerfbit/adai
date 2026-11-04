@@ -638,28 +638,30 @@ make chatbot_gui -j$(nproc)
 #### Launch
 
 ```bash
-# Always use the C++ wrapper (handles library conflicts automatically)
+# Always use the C++ wrapper (handles library conflicts automatically).
+# The GUI is a client of chatbot_api_server (TD-260), which must be running; default http://localhost:8080
 ./build/src/chatbot_gui
 
-# With explicit paths
-./build/src/chatbot_gui vocab.txt chatbot_model.bin
+# Another server
+./build/src/chatbot_gui http://ai-machine:8080
 ```
 
 > **Note:** The `chatbot_gui` binary is a C++ wrapper that fixes snap/library conflicts by unsetting problematic environment variables before launching the real GUI (`chatbot_gui_binary`). Run it directly — do not run `chatbot_gui_binary` directly.
 
 #### GUI Features
 
-- **Settings panel** — adjust all generation parameters at runtime
-- **Strategy selector** — greedy, beam, top-K, nucleus
-- **Temperature slider** — 0.1 to 2.0
+- **Settings panel** — each setting starts at "server default" and is sent with your messages once changed
+- **Strategy selector** — greedy, beam, top-K, nucleus, temperature sampling
+- **Temperature** — 0 to 2
 - **Max length control** — response token limit
-- **Clear button** — reset conversation history
+- **Clear button** — clear the conversation on the server
 - **Send button** — submit message (also Enter key)
 
 #### System Requirements for GUI
 
 - Qt5 installed (`qt5-default`, `libqt5widgets5`, `libqt5gui5`)
 - Graphical environment (X11/Wayland) or X11 forwarding (`ssh -X`)
+- A running `chatbot_api_server` (section 6.3), which serves the model
 
 ### 6.3 API Server
 

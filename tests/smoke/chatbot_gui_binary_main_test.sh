@@ -6,11 +6,9 @@
 # actually compiles into — see src/CMakeLists.txt's chatbot_gui_binary
 # target), not the chatbot_gui launcher wrapper (ChatbotGUI_wrapper.cpp,
 # covered separately by chatbot_gui_wrapper_test.sh). QT_QPA_PLATFORM=
-# offscreen is set explicitly rather than relying on ambient environment —
-# this file's main() constructs a real QApplication before it ever checks
-# argv for --help, so it needs a usable Qt platform plugin even just to
-# print usage and exit; "offscreen" is the standard headless one and is
-# confirmed installed in this environment.
+# offscreen is set explicitly rather than relying on ambient environment.
+# Since TD-266, main() handles --help before constructing QApplication, which
+# the last case checks with no platform plugin and no display at all.
 
 set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -51,13 +49,23 @@ assert_exit 0
 
 t "chatbot_gui_binary --help prints usage without opening a real window"
 assert_contains "Usage:"
-assert_contains "vocab_file"
-assert_contains "model_file"
+assert_contains "[server_url]"  # TD-260: a client of chatbot_api_server
+assert_not_contains "vocab_file"
 
 t "chatbot_gui_binary -h (short flag) exits 0 with the same usage text"
 run timeout 10 "$BIN" -h
 assert_exit 0
 assert_contains "Usage:"
+
+t "TD-266: --help needs no display or Qt platform plugin"
+run env -u DISPLAY -u WAYLAND_DISPLAY -u QT_QPA_PLATFORM timeout 10 "$BIN" --help
+assert_exit 0
+assert_contains "Usage:"
+
+t "TD-260: the old [vocab_file] [model_file] form is refused with an explanation"
+run timeout 10 "$BIN" vocab.txt chatbot_model.bin
+assert_exit 1
+assert_contains "no longer loads a vocabulary"
 
 harness_report
 exit $?

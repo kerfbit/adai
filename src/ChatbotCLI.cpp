@@ -1,11 +1,9 @@
 // @adai-status: stable
-// @adai-version: 1.6.0
-// @adai-reviewed: 2026-11-03
+// @adai-version: 1.7.0
+// @adai-reviewed: 2026-11-04
 
 #include "ChatbotCLI.hpp"
-#include <httplib.h>
 #include <algorithm>
-#include <charconv>
 #include <cerrno>
 #include <climits>
 #include <cmath>
@@ -19,7 +17,6 @@
 #include <sstream>
 #include <utility>
 #include "GenerationSettings.hpp"
-#include "nlohmann/json.hpp"
 
 namespace {
 
@@ -29,38 +26,6 @@ constexpr const char* COLOR_USER = "\033[1;36m";    // Cyan
 constexpr const char* COLOR_BOT = "\033[1;32m";     // Green
 constexpr const char* COLOR_SYSTEM = "\033[1;33m";  // Yellow
 constexpr const char* COLOR_ERROR = "\033[1;31m";   // Red
-
-// TD-259: request bodies are built and replies read with nlohmann/json, not hand-written helpers.
-// Invalid UTF-8 in the user's text is sent as U+FFFD instead of making the body invalid JSON.
-std::string to_body(const nlohmann::ordered_json& body) {
-    return body.dump(-1, ' ', false, nlohmann::ordered_json::error_handler_t::replace);
-}
-
-// A /set float as its shortest decimal form, so 0.7 is sent as 0.7, not 0.699999988079071.
-double wire_number(float value) {
-    char text[32];
-    const auto result = std::to_chars(text, text + sizeof text, value);
-    return std::strtod(std::string(text, result.ptr).c_str(), nullptr);
-}
-
-// A reply's JSON object; empty when the body isn't one (an HTML error page, say).
-nlohmann::json parse_reply(const std::string& body) {
-    nlohmann::json reply = nlohmann::json::parse(body, nullptr, false);
-    return reply.is_object() ? reply : nlohmann::json::object();
-}
-
-// A reply field as text: a string as is, a number or boolean as written, anything else empty.
-std::string reply_field(const nlohmann::json& reply, const char* key) {
-    const auto it = reply.find(key);
-    if (it == reply.end() || it->is_null()) {
-        return {};
-    }
-    if (it->is_string()) {
-        return it->get<std::string>();
-    }
-    return it->is_primitive() ? it->dump() : std::string{};
-}
-
 
 // TD-258: set by Ctrl+C (SIGINT) while run() is active; run() then saves and exits.
 volatile std::sig_atomic_t g_interrupted = 0;
@@ -131,77 +96,35 @@ std::string dated_save_path(const std::string& path) {
     }
     return candidate;
 }
-
-// TD-258: writes `data` to a temporary file beside `path` and renames it over `path`, so a failed or
-// interrupted save never leaves a partial file. Returns an error message, empty on success.
-std::string write_file_atomically(const std::string& path, const std::string& data) {
-    namespace fs = std::filesystem;
-    const std::string temp =
-        path + ".tmp-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
-    std::error_code ec;
-    {
-        std::ofstream out(temp, std::ios::trunc);
-        if (!out.is_open()) {
-            return "Failed to create '" + temp + "' to save into '" + path + "'";
-        }
-        out << data;
-        out.flush();
-        if (!out) {
-            out.close();
-            fs::remove(temp, ec);
-            return "Failed to write '" + temp + "'";
-        }
-    }
-    fs::rename(temp, path, ec);
-    if (ec) {
-        std::error_code ignored;
-        fs::remove(temp, ignored);
-        return "Failed to replace '" + path + "': " + ec.message();
-    }
-    return {};
-}
-
 }  // namespace
 
 ChatbotCLI::ChatbotCLI(std::string server_url, std::string conv_save_file)
-    : server_url(std::move(server_url)),
+    : client(std::move(server_url)),
       conversation_save_path(std::move(conv_save_file)),
-      active_save_path(conversation_save_path),
-
-      generation_strategy("nucleus") {}
+      active_save_path(conversation_save_path) {
+    client.settings().strategy = "nucleus";
+}
 
 ChatbotCLI::~ChatbotCLI() = default;
 ChatbotCLI::ChatbotCLI(ChatbotCLI&&) noexcept = default;
 ChatbotCLI& ChatbotCLI::operator=(ChatbotCLI&&) noexcept = default;
 
 bool ChatbotCLI::initialize() {
-    std::cout << COLOR_SYSTEM << "🤖 Connecting to Chatbot API at " << server_url << "..."
+    std::cout << COLOR_SYSTEM << "🤖 Connecting to Chatbot API at " << client.server_url() << "..."
               << COLOR_RESET << '\n';
 
-    try {
-        client = std::make_unique<httplib::Client>(server_url);
-        // Set timeouts
-        client->set_connection_timeout(10, 0);  // 10s connection timeout
-        client->set_read_timeout(300, 0);       // 300s read timeout (generation can be VERY slow)
-        client->set_write_timeout(30, 0);       // 30s write timeout
-
-        auto res = client->Get("/health");
-        if (res && res->status == 200) {
-            std::cout << COLOR_SYSTEM << "✅ Connected successfully!" << COLOR_RESET << '\n';
-            return true;
-        }
-        std::cout << COLOR_ERROR << "❌ Failed to connect to server." << COLOR_RESET << '\n';
-        if (res) {
-            std::cout << "Status: " << res->status << '\n';
-        } else {
-            std::cout << "Connection Error: " << (client ? "Unknown" : "Client null") << '\n';
-        }
-        return false;
-
-    } catch (const std::exception& e) {
-        std::cout << COLOR_ERROR << "❌ Exception: " << e.what() << COLOR_RESET << '\n';
-        return false;
+    const ChatbotClient::Health health = client.connect();
+    if (health.reachable && health.status == 200) {
+        std::cout << COLOR_SYSTEM << "✅ Connected successfully!" << COLOR_RESET << '\n';
+        return true;
     }
+    std::cout << COLOR_ERROR << "❌ Failed to connect to server." << COLOR_RESET << '\n';
+    if (health.reachable) {
+        std::cout << "Status: " << health.status << '\n';
+    } else {
+        std::cout << "Connection Error: " << (health.error.empty() ? "Unknown" : health.error) << '\n';
+    }
+    return false;
 }
 
 namespace {
@@ -261,12 +184,12 @@ void ChatbotCLI::print_settings() {
             std::cout << "server default" << '\n';
         }
     };
-    show("Strategy", "strategy", generation_strategy);
-    show("Max length", "max_length", max_response_length);
-    show("Temperature", "temperature", temperature);
-    show("Top-p (nucleus)", "top_p", top_p);
-    show("Top-k", "top_k", top_k);
-    show("Beam width", "beam_width", beam_width);
+    show("Strategy", "strategy", get_generation_strategy());
+    show("Max length", "max_length", get_max_response_length());
+    show("Temperature", "temperature", get_temperature());
+    show("Top-p (nucleus)", "top_p", get_top_p());
+    show("Top-k", "top_k", get_top_k());
+    show("Beam width", "beam_width", get_beam_width());
     std::cout << '\n';
 }
 
@@ -276,20 +199,21 @@ void ChatbotCLI::handle_command(const std::string& command) {
     if (command == "/help") {
         print_welcome();
     } else if (command == "/clear") {
-        if (!session_id.empty()) {
-            // TD-257: escaped like every request body's session_id.
-            const std::string body = to_body({{"session_id", session_id}});
-            auto res = client->Post("/clear-session", body, "application/json");
-            if (res && res->status == 404) {  // TD-232: the server no longer holds it
+        const std::string cleared = client.session_id();
+        switch (client.clear_session()) {
+            case ChatbotClient::ClearResult::Cleared:
+                std::cout << COLOR_SYSTEM << "✅ Conversation history cleared (Session " << cleared << ")"
+                          << COLOR_RESET << '\n';
+                break;
+            case ChatbotClient::ClearResult::NoSession:
+                std::cout << COLOR_SYSTEM << "✅ No active session to clear" << COLOR_RESET << '\n';
+                break;
+            case ChatbotClient::ClearResult::SessionLost:  // TD-232: the server no longer holds it
                 report_lost_session();
-            } else if (res && res->status == 200) {
-                std::cout << COLOR_SYSTEM << "✅ Conversation history cleared (Session "
-                          << session_id << ")" << COLOR_RESET << '\n';
-            } else {
+                break;
+            case ChatbotClient::ClearResult::Failed:
                 std::cout << COLOR_ERROR << "❌ Failed to clear session" << COLOR_RESET << '\n';
-            }
-        } else {
-            std::cout << COLOR_SYSTEM << "✅ No active session to clear" << COLOR_RESET << '\n';
+                break;
         }
     } else if (command == "/stats") {
         print_stats();
@@ -370,7 +294,7 @@ void ChatbotCLI::handle_setting(std::string_view setting) {
     }
 
     if (value == "default") {
-        overridden.erase(key);
+        client.settings().reset(key);
         std::cout << COLOR_SYSTEM << "✅ " << key << " set back to the server's default" << COLOR_RESET
                   << '\n';
         return;
@@ -397,88 +321,44 @@ void ChatbotCLI::handle_setting(std::string_view setting) {
             return invalid("a whole number from 1 to 4096");
         }
         set_max_response_length(whole);
-        std::cout << COLOR_SYSTEM << "✅ Max response length set to: " << max_response_length << COLOR_RESET
+        std::cout << COLOR_SYSTEM << "✅ Max response length set to: " << get_max_response_length() << COLOR_RESET
                   << '\n';
     } else if (key == "temperature") {
         if (!parse_real(value, real) || real < Limits::kMinTemperature || real > Limits::kMaxTemperature) {
             return invalid("a number from 0 to 2");
         }
         set_temperature(real);
-        std::cout << COLOR_SYSTEM << "✅ Temperature set to: " << temperature << COLOR_RESET << '\n';
+        std::cout << COLOR_SYSTEM << "✅ Temperature set to: " << get_temperature() << COLOR_RESET << '\n';
     } else if (key == "top_p") {
         if (!parse_real(value, real) || real < Limits::kMinTopP || real > Limits::kMaxTopP) {
             return invalid("a number from 0 to 1");
         }
         set_top_p(real);
-        std::cout << COLOR_SYSTEM << "✅ Top-p set to: " << top_p << COLOR_RESET << '\n';
+        std::cout << COLOR_SYSTEM << "✅ Top-p set to: " << get_top_p() << COLOR_RESET << '\n';
     } else if (key == "top_k") {
         if (!parse_whole(value, whole) || whole < Limits::kMinTopK || whole > Limits::kMaxTopK) {
             return invalid("a whole number from 1 to 1000");
         }
         set_top_k(whole);
-        std::cout << COLOR_SYSTEM << "✅ Top-k set to: " << top_k << COLOR_RESET << '\n';
+        std::cout << COLOR_SYSTEM << "✅ Top-k set to: " << get_top_k() << COLOR_RESET << '\n';
     } else {
         if (!parse_whole(value, whole) || whole < Limits::kMinBeamWidth || whole > Limits::kMaxBeamWidth) {
             return invalid("a whole number from 1 to 16");
         }
         set_beam_width(whole);
-        std::cout << COLOR_SYSTEM << "✅ Beam width set to: " << beam_width << COLOR_RESET << '\n';
+        std::cout << COLOR_SYSTEM << "✅ Beam width set to: " << get_beam_width() << COLOR_RESET << '\n';
     }
 }
 
 std::string ChatbotCLI::generate_response(const std::string& user_input) {
-    if (!client) {
-        return "Error: Client not initialized";
-    }
-
-    // TD-232: session ids are server-issued. Once the server no longer holds ours (expired,
-    // evicted, or the server restarted) it answers 404; start a new session and send again.
-    auto post_chat_turn = [&] {
-        return client->Post("/chat/session", chat_turn_body(user_input), "application/json");
-    };
-    httplib::Result res = post_chat_turn();
-    if (res && res->status == 404 && !session_id.empty()) {
+    const ChatbotClient::Reply reply = client.send_message(user_input);
+    if (reply.session_lost) {
+        // TD-232: the server no longer held the session, so the client sent this in a new one.
         report_lost_session();
-        std::cout << COLOR_SYSTEM << "ℹ️  Sending this message in a new session"
-                  << COLOR_RESET << '\n';
-        res = post_chat_turn();
+        std::cout << COLOR_SYSTEM << "ℹ️  Sending this message in a new session" << COLOR_RESET << '\n';
     }
-
-    // TD-255: an error reply is {"success":false,"error":...} -- with HTTP 400/500 since TD-236, with 200
-    // from older servers. Show its error field, never an empty reply or the raw JSON.
-    last_turn_failed = true;
-    if (!res) {
-        return "Error: Connection failed";
-    }
-    const nlohmann::json reply = parse_reply(res->body);
-    if (res->status == 200 && reply_field(reply, "success") != "false") {
-        last_turn_failed = false;
-        std::string response = reply_field(reply, "response");
-
-        // Update session ID if provided
-        std::string new_sid = reply_field(reply, "session_id");
-        if (!new_sid.empty() && new_sid != session_id) {
-            session_id = new_sid;
-        }
-
-        return response;
-    }
-    std::stringstream err;
-    err << "Error: ";
-    if (res->status != 200) {
-        err << res->status;
-    }
-    const std::string error = reply_field(reply, "error");
-    if (!error.empty()) {
-        err << (res->status != 200 ? " - " : "") << error;
-    } else if (res->status == 200) {
-        err << "the server reported a failure without a reason";
-    }
-    const std::string request_id = reply_field(reply, "request_id");
-    if (!request_id.empty()) {
-        err << " (request id " << request_id << ")";
-    }
-    return err.str();
+    last_turn_failed = !reply.ok;  // TD-255
+    return reply.text;
 }
 
 void ChatbotCLI::report_lost_session() {
@@ -495,59 +375,36 @@ void ChatbotCLI::report_lost_session() {
         }
     }
     std::cout << COLOR_RESET << '\n';
-    session_id.clear();
     active_save_path = conversation_save_path;
     owns_save_file = false;
-}
-
-std::string ChatbotCLI::chat_turn_body(const std::string& user_input) const {
-    nlohmann::ordered_json body;
-    if (!session_id.empty()) {
-        body["session_id"] = session_id;  // TD-257
-    }
-    body["message"] = user_input;
-    // TD-254: only the settings changed with /set; the server's defaults apply to the rest.
-    if (is_overridden("max_length")) body["max_length"] = max_response_length;
-    if (is_overridden("temperature")) body["temperature"] = wire_number(temperature);
-    if (is_overridden("top_p")) body["top_p"] = wire_number(top_p);
-    if (is_overridden("top_k")) body["top_k"] = top_k;
-    if (is_overridden("beam_width")) body["beam_width"] = beam_width;
-    if (is_overridden("strategy")) body["strategy"] = generation_strategy;
-    return to_body(body);
 }
 
 void ChatbotCLI::save_conversation() {
     // TD-053: session state lives server-side, not in this object -- "saving" means asking the
     // server to export it, then writing the result to our local file.
-    if (session_id.empty()) {
-        std::cout << COLOR_ERROR << "❌ Nothing to save yet — send a message first."
-                  << COLOR_RESET << '\n';
-        return;
-    }
-    if (!client) {
-        std::cout << COLOR_ERROR << "❌ Client not initialized" << COLOR_RESET << '\n';
-        return;
-    }
-
-    const std::string body = to_body({{"session_id", session_id}});
-    auto res = client->Post("/chat/session/export", body, "application/json");
-    if (!res) {
-        std::cout << COLOR_ERROR << "❌ Failed to reach server to export conversation"
-                  << COLOR_RESET << '\n';
-        return;
-    }
-    if (res->status == 404) {  // TD-232/TD-258: nothing left on the server to save
-        report_lost_session();
-        std::cout << COLOR_ERROR << "❌ Nothing to save; " << active_save_path << " is unchanged"
-                  << COLOR_RESET << '\n';
-        return;
-    }
-    const nlohmann::json reply = parse_reply(res->body);
-    if (reply_field(reply, "success") != "true") {
-        std::string error = reply_field(reply, "error");
-        std::cout << COLOR_ERROR << "❌ " << (error.empty() ? "Export failed" : error)
-                  << COLOR_RESET << '\n';
-        return;
+    using Status = ChatbotClient::Export::Status;
+    const ChatbotClient::Export exported = client.export_session();
+    switch (exported.status) {
+        case Status::Ok:
+            break;
+        case Status::NoSession:
+            std::cout << COLOR_ERROR << "❌ Nothing to save yet — send a message first." << COLOR_RESET << '\n';
+            return;
+        case Status::NotConnected:
+            std::cout << COLOR_ERROR << "❌ Client not initialized" << COLOR_RESET << '\n';
+            return;
+        case Status::Unreachable:
+            std::cout << COLOR_ERROR << "❌ Failed to reach server to export conversation" << COLOR_RESET << '\n';
+            return;
+        case Status::SessionLost:  // TD-232/TD-258: nothing left on the server to save
+            report_lost_session();
+            std::cout << COLOR_ERROR << "❌ Nothing to save; " << active_save_path << " is unchanged"
+                      << COLOR_RESET << '\n';
+            return;
+        case Status::Failed:
+            std::cout << COLOR_ERROR << "❌ " << (exported.error.empty() ? "Export failed" : exported.error)
+                      << COLOR_RESET << '\n';
+            return;
     }
 
     // TD-258: replace an existing file only when it holds this session's conversation; otherwise save
@@ -558,7 +415,7 @@ void ChatbotCLI::save_conversation() {
     if (keep_existing) {
         target = dated_save_path(target);
     }
-    const std::string error = write_file_atomically(target, reply_field(reply, "data"));
+    const std::string error = chatbot_client::write_file_atomically(target, exported.data);
     if (!error.empty()) {
         std::cout << COLOR_ERROR << "❌ " << error << COLOR_RESET << '\n';
         return;
@@ -593,48 +450,17 @@ void ChatbotCLI::load_conversation() {
                   << "' is empty" << COLOR_RESET << '\n';
         return;
     }
-    if (!client) {
-        std::cout << COLOR_ERROR << "❌ Client not initialized" << COLOR_RESET << '\n';
+    const ChatbotClient::Import imported = client.import_session(data);
+    if (!imported.ok) {
+        std::cout << COLOR_ERROR << "❌ " << imported.error << COLOR_RESET << '\n';
         return;
-    }
-
-    auto post_import = [&] {
-        nlohmann::ordered_json body;
-        if (!session_id.empty()) {
-            body["session_id"] = session_id;
-        }
-        body["data"] = data;
-        return client->Post("/chat/session/import", to_body(body), "application/json");
-    };
-    auto res = post_import();
-    if (res && res->status == 404 && !session_id.empty()) {  // TD-232: import into a new session
-        session_id.clear();
-        res = post_import();
-    }
-    if (!res) {
-        std::cout << COLOR_ERROR << "❌ Failed to reach server to import conversation"
-                  << COLOR_RESET << '\n';
-        return;
-    }
-    const nlohmann::json reply = parse_reply(res->body);
-    if (reply_field(reply, "success") != "true") {
-        std::string error = reply_field(reply, "error");
-        std::cout << COLOR_ERROR << "❌ " << (error.empty() ? "Import failed" : error)
-                  << COLOR_RESET << '\n';
-        return;
-    }
-
-    std::string new_sid = reply_field(reply, "session_id");
-    if (!new_sid.empty()) {
-        session_id = new_sid;
     }
     active_save_path = conversation_save_path;  // TD-258: saves now continue this file
     owns_save_file = true;
 
     std::cout << COLOR_SYSTEM << "✅ Conversation loaded from " << conversation_save_path;
-    std::string message_count = reply_field(reply, "message_count");
-    if (!message_count.empty()) {
-        std::cout << " (" << message_count << " messages)";
+    if (!imported.message_count.empty()) {
+        std::cout << " (" << imported.message_count << " messages)";
     }
     std::cout << COLOR_RESET << '\n';
 }
@@ -683,7 +509,7 @@ void ChatbotCLI::run() {
             // itself would print a "nothing to save yet" message otherwise, which is the right
             // message for an explicit /save but noise on every exit of a session that never sent
             // a message.
-            if (!session_id.empty()) {
+            if (!client.session_id().empty()) {
                 save_conversation();
             }
             running = false;

@@ -321,3 +321,14 @@ reports that there is no session on the server. Test: `LostSessionStartsANewOneA
   definition); with the helper names renamed, six tests fail. `ColorCodeTest` is removed, and the error-colour test
   checks the escape codes literally.
 - **Status tag:** `@adai-version` 1.6.0 for `ChatbotCLI.{hpp,cpp}`, reviewed 2026-11-03.
+
+## Addendum (November 4, 2026): the HTTP session moved to `ChatbotClient` (TD-260)
+
+The requests, reply parsing, session id and generation overrides moved into [`ChatbotClient`](ChatbotClient.md), so
+`chatbot_gui` can use the same code. `ChatbotCLI` holds one and keeps its public API (getters, setters,
+`chat_turn_body()`, `generate_response()`, `did_last_turn_fail()`), its terminal messages, and its save-file policy
+(`active_save_path`, dated files, TD-258), which it applies to the client's results; for example, a lost session
+reported by the client still prints the TD-258 notice and stops treating the save file as this conversation's. Its
+66 `chatbotcliImprovedTests` pass unchanged. `connect()` failures now name httplib's error (`Could not establish
+connection`) instead of `Unknown`.
+

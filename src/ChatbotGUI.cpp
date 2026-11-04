@@ -1,41 +1,23 @@
 // @adai-status: beta        (capped by TD-037 — no Qt Test infrastructure in this repo; onStrategyChanged's mapping extracted to ChatbotGuiLogic.hpp, see TECHNICAL_DEBT.md)
-// @adai-version: 0.8.2
-// @adai-reviewed: 2026-10-26
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-11-04
 
 #include "ChatbotGUI.hpp"
-#include <QApplication>
 #include <QDateTime>
+#include <QFile>
 #include <QFileDialog>
 #include <QMessageBox>
+#include <QMetaObject>
 #include <QScrollBar>
-#include <fstream>
-#include "BPETokenizer.hpp"
+#include <memory>
+#include <utility>
 #include "ChatbotGuiLogic.hpp"
-#include "Config.hpp"
-#include "ConversationContext.hpp"
-#include "EncoderDecoderModel.hpp"
+#include "GenerationSettings.hpp"
 
-ChatbotGUI::ChatbotGUI(const std::string& vocab_file, const std::string& model_file,
-                       QWidget* parent)
-    : QMainWindow(parent),
-      vocab_path(vocab_file),
-      model_path(model_file),
-      conversation_save_path("conversation_history.txt"),
-      generation_strategy("nucleus"),
-      max_response_length(100),
-      temperature(1.0f),
-      top_p(0.9f),
-      top_k(50),
-      beam_width(5) {
+ChatbotGUI::ChatbotGUI(const std::string& server_url, QWidget* parent)
+    : QMainWindow(parent), client(server_url), conversation_save_path("conversation_history.txt") {
     setWindowTitle("ADAI Transformer Chatbot");
     resize(1000, 700);
-
-    // Initialize chatbot components
-    if (!initializeChatbot()) {
-        QMessageBox::critical(this, "Initialization Error",
-                              "Failed to initialize chatbot components.\n"
-                              "Please check that vocab and model files exist.");
-    }
 
     // Set up the user interface
     setupUI();
@@ -46,62 +28,71 @@ ChatbotGUI::ChatbotGUI(const std::string& vocab_file, const std::string& model_f
                "Welcome to ADAI Transformer Chatbot!\n"
                "Type your message and press Send or Enter to chat.",
                false);
+
+    // TD-260: the GUI is a client of chatbot_api_server, which serves the trained model. Connect on
+    // the worker thread so a slow or absent server doesn't hold up the window.
+    try {
+        client.open();
+    } catch (const std::exception& e) {
+        addMessage("System", QString("Invalid server URL %1: %2").arg(QString::fromStdString(server_url), e.what()),
+                   false);
+        setBusy(true, "No server");  // nothing can be sent without a connection
+        return;
+    }
+    runRequest("Connecting...", [this] {
+        const ChatbotClient::Health health = client.connect();
+        return [this, health] {
+            const auto notice = chatbot_gui::connection_notice(client.server_url(), health);
+            addMessage("System", QString::fromStdString(notice.text), false);
+        };
+    });
 }
 
-ChatbotGUI::~ChatbotGUI() = default;
+ChatbotGUI::~ChatbotGUI() {
+    // A request may be waiting on the server (up to the 300 s read timeout): stop it so closing the
+    // window doesn't wait for it. Its result is never shown: Qt drops events posted to a deleted object.
+    client.cancel();
+    if (worker.joinable()) {
+        worker.join();
+    }
+}
 
-bool ChatbotGUI::initializeChatbot() {
-    try {
-        // Load tokenizer
-        tokenizer = std::make_unique<BPETokenizer>();
-        tokenizer->load_vocab(vocab_path);
-
-        // TODO: See TD-262 in TECHNICAL_DEBT.md - architecture comes only from the local config file, not MNS or
-        // the checkpoint's own .config; a mismatch makes load_model() throw below.
-        // Load architecture from config (vocab/model paths still come from constructor args)
-        // Discovery: ./config.chatbot.conf > /etc/adai/config.chatbot.conf
-        // > ./config.conf (legacy) > /etc/adai/config.conf (legacy)
-        const std::string config_path =
-            adai::ConfigLoader::discover_config_path("", "config.chatbot.conf");
-        adai::ServiceConfig svc = adai::ConfigLoader::load(config_path);
-
-        // Initialize model
-        model = std::make_unique<EncoderDecoderModel>(
-            tokenizer->get_vocab_size(),               // vocab_size
-            static_cast<int>(svc.d_model),             // d_model
-            static_cast<int>(svc.num_encoder_layers),  // encoder_layers
-            static_cast<int>(svc.num_decoder_layers),  // decoder_layers
-            static_cast<int>(svc.num_heads),           // num_heads
-            static_cast<int>(svc.d_ff),                // d_ff
-            static_cast<int>(svc.max_seq_length)       // max_seq_length
-        );
-
-        // Transfer tokenizer ownership to model
-        model->set_tokenizer(tokenizer.release());
-        model->set_training(false);  // TD-366: inference only
-
-        // Load pre-trained weights if available
-        // TODO: See TD-260 in TECHNICAL_DEBT.md - save_model() never writes a file at the bare model path
-        // (only .config/.vocab/.encoder/.decoder/.lm_head sidecars), so this check fails for
-        // every real checkpoint and the GUI silently runs on random weights.
-        std::ifstream model_file(model_path);
-        if (model_file.good()) {
-            model->load_model(model_path);
+void ChatbotGUI::runRequest(const QString& busyText, std::function<std::function<void()>()> work) {
+    if (worker.joinable()) {
+        worker.join();  // the previous request has finished: its result already ran setBusy(false)
+    }
+    setBusy(true, busyText);
+    worker = std::thread([this, work = std::move(work)] {
+        std::function<void()> done;
+        try {
+            done = work();
+        } catch (const std::exception& e) {
+            const QString error = e.what();
+            done = [this, error] { addMessage("System", "Error: " + error, false); };
         }
+        QMetaObject::invokeMethod(
+            this,
+            [this, done = std::move(done)] {
+                setBusy(false);
+                if (done) {
+                    done();
+                }
+            },
+            Qt::QueuedConnection);
+    });
+}
 
-        // TODO: See TD-266 in TECHNICAL_DEBT.md - hardcoded 480 regardless of the configured max_seq_length.
-        // Create conversation context with max_tokens=480 to stay under model's max_len=512
-        context = std::make_unique<ConversationContext>(20, 480);
-
-        return true;
-    } catch (const std::exception& e) {
-        // TODO: See TD-262 in TECHNICAL_DEBT.md - this says "random initialization" but returning false leaves
-        // context null (GUI unusable), and the constructor then shows a second, critical dialog.
-        QMessageBox::warning(nullptr, "Initialization Warning",
-                             QString("Error during initialization: %1\n"
-                                     "Using default/random initialization.")
-                                 .arg(e.what()));
-        return false;
+void ChatbotGUI::setBusy(bool busy, const QString& busyText) {
+    inputField->setEnabled(!busy);
+    sendButton->setEnabled(!busy);
+    sendButton->setText(busy ? busyText : "Send");
+    clearButton->setEnabled(!busy);
+    clearInputButton->setEnabled(!busy);
+    saveButton->setEnabled(!busy);
+    loadButton->setEnabled(!busy);
+    settingsPanel->setEnabled(!busy);
+    if (!busy) {
+        inputField->setFocus();
     }
 }
 
@@ -179,10 +170,10 @@ QWidget* ChatbotGUI::createInputArea() {
     // binds to the object, not the member holding it), so this was never a
     // functional bug, but `clearButton` silently ended up referring only to
     // this second, redundant button afterward, discarding any live handle
-    // to the first one. Kept as a local — the class member should
-    // unambiguously mean the chat area's clear button, matching its
-    // sibling saveButton/loadButton.
-    QPushButton* clearInputButton = new QPushButton("Clear");
+    // to the first one. `clearButton` means the chat area's clear button,
+    // matching its siblings saveButton/loadButton; this one has its own
+    // member so setBusy() can disable it (TD-263).
+    clearInputButton = new QPushButton("Clear");
     clearInputButton->setMinimumWidth(80);
     clearInputButton->setMinimumHeight(40);
     clearInputButton->setToolTip("Clear conversation history");
@@ -203,9 +194,53 @@ QWidget* ChatbotGUI::createInputArea() {
     return widget;
 }
 
+namespace {
+
+// TD-260: the settings use the server's ranges (adai::GenerationLimits, which it checks each request
+// against, TD-254). Each spin box starts one step below its range, shown as "server default": the
+// setting isn't sent until changed, so the server's configured default applies.
+constexpr double kRealStep = 0.05;
+const QString kServerDefault = "server default";
+
+QSpinBox* make_int_setting(int min, int max, int step) {
+    auto* spin = new QSpinBox();
+    spin->setRange(min - 1, max);
+    spin->setSingleStep(step);
+    spin->setSpecialValueText(kServerDefault);
+    spin->setValue(min - 1);
+    return spin;
+}
+
+QDoubleSpinBox* make_real_setting(double min, double max) {
+    auto* spin = new QDoubleSpinBox();
+    spin->setDecimals(2);
+    spin->setRange(min - kRealStep, max);
+    spin->setSingleStep(kRealStep);
+    spin->setSpecialValueText(kServerDefault);
+    spin->setValue(min - kRealStep);
+    return spin;
+}
+
+QGroupBox* setting_group(const QString& title, QWidget* control, const QString& description) {
+    auto* group = new QGroupBox(title);
+    auto* layout = new QVBoxLayout();
+    layout->addWidget(control);
+    if (!description.isEmpty()) {
+        auto* label = new QLabel(description);
+        label->setStyleSheet("font-size: 10px; color: #666;");
+        label->setWordWrap(true);
+        layout->addWidget(label);
+    }
+    group->setLayout(layout);
+    return group;
+}
+
+}  // namespace
+
 QWidget* ChatbotGUI::createSettingsPanel() {
-    QWidget* widget = new QWidget();
-    QVBoxLayout* layout = new QVBoxLayout(widget);
+    using Limits = adai::GenerationLimits;
+    settingsPanel = new QWidget();
+    QVBoxLayout* layout = new QVBoxLayout(settingsPanel);
 
     // Title
     QLabel* titleLabel = new QLabel("Generation Settings");
@@ -215,115 +250,47 @@ QWidget* ChatbotGUI::createSettingsPanel() {
     titleLabel->setFont(titleFont);
     layout->addWidget(titleLabel);
 
-    // Strategy selection
-    QGroupBox* strategyGroup = new QGroupBox("Generation Strategy");
-    QVBoxLayout* strategyLayout = new QVBoxLayout();
+    QLabel* note = new QLabel("Settings left at \"server default\" use chatbot_api_server's own settings.");
+    note->setStyleSheet("font-size: 10px; color: #666;");
+    note->setWordWrap(true);
+    layout->addWidget(note);
 
+    // Strategy selection; the order matches chatbot_gui::generation_strategy_for_index().
     strategyCombo = new QComboBox();
-    strategyCombo->addItems(
-        {"Nucleus (Top-p)", "Top-k Sampling", "Greedy", "Beam Search", "Sampling"});
-    strategyCombo->setCurrentText("Nucleus (Top-p)");
+    strategyCombo->addItems({"Server default", "Nucleus (Top-p)", "Top-k Sampling", "Greedy",
+                             "Beam Search", "Sampling (Temperature)"});
     connect(strategyCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             &ChatbotGUI::onStrategyChanged);
+    layout->addWidget(setting_group("Generation Strategy", strategyCombo, QString()));
 
-    strategyLayout->addWidget(strategyCombo);
-    strategyGroup->setLayout(strategyLayout);
-    layout->addWidget(strategyGroup);
-
-    // Temperature
-    QGroupBox* tempGroup = new QGroupBox("Temperature");
-    QVBoxLayout* tempLayout = new QVBoxLayout();
-
-    temperatureSpin = new QDoubleSpinBox();
-    temperatureSpin->setRange(0.1, 2.0);
-    temperatureSpin->setSingleStep(0.1);
-    temperatureSpin->setValue(1.0);
-    temperatureSpin->setDecimals(1);
+    temperatureSpin = make_real_setting(Limits::kMinTemperature, Limits::kMaxTemperature);
     connect(temperatureSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
             &ChatbotGUI::onTemperatureChanged);
+    layout->addWidget(setting_group("Temperature", temperatureSpin, "Higher = more random"));
 
-    QLabel* tempDesc = new QLabel("Higher = more random");
-    tempDesc->setStyleSheet("font-size: 10px; color: #666;");
-
-    tempLayout->addWidget(temperatureSpin);
-    tempLayout->addWidget(tempDesc);
-    tempGroup->setLayout(tempLayout);
-    layout->addWidget(tempGroup);
-
-    // Top-p (nucleus)
-    QGroupBox* topPGroup = new QGroupBox("Top-p (Nucleus)");
-    QVBoxLayout* topPLayout = new QVBoxLayout();
-
-    topPSpin = new QDoubleSpinBox();
-    topPSpin->setRange(0.1, 1.0);
-    topPSpin->setSingleStep(0.05);
-    topPSpin->setValue(0.9);
-    topPSpin->setDecimals(2);
+    topPSpin = make_real_setting(Limits::kMinTopP, Limits::kMaxTopP);
     connect(topPSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
             &ChatbotGUI::onTopPChanged);
+    layout->addWidget(setting_group("Top-p (Nucleus)", topPSpin, "Probability mass cutoff"));
 
-    QLabel* topPDesc = new QLabel("Probability mass cutoff");
-    topPDesc->setStyleSheet("font-size: 10px; color: #666;");
+    topKSpin = make_int_setting(Limits::kMinTopK, Limits::kMaxTopK, 1);
+    connect(topKSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, &ChatbotGUI::onTopKChanged);
+    layout->addWidget(setting_group("Top-k", topKSpin, "Number of top tokens"));
 
-    topPLayout->addWidget(topPSpin);
-    topPLayout->addWidget(topPDesc);
-    topPGroup->setLayout(topPLayout);
-    layout->addWidget(topPGroup);
-
-    // Top-k
-    QGroupBox* topKGroup = new QGroupBox("Top-k");
-    QVBoxLayout* topKLayout = new QVBoxLayout();
-
-    topKSpin = new QSpinBox();
-    topKSpin->setRange(1, 200);
-    topKSpin->setValue(50);
-    connect(topKSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
-            &ChatbotGUI::onTopKChanged);
-
-    QLabel* topKDesc = new QLabel("Number of top tokens");
-    topKDesc->setStyleSheet("font-size: 10px; color: #666;");
-
-    topKLayout->addWidget(topKSpin);
-    topKLayout->addWidget(topKDesc);
-    topKGroup->setLayout(topKLayout);
-    layout->addWidget(topKGroup);
-
-    // Max length
-    QGroupBox* maxLenGroup = new QGroupBox("Max Response Length");
-    QVBoxLayout* maxLenLayout = new QVBoxLayout();
-
-    maxLengthSpin = new QSpinBox();
-    maxLengthSpin->setRange(10, 500);
-    maxLengthSpin->setValue(100);
+    maxLengthSpin = make_int_setting(Limits::kMinMaxLength, Limits::kMaxMaxLength, 10);
     connect(maxLengthSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
             &ChatbotGUI::onMaxLengthChanged);
+    layout->addWidget(setting_group("Max Response Length", maxLengthSpin, "New tokens"));
 
-    maxLenLayout->addWidget(maxLengthSpin);
-    maxLenGroup->setLayout(maxLenLayout);
-    layout->addWidget(maxLenGroup);
-
-    // Beam width (for beam search)
-    QGroupBox* beamGroup = new QGroupBox("Beam Width");
-    QVBoxLayout* beamLayout = new QVBoxLayout();
-
-    beamWidthSpin = new QSpinBox();
-    beamWidthSpin->setRange(1, 10);
-    beamWidthSpin->setValue(5);
+    beamWidthSpin = make_int_setting(Limits::kMinBeamWidth, Limits::kMaxBeamWidth, 1);
     connect(beamWidthSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
             &ChatbotGUI::onBeamWidthChanged);
-
-    QLabel* beamDesc = new QLabel("Used in beam search");
-    beamDesc->setStyleSheet("font-size: 10px; color: #666;");
-
-    beamLayout->addWidget(beamWidthSpin);
-    beamLayout->addWidget(beamDesc);
-    beamGroup->setLayout(beamLayout);
-    layout->addWidget(beamGroup);
+    layout->addWidget(setting_group("Beam Width", beamWidthSpin, "Used in beam search"));
 
     // Add stretch to push everything to the top
     layout->addStretch();
 
-    return widget;
+    return settingsPanel;
 }
 
 void ChatbotGUI::addMessage(const QString& sender, const QString& message, bool isUser) {
@@ -356,149 +323,156 @@ void ChatbotGUI::addMessage(const QString& sender, const QString& message, bool 
 }
 
 void ChatbotGUI::onSendMessage() {
-    QString userMessage = inputField->text().trimmed();
-
+    const QString userMessage = inputField->text().trimmed();
     if (userMessage.isEmpty()) {
         return;
     }
-
-    // Add user message to display
     addMessage("You", userMessage, true);
-
-    // Clear input field
     inputField->clear();
 
-    // Disable input while generating
-    inputField->setEnabled(false);
-    sendButton->setEnabled(false);
-    sendButton->setText("Generating...");
-
-    // Process events to update UI
-    QApplication::processEvents();
-
-    // Generate response
-    // TODO: See TD-263 in TECHNICAL_DEBT.md - runs on the GUI thread, freezing the window for the whole
-    // generation; move to a worker thread.
-    std::string response = generateResponse(userMessage.toStdString());
-
-    // Add bot response to display
-    addMessage("Bot", QString::fromStdString(response), false);
-
-    // Re-enable input
-    inputField->setEnabled(true);
-    sendButton->setEnabled(true);
-    sendButton->setText("Send");
-    inputField->setFocus();
+    // TD-263: the request runs on the worker thread; the window stays responsive.
+    runRequest("Generating...", [this, message = userMessage.toStdString()] {
+        const ChatbotClient::Reply reply = client.send_message(message);
+        return [this, reply] {
+            if (reply.session_lost) {
+                addMessage("System", QString::fromStdString(chatbot_gui::session_lost_notice()), false);
+            }
+            // TD-255: a failed turn shows the server's error, as a system message.
+            addMessage(reply.ok ? "Bot" : "System", QString::fromStdString(reply.text), false);
+        };
+    });
 }
 
 void ChatbotGUI::onClearConversation() {
-    auto reply = QMessageBox::question(this, "Clear Conversation",
-                                       "Are you sure you want to clear the conversation history?",
-                                       QMessageBox::Yes | QMessageBox::No);
-
-    if (reply == QMessageBox::Yes) {
-        chatDisplay->clear();
-        if (context) {
-            context->clear();
-        }
-        addMessage("System", "Conversation cleared.", false);
+    auto answer = QMessageBox::question(this, "Clear Conversation",
+                                        "Are you sure you want to clear the conversation history?",
+                                        QMessageBox::Yes | QMessageBox::No);
+    if (answer != QMessageBox::Yes) {
+        return;
     }
+    runRequest("Clearing...", [this] {
+        const ChatbotClient::ClearResult result = client.clear_session();
+        return [this, result] {
+            if (result == ChatbotClient::ClearResult::Failed) {
+                addMessage("System", "The server didn't clear the conversation.", false);
+                return;
+            }
+            chatDisplay->clear();
+            addMessage("System", "Conversation cleared.", false);
+        };
+    });
 }
 
 void ChatbotGUI::onSaveConversation() {
-    QString fileName =
+    if (client.session_id().empty()) {
+        addMessage("System", "Nothing to save yet: send a message first.", false);
+        return;
+    }
+    const QString fileName =
         QFileDialog::getSaveFileName(this, "Save Conversation", conversation_save_path.c_str(),
                                      "Text Files (*.txt);;All Files (*)");
-
-    if (!fileName.isEmpty()) {
-        try {
-            if (context) {
-                context->save_to_file(fileName.toStdString());
-                QMessageBox::information(this, "Success", "Conversation saved successfully!");
-            }
-        } catch (const std::exception& e) {
-            QMessageBox::critical(this, "Error",
-                                  QString("Failed to save conversation:\n%1").arg(e.what()));
-        }
+    if (fileName.isEmpty()) {
+        return;
     }
+    // TD-053: the conversation is kept by the server; saving exports it and writes the file.
+    runRequest("Saving...", [this, path = fileName.toStdString()] {
+        using Status = ChatbotClient::Export::Status;
+        const ChatbotClient::Export exported = client.export_session();
+        std::string error;
+        switch (exported.status) {
+            case Status::Ok:
+                error = chatbot_client::write_file_atomically(path, exported.data);  // TD-258
+                break;
+            case Status::NoSession:
+            case Status::NotConnected:
+                error = "Nothing to save yet: send a message first.";
+                break;
+            case Status::Unreachable:
+                error = "Couldn't reach the server to export the conversation.";
+                break;
+            case Status::SessionLost:
+                error = "The server no longer has this conversation (it expired or the server "
+                        "restarted), so there is nothing to save.";
+                break;
+            case Status::Failed:
+                error = exported.error.empty() ? "The server didn't export the conversation." : exported.error;
+                break;
+        }
+        return [this, path, error] {
+            if (!error.empty()) {
+                QMessageBox::critical(this, "Error",
+                                      QString("Failed to save conversation:\n%1").arg(QString::fromStdString(error)));
+                return;
+            }
+            conversation_save_path = path;
+            addMessage("System", QString("Conversation saved to %1").arg(QString::fromStdString(path)), false);
+        };
+    });
 }
 
 void ChatbotGUI::onLoadConversation() {
-    QString fileName =
+    const QString fileName =
         QFileDialog::getOpenFileName(this, "Load Conversation", conversation_save_path.c_str(),
                                      "Text Files (*.txt);;All Files (*)");
-
-    if (!fileName.isEmpty()) {
-        try {
-            if (context) {
-                context->load_from_file(fileName.toStdString());
-                chatDisplay->clear();
-                addMessage("System", "Conversation loaded successfully!", false);
-
-                // Display loaded messages
-                // Note: This would require ConversationContext to expose message history
-                // TODO: See TD-266 in TECHNICAL_DEBT.md - loaded messages are not redisplayed.
-                addMessage("System", "Previous conversation has been loaded into context.", false);
-            }
-        } catch (const std::exception& e) {
-            QMessageBox::critical(this, "Error",
-                                  QString("Failed to load conversation:\n%1").arg(e.what()));
-        }
+    if (fileName.isEmpty()) {
+        return;
     }
+    QFile file(fileName);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::critical(this, "Error", QString("Failed to open %1:\n%2").arg(fileName, file.errorString()));
+        return;
+    }
+    const std::string data = file.readAll().toStdString();
+    if (data.empty()) {
+        QMessageBox::critical(this, "Error", QString("%1 is empty.").arg(fileName));
+        return;
+    }
+    // TD-053: the server imports the conversation into this session (or a new one).
+    runRequest("Loading...", [this, data, path = fileName.toStdString()] {
+        const ChatbotClient::Import imported = client.import_session(data);
+        return [this, imported, path] {
+            if (!imported.ok) {
+                QMessageBox::critical(this, "Error",
+                                      QString("Failed to load conversation:\n%1")
+                                          .arg(QString::fromStdString(imported.error)));
+                return;
+            }
+            conversation_save_path = path;
+            chatDisplay->clear();
+            // TODO: See TD-266 in TECHNICAL_DEBT.md - loaded messages are not redisplayed.
+            QString text = QString("Conversation loaded from %1").arg(QString::fromStdString(path));
+            if (!imported.message_count.empty()) {
+                text += QString(" (%1 messages)").arg(QString::fromStdString(imported.message_count));
+            }
+            addMessage("System", text + ". The server continues it from here.", false);
+        };
+    });
 }
 
+// TD-260: each change is recorded in the client's overrides, sent with the next message (TD-254).
+// The settings panel is disabled while a request runs, so the worker never reads them mid-change.
 void ChatbotGUI::onStrategyChanged(int index) {
-    generation_strategy = chatbot_gui::generation_strategy_for_index(index);
+    chatbot_gui::apply_strategy(client.settings(), index);
 }
 
 void ChatbotGUI::onTemperatureChanged(double value) {
-    temperature = static_cast<float>(value);
+    chatbot_gui::apply_real_setting(client.settings(), "temperature", value, temperatureSpin->minimum());
 }
 
 void ChatbotGUI::onTopPChanged(double value) {
-    top_p = static_cast<float>(value);
+    chatbot_gui::apply_real_setting(client.settings(), "top_p", value, topPSpin->minimum());
 }
 
 void ChatbotGUI::onTopKChanged(int value) {
-    top_k = value;
+    chatbot_gui::apply_int_setting(client.settings(), "top_k", value, topKSpin->minimum());
 }
 
 void ChatbotGUI::onMaxLengthChanged(int value) {
-    max_response_length = value;
+    chatbot_gui::apply_int_setting(client.settings(), "max_length", value, maxLengthSpin->minimum());
 }
 
 void ChatbotGUI::onBeamWidthChanged(int value) {
-    beam_width = value;
-}
-
-std::string ChatbotGUI::generateResponse(const std::string& user_input) {
-    if (!model || !context) {
-        return "[Error: Chatbot not initialized]";
-    }
-
-    try {
-        // Add user message to context
-        context->add_user_message(user_input);
-
-        // Format context for model
-        // TODO: See TD-265 in TECHNICAL_DEBT.md - ChatbotAPI sessions use format_for_model() instead, so
-        // the same model sees different prompt shapes depending on the client.
-        std::string formatted_context = context->format_with_special_tokens();
-
-        // Generate response using the model
-        // TD-261: the Beam Width setting applies to beam search only.
-        std::string response = model->generate_response_with_strategy(
-            formatted_context, max_response_length, generation_strategy, temperature, top_k, top_p,
-            generation_strategy == "beam" ? beam_width : 1);
-
-        // Add assistant response to context
-        context->add_assistant_message(response);
-
-        return response;
-
-    } catch (const std::exception& e) {
-        return "[Error: " + std::string(e.what()) + "]";
-    }
+    chatbot_gui::apply_int_setting(client.settings(), "beam_width", value, beamWidthSpin->minimum());
 }
 
 void ChatbotGUI::applyStylesheet() {

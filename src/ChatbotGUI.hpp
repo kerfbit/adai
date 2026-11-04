@@ -2,8 +2,8 @@
 #define CHATBOT_GUI_HPP
 
 // @adai-status: beta        (capped by TD-037 — no Qt Test infrastructure in this repo)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-11-04
 
 
 #include <QComboBox>
@@ -19,41 +19,39 @@
 #include <QSplitter>
 #include <QTextEdit>
 #include <QVBoxLayout>
-#include <memory>
+#include <functional>
 #include <string>
-
-// Forward declarations
-class BPETokenizer;
-class EncoderDecoderModel;
-class ConversationContext;
+#include <thread>
+#include "ChatbotClient.hpp"
 
 /**
- * @brief Qt-based GUI for the ADAI transformer chatbot
+ * @brief Qt-based GUI client for chatbot_api_server
  *
- * Provides a modern graphical interface with:
+ * TD-260: the GUI talks to the served model over HTTP, through the same ChatbotClient as the `chatbot`
+ * CLI; it used to load its own copy of the model from local files. It provides:
  * - Chat message display with scrolling
  * - User input field
- * - Real-time response generation
- * - Settings panel for generation parameters
- * - Conversation management (save/load/clear)
+ * - Generation settings, sent with each message when changed from the server's defaults (TD-254)
+ * - Conversation management (save/load/clear), kept by the server
+ *
+ * TD-263: each request runs on a worker thread, one at a time, so the window stays responsive; input,
+ * buttons and settings are disabled until it finishes.
  */
 class ChatbotGUI : public QMainWindow {
     Q_OBJECT
 
    public:
     /**
-     * @brief Construct the chatbot GUI
+     * @brief Construct the chatbot GUI and start connecting to the server
      *
-     * @param vocab_file Path to BPE vocabulary file
-     * @param model_file Path to pre-trained model weights
+     * @param server_url URL of chatbot_api_server (e.g. "http://localhost:8080")
      * @param parent Parent widget (nullptr for main window)
      */
-    explicit ChatbotGUI(const std::string& vocab_file = "vocab.txt",
-                        const std::string& model_file = "chatbot_model.bin",
+    explicit ChatbotGUI(const std::string& server_url = "http://localhost:8080",
                         QWidget* parent = nullptr);
 
     /**
-     * @brief Destructor
+     * @brief Destructor: stops a request in flight and waits for its worker thread
      */
     ~ChatbotGUI() override;
 
@@ -110,12 +108,6 @@ class ChatbotGUI : public QMainWindow {
 
    private:
     /**
-     * @brief Initialize the chatbot components (tokenizer, model, context)
-     * @return true if successful, false otherwise
-     */
-    bool initializeChatbot();
-
-    /**
      * @brief Set up the user interface
      */
     void setupUI();
@@ -145,12 +137,17 @@ class ChatbotGUI : public QMainWindow {
     void addMessage(const QString& sender, const QString& message, bool isUser);
 
     /**
-     * @brief Generate a response to user input
+     * @brief Run `work` on the worker thread, then the function it returns on the GUI thread
      *
-     * @param user_input The user's message
-     * @return The generated response
+     * Only `work` touches `client`, and only one request runs at a time: the controls are disabled
+     * (setBusy) until the returned function has run.
      */
-    std::string generateResponse(const std::string& user_input);
+    void runRequest(const QString& busyText, std::function<std::function<void()>()> work);
+
+    /**
+     * @brief Enable or disable input, buttons and settings while a request runs
+     */
+    void setBusy(bool busy, const QString& busyText = QString());
 
     /**
      * @brief Apply stylesheet for modern appearance
@@ -161,11 +158,13 @@ class ChatbotGUI : public QMainWindow {
     QTextEdit* chatDisplay;
     QLineEdit* inputField;
     QPushButton* sendButton;
-    QPushButton* clearButton;
+    QPushButton* clearButton;       // the chat area's "Clear Chat"
+    QPushButton* clearInputButton;  // "Clear" beside Send
     QPushButton* saveButton;
     QPushButton* loadButton;
 
     // Settings controls
+    QWidget* settingsPanel;
     QComboBox* strategyCombo;
     QDoubleSpinBox* temperatureSpin;
     QDoubleSpinBox* topPSpin;
@@ -173,23 +172,11 @@ class ChatbotGUI : public QMainWindow {
     QSpinBox* maxLengthSpin;
     QSpinBox* beamWidthSpin;
 
-    // Chatbot components
-    std::unique_ptr<BPETokenizer> tokenizer;
-    std::unique_ptr<EncoderDecoderModel> model;
-    std::unique_ptr<ConversationContext> context;
-
-    // Configuration
-    std::string vocab_path;
-    std::string model_path;
+    // TD-260: the server session and the settings sent with each message. Used only by the worker
+    // thread while a request runs, and by the GUI thread otherwise.
+    ChatbotClient client;
+    std::thread worker;
     std::string conversation_save_path;
-
-    // Generation parameters
-    std::string generation_strategy;
-    int max_response_length;
-    float temperature;
-    float top_p;
-    int top_k;
-    int beam_width;
 };
 
 #endif  // CHATBOT_GUI_HPP

@@ -96,6 +96,13 @@ add_executable(chatbotguilogicTests chatbotguilogic_test.cpp)
 target_link_libraries(chatbotguilogicTests GTest::gtest_main)
 add_test(NAME ChatbotGuiLogicTests COMMAND chatbotguilogicTests)
 
+# ChatbotClient tests (TD-260: the HTTP session shared by the chatbot CLI and chatbot_gui), against a stub server
+add_executable(chatbotclientTests chatbotclient_test.cpp ../src/ChatbotClient.cpp)
+target_include_directories(chatbotclientTests PRIVATE ${HTTPLIB_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/external)
+find_package(Threads)
+target_link_libraries(chatbotclientTests GTest::gtest_main Threads::Threads)
+add_test(NAME ChatbotClientTests COMMAND chatbotclientTests)
+
 # ============================================================================
 # Layer Tests
 # ============================================================================
@@ -267,6 +274,7 @@ add_executable(chatbotcliImprovedTests
     chatbotcli_improved_test.cpp
     chatbotcli_header_test.cpp  # TD-259: includes only ChatbotCLI.hpp
     ../src/ChatbotCLI.cpp  # Include implementation
+    ../src/ChatbotClient.cpp  # TD-260: the HTTP session ChatbotCLI uses
     ../src/Config.cpp
     ../src/GenerationSettings.cpp  # TD-254: Config.cpp uses the shared generation limits
 )

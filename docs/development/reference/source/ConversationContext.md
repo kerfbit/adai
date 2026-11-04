@@ -194,7 +194,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Role labels are plain text; raw roles in the file format (§6) | Turn impersonation; corrupt lines for odd roles | By inspection | [TD-295](../../guides/TECHNICAL_DEBT.md#td-295-conversation-role-labels-are-spoofable-and-roles-arent-escaped) |
 | `save_to_file()` doesn't check writes and isn't atomic; `update_token_count()` unused; `ChatbotTrainer` includes the header for nothing (§4, §7) | Minor | By inspection | [TD-296](../../guides/TECHNICAL_DEBT.md#td-296-conversationcontext-hygiene) |
 | Not thread-safe | Already tracked | — | TD-227 |
-| `format_with_special_tokens()` strings aren't real special tokens; GUI vs server format | Already tracked | — | TD-265 |
+| `format_with_special_tokens()` strings aren't real special tokens; GUI vs server format | Already tracked | — | TD-265 (closed November 4, 2026 as moot: the GUI is a server client since TD-260) |
 
 ---
 
