@@ -2,7 +2,7 @@
 #define CHATBOT_CLI_HPP
 
 // @adai-status: stable
-// @adai-version: 1.4.2
+// @adai-version: 1.5.0
 // @adai-reviewed: 2026-11-03
 
 
@@ -53,8 +53,10 @@ class ChatbotCLI {
     bool initialize();
 
     /**
-     * @brief Run the main chatbot loop (interactive REPL). Returns on /exit, /quit or end of input
-     * (Ctrl+D, or piped stdin running out; TD-253), saving the conversation in each case.
+     * @brief Run the main chatbot loop (interactive REPL). Returns on /exit, /quit, end of input
+     * (Ctrl+D, or piped stdin running out; TD-253) or Ctrl+C (SIGINT, TD-258), saving the
+     * conversation in each case. Ctrl+C at the prompt ends the session at once; during a reply it
+     * ends it once the reply is in. A second Ctrl+C exits immediately, without saving.
      */
     void run();
 
@@ -108,7 +110,13 @@ class ChatbotCLI {
      * to the local file, rather than serializing anything held in this object directly. Prints
      * a clear message either way (success, "nothing to save yet" if no session exists, or a
      * network/file error) — called both by the explicit /save command and automatically on
-     * /exit, /quit and end of input (TD-253).
+     * /exit, /quit, end of input (TD-253) and Ctrl+C (TD-258).
+     *
+     * TD-258: the file is written to a temporary file beside it and renamed over it, so a failed
+     * or interrupted save leaves the previous file whole. A file that already exists is replaced
+     * only when it holds this session's conversation (this session loaded or saved it); otherwise
+     * the conversation goes to a new file named after it with the date and time added
+     * (conversation_history-20261103-142501.txt), which later saves keep using.
      */
     void save_conversation();
 
@@ -146,6 +154,11 @@ class ChatbotCLI {
     }
     const std::string& get_conversation_save_path() const {
         return conversation_save_path;
+    }
+    /// TD-258: the file the next save writes (conversation_save_path, or the dated file a save
+    /// went to instead of replacing a conversation this session didn't load).
+    const std::string& get_active_save_path() const {
+        return active_save_path;
     }
 
     /// TD-254: whether this setting (its JSON name: max_length, temperature, top_p, top_k, beam_width,
@@ -189,6 +202,14 @@ class ChatbotCLI {
     std::string conversation_save_path;
     std::string session_id;
     bool last_turn_failed{false};  // TD-255
+
+    // TD-258: where this session's conversation is saved, and whether that file holds it (this
+    // session loaded or saved it there), so a save may replace it.
+    std::string active_save_path;
+    bool owns_save_file{false};
+
+    // TD-258: the server no longer holds session_id; tells the user and forgets the session.
+    void report_lost_session();
 
     std::unique_ptr<httplib::Client> client;
 

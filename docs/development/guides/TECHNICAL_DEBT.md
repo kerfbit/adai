@@ -1467,6 +1467,7 @@ The generation and model math run is complete.
 - TD-256 (done in code: `/help` lists every command and each `/set` parameter with its range, taken from the server's
   limits; a bare `/set` shows its usage).
 - TD-257 (done in code: `/clear` and the chat request escape `session_id`, like `/save` and `/load`).
+- TD-258 (done in code: Ctrl+C saves and exits, a save keeps a file this session didn't load and goes to a dated file, saves are written to a temporary file and renamed, a lost session is reported).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6227,7 +6228,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Client / CLI | October 8, 2026 | 2-4 hours |
+| LOW | Open — code fix landed November 3, 2026 | Client / CLI | October 8, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-253:
@@ -6241,17 +6242,58 @@ Found alongside TD-253:
 
 Action Items:
 
-- [ ] Handle `SIGINT` by setting a flag the REPL checks, then auto-save and exit.
-- [ ] Warn (or prompt) before an auto-save would overwrite a file the current session didn't load; consider timestamped files.
-- [ ] Write saves to a temporary file and rename.
-- [ ] Detect a reset session (e.g. `message_count` from the server) and tell the user.
+- [x] Handle `SIGINT` by setting a flag the REPL checks, then auto-save and exit.
+- [x] Warn (or prompt) before an auto-save would overwrite a file the current session didn't load; consider timestamped files.
+- [x] Write saves to a temporary file and rename.
+- [x] Detect a reset session (e.g. `message_count` from the server) and tell the user.
 
-Location in code: `src/ChatbotCLI.cpp` (`run()`, `save_conversation()`); tagged `TODO: See TD-258`.
+Location in code: `src/ChatbotCLI.cpp` (`run()`, `save_conversation()`); the `TODO: See TD-258` tags are removed.
+
+**Fix (November 3, 2026):**
+
+- **Ctrl+C:** `run()` installs a `SIGINT` handler for its duration (a file-local `InterruptHandler`, restoring the
+  previous handler on return) that only sets a `sig_atomic_t` flag. It is installed without `SA_RESTART`, so a read
+  waiting at the prompt returns, and with `SA_RESETHAND`, so a second Ctrl+C ends the process at once. The loop checks
+  the flag before each prompt and after each read: Ctrl+C at the prompt prints `Interrupted` and ends the session like
+  `/exit` (with its save); during a reply, the reply arrives first (cpp-httplib retries reads interrupted by a signal),
+  then the session ends without reading more input. Windows uses `std::signal()`.
+- **No silent overwrite:** the client tracks the file its conversation is saved to (`get_active_save_path()`) and
+  whether that file holds this session's conversation (it loaded or saved it there). A save that would replace an
+  existing file that doesn't goes instead to a new file named after it with the local date and time
+  (`conversation_history-20261103-142501.txt`, then `-2`, `-3` … if taken), which later saves keep using, and says why.
+  `/load` makes the loaded file the save target again. This applies to `/save` as well as the auto-save, since both
+  would have lost the earlier conversation.
+- **Atomic saves:** each save writes `<target>.tmp-<n>` beside the target and renames it over the target; on any
+  failure the temporary is removed and the previous file is untouched.
+- **Lost session:** since TD-232 the server answers 404 for a session it no longer holds, so the client never reuses
+  a dead id silently. On that 404 (chat, `/clear` or the save's export) the client now says the server has forgotten
+  the earlier messages and, when they were saved, where (`/load restores them` for the configured file), starts a new
+  session, and stops treating the save file as the new session's, so the next save doesn't replace the earlier
+  conversation with only what followed. An export that gets 404 writes nothing.
+
+Tests:
+- `chatbotcliImprovedTests` gained eight tests (58 in all, all passing):
+  - `ChatbotCLISaveTest` against a stub server that also answers export and import: an existing file this session
+    didn't load is kept and the conversation saved, twice, to one dated file; a loaded file is saved back in place; a
+    new file is created with no temporary left behind; a save into a directory that takes no new files keeps the
+    previous file (the old code truncated and rewrote it in place); a lost session after `/load` is reported with
+    `/load restores them` and leaves the file alone; an export answered 404 writes nothing.
+  - `ChatbotCLIInterruptTest`: `SIGINT` raised in the test process where the next read would wait (as a terminal read
+    returns on Ctrl+C) saves and exits and restores the default handler; `SIGINT` raised while the stub answers a chat
+    request lets that reply print, then saves and exits without sending the next line.
+  - On the old code the four save tests that check keeping files or the lost-session message fail, and both interrupt
+    tests end the test process by `SIGINT` (they signal only themselves). `LostSessionStartsANewOneAndTheTurnSucceeds`
+    now checks the new messages.
+- The old and new `chatbot` binaries were run against a Python stub server. With an earlier conversation on disk,
+  `hello` then `/exit`: the old binary replaced it; the new one kept it and saved to
+  `conversation_history-20261103-213822.txt`. After `hello`, `SIGINT` sent to the `chatbot` process the script started:
+  the old binary died by the signal with nothing saved; the new one printed `Interrupted`, saved and exited 0.
 
 Files to Modify:
 
 - `src/ChatbotCLI.{hpp,cpp}`
 - `tests/chatbotcli_improved_test.cpp`
+- `docs/operations/guides/chatbot-guide.md`
 
 ---
 

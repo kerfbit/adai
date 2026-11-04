@@ -1,8 +1,13 @@
 #include <../gtest/gtest.h>
 #include <httplib.h>
+#include <unistd.h>
+#include <algorithm>
+#include <csignal>
 #include <cstdio>
 #include <chrono>
+#include <filesystem>
 #include <fstream>
+#include <functional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -627,7 +632,8 @@ TEST_F(ChatbotCLISaveLoadRoundTripTest, LostSessionStartsANewOneAndTheTurnSuccee
 
     EXPECT_EQ(first.rfind("Error:", 0), std::string::npos) << first;
     EXPECT_EQ(second.rfind("Error:", 0), std::string::npos) << second;
-    EXPECT_NE(buffer.str().find("starting a new one"), std::string::npos) << buffer.str();
+    EXPECT_NE(buffer.str().find("no longer has this session"), std::string::npos) << buffer.str();
+    EXPECT_NE(buffer.str().find("in a new session"), std::string::npos) << buffer.str();
 }
 
 // TD-253: run() ends at end of input like /exit. The old loop ignored getline's failure: at EOF it
@@ -740,12 +746,24 @@ class StubChatServer {
         });
         server_.Post("/chat/session", [this, status, body](const httplib::Request& req, httplib::Response& res) {
             record(req);
+            if (chat_hook_) chat_hook_();
             res.status = status;
             res.set_content(body, "application/json");
         });
         server_.Post("/clear-session", [this](const httplib::Request& req, httplib::Response& res) {
             record(req);
             res.set_content(R"({"success":true})", "application/json");
+        });
+        server_.Post("/chat/session/export", [this](const httplib::Request& req, httplib::Response& res) {
+            record(req);
+            std::lock_guard<std::mutex> lock(mutex_);
+            res.status = export_status_;
+            res.set_content(nlohmann::json{{"success", export_status_ == 200}, {"data", export_data_}}.dump(),
+                            "application/json");
+        });
+        server_.Post("/chat/session/import", [this](const httplib::Request& req, httplib::Response& res) {
+            record(req);
+            res.set_content(R"({"success":true,"session_id":"abc","message_count":2})", "application/json");
         });
         port_ = server_.bind_to_any_port("127.0.0.1");
         thread_ = std::thread([this] { server_.listen_after_bind(); });
@@ -756,6 +774,14 @@ class StubChatServer {
         if (thread_.joinable()) thread_.join();
     }
     std::string url() const { return "http://127.0.0.1:" + std::to_string(port_); }
+    /// What /chat/session/export answers: its HTTP status (404: the session is gone) and the data.
+    void set_export(int status, std::string data) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        export_status_ = status;
+        export_data_ = std::move(data);
+    }
+    /// Called on each /chat/session request before it is answered.
+    void on_chat(std::function<void()> hook) { chat_hook_ = std::move(hook); }
     /// Every request body received, as "<path> <body>", oldest first.
     std::vector<std::string> requests() const {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -770,6 +796,9 @@ class StubChatServer {
 
     mutable std::mutex mutex_;
     std::vector<std::string> requests_;
+    int export_status_ = 200;
+    std::string export_data_ = "exported conversation\n";
+    std::function<void()> chat_hook_;
     httplib::Server server_;
     std::thread thread_;
     int port_ = 0;
@@ -869,6 +898,251 @@ TEST(ChatbotCLIRequestTest, SessionIdIsEscapedInEveryRequest) {
         EXPECT_EQ(parsed.value("session_id", std::string()), id) << request;
     }
     EXPECT_EQ(requests[2].rfind("/clear-session ", 0), 0u) << requests[2];
+}
+
+// TD-258: saving never silently replaces a conversation this session didn't load, writes through a
+// temporary file, and Ctrl+C saves like /exit.
+namespace {
+
+std::string read_file(const std::string& path) {
+    std::ifstream in(path);
+    std::ostringstream buffer;
+    buffer << in.rdbuf();
+    return buffer.str();
+}
+
+/// A fresh directory for one test's save files, removed afterwards.
+class SaveDir {
+   public:
+    explicit SaveDir(const std::string& name)
+        : path_(std::filesystem::temp_directory_path() /
+                (name + "-" + std::to_string(::getpid()))) {
+        std::filesystem::remove_all(path_);
+        std::filesystem::create_directories(path_);
+    }
+    ~SaveDir() {
+        std::error_code ec;
+        std::filesystem::permissions(path_, std::filesystem::perms::owner_all, ec);
+        std::filesystem::remove_all(path_, ec);
+    }
+    std::string file(const std::string& name) const { return (path_ / name).string(); }
+    std::vector<std::string> names() const {
+        std::vector<std::string> out;
+        for (const auto& entry : std::filesystem::directory_iterator(path_)) {
+            out.push_back(entry.path().filename().string());
+        }
+        std::sort(out.begin(), out.end());
+        return out;
+    }
+    const std::filesystem::path& path() const { return path_; }
+
+   private:
+    std::filesystem::path path_;
+};
+
+constexpr const char* kStubReply = R"({"success":true,"response":"hi","session_id":"abc"})";
+
+std::string run_commands(ChatbotCLI& cli, const std::vector<std::string>& commands) {
+    std::stringstream buffer;
+    std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
+    for (const std::string& command : commands) {
+        if (command[0] == '/') {
+            cli.handle_command(command);
+        } else {
+            cli.generate_response(command);
+        }
+    }
+    std::cout.rdbuf(old);
+    return buffer.str();
+}
+
+}  // namespace
+
+TEST(ChatbotCLISaveTest, SaveKeepsAConversationThisSessionDidNotLoad) {
+    SaveDir dir("chatbot-cli-save-keep");
+    const std::string saved = dir.file("conversation_history.txt");
+    { std::ofstream(saved) << "an earlier conversation\n"; }
+    StubChatServer stub(200, kStubReply);
+    ChatbotCLI cli(stub.url(), saved);
+    std::stringstream sink;
+    std::streambuf* old = std::cout.rdbuf(sink.rdbuf());
+    ASSERT_TRUE(cli.initialize());
+    std::cout.rdbuf(old);
+
+    const std::string output = run_commands(cli, {"hello", "/save", "again", "/save"});
+
+    EXPECT_EQ(read_file(saved), "an earlier conversation\n");
+    const std::vector<std::string> names = dir.names();
+    ASSERT_EQ(names.size(), 2u) << output;  // the earlier file and one dated file, saved twice
+    EXPECT_NE(cli.get_active_save_path(), saved);
+    EXPECT_EQ(read_file(cli.get_active_save_path()), "exported conversation\n");
+    EXPECT_EQ(std::filesystem::path(cli.get_active_save_path()).filename().string().rfind("conversation_history-", 0), 0u);
+    EXPECT_EQ(std::filesystem::path(cli.get_active_save_path()).extension(), ".txt");
+    EXPECT_NE(output.find("holds a conversation this session didn't load"), std::string::npos) << output;
+}
+
+TEST(ChatbotCLISaveTest, LoadedConversationIsSavedBackToItsFile) {
+    SaveDir dir("chatbot-cli-save-loaded");
+    const std::string saved = dir.file("conversation_history.txt");
+    { std::ofstream(saved) << "an earlier conversation\n"; }
+    StubChatServer stub(200, kStubReply);
+    ChatbotCLI cli(stub.url(), saved);
+    std::stringstream sink;
+    std::streambuf* old = std::cout.rdbuf(sink.rdbuf());
+    ASSERT_TRUE(cli.initialize());
+    std::cout.rdbuf(old);
+
+    const std::string output = run_commands(cli, {"/load", "hello", "/save"});
+
+    EXPECT_EQ(read_file(saved), "exported conversation\n") << output;
+    EXPECT_EQ(dir.names(), std::vector<std::string>{"conversation_history.txt"});
+}
+
+TEST(ChatbotCLISaveTest, NewFileIsCreatedWithoutATemporaryLeftBehind) {
+    SaveDir dir("chatbot-cli-save-new");
+    const std::string saved = dir.file("conversation_history.txt");
+    StubChatServer stub(200, kStubReply);
+    ChatbotCLI cli(stub.url(), saved);
+    std::stringstream sink;
+    std::streambuf* old = std::cout.rdbuf(sink.rdbuf());
+    ASSERT_TRUE(cli.initialize());
+    std::cout.rdbuf(old);
+
+    run_commands(cli, {"hello", "/save", "again", "/save"});
+
+    EXPECT_EQ(read_file(saved), "exported conversation\n");
+    EXPECT_EQ(dir.names(), std::vector<std::string>{"conversation_history.txt"});
+}
+
+// A save that can't complete keeps the previous file: here the directory takes no new files, so the
+// temporary can't be created. The old code truncated the file in place and wrote over it.
+TEST(ChatbotCLISaveTest, FailedSaveKeepsThePreviousFile) {
+    SaveDir dir("chatbot-cli-save-failed");
+    const std::string saved = dir.file("conversation_history.txt");
+    { std::ofstream(saved) << "an earlier conversation\n"; }
+    StubChatServer stub(200, kStubReply);
+    ChatbotCLI cli(stub.url(), saved);
+    std::stringstream sink;
+    std::streambuf* old = std::cout.rdbuf(sink.rdbuf());
+    ASSERT_TRUE(cli.initialize());
+    std::cout.rdbuf(old);
+    run_commands(cli, {"/load", "hello"});
+
+    std::filesystem::permissions(dir.path(), std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec);
+    const std::string output = run_commands(cli, {"/save"});
+    std::filesystem::permissions(dir.path(), std::filesystem::perms::owner_all);
+
+    EXPECT_EQ(read_file(saved), "an earlier conversation\n") << output;
+    EXPECT_EQ(output.find("Conversation saved"), std::string::npos) << output;
+    EXPECT_EQ(dir.names(), std::vector<std::string>{"conversation_history.txt"});
+}
+
+// The server lost the session after /load: the user is told, and the next save doesn't replace the
+// loaded conversation with only the messages that followed.
+TEST(ChatbotCLISaveTest, LostSessionAfterLoadIsReportedAndTheSaveKept) {
+    SaveDir dir("chatbot-cli-save-lost");
+    const std::string saved = dir.file("conversation_history.txt");
+    { std::ofstream(saved) << "an earlier conversation\n"; }
+    StubChatServer stub(404, R"({"success":false,"error":"Unknown session"})");
+    ChatbotCLI cli(stub.url(), saved);
+    std::stringstream sink;
+    std::streambuf* old = std::cout.rdbuf(sink.rdbuf());
+    ASSERT_TRUE(cli.initialize());
+    std::cout.rdbuf(old);
+
+    const std::string output = run_commands(cli, {"/load", "hello"});
+
+    EXPECT_NE(output.find("no longer has this session"), std::string::npos) << output;
+    EXPECT_NE(output.find("/load restores them"), std::string::npos) << output;
+    EXPECT_EQ(read_file(saved), "an earlier conversation\n");
+}
+
+TEST(ChatbotCLISaveTest, ExportOfALostSessionWritesNothing) {
+    SaveDir dir("chatbot-cli-save-export-lost");
+    const std::string saved = dir.file("conversation_history.txt");
+    StubChatServer stub(200, kStubReply);
+    stub.set_export(404, "");
+    ChatbotCLI cli(stub.url(), saved);
+    std::stringstream sink;
+    std::streambuf* old = std::cout.rdbuf(sink.rdbuf());
+    ASSERT_TRUE(cli.initialize());
+    std::cout.rdbuf(old);
+
+    const std::string output = run_commands(cli, {"hello", "/save"});
+
+    EXPECT_NE(output.find("no longer has this session"), std::string::npos) << output;
+    EXPECT_TRUE(dir.names().empty()) << output;
+}
+
+// Ctrl+C (SIGINT) saves like /exit. These raise SIGINT in this test process only; the old code had no
+// handler, so the default action ended the test binary.
+namespace {
+
+/// Gives run() the lines in `input`, then delivers SIGINT where the next read would wait for the user.
+class InterruptingInput : public std::stringbuf {
+   public:
+    explicit InterruptingInput(const std::string& input) : std::stringbuf(input) {}
+
+   protected:
+    int_type underflow() override {
+        const int_type next = std::stringbuf::underflow();
+        if (traits_type::eq_int_type(next, traits_type::eof())) {
+            std::raise(SIGINT);  // as a terminal read returns when Ctrl+C is pressed
+        }
+        return next;
+    }
+};
+
+RunResult run_until_interrupted(ChatbotCLI& cli, const std::string& input) {
+    InterruptingInput in(input);
+    std::istringstream unused;
+    EndOfInputGuard out(unused);
+    std::streambuf* old_in = std::cin.rdbuf(&in);
+    std::streambuf* old_out = std::cout.rdbuf(&out);
+    cli.run();
+    std::cout.rdbuf(old_out);
+    std::cin.rdbuf(old_in);
+    std::cin.clear();
+    return {out.str(), out.tripped(), out.prompts()};
+}
+
+}  // namespace
+
+TEST(ChatbotCLIInterruptTest, CtrlCAtThePromptSavesAndExits) {
+    SaveDir dir("chatbot-cli-sigint-prompt");
+    const std::string saved = dir.file("conversation_history.txt");
+    StubChatServer stub(200, kStubReply);
+    ChatbotCLI cli(stub.url(), saved);
+
+    const RunResult r = run_until_interrupted(cli, "hello\n");
+
+    EXPECT_NE(r.output.find("Interrupted"), std::string::npos) << r.output.substr(0, 2000);
+    EXPECT_NE(r.output.find("Conversation saved to"), std::string::npos) << r.output.substr(0, 2000);
+    EXPECT_NE(r.output.find("Goodbye"), std::string::npos);
+    EXPECT_EQ(read_file(saved), "exported conversation\n");
+    struct sigaction current {};
+    sigaction(SIGINT, nullptr, &current);
+    EXPECT_EQ(current.sa_handler, SIG_DFL) << "run() must restore the previous SIGINT handler";
+}
+
+// Ctrl+C during a reply lets the reply finish, then saves and exits without reading more input.
+TEST(ChatbotCLIInterruptTest, CtrlCDuringAReplySavesAfterIt) {
+    SaveDir dir("chatbot-cli-sigint-reply");
+    const std::string saved = dir.file("conversation_history.txt");
+    StubChatServer stub(200, kStubReply);
+    stub.on_chat([] { std::raise(SIGINT); });  // delivered on the server's thread, as from the terminal
+    ChatbotCLI cli(stub.url(), saved);
+
+    const RunResult r = run_with_input(cli, "hello\nnot sent\n");
+
+    int chats = 0;
+    for (const std::string& request : stub.requests()) {
+        chats += request.rfind("/chat/session ", 0) == 0 ? 1 : 0;
+    }
+    EXPECT_EQ(chats, 1) << r.output.substr(0, 2000);
+    EXPECT_NE(r.output.find("hi"), std::string::npos);
+    EXPECT_NE(r.output.find("Interrupted"), std::string::npos) << r.output.substr(0, 2000);
+    EXPECT_EQ(read_file(saved), "exported conversation\n");
 }
 
 // ============================================================================

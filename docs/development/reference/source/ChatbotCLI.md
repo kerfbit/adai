@@ -283,3 +283,21 @@ reports that there is no session on the server. Test: `LostSessionStartsANewOneA
 - **Tests:** `ChatbotCLIRequestTest.SessionIdIsEscapedInEveryRequest` in `chatbotcliImprovedTests`, against a stub
   server issuing `a"b\c`; it fails on the old code.
 - **Status tag:** `@adai-version` 1.4.2 for `ChatbotCLI.{hpp,cpp}`, reviewed 2026-11-03.
+
+## Addendum (November 3, 2026): saves are kept, atomic and made on Ctrl+C (TD-258)
+
+- **§4's and §6's Ctrl+C, overwrite and non-atomic-write rows no longer hold.** `run()` installs a `SIGINT` handler for
+  its duration that sets a flag (no `SA_RESTART`, so the prompt's read returns; `SA_RESETHAND`, so a second Ctrl+C ends
+  the process). Ctrl+C at the prompt prints `Interrupted` and ends the session like `/exit`, with its save; during a
+  reply, the session ends once the reply is in.
+- `save_conversation()` writes a temporary file beside the target and renames it over it. It replaces an existing file
+  only when that file holds this session's conversation (`owns_save_file`: loaded or saved there); otherwise it saves to
+  a dated file (`conversation_history-20261103-142501.txt`), says so, and later saves use that file
+  (`get_active_save_path()`). `/load` makes the configured file the target again.
+- **§6's lost-history row no longer holds.** A 404 for the session (chat, `/clear`, or the save's export) goes through
+  `report_lost_session()`: it says the server forgot the earlier messages and where they were last saved, clears the
+  session and drops ownership of the save file, so the next save doesn't replace the earlier conversation. An export
+  answered 404 writes nothing.
+- **Tests:** six `ChatbotCLISaveTest` and two `ChatbotCLIInterruptTest` tests in `chatbotcliImprovedTests`; the stub
+  server gained export and import routes and a chat hook.
+- **Status tag:** `@adai-version` 1.5.0 for `ChatbotCLI.{hpp,cpp}`, reviewed 2026-11-03.

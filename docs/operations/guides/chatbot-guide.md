@@ -161,7 +161,7 @@ You: [your message here]
 Bot: [response]
 ```
 
-Press `Enter` to send. Type `/exit` or `/quit`, or press Ctrl+D, to leave.
+Press `Enter` to send. Type `/exit` or `/quit`, or press Ctrl+D or Ctrl+C, to leave.
 
 ---
 
@@ -246,6 +246,29 @@ You: /save
 ❌ Nothing to save yet — send a message first.
 ```
 
+A save never silently replaces a conversation this session didn't start from. When
+`conversation_save_file` already exists and this session didn't `/load` it (or save to it
+earlier), the conversation goes to a new file named after it with the date and time added, which
+later saves in the session keep using (since November 3, 2026, TD-258; it used to be overwritten):
+
+```text
+You: /save
+ℹ️  conversation_history.txt holds a conversation this session didn't load, so it was kept
+✅ Conversation saved to conversation_history-20261103-142501.txt
+```
+
+After `/load`, saves go back to the loaded file. Each save writes a temporary file beside the
+target and renames it over it, so a save that fails part-way keeps the previous file whole.
+
+If the server no longer has the session (it expired, or the server restarted), the client says
+so, starts a new one for your next message, and treats the save file as not belonging to the new
+session, so the next save doesn't replace the earlier conversation with only what followed:
+
+```text
+ℹ️  The server no longer has this session (it expired or the server restarted) and has forgotten its earlier messages; they were last saved to conversation_history.txt (/load restores them)
+ℹ️  Sending this message in a new session
+```
+
 ### Configuration
 
 #### `/set <parameter> <value>`
@@ -285,7 +308,9 @@ You: /system You are a helpful programming assistant
 
 Exit the chatbot. `/exit` and `/quit` automatically save the conversation first (equivalent to
 running `/save`), skipped silently if no message was ever sent in the session. End of input (Ctrl+D,
-or piped input running out) does the same:
+or piped input running out) does the same, and so does Ctrl+C: at the prompt it saves and exits at
+once; during a reply it lets the reply arrive, then saves and exits. A second Ctrl+C exits
+immediately without saving.
 
 ```text
 You: /exit

@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.4.2
+// @adai-version: 1.5.0
 // @adai-reviewed: 2026-11-03
 
 #include "ChatbotCLI.hpp"
@@ -7,8 +7,10 @@
 #include <cerrno>
 #include <climits>
 #include <cmath>
+#include <csignal>
 #include <cstdlib>
 #include <ctime>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -130,9 +132,113 @@ std::string parse_json_value(const std::string& json, const std::string& key) {
     return json.substr(value_start, value_end - value_start);
 }
 
+namespace {
+
+// TD-258: set by Ctrl+C (SIGINT) while run() is active; run() then saves and exits.
+volatile std::sig_atomic_t g_interrupted = 0;
+
+void on_interrupt(int /*signal*/) {
+    g_interrupted = 1;
+}
+
+// TD-258: installs on_interrupt() for SIGINT for run()'s duration, and restores the previous handler.
+class InterruptHandler {
+   public:
+    InterruptHandler() {
+        g_interrupted = 0;
+#ifdef _WIN32
+        previous_ = std::signal(SIGINT, on_interrupt);  // the CRT resets it to SIG_DFL once delivered
+#else
+        struct sigaction action {};
+        action.sa_handler = on_interrupt;
+        sigemptyset(&action.sa_mask);
+        // No SA_RESTART, so a read waiting at the prompt returns and getline() ends. SA_RESETHAND: a
+        // second Ctrl+C gets the default action and ends the process at once.
+        action.sa_flags = SA_RESETHAND;
+        installed_ = sigaction(SIGINT, &action, &previous_) == 0;
+#endif
+    }
+    ~InterruptHandler() {
+#ifdef _WIN32
+        std::signal(SIGINT, previous_ == SIG_ERR ? SIG_DFL : previous_);
+#else
+        if (installed_) {
+            sigaction(SIGINT, &previous_, nullptr);
+        }
+#endif
+    }
+    InterruptHandler(const InterruptHandler&) = delete;
+    InterruptHandler& operator=(const InterruptHandler&) = delete;
+
+   private:
+#ifdef _WIN32
+    void (*previous_)(int) = SIG_DFL;
+#else
+    struct sigaction previous_ {};
+    bool installed_ = false;
+#endif
+};
+
+// TD-258: `path` with the local date and time added before its extension
+// (conversation_history.txt -> conversation_history-20261103-142501.txt), and -2, -3, ... after that
+// when a file of that name already exists.
+std::string dated_save_path(const std::string& path) {
+    namespace fs = std::filesystem;
+    const fs::path original(path);
+    const std::time_t now = std::time(nullptr);
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &now);
+#else
+    localtime_r(&now, &local);
+#endif
+    char stamp[32];
+    std::strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", &local);
+    const std::string base = (original.parent_path() / original.stem()).string() + "-" + stamp;
+    const std::string extension = original.extension().string();
+    std::string candidate = base + extension;
+    std::error_code ec;
+    for (int n = 2; fs::exists(candidate, ec); ++n) {
+        candidate = base + "-" + std::to_string(n) + extension;
+    }
+    return candidate;
+}
+
+// TD-258: writes `data` to a temporary file beside `path` and renames it over `path`, so a failed or
+// interrupted save never leaves a partial file. Returns an error message, empty on success.
+std::string write_file_atomically(const std::string& path, const std::string& data) {
+    namespace fs = std::filesystem;
+    const std::string temp =
+        path + ".tmp-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    std::error_code ec;
+    {
+        std::ofstream out(temp, std::ios::trunc);
+        if (!out.is_open()) {
+            return "Failed to create '" + temp + "' to save into '" + path + "'";
+        }
+        out << data;
+        out.flush();
+        if (!out) {
+            out.close();
+            fs::remove(temp, ec);
+            return "Failed to write '" + temp + "'";
+        }
+    }
+    fs::rename(temp, path, ec);
+    if (ec) {
+        std::error_code ignored;
+        fs::remove(temp, ignored);
+        return "Failed to replace '" + path + "': " + ec.message();
+    }
+    return {};
+}
+
+}  // namespace
+
 ChatbotCLI::ChatbotCLI(std::string server_url, std::string conv_save_file)
     : server_url(std::move(server_url)),
       conversation_save_path(std::move(conv_save_file)),
+      active_save_path(conversation_save_path),
 
       generation_strategy("nucleus") {}
 
@@ -203,7 +309,7 @@ void ChatbotCLI::print_welcome() {
     std::cout << "  /save                 - Save the conversation to the save file" << '\n';
     std::cout << "  /load                 - Load the conversation from the save file" << '\n';
     std::cout << "  /stats                - Conversation statistics (not available from the API server)" << '\n';
-    std::cout << "  /exit, /quit          - Save the conversation and exit (end of input, Ctrl+D, too)" << '\n';
+    std::cout << "  /exit, /quit          - Save the conversation and exit (end of input, Ctrl+D, Ctrl+C too)" << '\n';
     std::cout << '\n';
     print_set_parameters();
     std::cout << '\n';
@@ -245,9 +351,7 @@ void ChatbotCLI::handle_command(const std::string& command) {
             std::string body = R"({"session_id":")" + escape_json_string(session_id) + "\"}";
             auto res = client->Post("/clear-session", body, "application/json");
             if (res && res->status == 404) {  // TD-232: the server no longer holds it
-                session_id.clear();
-                std::cout << COLOR_SYSTEM << "✅ No active session on the server" << COLOR_RESET
-                          << '\n';
+                report_lost_session();
             } else if (res && res->status == 200) {
                 std::cout << COLOR_SYSTEM << "✅ Conversation history cleared (Session "
                           << session_id << ")" << COLOR_RESET << '\n';
@@ -401,9 +505,9 @@ std::string ChatbotCLI::generate_response(const std::string& user_input) {
     // evicted, or the server restarted) it answers 404; start a new session and send again.
     httplib::Result res = post_chat_turn(user_input);
     if (res && res->status == 404 && !session_id.empty()) {
-        std::cout << COLOR_SYSTEM << "ℹ️  The server no longer has this session; starting a new one"
+        report_lost_session();
+        std::cout << COLOR_SYSTEM << "ℹ️  Sending this message in a new session"
                   << COLOR_RESET << '\n';
-        session_id.clear();
         res = post_chat_turn(user_input);
     }
 
@@ -441,6 +545,25 @@ std::string ChatbotCLI::generate_response(const std::string& user_input) {
         err << " (request id " << request_id << ")";
     }
     return err.str();
+}
+
+void ChatbotCLI::report_lost_session() {
+    // TD-258: the server forgot the session (expired, evicted or restarted; TD-232) and with it every
+    // earlier message. Say so, and stop treating the save file as this conversation's: the next save
+    // would otherwise replace the saved conversation with only what follows.
+    std::cout << COLOR_SYSTEM
+              << "ℹ️  The server no longer has this session (it expired or the server restarted) and has "
+                 "forgotten its earlier messages";
+    if (owns_save_file) {
+        std::cout << "; they were last saved to " << active_save_path;
+        if (active_save_path == conversation_save_path) {
+            std::cout << " (/load restores them)";
+        }
+    }
+    std::cout << COLOR_RESET << '\n';
+    session_id.clear();
+    active_save_path = conversation_save_path;
+    owns_save_file = false;
 }
 
 httplib::Result ChatbotCLI::post_chat_turn(const std::string& user_input) {
@@ -485,6 +608,12 @@ void ChatbotCLI::save_conversation() {
                   << COLOR_RESET << '\n';
         return;
     }
+    if (res->status == 404) {  // TD-232/TD-258: nothing left on the server to save
+        report_lost_session();
+        std::cout << COLOR_ERROR << "❌ Nothing to save; " << active_save_path << " is unchanged"
+                  << COLOR_RESET << '\n';
+        return;
+    }
     if (parse_json_value(res->body, "success") != "true") {
         std::string error = parse_json_value(res->body, "error");
         std::cout << COLOR_ERROR << "❌ " << (error.empty() ? "Export failed" : error)
@@ -492,19 +621,28 @@ void ChatbotCLI::save_conversation() {
         return;
     }
 
-    // TODO: See TD-258 in TECHNICAL_DEBT.md - overwrites any previously saved conversation (including on the
-    // automatic /exit save) and isn't atomic; write to a temp file and rename.
-    std::ofstream out(conversation_save_path);
-    if (!out.is_open()) {
-        std::cout << COLOR_ERROR << "❌ Failed to open '" << conversation_save_path
-                  << "' for writing" << COLOR_RESET << '\n';
+    // TD-258: replace an existing file only when it holds this session's conversation; otherwise save
+    // to a new dated file. Either way write a temporary file and rename it, so a failure keeps the old one.
+    std::string target = active_save_path;
+    std::error_code exists_error;
+    const bool keep_existing = !owns_save_file && std::filesystem::exists(target, exists_error);
+    if (keep_existing) {
+        target = dated_save_path(target);
+    }
+    const std::string error = write_file_atomically(target, parse_json_value(res->body, "data"));
+    if (!error.empty()) {
+        std::cout << COLOR_ERROR << "❌ " << error << COLOR_RESET << '\n';
         return;
     }
-    out << parse_json_value(res->body, "data");
-    out.close();
+    if (keep_existing) {
+        std::cout << COLOR_SYSTEM << "ℹ️  " << active_save_path
+                  << " holds a conversation this session didn't load, so it was kept" << COLOR_RESET
+                  << '\n';
+    }
+    active_save_path = target;
+    owns_save_file = true;
 
-    std::cout << COLOR_SYSTEM << "✅ Conversation saved to " << conversation_save_path
-              << COLOR_RESET << '\n';
+    std::cout << COLOR_SYSTEM << "✅ Conversation saved to " << active_save_path << COLOR_RESET << '\n';
 }
 
 void ChatbotCLI::load_conversation() {
@@ -562,6 +700,8 @@ void ChatbotCLI::load_conversation() {
     if (!new_sid.empty()) {
         session_id = new_sid;
     }
+    active_save_path = conversation_save_path;  // TD-258: saves now continue this file
+    owns_save_file = true;
 
     std::cout << COLOR_SYSTEM << "✅ Conversation loaded from " << conversation_save_path;
     std::string message_count = parse_json_value(res->body, "message_count");
@@ -582,14 +722,22 @@ void ChatbotCLI::run() {
     std::string user_input;
     bool running = true;
 
-    // TODO: See TD-258 in TECHNICAL_DEBT.md - no SIGINT handling: Ctrl+C exits without the /exit auto-save.
+    const InterruptHandler interrupt_handler;  // TD-258
     while (running) {
-        std::cout << COLOR_USER << "You: " << COLOR_RESET;
         // TD-253: end of input (Ctrl+D, or piped/redirected stdin running out) ends the session like
         // /exit. getline's result used to go unchecked, so at EOF the empty line was skipped and the
         // loop printed prompts forever (18.6 million in 3 s) without ever saving.
-        const bool at_end = !std::getline(std::cin, user_input);
-        if (at_end) {
+        bool at_end = false;
+        if (g_interrupted == 0) {
+            std::cout << COLOR_USER << "You: " << COLOR_RESET;
+            at_end = !std::getline(std::cin, user_input);
+        }
+        if (g_interrupted != 0) {
+            // TD-258: Ctrl+C at the prompt (the read returns) or during a reply ends the session like
+            // /exit. It used to kill the process without the auto-save.
+            std::cout << '\n' << COLOR_SYSTEM << "Interrupted" << COLOR_RESET << '\n';
+            user_input = "/exit";
+        } else if (at_end) {
             std::cout << '\n';  // finish the "You: " line
             user_input = "/exit";
         }
