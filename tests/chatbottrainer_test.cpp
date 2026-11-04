@@ -6,6 +6,7 @@
 #include <fstream>
 #include <memory>
 #include <numeric>
+#include "../src/IMetricsReporter.hpp"
 #include "../src/TrainingSampleMeta.hpp"
 
 // ============================================================================
@@ -717,6 +718,98 @@ TEST_F(MetricsTrackerWiringTest, RecordsOneEntryPerEpochMatchingRawVectors) {
         EXPECT_FLOAT_EQ(history[i].learning_rate, trainer.get_learning_rates()[i]);
         EXPECT_FLOAT_EQ(history[i].validation_loss, 0.0f)
             << "no validation data was loaded, so every recorded validation_loss should be 0";
+    }
+}
+
+// TD-268: records start_epoch()/end_epoch() calls; every other report is ignored.
+class EpochRecordingReporter final : public IMetricsReporter {
+   public:
+    struct Ended {
+        int epoch;
+        float loss, validation_loss, learning_rate, perplexity, gradient_norm;
+        double seconds;
+    };
+    std::vector<int> started;
+    std::vector<Ended> ended;
+
+    void start_epoch(int epoch, int /*total_samples*/) override { started.push_back(epoch); }
+    void end_epoch(int epoch, float loss, float validation_loss, float learning_rate, float perplexity,
+                   float gradient_norm, double epoch_time_seconds) override {
+        ended.push_back({epoch, loss, validation_loss, learning_rate, perplexity, gradient_norm,
+                         epoch_time_seconds});
+    }
+    void update_sample_metrics(int, float, float, float) override {}
+    void update_validation_metrics(float, float, float) override {}
+    void update_best_metrics(float, int) override {}
+    void update_advanced_epoch_metrics(float, float, float) override {}
+    void flag_abnormal_sample(const AbnormalSample&) override {}
+    void update_adaptive_clip_metrics(float, int) override {}
+    void update_adaptive_clip_epoch(float, int) override {}
+    void update_activation_saturation(float) override {}
+    void update_attention_entropy(float) override {}
+    void update_layer_gradient_norms(const std::vector<float>&, const std::vector<float>&) override {}
+    void update_padding_efficiency(float) override {}
+    void update_generation_quality_metrics(float, float, float, float, float, float) override {}
+    void update_lejepa_metrics(float, float) override {}
+    void update_lejepa_advanced_metrics(float, float, float, float) override {}
+};
+
+// TD-268: a run without validation data (validation_split = 0) used to start every epoch on the
+// reporter and end none, and the gradient norm sent was the last window's, not the epoch's average.
+TEST_F(MetricsTrackerWiringTest, EndsEveryEpochOnTheReporterWithoutValidationData) {
+    ChatbotTrainer trainer(tiny_config());
+    EpochRecordingReporter reporter;
+    trainer.set_metrics_reporter(&reporter);
+    ASSERT_TRUE(trainer.build_vocabulary({"hello world", "how are you", "I am fine", "thank you",
+                                          "good morning", "good evening"},
+                                         100, vocab_path_.string()));
+    {
+        std::ofstream f(data_path_);
+        f << "{\"input\":\"hello world\",\"response\":\"how are you\"}\n"
+             "{\"input\":\"I am fine\",\"response\":\"thank you\"}\n"
+             "{\"input\":\"good morning\",\"response\":\"good evening\"}\n";
+    }
+    ASSERT_TRUE(trainer.load_conversation_data(data_path_.string()));
+
+    const int num_epochs = 3;
+    ASSERT_TRUE(trainer.train(num_epochs));
+    ASSERT_EQ(trainer.get_validation_losses().size(), 0u);
+
+    ASSERT_EQ(reporter.started.size(), static_cast<size_t>(num_epochs));
+    ASSERT_EQ(reporter.ended.size(), static_cast<size_t>(num_epochs))
+        << "every epoch started on the reporter must be ended";
+    for (int i = 0; i < num_epochs; ++i) {
+        const auto& e = reporter.ended[i];
+        EXPECT_EQ(e.epoch, i + 1);
+        EXPECT_EQ(reporter.started[i], i + 1);
+        EXPECT_FLOAT_EQ(e.loss, trainer.get_training_losses()[i]);
+        EXPECT_FLOAT_EQ(e.validation_loss, 0.0f) << "0 = no validation loss computed";
+        EXPECT_FLOAT_EQ(e.gradient_norm, trainer.get_gradient_norms()[i])
+            << "the epoch's average gradient norm";
+        EXPECT_FLOAT_EQ(e.learning_rate, trainer.get_learning_rates()[i]);
+        EXPECT_GT(e.seconds, 0.0);
+    }
+}
+
+// TD-268: with validation data the epoch still ends once, carrying that epoch's validation loss.
+TEST_F(MetricsTrackerWiringTest, EndsEachEpochOnceWithItsValidationLoss) {
+    TrainingConfig config = tiny_config();
+    ChatbotTrainer trainer(config);
+    EpochRecordingReporter reporter;
+    trainer.set_metrics_reporter(&reporter);
+    ASSERT_TRUE(trainer.build_vocabulary({"hello world", "how are you", "I am fine", "thank you"}, 100,
+                                         vocab_path_.string()));
+    trainer.add_training_pair("hello world", "how are you");
+    trainer.add_training_pair("I am fine", "thank you");
+    trainer.add_validation_pair("how are you", "I am fine");
+
+    const int num_epochs = 2;
+    ASSERT_TRUE(trainer.train(num_epochs));
+    ASSERT_EQ(trainer.get_validation_losses().size(), static_cast<size_t>(num_epochs));
+    ASSERT_EQ(reporter.ended.size(), static_cast<size_t>(num_epochs));
+    for (int i = 0; i < num_epochs; ++i) {
+        EXPECT_FLOAT_EQ(reporter.ended[i].validation_loss, trainer.get_validation_losses()[i]);
+        EXPECT_FLOAT_EQ(reporter.ended[i].gradient_norm, trainer.get_gradient_norms()[i]);
     }
 }
 

@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.17.4
-// @adai-reviewed: 2026-10-26
+// @adai-version: 0.17.5
+// @adai-reviewed: 2026-11-04
 
 #include "ChatbotTrainer.hpp"
 #include <algorithm>
@@ -1201,8 +1201,6 @@ float ChatbotTrainer::train_epoch(int epoch) {
         }
         float grad_norm = optimizer->get_gradient_norm();
 #endif
-        last_grad_norm_ = grad_norm;
-
         // Save step-level metrics here so sample callback can fire even on NaN
         float step_loss_for_cb =
             (window_samples > 0) ? accumulated_loss / static_cast<float>(window_samples)
@@ -2129,24 +2127,28 @@ bool ChatbotTrainer::train(int num_epochs) {
             // Validate
             // validate() pushes to validation_losses / validation_perplexities and
             // manages best_validation_loss / epochs_without_improvement internally.
-            if (!tokenized_validation_data.empty()) {
-                float val_loss = validate();
+            const bool has_validation = !tokenized_validation_data.empty();
+            float val_loss = 0.0f;  // 0 = not computed (IMetricsReporter::end_epoch())
+            if (has_validation) {
+                val_loss = validate();
+            }
 
-                // Update end_epoch with actual validation loss now that we have it (1-based epoch)
-                // TODO: See TD-268 in TECHNICAL_DEBT.md - end_epoch() is only called inside this validation branch, so
-                // runs without validation data never end epochs on the reporter; and it passes the last
-                // window's gradient norm rather than gradient_norms.back().
-                if (metrics_reporter_) {
-                    metrics_reporter_->end_epoch(epoch + 1, epoch_loss, val_loss,
-                                                 current_learning_rate, std::exp(epoch_loss),
-                                                 last_grad_norm_);
-                }
+            // TD-268: every epoch train_epoch() started on the reporter is ended, with or without
+            // validation data, with the epoch's average gradient norm and its wall-clock time.
+            if (metrics_reporter_) {
+                const float epoch_grad_norm = gradient_norms.empty() ? 0.0f : gradient_norms.back();
+                const double epoch_seconds = std::chrono::duration<double>(
+                                                 std::chrono::steady_clock::now() - epoch_wall_start)
+                                                 .count();
+                metrics_reporter_->end_epoch(epoch + 1, epoch_loss, val_loss, current_learning_rate,
+                                             std::exp(epoch_loss), epoch_grad_norm, epoch_seconds);
+            }
 
-                // Early stopping check (epochs_without_improvement maintained by validate())
-                if (config.enable_early_stopping && epochs_without_improvement >= config.patience) {
-                    early_stopped = true;
-                    break;
-                }
+            // Early stopping check (epochs_without_improvement maintained by validate())
+            if (has_validation && config.enable_early_stopping &&
+                epochs_without_improvement >= config.patience) {
+                early_stopped = true;
+                break;
             }
 
             // TD-169: feed this epoch's metrics into metrics_tracker_ for real convergence/

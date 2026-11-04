@@ -1473,6 +1473,7 @@ The generation and model math run is complete.
 - TD-262, TD-265 (closed as moot after TD-260: the server resolves the architecture and builds every prompt; moved to the resolved archive).
 - TD-264 (done in code: the `chatbot_gui` wrapper removes only snap entries from `LD_LIBRARY_PATH`/`QT_PLUGIN_PATH`, keeping the user's in order, and under snap sets the build's own Qt platform plugin directory from CMake; the launcher scripts no longer set x86_64 Qt5 paths).
 - TD-266 (done in code: a loaded conversation's messages are shown, as the server holds them after the import; the line format is shared through `ConversationFormat`). The `chatbot_gui` items TD-260–TD-266 are all fixed in code or closed.
+- TD-268 (done in code: `ChatbotTrainer` ends every epoch on the metrics reporter, with validation loss 0 when there is no validation data, the epoch-average gradient norm and the epoch's duration; runs without a validation split used to record no epochs on the dashboard).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6660,7 +6661,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / ChatbotTrainer | October 9, 2026 | 1 hour |
+| MEDIUM | Open — code fix landed November 4, 2026 | Training / ChatbotTrainer | October 9, 2026 | 1 hour |
 
 Description:
 Found alongside TD-267. `train()` calls `metrics_reporter_->end_epoch()` only inside
@@ -6672,15 +6673,28 @@ epoch average already computed in `gradient_norms.back()`.
 
 Action Items:
 
-- [ ] Call `end_epoch()` every epoch, passing a "no validation" value (as the epoch callback does with 0.0) when there's no validation data.
-- [ ] Pass `gradient_norms.back()` as the epoch gradient norm.
-- [ ] Test with a reporter mock and `validation_split = 0`.
+- [x] Call `end_epoch()` every epoch, passing a "no validation" value (as the epoch callback does with 0.0) when there's no validation data.
+- [x] Pass `gradient_norms.back()` as the epoch gradient norm.
+- [x] Test with a reporter mock and `validation_split = 0`.
 
-Location in code: `src/ChatbotTrainer.cpp` (`train()`); tagged `TODO: See TD-268`.
+Fix (November 4, 2026): `train()` ends every completed epoch on the reporter, after validation when there is any. The
+validation loss is 0 without validation data (`IMetricsReporter::end_epoch()`'s "not computed", which `metrics_api_server`
+already treats as such); the gradient norm is the epoch average, `gradient_norms.back()`; and the epoch's wall-clock seconds
+are passed as well (always 0 before). Early stopping is still checked only with validation data, now after the epoch has
+been ended. An aborted epoch is still not ended. `last_grad_norm_`, read only by the old call, is removed.
+
+Tests: `MetricsTrackerWiringTest.EndsEveryEpochOnTheReporterWithoutValidationData` (3 epochs, `validation_split = 0`: every
+started epoch ended, with its loss, validation loss 0, epoch-average gradient norm, learning rate and a positive duration)
+and `EndsEachEpochOnceWithItsValidationLoss`, with a recording `IMetricsReporter`. On the old code the first saw 0 of 3 epochs
+ended and the second the last window's gradient norm. Checked with a real `incremental_trainer` pass of 6 pairs (no
+validation set) against a real `metrics_api_server`: the old binary left the session at `total_epochs_completed: 0` with
+empty `epoch_losses`; the new one recorded all 3 epochs with the logged losses and the epoch-average gradient norm.
+
+Location in code: `src/ChatbotTrainer.cpp` (`train()`).
 
 Files to Modify:
 
-- `src/ChatbotTrainer.cpp`
+- `src/ChatbotTrainer.{hpp,cpp}`
 - `tests/chatbottrainer_test.cpp`
 
 ---

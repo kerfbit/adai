@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added)
-// @adai-version: 0.13.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.13.1
+// @adai-reviewed: 2026-11-04
 
 
 #include <atomic>
@@ -239,9 +239,6 @@ class ChatbotTrainer {
     // moments) back to the host whenever something reads them there.
     std::unique_ptr<GPUOptimizer> gpu_optimizer_;
 #endif
-    // The last optimizer step's gradient norm (the epoch-end report used to recompute it from the
-    // host gradients, which GPU training no longer fills).
-    float last_grad_norm_{0.0f};
     // TD-468: copy the device weights and optimizer moments to the host (no-op in CPU builds or
     // outside train()). Called before checkpoints, the quality-metrics clone and at train()'s end.
     void sync_host_from_device() const;

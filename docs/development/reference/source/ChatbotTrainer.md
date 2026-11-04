@@ -397,3 +397,17 @@ Verified in a SYCL build on the oneAPI CPU device (`ADAI_SYCL_ALLOW_CPU_DEVICE=1
 
 `train()` turns off the model's hippocampal updates (`set_hippocampal_updates_enabled(false)`) for its whole run and restores the
 previous setting on exit, so its quality and backfill generations neither commit coverage steps nor write episodic memories.
+
+## Addendum (November 4, 2026): every epoch is ended on the reporter (TD-268)
+
+`train()` calls `metrics_reporter_->end_epoch()` after every completed epoch, not only inside the validation branch. Without
+validation data (`validation_split = 0`, or a pass with fewer pairs than the split ratio) it sends validation loss 0, which
+`IMetricsReporter::end_epoch()` documents as "not computed" and `metrics_api_server` already treats that way. The gradient norm
+sent is the epoch's average (`gradient_norms.back()`), not the last window's, and the epoch's wall-clock seconds are sent too
+(they were always 0). Early stopping still applies only with validation data, after the epoch has been ended. An aborted epoch
+(`was_aborted_`) is still not ended. The `last_grad_norm_` member, used only by the old call, is removed.
+
+Checked with a real `incremental_trainer` pass (6 pairs, so no validation set) pushing to a real `metrics_api_server`: before,
+3 epochs trained and the session summary showed `total_epochs_completed: 0` and empty `epoch_losses`; after, 3 epochs with the
+trainer's logged losses, validation losses 0, the epoch-average gradient norm and real durations.
+
