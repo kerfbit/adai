@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.27.1
+// @adai-version: 1.27.2
 // @adai-reviewed: 2026-11-03
 
 #include "Config.hpp"
@@ -13,6 +13,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include "GenerationSettings.hpp"
 #include "Logger.hpp"
 
 // Hot-reloading implemented - see DAEMON_IMPLEMENTATION_COMPLETE.md
@@ -204,7 +205,7 @@ std::optional<std::string> match_choice(const std::string& value, const std::vec
     return std::nullopt;
 }
 
-const std::vector<std::string> kStrategies = {"greedy", "beam", "temperature", "top_k", "nucleus"};
+const std::vector<std::string>& kStrategies = adai::generation_strategy_names();  // TD-254: shared
 const std::vector<std::string> kLogLevels = {"DEBUG", "INFO", "WARN", "ERROR"};
 const std::vector<std::string>& kStorageBackends = metrics_storage_backend_names();  // TD-439: shared
 const std::vector<std::string> kDatasetKinds = {"", "encoder", "decoder", "world_model", "chatbot"};
@@ -1462,37 +1463,38 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
     }
 
     // Validate generation parameters
-    if (config.max_gen_length < 1 || config.max_gen_length > 4096) {
+    // TD-254: the ranges are shared with ChatbotAPI's per-request settings and the chatbot CLI.
+    using Limits = adai::GenerationLimits;
+    if (config.max_gen_length < Limits::kMinMaxLength || config.max_gen_length > Limits::kMaxMaxLength) {
         errors.push_back("Invalid max_gen_length: " + std::to_string(config.max_gen_length) +
                          " (must be 1-4096)");
         valid = false;
     }
 
-    if (config.temperature < 0.0f || config.temperature > 2.0f) {
+    if (config.temperature < Limits::kMinTemperature || config.temperature > Limits::kMaxTemperature) {
         errors.push_back("Invalid temperature: " + std::to_string(config.temperature) +
                          " (must be 0.0-2.0)");
         valid = false;
     }
 
-    if (config.top_p < 0.0f || config.top_p > 1.0f) {
+    if (config.top_p < Limits::kMinTopP || config.top_p > Limits::kMaxTopP) {
         errors.push_back("Invalid top_p: " + std::to_string(config.top_p) + " (must be 0.0-1.0)");
         valid = false;
     }
 
-    if (config.top_k < 1 || config.top_k > 1000) {
+    if (config.top_k < Limits::kMinTopK || config.top_k > Limits::kMaxTopK) {
         errors.push_back("Invalid top_k: " + std::to_string(config.top_k) + " (must be 1-1000)");
         valid = false;
     }
 
-    if (config.beam_width < 1 || config.beam_width > 16) {
+    if (config.beam_width < Limits::kMinBeamWidth || config.beam_width > Limits::kMaxBeamWidth) {
         errors.push_back("Invalid beam_width: " + std::to_string(config.beam_width) +
                          " (must be 1-16)");
         valid = false;
     }
 
     // Validate strategy
-    std::vector<std::string> valid_strategies = {"greedy", "beam", "temperature", "top_k",
-                                                 "nucleus"};
+    const auto& valid_strategies = adai::generation_strategy_names();
     if (std::find(valid_strategies.begin(), valid_strategies.end(), config.strategy) ==
         valid_strategies.end()) {
         errors.push_back("Invalid strategy: " + config.strategy +

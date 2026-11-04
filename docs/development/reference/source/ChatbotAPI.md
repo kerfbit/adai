@@ -500,3 +500,20 @@ The constructor registers every route through two local helpers that also record
 (method, path, description, in registration order): `POST /chat`, `/chat/session`, `/clear-session`,
 `/chat/session/export`, `/chat/session/import`, `GET /health`, `/admin/profile`, `POST /chat/batch`,
 `/chat/batch-session`. `chatbot_api_server` prints its startup banner from it.
+
+## Addendum (November 3, 2026): per-request generation settings (TD-254)
+
+- **Requests can set generation.** §3's "clients can't override `GenerationConfig` per request" no longer holds. Every
+  chat handler (`/chat`, `/chat/session`, `/chat/batch`, `/chat/batch-session`) gets its config from
+  `generation_config_for(request_body)`: `default_config_` with any of `max_length`, `temperature`, `top_p`, `top_k`,
+  `beam_width` and `strategy` the request sets, for that request only. Each is checked against
+  `adai::GenerationLimits` (`src/GenerationSettings.{hpp,cpp}`, the ranges `ConfigLoader::validate()` applies to the
+  defaults); a wrong type or out-of-range value is `BadRequest` (HTTP 400). `/chat/session` checks before it touches the
+  session, so a refused request leaves the conversation as it was. `null` counts as absent.
+- **Strategy names.** `adai::canonical_generation_strategy()` maps any case of the server's names, plus the `chatbot`
+  CLI's old `sampling`/`top-k` and `top_p`/`top-p`, to the server's names; anything else is refused, not treated as
+  `nucleus`.
+- **Verified with the real binary** (untrained model, `MAX_GEN_LENGTH=40`, greedy): `"temperature":9` and
+  `"strategy":"fast"` now get 400 (the old binary answered 200); `"max_length":1` gives a 2-character reply against 146
+  without it (the old binary gave 110 characters either way).
+- **Status tag:** `ChatbotAPI.cpp` 0.30.0, `ChatbotAPI.hpp` 0.24.0, reviewed 2026-11-03.

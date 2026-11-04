@@ -1459,6 +1459,9 @@ The generation and model math run is complete.
   `session_counters.db` has its counters moved over when opened, so numbering continues).
 - TD-253 (done in code: `chatbot` treats end of input (Ctrl+D, piped input running out) as `/exit`, saving and exiting 0;
   it used to print prompts forever, or re-send a last line that had no newline on every pass).
+- TD-254 (done in code, owner's choice: `ChatbotAPI` applies a request's own `max_length`/`temperature`/`top_p`/`top_k`/
+  `beam_width`/`strategy`, checked against limits shared with `validate()` (400 otherwise); `chatbot` sends only settings
+  changed with `/set`, checked the same way; TD-259's `/set` parsing item with it).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6036,7 +6039,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Client / CLI | October 8, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 3, 2026 | Client / CLI | October 8, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-253 and confirmed by running the real binary: after `/set temp 0.2` the next
@@ -6052,20 +6055,52 @@ Generation Strategies section is already flagged under TD-164).
 
 Action Items:
 
-- [ ] Owner decision: support per-request generation settings in `ChatbotAPI` (validated and bounded; easiest after TD-226's nlohmann/json switch), or remove the per-request settings from the CLI.
-- [ ] If supported: align strategy names on the server's (`temperature`, `top_k`) and accept the CLI's old names as aliases.
-- [ ] If removed: make `/set` print that settings are server-side (`--strategy` etc.) and drop the fields from the request.
-- [ ] Update `chatbot-guide.md` either way.
+- [x] Owner decision: support per-request generation settings in `ChatbotAPI` (validated and bounded; easiest after TD-226's nlohmann/json switch), or remove the per-request settings from the CLI. Decided November 3, 2026: the server honours them.
+- [x] If supported: align strategy names on the server's (`temperature`, `top_k`) and accept the CLI's old names as aliases.
+- [x] Update `chatbot-guide.md` either way.
 
-Location in code: `src/ChatbotCLI.cpp` (`handle_setting()`, `generate_response()`), `src/ChatbotAPI.cpp` (`handle_chat_session()`); tagged `TODO: See TD-254`.
+Location in code: `src/ChatbotCLI.cpp` (`handle_setting()`, `chat_turn_body()`), `src/ChatbotAPI.cpp` (`generation_config_for()`); the `TODO: See TD-254` tags are removed.
+
+**Fix (November 3, 2026), owner's choice: the server honours per-request settings.**
+- **One set of limits.** New `src/GenerationSettings.{hpp,cpp}`: `adai::GenerationLimits` (length 1-4096, temperature
+  0-2, top_p 0-1, top_k 1-1000, beam width 1-16) and `canonical_generation_strategy()`, which maps any case of the
+  server's names, plus the CLI's old `sampling`/`top-k` and `top_p`/`top-p`, to the server's names. `ConfigLoader::validate()`
+  checks the server's defaults against the same limits, `ChatbotAPI` checks requests, and `chatbot` checks `/set` values
+  (the file is compiled into `chatbot`, which doesn't link `adai_core`).
+- **The server.** `ChatbotAPI::generation_config_for(request_body)` copies the defaults and applies any of `max_length`,
+  `temperature`, `top_p`, `top_k`, `beam_width` and `strategy` the request sets, for that request only; `/chat`,
+  `/chat/session`, `/chat/batch` and `/chat/batch-session` all use it. A wrong type or out-of-range value is HTTP 400
+  naming the field and its range, and nothing is generated; `/chat/session` checks before it touches the session.
+  `null` counts as absent.
+- **The CLI sends only what was changed.** It used to send all six settings with its own built-in values on every
+  message; honouring those would have silently overridden every server's configured defaults. Now it sends only settings
+  changed with `/set`, `/set <parameter> default` stops sending one, and `/settings` shows `server default` for the rest.
+  `/set` values must be whole numbers in range (TD-259's first item: `10abc` was read as 10, and a negative length or
+  `top_p 5` was accepted).
+- `chatbot-guide.md` describes `/set`, `/settings` and the real ranges; `rest-api.md` documents the request fields.
+
+Tests:
+- `chatbotapiTests` gained five: request settings replace the defaults and only those sent (`null` ignored, defaults
+  untouched); every strategy name and alias; 16 out-of-range or mistyped bodies refused and the limits accepted; a
+  refused request creates no session and leaves an existing conversation as it was, on all four handlers; and
+  `max_length: 1` caps the `/chat` and `/chat/session` replies at one token where the default allows 40 (100 repeats, no
+  failures).
+- `chatbotcliImprovedTests` gained six: unchanged settings aren't sent, changed ones are (strategy aliases sent as the
+  server's names), `/set … default`, partial and out-of-range values refused, `/settings`, and a `/set length 1` turn
+  against the real test `ChatbotAPI` returning at most one token.
+- The new tests use methods the old code doesn't have, so they were not run against it. The real `chatbot_api_server`
+  (untrained model, `MAX_GEN_LENGTH=40`, greedy) was compared instead:
+  - `"temperature":9` and `"strategy":"fast"`: HTTP 200 on the old binary, 400 on the new one;
+  - reply length with `"max_length":1`: 110 characters on the old binary (the same as without it), 2 on the new one
+    (146 without it).
 
 Files to Modify:
 
-- `src/ChatbotCLI.cpp`
-- `src/ChatbotAPI.cpp`
-- `tests/chatbotcli_test.cpp`
-- `tests/chatbotapi_test.cpp`
-- `docs/operations/guides/chatbot-guide.md`
+- `src/GenerationSettings.{hpp,cpp}` (new), `src/Config.cpp`, `src/CMakeLists.txt`
+- `src/ChatbotAPI.{hpp,cpp}`, `src/ChatbotCLI.{hpp,cpp}`
+- `tests/chatbotapi_test.cpp`, `tests/chatbotcli_improved_test.cpp`, `tests/CMakeLists.txt` (every test that compiles
+  `Config.cpp` on its own now compiles `GenerationSettings.cpp` too)
+- `docs/operations/guides/chatbot-guide.md`, `docs/development/api/rest-api.md`
 
 ---
 
@@ -6183,7 +6218,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Client / CLI | October 8, 2026 | 1-2 hours |
+| LOW | Open — `/set` value checks fixed November 3, 2026 (with TD-254) | Client / CLI | October 8, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-253:
@@ -6198,7 +6233,7 @@ Found alongside TD-253:
 
 Action Items:
 
-- [ ] Use full-consumption parsing and range checks for `/set` values.
+- [x] Use full-consumption parsing and range checks for `/set` values. Done November 3, 2026 with TD-254 (`GenerationLimits`).
 - [ ] Move the JSON helpers into an anonymous namespace (or replace them with nlohmann/json).
 - [ ] Forward-declare `httplib::Client` in the header (pimpl or `unique_ptr` to an incomplete type) and move the colour macros to `constexpr` values in the `.cpp`.
 

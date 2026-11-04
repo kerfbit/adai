@@ -236,3 +236,18 @@ reports that there is no session on the server. Test: `LostSessionStartsANewOneA
 - **Tests:** three `run()` tests in `chatbotcliImprovedTests` (empty input, end of input after a message, a last line
   without a newline), each guarded so the old code fails rather than hangs.
 - **Status tag:** `@adai-version` 1.2.1 for `ChatbotCLI.{hpp,cpp}`, reviewed 2026-11-03.
+
+## Addendum (November 3, 2026): `/set` reaches the server (TD-254, TD-259's first item)
+
+- **Only changed settings are sent.** `ChatbotCLI` keeps the JSON names of the settings changed with `/set` (or a
+  setter) in `overridden`; `chat_turn_body()` sends the message plus only those, so the server's defaults apply to the
+  rest. It used to send all six on every message with the client's own built-in values, which the server ignored.
+  `/set <parameter> default` drops one. `/settings` shows `server default` for unchanged settings.
+- **Checked values.** `/set` numbers must be the whole value (`10abc`, `3.5` for an integer and `nan` are refused; they
+  used to be read with `std::stoi`/`std::stof`) and within `adai::GenerationLimits`, the ranges the server enforces.
+  Strategies go through `adai::canonical_generation_strategy()`, so `sampling`/`top-k` are stored and sent as
+  `temperature`/`top_k`. `GenerationSettings.cpp` is compiled into `chatbot`, which doesn't link `adai_core`.
+- **Tests:** `chatbotcliImprovedTests` gained six: unchanged settings not sent, changed ones sent (with the strategy
+  aliases), `/set … default`, refused partial and out-of-range values, `/settings`, and a `/set length 1` turn against
+  the real test `ChatbotAPI` that comes back as at most one token.
+- **Status tag:** `@adai-version` 1.3.0 for `ChatbotCLI.{hpp,cpp}`, reviewed 2026-11-03.

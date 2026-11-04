@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.23.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 0.24.0
+// @adai-reviewed: 2026-11-03
 
 
 #include <atomic>
@@ -54,6 +54,10 @@ class ChatbotAPI {
 
     /**
      * @brief Generation parameters for chat responses
+     *
+     * set_generation_config() sets the server's defaults. TD-254: a /chat, /chat/session or batch request
+     * may set any of these for itself (same JSON names, checked against GenerationLimits; HTTP 400 for a
+     * bad value), and the rest keep the defaults.
      */
     struct GenerationConfig {
         size_t max_length = 100;
@@ -285,6 +289,9 @@ class ChatbotAPI {
 
    private:
     // HTTP endpoint handlers
+    /// TD-254: the server's default generation config with the settings request_body sets for itself
+    /// (BadRequest, HTTP 400, for a malformed body or a value out of range). Every chat handler uses it.
+    GenerationConfig generation_config_for(const std::string& request_body) const;
     std::string handle_chat(const std::string& request_body);
     std::string handle_chat_session(const std::string& request_body);
     std::string handle_clear_session(const std::string& request_body);

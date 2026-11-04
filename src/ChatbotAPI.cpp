@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.29.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 0.30.0
+// @adai-reviewed: 2026-11-03
 
 #include "ChatbotAPI.hpp"
 #include "nlohmann/json.hpp"
@@ -8,8 +8,10 @@
 #include "HttpListenSocket.hpp"
 #include <httplib.h>
 #include <algorithm>
+#include <optional>
 #include <sstream>
 #include <thread>
+#include "GenerationSettings.hpp"
 #include "Logger.hpp"
 #include "SecureRandom.hpp"
 #include "SpecialTokens.hpp"
@@ -56,6 +58,50 @@ std::string string_field(const nlohmann::json& request, const std::string& key) 
         throw BadRequest("'" + key + "' must be a string");
     }
     return it->get<std::string>();
+}
+
+// TD-254: a request may set max_length, temperature, top_p, top_k, beam_width and strategy for itself;
+// each one present (and not null) replaces the server's default for that request only, after the same
+// range check ConfigLoader::validate() applies to the defaults (BadRequest otherwise, so nothing is
+// generated). Strategy names are the server's, in any case, plus the chatbot CLI's old names. These
+// fields used to be ignored, so the CLI's /set changed nothing.
+void apply_generation_settings(const nlohmann::json& request, ChatbotAPI::GenerationConfig& config) {
+    using Limits = adai::GenerationLimits;
+    const auto present = [&request](const char* key) -> const nlohmann::json* {
+        const auto it = request.find(key);
+        return (it == request.end() || it->is_null()) ? nullptr : &*it;
+    };
+    const auto whole = [&](const char* key, int min, int max) -> std::optional<int> {
+        const nlohmann::json* value = present(key);
+        if (!value) return std::nullopt;
+        if (!value->is_number_integer() || value->get<long long>() < min || value->get<long long>() > max) {
+            throw BadRequest("'" + std::string(key) + "' must be a whole number from " + std::to_string(min) +
+                             " to " + std::to_string(max));
+        }
+        return static_cast<int>(value->get<long long>());
+    };
+    const auto real = [&](const char* key, float min, float max, const char* range) -> std::optional<float> {
+        const nlohmann::json* value = present(key);
+        if (!value) return std::nullopt;
+        if (!value->is_number() || !(value->get<double>() >= min && value->get<double>() <= max)) {
+            throw BadRequest("'" + std::string(key) + "' must be a number from " + range);
+        }
+        return static_cast<float>(value->get<double>());
+    };
+
+    if (auto v = whole("max_length", Limits::kMinMaxLength, Limits::kMaxMaxLength)) config.max_length = *v;
+    if (auto v = real("temperature", Limits::kMinTemperature, Limits::kMaxTemperature, "0 to 2")) config.temperature = *v;
+    if (auto v = real("top_p", Limits::kMinTopP, Limits::kMaxTopP, "0 to 1")) config.top_p = *v;
+    if (auto v = whole("top_k", Limits::kMinTopK, Limits::kMaxTopK)) config.top_k = *v;
+    if (auto v = whole("beam_width", Limits::kMinBeamWidth, Limits::kMaxBeamWidth)) config.beam_width = *v;
+    if (const nlohmann::json* value = present("strategy")) {
+        const std::string strategy =
+            value->is_string() ? adai::canonical_generation_strategy(value->get<std::string>()) : "";
+        if (strategy.empty()) {
+            throw BadRequest("'strategy' must be one of greedy, beam, temperature, top_k, nucleus");
+        }
+        config.strategy = strategy;
+    }
 }
 
 // Empty when the field is absent or null; BadRequest unless it is an array of strings.
@@ -366,6 +412,16 @@ void ChatbotAPI::stop() {
 // HTTP Endpoint Handlers
 // ============================================================================
 
+ChatbotAPI::GenerationConfig ChatbotAPI::generation_config_for(const std::string& request_body) const {
+    GenerationConfig config;
+    {
+        std::lock_guard<std::mutex> lock(config_mutex_);
+        config = default_config_;
+    }
+    apply_generation_settings(parse_request(request_body), config);
+    return config;
+}
+
 std::string ChatbotAPI::handle_chat(const std::string& request_body) {
     // Parse request
     const nlohmann::json request = parse_request(request_body);
@@ -375,12 +431,8 @@ std::string ChatbotAPI::handle_chat(const std::string& request_body) {
         throw BadRequest("Missing 'message' field in request");
     }
 
-    // The server's default generation config; requests can't set it (rest-api.md documents server flags only).
-    GenerationConfig config;
-    {
-        std::lock_guard<std::mutex> lock(config_mutex_);
-        config = default_config_;
-    }
+    // The server's default generation config, with any settings the request sets (TD-254).
+    const GenerationConfig config = generation_config_for(request_body);
 
     // Generate response
     std::string response = generate_response(message, config);
@@ -397,6 +449,10 @@ std::string ChatbotAPI::handle_chat_session(const std::string& request_body) {
     if (message.empty()) {
         throw BadRequest("Missing 'message' field in request");  // TD-236: HTTP 400
     }
+
+    // TD-254: the server's defaults with this request's own settings, checked before the session is
+    // touched, so a bad value leaves the conversation as it was.
+    const GenerationConfig config = generation_config_for(request_body);
 
     // Get or create session. TD-227: a shared_ptr keeps it alive if cleanup erases it mid-request,
     // and its mutex serializes turns. Same-session requests used to race on the unlocked
@@ -424,15 +480,6 @@ std::string ChatbotAPI::handle_chat_session(const std::string& request_body) {
 
     // Format context for model
     std::string formatted_context = session->context->format_for_model();
-
-    // TODO: See TD-254 in TECHNICAL_DEBT.md - the chatbot CLI sends max_length/temperature/top_p/
-    // top_k/beam_width/strategy in this request, but they're ignored; only server defaults apply.
-    // Get generation config
-    GenerationConfig config;
-    {
-        std::lock_guard<std::mutex> lock(config_mutex_);
-        config = default_config_;
-    }
 
     // TODO: See TD-485 in TECHNICAL_DEBT.md - with RAG enabled, this whole conversation becomes the retrieval
     // query; pass the latest user message for retrieval instead.
@@ -583,18 +630,15 @@ void ChatbotAPI::set_max_batch_size(std::size_t max_batch_size) {
 
 std::string ChatbotAPI::handle_batch_chat(const std::string& request_body) {
     // Parse batch request
-    std::vector<std::string> messages = string_array_field(parse_request(request_body), "messages");
+    const nlohmann::json request = parse_request(request_body);
+    std::vector<std::string> messages = string_array_field(request, "messages");
     if (messages.empty()) {
         throw BadRequest("Missing or empty 'messages' array in request");  // TD-236: HTTP 400
     }
     check_batch_size(messages.size());
 
-    // The server's default generation config; requests can't set it.
-    GenerationConfig config;
-    {
-        std::lock_guard<std::mutex> lock(config_mutex_);
-        config = default_config_;
-    }
+    // The server's default generation config, with any settings the request sets for every message (TD-254).
+    const GenerationConfig config = generation_config_for(request_body);
 
     // Generate batch responses
     BatchResponse batch_response = generate_batch_responses(messages, config);
@@ -625,12 +669,8 @@ std::string ChatbotAPI::handle_batch_chat_session(const std::string& request_bod
         }
     }
 
-    // Get generation config
-    GenerationConfig config;
-    {
-        std::lock_guard<std::mutex> lock(config_mutex_);
-        config = default_config_;
-    }
+    // Get generation config, with any settings the request sets for every message (TD-254)
+    const GenerationConfig config = generation_config_for(request_body);
 
     // Generate batch session responses
     BatchResponse batch_response = generate_batch_session_responses(messages, session_ids, config);

@@ -1,8 +1,12 @@
 // @adai-status: stable
-// @adai-version: 1.2.1
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-11-03
 
 #include "ChatbotCLI.hpp"
+#include <cerrno>
+#include <climits>
+#include <cmath>
+#include <cstdlib>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -11,6 +15,7 @@
 #include <regex>
 #include <sstream>
 #include <utility>
+#include "GenerationSettings.hpp"
 
 // TODO: See TD-259 in TECHNICAL_DEBT.md - these three helpers have external linkage at global scope; put
 // them in an anonymous namespace.
@@ -172,7 +177,9 @@ void ChatbotCLI::print_welcome() {
     std::cout << "  /help         - Show this help message" << '\n';
     std::cout << "  /clear        - Clear conversation history" << '\n';
     std::cout << "  /settings     - Show current settings" << '\n';
-    std::cout << "  /set <param>  - Change generation parameter" << '\n';
+    std::cout << "  /set <param> <value>   - Change a generation setting for your messages:" << '\n';
+    std::cout << "                 strategy, length, temperature, top_p, top_k, beam_width" << '\n';
+    std::cout << "  /set <param> default  - Go back to the server's default" << '\n';
     std::cout << "  /exit, /quit  - Exit the chatbot" << '\n';
     std::cout << '\n';
 }
@@ -184,12 +191,21 @@ void ChatbotCLI::print_stats() {
 void ChatbotCLI::print_settings() {
     std::cout << '\n';
     std::cout << COLOR_SYSTEM << "⚙️  Current Settings:" << COLOR_RESET << '\n';
-    std::cout << "  Strategy: " << generation_strategy << '\n';
-    std::cout << "  Max length: " << max_response_length << '\n';
-    std::cout << "  Temperature: " << temperature << '\n';
-    std::cout << "  Top-p (nucleus): " << top_p << '\n';
-    std::cout << "  Top-k: " << top_k << '\n';
-    std::cout << "  Beam width: " << beam_width << '\n';
+    // TD-254: a setting not changed with /set is the server's default, which the client doesn't know.
+    const auto show = [this](const char* label, const char* key, const auto& value) {
+        std::cout << "  " << label << ": ";
+        if (is_overridden(key)) {
+            std::cout << value << '\n';
+        } else {
+            std::cout << "server default" << '\n';
+        }
+    };
+    show("Strategy", "strategy", generation_strategy);
+    show("Max length", "max_length", max_response_length);
+    show("Temperature", "temperature", temperature);
+    show("Top-p (nucleus)", "top_p", top_p);
+    show("Top-k", "top_k", top_k);
+    show("Beam width", "beam_width", beam_width);
     std::cout << '\n';
 }
 
@@ -232,75 +248,121 @@ void ChatbotCLI::handle_command(const std::string& command) {
     }
 }
 
-// TODO: See TD-254 in TECHNICAL_DEBT.md - these settings are sent with every request but ChatbotAPI ignores
-// them, and "sampling"/"top-k" don't match the server's "temperature"/"top_k".
-// TODO: See TD-259 in TECHNICAL_DEBT.md - stoi/stof accept partial input ("10abc") and nothing is range-checked.
+namespace {
+
+// TD-259: the whole value must be the number; std::stoi/std::stof read "10abc" as 10.
+bool parse_whole(std::string_view text, int& out) {
+    const std::string s(text);
+    if (s.empty()) return false;
+    errno = 0;
+    char* end = nullptr;
+    const long value = std::strtol(s.c_str(), &end, 10);
+    if (*end != '\0' || errno == ERANGE || value < INT_MIN || value > INT_MAX) return false;
+    out = static_cast<int>(value);
+    return true;
+}
+
+bool parse_real(std::string_view text, float& out) {
+    const std::string s(text);
+    if (s.empty()) return false;
+    errno = 0;
+    char* end = nullptr;
+    const float value = std::strtof(s.c_str(), &end);
+    if (*end != '\0' || errno == ERANGE || !std::isfinite(value)) return false;
+    out = value;
+    return true;
+}
+
+}  // namespace
+
+// TD-254: a setting changed here is sent with every message, and the server applies it to that
+// message (checked against the same GenerationLimits); a setting never changed, or set back to
+// "default", is left to the server. These used to be sent always and ignored by the server.
+// TD-259: values must be whole numbers in range ("10abc" and a negative length used to be accepted).
 void ChatbotCLI::handle_setting(std::string_view setting) {
+    using Limits = adai::GenerationLimits;
     size_t space_pos = setting.find(' ');
     if (space_pos == std::string_view::npos) {
-        std::cout << COLOR_ERROR << "❌ Usage: /set <parameter> <value>" << COLOR_RESET << '\n';
+        std::cout << COLOR_ERROR << "❌ Usage: /set <parameter> <value>  (or /set <parameter> default)"
+                  << COLOR_RESET << '\n';
         return;
     }
 
     std::string_view param = setting.substr(0, space_pos);
     std::string_view value = setting.substr(space_pos + 1);
 
+    std::string key;
     if (param == "strategy") {
-        static const std::vector<std::string> VALID_STRATEGIES = {"greedy", "beam", "sampling",
-                                                                  "top-k", "nucleus"};
-        std::string strat_val = std::string(value);
-        bool valid = false;
-        for (const auto& s : VALID_STRATEGIES) {
-            if (s == strat_val) {
-                valid = true;
-                break;
-            }
-        }
-        if (!valid) {
-            std::cout << COLOR_ERROR << "❌ Invalid strategy '" << value
-                      << "'. Valid options: greedy, beam, sampling, top-k, nucleus" << COLOR_RESET
-                      << '\n';
-            return;
-        }
-        generation_strategy = strat_val;
-        std::cout << COLOR_SYSTEM << "✅ Generation strategy set to: " << value << COLOR_RESET
-                  << '\n';
-    } else if (param == "length" || param == "max_length" || param == "temperature" ||
-              param == "temp" || param == "top_p" || param == "top-p" || param == "top_k" ||
-              param == "top-k" || param == "beam_width" || param == "beam-width") {
-        // TD-072 (fixed): std::stoi/std::stof on a malformed value (e.g. a
-        // typo in "/set length abc") used to throw uncaught out of this
-        // function, propagate through run()'s main loop, and hit main()'s
-        // top-level catch — a clean exit, but one that silently ends the
-        // entire interactive session (losing session_id/conversation state)
-        // over a single mistyped command, unlike a one-shot CLI tool where
-        // the same unguarded stoi pattern just means "re-run the command."
-        try {
-            if (param == "length" || param == "max_length") {
-                max_response_length = std::stoi(std::string(value));
-                std::cout << COLOR_SYSTEM << "✅ Max response length set to: "
-                          << max_response_length << COLOR_RESET << '\n';
-            } else if (param == "temperature" || param == "temp") {
-                temperature = std::stof(std::string(value));
-                std::cout << COLOR_SYSTEM << "✅ Temperature set to: " << temperature
-                          << COLOR_RESET << '\n';
-            } else if (param == "top_p" || param == "top-p") {
-                top_p = std::stof(std::string(value));
-                std::cout << COLOR_SYSTEM << "✅ Top-p set to: " << top_p << COLOR_RESET << '\n';
-            } else if (param == "top_k" || param == "top-k") {
-                top_k = std::stoi(std::string(value));
-                std::cout << COLOR_SYSTEM << "✅ Top-k set to: " << top_k << COLOR_RESET << '\n';
-            } else {
-                beam_width = std::stoi(std::string(value));
-                std::cout << COLOR_SYSTEM << "✅ Beam width set to: " << beam_width << COLOR_RESET
-                          << '\n';
-            }
-        } catch (const std::exception&) {
-            std::cout << COLOR_ERROR << "❌ Invalid value '" << value << "' for parameter '"
-                      << param << "'" << COLOR_RESET << '\n';
-        }
+        key = "strategy";
+    } else if (param == "length" || param == "max_length") {
+        key = "max_length";
+    } else if (param == "temperature" || param == "temp") {
+        key = "temperature";
+    } else if (param == "top_p" || param == "top-p") {
+        key = "top_p";
+    } else if (param == "top_k" || param == "top-k") {
+        key = "top_k";
+    } else if (param == "beam_width" || param == "beam-width") {
+        key = "beam_width";
     } else {
         std::cout << COLOR_ERROR << "❌ Unknown parameter: " << param << COLOR_RESET << '\n';
+        return;
+    }
+
+    if (value == "default") {
+        overridden.erase(key);
+        std::cout << COLOR_SYSTEM << "✅ " << key << " set back to the server's default" << COLOR_RESET
+                  << '\n';
+        return;
+    }
+
+    const auto invalid = [&](const std::string& rule) {
+        std::cout << COLOR_ERROR << "❌ Invalid value '" << value << "' for parameter '" << param
+                  << "': " << rule << COLOR_RESET << '\n';
+    };
+    int whole = 0;
+    float real = 0.0f;
+    if (key == "strategy") {
+        const std::string strategy = adai::canonical_generation_strategy(value);
+        if (strategy.empty()) {
+            std::cout << COLOR_ERROR << "❌ Invalid strategy '" << value
+                      << "'. Valid options: greedy, beam, temperature (or sampling), top_k, nucleus"
+                      << COLOR_RESET << '\n';
+            return;
+        }
+        set_generation_strategy(strategy);
+        std::cout << COLOR_SYSTEM << "✅ Generation strategy set to: " << strategy << COLOR_RESET << '\n';
+    } else if (key == "max_length") {
+        if (!parse_whole(value, whole) || whole < Limits::kMinMaxLength || whole > Limits::kMaxMaxLength) {
+            return invalid("a whole number from 1 to 4096");
+        }
+        set_max_response_length(whole);
+        std::cout << COLOR_SYSTEM << "✅ Max response length set to: " << max_response_length << COLOR_RESET
+                  << '\n';
+    } else if (key == "temperature") {
+        if (!parse_real(value, real) || real < Limits::kMinTemperature || real > Limits::kMaxTemperature) {
+            return invalid("a number from 0 to 2");
+        }
+        set_temperature(real);
+        std::cout << COLOR_SYSTEM << "✅ Temperature set to: " << temperature << COLOR_RESET << '\n';
+    } else if (key == "top_p") {
+        if (!parse_real(value, real) || real < Limits::kMinTopP || real > Limits::kMaxTopP) {
+            return invalid("a number from 0 to 1");
+        }
+        set_top_p(real);
+        std::cout << COLOR_SYSTEM << "✅ Top-p set to: " << top_p << COLOR_RESET << '\n';
+    } else if (key == "top_k") {
+        if (!parse_whole(value, whole) || whole < Limits::kMinTopK || whole > Limits::kMaxTopK) {
+            return invalid("a whole number from 1 to 1000");
+        }
+        set_top_k(whole);
+        std::cout << COLOR_SYSTEM << "✅ Top-k set to: " << top_k << COLOR_RESET << '\n';
+    } else {
+        if (!parse_whole(value, whole) || whole < Limits::kMinBeamWidth || whole > Limits::kMaxBeamWidth) {
+            return invalid("a whole number from 1 to 16");
+        }
+        set_beam_width(whole);
+        std::cout << COLOR_SYSTEM << "✅ Beam width set to: " << beam_width << COLOR_RESET << '\n';
     }
 }
 
@@ -341,25 +403,26 @@ std::string ChatbotCLI::generate_response(const std::string& user_input) {
 }
 
 httplib::Result ChatbotCLI::post_chat_turn(const std::string& user_input) {
+    return client->Post("/chat/session", chat_turn_body(user_input), "application/json");
+}
+
+std::string ChatbotCLI::chat_turn_body(const std::string& user_input) const {
     std::stringstream ss;
     ss << "{";
     if (!session_id.empty()) {
         // TODO: See TD-257 in TECHNICAL_DEBT.md - session_id is not escaped here.
         ss << R"("session_id":")" << session_id << "\",";
     }
-    // TODO: See TD-254 in TECHNICAL_DEBT.md - the generation fields below are ignored by the server.
-    ss << R"("message":")" << escape_json_string(user_input) << "\",";
-    ss << "\"max_length\":" << max_response_length << ",";
-    ss << "\"temperature\":" << temperature << ",";
-    ss << "\"top_p\":" << top_p << ",";
-    ss << "\"top_k\":" << top_k << ",";
-    ss << "\"beam_width\":" << beam_width << ",";
-    ss << R"("strategy":")" << generation_strategy << "\"";
+    ss << R"("message":")" << escape_json_string(user_input) << "\"";
+    // TD-254: only the settings changed with /set; the server's defaults apply to the rest.
+    if (is_overridden("max_length")) ss << ",\"max_length\":" << max_response_length;
+    if (is_overridden("temperature")) ss << ",\"temperature\":" << temperature;
+    if (is_overridden("top_p")) ss << ",\"top_p\":" << top_p;
+    if (is_overridden("top_k")) ss << ",\"top_k\":" << top_k;
+    if (is_overridden("beam_width")) ss << ",\"beam_width\":" << beam_width;
+    if (is_overridden("strategy")) ss << R"(,"strategy":")" << escape_json_string(generation_strategy) << "\"";
     ss << "}";
-
-    std::string body = ss.str();
-
-    return client->Post("/chat/session", body, "application/json");
+    return ss.str();
 }
 
 void ChatbotCLI::save_conversation() {

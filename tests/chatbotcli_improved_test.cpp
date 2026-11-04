@@ -275,6 +275,88 @@ TEST_F(ChatbotCLITest, HandleSettingNonNumericValueDoesNotThrow) {
 }
 
 // ============================================================================
+// TD-254: /set settings are sent, and only those
+// ============================================================================
+
+namespace {
+// Runs handle_setting() with std::cout captured; returns what it printed.
+std::string set_quietly(ChatbotCLI& cli, const std::string& setting) {
+    std::stringstream buffer;
+    std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
+    cli.handle_setting(setting);
+    std::cout.rdbuf(old);
+    return buffer.str();
+}
+}  // namespace
+
+// Nothing changed with /set means nothing but the message is sent, so the server's own defaults
+// apply. The CLI used to send all six settings with its own built-in values on every message.
+TEST_F(ChatbotCLITest, UnchangedSettingsAreNotSent) {
+    ChatbotCLI cli(server_url, conv_file);
+    EXPECT_EQ(cli.chat_turn_body("hi"), R"({"message":"hi"})");
+}
+
+TEST_F(ChatbotCLITest, ChangedSettingsAreSent) {
+    ChatbotCLI cli(server_url, conv_file);
+    set_quietly(cli, "temp 0.25");
+    set_quietly(cli, "length 12");
+    const std::string body = cli.chat_turn_body("hi");
+    EXPECT_NE(body.find(R"("temperature":0.25)"), std::string::npos) << body;
+    EXPECT_NE(body.find(R"("max_length":12)"), std::string::npos) << body;
+    EXPECT_EQ(body.find("top_p"), std::string::npos) << body;
+    EXPECT_EQ(body.find("strategy"), std::string::npos) << body;
+
+    // The CLI's old strategy names are sent as the server's names.
+    set_quietly(cli, "strategy sampling");
+    EXPECT_EQ(cli.get_generation_strategy(), "temperature");
+    set_quietly(cli, "strategy top-k");
+    EXPECT_NE(cli.chat_turn_body("hi").find(R"("strategy":"top_k")"), std::string::npos);
+}
+
+TEST_F(ChatbotCLITest, SetDefaultStopsSendingASetting) {
+    ChatbotCLI cli(server_url, conv_file);
+    set_quietly(cli, "top_k 20");
+    ASSERT_TRUE(cli.is_overridden("top_k"));
+    const std::string out = set_quietly(cli, "top-k default");
+    EXPECT_FALSE(cli.is_overridden("top_k"));
+    EXPECT_NE(out.find("server's default"), std::string::npos) << out;
+    EXPECT_EQ(cli.chat_turn_body("hi"), R"({"message":"hi"})");
+}
+
+// TD-259: a /set value must be the whole number and within the server's range; it used to take
+// "10abc" as 10 and accept a negative length or top_p 5 (which the server would now refuse).
+TEST_F(ChatbotCLITest, SetRejectsPartialAndOutOfRangeValues) {
+    ChatbotCLI cli(server_url, conv_file);
+    for (const char* bad : {"length 10abc", "length 0", "length -5", "length 5000", "temp 2.5", "temp -1",
+                            "temp nan", "top_p 5", "top_p 0.5x", "top_k 0", "top_k 1001", "beam_width 17",
+                            "beam_width 3.5", "strategy fast"}) {
+        const std::string out = set_quietly(cli, bad);
+        EXPECT_NE(out.find("Invalid"), std::string::npos) << bad << ": " << out;
+    }
+    for (const char* key : {"max_length", "temperature", "top_p", "top_k", "beam_width", "strategy"}) {
+        EXPECT_FALSE(cli.is_overridden(key)) << key;
+    }
+    EXPECT_EQ(cli.chat_turn_body("hi"), R"({"message":"hi"})");
+
+    // The limits themselves are accepted.
+    for (const char* ok : {"length 4096", "temp 0", "temp 2", "top_p 1", "top_k 1000", "beam_width 16"}) {
+        const std::string out = set_quietly(cli, ok);
+        EXPECT_EQ(out.find("Invalid"), std::string::npos) << ok << ": " << out;
+    }
+}
+
+TEST_F(ChatbotCLITest, SettingsShowServerDefaultForUnchangedValues) {
+    ChatbotCLI cli(server_url, conv_file);
+    set_quietly(cli, "temp 0.5");
+    std::stringstream buffer;
+    std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
+    cli.handle_command("/settings");
+    std::cout.rdbuf(old);
+    EXPECT_NE(buffer.str().find("Temperature: 0.5"), std::string::npos) << buffer.str();
+    EXPECT_NE(buffer.str().find("Top-k: server default"), std::string::npos) << buffer.str();
+}
+
+// ============================================================================
 // TD-053: /save and /load
 //
 // ChatbotCLI holds no local conversation state -- history lives server-side in ChatbotAPI's
@@ -449,6 +531,27 @@ TEST_F(ChatbotCLISaveLoadRoundTripTest, SaveThenLoadRestoresSessionOnAFreshClien
         // handle_chat_session() server-side during the first client's generate_response() call.
         EXPECT_NE(buffer.str().find("(2 messages)"), std::string::npos) << buffer.str();
     }
+}
+
+// TD-254: a /set reaches the server's generation. With the server's default of 40 tokens, /set length 1
+// caps the reply at one token; /set temp 9 is refused by the CLI itself.
+TEST_F(ChatbotCLISaveLoadRoundTripTest, SetLengthReachesTheServer) {
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 40;
+    config.strategy = "greedy";
+    api->set_generation_config(config);
+    ChatbotCLI cli("http://127.0.0.1:" + std::to_string(port), conv_file);
+    ASSERT_TRUE(cli.initialize());
+
+    std::stringstream buffer;
+    std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
+    cli.handle_setting("length 1");
+    const std::string reply = cli.generate_response("hello world");
+    std::cout.rdbuf(old);
+
+    EXPECT_EQ(reply.rfind("Error:", 0), std::string::npos) << reply;
+    const std::size_t reply_tokens = reply.empty() ? 0 : tokenizer->encode(reply, false).size();
+    EXPECT_LE(reply_tokens, 1u) << reply;
 }
 
 // TD-232: session ids are server-issued, so once the server drops ours (expiry, eviction, restart)

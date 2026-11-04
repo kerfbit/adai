@@ -193,18 +193,20 @@ You: /stats
 
 #### `/settings`
 
-Display current generation parameters.
+Display the generation settings your messages use. A setting you haven't changed with `/set`
+shows as `server default`: the server's own configured value (`config.chatbot.conf` or its flags)
+applies, and the client doesn't know what it is.
 
 ```text
 You: /settings
 
 ⚙️  Current Settings:
-  Strategy: nucleus
-  Max length: 100
-  Temperature: 1.0
-  Top-p (nucleus): 0.9
-  Top-k: 50
-  Beam width: 5
+  Strategy: server default
+  Max length: server default
+  Temperature: 0.7
+  Top-p (nucleus): server default
+  Top-k: server default
+  Beam width: server default
 ```
 
 ### Conversation Management
@@ -249,7 +251,11 @@ You: /save
 
 #### `/set <parameter> <value>`
 
-Change generation parameters during conversation.
+Change a generation setting for your following messages. The client sends each setting you have
+changed with every message, and the server applies it to that message only; settings you haven't
+changed keep the server's defaults. (Before November 3, 2026, TD-254, the server ignored these, so
+`/set` changed nothing.) Values are checked against the ranges in the table below, both here and by
+the server. `/set <parameter> default` goes back to the server's default.
 
 ```text
 You: /set temperature 0.7
@@ -260,6 +266,9 @@ You: /set strategy greedy
 
 You: /set max_length 150
 ✅ Max response length set to: 150
+
+You: /set temperature default
+✅ temperature set back to the server's default
 ```
 
 #### `/system <message>`
@@ -418,12 +427,17 @@ Parameters:
 
 |Parameter|Aliases|Type|Range|Default|Description|
 |-----------|---------|------|-------|---------|-------------|
-|`strategy`|-|string|See above|`nucleus`|Generation strategy|
-|`length`|`max_length`|int|1-1024|100|Maximum response tokens|
-|`temperature`|`temp`|float|0.1-2.0|1.0|Sampling randomness|
-|`top_p`|`top-p`|float|0.0-1.0|0.9|Nucleus threshold|
-|`top_k`|`top-k`|int|1-500|50|Top-K limit|
-|`beam_width`|`beam-width`|int|1-20|5|Beam search width|
+|`strategy`|-|string|`greedy`, `beam`, `temperature` (or `sampling`), `top_k` (or `top-k`), `nucleus`|server's|Generation strategy|
+|`length`|`max_length`|int|1-4096|server's|Maximum response tokens (also capped by the model's `max_seq_length`)|
+|`temperature`|`temp`|float|0-2|server's|Sampling randomness (0 is greedy)|
+|`top_p`|`top-p`|float|0-1|server's|Nucleus threshold|
+|`top_k`|`top-k`|int|1-1000|server's|Top-K limit|
+|`beam_width`|`beam-width`|int|1-16|server's|Beam search width|
+
+"server's" means the server's own default (`STRATEGY`, `MAX_GEN_LENGTH`, `TEMPERATURE`, `TOP_P`,
+`TOP_K`, `BEAM_WIDTH` in `config.chatbot.conf`, or the matching `chatbot_api_server` flags) until you
+change the setting with `/set`. A value must be a whole number where the type is int (`10abc` and
+`3.5` are refused).
 
 ### Setting Parameters
 

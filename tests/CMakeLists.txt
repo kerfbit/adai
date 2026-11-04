@@ -267,6 +267,7 @@ add_executable(chatbotcliImprovedTests
     chatbotcli_improved_test.cpp
     ../src/ChatbotCLI.cpp  # Include implementation
     ../src/Config.cpp
+    ../src/GenerationSettings.cpp  # TD-254: Config.cpp uses the shared generation limits
 )
 target_link_libraries(chatbotcliImprovedTests
     adai_models
@@ -296,6 +297,7 @@ add_test(NAME MetricsTrackerTests COMMAND metricstrackerTests)
 add_executable(configTests 
     config_test.cpp
     ../src/Config.cpp
+    ../src/GenerationSettings.cpp  # TD-254: Config.cpp uses the shared generation limits
     ../src/Logger.cpp
 )
 target_link_libraries(configTests 
@@ -305,7 +307,7 @@ target_link_libraries(configTests
 add_test(NAME ConfigTests COMMAND configTests)
 
 # TD-290: start-up config messages reach the log file (its own binary: needs a logger nobody has set up)
-add_executable(configStartupLogTests config_startup_log_test.cpp ../src/Config.cpp ../src/Logger.cpp)
+add_executable(configStartupLogTests config_startup_log_test.cpp ../src/Config.cpp ../src/GenerationSettings.cpp ../src/Logger.cpp)
 target_link_libraries(configStartupLogTests spdlog::spdlog GTest::gtest_main)
 add_test(NAME ConfigStartupLogTests COMMAND configStartupLogTests)
 
@@ -334,6 +336,7 @@ add_executable(incrementaltrainerTests
     ../src/ChatbotTrainer.cpp
     ../src/Logger.cpp
     ../src/Config.cpp
+    ../src/GenerationSettings.cpp  # TD-254: Config.cpp uses the shared generation limits
 )
 target_link_libraries(incrementaltrainerTests 
     adai_models
@@ -640,6 +643,7 @@ add_executable(incrementalTrainerDecouplingTests
     ../src/ChatbotTrainer.cpp
     ../src/Logger.cpp
     ../src/Config.cpp
+    ../src/GenerationSettings.cpp  # TD-254: Config.cpp uses the shared generation limits
 )
 target_link_libraries(incrementalTrainerDecouplingTests
     adai_models
@@ -834,6 +838,7 @@ endif()
 # unlike the MNS tests above, this doesn't need to be gated on HTTPLIB_INCLUDE_DIR.
 add_executable(mnsServerArgsTests mns_server_args_test.cpp ${CMAKE_SOURCE_DIR}/src/MnsServerArgs.cpp
     ${CMAKE_SOURCE_DIR}/src/Config.cpp  # TD-456: the strict number/boolean parsers
+    ${CMAKE_SOURCE_DIR}/src/GenerationSettings.cpp  # TD-254: Config.cpp uses the shared generation limits
     ${CMAKE_SOURCE_DIR}/src/Logger.cpp)
 target_include_directories(mnsServerArgsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(mnsServerArgsTests
@@ -847,6 +852,7 @@ add_test(NAME MnsServerArgsTests COMMAND mnsServerArgsTests)
 # dependency (that stays in MnsCliTool.cpp's own send/http_* functions, untouched here).
 add_executable(mnsCliCommandsTests mns_cli_commands_test.cpp ${CMAKE_SOURCE_DIR}/src/MnsCliCommands.cpp
     ${CMAKE_SOURCE_DIR}/src/Config.cpp  # TD-448: the strict number parsers
+    ${CMAKE_SOURCE_DIR}/src/GenerationSettings.cpp  # TD-254: Config.cpp uses the shared generation limits
     ${CMAKE_SOURCE_DIR}/src/Logger.cpp)
 target_include_directories(mnsCliCommandsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(mnsCliCommandsTests
@@ -880,6 +886,7 @@ add_test(NAME DatasetManagerArgsTests COMMAND datasetManagerArgsTests)
 add_executable(chatbotApiServerArgsTests chatbot_api_server_args_test.cpp
     ${CMAKE_SOURCE_DIR}/src/ChatbotApiServerArgs.cpp
     ${CMAKE_SOURCE_DIR}/src/Config.cpp  # TD-240: the strict number parsers
+    ${CMAKE_SOURCE_DIR}/src/GenerationSettings.cpp  # TD-254: Config.cpp uses the shared generation limits
     ${CMAKE_SOURCE_DIR}/src/Logger.cpp)
 target_include_directories(chatbotApiServerArgsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(chatbotApiServerArgsTests
@@ -895,6 +902,7 @@ add_test(NAME ChatbotApiServerArgsTests COMMAND chatbotApiServerArgsTests)
 add_executable(metricsApiServerArgsTests metrics_api_server_args_test.cpp
     ${CMAKE_SOURCE_DIR}/src/MetricsApiServerArgs.cpp
     ${CMAKE_SOURCE_DIR}/src/Config.cpp  # TD-438: the strict number parsers
+    ${CMAKE_SOURCE_DIR}/src/GenerationSettings.cpp  # TD-254: Config.cpp uses the shared generation limits
     ${CMAKE_SOURCE_DIR}/src/Logger.cpp)
 target_include_directories(metricsApiServerArgsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(metricsApiServerArgsTests
@@ -911,6 +919,7 @@ add_test(NAME MetricsApiServerArgsTests COMMAND metricsApiServerArgsTests)
 add_executable(incrementalTrainerArgsTests incremental_trainer_args_test.cpp
     ${CMAKE_SOURCE_DIR}/src/IncrementalTrainerArgs.cpp
     ${CMAKE_SOURCE_DIR}/src/Config.cpp  # TD-401: the strict number parser
+    ${CMAKE_SOURCE_DIR}/src/GenerationSettings.cpp  # TD-254: Config.cpp uses the shared generation limits
     ${CMAKE_SOURCE_DIR}/src/Logger.cpp)
 target_include_directories(incrementalTrainerArgsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(incrementalTrainerArgsTests
@@ -926,6 +935,7 @@ add_test(NAME IncrementalTrainerArgsTests COMMAND incrementalTrainerArgsTests)
 add_executable(registryServerArgsTests registry_server_args_test.cpp
     ${CMAKE_SOURCE_DIR}/src/RegistryServerArgs.cpp
     ${CMAKE_SOURCE_DIR}/src/Config.cpp  # TD-488: the strict number/boolean parsers
+    ${CMAKE_SOURCE_DIR}/src/GenerationSettings.cpp  # TD-254: Config.cpp uses the shared generation limits
     ${CMAKE_SOURCE_DIR}/src/Logger.cpp)
 # TD-306: parse_registry_admin_config() uses the vendored nlohmann/json.
 target_include_directories(registryServerArgsTests PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/external)
@@ -1229,6 +1239,7 @@ add_executable(incrementalTrainerControlTests
     ../src/ChatbotTrainer.cpp
     ../src/Logger.cpp
     ../src/Config.cpp
+    ../src/GenerationSettings.cpp  # TD-254: Config.cpp uses the shared generation limits
 )
 target_link_libraries(incrementalTrainerControlTests
     adai_models

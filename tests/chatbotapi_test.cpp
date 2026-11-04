@@ -95,6 +95,12 @@ class ChatbotAPITest : public ::testing::Test {
     std::string call_handle_chat_session(const std::string& request_body) {
         return api->handle_chat_session(request_body);
     }
+    std::string call_handle_chat(const std::string& request_body) {
+        return api->handle_chat(request_body);
+    }
+    ChatbotAPI::GenerationConfig call_generation_config_for(const std::string& request_body) {
+        return api->generation_config_for(request_body);
+    }
     std::string call_handle_batch_chat(const std::string& request_body) {
         return api->handle_batch_chat(request_body);
     }
@@ -251,6 +257,111 @@ TEST_F(ChatbotAPITest, BatchChatAcceptsMessagesWithBrackets) {
     const std::string response = call_handle_batch_chat(R"({"messages":["see [1] here","second"]})");
     EXPECT_NE(response.find("\"success\":true"), std::string::npos) << response;
     EXPECT_EQ(response.find("Missing or empty"), std::string::npos) << response;
+}
+
+// TD-254: a request's own generation settings replace the server's defaults for that request; the
+// rest keep the defaults. They used to be ignored, so the chatbot CLI's /set changed nothing.
+TEST_F(ChatbotAPITest, RequestGenerationSettingsReplaceTheDefaults) {
+    ChatbotAPI::GenerationConfig defaults;
+    defaults.max_length = 40;
+    defaults.temperature = 0.8f;
+    defaults.top_p = 0.9f;
+    defaults.top_k = 50;
+    defaults.beam_width = 4;
+    defaults.strategy = "nucleus";
+    api->set_generation_config(defaults);
+
+    const auto none = call_generation_config_for(R"({"message":"hi"})");
+    EXPECT_EQ(none.max_length, 40u);
+    EXPECT_FLOAT_EQ(none.temperature, 0.8f);
+    EXPECT_EQ(none.strategy, "nucleus");
+
+    const auto all = call_generation_config_for(
+        R"({"message":"hi","max_length":7,"temperature":0.2,"top_p":0.5,"top_k":5,"beam_width":3,"strategy":"greedy"})");
+    EXPECT_EQ(all.max_length, 7u);
+    EXPECT_FLOAT_EQ(all.temperature, 0.2f);
+    EXPECT_FLOAT_EQ(all.top_p, 0.5f);
+    EXPECT_EQ(all.top_k, 5u);
+    EXPECT_EQ(all.beam_width, 3u);
+    EXPECT_EQ(all.strategy, "greedy");
+
+    // Only what's sent changes; null counts as not sent.
+    const auto some = call_generation_config_for(R"({"message":"hi","temperature":0,"top_k":null})");
+    EXPECT_FLOAT_EQ(some.temperature, 0.0f);
+    EXPECT_EQ(some.top_k, 50u);
+    EXPECT_EQ(some.max_length, 40u);
+
+    // The defaults themselves are untouched.
+    EXPECT_EQ(call_generation_config_for(R"({"message":"hi"})").max_length, 40u);
+}
+
+TEST_F(ChatbotAPITest, RequestStrategyNamesIncludeTheCliAliases) {
+    const std::vector<std::pair<std::string, std::string>> names = {
+        {"greedy", "greedy"},  {"BEAM", "beam"},         {"temperature", "temperature"},
+        {"sampling", "temperature"}, {"top_k", "top_k"}, {"top-k", "top_k"},
+        {"topk", "top_k"},     {"nucleus", "nucleus"},   {"top-p", "nucleus"}};
+    for (const auto& [sent, used] : names) {
+        EXPECT_EQ(call_generation_config_for(R"({"strategy":")" + sent + "\"}").strategy, used) << sent;
+    }
+}
+
+TEST_F(ChatbotAPITest, RequestGenerationSettingsOutOfRangeAreBadRequests) {
+    const std::vector<std::string> bad = {
+        R"({"max_length":0})",       R"({"max_length":4097})",  R"({"max_length":1.5})",
+        R"({"max_length":"10"})",    R"({"temperature":-0.1})", R"({"temperature":2.5})",
+        R"({"temperature":"hot"})",  R"({"top_p":1.01})",       R"({"top_p":-1})",
+        R"({"top_k":0})",            R"({"top_k":1001})",       R"({"beam_width":0})",
+        R"({"beam_width":17})",      R"({"strategy":"fast"})",  R"({"strategy":3})",
+        R"({"max_length":99999999999999})"};
+    for (const auto& body : bad) {
+        EXPECT_THROW(call_generation_config_for(body), std::invalid_argument) << body;
+    }
+    // The limits themselves are accepted.
+    EXPECT_NO_THROW(call_generation_config_for(
+        R"({"max_length":4096,"temperature":2,"top_p":0,"top_k":1000,"beam_width":16})"));
+}
+
+// A bad setting is refused before anything happens: no session is created and an existing
+// conversation is left as it was.
+TEST_F(ChatbotAPITest, BadGenerationSettingLeavesTheSessionAlone) {
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 3;
+    config.strategy = "greedy";
+    api->set_generation_config(config);
+    const std::string sid = start_session();
+    ASSERT_FALSE(sid.empty());
+    const std::size_t sessions = call_session_count();
+
+    EXPECT_THROW(call_handle_chat_session(R"({"message":"hi","temperature":9})"), std::invalid_argument);
+    EXPECT_EQ(call_session_count(), sessions);
+    EXPECT_THROW(call_handle_chat_session(R"({"session_id":")" + sid + R"(","message":"hi","top_k":0})"),
+                 std::invalid_argument);
+    const std::string exported = call_handle_export_session(R"({"session_id":")" + sid + "\"}");
+    ConversationContext restored(20, 100000);
+    restored.deserialize(api->parse_json_string(exported, "data"));
+    EXPECT_EQ(restored.get_message_count(), 2u);
+
+    EXPECT_THROW(call_handle_chat(R"({"message":"hi","beam_width":99})"), std::invalid_argument);
+    EXPECT_THROW(call_handle_batch_chat(R"({"messages":["hi"],"max_length":0})"), std::invalid_argument);
+    EXPECT_THROW(call_handle_batch_chat_session(R"({"messages":["hi"],"strategy":"x"})"),
+                 std::invalid_argument);
+}
+
+// The settings reach generation: max_length 1 caps every handler's reply at one token, although the
+// server's default allows 40.
+TEST_F(ChatbotAPITest, RequestMaxLengthReachesGeneration) {
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 40;
+    config.strategy = "greedy";
+    api->set_generation_config(config);
+    const auto tokens = [this](const std::string& reply) -> std::size_t {
+        const std::string text = api->parse_json_string(reply, "response");
+        return text.empty() ? 0 : model->get_tokenizer()->encode(text, false).size();  // may stop at once
+    };
+    EXPECT_LE(tokens(call_handle_chat(R"({"message":"hello world","max_length":1})")), 1u);
+    EXPECT_LE(tokens(call_handle_chat_session(R"({"message":"hello world","max_length":1})")), 1u);
+    const std::string batch = call_handle_batch_chat(R"({"messages":["hello world"],"max_length":1})");
+    EXPECT_NE(batch.find("\"success\":true"), std::string::npos) << batch;
 }
 
 TEST_F(ChatbotAPITest, ParseJsonArray_MissingKey) {

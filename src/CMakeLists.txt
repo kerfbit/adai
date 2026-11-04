@@ -88,6 +88,7 @@ add_library(adai_core STATIC
     MetricsDatabase.cpp  # TD-441: IMetricsDatabase factory and shared helpers
     DaemonConfigStore.cpp
     SessionCounterStore.cpp  # TD-308: run/session counters, split out of DaemonConfigStore
+    GenerationSettings.cpp  # TD-254: generation ranges/strategy names (also compiled into chatbot)
     # TD-526/TD-550: shared refusal of browser-originated writes for every HTTP daemon.
     BrowserWriteGuard.cpp
     # TD-519: shared PUT /admin/config parser for TrainerAdminAPI and TrainerServiceProxy.
@@ -468,7 +469,7 @@ endif()
 # ============================================================================
 
 # Chatbot CLI - Interactive chatbot API client
-add_executable(chatbot ChatbotCLI_main.cpp ChatbotCLI.cpp)
+add_executable(chatbot ChatbotCLI_main.cpp ChatbotCLI.cpp GenerationSettings.cpp)  # TD-254
 # TD-159: was unconditional (no if(HTTPLIB_INCLUDE_DIR) guard) — on any platform where httplib
 # genuinely isn't found, that fed a literal NOTFOUND value into target_include_directories(),
 # which CMake treats as a hard configure-time error ("used in this project but set to NOTFOUND")

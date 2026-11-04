@@ -109,6 +109,29 @@ Request Body:
 }
 ```
 
+Optional generation settings (TD-254, November 3, 2026). Any of these replaces the server's default
+for this request only; the rest keep the server's defaults. `/chat/session`, `/chat/batch` and
+`/chat/batch-session` take the same fields (a batch applies them to every message). A value of the
+wrong type or out of range is `400 Bad Request` and nothing is generated (for `/chat/session`, the
+conversation is left as it was); `null` counts as absent.
+
+| Field | Type | Range |
+|---|---|---|
+| `max_length` | whole number | 1-4096 (also capped by the model's `max_seq_length`) |
+| `temperature` | number | 0-2 |
+| `top_p` | number | 0-1 |
+| `top_k` | whole number | 1-1000 |
+| `beam_width` | whole number | 1-16 |
+| `strategy` | string | `greedy`, `beam`, `temperature`, `top_k`, `nucleus`, in any case; `sampling`, `top-k`/`topk` and `top_p`/`top-p` are accepted as aliases |
+
+```json
+{
+  "message": "What is the capital of France?",
+  "strategy": "greedy",
+  "max_length": 40
+}
+```
+
 Response:
 
 ```json

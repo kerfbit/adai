@@ -2,7 +2,7 @@
 #define CHATBOT_CLI_HPP
 
 // @adai-status: stable
-// @adai-version: 1.2.1
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-11-03
 
 
@@ -10,6 +10,7 @@
 // every includer; forward-declare httplib::Client instead.
 #include <../external/cpp-httplib/httplib.h>
 #include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 
@@ -142,25 +143,41 @@ class ChatbotCLI {
         return conversation_save_path;
     }
 
-    // Setters for testing
+    /// TD-254: whether this setting (its JSON name: max_length, temperature, top_p, top_k, beam_width,
+    /// strategy) was changed by /set or a setter, and so is sent with each message. The others use
+    /// the server's defaults.
+    bool is_overridden(const std::string& setting) const {
+        return overridden.count(setting) > 0;
+    }
+
+    // Setters for testing; each one also sends that setting with each message (TD-254)
     void set_generation_strategy(const std::string& strategy) {
         generation_strategy = strategy;
+        overridden.insert("strategy");
     }
     void set_max_response_length(int length) {
         max_response_length = length;
+        overridden.insert("max_length");
     }
     void set_temperature(float temp) {
         temperature = temp;
+        overridden.insert("temperature");
     }
     void set_top_p(float p) {
         top_p = p;
+        overridden.insert("top_p");
     }
     void set_top_k(int k) {
         top_k = k;
+        overridden.insert("top_k");
     }
     void set_beam_width(int width) {
         beam_width = width;
+        overridden.insert("beam_width");
     }
+
+    /// The JSON body post_chat_turn() sends for user_input (TD-254: only overridden settings).
+    std::string chat_turn_body(const std::string& user_input) const;
 
    private:
     std::string server_url;
@@ -169,7 +186,9 @@ class ChatbotCLI {
 
     std::unique_ptr<httplib::Client> client;
 
-    // Generation parameters
+    // Generation parameters. TD-254: only those in `overridden` are sent; the server's own defaults
+    // apply to the rest, so these initial values are just placeholders.
+    std::set<std::string> overridden;
     int max_response_length{100};
     float temperature{1.0f};
     float top_p{0.9f};
