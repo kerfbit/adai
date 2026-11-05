@@ -18,6 +18,11 @@ after the owner asked about frequent "session gone, re-registering" warnings in 
 to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
 session: it re-registers, gets 409 because the session is live, retries into another 404, and the sample is never stored.
 
+**November 4, 2026:** Filed [TD-560](#td-560-tokenizer-should-keep-letter-case-in-new-vocabularies) through
+[TD-563](#td-563-rebuild-vocabularies-and-retrain-with-case-and-deploy-in-order) at the owner's request: the TD-224 decision is to keep letter case
+(GPT-2-style), applied in new vocabularies only. TD-560 is the tokenizer change, TD-561 a BLEU case mismatch that biases today's scores low
+(fixable now, independent of the rest), TD-562 vocabulary sizing and tooling, TD-563 the rebuild, retrain and deployment order.
+
 **November 4, 2026:** Filed [TD-558](#td-558-android-ops-dashboard-doesnt-show-per-sample-quality-reports) and
 [TD-559](#td-559-tizen-dashboard-doesnt-show-per-sample-quality-reports) at the owner's request with TD-273 (LOW): `metrics_api_server` now
 serves per-sample quality reports (`…/metrics/sample-quality`), but neither the Android ops dashboard nor the Tizen TV dashboard reads them.
@@ -2525,6 +2530,10 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-557: `trainer_service` Ignores `--help` and Bad Arguments](#td-557-trainer_service-ignores---help-and-bad-arguments)
   - [TD-558: Android Ops Dashboard Doesn't Show Per-Sample Quality Reports](#td-558-android-ops-dashboard-doesnt-show-per-sample-quality-reports)
   - [TD-559: Tizen Dashboard Doesn't Show Per-Sample Quality Reports](#td-559-tizen-dashboard-doesnt-show-per-sample-quality-reports)
+  - [TD-560: Tokenizer Should Keep Letter Case in New Vocabularies](#td-560-tokenizer-should-keep-letter-case-in-new-vocabularies)
+  - [TD-561: BLEU Compares Lowercase Output With Cased References](#td-561-bleu-compares-lowercase-output-with-cased-references)
+  - [TD-562: Vocabulary Sizing and Tools Assume Lowercase Text](#td-562-vocabulary-sizing-and-tools-assume-lowercase-text)
+  - [TD-563: Rebuild Vocabularies and Retrain With Case, and Deploy in Order](#td-563-rebuild-vocabularies-and-retrain-with-case-and-deploy-in-order)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -4852,7 +4861,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open — owner decision needed | NLP / Tokenizer | October 8, 2026 | Not estimated (requires a new vocab format version and retraining) |
+| LOW | Open — owner decision November 4, 2026: keep case (TD-560–TD-563); whitespace still undecided | NLP / Tokenizer | October 8, 2026 | Not estimated (requires a new vocab format version and retraining) |
 
 Description:
 Found alongside TD-220 and confirmed by running the real code. `pre_tokenize()` lowercases every
@@ -4872,6 +4881,13 @@ Action Items:
 - [ ] Owner decision: keep it (and document it as a product limitation), or move to
   case-preserving, whitespace-preserving tokenization (GPT-2-style, typically with byte-level
   fallback).
+  Decided November 4, 2026 for letter case: keep it, in new vocabularies only (option chosen over lowercase-plus-case-marker tokens
+  after measuring about 11–16% more tokens on local prose). Work filed as
+  [TD-560](#td-560-tokenizer-should-keep-letter-case-in-new-vocabularies) (tokenizer and v2 vocabulary format),
+  [TD-561](#td-561-bleu-compares-lowercase-output-with-cased-references) (BLEU case mismatch, independent),
+  [TD-562](#td-562-vocabulary-sizing-and-tools-assume-lowercase-text) (sizing and tools) and
+  [TD-563](#td-563-rebuild-vocabularies-and-retrain-with-case-and-deploy-in-order) (rebuild, retrain, deployment order). Whitespace
+  (newlines, tabs) is not yet decided.
 - [ ] If changed: bump the vocab file format (`# BPE Tokenizer Vocabulary v2.0` plus a
   normalization field), keep loading v1 files with the old normalization so existing checkpoints
   stay usable, and plan a retrain.
@@ -7842,7 +7858,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | NLP / ConversationContext | October 9, 2026 | 1-2 hours |
+| LOW | Open — owner decision November 4, 2026: special turn tokens; design proposal written | NLP / ConversationContext | October 9, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-291. `format_for_model()` writes plain-text `Role: content` lines, so message
@@ -7854,7 +7870,12 @@ custom role containing `|` or a newline would corrupt the file; a regular messag
 Action Items:
 
 - [ ] Escape (or reject) role strings in `serialize()`; restrict roles to a known set or a safe charset.
-- [ ] Consider neutralizing role-label prefixes inside content when formatting prompts.
+- [ ] Consider neutralizing role-label prefixes inside content when formatting prompts. Owner decision (November 4, 2026): rather than neutralizing text labels, use real turn tokens (`<system>`/`<user>`/
+      `<assistant>`) that only the prompt formatter can write. Text labels can't be made safe: the tokenizer lowercases and
+      collapses whitespace (TD-224), so typed labels and real ones look the same to the model. Design for review first:
+      [Conversation Turn Tokens](../../proposals/conversation_turn_tokens_plan.md) (vocabulary ids 4–6, id-based prompts, the
+      same format in training, generation masking, old vocabularies unchanged; needs a vocabulary rebuild and retrain, so best
+      done with TD-224 and the TD-358 retraining). No code has changed yet; the first item (role validation) stays open.
 
 Location in code: `src/ConversationContext.cpp` (`format_for_model()`, `serialize()`); tagged `TODO: See TD-295`.
 
@@ -18175,6 +18196,154 @@ Files to Modify:
 - `tizen-metrics-app/js/app.js`, `js/navigation.js`, `js/chart.js`
 - `tizen-metrics-app/index.html`, `tizen-metrics-app/css/`
 - `tizen-metrics-app/README.md`
+
+---
+
+### TD-560: Tokenizer Should Keep Letter Case in New Vocabularies
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open — owner decision November 4, 2026 (keep case) | NLP / Tokenizer | November 4, 2026 | 4-6 hours |
+
+Description:
+Filed at the owner's request to apply the TD-224 decision: keep letter case, as GPT-2-style tokenizers do. `BPETokenizer::pre_tokenize()`
+lowercases every input before the regex split (all bytes in ASCII mode, ASCII bytes in Unicode mode), so no model trained here can read
+or write a capital letter: replies are all lowercase, and names, acronyms, sentence starts and code identifiers are lost.
+
+Measured on local English prose (about 94,000 words from `docs/lessons/` and the license texts, with a Python copy of the tokenizer's
+regex and merge rule; 23% of words had a capital, more than typical prose because of all-caps legal text): keeping case raises distinct
+words by 23% and held-out token counts by 15.1% / 16.0% / 10.9% at vocabularies of 1,000 / 2,000 / 4,000 tokens. The cost falls as the
+vocabulary grows, since merges for both cases are learned. Expect roughly 10–15% fewer words per `max_seq_length` (and per TD-294
+session budget) and about that much more compute per sample. Lowercase-plus-marker tokens were the alternative considered (+12–16%,
+shared embeddings for "The"/"the"); the owner chose keeping case.
+
+This changes only new vocabularies. Existing vocabularies and checkpoints must keep working exactly as now.
+
+Action Items:
+
+- [ ] A normalization setting in the tokenizer: `cased` (no lowercasing in `pre_tokenize()`) or `lowercase` (today's behaviour), held by
+      `BPETokenizer` and applied in every path that pre-tokenizes (encode, `build_vocab()`, `recommend_vocab_size()`'s probe, Unicode
+      and ASCII modes). The regex patterns already match both cases.
+- [ ] Vocabulary file format v2: `save_vocab()` writes `# BPE Tokenizer Vocabulary v2.0` and a `NORMALIZATION CASED|LOWERCASE` header
+      line; `load_vocab()` reads it, and a file without it (every v1 file) loads as `lowercase`, so existing checkpoints are unaffected.
+      An unknown value is an error, not a silent default.
+- [ ] New vocabularies are `cased` by default (`build_vocab()`, `IncrementalTrainer::bootstrap_vocab()`, `vocab_builder`), with a way to
+      build a `lowercase` one deliberately (a `vocab_builder` flag and, if wanted, a `config.trainer.conf` key).
+- [ ] Every other `BPETokenizer` owner follows its vocabulary's setting: `LeJEPAEncoder`'s world-model tokenizer, `LLMEncoder`,
+      `DocumentStore`/RAG (which embeds with the model's tokenizer since TD-247).
+- [ ] Tests: v1 files load as lowercase and tokenize byte-for-byte as before; v2 cased round-trips "Hello World" with its capitals;
+      the header is written and read; an unknown normalization value is refused; `tokenizer_test.cpp`'s lowercase assertions are kept for
+      the lowercase mode and paired with cased ones.
+
+Whitespace (newlines, tabs collapsed to one space) is the other half of TD-224 and is not part of this decision; if it changes too, it
+should share this format version so vocabularies are rebuilt once.
+
+Location in code: `src/BPETokenizer.{hpp,cpp}` (`pre_tokenize()`, `save_vocab()`, `load_vocab()`, `build_vocab()`), `src/VocabBuilder.cpp`,
+`src/IncrementalTrainer.cpp` (`bootstrap_vocab()`).
+
+Files to Modify:
+
+- `src/BPETokenizer.{hpp,cpp}`, `src/VocabBuilder.cpp`, `src/VocabBuilderHelpers.hpp`, `src/IncrementalTrainer.cpp`
+- `tests/tokenizer_test.cpp` (and the vocab-file tests)
+- `docs/development/reference/source/BPETokenizer.md`, `docs/operations/OPERATIONS_MANUAL.md` (`vocab_builder`)
+
+---
+
+### TD-561: BLEU Compares Lowercase Output With Cased References
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / Metrics | November 4, 2026 | 1-2 hours |
+
+Description:
+Found November 4, 2026 while weighing TD-560 (by inspection). The per-epoch generation-quality metrics compare the model's generated
+reply (always lowercase, since the tokenizer lowercases everything, TD-224) with the validation target text as written in the dataset,
+capitals included (`ChatbotTrainer::compute_generation_quality_metrics()` and its async variant pass `target_text`; the generation
+backfill's `sentence_bleu()` likewise). `GenerationQualityEvaluator::tokenize_13a()` follows sacreBLEU's default, which is
+case-sensitive, so every capitalized reference word is a miss and BLEU-1/2/4 are biased low by however much of the references is
+capitalized. ROUGE is unaffected (`tokenize_rouge()` lowercases both sides, as rouge-score does). This exists today, independent of
+TD-560.
+
+Action Items:
+
+- [ ] Compare with the normalization the model's tokenizer applies: with a `lowercase` vocabulary, lowercase the references (as sacreBLEU's
+      `lowercase=True`) for BLEU and for the generation backfill's sentence BLEU; with a `cased` vocabulary (TD-560), keep BLEU
+      case-sensitive. Until TD-560 exists, lowercase always.
+- [ ] Note in the metrics docs that BLEU scores before the fix are biased low and not comparable with later ones.
+- [ ] Tests: a lowercase hypothesis against a capitalized identical reference scores 100 under a lowercase tokenizer.
+
+Location in code: `src/ChatbotTrainer.cpp` (`compute_generation_quality_metrics()`, `backfill_generation_quality()`),
+`src/GenerationQualityMetrics.{hpp,cpp}`.
+
+Files to Modify:
+
+- `src/ChatbotTrainer.cpp`, `src/GenerationQualityMetrics.{hpp,cpp}`
+- `tests/generation_quality_test.cpp`, `tests/chatbottrainer_test.cpp`
+- `docs/development/TRAINING_METRICS_API.md`, `docs/development/reference/source/GenerationQualityMetrics.md`
+
+---
+
+### TD-562: Vocabulary Sizing and Tools Assume Lowercase Text
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | NLP / Tokenizer | November 4, 2026 | 2-3 hours |
+
+Description:
+Filed with TD-560. With case kept, the same corpus has about 23% more distinct words (measured on local prose), so a vocabulary sized
+for lowercase text spends more of its tokens on case variants and splits more words. `BPETokenizer::recommend_vocab_size()` (used when
+`VOCAB_BUILD_SIZE=0`, the shipped default) counts words without regard to case, and the vocabulary tools and checks assume lowercase
+tokens.
+
+Action Items:
+
+- [ ] Make `recommend_vocab_size()` account for the normalization (count distinct pre-tokens as the tokenizer will see them, or scale for
+      case), so an auto-sized cased vocabulary isn't undersized; log the normalization with the chosen size.
+- [ ] `vocab_builder`: report the normalization it built with; `scripts/audit_vocab_merges.py` (TD-220) and any other vocabulary tooling
+      read the v2 header.
+- [ ] Re-measure the token cost on the real training data (the registry pool) at the chosen vocabulary size before the rebuild, and
+      record it next to the TD-560 numbers.
+
+Location in code: `src/BPETokenizer.cpp` (`recommend_vocab_size()`), `src/VocabBuilder.cpp`, `scripts/audit_vocab_merges.py`.
+
+Files to Modify:
+
+- `src/BPETokenizer.cpp`, `src/VocabBuilder.cpp`, `scripts/audit_vocab_merges.py`
+- `tests/tokenizer_test.cpp`
+
+---
+
+### TD-563: Rebuild Vocabularies and Retrain With Case, and Deploy in Order
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open (blocked on TD-560; best done with the TD-358 retraining) | Training / Operations | November 4, 2026 | Not estimated (retraining) |
+
+Description:
+Filed with TD-560. A cased vocabulary needs a newly trained model (its token ids differ), and the binaries that read it must understand
+the v2 header: `load_vocab()` today skips header lines it doesn't recognize, so an older `chatbot_api_server`, `incremental_trainer`
+or `vocab_builder` would load a v2 vocabulary and silently lowercase every input, which a cased model has never seen.
+
+Action Items:
+
+- [ ] Deploy binaries with TD-560 everywhere (`incremental_trainer`/`trainer_service` hosts, `chatbot_api_server`, `vocab_builder`, any
+      tool reading vocabularies) before the first cased vocabulary exists, and make new binaries refuse a vocabulary
+      format they don't know (so the next format change can't repeat this).
+- [ ] Rebuild the chatbot vocabulary (and the world model's, if it has its own) with case, in the same rebuild as the conversation turn
+      tokens ([proposal](../../proposals/conversation_turn_tokens_plan.md)) and, if decided, TD-224's whitespace change, then retrain
+      within the TD-358 retraining so checkpoints are retrained once.
+- [ ] Check the training data keeps its case through the pipeline (registry uploads, `DataFetcher`'s Gutenberg/HuggingFace cleaning,
+      the JSONL reader); none of it is known to lowercase, but verify on queued files.
+- [ ] After retraining, compare against the lowercase model: loss and perplexity per token aren't comparable across vocabularies, so use
+      generation quality (BLEU with TD-561's case handling, ROUGE) and a manual check of capitalization in replies.
+- [ ] Operator docs: which binaries must be updated first, how to build a cased vocabulary, and that RAG retrieval now distinguishes
+      case (`GPU` vs `gpu`).
+
+Location in code: none of its own; operations and training. Depends on TD-560 and TD-562; pairs with TD-358 and the turn-token proposal.
+
+Files to Modify:
+
+- `docs/operations/OPERATIONS_MANUAL.md`, `docs/operations/guides/training-guide.md`, deployment notes for ai-machine
 
 ---
 
