@@ -444,3 +444,19 @@ generation score opt-in.
   data order; negative or non-finite scores left out) and sends it with `IMetricsReporter::report_sample_quality()`.
 - `add_training_pair(ConversationPair)`/`add_validation_pair(ConversationPair)` keep a pair's dataset metadata; `IncrementalTrainer`
   now passes its loaded pairs that way. `get_training_pairs()`/`get_validation_pairs()` expose the pairs with their scores.
+
+## Addendum (November 4, 2026): the best-weights copy has its own directory (TD-274)
+
+The note above about `best_model_temp.bin` no longer applies. When `validate()` saves a new best for `restore_best_weights`, it
+uses a directory of this trainer's own, `<best_model_dir>/best_model_<16 random hex digits>/best.bin` (`adai::secure_random_hex()`),
+created on the first save of a `train()` call. `TrainingConfig::best_model_dir` defaults to empty, meaning the system temp
+directory; `IncrementalTrainer::make_incremental_config()` sets it to the session directory, since the copy is as large as a
+checkpoint. `remove_best_model_copy()` deletes the whole directory, every sidecar included: at the start of `train()`, after the
+restore, on `train()`'s failure path and in the destructor. Two trainers never share a copy, a later `train()` never restores an
+earlier call's best, and nothing is written to the working directory any more. A process killed mid-pass still leaves its
+directory behind in the session directory; nothing sweeps those.
+
+Checked with real `incremental_trainer` passes (20 pairs, 2 epochs, early stopping on) started from an empty working directory:
+the old binary left the 16 `best_model_temp.bin*` files there; the new one left nothing there or in the session directory. Both
+restored the best epoch.
+

@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.23.2
+// @adai-version: 0.23.3
 // @adai-reviewed: 2026-11-04
 
 #include "IncrementalTrainer.hpp"
@@ -335,6 +335,9 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     if (!svc.session_dir.empty()) {
         cfg.session_dir = svc.session_dir;
     }
+    // TD-274: the best-weights copy for restore_best_weights goes in the session directory (it can
+    // be as large as a checkpoint), not the working directory.
+    cfg.base_config.best_model_dir = cfg.session_dir;
 
     // Auto-save / checkpoint retention — previously always used the
     // hardcoded IncrementalConfig defaults regardless of config.conf.

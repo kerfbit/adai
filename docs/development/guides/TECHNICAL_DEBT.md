@@ -1480,6 +1480,7 @@ The generation and model math run is complete.
 - TD-268 (done in code: `ChatbotTrainer` ends every epoch on the metrics reporter, with validation loss 0 when there is no validation data, the epoch-average gradient norm and the epoch's duration; runs without a validation split used to record no epochs on the dashboard).
 - TD-271 (done in code: the validation split is chosen from each pair's own text, so the same data splits the same way on every pass; a tokenized cache loads only if it holds that split, and caches from the old random splits aren't reused).
 - TD-273 (done in code, owner decision: both quality backfills report to `metrics_api_server`, a per-epoch distribution and the lowest-scoring pairs per split; the loss score on by default (`LOSS_QUALITY_BACKFILL`), the per-pair generation score opt-in (`GENERATION_QUALITY_BACKFILL`); new `…/metrics/sample-quality` routes and `sample_quality` table).
+- TD-274 (done in code: the best-weights copy for `restore_best_weights` goes in a directory of the trainer's own under the session directory and is deleted after the restore; it used to be `best_model_temp.bin` in the working directory, shared and never removed).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -6961,7 +6962,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / ChatbotTrainer | October 9, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 4, 2026 | Training / ChatbotTrainer | October 9, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-267. With early stopping and `restore_best_weights` on, `validate()` saves each
@@ -6971,13 +6972,30 @@ directory. It's never cleaned up, it's shared by every trainer running in that d
 
 Action Items:
 
-- [ ] Save under the session directory (or a unique temp directory) and remove it after restoring.
+- [x] Save under the session directory (or a unique temp directory) and remove it after restoring. Both: a unique directory under the session directory (the system temp directory for a bare `ChatbotTrainer`).
 
-Location in code: `src/ChatbotTrainer.cpp` (`validate()`); tagged `TODO: See TD-274`.
+Fix (November 4, 2026): `validate()` saves the best weights to `<best_model_dir>/best_model_<random>/best.bin`, a directory of this
+trainer's own created on the first save of each `train()` call. `TrainingConfig::best_model_dir` is new: empty means the system temp
+directory, and `IncrementalTrainer::make_incremental_config()` sets it to the session directory, since the copy is as large as a
+checkpoint. `remove_best_model_copy()` deletes the directory with every sidecar at the start of `train()`, after the restore, on
+`train()`'s failure path and in the destructor, so a later `train()` can't restore an earlier call's best either. A process killed
+mid-pass still leaves its directory in the session directory; nothing sweeps those.
+
+Tests: `MetricsTrackerWiringTest.BestWeightsCopyIsPrivateAndRemovedAfterTraining`: during training the copy and its sidecars sit
+in one `best_model_*` directory under `best_model_dir`; it is gone after `train()` and after a second `train()`; nothing appears in
+the working directory; two trainers get different directories. Checked with real `incremental_trainer` passes (20 pairs, 2 epochs)
+run from an empty working directory: the old binary left the 16 `best_model_temp.bin*` files there, the new one nothing there or in
+the session directory; both restored the best epoch. Seen in the same check, not changed: the `latest_checkpoint.bin*`/
+`best_checkpoint.bin*` links (TD-005/TD-408) are created in the working directory by design.
+
+Location in code: `src/ChatbotTrainer.{hpp,cpp}` (`validate()`, `train()`, `remove_best_model_copy()`, destructor),
+`src/IncrementalTrainer.cpp` (`make_incremental_config()`).
 
 Files to Modify:
 
-- `src/ChatbotTrainer.cpp`
+- `src/ChatbotTrainer.{hpp,cpp}`
+- `src/IncrementalTrainer.cpp`
+- `tests/chatbottrainer_test.cpp`
 
 ---
 

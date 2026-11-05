@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.18.0
+// @adai-version: 0.18.1
 // @adai-reviewed: 2026-11-04
 
 #include "ChatbotTrainer.hpp"
@@ -21,6 +21,7 @@
 #include "ConversationContext.hpp"
 #include "GenerationQualityMetrics.hpp"
 #include "Logger.hpp"
+#include "SecureRandom.hpp"
 #include "gpu/GPUUtils.hpp"
 #ifdef ADAI_ENABLE_OPENMP
 #include <omp.h>
@@ -47,6 +48,20 @@ ChatbotTrainer::ChatbotTrainer(const TrainingConfig& cfg)
 
 ChatbotTrainer::~ChatbotTrainer() {
     join_generation_quality_thread();
+    remove_best_model_copy();  // TD-274: e.g. train() threw before restoring
+}
+
+void ChatbotTrainer::remove_best_model_copy() {
+    if (!best_model_work_dir_.empty()) {
+        std::error_code ec;
+        fs::remove_all(best_model_work_dir_, ec);
+        if (ec) {
+            adai::Logger::warn("Could not remove the best-model copy in '{}': {}",
+                               best_model_work_dir_, ec.message());
+        }
+    }
+    best_model_work_dir_.clear();
+    best_model_path.clear();
 }
 
 void ChatbotTrainer::join_generation_quality_thread() {
@@ -1926,10 +1941,18 @@ float ChatbotTrainer::validate() {
 
         // Save best model if early stopping is enabled
         if (config.enable_early_stopping && config.restore_best_weights) {
-            // TODO: See TD-274 in TECHNICAL_DEBT.md - fixed relative path in the working directory, shared by
-            // trainers there and never cleaned up.
-            best_model_path = "best_model_temp.bin";
             try {
+                // TD-274: this trainer's own directory (it used to be "best_model_temp.bin" in the
+                // working directory, shared by every trainer there and never removed).
+                if (best_model_work_dir_.empty()) {
+                    const fs::path base = config.best_model_dir.empty()
+                                              ? fs::temp_directory_path()
+                                              : fs::path(config.best_model_dir);
+                    const fs::path dir = base / ("best_model_" + adai::secure_random_hex(8));
+                    fs::create_directories(dir);
+                    best_model_work_dir_ = dir.string();
+                    best_model_path = (dir / "best.bin").string();
+                }
                 sync_host_from_device();  // TD-468
                 model->save_model(best_model_path);
                 adai::Logger::info("  💾 Best model saved temporarily");
@@ -2127,6 +2150,8 @@ void ChatbotTrainer::backfill_generation_quality() {
 bool ChatbotTrainer::train(int num_epochs) {
     config.num_epochs = num_epochs;
     was_aborted_ = false;
+    // TD-274: a copy left by an earlier train() call isn't this run's best.
+    remove_best_model_copy();
 
     try {
         // Initialize model if needed (this also initializes optimizer)
@@ -2271,6 +2296,7 @@ bool ChatbotTrainer::train(int num_epochs) {
                 adai::Logger::error("  Failed to restore best model weights: {}", e.what());
             }
         }
+        remove_best_model_copy();  // TD-274
 
         if (config.enable_generation_quality_backfill) {
             join_generation_quality_thread();  // finish any async scoring before backfill
@@ -2291,6 +2317,7 @@ bool ChatbotTrainer::train(int num_epochs) {
         }
         gpu_optimizer_.reset();
 #endif
+        remove_best_model_copy();  // TD-274
         return false;
     }
 }

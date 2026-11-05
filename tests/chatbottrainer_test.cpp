@@ -935,6 +935,83 @@ TEST_F(MetricsTrackerWiringTest, ReportsGenerationQualityAfterTrainingWhenEnable
     }
 }
 
+// TD-274: the best-weights copy for restore_best_weights lives in a directory of the trainer's own under
+// best_model_dir while training, and nothing is left afterwards; it used to be "best_model_temp.bin" (and
+// sidecars) in the working directory, shared by every trainer there and never removed.
+TEST_F(MetricsTrackerWiringTest, BestWeightsCopyIsPrivateAndRemovedAfterTraining) {
+    const std::filesystem::path base =
+        std::filesystem::temp_directory_path() / "adai_td274_best_model_dir";
+    std::filesystem::remove_all(base);
+    std::filesystem::create_directories(base);
+    auto best_dirs = [&base] {
+        std::vector<std::filesystem::path> dirs;
+        for (const auto& e : std::filesystem::directory_iterator(base))
+            if (e.is_directory() && e.path().filename().string().rfind("best_model_", 0) == 0)
+                dirs.push_back(e.path());
+        return dirs;
+    };
+    auto cwd_leftovers = [] {
+        int n = 0;
+        for (const auto& e : std::filesystem::directory_iterator(std::filesystem::current_path()))
+            if (e.path().filename().string().rfind("best_model_temp", 0) == 0)
+                ++n;
+        return n;
+    };
+    const int cwd_before = cwd_leftovers();
+
+    TrainingConfig config = tiny_config();
+    config.enable_early_stopping = true;
+    config.restore_best_weights = true;
+    config.patience = 100;
+    config.best_model_dir = base.string();
+    std::vector<std::filesystem::path> seen;  // the copy's directory each time a new best was saved
+    std::size_t files_in_copy = 0;
+    {
+        ChatbotTrainer trainer(config);
+        ASSERT_TRUE(trainer.build_vocabulary({"hello world", "how are you", "I am fine", "thank you"}, 100,
+                                             vocab_path_.string()));
+        trainer.add_training_pair("hello world", "how are you");
+        trainer.add_training_pair("I am fine", "thank you");
+        trainer.add_validation_pair("how are you", "I am fine");
+        trainer.set_best_model_callback([&](int, float) {
+            const auto dirs = best_dirs();
+            ASSERT_EQ(dirs.size(), 1u);
+            seen.push_back(dirs[0]);
+            files_in_copy = std::distance(std::filesystem::directory_iterator(dirs[0]),
+                                          std::filesystem::directory_iterator());
+        });
+        ASSERT_TRUE(trainer.train(3));
+        ASSERT_FALSE(seen.empty()) << "the first epoch is always a new best";
+        EXPECT_GT(files_in_copy, 1u) << "the copy and its sidecars sit in that directory";
+        for (const auto& d : seen) EXPECT_EQ(d, seen[0]) << "one directory per trainer";
+        EXPECT_TRUE(best_dirs().empty()) << "removed once the best weights are restored";
+
+        // A second train() call on the same trainer starts with a fresh copy and removes it again.
+        seen.clear();
+        ASSERT_TRUE(trainer.train(1));
+        EXPECT_TRUE(best_dirs().empty());
+    }
+    EXPECT_EQ(cwd_leftovers(), cwd_before) << "nothing is written to the working directory";
+
+    // Two trainers in one directory get different copies.
+    std::vector<std::filesystem::path> first_dirs;
+    ChatbotTrainer a(config), b(config);
+    for (ChatbotTrainer* t : {&a, &b}) {
+        ASSERT_TRUE(t->build_vocabulary({"hello world", "how are you"}, 100, vocab_path_.string()));
+        t->add_training_pair("hello world", "how are you");
+        t->add_validation_pair("how are you", "hello world");
+        t->set_best_model_callback([&](int, float) {
+            for (const auto& d : best_dirs())
+                if (std::find(first_dirs.begin(), first_dirs.end(), d) == first_dirs.end())
+                    first_dirs.push_back(d);
+        });
+        ASSERT_TRUE(t->train(1));
+    }
+    EXPECT_EQ(first_dirs.size(), 2u) << "each trainer has its own directory";
+    EXPECT_TRUE(best_dirs().empty());
+    std::filesystem::remove_all(base);
+}
+
 TEST_F(MetricsTrackerWiringTest, ExportsRealCsvAfterTraining) {
     ChatbotTrainer trainer(tiny_config());
     std::vector<std::string> corpus = {"hello world", "how are you", "I am fine", "thank you"};

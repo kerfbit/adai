@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added)
-// @adai-version: 0.13.2
+// @adai-version: 0.13.3
 // @adai-reviewed: 2026-11-04
-
 
 #include <atomic>
 #include <cstdint>
@@ -173,6 +172,11 @@ struct TrainingConfig {
     bool cache_tokenized_data = false;
     std::string tokenized_cache_dir = "tokenized_cache";
     std::string tokenized_cache_key;  // empty = cache effectively disabled for this run
+
+    // TD-274: where restore_best_weights keeps its copy of the best weights during train(), in a
+    // directory of its own (best_model_<random>) removed afterwards. Empty = the system temp
+    // directory. IncrementalTrainer sets its session directory.
+    std::string best_model_dir;
 };
 
 /**
@@ -300,7 +304,10 @@ class ChatbotTrainer {
 
     // Early stopping state
     int epochs_without_improvement{0};
-    std::string best_model_path;
+    std::string best_model_path;       // TD-274: inside best_model_work_dir_
+    std::string best_model_work_dir_;  // this trainer's own directory for the best-weights copy
+    // TD-274: deletes best_model_work_dir_ and everything in it (no-op when there is none).
+    void remove_best_model_copy();
     bool early_stopped{false};
 
     // TD-009: Per-epoch monitoring callback
