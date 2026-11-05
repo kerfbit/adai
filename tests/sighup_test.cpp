@@ -523,14 +523,12 @@ TEST_F(SighupTest, LejepaPassTrainsEachSegmentOnceAndReclaimsAfterACrash) {
     EXPECT_TRUE(WIFEXITED(status) && WEXITSTATUS(status) == 0) << "the crashed pass's claims weren't reclaimed";
 
     // One trained record per segment, each with its own 2 rows (the whole file's 4 each, before).
-    std::ifstream registry(fs::path(DatasetRegistry::local_pool_dir(dcfg)) / dcfg.data_registry_file);
+    // Read through LocalTransport, which knows the file format (JSON Lines since TD-496).
+    LocalTransport store((fs::path(DatasetRegistry::local_pool_dir(dcfg)) / dcfg.data_registry_file).string(), "");
+    std::vector<DataVersion> records;
+    ASSERT_TRUE(store.load_registry(records));
     std::vector<int> samples;
-    for (std::string line; std::getline(registry, line);) {
-        std::istringstream fields(line);
-        std::string file, checksum;
-        int n = -1;
-        if (fields >> file >> checksum >> n) samples.push_back(n);
-    }
+    for (const auto& dv : records) samples.push_back(dv.num_samples);
     EXPECT_EQ(samples, (std::vector<int>{2, 2}));
 }
 

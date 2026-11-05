@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.28.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 0.29.0
+// @adai-reviewed: 2026-11-05
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) draws from a CSPRNG
@@ -1505,6 +1505,13 @@ static void handle_pending_add(const httplib::Request& req, httplib::Response& r
         res.set_content("{\"error\":\"path required\"}", "application/json");
         return;
     }
+    // TD-496: control characters (tab, newline, ...) and invalid UTF-8 can't be queued.
+    if (const std::string problem = registry_path_problem(path); !problem.empty()) {
+        res.status = 400;
+        res.set_content(nlohmann::json{{"error", problem}}.dump(), "application/json");
+        Logger::warn("[{}] pending/add: rejected a path: {}", group, problem);
+        return;
+    }
     // TD-205: optional row-range segment — absent/-1 means "the whole file", exactly as before.
     const int segment_start = json_int(req.body, "segment_start", -1);
     const int segment_count = json_int(req.body, "segment_count", -1);
@@ -1830,6 +1837,14 @@ static void handle_upload(const httplib::Request& req, httplib::Response& res,
         res.set_content("{\"error\":\"filename must be a bare basename with no path separators\"}",
                         "application/json");
         Logger::warn("[{}] upload: rejected unsafe filename='{}'", group, filename);
+        return;
+    }
+    // TD-496: the name becomes a queued path, so the same rule as pending/add applies.
+    if (const std::string problem = registry_path_problem(filename); !problem.empty()) {
+        res.status = 400;
+        res.set_content(nlohmann::json{{"error", "filename: " + problem}}.dump(),
+                        "application/json");
+        Logger::warn("[{}] upload: rejected a filename: {}", group, problem);
         return;
     }
     if (req.body.empty()) {

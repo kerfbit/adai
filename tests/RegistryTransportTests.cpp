@@ -1003,3 +1003,178 @@ TEST_F(LocalTransportPhase9Test, AcquireThatCannotSaveClaimsNothing) {
     for (const auto& e : after)
         EXPECT_TRUE(e.run_id.empty());
 }
+
+// ============================================================================
+// TD-496: JSON Lines files; spaces, tabs and newlines in paths round-trip
+// ============================================================================
+
+TEST_F(LocalTransportPhase9Test, TrainedRecordWithSpaceInPathRoundTrips) {
+    LocalTransport t(reg_path_, pend_path_);
+    DataVersion dv;
+    dv.data_file = "/data/my file.jsonl";
+    dv.checksum = "1234:5678";
+    dv.num_samples = 42;
+    dv.trained = true;
+    dv.source = "upload";
+    dv.segment_start = 10;
+    dv.segment_count = 5;
+    ASSERT_TRUE(t.save_registry({dv}));
+
+    std::vector<DataVersion> loaded;
+    ASSERT_TRUE(t.load_registry(loaded));
+    ASSERT_EQ(loaded.size(), 1u);
+    EXPECT_EQ(loaded[0].data_file, "/data/my file.jsonl");
+    EXPECT_EQ(loaded[0].checksum, "1234:5678");
+    EXPECT_EQ(loaded[0].num_samples, 42);
+    EXPECT_TRUE(loaded[0].trained);
+    EXPECT_TRUE(loaded[0].model_id.empty());
+    EXPECT_EQ(loaded[0].source, "upload");
+    EXPECT_EQ(loaded[0].segment_start, 10);
+    EXPECT_EQ(loaded[0].segment_count, 5);
+}
+
+TEST_F(LocalTransportPhase9Test, PendingEntriesWithSpacesTabsAndNewlinesRoundTrip) {
+    // Paths like these can't be queued any more (registry_path_problem), but entries already in a
+    // queue, or written by other code, must still survive a save.
+    LocalTransport t(reg_path_, pend_path_);
+    std::vector<PendingEntry> entries(3);
+    entries[0].path = "/data/my file.jsonl";
+    entries[0].model_name = "model a";
+    entries[1].path = "/data/tab\there.jsonl";
+    entries[1].run_id = "run-01";
+    entries[1].claimed_unix = 1700000000;
+    entries[2].path = "/data/new\nline.jsonl";
+    entries[2].size_bytes = 9000000000ULL;
+    entries[2].num_entries = 7;
+    ASSERT_TRUE(t.save_pending(entries));
+
+    std::vector<PendingEntry> loaded;
+    ASSERT_TRUE(t.load_pending(loaded));
+    ASSERT_EQ(loaded.size(), 3u);
+    EXPECT_EQ(loaded[0].path, "/data/my file.jsonl");
+    EXPECT_EQ(loaded[0].model_name, "model a");
+    EXPECT_EQ(loaded[1].path, "/data/tab\there.jsonl");
+    EXPECT_EQ(loaded[1].run_id, "run-01");
+    EXPECT_EQ(loaded[1].claimed_unix, 1700000000);
+    EXPECT_EQ(loaded[2].path, "/data/new\nline.jsonl");
+    EXPECT_EQ(loaded[2].size_bytes, 9000000000ULL);
+    EXPECT_EQ(loaded[2].num_entries, 7);
+    EXPECT_EQ(loaded[2].segment_start, -1);
+}
+
+TEST_F(LocalTransportPhase9Test, OldFormatFilesLoadAndAreRewrittenAsJsonLines) {
+    {
+        std::ofstream reg(reg_path_);
+        reg << "# Data Registry: data_file checksum num_samples trained model_id added_utc source "
+               "segment_start segment_count\n";
+        reg << "/data/a.jsonl - 12 1 m-1 2026-10-01T00:00:00Z gutenberg 0 6\n";
+        reg << "/data/b.jsonl abc 3 0\n";
+        std::ofstream pend(pend_path_);
+        pend << "/data/c.jsonl\trun-02\tmodel-x\tupload\t2026-10-02T00:00:00Z\t100\t4\tck\t2\t2\t"
+                "1700000001\n";
+        pend << "/data/d.jsonl\n";
+    }
+    LocalTransport t(reg_path_, pend_path_);
+
+    for (int pass = 0; pass < 2; ++pass) {  // pass 0: old format; pass 1: after a save
+        SCOPED_TRACE(pass);
+        std::vector<DataVersion> reg;
+        ASSERT_TRUE(t.load_registry(reg));
+        ASSERT_EQ(reg.size(), 2u);
+        EXPECT_EQ(reg[0].data_file, "/data/a.jsonl");
+        EXPECT_TRUE(reg[0].checksum.empty());
+        EXPECT_EQ(reg[0].num_samples, 12);
+        EXPECT_TRUE(reg[0].trained);
+        EXPECT_EQ(reg[0].model_id, "m-1");
+        EXPECT_EQ(reg[0].added_utc, "2026-10-01T00:00:00Z");
+        EXPECT_EQ(reg[0].source, "gutenberg");
+        EXPECT_EQ(reg[0].segment_start, 0);
+        EXPECT_EQ(reg[0].segment_count, 6);
+        EXPECT_EQ(reg[1].checksum, "abc");
+        EXPECT_FALSE(reg[1].trained);
+        EXPECT_EQ(reg[1].segment_start, -1);
+
+        std::vector<PendingEntry> pend;
+        ASSERT_TRUE(t.load_pending(pend));
+        ASSERT_EQ(pend.size(), 2u);
+        EXPECT_EQ(pend[0].path, "/data/c.jsonl");
+        EXPECT_EQ(pend[0].run_id, "run-02");
+        EXPECT_EQ(pend[0].model_name, "model-x");
+        EXPECT_EQ(pend[0].source, "upload");
+        EXPECT_EQ(pend[0].size_bytes, 100u);
+        EXPECT_EQ(pend[0].num_entries, 4);
+        EXPECT_EQ(pend[0].checksum, "ck");
+        EXPECT_EQ(pend[0].segment_start, 2);
+        EXPECT_EQ(pend[0].segment_count, 2);
+        EXPECT_EQ(pend[0].claimed_unix, 1700000001);
+        EXPECT_EQ(pend[1].path, "/data/d.jsonl");
+
+        if (pass == 0) {
+            ASSERT_TRUE(t.save_registry(reg));
+            ASSERT_TRUE(t.save_pending(pend));
+        }
+    }
+
+    std::ifstream reg(reg_path_);
+    std::string first;
+    std::getline(reg, first);
+    EXPECT_EQ(first, "# adai data registry, JSON Lines v2");
+    std::ifstream pend(pend_path_);
+    std::getline(pend, first);
+    EXPECT_EQ(first, "# adai pending queue, JSON Lines v2");
+}
+
+TEST_F(LocalTransportPhase9Test, UnreadableJsonLineIsSkippedOthersKept) {
+    {
+        std::ofstream pend(pend_path_);
+        pend << "# adai pending queue, JSON Lines v2\n";
+        pend << "{\"path\":\"/data/one.jsonl\"}\n";
+        pend << "{\"path\":\"/data/cut\n";
+        pend << "{\"path\":\"/data/two.jsonl\",\"num_entries\":\"not a number\"}\n";
+    }
+    LocalTransport t(reg_path_, pend_path_);
+    std::vector<PendingEntry> pend;
+    ASSERT_TRUE(t.load_pending(pend));
+    ASSERT_EQ(pend.size(), 2u);
+    EXPECT_EQ(pend[0].path, "/data/one.jsonl");
+    EXPECT_EQ(pend[1].path, "/data/two.jsonl");
+    EXPECT_EQ(pend[1].num_entries, -1);  // a mistyped field takes its default
+}
+
+TEST_F(LocalTransportPhase9Test, AddPendingRefusesControlCharactersButTakesSpaces) {
+    LocalTransport t(reg_path_, pend_path_);
+    EXPECT_TRUE(t.add_pending("/data/my file.jsonl"));
+    EXPECT_FALSE(t.add_pending("/data/tab\tfile.jsonl"));
+    EXPECT_FALSE(t.add_pending("/data/new\nline.jsonl"));
+    EXPECT_FALSE(t.add_pending(std::string("/data/bad\xff.jsonl")));
+    EXPECT_FALSE(t.add_pending(""));
+
+    std::vector<PendingEntry> pend;
+    ASSERT_TRUE(t.load_pending(pend));
+    ASSERT_EQ(pend.size(), 1u);
+    EXPECT_EQ(pend[0].path, "/data/my file.jsonl");
+}
+
+TEST(RegistryPathProblemTest, AcceptsOrdinaryAndNonAsciiPaths) {
+    EXPECT_EQ(registry_path_problem("/data/a.jsonl"), "");
+    EXPECT_EQ(registry_path_problem("/data/my file.jsonl"), "");
+    EXPECT_EQ(registry_path_problem("/data/caf\xc3\xa9/\xe6\x97\xa5\xe6\x9c\xac.jsonl"), "");
+    EXPECT_EQ(registry_path_problem("/data/\xf0\x9f\x98\x80.jsonl"), "");  // U+1F600
+    EXPECT_EQ(registry_path_problem("C:\\data\\a.jsonl"), "");
+}
+
+TEST(RegistryPathProblemTest, RejectsControlCharactersAndInvalidUtf8) {
+    EXPECT_NE(registry_path_problem(""), "");
+    EXPECT_NE(registry_path_problem("a\tb"), "");
+    EXPECT_NE(registry_path_problem("a\nb"), "");
+    EXPECT_NE(registry_path_problem("a\rb"), "");
+    EXPECT_NE(registry_path_problem(std::string("a\0b", 3)), "");
+    EXPECT_NE(registry_path_problem("a\x7f"), "");
+    EXPECT_NE(registry_path_problem("a\xc2\x85"), "");          // U+0085 NEXT LINE (C1 control)
+    EXPECT_NE(registry_path_problem("a\xff"), "");              // not a lead byte
+    EXPECT_NE(registry_path_problem("a\xc3"), "");              // cut-off sequence
+    EXPECT_NE(registry_path_problem("a\xc0\xaf"), "");          // overlong '/'
+    EXPECT_NE(registry_path_problem("a\xe0\x80\xaf"), "");      // overlong '/'
+    EXPECT_NE(registry_path_problem("a\xed\xa0\x80"), "");      // surrogate U+D800
+    EXPECT_NE(registry_path_problem("a\xf4\x90\x80\x80"), "");  // above U+10FFFF
+}

@@ -1498,6 +1498,8 @@ The generation and model math run is complete.
 - TD-495 (done in code: queue and registry saves go through a temporary file, fsync and rename (`adai::write_file_atomically()`), so a
   failed write keeps the old file whole; `registry_server` answers 500 instead of reporting success; it used to keep 60 of 300 entries
   under a simulated full disk).
+- TD-496 (done in code: both registry files are JSON Lines, old formats still read; a path with a space round-trips, control characters
+  and invalid UTF-8 are refused at add and upload).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -15554,7 +15556,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / RegistryTransport | October 17, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 5, 2026 | Data / RegistryTransport | October 17, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `RegistryTransport.cpp`; verified. The trained registry is space-separated and read with `>>`: a record for
@@ -15564,16 +15566,37 @@ tab-separated, so a path containing a tab or newline (also accepted by upload) b
 
 Action Items:
 
-- [ ] Switch both files to an escaped or structured format (JSON Lines), reading the old formats for migration.
-- [ ] Until then, reject paths containing whitespace control characters at `add_pending`/upload, and spaces in upload names.
+- [x] Switch both files to an escaped or structured format (JSON Lines), reading the old formats for migration.
+- [x] Reject paths containing control characters at `add_pending`/upload. Spaces stay allowed, since the new format stores them.
 
-Location in code: `src/RegistryTransport.cpp` (`LocalTransport::load_registry()`/`save_registry()`, `load_pending()`/`save_pending()`); tagged `TODO: See TD-496`.
+Fix (November 5, 2026): `data_registry.txt` and `pending_files.txt` keep their names but are now JSON Lines: a header line
+(`# adai data registry, JSON Lines v2` / `# adai pending queue, JSON Lines v2`), then one JSON object per entry with every field named.
+A file without the header is read in the old space- or tab-separated format, so existing queues and registries load unchanged and are
+written in the new format by the next save. A line that isn't a JSON object is skipped with an error log; a mistyped field takes its
+default. Paths with invalid UTF-8 stored before the fix are written with U+FFFD instead of making the save throw.
+A new `registry_path_problem()` (`RegistryTransport.hpp`) refuses empty paths, control characters (C0, DEL and C1, so tab, newline
+and carriage return) and invalid UTF-8. `LocalTransport::add_pending()` returns false for such a path (`dataset_manager add` exits 1),
+and `registry_server` answers 400 to `pending/add` and to an upload `filename` that fails it. Spaces and non-ASCII names are accepted.
+Older binaries can't read the new files (they would take each JSON line as a path), so roll back `registry_server`, `dataset_manager`
+and `incremental_trainer` together, or restore the files from before the upgrade.
+`RemoteTransport` still has TD-497's own parsing gaps (`}`, `"`, `\\`); spaces and tabs go through it unchanged.
+
+Tests: `LocalTransportPhase9Test` `TrainedRecordWithSpaceInPathRoundTrips`, `PendingEntriesWithSpacesTabsAndNewlinesRoundTrip`,
+`OldFormatFilesLoadAndAreRewrittenAsJsonLines`, `UnreadableJsonLineIsSkippedOthersKept`,
+`AddPendingRefusesControlCharactersButTakesSpaces`; `RegistryPathProblemTest` (2). On the old code the first five fail (the spaced path came
+back as `/data/my`, untrained; a newline split one entry into two; tab, newline and invalid UTF-8 paths were queued). Checked with the real
+`registry_server`: an old-format group loads and is rewritten as JSON Lines, `my file.jsonl` uploads, trains and reloads after a restart as
+one trained record, a tab in an upload name and a newline in `pending/add` get 400; `datasetRegistryLiveTests` (106) pass against it.
+`dataset_manager add` queues a spaced path and refuses a tab. Tests that read or edited the files by hand (the live test's claim helper, `SighupTest.LejepaPassTrainsEachSegmentOnceAndReclaimsAfterACrash`) now go through `LocalTransport`.
+
+Location in code: `src/RegistryTransport.cpp` (`LocalTransport::load_registry()`/`save_registry()`, `load_pending()`/`save_pending()`,
+`add_pending()`, `registry_path_problem()`), `src/RegistryServer.cpp` (`handle_pending_add()`, `handle_upload()`).
 
 Files to Modify:
 
-- `src/RegistryTransport.cpp`
+- `src/RegistryTransport.{hpp,cpp}`
 - `src/RegistryServer.cpp`
-- `tests/RegistryTransportTests.cpp`
+- `tests/RegistryTransportTests.cpp`, `tests/dataset_registry_live_test.cpp`, `tests/sighup_test.cpp`
 
 ---
 

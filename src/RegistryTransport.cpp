@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.7.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 1.8.0
+// @adai-reviewed: 2026-11-05
 
 #include "RegistryTransport.hpp"
 #include <fcntl.h>  // open(), O_RDWR
@@ -26,6 +26,7 @@
 #include <sstream>
 #include "AtomicFile.hpp"
 #include "Logger.hpp"
+#include "nlohmann/json.hpp"
 
 #ifdef BUILD_METRICS_API_SERVER
 #include <httplib.h>
@@ -33,6 +34,218 @@
 
 using adai::Logger;
 namespace fs = std::filesystem;
+
+// ── TD-496: file formats ──────────────────────────────────────────────────────
+//
+// Both files are JSON Lines: a header line, then one JSON object per entry. They used to be a
+// space-separated registry read with >> and a tab-separated queue, so '/data/my file.jsonl' came
+// back as data_file '/data/my', checksum 'file.jsonl', trained=false, and a tab or newline in a
+// path broke the queue the same way. A file without the header is read in the old format and is
+// written in the new one by the next save.
+
+namespace {
+
+constexpr const char* kRegistryHeader = "# adai data registry, JSON Lines v2";
+constexpr const char* kPendingHeader = "# adai pending queue, JSON Lines v2";
+
+std::string dump_line(const nlohmann::json& j) {
+    // replace: a path stored before TD-496 may hold invalid UTF-8; dump() would otherwise throw.
+    return j.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+}
+
+std::string json_str(const nlohmann::json& j, const char* key) {
+    const auto it = j.find(key);
+    return (it != j.end() && it->is_string()) ? it->get<std::string>() : std::string();
+}
+
+template <typename T>
+T json_num(const nlohmann::json& j, const char* key, T fallback) {
+    const auto it = j.find(key);
+    return (it != j.end() && it->is_number_integer()) ? it->get<T>() : fallback;
+}
+
+// Reads @p path's lines; @p is_jsonl is set when the first line is @p header (it is not returned).
+bool read_lines(const std::string& path, const char* header, std::vector<std::string>& lines,
+                bool& is_jsonl) {
+    if (!fs::exists(path)) {
+        return false;
+    }
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        return false;
+    }
+    lines.clear();
+    is_jsonl = false;
+    std::string line;
+    bool first = true;
+    while (std::getline(file, line)) {
+        if (first) {
+            first = false;
+            if (line == header) {
+                is_jsonl = true;
+                continue;
+            }
+        }
+        lines.push_back(std::move(line));
+    }
+    return true;
+}
+
+// Parses one JSON Lines entry; logs and returns a discarded value when it isn't an object.
+nlohmann::json parse_entry(const std::string& line, const std::string& file) {
+    auto j = nlohmann::json::parse(line, nullptr, /*allow_exceptions=*/false);
+    if (!j.is_object()) {
+        Logger::error("LocalTransport: skipping an unreadable line in '{}': {}", file, line);
+        return nlohmann::json(nlohmann::json::value_t::discarded);
+    }
+    return j;
+}
+
+// The pre-TD-496 trained registry line: space-separated columns, "-" for an empty value.
+DataVersion parse_legacy_registry_line(const std::string& line) {
+    std::istringstream iss(line);
+    DataVersion dv;
+    int trained_int = 0;
+    iss >> dv.data_file >> dv.checksum >> dv.num_samples >> trained_int;
+    dv.trained = (trained_int == 1);
+    if (dv.checksum == "-")
+        dv.checksum.clear();  // written for an empty checksum so later columns don't shift
+
+    // model_id (Phase 2), added_utc/source (Phase 15) are optional trailing
+    // columns, absent in older files. "-" is a written placeholder for an
+    // empty value: with whitespace-delimited >>, an empty middle column
+    // can't otherwise be distinguished from "no more columns" and would
+    // silently shift every column after it.
+    std::string tok;
+    if (iss >> tok)
+        dv.model_id = (tok == "-") ? "" : tok;
+    if (iss >> tok)
+        dv.added_utc = (tok == "-") ? "" : tok;
+    if (iss >> tok)
+        dv.source = (tok == "-") ? "" : tok;
+    // TD-333: optional segment columns (absent in older files = whole file).
+    int seg_start = -1, seg_count = -1;
+    if (iss >> seg_start >> seg_count) {
+        dv.segment_start = seg_start;
+        dv.segment_count = seg_count;
+    }
+    return dv;
+}
+
+// The pre-TD-496 queue line:
+// path[\trun_id[\tmodel_name[\tsource[\tadded_utc[\tsize_bytes[\tnum_entries[\tchecksum[\tsegment_start[\tsegment_count[\tclaimed_unix]]]]]]]]]]
+// Each trailing column was added in a later phase (run_id: Phase 9, model_name: Phase 11-ish,
+// source/added_utc/size_bytes/num_entries/checksum: Phase 15, segment_start/segment_count:
+// TD-205, claimed_unix: TD-494) — split on tab and assign positionally so shorter lines from
+// older files keep loading with defaults for the columns they predate.
+PendingEntry parse_legacy_pending_line(const std::string& line) {
+    std::vector<std::string> cols;
+    std::size_t start = 0;
+    while (true) {
+        const auto tab = line.find('\t', start);
+        if (tab == std::string::npos) {
+            cols.push_back(line.substr(start));
+            break;
+        }
+        cols.push_back(line.substr(start, tab - start));
+        start = tab + 1;
+    }
+
+    PendingEntry e;
+    e.path = cols[0];
+    if (cols.size() > 1)
+        e.run_id = cols[1];
+    if (cols.size() > 2)
+        e.model_name = cols[2];
+    if (cols.size() > 3)
+        e.source = cols[3];
+    if (cols.size() > 4)
+        e.added_utc = cols[4];
+    if (cols.size() > 5 && !cols[5].empty()) {
+        try {
+            e.size_bytes = static_cast<std::size_t>(std::stoull(cols[5]));
+        } catch (...) {
+        }
+    }
+    if (cols.size() > 6 && !cols[6].empty()) {
+        try {
+            e.num_entries = std::stoi(cols[6]);
+        } catch (...) {
+        }
+    }
+    if (cols.size() > 7)
+        e.checksum = cols[7];
+    if (cols.size() > 8 && !cols[8].empty()) {
+        try {
+            e.segment_start = std::stoi(cols[8]);
+        } catch (...) {
+        }
+    }
+    if (cols.size() > 9 && !cols[9].empty()) {
+        try {
+            e.segment_count = std::stoi(cols[9]);
+        } catch (...) {
+        }
+    }
+    if (cols.size() > 10 && !cols[10].empty()) {  // TD-494
+        try {
+            e.claimed_unix = std::stoll(cols[10]);
+        } catch (...) {
+        }
+    }
+    return e;
+}
+
+}  // namespace
+
+std::string registry_path_problem(const std::string& path) {
+    if (path.empty()) {
+        return "path is empty";
+    }
+    for (std::size_t i = 0; i < path.size();) {
+        const auto c = static_cast<unsigned char>(path[i]);
+        if (c < 0x20 || c == 0x7F) {
+            return "path contains a control character (tab, newline, ...)";
+        }
+        // UTF-8: the sequence length from the lead byte, then that many continuation bytes,
+        // rejecting overlong forms, surrogates and code points above U+10FFFF.
+        std::size_t len = 1;
+        unsigned int cp = c;
+        if (c >= 0x80) {
+            if (c >= 0xC2 && c <= 0xDF) {
+                len = 2;
+                cp = c & 0x1F;
+            } else if (c >= 0xE0 && c <= 0xEF) {
+                len = 3;
+                cp = c & 0x0F;
+            } else if (c >= 0xF0 && c <= 0xF4) {
+                len = 4;
+                cp = c & 0x07;
+            } else {
+                return "path is not valid UTF-8";
+            }
+            if (i + len > path.size()) {
+                return "path is not valid UTF-8";
+            }
+            for (std::size_t k = 1; k < len; ++k) {
+                const auto cc = static_cast<unsigned char>(path[i + k]);
+                if ((cc & 0xC0) != 0x80) {
+                    return "path is not valid UTF-8";
+                }
+                cp = (cp << 6) | (cc & 0x3F);
+            }
+            if ((len == 3 && cp < 0x800) || (len == 4 && (cp < 0x10000 || cp > 0x10FFFF)) ||
+                (cp >= 0xD800 && cp <= 0xDFFF)) {
+                return "path is not valid UTF-8";
+            }
+            if (cp >= 0x80 && cp <= 0x9F) {
+                return "path contains a control character (tab, newline, ...)";
+            }
+        }
+        i += len;
+    }
+    return {};
+}
 
 // ============================================================================
 // LocalTransport
@@ -42,50 +255,36 @@ LocalTransport::LocalTransport(std::string registry_path, std::string pending_pa
     : registry_path_(std::move(registry_path)), pending_path_(std::move(pending_path)) {}
 
 bool LocalTransport::load_registry(std::vector<DataVersion>& out) {
-    if (!fs::exists(registry_path_)) {
-        return false;
-    }
-
-    std::ifstream file(registry_path_);
-    if (!file.is_open()) {
+    std::vector<std::string> lines;
+    bool is_jsonl = false;
+    if (!read_lines(registry_path_, kRegistryHeader, lines, is_jsonl)) {
         return false;
     }
 
     out.clear();
-    std::string line;
-    while (std::getline(file, line)) {
+    for (const auto& line : lines) {
         if (line.empty() || line[0] == '#') {
             continue;
         }
-
-        std::istringstream iss(line);
-        DataVersion dv;
-        int trained_int = 0;
-        // TODO: See TD-496 in TECHNICAL_DEBT.md - '/data/my file.jsonl' loads as data_file '/data/my', trained=false.
-        iss >> dv.data_file >> dv.checksum >> dv.num_samples >> trained_int;
-        dv.trained = (trained_int == 1);
-        if (dv.checksum == "-")
-            dv.checksum.clear();  // written for an empty checksum so later columns don't shift
-
-        // model_id (Phase 2), added_utc/source (Phase 15) are optional trailing
-        // columns, absent in older files. "-" is a written placeholder for an
-        // empty value: with whitespace-delimited >>, an empty middle column
-        // can't otherwise be distinguished from "no more columns" and would
-        // silently shift every column after it.
-        std::string tok;
-        if (iss >> tok)
-            dv.model_id = (tok == "-") ? "" : tok;
-        if (iss >> tok)
-            dv.added_utc = (tok == "-") ? "" : tok;
-        if (iss >> tok)
-            dv.source = (tok == "-") ? "" : tok;
-        // TD-333: optional segment columns (absent in older files = whole file).
-        int seg_start = -1, seg_count = -1;
-        if (iss >> seg_start >> seg_count) {
-            dv.segment_start = seg_start;
-            dv.segment_count = seg_count;
+        if (!is_jsonl) {
+            out.push_back(parse_legacy_registry_line(line));
+            continue;
         }
-
+        const auto j = parse_entry(line, registry_path_);
+        if (j.is_discarded()) {
+            continue;
+        }
+        DataVersion dv;
+        dv.data_file = json_str(j, "data_file");
+        dv.checksum = json_str(j, "checksum");
+        dv.num_samples = json_num(j, "num_samples", 0);
+        const auto trained = j.find("trained");
+        dv.trained = trained != j.end() && trained->is_boolean() && trained->get<bool>();
+        dv.model_id = json_str(j, "model_id");
+        dv.added_utc = json_str(j, "added_utc");
+        dv.source = json_str(j, "source");
+        dv.segment_start = json_num(j, "segment_start", -1);
+        dv.segment_count = json_num(j, "segment_count", -1);
         out.push_back(std::move(dv));
     }
 
@@ -94,19 +293,20 @@ bool LocalTransport::load_registry(std::vector<DataVersion>& out) {
 
 // TD-495: written to a temporary file and renamed over the registry, so a failed write (disk full)
 // leaves the old file whole; it used to truncate and rewrite in place.
-// TODO: See TD-496 in TECHNICAL_DEBT.md - space-separated columns: a path with a space corrupts the
-// record.
 bool LocalTransport::save_registry(const std::vector<DataVersion>& entries) {
     std::ostringstream file;
-
-    auto col = [](const std::string& s) { return s.empty() ? std::string("-") : s; };
-
-    file << "# Data Registry: data_file checksum num_samples trained model_id added_utc source "
-            "segment_start segment_count\n";
+    file << kRegistryHeader << '\n';
     for (const auto& dv : entries) {
-        file << dv.data_file << " " << col(dv.checksum) << " " << dv.num_samples << " "
-             << (dv.trained ? 1 : 0) << " " << col(dv.model_id) << " " << col(dv.added_utc) << " "
-             << col(dv.source) << " " << dv.segment_start << " " << dv.segment_count << "\n";
+        file << dump_line({{"data_file", dv.data_file},
+                           {"checksum", dv.checksum},
+                           {"num_samples", dv.num_samples},
+                           {"trained", dv.trained},
+                           {"model_id", dv.model_id},
+                           {"added_utc", dv.added_utc},
+                           {"source", dv.source},
+                           {"segment_start", dv.segment_start},
+                           {"segment_count", dv.segment_count}})
+             << '\n';
     }
 
     const std::string error = adai::write_file_atomically(registry_path_, file.str());
@@ -118,82 +318,38 @@ bool LocalTransport::save_registry(const std::vector<DataVersion>& entries) {
 }
 
 bool LocalTransport::load_pending(std::vector<PendingEntry>& out) {
-    if (!fs::exists(pending_path_)) {
-        return false;
-    }
-
-    std::ifstream file(pending_path_);
-    if (!file.is_open()) {
+    std::vector<std::string> lines;
+    bool is_jsonl = false;
+    if (!read_lines(pending_path_, kPendingHeader, lines, is_jsonl)) {
         return false;
     }
 
     out.clear();
-    std::string line;
-    while (std::getline(file, line)) {
+    for (const auto& line : lines) {
         if (line.empty())
             continue;
-
-        // Format: path[\trun_id[\tmodel_name[\tsource[\tadded_utc[\tsize_bytes[\tnum_entries[\tchecksum[\tsegment_start[\tsegment_count]]]]]]]]]
-        // Each trailing column was added in a later phase (run_id: Phase 9,
-        // model_name: Phase 11-ish, source/added_utc/size_bytes/num_entries/
-        // checksum: Phase 15, segment_start/segment_count: TD-205) — split on tab and assign
-        // positionally so shorter lines from older files keep loading with defaults for the
-        // columns they predate.
-        std::vector<std::string> cols;
-        std::size_t start = 0;
-        while (true) {
-            const auto tab = line.find('\t', start);
-            if (tab == std::string::npos) {
-                cols.push_back(line.substr(start));
-                break;
-            }
-            cols.push_back(line.substr(start, tab - start));
-            start = tab + 1;
+        if (!is_jsonl) {
+            out.push_back(parse_legacy_pending_line(line));
+            continue;
         }
-
+        if (line[0] == '#')
+            continue;
+        const auto j = parse_entry(line, pending_path_);
+        if (j.is_discarded()) {
+            continue;
+        }
         PendingEntry e;
-        e.path = cols[0];
-        if (cols.size() > 1)
-            e.run_id = cols[1];
-        if (cols.size() > 2)
-            e.model_name = cols[2];
-        if (cols.size() > 3)
-            e.source = cols[3];
-        if (cols.size() > 4)
-            e.added_utc = cols[4];
-        if (cols.size() > 5 && !cols[5].empty()) {
-            try {
-                e.size_bytes = static_cast<std::size_t>(std::stoull(cols[5]));
-            } catch (...) {
-            }
-        }
-        if (cols.size() > 6 && !cols[6].empty()) {
-            try {
-                e.num_entries = std::stoi(cols[6]);
-            } catch (...) {
-            }
-        }
-        if (cols.size() > 7)
-            e.checksum = cols[7];
-        if (cols.size() > 8 && !cols[8].empty()) {
-            try {
-                e.segment_start = std::stoi(cols[8]);
-            } catch (...) {
-            }
-        }
-        if (cols.size() > 9 && !cols[9].empty()) {
-            try {
-                e.segment_count = std::stoi(cols[9]);
-            } catch (...) {
-            }
-        }
-        if (cols.size() > 10 && !cols[10].empty()) {  // TD-494
-            try {
-                e.claimed_unix = std::stoll(cols[10]);
-            } catch (...) {
-            }
-        }
-
+        e.path = json_str(j, "path");
+        e.run_id = json_str(j, "run_id");
+        e.model_name = json_str(j, "model_name");
+        e.source = json_str(j, "source");
+        e.added_utc = json_str(j, "added_utc");
+        e.size_bytes = json_num<std::size_t>(j, "size_bytes", 0);
+        e.num_entries = json_num(j, "num_entries", -1);
+        e.checksum = json_str(j, "checksum");
+        e.segment_start = json_num(j, "segment_start", -1);
+        e.segment_count = json_num(j, "segment_count", -1);
+        e.claimed_unix = json_num<long long>(j, "claimed_unix", 0);
         out.push_back(std::move(e));
     }
 
@@ -201,14 +357,22 @@ bool LocalTransport::load_pending(std::vector<PendingEntry>& out) {
 }
 
 // TD-495: written to a temporary file and renamed over the queue (a simulated disk-full rewrite in
-// place used to keep 114 of 2,001 entries). TD-496: tab/newline in a path breaks the format.
+// place used to keep 114 of 2,001 entries).
 bool LocalTransport::save_pending(const std::vector<PendingEntry>& entries) {
     std::ostringstream file;
-
+    file << kPendingHeader << '\n';
     for (const auto& e : entries) {
-        file << e.path << '\t' << e.run_id << '\t' << e.model_name << '\t' << e.source << '\t'
-             << e.added_utc << '\t' << e.size_bytes << '\t' << e.num_entries << '\t' << e.checksum
-             << '\t' << e.segment_start << '\t' << e.segment_count << '\t' << e.claimed_unix
+        file << dump_line({{"path", e.path},
+                           {"run_id", e.run_id},
+                           {"model_name", e.model_name},
+                           {"source", e.source},
+                           {"added_utc", e.added_utc},
+                           {"size_bytes", e.size_bytes},
+                           {"num_entries", e.num_entries},
+                           {"checksum", e.checksum},
+                           {"segment_start", e.segment_start},
+                           {"segment_count", e.segment_count},
+                           {"claimed_unix", e.claimed_unix}})
              << '\n';
     }
 
@@ -431,6 +595,10 @@ void LocalTransport::commit_trained(const std::string& run_id,
 }
 
 bool LocalTransport::add_pending(const std::string& path, int segment_start, int segment_count) {
+    if (const std::string problem = registry_path_problem(path); !problem.empty()) {
+        Logger::error("LocalTransport::add_pending — refusing '{}': {}", path, problem);
+        return false;
+    }
     const int lock_fd = lock_pending();
     if (lock_fd < 0) {
         Logger::error("LocalTransport::add_pending — failed to acquire pending lock");

@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.7.1
-// @adai-reviewed: 2026-11-03
-
+// @adai-version: 1.8.0
+// @adai-reviewed: 2026-11-05
 
 #include <cstddef>
 #include <cstdint>
@@ -179,6 +178,15 @@ inline std::string download_file_name(const std::string& registry_path) {
     name += slash == std::string::npos ? registry_path : registry_path.substr(slash + 1);
     return name;
 }
+
+/**
+ * @brief TD-496: why @p path can't be queued, or an empty string when it can.
+ *
+ * A queued path must be non-empty, valid UTF-8 and free of control characters (tab, newline,
+ * carriage return, ...): they have no use in a data file's name and break line-based tools and
+ * logs. Spaces are allowed; the registry files store paths as JSON strings.
+ */
+std::string registry_path_problem(const std::string& path);
 
 /// TD-338: suffix of the sidecar file holding the token checksum a download was made against.
 inline constexpr const char* kDownloadChecksumSuffix = ".checksum";

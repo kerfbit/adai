@@ -367,8 +367,8 @@ The output lists each file as `requeued`, `already_pending` or `not_found`. The 
 
 ```text
 {SESSION_DIR}/                         # default: training_sessions/
-├── pending_files.txt                  # current pending queue (one path per line)
-└── data_registry.txt                  # trained-file registry with metadata
+├── pending_files.txt                  # current pending queue (JSON Lines, one entry per line)
+└── data_registry.txt                  # trained-file registry (JSON Lines, one record per line)
 
 gutenberg_data/                        # Gutenberg cache (relative to working dir)
 ├── gutenberg_1342.txt                 # raw downloaded text
@@ -384,6 +384,11 @@ huggingface_data/                      # HuggingFace cache
 ```
 
 `SESSION_DIR` is controlled by the `SESSION_DIR` key in `config.conf` (default: `training_sessions`).
+
+Since November 5, 2026 (TD-496) both files are JSON Lines, so file names with spaces work. Files written by an older version are read
+as they are and converted on the next change. Paths containing a tab, newline or other control character, or invalid UTF-8, are
+refused by `add` and by `registry_server`. Older binaries can't read the converted files, so upgrade or roll back `registry_server`,
+`dataset_manager` and `incremental_trainer` together.
 
 ---
 

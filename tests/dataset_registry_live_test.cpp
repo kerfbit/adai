@@ -2157,30 +2157,17 @@ TEST(LiveRegistryHealthDetail, ReportsTheSessionCounterStore) {
 namespace {
 
 // Sets claimed_unix of @p path's entry in @p group's pending file (needs REGISTRY_SERVER_DATA_DIR).
+// Edited through LocalTransport, which reads and writes the server's file format (TD-496).
 void set_claimed_unix(const std::string& group, const std::string& path, long long value) {
     const std::filesystem::path file =
         std::filesystem::path(server_data_dir()) / group / "pending_files.txt";
-    std::ifstream in(file);
-    std::vector<std::string> lines;
-    for (std::string line; std::getline(in, line);) {
-        if (line.compare(0, path.size() + 1, path + "\t") == 0) {
-            std::vector<std::string> cols;
-            std::size_t start = 0;
-            for (std::size_t tab; (tab = line.find('\t', start)) != std::string::npos; start = tab + 1)
-                cols.push_back(line.substr(start, tab - start));
-            cols.push_back(line.substr(start));
-            cols.resize(std::max<std::size_t>(cols.size(), 11));
-            cols[10] = std::to_string(value);
-            line.clear();
-            for (std::size_t i = 0; i < cols.size(); ++i)
-                line += (i ? "\t" : "") + cols[i];
-        }
-        lines.push_back(line);
-    }
-    in.close();
-    std::ofstream out(file, std::ios::trunc);
-    for (const auto& l : lines)
-        out << l << '\n';
+    LocalTransport queue("", file.string());
+    std::vector<PendingEntry> entries;
+    queue.load_pending(entries);
+    for (auto& e : entries)
+        if (e.path == path)
+            e.claimed_unix = value;
+    queue.save_pending(entries);
 }
 
 }  // namespace

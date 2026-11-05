@@ -312,3 +312,13 @@ queue of group 'g'; nothing was changed there") when `LocalTransport` reports a 
 carries its `name` ("group" or "group/kind") for these messages. Checked with the real binary run under a 4 KiB file-size limit over a
 300-entry queue: adding a file answered 200 and left 60 entries with the old server, 500 and all 300 with the new one
 (`RegistryDiskFullTest`).
+
+## Addendum (November 5, 2026): queued paths are checked; files are JSON Lines (TD-496)
+
+`pending/add` answers 400 with the reason (`{"error":"path contains a control character (tab, newline, ...)"}`) when
+`registry_path_problem()` refuses the path, and `upload` does the same for its `filename` (prefixed `filename: `), after the existing
+bare-basename check. Spaces and non-ASCII names are accepted. A body that isn't valid UTF-8 JSON already failed to parse and gets
+`path required`. Each group's `data_registry.txt`/`pending_files.txt` are now JSON Lines (see
+[RegistryTransport.md](RegistryTransport.md)); an existing data directory loads unchanged and each file is rewritten on its next save.
+Checked with the real binary: an old-format group loaded, `my file.jsonl` uploaded, trained and reloaded after a restart as one trained
+record, and `datasetRegistryLiveTests` (106) passed against it.

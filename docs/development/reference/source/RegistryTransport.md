@@ -131,7 +131,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
 | In-place truncating saves; a failed write leaves a partial file (§2) | Disk full: 114 of 2,001 queue entries survived; `registry_server` loses queues/registries silently | **Verified** | [TD-495](../../guides/TECHNICAL_DEBT.md#td-495-localtransport-saves-truncate-the-queue-when-a-write-fails) |
-| Space-separated registry format (§2) | Uploaded files with spaces are recorded as untrained, unmatchable records | **Verified** | [TD-496](../../guides/TECHNICAL_DEBT.md#td-496-registry-flat-file-formats-break-on-spaces-tabs-and-newlines-in-paths) |
+| Space-separated registry format (§2) | Uploaded files with spaces are recorded as untrained, unmatchable records (**fixed in code November 5, 2026**: JSON Lines) | **Verified** | [TD-496](../../guides/TECHNICAL_DEBT.md#td-496-registry-flat-file-formats-break-on-spaces-tabs-and-newlines-in-paths) |
 | `RemoteTransport` parsing: `}` hides entries, backslashes multiply, no unescaping (§2) | Invisible queue entries; Windows paths unusable; FTP claims stranded | **Verified** (`}`, `\`); by inspection (FTP) | [TD-497](../../guides/TECHNICAL_DEBT.md#td-497-remotetransport-hides-paths-with--and-multiplies-backslashes) |
 | Local/remote divergence: duplicate commits, `add_pending` result, segment results, unlocked registry writes (§2) | Duplicate records; misleading results; lost records under concurrency | **Verified** (commit, add); by inspection | [TD-498](../../guides/TECHNICAL_DEBT.md#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene) |
 | `model_id` never sent or set; `https://` → HTTP; unencoded group; log counts; in-memory upload (§2) | Dead history filter; confusing setup | By inspection | [TD-498](../../guides/TECHNICAL_DEBT.md#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene) |
@@ -188,3 +188,18 @@ the queue atomically and returns the save's result. The internal callers report 
 `failed`, `assign()`/`unassign()` report nothing changed, `requeue_trained()` sets `ok = false`, and `release()`/`commit_trained()`/
 `delete_paths()` log an error. Where two files change (pending, then registry), a failed second save leaves the first changed; a file
 then ends up both pending and trained, so it trains again rather than being lost.
+
+## Addendum (November 5, 2026): JSON Lines files (TD-496)
+
+`data_registry.txt` and `pending_files.txt` are JSON Lines: a header line (`# adai data registry, JSON Lines v2` /
+`# adai pending queue, JSON Lines v2`), then one object per entry with every field of `DataVersion`/`PendingEntry` named, so spaces,
+tabs and newlines in a path survive a round trip. A file without the header is read with the old parsers (space-separated registry with
+`-` for an empty value, tab-separated queue with positional columns) and is written in the new format by the next save, so upgrading
+needs no separate migration. A line that isn't a JSON object is skipped and logged; a field of the wrong type takes its default. Strings
+are dumped with invalid UTF-8 replaced by U+FFFD, so an old entry with such a path can't make a save throw. Older binaries can't read the
+new files.
+
+`registry_path_problem(path)` (declared in `RegistryTransport.hpp`) returns why a path can't be queued: empty, a control character
+(C0, DEL or C1) or invalid UTF-8 (overlong forms, surrogates, above U+10FFFF). `LocalTransport::add_pending()` refuses such a path and
+returns false; `registry_server` uses the same check for `pending/add` and upload names (see
+[RegistryServer.md](RegistryServer.md)).
