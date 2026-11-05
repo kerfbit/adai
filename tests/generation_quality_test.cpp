@@ -163,3 +163,23 @@ TEST(GenerationQualityEdge, ScoresAreOnTheHundredScale) {
     }
     EXPECT_GT(score.bleu1, 1.0f) << "0-100, not 0-1";
 }
+
+// TD-561: a model whose tokenizer lowercases can only answer in lowercase, so BLEU against cased
+// references needs lowercase_bleu; otherwise every capitalized reference word is a miss.
+TEST(GenerationQualityCase, LowercaseBleuMatchesALowercaseAnswer) {
+    const std::vector<std::string> refs = {"The cat sat on the Mat in Paris ."};
+    const std::vector<std::string> hyps = {"the cat sat on the mat in paris ."};
+    const GenerationQualityScore cased = GenerationQualityEvaluator::evaluate(refs, hyps);
+    const GenerationQualityScore lowered = GenerationQualityEvaluator::evaluate(refs, hyps, true);
+    EXPECT_LT(cased.bleu4, 100.0f) << "case-sensitive: 'The', 'Mat', 'Paris' miss";
+    EXPECT_NEAR(lowered.bleu4, 100.0f, 1e-3f);
+    EXPECT_NEAR(lowered.bleu1, 100.0f, 1e-3f);
+    EXPECT_FLOAT_EQ(cased.rouge1, lowered.rouge1) << "ROUGE lowercases either way";
+    EXPECT_LT(GenerationQualityEvaluator::sentence_bleu(refs[0], hyps[0]), 100.0f);
+    EXPECT_NEAR(GenerationQualityEvaluator::sentence_bleu(refs[0], hyps[0], 4, true), 100.0f,
+                1e-3f);
+    // Only ASCII letters are lowercased, as the tokenizer does: "É" stays.
+    EXPECT_LT(GenerationQualityEvaluator::sentence_bleu("\xC3\x89t\xC3\xA9", "\xC3\xA9t\xC3\xA9", 4,
+                                                        true),
+              100.0f);
+}

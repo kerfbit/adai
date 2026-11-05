@@ -1323,9 +1323,10 @@ TEST_F(ConfigTest, ValidationWorldModelDefaultsPassValidation) {
 // Tokenizer Mode Config Tests
 // ============================================================================
 
-TEST_F(ConfigTest, TokenizerModeDefaultsFalse) {
+// TD-564: Unicode (one unit per UTF-8 code point) is the default; it was ASCII bytes.
+TEST_F(ConfigTest, TokenizerModeDefaultsToUnicode) {
     auto config = ConfigLoader::load();
-    EXPECT_FALSE(config.unicode_tokenizer);
+    EXPECT_TRUE(config.unicode_tokenizer);
 }
 
 TEST_F(ConfigTest, TokenizerModeUnicodeFromFile) {
@@ -1352,10 +1353,10 @@ TEST_F(ConfigTest, TokenizerModeMixedCaseFromFile) {
     EXPECT_TRUE(config.unicode_tokenizer);
 }
 
-TEST_F(ConfigTest, TokenizerModeUnknownValueDefaultsFalse) {
+TEST_F(ConfigTest, TokenizerModeUnknownValueKeepsTheDefault) {
     createConfigFile({{"TOKENIZER_MODE", "utf8"}});
     auto config = ConfigLoader::load(test_file.string());
-    EXPECT_FALSE(config.unicode_tokenizer);
+    EXPECT_TRUE(config.unicode_tokenizer);  // TD-564: the default, unicode
 }
 
 TEST_F(ConfigTest, TokenizerModeFromEnvVar) {
@@ -1378,9 +1379,9 @@ TEST_F(ConfigTest, TokenizerModeEnvVarOverridesFile) {
 }
 
 TEST_F(ConfigTest, TokenizerModeFileOverridesDefault) {
-    createConfigFile({{"TOKENIZER_MODE", "unicode"}});
+    createConfigFile({{"TOKENIZER_MODE", "ascii"}});
     auto config = ConfigLoader::load(test_file.string());
-    EXPECT_TRUE(config.unicode_tokenizer);  // file overrides default false
+    EXPECT_FALSE(config.unicode_tokenizer);  // file overrides the default, unicode (TD-564)
 }
 
 // ============================================================================

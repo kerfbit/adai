@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 2.0.0
-// @adai-reviewed: 2026-10-25
+// @adai-version: 2.1.0
+// @adai-reviewed: 2026-11-04
 
 #include "GenerationQualityMetrics.hpp"
 
@@ -107,8 +107,21 @@ std::vector<std::string> GenerationQualityEvaluator::tokenize_rouge(const std::s
 
 // ─── evaluate ────────────────────────────────────────────────────────────────
 
+namespace {
+// TD-561: ASCII letters only, as the lowercasing tokenizer (TD-224) does.
+std::string ascii_lower(std::string s) {
+    for (char& c : s) {
+        if (c >= 'A' && c <= 'Z') {
+            c = static_cast<char>(c - 'A' + 'a');
+        }
+    }
+    return s;
+}
+}  // namespace
+
 GenerationQualityScore GenerationQualityEvaluator::evaluate(
-    const std::vector<std::string>& references, const std::vector<std::string>& hypotheses) {
+    const std::vector<std::string>& references, const std::vector<std::string>& hypotheses,
+    bool lowercase_bleu) {
     if (references.empty() || references.size() != hypotheses.size()) {
         return {};
     }
@@ -116,8 +129,10 @@ GenerationQualityScore GenerationQualityEvaluator::evaluate(
     // TD-380: BLEU on sacreBLEU's 13a tokens, ROUGE on rouge-score's tokens, both on 0-100.
     std::vector<TokenList> bleu_refs, bleu_hyps, rouge_refs, rouge_hyps;
     for (size_t i = 0; i < references.size(); ++i) {
-        bleu_refs.push_back(tokenize_13a(references[i]));
-        bleu_hyps.push_back(tokenize_13a(hypotheses[i]));
+        bleu_refs.push_back(
+            tokenize_13a(lowercase_bleu ? ascii_lower(references[i]) : references[i]));
+        bleu_hyps.push_back(
+            tokenize_13a(lowercase_bleu ? ascii_lower(hypotheses[i]) : hypotheses[i]));
         rouge_refs.push_back(tokenize_rouge(references[i]));
         rouge_hyps.push_back(tokenize_rouge(hypotheses[i]));
     }
@@ -207,9 +222,12 @@ float GenerationQualityEvaluator::compute_bleu(const std::vector<TokenList>& ref
 }
 
 float GenerationQualityEvaluator::sentence_bleu(const std::string& reference,
-                                                const std::string& hypothesis, int max_n) {
-    const std::vector<TokenList> refs = {tokenize_13a(reference)};
-    const std::vector<TokenList> hyps = {tokenize_13a(hypothesis)};
+                                                const std::string& hypothesis, int max_n,
+                                                bool lowercase) {
+    const std::vector<TokenList> refs = {
+        tokenize_13a(lowercase ? ascii_lower(reference) : reference)};
+    const std::vector<TokenList> hyps = {
+        tokenize_13a(lowercase ? ascii_lower(hypothesis) : hypothesis)};
     return compute_bleu(refs, hyps, max_n, /*effective_order=*/true);
 }
 

@@ -220,7 +220,9 @@ This matches `vocab_builder --help`.
 | `--vocab-size N` | `5000` | Target vocabulary size, 1 to 10,000,000 |
 | `--threshold N` | `1` | Minimum character frequency, at least 1 |
 | `--format TYPE` | `auto` | `auto`, `pairs`, `plain` or `json`; see below |
-| `--unicode` | off | UTF-8 code-point tokenization instead of ASCII/byte |
+| `--ascii` | off | Byte-level tokenization: a multi-byte character becomes several byte tokens. By default each UTF-8 character is one unit (TD-564) |
+| `--unicode` | on | UTF-8 code-point tokenization, the default since TD-564; accepted for older scripts |
+| `--lowercase` | off | Lowercase text before tokenizing, as every vocabulary before TD-560 did. By default letter case is kept |
 | `--stats` | off | Print vocabulary statistics after building |
 
 Input formats:
@@ -231,6 +233,19 @@ Input formats:
 - `plain` takes each line as raw text. It isn't meant for training data, and warns if a file looks
   like it.
 - `json` is a JSON array of strings.
+
+**Unicode by default (TD-564, November 4, 2026).** New vocabularies split text into UTF-8 characters (ISO/IEC 10646 code
+points), so accented and non-Latin letters are single units rather than byte fragments; on plain ASCII text nothing changes.
+`TOKENIZER_MODE` in `config.trainer.conf` defaults to `unicode` (set `ascii` for byte-level). Existing vocabularies keep the mode their
+file records, so existing models are unaffected.
+
+**Letter case (TD-560, November 4, 2026).** New vocabularies keep letter case, so a model trained on one can read and write
+capitals. The file says so (`# BPE Tokenizer Vocabulary v2.0`, `NORMALIZATION CASED`). Vocabularies written before have no
+`NORMALIZATION` line and still lowercase, so existing models behave exactly as before. A cased vocabulary needs a model trained with
+it, and every binary that reads it (`incremental_trainer`, `trainer_service`'s passes, `chatbot_api_server`, `vocab_builder`) must be
+from this release or later: an older one would silently lowercase the input (TD-563). Binaries from this release refuse a
+vocabulary format newer than they read, with a message to update the binary. Keeping case costs roughly 10–15% more tokens per
+text on English prose, and automatic sizing (`VOCAB_BUILD_SIZE=0`) allows for it (TD-562).
 
 A malformed number (`--vocab-size abc`, `8000x`, `0`) or a missing value is reported with exit 1.
 Before October 17, 2026 the default was `plain`, a malformed number aborted with a core dump, and a

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # @adai-status: experimental
-# @adai-version: 0.1.0
-# @adai-reviewed: 2026-10-18
+# @adai-version: 0.2.0
+# @adai-reviewed: 2026-11-04
 """Audit saved BPE vocabularies for damage from TD-220.
 
 Before TD-220's fix, BPE merge learning keyed pair counts by `first + "|||" + second`. Pairs
@@ -31,6 +31,11 @@ def audit(path, expected_merges):
     with open(path, encoding="utf-8", errors="replace") as f:
         lines = f.read().split("\n")
     vocab_size = next((l.split()[1] for l in lines if l.startswith("VOCAB_SIZE ")), "?")
+    # TD-562: v2 files (TD-560) state their letter-case normalization; v1 files always lowercased.
+    version = next((l.rsplit("v", 1)[1] for l in lines
+                    if l.startswith("# BPE Tokenizer Vocabulary v")), "?")
+    normalization = next((l.split()[1].lower() for l in lines if l.startswith("NORMALIZATION ")),
+                         "lowercase")
     idx = next((i for i, l in enumerate(lines) if l.startswith("BPE_MERGES ")), None)
     if idx is None:
         return f"{path}: no BPE_MERGES section (not a BPETokenizer vocab?)", True
@@ -46,8 +51,8 @@ def audit(path, expected_merges):
     if expected_merges is not None and len(merges) < expected_merges:
         problems.append(f"short: {len(merges)} < expected {expected_merges}")
     status = "DAMAGED (" + "; ".join(problems) + ")" if problems else "ok"
-    line = (f"{path}: vocab={vocab_size} merges={len(merges)} rules_with_pipe={pipe_rules} "
-            f"-> {status}")
+    line = (f"{path}: format=v{version} case={normalization} vocab={vocab_size} "
+            f"merges={len(merges)} rules_with_pipe={pipe_rules} -> {status}")
     return line, bool(problems)
 
 

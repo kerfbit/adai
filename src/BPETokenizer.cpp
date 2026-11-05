@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-10-27
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-11-04
 
 // TODO: See TD-225 in TECHNICAL_DEBT.md - std::cout/std::cerr are used throughout this file instead of
 // adai::Logger (progress output, warnings, save/load summaries).
@@ -53,6 +53,15 @@ BPETokenizer::BPETokenizer(TokenizerMode mode_)
     special_tokens.insert("<unk>");
     special_tokens.insert("<bos>");
     special_tokens.insert("<eos>");
+}
+
+void BPETokenizer::set_normalization(TextNormalization normalization) {
+    normalization_ = normalization;
+    cache_key_ = new_cache_key();  // TD-222: cached splits were made under the old setting
+}
+
+const char* BPETokenizer::normalization_name(TextNormalization normalization) {
+    return normalization == TextNormalization::CASED ? "cased" : "lowercase";
 }
 
 // ============================================================================
@@ -143,14 +152,29 @@ void BPETokenizer::build_vocab(const std::vector<std::string>& texts, int vocab_
     // Count frequency of each atomic unit (byte in ASCII mode, code point in Unicode mode)
     std::unordered_map<std::string, int> char_freq;
     size_t total_chars = 0;
+    // TD-560: a LOWERCASE vocabulary counts the text as pre_tokenize() will see it; it used to give
+    // capital letters base ids that encoding never produces.
+    auto as_seen = [this](const std::string& s) {
+        if (normalization_ == TextNormalization::CASED) {
+            return s;
+        }
+        std::string lowered = s;
+        for (auto& c : lowered) {
+            if (static_cast<unsigned char>(c) < 0x80) {
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
+        }
+        return lowered;
+    };
     for (size_t i = 0; i < texts.size(); i++) {
+        const std::string text = as_seen(texts[i]);
         if (mode == TokenizerMode::UNICODE) {
-            for (const auto& cp : utf8_split_codepoints(texts[i])) {
+            for (const auto& cp : utf8_split_codepoints(text)) {
                 char_freq[cp]++;
                 total_chars++;
             }
         } else {
-            for (char c : texts[i]) {
+            for (char c : text) {
                 char_freq[std::string(1, c)]++;
                 total_chars++;
             }
@@ -252,10 +276,14 @@ std::vector<std::string> BPETokenizer::pre_tokenize(const std::string& text) {
         throw TokenizerEncodingError("pre_tokenize(): Input text contains invalid UTF-8 sequences");
     }
 
-    // TODO: See TD-224 in TECHNICAL_DEBT.md - lowercasing here and the whitespace collapse below are
-    // lossy: models can never see or produce capitals, newlines or tabs.
+    // TD-560: a CASED vocabulary keeps letter case; only a LOWERCASE one (every v1 file)
+    // lowercases.
+    // TODO: See TD-224 in TECHNICAL_DEBT.md - the whitespace collapse below is still lossy: models
+    // can never see or produce newlines or tabs.
     std::string lower_text = text;
-    if (mode == TokenizerMode::UNICODE) {
+    if (normalization_ == TextNormalization::CASED) {
+        // keep the text as written
+    } else if (mode == TokenizerMode::UNICODE) {
         // Only lowercase ASCII bytes; touching continuation bytes corrupts multi-byte sequences
         for (auto& c : lower_text) {
             if ((unsigned char)c < 0x80) {
@@ -530,8 +558,11 @@ void BPETokenizer::save_vocab(const std::string& filename) const {
         throw VocabularyFileError("Could not open vocabulary file for writing: " + tmp_filename);
     }
 
-    file << "# BPE Tokenizer Vocabulary v1.0\n";
+    // TD-560: v2 adds NORMALIZATION. A file without it is v1, which always lowercased.
+    file << "# BPE Tokenizer Vocabulary v2.0\n";
     file << "TOKENIZER_MODE " << (mode == TokenizerMode::UNICODE ? "UNICODE" : "ASCII") << "\n";
+    file << "NORMALIZATION " << (normalization_ == TextNormalization::CASED ? "CASED" : "LOWERCASE")
+         << "\n";
     file << "VOCAB_SIZE " << vocab.size() << "\n";
 
     file << "SPECIAL_TOKENS\n";
@@ -587,6 +618,7 @@ void BPETokenizer::save_vocab(const std::string& filename) const {
     }
     std::cout << "[BPE Tokenizer] Vocabulary saved to " << filename << '\n';
     std::cout << "  - Mode: " << (mode == TokenizerMode::UNICODE ? "Unicode" : "ASCII") << '\n';
+    std::cout << "  - Normalization: " << normalization_name(normalization_) << '\n';
     std::cout << "  - Vocabulary size: " << vocab.size() << '\n';
     std::cout << "  - BPE merges: " << bpe_merges.size() << '\n';
 }
@@ -604,6 +636,12 @@ void BPETokenizer::load_vocab(const std::string& filename) {
     // TODO: See TD-223 in TECHNICAL_DEBT.md - tables are cleared before parsing, so any exception below
     // leaves the tokenizer gutted; parse into locals and swap on success.
     cache_key_ = new_cache_key();  // TD-222: results cached for the old merges no longer apply
+    // TD-560: a v1 file has no NORMALIZATION line and was always lowercased.
+    normalization_ = TextNormalization::LOWERCASE;
+    // TD-564: a file from before the TOKENIZER_MODE line was always built in ASCII mode; it used to
+    // keep the constructor's mode, which is now Unicode.
+    mode = TokenizerMode::ASCII;
+    token_pattern = std::regex(ASCII_PATTERN);
     std::string line;
     vocab.clear();
     inverse_vocab.clear();
@@ -642,7 +680,32 @@ void BPETokenizer::load_vocab(const std::string& filename) {
 
     std::string section;
     while (std::getline(file, line)) {
+        // TD-563: a vocabulary written by a newer format is refused rather than misread (an older
+        // binary used to skip header lines it didn't know, so it would lowercase a cased
+        // vocabulary).
+        static const std::string kFormatComment = "# BPE Tokenizer Vocabulary v";
+        if (line.rfind(kFormatComment, 0) == 0) {
+            const int major = std::atoi(line.c_str() + kFormatComment.size());
+            if (major > kVocabFormatMajor) {
+                throw VocabularyFileError(
+                    filename + " is vocabulary format v" + line.substr(kFormatComment.size()) +
+                    ", newer than this build reads (v" + std::to_string(kVocabFormatMajor) +
+                    "); update the binary");
+            }
+            continue;
+        }
         if (line.empty() || line[0] == '#') {
+            continue;
+        }
+        if (line.rfind("NORMALIZATION", 0) == 0) {  // TD-560
+            const std::string value = line.size() > 14 ? line.substr(14) : std::string();
+            if (value == "CASED") {
+                normalization_ = TextNormalization::CASED;
+            } else if (value == "LOWERCASE") {
+                normalization_ = TextNormalization::LOWERCASE;
+            } else {
+                throw VocabularyFileError("Unknown NORMALIZATION '" + value + "' in " + filename);
+            }
             continue;
         }
 
@@ -667,6 +730,11 @@ void BPETokenizer::load_vocab(const std::string& filename) {
         if (line.find("BPE_MERGES") == 0) {
             section = "BPE_MERGES";
             continue;
+        }
+        if (section.empty()) {
+            // TD-563: an unknown header line belongs to a format this build doesn't understand.
+            throw VocabularyFileError("Unknown vocabulary header line in " + filename + ": " +
+                                      line);
         }
 
         // TODO: See TD-505 in TECHNICAL_DEBT.md - IDs accepted unchecked (non-standard or duplicate, verified), while
@@ -853,10 +921,12 @@ static uint32_t decode_codepoint(const unsigned char* p, size_t len, size_t& out
 /*static*/
 int BPETokenizer::recommend_vocab_size(const std::vector<std::string>& texts, int d_model,
                                        int num_encoder_layers, int num_decoder_layers,
-                                       int max_seq_length, TokenizerMode mode) {
+                                       int max_seq_length, TokenizerMode mode,
+                                       TextNormalization normalization) {
     // ── 1. Corpus analysis ───────────────────────────────────────────────────
     size_t total_chars = 0;     // total UTF-8 code points
     size_t total_words = 0;     // whitespace-delimited word tokens
+    size_t capitalized_words = 0;  // TD-562: words with an ASCII capital letter
     size_t cjk_count = 0;       // CJK / Hangul / Kana code points
     size_t arabic_count = 0;    // Arabic / Hebrew code points
     size_t cyrillic_count = 0;  // Cyrillic code points
@@ -864,6 +934,7 @@ int BPETokenizer::recommend_vocab_size(const std::vector<std::string>& texts, in
 
     for (const auto& text : texts) {
         bool in_word = false;
+        bool word_has_capital = false;
         const auto* p = reinterpret_cast<const unsigned char*>(text.data());
         const auto* end = p + text.size();
         while (p < end) {
@@ -876,8 +947,13 @@ int BPETokenizer::recommend_vocab_size(const std::vector<std::string>& texts, in
             if (!is_space && !in_word) {
                 ++total_words;
                 in_word = true;
+                word_has_capital = false;
             } else if (is_space) {
                 in_word = false;
+            }
+            if (in_word && !word_has_capital && cp >= 'A' && cp <= 'Z') {
+                word_has_capital = true;
+                ++capitalized_words;
             }
 
             // Script categorisation (Unicode block ranges)
@@ -970,8 +1046,17 @@ int BPETokenizer::recommend_vocab_size(const std::vector<std::string>& texts, in
     // code-point merges beyond what byte-level naturally handles.
     const double mode_mult = (mode == TokenizerMode::UNICODE && mb_frac > 0.05) ? 1.1 : 1.0;
 
+    // ── 6b. Letter case (TD-562) ─────────────────────────────────────────────
+    // Keeping case gives each capitalized word its own forms ("The"/"the"): on English prose the
+    // distinct words grew by about the share of capitalized words (23% for 23%).
+    const double cap_frac =
+        total_words > 0 ? static_cast<double>(capitalized_words) / static_cast<double>(total_words)
+                        : 0.0;
+    const double case_mult =
+        normalization == TextNormalization::CASED ? 1.0 + std::min(cap_frac, 0.3) : 1.0;
+
     // ── 7. Combine, cap, and round ───────────────────────────────────────────
-    double recommended = dataset_base * script_mult * seq_mult * mode_mult;
+    double recommended = dataset_base * script_mult * seq_mult * mode_mult * case_mult;
     recommended = std::min(recommended, static_cast<double>(arch_cap));
     recommended = std::max(recommended, 2000.0);
 
@@ -994,6 +1079,7 @@ float BPETokenizer::measure_fertility(const std::vector<std::string>& texts,
     // encode() is non-const (validates and mutates nothing, but the signature isn't marked const).
     // Use a shallow copy that shares our vocab/merge tables via the same header-constructed state.
     BPETokenizer probe(mode);
+    probe.normalization_ = normalization_;  // TD-560
     probe.vocab = vocab;
     probe.inverse_vocab = inverse_vocab;
     probe.bpe_merges = bpe_merges;

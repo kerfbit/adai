@@ -231,7 +231,7 @@ Response:
 
 - `current_validation_perplexity` — `0.0` if not yet computed this epoch.
 - `current_validation_accuracy` — token-level accuracy: the share of validation target tokens the model ranks first (`incremental_trainer` sends it since TD-276, November 4, 2026). `-1.0` if the trainer did not push `validation_accuracy`.
-- `current_bleu4`, `current_rouge1`, `current_rouge2`, `current_rougeL` — `-1.0` when `ENABLE_GENERATION_QUALITY_METRICS=false` in `config.conf` or before the first scored epoch.
+- `current_bleu4`, `current_rouge1`, `current_rouge2`, `current_rougeL` — `-1.0` when `ENABLE_GENERATION_QUALITY_METRICS=false` in `config.conf` or before the first scored epoch. Since TD-561 (November 4, 2026) BLEU ignores letter case for a model whose vocabulary lowercases; before that such a model's BLEU was biased low by every capitalized reference word, so earlier BLEU values aren't comparable.
 
 ---
 

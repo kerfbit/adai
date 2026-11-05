@@ -486,3 +486,28 @@ Tests: `BPETokenizerCacheTest`.
 ## Addendum (October 28, 2026): engine modes retired
 
 `PipelineInferenceEngine` (`--pipeline-inference`) and `IntegratedInferenceEngine` (`--integrated-inference`) were removed in October 2026 (TD-474/TD-475, TD-417–TD-420); mentions of them above describe the code as it was.
+
+## Addendum (November 4, 2026): letter case and the v2 vocabulary format (TD-560, TD-562, TD-563)
+
+- **`TextNormalization`** (`CASED` | `LOWERCASE`), with `get_normalization()`/`set_normalization()`/`normalization_name()`.
+  `pre_tokenize()` lowercases only for `LOWERCASE`. A new tokenizer is `CASED`, so new vocabularies keep case. `build_vocab()` counts
+  base characters as `pre_tokenize()` will see them, so a lowercase vocabulary no longer spends ids on capital letters encoding
+  never produces. `measure_fertility()`'s probe copies the setting.
+- **Format v2:** `save_vocab()` writes `# BPE Tokenizer Vocabulary v2.0` and `NORMALIZATION CASED|LOWERCASE`. `load_vocab()` starts
+  from `LOWERCASE`, so a v1 file (no such line) tokenizes exactly as before, and an unknown value is a `VocabularyFileError`.
+- **Unknown formats are refused (TD-563):** a format comment newer than `kVocabFormatMajor` (2), or an unrecognized header line
+  before the first section, is a `VocabularyFileError`. The old loader skipped unknown header lines, so it would have lowercased a
+  cased vocabulary.
+- **Sizing (TD-562):** `recommend_vocab_size()` takes a `TextNormalization` (default `CASED`) and multiplies by 1 + the share of words
+  with an ASCII capital, capped at +30%, before the architecture cap. On English prose the distinct words grew by about the share of
+  capitalized words. `IncrementalTrainer::bootstrap_vocab()` logs the letter case.
+
+## Addendum (November 4, 2026): Unicode mode is the default (TD-564)
+
+A new `BPETokenizer` is in `TokenizerMode::UNICODE` (each UTF-8 code point, an ISO/IEC 10646 character, is one unit), as are
+`TrainingConfig::tokenizer_mode`, `ServiceConfig::unicode_tokenizer` (`TOKENIZER_MODE`, now `unicode` unless set to `ascii`),
+`recommend_vocab_size()`'s default and `vocab_builder` (which gains `--ascii`; `--unicode` still works). On plain ASCII text the two
+modes split identically; they differ on accented and non-Latin text, which ASCII mode splits into bytes. Only new vocabularies are
+affected: `load_vocab()` takes the mode from the file, and a file without a `TOKENIZER_MODE` line (the oldest format) now loads as
+ASCII; it used to keep the constructor's mode, which would have become Unicode for those byte-built files. The note above that a
+file without the line keeps the constructor's mode no longer applies.

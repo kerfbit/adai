@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 1.2.1
+// @adai-reviewed: 2026-11-04
 
 /**
  * @file VocabBuilder.cpp
@@ -44,7 +44,13 @@ void print_usage(const char* program_name) {
     std::cout << "  --threshold <N>      Minimum character frequency (default: 1)\n";
     std::cout << "  --format <type>      Input format: 'auto', 'pairs', 'plain', 'json' (default: "
                  "auto)\n";
-    std::cout << "  --unicode            Use UTF-8 code-point tokenization (default: ASCII/byte)\n";
+    std::cout
+        << "  --ascii              Byte-level tokenization (default: UTF-8 code points, TD-564)\n";
+    std::cout
+        << "  --unicode            UTF-8 code-point tokenization (the default; kept for scripts)\n";
+    std::cout << "  --lowercase          Lowercase text before tokenizing, as vocabularies before "
+                 "TD-560 did\n";
+    std::cout << "                       (default: keep letter case)\n";
     std::cout << "  --stats              Show vocabulary statistics after building\n";
     std::cout << "  --help               Show this help message\n\n";
 
@@ -91,7 +97,8 @@ int main(int argc, char** argv) {
     int vocab_size = 5000;
     int threshold = 1;
     bool show_stats = false;
-    bool unicode_mode = false;
+    bool unicode_mode = true;  // TD-564: UTF-8 code points by default
+    bool lowercase = false;    // TD-560: new vocabularies keep letter case
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -136,6 +143,10 @@ int main(int argc, char** argv) {
             }
         } else if (arg == "--unicode") {
             unicode_mode = true;
+        } else if (arg == "--ascii") {  // TD-564
+            unicode_mode = false;
+        } else if (arg == "--lowercase") {  // TD-560
+            lowercase = true;
         } else if (arg == "--stats") {
             show_stats = true;
         } else {
@@ -221,10 +232,13 @@ int main(int argc, char** argv) {
     std::cout << "  • Target vocabulary size: " << vocab_size << "\n";
     std::cout << "  • Character frequency threshold: " << threshold << "\n";
     std::cout << "  • Tokenizer mode: " << (unicode_mode ? "unicode" : "ascii") << "\n";
+    std::cout << "  • Letter case: " << (lowercase ? "lowercased" : "kept") << "\n";
     std::cout << "  • Output file: " << output_file << "\n" << COLOR_RESET << "\n";
 
     try {
         BPETokenizer tokenizer(unicode_mode ? TokenizerMode::UNICODE : TokenizerMode::ASCII);
+        tokenizer.set_normalization(lowercase ? TextNormalization::LOWERCASE
+                                              : TextNormalization::CASED);  // TD-560
         tokenizer.build_vocab(all_texts, vocab_size, threshold);
 
         // Save vocabulary

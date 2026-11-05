@@ -2,9 +2,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-27
-
+// @adai-version: 1.2.1
+// @adai-reviewed: 2026-11-04
 
 #include <algorithm>
 #include <cctype>
@@ -72,6 +71,19 @@ enum class TokenizerMode {
     UNICODE,
 };
 
+/**
+ * @brief Whether pre-tokenization lowercases text (TD-560)
+ *
+ * CASED keeps letter case, as GPT-2-style tokenizers do; it is the default for new vocabularies.
+ * LOWERCASE is the original behaviour (ASCII letters lowercased before splitting), which every
+ * vocabulary file written before the v2 format uses. The setting is stored in the vocabulary file,
+ * and load_vocab() restores it, so a model always sees text normalized the way it was trained.
+ */
+enum class TextNormalization {
+    LOWERCASE,
+    CASED,
+};
+
 class BPETokenizer {
    private:
     TokenizerMode mode;
@@ -89,6 +101,7 @@ class BPETokenizer {
 
     // Regex pattern for pre-tokenization (chosen at construction time based on mode)
     std::regex token_pattern;
+    TextNormalization normalization_ = TextNormalization::CASED;  // TD-560
 
     // TD-222: identifies this tokenizer's merge state for apply_bpe()'s per-thread cache. Unique per
     // process and never reused, and renewed by every change to the merges or the mode
@@ -104,7 +117,8 @@ class BPETokenizer {
      * @param mode  ASCII (default) for byte-level tokenization; UNICODE for
      *              UTF-8 code-point-level tokenization.
      */
-    explicit BPETokenizer(TokenizerMode mode = TokenizerMode::ASCII);
+    // TD-564: Unicode (one unit per UTF-8 code point) by default; a loaded vocabulary sets its own.
+    explicit BPETokenizer(TokenizerMode mode = TokenizerMode::UNICODE);
 
     // Query the active tokenization mode
     TokenizerMode get_mode() const {
@@ -113,6 +127,19 @@ class BPETokenizer {
     bool is_unicode_mode() const {
         return mode == TokenizerMode::UNICODE;
     }
+
+    /// TD-560: CASED (the default for a new tokenizer) or LOWERCASE; load_vocab() sets it from the
+    /// file (LOWERCASE for a v1 file, which predates the setting).
+    TextNormalization get_normalization() const {
+        return normalization_;
+    }
+    /// Set before build_vocab(); changing it for a loaded vocabulary makes encode() split text
+    /// differently from how the vocabulary was learned.
+    void set_normalization(TextNormalization normalization);
+    /// "cased" or "lowercase".
+    static const char* normalization_name(TextNormalization normalization);
+    /// TD-563: the newest vocabulary file format this build reads (and writes).
+    static constexpr int kVocabFormatMajor = 2;
 
     // Build vocabulary from text corpus
     void build_vocab(const std::vector<std::string>& texts, int vocab_size = 10000,
@@ -198,9 +225,12 @@ class BPETokenizer {
      * @param mode               ASCII or UNICODE tokenizer mode.
      * @return Recommended vocabulary size (multiple of 500, minimum 2000).
      */
+    /// TD-562: a CASED vocabulary is sized up by the share of words with a capital letter (each
+    /// such word also needs its cased forms), capped at +30%.
     static int recommend_vocab_size(const std::vector<std::string>& texts, int d_model,
                                     int num_encoder_layers, int num_decoder_layers,
-                                    int max_seq_length, TokenizerMode mode = TokenizerMode::ASCII);
+                                    int max_seq_length, TokenizerMode mode = TokenizerMode::UNICODE,
+                                    TextNormalization normalization = TextNormalization::CASED);
 
     /**
      * @brief Measure token fertility (average BPE tokens per whitespace word).

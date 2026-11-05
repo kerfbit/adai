@@ -109,3 +109,13 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `stoi` without checks: `abc` aborts, `8000x` accepted, no range check (§2) | Crash or silent misconfiguration | **Fixed October 17, 2026** | [TD-535](../../guides/TECHNICAL_DEBT.md#td-535-vocab_builder-reports-a-failed-save-as-success-and-aborts-on-malformed-numbers) |
 | `json` loader takes keys and doesn't unescape; OPERATIONS_MANUAL.md flags/defaults wrong; inherited JSONL gaps (§2) | Polluted corpora; operators misled | By inspection | [TD-536](../../guides/TECHNICAL_DEBT.md#td-536-vocab_builder-json-loader-and-operator-documentation-drift) |
 | Silent save, top-tokens, normalization, merge separator, bootstrap, JSONL parsing | Already tracked | — | TD-221, TD-225, TD-224, TD-220, TD-414, TD-531/532 |
+
+## Addendum (November 4, 2026): `--lowercase` (TD-560)
+
+New vocabularies keep letter case. `--lowercase` builds one that lowercases, as every vocabulary before TD-560 did. The parameter
+summary prints `Letter case: kept|lowercased`, and the file records it (`NORMALIZATION`).
+
+## Addendum (November 4, 2026): Unicode by default, `--ascii` (TD-564)
+
+`vocab_builder` builds Unicode-mode vocabularies by default (one unit per UTF-8 code point); `--ascii` builds a byte-level one, and
+`--unicode` is accepted as before.

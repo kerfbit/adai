@@ -550,10 +550,11 @@ TEST(VocabBuilderMultiSourceTest, LoadFromMultiplePlainFiles) {
 // TokenizerMode in VocabBuilder workflow
 // ============================================================================
 
-TEST_F(VocabBuilderWorkflowTest, DefaultModeIsAscii) {
+// TD-564: Unicode is the default (it was ASCII).
+TEST_F(VocabBuilderWorkflowTest, DefaultModeIsUnicode) {
     BPETokenizer tok;
-    EXPECT_FALSE(tok.is_unicode_mode());
-    EXPECT_EQ(tok.get_mode(), TokenizerMode::ASCII);
+    EXPECT_TRUE(tok.is_unicode_mode());
+    EXPECT_EQ(tok.get_mode(), TokenizerMode::UNICODE);
 }
 
 TEST_F(VocabBuilderWorkflowTest, UnicodeModeConstructionIsRecognized) {

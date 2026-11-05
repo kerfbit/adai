@@ -134,6 +134,7 @@ TEST_F(BPETokenizerTest, BuildVocabularyEmptyTexts) {
 
 TEST_F(BPETokenizerTest, PreTokenizeBasic) {
     BPETokenizer tokenizer;
+    tokenizer.set_normalization(TextNormalization::LOWERCASE);  // TD-560: the v1 behaviour
 
     auto tokens = tokenizer.pre_tokenize("Hello world");
 
@@ -594,10 +595,11 @@ TEST_F(BPETokenizerTest, CompleteWorkflow) {
 // TokenizerMode Tests
 // ============================================================================
 
-TEST_F(BPETokenizerTest, AsciiModeIsDefault) {
+// TD-564: Unicode is the default (it was ASCII).
+TEST_F(BPETokenizerTest, UnicodeModeIsDefault) {
     BPETokenizer tokenizer;
-    EXPECT_EQ(tokenizer.get_mode(), TokenizerMode::ASCII);
-    EXPECT_FALSE(tokenizer.is_unicode_mode());
+    EXPECT_EQ(tokenizer.get_mode(), TokenizerMode::UNICODE);
+    EXPECT_TRUE(tokenizer.is_unicode_mode());
 }
 
 TEST_F(BPETokenizerTest, UnicodeModeConstruction) {
@@ -671,6 +673,7 @@ TEST_F(BPETokenizerTest, UnicodeModeRoundTripMultibyteText) {
 
 TEST_F(BPETokenizerTest, UnicodeModePreTokenizeLowercasesOnlyASCII) {
     BPETokenizer tokenizer(TokenizerMode::UNICODE);
+    tokenizer.set_normalization(TextNormalization::LOWERCASE);  // TD-560: the v1 behaviour
     // "HEllo" uppercase ASCII + "café" with accented char
     auto tokens = tokenizer.pre_tokenize("HEllo caf\xC3\xA9");
     EXPECT_GT(tokens.size(), 0u);
@@ -972,4 +975,193 @@ TEST(BPETokenizerCacheTest, AlternatingTokenizersKeepTheirOwnResults) {
         EXPECT_EQ(a.encode("abab", false), a_once);
         EXPECT_EQ(b.encode("abab", false), b_once);
     }
+}
+
+// ============================================================================
+// TD-560 / TD-563: letter case and the v2 vocabulary format
+// ============================================================================
+
+namespace {
+std::string read_file(const std::string& path) {
+    std::ifstream in(path);
+    std::stringstream ss;
+    ss << in.rdbuf();
+    return ss.str();
+}
+void write_file(const std::string& path, const std::string& text) {
+    std::ofstream out(path, std::ios::trunc);
+    out << text;
+}
+}  // namespace
+
+TEST_F(BPETokenizerTest, NewVocabulariesKeepCase) {
+    BPETokenizer tokenizer;
+    EXPECT_EQ(tokenizer.get_normalization(), TextNormalization::CASED)
+        << "the default for new vocabularies";
+    auto tokens = tokenizer.pre_tokenize("Hello GPU world");
+    ASSERT_GE(tokens.size(), 3u);
+    EXPECT_EQ(tokens[0], "Hello");
+    EXPECT_EQ(tokens[1], " GPU");
+
+    tokenizer.build_vocab({"Hello World", "hello world", "The GPU and the gpu"}, 80, 1);
+    const std::string text = "Hello World the GPU";
+    EXPECT_EQ(tokenizer.decode(tokenizer.encode(text, false), true), text) << "capitals round-trip";
+    EXPECT_NE(tokenizer.encode("GPU", false), tokenizer.encode("gpu", false));
+}
+
+TEST_F(BPETokenizerTest, LowercaseNormalizationIsTheOldBehaviour) {
+    BPETokenizer tokenizer;
+    tokenizer.set_normalization(TextNormalization::LOWERCASE);
+    tokenizer.build_vocab({"Hello World", "hello world"}, 60, 1);
+    EXPECT_EQ(tokenizer.encode("HELLO", false), tokenizer.encode("hello", false));
+    EXPECT_EQ(tokenizer.decode(tokenizer.encode("Hello World", false), true), "hello world");
+}
+
+TEST_F(BPETokenizerTest, SaveWritesV2HeaderAndLoadRestoresNormalization) {
+    for (const auto normalization : {TextNormalization::CASED, TextNormalization::LOWERCASE}) {
+        BPETokenizer writer;
+        writer.set_normalization(normalization);
+        writer.build_vocab({"Hello World", "hello world"}, 60, 1);
+        writer.save_vocab("test_save_vocab.txt");
+        const std::string file = read_file("test_save_vocab.txt");
+        EXPECT_NE(file.find("# BPE Tokenizer Vocabulary v2.0"), std::string::npos);
+        EXPECT_NE(file.find(normalization == TextNormalization::CASED ? "NORMALIZATION CASED"
+                                                                      : "NORMALIZATION LOWERCASE"),
+                  std::string::npos);
+
+        BPETokenizer reader;
+        reader.set_normalization(normalization == TextNormalization::CASED
+                                     ? TextNormalization::LOWERCASE
+                                     : TextNormalization::CASED);
+        reader.load_vocab("test_save_vocab.txt");
+        EXPECT_EQ(reader.get_normalization(), normalization);
+        EXPECT_EQ(reader.encode("Hello World", false), writer.encode("Hello World", false));
+    }
+}
+
+// A v1 file (no NORMALIZATION line, as every vocabulary before TD-560) loads as LOWERCASE, so
+// existing checkpoints tokenize exactly as they were trained.
+TEST_F(BPETokenizerTest, V1VocabularyLoadsAsLowercase) {
+    BPETokenizer writer;
+    writer.set_normalization(TextNormalization::LOWERCASE);
+    writer.build_vocab({"hello world"}, 40, 1);
+    writer.save_vocab("test_save_vocab.txt");
+    std::string file = read_file("test_save_vocab.txt");
+    file.replace(file.find("# BPE Tokenizer Vocabulary v2.0"), 31,
+                 "# BPE Tokenizer Vocabulary v1.0");
+    file.erase(file.find("NORMALIZATION LOWERCASE\n"), 24);
+    write_file(test_vocab_file, file);
+
+    BPETokenizer reader;  // CASED by default
+    reader.load_vocab(test_vocab_file);
+    EXPECT_EQ(reader.get_normalization(), TextNormalization::LOWERCASE);
+    EXPECT_EQ(reader.encode("HELLO World", false), reader.encode("hello world", false));
+}
+
+// TD-563: a newer format, an unknown header line or an unknown normalization is refused; an older
+// load_vocab() skipped unknown header lines and would have lowercased a cased vocabulary.
+TEST_F(BPETokenizerTest, UnknownVocabularyFormatsAreRefused) {
+    BPETokenizer writer;
+    writer.build_vocab({"hello world"}, 40, 1);
+    writer.save_vocab("test_save_vocab.txt");
+    const std::string good = read_file("test_save_vocab.txt");
+
+    std::string newer = good;
+    newer.replace(newer.find("v2.0"), 4, "v3.0");
+    write_file(test_vocab_file, newer);
+    BPETokenizer a;
+    EXPECT_THROW(a.load_vocab(test_vocab_file), VocabularyFileError);
+
+    std::string unknown_line = good;
+    unknown_line.insert(unknown_line.find("VOCAB_SIZE"), "SOMETHING_NEW yes\n");
+    write_file(test_vocab_file, unknown_line);
+    BPETokenizer b;
+    EXPECT_THROW(b.load_vocab(test_vocab_file), VocabularyFileError);
+
+    std::string bad_value = good;
+    bad_value.replace(bad_value.find("NORMALIZATION CASED"), 19, "NORMALIZATION UPPER");
+    write_file(test_vocab_file, bad_value);
+    BPETokenizer c;
+    EXPECT_THROW(c.load_vocab(test_vocab_file), VocabularyFileError);
+}
+
+// TD-562: a cased vocabulary is sized up by the share of capitalized words; text without capitals,
+// or a lowercase vocabulary, is sized as before.
+TEST_F(BPETokenizerTest, RecommendedSizeAccountsForLetterCase) {
+    std::vector<std::string> capitalized, plain;
+    for (int i = 0; i < 4000; ++i) {
+        capitalized.push_back("The Quick brown Fox jumps over the Lazy dog number " +
+                              std::to_string(i));
+        plain.push_back("the quick brown fox jumps over the lazy dog number " + std::to_string(i));
+    }
+    auto size = [](const std::vector<std::string>& texts, TextNormalization n) {
+        return BPETokenizer::recommend_vocab_size(texts, 768, 12, 12, 512, TokenizerMode::ASCII, n);
+    };
+    const int lower = size(capitalized, TextNormalization::LOWERCASE);
+    const int cased = size(capitalized, TextNormalization::CASED);
+    EXPECT_GT(cased, lower);
+    EXPECT_LE(cased, static_cast<int>(lower * 1.3) + 500) << "capped at +30% (plus rounding)";
+    EXPECT_EQ(size(plain, TextNormalization::CASED), size(plain, TextNormalization::LOWERCASE));
+}
+
+// TD-560: a lowercase vocabulary has no capital-letter tokens (it used to count base characters
+// from the raw text, so capitals got ids that encoding never produces); a cased one has them.
+TEST_F(BPETokenizerTest, LowercaseVocabularyHasNoCapitalTokens) {
+    const std::vector<std::string> texts = {"Hello World from the GPU team",
+                                            "The Quick Fox met NASA"};
+    BPETokenizer lower;
+    lower.set_normalization(TextNormalization::LOWERCASE);
+    lower.build_vocab(texts, 120, 1);
+    BPETokenizer cased;
+    cased.build_vocab(texts, 120, 1);
+    for (const auto& [token, id] : lower.get_top_tokens(static_cast<int>(lower.get_vocab_size()))) {
+        if (token.size() > 1 && token.front() == '<' && token.back() == '>')
+            continue;  // specials
+        EXPECT_EQ(
+            std::count_if(token.begin(), token.end(), [](char c) { return c >= 'A' && c <= 'Z'; }),
+            0)
+            << "lowercase vocabulary token '" << token << "'";
+    }
+    bool cased_has_capital = false;
+    for (const auto& [token, id] : cased.get_top_tokens(static_cast<int>(cased.get_vocab_size())))
+        cased_has_capital |=
+            std::any_of(token.begin(), token.end(), [](char c) { return c >= 'A' && c <= 'Z'; });
+    EXPECT_TRUE(cased_has_capital);
+}
+
+// TD-564: a new tokenizer is in Unicode mode (one unit per UTF-8 code point); an ASCII vocabulary
+// file still loads in ASCII mode, since a file records its own mode.
+TEST_F(BPETokenizerTest, UnicodeIsTheDefaultModeAndFilesKeepTheirOwn) {
+    BPETokenizer tokenizer;
+    EXPECT_EQ(tokenizer.get_mode(), TokenizerMode::UNICODE);
+    tokenizer.build_vocab({"caf\xC3\xA9 na\xC3\xAFve r\xC3\xA9sum\xC3\xA9"}, 60, 1);
+    // "é" is one unit, not two bytes: encoding a lone "é" gives one id that isn't <unk>.
+    const auto ids = tokenizer.encode("\xC3\xA9", false);
+    ASSERT_EQ(ids.size(), 1u);
+    EXPECT_NE(ids[0], tokenizer.get_unk_token_id());
+
+    BPETokenizer ascii(TokenizerMode::ASCII);
+    ascii.build_vocab({"hello world"}, 40, 1);
+    ascii.save_vocab("test_save_vocab.txt");
+    BPETokenizer loaded;
+    loaded.load_vocab("test_save_vocab.txt");
+    EXPECT_EQ(loaded.get_mode(), TokenizerMode::ASCII);
+}
+
+// TD-564: a vocabulary file without a TOKENIZER_MODE line predates Unicode mode and loads as ASCII,
+// not in the (now Unicode) constructor's mode.
+TEST_F(BPETokenizerTest, VocabularyWithoutAModeLineLoadsAsAscii) {
+    BPETokenizer writer(TokenizerMode::ASCII);
+    writer.set_normalization(TextNormalization::LOWERCASE);
+    writer.build_vocab({"hello world"}, 40, 1);
+    writer.save_vocab("test_save_vocab.txt");
+    std::string file = read_file("test_save_vocab.txt");
+    file.erase(file.find("TOKENIZER_MODE ASCII\n"), 21);
+    file.erase(file.find("NORMALIZATION LOWERCASE\n"), 24);
+    file.replace(file.find("v2.0"), 4, "v1.0");
+    write_file(test_vocab_file, file);
+    BPETokenizer reader;  // Unicode by default
+    reader.load_vocab(test_vocab_file);
+    EXPECT_EQ(reader.get_mode(), TokenizerMode::ASCII);
+    EXPECT_EQ(reader.get_normalization(), TextNormalization::LOWERCASE);
 }

@@ -234,7 +234,7 @@ TEST_F(ChatbotTrainerTest, Config_DefaultValues) {
     EXPECT_FLOAT_EQ(default_config.weight_decay, 0.01f);
     EXPECT_FLOAT_EQ(default_config.gradient_clip_norm, 1.0f);
     EXPECT_EQ(default_config.log_level, LogLevel::VERBOSE);
-    EXPECT_EQ(default_config.tokenizer_mode, TokenizerMode::ASCII);
+    EXPECT_EQ(default_config.tokenizer_mode, TokenizerMode::UNICODE);  // TD-564
 }
 
 TEST_F(ChatbotTrainerTest, Config_CustomValues) {
@@ -1255,10 +1255,10 @@ TEST(ConfigTest, ValidationSplit_Typical) {
 // TokenizerMode in TrainingConfig Tests
 // ============================================================================
 
-TEST(TokenizerModeConfigTest, DefaultModeIsASCII) {
+// TD-564: Unicode is the default (it was ASCII).
+TEST(TokenizerModeConfigTest, DefaultModeIsUnicode) {
     TrainingConfig config;
-    EXPECT_EQ(config.tokenizer_mode, TokenizerMode::ASCII);
-    EXPECT_NE(config.tokenizer_mode, TokenizerMode::UNICODE);
+    EXPECT_EQ(config.tokenizer_mode, TokenizerMode::UNICODE);
 }
 
 TEST(TokenizerModeConfigTest, CanSetUnicodeMode) {
@@ -1395,6 +1395,10 @@ class ChatbotTrainerCacheTest : public ::testing::Test {
         return cfg;
     }
 
+    // TD-561 hook
+    static bool BleuLowercases(const ChatbotTrainer& t) {
+        return t.bleu_lowercases();
+    }
     // TD-271 hook
     static void Split(ChatbotTrainer& t) {
         t.split_data();
@@ -2028,4 +2032,25 @@ TEST_F(ChatbotTrainerCacheTest, ArchitectureIsNeverSilentlyChanged) {
     ASSERT_NO_THROW(InitModel(kept));
     EXPECT_EQ(kept.get_config().d_ff, 16);
     EXPECT_EQ(kept.get_config().d_model, 16);
+}
+
+// TD-561: BLEU compares case-insensitively exactly when the model's tokenizer lowercases.
+TEST_F(ChatbotTrainerCacheTest, BleuLowercasesOnlyForALowercaseVocabulary) {
+    Matrix::gpu_try_initialize();
+    std::filesystem::create_directories(cache_dir);
+    ChatbotTrainer cased(tiny_training_config(1));
+    ASSERT_TRUE(
+        cased.build_vocabulary({"Hello World", "how are you"}, 100, cache_dir + "/cased.txt"));
+    InitModel(cased);
+    EXPECT_FALSE(BleuLowercases(cased));
+
+    BPETokenizer lower;
+    lower.set_normalization(TextNormalization::LOWERCASE);
+    lower.build_vocab({"Hello World", "how are you"}, 100);
+    lower.save_vocab(cache_dir + "/lower.txt");
+    TrainingConfig cfg = tiny_training_config(1);
+    ChatbotTrainer lowered(cfg);
+    ASSERT_TRUE(lowered.load_tokenizer(cache_dir + "/lower.txt"));
+    InitModel(lowered);
+    EXPECT_TRUE(BleuLowercases(lowered));
 }

@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added)
-// @adai-version: 0.13.3
+// @adai-version: 0.13.5
 // @adai-reviewed: 2026-11-04
 
 #include <atomic>
@@ -159,7 +159,7 @@ struct TrainingConfig {
     int max_abnormal_samples = 1000;            // Cap on flagged samples reported per training run
 
     // Tokenizer mode: ASCII (default, byte-level) or UNICODE (UTF-8 code-point-level)
-    TokenizerMode tokenizer_mode = TokenizerMode::ASCII;
+    TokenizerMode tokenizer_mode = TokenizerMode::UNICODE;  // TD-564
 
     // On-disk tokenized-data cache: preprocess_data() skips its BPE-encode loops
     // entirely on a cache hit (see ChatbotTrainer.cpp). Mirrors
@@ -397,6 +397,10 @@ class ChatbotTrainer {
     /// TD-273: sends a SampleQualityReport per split that has scored pairs (no-op without a
     /// reporter).
     void report_sample_quality(int epoch, const std::string& source) const;
+
+    /// TD-561: whether BLEU compares case-insensitively: when the model's tokenizer lowercases, its
+    /// replies are always lowercase while the reference targets keep their capitals.
+    bool bleu_lowercases() const;
 
    public:
     /**

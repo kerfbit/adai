@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.26.0
-// @adai-reviewed: 2026-11-03
-
+// @adai-version: 1.27.0
+// @adai-reviewed: 2026-11-04
 
 #include <climits>
 #include <cstdint>
@@ -799,15 +798,20 @@ struct ServiceConfig {
     // Tokenizer Configuration
     // ============================================================
 
-    /// Use UTF-8 code-point tokenization (Unicode mode); false = byte-level ASCII mode (default).
+    /// Use UTF-8 code-point tokenization (Unicode mode, the default since TD-564); false =
+    /// byte-level ASCII mode.
     ///
-    /// ASCII mode  — each raw byte is one BPE unit.  Fast, backward-compatible.
-    /// Unicode mode — each UTF-8 code point is one BPE unit.  Learns better
-    ///                subword merges for non-Latin scripts (CJK, Arabic, Cyrillic…).
+    /// ASCII mode  — each raw byte is one BPE unit; a multi-byte character is split into bytes.
+    /// Unicode mode — each UTF-8 code point (ISO/IEC 10646 character) is one BPE unit.  Learns
+    ///                better subword merges for accented and non-Latin text (CJK, Arabic,
+    ///                Cyrillic…); identical to ASCII mode on plain ASCII text.
     ///
-    /// Config key: TOKENIZER_MODE = ascii | unicode
-    /// Env var:    TOKENIZER_MODE=unicode
-    bool unicode_tokenizer = false;
+    /// Only a vocabulary built from now on uses it: a vocabulary file records its own mode, which
+    /// wins when it is loaded.
+    ///
+    /// Config key: TOKENIZER_MODE = unicode | ascii
+    /// Env var:    TOKENIZER_MODE=ascii
+    bool unicode_tokenizer = true;
 
     /// Target vocabulary size when auto-building a new vocabulary from training data.
     /// 0 (default) = auto-size based on corpus, model architecture, and script analysis.

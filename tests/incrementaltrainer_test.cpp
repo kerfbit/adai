@@ -1521,12 +1521,12 @@ TEST_F(IncrementalTrainerTest, SaveLoadSessionHistoryRoundTripWithPerEpochData) 
 // TokenizerMode Mapping in make_incremental_config
 // ============================================================================
 
-TEST_F(IncrementalTrainerTest, MakeIncrementalConfigDefaultsToAsciiMode) {
-    adai::ServiceConfig svc;  // unicode_tokenizer defaults to false
+TEST_F(IncrementalTrainerTest, MakeIncrementalConfigDefaultsToUnicodeMode) {
+    adai::ServiceConfig svc;  // TD-564: unicode_tokenizer defaults to true
 
     const IncrementalConfig cfg = IncrementalTrainer::make_incremental_config(svc);
 
-    EXPECT_EQ(cfg.base_config.tokenizer_mode, TokenizerMode::ASCII);
+    EXPECT_EQ(cfg.base_config.tokenizer_mode, TokenizerMode::UNICODE);
 }
 
 TEST_F(IncrementalTrainerTest, MakeIncrementalConfigMapsAsciiTokenizerMode) {

@@ -18,6 +18,9 @@ after the owner asked about frequent "session gone, re-registering" warnings in 
 to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
 session: it re-registers, gets 409 because the session is live, retries into another 404, and the sample is never stored.
 
+**November 4, 2026:** Filed and fixed [TD-564](#td-564-byte-level-ascii-was-the-default-tokenizer-mode) at the owner's request:
+Unicode mode (one BPE unit per UTF-8 character, ISO/IEC 10646) is the default for new vocabularies instead of byte-level ASCII.
+
 **November 4, 2026:** Filed [TD-560](#td-560-tokenizer-should-keep-letter-case-in-new-vocabularies) through
 [TD-563](#td-563-rebuild-vocabularies-and-retrain-with-case-and-deploy-in-order) at the owner's request: the TD-224 decision is to keep letter case
 (GPT-2-style), applied in new vocabularies only. TD-560 is the tokenizer change, TD-561 a BLEU case mismatch that biases today's scores low
@@ -1488,6 +1491,8 @@ The generation and model math run is complete.
 - TD-274 (done in code: the best-weights copy for `restore_best_weights` goes in a directory of the trainer's own under the session directory and is deleted after the restore; it used to be `best_model_temp.bin` in the working directory, shared and never removed).
 - TD-276 (done in code, owner's choice: validation token accuracy is computed, on the GPU path by a device-side count, and sent to the dashboards; `log()` levels mapped; an unbuildable `d_model` is an error instead of being changed; dead `verbose`, training-accuracy code and the stale `.old` test removed). The `ChatbotTrainer` items TD-267–TD-276 are all fixed in code.
 - TD-294 (done in code: a chat session's budget is the model's `max_seq_length` in real tokens, counted with the model's tokenizer as the prompt lines the model gets, instead of a fixed 2048 estimated tokens; `ChatbotAPI::set_session_token_budget()` can override it).
+- TD-560, TD-561, TD-562 (done in code, owner's choice on TD-224: keep letter case. New vocabularies are cased and say so in a v2 header, v1 vocabularies keep lowercasing, BLEU follows the vocabulary's letter case, auto-sizing allows for case); TD-563's format refusal landed with them, its rebuild, retrain and rollout wait for TD-358.
+- TD-564 (filed and done in code at the owner's request: Unicode mode, one unit per UTF-8 character, is the default for new vocabularies; `vocab_builder --ascii` for byte-level; files without a mode line load as ASCII).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -2534,6 +2539,7 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-561: BLEU Compares Lowercase Output With Cased References](#td-561-bleu-compares-lowercase-output-with-cased-references)
   - [TD-562: Vocabulary Sizing and Tools Assume Lowercase Text](#td-562-vocabulary-sizing-and-tools-assume-lowercase-text)
   - [TD-563: Rebuild Vocabularies and Retrain With Case, and Deploy in Order](#td-563-rebuild-vocabularies-and-retrain-with-case-and-deploy-in-order)
+  - [TD-564: Byte-Level ASCII Was the Default Tokenizer Mode](#td-564-byte-level-ascii-was-the-default-tokenizer-mode)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -18203,7 +18209,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — owner decision November 4, 2026 (keep case) | NLP / Tokenizer | November 4, 2026 | 4-6 hours |
+| MEDIUM | Open — code fix landed November 4, 2026 (owner decision: keep case) | NLP / Tokenizer | November 4, 2026 | 4-6 hours |
 
 Description:
 Filed at the owner's request to apply the TD-224 decision: keep letter case, as GPT-2-style tokenizers do. `BPETokenizer::pre_tokenize()`
@@ -18221,22 +18227,39 @@ This changes only new vocabularies. Existing vocabularies and checkpoints must k
 
 Action Items:
 
-- [ ] A normalization setting in the tokenizer: `cased` (no lowercasing in `pre_tokenize()`) or `lowercase` (today's behaviour), held by
+- [x] A normalization setting in the tokenizer: `cased` (no lowercasing in `pre_tokenize()`) or `lowercase` (today's behaviour), held by
       `BPETokenizer` and applied in every path that pre-tokenizes (encode, `build_vocab()`, `recommend_vocab_size()`'s probe, Unicode
       and ASCII modes). The regex patterns already match both cases.
-- [ ] Vocabulary file format v2: `save_vocab()` writes `# BPE Tokenizer Vocabulary v2.0` and a `NORMALIZATION CASED|LOWERCASE` header
+- [x] Vocabulary file format v2: `save_vocab()` writes `# BPE Tokenizer Vocabulary v2.0` and a `NORMALIZATION CASED|LOWERCASE` header
       line; `load_vocab()` reads it, and a file without it (every v1 file) loads as `lowercase`, so existing checkpoints are unaffected.
       An unknown value is an error, not a silent default.
-- [ ] New vocabularies are `cased` by default (`build_vocab()`, `IncrementalTrainer::bootstrap_vocab()`, `vocab_builder`), with a way to
+- [x] New vocabularies are `cased` by default (`build_vocab()`, `IncrementalTrainer::bootstrap_vocab()`, `vocab_builder`), with a way to
       build a `lowercase` one deliberately (a `vocab_builder` flag and, if wanted, a `config.trainer.conf` key).
-- [ ] Every other `BPETokenizer` owner follows its vocabulary's setting: `LeJEPAEncoder`'s world-model tokenizer, `LLMEncoder`,
+- [x] Every other `BPETokenizer` owner follows its vocabulary's setting: `LeJEPAEncoder`'s world-model tokenizer, `LLMEncoder`,
       `DocumentStore`/RAG (which embeds with the model's tokenizer since TD-247).
-- [ ] Tests: v1 files load as lowercase and tokenize byte-for-byte as before; v2 cased round-trips "Hello World" with its capitals;
+- [x] Tests: v1 files load as lowercase and tokenize byte-for-byte as before; v2 cased round-trips "Hello World" with its capitals;
       the header is written and read; an unknown normalization value is refused; `tokenizer_test.cpp`'s lowercase assertions are kept for
       the lowercase mode and paired with cased ones.
 
 Whitespace (newlines, tabs collapsed to one space) is the other half of TD-224 and is not part of this decision; if it changes too, it
 should share this format version so vocabularies are rebuilt once.
+
+Fix (November 4, 2026): `TextNormalization` (`CASED` | `LOWERCASE`) on `BPETokenizer`, default `CASED`, with
+`get_normalization()`/`set_normalization()`. `pre_tokenize()` lowercases only for `LOWERCASE`; `build_vocab()` counts base characters
+the same way (a lowercase vocabulary used to give capital letters ids that encoding never produces); `measure_fertility()`'s probe copies
+it. `save_vocab()` writes format v2 (`# BPE Tokenizer Vocabulary v2.0`, `NORMALIZATION CASED|LOWERCASE`); `load_vocab()` starts from
+`LOWERCASE`, so a v1 file tokenizes exactly as before, and refuses an unknown value. `vocab_builder` builds cased vocabularies, or
+lowercase ones with `--lowercase`; `IncrementalTrainer::bootstrap_vocab()` builds cased ones and logs it. The other owners
+(`LeJEPAEncoder`, `LLMEncoder`, RAG through the model's tokenizer) take the setting from the vocabulary they build or load, so no change
+was needed there. No `config.trainer.conf` key for lowercase bootstrapping was added; `vocab_builder --lowercase` covers it.
+
+Tests: `NewVocabulariesKeepCase`, `LowercaseNormalizationIsTheOldBehaviour`, `SaveWritesV2HeaderAndLoadRestoresNormalization`,
+`V1VocabularyLoadsAsLowercase`, `UnknownVocabularyFormatsAreRefused` (TD-563), `LowercaseVocabularyHasNoCapitalTokens`; the two tests that
+asserted lowercasing (`PreTokenizeBasic`, `UnicodeModePreTokenizeLowercasesOnlyASCII`) now set `LOWERCASE` (both failed with the new
+default, as expected). The full suite passes with cased as the default. Checked with real binaries: `vocab_builder` writes v2 headers
+(`CASED` by default, `LOWERCASE` with `--lowercase`); a fresh `incremental_trainer` pass on capitalized data built a cased vocabulary with
+capital-letter tokens; the new trainer continuing a session started by the old binary kept its v1 vocabulary and lowercase tokenization,
+and wrote the checkpoint's copy as v2 `LOWERCASE`.
 
 Location in code: `src/BPETokenizer.{hpp,cpp}` (`pre_tokenize()`, `save_vocab()`, `load_vocab()`, `build_vocab()`), `src/VocabBuilder.cpp`,
 `src/IncrementalTrainer.cpp` (`bootstrap_vocab()`).
@@ -18253,7 +18276,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / Metrics | November 4, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 4, 2026 | Training / Metrics | November 4, 2026 | 1-2 hours |
 
 Description:
 Found November 4, 2026 while weighing TD-560 (by inspection). The per-epoch generation-quality metrics compare the model's generated
@@ -18266,11 +18289,18 @@ TD-560.
 
 Action Items:
 
-- [ ] Compare with the normalization the model's tokenizer applies: with a `lowercase` vocabulary, lowercase the references (as sacreBLEU's
+- [x] Compare with the normalization the model's tokenizer applies: with a `lowercase` vocabulary, lowercase the references (as sacreBLEU's
       `lowercase=True`) for BLEU and for the generation backfill's sentence BLEU; with a `cased` vocabulary (TD-560), keep BLEU
       case-sensitive. Until TD-560 exists, lowercase always.
-- [ ] Note in the metrics docs that BLEU scores before the fix are biased low and not comparable with later ones.
-- [ ] Tests: a lowercase hypothesis against a capitalized identical reference scores 100 under a lowercase tokenizer.
+- [x] Note in the metrics docs that BLEU scores before the fix are biased low and not comparable with later ones.
+- [x] Tests: a lowercase hypothesis against a capitalized identical reference scores 100 under a lowercase tokenizer.
+
+Fix (November 4, 2026): `GenerationQualityEvaluator::evaluate()` and `sentence_bleu()` take a flag that lowercases ASCII letters on
+both sides before the 13a tokenizer (sacreBLEU's `lowercase=True`; ASCII only, as the tokenizer lowercases). `ChatbotTrainer::bleu_lowercases()`
+sets it when the model's tokenizer is `LOWERCASE`, for the per-epoch scores (sync and async) and the generation backfill; with a cased
+vocabulary (TD-560) BLEU stays case-sensitive. Tests: `GenerationQualityCase.LowercaseBleuMatchesALowercaseAnswer` (an identical answer
+that differs only in case scores 100 with the flag and less without it; ROUGE is the same either way; non-ASCII letters aren't folded)
+and `ChatbotTrainerCacheTest.BleuLowercasesOnlyForALowercaseVocabulary`.
 
 Location in code: `src/ChatbotTrainer.cpp` (`compute_generation_quality_metrics()`, `backfill_generation_quality()`),
 `src/GenerationQualityMetrics.{hpp,cpp}`.
@@ -18287,7 +18317,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | NLP / Tokenizer | November 4, 2026 | 2-3 hours |
+| LOW | Open — code fix landed November 4, 2026 (real-data measurement pending) | November 4, 2026 | 2-3 hours |
 
 Description:
 Filed with TD-560. With case kept, the same corpus has about 23% more distinct words (measured on local prose), so a vocabulary sized
@@ -18297,12 +18327,18 @@ tokens.
 
 Action Items:
 
-- [ ] Make `recommend_vocab_size()` account for the normalization (count distinct pre-tokens as the tokenizer will see them, or scale for
+- [x] Make `recommend_vocab_size()` account for the normalization (count distinct pre-tokens as the tokenizer will see them, or scale for
       case), so an auto-sized cased vocabulary isn't undersized; log the normalization with the chosen size.
-- [ ] `vocab_builder`: report the normalization it built with; `scripts/audit_vocab_merges.py` (TD-220) and any other vocabulary tooling
+- [x] `vocab_builder`: report the normalization it built with; `scripts/audit_vocab_merges.py` (TD-220) and any other vocabulary tooling
       read the v2 header.
 - [ ] Re-measure the token cost on the real training data (the registry pool) at the chosen vocabulary size before the rebuild, and
       record it next to the TD-560 numbers.
+
+Fix (November 4, 2026): `recommend_vocab_size()` takes a `TextNormalization` (default `CASED`) and, for a cased vocabulary, multiplies
+by 1 + the share of words with an ASCII capital (capped at +30%) before the architecture cap; `bootstrap_vocab()` logs the letter case.
+`vocab_builder` prints `Letter case: kept|lowercased`; `scripts/audit_vocab_merges.py` reports each file's format version and letter case
+(a v1 file as lowercase). Test: `RecommendedSizeAccountsForLetterCase`. The real-data measurement (third item) needs the registry pool
+on ai-machine and stays open.
 
 Location in code: `src/BPETokenizer.cpp` (`recommend_vocab_size()`), `src/VocabBuilder.cpp`, `scripts/audit_vocab_merges.py`.
 
@@ -18317,7 +18353,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open (blocked on TD-560; best done with the TD-358 retraining) | Training / Operations | November 4, 2026 | Not estimated (retraining) |
+| MEDIUM | Open — format refusal landed November 4, 2026; rebuild, retrain and rollout pending (TD-358) | Training / Operations | November 4, 2026 | Not estimated (retraining) |
 
 Description:
 Filed with TD-560. A cased vocabulary needs a newly trained model (its token ids differ), and the binaries that read it must understand
@@ -18339,11 +18375,55 @@ Action Items:
 - [ ] Operator docs: which binaries must be updated first, how to build a cased vocabulary, and that RAG retrieval now distinguishes
       case (`GPU` vs `gpu`).
 
+Progress (November 4, 2026): the code half of the first item is done with TD-560: `load_vocab()` refuses a format newer than
+`kVocabFormatMajor` (2) and any unrecognized header line, so binaries from this release on can't misread a future format. Checked with
+the real `chatbot_api_server`: given a vocabulary marked v3.0 with an unknown header line, the old server started and served with it,
+the new one exited 1 ("vocabulary format v3.0, newer than this build reads (v2); update the binary"). A v2 `LOWERCASE` file, which the new
+trainer writes when it continues an old session, is read correctly even by old binaries (they lowercase anyway); only a `CASED`
+vocabulary needs the new binaries. Deploying them, rebuilding, retraining and the remaining items are operations work.
+
 Location in code: none of its own; operations and training. Depends on TD-560 and TD-562; pairs with TD-358 and the turn-token proposal.
 
 Files to Modify:
 
 - `docs/operations/OPERATIONS_MANUAL.md`, `docs/operations/guides/training-guide.md`, deployment notes for ai-machine
+
+---
+
+### TD-564: Byte-Level ASCII Was the Default Tokenizer Mode
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open — code fix landed November 4, 2026 (owner request) | NLP / Tokenizer | November 4, 2026 | 1-2 hours |
+
+Description:
+Filed and fixed at the owner's request with TD-560: make Unicode mode (ISO/IEC 10646, one BPE unit per UTF-8 code point) the
+default. `BPETokenizer`, `TrainingConfig::tokenizer_mode`, `ServiceConfig::unicode_tokenizer` (`TOKENIZER_MODE`), `recommend_vocab_size()`
+and `vocab_builder` all defaulted to ASCII mode, which splits every multi-byte character into byte tokens, so accented and non-Latin
+text needs more tokens and merges learned across byte fragments. The shipped `config.trainer.conf`/`config.chatbot.conf` also set
+`TOKENIZER_MODE=ascii`. On plain ASCII text the two modes split identically.
+
+Action Items:
+
+- [x] Unicode by default in the tokenizer, `TrainingConfig`, `ServiceConfig` and `recommend_vocab_size()`; `vocab_builder` builds Unicode
+      vocabularies unless given the new `--ascii` (`--unicode` still accepted); the shipped configs say `unicode`.
+- [x] Existing vocabularies unchanged: `load_vocab()` takes the mode from the file, and a file without a `TOKENIZER_MODE` line (the
+      oldest format) now loads as ASCII instead of keeping the constructor's (now Unicode) mode. That replaces TD-416's rule that
+      such a file follows the configured mode: the line was added in the same commit as Unicode mode (`32dd127`, June 21, 2026), so
+      a file without it was always built in ASCII mode; following a configured (now default) `unicode` would misread it.
+- [x] Tests.
+
+Fix (November 4, 2026): as the items above. Tests: `UnicodeModeIsDefault` (replaces `AsciiModeIsDefault`, which pinned the old default
+and failed after the change, as did `VocabBuilderWorkflowTest.DefaultModeIsAscii`, `TokenizerModeConfigTest.DefaultModeIsASCII` and
+`ChatbotTrainerTest.Config_DefaultValues`, all updated), `UnicodeIsTheDefaultModeAndFilesKeepTheirOwn` ("é" is one token, an ASCII vocabulary file loads as
+ASCII), `VocabularyWithoutAModeLineLoadsAsAscii`, `ConfigTest.TokenizerModeDefaultsToUnicode` (and the tests that pinned the old
+default updated), `MakeIncrementalConfigDefaultsToUnicodeMode`. Checked with real binaries: `vocab_builder` writes `TOKENIZER_MODE UNICODE`
+by default (with "é" as one token) and `ASCII` with `--ascii`; a fresh `incremental_trainer` pass with no mode configured built a
+Unicode, cased vocabulary; a session started by the old binary continued in ASCII mode. Retraining needs are TD-563's: the change
+applies only to vocabularies built from now on.
+
+Location in code: `src/BPETokenizer.{hpp,cpp}`, `src/Config.hpp`, `src/ChatbotTrainer.hpp`, `src/VocabBuilder.cpp`, `config.trainer.conf`,
+`config.chatbot.conf`.
 
 ---
 

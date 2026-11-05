@@ -179,3 +179,12 @@ Tokenization (TD-380) is unchanged, so the scores still aren't comparable with p
 - **Tests.** `generation_quality_test.cpp` pins tokenizer outputs and scores produced by sacreBLEU 2.6.0 and rouge-score.
 
 The 10-pair default sample size is unchanged until TD-359 bounds generation length.
+
+## Addendum (November 4, 2026): BLEU follows the model's letter case (TD-561)
+
+`evaluate(references, hypotheses, lowercase_bleu)` and `sentence_bleu(reference, hypothesis, max_n, lowercase)` lowercase ASCII
+letters on both sides before the 13a tokenizer when asked (sacreBLEU's `lowercase=True`). `ChatbotTrainer::bleu_lowercases()` asks
+for it when the model's tokenizer is `LOWERCASE` (every vocabulary before TD-560), in the per-epoch scores (sync and async) and the
+generation backfill. Before, a lowercase model's replies were compared case-sensitively with references that keep their capitals,
+so every capitalized reference word was a miss and BLEU was biased low; those scores aren't comparable with later ones. With a cased
+vocabulary BLEU stays case-sensitive. ROUGE always lowercases.

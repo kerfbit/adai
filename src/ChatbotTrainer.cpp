@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.18.1
+// @adai-version: 0.18.2
 // @adai-reviewed: 2026-11-04
 
 #include "ChatbotTrainer.hpp"
@@ -2000,10 +2000,11 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
 
         const int max_tokens = config.generation_quality_max_tokens;
         IMetricsReporter* reporter = metrics_reporter_;
+        const bool lowercase_bleu = bleu_lowercases();  // TD-561
 
         generation_quality_thread_.emplace([snap = std::move(snapshot), refs = std::move(refs),
-                                            inputs = std::move(inputs), max_tokens,
-                                            reporter]() mutable {
+                                            inputs = std::move(inputs), max_tokens, reporter,
+                                            lowercase_bleu]() mutable {
             const adai::gpu::ScopedCpuOnly cpu_only;  // TD-382
             snap->set_training(false);
             std::vector<std::string> hypotheses;
@@ -2020,7 +2021,7 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
             }
             if (!hypotheses.empty()) {
                 GenerationQualityScore score =
-                    GenerationQualityEvaluator::evaluate(refs, hypotheses);
+                    GenerationQualityEvaluator::evaluate(refs, hypotheses, lowercase_bleu);
                 reporter->update_generation_quality_metrics(score.bleu4, score.rouge1, score.rouge2,
                                                             score.rougeL, score.bleu1, score.bleu2);
             }
@@ -2058,13 +2059,19 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
         return;
     }
 
-    GenerationQualityScore score = GenerationQualityEvaluator::evaluate(references, hypotheses);
+    GenerationQualityScore score =
+        GenerationQualityEvaluator::evaluate(references, hypotheses, bleu_lowercases());  // TD-561
     metrics_reporter_->update_generation_quality_metrics(score.bleu4, score.rouge1, score.rouge2,
                                                          score.rougeL, score.bleu1, score.bleu2);
 }
 
 // TD-273: the scores are reported (report_sample_quality()) and readable with get_training_pairs()/
 // get_validation_pairs(); GENERATION_QUALITY_BACKFILL turns this on.
+bool ChatbotTrainer::bleu_lowercases() const {
+    const BPETokenizer* tokenizer = model ? model->get_tokenizer() : nullptr;
+    return !tokenizer || tokenizer->get_normalization() == TextNormalization::LOWERCASE;
+}
+
 void ChatbotTrainer::report_sample_quality(int epoch, const std::string& source) const {
     if (!metrics_reporter_) {
         return;
@@ -2091,6 +2098,7 @@ void ChatbotTrainer::backfill_generation_quality() {
     adai::Logger::info("📊 Backfilling generation quality scores (BLEU4)...");
     model->set_training(false);
 
+    const bool lowercase_bleu = bleu_lowercases();  // TD-561
     auto score_sample = [&](const std::string& input, const std::string& target) -> float {
         float result = 0.0f;
         try {
@@ -2103,7 +2111,8 @@ void ChatbotTrainer::backfill_generation_quality() {
 #endif
             // TD-378: one pair needs the smoothed sentence BLEU; corpus BLEU of a single short reply
             // is almost always 0. TD-380: sentence_bleu() is 0-100; SampleMeta::quality is [0, 1].
-            result = GenerationQualityEvaluator::sentence_bleu(target, hyp) / 100.0f;
+            result = GenerationQualityEvaluator::sentence_bleu(target, hyp, 4, lowercase_bleu) /
+                     100.0f;  // TD-561
         } catch (const std::exception& e) {
             adai::Logger::warn("backfill_generation_quality: generate_response() threw: {}",
                                e.what());

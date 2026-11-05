@@ -340,3 +340,10 @@ the file and the environment. The header-list parser is now `parse_http_header_l
 Two boolean `config.trainer.conf` keys (file and environment, the shared boolean parser): `loss_quality_backfill` (default `true`) and
 `generation_quality_backfill` (default `false`), mapped by `IncrementalTrainer::make_incremental_config()` to
 `TrainingConfig::enable_loss_quality_backfill`/`enable_generation_quality_backfill`. Shown by `to_string()`.
+
+## Addendum (November 4, 2026): `TOKENIZER_MODE` defaults to `unicode` (TD-564)
+
+`ServiceConfig::unicode_tokenizer` defaults to `true`, so `TOKENIZER_MODE` is `unicode` unless a file or the environment says `ascii`.
+An unrecognized value keeps the default, now Unicode (the enumeration note above, from before TD-289, no longer applies either). The
+shipped `config.trainer.conf` and `config.chatbot.conf` set `TOKENIZER_MODE=unicode`. The mode only matters when a vocabulary is built;
+a vocabulary file records its own mode, which wins when it is loaded.

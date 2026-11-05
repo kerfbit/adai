@@ -817,9 +817,10 @@ TEST_F(LeJEPAEncoderTest, CheckpointDirectoryResolution) {
     EXPECT_EQ(LeJEPAEncoder::resolve_checkpoint_dir(session, "/elsewhere/wm"), "/elsewhere/wm");
 }
 
-// TD-416: the LeJEPA tokenizer was always ASCII, so under TOKENIZER_MODE=unicode a vocabulary without a
-// TOKENIZER_MODE line was read differently from the chatbot's. The mode is set like the chatbot's, and a
-// vocabulary that records its own mode still wins.
+// TD-416: the LeJEPA tokenizer was always ASCII; its mode is now set like the chatbot's, and a vocabulary
+// that records its own mode wins. TD-564: a vocabulary without a TOKENIZER_MODE line loads as ASCII
+// whatever the configured mode: the line was added with Unicode mode itself (June 21, 2026), so such a
+// file was built from bytes. Unicode is now the default.
 TEST(LeJEPAEncoderTokenizerMode, FollowsTheConfiguredModeUnlessTheVocabularyRecordsOne) {
     namespace fs = std::filesystem;
     const fs::path dir = fs::temp_directory_path() / ("adai_td416_vocab_" + std::to_string(::getpid()));
@@ -838,7 +839,7 @@ TEST(LeJEPAEncoderTokenizerMode, FollowsTheConfiguredModeUnlessTheVocabularyReco
     LeJEPAEncoder headerless(vocab, 64, 1, 2, 128, 32, 16);
     headerless.set_tokenizer_mode(TokenizerMode::UNICODE);
     headerless.load_tokenizer_vocab((dir / "no_mode.txt").string());
-    EXPECT_EQ(headerless.get_tokenizer_mode(), TokenizerMode::UNICODE);
+    EXPECT_EQ(headerless.get_tokenizer_mode(), TokenizerMode::ASCII);  // TD-564
 
     LeJEPAEncoder recorded(vocab, 64, 1, 2, 128, 32, 16);
     recorded.set_tokenizer_mode(TokenizerMode::UNICODE);
@@ -846,6 +847,6 @@ TEST(LeJEPAEncoderTokenizerMode, FollowsTheConfiguredModeUnlessTheVocabularyReco
     EXPECT_EQ(recorded.get_tokenizer_mode(), TokenizerMode::ASCII);  // the file's own mode
 
     LeJEPAEncoder defaulted(vocab, 64, 1, 2, 128, 32, 16);
-    EXPECT_EQ(defaulted.get_tokenizer_mode(), TokenizerMode::ASCII);
+    EXPECT_EQ(defaulted.get_tokenizer_mode(), TokenizerMode::UNICODE);  // TD-564: the default
     fs::remove_all(dir);
 }

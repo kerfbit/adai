@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 2.0.0
-// @adai-reviewed: 2026-10-25
-
+// @adai-version: 2.1.0
+// @adai-reviewed: 2026-11-04
 
 #include <map>
 #include <string>
@@ -44,11 +43,16 @@ class GenerationQualityEvaluator {
      * @param references  List of reference (target) strings.
      * @param hypotheses  List of generated (hypothesis) strings.
      *                    Must be the same length as @p references.
+     * @param lowercase_bleu TD-561: lowercase ASCII letters on both sides before BLEU (sacreBLEU's
+     *                    `lowercase=True`), for a model whose tokenizer lowercases (its output is
+     *                    always lowercase while references keep their capitals). ROUGE always
+     *                    lowercases.
      * @return GenerationQualityScore with all fields populated;
      *         returns default struct (all -1) on empty or mismatched input.
      */
     static GenerationQualityScore evaluate(const std::vector<std::string>& references,
-                                           const std::vector<std::string>& hypotheses);
+                                           const std::vector<std::string>& hypotheses,
+                                           bool lowercase_bleu = false);
 
     /**
      * @brief sacreBLEU's sentence BLEU for one pair, 0-100 (TD-380): 13a tokens, "exp" smoothing and
@@ -56,7 +60,7 @@ class GenerationQualityEvaluator {
      *        short answer scores 100). Returns 0 when no unigram matches.
      */
     static float sentence_bleu(const std::string& reference, const std::string& hypothesis,
-                               int max_n = 4);
+                               int max_n = 4, bool lowercase = false);  // TD-561: as evaluate()
 
     /// TD-380: sacreBLEU's 13a tokenizer (mteval-v13a): ASCII punctuation becomes separate tokens,
     /// '.'/',' only when not between digits, '-' only after a digit; case is kept.
