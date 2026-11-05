@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.8.0
+// @adai-version: 1.8.1
 // @adai-reviewed: 2026-11-05
 
 #include <cstddef>
@@ -403,8 +403,9 @@ class RegistryTransport {
      *                                        ignored)
      *          - empty @p paths, count > 0 — assign the first @p count
      *                                        currently-unassigned whole-file entries
-     *          - empty @p paths, count<=0  — assign every pending entry (whole-file and
+     *          - empty @p paths, count 0   — assign every pending entry (whole-file and
      *                                        segments alike)
+     *          - count < 0                 — refused; nothing is assigned (TD-321)
      */
     virtual AssignResult assign(const std::string& model_name,
                                 const std::vector<std::string>& paths = {}, int count = 0,

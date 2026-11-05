@@ -136,9 +136,19 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| `--count` ≤ 0 (including typos like `-2`) means "all" for `assign` and `migrate` (§4) | One mistyped value assigns or migrates the entire pending pool | **Verified** | [TD-321](../../guides/TECHNICAL_DEBT.md#td-321-dataset_manager-treats---count--0-as-all) |
+| `--count` ≤ 0 (including typos like `-2`) means "all" for `assign` and `migrate` (§4) | One mistyped value assigns or migrates the entire pending pool (**fixed in code November 5, 2026**) | **Verified** | [TD-321](../../guides/TECHNICAL_DEBT.md#td-321-dataset_manager-treats---count--0-as-all) |
 | Unknown flags, typo'd flags and value-less `--count` become file targets (§4) | Operations silently differ from intent (e.g. `--delete-file` keeps files) | **Verified** | [TD-322](../../guides/TECHNICAL_DEBT.md#td-322-dataset_manager-treats-unknown-flags-as-file-targets) |
 | `std::stoi` accepts partial numbers; negative/zero IDs and pair counts accepted (§4) | Wrong values pass validation; errors surface late or not at all | **Verified** | [TD-323](../../guides/TECHNICAL_DEBT.md#td-323-dataset_manager-accepts-partial-and-out-of-range-numbers) |
 | `--ranges` overflow (UB), overlaps and duplicates accepted, not checked against the file's pair count; `--count` ignored alongside `--ranges` when ≤ 0 (§3–4) | Negative-count segments; pairs queued twice or beyond EOF | **Verified** (overflow, overlap) / by inspection (EOF) | [TD-324](../../guides/TECHNICAL_DEBT.md#td-324-dataset_manager-segment-range-validation-gaps) |
 | `huggingface` optional arguments purely positional; extra arguments ignored by several commands (§4) | Easy to shift arguments into the wrong field | By inspection | [TD-325](../../guides/TECHNICAL_DEBT.md#td-325-dataset_manager-huggingface-positional-arguments-shift-silently) |
 | `dataset_id` unvalidated before local `DataFetcher` shell commands | Already tracked | — | TD-312 |
+
+## Addendum (November 5, 2026): `--count` must be at least 1 (TD-321)
+
+`parse_assign_args()` and `parse_migrate_args()` read `--count` through a shared `parse_count()`, which uses `parse_strict_int()` and
+requires a value of at least 1. `0`, `-2`, `3x` or an empty value is an error naming the value and saying to omit `--count` to assign
+(or migrate) everything; `main()` prints it and exits 1. Omitting `--count` (`count == 0` in the result) remains the only way to say
+"all". The test target compiles `Config.cpp` for the strict parser. Below the CLI, `LocalTransport::assign()` and `registry_server`'s
+`assign` refuse a negative count (0 still means all there, as the Android dashboard sends it); see
+[RegistryTransport.md](RegistryTransport.md) and [RegistryServer.md](RegistryServer.md).
+

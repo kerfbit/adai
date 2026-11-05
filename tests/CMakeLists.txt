@@ -894,9 +894,13 @@ add_test(NAME MnsCliCommandsTests COMMAND mnsCliCommandsTests)
 # file I/O and network downloads) — DatasetRegistry's own behavior is already covered by
 # DatasetRegistryTests/DatasetRegistryLiveTests.
 add_executable(datasetManagerArgsTests dataset_manager_args_test.cpp
-    ${CMAKE_SOURCE_DIR}/src/DatasetManagerArgs.cpp)
+    ${CMAKE_SOURCE_DIR}/src/DatasetManagerArgs.cpp
+    ${CMAKE_SOURCE_DIR}/src/Config.cpp  # TD-321: parse_strict_int() for --count
+    ${CMAKE_SOURCE_DIR}/src/GenerationSettings.cpp  # TD-254: Config.cpp uses the shared generation limits
+    ${CMAKE_SOURCE_DIR}/src/Logger.cpp)
 target_include_directories(datasetManagerArgsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(datasetManagerArgsTests
+    spdlog::spdlog
     GTest::gtest_main
 )
 add_test(NAME DatasetManagerArgsTests COMMAND datasetManagerArgsTests)

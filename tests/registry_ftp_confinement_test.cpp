@@ -576,3 +576,25 @@ TEST_F(RegistryFtpConfinementTest, ReplyStaysValidJsonForOldUnusualPaths) {
     EXPECT_EQ(pending[1].path, "/data/bad\xef\xbf\xbd.jsonl");  // U+FFFD
     EXPECT_EQ(pending[2].path, "/data/ok.jsonl");
 }
+
+// TD-321: registry_server's assign treated any count <= 0 as "assign every pending entry", so a
+// negative count from a typo assigned the whole pool. 0 (and an absent count) still mean all, as
+// the Android dashboard sends; a negative count is a 400 that changes nothing.
+TEST_F(RegistryFtpConfinementTest, AssignRefusesNegativeCount) {
+    RemoteTransport rt("http://127.0.0.1:" + std::to_string(http_port_), "td321");
+    ASSERT_TRUE(rt.add_pending("/data/a.jsonl"));
+    ASSERT_TRUE(rt.add_pending("/data/b.jsonl"));
+
+    httplib::Client cli("127.0.0.1", http_port_);
+    auto res = cli.Post("/registry/td321/assign", "{\"model_name\":\"m\",\"count\":-2}",
+                        "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400) << res->body;
+    std::vector<PendingEntry> pending;
+    ASSERT_TRUE(rt.load_pending(pending));
+    for (const auto& e : pending)
+        EXPECT_TRUE(e.model_name.empty()) << e.path;
+
+    EXPECT_EQ(rt.assign("m", {}, 0).assigned, 2) << "count 0 still assigns every entry";
+}
+

@@ -1502,6 +1502,8 @@ The generation and model math run is complete.
   and invalid UTF-8 are refused at add and upload).
 - TD-497 (done in code: `RemoteTransport` builds requests and reads replies with nlohmann/json, so `}`, `"`, backslashes and non-ASCII
   paths round-trip; `registry_server` escapes every control character and replaces invalid UTF-8 in replies).
+- TD-321 (done in code: `dataset_manager assign`/`migrate` require `--count` of at least 1; a negative assign count is refused by
+  `LocalTransport` and answered 400 by `registry_server`, while 0 still means all for the Android dashboard).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -8680,7 +8682,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / dataset_manager CLI | October 11, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 5, 2026 | Data / dataset_manager CLI | October 11, 2026 | 1-2 hours |
 
 Description:
 Found while writing the code-traced reference [DatasetManagerArgs.md](../reference/source/DatasetManagerArgs.md) and confirmed by running the real
@@ -8696,17 +8698,33 @@ only documented as "omit `--count`", so a typo silently turns "first N" into "th
 
 Action Items:
 
-- [ ] Reject `--count` values < 1 in both parsers (keep "omit `--count`" as the only way to say all).
-- [ ] Optionally have the transports/server treat `count <= 0` with an explicit count parameter as an error rather than `assign_all`.
-- [ ] Tests: `--count 0` and `--count -2` are usage errors.
+- [x] Reject `--count` values < 1 in both parsers (keep "omit `--count`" as the only way to say all).
+- [x] Optionally have the transports/server treat `count <= 0` with an explicit count parameter as an error rather than `assign_all`.
+- [x] Tests: `--count 0` and `--count -2` are usage errors.
 
-Location in code: `src/DatasetManagerArgs.cpp` (`parse_assign_args()`, `parse_migrate_args()`); tagged `TODO: See TD-321`.
+Fix (November 5, 2026): `parse_assign_args()` and `parse_migrate_args()` read `--count` with `parse_strict_int()` and require at
+least 1. `0`, `-2`, a partial number like `3x` or an empty value is a usage error (exit 1) whose message says to omit `--count` to
+assign or migrate everything. Omitting `--count` is now the only way to say "all". For the transports and server (the second item), 0
+must keep meaning "all", because the Android dashboard's `AssignRequestDto` sends `count: 0` by default. So only a negative count is
+refused: `LocalTransport::assign()` logs an error and assigns nothing, and `registry_server`'s `assign` answers 400
+(`count must be 0 (all) or a positive number`) without changing the queue. `DatasetManagerTool.cpp` needed no change, since `migrate`
+only sees a count of at least 1 now. TD-323's other partial-number cases (`gutenberg`, `huggingface`, `segment --count`) are unchanged.
+
+Tests: `ParseAssignArgs.CountBelowOneOrPartialIsAnError`, `ParseMigrateArgs.CountBelowOneOrPartialIsAnError`,
+`LocalTransportPhase9Test.AssignRefusesNegativeCount`, `RegistryFtpConfinementTest.AssignRefusesNegativeCount` (the real
+`registry_server`; count 0 still assigns every entry). On the old code all four fail: the parsers accepted every value, `LocalTransport`
+assigned all 3 entries for `-2`, and the server answered 200. `datasetManagerArgsTests` now compiles `Config.cpp` for the strict parser,
+as `registryServerArgsTests` does. Checked with the real `dataset_manager` on a local pool: `assign m --count -2`, `--count 0`,
+`--count 3x` and `migrate chatbot --count 0` exit 1 with nothing changed, and `assign m --count 2` assigns the first two files.
+
+Location in code: `src/DatasetManagerArgs.cpp` (`parse_count()`, `parse_assign_args()`, `parse_migrate_args()`),
+`src/RegistryTransport.cpp` (`LocalTransport::assign()`), `src/RegistryServer.cpp` (`handle_assign()`).
 
 Files to Modify:
 
-- `src/DatasetManagerArgs.cpp`
-- `src/DatasetManagerTool.cpp`
-- `tests/dataset_manager_args_test.cpp`
+- `src/DatasetManagerArgs.cpp`, `src/RegistryTransport.{hpp,cpp}`, `src/RegistryServer.cpp`, `src/DatasetRegistry.hpp`
+- `tests/dataset_manager_args_test.cpp`, `tests/RegistryTransportTests.cpp`, `tests/registry_ftp_confinement_test.cpp`,
+  `tests/CMakeLists.txt`
 
 ---
 

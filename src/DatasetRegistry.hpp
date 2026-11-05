@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.8.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 1.8.1
+// @adai-reviewed: 2026-11-05
 
 
 #include <memory>
@@ -179,7 +179,8 @@ class DatasetRegistry {
      *   - non-empty @p paths        — assign exactly those (count ignored)
      *   - empty @p paths, count > 0 — assign the first @p count
      *                                 currently-unassigned entries
-     *   - empty @p paths, count<=0  — assign every pending entry (default)
+     *   - empty @p paths, count 0   — assign every pending entry (default)
+     *   - count < 0                 — refused by both transports (TD-321)
      */
     AssignResult assign_model(const std::string& model_name,
                               const std::vector<std::string>& paths = {}, int count = 0,

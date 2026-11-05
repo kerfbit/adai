@@ -214,3 +214,8 @@ gone, so paths containing `}`, `{`, `"`, backslashes or non-ASCII text round-tri
 `load_registry()` also reads `model_id` now (still never set; TD-498). Checked against the real `registry_server` by
 `RegistryFtpConfinementTest.RemoteTransportRoundTripsPathsWithJsonSyntax`.
 
+## Addendum (November 5, 2026): `assign()` refuses a negative count (TD-321)
+
+`LocalTransport::assign()` logs an error and returns an empty `AssignResult` for `count < 0`, which used to mean "every pending
+entry" like 0. `count == 0` still assigns everything, matching `registry_server` (which answers 400 for a negative count).
+

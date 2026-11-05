@@ -139,6 +139,16 @@ TEST(ParseAssignArgs, InvalidCountValueIsAnError) {
     EXPECT_TRUE(r.error);
 }
 
+// TD-321: a count of 0 or less used to select every pending file, so `--count -2` assigned the
+// whole pool; a partial number like "3x" was read as 3.
+TEST(ParseAssignArgs, CountBelowOneOrPartialIsAnError) {
+    for (const char* value : {"0", "-2", "3x", ""}) {
+        auto r = parse_assign_args({"my-model", "--count", value});
+        EXPECT_TRUE(r.error) << value;
+        EXPECT_NE(r.error_message.find("omit --count"), std::string::npos) << r.error_message;
+    }
+}
+
 TEST(ParseUnassignArgs, RequiresModelName) {
     EXPECT_TRUE(parse_unassign_args({}).error);
 }
@@ -232,6 +242,15 @@ TEST(ParseMigrateArgs, CountFlagIsParsed) {
 TEST(ParseMigrateArgs, InvalidCountValueIsAnError) {
     auto r = parse_migrate_args({"decoder", "--count", "not-a-number"});
     EXPECT_TRUE(r.error);
+}
+
+// TD-321: as for assign, `migrate chatbot --count 0` used to migrate every legacy entry.
+TEST(ParseMigrateArgs, CountBelowOneOrPartialIsAnError) {
+    for (const char* value : {"0", "-2", "3x", ""}) {
+        auto r = parse_migrate_args({"chatbot", "--count", value});
+        EXPECT_TRUE(r.error) << value;
+        EXPECT_NE(r.error_message.find("omit --count"), std::string::npos) << r.error_message;
+    }
 }
 
 // ============================================================================

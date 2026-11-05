@@ -1178,3 +1178,18 @@ TEST(RegistryPathProblemTest, RejectsControlCharactersAndInvalidUtf8) {
     EXPECT_NE(registry_path_problem("a\xed\xa0\x80"), "");      // surrogate U+D800
     EXPECT_NE(registry_path_problem("a\xf4\x90\x80\x80"), "");  // above U+10FFFF
 }
+
+// TD-321: a negative count used to mean "assign every pending entry", as 0 does.
+TEST_F(LocalTransportPhase9Test, AssignRefusesNegativeCount) {
+    seed_pending({"/data/a.jsonl", "/data/b.jsonl", "/data/c.jsonl"});
+    LocalTransport t(reg_path_, pend_path_);
+    const AssignResult result = t.assign("m", {}, -2);
+    EXPECT_EQ(result.assigned, 0);
+    std::vector<PendingEntry> pend;
+    ASSERT_TRUE(t.load_pending(pend));
+    for (const auto& e : pend)
+        EXPECT_TRUE(e.model_name.empty()) << e.path;
+
+    EXPECT_EQ(t.assign("m", {}, 2).assigned, 2);  // a positive count still takes the first N
+}
+

@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.5.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-11-05
 
 // Calling convention note: every parse_*_args() here takes the command's OWN argument slice —
 // NOT including the command name itself (main() strips that off before dispatching, the same
@@ -20,6 +20,22 @@ T make_error(std::string message) {
     r.error = true;
     r.error_message = std::move(message);
     return r;
+}
+
+// TD-321: assign's and migrate's --count. A count of 0 or less used to fall through to "every
+// entry", so `--count -2` or `--count 0` assigned (or migrated) the whole pending pool; only
+// omitting --count means all now. The value must be a whole number (parse_strict_int()).
+bool parse_count(const std::string& value, int& out) {
+    const auto n = parse_strict_int(value);
+    if (!n || *n < 1)
+        return false;
+    out = *n;
+    return true;
+}
+
+std::string count_error(const std::string& value, const char* all_action) {
+    return "Invalid --count value '" + value +
+           "': it must be a whole number of at least 1 (omit --count to " + all_action + ")";
 }
 }  // namespace
 
@@ -128,11 +144,8 @@ AssignArgs parse_assign_args(const std::vector<std::string>& args) {
     r.model_name = args[0];
     for (std::size_t i = 1; i < args.size(); ++i) {
         if (args[i] == "--count" && i + 1 < args.size()) {
-            try {
-                // TODO: See TD-321 in TECHNICAL_DEBT.md - count <= 0 with no targets means assign ALL pending files
-                r.count = std::stoi(args[++i]);
-            } catch (const std::exception&) {
-                return make_error<AssignArgs>("Invalid --count value");
+            if (!parse_count(args[++i], r.count)) {
+                return make_error<AssignArgs>(count_error(args[i], "assign every pending file"));
             }
         } else {
             r.targets.push_back(args[i]);
@@ -222,11 +235,9 @@ MigrateArgs parse_migrate_args(const std::vector<std::string>& args) {
     }
     for (std::size_t i = 1; i < args.size(); ++i) {
         if (args[i] == "--count" && i + 1 < args.size()) {
-            try {
-                // TODO: See TD-321 in TECHNICAL_DEBT.md - count <= 0 with no targets means migrate ALL legacy entries
-                r.count = std::stoi(args[++i]);
-            } catch (const std::exception&) {
-                return make_error<MigrateArgs>("Invalid --count value");
+            if (!parse_count(args[++i], r.count)) {
+                return make_error<MigrateArgs>(
+                    count_error(args[i], "migrate every legacy pending file"));
             }
         } else {
             r.targets.push_back(args[i]);

@@ -331,3 +331,9 @@ TD-496 refused them) made the whole reply invalid JSON. Every control character 
 as U+FFFD; ordinary paths are unchanged. `RemoteTransport` now parses replies strictly (see [RegistryTransport.md](RegistryTransport.md)),
 so this matters to every client, not only browsers.
 
+## Addendum (November 5, 2026): a negative assign `count` is refused (TD-321)
+
+`assign` used to treat any `count <= 0` with no paths or segments as "assign every pending entry", so a negative count from a typo
+assigned the whole pool. A negative `count` now answers 400 (`count must be 0 (all) or a positive number`) and changes nothing. `0` or
+an absent `count` still assigns everything, which the Android dashboard relies on.
+

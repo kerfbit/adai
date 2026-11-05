@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.30.0
+// @adai-version: 0.31.0
 // @adai-reviewed: 2026-11-05
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
@@ -796,8 +796,10 @@ static void handle_renew(const httplib::Request& req, httplib::Response& res,
 //   - empty paths, count > 0 — assign the first `count` currently-unassigned
 //                              (model_name empty) pending entries, mirroring
 //                              handle_acquire's counting-with-limit loop
-//   - empty paths, count<=0  — assign every pending entry (original default,
-//                              preserved for backward compatibility)
+//   - empty paths, count 0   — assign every pending entry (original default,
+//                              preserved for backward compatibility; absent = 0)
+//   - count < 0              — 400 (TD-321: it used to mean "all", so a typo'd
+//                              negative count assigned the whole pool)
 // The response always includes the exact list of paths touched, since the
 // count-based mode doesn't otherwise tell the caller which files were picked.
 static void handle_assign(const httplib::Request& req, httplib::Response& res,
@@ -813,6 +815,13 @@ static void handle_assign(const httplib::Request& req, httplib::Response& res,
         res.set_content("{\"error\":\"non-empty model_name matching [A-Za-z0-9._-]+ required\"}",
                         "application/json");
         Logger::warn("[{}] assign: rejected model_name='{}'", group, model_name);
+        return;
+    }
+    if (count < 0) {
+        res.status = 400;
+        res.set_content("{\"error\":\"count must be 0 (all) or a positive number\"}",
+                        "application/json");
+        Logger::warn("[{}] assign: rejected count={}", group, count);
         return;
     }
 

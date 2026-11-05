@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.9.0
+// @adai-version: 1.10.0
 // @adai-reviewed: 2026-11-05
 
 #include "RegistryTransport.hpp"
@@ -666,6 +666,12 @@ AssignResult LocalTransport::assign(const std::string& model_name,
                                     const std::vector<std::string>& paths, int count,
                                     const std::vector<SegmentTarget>& segments) {
     AssignResult result;
+    // TD-321: a negative count used to mean "every pending entry", as 0 still does.
+    if (count < 0) {
+        Logger::error("LocalTransport::assign — count {} refused (0 = all, else a positive number)",
+                      count);
+        return result;
+    }
     const int lock_fd = lock_pending();
     if (lock_fd < 0) {
         Logger::error("LocalTransport::assign — failed to acquire pending lock");
