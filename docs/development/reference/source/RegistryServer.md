@@ -302,3 +302,13 @@ data directory hand out different numbers, and a failure answers 500 with JSON i
 `DaemonConfigStore::increment()`. The counters keep the same file, `<data_dir>/session_counters.db`, in a table named
 `session_counters` rather than `daemon_config`; on startup a file written by an older `registry_server` has its counters
 moved over and logged, so numbering continues. `RegistryServer.cpp` is `@adai-version` 0.27.2.
+
+## Addendum (November 4, 2026): a failed save is HTTP 500 (TD-495)
+
+Every handler's queue and registry save goes through `must_save()`, which throws `RegistrySaveError` ("could not save the pending
+queue of group 'g'; nothing was changed there") when `LocalTransport` reports a failed write; `handle_requeue()` does the same for a
+`RequeueResult` with `ok == false`. A server-wide `set_exception_handler()` logs any handler exception and answers 500 with
+`{"error": reason}` (httplib's own answer was an empty 500). Every handler used to report success after a failed save. `GroupState`
+carries its `name` ("group" or "group/kind") for these messages. Checked with the real binary run under a 4 KiB file-size limit over a
+300-entry queue: adding a file answered 200 and left 60 entries with the old server, 500 and all 300 with the new one
+(`RegistryDiskFullTest`).

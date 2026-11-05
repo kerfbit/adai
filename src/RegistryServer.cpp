@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.27.2
-// @adai-reviewed: 2026-11-03
+// @adai-version: 0.28.0
+// @adai-reviewed: 2026-11-04
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) draws from a CSPRNG
@@ -111,6 +111,7 @@ static void signal_handler(int) {
 struct GroupState {
     std::mutex mtx;
     std::unique_ptr<LocalTransport> transport;
+    std::string name;  // TD-495: "group" or "group/kind", for error messages
 };
 
 static std::mutex groups_mtx;
@@ -168,8 +169,19 @@ static std::string group_dir(const std::string& group, const std::string& kind) 
     return kind.empty() ? data_dir + "/" + group : data_dir + "/" + group + "/" + kind;
 }
 
-// TODO: See TD-495 in TECHNICAL_DEBT.md - every handler ignores LocalTransport's save_*() result, so a failed
-// (truncating) write is reported as success.
+// TD-495: a queue or registry save that failed (disk full, quota). Thrown by must_save() and turned
+// into HTTP 500 by the server's exception handler; every handler used to report success regardless.
+struct RegistrySaveError : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
+
+static void must_save(bool saved, const std::string& group, const char* what) {
+    if (!saved) {
+        throw RegistrySaveError("could not save the " + std::string(what) + " of group '" + group +
+                                "'; nothing was changed there");
+    }
+}
+
 static GroupState& get_group(const std::string& group, const std::string& kind) {
     std::lock_guard<std::mutex> lock(groups_mtx);
     const std::string map_key = kind.empty() ? group : group + "/" + kind;
@@ -179,6 +191,7 @@ static GroupState& get_group(const std::string& group, const std::string& kind) 
         fs::create_directories(dir);
         gs.transport = std::make_unique<LocalTransport>(dir + "/data_registry.txt",
                                                         dir + "/pending_files.txt");
+        gs.name = map_key;
     }
     return gs;
 }
@@ -588,7 +601,7 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
     }
 
     if (!acquired.empty()) {
-        gs.transport->save_pending(entries);
+        must_save(gs.transport->save_pending(entries), group, "pending queue");
     }
 
     if (!ftp_enabled || !g_ftp_server) {
@@ -727,7 +740,7 @@ static void handle_release(const httplib::Request& req, httplib::Response& res,
         }
     }
 
-    gs.transport->save_pending(entries);
+    must_save(gs.transport->save_pending(entries), group, "pending queue");
 
     std::ostringstream json;
     json << "{\"released\":" << released << "}";
@@ -783,7 +796,7 @@ static void handle_renew(const httplib::Request& req, httplib::Response& res,
         }
     }
     if (renewed > 0)
-        gs.transport->save_pending(entries);
+        must_save(gs.transport->save_pending(entries), group, "pending queue");
     res.set_content("{\"renewed\":" + std::to_string(renewed) +
                         ",\"claim_lease_seconds\":" + std::to_string(g_claim_lease_seconds.load()) +
                         "}",
@@ -862,7 +875,7 @@ static void handle_assign(const httplib::Request& req, httplib::Response& res,
 
     const std::size_t assigned_total = assigned_paths.size() + assigned_segments.size();
     if (assigned_total > 0) {
-        gs.transport->save_pending(entries);
+        must_save(gs.transport->save_pending(entries), group, "pending queue");
     }
 
     std::ostringstream json;
@@ -975,7 +988,7 @@ static void handle_unassign(const httplib::Request& req, httplib::Response& res,
 
     const std::size_t unassigned_total = unassigned_paths.size() + unassigned_segments.size();
     if (unassigned_total > 0) {
-        gs.transport->save_pending(entries);
+        must_save(gs.transport->save_pending(entries), group, "pending queue");
     }
 
     std::ostringstream json;
@@ -1154,10 +1167,10 @@ static void handle_delete(const httplib::Request& req, httplib::Response& res,
     details << "]";
 
     if (pending_changed) {
-        gs.transport->save_pending(pending);
+        must_save(gs.transport->save_pending(pending), group, "pending queue");
     }
     if (registry_changed) {
-        gs.transport->save_registry(reg);
+        must_save(gs.transport->save_registry(reg), group, "trained registry");
     }
 
     std::ostringstream json;
@@ -1189,6 +1202,10 @@ static void handle_requeue(const httplib::Request& req, httplib::Response& res,
     auto& gs = get_group(group, kind);
     std::lock_guard<std::mutex> lock(gs.mtx);
     const RequeueResult result = gs.transport->requeue_trained(paths, all, model_name);
+    // TD-495: requeue_trained() saves through LocalTransport and reports a failed save in `ok`.
+    if (!result.ok) {
+        throw RegistrySaveError("could not save the requeue in group '" + gs.name + "'");
+    }
 
     std::ostringstream json;
     json << "{\"requeued\":" << result.requeued
@@ -1307,7 +1324,7 @@ static void handle_trained(const httplib::Request& req, httplib::Response& res,
             ++trained;
         }
     }
-    gs.transport->save_registry(reg);
+    must_save(gs.transport->save_registry(reg), group, "trained registry");
 
     // Remove trained files from pending (exact mode: exactly the trained units).
     const std::set<std::string> trained_set(files.begin(), files.end());
@@ -1324,7 +1341,7 @@ static void handle_trained(const httplib::Request& req, httplib::Response& res,
                                      return false;
                                  }),
                   pending.end());
-    gs.transport->save_pending(pending);
+    must_save(gs.transport->save_pending(pending), group, "pending queue");
 
     std::ostringstream json;
     json << "{\"trained\":" << trained << ",\"rejected\":[";
@@ -1464,7 +1481,7 @@ static bool add_pending_path_locked(GroupState& gs, const std::string& path,
                                                    : count_jsonl_entries(path);
 
     entries.push_back(std::move(entry));
-    gs.transport->save_pending(entries);
+    must_save(gs.transport->save_pending(entries), gs.name, "pending queue");
     return true;
 }
 
@@ -1902,7 +1919,7 @@ static void handle_upload(const httplib::Request& req, httplib::Response& res,
             e.num_entries = count_jsonl_entries(path);
             e.added_utc = utc_now_string();
         }
-        gs.transport->save_pending(pending);
+        must_save(gs.transport->save_pending(pending), group, "pending queue");
         replaced = true;
     } else {
         add_pending_path_locked(gs, path, "upload");
@@ -2212,6 +2229,21 @@ int main(int argc, char* argv[]) {
     // preflight-free Content-Type); see BrowserWriteGuard.hpp.
     adai::install_browser_write_guard(svr, "registry_server");
     adai::use_exclusive_listen_port(svr);  // TD-551
+    // TD-495: a handler that throws (a failed save, RegistrySaveError) answers 500 with its reason
+    // instead of httplib's empty 500; nothing is reported as done.
+    svr.set_exception_handler(
+        [](const httplib::Request& req, httplib::Response& res, std::exception_ptr ep) {
+            std::string reason = "internal error";
+            try {
+                std::rethrow_exception(ep);
+            } catch (const std::exception& e) {
+                reason = e.what();
+            } catch (...) {
+            }
+            Logger::error("registry_server: {} {} failed: {}", req.method, req.path, reason);
+            res.status = 500;
+            res.set_content("{\"error\":\"" + json_escape(reason) + "\"}", "application/json");
+        });
     // TD-494: bodies (uploads) are held in memory; larger ones get 413.
     svr.set_payload_max_length(max_body_bytes);
 

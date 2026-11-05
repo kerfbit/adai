@@ -28,6 +28,7 @@
 #include <gtest/gtest.h>
 #include <httplib.h>
 #include <signal.h>
+#include <sys/resource.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <cerrno>
@@ -388,4 +389,95 @@ TEST(RegistryPendingAddRelativeDataDirTest, InTreeAddWithRelativeDataDirLogsNoWa
 
     std::error_code ec;
     fs::remove_all(scratch_root, ec);
+}
+
+// TD-495: the verified failure, through the real server. registry_server runs with a 4 KiB
+// file-size limit (a full disk, in effect) over a queue already bigger than that. Adding a file
+// used to rewrite the queue in place, keep only what fit, and answer 200; it must answer 500 and
+// keep the whole queue.
+TEST(RegistryDiskFullTest, FailedQueueSaveIsAnErrorAndKeepsTheWholeQueue) {
+    const std::string registry_server_binary = resolve_registry_server_binary();
+    if (registry_server_binary.empty() || !fs::exists(registry_server_binary)) {
+        GTEST_SKIP() << "registry_server binary not available";
+        return;
+    }
+    const int http_port = pick_port(static_cast<int>(::getpid()), 3);
+    const fs::path root = fs::temp_directory_path() / ("adai_td495_" + std::to_string(::getpid()));
+    fs::remove_all(root);
+    const fs::path group_dir = root / "data" / "td495";
+    fs::create_directories(group_dir);
+    constexpr int kQueued = 300;
+    {
+        std::ofstream q(group_dir / "pending_files.txt");
+        for (int i = 0; i < kQueued; ++i)
+            q << (group_dir / ("queued_" + std::to_string(i) + ".jsonl")).string() << '\n';
+    }
+    ASSERT_GT(fs::file_size(group_dir / "pending_files.txt"), 4096u);
+    {
+        std::ofstream f(group_dir / "new.jsonl");
+        f << "{\"input\":\"a\",\"response\":\"b\"}\n";
+    }
+
+    const pid_t pid = ::fork();
+    ASSERT_GE(pid, 0);
+    if (pid == 0) {
+        ::signal(SIGXFSZ,
+                 SIG_IGN);  // writes past the limit fail with EFBIG instead of killing the server
+        rlimit limit{4096, 4096};
+        ::setrlimit(RLIMIT_FSIZE, &limit);
+        const std::string port_str = std::to_string(http_port);
+        const std::string data_str = (root / "data").string();
+        char* argv[] = {const_cast<char*>(registry_server_binary.c_str()),
+                        const_cast<char*>("--port"),
+                        const_cast<char*>(port_str.c_str()),
+                        const_cast<char*>("--data-dir"),
+                        const_cast<char*>(data_str.c_str()),
+                        nullptr};
+        const int devnull = ::open("/dev/null", O_WRONLY);
+        if (devnull >= 0) {
+            ::dup2(devnull, STDOUT_FILENO);
+            ::dup2(devnull, STDERR_FILENO);
+        }
+        ::execv(registry_server_binary.c_str(), argv);
+        ::_exit(127);
+    }
+    auto stop = [&] {
+        ::kill(pid, SIGKILL);  // our own child only
+        int status = 0;
+        ::waitpid(pid, &status, 0);
+    };
+
+    httplib::Client cli("127.0.0.1", http_port);
+    cli.set_connection_timeout(std::chrono::milliseconds(200));
+    bool ready = false;
+    for (auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+         std::chrono::steady_clock::now() < deadline;) {
+        if (auto r = cli.Get("/health"); r && r->status == 200) {
+            ready = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    if (!ready) {
+        stop();
+        fs::remove_all(root);
+        GTEST_SKIP() << "registry_server did not become ready within 5s";
+    }
+
+    const std::string body = "{\"path\":\"" + (group_dir / "new.jsonl").string() + "\"}";
+    auto res = cli.Post("/registry/td495/pending/add", body, "application/json");
+    stop();
+
+    int lines = 0;
+    std::ifstream q(group_dir / "pending_files.txt");
+    for (std::string line; std::getline(q, line);)
+        if (!line.empty())
+            ++lines;
+    std::error_code ec;
+    fs::remove_all(root, ec);
+
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 500) << res->body;
+    EXPECT_NE(res->body.find("could not save the pending queue"), std::string::npos) << res->body;
+    EXPECT_EQ(lines, kQueued) << "the queue must survive whole";
 }

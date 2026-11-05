@@ -1494,6 +1494,11 @@ The generation and model math run is complete.
 - TD-560, TD-561, TD-562 (done in code, owner's choice on TD-224: keep letter case. New vocabularies are cased and say so in a v2 header, v1 vocabularies keep lowercasing, BLEU follows the vocabulary's letter case, auto-sizing allows for case); TD-563's format refusal landed with them, its rebuild, retrain and rollout wait for TD-358.
 - TD-564 (filed and done in code at the owner's request: Unicode mode, one unit per UTF-8 character, is the default for new vocabularies; `vocab_builder --ascii` for byte-level; files without a mode line load as ASCII).
 
+**Data pipeline run (November 4, 2026)**, chosen by the owner. So far:
+- TD-495 (done in code: queue and registry saves go through a temporary file, fsync and rename (`adai::write_file_atomically()`), so a
+  failed write keeps the old file whole; `registry_server` answers 500 instead of reporting success; it used to keep 60 of 300 entries
+  under a simulated full disk).
+
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
 - TD-372/373 (done in code: the FTP data connection must come from the control connection's client, and FTPS requires `AUTH TLS` and
@@ -6202,7 +6207,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Client / CLI | October 8, 2026 | 1 hour |
+| LOW | Open — code fix landed November 3, 2026 | Client / CLI | October 8, 2026 | 1 hour |
 
 Description:
 Found alongside TD-253. `print_welcome()` (also shown by `/help`) lists `/help`, `/clear`,
@@ -6212,10 +6217,13 @@ rather than with its usage.
 
 Action Items:
 
-- [ ] List every command, including `/set` parameters and valid values.
-- [ ] Show `/set` usage for a bare `/set`.
+- [x] List every command, including `/set` parameters and valid values.
+- [x] Show `/set` usage for a bare `/set`.
 
-Location in code: `src/ChatbotCLI.cpp` (`print_welcome()`, `handle_command()`); tagged `TODO: See TD-256`.
+Fix (November 3, 2026, commit `1b7efa4`): `/help` lists every command and each `/set` parameter with its range, taken from the
+server's limits (`adai::GenerationLimits`), and a bare `/set` shows its usage. (This entry's status was only updated on November 4.)
+
+Location in code: `src/ChatbotCLI.cpp` (`print_welcome()`, `handle_command()`).
 
 Files to Modify:
 
@@ -15500,7 +15508,7 @@ Tests:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / RegistryTransport | October 17, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 4, 2026 | Data / RegistryTransport | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `RegistryTransport.cpp` (see [RegistryTransport.md](../reference/source/RegistryTransport.md)); verified with a scratch program.
@@ -15511,17 +15519,34 @@ and ignores the return value, so a full disk silently cuts queues short; trained
 
 Action Items:
 
-- [ ] Write to `<file>.tmp`, flush/fsync, then `rename()` over the original (and fsync the directory).
-- [ ] Have `registry_server` handlers check the save result and return 500 instead of reporting success.
-- [ ] Test with a size-limited write.
+- [x] Write to `<file>.tmp`, flush/fsync, then `rename()` over the original (and fsync the directory).
+- [x] Have `registry_server` handlers check the save result and return 500 instead of reporting success.
+- [x] Test with a size-limited write.
 
-Location in code: `src/RegistryTransport.cpp` (`LocalTransport::save_pending()`, `save_registry()`, `add_pending()`'s append); tagged `TODO: See TD-495`.
+Fix (November 4, 2026): a new `adai::write_file_atomically()` (`src/AtomicFile.{hpp,cpp}`, in `adai_core`) writes a temporary file
+beside the target, flushes and fsyncs it, renames it over the target and fsyncs the directory. `LocalTransport::save_pending()`/
+`save_registry()` use it and return `false` (with the reason logged) when it fails, leaving the old file whole. `add_pending()`
+rewrites the queue atomically instead of appending, which could leave a cut-off line. `LocalTransport`'s own callers report a failed save
+(`acquire()` claims nothing and sets `failed`; `assign()`/`unassign()` report nothing changed; `requeue_trained()` sets `ok = false`;
+the rest log an error). In `registry_server`, every save goes through `must_save()`, which throws on failure, and a server-wide
+exception handler answers 500 with the reason. Where a handler saves pending then registry, a failed second save leaves the first
+changed: the file is then both pending and trained, so it trains again rather than being lost. Writing needs a writable data directory
+now (the temporary file is created there), which `registry_server` needs anyway.
+
+Tests: `AtomicFileTests` (3, including a write under a 4 KiB file-size limit in a child); `LocalTransportPhase9Test`
+`FailedSaveKeepsEveryPendingEntry` (the verified case: 2,001 entries under a 4 KiB limit), `FailedRegistrySaveKeepsTheOldRegistry`,
+`FailedAddPendingLeavesNoPartialLine`, `AcquireThatCannotSaveClaimsNothing`; on the old code they kept 92 of 2,001 and 98 of 300 entries
+and `add_pending()` left a cut-off line, reporting success. `RegistryDiskFullTest.FailedQueueSaveIsAnErrorAndKeepsTheWholeQueue` runs the
+real `registry_server` under a 4 KiB file-size limit over a 300-entry queue: the old binary answered 200 to an add and kept 60 entries,
+the new one answers 500 and keeps all 300.
+
+Location in code: `src/AtomicFile.{hpp,cpp}`, `src/RegistryTransport.cpp` (`LocalTransport::save_pending()`, `save_registry()`,
+`add_pending()` and their callers), `src/RegistryServer.cpp` (`must_save()`, the exception handler).
 
 Files to Modify:
 
-- `src/RegistryTransport.cpp`
-- `src/RegistryServer.cpp`
-- `tests/RegistryTransportTests.cpp`
+- `src/AtomicFile.{hpp,cpp}` (new), `src/RegistryTransport.cpp`, `src/RegistryServer.cpp`, `src/CMakeLists.txt`
+- `tests/atomicfile_test.cpp` (new), `tests/RegistryTransportTests.cpp`, `tests/registry_ftp_confinement_test.cpp`, `tests/CMakeLists.txt`
 
 ---
 
@@ -18317,7 +18342,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open — code fix landed November 4, 2026 (real-data measurement pending) | November 4, 2026 | 2-3 hours |
+| LOW | Open — code fix landed November 4, 2026 (real-data measurement pending) | NLP / Tokenizer | November 4, 2026 | 2-3 hours |
 
 Description:
 Filed with TD-560. With case kept, the same corpus has about 23% more distinct words (measured on local prose), so a vocabulary sized

@@ -8,6 +8,7 @@ This directory contains reference materials, technical specifications, and imple
 
 - **[Source file references](source/)** - Per-file, code-traced docs: every function, where it's called, and why it matters
   - [Activation](source/Activation.md) (`src/Activation.{hpp,cpp}`, `src/ActivationConstants.hpp`; activations, softmax row primitives and the GELU constants shared with the GPU kernels)
+  - [AtomicFile](source/AtomicFile.md) (`src/AtomicFile.{hpp,cpp}`; replacing a file through a temporary file, fsync and rename, TD-495)
   - [BatchedInferenceEngine](source/BatchedInferenceEngine.md) (`src/BatchedInferenceEngine.hpp`)
   - [BatchProcessor](source/BatchProcessor.md) (`src/BatchProcessor.hpp`)
   - [BinaryIO](source/BinaryIO.md) (`src/BinaryIO.{hpp,cpp}`; checked binary reads/writes for checkpoint sidecars, TD-423)

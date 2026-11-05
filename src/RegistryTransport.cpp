@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.6.2
-// @adai-reviewed: 2026-11-03
+// @adai-version: 1.7.0
+// @adai-reviewed: 2026-11-04
 
 #include "RegistryTransport.hpp"
 #include <fcntl.h>  // open(), O_RDWR
@@ -24,6 +24,7 @@
 #include <limits>
 #include <set>
 #include <sstream>
+#include "AtomicFile.hpp"
 #include "Logger.hpp"
 
 #ifdef BUILD_METRICS_API_SERVER
@@ -91,15 +92,12 @@ bool LocalTransport::load_registry(std::vector<DataVersion>& out) {
     return true;
 }
 
-// TODO: See TD-495 in TECHNICAL_DEBT.md - truncate-and-rewrite in place; a failed write leaves a partial file.
-// TODO: See TD-496 in TECHNICAL_DEBT.md - space-separated columns: a path with a space corrupts the record.
+// TD-495: written to a temporary file and renamed over the registry, so a failed write (disk full)
+// leaves the old file whole; it used to truncate and rewrite in place.
+// TODO: See TD-496 in TECHNICAL_DEBT.md - space-separated columns: a path with a space corrupts the
+// record.
 bool LocalTransport::save_registry(const std::vector<DataVersion>& entries) {
-    fs::create_directories(fs::path(registry_path_).parent_path());
-
-    std::ofstream file(registry_path_);
-    if (!file.is_open()) {
-        return false;
-    }
+    std::ostringstream file;
 
     auto col = [](const std::string& s) { return s.empty() ? std::string("-") : s; };
 
@@ -111,7 +109,12 @@ bool LocalTransport::save_registry(const std::vector<DataVersion>& entries) {
              << col(dv.source) << " " << dv.segment_start << " " << dv.segment_count << "\n";
     }
 
-    return file.good();
+    const std::string error = adai::write_file_atomically(registry_path_, file.str());
+    if (!error.empty()) {
+        Logger::error("LocalTransport: could not save the trained registry: {}", error);
+        return false;
+    }
+    return true;
 }
 
 bool LocalTransport::load_pending(std::vector<PendingEntry>& out) {
@@ -197,15 +200,10 @@ bool LocalTransport::load_pending(std::vector<PendingEntry>& out) {
     return true;
 }
 
-// TODO: See TD-495 in TECHNICAL_DEBT.md - truncate-and-rewrite in place (simulated disk full kept 114 of 2,001
-// entries); write a temp file and rename. TD-496: tab/newline in a path breaks the format.
+// TD-495: written to a temporary file and renamed over the queue (a simulated disk-full rewrite in
+// place used to keep 114 of 2,001 entries). TD-496: tab/newline in a path breaks the format.
 bool LocalTransport::save_pending(const std::vector<PendingEntry>& entries) {
-    fs::create_directories(fs::path(pending_path_).parent_path());
-
-    std::ofstream file(pending_path_);
-    if (!file.is_open()) {
-        return false;
-    }
+    std::ostringstream file;
 
     for (const auto& e : entries) {
         file << e.path << '\t' << e.run_id << '\t' << e.model_name << '\t' << e.source << '\t'
@@ -214,7 +212,12 @@ bool LocalTransport::save_pending(const std::vector<PendingEntry>& entries) {
              << '\n';
     }
 
-    return file.good();
+    const std::string error = adai::write_file_atomically(pending_path_, file.str());
+    if (!error.empty()) {
+        Logger::error("LocalTransport: could not save the pending queue: {}", error);
+        return false;
+    }
+    return true;
 }
 
 // ── Lock helpers ──────────────────────────────────────────────────────────────
@@ -305,8 +308,12 @@ AcquireResponse LocalTransport::acquire(const std::string& run_id, int max_files
     }
 
     if (!resp.files.empty()) {
-        save_pending(entries);
-        Logger::info("Acquired {} pending files for run '{}'", resp.files.size(), run_id);
+        if (!save_pending(entries)) {  // TD-495: nothing was claimed
+            resp.files.clear();
+            resp.failed = true;
+        } else {
+            Logger::info("Acquired {} pending files for run '{}'", resp.files.size(), run_id);
+        }
     }
 
     unlock_pending(lock_fd);
@@ -342,7 +349,9 @@ void LocalTransport::release(const std::string& run_id, const std::vector<std::s
             ++released;
         }
     }
-    save_pending(entries);
+    if (!save_pending(entries)) {  // TD-495
+        Logger::error("LocalTransport::release — the release wasn't saved");
+    }
     Logger::info("Released {} pending entr{} back to the pool (run '{}')", released,
                  released == 1 ? "y" : "ies", run_id);
 
@@ -385,7 +394,9 @@ void LocalTransport::commit_trained(const std::string& run_id,
         else
             ++rejected;
     }
-    save_registry(registry);
+    if (!save_registry(registry)) {  // TD-495
+        Logger::error("LocalTransport::commit_trained — the trained records weren't saved");
+    }
     if (rejected > 0)
         Logger::warn("LocalTransport::commit_trained — run '{}' doesn't hold the claim on {} "
                      "unit(s); not recorded",
@@ -412,7 +423,10 @@ void LocalTransport::commit_trained(const std::string& run_id,
                                  }),
                   pending.end());
 
-    save_pending(pending);
+    if (!save_pending(pending)) {  // TD-495
+        Logger::error(
+            "LocalTransport::commit_trained — trained entries weren't removed from the queue");
+    }
     unlock_pending(lock_fd);
 }
 
@@ -433,23 +447,14 @@ bool LocalTransport::add_pending(const std::string& path, int segment_start, int
         }
     }
 
-    fs::create_directories(fs::path(pending_path_).parent_path());
-    std::ofstream file(pending_path_, std::ios::app);
-    bool ok;
-    if (segment_start < 0) {
-        // Whole-file: keep the original minimal single-token line, byte-for-byte identical
-        // to every pre-TD-205 add_pending() caller/on-disk file.
-        ok = file.is_open() && (file << path << '\n') && file.good();
-    } else {
-        // TD-205: a segment needs its range recorded, which requires the full tab-delimited
-        // row shape load_pending() parses positionally — empty run_id/model_name/source/
-        // added_utc/size_bytes/num_entries/checksum columns are fine, load_pending() already
-        // defaults each of those for short/legacy lines.
-        ok = file.is_open() &&
-            (file << path << "\t\t\t\t\t\t\t\t" << segment_start << '\t' << segment_count
-                 << '\n') &&
-            file.good();
-    }
+    // TD-495: the whole queue is rewritten atomically; appending in place could leave a cut-off
+    // line (a wrong path) when the write failed part-way.
+    PendingEntry entry;
+    entry.path = path;
+    entry.segment_start = segment_start;
+    entry.segment_count = segment_count;
+    entries.push_back(std::move(entry));
+    const bool ok = save_pending(entries);
     unlock_pending(lock_fd);
     return ok;
 }
@@ -536,8 +541,10 @@ AssignResult LocalTransport::assign(const std::string& model_name,
     }
     result.assigned = static_cast<int>(result.paths.size() + result.segments.size());
 
-    if (result.assigned > 0) {
-        save_pending(entries);
+    if (result.assigned > 0 && !save_pending(entries)) {  // TD-495: nothing was assigned
+        result.assigned = 0;
+        result.paths.clear();
+        result.segments.clear();
     }
     unlock_pending(lock_fd);
     Logger::info("LocalTransport::assign — model='{}' assigned {} file(s)", model_name,
@@ -605,8 +612,10 @@ UnassignResult LocalTransport::unassign(const std::string& model_name,
     }
     result.unassigned = static_cast<int>(result.paths.size() + result.segments.size());
 
-    if (result.unassigned > 0) {
-        save_pending(entries);
+    if (result.unassigned > 0 && !save_pending(entries)) {  // TD-495: nothing was unassigned
+        result.unassigned = 0;
+        result.paths.clear();
+        result.segments.clear();
     }
     unlock_pending(lock_fd);
     Logger::info("LocalTransport::unassign — model='{}' unassigned {} file(s), {} skipped",
@@ -722,14 +731,13 @@ DeleteResult LocalTransport::delete_paths(const std::vector<std::string>& paths,
         result.details.push_back(std::move(detail));
     }
 
-    if (pending_changed) {
-        save_pending(pending);
+    if (pending_changed && !save_pending(pending)) {  // TD-495
+        Logger::error("LocalTransport::delete_paths — the pending queue wasn't saved");
     }
     unlock_pending(lock_fd);
-    if (registry_changed) {
-        save_registry(registry);
+    if (registry_changed && !save_registry(registry)) {  // TD-495
+        Logger::error("LocalTransport::delete_paths — the trained registry wasn't saved");
     }
-
     Logger::info("LocalTransport::delete_paths — {} deleted, {} skipped, {} not_found",
                 result.deleted, result.skipped, result.not_found);
     return result;
@@ -834,12 +842,14 @@ RequeueResult LocalTransport::requeue_trained(const std::vector<std::string>& pa
         }
     }
 
-    if (changed) {
-        save_pending(pending);
+    // TD-495: report a save that failed; pending is written first, so a failed registry save leaves
+    // the file both pending and trained (it trains again, nothing is lost).
+    if (changed && !save_pending(pending)) {
+        result.ok = false;
     }
     unlock_pending(lock_fd);
-    if (changed) {
-        save_registry(registry);
+    if (changed && result.ok && !save_registry(registry)) {
+        result.ok = false;
     }
     Logger::info("LocalTransport::requeue_trained — {} requeued, {} already pending, {} not "
                  "found",

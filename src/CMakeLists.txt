@@ -102,6 +102,8 @@ add_library(adai_core STATIC
     HippocampalMemory.cpp
     # TD-233: OS CSPRNG for credentials (session ids, FTP passwords).
     SecureRandom.cpp
+    # TD-495: atomic file replacement (temp file, fsync, rename).
+    AtomicFile.cpp
 )
 target_link_libraries(adai_core PUBLIC spdlog::spdlog)
 if(WIN32)

@@ -177,3 +177,14 @@ units. A path can now have several trained records, one per pass; `requeue_train
 `LocalTransport::next_session()` gets its number from `DaemonConfigStore::increment()` (`SessionCounterStore::next()` since TD-308), one transaction that waits up to
 5 s for another writer, so standalone trainers sharing `session_counters.db` never get the same session number. A failure
 throws to `IncrementalTrainer::begin_run()`, which continues without a session id as before.
+
+## Addendum (November 4, 2026): saves are atomic and report failure (TD-495)
+
+`LocalTransport::save_pending()`/`save_registry()` build the file in memory and write it with `adai::write_file_atomically()`
+([AtomicFile.md](AtomicFile.md)): a failed write leaves the old file whole and returns `false` with the reason logged. They used to
+truncate and rewrite in place, keeping only what fit (a 4 KiB limit kept 92 of 2,001 queue entries and 98 of 300 trained records in
+the new tests). `add_pending()` no longer appends in place, which could leave a cut-off line that reloads as a wrong path; it rewrites
+the queue atomically and returns the save's result. The internal callers report a failed save: `acquire()` claims nothing and sets
+`failed`, `assign()`/`unassign()` report nothing changed, `requeue_trained()` sets `ok = false`, and `release()`/`commit_trained()`/
+`delete_paths()` log an error. Where two files change (pending, then registry), a failed second save leaves the first changed; a file
+then ends up both pending and trained, so it trains again rather than being lost.

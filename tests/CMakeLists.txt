@@ -1012,6 +1012,11 @@ target_link_libraries(incrementalTrainerBackgroundTests
 )
 add_test(NAME IncrementalTrainerBackgroundTests COMMAND incrementalTrainerBackgroundTests)
 
+# TD-495: atomic file replacement
+add_executable(atomicFileTests atomicfile_test.cpp)
+target_link_libraries(atomicFileTests adai_core GTest::gtest_main)
+add_test(NAME AtomicFileTests COMMAND atomicFileTests)
+
 # TD-028 Phase 8: LocalTransport unit tests
 add_executable(registryTransportTests registry_transport_test.cpp)
 target_link_libraries(registryTransportTests

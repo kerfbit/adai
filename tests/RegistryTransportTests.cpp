@@ -8,7 +8,11 @@
  * test-harness server is available; those will live in this file too.
  */
 #include <gtest/gtest.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <algorithm>
+#include <csignal>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -891,4 +895,111 @@ TEST_F(LocalTransportPhase9Test, NextSessionPersistsAcrossTransportInstances) {
     // the same session_counters.db next to pending_path_ and continues.
     LocalTransport t2(reg_path_, pend_path_);
     EXPECT_EQ(t2.next_session("model-a", "run-01"), "session-02");
+}
+
+// ============================================================================
+// TD-495: a save that fails part-way (disk full) leaves the old queue whole
+// ============================================================================
+
+namespace {
+// Runs `fn` in a child whose files may be at most 4 KiB (a full disk, in effect); returns its exit
+// code.
+template <typename Fn>
+int run_with_4k_file_limit(Fn fn) {
+    const pid_t child = ::fork();
+    if (child == 0) {
+        std::signal(SIGXFSZ, SIG_IGN);
+        rlimit limit{4096, 4096};
+        ::setrlimit(RLIMIT_FSIZE, &limit);
+        ::_exit(fn());
+    }
+    int status = 0;
+    ::waitpid(child, &status, 0);
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+}  // namespace
+
+// The verified case: rewriting a 2,001-entry queue under a 4 KiB limit used to return false and
+// keep 114 entries. It must keep all 2,001, and a later load sees them.
+TEST_F(LocalTransportPhase9Test, FailedSaveKeepsEveryPendingEntry) {
+    std::vector<std::string> paths;
+    for (int i = 0; i < 2001; ++i)
+        paths.push_back("/data/queued_file_" + std::to_string(i) + ".jsonl");
+    seed_pending(paths);
+    LocalTransport t(reg_path_, pend_path_);
+
+    const int code = run_with_4k_file_limit([&] {
+        std::vector<PendingEntry> entries;
+        t.load_pending(entries);
+        entries[0].run_id = "run-01";            // any change rewrites the whole file
+        return t.save_pending(entries) ? 1 : 0;  // 0 = the failure was reported
+    });
+    EXPECT_EQ(code, 0) << "save_pending() must report the failed write";
+
+    std::vector<PendingEntry> after;
+    ASSERT_TRUE(t.load_pending(after));
+    EXPECT_EQ(after.size(), 2001u) << "the old queue survives whole";
+    EXPECT_TRUE(after[0].run_id.empty()) << "and unchanged";
+}
+
+TEST_F(LocalTransportPhase9Test, FailedRegistrySaveKeepsTheOldRegistry) {
+    LocalTransport t(reg_path_, pend_path_);
+    std::vector<DataVersion> reg;
+    for (int i = 0; i < 300; ++i) {
+        DataVersion dv;
+        dv.data_file = "/data/trained_" + std::to_string(i) + ".jsonl";
+        dv.trained = true;
+        reg.push_back(dv);
+    }
+    ASSERT_TRUE(t.save_registry(reg));
+    const int code = run_with_4k_file_limit([&] {
+        std::vector<DataVersion> more = reg;
+        more.push_back(more.front());
+        return t.save_registry(more) ? 1 : 0;
+    });
+    EXPECT_EQ(code, 0);
+    std::vector<DataVersion> after;
+    ASSERT_TRUE(t.load_registry(after));
+    EXPECT_EQ(after.size(), 300u);
+}
+
+// add_pending() used to append in place, so a failed append could leave a cut-off line, which
+// reloads as a wrong path; it now rewrites the queue atomically and reports the failure.
+TEST_F(LocalTransportPhase9Test, FailedAddPendingLeavesNoPartialLine) {
+    std::vector<std::string> paths;
+    for (int i = 0; i < 150; ++i)
+        paths.push_back("/data/f" + std::to_string(i) + ".jsonl");
+    seed_pending(paths);
+    LocalTransport t(reg_path_, pend_path_);
+    const int code = run_with_4k_file_limit(
+        [&] { return t.add_pending("/data/a_new_file_with_a_long_enough_name.jsonl") ? 1 : 0; });
+    EXPECT_EQ(code, 0);
+    std::vector<PendingEntry> after;
+    ASSERT_TRUE(t.load_pending(after));
+    EXPECT_EQ(after.size(), 150u);
+    for (const auto& e : after)
+        EXPECT_EQ(e.path.rfind("/data/f", 0), 0u) << e.path;
+
+    ASSERT_TRUE(t.add_pending("/data/new.jsonl"));
+    ASSERT_TRUE(t.load_pending(after));
+    EXPECT_EQ(after.size(), 151u);
+    EXPECT_EQ(after.back().path, "/data/new.jsonl");
+}
+
+// acquire() reports a claim it couldn't save as a failure and claims nothing.
+TEST_F(LocalTransportPhase9Test, AcquireThatCannotSaveClaimsNothing) {
+    std::vector<std::string> paths;
+    for (int i = 0; i < 300; ++i)
+        paths.push_back("/data/acq_" + std::to_string(i) + ".jsonl");
+    seed_pending(paths);
+    LocalTransport t(reg_path_, pend_path_);
+    const int code = run_with_4k_file_limit([&] {
+        const AcquireResponse r = t.acquire("run-01", 5);
+        return (r.failed && r.files.empty()) ? 0 : 1;
+    });
+    EXPECT_EQ(code, 0);
+    std::vector<PendingEntry> after;
+    ASSERT_TRUE(t.load_pending(after));
+    for (const auto& e : after)
+        EXPECT_TRUE(e.run_id.empty());
 }
