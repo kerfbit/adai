@@ -246,7 +246,7 @@ curl -X POST http://localhost:8080/chat/session \
 Session Management:
 
 - Sessions automatically expire after 30 minutes of inactivity (configurable with `--timeout` flag)
-- Conversation history is limited to 10 messages and 2048 tokens (configurable in code)
+- Conversation history is limited to 10 messages and to the model's input length (`max_seq_length`) in tokens, counted with the model's own tokenizer; the oldest turns are dropped first (TD-294). A message longer than that is refused with HTTP 400
 - Expired sessions are cleaned up during health checks
 
 ---
@@ -660,7 +660,7 @@ sent with 200):
 
 ### Memory Usage
 
-- Each session stores conversation history (limited to 2048 tokens)
+- Each session stores conversation history (at most 10 messages, and the model's `max_seq_length` tokens)
 - Active sessions are kept in memory
 - Expired sessions are cleaned up during health checks
 - Monitor memory usage with large numbers of concurrent sessions

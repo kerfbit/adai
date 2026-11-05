@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.3.1
+// @adai-version: 1.4.0
 // @adai-reviewed: 2026-11-04
 
 #include "ConversationContext.hpp"
@@ -34,7 +34,7 @@ void ConversationContext::set_system_message(const std::string& content, int tok
 
     // Create new system message
     if (token_count == 0) {
-        token_count = estimate_tokens(content);
+        token_count = count_message_tokens("system", content);  // TD-294
     }
 
     system_message.emplace("system", content, token_count);
@@ -43,9 +43,9 @@ void ConversationContext::set_system_message(const std::string& content, int tok
 
 void ConversationContext::add_message(const std::string& role, const std::string& content,
                                       int token_count) {
-    // Estimate tokens if not provided
+    // Count tokens if not provided (TD-294: with the token counter when there is one)
     if (token_count == 0) {
-        token_count = estimate_tokens(content);
+        token_count = count_message_tokens(role, content);
     }
 
     // Add message
@@ -176,11 +176,12 @@ void ConversationContext::clear_all() {
 namespace {
 // TD-292: the longest tail of `content` whose estimated token count fits `max_tokens`, starting on a
 // UTF-8 character boundary.
-std::string tail_within_tokens(const std::string& content, int max_tokens) {
+std::string tail_within_tokens(const std::string& content, int max_tokens,
+                               const std::function<int(const std::string&)>& count) {
     size_t lo = 0, hi = content.size();  // find the smallest start whose tail fits
     while (lo < hi) {
         const size_t mid = lo + (hi - lo) / 2;
-        if (ConversationContext::estimate_tokens(content.substr(mid)) <= max_tokens) {
+        if (count(content.substr(mid)) <= max_tokens) {
             hi = mid;
         } else {
             lo = mid + 1;
@@ -218,8 +219,11 @@ void ConversationContext::truncate_to_limits() {
             Message& last = messages.back();
             if (available > 0) {
                 total_tokens -= last.token_count;
-                last.content = tail_within_tokens(last.content, available);
-                last.token_count = estimate_tokens(last.content);
+                auto count = [this, &last](const std::string& s) {
+                    return count_message_tokens(last.role, s);
+                };
+                last.content = tail_within_tokens(last.content, available, count);
+                last.token_count = count(last.content);
                 total_tokens += last.token_count;
             } else {
                 remove_oldest_message();
@@ -290,6 +294,7 @@ void ConversationContext::deserialize(const std::string& data) {
     // TD-293: parse into a temporary with this context's own limits (TD-291) and swap it in at the
     // end; clearing first used to leave the session empty when a line failed to parse.
     ConversationContext parsed(max_messages, max_tokens, keep_system_message);
+    parsed.token_counter = token_counter;  // TD-294: imported messages count like the rest
 
     const adai::conversation_format::Parsed lines = adai::conversation_format::parse(data);
     // Data without the metadata/messages separator isn't a serialized conversation: refuse it
@@ -363,6 +368,7 @@ std::string ConversationContext::get_statistics() const {
 ConversationContext ConversationContext::create_summarized(int keep_recent,
                                                            const std::string& summary_text) const {
     ConversationContext summarized(max_messages, max_tokens, keep_system_message);
+    summarized.token_counter = token_counter;  // TD-294
 
     // Copy system message
     if (system_message.has_value()) {
@@ -371,8 +377,9 @@ ConversationContext ConversationContext::create_summarized(int keep_recent,
 
     // If we have a summary, add it as a system-like message
     if (!summary_text.empty() && static_cast<int>(messages.size()) > keep_recent) {
+        // TD-294: counted like any message when there is a counter (0 = count it).
         summarized.add_message("system", "[Summary of earlier conversation: " + summary_text + "]",
-                               estimate_tokens(summary_text) + 10);
+                               token_counter ? 0 : estimate_tokens(summary_text) + 10);
     }
 
     // Add recent messages
@@ -385,7 +392,7 @@ ConversationContext ConversationContext::create_summarized(int keep_recent,
     return summarized;
 }
 
-// TODO: See TD-294 in TECHNICAL_DEBT.md - byte-based estimate, unrelated to BPETokenizer counts or the model's max_seq_length
+// TD-294: a byte-based guess, used only when no token counter is set (set_token_counter()).
 int ConversationContext::estimate_tokens(const std::string& content) {
     // Simple estimation: ~4 characters per token (rough BPE approximation)
     // Add some overhead for special tokens and formatting
@@ -399,7 +406,33 @@ int ConversationContext::estimate_tokens(const std::string& content) {
     return estimated;
 }
 
-// TODO: See TD-296 in TECHNICAL_DEBT.md - never called; remove or use after imports
+void ConversationContext::set_token_counter(TokenCounter counter) {
+    token_counter = std::move(counter);
+    if (system_message.has_value()) {
+        system_message->token_count = count_message_tokens("system", system_message->content);
+    }
+    for (auto& msg : messages) {
+        msg.token_count = count_message_tokens(msg.role, msg.content);
+    }
+    update_token_count();
+    truncate_to_limits();
+}
+
+int ConversationContext::count_message_tokens(const std::string& role,
+                                              const std::string& content) const {
+    if (!token_counter) {
+        return estimate_tokens(content);
+    }
+    // The line format_for_model() writes for this message, with its default separator.
+    std::string line = role;
+    if (!line.empty()) {
+        line[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(line[0])));
+    }
+    line += ": " + content + "\n";
+    return std::max(1, token_counter(line));
+}
+
+// TD-294: used by set_token_counter() (TD-296 noted it was never called).
 void ConversationContext::update_token_count() {
     total_tokens = 0;
 

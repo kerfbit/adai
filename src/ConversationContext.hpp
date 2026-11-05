@@ -2,11 +2,11 @@
 #define CONVERSATIONCONTEXT_HPP
 
 // @adai-status: stable
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-10-26
-
+// @adai-version: 1.4.0
+// @adai-reviewed: 2026-11-04
 
 #include <deque>
+#include <functional>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -165,6 +165,25 @@ class ConversationContext {
      */
     static int estimate_tokens(const std::string& content);
 
+    /// TD-294: counts the tokens in a piece of text, normally the model's own tokenizer.
+    using TokenCounter = std::function<int(const std::string& text)>;
+
+    /**
+     * @brief Count tokens with `counter` from now on (TD-294); an empty one returns to
+     * estimate_tokens(). With a counter, a message counts as the line format_for_model() writes for
+     * it ("Role: content" and the separator), so the budget measures the prompt the model gets.
+     * Every held message is recounted, then the limits apply. Copies of this context keep the
+     * counter.
+     */
+    void set_token_counter(TokenCounter counter);
+
+    /**
+     * @brief The tokens `content` would count as a message with `role` (TD-294): its prompt line
+     * through the counter, or estimate_tokens(content) without one. For rejecting an over-long
+     * message before it reaches the history (TD-292).
+     */
+    int count_message_tokens(const std::string& role, const std::string& content) const;
+
     /**
      * @brief Get current message count
      * @return Number of messages (excluding system message)
@@ -280,6 +299,7 @@ class ConversationContext {
     int max_tokens;                    // Max total tokens
     bool keep_system_message;          // Whether to preserve system message
     int total_tokens{0};               // Cached total token count
+    TokenCounter token_counter;        // TD-294: empty = estimate_tokens()
 
     /**
      * @brief Update total token count cache

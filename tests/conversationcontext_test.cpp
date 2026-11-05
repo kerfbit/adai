@@ -1091,3 +1091,73 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
+
+// ============================================================================
+// TD-294: a token counter (the model's tokenizer in ChatbotAPI) instead of the byte estimate
+// ============================================================================
+
+namespace {
+// One token per character: easy to reason about, and far from estimate_tokens()'s ~4 bytes per
+// token.
+int count_chars(const std::string& s) {
+    return static_cast<int>(s.size());
+}
+}  // namespace
+
+TEST(ConversationContextTokenCounter, MessagesCountAsTheirPromptLine) {
+    ConversationContext ctx(20, 1000);
+    EXPECT_EQ(ctx.count_message_tokens("user", "hello"),
+              ConversationContext::estimate_tokens("hello"));
+    ctx.set_token_counter(count_chars);
+    EXPECT_EQ(ctx.count_message_tokens("user", "hello"), 12);  // "User: hello\n"
+    ctx.add_user_message("hello");
+    ctx.add_assistant_message("hi");
+    EXPECT_EQ(ctx.get_total_tokens(), 12 + 14);  // "Assistant: hi\n"
+    EXPECT_EQ(ctx.get_total_tokens(), static_cast<int>(ctx.format_for_model().size()))
+        << "the budget measures the prompt format_for_model() builds";
+    ctx.set_system_message("be brief");
+    EXPECT_EQ(ctx.get_total_tokens(), static_cast<int>(ctx.format_for_model().size()));
+}
+
+TEST(ConversationContextTokenCounter, SettingTheCounterRecountsAndEvicts) {
+    ConversationContext ctx(20, 40);
+    for (int i = 0; i < 4; ++i)
+        ctx.add_user_message("0123456789");  // estimated: 3 tokens each
+    ASSERT_EQ(ctx.get_message_count(), 4u);
+    ctx.set_token_counter(count_chars);  // 17 each ("User: 0123456789\n")
+    EXPECT_EQ(ctx.get_message_count(), 2u) << "recounted, then evicted down to the budget";
+    EXPECT_EQ(ctx.get_total_tokens(), 34);
+}
+
+TEST(ConversationContextTokenCounter, EvictsOldestByRealCounts) {
+    ConversationContext ctx(20, 50);
+    ctx.set_token_counter(count_chars);
+    ctx.add_user_message("first message here");  // 25
+    ctx.add_assistant_message("second");         // 18
+    ctx.add_user_message("third one");           // 16
+    EXPECT_EQ(ctx.get_message_count(), 2u);
+    EXPECT_EQ(ctx.get_messages().front().content, "second");
+    EXPECT_LE(ctx.get_total_tokens(), 50);
+}
+
+TEST(ConversationContextTokenCounter, ImportAndCopiesKeepTheCounter) {
+    ConversationContext source(20, 100000);
+    source.add_user_message("aaaaaaaaaaaaaaaaaaaa");
+    source.add_assistant_message("bbbbbbbbbbbbbbbbbbbb");
+    ConversationContext target(20, 1000);
+    target.set_token_counter(count_chars);
+    target.deserialize(source.serialize());
+    EXPECT_EQ(target.get_total_tokens(), static_cast<int>(target.format_for_model().size()));
+    ConversationContext copy = target;
+    copy.add_user_message("cc");
+    EXPECT_EQ(copy.get_total_tokens(), static_cast<int>(copy.format_for_model().size()));
+}
+
+TEST(ConversationContextTokenCounter, OverlongNewestMessageKeepsATailThatFits) {
+    ConversationContext ctx(20, 30);
+    ctx.set_token_counter(count_chars);
+    ctx.add_user_message(std::string(100, 'x'));  // 107 > 1.2 x 30
+    ASSERT_EQ(ctx.get_message_count(), 1u);
+    EXPECT_LE(ctx.get_total_tokens(), 30);
+    EXPECT_EQ(ctx.get_total_tokens(), static_cast<int>(ctx.format_for_model().size()));
+}

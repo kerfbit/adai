@@ -634,6 +634,9 @@ TEST_F(ChatbotAPITest, ConcurrentTurnsOnOneSessionAreSerialized) {
     config.max_length = 4;
     config.strategy = "greedy";
     api->set_generation_config(config);
+    // TD-294: the default budget is the model's max_seq_length (128 here), which evicts early
+    // turns; this test counts every turn.
+    api->set_session_token_budget(100000);
 
     constexpr int kTurns = 4;
     const std::string sid = start_session();
@@ -703,6 +706,46 @@ TEST_F(ChatbotAPITest, OversizedChatMessageIsRejectedAndTheHistoryKept) {
     ConversationContext restored(20, 100000);
     restored.deserialize(api->parse_json_string(exported, "data"));
     EXPECT_EQ(restored.get_message_count(), 2u) << "the earlier turn is still there";
+}
+
+// TD-294: a session's budget is the model's max_seq_length, counted with the model's tokenizer (it
+// was a fixed 2048 estimated tokens), so the prompt a session builds always fits the encoder's
+// input.
+TEST_F(ChatbotAPITest, SessionBudgetIsTheModelsInputLengthInRealTokens) {
+    EXPECT_EQ(api->session_token_budget(), static_cast<std::size_t>(model->get_max_seq_length()));
+    api->set_session_token_budget(300);
+    EXPECT_EQ(api->session_token_budget(), 300u);
+    api->set_session_token_budget(0);
+
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 3;
+    config.strategy = "greedy";
+    api->set_generation_config(config);
+    const std::string sid = start_session("how are you today");
+    ASSERT_FALSE(sid.empty());
+    for (int i = 0; i < 8; ++i) {
+        call_handle_chat_session(R"({"session_id":")" + sid +
+                                 R"(","message":"hello world how are you"})");
+    }
+    const std::string exported = call_handle_export_session(R"({"session_id":")" + sid + "\"}");
+    ConversationContext restored(20, 100000);
+    restored.deserialize(api->parse_json_string(exported, "data"));
+    const std::size_t prompt_tokens = tokenizer->encode(restored.format_for_model(), false).size();
+    EXPECT_LE(prompt_tokens, static_cast<std::size_t>(model->get_max_seq_length()))
+        << "the oldest turns are evicted whole so the prompt fits the encoder";
+    EXPECT_LT(restored.get_message_count(), 18u) << "some turns were evicted";
+    EXPECT_GE(restored.get_message_count(), 2u);
+
+    // A message longer than the model's input is refused rather than cut by the encoder.
+    std::string long_message;
+    while (tokenizer->encode("User: " + long_message + "\n", false).size() <=
+           static_cast<std::size_t>(model->get_max_seq_length()))
+        long_message += "hello ";
+    EXPECT_LT(ConversationContext::estimate_tokens(long_message), 2048)
+        << "the old estimated 2048-token budget would have accepted it";
+    EXPECT_THROW(call_handle_chat_session(R"({"session_id":")" + sid + R"(","message":")" +
+                                          long_message + "\"}"),
+                 std::invalid_argument);
 }
 
 // TD-291: imports are capped in size (the session's own limits bound what it keeps).

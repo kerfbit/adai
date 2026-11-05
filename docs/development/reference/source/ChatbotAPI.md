@@ -517,3 +517,18 @@ The constructor registers every route through two local helpers that also record
   `"strategy":"fast"` now get 400 (the old binary answered 200); `"max_length":1` gives a 2-character reply against 146
   without it (the old binary gave 110 characters either way).
 - **Status tag:** `ChatbotAPI.cpp` 0.30.0, `ChatbotAPI.hpp` 0.24.0, reviewed 2026-11-03.
+
+## Addendum (November 4, 2026): the session budget is the model's input length (TD-294)
+
+A new session's `ConversationContext` gets `session_token_budget()` tokens (it was a fixed 2048 estimated tokens) and the model's
+tokenizer as its token counter (`tokenizer_->encode(text, false)`). `session_token_budget()` is `set_session_token_budget()`'s value,
+or, when that is 0 (the default), the model's `max_seq_length`: the formatted conversation is the encoder's input, which keeps only
+its last `max_seq_length` tokens (TD-365), so a longer history used to be cut mid-message from the front. Now the oldest turns are
+evicted whole and the prompt fits. `handle_chat_session()`'s TD-292 check counts the message the same way
+(`count_message_tokens("user", message)`), so a message longer than the model's input is refused with 400. Existing sessions keep
+the budget they were created with. RAG builds its own prompt within `max_seq_length` (TD-484). `set_session_token_budget()` has no
+config key; nothing needed one.
+
+Checked with the real server and a model with `max_seq_length` 64: after 7 turns the old server held all 10 messages (245
+characters of content, past the encoder's input) and accepted a 360-character message; the new one held the 2 newest and refused
+the long message with 400 ("about 126 tokens; a session holds at most 64").

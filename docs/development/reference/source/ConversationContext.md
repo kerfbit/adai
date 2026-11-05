@@ -245,3 +245,13 @@ adds each message through `add_message()`, so token counts are recomputed and li
 compiles the same file to show a loaded conversation, without linking the model or tokenizer. Tests:
 `conversationformatTests`, including a round trip of what `serialize()` writes; `conversationcontextTests` pass unchanged.
 
+## Addendum (November 4, 2026): a token counter instead of the byte estimate (TD-294)
+
+`set_token_counter(TokenCounter)` makes the context count with a real tokenizer: each message counts as the line
+`format_for_model()` writes for it (`"Role: content"` and the default `"\n"` separator, through the counter), so `get_total_tokens()`
+is the prompt's length and `max_tokens` bounds what the model gets. Setting it recounts every held message (with
+`update_token_count()`, which TD-296 noted was never called) and applies the limits. `count_message_tokens(role, content)` gives
+that count (or `estimate_tokens(content)` without a counter) for rejecting an over-long message first. The counter is copied with
+the context, used for imports (`deserialize()`'s temporary), the TD-292 tail cut of an over-long newest message, and the summary
+message of `create_summarized()`. Without a counter nothing changes: `estimate_tokens()` as before. `ChatbotAPI` sets the model's
+tokenizer for every session; see [ChatbotAPI.md](ChatbotAPI.md).

@@ -1482,6 +1482,7 @@ The generation and model math run is complete.
 - TD-273 (done in code, owner decision: both quality backfills report to `metrics_api_server`, a per-epoch distribution and the lowest-scoring pairs per split; the loss score on by default (`LOSS_QUALITY_BACKFILL`), the per-pair generation score opt-in (`GENERATION_QUALITY_BACKFILL`); new `…/metrics/sample-quality` routes and `sample_quality` table).
 - TD-274 (done in code: the best-weights copy for `restore_best_weights` goes in a directory of the trainer's own under the session directory and is deleted after the restore; it used to be `best_model_temp.bin` in the working directory, shared and never removed).
 - TD-276 (done in code, owner's choice: validation token accuracy is computed, on the GPU path by a device-side count, and sent to the dashboards; `log()` levels mapped; an unbuildable `d_model` is an error instead of being changed; dead `verbose`, training-accuracy code and the stale `.old` test removed). The `ChatbotTrainer` items TD-267–TD-276 are all fixed in code.
+- TD-294 (done in code: a chat session's budget is the model's `max_seq_length` in real tokens, counted with the model's tokenizer as the prompt lines the model gets, instead of a fixed 2048 estimated tokens; `ChatbotAPI::set_session_token_budget()` can override it).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -7791,7 +7792,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | NLP / ConversationContext | October 9, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 4, 2026 | NLP / ConversationContext | October 9, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-291. `ConversationContext` budgets with `estimate_tokens()` (bytes ÷ 4 +
@@ -7803,16 +7804,37 @@ unencoded, so response quality silently degrades as conversations grow.
 
 Action Items:
 
-- [ ] Size the session budget from the model's `max_seq_length` (minus a response/format margin), via a `ChatbotAPI` setting.
-- [ ] Pass real token counts from the tokenizer when adding messages (the API already supports it), or inject a token-count function into `ConversationContext`.
+- [x] Size the session budget from the model's `max_seq_length` (minus a response/format margin), via a `ChatbotAPI` setting. `set_session_token_budget()`, default 0 = the model's `max_seq_length`; no margin is needed, since the reply is decoded separately and the role prefixes and separators are counted.
+- [x] Pass real token counts from the tokenizer when adding messages (the API already supports it), or inject a token-count function into `ConversationContext`. Injected: `set_token_counter()`.
 
-Location in code: `src/ConversationContext.cpp` (`estimate_tokens()`), `src/ChatbotAPI.hpp` (`Session`); tagged `TODO: See TD-294`.
+Fix (November 4, 2026): `ConversationContext::set_token_counter()` takes a token-count function; with one, each message counts as
+the prompt line `format_for_model()` writes for it (`"Role: content\n"`), so the budget measures what the model gets. Setting it
+recounts and truncates; imports, the TD-292 tail cut, summaries and copies use it; without one, `estimate_tokens()` as before.
+`count_message_tokens()` gives the count for a message not yet added. `ChatbotAPI` creates each session with
+`session_token_budget()` tokens, `set_session_token_budget()`'s value or, by default, the model's `max_seq_length` (the formatted
+conversation is the encoder's input, which keeps only its last `max_seq_length` tokens since TD-365, so a longer history used to
+be cut mid-message from the front), and the model's tokenizer as the counter. The TD-292 check counts the same way, so a message
+longer than the model's input is refused with 400. The GUI item is moot: `chatbot_gui` is a server client since TD-260.
+
+Tests: `ConversationContextTokenCounter` (5: a message counts as its prompt line and the total equals the prompt's length;
+setting a counter recounts and evicts; eviction by real counts; imports and copies keep the counter; an over-long newest message
+keeps a tail that fits) and `ChatbotAPITest.SessionBudgetIsTheModelsInputLengthInRealTokens` (the budget is the model's
+`max_seq_length` and settable; after 9 turns the exported conversation's real token count fits it; a message the old 2048-token
+estimate would accept but longer than the model's input is refused). `ConcurrentTurnsOnOneSessionAreSerialized` now sets a large
+budget, since it counts every turn. The new tests use new functions, so they don't build on the old code. Checked with the real
+`chatbot_api_server` and a model with `max_seq_length` 64: after 7 turns the old server held all 10 messages (past the encoder's
+input) and accepted a 360-character message; the new one held the 2 newest and refused it (400, "about 126 tokens; a session holds
+at most 64").
+
+Location in code: `src/ConversationContext.{hpp,cpp}` (`set_token_counter()`, `count_message_tokens()`), `src/ChatbotAPI.{hpp,cpp}`
+(`Session`, `get_or_create_session()`, `session_token_budget()`, `handle_chat_session()`).
 
 Files to Modify:
 
 - `src/ChatbotAPI.{hpp,cpp}`
 - `src/ConversationContext.{hpp,cpp}`
-- `src/ChatbotGUI.cpp`
+- `tests/conversationcontext_test.cpp`, `tests/chatbotapi_test.cpp`
+- (`src/ChatbotGUI.cpp`: moot since TD-260)
 
 ---
 

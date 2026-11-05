@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.24.0
-// @adai-reviewed: 2026-11-03
-
+// @adai-version: 0.25.0
+// @adai-reviewed: 2026-11-04
 
 #include <atomic>
 #include <chrono>
@@ -35,10 +34,17 @@ struct Session {
     // use of `context`, which has no locking of its own. Turns in one conversation run one at a time.
     std::mutex mutex;
 
-    // TODO: See TD-294 in TECHNICAL_DEBT.md - 2048-token budget is unrelated to the model's MAX_SEQ_LENGTH
-    Session(size_t max_messages = 10, size_t max_tokens = 2048)
+    // TD-294: ChatbotAPI creates sessions with the model's max_seq_length as the budget and the
+    // model's tokenizer as the counter (session_token_budget()); the defaults are for other
+    // callers.
+    Session(size_t max_messages = 10, size_t max_tokens = 2048,
+            ConversationContext::TokenCounter token_counter = {})
         : context(std::make_unique<ConversationContext>(max_messages, max_tokens)),
-          last_access(std::chrono::steady_clock::now()) {}
+          last_access(std::chrono::steady_clock::now()) {
+        if (token_counter) {
+            context->set_token_counter(std::move(token_counter));
+        }
+    }
 };
 
 /**
@@ -178,6 +184,19 @@ class ChatbotAPI {
      * the server: a request naming an id it doesn't hold gets HTTP 404.
      */
     void set_max_sessions(std::size_t max_sessions);
+
+    /**
+     * @brief Token budget of each new session's conversation (TD-294)
+     *
+     * 0 (the default) means the model's max_seq_length: the formatted conversation is the encoder's
+     * input, which keeps only its last max_seq_length tokens (TD-365), so older turns past that are
+     * evicted whole instead of being cut mid-message. Counted with the model's tokenizer, a message
+     * as its prompt line. A message longer than the budget is refused (HTTP 400). Existing sessions
+     * keep their budget.
+     */
+    void set_session_token_budget(std::size_t tokens);
+    /// The budget new sessions get: the setting, or the model's max_seq_length when it is 0.
+    std::size_t session_token_budget() const;
 
     /**
      * @brief Most messages one /chat/batch or /chat/batch-session request may carry (TD-235)
@@ -385,6 +404,7 @@ class ChatbotAPI {
     std::unordered_map<std::string, std::shared_ptr<Session>> sessions_;  // TD-227
     mutable std::mutex sessions_mutex_;
     std::size_t max_sessions_{10000};  // TD-232; guarded by sessions_mutex_
+    std::atomic<std::size_t> session_token_budget_{0};  // TD-294; 0 = model's max_seq_length
     std::atomic<std::size_t> max_batch_size_{32};  // TD-235
 
     // TD-231: removes expired sessions every sweep_interval_. Sessions used to expire only when

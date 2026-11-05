@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.30.0
-// @adai-reviewed: 2026-11-03
+// @adai-version: 0.31.0
+// @adai-reviewed: 2026-11-04
 
 #include "ChatbotAPI.hpp"
 #include "nlohmann/json.hpp"
@@ -464,7 +464,8 @@ std::string ChatbotAPI::handle_chat_session(const std::string& request_body) {
     // TD-292: a message bigger than the session's whole token budget is refused before it touches
     // the history. It used to evict every message, itself included, and the empty prompt then
     // failed the request with HTTP 500.
-    const int message_tokens = ConversationContext::estimate_tokens(message);
+    // TD-294: counted as the session counts it (the model's tokenizer, the message's prompt line).
+    const int message_tokens = session->context->count_message_tokens("user", message);
     const int budget = session->context->get_max_tokens();
     if (budget > 0 && message_tokens > budget) {
         throw BadRequest("'message' is about " + std::to_string(message_tokens) +
@@ -720,9 +721,33 @@ std::shared_ptr<Session> ChatbotAPI::get_or_create_session(std::string& session_
     do {
         session_id = create_session_id();
     } while (sessions_.count(session_id) != 0);
-    auto session = std::make_shared<Session>();
+    // TD-294: the budget is the model's input length, counted with its own tokenizer (it was a
+    // fixed 2048 estimated tokens, unrelated to the model).
+    ConversationContext::TokenCounter counter;
+    if (tokenizer_) {
+        BPETokenizer* tokenizer = tokenizer_;
+        counter = [tokenizer](const std::string& text) {
+            return static_cast<int>(tokenizer->encode(text, false).size());
+        };
+    }
+    auto session = std::make_shared<Session>(10, session_token_budget(), std::move(counter));
     sessions_[session_id] = session;
     return session;
+}
+
+void ChatbotAPI::set_session_token_budget(std::size_t tokens) {
+    session_token_budget_ = tokens;
+}
+
+std::size_t ChatbotAPI::session_token_budget() const {
+    const std::size_t configured = session_token_budget_.load();
+    if (configured > 0) {
+        return configured;
+    }
+    if (model_ && model_->get_max_seq_length() > 0) {
+        return static_cast<std::size_t>(model_->get_max_seq_length());
+    }
+    return 2048;  // no model to size it from
 }
 
 void ChatbotAPI::set_max_sessions(std::size_t max_sessions) {
