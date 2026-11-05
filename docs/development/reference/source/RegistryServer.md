@@ -322,3 +322,12 @@ bare-basename check. Spaces and non-ASCII names are accepted. A body that isn't 
 [RegistryTransport.md](RegistryTransport.md)); an existing data directory loads unchanged and each file is rewritten on its next save.
 Checked with the real binary: an old-format group loaded, `my file.jsonl` uploaded, trained and reloaded after a restart as one trained
 record, and `datasetRegistryLiveTests` (106) passed against it.
+
+## Addendum (November 5, 2026): replies are always valid JSON (TD-497)
+
+`json_escape()`, which every reply uses for its strings, is now `nlohmann::json(s).dump()` without the surrounding quotes. It used to
+escape only `"`, `\`, `\n`, `\r` and `\t`, so a stored path holding another control character or invalid UTF-8 (possible before
+TD-496 refused them) made the whole reply invalid JSON. Every control character is now escaped (`\u0007`) and invalid UTF-8 is sent
+as U+FFFD; ordinary paths are unchanged. `RemoteTransport` now parses replies strictly (see [RegistryTransport.md](RegistryTransport.md)),
+so this matters to every client, not only browsers.
+

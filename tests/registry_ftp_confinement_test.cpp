@@ -40,6 +40,8 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
+#include "RegistryTransport.hpp"
 
 namespace fs = std::filesystem;
 
@@ -480,4 +482,97 @@ TEST(RegistryDiskFullTest, FailedQueueSaveIsAnErrorAndKeepsTheWholeQueue) {
     EXPECT_EQ(res->status, 500) << res->body;
     EXPECT_NE(res->body.find("could not save the pending queue"), std::string::npos) << res->body;
     EXPECT_EQ(lines, kQueued) << "the queue must survive whole";
+}
+
+// TD-497: RemoteTransport parsed replies by cutting each object at the next '}' and reading strings
+// to the next '"', with no unescaping. A path with '}' vanished from load_pending(), a '"' cut a
+// path short and each backslash came back quadrupled. Every RemoteTransport call that carries a
+// path must now round-trip these names exactly, including the FTP acquire reply (the fixture runs
+// with FTP on).
+TEST_F(RegistryFtpConfinementTest, RemoteTransportRoundTripsPathsWithJsonSyntax) {
+    const std::vector<std::string> names = {"a}b.jsonl",
+                                            "c{d.jsonl",
+                                            "back\\slash.jsonl",
+                                            "quo\"te.jsonl",
+                                            "caf\xc3\xa9 \xe6\x97\xa5.jsonl",
+                                            "plain.jsonl"};
+    std::vector<std::string> paths;
+    for (const auto& n : names) {
+        paths.push_back((data_dir_ / n).string());
+        std::ofstream(paths.back()) << "{\"input\":\"a\",\"response\":\"b\"}\n";
+    }
+    const std::string windows_path = "C:\\data\\w.jsonl";  // queued only (outside data_dir)
+
+    RemoteTransport rt("http://127.0.0.1:" + std::to_string(http_port_), "td497");
+    for (const auto& p : paths)
+        ASSERT_TRUE(rt.add_pending(p)) << p;
+    ASSERT_TRUE(rt.add_pending(windows_path));
+
+    std::vector<PendingEntry> pending;
+    ASSERT_TRUE(rt.load_pending(pending));
+    std::vector<std::string> pending_paths;
+    for (const auto& e : pending)
+        pending_paths.push_back(e.path);
+    std::vector<std::string> expected = paths;
+    expected.push_back(windows_path);
+    EXPECT_EQ(pending_paths, expected);
+
+    const AcquireResponse acquired = rt.acquire("td497-run", 0);
+    ASSERT_FALSE(acquired.failed);
+    std::vector<std::string> acquired_paths;
+    for (const auto& t : acquired.files) {
+        acquired_paths.push_back(t.registry_path);
+        EXPECT_FALSE(t.ftp_username.empty()) << "the FTP reply shape is under test";
+    }
+    EXPECT_EQ(acquired_paths, paths) << "every in-tree file the server claimed reaches the client";
+
+    std::vector<DataVersion> trained;
+    for (const auto& p : paths) {
+        DataVersion dv;
+        dv.data_file = p;
+        dv.trained = true;
+        dv.num_samples = 1;
+        trained.push_back(dv);
+    }
+    rt.commit_trained("td497-run", trained, paths);
+    std::vector<DataVersion> registry;
+    ASSERT_TRUE(rt.load_registry(registry));
+    std::vector<std::string> registry_paths;
+    for (const auto& dv : registry) {
+        registry_paths.push_back(dv.data_file);
+        EXPECT_TRUE(dv.trained) << dv.data_file;
+    }
+    EXPECT_EQ(registry_paths, paths);
+
+    const RequeueResult requeued = rt.requeue_trained({paths[0], paths[3]}, false, "");
+    ASSERT_TRUE(requeued.ok);
+    EXPECT_EQ(requeued.requeued, 2);
+    ASSERT_EQ(requeued.details.size(), 2u);
+    EXPECT_EQ(requeued.details[0].path, paths[0]);
+    EXPECT_EQ(requeued.details[1].path, paths[3]);
+
+    const DeleteResult deleted = rt.delete_paths({paths[2], windows_path}, false, false);
+    EXPECT_EQ(deleted.deleted, 2);
+    ASSERT_EQ(deleted.details.size(), 2u);
+    EXPECT_EQ(deleted.details[0].path, paths[2]);
+    EXPECT_EQ(deleted.details[1].path, windows_path);
+}
+
+// TD-497: the server's escaper handled only '"', '\\', \n, \r and \t, so any other control
+// character or invalid UTF-8 in a stored path (queued before TD-496 refused them) made the whole
+// reply invalid JSON. Such entries are seeded straight into the queue file; the reply must stay
+// readable.
+TEST_F(RegistryFtpConfinementTest, ReplyStaysValidJsonForOldUnusualPaths) {
+    fs::create_directories(data_dir_ / "td497old");
+    {
+        std::ofstream q(data_dir_ / "td497old" / "pending_files.txt", std::ios::binary);
+        q << "/data/bell\x07.jsonl\n/data/bad\xff.jsonl\n/data/ok.jsonl\n";  // pre-TD-496 format
+    }
+    RemoteTransport rt("http://127.0.0.1:" + std::to_string(http_port_), "td497old");
+    std::vector<PendingEntry> pending;
+    ASSERT_TRUE(rt.load_pending(pending));
+    ASSERT_EQ(pending.size(), 3u);
+    EXPECT_EQ(pending[0].path, "/data/bell\x07.jsonl");
+    EXPECT_EQ(pending[1].path, "/data/bad\xef\xbf\xbd.jsonl");  // U+FFFD
+    EXPECT_EQ(pending[2].path, "/data/ok.jsonl");
 }

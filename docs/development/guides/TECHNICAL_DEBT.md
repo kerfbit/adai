@@ -1500,6 +1500,8 @@ The generation and model math run is complete.
   under a simulated full disk).
 - TD-496 (done in code: both registry files are JSON Lines, old formats still read; a path with a space round-trips, control characters
   and invalid UTF-8 are refused at add and upload).
+- TD-497 (done in code: `RemoteTransport` builds requests and reads replies with nlohmann/json, so `}`, `"`, backslashes and non-ASCII
+  paths round-trip; `registry_server` escapes every control character and replaces invalid UTF-8 in replies).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -15604,7 +15606,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / RegistryTransport | October 17, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 5, 2026 | Data / RegistryTransport | October 17, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `RegistryTransport.cpp`; verified against a local `registry_server`. `RemoteTransport` parses responses by slicing each object at
@@ -15617,15 +15619,33 @@ the next `}` and reading strings up to the next `"`, with no unescaping (the ser
 
 Action Items:
 
-- [ ] Parse responses (and build requests) with the vendored `nlohmann/json`, together with TD-494's server-side parsing and TD-453.
-- [ ] Live tests with `}`, `{`, `\`, `"` and non-ASCII paths.
+- [x] Parse responses (and build requests) with the vendored `nlohmann/json`, together with TD-494's server-side parsing and TD-453.
+- [x] Live tests with `}`, `{`, `\`, `"` and non-ASCII paths.
 
-Location in code: `src/RegistryTransport.cpp` (anonymous-namespace JSON helpers; `RemoteTransport::load_registry()`, `load_pending()`, `acquire()`, `delete_paths()`); tagged `TODO: See TD-497`.
+Fix (November 5, 2026): every `RemoteTransport` request body is built as an `nlohmann::json` object and dumped with invalid UTF-8
+replaced by U+FFFD, and every reply is parsed with `nlohmann::json::parse()` (no exceptions) and read by key with type checks
+(`json_str()`/`json_num()` shared with TD-496's file reader, plus `json_flag()`, `json_list()`, `json_strings()`). A reply that isn't a
+JSON object is logged and treated as a failure (`acquire()` sets `failed`; claims it may have made expire with the TD-494 lease). The
+substring helpers (`json_string()`, `json_int()`, `json_bool()`, `json_string_array()`, `json_int_array()`, the hand-built arrays) are
+gone. `load_registry()` now also reads `model_id`. On the server, `json_escape()` (used for every string in a reply) is now
+`nlohmann::json(s).dump()` without its quotes: every control character is escaped and invalid UTF-8 becomes U+FFFD, so a path stored before
+TD-496 can no longer make a whole reply invalid JSON (only `"`, `\`, `\n`, `\r` and `\t` were escaped before).
+
+Tests: `RegistryFtpConfinementTest.RemoteTransportRoundTripsPathsWithJsonSyntax` runs the real `registry_server` (FTP on) and sends
+`a}b`, `c{d`, `back\slash`, `quo"te`, `café 日` and `C:\data\w.jsonl` through `add_pending()`, `load_pending()`, the FTP `acquire()`,
+`commit_trained()`, `load_registry()`, `requeue_trained()` and `delete_paths()`; every path comes back exactly. On the old code `a}b`
+was missing from every listing, `quo"te` came back as `quo\`, and backslashes doubled. `ReplyStaysValidJsonForOldUnusualPaths` seeds
+a queue holding a BEL character and invalid UTF-8 and reads it back (the U+FFFD substitute, where the old server sent the raw byte).
+Both run under `ctest`, so they need no manually started server. `datasetRegistryLiveTests` (106) pass against the new server, and
+`dataset_manager` against it lists an uploaded `x}y "q".jsonl` exactly.
+
+Location in code: `src/RegistryTransport.cpp` (the `RemoteTransport` JSON helpers and every `RemoteTransport` method),
+`src/RegistryServer.cpp` (`json_escape()`).
 
 Files to Modify:
 
-- `src/RegistryTransport.cpp`
-- `tests/dataset_registry_live_test.cpp`
+- `src/RegistryTransport.cpp`, `src/RegistryServer.cpp`
+- `tests/registry_ftp_confinement_test.cpp`
 
 ---
 

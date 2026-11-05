@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.8.0
+// @adai-version: 1.9.0
 // @adai-reviewed: 2026-11-05
 
 #include "RegistryTransport.hpp"
@@ -1030,165 +1030,57 @@ RequeueResult LocalTransport::requeue_trained(const std::vector<std::string>& pa
 // ============================================================================
 
 namespace {
-// Minimal JSON helpers shared between RemoteTransport methods ----------------
+// JSON helpers shared between RemoteTransport methods -------------------------
+//
+// TD-497: requests are built and replies parsed with the vendored nlohmann/json. The old
+// helpers sliced each object at the next '}' and read strings up to the next '"' with no
+// unescaping, so a path containing '}' vanished from load_pending(), a '"' cut a path short,
+// and each backslash came back quadrupled ('C:\data' as 'C:\\\\data').
 
-std::string json_escape(const std::string& s) {
-    std::string out;
-    out.reserve(s.size() + 4);
-    for (char c : s) {
-        switch (c) {
-            case '"':
-                out += "\\\"";
-                break;
-            case '\\':
-                out += "\\\\";
-                break;
-            case '\n':
-                out += "\\n";
-                break;
-            case '\r':
-                out += "\\r";
-                break;
-            case '\t':
-                out += "\\t";
-                break;
-            default:
-                out += c;
-                break;
-        }
+using Json = nlohmann::json;
+
+// A request body. Invalid UTF-8 is sent as U+FFFD rather than making dump() throw.
+std::string to_body(const Json& j) {
+    return dump_line(j);
+}
+
+// A reply's top-level object, or a discarded value (logged) when the reply isn't one.
+Json parse_reply(const std::string& body, const char* method) {
+    auto j = Json::parse(body, nullptr, /*allow_exceptions=*/false);
+    if (!j.is_object()) {
+        Logger::error("RemoteTransport::{} — unreadable reply: {}", method, body.substr(0, 200));
+        return Json(Json::value_t::discarded);
     }
+    return j;
+}
+
+bool json_flag(const Json& j, const char* key, bool fallback = false) {
+    const auto it = j.find(key);
+    return (it != j.end() && it->is_boolean()) ? it->get<bool>() : fallback;
+}
+
+// body[key] when it is an array, else an empty array.
+const Json& json_list(const Json& j, const char* key) {
+    static const Json empty = Json::array();
+    const auto it = j.find(key);
+    return (it != j.end() && it->is_array()) ? *it : empty;
+}
+
+std::vector<std::string> json_strings(const Json& j, const char* key) {
+    std::vector<std::string> out;
+    for (const auto& v : json_list(j, key))
+        if (v.is_string())
+            out.push_back(v.get<std::string>());
     return out;
 }
 
-// TODO: See TD-497 in TECHNICAL_DEBT.md - no unescaping (backslashes multiply per round trip) and objects are cut at
-// the next '}' even inside strings (a path with '}' disappears); use nlohmann/json.
-// Extract the value of a simple JSON string key: "key":"value"
-// Returns empty string if not found.
-std::string json_string(const std::string& body, const std::string& key) {
-    const std::string needle = "\"" + key + "\":\"";
-    const auto pos = body.find(needle);
-    if (pos == std::string::npos)
-        return {};
-    const auto start = pos + needle.size();
-    const auto end = body.find('"', start);
-    if (end == std::string::npos)
-        return {};
-    return body.substr(start, end - start);
-}
-
-// Extract the value of a bare JSON number key: "key":N
-int json_int(const std::string& body, const std::string& key, int def = 0) {
-    const std::string needle = "\"" + key + "\":";
-    const auto pos = body.find(needle);
-    if (pos == std::string::npos)
-        return def;
-    try {
-        return std::stoi(body.substr(pos + needle.size()));
-    } catch (...) {
-        return def;
-    }
-}
-
-// Extract the value of a bare JSON boolean key (true/false, unquoted).
-bool json_bool(const std::string& body, const std::string& key, bool def = false) {
-    const std::string needle = "\"" + key + "\":";
-    const auto pos = body.find(needle);
-    if (pos == std::string::npos)
-        return def;
-    const auto start = pos + needle.size();
-    return body.compare(start, 4, "true") == 0;
-}
-
-// Parse a JSON array of strings from body["key"]: ["a","b",...]
-std::vector<std::string> json_string_array(const std::string& body, const std::string& key) {
-    std::vector<std::string> result;
-    const std::string needle = "\"" + key + "\":[";
-    const auto pos = body.find(needle);
-    if (pos == std::string::npos)
-        return result;
-    auto cur = pos + needle.size();
-    while (cur < body.size()) {
-        // An empty array (or one already fully consumed) closes with ']'
-        // before any further '"' — check that first, otherwise an empty
-        // array immediately followed by another JSON field would wrongly
-        // treat that field's key as an array element.
-        const auto quote_pos = body.find('"', cur);
-        const auto close_pos = body.find(']', cur);
-        if (quote_pos == std::string::npos ||
-            (close_pos != std::string::npos && close_pos < quote_pos)) {
-            break;
-        }
-        cur = quote_pos + 1;
-        const auto end = body.find('"', cur);
-        if (end == std::string::npos)
-            break;
-        result.push_back(body.substr(cur, end - cur));
-        cur = end + 1;
-        // Stop at ]
-        const auto next = body.find_first_of(",]", cur);
-        if (next == std::string::npos || body[next] == ']')
-            break;
-        cur = next + 1;
-    }
-    return result;
-}
-
-// TD-205: parse a flat JSON array of numbers: [1,2,-1,...] — used for the legacy (non-FTP)
-// acquire response's "segment_starts"/"segment_counts" parallel arrays.
-std::vector<int> json_int_array(const std::string& body, const std::string& key) {
-    std::vector<int> result;
-    const std::string needle = "\"" + key + "\":[";
-    const auto pos = body.find(needle);
-    if (pos == std::string::npos)
-        return result;
-    auto cur = pos + needle.size();
-    const auto close_pos = body.find(']', cur);
-    if (close_pos == std::string::npos)
-        return result;
-    std::string inner = body.substr(cur, close_pos - cur);
-    std::istringstream iss(inner);
-    std::string token;
-    while (std::getline(iss, token, ',')) {
-        if (token.empty())
-            continue;
-        try {
-            result.push_back(std::stoi(token));
-        } catch (...) {
-        }
-    }
-    return result;
-}
-
-// Build a JSON array of quoted strings: ["a","b",...]
-std::string json_array(const std::vector<std::string>& v) {
-    std::string out = "[";
-    for (std::size_t i = 0; i < v.size(); ++i) {
-        if (i)
-            out += ',';
-        out += '"';
-        out += json_escape(v[i]);
-        out += '"';
-    }
-    out += ']';
-    return out;
-}
-
-// TD-205: build a JSON array of segment targets:
-// [{"path":"...","segment_start":N,"segment_count":N},...]
-std::string json_segments_array(const std::vector<SegmentTarget>& v) {
-    std::string out = "[";
-    for (std::size_t i = 0; i < v.size(); ++i) {
-        if (i)
-            out += ',';
-        out += "{\"path\":\"";
-        out += json_escape(v[i].path);
-        out += "\",\"segment_start\":";
-        out += std::to_string(v[i].segment_start);
-        out += ",\"segment_count\":";
-        out += std::to_string(v[i].segment_count);
-        out += "}";
-    }
-    out += ']';
+// TD-205: segment targets as [{"path":"...","segment_start":N,"segment_count":N},...]
+Json segments_json(const std::vector<SegmentTarget>& v) {
+    Json out = Json::array();
+    for (const auto& s : v)
+        out.push_back({{"path", s.path},
+                       {"segment_start", s.segment_start},
+                       {"segment_count", s.segment_count}});
     return out;
 }
 
@@ -1242,50 +1134,26 @@ bool RemoteTransport::load_registry(std::vector<DataVersion>& out) {
         return false;
     }
 
-    // Parse JSON array:
-    // {"entries":[{"data_file":"...","checksum":"...","num_samples":N,"trained":T},...]}
-    out.clear();
-    const std::string& body = res->body;
-    auto entries_start = body.find("\"entries\":[");
-    if (entries_start == std::string::npos)
+    // {"entries":[{"data_file":"...","checksum":"...","num_samples":N,"trained":T,...},...]}
+    const Json reply = parse_reply(res->body, "load_registry");
+    if (reply.is_discarded() || !reply.contains("entries"))
         return false;
-    auto cur = entries_start + 11;  // len of "entries":[
-    while (cur < body.size()) {
-        auto obj_start = body.find('{', cur);
-        if (obj_start == std::string::npos)
-            break;
-        auto obj_end = body.find('}', obj_start);
-        if (obj_end == std::string::npos)
-            break;
-        const std::string obj = body.substr(obj_start, obj_end - obj_start + 1);
+    out.clear();
+    for (const auto& obj : json_list(reply, "entries")) {
+        if (!obj.is_object())
+            continue;
         DataVersion dv;
-        dv.data_file = json_string(obj, "data_file");
-        dv.checksum = json_string(obj, "checksum");
-        dv.segment_start = json_int(obj, "segment_start", -1);  // TD-333; absent = whole file
-        dv.segment_count = json_int(obj, "segment_count", -1);
-        // num_samples is a JSON number, not a string
-        const std::string ns_needle = "\"num_samples\":";
-        const auto nsp = obj.find(ns_needle);
-        if (nsp != std::string::npos) {
-            try {
-                dv.num_samples = std::stoi(obj.substr(nsp + ns_needle.size()));
-            } catch (...) {
-            }
-        }
-        // trained is a JSON boolean, not a string
-        const std::string tr_needle = "\"trained\":";
-        const auto trp = obj.find(tr_needle);
-        if (trp != std::string::npos) {
-            const std::string tval = obj.substr(trp + tr_needle.size(), 4);
-            dv.trained = (tval == "true");
-        }
-        dv.added_utc = json_string(obj, "added_utc");
-        dv.source = json_string(obj, "source");
+        dv.data_file = json_str(obj, "data_file");
+        dv.checksum = json_str(obj, "checksum");
+        dv.num_samples = json_num(obj, "num_samples", 0);
+        dv.trained = json_flag(obj, "trained");
+        dv.model_id = json_str(obj, "model_id");
+        dv.added_utc = json_str(obj, "added_utc");
+        dv.source = json_str(obj, "source");
+        dv.segment_start = json_num(obj, "segment_start", -1);  // TD-333; absent = whole file
+        dv.segment_count = json_num(obj, "segment_count", -1);
         if (!dv.data_file.empty())
             out.push_back(std::move(dv));
-        cur = obj_end + 1;
-        if (body.find(']', cur) < body.find('{', cur))
-            break;
     }
     return true;
 #else
@@ -1315,75 +1183,29 @@ bool RemoteTransport::load_pending(std::vector<PendingEntry>& out) {
         return false;
     }
 
-    // Parse {"entries":[{"path":"...","run_id":"..."},...]}
-    out.clear();
-    const std::string& body = res->body;
-    auto cur = body.find("\"entries\":[");
-    if (cur == std::string::npos)
+    // {"entries":[{"path":"...","run_id":"...",...},...]}
+    const Json reply = parse_reply(res->body, "load_pending");
+    if (reply.is_discarded() || !reply.contains("entries"))
         return false;
-    cur += 11;
-    while (cur < body.size()) {
-        auto obj_start = body.find('{', cur);
-        if (obj_start == std::string::npos)
-            break;
-        auto obj_end = body.find('}', obj_start);
-        if (obj_end == std::string::npos)
-            break;
-        const std::string obj = body.substr(obj_start, obj_end - obj_start + 1);
-        const std::string path = json_string(obj, "path");
-        if (!path.empty()) {
-            PendingEntry e;
-            e.path = path;
-            e.run_id = json_string(obj, "run_id");
-            e.model_name = json_string(obj, "model_name");
-            e.source = json_string(obj, "source");
-            e.added_utc = json_string(obj, "added_utc");
-            e.checksum = json_string(obj, "checksum");
-            const std::string sb_needle = "\"size_bytes\":";
-            const auto sbp = obj.find(sb_needle);
-            if (sbp != std::string::npos) {
-                try {
-                    e.size_bytes = static_cast<std::size_t>(std::stoull(obj.substr(sbp + sb_needle.size())));
-                } catch (...) {
-                }
-            }
-            const std::string ne_needle = "\"num_entries\":";
-            const auto nep = obj.find(ne_needle);
-            if (nep != std::string::npos) {
-                try {
-                    e.num_entries = std::stoi(obj.substr(nep + ne_needle.size()));
-                } catch (...) {
-                }
-            }
-            const std::string ss_needle = "\"segment_start\":";
-            const auto ssp = obj.find(ss_needle);
-            if (ssp != std::string::npos) {
-                try {
-                    e.segment_start = std::stoi(obj.substr(ssp + ss_needle.size()));
-                } catch (...) {
-                }
-            }
-            const std::string sc_needle = "\"segment_count\":";
-            const auto scp = obj.find(sc_needle);
-            if (scp != std::string::npos) {
-                try {
-                    e.segment_count = std::stoi(obj.substr(scp + sc_needle.size()));
-                } catch (...) {
-                }
-            }
-            const std::string cu_needle = "\"claimed_unix\":";  // TD-494
-            const auto cup = obj.find(cu_needle);
-            if (cup != std::string::npos) {
-                try {
-                    e.claimed_unix = std::stoll(obj.substr(cup + cu_needle.size()));
-                } catch (...) {
-                }
-            }
-            out.push_back(std::move(e));
-        }
-        cur = obj_end + 1;
-        if (body.find(']', cur) < body.find('{', cur))
-            break;
+    out.clear();
+    for (const auto& obj : json_list(reply, "entries")) {
+        if (!obj.is_object())
+            continue;
+        PendingEntry e;
+        e.path = json_str(obj, "path");
+        if (e.path.empty())
+            continue;
+        e.run_id = json_str(obj, "run_id");
+        e.model_name = json_str(obj, "model_name");
+        e.source = json_str(obj, "source");
+        e.added_utc = json_str(obj, "added_utc");
+        e.checksum = json_str(obj, "checksum");
+        e.size_bytes = json_num<std::size_t>(obj, "size_bytes", 0);
+        e.num_entries = json_num(obj, "num_entries", -1);
+        e.segment_start = json_num(obj, "segment_start", -1);
+        e.segment_count = json_num(obj, "segment_count", -1);
+        e.claimed_unix = json_num<long long>(obj, "claimed_unix", 0);  // TD-494
+        out.push_back(std::move(e));
     }
     return true;
 #else
@@ -1408,128 +1230,65 @@ AcquireResponse RemoteTransport::acquire(const std::string& run_id, int max_file
     cli.set_connection_timeout(0, timeout_ms_ * 1000);
     cli.set_read_timeout(0, timeout_ms_ * 1000);
 
-    std::ostringstream body;
-    body << "{\"run_id\":\"" << json_escape(run_id) << "\"," << "\"max_files\":" << max_files << ","
-         << "\"model_name\":\"" << json_escape(model_name) << "\"}";
-
-    const auto res = cli.Post((group_prefix_ + "/acquire").c_str(), body.str(), "application/json");
+    const std::string body =
+        to_body({{"run_id", run_id}, {"max_files", max_files}, {"model_name", model_name}});
+    const auto res = cli.Post((group_prefix_ + "/acquire").c_str(), body, "application/json");
     if (!res || res->status != 200) {
         Logger::error("RemoteTransport::acquire — HTTP {} from {}:{}{}", res ? res->status : -1,
                       host_, port_, group_prefix_ + "/acquire");
         resp.failed = true;
         return resp;
     }
-
-    const std::string& b = res->body;
+    const Json reply = parse_reply(res->body, "acquire");
+    if (reply.is_discarded()) {
+        // The server may hold claims the client can't see; they expire with the lease (TD-494).
+        resp.failed = true;
+        return resp;
+    }
 
     // TD-494: the claim lease (both response shapes); DatasetRegistry renews within it. An older
     // server omits it (0: claims don't expire there).
-    const std::string lease_needle = "\"claim_lease_seconds\":";
-    if (const auto lp = b.find(lease_needle); lp != std::string::npos) {
-        try {
-            resp.claim_lease_seconds = std::max(0, std::stoi(b.substr(lp + lease_needle.size())));
-        } catch (...) {
-        }
-    }
+    resp.claim_lease_seconds = std::max(0, json_num(reply, "claim_lease_seconds", 0));
 
-    // Detect new structured response: has "files":[ array.
-    // Old response format: {"acquired":["path",...]}
-    const bool new_format = (b.find("\"files\":[") != std::string::npos);
-
-    if (new_format) {
-        // Parse top-level scalar fields
-        resp.ftp_server_host = json_string(b, "ftp_server_host");
-        // ftp_server_port is a JSON number, not a string
-        const std::string port_needle = "\"ftp_server_port\":";
-        const auto pp = b.find(port_needle);
-        if (pp != std::string::npos) {
-            try {
-                resp.ftp_server_port = std::stoi(b.substr(pp + port_needle.size()));
-            } catch (...) {
-            }
-        }
-        // ftps_enabled is a JSON boolean (Phase 3)
-        const std::string ftps_needle = "\"ftps_enabled\":";
-        const auto fp = b.find(ftps_needle);
-        if (fp != std::string::npos) {
-            const std::string fval = b.substr(fp + ftps_needle.size(), 5);
-            resp.ftps_enabled = (fval.compare(0, 4, "true") == 0);
-        }
-
-        // Parse each file object inside "files":[{...},{...}]
-        auto files_pos = b.find("\"files\":[");
-        if (files_pos != std::string::npos) {
-            auto cur = files_pos + 9;  // len("\"files\":[")
-            while (cur < b.size()) {
-                auto obj_start = b.find('{', cur);
-                if (obj_start == std::string::npos)
-                    break;
-                // Find matching closing brace (objects are flat, no nesting)
-                auto obj_end = b.find('}', obj_start);
-                if (obj_end == std::string::npos)
-                    break;
-                const std::string obj = b.substr(obj_start, obj_end - obj_start + 1);
-
-                FileToken tok;
-                tok.registry_path = json_string(obj, "registry_path");
-                tok.ftp_path = json_string(obj, "ftp_path");
-                tok.ftp_username = json_string(obj, "ftp_username");
-                tok.ftp_password = json_string(obj, "ftp_password");
-                tok.checksum = json_string(obj, "checksum");
-                tok.token_expires_utc = json_string(obj, "token_expires_utc");
-                // size_bytes is a JSON number
-                const std::string sb_needle = "\"size_bytes\":";
-                const auto sbp = obj.find(sb_needle);
-                if (sbp != std::string::npos) {
-                    try {
-                        tok.size_bytes = static_cast<std::size_t>(
-                            std::stoull(obj.substr(sbp + sb_needle.size())));
-                    } catch (...) {
-                    }
-                }
-                // TD-205: segment_start/segment_count are JSON numbers, same pattern as
-                // size_bytes above.
-                const std::string ss_needle = "\"segment_start\":";
-                const auto ssp = obj.find(ss_needle);
-                if (ssp != std::string::npos) {
-                    try {
-                        tok.segment_start = std::stoi(obj.substr(ssp + ss_needle.size()));
-                    } catch (...) {
-                    }
-                }
-                const std::string sc_needle = "\"segment_count\":";
-                const auto scp = obj.find(sc_needle);
-                if (scp != std::string::npos) {
-                    try {
-                        tok.segment_count = std::stoi(obj.substr(scp + sc_needle.size()));
-                    } catch (...) {
-                    }
-                }
-                if (!tok.registry_path.empty()) {
-                    resp.files.push_back(std::move(tok));
-                }
-                cur = obj_end + 1;
-                if (b.find(']', cur) < b.find('{', cur))
-                    break;
-            }
+    if (reply.contains("files")) {
+        // Structured (FTP) response: {"ftp_server_host":...,"files":[{...},...]}
+        resp.ftp_server_host = json_str(reply, "ftp_server_host");
+        resp.ftp_server_port = json_num(reply, "ftp_server_port", resp.ftp_server_port);
+        resp.ftps_enabled = json_flag(reply, "ftps_enabled");  // Phase 3
+        for (const auto& obj : json_list(reply, "files")) {
+            if (!obj.is_object())
+                continue;
+            FileToken tok;
+            tok.registry_path = json_str(obj, "registry_path");
+            tok.ftp_path = json_str(obj, "ftp_path");
+            tok.ftp_username = json_str(obj, "ftp_username");
+            tok.ftp_password = json_str(obj, "ftp_password");
+            tok.checksum = json_str(obj, "checksum");
+            tok.token_expires_utc = json_str(obj, "token_expires_utc");
+            tok.size_bytes = json_num<std::size_t>(obj, "size_bytes", 0);
+            tok.segment_start = json_num(obj, "segment_start", -1);  // TD-205
+            tok.segment_count = json_num(obj, "segment_count", -1);
+            if (!tok.registry_path.empty())
+                resp.files.push_back(std::move(tok));
         }
     } else {
         // Legacy format: {"acquired":["path1","path2",...]}
         // Wrap each path in a minimal FileToken with ftp fields empty.
-        // TD-205: "segment_starts"/"segment_counts" are new, purely-additive parallel arrays
-        // (same order/length as "acquired") — an older server predating this field simply
-        // omits them, and json_int_array() returns empty, so every entry defaults to -1
-        // (whole file), matching pre-TD-205 behavior byte-for-byte.
-        auto paths = json_string_array(b, "acquired");
-        const auto segment_starts = json_int_array(b, "segment_starts");
-        const auto segment_counts = json_int_array(b, "segment_counts");
+        // TD-205: "segment_starts"/"segment_counts" are purely-additive parallel arrays (same
+        // order/length as "acquired"); an older server omits them, so every entry defaults to -1
+        // (whole file).
+        const auto& paths = json_list(reply, "acquired");
+        const auto& starts = json_list(reply, "segment_starts");
+        const auto& counts = json_list(reply, "segment_counts");
         for (std::size_t i = 0; i < paths.size(); ++i) {
+            if (!paths[i].is_string())
+                continue;
             FileToken tok;
-            tok.registry_path = std::move(paths[i]);
-            if (i < segment_starts.size())
-                tok.segment_start = segment_starts[i];
-            if (i < segment_counts.size())
-                tok.segment_count = segment_counts[i];
+            tok.registry_path = paths[i].get<std::string>();
+            if (i < starts.size() && starts[i].is_number_integer())
+                tok.segment_start = starts[i].get<int>();
+            if (i < counts.size() && counts[i].is_number_integer())
+                tok.segment_count = counts[i].get<int>();
             resp.files.push_back(std::move(tok));
         }
     }
@@ -1549,11 +1308,9 @@ void RemoteTransport::release(const std::string& run_id, const std::vector<std::
     cli.set_connection_timeout(0, timeout_ms_ * 1000);
     cli.set_read_timeout(0, timeout_ms_ * 1000);
 
-    std::ostringstream body;
-    body << "{\"run_id\":\"" << json_escape(run_id) << "\"," << "\"files\":" << json_array(paths)
-         << "," << "\"segments\":" << json_segments_array(segments) << "}";
-
-    const auto res = cli.Post((group_prefix_ + "/release").c_str(), body.str(), "application/json");
+    const std::string body =
+        to_body({{"run_id", run_id}, {"files", paths}, {"segments", segments_json(segments)}});
+    const auto res = cli.Post((group_prefix_ + "/release").c_str(), body, "application/json");
     if (!res || res->status != 200) {
         Logger::error("RemoteTransport::release — HTTP {} from {}:{}{}", res ? res->status : -1,
                       host_, port_, group_prefix_ + "/release");
@@ -1599,30 +1356,24 @@ void RemoteTransport::commit_trained(const std::string& run_id,
     for (const auto& t : trained_segments)
         add_unit(t.path, t.segment_start, t.segment_count, 0);
 
-    auto int_array = [](const std::vector<int>& v) {
-        std::string out = "[";
-        for (std::size_t i = 0; i < v.size(); ++i)
-            out += (i ? "," : "") + std::to_string(v[i]);
-        return out + "]";
-    };
-    std::ostringstream body;
-    body << "{\"run_id\":\"" << json_escape(run_id) << "\"," << "\"files\":" << json_array(files)
-         << ",\"samples\":" << int_array(samples);
+    Json body = {{"run_id", run_id}, {"files", files}, {"samples", samples}};
     if (!trained_segments.empty()) {
         // Exact mode: the server removes exactly these pending entries. Without the arrays it
         // keeps the pre-TD-333 behaviour (every entry sharing a path), for older clients.
-        body << ",\"segment_starts\":" << int_array(seg_starts)
-             << ",\"segment_counts\":" << int_array(seg_counts);
+        body["segment_starts"] = seg_starts;
+        body["segment_counts"] = seg_counts;
     }
-    body << "}";
 
-    const auto res = cli.Post((group_prefix_ + "/trained").c_str(), body.str(), "application/json");
+    const auto res =
+        cli.Post((group_prefix_ + "/trained").c_str(), to_body(body), "application/json");
     if (!res || res->status != 200) {
         Logger::error("RemoteTransport::commit_trained — HTTP {} from {}:{}{}",
                       res ? res->status : -1, host_, port_, group_prefix_ + "/trained");
-    } else if (res->body.find("\"rejected\":[]") == std::string::npos &&
-               res->body.find("\"rejected\"") != std::string::npos) {
-        // TD-493: units this run doesn't hold a claim on aren't recorded.
+        return;
+    }
+    // TD-493: units this run doesn't hold a claim on aren't recorded.
+    const Json reply = parse_reply(res->body, "commit_trained");
+    if (!reply.is_discarded() && !json_list(reply, "rejected").empty()) {
         Logger::warn("RemoteTransport::commit_trained — registry didn't record some units: {}",
                      res->body);
     }
@@ -1638,18 +1389,19 @@ bool RemoteTransport::add_pending(const std::string& path, int segment_start,
     cli.set_connection_timeout(0, timeout_ms_ * 1000);
     cli.set_read_timeout(0, timeout_ms_ * 1000);
 
-    std::ostringstream body;
-    body << "{\"path\":\"" << json_escape(path) << "\"," << "\"segment_start\":" << segment_start
-         << ",\"segment_count\":" << segment_count << "}";
-
-    const auto res =
-        cli.Post((group_prefix_ + "/pending/add").c_str(), body.str(), "application/json");
+    const std::string body = to_body(
+        {{"path", path}, {"segment_start", segment_start}, {"segment_count", segment_count}});
+    const auto res = cli.Post((group_prefix_ + "/pending/add").c_str(), body, "application/json");
     if (!res || res->status != 200) {
-        Logger::error("RemoteTransport::add_pending — HTTP {} from {}:{}{}", res ? res->status : -1,
-                      host_, port_, group_prefix_ + "/pending/add");
+        Logger::error("RemoteTransport::add_pending — HTTP {} from {}:{}{}: {}",
+                      res ? res->status : -1, host_, port_, group_prefix_ + "/pending/add",
+                      res ? res->body : "");
         return false;
     }
-    if (res->body.find("\"added\":false") != std::string::npos) {
+    const Json reply = parse_reply(res->body, "add_pending");
+    if (reply.is_discarded())
+        return false;
+    if (!json_flag(reply, "added", true)) {
         Logger::warn("RemoteTransport::add_pending — '{}' already in remote queue", path);
         return false;
     }
@@ -1667,18 +1419,15 @@ std::string RemoteTransport::next_session(const std::string& model_name,
     cli.set_connection_timeout(0, timeout_ms_ * 1000);
     cli.set_read_timeout(0, timeout_ms_ * 1000);
 
-    std::ostringstream body;
-    body << "{\"model_name\":\"" << json_escape(model_name) << "\"," << "\"run_id\":\""
-         << json_escape(run_id) << "\"}";
-
-    const auto res =
-        cli.Post((group_prefix_ + "/session/next").c_str(), body.str(), "application/json");
+    const std::string body = to_body({{"model_name", model_name}, {"run_id", run_id}});
+    const auto res = cli.Post((group_prefix_ + "/session/next").c_str(), body, "application/json");
     if (!res || res->status != 200) {
         Logger::error("RemoteTransport::next_session — HTTP {} from {}:{}{}",
                       res ? res->status : -1, host_, port_, group_prefix_ + "/session/next");
         return "session-01";
     }
-    return json_string(res->body, "session_id");
+    const Json reply = parse_reply(res->body, "next_session");
+    return reply.is_discarded() ? std::string() : json_str(reply, "session_id");
 #else
     Logger::error("RemoteTransport::next_session — not compiled");
     return "session-01";
@@ -1696,20 +1445,22 @@ AssignResult RemoteTransport::assign(const std::string& model_name,
     cli.set_connection_timeout(0, timeout_ms_ * 1000);
     cli.set_read_timeout(0, timeout_ms_ * 1000);
 
-    std::ostringstream body;
-    body << "{\"model_name\":\"" << json_escape(model_name) << "\","
-         << "\"paths\":" << json_array(paths) << "," << "\"count\":" << count << ","
-         << "\"segments\":" << json_segments_array(segments) << "}";
-
-    const auto res = cli.Post((group_prefix_ + "/assign").c_str(), body.str(), "application/json");
+    const std::string body = to_body({{"model_name", model_name},
+                                      {"paths", paths},
+                                      {"count", count},
+                                      {"segments", segments_json(segments)}});
+    const auto res = cli.Post((group_prefix_ + "/assign").c_str(), body, "application/json");
     if (!res || res->status != 200) {
         Logger::error("RemoteTransport::assign — HTTP {} from {}:{}{}", res ? res->status : -1,
                       host_, port_, group_prefix_ + "/assign");
         return result;
     }
+    const Json reply = parse_reply(res->body, "assign");
+    if (reply.is_discarded())
+        return result;
     // TODO: See TD-498 in TECHNICAL_DEBT.md - response "segments" not parsed; result.segments stays empty.
-    result.assigned = json_int(res->body, "assigned");
-    result.paths = json_string_array(res->body, "paths");
+    result.assigned = json_num(reply, "assigned", 0);
+    result.paths = json_strings(reply, "paths");
     Logger::info("RemoteTransport: assigned {} files to model '{}'", result.assigned, model_name);
 #else
     Logger::error("RemoteTransport::assign — not compiled");
@@ -1726,21 +1477,22 @@ UnassignResult RemoteTransport::unassign(const std::string& model_name,
     cli.set_connection_timeout(0, timeout_ms_ * 1000);
     cli.set_read_timeout(0, timeout_ms_ * 1000);
 
-    std::ostringstream body;
-    body << "{\"model_name\":\"" << json_escape(model_name) << "\","
-         << "\"paths\":" << json_array(paths) << "," << "\"force\":" << (force ? "true" : "false")
-         << "," << "\"segments\":" << json_segments_array(segments) << "}";
-
-    const auto res =
-        cli.Post((group_prefix_ + "/unassign").c_str(), body.str(), "application/json");
+    const std::string body = to_body({{"model_name", model_name},
+                                      {"paths", paths},
+                                      {"force", force},
+                                      {"segments", segments_json(segments)}});
+    const auto res = cli.Post((group_prefix_ + "/unassign").c_str(), body, "application/json");
     if (!res || res->status != 200) {
         Logger::error("RemoteTransport::unassign — HTTP {} from {}:{}{}", res ? res->status : -1,
                       host_, port_, group_prefix_ + "/unassign");
         return result;
     }
-    result.unassigned = json_int(res->body, "unassigned");
-    result.skipped = json_int(res->body, "skipped");
-    result.paths = json_string_array(res->body, "paths");
+    const Json reply = parse_reply(res->body, "unassign");
+    if (reply.is_discarded())
+        return result;
+    result.unassigned = json_num(reply, "unassigned", 0);
+    result.skipped = json_num(reply, "skipped", 0);
+    result.paths = json_strings(reply, "paths");
     Logger::info("RemoteTransport: unassigned {} files from model '{}' ({} skipped)",
                 result.unassigned, model_name, result.skipped);
 #else
@@ -1758,47 +1510,33 @@ DeleteResult RemoteTransport::delete_paths(const std::vector<std::string>& paths
     cli.set_connection_timeout(0, timeout_ms_ * 1000);
     cli.set_read_timeout(0, timeout_ms_ * 1000);
 
-    std::ostringstream body;
-    body << "{\"paths\":" << json_array(paths) << "," << "\"force\":" << (force ? "true" : "false")
-         << "," << "\"delete_files\":" << (delete_files ? "true" : "false") << ","
-         << "\"segments\":" << json_segments_array(segments) << "}";
-
-    const auto res = cli.Post((group_prefix_ + "/delete").c_str(), body.str(), "application/json");
+    const std::string body = to_body({{"paths", paths},
+                                      {"force", force},
+                                      {"delete_files", delete_files},
+                                      {"segments", segments_json(segments)}});
+    const auto res = cli.Post((group_prefix_ + "/delete").c_str(), body, "application/json");
     if (!res || res->status != 200) {
         Logger::error("RemoteTransport::delete_paths — HTTP {} from {}:{}{}",
                       res ? res->status : -1, host_, port_, group_prefix_ + "/delete");
         return result;
     }
-    const std::string& b = res->body;
-    result.deleted = json_int(b, "deleted");
-    result.skipped = json_int(b, "skipped");
-    result.not_found = json_int(b, "not_found");
-
-    // Parse "details":[{"path":"...","status":"...","file_deleted":bool},...]
-    // — flat (non-nested) objects, same iteration idiom as load_registry/
-    // load_pending/acquire above.
-    auto cur = b.find("\"details\":[");
-    if (cur != std::string::npos) {
-        cur += 11;  // len of "details":[
-        while (cur < b.size()) {
-            auto obj_start = b.find('{', cur);
-            if (obj_start == std::string::npos)
-                break;
-            auto obj_end = b.find('}', obj_start);
-            if (obj_end == std::string::npos)
-                break;
-            const std::string obj = b.substr(obj_start, obj_end - obj_start + 1);
-            DeleteResult::Detail detail;
-            detail.path = json_string(obj, "path");
-            detail.status = json_string(obj, "status");
-            detail.file_deleted = json_bool(obj, "file_deleted");
-            detail.segment_start = json_int(obj, "segment_start", -1);
-            detail.segment_count = json_int(obj, "segment_count", -1);
-            result.details.push_back(std::move(detail));
-            cur = obj_end + 1;
-            if (b.find(']', cur) < b.find('{', cur))
-                break;
-        }
+    const Json reply = parse_reply(res->body, "delete_paths");
+    if (reply.is_discarded())
+        return result;
+    result.deleted = json_num(reply, "deleted", 0);
+    result.skipped = json_num(reply, "skipped", 0);
+    result.not_found = json_num(reply, "not_found", 0);
+    // "details":[{"path":"...","status":"...","file_deleted":bool,...},...]
+    for (const auto& obj : json_list(reply, "details")) {
+        if (!obj.is_object())
+            continue;
+        DeleteResult::Detail detail;
+        detail.path = json_str(obj, "path");
+        detail.status = json_str(obj, "status");
+        detail.file_deleted = json_flag(obj, "file_deleted");
+        detail.segment_start = json_num(obj, "segment_start", -1);
+        detail.segment_count = json_num(obj, "segment_count", -1);
+        result.details.push_back(std::move(detail));
     }
     Logger::info("RemoteTransport: delete — {} deleted, {} skipped, {} not_found", result.deleted,
                 result.skipped, result.not_found);
@@ -1810,6 +1548,20 @@ DeleteResult RemoteTransport::delete_paths(const std::vector<std::string>& paths
 
 // Phase 11: server-side dataset fetch ---------------------------------------
 
+namespace {
+// The queued path from a fetch or upload reply, or "" (logged) when the registry reports failure.
+std::string added_path(const std::string& body, const char* method) {
+    const Json reply = parse_reply(body, method);
+    if (reply.is_discarded())
+        return "";
+    if (!json_flag(reply, "added")) {
+        Logger::error("RemoteTransport::{} — registry reported failure: {}", method, body);
+        return "";
+    }
+    return json_str(reply, "path");
+}
+}  // namespace
+
 std::string RemoteTransport::fetch_gutenberg(int book_id, int num_pairs,
                                              const std::string& model_name) {
 #ifdef BUILD_METRICS_API_SERVER
@@ -1818,23 +1570,16 @@ std::string RemoteTransport::fetch_gutenberg(int book_id, int num_pairs,
     // Fetching a book + converting it can take a while; give the server room.
     cli.set_read_timeout(std::max(timeout_ms_, 120000) / 1000, 0);
 
-    std::ostringstream body;
-    body << "{\"book_id\":" << book_id << ",\"num_pairs\":" << num_pairs << ",\"model_name\":\""
-         << json_escape(model_name) << "\"}";
-
+    const std::string body =
+        to_body({{"book_id", book_id}, {"num_pairs", num_pairs}, {"model_name", model_name}});
     const auto res =
-        cli.Post((group_prefix_ + "/fetch/gutenberg").c_str(), body.str(), "application/json");
+        cli.Post((group_prefix_ + "/fetch/gutenberg").c_str(), body, "application/json");
     if (!res || res->status != 200) {
         Logger::error("RemoteTransport::fetch_gutenberg — HTTP {} from {}:{}{}",
                       res ? res->status : -1, host_, port_, group_prefix_ + "/fetch/gutenberg");
         return "";
     }
-    if (res->body.find("\"added\":true") == std::string::npos) {
-        Logger::error("RemoteTransport::fetch_gutenberg — registry reported failure: {}",
-                      res->body);
-        return "";
-    }
-    return json_string(res->body, "path");
+    return added_path(res->body, "fetch_gutenberg");
 #else
     Logger::error("RemoteTransport::fetch_gutenberg — not compiled");
     return "";
@@ -1852,26 +1597,20 @@ std::string RemoteTransport::fetch_huggingface(const std::string& dataset_id, in
     // HuggingFace downloads can be large; give the server room.
     cli.set_read_timeout(std::max(timeout_ms_, 120000) / 1000, 0);
 
-    std::ostringstream body;
-    body << "{\"dataset_id\":\"" << json_escape(dataset_id) << "\"," << "\"num_pairs\":"
-         << num_pairs << "," << "\"split\":\"" << json_escape(split) << "\","
-         << "\"input_field\":\"" << json_escape(input_field) << "\"," << "\"output_field\":\""
-         << json_escape(output_field) << "\"," << "\"model_name\":\"" << json_escape(model_name)
-         << "\"}";
-
+    const std::string body = to_body({{"dataset_id", dataset_id},
+                                      {"num_pairs", num_pairs},
+                                      {"split", split},
+                                      {"input_field", input_field},
+                                      {"output_field", output_field},
+                                      {"model_name", model_name}});
     const auto res =
-        cli.Post((group_prefix_ + "/fetch/huggingface").c_str(), body.str(), "application/json");
+        cli.Post((group_prefix_ + "/fetch/huggingface").c_str(), body, "application/json");
     if (!res || res->status != 200) {
         Logger::error("RemoteTransport::fetch_huggingface — HTTP {} from {}:{}{}",
                       res ? res->status : -1, host_, port_, group_prefix_ + "/fetch/huggingface");
         return "";
     }
-    if (res->body.find("\"added\":true") == std::string::npos) {
-        Logger::error("RemoteTransport::fetch_huggingface — registry reported failure: {}",
-                      res->body);
-        return "";
-    }
-    return json_string(res->body, "path");
+    return added_path(res->body, "fetch_huggingface");
 #else
     Logger::error("RemoteTransport::fetch_huggingface — not compiled");
     return "";
@@ -1906,11 +1645,7 @@ std::string RemoteTransport::upload_file(const std::string& local_path) {
                       res ? res->status : -1, host_, port_, path, res ? res->body : "");
         return "";
     }
-    if (res->body.find("\"added\":true") == std::string::npos) {
-        Logger::error("RemoteTransport::upload_file — registry reported failure: {}", res->body);
-        return "";
-    }
-    return json_string(res->body, "path");
+    return added_path(res->body, "upload_file");
 #else
     Logger::error("RemoteTransport::upload_file — not compiled");
     return "";
@@ -1922,22 +1657,15 @@ int RemoteTransport::renew_claims(const std::string& run_id) {
     httplib::Client cli(host_, port_);
     cli.set_connection_timeout(0, timeout_ms_ * 1000);
     cli.set_read_timeout(0, timeout_ms_ * 1000);
-    const std::string body = "{\"run_id\":\"" + json_escape(run_id) + "\"}";
-    const auto res = cli.Post((group_prefix_ + "/renew").c_str(), body, "application/json");
+    const auto res = cli.Post((group_prefix_ + "/renew").c_str(), to_body({{"run_id", run_id}}),
+                              "application/json");
     if (!res || res->status != 200) {
         Logger::warn("RemoteTransport::renew_claims — HTTP {} from {}:{}{}", res ? res->status : -1,
                      host_, port_, group_prefix_ + "/renew");
         return -1;
     }
-    const std::string needle = "\"renewed\":";
-    const auto p = res->body.find(needle);
-    if (p == std::string::npos)
-        return -1;
-    try {
-        return std::stoi(res->body.substr(p + needle.size()));
-    } catch (...) {
-        return -1;
-    }
+    const Json reply = parse_reply(res->body, "renew_claims");
+    return reply.is_discarded() ? -1 : json_num(reply, "renewed", -1);
 #else
     (void)run_id;
     return -1;
@@ -1952,38 +1680,29 @@ RequeueResult RemoteTransport::requeue_trained(const std::vector<std::string>& p
     cli.set_connection_timeout(0, timeout_ms_ * 1000);
     cli.set_read_timeout(0, timeout_ms_ * 1000);
 
-    std::ostringstream body;
-    body << "{\"paths\":" << json_array(paths) << ",\"all\":" << (all ? "true" : "false")
-         << ",\"model_name\":\"" << json_escape(model_name) << "\"}";
-    const auto res =
-        cli.Post((group_prefix_ + "/requeue").c_str(), body.str(), "application/json");
+    const std::string body = to_body({{"paths", paths}, {"all", all}, {"model_name", model_name}});
+    const auto res = cli.Post((group_prefix_ + "/requeue").c_str(), body, "application/json");
     if (!res || res->status != 200) {
         Logger::error("RemoteTransport::requeue_trained — HTTP {} from {}:{}{}",
                       res ? res->status : -1, host_, port_, group_prefix_ + "/requeue");
         result.ok = false;
         return result;
     }
-    const std::string& b = res->body;
-    result.requeued = json_int(b, "requeued");
-    result.already_pending = json_int(b, "already_pending");
-    result.not_found = json_int(b, "not_found");
-    auto cur = b.find("\"details\":[");
-    if (cur != std::string::npos) {
-        cur += 11;
-        while (cur < b.size()) {
-            const auto obj_start = b.find('{', cur);
-            if (obj_start == std::string::npos)
-                break;
-            const auto obj_end = b.find('}', obj_start);
-            if (obj_end == std::string::npos)
-                break;
-            const std::string obj = b.substr(obj_start, obj_end - obj_start + 1);
-            RequeueResult::Detail detail;
-            detail.path = json_string(obj, "path");
-            detail.status = json_string(obj, "status");
-            result.details.push_back(std::move(detail));
-            cur = obj_end + 1;
-        }
+    const Json reply = parse_reply(res->body, "requeue_trained");
+    if (reply.is_discarded()) {
+        result.ok = false;
+        return result;
+    }
+    result.requeued = json_num(reply, "requeued", 0);
+    result.already_pending = json_num(reply, "already_pending", 0);
+    result.not_found = json_num(reply, "not_found", 0);
+    for (const auto& obj : json_list(reply, "details")) {
+        if (!obj.is_object())
+            continue;
+        RequeueResult::Detail detail;
+        detail.path = json_str(obj, "path");
+        detail.status = json_str(obj, "status");
+        result.details.push_back(std::move(detail));
     }
 #else
     (void)paths;

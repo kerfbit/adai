@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.29.0
+// @adai-version: 0.30.0
 // @adai-reviewed: 2026-11-05
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
@@ -246,31 +246,13 @@ static std::atomic<int> g_fetches_running{0};
 // Minimal JSON helpers
 // ============================================================================
 
+// TD-497: the body of a JSON string literal for @p s. Every control character is escaped and
+// invalid UTF-8 (a path queued before TD-496) becomes U+FFFD, so a reply is always valid JSON
+// that RemoteTransport's parser accepts; only " \\ and three control characters were escaped.
 static std::string json_escape(const std::string& s) {
-    std::string out;
-    for (char c : s) {
-        switch (c) {
-            case '"':
-                out += "\\\"";
-                break;
-            case '\\':
-                out += "\\\\";
-                break;
-            case '\n':
-                out += "\\n";
-                break;
-            case '\r':
-                out += "\\r";
-                break;
-            case '\t':
-                out += "\\t";
-                break;
-            default:
-                out += c;
-                break;
-        }
-    }
-    return out;
+    const std::string quoted =
+        nlohmann::json(s).dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+    return quoted.substr(1, quoted.size() - 2);
 }
 
 // TD-494: request bodies are parsed with the vendored nlohmann/json. The old helpers matched

@@ -132,7 +132,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 |---|---|---|---|
 | In-place truncating saves; a failed write leaves a partial file (§2) | Disk full: 114 of 2,001 queue entries survived; `registry_server` loses queues/registries silently | **Verified** | [TD-495](../../guides/TECHNICAL_DEBT.md#td-495-localtransport-saves-truncate-the-queue-when-a-write-fails) |
 | Space-separated registry format (§2) | Uploaded files with spaces are recorded as untrained, unmatchable records (**fixed in code November 5, 2026**: JSON Lines) | **Verified** | [TD-496](../../guides/TECHNICAL_DEBT.md#td-496-registry-flat-file-formats-break-on-spaces-tabs-and-newlines-in-paths) |
-| `RemoteTransport` parsing: `}` hides entries, backslashes multiply, no unescaping (§2) | Invisible queue entries; Windows paths unusable; FTP claims stranded | **Verified** (`}`, `\`); by inspection (FTP) | [TD-497](../../guides/TECHNICAL_DEBT.md#td-497-remotetransport-hides-paths-with--and-multiplies-backslashes) |
+| `RemoteTransport` parsing: `}` hides entries, backslashes multiply, no unescaping (§2) | Invisible queue entries; Windows paths unusable; FTP claims stranded (**fixed in code November 5, 2026**: nlohmann/json) | **Verified** (`}`, `\`); by inspection (FTP) | [TD-497](../../guides/TECHNICAL_DEBT.md#td-497-remotetransport-hides-paths-with--and-multiplies-backslashes) |
 | Local/remote divergence: duplicate commits, `add_pending` result, segment results, unlocked registry writes (§2) | Duplicate records; misleading results; lost records under concurrency | **Verified** (commit, add); by inspection | [TD-498](../../guides/TECHNICAL_DEBT.md#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene) |
 | `model_id` never sent or set; `https://` → HTTP; unencoded group; log counts; in-memory upload (§2) | Dead history filter; confusing setup | By inspection | [TD-498](../../guides/TECHNICAL_DEBT.md#td-498-localtransportremotetransport-divergence-dead-model_id-and-client-hygiene) |
 | Session counters; server-side claim checks | Already tracked | — | TD-304, TD-493 (claims by bare path, TD-333, and zero sample counts, TD-334, fixed October 19, 2026) |
@@ -203,3 +203,14 @@ new files.
 (C0, DEL or C1) or invalid UTF-8 (overlong forms, surrogates, above U+10FFFF). `LocalTransport::add_pending()` refuses such a path and
 returns false; `registry_server` uses the same check for `pending/add` and upload names (see
 [RegistryServer.md](RegistryServer.md)).
+
+## Addendum (November 5, 2026): `RemoteTransport` uses nlohmann/json (TD-497)
+
+Every request body is an `nlohmann::json` object dumped with invalid UTF-8 replaced by U+FFFD, and every reply is parsed with
+`nlohmann::json::parse()` and read by key with type checks; a field of the wrong type takes its default, and a reply that isn't a JSON
+object is logged and treated as a failure (`acquire()` sets `failed`, `requeue_trained()` sets `ok = false`, the others return their
+empty result). The substring helpers that cut each object at the next `}` and read strings to the next `"` without unescaping are
+gone, so paths containing `}`, `{`, `"`, backslashes or non-ASCII text round-trip through every call, including the FTP acquire reply.
+`load_registry()` also reads `model_id` now (still never set; TD-498). Checked against the real `registry_server` by
+`RegistryFtpConfinementTest.RemoteTransportRoundTripsPathsWithJsonSyntax`.
+
