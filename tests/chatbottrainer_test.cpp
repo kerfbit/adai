@@ -1,5 +1,6 @@
 #include "../src/ChatbotTrainer.hpp"
 #include <gtest/gtest.h>
+#include <spdlog/sinks/ostream_sink.h>
 #include <atomic>
 #include <cmath>
 #include <filesystem>
@@ -7,7 +8,9 @@
 #include <memory>
 #include <numeric>
 #include <set>
+#include <sstream>
 #include "../src/IMetricsReporter.hpp"
+#include "../src/Logger.hpp"
 #include "../src/TrainingSampleMeta.hpp"
 
 // ============================================================================
@@ -102,47 +105,23 @@ TEST_F(MetricsTest, CalculatePerplexity_Monotonic) {
     EXPECT_LT(ppl2, ppl3);
 }
 
-TEST_F(MetricsTest, CalculateAccuracy_PerfectMatch) {
-    // When vectors match, accuracy should be 100%
-    std::vector<int> predictions = {1, 2, 3};
-    std::vector<int> targets = {1, 2, 3};
-
-    float accuracy = trainer->calculate_accuracy(predictions, targets);
-    EXPECT_FLOAT_EQ(accuracy, 1.0f);  // 100% accuracy
-}
-
-TEST_F(MetricsTest, CalculateAccuracy_PartialMatch) {
-    // 2 out of 4 correct = 50%
-    std::vector<int> predictions = {1, 2, 3, 4};
-    std::vector<int> targets = {1, 5, 3, 6};
-
-    float accuracy = trainer->calculate_accuracy(predictions, targets);
-    EXPECT_FLOAT_EQ(accuracy, 0.5f);  // 50% accuracy
-}
-
-TEST_F(MetricsTest, CalculateAccuracy_NoMatch) {
-    // 0 out of 3 correct = 0%
-    std::vector<int> predictions = {1, 2, 3};
-    std::vector<int> targets = {4, 5, 6};
-
-    float accuracy = trainer->calculate_accuracy(predictions, targets);
-    EXPECT_FLOAT_EQ(accuracy, 0.0f);  // 0% accuracy
-}
-
-TEST_F(MetricsTest, CalculateAccuracy_EmptyVectors) {
-    std::vector<int> predictions;
-    std::vector<int> targets;
-
-    float accuracy = trainer->calculate_accuracy(predictions, targets);
-    EXPECT_FLOAT_EQ(accuracy, -1.0f);
-}
-
-TEST_F(MetricsTest, CalculateAccuracy_MismatchedSizes) {
-    std::vector<int> predictions = {1, 2, 3};
-    std::vector<int> targets = {1, 2};
-
-    float accuracy = trainer->calculate_accuracy(predictions, targets);
-    EXPECT_FLOAT_EQ(accuracy, -1.0f);
+// TD-276: token accuracy, as validate() computes it (calculate_accuracy() was removed unused).
+TEST(TokenAccuracyTest, CountsPositionsWhoseFirstMaximumIsTheTarget) {
+    Matrix logits(4, 5);  // zero-filled
+    logits(0, 2) = 3.0f;  // argmax 2
+    logits(1, 1) = 2.0f;
+    logits(1, 4) = 2.0f;  // tie: the first maximum, 1
+    logits(2, 0) = 1.0f;  // argmax 0
+    logits(3, 3) = 9.0f;  // row past the targets: not counted
+    const TokenAccuracy a = EncoderDecoderModel::token_accuracy(logits, {2, 1, 4});
+    EXPECT_EQ(a.total, 3);
+    EXPECT_EQ(a.correct, 2);
+    const TokenAccuracy tie_second = EncoderDecoderModel::token_accuracy(logits, {2, 4});
+    EXPECT_EQ(tie_second.correct, 1) << "a tie goes to the first maximum";
+    const TokenAccuracy invalid = EncoderDecoderModel::token_accuracy(logits, {-1, 5, 0});
+    EXPECT_EQ(invalid.total, 1) << "targets outside the vocabulary aren't counted";
+    EXPECT_EQ(invalid.correct, 1);
+    EXPECT_EQ(EncoderDecoderModel::token_accuracy(logits, {}).total, 0);
 }
 
 // ============================================================================
@@ -155,9 +134,9 @@ TEST_F(LoggingTest, LogLevel_Silent_NoOutput) {
     auto silent_trainer = std::make_unique<ChatbotTrainer>(config);
 
     // Should not crash, but won't verify output (would need output capture)
-    silent_trainer->log(LogLevel::NORMAL, "This should not appear", "");
-    silent_trainer->log(LogLevel::VERBOSE, "This should not appear", "");
-    silent_trainer->log(LogLevel::DEBUG, "This should not appear", "");
+    silent_trainer->log(LogLevel::NORMAL, "This should not appear");
+    silent_trainer->log(LogLevel::VERBOSE, "This should not appear");
+    silent_trainer->log(LogLevel::DEBUG, "This should not appear");
 }
 
 TEST_F(LoggingTest, LogLevel_Normal_FiltersVerbose) {
@@ -166,10 +145,10 @@ TEST_F(LoggingTest, LogLevel_Normal_FiltersVerbose) {
     auto normal_trainer = std::make_unique<ChatbotTrainer>(config);
 
     // NORMAL and below should appear, VERBOSE and DEBUG should not
-    normal_trainer->log(LogLevel::SILENT, "Error message", "");
-    normal_trainer->log(LogLevel::NORMAL, "Normal message", "");
-    normal_trainer->log(LogLevel::VERBOSE, "Should be filtered", "");
-    normal_trainer->log(LogLevel::DEBUG, "Should be filtered", "");
+    normal_trainer->log(LogLevel::SILENT, "Error message");
+    normal_trainer->log(LogLevel::NORMAL, "Normal message");
+    normal_trainer->log(LogLevel::VERBOSE, "Should be filtered");
+    normal_trainer->log(LogLevel::DEBUG, "Should be filtered");
 }
 
 TEST_F(LoggingTest, LogLevel_Verbose_FiltersDebug) {
@@ -178,10 +157,46 @@ TEST_F(LoggingTest, LogLevel_Verbose_FiltersDebug) {
     auto verbose_trainer = std::make_unique<ChatbotTrainer>(config);
 
     // VERBOSE and below should appear, DEBUG should not
-    verbose_trainer->log(LogLevel::SILENT, "Error message", "");
-    verbose_trainer->log(LogLevel::NORMAL, "Normal message", "");
-    verbose_trainer->log(LogLevel::VERBOSE, "Verbose message", "");
-    verbose_trainer->log(LogLevel::DEBUG, "Should be filtered", "");
+    verbose_trainer->log(LogLevel::SILENT, "Error message");
+    verbose_trainer->log(LogLevel::NORMAL, "Normal message");
+    verbose_trainer->log(LogLevel::VERBOSE, "Verbose message");
+    verbose_trainer->log(LogLevel::DEBUG, "Should be filtered");
+}
+
+// TD-276: each message goes out at its own Logger level (every one used to be info), filtered by
+// log_level as before.
+TEST(ChatbotTrainerLogTest, LevelsMapToLoggerLevelsAndFilter) {
+    std::ostringstream out;
+    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(out);
+    sink->set_pattern("%l|%v");
+    auto logger = adai::Logger::get();
+    const auto old_level = logger->level();
+    logger->set_level(spdlog::level::debug);
+    logger->sinks().push_back(sink);
+
+    TrainingConfig config;
+    config.log_level = LogLevel::DEBUG;
+    ChatbotTrainer all(config);
+    all.log(LogLevel::SILENT, "td276-error");
+    all.log(LogLevel::NORMAL, "td276-normal");
+    all.log(LogLevel::VERBOSE, "td276-verbose");
+    all.log(LogLevel::DEBUG, "td276-debug");
+    config.log_level = LogLevel::NORMAL;
+    ChatbotTrainer normal(config);
+    normal.log(LogLevel::VERBOSE, "td276-filtered");
+    normal.log(LogLevel::DEBUG, "td276-filtered");
+
+    logger->flush();
+    auto& sinks = logger->sinks();
+    sinks.erase(std::remove(sinks.begin(), sinks.end(), sink), sinks.end());
+    logger->set_level(old_level);
+
+    const std::string log = out.str();
+    EXPECT_NE(log.find("error|td276-error"), std::string::npos) << log;
+    EXPECT_NE(log.find("info|td276-normal"), std::string::npos) << log;
+    EXPECT_NE(log.find("info|td276-verbose"), std::string::npos) << log;
+    EXPECT_NE(log.find("debug|td276-debug"), std::string::npos) << log;
+    EXPECT_EQ(log.find("td276-filtered"), std::string::npos) << log;
 }
 
 TEST_F(LoggingTest, LogLevel_Debug_ShowsAll) {
@@ -190,10 +205,10 @@ TEST_F(LoggingTest, LogLevel_Debug_ShowsAll) {
     auto debug_trainer = std::make_unique<ChatbotTrainer>(config);
 
     // All messages should appear
-    debug_trainer->log(LogLevel::SILENT, "Error message", "");
-    debug_trainer->log(LogLevel::NORMAL, "Normal message", "");
-    debug_trainer->log(LogLevel::VERBOSE, "Verbose message", "");
-    debug_trainer->log(LogLevel::DEBUG, "Debug message", "");
+    debug_trainer->log(LogLevel::SILENT, "Error message");
+    debug_trainer->log(LogLevel::NORMAL, "Normal message");
+    debug_trainer->log(LogLevel::VERBOSE, "Verbose message");
+    debug_trainer->log(LogLevel::DEBUG, "Debug message");
 }
 
 // ============================================================================
@@ -1010,6 +1025,57 @@ TEST_F(MetricsTrackerWiringTest, BestWeightsCopyIsPrivateAndRemovedAfterTraining
     EXPECT_EQ(first_dirs.size(), 2u) << "each trainer has its own directory";
     EXPECT_TRUE(best_dirs().empty());
     std::filesystem::remove_all(base);
+}
+
+// TD-276: validate() computes token accuracy and sends it with the validation metrics (it always
+// sent -1, so both dashboards hid it).
+TEST_F(MetricsTrackerWiringTest, ValidationReportsTokenAccuracy) {
+    class AccuracyReporter final : public IMetricsReporter {
+       public:
+        std::vector<float> accuracies;
+        void start_epoch(int, int) override {}
+        void end_epoch(int, float, float, float, float, float, double) override {}
+        void update_sample_metrics(int, float, float, float) override {}
+        void update_validation_metrics(float, float accuracy, float) override {
+            accuracies.push_back(accuracy);
+        }
+        void update_best_metrics(float, int) override {}
+        void update_advanced_epoch_metrics(float, float, float) override {}
+        void flag_abnormal_sample(const AbnormalSample&) override {}
+        void update_adaptive_clip_metrics(float, int) override {}
+        void update_adaptive_clip_epoch(float, int) override {}
+        void update_activation_saturation(float) override {}
+        void update_attention_entropy(float) override {}
+        void update_layer_gradient_norms(const std::vector<float>&,
+                                         const std::vector<float>&) override {}
+        void update_padding_efficiency(float) override {}
+        void update_generation_quality_metrics(float, float, float, float, float, float) override {}
+        void update_lejepa_metrics(float, float) override {}
+        void update_lejepa_advanced_metrics(float, float, float, float) override {}
+        void report_sample_quality(const SampleQualityReport&) override {}
+    } reporter;
+
+    TrainingConfig config = tiny_config();
+    config.learning_rate = 0.01f;
+    ChatbotTrainer trainer(config);
+    trainer.set_metrics_reporter(&reporter);
+    ASSERT_TRUE(
+        trainer.build_vocabulary({"hello world", "how are you"}, 100, vocab_path_.string()));
+    // Validation is the training pair itself, so accuracy can only rise as the model memorises it.
+    trainer.add_training_pair("hello world", "how are you");
+    trainer.add_validation_pair("hello world", "how are you");
+    const int num_epochs = 40;
+    ASSERT_TRUE(trainer.train(num_epochs));
+
+    const auto& acc = trainer.get_validation_accuracies();
+    ASSERT_EQ(acc.size(), static_cast<size_t>(num_epochs));
+    ASSERT_EQ(reporter.accuracies.size(), static_cast<size_t>(num_epochs));
+    for (int i = 0; i < num_epochs; ++i) {
+        EXPECT_GE(acc[i], 0.0f);
+        EXPECT_LE(acc[i], 1.0f);
+        EXPECT_FLOAT_EQ(reporter.accuracies[i], acc[i]);
+    }
+    EXPECT_FLOAT_EQ(acc.back(), 1.0f) << "a memorised pair predicts every target token";
 }
 
 TEST_F(MetricsTrackerWiringTest, ExportsRealCsvAfterTraining) {
@@ -1939,3 +2005,27 @@ TEST_F(ChatbotTrainerCacheTest, SecondPassWithCacheKeepsRawAndTokenizedPairsAlig
     }
 }
 
+// TD-276: an architecture the model can't be built with is an error instead of being changed (it
+// used to round d_model up, and reset an unusual d_ff to 4x, breaking an MNS-registered
+// architecture).
+TEST_F(ChatbotTrainerCacheTest, ArchitectureIsNeverSilentlyChanged) {
+    Matrix::gpu_try_initialize();
+    TrainingConfig bad = tiny_training_config(1);
+    bad.d_model = 18;  // not a multiple of num_heads = 4
+    bad.num_heads = 4;
+    std::filesystem::create_directories(cache_dir);
+    ChatbotTrainer trainer(bad);
+    ASSERT_TRUE(
+        trainer.build_vocabulary({"hello world", "how are you"}, 100, cache_dir + "/vocab.txt"));
+    EXPECT_THROW(InitModel(trainer), std::invalid_argument);
+
+    TrainingConfig narrow = tiny_training_config(1);
+    narrow.d_model = 16;
+    narrow.d_ff = 16;  // ratio 1: unusual, but buildable
+    ChatbotTrainer kept(narrow);
+    ASSERT_TRUE(
+        kept.build_vocabulary({"hello world", "how are you"}, 100, cache_dir + "/vocab.txt"));
+    ASSERT_NO_THROW(InitModel(kept));
+    EXPECT_EQ(kept.get_config().d_ff, 16);
+    EXPECT_EQ(kept.get_config().d_model, 16);
+}

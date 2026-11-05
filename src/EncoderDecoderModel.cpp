@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.31.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 0.32.0
+// @adai-reviewed: 2026-11-04
 
 #include "EncoderDecoderModel.hpp"
 #include "Activation.hpp"  // TD-216: shared softmax row primitives
@@ -720,16 +720,47 @@ float EncoderDecoderModel::evaluate(const std::string& input_text, const std::st
 }
 
 float EncoderDecoderModel::evaluate_tokenized(const std::vector<int>& input_tokens,
-                                              const std::vector<int>& target_tokens) {
+                                              const std::vector<int>& target_tokens,
+                                              TokenAccuracy* accuracy) {
     bool prev_mode = requires_grad;
     set_training(false);
 
     // Forward pass only
     Matrix logits = forward(input_tokens, target_tokens);
     float loss = compute_loss(logits, target_tokens);
+    if (accuracy) {
+        *accuracy = token_accuracy(logits, target_tokens);  // TD-276
+    }
 
     set_training(prev_mode);
     return loss;
+}
+
+TokenAccuracy EncoderDecoderModel::token_accuracy(const Matrix& logits,
+                                                  const std::vector<int>& target_tokens) {
+    TokenAccuracy result;
+    const int rows = std::min(logits.rows, static_cast<int>(target_tokens.size()));
+    for (int t = 0; t < rows; ++t) {
+        const int target = target_tokens[t];
+        if (target < 0 || target >= logits.cols) {
+            continue;
+        }
+        ++result.total;
+        // The first maximum, as the GPU count (matrix_token_correct_gpu()) picks it.
+        float best = -std::numeric_limits<float>::infinity();
+        int best_id = logits.cols;
+        const std::vector<float>& row = logits.data[t];
+        for (int v = 0; v < logits.cols; ++v) {
+            if (row[v] > best) {
+                best = row[v];
+                best_id = v;
+            }
+        }
+        if (best_id == target) {
+            ++result.correct;
+        }
+    }
+    return result;
 }
 
 // Compute perplexity
@@ -1385,7 +1416,8 @@ float EncoderDecoderModel::gpu_evaluate(const std::string& input_text,
 }
 
 float EncoderDecoderModel::gpu_evaluate_tokenized(const std::vector<int>& input_tokens,
-                                                  const std::vector<int>& target_tokens) {
+                                                  const std::vector<int>& target_tokens,
+                                                  TokenAccuracy* accuracy) {
     bool prev_mode = requires_grad;
     set_training(false);
 
@@ -1393,6 +1425,15 @@ float EncoderDecoderModel::gpu_evaluate_tokenized(const std::vector<int>& input_
     // on-device, so there is nothing further to compute here. Deliberately
     // never call gpu_backward(): validation must not accumulate gradients.
     float loss = gpu_forward(input_tokens, target_tokens);
+    if (accuracy) {
+        // TD-276: counted on the device from the logits gpu_forward() left there.
+        const int tgt_len = static_cast<int>(target_tokens.size());
+        accuracy->correct = adai::gpu::matrix_token_correct_gpu(
+            gpu_logits_->device_ptr(), gpu_targets_dev_->get(), tgt_len, vocab_size);
+        accuracy->total =
+            static_cast<int>(std::count_if(target_tokens.begin(), target_tokens.end(),
+                                           [this](int id) { return id >= 0 && id < vocab_size; }));
+    }
 
     set_training(prev_mode);
     return loss;

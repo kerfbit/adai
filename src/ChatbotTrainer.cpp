@@ -16,6 +16,7 @@
 #include <numeric>
 #include <random>
 #include <sstream>
+#include <stdexcept>
 #include <thread>
 // TODO: See TD-296 in TECHNICAL_DEBT.md - unused include
 #include "ConversationContext.hpp"
@@ -28,14 +29,6 @@
 #endif
 
 namespace fs = std::filesystem;
-
-// ANSI color codes
-#define COLOR_RESET "\033[0m"
-#define COLOR_INFO "\033[1;36m"
-#define COLOR_SUCCESS "\033[1;32m"
-#define COLOR_WARNING "\033[1;33m"
-#define COLOR_ERROR "\033[1;31m"
-#define COLOR_PROGRESS "\033[1;35m"
 
 ChatbotTrainer::ChatbotTrainer(const TrainingConfig& cfg)
     : config(cfg),
@@ -259,41 +252,28 @@ void ChatbotTrainer::split_data() {
 }
 
 /**
- * @brief Validate and auto-correct model architecture parameters
+ * @brief Validate model architecture parameters
+ *
+ * TD-276: the architecture is never changed here. It must match the checkpoint and the model's MNS
+ * registration, so d_model not divisible by num_heads (unbuildable) throws std::invalid_argument,
+ * and an unusual d_ff/d_model ratio is only a warning. (Both used to be silently "corrected".)
  */
-// TODO: See TD-276 in TECHNICAL_DEBT.md - silently changes d_model/d_ff, which would break compatibility with
-// an MNS-registered architecture; fail instead.
 void ChatbotTrainer::validate_and_correct_config() {
     bool corrected = false;
 
     adai::Logger::info("🔍 Validating model configuration...");
 
-    // Validate d_model is divisible by num_heads
-    if (config.d_model % config.num_heads != 0) {
-        int original_d_model = config.d_model;
-        // Round up to nearest multiple of num_heads
-        config.d_model =
-            ((config.d_model + config.num_heads - 1) / config.num_heads) * config.num_heads;
-        adai::Logger::warn("⚠️  d_model ({}) not divisible by num_heads ({})", original_d_model,
-                           config.num_heads);
-        adai::Logger::warn("   Auto-corrected to: {}", config.d_model);
-        corrected = true;
+    if (config.num_heads <= 0 || config.d_model <= 0 || config.d_model % config.num_heads != 0) {
+        throw std::invalid_argument("d_model (" + std::to_string(config.d_model) +
+                                    ") must be a positive multiple of num_heads (" +
+                                    std::to_string(config.num_heads) + ")");
     }
 
-    // Validate d_ff follows recommended ratio (typically 4x d_model)
-    int recommended_d_ff = 4 * config.d_model;
-    if (config.d_ff != recommended_d_ff) {
-        float ratio = static_cast<float>(config.d_ff) / static_cast<float>(config.d_model);
-        if (ratio < 2.0f || ratio > 8.0f) {
-            int original_d_ff = config.d_ff;
-            config.d_ff = recommended_d_ff;
-            adai::Logger::warn("⚠️  d_ff ({}) has unusual ratio to d_model (ratio: {})",
-                               original_d_ff, ratio);
-            adai::Logger::warn("   Auto-corrected to recommended 4x: {}", config.d_ff);
-            corrected = true;
-        } else {
-            adai::Logger::info("   d_ff ratio: {}x d_model (acceptable, recommended: 4x)", ratio);
-        }
+    // d_ff is usually 4x d_model; other ratios work, so this only warns.
+    const float ratio = static_cast<float>(config.d_ff) / static_cast<float>(config.d_model);
+    if (ratio < 2.0f || ratio > 8.0f) {
+        adai::Logger::warn("⚠️  d_ff ({}) has an unusual ratio to d_model ({}x; 4x is typical)",
+                           config.d_ff, ratio);
     }
 
     // Validate num_heads is a power of 2 (common practice)
@@ -747,12 +727,23 @@ void ChatbotTrainer::shuffle_training_data() {
 /**
  * @brief Log message based on log level
  */
-// TODO: See TD-276 in TECHNICAL_DEBT.md - every level goes to Logger::info (DEBUG not mapped).
-void ChatbotTrainer::log(LogLevel level, const std::string& message, const std::string& /*color*/) {
-    // color parameter accepted for API compatibility but ignored;
-    // Logger handles its own coloring via spdlog level-colored sinks.
-    if (static_cast<int>(config.log_level) >= static_cast<int>(level)) {
-        adai::Logger::info("{}", message);
+// TD-276: each level maps to a Logger level (every message used to go to info); colours come from
+// the Logger's sinks.
+void ChatbotTrainer::log(LogLevel level, const std::string& message) {
+    if (static_cast<int>(config.log_level) < static_cast<int>(level)) {
+        return;
+    }
+    switch (level) {
+        case LogLevel::SILENT:  // errors, the only output at SILENT
+            adai::Logger::error("{}", message);
+            break;
+        case LogLevel::DEBUG:
+            adai::Logger::debug("{}", message);
+            break;
+        case LogLevel::NORMAL:
+        case LogLevel::VERBOSE:
+            adai::Logger::info("{}", message);
+            break;
     }
 }
 
@@ -763,29 +754,6 @@ void ChatbotTrainer::log(LogLevel level, const std::string& message, const std::
  */
 float ChatbotTrainer::calculate_perplexity(float loss) {
     return std::exp(loss);
-}
-
-/**
- * @brief Calculate token-level accuracy (fraction of positions where predictions match targets)
- *
- * Fully implemented (this doc comment previously described an older stub version) and covered
- * by tests/chatbottrainer_test.cpp; not currently called from the training loop itself, only
- * from tests — see TD-039 for ChatbotTrainer's general "large, still evolving" status.
- */
-// TODO: See TD-276 in TECHNICAL_DEBT.md - unused by training; training_/validation_accuracies are never filled.
-float ChatbotTrainer::calculate_accuracy(const std::vector<int>& predictions,
-                                         const std::vector<int>& targets) {
-    if (predictions.empty() || targets.empty() || predictions.size() != targets.size()) {
-        return -1.0f;  // Invalid input (empty or mismatched-length sequences)
-    }
-
-    int correct = 0;
-    for (size_t i = 0; i < predictions.size(); i++) {
-        if (predictions[i] == targets[i]) {
-            correct++;
-        }
-    }
-    return static_cast<float>(correct) / static_cast<float>(predictions.size());
 }
 
 std::string ChatbotTrainer::truncate_text_tail(const std::string& s, size_t max_chars) {
@@ -1474,12 +1442,10 @@ float ChatbotTrainer::train_epoch(int epoch) {
 
             log(LogLevel::VERBOSE,
                 "  Sample " + std::to_string(i + 1) + "/" + std::to_string(num_samples) +
-                    " (Update " + std::to_string(num_updates) + ")" +
-                    " - Loss: " + std::to_string(accumulated_loss) +
-                    " - Avg: " + std::to_string(avg_loss) +
+                    " (Update " + std::to_string(num_updates) + ")" + " - Loss: " +
+                    std::to_string(accumulated_loss) + " - Avg: " + std::to_string(avg_loss) +
                     " - LR: " + std::to_string(current_learning_rate) +
-                    " - GradNorm: " + std::to_string(avg_grad_norm),
-                COLOR_INFO);
+                    " - GradNorm: " + std::to_string(avg_grad_norm));
         }
 
         // Reset accumulation state
@@ -1682,13 +1648,13 @@ float ChatbotTrainer::train_epoch(int epoch) {
     learning_rates.push_back(current_learning_rate);
     gradient_norms.push_back(avg_grad_norm);
 
-    log(LogLevel::NORMAL,
-        "✅ Epoch " + std::to_string(epoch + 1) + " complete - Loss: " +
-            std::to_string(epoch_loss) + " - Perplexity: " + std::to_string(epoch_perplexity) +
-            " - LR: " + std::to_string(current_learning_rate) + " - GradNorm: " +
-            std::to_string(avg_grad_norm) + " - Updates: " + std::to_string(num_updates) +
-            " - Tokens: " + std::to_string(epoch_tokens),
-        COLOR_SUCCESS);
+    log(LogLevel::NORMAL, "✅ Epoch " + std::to_string(epoch + 1) +
+                              " complete - Loss: " + std::to_string(epoch_loss) +
+                              " - Perplexity: " + std::to_string(epoch_perplexity) +
+                              " - LR: " + std::to_string(current_learning_rate) +
+                              " - GradNorm: " + std::to_string(avg_grad_norm) +
+                              " - Updates: " + std::to_string(num_updates) +
+                              " - Tokens: " + std::to_string(epoch_tokens));
 
     // TD-341: per-layer tanh(gate) of the gated world-model/hippocampal paths, so a gate that
     // isn't learning (stuck at 0, its path a no-op) shows in the log. Logged only when a path
@@ -1865,6 +1831,8 @@ float ChatbotTrainer::validate() {
     float total_loss = 0.0f;
     int num_samples = static_cast<int>(tokenized_validation_data.size());
     int num_evaluated = 0;  // TD-267: samples that threw are excluded from the average
+    long long correct_tokens = 0;  // TD-276: token accuracy over the evaluated samples
+    long long counted_tokens = 0;
 
     for (int i = 0; i < num_samples; i++) {
         const auto& pair = tokenized_validation_data[i];
@@ -1876,13 +1844,18 @@ float ChatbotTrainer::validate() {
             // which let occasional long validation samples blow the GPU
             // memory budget (attention temporaries scale O(seq^2)) far past
             // what training ever allocates for the same dataset.
+            TokenAccuracy accuracy;
 #ifdef ADAI_ENABLE_GPU
-            float loss = model->gpu_evaluate_tokenized(pair.input_tokens, pair.target_tokens);
+            float loss =
+                model->gpu_evaluate_tokenized(pair.input_tokens, pair.target_tokens, &accuracy);
 #else
-            float loss = model->evaluate_tokenized(pair.input_tokens, pair.target_tokens);
+            float loss =
+                model->evaluate_tokenized(pair.input_tokens, pair.target_tokens, &accuracy);
 #endif
             total_loss += loss;
             ++num_evaluated;
+            correct_tokens += accuracy.correct;
+            counted_tokens += accuracy.total;
             if (config.enable_loss_quality_backfill) {
                 validation_data[i].meta.quality = std::exp(-loss);
             }
@@ -1911,21 +1884,31 @@ float ChatbotTrainer::validate() {
     float validation_loss = total_loss / static_cast<float>(num_evaluated);
     float validation_perplexity = calculate_perplexity(validation_loss);
 
+    // TD-276: the share of target tokens the model ranks first (-1 when none could be counted); it
+    // used to be sent as -1 always.
+    const float validation_accuracy = counted_tokens > 0
+                                          ? static_cast<float>(static_cast<double>(correct_tokens) /
+                                                               static_cast<double>(counted_tokens))
+                                          : -1.0f;
+
     validation_losses.push_back(validation_loss);
     validation_perplexities.push_back(validation_perplexity);
+    validation_accuracies.push_back(validation_accuracy);
 
     // Update metrics service with validation metrics (TD-015: include accuracy and perplexity)
     if (metrics_reporter_) {
-        metrics_reporter_->update_validation_metrics(validation_loss, -1.0f, validation_perplexity);
+        metrics_reporter_->update_validation_metrics(validation_loss, validation_accuracy,
+                                                     validation_perplexity);
     }
 
     // Compute BLEU/ROUGE generation quality on a validation sample subset
     compute_generation_quality_metrics();
 
-    log(LogLevel::NORMAL,
-        "  Validation - Loss: " + std::to_string(validation_loss) +
-            " - Perplexity: " + std::to_string(validation_perplexity),
-        COLOR_INFO);
+    log(LogLevel::NORMAL, "  Validation - Loss: " + std::to_string(validation_loss) +
+                              " - Perplexity: " + std::to_string(validation_perplexity) +
+                              (validation_accuracy >= 0.0f
+                                   ? " - Token accuracy: " + std::to_string(validation_accuracy)
+                                   : std::string()));
 
     // Track best model
     if (validation_loss < best_validation_loss - config.min_delta) {

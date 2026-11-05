@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.29.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 0.30.0
+// @adai-reviewed: 2026-11-04
 
 #include <cstdint>
 #include <functional>
@@ -33,6 +33,12 @@
 // actually requires it.
 class LeJEPAEncoder;
 class HippocampalMemory;
+
+/// TD-276: one sample's token accuracy (EncoderDecoderModel::token_accuracy()).
+struct TokenAccuracy {
+    int correct = 0;  ///< positions whose most likely token is the target
+    int total = 0;    ///< positions with a valid target id
+};
 
 /**
  * EncoderDecoderModel - Complete sequence-to-sequence transformer
@@ -461,10 +467,18 @@ class EncoderDecoderModel {
      *
      * @param input_tokens Already-tokenized (and length-truncated) input ids
      * @param target_tokens Already-tokenized (and length-truncated) target ids
+     * @param accuracy If given, set to this sample's token accuracy (TD-276)
      * @return Loss value
      */
     float evaluate_tokenized(const std::vector<int>& input_tokens,
-                             const std::vector<int>& target_tokens);
+                             const std::vector<int>& target_tokens,
+                             TokenAccuracy* accuracy = nullptr);
+
+    /// TD-276: token accuracy of logits against targets: `correct` counts the positions whose
+    /// argmax (the first maximum) is the target id, `total` the positions with a target id in
+    /// [0, vocab_size). Rows past the target sequence (or targets past the rows) aren't counted.
+    static TokenAccuracy token_accuracy(const Matrix& logits,
+                                        const std::vector<int>& target_tokens);
 
     /**
      * Compute perplexity on a dataset
@@ -888,10 +902,13 @@ class EncoderDecoderModel {
      *
      * @param input_tokens Already-tokenized (and length-truncated) input ids
      * @param target_tokens Already-tokenized (and length-truncated) target ids
+     * @param accuracy If given, set to this sample's token accuracy (TD-276), counted on the
+     *        device so only one number is downloaded
      * @return Loss value
      */
     float gpu_evaluate_tokenized(const std::vector<int>& input_tokens,
-                                 const std::vector<int>& target_tokens);
+                                 const std::vector<int>& target_tokens,
+                                 TokenAccuracy* accuracy = nullptr);
 
     /**
      * Download GPU gradient accumulators to CPU gradient members.

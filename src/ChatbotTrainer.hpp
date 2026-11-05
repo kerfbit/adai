@@ -132,8 +132,6 @@ struct TrainingConfig {
     // Logging
     int log_every = 10;                      // Log every N samples
     LogLevel log_level = LogLevel::VERBOSE;  // Logging verbosity
-    bool verbose = true;                     // Deprecated: use log_level instead
-    // TODO: See TD-276 in TECHNICAL_DEBT.md - `verbose` is unused; remove it.
 
     // Generation quality metrics (BLEU/ROUGE)
     // Disabled by default; each evaluation generates model responses which is expensive.
@@ -269,7 +267,8 @@ class ChatbotTrainer {
     std::vector<float> gradient_norms;
     std::vector<float> training_perplexities;
     std::vector<float> validation_perplexities;
-    std::vector<float> training_accuracies;
+    // TD-276: per-validation token accuracy (EncoderDecoderModel::token_accuracy()), -1 when no
+    // target position could be counted. Training accuracy isn't computed.
     std::vector<float> validation_accuracies;
     float best_validation_loss;
     int best_epoch{0};
@@ -475,9 +474,10 @@ class ChatbotTrainer {
     // Metrics and logging helpers (public for testing)
 
     /**
-     * @brief Log message based on log level
+     * @brief Log `message` when config.log_level is at least `level` (TD-276: SILENT, which is for
+     *        errors, logs at error level, DEBUG at debug, NORMAL/VERBOSE at info)
      */
-    void log(LogLevel level, const std::string& message, const std::string& color = "");
+    void log(LogLevel level, const std::string& message);
 
     /**
      * @brief Calculate perplexity from loss
@@ -517,12 +517,6 @@ class ChatbotTrainer {
     /// 4 = TD-271 deterministic validation split; caches hold old random splits (November 2026).
     static constexpr int kPreprocessFormatVersion = 4;
 
-    /**
-     * @brief Calculate token-level accuracy (fraction of positions where predictions match targets)
-     */
-    static float calculate_accuracy(const std::vector<int>& predictions,
-                                    const std::vector<int>& targets);
-
     // Getters for testing — also how IncrementalTrainer integration consumes per-epoch metrics
     // (TD-004, absorbed into and completed by TD-009).
     const std::vector<float>& get_training_losses() const {
@@ -536,6 +530,9 @@ class ChatbotTrainer {
     }
     const std::vector<float>& get_validation_perplexities() const {
         return validation_perplexities;
+    }
+    const std::vector<float>& get_validation_accuracies() const {  // TD-276
+        return validation_accuracies;
     }
     const std::vector<float>& get_learning_rates() const {
         return learning_rates;

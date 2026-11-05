@@ -123,3 +123,11 @@ dimensions (`cublasSgemm` / oneMKL `gemm`). The cached self- and cross-attention
 cache and to write each head's output into its own columns, with no prefix copies, per-row slices or scatter. A 100-token decode on
 the oneAPI CPU device went from 6.6 s to 1.4 s. Tests: `MatrixGPUTD388Test.StridedGemmMatchesHostReference`,
 `EncoderDecoderGPUTest.CachedGpuDecodeMatchesCpuOverALongGeneration`.
+
+## Addendum (November 4, 2026): `matrix_token_correct_gpu()` (TD-276)
+
+New kernel for validation token accuracy: one work-group of 256 per row finds the row's argmax (lowest index on ties, matching the
+CPU's first maximum) by a strided scan and a tree reduction in local memory, and writes 1 when it equals the row's target (a target
+outside `[0, vocab_size)` never matches). The per-row flags are summed with `matrix_sum_gpu()`, so the call downloads one number.
+Same algorithm in CUDA and SYCL. Tested by `MatrixGPUTD003Test.TokenCorrectCountMatchesHostArgmax` (40 rows of 1000 with a tie
+and out-of-range targets), run on the oneAPI CPU device; the CUDA version is compile-checked only.

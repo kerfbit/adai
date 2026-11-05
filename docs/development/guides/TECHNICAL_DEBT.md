@@ -1481,6 +1481,7 @@ The generation and model math run is complete.
 - TD-271 (done in code: the validation split is chosen from each pair's own text, so the same data splits the same way on every pass; a tokenized cache loads only if it holds that split, and caches from the old random splits aren't reused).
 - TD-273 (done in code, owner decision: both quality backfills report to `metrics_api_server`, a per-epoch distribution and the lowest-scoring pairs per split; the loss score on by default (`LOSS_QUALITY_BACKFILL`), the per-pair generation score opt-in (`GENERATION_QUALITY_BACKFILL`); new `…/metrics/sample-quality` routes and `sample_quality` table).
 - TD-274 (done in code: the best-weights copy for `restore_best_weights` goes in a directory of the trainer's own under the session directory and is deleted after the restore; it used to be `best_model_temp.bin` in the working directory, shared and never removed).
+- TD-276 (done in code, owner's choice: validation token accuracy is computed, on the GPU path by a device-side count, and sent to the dashboards; `log()` levels mapped; an unbuildable `d_model` is an error instead of being changed; dead `verbose`, training-accuracy code and the stale `.old` test removed). The `ChatbotTrainer` items TD-267–TD-276 are all fixed in code.
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -7036,7 +7037,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / ChatbotTrainer | October 9, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 4, 2026 (owner decision on accuracy) | Training / ChatbotTrainer | October 9, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-267:
@@ -7048,17 +7049,45 @@ Found alongside TD-267:
 
 Action Items:
 
-- [ ] Compute token accuracy in `validate()` (or remove the dead vectors and getters).
-- [ ] Remove `verbose`; map `log()` levels to `Logger` levels.
-- [ ] Make `validate_and_correct_config()` fail instead of silently changing architecture.
-- [ ] Delete `tests/chatbottrainer_test.cpp.old`.
+- [x] Compute token accuracy in `validate()` (or remove the dead vectors and getters). Owner's choice: compute it, on the GPU path with a device-side count.
+- [x] Remove `verbose`; map `log()` levels to `Logger` levels.
+- [x] Make `validate_and_correct_config()` fail instead of silently changing architecture.
+- [x] Delete `tests/chatbottrainer_test.cpp.old`.
 
-Location in code: `src/ChatbotTrainer.{hpp,cpp}`; tagged `TODO: See TD-276`.
+Fix (November 4, 2026):
+
+- **Validation token accuracy.** `EncoderDecoderModel::token_accuracy()` counts the target positions whose first maximum logit
+  is the target (`total` only counts target ids inside the vocabulary). `evaluate_tokenized()`/`gpu_evaluate_tokenized()` take an
+  optional `TokenAccuracy*`. On the GPU path a new kernel, `matrix_token_correct_gpu()` (CUDA and SYCL: one work-group per row,
+  argmax with the lowest index on ties, flags summed on the device), counts from the logits `gpu_forward()` left there, so one
+  number per sample is downloaded. `validate()` sums the counts, keeps the share in `validation_accuracies`
+  (`get_validation_accuracies()`), logs it and sends it with `update_validation_metrics()` (always -1 before), so both
+  dashboards, which hid -1, now show it. Training accuracy isn't computed: `training_accuracies` and `calculate_accuracy()`
+  (only tests used it) are removed.
+- **`log()`** maps SILENT (errors) to `Logger::error`, DEBUG to `debug`, NORMAL/VERBOSE to `info`; the unused colour argument and
+  the local `COLOR_*` macros are removed. `TrainingConfig::verbose` is removed.
+- **`validate_and_correct_config()`** throws `std::invalid_argument` when `d_model` isn't a positive multiple of `num_heads` (it was
+  rounded up) and only warns about an unusual `d_ff` ratio (it was reset to 4x).
+- `tests/chatbottrainer_test.cpp.old` is deleted.
+
+Tests: `TokenAccuracyTest` (ties, out-of-vocabulary targets, rows past the targets), `MatrixGPUTD003Test.TokenCorrectCountMatchesHostArgmax`
+(the kernel against a host argmax, 40 rows of 1000, a tie, out-of-range targets; run on the oneAPI CPU device, CUDA compile-checked
+only), `MetricsTrackerWiringTest.ValidationReportsTokenAccuracy` (a memorised pair reaches accuracy 1.0, and every value reaches
+the reporter; also run on the CPU device's GPU path), `ChatbotTrainerLogTest.LevelsMapToLoggerLevelsAndFilter` and
+`ChatbotTrainerCacheTest.ArchitectureIsNeverSilentlyChanged`; the five `calculate_accuracy()` tests are replaced. The new tests use new
+APIs, so they don't build on the old code. Checked with real binaries: a 3-epoch `incremental_trainer` pass over 20 pairs against a
+real `metrics_api_server` recorded `epoch_validation_accuracies` `[-1, -1, -1]` with the old trainer and `[0, 0.333, 0.417]` with the new.
+
+Location in code: `src/ChatbotTrainer.{hpp,cpp}` (`validate()`, `log()`, `validate_and_correct_config()`),
+`src/EncoderDecoderModel.{hpp,cpp}` (`token_accuracy()`, `evaluate_tokenized()`, `gpu_evaluate_tokenized()`),
+`src/gpu/MatrixGPU.{hpp,cu}`, `src/gpu/sycl/MatrixGPU_SYCL.{hpp,cpp}` (`matrix_token_correct_gpu()`).
 
 Files to Modify:
 
-- `src/ChatbotTrainer.{hpp,cpp}`
-- `tests/chatbottrainer_test.cpp.old` (delete)
+- `src/ChatbotTrainer.{hpp,cpp}`, `src/EncoderDecoderModel.{hpp,cpp}`
+- `src/gpu/MatrixGPU.{hpp,cu}`, `src/gpu/sycl/MatrixGPU_SYCL.{hpp,cpp}`
+- `tests/chatbottrainer_test.cpp`, `tests/matrixgpu_td003_test.cpp`
+- `tests/chatbottrainer_test.cpp.old` (deleted)
 ---
 
 ### TD-277: `ChildProcess` Reports Every Signal Death as Exit Code 128

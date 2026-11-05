@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-061 resolved — layer_norm_bwd's math bug fixed and verified analytically/numerically; most kernels still have no dedicated test and need real GPU hardware to verify, see TECHNICAL_DEBT_RESOLVED.md)
-// @adai-version: 0.13.1
-// @adai-reviewed: 2026-10-26
+// @adai-version: 0.14.0
+// @adai-reviewed: 2026-11-04
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -951,6 +951,60 @@ float matrix_cross_entropy_loss_gpu(const float* logits, const int* targets,
     CUDA_CHECK(cudaGetLastError());
 
     return matrix_sum_gpu(d_losses.get(), seq_len) / static_cast<float>(seq_len);
+}
+
+// TD-276: one block per row; each thread scans a strided slice for its (max, lowest index), then a
+// tree reduction keeps the larger value, or the lower index on a tie (the CPU's first maximum).
+__global__ void token_correct_kernel(const float* logits, const int* targets, float* correct,
+                                     int vocab_size) {
+    extern __shared__ unsigned char token_correct_smem[];
+    const int WG = static_cast<int>(blockDim.x);
+    float* best_val = reinterpret_cast<float*>(token_correct_smem);
+    int* best_idx = reinterpret_cast<int*>(best_val + WG);
+    const int row = blockIdx.x;
+    const int lid = static_cast<int>(threadIdx.x);
+    const float* row_ptr = logits + static_cast<size_t>(row) * vocab_size;
+
+    float my_val = -INFINITY;
+    int my_idx = vocab_size;
+    for (int j = lid; j < vocab_size; j += WG) {
+        if (row_ptr[j] > my_val) {
+            my_val = row_ptr[j];
+            my_idx = j;
+        }
+    }
+    best_val[lid] = my_val;
+    best_idx[lid] = my_idx;
+    __syncthreads();
+    for (int s = WG / 2; s > 0; s >>= 1) {
+        if (lid < s) {
+            const float v = best_val[lid + s];
+            const int i = best_idx[lid + s];
+            if (v > best_val[lid] || (v == best_val[lid] && i < best_idx[lid])) {
+                best_val[lid] = v;
+                best_idx[lid] = i;
+            }
+        }
+        __syncthreads();
+    }
+    if (lid == 0) {
+        const int tgt = targets[row];
+        correct[row] = (tgt >= 0 && tgt < vocab_size && best_idx[0] == tgt) ? 1.0f : 0.0f;
+    }
+}
+
+int matrix_token_correct_gpu(const float* logits, const int* targets, int seq_len, int vocab_size) {
+    if (seq_len <= 0) {
+        return 0;
+    }
+    constexpr int WG = 256;
+    GPUMemory<float> d_correct(seq_len);
+    const int smem_bytes = WG * static_cast<int>(sizeof(float) + sizeof(int));
+    token_correct_kernel<<<seq_len, WG, smem_bytes, GPUManager::get_stream()>>>(
+        logits, targets, d_correct.get(), vocab_size);
+    CUDA_CHECK(cudaGetLastError());
+    // Whole numbers up to seq_len, exact in float.
+    return static_cast<int>(matrix_sum_gpu(d_correct.get(), seq_len) + 0.5f);
 }
 
 __global__ void cross_entropy_grad_kernel(const float* logits, const int* targets,

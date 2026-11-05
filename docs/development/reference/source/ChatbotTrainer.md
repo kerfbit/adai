@@ -460,3 +460,17 @@ Checked with real `incremental_trainer` passes (20 pairs, 2 epochs, early stoppi
 the old binary left the 16 `best_model_temp.bin*` files there; the new one left nothing there or in the session directory. Both
 restored the best epoch.
 
+## Addendum (November 4, 2026): validation token accuracy and other cleanups (TD-276)
+
+- **Validation accuracy is computed.** `validate()` passes a `TokenAccuracy` to `evaluate_tokenized()`/`gpu_evaluate_tokenized()`
+  and sums each sample's `correct`/`total`; the share is pushed to `validation_accuracies` (`get_validation_accuracies()`) and sent
+  with `update_validation_metrics()`, where it used to be -1 always. It is -1 only when no target position could be counted, and it
+  is logged with the validation loss. Training accuracy isn't computed: `training_accuracies` and `calculate_accuracy()` (used only
+  by tests) are removed.
+- **`log()`** maps its level to a `Logger` level (SILENT, used for errors, to error; DEBUG to debug; NORMAL/VERBOSE to info) instead
+  of sending every message at info. Its unused colour argument and the local `COLOR_*` macros are gone.
+- **`TrainingConfig::verbose`**, deprecated and unread, is removed.
+- **`validate_and_correct_config()`** never changes the architecture: `d_model` that isn't a positive multiple of `num_heads` throws
+  `std::invalid_argument` (it used to be rounded up), and an unusual `d_ff`/`d_model` ratio only warns (it used to be reset to 4x).
+  Both silent changes would break compatibility with a checkpoint or MNS registration. `min_learning_rate` is still corrected.
+- `tests/chatbottrainer_test.cpp.old` (an unbuilt January 2026 leftover) is deleted.

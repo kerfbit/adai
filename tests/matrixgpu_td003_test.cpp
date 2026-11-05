@@ -443,3 +443,47 @@ TEST(MatrixGPUTD216Test, GeluForwardAndBackwardMatchTheCpu) {
         EXPECT_NEAR(gd[i], dout[i] * cpu_dy(0, i), 1e-5f) << "x = " << x[i];
     }
 }
+
+// TD-276: the token-accuracy count matches a host argmax (first maximum on ties) for rows wider
+// than a work-group, ties, and targets outside the vocabulary (never correct).
+TEST(MatrixGPUTD003Test, TokenCorrectCountMatchesHostArgmax) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f))
+        << "GPUManager::initialize() failed despite probe() reporting a device present.";
+    const int rows = 40, vocab = 1000;
+    std::vector<float> host(static_cast<size_t>(rows) * vocab);
+    for (int r = 0; r < rows; ++r)
+        for (int c = 0; c < vocab; ++c)
+            host[static_cast<size_t>(r) * vocab + c] =
+                std::sin(0.013f * static_cast<float>(c) * static_cast<float>(r + 3));
+    // Row 0: a tie between columns 900 and 7; the first (7) is the argmax.
+    host[7] = host[900] = 5.0f;
+    std::vector<int> targets(rows);
+    int want = 0;
+    for (int r = 0; r < rows; ++r) {
+        const float* x = &host[static_cast<size_t>(r) * vocab];
+        const int argmax = static_cast<int>(std::max_element(x, x + vocab) - x);
+        if (r == 0) {
+            ASSERT_EQ(argmax, 7);
+            targets[r] = 7;
+        } else if (r % 3 == 0) {
+            targets[r] = argmax;
+        } else if (r % 3 == 1) {
+            targets[r] = (argmax + 1) % vocab;
+        } else {
+            targets[r] = r % 2 ? -1 : vocab;  // outside the vocabulary
+        }
+        if (targets[r] == argmax)
+            ++want;
+    }
+    GPUMatrix logits = upload(host, rows, vocab);
+    adai::gpu::GPUMemory<int> d_targets(rows);
+    d_targets.copy_from_host(targets.data(), static_cast<size_t>(rows));
+    EXPECT_EQ(
+        adai::gpu::matrix_token_correct_gpu(logits.device_ptr(), d_targets.get(), rows, vocab),
+        want);
+    EXPECT_EQ(adai::gpu::matrix_token_correct_gpu(logits.device_ptr(), d_targets.get(), 0, vocab),
+              0);
+}

@@ -230,7 +230,7 @@ Response:
 **Field notes:**
 
 - `current_validation_perplexity` — `0.0` if not yet computed this epoch.
-- `current_validation_accuracy` — token-level accuracy. `-1.0` if the trainer did not push `validation_accuracy`.
+- `current_validation_accuracy` — token-level accuracy: the share of validation target tokens the model ranks first (`incremental_trainer` sends it since TD-276, November 4, 2026). `-1.0` if the trainer did not push `validation_accuracy`.
 - `current_bleu4`, `current_rouge1`, `current_rouge2`, `current_rougeL` — `-1.0` when `ENABLE_GENERATION_QUALITY_METRICS=false` in `config.conf` or before the first scored epoch.
 
 ---
@@ -859,7 +859,7 @@ Push validation metrics mid-epoch or at epoch end.
 }
 ```
 
-`validation_accuracy` — optional; pass `-1.0` if not computed.
+`validation_accuracy` — optional; pass `-1.0` if not computed. `ChatbotTrainer` sends the token accuracy of each validation (TD-276).
 `validation_perplexity` — optional; the server derives `exp(validation_loss)` when `0.0`.
 
 Response: `{"status":"ok"}`

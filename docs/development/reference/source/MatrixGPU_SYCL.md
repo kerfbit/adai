@@ -77,3 +77,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Unchecked `add_inplace` and other operations; uninitialized memory; zero-size throws (§2) | As in the CUDA class | **Verified** on the CPU device (TD-389, TD-392) | [TD-389](../../guides/TECHNICAL_DEBT.md#td-389-gpumatrix-shape-checks-uninitialized-memory-and-untested-gpu-kv-caches) (amended), [TD-392](../../guides/TECHNICAL_DEBT.md#td-392-sycl-gpumemory0-throws-where-cuda-succeeds) |
 | Over-length encoder output throws from the cross-attention cache (§2) | GPU serving fails over-length requests | **Verified** at the cache level (TD-387) | [TD-387](../../guides/TECHNICAL_DEBT.md#td-387-gpu-generation-fails-on-input-longer-than-max_seq_length) (amended) |
 | Header status note says "capped by TD-050", but TD-050 is mostly resolved; the GPU KV cache it added now has a first run | Stale status note | By inspection | [TD-395](../../guides/TECHNICAL_DEBT.md#td-395-gpumatrix-is-duplicated-between-the-cuda-and-sycl-headers) |
+
+## Addendum (November 4, 2026): `matrix_token_correct_gpu()` (TD-276)
+
+New kernel for validation token accuracy: one work-group of 256 per row finds the row's argmax (lowest index on ties, matching the
+CPU's first maximum) by a strided scan and a tree reduction in local memory, and writes 1 when it equals the row's target (a target
+outside `[0, vocab_size)` never matches). The per-row flags are summed with `matrix_sum_gpu()`, so the call downloads one number.
+Same algorithm in CUDA and SYCL. Tested by `MatrixGPUTD003Test.TokenCorrectCountMatchesHostArgmax` (40 rows of 1000 with a tie
+and out-of-range targets), run on the oneAPI CPU device; the CUDA version is compile-checked only.

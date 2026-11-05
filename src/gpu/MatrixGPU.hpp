@@ -2,9 +2,8 @@
 #define MATRIX_GPU_HPP
 
 // @adai-status: beta        (TD-061 resolved — see MatrixGPU.cu's tag; this header just declares/wraps its kernels; TD-050 GPUKVCache added)
-// @adai-version: 0.14.0
-// @adai-reviewed: 2026-10-26
-
+// @adai-version: 0.15.0
+// @adai-reviewed: 2026-11-04
 
 #include <stdexcept>
 #include <vector>
@@ -155,6 +154,9 @@ void matrix_sum_rows_gpu(const float* mat, float* out, int rows, int cols);
 void matrix_masked_fill_gpu(float* data, const float* mask, float fill_val, int size);
 float matrix_cross_entropy_loss_gpu(const float* logits, const int* targets, int seq_len,
                                     int vocab_size);
+// TD-276: how many of the seq_len rows have their argmax (lowest index on ties) at the row's
+// target id; a target outside [0, vocab_size) never matches. Downloads one number.
+int matrix_token_correct_gpu(const float* logits, const int* targets, int seq_len, int vocab_size);
 void matrix_cross_entropy_grad_gpu(const float* logits, const int* targets, float* grad,
                                    int seq_len, int vocab_size);
 

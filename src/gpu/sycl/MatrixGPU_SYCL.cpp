@@ -1,15 +1,16 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.14.1
-// @adai-reviewed: 2026-10-26
+// @adai-version: 0.15.0
+// @adai-reviewed: 2026-11-04
 
 #ifdef ADAI_ENABLE_GPU
 
 #include "MatrixGPU_SYCL.hpp"
-#include "../../ActivationConstants.hpp"  // TD-216: GELU constants shared with the CPU
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <oneapi/mkl/blas.hpp>
 #include <vector>
+#include "../../ActivationConstants.hpp"  // TD-216: GELU constants shared with the CPU
 
 namespace adai {
 namespace gpu {
@@ -761,6 +762,62 @@ float matrix_cross_entropy_loss_gpu(const float* logits, const int* targets, int
 
     // Sum losses over seq_len
     return matrix_sum_gpu(d_losses.get(), seq_len) / static_cast<float>(seq_len);
+}
+
+// ============================================================================
+// TD-276: Token accuracy — rows whose argmax (lowest index on ties, the CPU's first maximum) is
+// the row's target. One work-group per row; downloads one number.
+// ============================================================================
+
+int matrix_token_correct_gpu(const float* logits, const int* targets, int seq_len, int vocab_size) {
+    if (seq_len <= 0) {
+        return 0;
+    }
+    auto& q = GPUManager::get_queue();
+    GPUMemory<float> d_correct(seq_len);
+    constexpr int WG = 256;
+
+    q.submit([&](sycl::handler& cgh) {
+        sycl::local_accessor<float, 1> best_val(sycl::range<1>(WG), cgh);
+        sycl::local_accessor<int, 1> best_idx(sycl::range<1>(WG), cgh);
+        float* correct = d_correct.get();
+        cgh.parallel_for(
+            sycl::nd_range<1>(static_cast<size_t>(seq_len) * WG, WG), [=](sycl::nd_item<1> item) {
+                const int row = static_cast<int>(item.get_group(0));
+                const int lid = static_cast<int>(item.get_local_id(0));
+                const float* row_ptr = logits + static_cast<size_t>(row) * vocab_size;
+
+                float my_val = -std::numeric_limits<float>::infinity();
+                int my_idx = vocab_size;
+                for (int j = lid; j < vocab_size; j += WG) {
+                    if (row_ptr[j] > my_val) {
+                        my_val = row_ptr[j];
+                        my_idx = j;
+                    }
+                }
+                best_val[lid] = my_val;
+                best_idx[lid] = my_idx;
+                item.barrier(sycl::access::fence_space::local_space);
+                for (int s = WG / 2; s > 0; s >>= 1) {
+                    if (lid < s) {
+                        const float v = best_val[lid + s];
+                        const int i = best_idx[lid + s];
+                        if (v > best_val[lid] || (v == best_val[lid] && i < best_idx[lid])) {
+                            best_val[lid] = v;
+                            best_idx[lid] = i;
+                        }
+                    }
+                    item.barrier(sycl::access::fence_space::local_space);
+                }
+                if (lid == 0) {
+                    const int tgt = targets[row];
+                    correct[row] =
+                        (tgt >= 0 && tgt < vocab_size && best_idx[0] == tgt) ? 1.0f : 0.0f;
+                }
+            });
+    });
+    // Whole numbers up to seq_len, exact in float.
+    return static_cast<int>(matrix_sum_gpu(d_correct.get(), seq_len) + 0.5f);
 }
 
 // ============================================================================

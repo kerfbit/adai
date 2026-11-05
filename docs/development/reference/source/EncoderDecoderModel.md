@@ -375,3 +375,10 @@ when the memory's `revision()` equals `last_saved_revision` and updating it afte
 and throws if a file can't be written (the previous file is kept). `chatbot_api_server` uses it for its periodic and
 shutdown saves.
 
+## Addendum (November 4, 2026): token accuracy (TD-276)
+
+`TokenAccuracy {correct, total}` and the static `token_accuracy(logits, targets)`: `total` counts positions with a target id in
+`[0, vocab_size)` (up to the shorter of the logits rows and the targets), `correct` those whose first maximum is the target.
+`evaluate_tokenized()` and `gpu_evaluate_tokenized()` take an optional `TokenAccuracy*`; the GPU version counts on the device with
+`matrix_token_correct_gpu()` from the logits `gpu_forward()` left there, so only one number is downloaded, and counts `total` on
+the host from the target ids it already has.
