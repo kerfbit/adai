@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
-// @adai-version: 0.19.0
+// @adai-version: 0.19.1
 // @adai-reviewed: 2026-11-08
 
 #include "Decoder.hpp"
@@ -56,6 +56,7 @@ LLMDecoder::LLMDecoder(int vocab_size, int d_model, int num_layers, int num_head
         decoder_blocks.push_back(std::make_unique<DecoderBlock>(
             d_model, num_heads, d_ff, /*dropout=*/0.1f, /*enable_world_model=*/inject_here,
             /*enable_hippocampal=*/inject_here));
+        decoder_blocks.back()->scale_residual_init(num_layers);  // TD-371
     }
 
     // Initialize final layer normalization

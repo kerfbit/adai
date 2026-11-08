@@ -1,5 +1,5 @@
 // @adai-status: stable        (TD-195 — backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 1.2.0
+// @adai-version: 1.2.1
 // @adai-reviewed: 2026-11-08
 
 #include "FeedForward.hpp"
@@ -43,7 +43,7 @@ FeedForward::FeedForward(int d_model, int d_ff)
     }
 
     // Initialize W2 with scale adjusted for d_ff
-    // TODO: See TD-371 in TECHNICAL_DEBT.md - residual-branch output isn't scaled for depth (std ~1.35x input)
+    // TD-371: the block stack that owns this layer shrinks W2 further for depth.
     float scale2 = std::sqrt(2.0f / static_cast<float>(d_ff));
     std::normal_distribution<float> dist2(0.0f, scale2);
     for (int i = 0; i < d_ff; ++i) {

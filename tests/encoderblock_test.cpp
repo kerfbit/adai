@@ -1,6 +1,7 @@
 #include "../src/EncoderBlock.hpp"
 #include <../gtest/gtest.h>
 #include <cmath>
+#include <memory>
 #include <cstdio>
 #include <fstream>
 #include <random>
@@ -1014,4 +1015,31 @@ TEST_F(EncoderBlockTest, DifferentConfigurations) {
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+
+// TD-371: an 8-block Pre-LN stack keeps its input's scale once the branches are scaled for depth.
+TEST(EncoderBlockResidualInitTest, ScalingHoldsTheStreamNearTheInput) {
+    const int d_model = 64, layers = 8;
+    std::vector<std::unique_ptr<EncoderBlock>> plain, scaled;
+    for (int i = 0; i < layers; ++i) {
+        plain.push_back(std::make_unique<EncoderBlock>(d_model, 4, 256));
+        scaled.push_back(std::make_unique<EncoderBlock>(d_model, 4, 256));
+        scaled.back()->scale_residual_init(layers);
+    }
+    Matrix input(32, d_model);
+    input.randomize(1.0f);
+    const auto norm = [](const Matrix& m) {
+        double s = 0.0;
+        for (const auto& row : m.data)
+            for (float v : row)
+                s += static_cast<double>(v) * v;
+        return std::sqrt(s);
+    };
+    Matrix a = input, b = input;
+    for (int i = 0; i < layers; ++i) {
+        a = plain[i]->forward(a);
+        b = scaled[i]->forward(b);
+    }
+    EXPECT_GT(norm(a) / norm(input), 1.5 * norm(b) / norm(input));
+    EXPECT_LT(norm(b) / norm(input), 2.0);
 }

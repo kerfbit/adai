@@ -1,5 +1,5 @@
 // @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap; TD-194 gated cross-reference pull + Hebbian association strengthening added to the hippocampal path)
-// @adai-version: 1.9.1
+// @adai-version: 1.10.0
 // @adai-reviewed: 2026-11-08
 
 #include "DecoderBlock.hpp"
@@ -1055,3 +1055,10 @@ std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> DecoderBlock::gpu_backward
     return {d_res1 + d_input_from_norm1, std::move(d_enc)};
 }
 #endif
+
+void DecoderBlock::scale_residual_init(int num_layers) {
+    const float factor = 1.0f / std::sqrt(3.0f * static_cast<float>(num_layers));
+    self_attention->set_Wo(self_attention->get_Wo().scale(factor));
+    cross_attention->set_Wo(cross_attention->get_Wo().scale(factor));
+    feed_forward->set_W2(feed_forward->get_W2().scale(factor));
+}

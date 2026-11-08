@@ -2949,3 +2949,58 @@ TEST(EncoderDecoderModelTest, WeightDecayOnlyForWeightMatrices) {
     EXPECT_GT(decayed, 0);
     EXPECT_GT(excluded, 0);
 }
+
+// TD-371: every residual branch's output projection starts smaller by the stack's branch count.
+namespace {
+float matrix_std(const Matrix& m) {
+    double sum = 0.0, squares = 0.0;
+    for (const auto& row : m.data) {
+        for (float v : row) {
+            sum += v;
+            squares += static_cast<double>(v) * v;
+        }
+    }
+    const double n = static_cast<double>(m.rows) * m.cols;
+    const double mean = sum / n;
+    return static_cast<float>(std::sqrt(squares / n - mean * mean));
+}
+}  // namespace
+
+TEST(ResidualInitScalingTest, BranchOutputsShrinkWithTheStackDepth) {
+    const int d_model = 64, heads = 4, d_ff = 256, enc_layers = 8, dec_layers = 6;
+    EncoderBlock lone_encoder(d_model, heads, d_ff);
+    DecoderBlock lone_decoder(d_model, heads, d_ff);
+    const float wo = matrix_std(lone_encoder.get_self_attention()->get_Wo());
+    const float w2 = matrix_std(lone_encoder.get_feed_forward()->get_W2());
+
+    EncoderDecoderModel model(100, d_model, enc_layers, dec_layers, heads, d_ff, 32);
+    const float enc_factor = 1.0f / std::sqrt(2.0f * enc_layers);
+    const float dec_factor = 1.0f / std::sqrt(3.0f * dec_layers);
+    for (int i = 0; i < enc_layers; ++i) {
+        EncoderBlock* b = model.get_encoder()->get_encoder_block(i);
+        EXPECT_NEAR(matrix_std(b->get_self_attention()->get_Wo()), wo * enc_factor,
+                    0.1f * wo * enc_factor);
+        EXPECT_NEAR(matrix_std(b->get_feed_forward()->get_W2()), w2 * enc_factor,
+                    0.1f * w2 * enc_factor);
+    }
+    for (int i = 0; i < dec_layers; ++i) {
+        DecoderBlock* b = model.get_decoder()->get_decoder_block(i);
+        EXPECT_NEAR(matrix_std(b->get_self_attention()->get_Wo()), wo * dec_factor,
+                    0.1f * wo * dec_factor);
+        EXPECT_NEAR(matrix_std(b->get_cross_attention()->get_Wo()), wo * dec_factor,
+                    0.1f * wo * dec_factor);
+        EXPECT_NEAR(matrix_std(b->get_feed_forward()->get_W2()), w2 * dec_factor,
+                    0.1f * w2 * dec_factor);
+    }
+}
+
+TEST(ResidualInitScalingTest, InputWeightsAreLeftAlone) {
+    const int d_model = 64, heads = 4, d_ff = 256;
+    EncoderBlock lone(d_model, heads, d_ff);
+    EncoderDecoderModel model(100, d_model, 8, 6, heads, d_ff, 32);
+    EncoderBlock* b = model.get_encoder()->get_encoder_block(0);
+    const float wq = matrix_std(lone.get_self_attention()->get_Wq());
+    const float w1 = matrix_std(lone.get_feed_forward()->get_W1());
+    EXPECT_NEAR(matrix_std(b->get_self_attention()->get_Wq()), wq, 0.1f * wq);
+    EXPECT_NEAR(matrix_std(b->get_feed_forward()->get_W1()), w1, 0.1f * w1);
+}

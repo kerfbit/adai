@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-11-08
 
 #include "EncoderBlock.hpp"
@@ -362,3 +362,9 @@ adai::gpu::GPUMatrix EncoderBlock::gpu_backward(const adai::gpu::GPUMatrix& dout
     return d_res1 + d_input_from_norm1;
 }
 #endif
+
+void EncoderBlock::scale_residual_init(int num_layers) {
+    const float factor = 1.0f / std::sqrt(2.0f * static_cast<float>(num_layers));
+    attention->set_Wo(attention->get_Wo().scale(factor));
+    feed_forward->set_W2(feed_forward->get_W2().scale(factor));
+}

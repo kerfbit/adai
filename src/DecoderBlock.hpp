@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap; TD-194 gated cross-reference pull + Hebbian association strengthening added to the hippocampal path)
-// @adai-version: 1.9.0
+// @adai-version: 1.10.0
 // @adai-reviewed: 2026-11-08
 
 
@@ -407,6 +407,15 @@ class DecoderBlock {
      * @param lr New learning rate
      */
     void set_learning_rate(float lr);
+
+    /**
+     * TD-371: shrinks the three residual branches' output projections (self- and cross-attention
+     * W_o, feed-forward W2) by 1/sqrt(3 * num_layers), the stack's total branch count, so the
+     * Pre-LN residual stream doesn't grow with depth from the first step. The gated
+     * world-model/hippocampal paths start at tanh(0) = 0, so they add nothing at initialization and
+     * aren't scaled. Called once, by the stack's builder.
+     */
+    void scale_residual_init(int num_layers);
 
     /**
      * TD-344: sets the dropout rate ([0, 1)) and whether it is applied. Off by default;

@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-11-08
 
 
@@ -261,6 +261,13 @@ class EncoderBlock {
     float get_dropout_rate() const {
         return dropout_rate;
     }
+
+    /**
+     * TD-371: shrinks the two residual branches' output projections (attention W_o, feed-forward
+     * W2) by 1/sqrt(2 * num_layers), the stack's total branch count, so the Pre-LN residual stream
+     * doesn't grow with depth from the first step. Called once, by whatever builds the stack.
+     */
+    void scale_residual_init(int num_layers);
 
     /**
      * TD-344: sets the dropout rate ([0, 1)) and whether it is applied. Off by default;

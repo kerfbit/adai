@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.6.0
+// @adai-version: 1.6.1
 // @adai-reviewed: 2026-11-08
 
 #include <algorithm>
@@ -39,6 +39,7 @@ LLMEncoder::LLMEncoder(int vocab_size, int d_model, int num_layers, int num_head
     // Initialize encoder blocks
     for (int i = 0; i < num_layers; i++) {
         encoder_blocks.push_back(std::make_unique<EncoderBlock>(d_model, num_heads, d_ff));
+        encoder_blocks.back()->scale_residual_init(num_layers);  // TD-371
     }
 
     std::cout << "LLM Encoder initialized with:" << '\n';

@@ -1535,6 +1535,8 @@ The generation and model math run is complete.
   while training only, on the CPU and both GPU backends with device-generated masks).
 - TD-469 (done in code: weight decay per parameter group; LayerNorm gains and biases, biases, embeddings and gates aren't decayed, on the CPU
   and the device optimizer; `amsgrad` removed; norms summed in `double`).
+- TD-371 (done in code, owner's choice to scale: residual-branch output projections shrink at initialization by the stack's branch count; new
+  weights only).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -10713,7 +10715,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open — owner decision | Transformer / FeedForward | October 12, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 8, 2026 | Transformer / FeedForward | October 12, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `FeedForward` and measured. With unit-variance input (what `LayerNorm` produces),
@@ -10727,17 +10729,32 @@ epoch-5 divergence on ai-machine.
 
 Action Items:
 
-- [ ] Decide whether to scale `W2` (and the attention output projections) by `1/√(2·num_layers)` at initialization, which needs the layer count passed down.
-- [ ] If adopted, compare a short training run against the current initialization before switching, since it changes training dynamics (existing checkpoints are unaffected).
+- [x] Decide whether to scale `W2` (and the attention output projections) at initialization, which needs the layer count passed down. Owner decision November 8, 2026: scale them, on by default.
+- [x] If adopted, compare a short training run against the current initialization before switching, since it changes training dynamics (existing checkpoints are unaffected). Done on a toy set only, see the Fix paragraph; the first real retraining's per-layer gradient norms are the real check.
 
-Location in code: `src/FeedForward.cpp` (constructor `W2` init); tagged `TODO: See TD-371`.
+Fix (November 8, 2026, owner's choice): `EncoderBlock::scale_residual_init()` and `DecoderBlock::scale_residual_init()` shrink each
+residual branch's output projection once, right after `LLMEncoder`, `LeJEPAEncoder` or `LLMDecoder` builds its stack. The factor is one over the
+square root of the stack's total branch count: `1/√(2·num_layers)` for an encoder and `1/√(3·num_layers)` for a decoder, which has cross-attention as
+a third branch. At the shipped 8 encoder and 24 decoder layers that is 0.25 and 0.118. The gated world-model and hippocampal paths start at
+`tanh(0) = 0`, so they add nothing at initialization and aren't scaled. Only new weights change; a loaded checkpoint replaces them. This sets the
+starting point only, so it doesn't by itself answer the Pre-LN growth question from the epoch-5 divergence.
+
+Compared with three unseeded runs each (CPU, 12 pairs, `d_model` 64, 4 encoder and 6 decoder layers, 6 epochs): final validation loss 2.16, 2.41 and
+2.59 unscaled against 1.80, 1.42 and 1.56 scaled. The scaled runs also logged the overfitting warning, which is expected on 12 pairs.
+
+Tests: `ResidualInitScalingTest` in `tests/encoderdecoder_test.cpp` (branch outputs shrink by the expected factor in every block; the input
+projections don't) and `EncoderBlockResidualInitTest` in `tests/encoderblock_test.cpp` (an 8-block stack stays near its input's scale).
+
+Location in code: `src/EncoderBlock.cpp`, `src/DecoderBlock.cpp` (`scale_residual_init()`), called from `src/LLMEncoder.cpp`, `src/LeJEPAEncoder.cpp` and `src/Decoder.cpp`.
 
 Files to Modify:
 
-- `src/FeedForward.{hpp,cpp}`
-- `src/EncoderBlock.cpp`
-- `src/DecoderBlock.cpp`
-- `src/MultiHeadAttention.cpp`
+- `src/EncoderBlock.{hpp,cpp}`
+- `src/DecoderBlock.{hpp,cpp}`
+- `src/LLMEncoder.cpp`
+- `src/LeJEPAEncoder.cpp`
+- `src/Decoder.cpp`
+- `src/FeedForward.cpp` (comment only)
 
 ---
 

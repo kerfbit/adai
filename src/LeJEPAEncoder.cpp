@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-11-02
+// @adai-version: 0.11.1
+// @adai-reviewed: 2026-11-08
 
 #include "LeJEPAEncoder.hpp"
 #include "Logger.hpp"
@@ -52,6 +52,7 @@ LeJEPAEncoder::LeJEPAEncoder(int vocab_size, int d_model, int num_layers, int nu
 
     for (int i = 0; i < num_layers; i++) {
         encoder_blocks.push_back(std::make_unique<EncoderBlock>(d_model, num_heads, d_ff));
+        encoder_blocks.back()->scale_residual_init(num_layers);  // TD-371
     }
 
     // Predictor's hidden_dim has no dedicated constructor parameter — the plan's own
