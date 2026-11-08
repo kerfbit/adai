@@ -651,4 +651,136 @@ TEST_F(RegistryFtpConfinementTest, DatasetManagerRemoveRefusesInRemoteMode) {
     ASSERT_EQ(pending.size(), 1u);
     EXPECT_EQ(pending[0].path, queued);
 }
+
+namespace {
+// Stand-in for mns_server's two lookups: the full record (any state) and /resolve, which the real
+// server refuses with 409 while a model is still "initializing".
+class FakeNameService {
+   public:
+    FakeNameService() {
+        server_.Get("/models/td329-model", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content(R"({"model_id":"id-329","model_name":"td329-model",)"
+                            R"("state":"initializing","run_group":"td329-mns","artifact":{}})",
+                            "application/json");
+        });
+        server_.Get(
+            "/models/td329-model/resolve", [](const httplib::Request&, httplib::Response& res) {
+                res.status = 409;
+                res.set_content(R"({"error":"model has no artifact yet"})", "application/json");
+            });
+        server_.Get(R"(/models/([^/]+))", [](const httplib::Request&, httplib::Response& res) {
+            res.status = 404;
+            res.set_content(R"({"error":"model not found"})", "application/json");
+        });
+        port_ = server_.bind_to_any_port("127.0.0.1");
+        if (port_ > 0)
+            thread_ = std::thread([this] { server_.listen_after_bind(); });
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (port_ > 0 && !server_.is_running() && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    ~FakeNameService() {
+        server_.stop();
+        if (thread_.joinable())
+            thread_.join();
+    }
+    bool running() const {
+        return port_ > 0 && server_.is_running();
+    }
+    std::string url() const {
+        return "http://127.0.0.1:" + std::to_string(port_);
+    }
+
+   private:
+    httplib::Server server_;
+    std::thread thread_;
+    int port_ = -1;
+};
+
+std::vector<PendingEntry> pending_in(int http_port, const std::string& group) {
+    std::vector<PendingEntry> pending;
+    RemoteTransport rt("http://127.0.0.1:" + std::to_string(http_port), group);
+    EXPECT_TRUE(rt.load_pending(pending));
+    return pending;
+}
+}  // namespace
+
+// TD-329: only `assign` adopted the model's MNS run_group (and only through /resolve, which MNS
+// refuses for a model not yet trained); every other command used the config's RUN_GROUP, so
+// operators read and changed a different pool from the one assign wrote into. Now every command
+// resolves the group once, from the model's full MNS record in any state.
+TEST_F(RegistryFtpConfinementTest, DatasetManagerUsesTheModelsMnsRunGroupForEveryCommand) {
+    if (!fs::exists(DATASET_MANAGER_BINARY_PATH))
+        GTEST_SKIP() << "dataset_manager not built";
+    FakeNameService mns;
+    ASSERT_TRUE(mns.running());
+    const std::string base = "http://127.0.0.1:" + std::to_string(http_port_);
+    const std::string in_mns_group = "/data/td329/mns.jsonl";
+    const std::string in_config_group = "/data/td329/config.jsonl";
+    ASSERT_TRUE(RemoteTransport(base, "td329-mns").add_pending(in_mns_group));
+    ASSERT_TRUE(RemoteTransport(base, "td329-config").add_pending(in_config_group));
+
+    const auto write_config = [&](const fs::path& path, const std::string& extra) {
+        std::ofstream(path) << "REGISTRY_SERVER_URL=" << base
+                            << "\nRUN_GROUP=td329-config\nSESSION_DIR="
+                            << (scratch_root_ / "sessions").string() << "\n"
+                            << extra;
+    };
+    const fs::path with_mns = scratch_root_ / "td329-mns.conf";
+    write_config(with_mns, "NAME_SERVICE_URL=" + mns.url() + "\nMODEL_NAME=td329-model\n");
+
+    // assign: the model is still initializing; resolve_model() made this fail outright.
+    ASSERT_EQ(run_dataset_manager({"--config", with_mns.string(), "assign", "td329-model"}), 0);
+    auto pending = pending_in(http_port_, "td329-mns");
+    ASSERT_EQ(pending.size(), 1u);
+    EXPECT_EQ(pending[0].model_name, "td329-model");
+
+    // unassign: used to look in td329-config, find nothing and exit 1.
+    EXPECT_EQ(run_dataset_manager({"--config", with_mns.string(), "unassign", "td329-model"}), 0);
+    pending = pending_in(http_port_, "td329-mns");
+    ASSERT_EQ(pending.size(), 1u);
+    EXPECT_EQ(pending[0].model_name, "");
+
+    // delete: no model on the command line, so MODEL_NAME's group.
+    EXPECT_EQ(run_dataset_manager({"--config", with_mns.string(), "delete", in_mns_group}), 0);
+    EXPECT_TRUE(pending_in(http_port_, "td329-mns").empty());
+
+    // The config group was never touched.
+    pending = pending_in(http_port_, "td329-config");
+    ASSERT_EQ(pending.size(), 1u);
+    EXPECT_EQ(pending[0].path, in_config_group);
+
+    // A model MNS doesn't know keeps the config group.
+    const fs::path unknown = scratch_root_ / "td329-unknown.conf";
+    write_config(unknown, "NAME_SERVICE_URL=" + mns.url() + "\nMODEL_NAME=not-registered\n");
+    EXPECT_EQ(run_dataset_manager({"--config", unknown.string(), "delete", in_config_group}), 0);
+    EXPECT_TRUE(pending_in(http_port_, "td329-config").empty());
+}
+
+// TD-329: when the name service doesn't answer, the command can't know its pool, so it changes
+// nothing instead of falling back to RUN_GROUP.
+TEST_F(RegistryFtpConfinementTest, DatasetManagerRefusesWhenTheNameServiceDoesNotAnswer) {
+    if (!fs::exists(DATASET_MANAGER_BINARY_PATH))
+        GTEST_SKIP() << "dataset_manager not built";
+    const std::string base = "http://127.0.0.1:" + std::to_string(http_port_);
+    const std::string queued = "/data/td329/down.jsonl";
+    ASSERT_TRUE(RemoteTransport(base, "td329-down").add_pending(queued));
+
+    // A port nothing listens on: bound, then released.
+    httplib::Server closed;
+    const int dead_port = closed.bind_to_any_port("127.0.0.1");
+    ASSERT_GT(dead_port, 0);
+    closed.stop();
+
+    const fs::path config = scratch_root_ / "td329-down.conf";
+    std::ofstream(config) << "REGISTRY_SERVER_URL=" << base << "\nRUN_GROUP=td329-down\n"
+                          << "NAME_SERVICE_URL=http://127.0.0.1:" << dead_port
+                          << "\nNAME_SERVICE_TIMEOUT_MS=1000\nMODEL_NAME=td329-model\nSESSION_DIR="
+                          << (scratch_root_ / "sessions").string() << "\n";
+
+    EXPECT_EQ(run_dataset_manager({"--config", config.string(), "delete", queued}), 1);
+    const auto pending = pending_in(http_port_, "td329-down");
+    ASSERT_EQ(pending.size(), 1u);
+    EXPECT_EQ(pending[0].path, queued);
+}
 #endif

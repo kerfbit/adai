@@ -1,6 +1,6 @@
 // @adai-status: stable        (TD-196 — encoder/decoder-linked chatbot arch resolution + connection/world-model-link API added)
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-09-18
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-07
 
 #include "ModelNameClient.hpp"
 #include <chrono>
@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <thread>
 #include "Logger.hpp"
+#include "nlohmann/json.hpp"
 
 #ifdef BUILD_MNS_SERVER
 #include <httplib.h>
@@ -481,6 +482,39 @@ adai::ResolvedModel adai::ModelNameClient::resolve_model(const std::string& mode
     rm.artifact.path = json_string_client(out, "path");
     rm.artifact.checksum = json_string_client(out, "checksum");
     rm.artifact.format = json_string_client(out, "format");
+    return rm;
+}
+
+std::optional<adai::ResolvedModel> adai::ModelNameClient::lookup_model(
+    const std::string& model_name) {
+    std::string out;
+    const int status = http_get("/models/" + model_name, out);
+    if (status == 404) {
+        return std::nullopt;
+    }
+    check_status(status, out, "lookup_model(" + model_name + ")");
+
+    const auto record = nlohmann::json::parse(out, nullptr, false);
+    if (!record.is_object()) {
+        throw std::runtime_error("ModelNameClient: lookup_model(" + model_name +
+                                 ") got a reply that isn't a JSON object");
+    }
+    const auto text = [](const nlohmann::json& obj, const char* key) {
+        const auto it = obj.find(key);
+        return it != obj.end() && it->is_string() ? it->get<std::string>() : std::string();
+    };
+    ResolvedModel rm;
+    rm.model_id = text(record, "model_id");
+    rm.model_name = text(record, "model_name");
+    rm.state = text(record, "state");
+    rm.run_group = text(record, "run_group");
+    const auto artifact = record.find("artifact");
+    if (artifact != record.end() && artifact->is_object()) {
+        rm.artifact.host = text(*artifact, "host");
+        rm.artifact.path = text(*artifact, "path");
+        rm.artifact.checksum = text(*artifact, "checksum");
+        rm.artifact.format = text(*artifact, "format");
+    }
     return rm;
 }
 

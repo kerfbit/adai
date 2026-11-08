@@ -1,8 +1,9 @@
 // @adai-status: stable
-// @adai-version: 1.5.0
+// @adai-version: 1.6.0
 // @adai-reviewed: 2026-11-07
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -28,6 +29,93 @@ void refuse_local_only_command(const char* command, const std::string& instead) 
               << "   Against registry_server use: " << instead << "\n"
               << "   (`delete` also removes the file's trained records; add --force for a file a "
               << "run has claimed)\n";
+}
+
+// TD-329: the model whose MNS run_group selects the pool. A command that names its model (assign,
+// unassign, requeue --model) uses that one; every other command uses MODEL_NAME. A fetch command's
+// [model] is only the registry's slice-cursor key, so it doesn't count. Returns "" when the
+// command's own arguments don't parse; the command reports that itself.
+std::string run_group_model(const std::string& command, const std::vector<std::string>& cmd_args,
+                            const std::string& configured_model) {
+    std::string model;
+    if (command == "assign") {
+        const auto parsed = adai::parse_assign_args(cmd_args);
+        model = parsed.error ? "" : parsed.model_name;
+    } else if (command == "unassign") {
+        const auto parsed = adai::parse_unassign_args(cmd_args);
+        model = parsed.error ? "" : parsed.model_name;
+    } else if (command == "requeue") {
+        const auto parsed = adai::parse_requeue_args(cmd_args);
+        model = parsed.error ? "" : parsed.model_name;
+    }
+    return model.empty() ? configured_model : model;
+}
+
+// TD-329: resolve the run_group every command uses, once, before it runs. Only `assign` used to
+// adopt the model's MNS run_group, so it wrote into one group while status, list-*, unassign,
+// delete, migrate, segment and the fetch commands read or changed the config file's RUN_GROUP.
+// MNS wins whenever NAME_SERVICE_URL and a model are known and the model's record has a group; a
+// model MNS doesn't know (or one with no group on record) keeps the config fallback. An MNS that
+// doesn't answer stops the command rather than silently using another pool. `assign` still
+// requires its model to be registered. Returns false (after printing why) to exit 1.
+bool resolve_run_group(adai::ServiceConfig& svc_config, const std::string& model,
+                       bool require_registered) {
+    // A local pool is SESSION_DIR[/<kind>]; run_group only names a registry_server group.
+    const bool remote = !svc_config.registry_server_url.empty();
+    if (!remote && !require_registered)
+        return true;
+    std::string source = svc_config.run_group.empty() ? "no RUN_GROUP set, so the SESSION_DIR name"
+                                                      : "RUN_GROUP in the config";
+#ifdef BUILD_MNS_SERVER
+    if (!svc_config.name_service_url.empty() && !model.empty()) {
+        std::optional<adai::ResolvedModel> record;
+        try {
+            adai::ModelNameClient client(svc_config.name_service_url,
+                                         svc_config.name_service_timeout_ms);
+            record = client.lookup_model(model);
+        } catch (const std::exception& e) {
+            std::cerr << "❌ Could not look up model '" << model << "' in the name service at "
+                      << svc_config.name_service_url << ": " << e.what() << "\n"
+                      << "   Its run_group decides which pool this command uses, so nothing was "
+                         "changed.\n"
+                      << "   Start the name service, or unset NAME_SERVICE_URL to use RUN_GROUP.\n";
+            return false;
+        }
+        if (!record) {
+            if (require_registered) {
+                std::cerr << "❌ Model '" << model << "' is not registered in the name service\n";
+                return false;
+            }
+            source += " (model '" + model + "' is not registered in the name service)";
+        } else {
+            if (require_registered) {
+                std::cout << "✅ Verified model: " << record->model_name
+                          << " (id: " << record->model_id << ", state: " << record->state << ")\n";
+            }
+            if (!record->run_group.empty()) {
+                svc_config.run_group = record->run_group;
+                source = "MNS record of model '" + model + "'";
+            } else {
+                source += " (model '" + model + "' has no run_group in the name service)";
+            }
+        }
+    }
+    if (!svc_config.name_service_url.empty() && model.empty()) {
+        source += " (no MODEL_NAME to look up in the name service)";
+    }
+#else
+    (void)model;
+    (void)require_registered;
+#endif
+    if (remote) {
+        const std::string group =
+            svc_config.run_group.empty()
+                ? std::filesystem::path(svc_config.session_dir).filename().string()
+                : svc_config.run_group;
+        // stderr, so list-pending/list-trained output stays parseable.
+        std::cerr << "run_group: '" << group << "' (" << source << ")\n";
+    }
+    return true;
 }
 }  // namespace
 
@@ -176,6 +264,13 @@ int main(int argc, char* argv[]) {
     const std::string command = args[0];
 
     std::vector<std::string> cmd_args(args.begin() + 1, args.end());
+
+    // TD-329: one run_group for the whole invocation (migrate's source and destination included).
+    if (command != "models" &&
+        !resolve_run_group(svc_config, run_group_model(command, cmd_args, svc_config.model_name),
+                           command == "assign")) {
+        return 1;
+    }
 
     if (command == "add") {
         auto parsed = adai::parse_add_args(cmd_args);
@@ -476,32 +571,6 @@ int main(int argc, char* argv[]) {
         }
 
         std::string model_name = assign_parsed.model_name;
-
-#ifdef BUILD_MNS_SERVER
-        std::string mns_url = svc_config.name_service_url;
-        if (!mns_url.empty()) {
-            try {
-                adai::ModelNameClient client(mns_url, svc_config.name_service_timeout_ms);
-                auto resolved = client.resolve_model(model_name);
-                std::cout << "✅ Verified model: " << resolved.model_name
-                          << " (id: " << resolved.model_id << ", state: " << resolved.state
-                          << ")\n";
-                // MNS-authoritative run_group, same override as incremental_trainer's
-                // (IncrementalTrainingTool.cpp) — only when the model actually has
-                // one on record, so an unmigrated model keeps its local fallback.
-                // TODO: See TD-329 in TECHNICAL_DEBT.md - only assign adopts the MNS run_group; every other command uses config RUN_GROUP
-                if (!resolved.run_group.empty()) {
-                    svc_config.run_group = resolved.run_group;
-                    std::cout << "[MNS] run_group resolved from MNS: '" << resolved.run_group
-                              << "'\n";
-                }
-            } catch (const std::exception& e) {
-                std::cerr << "❌ Model '" << model_name
-                          << "' not found in name service: " << e.what() << "\n";
-                return 1;
-            }
-        }
-#endif
 
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_registry();

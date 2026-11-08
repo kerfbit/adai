@@ -404,7 +404,7 @@ refused by `add` and by `registry_server`. Older binaries can't read the convert
 | --- | --- | --- |
 | `SESSION_DIR` | `training_sessions` | Where `pending_files.txt` and `data_registry.txt` live |
 | `REGISTRY_SERVER_URL` | — | If set, uses distributed remote registry instead of local flat files |
-| `RUN_GROUP` | — | Logical namespace for the remote registry |
+| `RUN_GROUP` | — | Logical namespace for the remote registry; a fallback when MNS gives the model a group (see below) |
 | `RUN_ID` | auto | Per-node identifier for claim/release operations |
 | `REGISTRY_TIMEOUT_MS` | `5000` | HTTP timeout for remote registry calls |
 
@@ -429,6 +429,17 @@ Start the coordinator:
 In distributed mode, `dataset_manager add / gutenberg / huggingface` still writes data files to local disk, but the queue entry is recorded on the remote server. All nodes see the same pending list; `incremental_trainer train` atomically claims files before training them so no two nodes train the same file.
 
 For single-node use, leave `REGISTRY_SERVER_URL` unset (or commented out).
+
+**Which group a command uses (November 7, 2026).** When `NAME_SERVICE_URL` is set, every command looks up its model in MNS and uses
+the model's `run_group` when it has one, the same group `incremental_trainer` trains from. The model is the one the command names
+(`assign`, `unassign`, `requeue --model`), otherwise `MODEL_NAME`. A model MNS doesn't know, or one with no group, uses `RUN_GROUP`.
+Each command prints the group and where it came from on stderr:
+
+```text
+run_group: 'chatbot-v1' (MNS record of model 'm1')
+```
+
+If MNS doesn't answer, the command changes nothing and exits 1; start the name service, or unset `NAME_SERVICE_URL` to use `RUN_GROUP`.
 
 ---
 

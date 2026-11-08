@@ -26,7 +26,8 @@ artifact and world-model connection, and how the trainer reports its run lifecyc
 | `set_training(name, new_run, session_key)` | `PUT /models/{n}/state` `{"state":"training","new_run":…}` | `IncrementalTrainer::begin_run()`: returns the **server-allocated** `run_id` used for MNS and the dataset registry |
 | `push_progress(name, run_id, session, epoch, loss, best)` | `PUT /models/{n}/progress` | `IncrementalTrainer` after every epoch (failures logged, non-fatal) |
 | `set_candidate(name, run_id, artifact, summary)` | `PUT /models/{n}/state` `{"state":"candidate",…}` | `IncrementalTrainer` after a successful pass |
-| `resolve_model(name)`, `resolve_role(role)` | `GET /models/{n}/resolve`, `GET /roles/{r}/production` | `ChatbotAPIServer` (artifact path), `IncrementalTrainingTool`, `dataset_manager` |
+| `resolve_model(name)`, `resolve_role(role)` | `GET /models/{n}/resolve`, `GET /roles/{r}/production` | `ChatbotAPIServer` (artifact path), `IncrementalTrainingTool` |
+| `lookup_model(name)` (TD-329) | `GET /models/{n}` | `dataset_manager` (`run_group`, `assign`'s check) |
 | `get_architecture(name)` | `GET /models/{n}` (+ the linked encoder and decoder for a TD-196 linked chatbot) | Both binaries overwrite their six architecture fields with it; `nullopt` on 404 |
 | `get_connection(name)` | `GET /models/{n}` | World-model and hippocampal settings (TD-196) |
 | `link_world_model(…)` | `POST /models/{n}/link-world-model` | Returns `false` on a non-2xx (a 409 is expected for incompatible pairs) |
@@ -110,3 +111,10 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | NaN progress loss sent as `nan` and stored/re-emitted by `mns_server` (§2) | A diverged run makes `GET /models` invalid JSON for strict clients; persists in `training_history` | **Verified** (real `mns_server`) | [TD-458](../../guides/TECHNICAL_DEBT.md#td-458-a-nan-training-loss-makes-mnss-json-unparseable) |
 | Architecture not validated; no unescaping; ~16 s per call when MNS doesn't answer; no URL encoding; `https://` (§3) | Wrong-shaped models instead of clear errors; slow fallback | By inspection | [TD-459](../../guides/TECHNICAL_DEBT.md#td-459-modelnameclient-validation-unescaping-and-slow-failure-gaps) |
 | Duplicated JSON helpers | Already tracked | — | TD-453 |
+
+## Addendum (November 7, 2026): `lookup_model()` (TD-329)
+
+`lookup_model(name)` reads the model's full record (`GET /models/{name}`) with nlohmann/json and fills a `ResolvedModel` (id, name,
+state, `run_group`, artifact). Unlike `resolve_model()`, it works while the model is `initializing` (MNS answers `/resolve` with 409
+then). It returns `std::nullopt` for 404 and throws on any other failure, so a caller can tell an unregistered model from an MNS that
+didn't answer. `dataset_manager` uses it to pick every command's `run_group`.

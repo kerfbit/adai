@@ -58,7 +58,7 @@ are what operators trust (§4).
 | `list-pending` / `list-trained` | Tab-separated listing (`path`, `segment[a-b]` or `N pairs`, model) | same | — |
 | `remove <file>` | Erases the first entry with that path, then `save_pending_list()` | **Pretends to succeed** (§4) | not found locally |
 | `clear-pending` | Clears and saves | Fails: `save_pending` is a no-op on `RemoteTransport` | save fails |
-| `assign <model> [files] [--count N]` | Optionally verifies the model in MNS (and adopts its `run_group`), then `assign_model()` | same | nothing assigned |
+| `assign <model> [files] [--count N]` | Optionally verifies the model in MNS, then `assign_model()` (the group comes from startup, TD-329) | same | nothing assigned |
 | `unassign <model> [files] [--force]` | `unassign_model()` | same | nothing unassigned **and** nothing skipped |
 | `delete <files> [--force] [--delete-files]` | `delete_entries()`, prints per-path status | same | nothing deleted |
 | `migrate <kind> [files] [--count N]` | Legacy pool → `<kind>` pool, entry by entry, each segment exactly: add (with its range), restore the model, delete the source, checking each step and undoing the copy on failure (TD-326). A file target moves every unit of that file | same | nothing migrated |
@@ -102,7 +102,7 @@ By inspection:
   MNS and adopts its `run_group`. `status`, `list-*`, `unassign`, `delete`, `migrate`, `segment`
   and the fetch commands use the config's `RUN_GROUP`. When MNS assigns a model a different group
   (the [MNS run_group](../../../../CLAUDE.md) standard), `assign` writes into one group while
-  every other command looks at another.
+  every other command looks at another. (**Fixed in code November 7, 2026**, TD-329: see the addendum.)
 - **Exit codes and messages.** `unassign` exits 0 with "Unassigned 0" when only skips occurred
   (exit 1 only if both counts are 0). Success lines report requested, not actual, pair counts.
   `models` silently falls back to `localhost:8083`, while `assign` skips verification when MNS is
@@ -145,7 +145,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `migrate` drops segment ranges and ignores failed source deletes and assigns (§4) | Data landed in both pools, so it was trained twice; misleading "Migrated" counts | **Fixed October 19, 2026** (was verified) | [TD-326](../../guides/TECHNICAL_DEBT.md#td-326-dataset_manager-migrate-duplicates-segmented-data-across-pools) |
 | `remove` reports success (exit 0) against `registry_server` while nothing changes (§4) | Operators believe data was removed when it will still train (**fixed in code November 7, 2026**) | **Verified** | [TD-327](../../guides/TECHNICAL_DEBT.md#td-327-dataset_manager-remove-reports-success-in-remote-mode-without-removing-anything) |
 | Local `add`/fetches store relative paths (§4) | Trainer with a different working directory can't find queued files | **Verified** | [TD-328](../../guides/TECHNICAL_DEBT.md#td-328-dataset_manager-stores-relative-paths-in-the-local-pool) |
-| Only `assign` adopts the MNS `run_group`; other commands use the config's (§4) | Commands operate on different groups for the same model | By inspection | [TD-329](../../guides/TECHNICAL_DEBT.md#td-329-dataset_manager-uses-the-mns-run_group-only-in-assign) |
+| Only `assign` adopts the MNS `run_group`; other commands use the config's (§4) | Commands operate on different groups for the same model (**fixed in code November 7, 2026**) | By inspection | [TD-329](../../guides/TECHNICAL_DEBT.md#td-329-dataset_manager-uses-the-mns-run_group-only-in-assign) |
 | `unassign` exit status, requested-not-actual pair counts, `models` localhost fallback, no `--help`, global flags stripped anywhere (§2, §4) | Misleading output and exit codes | By inspection | [TD-330](../../guides/TECHNICAL_DEBT.md#td-330-dataset_manager-output-exit-code-and-flag-hygiene) |
 | No tests for command composition (§5) | Bugs above went unnoticed | By inspection | [TD-331](../../guides/TECHNICAL_DEBT.md#td-331-dataset_manager-has-no-tests-for-its-commands) |
 | Operator guide covers 8 of 15 commands (§6) | Pool-changing commands undocumented for operators | By inspection | [TD-332](../../guides/TECHNICAL_DEBT.md#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands) |
@@ -176,3 +176,14 @@ no-op). With `REGISTRY_SERVER_URL` set they now print, through `refuse_local_onl
 reports a failed save separately ("Failed to save pending list; nothing was removed"). `RegistryFtpConfinementTest`
 `DatasetManagerRemoveRefusesInRemoteMode` runs the real binary against a spawned `registry_server`.
 
+## Addendum (November 7, 2026): one `run_group` for every command (TD-329)
+
+Before running any command but `models`, `main()` resolves the group once (`resolve_run_group()`). The model is the one the command
+names (`assign`, `unassign`, `requeue --model`, via `run_group_model()`), otherwise `MODEL_NAME`; a fetch command's `[model]` is only
+the registry's slice-cursor key. `ModelNameClient::lookup_model()` reads the model's full record in any state; `assign` used
+`resolve_model()`, whose `/resolve` MNS refuses with 409 while a model is `initializing`, so it failed for every model not yet trained.
+The MNS `run_group` wins when the record has one; an unregistered model, or one with no group on record, keeps `RUN_GROUP`. An MNS that
+doesn't answer stops the command (exit 1, nothing changed). `assign` still requires a registered model. Against a `registry_server` the
+group and its source go to stderr, for example `run_group: 'chatbot-v1' (MNS record of model 'm1')`. Local pools have no group, so local
+commands other than `assign` don't contact MNS. `RegistryFtpConfinementTest` `DatasetManagerUsesTheModelsMnsRunGroupForEveryCommand`
+and `DatasetManagerRefusesWhenTheNameServiceDoesNotAnswer` run the real binary against a spawned `registry_server` and a stand-in MNS.

@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: stable        (TD-196 — encoder/decoder-linked chatbot arch resolution + connection/world-model-link API added)
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-09-18
-
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-07
 
 #include <map>
 #include <optional>
@@ -102,6 +101,13 @@ class ModelNameClient {
 
     // Resolve a model by name; throws if not found or in initializing state.
     ResolvedModel resolve_model(const std::string& model_name);
+
+    // TD-329: look a model up in any state, from its full record (GET /models/{name}). Unlike
+    // resolve_model(), whose /resolve endpoint MNS refuses with 409 while a model is still
+    // "initializing", this works for a model registered but never trained, the usual state when
+    // data is first queued and assigned for it. Returns std::nullopt if the model isn't registered
+    // (404); throws on any other failure, including no answer.
+    std::optional<ResolvedModel> lookup_model(const std::string& model_name);
 
     // Fetch a registered model's authoritative architecture. Returns std::nullopt
     // if the model isn't registered (404); throws on other request failures.

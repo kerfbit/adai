@@ -1506,6 +1506,8 @@ The generation and model math run is complete.
   `LocalTransport` and answered 400 by `registry_server`, while 0 still means all for the Android dashboard).
 - TD-327 (done in code: `dataset_manager remove`/`clear-pending` refuse with exit 1 when `REGISTRY_SERVER_URL` is set and point at
   `delete`; `remove_pending()` returns the save result).
+- TD-329 (done in code: every `dataset_manager` command uses one `run_group`, the named model's or `MODEL_NAME`'s MNS group when it has
+  one, else `RUN_GROUP`, printed to stderr; an unreachable MNS refuses; `assign` works for a model that is still initializing).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -8973,7 +8975,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / dataset_manager CLI | October 11, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 7, 2026 | Data / dataset_manager CLI | October 11, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-326, by inspection. Only `assign` resolves the model in MNS and adopts its
@@ -8984,13 +8986,38 @@ or changes another, so operators see and edit the wrong pool.
 
 Action Items:
 
-- [ ] Resolve the effective `run_group` once at startup (from MNS when `NAME_SERVICE_URL` + a model are known, else config) and use it for every command; print which group is in use.
+- [x] Resolve the effective `run_group` once at startup (from MNS when `NAME_SERVICE_URL` + a model are known, else config) and use it for every command; print which group is in use.
 
-Location in code: `src/DatasetManagerTool.cpp` (`assign`'s MNS block); tagged `TODO: See TD-329`.
+Found while fixing it: `assign` looked the model up with `resolve_model()`, whose `/resolve` endpoint MNS answers with 409 while the
+model is still `initializing`, so `assign` failed with "not found in name service" for every model registered but not yet trained,
+which is when its data is usually queued.
+
+Fix (November 7, 2026): `dataset_manager` resolves the group once, before running any command but `models`
+(`resolve_run_group()`). The model is the one the command names (`assign`, `unassign`, `requeue --model`), otherwise `MODEL_NAME`; a
+fetch command's `[model]` is only the registry's slice-cursor key, so it doesn't count. The lookup is the new
+`ModelNameClient::lookup_model()`, which reads the full record (`GET /models/{name}`) in any state and returns nothing for an
+unregistered model. The model's MNS `run_group` wins when it has one; a model MNS doesn't know, or one with no group on record, keeps the
+config's `RUN_GROUP` (as `incremental_trainer` does). When the name service doesn't answer the command changes nothing and exits 1, since
+it can't know its pool; it says to start MNS or unset `NAME_SERVICE_URL`. `assign` still requires its model to be registered. Against a
+`registry_server` the group in use and where it came from are printed to stderr (so `list-*` output stays parseable). A local pool is
+`SESSION_DIR[/<kind>]` and has no group, so local commands other than `assign` don't contact MNS. `migrate`'s source and destination
+share the one group, as before.
+
+Tests: `ModelNameClientTest.LookupModelReadsTheRecordInAnyState` (an initializing record, 404 → nothing, 500 → throws, a nested
+`run_group` ignored). `RegistryFtpConfinementTest.DatasetManagerUsesTheModelsMnsRunGroupForEveryCommand` runs the real `dataset_manager`
+against the spawned `registry_server` and a stand-in MNS (an initializing model whose `/resolve` answers 409): `assign`, `unassign` and
+`delete` act on the model's MNS group, the config group is untouched, and an unregistered `MODEL_NAME` uses the config group.
+`DatasetManagerRefusesWhenTheNameServiceDoesNotAnswer`: `delete` exits 1 and the file stays queued. On the old code both fail (`assign`
+exited 1 for the initializing model; with MNS down `delete` removed the file from the config group). Checked by hand: `status` with MNS
+down exits 1 with the message, and a local `list-pending` doesn't contact MNS.
+
+Location in code: `src/DatasetManagerTool.cpp` (`run_group_model()`, `resolve_run_group()`), `src/ModelNameClient.cpp`
+(`lookup_model()`).
 
 Files to Modify:
 
-- `src/DatasetManagerTool.cpp`
+- `src/DatasetManagerTool.cpp`, `src/ModelNameClient.{hpp,cpp}`, `src/CMakeLists.txt`
+- `tests/modelnameclient_test.cpp`, `tests/registry_ftp_confinement_test.cpp`
 
 ---
 

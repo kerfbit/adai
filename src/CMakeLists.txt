@@ -634,7 +634,9 @@ if(HTTPLIB_INCLUDE_DIR AND SQLITE3_FOUND)
         pthread
         ${SQLITE3_LIBRARY}
     )
-    target_include_directories(adai_mns PRIVATE ${HTTPLIB_INCLUDE_DIR} ${SQLITE3_INCLUDE_DIR})
+    # TD-329: ModelNameClient::lookup_model() reads the record with the vendored nlohmann/json.
+    target_include_directories(adai_mns PRIVATE ${HTTPLIB_INCLUDE_DIR} ${SQLITE3_INCLUDE_DIR}
+                               ${CMAKE_SOURCE_DIR}/external)
     target_compile_definitions(adai_mns PUBLIC BUILD_MNS_SERVER)
     message(STATUS "Building adai_mns - Model Name Service library (SQLite backend)")
 else()
@@ -982,6 +984,8 @@ if(BUILD_EXAMPLES)
         pthread
         $<$<CXX_COMPILER_ID:GNU>:stdc++fs>  # GCC/libstdc++ only; not available on macOS (libc++)
     )
+    # TD-329: ModelNameClient.cpp reads MNS records with the vendored nlohmann/json.
+    target_include_directories(training_metrics_example PRIVATE ${CMAKE_SOURCE_DIR}/external)
     if(HTTPLIB_INCLUDE_DIR)
         target_include_directories(training_metrics_example PRIVATE ${HTTPLIB_INCLUDE_DIR})
     endif()

@@ -243,6 +243,50 @@ TEST(ModelNameClientTest, ResolveModelParsesAllFields) {
     EXPECT_EQ(rm.artifact.format, "adai-native");
 }
 
+// TD-329: lookup_model() reads the full record, so it works while the model is initializing (MNS
+// refuses /resolve then), and tells "not registered" (nullopt) apart from a failed request
+// (throws).
+TEST(ModelNameClientTest, LookupModelReadsTheRecordInAnyState) {
+    httplib::Server svr;
+    svr.Get("/models/m", [&](const httplib::Request&, httplib::Response& res) {
+        res.status = 200;
+        res.set_content(
+            R"({"model_id":"uuid-1","model_name":"m","kind":"chatbot",)"
+            R"("connection":{"encoder_name":"","run_group":"not-this"},"run_group":"g1",)"
+            R"("state":"initializing","artifact":{"host":"h1","path":"/p","checksum":"c1",)"
+            R"("format":"adai-native"}})",
+            "application/json");
+    });
+    svr.Get("/models/missing", [&](const httplib::Request&, httplib::Response& res) {
+        res.status = 404;
+        res.set_content(R"({"error":"model not found"})", "application/json");
+    });
+    svr.Get("/models/broken", [&](const httplib::Request&, httplib::Response& res) {
+        res.status = 500;
+        res.set_content(R"({"error":"boom"})", "application/json");
+    });
+    int port = 0;
+    auto t = start_server(svr, port);
+
+    adai::ModelNameClient client(base_url(port));
+    const auto rm = client.lookup_model("m");
+    const auto missing = client.lookup_model("missing");
+    EXPECT_THROW(client.lookup_model("broken"), std::runtime_error);
+
+    stop_server(svr, t);
+
+    ASSERT_TRUE(rm.has_value());
+    EXPECT_EQ(rm->model_id, "uuid-1");
+    EXPECT_EQ(rm->model_name, "m");
+    EXPECT_EQ(rm->state, "initializing");
+    EXPECT_EQ(rm->run_group, "g1");
+    EXPECT_EQ(rm->artifact.host, "h1");
+    EXPECT_EQ(rm->artifact.path, "/p");
+    EXPECT_EQ(rm->artifact.checksum, "c1");
+    EXPECT_EQ(rm->artifact.format, "adai-native");
+    EXPECT_FALSE(missing.has_value());
+}
+
 // ============================================================================
 // get_architecture
 // ============================================================================
