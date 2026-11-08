@@ -420,7 +420,7 @@ refused by `add` and by `registry_server`. Older binaries can't read the convert
 
 | Key | Default | Effect |
 | --- | --- | --- |
-| `SESSION_DIR` | `training_sessions` | Where `pending_files.txt` and `data_registry.txt` live |
+| `SESSION_DIR` | `training_sessions` | Where `pending_files.txt` and `data_registry.txt` live. Local files are queued under their absolute path (TD-328), so a trainer in another directory finds them |
 | `REGISTRY_SERVER_URL` | — | If set, uses distributed remote registry instead of local flat files |
 | `RUN_GROUP` | — | Logical namespace for the remote registry; a fallback when MNS gives the model a group (see below) |
 | `RUN_ID` | auto | Per-node identifier for claim/release operations |

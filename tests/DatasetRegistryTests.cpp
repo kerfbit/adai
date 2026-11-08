@@ -498,6 +498,21 @@ TEST_F(DatasetRegistryTest, AddFileSucceedsForRealFile) {
     EXPECT_EQ(pending[0], data_file_);
 }
 
+// TD-328: a relative path is queued absolute, so a trainer running in another directory finds it.
+TEST_F(DatasetRegistryTest, AddFileStoresAnAbsolutePath) {
+    const fs::path old_cwd = fs::current_path();
+    fs::create_directories(tmp_dir_ / "work" / "sub");
+    fs::current_path(tmp_dir_ / "work");
+    write_file("sub/rel.txt", kSimplePairs);
+    DatasetRegistry reg(make_cfg());
+    const bool added = reg.add_file("./sub/../sub/rel.txt");
+    fs::current_path(old_cwd);
+    ASSERT_TRUE(added);
+    const auto pending = reg.pending_files();
+    ASSERT_EQ(pending.size(), 1u);
+    EXPECT_EQ(pending[0], (fs::absolute(tmp_dir_) / "work" / "sub" / "rel.txt").string());
+}
+
 TEST_F(DatasetRegistryTest, AddFilePersistsToDiskOnSecondLoad) {
     {
         DatasetRegistry reg(make_cfg());

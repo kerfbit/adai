@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.9.0
+// @adai-version: 1.10.0
 // @adai-reviewed: 2026-11-07
 
 #include <memory>
@@ -452,6 +452,13 @@ class DatasetRegistry {
      *        can't be opened.
      */
     static int count_pairs(const std::string& path);
+
+    /**
+     * @brief TD-328: @p path as an absolute, normalized local path ("data/./x.jsonl" ->
+     *        "<cwd>/data/x.jsonl"); symlinks are kept, not resolved. add_file() stores this, so a
+     *        trainer with another working directory still finds the file.
+     */
+    static std::string absolute_local_path(const std::string& path);
 
     /**
      * @brief Compute a lightweight content fingerprint for @p path.

@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.7.0
+// @adai-version: 1.8.0
 // @adai-reviewed: 2026-11-07
 
 #include <algorithm>
@@ -29,6 +29,32 @@ void refuse_local_only_command(const char* command, const std::string& instead) 
               << "   Against registry_server use: " << instead << "\n"
               << "   (`delete` also removes the file's trained records; add --force for a file a "
               << "run has claimed)\n";
+}
+
+// TD-328: local entries are stored absolute (DatasetRegistry::add_file()), so a relative file target
+// is made absolute the same way, so `add data.jsonl` then `remove data.jsonl` still matches. A target
+// already queued or trained as written (an entry from before TD-328) is kept as written. Against
+// registry_server paths are the server's, and are used as given.
+std::string local_target(const adai::ServiceConfig& svc, const DatasetRegistry& reg,
+                         const std::string& target) {
+    if (!svc.registry_server_url.empty() || std::filesystem::path(target).is_absolute())
+        return target;
+    for (const auto& e : reg.pending_entries()) {
+        if (e.path == target)
+            return target;
+    }
+    if (reg.is_trained(target))
+        return target;
+    return DatasetRegistry::absolute_local_path(target);
+}
+
+std::vector<std::string> local_targets(const adai::ServiceConfig& svc, const DatasetRegistry& reg,
+                                       const std::vector<std::string>& targets) {
+    std::vector<std::string> out;
+    out.reserve(targets.size());
+    for (const auto& t : targets)
+        out.push_back(local_target(svc, reg, t));
+    return out;
 }
 
 // TD-329: the model whose MNS run_group selects the pool. A command that names its model (assign,
@@ -295,7 +321,6 @@ int main(int argc, char* argv[]) {
             // its data_dir, where the FTP delivery pipeline can serve them out.
             ok = !reg.remote_upload(data_file).empty();
         } else {
-            // TODO: See TD-328 in TECHNICAL_DEBT.md - stores the path as given (relative paths break trainers in another cwd)
             ok = reg.add_file(data_file);
         }
 
@@ -336,7 +361,7 @@ int main(int argc, char* argv[]) {
         } else {
             std::cout << "📚 Downloading Project Gutenberg book #" << book_id << "...\n";
             DataFetcher fetcher;
-            // TODO: See TD-328 in TECHNICAL_DEBT.md - DataFetcher writes under relative gutenberg_data/ huggingface_data/
+            // TD-328: DataFetcher's output dirs are relative, but add_file() queues them absolute.
             std::string path = fetcher.fetch_gutenberg(book_id, num_pairs);
             ok = !path.empty() && reg.add_file(path);
         }
@@ -523,14 +548,14 @@ int main(int argc, char* argv[]) {
             std::cerr << parsed.error_message << "\n";
             return 1;
         }
-        const std::string& target = parsed.target;
         if (!svc_config.registry_server_url.empty()) {
-            refuse_local_only_command("remove", "dataset_manager delete " + target);
+            refuse_local_only_command("remove", "dataset_manager delete " + parsed.target);
             return 1;
         }
 
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_pending_list();
+        const std::string target = local_target(svc_config, reg, parsed.target);  // TD-328
 
         const auto pending = reg.pending_files();
         if (std::find(pending.begin(), pending.end(), target) == pending.end()) {
@@ -587,7 +612,8 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        const std::vector<std::string>& targets = assign_parsed.targets;
+        const std::vector<std::string> targets =
+            local_targets(svc_config, reg, assign_parsed.targets);  // TD-328
         const int count = assign_parsed.count;
 
         auto result = reg.assign_model(model_name, targets, count);
@@ -616,11 +642,12 @@ int main(int argc, char* argv[]) {
         }
 
         const std::string& model_name = parsed.model_name;
-        const std::vector<std::string>& targets = parsed.targets;
         const bool force = parsed.force;
 
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_pending_list();
+        const std::vector<std::string> targets =
+            local_targets(svc_config, reg, parsed.targets);  // TD-328
 
         auto result = reg.unassign_model(model_name, targets, force);
         std::cout << "✅ Unassigned " << result.unassigned << " file(s) from model '" << model_name
@@ -644,13 +671,14 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        const std::vector<std::string>& targets = parsed.targets;
         const bool force = parsed.force;
         const bool delete_files = parsed.delete_files;
 
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_registry();
         reg.load_pending_list();
+        const std::vector<std::string> targets =
+            local_targets(svc_config, reg, parsed.targets);  // TD-328
 
         auto result = reg.delete_entries(targets, force, delete_files);
         std::cout << "✅ " << result.deleted << " deleted, " << result.skipped << " skipped, "
@@ -677,8 +705,8 @@ int main(int argc, char* argv[]) {
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_registry();
         reg.load_pending_list();
-        const RequeueResult result =
-            reg.requeue_trained(parsed.targets, parsed.all, parsed.model_name);
+        const RequeueResult result = reg.requeue_trained(
+            local_targets(svc_config, reg, parsed.targets), parsed.all, parsed.model_name);
         if (!result.ok) {
             std::cerr << "❌ Requeue failed (see log)\n";
             return 1;
@@ -734,7 +762,7 @@ int main(int argc, char* argv[]) {
 
         std::vector<PendingEntry> to_migrate;
         if (!parsed.targets.empty()) {
-            for (const auto& t : parsed.targets) {
+            for (const auto& t : local_targets(svc_config, source, parsed.targets)) {  // TD-328
                 // TD-326: a file target migrates every unit of that file (its whole-file entry
                 // and/or each TD-205 segment), not just the first entry with that path.
                 bool found = false;
@@ -847,7 +875,7 @@ int main(int argc, char* argv[]) {
 
         // TD-542: the segments replace an unclaimed whole-file entry of the same path, so the
         // file isn't queued twice (whole and in segments) and trained twice.
-        std::string path = parsed.path;
+        std::string path = local_target(svc_config, reg, parsed.path);  // TD-328
         const auto find_whole = [&reg](const std::string& p) -> std::optional<PendingEntry> {
             for (const auto& e : reg.pending_entries()) {
                 if (e.path == p && e.segment_start < 0)

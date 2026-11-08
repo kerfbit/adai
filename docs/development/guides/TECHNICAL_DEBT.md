@@ -1525,6 +1525,8 @@ The generation and model math run is complete.
   ends options; every number is a whole positive number, no more `std::stoi` prefixes).
 - TD-324, TD-325 (done in code: `segment` ranges sized in 64 bits, overlaps and repeated flags refused, ranges past the file's end refused;
   `huggingface` gains `--split`/`--input-field`/`--output-field`/`--model`, and extra arguments are errors).
+- TD-328 (done in code: local entries are queued absolute; a relative file target in local mode finds them, and older relative entries
+  still match as written).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -9071,7 +9073,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / dataset_manager CLI | October 11, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 7, 2026 | Data / dataset_manager CLI | October 11, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-326 and confirmed by running the binary. In local mode, `add data.jsonl` stored
@@ -9082,14 +9084,27 @@ wrong directory and can't find the files.
 
 Action Items:
 
-- [ ] Store `fs::absolute()`/`weakly_canonical()` paths in local mode (in `add_file()` or the CLI).
+- [x] Store `fs::absolute()`/`weakly_canonical()` paths in local mode (in `add_file()` or the CLI).
 
-Location in code: `src/DatasetManagerTool.cpp` (`add`, local `gutenberg`/`huggingface`); tagged `TODO: See TD-328`.
+Fix (November 7, 2026): `DatasetRegistry::add_file()` queues `absolute_local_path()`, the path made absolute and normalized
+(`./sub/../x.jsonl` → `<cwd>/x.jsonl`; symlinks kept, not resolved), so `add`, local `gutenberg`/`gutenberg-batch`/`huggingface` and
+`add_files()` all queue absolute paths. `segment` normalizes its path the same way in local mode. So that `add data.jsonl` followed by
+`remove data.jsonl` still matches, `dataset_manager` turns a relative file target of `remove`, `assign`, `unassign`, `delete`, `requeue`,
+`migrate` and `segment` into the same absolute form in local mode (`local_target()`), unless that exact string is already queued or trained
+(an entry from before this fix). Against `registry_server` paths are the server's and are used as given.
+
+Tests: `DatasetRegistryTest.AddFileStoresAnAbsolutePath` (a relative, unnormalized path from another working directory);
+`RegistryFtpConfinementTest.DatasetManagerQueuesLocalFilesAbsolute` runs the real binary in a work directory: `add data.jsonl` queues the
+absolute path, and `remove old.jsonl` (a relative entry from before) and `remove data.jsonl` both work. Both fail on the old code. Checked
+by hand: a local `gutenberg 11 3` queued `<cwd>/gutenberg_data/gutenberg_11_training.jsonl`.
+
+Location in code: `src/DatasetRegistry.cpp` (`absolute_local_path()`, `add_file()`), `src/DatasetManagerTool.cpp` (`local_target()`,
+`local_targets()`).
 
 Files to Modify:
 
-- `src/DatasetManagerTool.cpp`
-- `src/DatasetRegistry.cpp`
+- `src/DatasetManagerTool.cpp`, `src/DatasetRegistry.{hpp,cpp}`
+- `tests/DatasetRegistryTests.cpp`, `tests/registry_ftp_confinement_test.cpp`
 
 ---
 

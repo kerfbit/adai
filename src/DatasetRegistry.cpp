@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.10.0
+// @adai-version: 1.11.0
 // @adai-reviewed: 2026-11-07
 
 #include "DatasetRegistry.hpp"
@@ -190,12 +190,22 @@ std::string DatasetRegistry::pending_file_path() const {
 // Pending queue
 // ============================================================================
 
-// TODO: See TD-328 in TECHNICAL_DEBT.md - path stored as given; not made absolute in local mode
-bool DatasetRegistry::add_file(const std::string& path, int segment_start, int segment_count) {
-    if (!fs::exists(path)) {
-        Logger::error("Data file not found: {}", path);
+/*static*/
+std::string DatasetRegistry::absolute_local_path(const std::string& path) {
+    std::error_code ec;
+    const fs::path absolute = fs::absolute(path, ec);
+    return ec ? path : absolute.lexically_normal().string();
+}
+
+bool DatasetRegistry::add_file(const std::string& given_path, int segment_start,
+                               int segment_count) {
+    if (!fs::exists(given_path)) {
+        Logger::error("Data file not found: {}", given_path);
         return false;
     }
+    // TD-328: stored absolute. "data.jsonl" used to be queued as given, so a trainer running in
+    // another directory (a systemd unit's WorkingDirectory) couldn't find it.
+    const std::string path = absolute_local_path(given_path);
 
     if (is_trained(path, segment_start, segment_count)) {
         Logger::warn("Data file already trained, skipping: {}", path);

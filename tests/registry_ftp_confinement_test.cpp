@@ -602,7 +602,7 @@ TEST_F(RegistryFtpConfinementTest, AssignRefusesNegativeCount) {
 namespace {
 // Runs dataset_manager with @p args (output discarded) and returns its exit status, -1 if it
 // didn't exit normally.
-int run_dataset_manager(const std::vector<std::string>& args) {
+int run_dataset_manager(const std::vector<std::string>& args, const std::string& cwd = "") {
     std::vector<std::string> argv_store = {DATASET_MANAGER_BINARY_PATH};
     argv_store.insert(argv_store.end(), args.begin(), args.end());
     std::vector<char*> argv;
@@ -613,6 +613,8 @@ int run_dataset_manager(const std::vector<std::string>& args) {
     if (pid < 0)
         return -1;
     if (pid == 0) {
+        if (!cwd.empty() && ::chdir(cwd.c_str()) != 0)
+            ::_exit(126);
         const int devnull = ::open("/dev/null", O_WRONLY);
         if (devnull >= 0) {
             ::dup2(devnull, STDOUT_FILENO);
@@ -871,5 +873,40 @@ TEST_F(RegistryFtpConfinementTest, DatasetManagerSegmentRefusesAnUnknownRemotePa
                                    (scratch_root_ / "nowhere.jsonl").string(), "--count", "2"}),
               1);
     EXPECT_TRUE(pending_in(http_port_, "td543-none").empty());
+}
+// TD-328: in local mode `add data.jsonl` queued "data.jsonl" as given, which a trainer running in
+// another directory can't find. It is queued absolute now, and a relative target finds it again.
+TEST_F(RegistryFtpConfinementTest, DatasetManagerQueuesLocalFilesAbsolute) {
+    if (!fs::exists(DATASET_MANAGER_BINARY_PATH))
+        GTEST_SKIP() << "dataset_manager not built";
+    const fs::path work = scratch_root_ / "td328-work";
+    fs::create_directories(work);
+    std::ofstream(work / "data.jsonl") << R"({"input":"q","output":"a"})" << "\n";
+    const fs::path sessions = scratch_root_ / "td328-sessions";
+    const fs::path config = scratch_root_ / "td328.conf";
+    std::ofstream(config) << "REGISTRY_SERVER_URL=\nNAME_SERVICE_URL=\nSESSION_DIR="
+                          << sessions.string() << "\n";
+
+    ASSERT_EQ(run_dataset_manager({"--config", config.string(), "add", "data.jsonl"}, work.string()),
+              0);
+    LocalTransport local((sessions / "data_registry.txt").string(),
+                         (sessions / "pending_files.txt").string());
+    std::vector<PendingEntry> pending;
+    ASSERT_TRUE(local.load_pending(pending));
+    ASSERT_EQ(pending.size(), 1u);
+    EXPECT_EQ(pending[0].path, (fs::absolute(work) / "data.jsonl").lexically_normal().string());
+
+    // An entry queued relative before TD-328 is still found by the name it was queued under.
+    ASSERT_TRUE(local.add_pending("old.jsonl"));
+    EXPECT_EQ(run_dataset_manager({"--config", config.string(), "remove", "old.jsonl"},
+                                  work.string()),
+              0);
+    // And the relative name of the new entry finds its absolute entry.
+    EXPECT_EQ(run_dataset_manager({"--config", config.string(), "remove", "data.jsonl"},
+                                  work.string()),
+              0);
+    pending.clear();
+    ASSERT_TRUE(local.load_pending(pending));
+    EXPECT_TRUE(pending.empty());
 }
 #endif
