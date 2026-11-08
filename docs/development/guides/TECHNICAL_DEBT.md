@@ -1504,6 +1504,8 @@ The generation and model math run is complete.
   paths round-trip; `registry_server` escapes every control character and replaces invalid UTF-8 in replies).
 - TD-321 (done in code: `dataset_manager assign`/`migrate` require `--count` of at least 1; a negative assign count is refused by
   `LocalTransport` and answered 400 by `registry_server`, while 0 still means all for the Android dashboard).
+- TD-327 (done in code: `dataset_manager remove`/`clear-pending` refuse with exit 1 when `REGISTRY_SERVER_URL` is set and point at
+  `delete`; `remove_pending()` returns the save result).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -8902,7 +8904,7 @@ its assign and delete results and returned success. It now checks both like the 
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / dataset_manager CLI | October 11, 2026 | 1 hour |
+| MEDIUM | Open — code fix landed November 7, 2026 | Data / dataset_manager CLI | October 11, 2026 | 1 hour |
 
 Description:
 Found alongside TD-326 and confirmed against a live local `registry_server`.
@@ -8915,15 +8917,29 @@ fail in remote mode, but with the misleading "Failed to save pending list".
 
 Action Items:
 
-- [ ] Refuse `remove`/`clear-pending` in remote mode with a message pointing at `delete` (or implement them via `delete_entries()`).
-- [ ] Make `remove_pending()` return the save result.
+- [x] Refuse `remove`/`clear-pending` in remote mode with a message pointing at `delete` (or implement them via `delete_entries()`).
+- [x] Make `remove_pending()` return the save result.
 
-Location in code: `src/DatasetManagerTool.cpp` (`remove`, `clear-pending`), `src/DatasetRegistry.cpp` (`remove_pending()`); tagged `TODO: See TD-327`.
+Fix (November 7, 2026): `remove` and `clear-pending` check `REGISTRY_SERVER_URL` first. When it is set they change nothing, print
+that the command works only on a local pool and suggest `dataset_manager delete <file>` (noting that `delete` also removes trained
+records and needs `--force` for a claimed file), and exit 1. They were refused rather than reimplemented through `delete_entries()`
+because `delete` is a different operation: it drops trained records too. `DatasetRegistry::remove_pending()` now returns
+`save_pending_list()`'s result, and the CLI checks whether the file is queued first so "not found" and "could not save" get their own
+messages. Local-mode behaviour is unchanged.
+
+Tests: `DatasetRegistryRemovePendingTest.ReturnsFalseWhenTheQueueCanNotBeSaved` (a transport whose `save_pending()` returns false, as
+`RemoteTransport`'s does); `RegistryFtpConfinementTest.DatasetManagerRemoveRefusesInRemoteMode` runs the real `dataset_manager` against
+the spawned `registry_server`: `remove` and `clear-pending` exit 1 and the file stays queued. This is the first test to run a
+`dataset_manager` command (TD-331). On the old code both fail (`remove` exited 0; `remove_pending()` returned true). Checked by hand:
+local `remove` still removes and exits 0.
+
+Location in code: `src/DatasetManagerTool.cpp` (`refuse_local_only_command()`, `remove`, `clear-pending`), `src/DatasetRegistry.cpp`
+(`remove_pending()`).
 
 Files to Modify:
 
-- `src/DatasetManagerTool.cpp`
-- `src/DatasetRegistry.cpp`
+- `src/DatasetManagerTool.cpp`, `src/DatasetRegistry.{hpp,cpp}`
+- `tests/DatasetRegistryTests.cpp`, `tests/registry_ftp_confinement_test.cpp`, `tests/CMakeLists.txt`
 
 ---
 

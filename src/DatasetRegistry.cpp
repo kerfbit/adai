@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.9.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 1.9.1
+// @adai-reviewed: 2026-11-07
 
 #include "DatasetRegistry.hpp"
 #include <algorithm>
@@ -266,7 +266,8 @@ void DatasetRegistry::clear_pending() {
     pending_.clear();
 }
 
-// TODO: See TD-327 in TECHNICAL_DEBT.md - save_pending_list() result ignored (always false on RemoteTransport)
+// TD-327: returns the save's result; it used to return true whenever the entry was found, so in
+// remote mode (where save_pending_list() is a no-op returning false) nothing was removed.
 bool DatasetRegistry::remove_pending(const std::string& path) {
     auto it = std::find_if(pending_.begin(), pending_.end(),
                            [&](const PendingEntry& e) { return e.path == path; });
@@ -274,8 +275,7 @@ bool DatasetRegistry::remove_pending(const std::string& path) {
         return false;
     }
     pending_.erase(it);
-    save_pending_list();
-    return true;
+    return save_pending_list();
 }
 
 std::vector<std::string> DatasetRegistry::pending_files() const {

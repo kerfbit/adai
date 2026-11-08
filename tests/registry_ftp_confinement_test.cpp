@@ -598,3 +598,57 @@ TEST_F(RegistryFtpConfinementTest, AssignRefusesNegativeCount) {
     EXPECT_EQ(rt.assign("m", {}, 0).assigned, 2) << "count 0 still assigns every entry";
 }
 
+#ifdef DATASET_MANAGER_BINARY_PATH
+namespace {
+// Runs dataset_manager with @p args (output discarded) and returns its exit status, -1 if it
+// didn't exit normally.
+int run_dataset_manager(const std::vector<std::string>& args) {
+    std::vector<std::string> argv_store = {DATASET_MANAGER_BINARY_PATH};
+    argv_store.insert(argv_store.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    for (auto& a : argv_store)
+        argv.push_back(a.data());
+    argv.push_back(nullptr);
+    const pid_t pid = ::fork();
+    if (pid < 0)
+        return -1;
+    if (pid == 0) {
+        const int devnull = ::open("/dev/null", O_WRONLY);
+        if (devnull >= 0) {
+            ::dup2(devnull, STDOUT_FILENO);
+            ::dup2(devnull, STDERR_FILENO);
+        }
+        ::execv(argv[0], argv.data());
+        ::_exit(127);
+    }
+    int status = 0;
+    if (::waitpid(pid, &status, 0) != pid || !WIFEXITED(status))
+        return -1;
+    return WEXITSTATUS(status);
+}
+}  // namespace
+
+// TD-327: `remove` erased the entry in memory and "saved" through RemoteTransport::save_pending(),
+// a no-op, then printed "Removed" and exited 0 while the file stayed queued and would still be
+// trained. remove and clear-pending now refuse up front when REGISTRY_SERVER_URL is set.
+TEST_F(RegistryFtpConfinementTest, DatasetManagerRemoveRefusesInRemoteMode) {
+    if (!fs::exists(DATASET_MANAGER_BINARY_PATH))
+        GTEST_SKIP() << "dataset_manager not built";
+    RemoteTransport rt("http://127.0.0.1:" + std::to_string(http_port_), "td327");
+    const std::string queued = "/data/td327/queued.jsonl";
+    ASSERT_TRUE(rt.add_pending(queued));
+
+    const fs::path config = scratch_root_ / "config.registry.conf";
+    std::ofstream(config) << "REGISTRY_SERVER_URL=http://127.0.0.1:" << http_port_
+                          << "\nRUN_GROUP=td327\nNAME_SERVICE_URL=\nSESSION_DIR="
+                          << (scratch_root_ / "sessions").string() << "\n";
+
+    EXPECT_EQ(run_dataset_manager({"--config", config.string(), "remove", queued}), 1);
+    EXPECT_EQ(run_dataset_manager({"--config", config.string(), "clear-pending"}), 1);
+
+    std::vector<PendingEntry> pending;
+    ASSERT_TRUE(rt.load_pending(pending));
+    ASSERT_EQ(pending.size(), 1u);
+    EXPECT_EQ(pending[0].path, queued);
+}
+#endif

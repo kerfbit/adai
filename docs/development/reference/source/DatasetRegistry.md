@@ -65,7 +65,7 @@ trained, or stuck.
 | `add_pending_path_unchecked(…)` | Same, minus the existence check (for `migrate`/`segment`, where the path may live on the server) |
 | `add_files(paths)` | Loops `add_file()`. No caller outside this class |
 | `clear_pending()` | Clears memory only; the caller must `save_pending_list()`, a no-op on `RemoteTransport` |
-| `remove_pending(path)` | Erases the first entry with that path, saves, **ignores the save result** (TD-327) |
+| `remove_pending(path)` | Erases the first entry with that path, saves, and returns the save result (TD-327, November 7, 2026; it used to ignore it, so remote mode reported success) |
 | `assign_model(model, paths, count, segments)` / `unassign_model(…)` / `delete_entries(…)` | Delegate to the transport (work in both modes), then mirror the result into `pending_` with segment-exact matching (TD-205). `count <= 0` with no paths assigns **all** (TD-321) |
 | `pending_files()`, `pending_entries()`, `trained_files()` (each trained path once) | Snapshots |
 | `is_trained(path, seg_start = -1, seg_count = -1)` | TD-333: a whole-file query is true when any record of the path exists; a segment query when the whole file or that exact segment was trained. `add_file()` checks the unit being added |
@@ -196,7 +196,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Production passes all-zero sample counts to `mark_trained()` (§6) | `num_samples`/`total_samples_trained()` were always 0 | **Fixed October 19, 2026** | [TD-334](../../guides/TECHNICAL_DEBT.md#td-334-trained-sample-counts-are-always-zero) |
 | `compute_checksum()` stored but never verified; `count_pairs()` materializes all pairs; private path helpers unused and kind-unaware; `add_files()`/`print_run_assignments()` unused; `make_config()` drops `max_files_per_run`/`data_registry_file`; in-memory `run_id` not updated on acquire (§2–3, §5) | Dead code, missed integrity checks, wasted memory | By inspection | [TD-335](../../guides/TECHNICAL_DEBT.md#td-335-datasetregistry-dead-code-and-unused-integrity-data) |
 | Legacy parser keeps only the first response line; a BOM before `{` breaks JSONL detection (§5) | Silent truncation or 0 pairs for affected files | By inspection | [TD-336](../../guides/TECHNICAL_DEBT.md#td-336-legacy-training-file-parser-truncates-responses-bom-breaks-jsonl-detection) |
-| `remove_pending()` ignores the save result | Already tracked | — | TD-327 |
+| `remove_pending()` ignores the save result | Fixed in code November 7, 2026 | — | TD-327 |
 | Relative paths stored as given | Already tracked | — | TD-328 |
 | `count <= 0` assigns all | Already tracked | — | TD-321 |
 

@@ -800,13 +800,15 @@ if(TARGET registry_server AND HTTPLIB_INCLUDE_DIR)
     target_include_directories(registryFtpConfinementTests PRIVATE
         ${CMAKE_SOURCE_DIR}/src ${HTTPLIB_INCLUDE_DIR})
     target_compile_definitions(registryFtpConfinementTests PRIVATE
-        REGISTRY_SERVER_BINARY_PATH="$<TARGET_FILE:registry_server>")
+        REGISTRY_SERVER_BINARY_PATH="$<TARGET_FILE:registry_server>"
+        # TD-327: runs the real dataset_manager against the spawned server.
+        DATASET_MANAGER_BINARY_PATH="$<TARGET_FILE:dataset_manager>")
     target_link_libraries(registryFtpConfinementTests
         adai_core
         pthread
         GTest::gtest_main
     )
-    add_dependencies(registryFtpConfinementTests registry_server)
+    add_dependencies(registryFtpConfinementTests registry_server dataset_manager)
     add_test(NAME RegistryFtpConfinementTests COMMAND registryFtpConfinementTests)
 endif()
 

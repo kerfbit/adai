@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.4.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.5.0
+// @adai-reviewed: 2026-11-07
 
 #include <algorithm>
 #include <fstream>
@@ -16,6 +16,20 @@
 #ifdef BUILD_MNS_SERVER
 #include "ModelNameClient.hpp"
 #endif
+
+namespace {
+// TD-327: remove and clear-pending edit the pending list and save it, which only works in local
+// mode (RemoteTransport::save_pending() is a no-op). Against registry_server, remove used to print
+// "Removed" and exit 0 while the file stayed queued and would still be trained.
+void refuse_local_only_command(const char* command, const std::string& instead) {
+    std::cerr << "❌ `" << command
+              << "` works only on a local pool; REGISTRY_SERVER_URL is set, so "
+              << "nothing was changed.\n"
+              << "   Against registry_server use: " << instead << "\n"
+              << "   (`delete` also removes the file's trained records; add --force for a file a "
+              << "run has claimed)\n";
+}
+}  // namespace
 
 // TODO: See TD-331 in TECHNICAL_DEBT.md - no tests exercise the commands (only the parsers and DatasetRegistry)
 int main(int argc, char* argv[]) {
@@ -410,20 +424,31 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         const std::string& target = parsed.target;
+        if (!svc_config.registry_server_url.empty()) {
+            refuse_local_only_command("remove", "dataset_manager delete " + target);
+            return 1;
+        }
 
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_pending_list();
 
-        // TODO: See TD-327 in TECHNICAL_DEBT.md - in remote mode this only edits memory (save is a no-op) yet reports success, exit 0
-        if (reg.remove_pending(target)) {
-            std::cout << "✅ Removed from pending queue: " << target << "\n";
-            std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
-        } else {
+        const auto pending = reg.pending_files();
+        if (std::find(pending.begin(), pending.end(), target) == pending.end()) {
             std::cerr << "❌ File not found in pending queue: " << target << "\n";
             return 1;
         }
+        if (!reg.remove_pending(target)) {
+            std::cerr << "❌ Failed to save pending list; nothing was removed\n";
+            return 1;
+        }
+        std::cout << "✅ Removed from pending queue: " << target << "\n";
+        std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
 
     } else if (command == "clear-pending") {
+        if (!svc_config.registry_server_url.empty()) {
+            refuse_local_only_command("clear-pending", "dataset_manager delete <file> ...");
+            return 1;
+        }
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_pending_list();
 
@@ -433,7 +458,6 @@ int main(int argc, char* argv[]) {
             return 0;
         }
 
-        // TODO: See TD-327 in TECHNICAL_DEBT.md - remote mode fails with a misleading "Failed to save" (should refuse up front)
         reg.clear_pending();
         if (reg.save_pending_list()) {
             std::cout << "✅ Cleared " << pending.size() << " file(s) from pending queue\n";

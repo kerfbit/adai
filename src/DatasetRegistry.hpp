@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.8.1
-// @adai-reviewed: 2026-11-05
-
+// @adai-version: 1.8.2
+// @adai-reviewed: 2026-11-07
 
 #include <memory>
 #include <set>
@@ -162,10 +161,11 @@ class DatasetRegistry {
      *
      * Removes the entry from in-memory state and persists via save_pending_list().
      *
-     * @return true if the file was found and removed.
+     * @return true if the file was found and the queue saved (TD-327: it used to return true
+     *         whenever the file was found, ignoring a failed or remote save).
      *
-     * @note Local-mode only in effect, for the same reason as clear_pending().
-     *       Use delete_entries({path}) for a remote-capable equivalent.
+     * @note Local-mode only: in remote mode the save is a no-op that returns false, so this
+     *       returns false. Use delete_entries({path}) for a remote-capable equivalent.
      */
     bool remove_pending(const std::string& path);
 

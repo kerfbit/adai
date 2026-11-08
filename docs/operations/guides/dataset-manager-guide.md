@@ -337,6 +337,10 @@ Remove all files from the pending queue without affecting the trained registry.
 
 Use this to abandon queued data before starting a fresh dataset composition. Files that were previously trained remain in the registry; only the pending queue is cleared.
 
+`clear-pending` and `remove <file>` work only on a local pool. When `REGISTRY_SERVER_URL` is set they change nothing and exit 1,
+pointing at `delete <file> ...` instead (since November 7, 2026, TD-327; `remove` used to report success there while the file stayed
+queued). Note that `delete` also removes the file's trained records, and needs `--force` for a file a run has claimed.
+
 ### `requeue`
 
 Move trained files back to the pending queue so the next training passes train on them again, for example before retraining a model from

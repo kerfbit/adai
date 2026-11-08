@@ -143,7 +143,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
 | `migrate` drops segment ranges and ignores failed source deletes and assigns (§4) | Data landed in both pools, so it was trained twice; misleading "Migrated" counts | **Fixed October 19, 2026** (was verified) | [TD-326](../../guides/TECHNICAL_DEBT.md#td-326-dataset_manager-migrate-duplicates-segmented-data-across-pools) |
-| `remove` reports success (exit 0) against `registry_server` while nothing changes (§4) | Operators believe data was removed when it will still train | **Verified** | [TD-327](../../guides/TECHNICAL_DEBT.md#td-327-dataset_manager-remove-reports-success-in-remote-mode-without-removing-anything) |
+| `remove` reports success (exit 0) against `registry_server` while nothing changes (§4) | Operators believe data was removed when it will still train (**fixed in code November 7, 2026**) | **Verified** | [TD-327](../../guides/TECHNICAL_DEBT.md#td-327-dataset_manager-remove-reports-success-in-remote-mode-without-removing-anything) |
 | Local `add`/fetches store relative paths (§4) | Trainer with a different working directory can't find queued files | **Verified** | [TD-328](../../guides/TECHNICAL_DEBT.md#td-328-dataset_manager-stores-relative-paths-in-the-local-pool) |
 | Only `assign` adopts the MNS `run_group`; other commands use the config's (§4) | Commands operate on different groups for the same model | By inspection | [TD-329](../../guides/TECHNICAL_DEBT.md#td-329-dataset_manager-uses-the-mns-run_group-only-in-assign) |
 | `unassign` exit status, requested-not-actual pair counts, `models` localhost fallback, no `--help`, global flags stripped anywhere (§2, §4) | Misleading output and exit codes | By inspection | [TD-330](../../guides/TECHNICAL_DEBT.md#td-330-dataset_manager-output-exit-code-and-flag-hygiene) |
@@ -166,3 +166,13 @@ Each legacy entry is moved with its segment range: add, then restore the model b
 As the owner decided, the new segments replace a whole-file pending entry of the same path, so the file isn't queued (and trained) both ways. `segment` refuses before queuing anything when that entry is claimed by a run, or when the path has trained records, which the whole-path delete would erase. Otherwise it adds the segments, deletes the whole entry with `force=false`, and assigns the segments to the entry's model. If the delete doesn't remove exactly one entry, it deletes the new segments again and exits 1. The Android `RegistryRepository.createSegments()` follows the same steps.
 
 Checked with the real binaries. Locally, and against a `registry_server` using the server's own path, a whole entry assigned to `m1` became segments assigned to `m1`, with no whole entry left. A whole entry claimed by `run-01` was refused, and nothing was queued. The same run found TD-543: against a remote registry, `segment` queues the client's local path. `add` uploads the file to `<data_dir>/<group>/uploads/` instead, so segments made away from the registry host point at a file the server can't read.
+
+## Addendum (November 7, 2026): `remove`/`clear-pending` refuse in remote mode (TD-327)
+
+Both commands edit the in-memory pending list and save it, which only a local pool can do (`RemoteTransport::save_pending()` is a
+no-op). With `REGISTRY_SERVER_URL` set they now print, through `refuse_local_only_command()`, that nothing was changed and that
+`dataset_manager delete <file>` is the remote equivalent (it also removes trained records; `--force` for a claimed file), and exit 1.
+`remove` used to print "Removed" and exit 0 there while the file stayed queued. In local mode `remove` checks the file is queued, then
+reports a failed save separately ("Failed to save pending list; nothing was removed"). `RegistryFtpConfinementTest`
+`DatasetManagerRemoveRefusesInRemoteMode` runs the real binary against a spawned `registry_server`.
+

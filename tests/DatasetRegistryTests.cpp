@@ -13,6 +13,7 @@
  * All tests are fully offline (local filesystem only).
  */
 #include <gtest/gtest.h>
+#include <unistd.h>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -75,6 +76,8 @@ class FakeFetchTransport : public RegistryTransport {
         return inner_.load_pending(out);
     }
     bool save_pending(const std::vector<PendingEntry>& entries) override {
+        if (refuse_save_pending)  // as RemoteTransport::save_pending() does (TD-327)
+            return false;
         return inner_.save_pending(entries);
     }
     AcquireResponse acquire(const std::string& run_id, int max_files,
@@ -85,6 +88,7 @@ class FakeFetchTransport : public RegistryTransport {
     }
     // TD-494: count renewals (called from DatasetRegistry's renewer thread).
     int lease_seconds = 0;
+    bool refuse_save_pending = false;
     std::atomic<int> renew_calls{0};
     int renew_claims(const std::string& /*run_id*/) override {
         ++renew_calls;
@@ -1314,5 +1318,36 @@ TEST(DatasetRegistryClaimLeaseTest, NoLeaseMeansNoRenewer) {
     EXPECT_EQ(resp.claim_lease_seconds, 0);
     std::this_thread::sleep_for(std::chrono::milliseconds(5600));
     EXPECT_EQ(fake->renew_calls.load(), 0);
+    fs::remove_all(base);
+}
+
+// TD-327: remove_pending() returned true whenever the file was found and ignored the save, so in
+// remote mode (RemoteTransport::save_pending() is a no-op returning false) `dataset_manager remove`
+// reported success and exited 0 while the file stayed queued.
+TEST(DatasetRegistryRemovePendingTest, ReturnsFalseWhenTheQueueCanNotBeSaved) {
+    const fs::path base = fs::temp_directory_path() / ("adai_td327_" + std::to_string(::getpid()));
+    fs::remove_all(base);
+    fs::create_directories(base);
+    const std::string data = (base / "d.jsonl").string();
+    write_file(data, kJsonlPairs);
+    auto fake_owned = std::make_unique<FakeFetchTransport>((base / "reg.txt").string(),
+                                                           (base / "pending.txt").string());
+    FakeFetchTransport* fake = fake_owned.get();
+    DatasetConfig cfg;
+    cfg.session_dir = base.string();
+    DatasetRegistry reg(cfg, std::move(fake_owned));
+    ASSERT_TRUE(reg.add_file(data));
+    ASSERT_TRUE(reg.save_pending_list());
+
+    fake->refuse_save_pending = true;
+    EXPECT_FALSE(reg.remove_pending(data)) << "a save that fails must not report success";
+    fake->refuse_save_pending = false;
+    EXPECT_FALSE(reg.remove_pending("/not/queued.jsonl"));
+
+    DatasetRegistry fresh(cfg, std::make_unique<FakeFetchTransport>(
+                                   (base / "reg.txt").string(), (base / "pending.txt").string()));
+    fresh.load_pending_list();
+    ASSERT_EQ(fresh.pending_files().size(), 1u) << "the file is still queued on disk";
+    EXPECT_TRUE(fresh.remove_pending(data));
     fs::remove_all(base);
 }
