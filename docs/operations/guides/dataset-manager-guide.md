@@ -47,16 +47,19 @@ The dataset manager maintains two lists in the session directory:
 ## Usage
 
 ```
-./build/bin/dataset_manager [--config <path>] <command> [args...]
+./build/bin/dataset_manager [--config <path>] [--kind <kind>] <command> [args...]
 ```
 
-**Global option:**
+**Global options** (before the command; since November 7, 2026, TD-330, they aren't recognized after it):
 
 | Option | Description |
 | --- | --- |
-| `--config <path>` | Path to `config.conf`. Auto-discovered if omitted: `./config.conf` → `/etc/adai/config.conf`. |
+| `--config <path>` | Path to the config file. Auto-discovered if omitted: `./config.registry.conf` → `/etc/adai/config.registry.conf` → `./config.conf` → `/etc/adai/config.conf`. |
+| `--kind <kind>` | Work on that trainable piece's sub-pool (`encoder`, `decoder`, `world_model`, `chatbot`) instead of the legacy shared pool. |
+| `--help`, `-h` | Print the built-in help (also `help`, or no arguments). |
 
-Run without arguments to print the built-in help.
+`status`, `list-pending`, `list-trained`, `clear-pending` and `models` take no arguments. Fetch commands report the pairs actually
+queued, e.g. `(40 pairs of 50 requested)`.
 
 ---
 

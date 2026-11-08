@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.8.0
+// @adai-version: 1.9.0
 // @adai-reviewed: 2026-11-07
 
 #include <algorithm>
@@ -55,6 +55,29 @@ std::vector<std::string> local_targets(const adai::ServiceConfig& svc, const Dat
     for (const auto& t : targets)
         out.push_back(local_target(svc, reg, t));
     return out;
+}
+
+// TD-330: the pairs a fetch actually queued, from the queue entry (registry_server records a fetch's
+// pairs_written there) or by counting a local file; -1 when unknown. The success line used to repeat
+// the requested count, which a short book or dataset doesn't reach.
+int queued_pairs(DatasetRegistry& reg, const std::string& path) {
+    reg.load_pending_list();
+    const std::string absolute = DatasetRegistry::absolute_local_path(path);
+    for (const auto& e : reg.pending_entries()) {
+        if ((e.path == path || e.path == absolute) && e.segment_start < 0 && e.num_entries >= 0)
+            return e.num_entries;
+    }
+    std::error_code ec;
+    return std::filesystem::is_regular_file(path, ec) ? DatasetRegistry::count_pairs(path) : -1;
+}
+
+std::string pairs_text(int queued, int requested) {
+    if (queued < 0)
+        return "pair count unknown";
+    std::string text = std::to_string(queued) + " pairs";
+    if (queued < requested)
+        text += " of " + std::to_string(requested) + " requested";
+    return text;
 }
 
 // TD-329: the model whose MNS run_group selects the pool. A command that names its model (assign,
@@ -155,16 +178,35 @@ int main(int argc, char* argv[]) {
     std::string kind_flag;  // TD-202: --kind <encoder|decoder|world_model|chatbot>
     std::vector<std::string> args;  // args[0] = command, args[1..] = its args
 
-    // TODO: See TD-330 in TECHNICAL_DEBT.md - global flags stripped from anywhere; value-less trailing flag becomes an argument; no --help
-    for (int i = 1; i < argc; ++i) {
-        std::string a = argv[i];
-        if (a == "--config" && i + 1 < argc) {
-            config_path = argv[++i];
-        } else if (a == "--kind" && i + 1 < argc) {
-            kind_flag = argv[++i];
+    // TD-330: global options only before the command, each with its value. They used to be taken
+    // from anywhere in argv (so a command's own argument named "--kind" vanished), and a trailing
+    // value-less one became an ordinary argument. --help/-h/help print the usage.
+    bool show_help = false;
+    int i = 1;
+    for (; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--config" || a == "--kind") {
+            if (i + 1 >= argc) {
+                std::cerr << "❌ Missing value for " << a << "\n";
+                return 1;
+            }
+            (a == "--config" ? config_path : kind_flag) = argv[++i];
+        } else if (a == "--help" || a == "-h") {
+            show_help = true;
+        } else if (a.size() > 1 && a[0] == '-') {
+            std::cerr << "❌ Unknown option " << a
+                      << " (global options, before the command: --config <path>, --kind <kind>, "
+                         "--help)\n";
+            return 1;
         } else {
-            args.push_back(a);
+            break;
         }
+    }
+    for (; i < argc; ++i) {
+        args.push_back(argv[i]);
+    }
+    if (!args.empty() && args[0] == "help") {
+        show_help = true;
     }
 
     if (!kind_flag.empty() && !adai::is_valid_dataset_kind(kind_flag)) {
@@ -189,9 +231,10 @@ int main(int argc, char* argv[]) {
     }
 
     // TODO: See TD-332 in TECHNICAL_DEBT.md - the operator guide documents only 8 of these 15 commands
-    if (args.empty()) {
+    if (args.empty() || show_help) {
         std::cout << "Usage: " << argv[0] << " [--config <path>] [--kind <kind>] <command> [options]\n\n";
-        std::cout << "Global options:\n";
+        std::cout << "Global options (before the command):\n";
+        std::cout << "  --help, -h                   Show this help (also: help)\n";
         std::cout << "  --config <path>              Path to config.registry.conf\n";
         std::cout << "                               Search order: --config > "
                      "./config.registry.conf >\n";
@@ -296,6 +339,15 @@ int main(int argc, char* argv[]) {
 
     std::vector<std::string> cmd_args(args.begin() + 1, args.end());
 
+    // TD-330: these take no arguments; extra ones (e.g. a --kind after the command) were ignored.
+    if ((command == "status" || command == "list-pending" || command == "list-trained" ||
+         command == "clear-pending" || command == "models") &&
+        !cmd_args.empty()) {
+        std::cerr << "❌ `" << command << "` takes no arguments (got '" << cmd_args[0]
+                  << "'); global options go before the command\n";
+        return 1;
+    }
+
     // TD-329: one run_group for the whole invocation (migrate's source and destination included).
     if (command != "models" &&
         !resolve_run_group(svc_config, run_group_model(command, cmd_args, svc_config.model_name),
@@ -353,22 +405,23 @@ int main(int argc, char* argv[]) {
         reg.load_registry();
         reg.load_pending_list();
 
-        bool ok;
+        std::string path;
         if (!svc_config.registry_server_url.empty()) {
             std::cout << "📚 Requesting registry server download Project Gutenberg book #"
                       << book_id << "...\n";
-            ok = !reg.remote_fetch_gutenberg(book_id, num_pairs, model).empty();
+            path = reg.remote_fetch_gutenberg(book_id, num_pairs, model);
         } else {
             std::cout << "📚 Downloading Project Gutenberg book #" << book_id << "...\n";
             DataFetcher fetcher;
             // TD-328: DataFetcher's output dirs are relative, but add_file() queues them absolute.
-            std::string path = fetcher.fetch_gutenberg(book_id, num_pairs);
-            ok = !path.empty() && reg.add_file(path);
+            path = fetcher.fetch_gutenberg(book_id, num_pairs);
+            if (!path.empty() && !reg.add_file(path))
+                path.clear();
         }
 
-        if (ok) {
-            // TODO: See TD-330 in TECHNICAL_DEBT.md - reports the requested pair count, not what was written
-            std::cout << "✅ Book added to training queue (" << num_pairs << " pairs)\n";
+        if (!path.empty()) {
+            std::cout << "✅ Book added to training queue ("
+                      << pairs_text(queued_pairs(reg, path), num_pairs) << ")\n";
             std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
         } else {
             std::cerr << "❌ Failed to add Gutenberg book\n";
@@ -391,13 +444,14 @@ int main(int argc, char* argv[]) {
         reg.load_registry();
         reg.load_pending_list();
 
-        int added = 0;
+        std::vector<std::string> added_paths;
         if (!svc_config.registry_server_url.empty()) {
             std::cout << "📚 Requesting registry server download " << book_ids.size()
                       << " Project Gutenberg books...\n";
             for (int book_id : book_ids) {
-                if (!reg.remote_fetch_gutenberg(book_id, num_pairs_each, model).empty())
-                    ++added;
+                const std::string p = reg.remote_fetch_gutenberg(book_id, num_pairs_each, model);
+                if (!p.empty())
+                    added_paths.push_back(p);
             }
         } else {
             std::cout << "📚 Downloading " << book_ids.size() << " Project Gutenberg books...\n";
@@ -405,12 +459,19 @@ int main(int argc, char* argv[]) {
             auto paths = fetcher.fetch_gutenberg_batch(book_ids, num_pairs_each);
             for (const auto& p : paths) {
                 if (!p.empty() && reg.add_file(p))
-                    ++added;
+                    added_paths.push_back(p);
             }
         }
+        const int added = static_cast<int>(added_paths.size());
         if (added > 0) {
+            int total = 0;  // TD-330: pairs actually queued
+            for (const auto& p : added_paths) {
+                const int n = queued_pairs(reg, p);
+                total = (n < 0 || total < 0) ? -1 : total + n;
+            }
             std::cout << "✅ " << added << "/" << book_ids.size()
-                      << " books added to training queue\n";
+                      << " books added to training queue ("
+                      << pairs_text(total, num_pairs_each * added) << ")\n";
             std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
         } else {
             std::cerr << "❌ Failed to add Gutenberg books\n";
@@ -445,22 +506,23 @@ int main(int argc, char* argv[]) {
         reg.load_registry();
         reg.load_pending_list();
 
-        bool ok;
+        std::string path;
         if (!svc_config.registry_server_url.empty()) {
             std::cout << "🤖 Requesting registry server download HuggingFace dataset '"
                       << dataset_id << "'...\n";
-            ok = !reg.remote_fetch_huggingface(dataset_id, num_pairs, split, input_field,
-                                               output_field, model)
-                      .empty();
+            path = reg.remote_fetch_huggingface(dataset_id, num_pairs, split, input_field,
+                                                output_field, model);
         } else {
             DataFetcher fetcher;
-            std::string path =
+            path =
                 fetcher.fetch_huggingface(dataset_id, num_pairs, split, input_field, output_field);
-            ok = !path.empty() && reg.add_file(path);
+            if (!path.empty() && !reg.add_file(path))
+                path.clear();
         }
 
-        if (ok) {
-            std::cout << "✅ Dataset added to training queue (" << num_pairs << " pairs)\n";
+        if (!path.empty()) {
+            std::cout << "✅ Dataset added to training queue ("
+                      << pairs_text(queued_pairs(reg, path), num_pairs) << ")\n";
             std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
         } else {
             std::cerr << "❌ Failed to add HuggingFace dataset\n";
@@ -1022,10 +1084,11 @@ int main(int argc, char* argv[]) {
 
     } else if (command == "models") {
 #ifdef BUILD_MNS_SERVER
-        std::string mns_url = svc_config.name_service_url;
+        const std::string mns_url = svc_config.name_service_url;
         if (mns_url.empty()) {
-            // TODO: See TD-330 in TECHNICAL_DEBT.md - silent localhost fallback (assign skips MNS when unset)
-            mns_url = "http://localhost:8083";
+            // TD-330: it used to try http://localhost:8083 silently.
+            std::cerr << "❌ NAME_SERVICE_URL is not set; `models` lists the name service's models\n";
+            return 1;
         }
         try {
             // TD-069 (fixed): this used to compute host/port from mns_url and

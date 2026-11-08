@@ -602,6 +602,41 @@ TEST_F(RegistryFtpConfinementTest, AssignRefusesNegativeCount) {
 namespace {
 // Runs dataset_manager with @p args (output discarded) and returns its exit status, -1 if it
 // didn't exit normally.
+// Like run_dataset_manager(), but returns stdout and stderr together in @p output.
+int run_dataset_manager_output(const std::vector<std::string>& args, std::string& output) {
+    int pipe_fds[2];
+    if (::pipe(pipe_fds) != 0)
+        return -1;
+    std::vector<std::string> argv_store = {DATASET_MANAGER_BINARY_PATH};
+    argv_store.insert(argv_store.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    for (auto& a : argv_store)
+        argv.push_back(a.data());
+    argv.push_back(nullptr);
+    const pid_t pid = ::fork();
+    if (pid < 0)
+        return -1;
+    if (pid == 0) {
+        ::dup2(pipe_fds[1], STDOUT_FILENO);
+        ::dup2(pipe_fds[1], STDERR_FILENO);
+        ::close(pipe_fds[0]);
+        ::close(pipe_fds[1]);
+        ::execv(argv[0], argv.data());
+        ::_exit(127);
+    }
+    ::close(pipe_fds[1]);
+    output.clear();
+    char buf[4096];
+    long n;
+    while ((n = ::read(pipe_fds[0], buf, sizeof(buf))) > 0)
+        output.append(buf, static_cast<size_t>(n));
+    ::close(pipe_fds[0]);
+    int status = 0;
+    if (::waitpid(pid, &status, 0) != pid || !WIFEXITED(status))
+        return -1;
+    return WEXITSTATUS(status);
+}
+
 int run_dataset_manager(const std::vector<std::string>& args, const std::string& cwd = "") {
     std::vector<std::string> argv_store = {DATASET_MANAGER_BINARY_PATH};
     argv_store.insert(argv_store.end(), args.begin(), args.end());
@@ -908,5 +943,68 @@ TEST_F(RegistryFtpConfinementTest, DatasetManagerQueuesLocalFilesAbsolute) {
     pending.clear();
     ASSERT_TRUE(local.load_pending(pending));
     EXPECT_TRUE(pending.empty());
+}
+// TD-330: global options were taken from anywhere in argv (a value-less trailing one became an
+// argument), commands without arguments ignored extra ones, and there was no --help.
+TEST_F(RegistryFtpConfinementTest, DatasetManagerGlobalOptionsAndHelp) {
+    if (!fs::exists(DATASET_MANAGER_BINARY_PATH))
+        GTEST_SKIP() << "dataset_manager not built";
+    const fs::path config = scratch_root_ / "td330.conf";
+    std::ofstream(config) << "REGISTRY_SERVER_URL=\nNAME_SERVICE_URL=\nSESSION_DIR="
+                          << (scratch_root_ / "td330-sessions").string() << "\n";
+    std::string out;
+    EXPECT_EQ(run_dataset_manager_output({"--help"}, out), 0);
+    EXPECT_NE(out.find("Usage:"), std::string::npos) << out;
+    EXPECT_EQ(run_dataset_manager_output({"help"}, out), 0);
+    EXPECT_NE(out.find("Usage:"), std::string::npos) << out;
+    EXPECT_EQ(run_dataset_manager_output({"--config", config.string(), "status", "--kind",
+                                          "chatbot"},
+                                         out),
+              1);
+    EXPECT_NE(out.find("takes no arguments"), std::string::npos) << out;
+    EXPECT_EQ(run_dataset_manager_output({"--config"}, out), 1);
+    EXPECT_NE(out.find("Missing value for --config"), std::string::npos) << out;
+    EXPECT_EQ(run_dataset_manager_output({"--konfig", config.string(), "status"}, out), 1);
+    EXPECT_NE(out.find("Unknown option --konfig"), std::string::npos) << out;
+    // `models` used to try http://localhost:8083 when NAME_SERVICE_URL was unset.
+    EXPECT_EQ(run_dataset_manager_output({"--config", config.string(), "models"}, out), 1);
+    EXPECT_NE(out.find("NAME_SERVICE_URL is not set"), std::string::npos) << out;
+}
+
+// TD-330: the success line repeated the requested pair count. A cached dataset of 20 rows asked for 50
+// pairs queues fewer (the server's slice wraps to the start once: 40), and that is what is reported
+// now, matching the queue entry.
+TEST_F(RegistryFtpConfinementTest, DatasetManagerReportsThePairsActuallyQueued) {
+    if (!fs::exists(DATASET_MANAGER_BINARY_PATH))
+        GTEST_SKIP() << "dataset_manager not built";
+    const fs::path cache = data_dir_ / "td330" / "datasets" / "org_small_train";
+    fs::create_directories(cache);
+    {
+        std::ofstream f(cache / "full_dataset.jsonl");
+        for (int i = 0; i < 20; ++i)
+            f << R"({"input":"question )" << i << R"(","output":"answer )" << i << "\"}\n";
+    }
+    std::ofstream(cache / "full_dataset.complete") << "seeded\n";
+    const fs::path config = scratch_root_ / "td330-remote.conf";
+    std::ofstream(config) << "REGISTRY_SERVER_URL=http://127.0.0.1:" << http_port_
+                          << "\nRUN_GROUP=td330\nNAME_SERVICE_URL=\nSESSION_DIR="
+                          << (scratch_root_ / "sessions").string() << "\n";
+    std::string out;
+    ASSERT_EQ(run_dataset_manager_output({"--config", config.string(), "huggingface", "org/small",
+                                          "50", "--input-field", "input", "--output-field",
+                                          "output"},
+                                         out),
+              0)
+        << out;
+    std::vector<PendingEntry> pending;
+    ASSERT_TRUE(RemoteTransport("http://127.0.0.1:" + std::to_string(http_port_), "td330")
+                    .load_pending(pending));
+    ASSERT_EQ(pending.size(), 1u);
+    const int queued = pending[0].num_entries;
+    EXPECT_GT(queued, 0);
+    EXPECT_LT(queued, 50);
+    EXPECT_NE(out.find("(" + std::to_string(queued) + " pairs of 50 requested)"),
+              std::string::npos)
+        << out;
 }
 #endif

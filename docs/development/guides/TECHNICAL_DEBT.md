@@ -1527,6 +1527,8 @@ The generation and model math run is complete.
   `huggingface` gains `--split`/`--input-field`/`--output-field`/`--model`, and extra arguments are errors).
 - TD-328 (done in code: local entries are queued absolute; a relative file target in local mode finds them, and older relative entries
   still match as written).
+- TD-330 (done in code: fetches report the pairs actually queued; `models` needs `NAME_SERVICE_URL`; `--help`; global options only before
+  the command, with values; argument-less commands refuse arguments).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -9162,7 +9164,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / dataset_manager CLI | October 11, 2026 | 1 hour |
+| LOW | Open — code fix landed November 7, 2026 | Data / dataset_manager CLI | October 11, 2026 | 1 hour |
 
 Description:
 Found alongside TD-326, by inspection:
@@ -9176,9 +9178,24 @@ Found alongside TD-326, by inspection:
 
 Action Items:
 
-- [ ] Report actual pair counts; make `models` require `NAME_SERVICE_URL`; add `--help`; only parse global flags before the command and require their values.
+- [x] Report actual pair counts; make `models` require `NAME_SERVICE_URL`; add `--help`; only parse global flags before the command and require their values.
 
-Location in code: `src/DatasetManagerTool.cpp` (global flag loop, `models`); tagged `TODO: See TD-330`.
+Fix (November 7, 2026):
+- **Pair counts.** `gutenberg`, `gutenberg-batch` and `huggingface` report the pairs actually queued, read back from the queue entry's
+  `num_entries` (where `registry_server` records a fetch's `pairs_written`) or counted in the local file (`queued_pairs()`), e.g.
+  `(40 pairs of 50 requested)` when a dataset is smaller than the request; the requested number is shown only when it wasn't reached.
+- **`models`** exits 1 with `NAME_SERVICE_URL is not set` instead of trying `http://localhost:8083`. (`assign` still skips the MNS check
+  without it; that is the documented standalone behaviour.)
+- **Help.** `--help`, `-h` and `help` print the usage and exit 0.
+- **Global options** are read only before the command, each needing its value (`Missing value for --config`); an unknown option before
+  the command is an error. A command's own arguments are no longer searched for `--config`/`--kind`, and `status`, `list-pending`,
+  `list-trained`, `clear-pending` and `models` refuse arguments, so a `--kind` placed after one of them is reported instead of ignored.
+
+Tests (`registry_ftp_confinement_test.cpp`, the real binary): `DatasetManagerGlobalOptionsAndHelp` (help, a `--kind` after `status`, a
+value-less `--config`, an unknown global option, `models` without `NAME_SERVICE_URL`) and `DatasetManagerReportsThePairsActuallyQueued`
+(a seeded 20-row HuggingFace cache asked for 50 pairs: the line names the count in the queue entry). Both fail on the old binary.
+
+Location in code: `src/DatasetManagerTool.cpp` (global option loop, `queued_pairs()`, `pairs_text()`, the fetch commands, `models`).
 
 Files to Modify:
 

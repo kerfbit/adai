@@ -146,7 +146,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `remove` reports success (exit 0) against `registry_server` while nothing changes (§4) | Operators believe data was removed when it will still train (**fixed in code November 7, 2026**) | **Verified** | [TD-327](../../guides/TECHNICAL_DEBT.md#td-327-dataset_manager-remove-reports-success-in-remote-mode-without-removing-anything) |
 | Local `add`/fetches store relative paths (§4) | Trainer with a different working directory can't find queued files (**fixed in code November 7, 2026**) | **Verified** | [TD-328](../../guides/TECHNICAL_DEBT.md#td-328-dataset_manager-stores-relative-paths-in-the-local-pool) |
 | Only `assign` adopts the MNS `run_group`; other commands use the config's (§4) | Commands operate on different groups for the same model (**fixed in code November 7, 2026**) | By inspection | [TD-329](../../guides/TECHNICAL_DEBT.md#td-329-dataset_manager-uses-the-mns-run_group-only-in-assign) |
-| `unassign` exit status, requested-not-actual pair counts, `models` localhost fallback, no `--help`, global flags stripped anywhere (§2, §4) | Misleading output and exit codes | By inspection | [TD-330](../../guides/TECHNICAL_DEBT.md#td-330-dataset_manager-output-exit-code-and-flag-hygiene) |
+| `unassign` exit status, requested-not-actual pair counts, `models` localhost fallback, no `--help`, global flags stripped anywhere (§2, §4) | Misleading output and exit codes (**fixed in code November 7, 2026**, except `unassign`'s exit status) | By inspection | [TD-330](../../guides/TECHNICAL_DEBT.md#td-330-dataset_manager-output-exit-code-and-flag-hygiene) |
 | No tests for command composition (§5) | Bugs above went unnoticed | By inspection | [TD-331](../../guides/TECHNICAL_DEBT.md#td-331-dataset_manager-has-no-tests-for-its-commands) |
 | Operator guide covers 8 of 15 commands (§6) | Pool-changing commands undocumented for operators | By inspection | [TD-332](../../guides/TECHNICAL_DEBT.md#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands) |
 | `segment` kept a queued whole-file entry beside its segments (§3) | Every pair trained twice | **Fixed October 19, 2026** (owner decision: replace) | [TD-542](../../guides/TECHNICAL_DEBT.md#td-542-dataset_manager-segment-keeps-a-queued-whole-file-entry-so-its-pairs-train-twice) |
@@ -204,3 +204,11 @@ In local mode every queued path is absolute and normalized (`DatasetRegistry::ad
 normalizes its path), so a trainer with another working directory finds the files. A relative file target of `remove`, `assign`,
 `unassign`, `delete`, `requeue`, `migrate` or `segment` is made absolute the same way (`local_target()`), unless that exact string is
 already queued or trained, which keeps entries queued relative before this fix reachable. Remote paths are untouched.
+
+## Addendum (November 7, 2026): output and global options (TD-330)
+
+Fetch commands report the pairs actually queued (`queued_pairs()`: the queue entry's `num_entries`, which `registry_server` sets from a
+fetch's `pairs_written`, or a local count), naming the requested number only when it wasn't reached. `models` needs `NAME_SERVICE_URL`
+(no `localhost:8083` fallback). `--help`, `-h` and `help` print the usage. `--config` and `--kind` are read only before the command and
+need values; an unknown option there is an error, and `status`, `list-pending`, `list-trained`, `clear-pending` and `models` refuse
+arguments. `unassign`'s exit status (0 when every match was skipped as claimed) is unchanged; TD-330's action items didn't cover it.
