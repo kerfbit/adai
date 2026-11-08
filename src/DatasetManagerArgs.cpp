@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.7.0
+// @adai-version: 0.8.0
 // @adai-reviewed: 2026-11-07
 
 // Calling convention note: every parse_*_args() here takes the command's OWN argument slice —
@@ -9,6 +9,9 @@
 
 #include "DatasetManagerArgs.hpp"
 #include "Config.hpp"  // is_dataset_kind() (TD-402)
+#include <algorithm>
+#include <climits>
+#include <cstdint>
 #include <sstream>
 
 namespace adai {
@@ -66,9 +69,9 @@ T missing_value(const char* flag, const char* usage) {
 }
 }  // namespace
 
-// TODO: See TD-325 in TECHNICAL_DEBT.md - extra arguments silently ignored
 AddArgs parse_add_args(const std::vector<std::string>& args) {
-    if (args.empty())
+    // TD-325: one file; a second argument used to be ignored.
+    if (args.size() != 1)
         return make_error<AddArgs>("Usage: dataset_manager add <data_file>");
     AddArgs r;
     r.data_file = args[0];
@@ -76,7 +79,7 @@ AddArgs parse_add_args(const std::vector<std::string>& args) {
 }
 
 GutenbergArgs parse_gutenberg_args(const std::vector<std::string>& args) {
-    if (args.empty()) {
+    if (args.empty() || args.size() > 3) {  // TD-325: extra arguments used to be ignored
         return make_error<GutenbergArgs>(
             "Usage: dataset_manager gutenberg <book_id> [num_pairs] [model]");
     }
@@ -95,7 +98,7 @@ GutenbergArgs parse_gutenberg_args(const std::vector<std::string>& args) {
 }
 
 GutenbergBatchArgs parse_gutenberg_batch_args(const std::vector<std::string>& args) {
-    if (args.empty()) {
+    if (args.empty() || args.size() > 3) {  // TD-325
         return make_error<GutenbergBatchArgs>(
             "Usage: dataset_manager gutenberg-batch <id1,id2,id3,...> [num_pairs_each] [model]");
     }
@@ -119,32 +122,73 @@ GutenbergBatchArgs parse_gutenberg_batch_args(const std::vector<std::string>& ar
     return r;
 }
 
-// TODO: See TD-325 in TECHNICAL_DEBT.md - purely positional optionals shift silently (e.g. model lands in split)
+// TD-325: the optional fields can be named (--split, --input-field, --output-field, --model), so
+// giving a model no longer means giving every field before it: `huggingface ds 500 my-model` used to
+// set split = "my-model" silently. The positional form still works; a field given both ways, an
+// extra positional argument or an unknown option is an error.
 HuggingfaceArgs parse_huggingface_args(const std::vector<std::string>& args) {
-    if (args.empty()) {
-        return make_error<HuggingfaceArgs>(
-            "Usage: dataset_manager huggingface <dataset_id> [num_pairs] [split] [input_field] "
-            "[output_field] [model]");
+    static const char* usage =
+        "Usage: dataset_manager huggingface <dataset_id> [num_pairs] [split] [input_field] "
+        "[output_field] [model]\n"
+        "   or: dataset_manager huggingface <dataset_id> [num_pairs] [--split S] "
+        "[--input-field F] [--output-field F] [--model M]";
+    std::vector<std::string> positional;
+    struct Named {
+        const char* flag;
+        std::string value;
+        bool given = false;
+    };
+    Named named[] = {{"--split"}, {"--input-field"}, {"--output-field"}, {"--model"}};
+    bool options = true;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        if (options && args[i] == "--") {
+            options = false;
+            continue;
+        }
+        if (options && looks_like_option(args[i])) {
+            Named* hit = nullptr;
+            for (auto& n : named)
+                if (args[i] == n.flag)
+                    hit = &n;
+            if (!hit)
+                return unknown_option<HuggingfaceArgs>(args[i], usage);
+            if (i + 1 >= args.size())
+                return missing_value<HuggingfaceArgs>(hit->flag, usage);
+            if (hit->given)
+                return make_error<HuggingfaceArgs>(std::string(hit->flag) + " given twice");
+            hit->value = args[++i];
+            hit->given = true;
+            continue;
+        }
+        positional.push_back(args[i]);
     }
+    if (positional.empty() || positional.size() > 6)
+        return make_error<HuggingfaceArgs>(usage);
+
     HuggingfaceArgs r;
-    r.dataset_id = args[0];
-    if (args.size() >= 2 && !parse_positive(args[1], r.num_pairs)) {
-        return make_error<HuggingfaceArgs>("Invalid num_pairs '" + args[1] +
+    r.dataset_id = positional[0];
+    if (positional.size() >= 2 && !parse_positive(positional[1], r.num_pairs)) {
+        return make_error<HuggingfaceArgs>("Invalid num_pairs '" + positional[1] +
                                            "': it must be a whole number of at least 1");
     }
-    if (args.size() >= 3)
-        r.split = args[2];
-    if (args.size() >= 4)
-        r.input_field = args[3];
-    if (args.size() >= 5)
-        r.output_field = args[4];
-    if (args.size() >= 6)
-        r.model = args[5];
+    std::string* fields[] = {&r.split, &r.input_field, &r.output_field, &r.model};
+    for (std::size_t k = 0; k < 4; ++k) {
+        const bool by_position = positional.size() >= k + 3;
+        if (by_position && named[k].given) {
+            return make_error<HuggingfaceArgs>(std::string(named[k].flag) +
+                                               " is also given by position ('" +
+                                               positional[k + 2] + "')");
+        }
+        if (by_position)
+            *fields[k] = positional[k + 2];
+        else if (named[k].given)
+            *fields[k] = named[k].value;
+    }
     return r;
 }
 
 RemoveArgs parse_remove_args(const std::vector<std::string>& args) {
-    if (args.empty())
+    if (args.size() != 1)  // TD-325
         return make_error<RemoveArgs>("Usage: dataset_manager remove <data_file>");
     RemoveArgs r;
     r.target = args[0];
@@ -305,6 +349,11 @@ SegmentArgs parse_segment_args(const std::vector<std::string>& args) {
                 return make_error<SegmentArgs>(args[i] + " needs a value");
             }
         }
+        // TD-324: each at most once; a second --ranges used to add its ranges to the first's.
+        if ((args[i] == "--count" && r.split_count > 0) ||
+            (args[i] == "--ranges" && !r.ranges.empty())) {
+            return make_error<SegmentArgs>(args[i] + " given twice");
+        }
         if (args[i] == "--count") {
             if (!parse_positive(args[++i], r.split_count)) {  // TD-323
                 return make_error<SegmentArgs>("Invalid --count value '" + args[i] +
@@ -333,8 +382,13 @@ SegmentArgs parse_segment_args(const std::vector<std::string>& args) {
                     return make_error<SegmentArgs>("Invalid --ranges token (need 0 <= A <= B): " +
                                                    token);
                 }
-                // TODO: See TD-324 in TECHNICAL_DEBT.md - b - a + 1 overflows near INT_MAX; overlapping/duplicate ranges accepted
-                r.ranges.push_back({*a, *b - *a + 1});
+                // TD-324: in 64 bits; 0-2147483647 overflowed int to a -2147483648-pair segment.
+                const std::int64_t count = static_cast<std::int64_t>(*b) - *a + 1;
+                if (count > INT_MAX) {
+                    return make_error<SegmentArgs>("Invalid --ranges token (too many pairs): " +
+                                                   token);
+                }
+                r.ranges.push_back({*a, static_cast<int>(count)});
             }
         } else {
             return make_error<SegmentArgs>("Unrecognized argument: " + args[i]);
@@ -343,9 +397,23 @@ SegmentArgs parse_segment_args(const std::vector<std::string>& args) {
     if (r.split_count <= 0 && r.ranges.empty()) {
         return make_error<SegmentArgs>("Either --count N or --ranges A-B,... is required");
     }
-    // TODO: See TD-324 in TECHNICAL_DEBT.md - a non-positive --count alongside --ranges is silently ignored
+    // --count can't be below 1 since TD-323, so this also catches `--count -5 --ranges …` (TD-324).
     if (r.split_count > 0 && !r.ranges.empty()) {
         return make_error<SegmentArgs>("--count and --ranges are mutually exclusive");
+    }
+    // TD-324: overlapping or repeated ranges would queue, and train, the same pairs twice.
+    std::vector<SegmentRange> sorted = r.ranges;
+    std::sort(sorted.begin(), sorted.end(),
+              [](const SegmentRange& x, const SegmentRange& y) { return x.start < y.start; });
+    for (std::size_t k = 1; k < sorted.size(); ++k) {
+        const std::int64_t prev_end =
+            static_cast<std::int64_t>(sorted[k - 1].start) + sorted[k - 1].count;
+        if (sorted[k].start < prev_end) {
+            return make_error<SegmentArgs>(
+                "Overlapping --ranges: " + std::to_string(sorted[k - 1].start) + "-" +
+                std::to_string(prev_end - 1) + " and " + std::to_string(sorted[k].start) + "-" +
+                std::to_string(static_cast<std::int64_t>(sorted[k].start) + sorted[k].count - 1));
+        }
     }
     return r;
 }

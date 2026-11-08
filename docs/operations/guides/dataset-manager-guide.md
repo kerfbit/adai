@@ -223,8 +223,13 @@ Books are downloaded sequentially. If a single book fails, the others still proc
 Download a HuggingFace dataset, convert it to training pairs, and queue it.
 
 ```bash
-./build/bin/dataset_manager huggingface <dataset_id> [num_pairs] [split] [input_field] [output_field]
+./build/bin/dataset_manager huggingface <dataset_id> [num_pairs] [split] [input_field] [output_field] [model]
+./build/bin/dataset_manager huggingface <dataset_id> [num_pairs] [--split S] [--input-field F] [--output-field F] [--model M]
 ```
+
+Since November 7, 2026 (TD-325) the optional fields can be named, in any order, so `huggingface ds 500 --model chat-v2` no longer needs
+the split and field names before it (positionally, `ds 500 chat-v2` would set the split to `chat-v2`). A field given both ways, an unknown
+option or an extra argument is an error.
 
 **Arguments:**
 
@@ -349,7 +354,8 @@ Split a JSONL file's pairs into separately assignable pending entries, either N 
 ./build/bin/dataset_manager segment data/chat.jsonl --ranges 0-999,1000-1999
 ```
 
-The segments replace an unclaimed whole-file entry of the same path and take its model. With `REGISTRY_SERVER_URL` set (since November 7,
+Ranges may not overlap, and every range must end at or before the file's last pair (TD-324). The segments replace an unclaimed whole-file
+entry of the same path and take its model. With `REGISTRY_SERVER_URL` set (since November 7,
 2026, TD-543), `<path>` is either a file already queued on the server, given as `list-pending` shows it, which is split by the pair count the
 server recorded, or a local file, which is uploaded first (as `add` does) and its server path segmented. Any other path is refused.
 

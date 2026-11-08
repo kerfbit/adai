@@ -408,3 +408,57 @@ TEST(DatasetManagerArgsNumbers, WholePositiveNumbersStillParse) {
     ASSERT_FALSE(s.error) << s.error_message;
     EXPECT_EQ(s.ranges.size(), 2u);
 }
+
+// TD-324: --ranges 0-2147483647 overflowed int (a -2147483648-pair segment), overlapping or repeated
+// ranges queued the same pairs twice, and a repeated --ranges added to the first.
+TEST(ParseSegmentArgs, RangeValidationGaps) {
+    EXPECT_TRUE(parse_segment_args({"f.jsonl", "--ranges", "0-2147483647"}).error);
+    const auto big = parse_segment_args({"f.jsonl", "--ranges", "1-2147483647"});
+    ASSERT_FALSE(big.error) << big.error_message;  // exactly INT_MAX pairs still fits
+    EXPECT_EQ(big.ranges[0].count, 2147483647);
+    EXPECT_TRUE(parse_segment_args({"f.jsonl", "--ranges", "0-9,5-14"}).error);
+    EXPECT_TRUE(parse_segment_args({"f.jsonl", "--ranges", "0-9,0-9"}).error);
+    EXPECT_TRUE(parse_segment_args({"f.jsonl", "--ranges", "10-19,0-10"}).error) << "unsorted";
+    EXPECT_TRUE(parse_segment_args({"f.jsonl", "--ranges", "0-9", "--ranges", "10-19"}).error);
+    EXPECT_TRUE(parse_segment_args({"f.jsonl", "--count", "2", "--count", "3"}).error);
+    EXPECT_TRUE(parse_segment_args({"f.jsonl", "--count", "-5", "--ranges", "0-1"}).error);
+    const auto ok = parse_segment_args({"f.jsonl", "--ranges", "10-19,0-9"});
+    ASSERT_FALSE(ok.error) << ok.error_message;  // adjacent, any order
+    EXPECT_EQ(ok.ranges.size(), 2u);
+}
+
+// TD-325: `huggingface ds 500 my-model` silently set split = "my-model"; extra arguments to add,
+// remove and gutenberg were ignored.
+TEST(ParseHuggingfaceArgs, NamedFieldsDontNeedTheOnesBeforeThem) {
+    const auto r = parse_huggingface_args({"ds", "500", "--model", "my-model"});
+    ASSERT_FALSE(r.error) << r.error_message;
+    EXPECT_EQ(r.model, "my-model");
+    EXPECT_EQ(r.split, "train");
+    const auto all = parse_huggingface_args({"tatsu-lab/alpaca", "--input-field", "instruction",
+                                             "--output-field", "output", "--split", "test"});
+    ASSERT_FALSE(all.error) << all.error_message;
+    EXPECT_EQ(all.num_pairs, 500);
+    EXPECT_EQ(all.split, "test");
+    EXPECT_EQ(all.input_field, "instruction");
+    EXPECT_EQ(all.output_field, "output");
+    const auto mixed = parse_huggingface_args({"ds", "10", "validation", "--model", "m"});
+    ASSERT_FALSE(mixed.error) << mixed.error_message;
+    EXPECT_EQ(mixed.split, "validation");
+    EXPECT_EQ(mixed.model, "m");
+}
+
+TEST(ParseHuggingfaceArgs, ConflictsExtrasAndUnknownOptionsAreErrors) {
+    EXPECT_TRUE(parse_huggingface_args({"ds", "10", "train", "--split", "test"}).error);
+    EXPECT_TRUE(parse_huggingface_args({"ds", "--split", "a", "--split", "b"}).error);
+    EXPECT_TRUE(parse_huggingface_args({"ds", "--model"}).error);
+    EXPECT_TRUE(parse_huggingface_args({"ds", "--modle", "m"}).error);
+    EXPECT_TRUE(parse_huggingface_args({"ds", "1", "s", "i", "o", "m", "extra"}).error);
+    EXPECT_TRUE(parse_huggingface_args({"--model", "m"}).error) << "no dataset_id";
+}
+
+TEST(DatasetManagerArgsExtras, ExtraArgumentsAreErrors) {
+    EXPECT_TRUE(parse_add_args({"a.jsonl", "b.jsonl"}).error);
+    EXPECT_TRUE(parse_remove_args({"a.jsonl", "b.jsonl"}).error);
+    EXPECT_TRUE(parse_gutenberg_args({"1342", "10", "m", "extra"}).error);
+    EXPECT_TRUE(parse_gutenberg_batch_args({"1342,11", "10", "m", "extra"}).error);
+}

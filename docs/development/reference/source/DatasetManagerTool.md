@@ -110,7 +110,7 @@ By inspection:
 - **Parsing.** `--config`/`--kind` are stripped from anywhere in argv, so they can't be used as
   file names, and a value-less trailing one becomes an argument. There's no `--help`. Parser-level
   issues are TD-321–325.
-- **`segment` ranges** aren't checked against the counted pairs (TD-324).
+- **`segment` ranges** aren't checked against the counted pairs (TD-324; **fixed November 7, 2026**: a range past the last pair is refused).
 
 ---
 

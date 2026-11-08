@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.6.0
+// @adai-version: 1.7.0
 // @adai-reviewed: 2026-11-07
 
 #include <algorithm>
@@ -186,6 +186,9 @@ int main(int argc, char* argv[]) {
                      "(default: 500 pairs)\n";
         std::cout << "  gutenberg-batch <id1,id2...> [pairs] [model]  Download multiple books\n";
         std::cout << "  huggingface <id> [pairs] [split] [in_field] [out_field] [model]\n";
+        std::cout << "                               or name them: --split S --input-field F "
+                     "--output-field F\n";
+        std::cout << "                               --model M (any subset, in any order)\n";
         std::cout << "                               Download a HuggingFace dataset (default: 500 "
                      "pairs, train split).\n";
         std::cout << "                               [model] (remote mode only) rotates through a "
@@ -914,8 +917,15 @@ int main(int argc, char* argv[]) {
                 start += count;
             }
         } else {
-            // TODO: See TD-324 in TECHNICAL_DEBT.md - explicit ranges are not checked against total_pairs
+            // TD-324: every range must lie inside the file; one past the end used to be queued, and
+            // its pass loaded fewer pairs than it named (or none, and failed).
             for (const auto& r : parsed.ranges) {
+                if (static_cast<long long>(r.start) + r.count > total_pairs) {
+                    std::cerr << "❌ Range " << r.start << "-" << (r.start + r.count - 1)
+                              << " goes past the file's last pair (" << (total_pairs - 1)
+                              << "); nothing was queued\n";
+                    return 1;
+                }
                 ranges.emplace_back(r.start, r.count);
             }
         }

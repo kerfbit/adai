@@ -1523,6 +1523,8 @@ The generation and model math run is complete.
   and 300 s after, 1,024-byte command lines; connection threads tracked, and `stop()` wakes and joins them, data transfers included).
 - TD-322, TD-323 (done in code: `dataset_manager` refuses unknown options and a value-less `--count` instead of treating them as files, `--`
   ends options; every number is a whole positive number, no more `std::stoi` prefixes).
+- TD-324, TD-325 (done in code: `segment` ranges sized in 64 bits, overlaps and repeated flags refused, ranges past the file's end refused;
+  `huggingface` gains `--split`/`--input-field`/`--output-field`/`--model`, and extra arguments are errors).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -8893,7 +8895,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / dataset_manager CLI | October 11, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 7, 2026 | Data / dataset_manager CLI | October 11, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-321. Confirmed by running the parser:
@@ -8909,10 +8911,19 @@ ranges against it, so a range past the end is queued.
 
 Action Items:
 
-- [ ] Compute the count in 64-bit (or reject `B` near `INT_MAX`); reject overlapping/duplicate ranges and repeated `--ranges`; reject `--count` < 1.
-- [ ] In `DatasetManagerTool.cpp`, reject ranges that extend past `count_pairs()`.
+- [x] Compute the count in 64-bit (or reject `B` near `INT_MAX`); reject overlapping/duplicate ranges and repeated `--ranges`; reject `--count` < 1.
+- [x] In `DatasetManagerTool.cpp`, reject ranges that extend past `count_pairs()`.
 
-Location in code: `src/DatasetManagerArgs.cpp` (`parse_segment_args()`), `src/DatasetManagerTool.cpp` (`segment`); tagged `TODO: See TD-324`.
+Fix (November 7, 2026): `parse_segment_args()` computes each range's size in 64 bits and refuses one over `INT_MAX` pairs (`0-2147483647`;
+`1-2147483647` still fits), refuses overlapping or repeated ranges in any order (adjacent ones are fine), and refuses a second `--ranges`
+or `--count`. `--count` below 1 is already an error since TD-323, so `--count -5 --ranges 0-1` now hits the exclusivity check. `segment`
+refuses, before queuing anything, a range that ends past the file's last pair (counted locally, or the server's count since TD-543).
+
+Tests: `ParseSegmentArgs.RangeValidationGaps` (fails on the old parser). Checked by hand on a 5-pair file: the old binary queued
+`--ranges 0-1,3-9` (a `[3, 10)` segment) and exited 0; the new one exits 1 with "Range 3-9 goes past the file's last pair (4)" and queues
+nothing.
+
+Location in code: `src/DatasetManagerArgs.cpp` (`parse_segment_args()`), `src/DatasetManagerTool.cpp` (`segment`).
 
 Files to Modify:
 
@@ -8926,7 +8937,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / dataset_manager CLI | October 11, 2026 | 1 hour |
+| LOW | Open — code fix landed November 7, 2026 | Data / dataset_manager CLI | October 11, 2026 | 1 hour |
 
 Description:
 Found alongside TD-321, by inspection. `huggingface <dataset_id> [num_pairs] [split]
@@ -8936,9 +8947,18 @@ argument before it, and `huggingface ds 500 my-model` silently sets `split = "my
 
 Action Items:
 
-- [ ] Add named flags (`--split`, `--input-field`, `--output-field`, `--model`), keeping the positional form for compatibility; reject unexpected extra arguments.
+- [x] Add named flags (`--split`, `--input-field`, `--output-field`, `--model`), keeping the positional form for compatibility; reject unexpected extra arguments.
 
-Location in code: `src/DatasetManagerArgs.cpp` (`parse_huggingface_args()`, `parse_add_args()`, `parse_remove_args()`, `parse_gutenberg_args()`); tagged `TODO: See TD-325`.
+Fix (November 7, 2026): `huggingface` takes `--split`, `--input-field`, `--output-field` and `--model` in any order, so
+`huggingface ds 500 --model my-model` keeps `split = train`. The positional form still works and can be mixed with the flags; a field given
+both ways, a repeated flag, a flag with no value, an unknown option and a seventh positional argument are errors. `add` and `remove` take
+exactly one file, and `gutenberg` and `gutenberg-batch` at most three arguments. The usage text shows the flags.
+
+Tests: `ParseHuggingfaceArgs.NamedFieldsDontNeedTheOnesBeforeThem`, `ConflictsExtrasAndUnknownOptionsAreErrors`,
+`DatasetManagerArgsExtras.ExtraArgumentsAreErrors`; all fail on the old parser.
+
+Location in code: `src/DatasetManagerArgs.cpp` (`parse_huggingface_args()`, `parse_add_args()`, `parse_remove_args()`,
+`parse_gutenberg_args()`, `parse_gutenberg_batch_args()`), `src/DatasetManagerTool.cpp` (usage text).
 
 Files to Modify:
 

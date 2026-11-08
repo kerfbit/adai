@@ -139,8 +139,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | `--count` ≤ 0 (including typos like `-2`) means "all" for `assign` and `migrate` (§4) | One mistyped value assigns or migrates the entire pending pool (**fixed in code November 5, 2026**) | **Verified** | [TD-321](../../guides/TECHNICAL_DEBT.md#td-321-dataset_manager-treats---count--0-as-all) |
 | Unknown flags, typo'd flags and value-less `--count` become file targets (§4) | Operations silently differ from intent (e.g. `--delete-file` keeps files) (**fixed in code November 7, 2026**) | **Verified** | [TD-322](../../guides/TECHNICAL_DEBT.md#td-322-dataset_manager-treats-unknown-flags-as-file-targets) |
 | `std::stoi` accepts partial numbers; negative/zero IDs and pair counts accepted (§4) | Wrong values pass validation; errors surface late or not at all (**fixed in code November 7, 2026**) | **Verified** | [TD-323](../../guides/TECHNICAL_DEBT.md#td-323-dataset_manager-accepts-partial-and-out-of-range-numbers) |
-| `--ranges` overflow (UB), overlaps and duplicates accepted, not checked against the file's pair count; `--count` ignored alongside `--ranges` when ≤ 0 (§3–4) | Negative-count segments; pairs queued twice or beyond EOF | **Verified** (overflow, overlap) / by inspection (EOF) | [TD-324](../../guides/TECHNICAL_DEBT.md#td-324-dataset_manager-segment-range-validation-gaps) |
-| `huggingface` optional arguments purely positional; extra arguments ignored by several commands (§4) | Easy to shift arguments into the wrong field | By inspection | [TD-325](../../guides/TECHNICAL_DEBT.md#td-325-dataset_manager-huggingface-positional-arguments-shift-silently) |
+| `--ranges` overflow (UB), overlaps and duplicates accepted, not checked against the file's pair count; `--count` ignored alongside `--ranges` when ≤ 0 (§3–4) | Negative-count segments; pairs queued twice or beyond EOF (**fixed in code November 7, 2026**) | **Verified** (overflow, overlap) / by inspection (EOF) | [TD-324](../../guides/TECHNICAL_DEBT.md#td-324-dataset_manager-segment-range-validation-gaps) |
+| `huggingface` optional arguments purely positional; extra arguments ignored by several commands (§4) | Easy to shift arguments into the wrong field (**fixed in code November 7, 2026**) | By inspection | [TD-325](../../guides/TECHNICAL_DEBT.md#td-325-dataset_manager-huggingface-positional-arguments-shift-silently) |
 | `dataset_id` unvalidated before local `DataFetcher` shell commands | Already tracked | — | TD-312 |
 
 ## Addendum (November 5, 2026): `--count` must be at least 1 (TD-321)
@@ -159,3 +159,11 @@ a model name that looks like a flag; it used to become a file target. `--count` 
 `… needs a value`. `--` ends the options, for file names starting with `-`. Every number is parsed whole (`parse_strict_int()`): book ids,
 pair counts and `segment --count` must be at least 1 (`parse_positive()`), and `--ranges` ends must be whole numbers, so `1342abc`, `0`
 and `-5` are errors instead of 1342, a zero-pair fetch or a registry-side rejection.
+
+## Addendum (November 7, 2026): segment ranges and named HuggingFace fields (TD-324, TD-325)
+
+`parse_segment_args()` sizes each `--ranges` token in 64 bits (over `INT_MAX` pairs is an error), refuses overlapping or repeated ranges in
+any order, and refuses a second `--ranges` or `--count`; `segment` itself refuses a range past the file's last pair before queuing.
+`parse_huggingface_args()` accepts `--split`, `--input-field`, `--output-field` and `--model` in any order, alongside or instead of the
+positional form; a field given both ways, a repeated or value-less flag, an unknown option or a seventh positional is an error. `add`,
+`remove`, `gutenberg` and `gutenberg-batch` refuse extra arguments.
