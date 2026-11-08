@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
+// @adai-version: 1.4.0
 // @adai-reviewed: 2026-11-07
 
 #include "DataFetcher.hpp"
@@ -82,10 +82,23 @@ std::vector<std::string> DataFetcher::fetch_gutenberg_batch(const std::vector<in
 // Public — Gutenberg cache + rotating-slice serving (registry_server use)
 // ============================================================================
 
+namespace {
+// TD-311: the start of a downloaded book, enough for gutenberg_language(); "" if it's missing.
+std::string read_book_header(const fs::path& book) {
+    std::ifstream in(book, std::ios::binary);
+    std::string header(64 * 1024, '\0');
+    in.read(header.data(), static_cast<std::streamsize>(header.size()));
+    header.resize(static_cast<size_t>(in.gcount()));
+    return header;
+}
+}  // namespace
+
 std::string DataFetcher::ensure_gutenberg_cached(int book_id) {
     const std::string dataset_dir =
         config_.gutenberg_output_dir + "/gutenberg_" + std::to_string(book_id);
-    const std::string sentences_path = dataset_dir + "/sentences.txt";
+    // TD-311: v2 sentences keep "Mr."/"Dr."/initials inside a sentence. A book cached by an older
+    // build (sentences.txt) is re-split from its saved book.txt, without downloading it again.
+    const std::string sentences_path = dataset_dir + "/sentences_v2.txt";
 
     if (fs::exists(sentences_path) && fs::file_size(sentences_path) > 0) {
         Logger::info("Gutenberg book #{} already cached at '{}' — skipping download", book_id,
@@ -97,10 +110,15 @@ std::string DataFetcher::ensure_gutenberg_cached(int book_id) {
         fs::create_directories(dataset_dir);
     }
 
-    Logger::info("Downloading Project Gutenberg book #{} to cache...", book_id);
     const std::string text_file = dataset_dir + "/book.txt";
-    if (!download_file(get_gutenberg_url(book_id), text_file)) {
-        return "";
+    std::error_code size_ec;
+    if (fs::exists(text_file) && fs::file_size(text_file, size_ec) > 0 && !size_ec) {
+        Logger::info("Re-splitting cached Gutenberg book #{} from '{}'", book_id, text_file);
+    } else {
+        Logger::info("Downloading Project Gutenberg book #{} to cache...", book_id);
+        if (!download_file(get_gutenberg_url(book_id), text_file)) {
+            return "";
+        }
     }
 
     std::ifstream file(text_file);
@@ -164,11 +182,12 @@ int DataFetcher::convert_gutenberg_slice(const std::string& cached_sentences,
                              ? static_cast<size_t>(offset_index)
                              : sentences.size();
 
+    // TD-311: continuation pairs, in the book's own language when its header names one.
     SampleMeta meta;
-    meta.task_type = "qa";
+    meta.task_type = "completion";
     meta.domain = "literature";
-    // TODO: See TD-311 in TECHNICAL_DEBT.md - language is hardcoded to "en" regardless of the book
-    meta.language = "en";
+    meta.language =
+        gutenberg_language(read_book_header(fs::path(cached_sentences).parent_path() / "book.txt"));
 
     std::ofstream out(output_file, std::ios::trunc);
     if (!out.is_open()) {
@@ -178,7 +197,7 @@ int DataFetcher::convert_gutenberg_slice(const std::string& cached_sentences,
     }
 
     size_t next_index = start;
-    auto pairs = create_qa_pairs_from_text(sentences, num_pairs, start, &next_index);
+    auto pairs = create_continuation_pairs(sentences, num_pairs, start, &next_index);
     for (const auto& p : pairs) {
         out << sample_to_jsonl(p.first, p.second, meta) << "\n";
     }
@@ -190,7 +209,7 @@ int DataFetcher::convert_gutenberg_slice(const std::string& cached_sentences,
     if (pairs_written < num_pairs) {
         size_t next_index2 = 0;
         auto pairs2 =
-            create_qa_pairs_from_text(sentences, num_pairs - pairs_written, 0, &next_index2);
+            create_continuation_pairs(sentences, num_pairs - pairs_written, 0, &next_index2);
         for (const auto& p : pairs2) {
             out << sample_to_jsonl(p.first, p.second, meta) << "\n";
         }
@@ -616,7 +635,6 @@ std::vector<std::string> DataFetcher::extract_sentences(const std::string& text)
     // single fetch/gutenberg request could kill registry_server. The rules are the regex's: a
     // sentence is a run of other characters followed by its run of terminators; text after the
     // last terminator is dropped.
-    // TODO: See TD-311 in TECHNICAL_DEBT.md - still splits on Mr./Mrs./Dr.
     auto is_terminator = [](char c) { return c == '.' || c == '!' || c == '?'; };
     auto is_space = [](char c) {
         return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v';
@@ -627,6 +645,39 @@ std::vector<std::string> DataFetcher::extract_sentences(const std::string& text)
                std::isdigit(static_cast<unsigned char>(text[pos - 1])) &&
                std::isdigit(static_cast<unsigned char>(text[pos + 1]));
     };
+    // TD-311: a '.' that ends an abbreviation is not a boundary either: "Mr. Darcy" was split into
+    // "...Mr." (dropped as too short or kept as a fragment) and "Darcy...". It ends a title, an
+    // initial ("J. R. R."), or a dotted form ("e.g.", "i.e."), or sits between two letters or
+    // digits ("e.g", "www.x").
+    static const std::vector<std::string> kTitles = {
+        "Mr", "Mrs", "Ms", "Dr",  "St",  "Prof",   "Rev", "Sr",   "Jr",  "Capt", "Col", "Gen",
+        "Lt", "Sgt", "Mt", "Hon", "Gov", "Messrs", "Mme", "Mlle", "Esq", "vs",   "viz", "cf"};
+    auto abbreviation_dot = [&](size_t pos) {
+        if (text[pos] != '.')
+            return false;
+        if (pos > 0 && pos + 1 < text.size() &&
+            std::isalnum(static_cast<unsigned char>(text[pos - 1])) &&
+            std::isalnum(static_cast<unsigned char>(text[pos + 1])))
+            return true;
+        size_t begin = pos;
+        while (begin > 0 && (std::isalpha(static_cast<unsigned char>(text[begin - 1])) ||
+                             text[begin - 1] == '.')) {
+            --begin;
+        }
+        while (begin < pos && text[begin] == '.')  // "...Alice": leading dots aren't the word
+            ++begin;
+        const std::string word = text.substr(begin, pos - begin);
+        if (word.empty() || word.back() == '.')  // "here..." ends a sentence
+            return false;
+        if (word.find('.') != std::string::npos)  // "e.g", "i.e", "U.S"
+            return true;
+        // A capital initial, but not "I" ("...said I.") or "A", which end sentences.
+        if (word.size() == 1 && std::isupper(static_cast<unsigned char>(word[0])) && word != "I" &&
+            word != "A")
+            return true;
+        return std::find(kTitles.begin(), kTitles.end(), word) != kTitles.end();
+    };
+    auto not_boundary = [&](size_t pos) { return decimal_point(pos) || abbreviation_dot(pos); };
 
     // Collapses whitespace runs to one space and trims (the regex could span line breaks), and
     // keeps sentences of 21-499 characters, as before.
@@ -657,17 +708,17 @@ std::vector<std::string> DataFetcher::extract_sentences(const std::string& text)
     const size_t n = text.size();
     while (i < n) {
         // A sentence needs at least one non-terminator first; skip stray terminators.
-        while (i < n && is_terminator(text[i]) && !decimal_point(i)) {
+        while (i < n && is_terminator(text[i]) && !not_boundary(i)) {
             ++i;
         }
         const size_t begin = i;
-        while (i < n && (!is_terminator(text[i]) || decimal_point(i))) {
+        while (i < n && (!is_terminator(text[i]) || not_boundary(i))) {
             ++i;
         }
         if (i >= n) {
             break;  // no terminator: dropped, as the regex did
         }
-        while (i < n && is_terminator(text[i]) && !decimal_point(i)) {
+        while (i < n && is_terminator(text[i]) && !not_boundary(i)) {
             ++i;
         }
         emit(begin, i);
@@ -675,16 +726,11 @@ std::vector<std::string> DataFetcher::extract_sentences(const std::string& text)
     return sentences;
 }
 
-/*static*/
-std::string DataFetcher::generate_question_from_sentence(const std::string& sentence) {
-    std::vector<std::string> question_templates = {
-        "What does this mean: ", "Can you explain: ", "Tell me about: ",
-        "What is this about: ",  "Explain this: ",    "What does this say: "};
-
-    // TODO: See TD-311 in TECHNICAL_DEBT.md - unseeded rand(); template questions don't match the next-sentence answer
-    int idx = rand() % static_cast<int>(question_templates.size());
-    return question_templates[idx] + sentence;
-}
+namespace {
+// TD-311: a pair's input is this many consecutive sentences, and its response the next ones.
+constexpr size_t kContextSentences = 2;
+constexpr size_t kContinuationSentences = 2;
+}  // namespace
 
 /*static*/
 // TODO: See TECHNICAL_DEBT.md TD-006 - Add Fill-in-the-Middle (FIM) style pairs here (~20% mix):
@@ -692,33 +738,68 @@ std::string DataFetcher::generate_question_from_sentence(const std::string& sent
 //       (<|first|>/<|middle|>/<|last|>) defined first (see BPETokenizer.cpp).
 // TODO: See TD-225 in TECHNICAL_DEBT.md - BPETokenizer.cpp does not define these yet; it has only
 //       the four special tokens.
-// TODO: See TD-311 in TECHNICAL_DEBT.md - answer/summary is just the next sentence (non-sequitur pairs)
-std::vector<std::pair<std::string, std::string>> DataFetcher::create_qa_pairs_from_text(
+// TD-311 (owner decision, November 7, 2026): honest continuation pairs. Pairs used to be "Can you
+// explain: <s[i]>" (a random template) answered by s[i+1], and "Summarize: <s[i]> <s[i+1]>"
+// answered by s[i+2], so the model learned to answer a question with an unrelated next sentence.
+// Now a pair is kContextSentences sentences in and up to kContinuationSentences following sentences
+// out; pairs don't overlap, and *out_next_index is the first sentence not used (the registry's book
+// cursor).
+std::vector<std::pair<std::string, std::string>> DataFetcher::create_continuation_pairs(
     const std::vector<std::string>& sentences, int max_pairs, size_t start_index,
     size_t* out_next_index) {
     std::vector<std::pair<std::string, std::string>> pairs;
+    const auto join = [&sentences](size_t from, size_t to) {
+        std::string text;
+        for (size_t k = from; k < to; ++k) {
+            if (!text.empty())
+                text += ' ';
+            text += sentences[k];
+        }
+        return text;
+    };
 
     size_t i = start_index;
-    for (; !sentences.empty() && i < sentences.size() - 1 &&
-           static_cast<int>(pairs.size()) < max_pairs;
-         i += 2) {
-        std::string question = generate_question_from_sentence(sentences[i]);
-        std::string answer = sentences[i + 1];
-
-        if (static_cast<int>(pairs.size()) < max_pairs) {
-            pairs.emplace_back(question, answer);
-        }
-
-        if (i + 2 < sentences.size() && static_cast<int>(pairs.size()) < max_pairs) {
-            std::string context = sentences[i] + " " + sentences[i + 1];
-            std::string summary = sentences[i + 2];
-            pairs.emplace_back("Summarize: " + context, summary);
-        }
+    while (static_cast<int>(pairs.size()) < max_pairs && i + kContextSentences < sentences.size()) {
+        const size_t context_end = i + kContextSentences;
+        const size_t end = std::min(context_end + kContinuationSentences, sentences.size());
+        pairs.emplace_back(join(i, context_end), join(context_end, end));
+        i = end;
     }
 
     if (out_next_index)
         *out_next_index = i;
     return pairs;
+}
+
+/*static*/
+std::string DataFetcher::gutenberg_language(const std::string& raw_text) {
+    static const std::vector<std::pair<std::string, std::string>> kCodes = {
+        {"english", "en"}, {"french", "fr"},     {"german", "de"},    {"spanish", "es"},
+        {"italian", "it"}, {"portuguese", "pt"}, {"dutch", "nl"},     {"latin", "la"},
+        {"finnish", "fi"}, {"swedish", "sv"},    {"danish", "da"},    {"norwegian", "no"},
+        {"greek", "el"},   {"russian", "ru"},    {"chinese", "zh"},   {"japanese", "ja"},
+        {"polish", "pl"},  {"hungarian", "hu"},  {"esperanto", "eo"}, {"catalan", "ca"},
+        {"czech", "cs"},   {"tagalog", "tl"},    {"welsh", "cy"},     {"irish", "ga"}};
+    // Only the header before the "*** START" line, where Gutenberg puts "Language: English".
+    const size_t header_end = std::min(raw_text.find("*** START"), raw_text.size());
+    std::istringstream in(raw_text.substr(0, std::min<size_t>(header_end, 64 * 1024)));
+    std::string line;
+    while (std::getline(in, line)) {
+        const size_t first = line.find_first_not_of(" \t\xEF\xBB\xBF");
+        if (first == std::string::npos || line.compare(first, 9, "Language:") != 0)
+            continue;
+        std::string value = line.substr(first + 9);
+        value.erase(0, value.find_first_not_of(" \t"));
+        value.erase(value.find_last_not_of(" \t\r") + 1);
+        std::transform(value.begin(), value.end(), value.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        for (const auto& [name, code] : kCodes) {
+            if (value == name)
+                return code;
+        }
+        return "";  // mixed ("English, French") or a language not listed
+    }
+    return "";
 }
 
 /*static*/
@@ -747,7 +828,7 @@ bool DataFetcher::convert_gutenberg_to_training_data(const std::string& text_fil
         return false;
     }
 
-    auto pairs = create_qa_pairs_from_text(sentences, max_pairs);
+    auto pairs = create_continuation_pairs(sentences, max_pairs);
     Logger::info("Created {} conversation pairs", pairs.size());
 
     std::ofstream out(output_file);
@@ -756,11 +837,11 @@ bool DataFetcher::convert_gutenberg_to_training_data(const std::string& text_fil
         return false;
     }
 
+    // TD-311: continuation pairs, in the book's own language when its header names one.
     SampleMeta meta;
-    meta.task_type = "qa";
+    meta.task_type = "completion";
     meta.domain = "literature";
-    // TODO: See TD-311 in TECHNICAL_DEBT.md - language is hardcoded to "en" regardless of the book
-    meta.language = "en";
+    meta.language = gutenberg_language(raw_text);
 
     for (const auto& pair : pairs) {
         out << sample_to_jsonl(pair.first, pair.second, meta) << "\n";

@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.1
+// @adai-version: 1.1.0
 // @adai-reviewed: 2026-11-07
 
 #include <string>
@@ -31,7 +31,7 @@ struct FetcherConfig {
  * tokenizer code.  It can be constructed and used without loading a model.
  *
  * Supported sources:
- *   - Project Gutenberg (plain-text books converted to QA pairs)
+ *   - Project Gutenberg (plain-text books converted to continuation pairs, TD-311)
  *   - HuggingFace Datasets server (parquet exports, converted natively via
  *     ParquetReader — no Python required)
  *
@@ -55,7 +55,7 @@ class DataFetcher {
      * @brief Download a Project Gutenberg book and convert it to training pairs.
      *
      * Downloads the book text, cleans the Gutenberg header/footer, extracts
-     * sentences, and creates consecutive-sentence QA pairs.  The resulting
+     * sentences, and creates continuation pairs (TD-311).  The resulting
      * INPUT:/RESPONSE: file is written to
      * `config.gutenberg_output_dir/gutenberg_<id>_training.jsonl`.
      *
@@ -96,7 +96,7 @@ class DataFetcher {
     std::string ensure_gutenberg_cached(int book_id);
 
     /**
-     * @brief Convert up to @p num_pairs QA pairs starting at sentence
+     * @brief Convert up to @p num_pairs continuation pairs starting at sentence
      *        @p offset_index from a cached sentence file (as produced by
      *        ensure_gutenberg_cached()) into @p output_file.
      *
@@ -193,11 +193,15 @@ class DataFetcher {
     // strip_chapter_markers() and strip_toc().
     static bool is_standalone_chapter_marker_line(const std::string& trimmed_line);
     static std::vector<std::string> extract_sentences(const std::string& text);
-    static std::string generate_question_from_sentence(const std::string& sentence);
+    // TD-311: the book's BCP-47 language from its "Language:" header line, or "" when absent,
+    // mixed or unknown.
+    static std::string gutenberg_language(const std::string& raw_text);
     // start_index/out_next_index are Phase 13 additions (see
     // convert_gutenberg_slice) — both default so the existing call site in
     // convert_gutenberg_to_training_data() is unaffected.
-    static std::vector<std::pair<std::string, std::string>> create_qa_pairs_from_text(
+    // TD-311 (owner decision): plain continuation pairs, a passage in and the text that follows
+    // it out, instead of template questions answered by the next sentence.
+    static std::vector<std::pair<std::string, std::string>> create_continuation_pairs(
         const std::vector<std::string>& sentences, int max_pairs, size_t start_index = 0,
         size_t* out_next_index = nullptr);
     static bool convert_gutenberg_to_training_data(const std::string& text_file,

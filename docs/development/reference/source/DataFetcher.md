@@ -21,7 +21,7 @@ the JSONL `{"input","response",…}` files the dataset registry queues for train
 
 | Source | Download | Conversion |
 |---|---|---|
-| Project Gutenberg | One `.txt` per book via `curl` | Strip boilerplate, split into sentences, synthesize QA/"Summarize" pairs from consecutive sentences |
+| Project Gutenberg | One `.txt` per book via `curl` | Strip boilerplate, split into sentences, make continuation pairs (two sentences in, the next two out; TD-311) |
 | HuggingFace datasets | `datasets-server` `/parquet` listing, then each Parquet file via `curl`, converted natively by `ParquetReader` | Auto-detect input/output fields, dialog arrays, or split single-text rows in half |
 
 It has no dependency on the model, tokenizer or registry. It returns file paths, and the caller
@@ -275,3 +275,14 @@ from a redirect's host. A transfer has a 30 s connect timeout, a stall limit (be
 written to `<output>.part` and renamed only after a complete 2xx download. `dataset_id` and `split` are percent-encoded into the
 `/parquet` query. A build without libcurl can't download and logs that reason. Tests: `httpDownloadTests` (a local httplib server) and
 `DataFetcherDownloadTest`.
+
+## Addendum (November 7, 2026): continuation pairs (TD-311)
+
+At the owner's choice, Gutenberg data is honest continuation text. `create_continuation_pairs()` replaced `create_qa_pairs_from_text()` and
+`generate_question_from_sentence()`: a pair is two consecutive sentences in and up to the next two out, with no template wording, tagged
+`task_type="completion"` and `domain="literature"`. Pairs don't overlap, and the slice cursor is the first sentence not used, so §3 and §5's
+template and `rand()` descriptions are historical. `extract_sentences()` no longer ends a sentence at a title (`Mr.`, `Mrs.`, `Dr.`, `St.`,
+… 24 in all), a capital initial other than `I`/`A`, a dotted form (`e.g.`, `U.S.`) or a dot between letters or digits. `language` comes from
+the book's own `Language:` header line (`gutenberg_language()`), or stays empty when it is mixed, unknown or missing. The `-0.txt` editions
+usually have no header, so it is usually empty. `registry_server`'s per-book cache is now `sentences_v2.txt`, re-split from the saved
+`book.txt` when only an old `sentences.txt` exists.

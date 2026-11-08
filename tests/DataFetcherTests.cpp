@@ -256,6 +256,9 @@ class DataFetcherGutenbergCleaningTest : public ::testing::Test {
     static std::vector<std::string> ExtractSentences(const std::string& s) {
         return DataFetcher::extract_sentences(s);
     }
+    static std::string GutenbergLanguage(const std::string& raw) {
+        return DataFetcher::gutenberg_language(raw);
+    }
 };
 
 TEST_F(DataFetcherGutenbergCleaningTest, IsStandaloneMarkerAcceptsBareMarkerLine) {
@@ -418,12 +421,9 @@ TEST_F(DataFetcherGutenbergCleaningTest, ExtractSentencesDoesNotSplitOnDecimalNu
 // Fully offline: feeds a hand-written fixture sentence file directly,
 // bypassing ensure_gutenberg_cached() (and therefore the network) entirely.
 //
-// create_qa_pairs_from_text() interleaves two pair "shapes" per two-sentence
-// step — a templated question (randomized wording via rand(), so its exact
-// text isn't asserted here) paired with the very next sentence as the
-// answer, and (when a third sentence is available) a "Summarize: ..." pair
-// whose answer is the sentence after that. Both answer/response values are
-// deterministic (verbatim sentence text), so tests assert on those.
+// TD-311: each pair is two sentences in and up to the next two out
+// (create_continuation_pairs()), with no template wording; pairs don't
+// overlap, and the cursor is the first sentence not used.
 // ============================================================================
 
 namespace {
@@ -434,7 +434,7 @@ class GutenbergSliceTest : public ::testing::Test {
         tmp_dir_ = fs::temp_directory_path() / "adai_gutenberg_slice_test";
         fs::remove_all(tmp_dir_);
         fs::create_directories(tmp_dir_);
-        cached_sentences_ = (tmp_dir_ / "sentences.txt").string();
+        cached_sentences_ = (tmp_dir_ / "sentences_v2.txt").string();
         output_file_ = (tmp_dir_ / "slice_out.jsonl").string();
     }
 
@@ -450,23 +450,23 @@ class GutenbergSliceTest : public ::testing::Test {
         }
     }
 
-    // Reads output_file_ and returns the "response" values in order — these
-    // are verbatim sentence text regardless of pair shape (question vs.
-    // "Summarize:"), so they're a deterministic proxy for which sentences
-    // were consumed.
-    std::vector<std::string> read_output_responses() const {
+    std::vector<std::string> read_field(const std::string& key) const {
         std::vector<std::string> out;
         std::ifstream f(output_file_);
         std::string line;
+        const std::string needle = "\"" + key + "\":\"";
         while (std::getline(f, line)) {
-            const auto pos = line.find("\"response\":\"");
+            const auto pos = line.find(needle);
             if (pos == std::string::npos)
                 continue;
-            const auto start = pos + std::string("\"response\":\"").size();
+            const auto start = pos + needle.size();
             const auto end = line.find('"', start);
             out.push_back(line.substr(start, end - start));
         }
         return out;
+    }
+    std::vector<std::string> read_output_responses() const {
+        return read_field("response");
     }
 
     fs::path tmp_dir_;
@@ -477,61 +477,79 @@ class GutenbergSliceTest : public ::testing::Test {
 TEST_F(GutenbergSliceTest, FirstCallStartsAtSentenceZero) {
     write_fixture(10);
     int next_offset = -1;
-    // Trace: i=0 -> A(s0->s1), B(summarize s0,s1->s2) [2 pairs]; i=2 -> A(s2->s3)
-    // [3rd pair, cap reached]; next i=4.
     const int pairs =
         DataFetcher::convert_gutenberg_slice(cached_sentences_, output_file_,
-                                             /*offset_index=*/0, /*num_pairs=*/3, next_offset);
-    EXPECT_EQ(pairs, 3);
-    EXPECT_EQ(next_offset, 4);
+                                             /*offset_index=*/0, /*num_pairs=*/2, next_offset);
+    EXPECT_EQ(pairs, 2);
+    EXPECT_EQ(next_offset, 8);
+    EXPECT_EQ(read_field("input"),
+              (std::vector<std::string>{"Sentence 0. Sentence 1.", "Sentence 4. Sentence 5."}));
     EXPECT_EQ(read_output_responses(),
-             (std::vector<std::string>{"Sentence 1.", "Sentence 2.", "Sentence 3."}));
+              (std::vector<std::string>{"Sentence 2. Sentence 3.", "Sentence 6. Sentence 7."}));
+}
+
+// TD-311: no template wording, tagged as completion, and no language unless the book says so.
+TEST_F(GutenbergSliceTest, PairsAreTaggedCompletionWithoutTemplates) {
+    write_fixture(10);
+    int next_offset = -1;
+    ASSERT_EQ(
+        DataFetcher::convert_gutenberg_slice(cached_sentences_, output_file_, 0, 2, next_offset),
+        2);
+    EXPECT_EQ(read_field("task_type"), (std::vector<std::string>{"completion", "completion"}));
+    EXPECT_TRUE(read_field("language").empty());
+    std::ifstream f(output_file_);
+    const std::string all((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    for (const char* tmpl : {"Summarize:", "Can you explain", "What does this", "Tell me about",
+                             "Explain this", "What is this about"}) {
+        EXPECT_EQ(all.find(tmpl), std::string::npos) << tmpl;
+    }
+}
+
+TEST_F(GutenbergSliceTest, LanguageComesFromTheCachedBooksHeader) {
+    write_fixture(10);
+    std::ofstream(tmp_dir_ / "book.txt")
+        << "The Project Gutenberg eBook of Candide\r\nLanguage: French\r\n\r\n"
+           "*** START OF THE PROJECT GUTENBERG EBOOK ***\r\nLanguage: English\r\n";
+    int next_offset = -1;
+    ASSERT_EQ(
+        DataFetcher::convert_gutenberg_slice(cached_sentences_, output_file_, 0, 1, next_offset),
+        1);
+    EXPECT_EQ(read_field("language"), (std::vector<std::string>{"fr"}));
 }
 
 TEST_F(GutenbergSliceTest, SecondCallContinuesFromCursor) {
     write_fixture(10);
     int next_offset = -1;
-    // Trace from offset 4: i=4 -> A(s4->s5), B(summarize s4,s5->s6) [2 pairs];
-    // i=6 -> A(s6->s7) [3rd pair, cap reached]; next i=8.
     const int pairs =
         DataFetcher::convert_gutenberg_slice(cached_sentences_, output_file_,
-                                             /*offset_index=*/4, /*num_pairs=*/3, next_offset);
-    EXPECT_EQ(pairs, 3);
+                                             /*offset_index=*/4, /*num_pairs=*/1, next_offset);
+    EXPECT_EQ(pairs, 1);
     EXPECT_EQ(next_offset, 8);
-    EXPECT_EQ(read_output_responses(),
-             (std::vector<std::string>{"Sentence 5.", "Sentence 6.", "Sentence 7."}));
+    EXPECT_EQ(read_output_responses(), (std::vector<std::string>{"Sentence 6. Sentence 7."}));
 }
 
 TEST_F(GutenbergSliceTest, WrapsAroundWhenBookExhaustedMidRequest) {
     write_fixture(10);
     int next_offset = -1;
-    // Trace from offset 8 (sentences 8,9 only remain): i=8 -> A(s8->s9) [1
-    // pair; i+2=10 is not < size()=10, so no "Summarize" pair]; loop exits
-    // (i becomes 10). 1 < 3 requested, so wrap from 0: i=0 -> A(s0->s1),
-    // B(summarize s0,s1->s2) [2 more pairs, satisfies remaining 2]; next i=2.
+    // From 7: one pair (7, 8 -> 9) uses the rest of the book, then the wrap starts again at 0.
     const int pairs =
         DataFetcher::convert_gutenberg_slice(cached_sentences_, output_file_,
-                                             /*offset_index=*/8, /*num_pairs=*/3, next_offset);
-    EXPECT_EQ(pairs, 3);
-    EXPECT_EQ(next_offset, 2);
+                                             /*offset_index=*/7, /*num_pairs=*/2, next_offset);
+    EXPECT_EQ(pairs, 2);
+    EXPECT_EQ(next_offset, 4);
     EXPECT_EQ(read_output_responses(),
-             (std::vector<std::string>{"Sentence 9.", "Sentence 1.", "Sentence 2."}));
+              (std::vector<std::string>{"Sentence 9.", "Sentence 2. Sentence 3."}));
 }
 
 TEST_F(GutenbergSliceTest, OffsetAtEndOfBookWrapsImmediately) {
     write_fixture(10);
     int next_offset = -1;
-    // offset == total sentence count: first pass makes zero progress (loop
-    // condition false immediately), so this is a full wraparound: i=0 ->
-    // A(s0->s1), B(summarize s0,s1->s2) [2 pairs, satisfies num_pairs=2];
-    // next i=2.
     const int pairs =
         DataFetcher::convert_gutenberg_slice(cached_sentences_, output_file_,
-                                             /*offset_index=*/10, /*num_pairs=*/2, next_offset);
-    EXPECT_EQ(pairs, 2);
-    EXPECT_EQ(next_offset, 2);
-    EXPECT_EQ(read_output_responses(),
-             (std::vector<std::string>{"Sentence 1.", "Sentence 2."}));
+                                             /*offset_index=*/10, /*num_pairs=*/1, next_offset);
+    EXPECT_EQ(pairs, 1);
+    EXPECT_EQ(next_offset, 4);
+    EXPECT_EQ(read_output_responses(), (std::vector<std::string>{"Sentence 2. Sentence 3."}));
 }
 
 TEST_F(GutenbergSliceTest, MissingCachedFileReturnsZeroPairs) {
@@ -626,6 +644,28 @@ TEST_F(DataFetcherGutenbergCleaningTest, SentenceScannerMatchesTheOldRegexOnPros
         "Short one. Another fairly ordinary sentence follows here...   And a trailing fragment";
     EXPECT_EQ(ExtractSentences(prose), old_extract(prose));
     EXPECT_FALSE(ExtractSentences(prose).empty());
+}
+
+// TD-311: titles, initials and dotted abbreviations don't end a sentence; "I." and "A." still can.
+TEST_F(DataFetcherGutenbergCleaningTest, AbbreviationsDoNotEndASentence) {
+    const std::string text =
+        "Mr. Darcy bowed to Mrs. Bennet rather politely. Dr. J. Watson arrived later, e.g. "
+        "around noon, with St. John. Then the old man said that so did I. And the quiet "
+        "evening went on without them.";
+    EXPECT_EQ(ExtractSentences(text),
+              (std::vector<std::string>{"Mr. Darcy bowed to Mrs. Bennet rather politely.",
+                                        "Dr. J. Watson arrived later, e.g. around noon, with St. "
+                                        "John.",
+                                        "Then the old man said that so did I.",
+                                        "And the quiet evening went on without them."}));
+}
+
+TEST_F(DataFetcherGutenbergCleaningTest, LanguageIsReadFromTheHeaderOnly) {
+    EXPECT_EQ(GutenbergLanguage("Title: X\nLanguage: English\n*** START OF X ***\n"), "en");
+    EXPECT_EQ(GutenbergLanguage("\xEF\xBB\xBFLanguage: German\r\n"), "de");
+    EXPECT_EQ(GutenbergLanguage("Language: English, French\n"), "");  // mixed
+    EXPECT_EQ(GutenbergLanguage("Language: Klingon\n"), "");
+    EXPECT_EQ(GutenbergLanguage("Title: X\n*** START OF X ***\nLanguage: English\n"), "");
 }
 
 // ============================================================================

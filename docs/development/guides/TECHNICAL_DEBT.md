@@ -1514,6 +1514,9 @@ The generation and model math run is complete.
 - TD-312 (done in code: Gutenberg and HuggingFace downloads go through libcurl in process (`adai::http_download()`), never a shell:
   `https://` on known hosts only, `HF_TOKEN` in a header that isn't forwarded across redirects, connect/stall/total timeouts, and the
   output replaced only by a complete download).
+- TD-311 (done in code, owner's choice of continuation pairs: two sentences in, the next two out, `task_type="completion"`, no templates or
+  `rand()`; titles, initials and dotted abbreviations no longer end a sentence; `language` from the book's header or empty; registry
+  caches are re-split from the saved book).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -8566,7 +8569,7 @@ Tests:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / DataFetcher | October 11, 2026 | 4-8 hours |
+| MEDIUM | Open — code fix landed November 7, 2026 | Data / DataFetcher | October 11, 2026 | 4-8 hours |
 
 Description:
 Found alongside TD-309 and confirmed by running the real code. `create_qa_pairs_from_text()` pairs
@@ -8580,15 +8583,37 @@ the book. Every Gutenberg fetch produces this data.
 
 Action Items:
 
-- [ ] Decide the intended task (the user's call). Options: plain continuation/completion pairs labelled as such (`task_type="completion"`), real QA from a better source, or dropping the QA/summary templates.
-- [ ] Handle common abbreviations in sentence splitting (fold into TD-309's scanner).
-- [ ] Use a seeded RNG (or no templates), and set `language` from the book's metadata or leave it empty.
+- [x] Decide the intended task (the user's call). Options: plain continuation/completion pairs labelled as such (`task_type="completion"`), real QA from a better source, or dropping the QA/summary templates. **Owner decision (November 7, 2026): continuation pairs.**
+- [x] Handle common abbreviations in sentence splitting (fold into TD-309's scanner).
+- [x] Use a seeded RNG (or no templates), and set `language` from the book's metadata or leave it empty.
 
-Location in code: `src/DataFetcher.cpp` (`create_qa_pairs_from_text()`, `generate_question_from_sentence()`, `extract_sentences()`); tagged `TODO: See TD-311`.
+Fix (November 7, 2026):
+- **Pairs.** `create_continuation_pairs()` replaces `create_qa_pairs_from_text()` and `generate_question_from_sentence()`. A pair is two
+  consecutive sentences in and up to the next two out, with no template wording; pairs don't overlap, so the registry's per-model book cursor
+  still advances through the book. Every pair is tagged `task_type="completion"`, `domain="literature"`. With the templates gone, so is
+  `rand()`.
+- **Sentence splitting.** `extract_sentences()` doesn't end a sentence at the `.` of a title (`Mr`, `Mrs`, `Ms`, `Dr`, `St`, `Prof`, `Rev`,
+  `Capt`, … 24 in all), a capital initial (`J.`, but not `I.` or `A.`, which end sentences), a dotted form (`e.g.`, `i.e.`, `U.S.`), or a
+  dot between two letters or digits. The TD-309 equivalence test with the old regex on ordinary prose still passes.
+- **Language.** `gutenberg_language()` reads the `Language:` line before the `*** START` marker (24 language names mapped to BCP-47 codes);
+  mixed or unknown languages, and books with no header, are left empty instead of `"en"`. The `files/<id>/<id>-0.txt` editions
+  `DataFetcher` downloads often start at `*** START` with no header, so most books get no language until TD-314 adds other sources.
+- **Registry cache.** `registry_server` caches a book's sentences as `sentences_v2.txt`; a book cached by an older build is re-split from
+  its saved `book.txt` without downloading it again. A model's book cursor counts sentences, so it may land somewhere else in the
+  re-split book; the slice code already clamps or wraps a cursor past the end.
+
+Tests (`tests/DataFetcherTests.cpp`): the `GutenbergSliceTest` cursor and wraparound tests now expect continuation pairs, plus
+`PairsAreTaggedCompletionWithoutTemplates` and `LanguageComesFromTheCachedBooksHeader`; `AbbreviationsDoNotEndASentence` and
+`LanguageIsReadFromTheHeaderOnly`. On the old code every new or rewritten test fails (the language parser test can't compile there). Checked
+by hand: `dataset_manager gutenberg 1342 400` (Pride and Prejudice) in local mode gave 400 completion pairs with no text ending at a bare
+`Mr.`, `Mrs.` or `Dr.`; the old binary's 400 pairs had 96 such texts.
+
+Location in code: `src/DataFetcher.cpp` (`create_continuation_pairs()`, `extract_sentences()`, `gutenberg_language()`,
+`ensure_gutenberg_cached()`, `convert_gutenberg_slice()`, `convert_gutenberg_to_training_data()`).
 
 Files to Modify:
 
-- `src/DataFetcher.cpp`
+- `src/DataFetcher.{hpp,cpp}`
 - `tests/DataFetcherTests.cpp`
 
 ---

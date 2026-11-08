@@ -115,18 +115,17 @@ Download a single Project Gutenberg book, convert it to training pairs, and queu
 | Argument | Default | Description |
 | --- | --- | --- |
 | `<book_id>` | required | Numeric Gutenberg book ID |
-| `[num_pairs]` | `500` | Maximum INPUT/RESPONSE pairs to generate |
+| `[num_pairs]` | `500` | Maximum training pairs to generate |
 
 **What happens:**
 
 1. Downloads `https://www.gutenberg.org/files/<id>/<id>-0.txt` (falls back to `<id>.txt` if unavailable).
 2. Strips the Gutenberg header and footer.
 3. Extracts sentences (20–500 characters each).
-4. Generates up to `num_pairs` QA pairs using three styles:
-   - *Continuation* — adjacent sentence pairs
-   - *Question* — `"What does this mean: <sentence>"` → next sentence
-   - *Summary* — `"Summarize: <context>"` → following sentence
-5. Writes the result to `gutenberg_data/gutenberg_<id>_training.txt`.
+4. Generates up to `num_pairs` continuation pairs (since November 7, 2026, TD-311): each input is two consecutive sentences and its
+   response the next two, tagged `task_type="completion"`. They teach the book's prose, not question answering. Titles such as `Mr.` and
+   `Dr.`, initials and `e.g.` don't end a sentence. `language` is the book's own `Language:` header, or empty.
+5. Writes the result to `gutenberg_data/gutenberg_<id>_training.jsonl`.
 6. Adds the training file to the pending queue.
 
 **Examples:**
