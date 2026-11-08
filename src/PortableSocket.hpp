@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (TD-161 — new, no test coverage yet beyond the callers it replaces)
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-13
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-11-07
 
 /**
  * @file PortableSocket.hpp
@@ -119,6 +119,20 @@ inline void set_recv_timeout(socket_t s, int seconds) {
         seconds, 0
     };
     ::setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#endif
+}
+
+/// TD-375: the same for SO_SNDTIMEO, so a send to a peer that stops reading gives up.
+inline void set_send_timeout(socket_t s, int seconds) {
+#ifdef _WIN32
+    DWORD timeout_ms = static_cast<DWORD>(seconds) * 1000;
+    ::setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout_ms),
+                 sizeof(timeout_ms));
+#else
+    struct timeval tv {
+        seconds, 0
+    };
+    ::setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 #endif
 }
 

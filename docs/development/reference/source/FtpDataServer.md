@@ -145,8 +145,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 |---|---|---|---|
 | PASV data connection accepted from any host, with or without `PROT P` (§4) | Anyone who can reach the PASV range can steal dataset files and make the trainer's download fail with a consumed token | **Verified** | [TD-372](../../guides/TECHNICAL_DEBT.md#td-372-ftp-data-connections-are-accepted-from-any-host-so-files-can-be-stolen) |
 | `--ftps` doesn't require `AUTH TLS` or `PROT P` (§4) | Credentials and data can go in plaintext on an "FTPS" server | **Verified** | [TD-373](../../guides/TECHNICAL_DEBT.md#td-373---ftps-doesnt-require-encryption) |
-| `USER` after `PASS` leaks a rate-limit slot (§4) | A misbehaving client can lock a `run_id` out of FTP until restart | **Verified** | [TD-374](../../guides/TECHNICAL_DEBT.md#td-374-ftp-re-login-leaks-rate-limit-slots) |
-| One detached thread per connection, unlimited; no idle or read timeout; unbounded `read_line()`; connection threads outlive `stop()` (§4) | Pre-auth resource exhaustion of `registry_server`; use-after-free at shutdown with open connections | **Verified** (unbounded line, no timeout); by inspection (thread limit, use-after-free) | [TD-375](../../guides/TECHNICAL_DEBT.md#td-375-ftpdataserver-has-no-connection-limits-or-timeouts) |
+| `USER` after `PASS` leaks a rate-limit slot (§4) | A misbehaving client can lock a `run_id` out of FTP until restart (**fixed in code November 7, 2026**) | **Verified** | [TD-374](../../guides/TECHNICAL_DEBT.md#td-374-ftp-re-login-leaks-rate-limit-slots) |
+| One detached thread per connection, unlimited; no idle or read timeout; unbounded `read_line()`; connection threads outlive `stop()` (§4) | Pre-auth resource exhaustion of `registry_server`; use-after-free at shutdown with open connections (**fixed in code November 7, 2026**) | **Verified** (unbounded line, no timeout); by inspection (thread limit, use-after-free) | [TD-375](../../guides/TECHNICAL_DEBT.md#td-375-ftpdataserver-has-no-connection-limits-or-timeouts) |
 | `stop()` takes up to 60 s (the sweep thread's sleep) (§4) | Slow `registry_server` shutdown and restarts | **Verified** | [TD-376](../../guides/TECHNICAL_DEBT.md#td-376-ftpdataserver-slow-shutdown-unencrypted-feat-and-silent-start-failures) |
 | `FEAT` written unencrypted after `AUTH TLS` (§4) | Breaks the TLS control channel for clients that send it | **Verified** | [TD-376](../../guides/TECHNICAL_DEBT.md#td-376-ftpdataserver-slow-shutdown-unencrypted-feat-and-silent-start-failures) |
 | Token expiry checked only at login; consumed tokens can still `RETR` on their open connection; 32-bit usernames silently overwrite on collision (§2) | A token's limits are looser than documented | By inspection | [TD-377](../../guides/TECHNICAL_DEBT.md#td-377-ftpdataserver-token-semantics-and-setup-gaps) |
@@ -231,3 +231,12 @@ passed) and `resolve_registry_server_config()` returns them in `RegistryServerEf
 a CLI override of a file value, the old placeholder secret `change-me-in-production` (ignored, since a known HMAC key would let
 anyone compute token passwords; `ServiceConfig::ftp_data_server_secret` now defaults to empty), and FTP without FTPS on a
 non-loopback advertise address. Tests: four `ResolveRegistryServerConfigTest` cases, updated parse tests.
+
+## Addendum (November 7, 2026): connection limits, tracked threads, re-login (TD-374, TD-375)
+
+`cmd_user()` releases the rate-limit slot of a connection that is already logged in, so a re-login no longer leaks it. Connections are
+capped at 64 (`421` beyond), a control socket times out after 60 s without a line before login and 300 s after, and a command line over
+1,024 bytes gets `500` and a close (`set_connection_limits()` before `start()`). Each connection is tracked as a `Connection` (thread,
+socket, current data socket) rather than a detached thread; a finished thread shuts its socket down and the socket is closed once the
+thread is joined (by the listener, the minute sweep or `stop()`). `stop()` shuts down every control and data socket and joins every
+thread; the PASV wait polls for shutdown each second, a transfer checks between chunks, and data sockets have a 60 s send timeout.

@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-040 fully resolved — see below)
-// @adai-version: 0.12.1
-// @adai-reviewed: 2026-10-27
+// @adai-version: 0.13.0
+// @adai-reviewed: 2026-11-07
 
 /**
  * FtpDataServer — embedded read-only FTP server for dataset delivery.
@@ -59,6 +59,8 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <list>
+#include <memory>
 #include <mutex>
 #include <random>
 #include <set>
@@ -379,6 +381,18 @@ class FtpDataServer {
         stop();
     }
 
+    /**
+     * TD-375: connection limits; call before start(). At most @p max_connections control
+     * connections at once (more are answered 421 and closed). A control connection that sends
+     * nothing for @p pre_login_timeout_s before logging in, or @p idle_timeout_s after, is
+     * closed.
+     */
+    void set_connection_limits(int max_connections, int pre_login_timeout_s, int idle_timeout_s) {
+        max_connections_ = max_connections;
+        pre_login_timeout_s_ = pre_login_timeout_s;
+        idle_timeout_s_ = idle_timeout_s;
+    }
+
     TokenStore& tokens() {
         return tokens_;
     }
@@ -567,6 +581,24 @@ class FtpDataServer {
             listener_thread_.join();
         if (sweep_thread_.joinable())
             sweep_thread_.join();
+        // TD-375: end every connection before this object goes away. Shutting a socket down wakes
+        // a thread blocked reading or writing it; each is then joined, and only then closed, so a
+        // closed descriptor number can't be reused and shut down by mistake.
+        {
+            std::lock_guard<std::mutex> lock(conns_mtx_);
+            for (auto& c : conns_) {
+                ::shutdown(c->fd, adai::kShutdownBoth);
+                std::lock_guard<std::mutex> data_lock(c->data_mtx);
+                if (c->data_fd != adai::kInvalidSocket)
+                    ::shutdown(c->data_fd, adai::kShutdownBoth);
+            }
+            for (auto& c : conns_) {
+                if (c->thread.joinable())
+                    c->thread.join();
+                adai::close_socket(c->fd);
+            }
+            conns_.clear();
+        }
 #ifdef BUILD_FTPS
         if (ssl_ctx_) {
             SSL_CTX_free(ssl_ctx_);
@@ -611,6 +643,41 @@ class FtpDataServer {
     // Phase 3: per-run_id session counter for rate limiting
     std::mutex session_mtx_;
     std::unordered_map<std::string, int> active_sessions_;  // run_id → count
+
+    // TD-375: every control connection is tracked (they used to be detached threads that stop()
+    // couldn't end and that outlived this object). The socket is closed by whoever joins the
+    // thread.
+    struct Connection {
+        std::thread thread;
+        adai::socket_t fd = adai::kInvalidSocket;
+        std::mutex data_mtx;  // guards data_fd, so stop() can wake a transfer
+        adai::socket_t data_fd = adai::kInvalidSocket;
+        std::atomic<bool> done{false};
+    };
+    std::mutex conns_mtx_;
+    std::list<std::unique_ptr<Connection>> conns_;
+    int max_connections_ = 64;
+    int pre_login_timeout_s_ = 60;
+    int idle_timeout_s_ = 300;
+    // TD-375: RFC 959 servers commonly cap a command line at 512 bytes; registry paths in RETR can
+    // be longer, so the cap here is 1024.
+    static constexpr std::size_t kMaxLineBytes = 1024;
+    static constexpr int kDataSendTimeoutS = 60;
+
+    // Joins finished connection threads and closes their sockets.
+    void reap_finished_connections() {
+        std::lock_guard<std::mutex> lock(conns_mtx_);
+        for (auto it = conns_.begin(); it != conns_.end();) {
+            if ((*it)->done.load()) {
+                if ((*it)->thread.joinable())
+                    (*it)->thread.join();
+                adai::close_socket((*it)->fd);
+                it = conns_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
 
 #ifdef BUILD_FTPS
     SSL_CTX* ssl_ctx_ = nullptr;  // Phase 3: TLS server context
@@ -671,11 +738,26 @@ class FtpDataServer {
             ::inet_ntop(AF_INET, &client_addr.sin_addr, ip_buf, sizeof(ip_buf));
             std::string client_ip = ip_buf;
 
-            // TODO: See TD-375 in TECHNICAL_DEBT.md - unlimited detached threads; they outlive stop() and
-            // use `this` after destruction
-            std::thread([this, conn_fd, client_ip = std::move(client_ip)]() mutable {
-                handle_connection(conn_fd, std::move(client_ip));
-            }).detach();
+            // TD-375: a capped number of tracked connections, each with a read timeout until login.
+            reap_finished_connections();
+            std::lock_guard<std::mutex> lock(conns_mtx_);
+            if (static_cast<int>(conns_.size()) >= max_connections_) {
+                Logger::warn("[FTP] Connection from '{}' refused: {} connections open", client_ip,
+                             conns_.size());
+                const std::string busy = "421 Too many connections; try again later.\r\n";
+                adai::send_bytes(conn_fd, busy.c_str(), busy.size());
+                adai::close_socket(conn_fd);
+                continue;
+            }
+            adai::set_recv_timeout(conn_fd, pre_login_timeout_s_);
+            auto conn = std::make_unique<Connection>();
+            conn->fd = conn_fd;
+            Connection* c = conn.get();
+            conns_.push_back(std::move(conn));
+            c->thread = std::thread([this, c, client_ip = std::move(client_ip)]() mutable {
+                handle_connection(*c, std::move(client_ip));
+                c->done.store(true);
+            });
         }
     }
 
@@ -689,6 +771,7 @@ class FtpDataServer {
             }
             lock.unlock();
             tokens_.sweep_expired();
+            reap_finished_connections();  // TD-375: also when no new connection arrives
         }
     }
 
@@ -696,6 +779,7 @@ class FtpDataServer {
 
     struct ConnState {
         adai::socket_t fd;
+        Connection* conn = nullptr;  // TD-375: where a transfer registers its data socket
         std::string client_ip;
         bool authenticated = false;
         std::string username;
@@ -727,9 +811,11 @@ class FtpDataServer {
         adai::send_bytes(st.fd, line.c_str(), line.size());
     }
 
-    // TODO: See TD-375 in TECHNICAL_DEBT.md - no length limit and no idle timeout (pre-auth resource exhaustion)
-    static std::string read_line(ConnState& st) {
-        std::string line;
+    // TD-375: false when the peer closed, the read timed out (the socket's receive timeout) or the
+    // line passed kMaxLineBytes (@p too_long). A line used to grow without limit, with no timeout.
+    static bool read_line(ConnState& st, std::string& line, bool& too_long) {
+        line.clear();
+        too_long = false;
         char c;
         while (true) {
             long n;
@@ -740,28 +826,44 @@ class FtpDataServer {
 #endif
                 n = adai::recv_bytes(st.fd, &c, 1);
             if (n <= 0)
-                break;
+                return false;
             if (c == '\n')
-                break;
+                return true;
             if (c != '\r')
                 line += c;
+            if (line.size() > kMaxLineBytes) {
+                too_long = true;
+                return false;
+            }
         }
-        return line;
     }
 
     // ── Per-connection state machine ──────────────────────────────────────
 
-    void handle_connection(adai::socket_t fd, std::string client_ip) {
+    void handle_connection(Connection& conn, std::string client_ip) {
+        const adai::socket_t fd = conn.fd;
         ConnState st;
         st.fd = fd;
+        st.conn = &conn;
         st.client_ip = std::move(client_ip);
 
         send_reply(st, 220, "ADAI FTP Data Server ready.");
 
-        while (true) {
-            std::string line = read_line(st);
-            if (line.empty())
-                break;
+        while (running_.load()) {
+            std::string line;
+            bool too_long = false;
+            if (!read_line(st, line, too_long)) {
+                if (too_long) {
+                    Logger::warn("[FTP] Command line over {} bytes from '{}'; closing",
+                                 kMaxLineBytes, st.client_ip);
+                    send_reply(st, 500, "Command line too long.");
+                }
+                break;  // closed, idle too long, or too long a line
+            }
+            if (line.empty()) {
+                send_reply(st, 500, "Empty command.");
+                continue;
+            }
 
             std::string cmd, arg;
             const auto sp = line.find(' ');
@@ -859,12 +961,13 @@ class FtpDataServer {
         }
 #endif
 
-        adai::close_socket(fd);
+        // TD-375: the peer sees the close now; the descriptor itself is closed after this thread is
+        // joined (reap_finished_connections() or stop()).
+        ::shutdown(fd, adai::kShutdownBoth);
     }
 
     // ── FTP command handlers ──────────────────────────────────────────────
 
-    // TODO: See TD-374 in TECHNICAL_DEBT.md - re-login doesn't release the rate-limit slot already held
     // TD-373: with FTPS enabled, credentials only over TLS (RFC 4217: 530 before AUTH TLS).
     bool tls_required_but_missing(ConnState& st) {
 #ifdef BUILD_FTPS
@@ -883,6 +986,16 @@ class FtpDataServer {
     void cmd_user(ConnState& st, const std::string& arg) {
         if (tls_required_but_missing(st)) {
             return;
+        }
+        // TD-374: a new USER ends the current login, and with it its rate-limit slot. The slot used
+        // to stay held (only the last login's was released at QUIT), so a few re-logins on one
+        // connection locked a run out of downloads until registry_server restarted.
+        if (st.authenticated && !st.run_id.empty()) {
+            release_session(st.run_id);
+            Logger::info(
+                "[AUDIT] Session ended by a new USER: run_id='{}' username='{}' "
+                "client_ip='{}'",
+                st.run_id, st.username, st.client_ip);
         }
         st.pending_user = arg;
         st.authenticated = false;
@@ -919,6 +1032,7 @@ class FtpDataServer {
             return;
         }
 
+        adai::set_recv_timeout(st.fd, idle_timeout_s_);  // TD-375: longer once logged in
         st.authenticated = true;
         st.username = st.pending_user;
         st.run_id = run_id;
@@ -1041,13 +1155,16 @@ class FtpDataServer {
             if (left <= 0) {
                 return adai::kInvalidSocket;
             }
-            adai::set_recv_timeout(st.pasv_listen_fd, static_cast<int>(left));
+            if (!running_.load()) {
+                return adai::kInvalidSocket;  // TD-375: stop() doesn't wait out the 30 s
+            }
+            adai::set_recv_timeout(st.pasv_listen_fd, 1);
             sockaddr_in peer{};
             socklen_t peer_len = sizeof(peer);
             adai::socket_t fd = ::accept(st.pasv_listen_fd, reinterpret_cast<sockaddr*>(&peer),
                                          &peer_len);
             if (fd == adai::kInvalidSocket) {
-                return adai::kInvalidSocket;  // timeout or error
+                continue;  // a 1 s slice ended (or an error); the deadline decides
             }
             char ip_buf[INET_ADDRSTRLEN] = {};
             ::inet_ntop(AF_INET, &peer.sin_addr, ip_buf, sizeof(ip_buf));
@@ -1117,6 +1234,20 @@ class FtpDataServer {
             send_reply(st, 425, "Could not open data connection.");
             return;
         }
+        // TD-375: a client that stops reading can't hold the transfer forever, and stop() can wake
+        // it.
+        adai::set_send_timeout(data_fd, kDataSendTimeoutS);
+        {
+            std::lock_guard<std::mutex> lock(st.conn->data_mtx);
+            st.conn->data_fd = data_fd;
+        }
+        const auto close_data = [&st, data_fd] {
+            {
+                std::lock_guard<std::mutex> lock(st.conn->data_mtx);
+                st.conn->data_fd = adai::kInvalidSocket;
+            }
+            adai::close_socket(data_fd);
+        };
 
         // Phase 3: wrap data connection in TLS when PROT P is active
 #ifdef BUILD_FTPS
@@ -1129,7 +1260,7 @@ class FtpDataServer {
                 Logger::error("[FTP/TLS] Data-channel TLS handshake failed for '{}'", st.username);
                 SSL_free(data_ssl);
                 data_ssl = nullptr;
-                adai::close_socket(data_fd);
+                close_data();
                 send_reply(st, 425, "TLS handshake on data connection failed.");
                 return;
             }
@@ -1141,7 +1272,7 @@ class FtpDataServer {
                 SSL_shutdown(data_ssl);
                 SSL_free(data_ssl);
                 data_ssl = nullptr;
-                adai::close_socket(data_fd);
+                close_data();
                 send_reply(st, 522, "Data connections must reuse the control connection's TLS session.");
                 return;
             }
@@ -1156,7 +1287,7 @@ class FtpDataServer {
                 SSL_free(data_ssl);
             }
 #endif
-            adai::close_socket(data_fd);
+            close_data();
             send_reply(st, 550, "Cannot read file.");
             return;
         }
@@ -1167,6 +1298,10 @@ class FtpDataServer {
         std::size_t bytes_sent = 0;
 
         while (file) {
+            if (!running_.load()) {  // TD-375: stopping
+                ok = false;
+                break;
+            }
             file.read(buf.data(), static_cast<std::streamsize>(buf_size));
             const std::streamsize n = file.gcount();
             if (n <= 0)
@@ -1198,7 +1333,7 @@ class FtpDataServer {
             SSL_free(data_ssl);
         }
 #endif
-        adai::close_socket(data_fd);
+        close_data();
 
         st.bytes_transferred += bytes_sent;
 

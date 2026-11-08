@@ -65,3 +65,8 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | Short writes passed through; `FtpDataServer` counts the whole chunk as sent (§2) | A signal mid-transfer silently truncates a served dataset file | **Verified** (219 KB of 8 MiB) | [TD-476](../../guides/TECHNICAL_DEBT.md#td-476-portablesocket-short-writes-truncate-ftp-transfers-unchecked-socket-setup) |
 | Ignored `WSAStartup()`/`setsockopt()` results; no Windows `accept()` timeout; late `errno`; no `EINTR` retry; no tests or Windows build (§2) | Silent misconfiguration; untested portability | By inspection | [TD-476](../../guides/TECHNICAL_DEBT.md#td-476-portablesocket-short-writes-truncate-ftp-transfers-unchecked-socket-setup) |
 | FTP server's own connection/timeout gaps | Already tracked | — | TD-372–TD-377 |
+
+## Addendum (November 7, 2026): `set_send_timeout()` (TD-375)
+
+`set_send_timeout(socket, seconds)` sets `SO_SNDTIMEO` the same portable way `set_recv_timeout()` sets `SO_RCVTIMEO`. `FtpDataServer`
+gives each data connection a 60 s send timeout, so a client that stops reading can't block a transfer forever.

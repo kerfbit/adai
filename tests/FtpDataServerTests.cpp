@@ -737,6 +737,144 @@ TEST(FtpDataServerLiveTest, ForeignDataConnectionGetsNothingAndTheClientStillDow
     std::filesystem::remove_all(dir);
 }
 
+namespace {
+// Reads until the server closes the connection (true) or the 5 s receive timeout passes (false).
+bool closed_by_server(int fd) {
+    char buf[256];
+    while (true) {
+        const long n = ::recv(fd, buf, sizeof(buf), 0);
+        if (n == 0)
+            return true;
+        if (n < 0)
+            return false;
+    }
+}
+
+std::filesystem::path live_dir(const char* name) {
+    const auto dir = std::filesystem::temp_directory_path() / name;
+    std::filesystem::create_directories(dir);
+    return dir;
+}
+}  // namespace
+
+// TD-374: a second USER/PASS on one connection used to keep the first login's rate-limit slot, and
+// QUIT released only the last one, so each such connection leaked a slot for good.
+TEST(FtpDataServerLiveTest, ReLoginReleasesTheRateLimitSlot) {
+    const auto dir = live_dir("adai_ftp_td374");
+    FtpDataServer srv(dir.string(), 21374, 51380, 51383, "127.0.0.1", "", false, "", "",
+                      /*max_sessions_per_run=*/2);
+    srv.start();
+    ASSERT_TRUE(wait_listening(21374));
+    const auto a = srv.issue_token("run-td374", "a.bin", 5);
+    const auto b = srv.issue_token("run-td374", "b.bin", 5);
+
+    const int first = connect_tcp(21374);
+    ASSERT_GE(first, 0);
+    EXPECT_EQ(read_reply(first).substr(0, 3), "220");
+    for (int i = 0; i < 3; ++i) {
+        EXPECT_EQ(command(first, "USER " + a.username).substr(0, 3), "331");
+        EXPECT_EQ(command(first, "PASS " + a.password).substr(0, 3), "230") << "login " << i;
+    }
+    EXPECT_EQ(command(first, "QUIT").substr(0, 3), "221");
+    EXPECT_TRUE(closed_by_server(first));  // the session has ended and released its slot
+    ::close(first);
+
+    // Both slots are free again: two sessions of the run log in.
+    const int one = connect_tcp(21374);
+    const int two = connect_tcp(21374);
+    ASSERT_GE(one, 0);
+    ASSERT_GE(two, 0);
+    read_reply(one);
+    read_reply(two);
+    command(one, "USER " + a.username);
+    EXPECT_EQ(command(one, "PASS " + a.password).substr(0, 3), "230");
+    command(two, "USER " + b.username);
+    EXPECT_EQ(command(two, "PASS " + b.password).substr(0, 3), "230");
+    ::close(one);
+    ::close(two);
+    srv.stop();
+    std::filesystem::remove_all(dir);
+}
+
+// TD-375: a command line with no end used to be read forever, a byte at a time, with no limit.
+TEST(FtpDataServerLiveTest, AnOverlongCommandLineIsRefusedAndClosed) {
+    const auto dir = live_dir("adai_ftp_td375_line");
+    FtpDataServer srv(dir.string(), 21375, 51384, 51385, "127.0.0.1");
+    srv.start();
+    ASSERT_TRUE(wait_listening(21375));
+    const int fd = connect_tcp(21375);
+    ASSERT_GE(fd, 0);
+    EXPECT_EQ(read_reply(fd).substr(0, 3), "220");
+    const std::string flood(4096, 'A');
+    ::send(fd, flood.data(), flood.size(), 0);
+    EXPECT_EQ(read_reply(fd).substr(0, 3), "500");
+    EXPECT_TRUE(closed_by_server(fd));
+    ::close(fd);
+    srv.stop();
+    std::filesystem::remove_all(dir);
+}
+
+// TD-375: a connection that never logs in used to stay open for good.
+TEST(FtpDataServerLiveTest, AnIdleConnectionIsClosedBeforeLogin) {
+    const auto dir = live_dir("adai_ftp_td375_idle");
+    FtpDataServer srv(dir.string(), 21376, 51386, 51387, "127.0.0.1");
+    srv.set_connection_limits(/*max_connections=*/64, /*pre_login_timeout_s=*/1,
+                              /*idle_timeout_s=*/300);
+    srv.start();
+    ASSERT_TRUE(wait_listening(21376));
+    const int fd = connect_tcp(21376);
+    ASSERT_GE(fd, 0);
+    EXPECT_EQ(read_reply(fd).substr(0, 3), "220");
+    const auto t0 = std::chrono::steady_clock::now();
+    EXPECT_TRUE(closed_by_server(fd));
+    EXPECT_LT(std::chrono::steady_clock::now() - t0, 4s);
+    ::close(fd);
+    srv.stop();
+    std::filesystem::remove_all(dir);
+}
+
+// TD-375: there was no cap; every connection got its own thread.
+TEST(FtpDataServerLiveTest, ConnectionsBeyondTheCapGet421) {
+    const auto dir = live_dir("adai_ftp_td375_cap");
+    FtpDataServer srv(dir.string(), 21377, 51388, 51389, "127.0.0.1");
+    srv.set_connection_limits(/*max_connections=*/2, 60, 300);
+    srv.start();
+    ASSERT_TRUE(wait_listening(21377));
+    std::this_thread::sleep_for(200ms);  // wait_listening's probe connections have ended
+    const int one = connect_tcp(21377);
+    const int two = connect_tcp(21377);
+    ASSERT_GE(one, 0);
+    ASSERT_GE(two, 0);
+    EXPECT_EQ(read_reply(one).substr(0, 3), "220");
+    EXPECT_EQ(read_reply(two).substr(0, 3), "220");
+    const int three = connect_tcp(21377);
+    ASSERT_GE(three, 0);
+    EXPECT_EQ(read_reply(three).substr(0, 3), "421");
+    ::close(three);
+    ::close(one);
+    ::close(two);
+    srv.stop();
+    std::filesystem::remove_all(dir);
+}
+
+// TD-375: connection threads were detached, so stop() left them running (against a destroyed
+// server once the object went away).
+TEST(FtpDataServerLiveTest, StopEndsOpenConnections) {
+    const auto dir = live_dir("adai_ftp_td375_stop");
+    auto srv = std::make_unique<FtpDataServer>(dir.string(), 21378, 51390, 51391, "127.0.0.1");
+    srv->start();
+    ASSERT_TRUE(wait_listening(21378));
+    const int fd = connect_tcp(21378);
+    ASSERT_GE(fd, 0);
+    EXPECT_EQ(read_reply(fd).substr(0, 3), "220");
+    const auto t0 = std::chrono::steady_clock::now();
+    srv.reset();  // stop() and destroy
+    EXPECT_LT(std::chrono::steady_clock::now() - t0, 3s);
+    EXPECT_TRUE(closed_by_server(fd));
+    ::close(fd);
+    std::filesystem::remove_all(dir);
+}
+
 #ifdef BUILD_FTPS
 // TD-373: with FTPS enabled, credentials are only accepted over TLS (AUTH TLS first).
 TEST(FtpDataServerLiveTest, PlaintextLoginIsRefusedWhenFtpsIsEnabled) {

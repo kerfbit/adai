@@ -1519,6 +1519,8 @@ The generation and model math run is complete.
   caches are re-split from the saved book).
 - TD-313 (done in code: a HuggingFace cache is written all parts or nothing, in a private folder, and counts only with its
   `full_dataset.complete` marker; fetches of one dataset are serialized, so concurrent requests download once).
+- TD-374, TD-375 (done in code: `USER` releases a held FTP rate-limit slot; at most 64 control connections, 60 s idle limit before login
+  and 300 s after, 1,024-byte command lines; connection threads tracked, and `stop()` wakes and joins them, data transfers included).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -10724,7 +10726,7 @@ Tests:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / FtpDataServer | October 12, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 7, 2026 | Data / FtpDataServer | October 12, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `FtpDataServer` and verified. `PASS` claims a per-`run_id` rate-limit slot,
@@ -10737,10 +10739,16 @@ connection, so this takes a misbehaving or hostile client.
 
 Action Items:
 
-- [ ] In `cmd_user()` (and before a second successful `PASS`), release the held slot and clear the login.
-- [ ] Test: repeated `USER`/`PASS` on one connection, then quit, leaves no slots held.
+- [x] In `cmd_user()` (and before a second successful `PASS`), release the held slot and clear the login.
+- [x] Test: repeated `USER`/`PASS` on one connection, then quit, leaves no slots held.
 
-Location in code: `src/FtpDataServer.hpp` (`cmd_user()`, `cmd_pass()`); tagged `TODO: See TD-374`.
+Fix (November 7, 2026): `cmd_user()` releases the slot a logged-in connection holds, with a "Session ended by a new USER" audit line,
+before clearing the login. A second `PASS` without a new `USER` already gets 503, so it can't claim a second slot.
+
+Tests: `FtpDataServerLiveTest.ReLoginReleasesTheRateLimitSlot` (`max_sessions_per_run = 2`): one connection logs in three times and
+quits, then two sessions of the run both log in. On the old code the second got 421.
+
+Location in code: `src/FtpDataServer.hpp` (`cmd_user()`).
 
 Files to Modify:
 
@@ -10753,7 +10761,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / FtpDataServer | October 12, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 7, 2026 | Data / FtpDataServer | October 12, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `FtpDataServer`; the read behaviour was verified, the rest is by inspection.
@@ -10766,14 +10774,36 @@ destroyed `FtpDataServer` (use-after-free).
 
 Action Items:
 
-- [ ] Cap concurrent connections (reply `421` beyond the cap); set a control-socket receive timeout (for example 60 s pre-auth, a few minutes after login); limit command lines to 512 bytes as RFC 959 implementations commonly do.
-- [ ] Track connection threads (or their sockets) so `stop()` can shut them down and join before destruction.
+- [x] Cap concurrent connections (reply `421` beyond the cap); set a control-socket receive timeout (for example 60 s pre-auth, a few minutes after login); limit command lines to 512 bytes as RFC 959 implementations commonly do.
+- [x] Track connection threads (or their sockets) so `stop()` can shut them down and join before destruction.
 
-Location in code: `src/FtpDataServer.hpp` (`listener_loop()`, `read_line()`, `stop()`); tagged `TODO: See TD-375`.
+Fix (November 7, 2026):
+- **Limits.** At most 64 control connections at once; more are answered `421 Too many connections` and closed. A control socket gives up
+  after 60 s without a line before login and 300 s after (`SO_RCVTIMEO`), and a line over 1,024 bytes gets `500 Command line too long`
+  and the connection is closed. The line cap is 1,024 rather than 512 because registry paths in `RETR` can pass 500 bytes.
+  `set_connection_limits(max_connections, pre_login_timeout_s, idle_timeout_s)` changes them before `start()`; `registry_server` uses the
+  defaults.
+- **Tracked connections.** Each connection is a `Connection` record (thread, socket, the current data socket) in a list instead of a
+  detached thread. A finished thread shuts its socket down, so the peer sees the close at once; the socket is closed only after the thread
+  is joined, by the listener when the next connection arrives, by the sweep thread every minute, or by `stop()`. So a closed descriptor
+  number is never shut down by mistake after reuse.
+- **`stop()` ends everything.** It shuts down every control socket and any open data socket, which wakes threads blocked reading or
+  writing, then joins them. The PASV wait checks for shutdown every second, a transfer checks between 64 KiB chunks, and a data socket has
+  a 60 s send timeout (new `adai::set_send_timeout()`), so a client that stops reading can't hold a transfer, or `stop()`, forever.
+
+Tests (`FtpDataServerLiveTest`, a real server on loopback): `AnOverlongCommandLineIsRefusedAndClosed`, `AnIdleConnectionIsClosedBeforeLogin`
+(1 s limit), `ConnectionsBeyondTheCapGet421` (cap 2), `StopEndsOpenConnections` (destroying the server closes an open client within 3 s).
+On the old code all four fail (no reply and no close to the 4 KB line, the idle connection stayed open, the third connection got 220, and
+the client stayed connected after the server was destroyed). The 75 FTP server tests pass, including the FTPS session-reuse ones. Checked by
+hand against a real `registry_server --ftp-enabled`: a 4 KB line got 500 and a close, and a normal `USER`/`QUIT` session still works.
+
+Location in code: `src/FtpDataServer.hpp` (`listener_loop()`, `reap_finished_connections()`, `read_line()`, `handle_connection()`,
+`stop()`, `accept_from_client()`, `cmd_retr()`), `src/PortableSocket.hpp` (`set_send_timeout()`).
 
 Files to Modify:
 
-- `src/FtpDataServer.hpp`
+- `src/FtpDataServer.hpp`, `src/PortableSocket.hpp`
+- `tests/FtpDataServerTests.cpp`
 
 ---
 
