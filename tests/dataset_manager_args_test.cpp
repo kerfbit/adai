@@ -342,3 +342,69 @@ TEST(DatasetManagerArgsTest, RequeueArgs) {
     EXPECT_TRUE(parse_requeue_args({"--all", "--model"}).error) << "--model needs a value";
     EXPECT_TRUE(parse_requeue_args({"--all", "--modle", "x"}).error) << "unknown flag";
 }
+
+// TD-322: an unknown option, or --count with no value, used to become a file target, so a typo'd
+// flag was silently treated as a file name.
+TEST(DatasetManagerArgsOptions, UnknownOptionsAreErrorsNotFileTargets) {
+    const auto del = parse_delete_args({"f.jsonl", "--delete-file"});
+    EXPECT_TRUE(del.error) << "typo of --delete-files";
+    EXPECT_NE(del.error_message.find("--delete-file"), std::string::npos) << del.error_message;
+    EXPECT_TRUE(parse_unassign_args({"m", "--froce"}).error);
+    EXPECT_TRUE(parse_assign_args({"m", "--cuont", "3"}).error);
+    EXPECT_TRUE(parse_assign_args({"m", "--count=3"}).error);
+    EXPECT_TRUE(parse_migrate_args({"chatbot", "--all"}).error);
+    EXPECT_TRUE(parse_assign_args({"--count", "3"}).error) << "a flag is not a model name";
+}
+
+TEST(DatasetManagerArgsOptions, CountNeedsAValue) {
+    const auto assign = parse_assign_args({"m", "--count"});
+    EXPECT_TRUE(assign.error);
+    EXPECT_NE(assign.error_message.find("needs a value"), std::string::npos)
+        << assign.error_message;
+    EXPECT_TRUE(parse_migrate_args({"chatbot", "--count"}).error);
+    EXPECT_TRUE(parse_segment_args({"f.jsonl", "--count"}).error);
+    EXPECT_TRUE(parse_segment_args({"f.jsonl", "--ranges"}).error);
+}
+
+TEST(DatasetManagerArgsOptions, DoubleDashEndsOptions) {
+    const auto del = parse_delete_args({"--force", "--", "--odd-name.jsonl"});
+    ASSERT_FALSE(del.error) << del.error_message;
+    EXPECT_TRUE(del.force);
+    EXPECT_EQ(del.targets, (std::vector<std::string>{"--odd-name.jsonl"}));
+    const auto assign = parse_assign_args({"m", "--count", "2", "--", "-x.jsonl"});
+    ASSERT_FALSE(assign.error) << assign.error_message;
+    EXPECT_EQ(assign.count, 2);
+    EXPECT_EQ(assign.targets, (std::vector<std::string>{"-x.jsonl"}));
+}
+
+// TD-323: bare std::stoi kept the leading digits ("1342abc" -> 1342) and let 0 and negatives in.
+TEST(DatasetManagerArgsNumbers, PartialAndNonPositiveNumbersAreErrors) {
+    EXPECT_TRUE(parse_gutenberg_args({"1342abc"}).error);
+    EXPECT_TRUE(parse_gutenberg_args({"1342", "500x"}).error);
+    EXPECT_TRUE(parse_gutenberg_args({"-5"}).error);
+    EXPECT_TRUE(parse_gutenberg_args({"0"}).error);
+    EXPECT_TRUE(parse_gutenberg_args({"1342", "-10"}).error);
+    EXPECT_TRUE(parse_gutenberg_args({"1342", "0"}).error);
+    EXPECT_TRUE(parse_gutenberg_batch_args({"1342,0"}).error);
+    EXPECT_TRUE(parse_gutenberg_batch_args({"1342,11x"}).error);
+    EXPECT_TRUE(parse_gutenberg_batch_args({"1342,11", "-1"}).error);
+    EXPECT_TRUE(parse_huggingface_args({"x", "-1"}).error);
+    EXPECT_TRUE(parse_huggingface_args({"x", "10k"}).error);
+    EXPECT_TRUE(parse_segment_args({"f.jsonl", "--count", "3abc"}).error);
+    EXPECT_TRUE(parse_segment_args({"f.jsonl", "--count", "0"}).error);
+    EXPECT_TRUE(parse_segment_args({"f.jsonl", "--ranges", "0-9x"}).error);
+    EXPECT_TRUE(parse_segment_args({"f.jsonl", "--ranges", "0x-9"}).error);
+}
+
+TEST(DatasetManagerArgsNumbers, WholePositiveNumbersStillParse) {
+    const auto g = parse_gutenberg_args({"1342", "250"});
+    ASSERT_FALSE(g.error) << g.error_message;
+    EXPECT_EQ(g.book_id, 1342);
+    EXPECT_EQ(g.num_pairs, 250);
+    const auto b = parse_gutenberg_batch_args({"1342,11,84", "20"});
+    ASSERT_FALSE(b.error) << b.error_message;
+    EXPECT_EQ(b.book_ids, (std::vector<int>{1342, 11, 84}));
+    const auto s = parse_segment_args({"f.jsonl", "--ranges", "0-9,10-19"});
+    ASSERT_FALSE(s.error) << s.error_message;
+    EXPECT_EQ(s.ranges.size(), 2u);
+}

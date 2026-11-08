@@ -1521,6 +1521,8 @@ The generation and model math run is complete.
   `full_dataset.complete` marker; fetches of one dataset are serialized, so concurrent requests download once).
 - TD-374, TD-375 (done in code: `USER` releases a held FTP rate-limit slot; at most 64 control connections, 60 s idle limit before login
   and 300 s after, 1,024-byte command lines; connection threads tracked, and `stop()` wakes and joins them, data transfers included).
+- TD-322, TD-323 (done in code: `dataset_manager` refuses unknown options and a value-less `--count` instead of treating them as files, `--`
+  ends options; every number is a whole positive number, no more `std::stoi` prefixes).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -8818,7 +8820,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / dataset_manager CLI | October 11, 2026 | 1 hour |
+| LOW | Open — code fix landed November 7, 2026 | Data / dataset_manager CLI | October 11, 2026 | 1 hour |
 
 Description:
 Found alongside TD-321 and confirmed by running the parsers. `assign`, `unassign`, `delete` and
@@ -8830,10 +8832,20 @@ Found alongside TD-321 and confirmed by running the parsers. `assign`, `unassign
 
 Action Items:
 
-- [ ] Reject any argument starting with `--` that isn't a known flag, and require a value after `--count`.
-- [ ] Tests for typo'd flags and value-less `--count`.
+- [x] Reject any argument starting with `--` that isn't a known flag, and require a value after `--count`.
+- [x] Tests for typo'd flags and value-less `--count`.
 
-Location in code: `src/DatasetManagerArgs.cpp` (`parse_assign_args()`, `parse_unassign_args()`, `parse_delete_args()`, `parse_migrate_args()`); tagged `TODO: See TD-322`.
+Fix (November 7, 2026): in `assign`, `unassign`, `delete` and `migrate`, an argument that starts with `-` and isn't one of the command's own
+flags is an error (`Unknown option --delete-file. Usage: …`, exit 1) instead of a file target, and so is a model name that looks like a
+flag. `--count` with no value says `--count needs a value` (also in `segment`, with `--ranges`). `--count=3` is an unknown option, as in
+the other parsers. `--` ends the options, so a file whose name starts with `-` can still be given (`delete -- --odd.jsonl`).
+
+Tests (`tests/dataset_manager_args_test.cpp`): `DatasetManagerArgsOptions.UnknownOptionsAreErrorsNotFileTargets`, `CountNeedsAValue`,
+`DoubleDashEndsOptions`; all three fail on the old parsers. Checked by hand with the real binary: `delete f.jsonl --delete-file`,
+`assign m --count` and `unassign m --froce` exit 1 with the message.
+
+Location in code: `src/DatasetManagerArgs.cpp` (`looks_like_option()`, `parse_assign_args()`, `parse_unassign_args()`,
+`parse_delete_args()`, `parse_migrate_args()`, `parse_segment_args()`).
 
 Files to Modify:
 
@@ -8846,7 +8858,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / dataset_manager CLI | October 11, 2026 | 1 hour |
+| LOW | Open — code fix landed November 7, 2026 | Data / dataset_manager CLI | October 11, 2026 | 1 hour |
 
 Description:
 Found alongside TD-321 and confirmed by running the parsers. Every numeric argument uses bare
@@ -8857,10 +8869,18 @@ Found alongside TD-321 and confirmed by running the parsers. Every numeric argum
 
 Action Items:
 
-- [ ] Add a strict integer helper (full-string match, range check) and require `book_id > 0` and `num_pairs > 0`.
-- [ ] Tests for partial and non-positive values.
+- [x] Add a strict integer helper (full-string match, range check) and require `book_id > 0` and `num_pairs > 0`.
+- [x] Tests for partial and non-positive values.
 
-Location in code: `src/DatasetManagerArgs.cpp` (all `std::stoi` call sites); tagged `TODO: See TD-323`.
+Fix (November 7, 2026): every `std::stoi` in `DatasetManagerArgs.cpp` is gone. Book ids, pair counts (`gutenberg`, `gutenberg-batch`,
+`huggingface`) and `segment --count` go through `parse_positive()` (the shared `parse_strict_int()`, the whole value, at least 1), and both
+ends of a `segment --ranges` token through `parse_strict_int()`. The error names the value: `Invalid book_id '1342abc': it must be a whole
+number of at least 1`.
+
+Tests: `DatasetManagerArgsNumbers.PartialAndNonPositiveNumbersAreErrors` (fails on the old parsers) and `WholePositiveNumbersStillParse`.
+Checked by hand: `dataset_manager gutenberg 1342abc` exits 1 with that message.
+
+Location in code: `src/DatasetManagerArgs.cpp` (`parse_positive()` and its callers).
 
 Files to Modify:
 

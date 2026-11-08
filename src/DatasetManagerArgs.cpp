@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.6.0
-// @adai-reviewed: 2026-11-05
+// @adai-version: 0.7.0
+// @adai-reviewed: 2026-11-07
 
 // Calling convention note: every parse_*_args() here takes the command's OWN argument slice —
 // NOT including the command name itself (main() strips that off before dispatching, the same
@@ -37,6 +37,33 @@ std::string count_error(const std::string& value, const char* all_action) {
     return "Invalid --count value '" + value +
            "': it must be a whole number of at least 1 (omit --count to " + all_action + ")";
 }
+
+// TD-323: book ids and pair counts. Bare std::stoi kept the leading digits of "1342abc" and let 0
+// and negative numbers through, which in local mode just wrote zero pairs.
+bool parse_positive(const std::string& value, int& out) {
+    const auto n = parse_strict_int(value);
+    if (!n || *n < 1)
+        return false;
+    out = *n;
+    return true;
+}
+
+// TD-322: an argument that looks like an option but isn't one of the command's own is an error;
+// it used to become a file target, so `delete f --delete-file` (typo) deleted the entry and kept
+// the file without a word. "--" ends the options, for a file whose name starts with "-".
+bool looks_like_option(const std::string& arg) {
+    return arg.size() > 1 && arg[0] == '-';
+}
+
+template <typename T>
+T unknown_option(const std::string& arg, const char* usage) {
+    return make_error<T>("Unknown option " + arg + ". " + usage);
+}
+
+template <typename T>
+T missing_value(const char* flag, const char* usage) {
+    return make_error<T>(std::string(flag) + " needs a value. " + usage);
+}
 }  // namespace
 
 // TODO: See TD-325 in TECHNICAL_DEBT.md - extra arguments silently ignored
@@ -54,18 +81,13 @@ GutenbergArgs parse_gutenberg_args(const std::vector<std::string>& args) {
             "Usage: dataset_manager gutenberg <book_id> [num_pairs] [model]");
     }
     GutenbergArgs r;
-    try {
-        // TODO: See TD-323 in TECHNICAL_DEBT.md - bare stoi: accepts partial ("1342abc") and non-positive values
-        r.book_id = std::stoi(args[0]);
-    } catch (const std::exception&) {
-        return make_error<GutenbergArgs>("Invalid book_id: " + args[0]);
+    if (!parse_positive(args[0], r.book_id)) {
+        return make_error<GutenbergArgs>("Invalid book_id '" + args[0] +
+                                         "': it must be a whole number of at least 1");
     }
-    if (args.size() >= 2) {
-        try {
-            r.num_pairs = std::stoi(args[1]);
-        } catch (const std::exception&) {
-            return make_error<GutenbergArgs>("Invalid num_pairs: " + args[1]);
-        }
+    if (args.size() >= 2 && !parse_positive(args[1], r.num_pairs)) {
+        return make_error<GutenbergArgs>("Invalid num_pairs '" + args[1] +
+                                         "': it must be a whole number of at least 1");
     }
     if (args.size() >= 3)
         r.model = args[2];
@@ -81,18 +103,16 @@ GutenbergBatchArgs parse_gutenberg_batch_args(const std::vector<std::string>& ar
     std::stringstream ss(args[0]);
     std::string tok;
     while (std::getline(ss, tok, ',')) {
-        try {
-            r.book_ids.push_back(std::stoi(tok));
-        } catch (const std::exception&) {
-            return make_error<GutenbergBatchArgs>("Invalid book id in list: " + tok);
+        int id = 0;
+        if (!parse_positive(tok, id)) {
+            return make_error<GutenbergBatchArgs>("Invalid book id in list: '" + tok +
+                                                  "' (each must be a whole number of at least 1)");
         }
+        r.book_ids.push_back(id);
     }
-    if (args.size() >= 2) {
-        try {
-            r.num_pairs_each = std::stoi(args[1]);
-        } catch (const std::exception&) {
-            return make_error<GutenbergBatchArgs>("Invalid num_pairs_each: " + args[1]);
-        }
+    if (args.size() >= 2 && !parse_positive(args[1], r.num_pairs_each)) {
+        return make_error<GutenbergBatchArgs>("Invalid num_pairs_each '" + args[1] +
+                                              "': it must be a whole number of at least 1");
     }
     if (args.size() >= 3)
         r.model = args[2];
@@ -108,12 +128,9 @@ HuggingfaceArgs parse_huggingface_args(const std::vector<std::string>& args) {
     }
     HuggingfaceArgs r;
     r.dataset_id = args[0];
-    if (args.size() >= 2) {
-        try {
-            r.num_pairs = std::stoi(args[1]);
-        } catch (const std::exception&) {
-            return make_error<HuggingfaceArgs>("Invalid num_pairs: " + args[1]);
-        }
+    if (args.size() >= 2 && !parse_positive(args[1], r.num_pairs)) {
+        return make_error<HuggingfaceArgs>("Invalid num_pairs '" + args[1] +
+                                           "': it must be a whole number of at least 1");
     }
     if (args.size() >= 3)
         r.split = args[2];
@@ -134,19 +151,27 @@ RemoveArgs parse_remove_args(const std::vector<std::string>& args) {
     return r;
 }
 
-// TODO: See TD-322 in TECHNICAL_DEBT.md - unknown flags and a value-less --count become file targets
 AssignArgs parse_assign_args(const std::vector<std::string>& args) {
-    if (args.empty()) {
-        return make_error<AssignArgs>(
-            "Usage: dataset_manager assign <model_name> [file1 file2 ...] [--count N]");
+    static const char* usage =
+        "Usage: dataset_manager assign <model_name> [file1 file2 ...] [--count N]";
+    if (args.empty() || looks_like_option(args[0])) {
+        return make_error<AssignArgs>(usage);
     }
     AssignArgs r;
     r.model_name = args[0];
+    bool options = true;
     for (std::size_t i = 1; i < args.size(); ++i) {
-        if (args[i] == "--count" && i + 1 < args.size()) {
+        if (options && args[i] == "--") {
+            options = false;
+        } else if (options && args[i] == "--count") {
+            if (i + 1 >= args.size()) {
+                return missing_value<AssignArgs>("--count", usage);
+            }
             if (!parse_count(args[++i], r.count)) {
                 return make_error<AssignArgs>(count_error(args[i], "assign every pending file"));
             }
+        } else if (options && looks_like_option(args[i])) {
+            return unknown_option<AssignArgs>(args[i], usage);  // TD-322
         } else {
             r.targets.push_back(args[i]);
         }
@@ -154,17 +179,22 @@ AssignArgs parse_assign_args(const std::vector<std::string>& args) {
     return r;
 }
 
-// TODO: See TD-322 in TECHNICAL_DEBT.md - typo'd flags (e.g. --froce) become file targets
 UnassignArgs parse_unassign_args(const std::vector<std::string>& args) {
-    if (args.empty()) {
-        return make_error<UnassignArgs>(
-            "Usage: dataset_manager unassign <model_name> [file1 file2 ...] [--force]");
+    static const char* usage =
+        "Usage: dataset_manager unassign <model_name> [file1 file2 ...] [--force]";
+    if (args.empty() || looks_like_option(args[0])) {
+        return make_error<UnassignArgs>(usage);
     }
     UnassignArgs r;
     r.model_name = args[0];
+    bool options = true;
     for (std::size_t i = 1; i < args.size(); ++i) {
-        if (args[i] == "--force") {
+        if (options && args[i] == "--") {
+            options = false;
+        } else if (options && args[i] == "--force") {
             r.force = true;
+        } else if (options && looks_like_option(args[i])) {
+            return unknown_option<UnassignArgs>(args[i], usage);  // TD-322
         } else {
             r.targets.push_back(args[i]);
         }
@@ -172,21 +202,26 @@ UnassignArgs parse_unassign_args(const std::vector<std::string>& args) {
     return r;
 }
 
-// TODO: See TD-322 in TECHNICAL_DEBT.md - typo'd flags (e.g. --delete-file) become file targets
 DeleteArgs parse_delete_args(const std::vector<std::string>& args) {
+    static const char* usage =
+        "Usage: dataset_manager delete <file1> [file2 ...] [--force] [--delete-files]";
     DeleteArgs r;
+    bool options = true;
     for (std::size_t i = 0; i < args.size(); ++i) {
-        if (args[i] == "--force") {
+        if (options && args[i] == "--") {
+            options = false;
+        } else if (options && args[i] == "--force") {
             r.force = true;
-        } else if (args[i] == "--delete-files") {
+        } else if (options && args[i] == "--delete-files") {
             r.delete_files = true;
+        } else if (options && looks_like_option(args[i])) {
+            return unknown_option<DeleteArgs>(args[i], usage);  // TD-322
         } else {
             r.targets.push_back(args[i]);
         }
     }
     if (r.targets.empty()) {
-        return make_error<DeleteArgs>(
-            "Usage: dataset_manager delete <file1> [file2 ...] [--force] [--delete-files]");
+        return make_error<DeleteArgs>(usage);
     }
     return r;
 }
@@ -226,6 +261,9 @@ MigrateArgs parse_migrate_args(const std::vector<std::string>& args) {
             "Usage: dataset_manager migrate <encoder|decoder|world_model|chatbot> "
             "[file1 file2 ...] [--count N]");
     }
+    static const char* usage =
+        "Usage: dataset_manager migrate <encoder|decoder|world_model|chatbot> [file1 file2 ...] "
+        "[--count N]";
     MigrateArgs r;
     r.kind = args[0];
     if (!is_valid_dataset_kind(r.kind)) {
@@ -233,12 +271,20 @@ MigrateArgs parse_migrate_args(const std::vector<std::string>& args) {
                                        "' — must be one of: encoder, decoder, world_model, "
                                        "chatbot");
     }
+    bool options = true;
     for (std::size_t i = 1; i < args.size(); ++i) {
-        if (args[i] == "--count" && i + 1 < args.size()) {
+        if (options && args[i] == "--") {
+            options = false;
+        } else if (options && args[i] == "--count") {
+            if (i + 1 >= args.size()) {
+                return missing_value<MigrateArgs>("--count", usage);
+            }
             if (!parse_count(args[++i], r.count)) {
                 return make_error<MigrateArgs>(
                     count_error(args[i], "migrate every legacy pending file"));
             }
+        } else if (options && looks_like_option(args[i])) {
+            return unknown_option<MigrateArgs>(args[i], usage);  // TD-322
         } else {
             r.targets.push_back(args[i]);
         }
@@ -254,13 +300,17 @@ SegmentArgs parse_segment_args(const std::vector<std::string>& args) {
     SegmentArgs r;
     r.path = args[0];
     for (std::size_t i = 1; i < args.size(); ++i) {
-        if (args[i] == "--count" && i + 1 < args.size()) {
-            try {
-                r.split_count = std::stoi(args[++i]);
-            } catch (const std::exception&) {
-                return make_error<SegmentArgs>("Invalid --count value");
+        if (args[i] == "--count" || args[i] == "--ranges") {
+            if (i + 1 >= args.size()) {
+                return make_error<SegmentArgs>(args[i] + " needs a value");
             }
-        } else if (args[i] == "--ranges" && i + 1 < args.size()) {
+        }
+        if (args[i] == "--count") {
+            if (!parse_positive(args[++i], r.split_count)) {  // TD-323
+                return make_error<SegmentArgs>("Invalid --count value '" + args[i] +
+                                               "': it must be a whole number of at least 1");
+            }
+        } else if (args[i] == "--ranges") {
             const std::string& spec = args[++i];
             std::stringstream ss(spec);
             std::string token;
@@ -272,19 +322,19 @@ SegmentArgs parse_segment_args(const std::vector<std::string>& args) {
                         "indices): " +
                         token);
                 }
-                try {
-                    const int a = std::stoi(token.substr(0, dash));
-                    const int b = std::stoi(token.substr(dash + 1));
-                    if (a < 0 || b < a) {
-                        return make_error<SegmentArgs>(
-                            "Invalid --ranges token (need 0 <= A <= B): " + token);
-                    }
-                    // TODO: See TD-324 in TECHNICAL_DEBT.md - b - a + 1 overflows near INT_MAX; overlapping/duplicate ranges accepted
-                    r.ranges.push_back({a, b - a + 1});
-                } catch (const std::exception&) {
+                // TD-323: both ends whole numbers ("0-9x" used to read as 0-9).
+                const auto a = parse_strict_int(token.substr(0, dash));
+                const auto b = parse_strict_int(token.substr(dash + 1));
+                if (!a || !b) {
                     return make_error<SegmentArgs>(
                         "Invalid --ranges token (expected A-B, integers): " + token);
                 }
+                if (*a < 0 || *b < *a) {
+                    return make_error<SegmentArgs>("Invalid --ranges token (need 0 <= A <= B): " +
+                                                   token);
+                }
+                // TODO: See TD-324 in TECHNICAL_DEBT.md - b - a + 1 overflows near INT_MAX; overlapping/duplicate ranges accepted
+                r.ranges.push_back({*a, *b - *a + 1});
             }
         } else {
             return make_error<SegmentArgs>("Unrecognized argument: " + args[i]);
