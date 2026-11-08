@@ -578,6 +578,7 @@ TEST(DataFetcherTest, SplitIsFlattenedIntoTheOutputDirectory) {
     const fs::path cached = out / "org_ds_x_.._.._ESCAPED" / "full_dataset.jsonl";
     fs::create_directories(cached.parent_path());
     std::ofstream(cached) << "{\"input\":\"a\",\"response\":\"b\"}\n";
+    std::ofstream(cached.parent_path() / "full_dataset.complete") << "seeded\n";  // TD-313
 
     FetcherConfig cfg;
     cfg.huggingface_output_dir = out.string();
@@ -703,3 +704,164 @@ TEST_F(DataFetcherDownloadTest, PlainHttpIsRefused) {
     EXPECT_FALSE(fs::exists(dir / "o"));
     fs::remove_all(dir);
 }
+
+// ============================================================================
+// TD-313: the HuggingFace cache is all parts or nothing, one download at a time
+// ============================================================================
+
+#ifdef ADAI_HAVE_LIBCURL
+#include <httplib.h>
+#include <atomic>
+#include <chrono>
+#include <thread>
+#include "../src/ParquetReader.hpp"
+
+namespace {
+
+fs::path parquet_fixture(const char* name) {
+    return fs::path(__FILE__).parent_path() / "fixtures" / "parquet" / name;
+}
+
+std::string read_bytes(const fs::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+
+size_t count_lines(const fs::path& p) {
+    std::ifstream f(p);
+    size_t n = 0;
+    std::string line;
+    while (std::getline(f, line))
+        ++n;
+    return n;
+}
+
+// A stand-in for datasets-server: /parquet lists two parts on this same server.
+class HuggingFaceCacheTest : public ::testing::Test {
+   protected:
+    void SetUp() override {
+        root_ = fs::temp_directory_path() /
+                ("adai_td313_" + std::to_string(::getpid()) + "_" +
+                 ::testing::UnitTest::GetInstance()->current_test_info()->name());
+        fs::remove_all(root_);
+        fs::create_directories(root_);
+        server_.Get("/parquet", [this](const httplib::Request&, httplib::Response& res) {
+            ++listing_hits_;
+            const std::string base = "http://127.0.0.1:" + std::to_string(port_);
+            res.set_content(R"({"parquet_files":[{"url":")" + base + R"(/part0.parquet"},)" +
+                                R"({"url":")" + base + R"(/part1.parquet"}]})",
+                            "application/json");
+        });
+        server_.Get("/part0.parquet", [this](const httplib::Request&, httplib::Response& res) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(part_delay_ms_.load()));
+            res.set_content(read_bytes(parquet_fixture("plain_uncompressed.parquet")),
+                            "application/octet-stream");
+        });
+        server_.Get("/part1.parquet", [this](const httplib::Request&, httplib::Response& res) {
+            if (fail_part1_) {
+                res.status = 503;
+                return;
+            }
+            res.set_content(read_bytes(parquet_fixture("multi_column.parquet")),
+                            "application/octet-stream");
+        });
+        port_ = server_.bind_to_any_port("127.0.0.1");
+        ASSERT_GT(port_, 0);
+        thread_ = std::thread([this] { server_.listen_after_bind(); });
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!server_.is_running() && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        ASSERT_TRUE(server_.is_running());
+    }
+    void TearDown() override {
+        server_.stop();
+        if (thread_.joinable())
+            thread_.join();
+        fs::remove_all(root_);
+    }
+    FetcherConfig config() const {
+        FetcherConfig cfg;
+        cfg.huggingface_output_dir = (root_ / "datasets").string();
+        cfg.huggingface_api_url = "http://127.0.0.1:" + std::to_string(port_);
+        cfg.extra_download_hosts = {"127.0.0.1"};
+        cfg.allow_plain_http = true;
+        return cfg;
+    }
+    fs::path dataset_dir() const {
+        return root_ / "datasets" / "org_ds_train";
+    }
+    size_t expected_rows() const {
+        const fs::path scratch = root_ / "expected.jsonl";
+        long long rows = ParquetReader::convert_to_jsonl(
+            parquet_fixture("plain_uncompressed.parquet").string(), scratch.string(), false);
+        rows += ParquetReader::convert_to_jsonl(parquet_fixture("multi_column.parquet").string(),
+                                                scratch.string(), true);
+        return static_cast<size_t>(rows);
+    }
+    bool has_download_folders() const {
+        std::error_code ec;
+        for (const auto& e : fs::directory_iterator(dataset_dir(), ec))
+            if (e.path().filename().string().rfind(".download-", 0) == 0)
+                return true;
+        return false;
+    }
+
+    httplib::Server server_;
+    std::thread thread_;
+    int port_ = 0;
+    fs::path root_;
+    std::atomic<int> listing_hits_{0};
+    std::atomic<bool> fail_part1_{false};
+    std::atomic<int> part_delay_ms_{0};
+};
+
+}  // namespace
+
+// A failed part used to be skipped and the other part cached as the whole dataset, for good.
+TEST_F(HuggingFaceCacheTest, AFailedPartCachesNothingAndTheNextCallDownloadsAgain) {
+    fail_part1_ = true;
+    DataFetcher fetcher(config());
+    EXPECT_EQ(fetcher.ensure_huggingface_cached("org/ds", "train"), "");
+    EXPECT_FALSE(fs::exists(dataset_dir() / "full_dataset.jsonl"));
+    EXPECT_FALSE(fs::exists(dataset_dir() / "full_dataset.complete"));
+    EXPECT_FALSE(has_download_folders());
+
+    fail_part1_ = false;
+    const std::string path = fetcher.ensure_huggingface_cached("org/ds", "train");
+    ASSERT_FALSE(path.empty());
+    EXPECT_EQ(listing_hits_.load(), 2);
+    EXPECT_TRUE(fs::exists(dataset_dir() / "full_dataset.complete"));
+    EXPECT_EQ(count_lines(path), expected_rows());
+    EXPECT_FALSE(has_download_folders());
+
+    // Complete now: served from the cache with no request.
+    EXPECT_EQ(fetcher.ensure_huggingface_cached("org/ds", "train"), path);
+    EXPECT_EQ(listing_hits_.load(), 2);
+}
+
+// A cache with no completion marker (cut short, or from before TD-313) is downloaded again.
+TEST_F(HuggingFaceCacheTest, AnUnmarkedCacheIsDownloadedAgain) {
+    fs::create_directories(dataset_dir());
+    std::ofstream(dataset_dir() / "full_dataset.jsonl")
+        << R"({"input":"stale","output":"x"})" << "\n";
+    DataFetcher fetcher(config());
+    const std::string path = fetcher.ensure_huggingface_cached("org/ds", "train");
+    ASSERT_FALSE(path.empty());
+    EXPECT_EQ(listing_hits_.load(), 1);
+    EXPECT_EQ(count_lines(path), expected_rows());
+}
+
+// Two requests for one dataset used to download into the same files at once.
+TEST_F(HuggingFaceCacheTest, ConcurrentRequestsDownloadOnce) {
+    part_delay_ms_ = 300;
+    std::string a, b;
+    std::thread t1([&] { a = DataFetcher(config()).ensure_huggingface_cached("org/ds", "train"); });
+    std::thread t2([&] { b = DataFetcher(config()).ensure_huggingface_cached("org/ds", "train"); });
+    t1.join();
+    t2.join();
+    ASSERT_FALSE(a.empty());
+    EXPECT_EQ(a, b);
+    EXPECT_EQ(listing_hits_.load(), 1);
+    EXPECT_EQ(count_lines(a), expected_rows());
+}
+#endif

@@ -1053,6 +1053,10 @@ target_link_libraries(dataFetcherTests
     adai_core
     GTest::gtest_main
 )
+# TD-313: a local httplib::Server stands in for HuggingFace's datasets-server.
+if(HTTPLIB_INCLUDE_DIR)
+    target_include_directories(dataFetcherTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
+endif()
 add_test(NAME DataFetcherTests COMMAND dataFetcherTests)
 
 # TD-312: adai::http_download() (libcurl, no shell) against a local httplib::Server.

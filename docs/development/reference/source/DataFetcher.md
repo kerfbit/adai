@@ -244,7 +244,7 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 | Gutenberg pairs are next-sentence non-sequiturs; abbreviations split sentences; unseeded template choice; fixed `language="en"` (§5) | Low-quality training data from every Gutenberg fetch | **Verified** | [TD-311](../../guides/TECHNICAL_DEBT.md#td-311-gutenberg-training-pairs-are-next-sentence-non-sequiturs) |
 | `std::system` curl commands from strings; `HF_TOKEN` on the command line; HF-supplied URLs unvalidated (§6) | Injection where callers don't validate; token visible in `ps` (**fixed in code November 7, 2026**) | By inspection | [TD-312](../../guides/TECHNICAL_DEBT.md#td-312-datafetcher-downloads-through-shell-curl-commands) |
 | No curl timeouts; synchronous in the registry handler (§6) | A stalled download holds a registry worker forever (**fixed in code November 7, 2026**) | By inspection | [TD-312](../../guides/TECHNICAL_DEBT.md#td-312-datafetcher-downloads-through-shell-curl-commands) |
-| Partial or interrupted HF downloads cached as complete; concurrent fetches share cache files (§6) | Silently incomplete or corrupt datasets served indefinitely | By inspection | [TD-313](../../guides/TECHNICAL_DEBT.md#td-313-huggingface-cache-accepts-partial-downloads-and-races-concurrent-fetches) |
+| Partial or interrupted HF downloads cached as complete; concurrent fetches share cache files (§6) | Silently incomplete or corrupt datasets served indefinitely (**fixed in code November 7, 2026**) | By inspection | [TD-313](../../guides/TECHNICAL_DEBT.md#td-313-huggingface-cache-accepts-partial-downloads-and-races-concurrent-fetches) |
 | `config=default` only; Gutenberg URL patterns limited; `fetch_gutenberg()` never caches; `std::cout` in library code (§6) | Some datasets/books unfetchable; minor | By inspection | [TD-314](../../guides/TECHNICAL_DEBT.md#td-314-datafetcher-source-coverage-and-hygiene-gaps) |
 
 ---
@@ -286,3 +286,13 @@ template and `rand()` descriptions are historical. `extract_sentences()` no long
 the book's own `Language:` header line (`gutenberg_language()`), or stays empty when it is mixed, unknown or missing. The `-0.txt` editions
 usually have no header, so it is usually empty. `registry_server`'s per-book cache is now `sentences_v2.txt`, re-split from the saved
 `book.txt` when only an old `sentences.txt` exists.
+
+## Addendum (November 7, 2026): all-or-nothing HuggingFace cache (TD-313)
+
+`download_hf_full_dataset()` now downloads the listing and every Parquet part into a private `.download-<random>` folder inside the dataset
+folder and converts them there. One failed part or conversion abandons the whole attempt. Otherwise the JSONL is renamed over
+`full_dataset.jsonl` and `full_dataset.complete` (dataset, split, parts, rows) is written atomically; the folder is always removed. The
+`parquet/` and `parquet_info.json` of §4's layout are gone. `ensure_huggingface_cached()` serves a cache only with that marker, and
+holds a per-dataset mutex from the check through the download, so concurrent requests in `registry_server` download once. `FetcherConfig`
+has `huggingface_api_url`, plus `extra_download_hosts` and `allow_plain_http` for tests against a local server. §4's description of the
+cache check and §6's partial/concurrent cache items are historical.

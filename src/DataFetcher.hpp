@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-11-07
 
 #include <string>
@@ -17,6 +17,11 @@
 struct FetcherConfig {
     std::string gutenberg_output_dir = "gutenberg_data";
     std::string huggingface_output_dir = "huggingface_data";
+    /// TD-313: base of HuggingFace's datasets-server API (`<base>/parquet?dataset=…`).
+    std::string huggingface_api_url = "https://datasets-server.huggingface.co";
+    /// Tests against a local server only: more hosts to download from, and `http://` allowed.
+    std::vector<std::string> extra_download_hosts;
+    bool allow_plain_http = false;
 };
 
 /**
@@ -149,6 +154,12 @@ class DataFetcher {
      * fetch_huggingface() call (or a prior call to this method) counts as a
      * cache hit and no network request is made.
      *
+     * TD-313: a cache counts only with its `full_dataset.complete` marker,
+     * written after every Parquet part downloaded and converted, so a partial
+     * or interrupted download (or one from before this marker existed) is
+     * downloaded again. Calls for the same dataset are serialized within the
+     * process, so a concurrent one waits and then finds the finished cache.
+     *
      * @return Path to the cached full-dataset JSONL file, or "" on failure.
      */
     std::string ensure_huggingface_cached(const std::string& dataset_id, const std::string& split);
@@ -209,9 +220,9 @@ class DataFetcher {
 
     // ── HuggingFace private helpers ────────────────────────────────────────
 
-    static std::string download_hf_full_dataset(const std::string& dataset_id,
-                                                const std::string& split,
-                                                const std::string& output_dir);
+    // TD-313: all parts or nothing; see the definition.
+    std::string download_hf_full_dataset(const std::string& dataset_id, const std::string& split,
+                                         const std::string& output_dir) const;
     // offset_rows/append/out_rows_consumed/out_pairs_written are Phase 12 additions
     // (see convert_huggingface_slice) — all default so the existing call site in
     // fetch_huggingface() is unaffected.

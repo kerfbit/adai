@@ -1517,6 +1517,8 @@ The generation and model math run is complete.
 - TD-311 (done in code, owner's choice of continuation pairs: two sentences in, the next two out, `task_type="completion"`, no templates or
   `rand()`; titles, initials and dotted abbreviations no longer end a sentence; `language` from the book's header or empty; registry
   caches are re-split from the saved book).
+- TD-313 (done in code: a HuggingFace cache is written all parts or nothing, in a private folder, and counts only with its
+  `full_dataset.complete` marker; fetches of one dataset are serialized, so concurrent requests download once).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -8678,7 +8680,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / DataFetcher | October 11, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 7, 2026 | Data / DataFetcher | October 11, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-309, by inspection. `download_hf_full_dataset()` logs and skips any Parquet part
@@ -8691,15 +8693,38 @@ second request may see the first's half-written cache as complete.
 
 Action Items:
 
-- [ ] Download into a temp directory and rename into place only when every part succeeds; write a completion marker and check it instead of file size.
-- [ ] Serialize fetches per dataset in `registry_server` (a per-dataset mutex or lock file).
+- [x] Download into a temp directory and rename into place only when every part succeeds; write a completion marker and check it instead of file size.
+- [x] Serialize fetches per dataset in `registry_server` (a per-dataset mutex or lock file).
 
-Location in code: `src/DataFetcher.cpp` (`download_hf_full_dataset()`, `ensure_huggingface_cached()`); tagged `TODO: See TD-313`.
+Fix (November 7, 2026):
+- **All parts or nothing.** `download_hf_full_dataset()` downloads the listing and every Parquet part into a private
+  `.download-<random>` folder and converts them into that folder's JSONL, deleting each part once converted. Any failed download or
+  conversion abandons the whole attempt. Only after every part converted is the JSONL renamed over `full_dataset.jsonl`, and then
+  `full_dataset.complete` (dataset, split, parts, rows) written atomically. The folder is always removed; one left by a crash is removed once
+  older than a day. The old layout's `parquet/` folder and `parquet_info.json` are deleted after a successful download.
+- **The marker decides.** `ensure_huggingface_cached()` serves a cache only when `full_dataset.complete` exists, so a cut-short download,
+  a cache from before this fix, or one whose marker write failed is downloaded again.
+- **One download at a time.** `ensure_huggingface_cached()` holds a per-dataset mutex (keyed by the dataset folder) from the cache check
+  through the download, so a second request for the same dataset in `registry_server` waits and then finds the finished cache. The mutex
+  is in `DataFetcher`, so `RegistryServer.cpp` needed no change. Separate processes can still download at once, but each in its own folder,
+  and the final rename is atomic.
+- **Testable offline.** `FetcherConfig` gained `huggingface_api_url` (default `https://datasets-server.huggingface.co`) and, for tests
+  only, `extra_download_hosts` and `allow_plain_http`; `download_hf_full_dataset()` is now a const member function.
+
+Tests (`tests/DataFetcherTests.cpp`, `HuggingFaceCacheTest`, a local httplib server listing two parts that serve the repo's Parquet
+fixtures): `AFailedPartCachesNothingAndTheNextCallDownloadsAgain`, `AnUnmarkedCacheIsDownloadedAgain`, `ConcurrentRequestsDownloadOnce`. On
+the old cache logic (the HEAD sources given only the test address settings) all three fail: the half-downloaded dataset was cached, the
+unmarked file was served, and two concurrent requests downloaded twice. The pre-seeded caches in `SplitIsFlattenedIntoTheOutputDirectory`
+and `dataset_registry_live_test.cpp` now write the marker too. Checked by hand against a real `registry_server` and HuggingFace: two
+simultaneous `fetch/huggingface` requests for `tatsu-lab/alpaca` made one download and got rows 0–5 and 5–10; the old binary made two
+downloads and answered one request `fetch_failed`.
+
+Location in code: `src/DataFetcher.cpp` (`download_hf_full_dataset()`, `ensure_huggingface_cached()`, `hf_dataset_mutex()`).
 
 Files to Modify:
 
-- `src/DataFetcher.cpp`
-- `src/RegistryServer.cpp`
+- `src/DataFetcher.{hpp,cpp}`
+- `tests/DataFetcherTests.cpp`, `tests/dataset_registry_live_test.cpp`, `tests/CMakeLists.txt`
 
 ---
 

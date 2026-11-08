@@ -1858,8 +1858,9 @@ std::string server_data_dir() {
     return env ? std::string(env) : "";
 }
 
-// Writes <data_dir>/<group>/datasets/org_cursor_train/full_dataset.jsonl, which
-// DataFetcher::ensure_huggingface_cached() takes as the cached "org/cursor" train split.
+// Writes <data_dir>/<group>/datasets/org_cursor_train/full_dataset.jsonl and its TD-313 completion
+// marker, which DataFetcher::ensure_huggingface_cached() takes as the cached "org/cursor" train
+// split.
 void seed_hf_cache(const std::string& group, int rows) {
     const std::filesystem::path dir =
         std::filesystem::path(server_data_dir()) / group / "datasets" / "org_cursor_train";
@@ -1867,6 +1868,7 @@ void seed_hf_cache(const std::string& group, int rows) {
     std::ofstream f(dir / "full_dataset.jsonl");
     for (int i = 0; i < rows; ++i)
         f << "{\"input\":\"question " << i << "\",\"output\":\"answer " << i << "\"}\n";
+    std::ofstream(dir / "full_dataset.complete") << "seeded by the test\n";  // TD-313
 }
 
 httplib::Result fetch_cursor_slice(httplib::Client& c, const std::string& group, int num_pairs) {

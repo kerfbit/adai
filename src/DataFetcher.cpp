@@ -1,23 +1,29 @@
 // @adai-status: stable
-// @adai-version: 1.4.0
+// @adai-version: 1.5.0
 // @adai-reviewed: 2026-11-07
 
 #include "DataFetcher.hpp"
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
+#include <memory>
+#include <mutex>
 #include <regex>
 #include <sstream>
 #include <utility>
 #include <vector>
+#include "AtomicFile.hpp"
 #include "HttpDownload.hpp"
 #include "Logger.hpp"
 #include "ParquetReader.hpp"
+#include "SecureRandom.hpp"
 #include "TrainingSampleMeta.hpp"
 
 using adai::Logger;
@@ -286,14 +292,34 @@ std::string DataFetcher::fetch_huggingface(const std::string& dataset_id, int nu
 // Public — HuggingFace cache + rotating-slice serving (registry_server use)
 // ============================================================================
 
+namespace {
+// TD-313: written beside full_dataset.jsonl once every Parquet part converted.
+const char* const kHfCompleteMarker = "full_dataset.complete";
+
+std::mutex& hf_dataset_mutex(const std::string& dataset_dir) {
+    static std::mutex map_mutex;
+    static std::map<std::string, std::unique_ptr<std::mutex>> mutexes;
+    std::lock_guard<std::mutex> lock(map_mutex);
+    auto& m = mutexes[dataset_dir];
+    if (!m)
+        m = std::make_unique<std::mutex>();
+    return *m;
+}
+}  // namespace
+
 std::string DataFetcher::ensure_huggingface_cached(const std::string& dataset_id,
                                                    const std::string& split) {
     const std::string dataset_dir =
         config_.huggingface_output_dir + "/" + hf_dataset_dir_name(dataset_id, split);  // TD-310
     const std::string jsonl_path = dataset_dir + "/full_dataset.jsonl";
 
-    // TODO: See TD-313 in TECHNICAL_DEBT.md - any non-empty file counts as a complete cache (partial/interrupted/concurrent downloads)
-    if (fs::exists(jsonl_path) && fs::file_size(jsonl_path) > 0) {
+    // TD-313: one download per dataset at a time in this process; a second request for the same
+    // dataset waits here and then finds the finished cache instead of downloading into the same
+    // files at once.
+    std::lock_guard<std::mutex> lock(hf_dataset_mutex(dataset_dir));
+    // TD-313: only a cache with its completion marker counts. Any non-empty full_dataset.jsonl used
+    // to, including one missing parts that failed or a crash cut short, served forever.
+    if (fs::exists(jsonl_path) && fs::exists(dataset_dir + "/" + kHfCompleteMarker)) {
         Logger::info("HuggingFace dataset '{}' (split={}) already cached at '{}' — skipping download",
                      dataset_id, split, jsonl_path);
         return jsonl_path;
@@ -361,12 +387,18 @@ const std::vector<std::string> kDownloadHosts = {
     "gutenberg.org", ".gutenberg.org", "huggingface.co", ".huggingface.co", "hf.co", ".hf.co"};
 
 bool fetch_to(const std::string& url, const std::string& output_path,
-              const std::string& bearer_token = "") {
+              const std::string& bearer_token = "", const FetcherConfig* config = nullptr) {
     adai::HttpDownloadRequest request;
     request.url = url;
     request.output_path = output_path;
     request.bearer_token = bearer_token;
     request.allowed_hosts = kDownloadHosts;
+    if (config) {
+        request.allowed_hosts.insert(request.allowed_hosts.end(),
+                                     config->extra_download_hosts.begin(),
+                                     config->extra_download_hosts.end());
+        request.allow_plain_http = config->allow_plain_http;
+    }
     const adai::HttpDownloadResult result = adai::http_download(request);
     if (!result.ok) {
         Logger::error("Download failed: {} ({})", url, result.error);
@@ -860,26 +892,55 @@ bool DataFetcher::convert_gutenberg_to_training_data(const std::string& text_fil
 // Forward declaration — defined after the JSON helper block below.
 static std::vector<std::string> hf_extract_parquet_urls(const std::string& json);
 
-/*static*/
 // TD-312: every request goes through adai::http_download(): no shell, HF_TOKEN in an in-process
 // header (never on a command line, never sent to a redirect's host), the query parameters
 // percent-encoded, Parquet URLs from the API reply only on HuggingFace hosts, and timeouts.
+// TD-313: all parts or nothing. Everything is downloaded and converted in a private
+// `.download-<random>` folder; only when every part converted is the JSONL renamed over
+// full_dataset.jsonl and the completion marker written, and the folder is always removed. A failed
+// part used to be skipped, and the rest cached as if complete.
 std::string DataFetcher::download_hf_full_dataset(const std::string& dataset_id,
                                                   const std::string& split,
-                                                  const std::string& output_dir) {
+                                                  const std::string& output_dir) const {
     const std::string token = hf_token();
     const std::string jsonl_path = output_dir + "/full_dataset.jsonl";
+    const std::string marker_path = output_dir + "/" + kHfCompleteMarker;
+
+    // A download a crash cut short leaves its folder behind; one older than a day isn't running.
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(output_dir, ec)) {
+        const std::string name = entry.path().filename().string();
+        if (name.rfind(".download-", 0) == 0 && entry.is_directory(ec) &&
+            fs::file_time_type::clock::now() - fs::last_write_time(entry.path(), ec) >
+                std::chrono::hours(24)) {
+            fs::remove_all(entry.path(), ec);
+        }
+    }
+
+    const fs::path work = fs::path(output_dir) / (".download-" + adai::secure_random_hex(8));
+    fs::create_directories(work, ec);
+    if (ec) {
+        Logger::error("Cannot create download folder {}: {}", work.string(), ec.message());
+        return "";
+    }
+    struct RemoveWork {
+        fs::path dir;
+        ~RemoveWork() {
+            std::error_code ignored;
+            fs::remove_all(dir, ignored);
+        }
+    } remove_work{work};
 
     // 1. Fetch the parquet file list from the datasets-server /parquet endpoint
-    const std::string info_path = output_dir + "/parquet_info.json";
+    const std::string info_path = (work / "parquet_info.json").string();
     {
         std::ostringstream url;
-        url << "https://datasets-server.huggingface.co/parquet" << "?dataset="
+        url << config_.huggingface_api_url << "/parquet?dataset="
             << adai::url_encode_component(dataset_id)
             // TODO: See TD-314 in TECHNICAL_DEBT.md - only config=default is ever requested
             << "&config=default&split=" << adai::url_encode_component(split);
 
-        if (!fetch_to(url.str(), info_path, token)) {
+        if (!fetch_to(url.str(), info_path, token, &config_)) {
             Logger::error("Failed to fetch parquet info for '{}'", dataset_id);
             return "";
         }
@@ -899,48 +960,60 @@ std::string DataFetcher::download_hf_full_dataset(const std::string& dataset_id,
     }
     Logger::info("Found {} parquet file(s) for '{}'", parquet_urls.size(), dataset_id);
 
-    // 2. Download each parquet file and convert it natively to JSONL (ParquetReader),
-    // appending directly to jsonl_path — no python3/pandas/pyarrow subprocess, no
-    // per-part temp .jsonl + `cat` concatenation.
-    const std::string parquet_dir = output_dir + "/parquet";
-    fs::create_directories(parquet_dir);
-
-    int converted = 0;
+    // 2. Download each parquet file and convert it natively to JSONL (ParquetReader), appending to
+    // the folder's own JSONL. Each part is deleted once converted.
+    const std::string work_jsonl = (work / "full_dataset.jsonl").string();
+    long long total_rows = 0;
     for (size_t i = 0; i < parquet_urls.size(); ++i) {
-        const std::string pq_file = parquet_dir + "/part_" + std::to_string(i) + ".parquet";
-
-        // Download
-        if (!fetch_to(parquet_urls[i], pq_file, token)) {
-            // TODO: See TD-313 in TECHNICAL_DEBT.md - a failed part is skipped, yet the partial result is cached as complete
-            Logger::error("Failed to download parquet part {}: {}", i, parquet_urls[i]);
-            continue;
+        const std::string pq_file = (work / ("part_" + std::to_string(i) + ".parquet")).string();
+        if (!fetch_to(parquet_urls[i], pq_file, token, &config_)) {
+            Logger::error("Failed to download parquet part {}/{} of '{}'; nothing is cached", i + 1,
+                          parquet_urls.size(), dataset_id);
+            return "";
         }
-
-        // Convert to JSONL — first successful part truncates jsonl_path, subsequent
-        // parts append, so a failure on part 0 never leaves a stale file from a
-        // previous run behind.
-        // convert_to_jsonl() never throws and leaves jsonl_path as it was on failure (TD-471).
-        const long long rows = ParquetReader::convert_to_jsonl(pq_file, jsonl_path,
-                                                                /*append=*/converted > 0);
+        // convert_to_jsonl() never throws and leaves the JSONL as it was on failure (TD-471).
+        const long long rows = ParquetReader::convert_to_jsonl(pq_file, work_jsonl,
+                                                               /*append=*/i > 0);
+        fs::remove(pq_file, ec);
         if (rows < 0) {
-            Logger::error("Parquet to JSONL conversion failed for part {} ({})", i, pq_file);
-            std::error_code rm_ec;
-            fs::remove(pq_file, rm_ec);  // an unreadable part is no use to a later run
-            continue;
+            Logger::error(
+                "Parquet to JSONL conversion failed for part {}/{} of '{}'; nothing is "
+                "cached",
+                i + 1, parquet_urls.size(), dataset_id);
+            return "";
         }
-
-        ++converted;
+        total_rows += rows;
         std::cout << "  ✓ parquet part " << (i + 1) << "/" << parquet_urls.size() << " (" << rows
                   << " rows)\n";
     }
 
-    if (converted == 0 || !fs::exists(jsonl_path) || fs::file_size(jsonl_path) == 0) {
-        Logger::error("No parquet files successfully converted for '{}'", dataset_id);
+    if (total_rows <= 0 || fs::file_size(work_jsonl, ec) == 0 || ec) {
+        Logger::error("No rows converted for '{}'", dataset_id);
         return "";
     }
 
-    Logger::info("Dataset '{}': {}/{} parquet files converted to JSONL", dataset_id, converted,
-                 parquet_urls.size());
+    // 3. Into place: the old marker first, so no moment shows the new file with a stale marker...
+    fs::remove(marker_path, ec);
+    fs::rename(work_jsonl, jsonl_path, ec);
+    if (ec) {
+        Logger::error("Cannot move the converted dataset into {}: {}", jsonl_path, ec.message());
+        return "";
+    }
+    // ...then the marker, last: until it exists, the cache is downloaded again.
+    std::ostringstream marker;
+    marker << "dataset=" << dataset_id << "\nsplit=" << split << "\nparts=" << parquet_urls.size()
+           << "\nrows=" << total_rows << "\n";
+    if (const std::string err = adai::write_file_atomically(marker_path, marker.str());
+        !err.empty()) {
+        Logger::error("Cannot write {}: {}", marker_path, err);
+        return "";
+    }
+    // The layout before TD-313 kept the Parquet parts and listing here; they are no longer read.
+    fs::remove_all(fs::path(output_dir) / "parquet", ec);
+    fs::remove(fs::path(output_dir) / "parquet_info.json", ec);
+
+    Logger::info("Dataset '{}': {} parquet file(s), {} rows converted to JSONL", dataset_id,
+                 parquet_urls.size(), total_rows);
     return jsonl_path;
 }
 
