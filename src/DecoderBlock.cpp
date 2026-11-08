@@ -1,5 +1,5 @@
 // @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap; TD-194 gated cross-reference pull + Hebbian association strengthening added to the hippocampal path)
-// @adai-version: 1.9.0
+// @adai-version: 1.9.1
 // @adai-reviewed: 2026-11-08
 
 #include "DecoderBlock.hpp"
@@ -764,12 +764,12 @@ void DecoderBlock::register_parameters_with_optimizer(Optimizer& optimizer) {
     if (world_model_cross_attention) {
         world_model_cross_attention->set_optimizer(&optimizer);
         norm_world->set_optimizer(&optimizer);
-        optimizer.add_parameter_group(&gate, &gate_grad);
+        optimizer.add_parameter_group(&gate, &gate_grad, /*apply_weight_decay=*/false);  // TD-469
     }
     if (hippocampal_cross_attention) {
         hippocampal_cross_attention->set_optimizer(&optimizer);
         norm_hippocampal->set_optimizer(&optimizer);
-        optimizer.add_parameter_group(&gate_h, &gate_h_grad);
+        optimizer.add_parameter_group(&gate_h, &gate_h_grad, /*apply_weight_decay=*/false);
     }
     gate_optimizer_ = &optimizer;
 }

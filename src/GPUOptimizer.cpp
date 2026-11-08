@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-11-08
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -169,7 +169,7 @@ adai::gpu::GPUOptimizerUpdate GPUOptimizer::update_params(const ParameterGroup& 
     u.beta1 = host_.beta1;
     u.beta2 = host_.beta2;
     u.epsilon = host_.epsilon;
-    u.weight_decay = host_.weight_decay;
+    u.weight_decay = group.decay_rate(host_.weight_decay);  // TD-469: per group
     u.bias_correction1 = 1.0f - std::pow(host_.beta1, static_cast<float>(group.step));
     u.bias_correction2 = 1.0f - std::pow(host_.beta2, static_cast<float>(group.step));
     u.grad_scale = grad_scale;
@@ -178,10 +178,9 @@ adai::gpu::GPUOptimizerUpdate GPUOptimizer::update_params(const ParameterGroup& 
 
 void GPUOptimizer::step(float grad_scale) {
     host_.global_step++;
-    const bool skip_zero = host_.weight_decay == 0.0f;
-
     for (auto& d : device_) {
         ParameterGroup& g = host_.parameter_groups[d.index];
+        const bool skip_zero = g.decay_rate(host_.weight_decay) == 0.0f;  // TD-469
         if (skip_zero && sq_norms_[d.index] == 0.0f)
             continue;  // as Optimizer::step(): no gradient and no decay, so leave it alone
         // Adam/AdamW count their own steps for bias correction (Optimizer::step_adam/adamw).
@@ -195,6 +194,7 @@ void GPUOptimizer::step(float grad_scale) {
 
     for (size_t i : host_groups_) {
         ParameterGroup& g = host_.parameter_groups[i];
+        const bool skip_zero = g.decay_rate(host_.weight_decay) == 0.0f;
         if (skip_zero && sq_norms_[i] == 0.0f)
             continue;
         if (grad_scale != 1.0f) {

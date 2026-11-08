@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.2.1
-// @adai-reviewed: 2026-10-26
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-11-08
 
 #include "Optimizer.hpp"
 #include <cmath>
@@ -38,8 +38,7 @@ bool is_all_zero(const Matrix& m) {
 Optimizer::Optimizer(OptimizerType opt_type, float lr) : type(opt_type), learning_rate(lr) {}
 
 // Add parameter group
-// TODO: See TD-469 in TECHNICAL_DEBT.md - no duplicate check (a matrix registered twice updates twice per step); weight decay is global, not per group
-void Optimizer::add_parameter_group(Matrix* weights, Matrix* gradients) {
+void Optimizer::add_parameter_group(Matrix* weights, Matrix* gradients, bool apply_weight_decay) {
     if (!weights || !gradients) {
         throw std::runtime_error("Cannot add null parameter group");
     }
@@ -59,7 +58,7 @@ void Optimizer::add_parameter_group(Matrix* weights, Matrix* gradients) {
         }
     }
 
-    parameter_groups.emplace_back(weights, gradients);
+    parameter_groups.emplace_back(weights, gradients, apply_weight_decay);
 
     // Initialize optimizer state matrices
     auto& param = parameter_groups.back();
@@ -113,20 +112,20 @@ void Optimizer::zero_grad() {
 // NOLINTBEGIN(readability-convert-member-functions-to-static)
 // Get gradient norm
 float Optimizer::get_gradient_norm() const {
-    float total_norm = 0.0f;
+    double total_norm = 0.0;  // TD-469: float lost precision over millions of squares
 
     for (const auto& param : parameter_groups) {
         if (param.gradients) {
             const int rows = param.gradients->rows;
             const int cols = param.gradients->cols;
-            float group_norm = 0.0f;
+            double group_norm = 0.0;
 #ifdef ADAI_ENABLE_OPENMP
 #pragma omp parallel for collapse(2) reduction(+ : group_norm) \
     schedule(static) if (rows * cols > 4096)
 #endif
             for (int i = 0; i < rows; i++) {
                 for (int j = 0; j < cols; j++) {
-                    float val = (*param.gradients)(i, j);
+                    const double val = (*param.gradients)(i, j);
                     group_norm += val * val;
                 }
             }
@@ -134,25 +133,25 @@ float Optimizer::get_gradient_norm() const {
         }
     }
 
-    return std::sqrt(total_norm);
+    return static_cast<float>(std::sqrt(total_norm));
 }
 
 // Get weight (parameter) L2 norm — used for weight-update ratio (TD-013)
 float Optimizer::get_weight_norm() const {
-    float total_norm = 0.0f;
+    double total_norm = 0.0;  // TD-469
 
     for (const auto& param : parameter_groups) {
         if (param.weights) {
             const int rows = param.weights->rows;
             const int cols = param.weights->cols;
-            float group_norm = 0.0f;
+            double group_norm = 0.0;
 #ifdef ADAI_ENABLE_OPENMP
 #pragma omp parallel for collapse(2) reduction(+ : group_norm) \
     schedule(static) if (rows * cols > 4096)
 #endif
             for (int i = 0; i < rows; i++) {
                 for (int j = 0; j < cols; j++) {
-                    float val = (*param.weights)(i, j);
+                    const double val = (*param.weights)(i, j);
                     group_norm += val * val;
                 }
             }
@@ -160,15 +159,8 @@ float Optimizer::get_weight_norm() const {
         }
     }
 
-    float result = std::sqrt(total_norm);
-    // TD-013 debug: log first few calls to help diagnose a zero weight norm
-    static int debug_count = 0;
-    if (debug_count < 3) {
-        ++debug_count;
-        adai::Logger::debug("[TD-013] get_weight_norm: groups={} total_sq={:.4f} result={:.6f}",
-                            parameter_groups.size(), total_norm, result);
-    }
-    return result;
+    // TD-469: the TD-013 debug log here used an unsynchronized static counter; removed.
+    return static_cast<float>(std::sqrt(total_norm));
 }
 
 // Clip gradients
@@ -257,6 +249,7 @@ void Optimizer::scale_gradients(float factor) {
 
 // SGD update
 void Optimizer::step_sgd(ParameterGroup& param) {
+    const float wd = param.decay_rate(weight_decay);  // TD-469
 #ifdef ADAI_ENABLE_OPENMP
 #pragma omp parallel for collapse(2) \
     schedule(static) if (param.weights->rows * param.weights->cols > 4096)
@@ -266,8 +259,8 @@ void Optimizer::step_sgd(ParameterGroup& param) {
             float grad = (*param.gradients)(i, j);
 
             // Apply weight decay (L2 regularization)
-            if (weight_decay > 0.0f) {
-                grad += weight_decay * (*param.weights)(i, j);
+            if (wd > 0.0f) {
+                grad += wd * (*param.weights)(i, j);
             }
 
             // Update weights
@@ -278,6 +271,7 @@ void Optimizer::step_sgd(ParameterGroup& param) {
 
 // SGD with momentum update
 void Optimizer::step_sgd_momentum(ParameterGroup& param) {
+    const float wd = param.decay_rate(weight_decay);  // TD-469
 #ifdef ADAI_ENABLE_OPENMP
 #pragma omp parallel for collapse(2) \
     schedule(static) if (param.weights->rows * param.weights->cols > 4096)
@@ -287,8 +281,8 @@ void Optimizer::step_sgd_momentum(ParameterGroup& param) {
             float grad = (*param.gradients)(i, j);
 
             // Apply weight decay (L2 regularization)
-            if (weight_decay > 0.0f) {
-                grad += weight_decay * (*param.weights)(i, j);
+            if (wd > 0.0f) {
+                grad += wd * (*param.weights)(i, j);
             }
 
             // Update momentum
@@ -302,6 +296,7 @@ void Optimizer::step_sgd_momentum(ParameterGroup& param) {
 
 // Adam update
 void Optimizer::step_adam(ParameterGroup& param) {
+    const float wd = param.decay_rate(weight_decay);  // TD-469
     param.step++;
 
     // Bias correction terms
@@ -317,8 +312,8 @@ void Optimizer::step_adam(ParameterGroup& param) {
             float grad = (*param.gradients)(i, j);
 
             // Apply weight decay (L2 regularization - coupled with gradients)
-            if (weight_decay > 0.0f) {
-                grad += weight_decay * (*param.weights)(i, j);
+            if (wd > 0.0f) {
+                grad += wd * (*param.weights)(i, j);
             }
 
             // Update biased first moment estimate (momentum)
@@ -340,6 +335,7 @@ void Optimizer::step_adam(ParameterGroup& param) {
 // TODO: See TD-468 in TECHNICAL_DEBT.md - every update/norm/clip loop goes through bounds-checked operator() (3.2x slower than raw pointers)
 // AdamW update
 void Optimizer::step_adamw(ParameterGroup& param) {
+    const float wd = param.decay_rate(weight_decay);  // TD-469
     param.step++;
 
     // Bias correction terms
@@ -367,7 +363,7 @@ void Optimizer::step_adamw(ParameterGroup& param) {
             // Update weights with decoupled weight decay
             // AdamW applies weight decay directly to weights, not gradients
             (*param.weights)(i, j) -= learning_rate * (m_hat / (std::sqrt(v_hat) + epsilon) +
-                                                       weight_decay * (*param.weights)(i, j));
+                                                       wd * (*param.weights)(i, j));
         }
     }
 }
@@ -382,7 +378,7 @@ void Optimizer::step() {
         // own momentum/velocity decay toward zero and nudge weights from stale state alone. Gated
         // on weight_decay == 0 so AdamW's decoupled decay (and SGD/Adam's own gradient-coupled
         // decay) still applies exactly as before whenever it's actually configured.
-        if (weight_decay == 0.0f && is_all_zero(*param.gradients)) {
+        if (param.decay_rate(weight_decay) == 0.0f && is_all_zero(*param.gradients)) {
             continue;
         }
 

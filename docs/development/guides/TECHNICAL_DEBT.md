@@ -1533,6 +1533,8 @@ The generation and model math run is complete.
 **Training-impact run (November 8, 2026)**, chosen by the owner: the open items that affect a training run, most impactful first. So far:
 - TD-344 (done in code, owner's choice to implement: dropout, `DROPOUT` default 0.1, on every block's attention and feed-forward outputs
   while training only, on the CPU and both GPU backends with device-generated masks).
+- TD-469 (done in code: weight decay per parameter group; LayerNorm gains and biases, biases, embeddings and gates aren't decayed, on the CPU
+  and the device optimizer; `amsgrad` removed; norms summed in `double`).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -14766,7 +14768,7 @@ host groups left, and GPU training no longer zeroes host gradients every window.
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Core / Optimizer | October 14, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 8, 2026 | Core / Optimizer | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `Optimizer`, by inspection:
@@ -14781,10 +14783,28 @@ Found while tracing `Optimizer`, by inspection:
 
 Action Items:
 
-- [ ] Per-group weight decay (e.g. a flag at registration), with norms, biases and embeddings excluded by default.
-- [ ] Remove `amsgrad` or implement it; reject (or ignore) duplicate registration; accumulate norms in `double`.
+- [x] Per-group weight decay (e.g. a flag at registration), with norms, biases and embeddings excluded by default.
+- [x] Remove `amsgrad` or implement it; reject (or ignore) duplicate registration; accumulate norms in `double`.
 
-Location in code: `src/Optimizer.{hpp,cpp}` (`add_parameter_group()`, `step_*()`, `amsgrad`); tagged `TODO: See TD-469`.
+Fix (November 8, 2026):
+- **Per-group decay.** `add_parameter_group(weights, gradients, apply_weight_decay = true)`; `ParameterGroup::decay` and `decay_rate()`.
+  Every rule (`step_sgd/sgd_momentum/adam/adamw()`) and the device optimizer (`GPUOptimizer::update_params()`) use the group's own rate, and
+  a group with no decay and an all-zero gradient is skipped on both. Registered without decay: LayerNorm gains and biases, the
+  feed-forward and LM-head biases, both token embeddings and the decoder's 1×1 world-model/hippocampal gates. So `WEIGHT_DECAY` now applies
+  to the attention and feed-forward weight matrices and the LM head's output weights only. Before, AdamW at `WEIGHT_DECAY=0.01`, `lr=1e-4`
+  shrank every LayerNorm gain by `1e-6` per step.
+- **Duplicate registration** was already ignored (TD-297); the stale TODO is gone. A re-registration keeps the first registration's flag.
+- **`amsgrad`** removed (unused). **Norms** (`get_gradient_norm()`, `get_weight_norm()`) accumulate in `double`; the TD-013 debug log with
+  an unsynchronized static counter is removed. `Optimizer::groups()` gives read-only access to the groups.
+
+Tests: `PerGroupDecayTest` (all four rules): an excluded group matches an optimizer with no decay, and with no gradient isn't touched;
+`OptimizerNormTest.LargeNormsAccumulateInDouble` (2048×2048 of 0.01: 20.48; the old code gave 20.4245, 0.27% low);
+`EncoderDecoderModelTest.WeightDecayOnlyForWeightMatrices` (every vector-shaped group and the embeddings undecayed, every weight matrix
+decayed); `GPUOptimizerRuleTest.DeviceHonoursPerGroupDecay` on the oneAPI CPU device (all four rules). The per-group tests use the new
+registration flag, so they can't run on the old code.
+
+Location in code: `src/Optimizer.{hpp,cpp}`, `src/GPUOptimizer.cpp`, and the registrations in `src/LayerNorm.cpp`, `src/TokenEmbedding.cpp`,
+`src/LanguageModelHead.cpp`, `src/FeedForward.cpp`, `src/DecoderBlock.cpp`.
 
 Files to Modify:
 

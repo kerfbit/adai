@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-10-19
+// @adai-version: 1.4.0
+// @adai-reviewed: 2026-11-08
 
 
 #include <algorithm>
@@ -36,8 +36,17 @@ struct ParameterGroup {
     Matrix momentum;  // First moment (momentum/mean of gradients)
     Matrix velocity;  // Second moment (variance of gradients)
     int step{0};      // Number of updates performed
+    // TD-469: whether weight_decay applies to this group. Off for LayerNorm gains/biases, biases,
+    // token embeddings and gates, which are conventionally not decayed.
+    bool decay{true};
 
-    ParameterGroup(Matrix* w, Matrix* g) : weights(w), gradients(g) {}
+    ParameterGroup(Matrix* w, Matrix* g, bool apply_decay = true)
+        : weights(w), gradients(g), decay(apply_decay) {}
+
+    /// The weight decay this group gets from an optimizer whose rate is @p rate.
+    float decay_rate(float rate) const {
+        return decay ? rate : 0.0f;
+    }
 };
 
 /**
@@ -75,9 +84,8 @@ class Optimizer {
     float beta1{0.9f};          // Adam first moment decay (default: 0.9)
     float beta2{0.999f};        // Adam second moment decay (default: 0.999)
     float epsilon{1e-8f};       // Small constant for numerical stability (default: 1e-8)
-    float weight_decay{0.0f};   // L2 regularization / weight decay (default: 0.0)
-    // TODO: See TD-469 in TECHNICAL_DEBT.md - declared but never used
-    bool amsgrad{false};        // Use AMSGrad variant of Adam (default: false)
+    float weight_decay{
+        0.0f};  // L2 regularization / weight decay (default: 0.0), per group (TD-469)
 
     // Gradient clipping
     float max_grad_norm{0.0f};  // Maximum gradient norm (0 = no clipping)
@@ -122,8 +130,11 @@ class Optimizer {
      *
      * @param weights Pointer to weight matrix
      * @param gradients Pointer to gradient matrix (same shape as weights)
+     * @param apply_weight_decay TD-469: false for parameters that shouldn't be decayed (LayerNorm
+     *        gains and biases, biases, embeddings, gates). A matrix already registered keeps its
+     *        first registration.
      */
-    void add_parameter_group(Matrix* weights, Matrix* gradients);
+    void add_parameter_group(Matrix* weights, Matrix* gradients, bool apply_weight_decay = true);
 
     /**
      * @brief Set learning rate
@@ -252,6 +263,11 @@ class Optimizer {
      */
     size_t num_parameters() const {
         return parameter_groups.size();
+    }
+
+    /// The registered groups, read-only (TD-469: tests check which groups are decayed).
+    const std::vector<ParameterGroup>& groups() const {
+        return parameter_groups;
     }
 
     /**

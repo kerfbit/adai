@@ -1,6 +1,6 @@
 // @adai-status: stable        (TD-195 — backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 1.1.1
-// @adai-reviewed: 2026-10-26
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-08
 
 #include "FeedForward.hpp"
 #include "BinaryIO.hpp"
@@ -169,8 +169,9 @@ void FeedForward::register_parameters() {
     // Register all weight matrices and biases with optimizer
     optimizer->add_parameter_group(&W1, &W1_grad);
     optimizer->add_parameter_group(&W2, &W2_grad);
-    optimizer->add_parameter_group(&b1, &b1_grad);
-    optimizer->add_parameter_group(&b2, &b2_grad);
+    // TD-469: biases aren't weight-decayed.
+    optimizer->add_parameter_group(&b1, &b1_grad, /*apply_weight_decay=*/false);
+    optimizer->add_parameter_group(&b2, &b2_grad, /*apply_weight_decay=*/false);
 }
 
 void FeedForward::update_weights() {

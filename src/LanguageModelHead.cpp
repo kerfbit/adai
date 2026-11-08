@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.1
-// @adai-reviewed: 2026-10-26
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-08
 
 #include "LanguageModelHead.hpp"
 #include "BinaryIO.hpp"
@@ -159,7 +159,7 @@ void LanguageModelHead::register_parameters() {
 
     // Register weight matrix and bias
     optimizer->add_parameter_group(&W_output, &W_output_grad);
-    optimizer->add_parameter_group(&bias, &bias_grad);
+    optimizer->add_parameter_group(&bias, &bias_grad, /*apply_weight_decay=*/false);  // TD-469
 }
 
 void LanguageModelHead::save_weights(const std::string& filename) const {

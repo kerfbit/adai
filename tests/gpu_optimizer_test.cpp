@@ -112,6 +112,46 @@ TEST_P(GPUOptimizerRuleTest, DeviceStepMatchesCpuOptimizer) {
     EXPECT_LT(max_rel_diff(got, flat(w_cpu)), 1e-5f);
 }
 
+// TD-469: a group registered without weight decay gets none on the device either: with zero
+// gradients it isn't touched, while a decayed group shrinks as on the CPU.
+TEST_P(GPUOptimizerRuleTest, DeviceHonoursPerGroupDecay) {
+    if (!gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    const OptimizerType type = GetParam();
+    std::mt19937 rng(8);
+    Matrix w_dec = random_matrix(5, 7, rng, 0.5f), w_exc = random_matrix(5, 7, rng, 0.5f);
+    Matrix w_dec_cpu = w_dec, w_exc_cpu = w_exc;
+    Matrix g_dec(5, 7), g_exc(5, 7), g_dec_cpu(5, 7), g_exc_cpu(5, 7);
+    Optimizer cpu(type, 0.01f), dev(type, 0.01f);
+    for (Optimizer* o : {&cpu, &dev})
+        o->set_weight_decay(0.5f);
+    cpu.add_parameter_group(&w_dec_cpu, &g_dec_cpu);
+    cpu.add_parameter_group(&w_exc_cpu, &g_exc_cpu, /*apply_weight_decay=*/false);
+    dev.add_parameter_group(&w_dec, &g_dec);
+    dev.add_parameter_group(&w_exc, &g_exc, /*apply_weight_decay=*/false);
+
+    GPUMatrix wd_dev(5, 7), gd_dev(5, 7), we_dev(5, 7), ge_dev(5, 7);
+    const auto wd0 = flat(w_dec), we0 = flat(w_exc);
+    wd_dev.upload(wd0.data(), wd_dev.size());
+    we_dev.upload(we0.data(), we_dev.size());
+    gd_dev.zero();
+    ge_dev.zero();
+    GPUOptimizer gpu(dev, {GPUParamRef{&w_dec, &wd_dev, &gd_dev, -1},
+                           GPUParamRef{&w_exc, &we_dev, &ge_dev, -1}});
+    gpu.gradient_sq_norms();  // step() reads the norms of this window
+    cpu.step();
+    gpu.step(1.0f);
+
+    std::vector<float> got_dec(35), got_exc(35);
+    wd_dev.download(got_dec.data(), 35);
+    we_dev.download(got_exc.data(), 35);
+    EXPECT_EQ(got_exc, we0) << "excluded group, no gradient: untouched";
+    EXPECT_LT(max_rel_diff(got_dec, flat(w_dec_cpu)), 1e-5f);
+    if (type == OptimizerType::SGD || type == OptimizerType::ADAMW) {
+        EXPECT_NE(got_dec, wd0) << "the decayed group moved";
+    }
+}
+
 INSTANTIATE_TEST_SUITE_P(AllRules, GPUOptimizerRuleTest,
                          ::testing::Values(OptimizerType::SGD, OptimizerType::SGD_MOMENTUM,
                                            OptimizerType::ADAM, OptimizerType::ADAMW));

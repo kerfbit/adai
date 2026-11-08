@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.2.1
-// @adai-reviewed: 2026-10-26
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-11-08
 
 #include "TokenEmbedding.hpp"
 #include "BinaryIO.hpp"
@@ -98,7 +98,9 @@ void TokenEmbedding::register_parameters() {
     }
 
     // Register embedding matrix with optimizer
-    optimizer->add_parameter_group(&embedding_matrix, &embedding_grad);
+    // TD-469: embeddings aren't weight-decayed.
+    optimizer->add_parameter_group(&embedding_matrix, &embedding_grad,
+                                   /*apply_weight_decay=*/false);
 }
 
 void TokenEmbedding::update_weights() {

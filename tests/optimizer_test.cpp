@@ -966,3 +966,71 @@ TEST(OptimizerStateTest, MismatchedStateIsRejectedAndLeavesStateUntouched) {
     same.add_parameter_group(&w3, &g3);
     EXPECT_FALSE(same.load_state(truncated)) << "truncated";
 }
+
+// TD-469: weight decay used to apply to every group, so LayerNorm gains, biases and embeddings
+// shrank too. A group registered with apply_weight_decay = false gets none, under every rule.
+class PerGroupDecayTest : public ::testing::TestWithParam<OptimizerType> {};
+
+TEST_P(PerGroupDecayTest, ExcludedGroupMovesOnlyByItsGradient) {
+    const OptimizerType type = GetParam();
+    Matrix decayed(2, 3), excluded(2, 3), reference(2, 3);
+    Matrix g_decayed(2, 3), g_excluded(2, 3), g_reference(2, 3);
+    for (Matrix* m : {&decayed, &excluded, &reference})
+        m->fill(1.0f);
+    for (Matrix* g : {&g_decayed, &g_excluded, &g_reference})
+        g->fill(0.25f);
+
+    Optimizer with_decay(type, 0.01f);
+    with_decay.set_weight_decay(0.5f);
+    with_decay.add_parameter_group(&decayed, &g_decayed);
+    with_decay.add_parameter_group(&excluded, &g_excluded, /*apply_weight_decay=*/false);
+    Optimizer no_decay(type, 0.01f);  // what the excluded group must match
+    no_decay.add_parameter_group(&reference, &g_reference);
+
+    for (int step = 0; step < 3; ++step) {
+        with_decay.step();
+        no_decay.step();
+        g_decayed.fill(0.25f);
+        g_excluded.fill(0.25f);
+        g_reference.fill(0.25f);
+    }
+    EXPECT_FLOAT_EQ(excluded(1, 2), reference(1, 2));
+    // Plain Adam adds the decay to the gradient and then normalizes it, so with a constant gradient
+    // both groups take the same step (why AdamW decouples it); the other rules shrink the decayed
+    // one.
+    if (type != OptimizerType::ADAM) {
+        EXPECT_LT(decayed(1, 2), excluded(1, 2)) << "the decayed group shrinks further";
+    }
+}
+
+TEST_P(PerGroupDecayTest, ExcludedGroupWithNoGradientIsLeftAlone) {
+    Matrix decayed(2, 2), excluded(2, 2), g1(2, 2), g2(2, 2);
+    decayed.fill(1.0f);
+    excluded.fill(1.0f);
+    g1.fill(0.0f);
+    g2.fill(0.0f);
+    Optimizer opt(GetParam(), 0.01f);
+    opt.set_weight_decay(0.5f);
+    opt.add_parameter_group(&decayed, &g1);
+    opt.add_parameter_group(&excluded, &g2, /*apply_weight_decay=*/false);
+    opt.step();
+    EXPECT_FLOAT_EQ(excluded(0, 0), 1.0f);
+    EXPECT_LT(decayed(0, 0), 1.0f);
+    EXPECT_EQ(opt.groups()[1].step, 0) << "skipped, not stepped";
+}
+
+INSTANTIATE_TEST_SUITE_P(AllRules, PerGroupDecayTest,
+                         ::testing::Values(OptimizerType::SGD, OptimizerType::SGD_MOMENTUM,
+                                           OptimizerType::ADAM, OptimizerType::ADAMW));
+
+// TD-469: norms were summed in float; for these 4.2M squares of 0.01 the old norm was 0.27% low.
+TEST(OptimizerNormTest, LargeNormsAccumulateInDouble) {
+    Matrix w(2048, 2048), g(2048, 2048);
+    w.fill(0.01f);
+    g.fill(0.01f);
+    Optimizer opt(OptimizerType::ADAMW, 0.001f);
+    opt.add_parameter_group(&w, &g);
+    const double expected = std::sqrt(2048.0 * 2048.0 * 0.0001);  // 20.48
+    EXPECT_NEAR(opt.get_gradient_norm(), expected, expected * 1e-5);
+    EXPECT_NEAR(opt.get_weight_norm(), expected, expected * 1e-5);
+}

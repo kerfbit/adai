@@ -559,7 +559,7 @@ All hyperparameters are set in `config.conf` (or environment variables) and read
 | `NUM_EPOCHS` | `10` | Number of training epochs |
 | `LEARNING_RATE` | `0.001` | Learning rate |
 | `BATCH_SIZE` | `32` | Batch size |
-| `WEIGHT_DECAY` | `0.01` | L2 weight decay regularization |
+| `WEIGHT_DECAY` | `0.01` | Weight decay on weight matrices only (not LayerNorm, biases, embeddings; TD-469) |
 | `DROPOUT` | `0.1` | Dropout while training, `[0, 1)`; 0 = off (TD-344) |
 | `GRADIENT_CLIP` | `1.0` | Gradient clipping norm (0 = disabled) |
 | `SESSION_DIR` | `training_sessions` | Session and checkpoint directory |
@@ -830,7 +830,7 @@ All settings can be provided via:
 | `NUM_EPOCHS` | `10` | Epochs per `train` / `retrain` run |
 | `LEARNING_RATE` | `0.001` | Learning rate |
 | `BATCH_SIZE` | `32` | Batch size |
-| `WEIGHT_DECAY` | `0.01` | L2 weight decay regularization |
+| `WEIGHT_DECAY` | `0.01` | Weight decay on weight matrices only (not LayerNorm, biases, embeddings; TD-469) |
 | `DROPOUT` | `0.1` | Dropout while training, `[0, 1)`; 0 = off (TD-344) |
 | `GRADIENT_CLIP` | `1.0` | Gradient clipping norm (0 = disabled) |
 | `SESSION_DIR` | `training_sessions` | Checkpoint and session file directory |

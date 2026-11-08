@@ -2926,3 +2926,26 @@ TEST(EncoderDecoderModelHippocampalTest, TrainingForwardsAndDisabledUpdatesLeave
     model.set_hippocampal_updates_enabled(true);
 }
 
+// TD-469: the model registers its weight matrices with weight decay and its LayerNorm gains and
+// biases, biases and token embeddings without.
+TEST(EncoderDecoderModelTest, WeightDecayOnlyForWeightMatrices) {
+    const int vocab = 40, d = 16;
+    EncoderDecoderModel model(vocab, d, 1, 1, 2, 32, 16);
+    Optimizer opt(OptimizerType::ADAMW, 1e-3f);
+    model.register_parameters(opt);
+    int decayed = 0, excluded = 0, embeddings = 0;
+    for (const auto& g : opt.groups()) {
+        const bool vector_like = g.weights->rows == 1 || g.weights->cols == 1;
+        const bool embedding = g.weights->rows == vocab && g.weights->cols == d;
+        if (vector_like || embedding) {
+            EXPECT_FALSE(g.decay) << g.weights->rows << "x" << g.weights->cols;
+        } else {
+            EXPECT_TRUE(g.decay) << g.weights->rows << "x" << g.weights->cols;
+        }
+        embeddings += embedding ? 1 : 0;
+        (g.decay ? decayed : excluded) += 1;
+    }
+    EXPECT_GE(embeddings, 1);
+    EXPECT_GT(decayed, 0);
+    EXPECT_GT(excluded, 0);
+}

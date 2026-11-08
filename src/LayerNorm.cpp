@@ -1,6 +1,6 @@
 // @adai-status: stable        (TD-195 — backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 1.1.1
-// @adai-reviewed: 2026-10-26
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-08
 
 #include "LayerNorm.hpp"
 #include "BinaryIO.hpp"
@@ -155,8 +155,9 @@ void LayerNorm::register_parameters() {
         return;
     }
 
-    optimizer->add_parameter_group(&gamma, &gamma_grad);
-    optimizer->add_parameter_group(&beta, &beta_grad);
+    // TD-469: norm gains and biases aren't weight-decayed (decay pulled the gains toward 0).
+    optimizer->add_parameter_group(&gamma, &gamma_grad, /*apply_weight_decay=*/false);
+    optimizer->add_parameter_group(&beta, &beta_grad, /*apply_weight_decay=*/false);
 }
 
 void LayerNorm::update_weights() {

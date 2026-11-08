@@ -135,3 +135,10 @@ GPU training no longer runs `step()` on the host. `GPUOptimizer` ([GPUOptimizer.
 ## Addendum (October 26, 2026): one update per step (TD-297, TD-346, TD-360)
 
 `add_parameter_group()` ignores a matrix that is already registered (and throws if it comes with different gradients), so registering twice no longer doubles updates (TD-297). Test: `EncoderDecoderModelTest.OneUpdateIsOneStepWithOrWithoutAnOptimizer`.
+
+## Addendum (November 8, 2026): per-group weight decay (TD-469)
+
+`add_parameter_group()` takes `apply_weight_decay` (default true), stored as `ParameterGroup::decay`; every rule and `GPUOptimizer` use
+`decay_rate(weight_decay)`, so an excluded group gets no decay and, with an all-zero gradient, is skipped. The layers register their
+LayerNorm gains and biases, biases, token embeddings and gates without decay, so `WEIGHT_DECAY` applies to weight matrices only. `amsgrad`
+is gone, the norms accumulate in `double`, and `groups()` exposes the groups read-only.
