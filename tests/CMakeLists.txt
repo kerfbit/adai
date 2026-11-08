@@ -1055,6 +1055,14 @@ target_link_libraries(dataFetcherTests
 )
 add_test(NAME DataFetcherTests COMMAND dataFetcherTests)
 
+# TD-312: adai::http_download() (libcurl, no shell) against a local httplib::Server.
+if(HTTPLIB_INCLUDE_DIR)
+    add_executable(httpDownloadTests http_download_test.cpp)
+    target_include_directories(httpDownloadTests PRIVATE ${CMAKE_SOURCE_DIR}/src ${HTTPLIB_INCLUDE_DIR})
+    target_link_libraries(httpDownloadTests adai_core GTest::gtest_main)
+    add_test(NAME HttpDownloadTests COMMAND httpDownloadTests)
+endif()
+
 # TrainingSampleMeta unit tests (SampleMeta, sample_to_jsonl, parse_jsonl_sample)
 add_executable(trainingSampleMetaTests training_sample_meta_test.cpp)
 target_include_directories(trainingSampleMetaTests PRIVATE ${CMAKE_SOURCE_DIR}/src)

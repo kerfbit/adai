@@ -1511,6 +1511,9 @@ The generation and model math run is complete.
 - TD-543 (done in code, owner's choice of both flows: against a remote registry `segment` splits a server-queued path by the server's pair count,
   or uploads a local file first and segments the uploaded path; anything else is refused. `registry_server`'s `num_entries` is now the
   parsed pair count, not the non-blank line count).
+- TD-312 (done in code: Gutenberg and HuggingFace downloads go through libcurl in process (`adai::http_download()`), never a shell:
+  `https://` on known hosts only, `HF_TOKEN` in a header that isn't forwarded across redirects, connect/stall/total timeouts, and the
+  output replaced only by a complete download).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -8594,7 +8597,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / DataFetcher | October 11, 2026 | 4-8 hours |
+| MEDIUM | Open — code fix landed November 7, 2026 | Data / DataFetcher | October 11, 2026 | 4-8 hours |
 
 Description:
 Found alongside TD-309, by inspection. Every download is `std::system("curl -L -f -s … \"<path>\"
@@ -8610,15 +8613,39 @@ Found alongside TD-309, by inspection. Every download is `std::system("curl -L -
 
 Action Items:
 
-- [ ] Download with libcurl (already an optional dependency for the FTP transport) or `posix_spawn` with an argv array, never a shell.
-- [ ] Pass the token via a header option, not argv; set connect and total timeouts; validate URLs are `https://` on expected hosts.
+- [x] Download with libcurl (already an optional dependency for the FTP transport) or `posix_spawn` with an argv array, never a shell.
+- [x] Pass the token via a header option, not argv; set connect and total timeouts; validate URLs are `https://` on expected hosts.
 
-Location in code: `src/DataFetcher.cpp` (`download_file()`, `download_hf_full_dataset()`); tagged `TODO: See TD-312`.
+Fix (November 7, 2026): new `adai::http_download()` (`src/HttpDownload.{hpp,cpp}`, in `adai_core`) downloads one file with libcurl in
+process, with no shell and no `curl` process. It:
+- refuses, before connecting, a URL that isn't `https://` or whose host isn't allowed (an exact name or a `.suffix`). `DataFetcher` allows
+  `gutenberg.org`, `huggingface.co`, `hf.co` and their subdomains, which also covers the Parquet URLs from HuggingFace's API reply.
+- follows redirects (to download CDNs) over HTTPS only.
+- sends `HF_TOKEN` as an in-process `Authorization` header, never on a command line, and never to a host a redirect leads to.
+- has a 30 s connect timeout, gives up when the transfer stays below 1 KB/s for 60 s, and stops after an hour.
+- writes to `<output>.part` and renames it into place only after a complete 2xx download with a body, so a failure leaves any earlier
+  file untouched.
+
+`download_file()` and `download_hf_full_dataset()` use it, and `dataset_id`/`split` are percent-encoded into the API query
+(`adai::url_encode_component()`), so `dataset_manager`'s local mode, which doesn't allow-list them, can no longer run a pasted `$(…)`. A
+build without libcurl can't download and says so; libcurl was already used by `adai_core` when found (`ADAI_HAVE_LIBCURL`, beside
+TD-444's `ADAI_METRICS_PUSH_CURL`).
+
+Tests: `httpDownloadTests` (new) runs `http_download()` against a local httplib server (plain `http://` allowed only by a test flag): the
+body and bearer header arrive; a 404 leaves an existing output and no `.part`; `http://` and an unlisted host are refused with no request
+made; exact and suffix host entries; the token isn't sent to the host a redirect leads to; a server that stalls for 4 s fails within 3 s
+with a 1 s limit; an empty body fails; percent-encoding. `DataFetcherDownloadTest.CommandSubstitutionInAUrlIsNotRun` and
+`PlainHttpIsRefused`: on the old code the first created its marker file through the shell and the second downloaded over `http://`.
+Checked by hand: `dataset_manager gutenberg 11 5` and `huggingface tatsu-lab/alpaca 5` in local mode download for real (the Parquet part
+through its CDN redirect, 52,002 rows).
+
+Location in code: `src/HttpDownload.cpp` (`http_download()`), `src/DataFetcher.cpp` (`fetch_to()`, `download_file()`,
+`download_hf_full_dataset()`).
 
 Files to Modify:
 
-- `src/DataFetcher.cpp`
-- `src/CMakeLists.txt`
+- `src/HttpDownload.{hpp,cpp}` (new), `src/DataFetcher.{hpp,cpp}`, `src/CMakeLists.txt`
+- `tests/http_download_test.cpp` (new), `tests/DataFetcherTests.cpp`, `tests/CMakeLists.txt`
 
 ---
 

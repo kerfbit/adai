@@ -1,13 +1,13 @@
 // @adai-status: stable
-// @adai-version: 1.2.1
-// @adai-reviewed: 2026-10-24
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-11-07
 
 #include "DataFetcher.hpp"
-#include <cstring>
 #include <algorithm>
 #include <array>
 #include <cctype>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -15,6 +15,7 @@
 #include <sstream>
 #include <utility>
 #include <vector>
+#include "HttpDownload.hpp"
 #include "Logger.hpp"
 #include "ParquetReader.hpp"
 #include "TrainingSampleMeta.hpp"
@@ -335,17 +336,37 @@ std::string DataFetcher::get_gutenberg_url(int book_id) {
     return oss.str();
 }
 
+namespace {
+// TD-312: the hosts DataFetcher downloads from (redirects may lead on to their download CDNs).
+const std::vector<std::string> kDownloadHosts = {
+    "gutenberg.org", ".gutenberg.org", "huggingface.co", ".huggingface.co", "hf.co", ".hf.co"};
+
+bool fetch_to(const std::string& url, const std::string& output_path,
+              const std::string& bearer_token = "") {
+    adai::HttpDownloadRequest request;
+    request.url = url;
+    request.output_path = output_path;
+    request.bearer_token = bearer_token;
+    request.allowed_hosts = kDownloadHosts;
+    const adai::HttpDownloadResult result = adai::http_download(request);
+    if (!result.ok) {
+        Logger::error("Download failed: {} ({})", url, result.error);
+    }
+    return result.ok;
+}
+
+std::string hf_token() {
+    const char* token = std::getenv("HF_TOKEN");
+    return token ? token : "";
+}
+}  // namespace
+
 /*static*/
-// TODO: See TD-312 in TECHNICAL_DEBT.md - shell curl via std::system (quoting only), no timeouts
+// TD-312: through libcurl (adai::http_download), no shell: https:// on known hosts only, connect
+// and stall timeouts, and the output replaced only by a complete download.
 bool DataFetcher::download_file(const std::string& url, const std::string& output_path) {
     Logger::info("Downloading: {}", url);
-
-    std::ostringstream cmd;
-    cmd << "curl -L -f -s -o \"" << output_path << "\" \"" << url << "\"";
-
-    int result = std::system(cmd.str().c_str());
-
-    if (result == 0 && fs::exists(output_path) && fs::file_size(output_path) > 0) {
+    if (fetch_to(url, output_path)) {
         Logger::info("Downloaded to: {}", output_path);
         return true;
     }
@@ -356,12 +377,7 @@ bool DataFetcher::download_file(const std::string& url, const std::string& outpu
         fallback_url.replace(pos, 6, ".txt");
 
         Logger::info("Trying fallback URL: {}", fallback_url);
-        std::ostringstream fallback_cmd;
-        fallback_cmd << "curl -L -f -s -o \"" << output_path << "\" \"" << fallback_url << "\"";
-
-        result = std::system(fallback_cmd.str().c_str());
-
-        if (result == 0 && fs::exists(output_path) && fs::file_size(output_path) > 0) {
+        if (fetch_to(fallback_url, output_path)) {
             Logger::info("Downloaded to: {}", output_path);
             return true;
         }
@@ -764,30 +780,25 @@ bool DataFetcher::convert_gutenberg_to_training_data(const std::string& text_fil
 static std::vector<std::string> hf_extract_parquet_urls(const std::string& json);
 
 /*static*/
-// TODO: See TD-312 in TECHNICAL_DEBT.md - shell curl with HF_TOKEN in argv and unvalidated HF-supplied URLs, no timeouts
+// TD-312: every request goes through adai::http_download(): no shell, HF_TOKEN in an in-process
+// header (never on a command line, never sent to a redirect's host), the query parameters
+// percent-encoded, Parquet URLs from the API reply only on HuggingFace hosts, and timeouts.
 std::string DataFetcher::download_hf_full_dataset(const std::string& dataset_id,
                                                   const std::string& split,
                                                   const std::string& output_dir) {
-    const char* hf_token = std::getenv("HF_TOKEN");
+    const std::string token = hf_token();
     const std::string jsonl_path = output_dir + "/full_dataset.jsonl";
 
     // 1. Fetch the parquet file list from the datasets-server /parquet endpoint
     const std::string info_path = output_dir + "/parquet_info.json";
     {
         std::ostringstream url;
-        url << "https://datasets-server.huggingface.co/parquet" << "?dataset=" << dataset_id
+        url << "https://datasets-server.huggingface.co/parquet" << "?dataset="
+            << adai::url_encode_component(dataset_id)
             // TODO: See TD-314 in TECHNICAL_DEBT.md - only config=default is ever requested
-            << "&config=default&split=" << split;
+            << "&config=default&split=" << adai::url_encode_component(split);
 
-        std::ostringstream cmd;
-        if (hf_token && hf_token[0] != '\0') {
-            cmd << "curl -L -f -s -H \"Authorization: Bearer " << hf_token << "\"" << " -o \""
-                << info_path << "\" \"" << url.str() << "\"";
-        } else {
-            cmd << "curl -L -f -s -o \"" << info_path << "\" \"" << url.str() << "\"";
-        }
-        if (std::system(cmd.str().c_str()) != 0 || !fs::exists(info_path) ||
-            fs::file_size(info_path) == 0) {
+        if (!fetch_to(url.str(), info_path, token)) {
             Logger::error("Failed to fetch parquet info for '{}'", dataset_id);
             return "";
         }
@@ -818,15 +829,7 @@ std::string DataFetcher::download_hf_full_dataset(const std::string& dataset_id,
         const std::string pq_file = parquet_dir + "/part_" + std::to_string(i) + ".parquet";
 
         // Download
-        std::ostringstream dl_cmd;
-        if (hf_token && hf_token[0] != '\0') {
-            dl_cmd << "curl -L -f -s -H \"Authorization: Bearer " << hf_token << "\"" << " -o \""
-                   << pq_file << "\" \"" << parquet_urls[i] << "\"";
-        } else {
-            dl_cmd << "curl -L -f -s -o \"" << pq_file << "\" \"" << parquet_urls[i] << "\"";
-        }
-        if (std::system(dl_cmd.str().c_str()) != 0 || !fs::exists(pq_file) ||
-            fs::file_size(pq_file) == 0) {
+        if (!fetch_to(parquet_urls[i], pq_file, token)) {
             // TODO: See TD-313 in TECHNICAL_DEBT.md - a failed part is skipped, yet the partial result is cached as complete
             Logger::error("Failed to download parquet part {}: {}", i, parquet_urls[i]);
             continue;

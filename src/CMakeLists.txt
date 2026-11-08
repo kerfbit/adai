@@ -83,6 +83,8 @@ add_library(adai_core STATIC
     RegistryTransport.cpp
     DatasetRegistry.cpp
     DataFetcher.cpp
+    # TD-312: in-process HTTPS downloads for DataFetcher (libcurl, no shell).
+    HttpDownload.cpp
     ParquetReader.cpp
     SQLiteMetricsDatabase.cpp
     MetricsDatabase.cpp  # TD-441: IMetricsDatabase factory and shared helpers
@@ -400,9 +402,12 @@ if(CURL_FOUND)
     target_link_libraries(adai_core PUBLIC CURL::libcurl)
     # PUBLIC so tests can tell whether the HTTPS transport is there.
     target_compile_definitions(adai_core PUBLIC ADAI_METRICS_PUSH_CURL)
+    # TD-312: DataFetcher's Gutenberg/HuggingFace downloads (HttpDownload.cpp) need libcurl too.
+    target_compile_definitions(adai_core PUBLIC ADAI_HAVE_LIBCURL)
     message(STATUS "Metrics push client: libcurl transport (HTTPS supported)")
 else()
     message(STATUS "Metrics push client: httplib transport (http:// only; install libcurl for HTTPS)")
+    message(STATUS "Dataset downloads (DataFetcher) unavailable: install libcurl to fetch Gutenberg/HuggingFace data")
 endif()
 
 # ============================================================================

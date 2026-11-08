@@ -1,9 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
-
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-11-07
 
 #include <string>
 #include <utility>
@@ -227,4 +226,5 @@ class DataFetcher {
     // they can be unit-tested with hand-written fixture strings without a
     // network call, without widening the public API surface.
     friend class DataFetcherGutenbergCleaningTest;
+    friend class DataFetcherDownloadTest;  // TD-312
 };

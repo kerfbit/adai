@@ -242,8 +242,8 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 | `extract_sentences()` regex segfaults on ~100k+ chars without `.!?` (§6) | One `fetch/gutenberg` request can crash `registry_server`, repeatably | **Verified** | [TD-309](../../guides/TECHNICAL_DEBT.md#td-309-gutenberg-sentence-splitting-can-crash-registry_server) |
 | `split` isn't flattened and the allow-list permits `..` (§6) | Directories and files written outside the registry data dir via `fetch/huggingface` | **Verified** | [TD-310](../../guides/TECHNICAL_DEBT.md#td-310-huggingface-split-can-write-outside-the-registry-data-directory) |
 | Gutenberg pairs are next-sentence non-sequiturs; abbreviations split sentences; unseeded template choice; fixed `language="en"` (§5) | Low-quality training data from every Gutenberg fetch | **Verified** | [TD-311](../../guides/TECHNICAL_DEBT.md#td-311-gutenberg-training-pairs-are-next-sentence-non-sequiturs) |
-| `std::system` curl commands from strings; `HF_TOKEN` on the command line; HF-supplied URLs unvalidated (§6) | Injection where callers don't validate; token visible in `ps` | By inspection | [TD-312](../../guides/TECHNICAL_DEBT.md#td-312-datafetcher-downloads-through-shell-curl-commands) |
-| No curl timeouts; synchronous in the registry handler (§6) | A stalled download holds a registry worker forever | By inspection | [TD-312](../../guides/TECHNICAL_DEBT.md#td-312-datafetcher-downloads-through-shell-curl-commands) |
+| `std::system` curl commands from strings; `HF_TOKEN` on the command line; HF-supplied URLs unvalidated (§6) | Injection where callers don't validate; token visible in `ps` (**fixed in code November 7, 2026**) | By inspection | [TD-312](../../guides/TECHNICAL_DEBT.md#td-312-datafetcher-downloads-through-shell-curl-commands) |
+| No curl timeouts; synchronous in the registry handler (§6) | A stalled download holds a registry worker forever (**fixed in code November 7, 2026**) | By inspection | [TD-312](../../guides/TECHNICAL_DEBT.md#td-312-datafetcher-downloads-through-shell-curl-commands) |
 | Partial or interrupted HF downloads cached as complete; concurrent fetches share cache files (§6) | Silently incomplete or corrupt datasets served indefinitely | By inspection | [TD-313](../../guides/TECHNICAL_DEBT.md#td-313-huggingface-cache-accepts-partial-downloads-and-races-concurrent-fetches) |
 | `config=default` only; Gutenberg URL patterns limited; `fetch_gutenberg()` never caches; `std::cout` in library code (§6) | Some datasets/books unfetchable; minor | By inspection | [TD-314](../../guides/TECHNICAL_DEBT.md#td-314-datafetcher-source-coverage-and-hygiene-gaps) |
 
@@ -264,3 +264,14 @@ Each item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) and 
 `std::regex`, whose engine recursed per character and segfaulted on about 100,000 characters without a match. That let one
 `fetch/gutenberg` request kill `registry_server`. The sentence rules are unchanged; a test checks them against the old regex pipeline.
 Tests: `MegabyteInputsWithoutBoundariesReturnNormally`, `SentenceScannerMatchesTheOldRegexOnProse`.
+
+## Addendum (November 7, 2026): downloads through libcurl, never a shell (TD-312)
+
+Every download (the book in `download_file()`, the `/parquet` listing and each Parquet part in `download_hf_full_dataset()`) now goes through
+`adai::http_download()` (`src/HttpDownload.{hpp,cpp}`), which uses libcurl in process. The `curl`/`std::system` descriptions in §2, §4 and
+§6 above are historical. A URL must be `https://` on `gutenberg.org`, `huggingface.co`, `hf.co` or a subdomain of one, checked before any
+connection; redirects (download CDNs) are followed over HTTPS only. `HF_TOKEN` is an in-process `Authorization` header that libcurl keeps
+from a redirect's host. A transfer has a 30 s connect timeout, a stall limit (below 1 KB/s for 60 s) and a one-hour cap, and the body is
+written to `<output>.part` and renamed only after a complete 2xx download. `dataset_id` and `split` are percent-encoded into the
+`/parquet` query. A build without libcurl can't download and logs that reason. Tests: `httpDownloadTests` (a local httplib server) and
+`DataFetcherDownloadTest`.

@@ -7,10 +7,11 @@
  * that have network access.
  */
 #include <gtest/gtest.h>
+#include <unistd.h>
 #include <algorithm>
 #include <filesystem>
-#include <regex>
 #include <fstream>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -625,4 +626,40 @@ TEST_F(DataFetcherGutenbergCleaningTest, SentenceScannerMatchesTheOldRegexOnPros
         "Short one. Another fairly ordinary sentence follows here...   And a trailing fragment";
     EXPECT_EQ(ExtractSentences(prose), old_extract(prose));
     EXPECT_FALSE(ExtractSentences(prose).empty());
+}
+
+// ============================================================================
+// TD-312: downloads never go through a shell
+// ============================================================================
+
+class DataFetcherDownloadTest : public ::testing::Test {
+   protected:
+    static bool download_file(const std::string& url, const std::string& dest) {
+        return DataFetcher::download_file(url, dest);
+    }
+};
+
+// The old download_file() ran `curl … "<url>"` through std::system, so `$(…)` in the URL ran in a
+// shell. The URL here names a host DataFetcher may not use, so it is refused without any
+// connection.
+TEST_F(DataFetcherDownloadTest, CommandSubstitutionInAUrlIsNotRun) {
+    const fs::path dir =
+        fs::temp_directory_path() / ("datafetcher_td312_" + std::to_string(::getpid()));
+    fs::create_directories(dir);
+    const fs::path marker = dir / "marker";
+    const fs::path out = dir / "out.txt";
+    EXPECT_FALSE(
+        download_file("https://127.0.0.1:1/x$(touch " + marker.string() + ")", out.string()));
+    EXPECT_FALSE(fs::exists(marker));
+    EXPECT_FALSE(fs::exists(out));
+    fs::remove_all(dir);
+}
+
+TEST_F(DataFetcherDownloadTest, PlainHttpIsRefused) {
+    const fs::path dir =
+        fs::temp_directory_path() / ("datafetcher_td312h_" + std::to_string(::getpid()));
+    fs::create_directories(dir);
+    EXPECT_FALSE(download_file("http://www.gutenberg.org/files/1/1-0.txt", (dir / "o").string()));
+    EXPECT_FALSE(fs::exists(dir / "o"));
+    fs::remove_all(dir);
 }
