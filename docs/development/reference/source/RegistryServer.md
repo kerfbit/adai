@@ -337,3 +337,9 @@ so this matters to every client, not only browsers.
 assigned the whole pool. A negative `count` now answers 400 (`count must be 0 (all) or a positive number`) and changes nothing. `0` or
 an absent `count` still assigns everything, which the Android dashboard relies on.
 
+## Addendum (November 7, 2026): `num_entries` is the pair count (TD-543)
+
+A queued file's `num_entries` (uploads, `pending/add`, `overwrite` uploads) is now `DatasetRegistry::count_pairs()`, the training pairs the
+trainer reads, instead of the non-blank line count; fetches already recorded their pairs written. `dataset_manager segment` and the Android
+`createSegments()` split a server path by it, and segments are indexed by parsed pair, so a file with a non-pair line used to get segments past
+its end that load nothing. It is still -1 for a file the server can't open.

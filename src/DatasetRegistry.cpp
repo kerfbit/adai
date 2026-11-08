@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.9.1
+// @adai-version: 1.10.0
 // @adai-reviewed: 2026-11-07
 
 #include "DatasetRegistry.hpp"
@@ -749,15 +749,21 @@ int DatasetRegistry::load_conversation_pairs(const std::string& path,
 }
 
 /*static*/
-// TODO: See TD-335 in TECHNICAL_DEBT.md - materializes every pair just to count them
 int DatasetRegistry::count_pairs(const std::string& path) {
-    std::vector<ConversationPair> pairs;
-    return load_conversation_pairs(path, pairs);
+    // TD-543: registry_server counts every queued file this way, so pairs are counted, not kept.
+    return scan_conversation_pairs(path, nullptr, -1, -1);
 }
 
 /*static*/
 int DatasetRegistry::load_conversation_pairs(const std::string& path,
                                              std::vector<ConversationPair>& pairs,
+                                             int segment_start, int segment_count) {
+    return scan_conversation_pairs(path, &pairs, segment_start, segment_count);
+}
+
+/*static*/
+int DatasetRegistry::scan_conversation_pairs(const std::string& path,
+                                             std::vector<ConversationPair>* pairs,
                                              int segment_start, int segment_count) {
     std::ifstream file(path);
     if (!file.is_open()) {
@@ -810,7 +816,8 @@ int DatasetRegistry::load_conversation_pairs(const std::string& path,
                     break;
                 }
             }
-            pairs.emplace_back(std::move(in), std::move(resp), std::move(meta));
+            if (pairs)
+                pairs->emplace_back(std::move(in), std::move(resp), std::move(meta));
             ++pair_count;
             ++seen;
         }
@@ -823,7 +830,8 @@ int DatasetRegistry::load_conversation_pairs(const std::string& path,
 
             if (line.empty()) {
                 if (!current_input.empty() && !current_response.empty()) {
-                    pairs.emplace_back(current_input, current_response);
+                    if (pairs)
+                        pairs->emplace_back(current_input, current_response);
                     ++pair_count;
                     current_input.clear();
                     current_response.clear();
@@ -833,7 +841,8 @@ int DatasetRegistry::load_conversation_pairs(const std::string& path,
 
             if (line.substr(0, 6) == "INPUT:") {
                 if (!current_input.empty() && !current_response.empty()) {
-                    pairs.emplace_back(current_input, current_response);
+                    if (pairs)
+                        pairs->emplace_back(current_input, current_response);
                     ++pair_count;
                     current_input.clear();
                     current_response.clear();
@@ -847,7 +856,8 @@ int DatasetRegistry::load_conversation_pairs(const std::string& path,
             }
         }
         if (!current_input.empty() && !current_response.empty()) {
-            pairs.emplace_back(current_input, current_response);
+            if (pairs)
+                pairs->emplace_back(current_input, current_response);
             ++pair_count;
         }
     }

@@ -1508,6 +1508,9 @@ The generation and model math run is complete.
   `delete`; `remove_pending()` returns the save result).
 - TD-329 (done in code: every `dataset_manager` command uses one `run_group`, the named model's or `MODEL_NAME`'s MNS group when it has
   one, else `RUN_GROUP`, printed to stderr; an unreachable MNS refuses; `assign` works for a model that is still initializing).
+- TD-543 (done in code, owner's choice of both flows: against a remote registry `segment` splits a server-queued path by the server's pair count,
+  or uploads a local file first and segments the uploaded path; anything else is refused. `registry_server`'s `num_entries` is now the
+  parsed pair count, not the non-blank line count).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -9220,7 +9223,7 @@ Files to Modify:
 Description:
 Found alongside TD-333, by inspection:
 - `compute_checksum()` (`size_mtime`) is stored in every `DataVersion` but never compared anywhere.
-- `count_pairs()` materializes every pair (all text) just to count them.
+- `count_pairs()` materializes every pair (all text) just to count them. (Fixed November 7, 2026, with TD-543: it counts without storing.)
 - The private `registry_file_path()`/`pending_file_path()` are unused and ignore the TD-202 kind
   subdirectory; `add_files()` and `print_run_assignments()` have no callers.
 - `make_config()` never copies `max_files_per_run` (always 0 = claim all) or `data_registry_file`.
@@ -9228,9 +9231,9 @@ Found alongside TD-333, by inspection:
 
 Action Items:
 
-- [ ] Use the checksum (warn when a queued/trained file changed) or drop it; count pairs without storing them; delete the unused helpers; map the missing config fields; refresh in-memory claims after acquire.
+- [ ] Use the checksum (warn when a queued/trained file changed) or drop it; ~~count pairs without storing them~~ (done with TD-543); delete the unused helpers; map the missing config fields; refresh in-memory claims after acquire.
 
-Location in code: `src/DatasetRegistry.cpp` (`compute_checksum()`, `count_pairs()`, `make_config()`, `acquire_pending()`), `src/DatasetRegistry.hpp` (private helpers); tagged `TODO: See TD-335`.
+Location in code: `src/DatasetRegistry.cpp` (`compute_checksum()`, `make_config()`, `acquire_pending()`), `src/DatasetRegistry.hpp` (private helpers); tagged `TODO: See TD-335`.
 
 Files to Modify:
 
@@ -17596,7 +17599,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Data / dataset_manager CLI | October 19, 2026 | 2-3 hours |
+| MEDIUM | Open — code fix landed November 7, 2026 | Data / dataset_manager CLI | October 19, 2026 | 2-3 hours |
 
 Description:
 Found while checking TD-542's fix against a real `registry_server`. With `REGISTRY_SERVER_URL` set, `dataset_manager add d.jsonl` uploads the file,
@@ -17607,15 +17610,40 @@ apply to it. Segmenting on the registry host, with the server's own path, works.
 
 Action Items:
 
-- [ ] Decide the remote flow: upload the file first and segment the uploaded path, or count pairs on the server (for example a pair count in the
-  queue entry, which `num_entries` already records for uploads) so a client can segment a server path it can't read.
-- [ ] Refuse a client-only path in remote mode instead of queuing it.
+- [x] Decide the remote flow: upload the file first and segment the uploaded path, or count pairs on the server (for example a pair count in the
+  queue entry, which `num_entries` already records for uploads) so a client can segment a server path it can't read. **Owner decision
+  (November 7, 2026): both.**
+- [x] Refuse a client-only path in remote mode instead of queuing it.
 
-Location in code: `src/DatasetManagerTool.cpp` (`segment`, `add`).
+Found while fixing it: the server's `num_entries` counted non-blank lines, not training pairs, while segments are indexed by parsed pair. A JSON
+line that isn't a pair, or a legacy `INPUT:`/`RESPONSE:` file, made the count too high, so the last segments would load nothing and their pass
+fail (TD-412). The Android `createSegments()` already split by this count.
+
+Fix (November 7, 2026): with `REGISTRY_SERVER_URL` set, `segment <path>` does one of three things:
+- **`<path>` is queued on the server as a whole file** (the path `list-pending` shows): it is split by the server's pair count for it
+  (`num_entries`), so the client needn't be able to read it. An entry with no count (the server can't read it) is refused.
+- **Otherwise, `<path>` is a local file:** its pairs are counted, it is uploaded as `add` does, and the uploaded server path is segmented; the new
+  segments replace the uploaded whole entry (TD-542). A failed upload (for example a file of that name already queued there) is refused,
+  pointing at its server path.
+- **Anything else** is refused and nothing is queued.
+
+Local mode is unchanged. `registry_server` now records `num_entries` as `DatasetRegistry::count_pairs()`, the pair count the trainer reads, and
+`count_pairs()` counts without keeping the pairs (`scan_conversation_pairs()`, shared with `load_conversation_pairs()`), which also closes
+TD-335's counting item. A fetch already recorded its pairs written; uploads, manual adds and `overwrite` uploads now record pairs too.
+
+Tests (`registry_ftp_confinement_test.cpp`, the real `dataset_manager` against a spawned `registry_server`):
+`DatasetManagerSegmentUploadsALocalFileFirst` segments a client-side file into two segments of the uploaded `…/uploads/` path;
+`DatasetManagerSegmentsAServerPathByItsServerPairCount` uploads a file of 5 pairs, 1 non-pair JSON line and 1 blank line, checks `num_entries`
+is 5 and splits the server path into 5 one-pair segments that replace the whole entry; `DatasetManagerSegmentRefusesAnUnknownRemotePath`. On
+the old code the first two fail (the client path was queued; `num_entries` was 6).
+
+Location in code: `src/DatasetManagerTool.cpp` (`segment`), `src/RegistryServer.cpp` (`count_jsonl_entries()`), `src/DatasetRegistry.cpp`
+(`count_pairs()`, `scan_conversation_pairs()`).
 
 Files to Modify:
 
-- `src/DatasetManagerTool.cpp`
+- `src/DatasetManagerTool.cpp`, `src/RegistryServer.cpp`, `src/DatasetRegistry.{hpp,cpp}`
+- `tests/registry_ftp_confinement_test.cpp`
 
 ---
 

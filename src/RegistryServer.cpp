@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.31.0
-// @adai-reviewed: 2026-11-05
+// @adai-version: 0.32.0
+// @adai-reviewed: 2026-11-07
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) draws from a CSPRNG
@@ -83,6 +83,7 @@
 #include "SessionCounterStore.hpp"
 #include "RegistryServerArgs.hpp"
 #include "DataFetcher.hpp"
+#include "DatasetRegistry.hpp"
 #include "FtpDataServer.hpp"
 #include "Logger.hpp"
 #include "PortableTime.hpp"
@@ -394,18 +395,14 @@ static std::optional<LocalFileStat> stat_local_file(const std::string& path) {
     return st;
 }
 
-// Best-effort non-empty-line count for a JSONL file; -1 if it can't be opened.
+// A queued file's num_entries: its training pairs, counted the way the trainer reads them; -1 if it
+// can't be opened. TD-543: a client segments a server path by this count (segments are indexed by
+// parsed pair), so it was wrong to count non-blank lines: a line that isn't a pair, or a legacy
+// INPUT:/RESPONSE: file, made the count too high and the last segments load nothing.
 static int count_jsonl_entries(const std::string& path) {
-    std::ifstream f(path);
-    if (!f.is_open())
+    if (!std::ifstream(path).is_open())
         return -1;
-    int count = 0;
-    std::string line;
-    while (std::getline(f, line)) {
-        if (!line.empty())
-            ++count;
-    }
-    return count;
+    return DatasetRegistry::count_pairs(path);
 }
 
 // TD-040: true iff `path` resolves under `root` — both sides canonicalized,

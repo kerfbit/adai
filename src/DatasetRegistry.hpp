@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.8.2
+// @adai-version: 1.9.0
 // @adai-reviewed: 2026-11-07
 
 #include <memory>
@@ -447,7 +447,9 @@ class DatasetRegistry {
      *        used to show an operator how many pairs are available before choosing segment
      *        split points (`dataset_manager segment`, the Android "create segments" dialog).
      *        Works for the legacy format too (returns its own pair count), even though that
-     *        format can't be segment-sliced.
+     *        format can't be segment-sliced. TD-543: `registry_server` records it as a queued
+     *        file's `num_entries`, which a client segments a server path by; 0 for a file that
+     *        can't be opened.
      */
     static int count_pairs(const std::string& path);
 
@@ -460,6 +462,12 @@ class DatasetRegistry {
     static std::string compute_checksum(const std::string& path);
 
    private:
+    // The one pair parser behind load_conversation_pairs() and count_pairs(); @p pairs null
+    // only counts.
+    static int scan_conversation_pairs(const std::string& path,
+                                       std::vector<ConversationPair>* pairs, int segment_start,
+                                       int segment_count);
+
     DatasetConfig config_;
     std::unique_ptr<RegistryTransport> transport_;  // Phase 8: injected I/O backend
     std::vector<DataVersion> registry_;

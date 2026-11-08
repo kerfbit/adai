@@ -237,9 +237,11 @@ int main(int argc, char* argv[]) {
                      "queuing each as its\n";
         std::cout << "                               own independently-assignable/deletable "
                      "pending entry (into\n";
-        std::cout << "                               the pool selected by --kind). Needs local "
-                     "read access to\n";
-        std::cout << "                               <path> to count its pairs first.\n";
+        std::cout << "                               the pool selected by --kind). With a "
+                     "registry server,\n";
+        std::cout << "                               <path> is a file queued there (as "
+                     "list-pending shows it)\n";
+        std::cout << "                               or a local file, which is uploaded first.\n";
         std::cout << "  models                       List registered models from name service\n";
         std::cout << "\nPopular Gutenberg Books:\n";
         std::cout << "  1342  - Pride and Prejudice (Jane Austen)\n";
@@ -831,20 +833,71 @@ int main(int argc, char* argv[]) {
             std::cerr << parsed.error_message << "\n";
             std::cerr << "  --count N splits the file into N near-equal parts; --ranges takes\n";
             std::cerr << "  explicit 0-based inclusive pair-index ranges (e.g. 0-99,100-199).\n";
-            std::cerr << "  Requires local read access to <path> (its pair count must be\n";
-            std::cerr << "  countable on this host) — a remote-only path that only exists on\n";
-            std::cerr << "  the registry_server's own storage can't be segmented from here.\n";
+            std::cerr << "  With REGISTRY_SERVER_URL set, <path> is a file queued on the server (as\n";
+            std::cerr << "  list-pending shows it) or a local file, which is uploaded first.\n";
             return 1;
         }
 
-        const int total_pairs = DatasetRegistry::count_pairs(parsed.path);
-        if (total_pairs <= 0) {
-            std::cerr << "❌ '" << parsed.path
-                      << "' has no JSONL pairs to segment (legacy INPUT:/RESPONSE: files can't "
-                        "be segmented, and a remote-only path needs local read access here)\n";
+        DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
+        reg.load_pending_list();
+        reg.load_registry();
+
+        // TD-542: the segments replace an unclaimed whole-file entry of the same path, so the
+        // file isn't queued twice (whole and in segments) and trained twice.
+        std::string path = parsed.path;
+        const auto find_whole = [&reg](const std::string& p) -> std::optional<PendingEntry> {
+            for (const auto& e : reg.pending_entries()) {
+                if (e.path == p && e.segment_start < 0)
+                    return e;
+            }
+            return std::nullopt;
+        };
+        std::optional<PendingEntry> whole = find_whole(path);
+
+        int total_pairs = 0;
+        if (svc_config.registry_server_url.empty()) {
+            total_pairs = DatasetRegistry::count_pairs(path);
+        } else if (whole) {
+            // TD-543: a path queued on the server is counted there (num_entries, the same pair
+            // count count_pairs() gives), so the client needn't be able to read it.
+            total_pairs = whole->num_entries;
+            if (total_pairs <= 0) {
+                std::cerr << "❌ The registry server has no pair count for '" << path
+                          << "' (it can't read the file, or it has no pairs)\n";
+                return 1;
+            }
+        } else if (std::filesystem::is_regular_file(path)) {
+            // TD-543: segments of a client path name a file the server can't read or serve, so
+            // a local file is uploaded first, as `add` does, and its server path segmented.
+            total_pairs = DatasetRegistry::count_pairs(path);
+            if (total_pairs <= 0) {
+                std::cerr << "❌ '" << path << "' has no JSONL pairs to segment\n";
+                return 1;
+            }
+            const std::string uploaded = reg.remote_upload(path);
+            if (uploaded.empty()) {
+                std::cerr << "❌ Could not upload '" << path
+                          << "' to the registry server (a file of that name may already be "
+                             "queued there; segment its server path, as list-pending shows it)\n";
+                return 1;
+            }
+            std::cout << "⬆️  Uploaded as '" << uploaded << "'\n";
+            path = uploaded;
+            reg.load_pending_list();
+            whole = find_whole(path);
+        } else {
+            std::cerr << "❌ '" << path
+                      << "' is neither queued on the registry server as a whole file nor a "
+                         "local file to upload; nothing was queued\n";
             return 1;
         }
-        std::cout << "📊 '" << parsed.path << "' has " << total_pairs << " pair(s)\n";
+        if (total_pairs <= 0) {
+            std::cerr << "❌ '" << path
+                      << "' has no JSONL pairs to segment (legacy INPUT:/RESPONSE: files can't "
+                         "be segmented)\n";
+            return 1;
+        }
+        std::cout << "📊 '" << path << "' has " << total_pairs << " pair(s)\n";
 
         // {start, count} — either split_count near-equal parts, or the explicit --ranges list.
         std::vector<std::pair<int, int>> ranges;
@@ -867,28 +920,15 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
-        reg.load_pending_list();
-        reg.load_registry();
-
-        // TD-542: the segments replace an unclaimed whole-file entry of the same path, so the
-        // file isn't queued twice (whole and in segments) and trained twice. A claimed entry
-        // belongs to a running pass, and trained records would be erased by the whole-path
-        // delete, so both refuse before anything is queued.
-        std::optional<PendingEntry> whole;
-        for (const auto& e : reg.pending_entries()) {
-            if (e.path == parsed.path && e.segment_start < 0) {
-                whole = e;
-                break;
-            }
-        }
+        // A claimed entry belongs to a running pass, and trained records would be erased by the
+        // whole-path delete, so both refuse before anything is queued.
         if (whole && !whole->run_id.empty()) {
-            std::cerr << "❌ '" << parsed.path << "' is pending as a whole file claimed by run '"
+            std::cerr << "❌ '" << path << "' is pending as a whole file claimed by run '"
                       << whole->run_id << "'; release it before segmenting\n";
             return 1;
         }
-        if (whole && reg.is_trained(parsed.path)) {
-            std::cerr << "❌ '" << parsed.path
+        if (whole && reg.is_trained(path)) {
+            std::cerr << "❌ '" << path
                       << "' is pending as a whole file and also has trained records; replacing "
                          "the whole entry would delete them, so delete it explicitly first\n";
             return 1;
@@ -897,14 +937,14 @@ int main(int argc, char* argv[]) {
         int created = 0;
         std::vector<SegmentTarget> created_segments;
         for (const auto& [start, count] : ranges) {
-            // TD-205: add_pending_path_unchecked (not add_file) — count_pairs() above already
-            // proved this path is locally readable, so the redundant existence check is
-            // skipped, same reasoning `migrate` uses for the identical primitive.
-            if (reg.add_pending_path_unchecked(parsed.path, start, count)) {
+            // TD-205: add_pending_path_unchecked (not add_file) — the pairs were counted above,
+            // locally or by the server, so the existence check (a local one) is skipped, as
+            // `migrate` does for the same primitive.
+            if (reg.add_pending_path_unchecked(path, start, count)) {
                 std::cout << "   segment [" << start << ", " << (start + count)
                           << ") -> queued\n";
                 ++created;
-                created_segments.push_back({parsed.path, start, count});
+                created_segments.push_back({path, start, count});
             } else {
                 std::cerr << "⚠️  Failed to queue segment [" << start << ", " << (start + count)
                           << ") — already pending or already trained\n";
@@ -912,16 +952,16 @@ int main(int argc, char* argv[]) {
         }
 
         std::cout << "✅ Created " << created << "/" << ranges.size() << " segment(s) from '"
-                  << parsed.path << "'\n";
+                  << path << "'\n";
         if (created == 0) {
             return 1;
         }
 
         if (whole) {
-            const auto del = reg.delete_entries({parsed.path}, /*force=*/false, false);
+            const auto del = reg.delete_entries({path}, /*force=*/false, false);
             if (del.deleted != 1) {
                 // Leaving both queued would train the file twice, so undo the segments.
-                std::cerr << "❌ Could not remove the whole-file entry of '" << parsed.path
+                std::cerr << "❌ Could not remove the whole-file entry of '" << path
                           << "'; removing the new segments again\n";
                 const auto undo = reg.delete_entries({}, /*force=*/false, false, created_segments);
                 if (undo.deleted != static_cast<int>(created_segments.size())) {

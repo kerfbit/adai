@@ -783,4 +783,93 @@ TEST_F(RegistryFtpConfinementTest, DatasetManagerRefusesWhenTheNameServiceDoesNo
     ASSERT_EQ(pending.size(), 1u);
     EXPECT_EQ(pending[0].path, queued);
 }
+
+namespace {
+// Five training pairs, plus a blank line and a JSON line that isn't a pair: 7 lines, 6 non-blank.
+void write_five_pairs(const fs::path& path) {
+    std::ofstream out(path);
+    for (int i = 0; i < 5; ++i) {
+        out << R"({"input":"question )" << i << R"(","output":"answer )" << i << "\"}\n";
+        if (i == 2)
+            out << "\n" << R"({"note":"not a pair"})" << "\n";
+    }
+}
+
+std::string segment_config(const fs::path& path, int http_port, const std::string& group,
+                           const fs::path& sessions) {
+    std::ofstream(path) << "REGISTRY_SERVER_URL=http://127.0.0.1:" << http_port
+                        << "\nRUN_GROUP=" << group << "\nNAME_SERVICE_URL=\nSESSION_DIR="
+                        << sessions.string() << "\n";
+    return path.string();
+}
+}  // namespace
+
+// TD-543: against a remote registry, `segment` counted a local file's pairs and queued its client
+// path, which the server can't read or serve. A local file is now uploaded first and its server
+// path segmented.
+TEST_F(RegistryFtpConfinementTest, DatasetManagerSegmentUploadsALocalFileFirst) {
+    if (!fs::exists(DATASET_MANAGER_BINARY_PATH))
+        GTEST_SKIP() << "dataset_manager not built";
+    const fs::path local = scratch_root_ / "client-side" / "td543-local.jsonl";
+    fs::create_directories(local.parent_path());
+    write_five_pairs(local);
+    const std::string config = segment_config(scratch_root_ / "td543-local.conf", http_port_,
+                                              "td543-local", scratch_root_ / "sessions");
+
+    ASSERT_EQ(run_dataset_manager({"--config", config, "segment", local.string(), "--count", "2"}),
+              0);
+
+    const auto pending = pending_in(http_port_, "td543-local");
+    ASSERT_EQ(pending.size(), 2u);
+    for (const auto& e : pending) {
+        EXPECT_NE(e.path, local.string());
+        EXPECT_NE(e.path.find("/uploads/td543-local.jsonl"), std::string::npos) << e.path;
+        EXPECT_TRUE(e.run_id.empty());
+    }
+    EXPECT_EQ(pending[0].segment_start, 0);
+    EXPECT_EQ(pending[0].segment_count, 3);
+    EXPECT_EQ(pending[1].segment_start, 3);
+    EXPECT_EQ(pending[1].segment_count, 2);
+}
+
+// TD-543: a path already queued on the server is segmented by the pair count the server recorded,
+// which counted non-blank lines and so was too high for this file (6, not 5).
+TEST_F(RegistryFtpConfinementTest, DatasetManagerSegmentsAServerPathByItsServerPairCount) {
+    if (!fs::exists(DATASET_MANAGER_BINARY_PATH))
+        GTEST_SKIP() << "dataset_manager not built";
+    const fs::path local = scratch_root_ / "client-side" / "td543-server.jsonl";
+    fs::create_directories(local.parent_path());
+    write_five_pairs(local);
+    RemoteTransport rt("http://127.0.0.1:" + std::to_string(http_port_), "td543-server");
+    const std::string server_path = rt.upload_file(local.string());
+    ASSERT_FALSE(server_path.empty());
+
+    auto pending = pending_in(http_port_, "td543-server");
+    ASSERT_EQ(pending.size(), 1u);
+    EXPECT_EQ(pending[0].num_entries, 5);
+
+    const std::string config = segment_config(scratch_root_ / "td543-server.conf", http_port_,
+                                              "td543-server", scratch_root_ / "sessions");
+    ASSERT_EQ(run_dataset_manager({"--config", config, "segment", server_path, "--count", "5"}), 0);
+
+    pending = pending_in(http_port_, "td543-server");
+    ASSERT_EQ(pending.size(), 5u);  // the whole entry was replaced
+    for (int i = 0; i < 5; ++i) {
+        EXPECT_EQ(pending[i].path, server_path);
+        EXPECT_EQ(pending[i].segment_start, i);
+        EXPECT_EQ(pending[i].segment_count, 1);
+    }
+}
+
+// TD-543: a path that is neither queued on the server nor a local file is refused.
+TEST_F(RegistryFtpConfinementTest, DatasetManagerSegmentRefusesAnUnknownRemotePath) {
+    if (!fs::exists(DATASET_MANAGER_BINARY_PATH))
+        GTEST_SKIP() << "dataset_manager not built";
+    const std::string config = segment_config(scratch_root_ / "td543-none.conf", http_port_,
+                                              "td543-none", scratch_root_ / "sessions");
+    EXPECT_EQ(run_dataset_manager({"--config", config, "segment",
+                                   (scratch_root_ / "nowhere.jsonl").string(), "--count", "2"}),
+              1);
+    EXPECT_TRUE(pending_in(http_port_, "td543-none").empty());
+}
 #endif

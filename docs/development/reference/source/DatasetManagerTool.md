@@ -62,7 +62,7 @@ are what operators trust (§4).
 | `unassign <model> [files] [--force]` | `unassign_model()` | same | nothing unassigned **and** nothing skipped |
 | `delete <files> [--force] [--delete-files]` | `delete_entries()`, prints per-path status | same | nothing deleted |
 | `migrate <kind> [files] [--count N]` | Legacy pool → `<kind>` pool, entry by entry, each segment exactly: add (with its range), restore the model, delete the source, checking each step and undoing the copy on failure (TD-326). A file target moves every unit of that file | same | nothing migrated |
-| `segment <path> --count N` / `--ranges …` | `count_pairs()` on the **local** path, then one `add_pending_path_unchecked(path, start, count)` per range. TD-542: the segments replace an unclaimed whole-file entry of the path and take its model (a claimed entry or trained records refuse first; a failed replacement removes the segments again) | same (the server must see the same path; a client-local path is queued as given, TD-543) | no segment created, or the replacement refused or failed |
+| `segment <path> --count N` / `--ranges …` | `count_pairs()` on the **local** path, then one `add_pending_path_unchecked(path, start, count)` per range. TD-542: the segments replace an unclaimed whole-file entry of the path and take its model (a claimed entry or trained records refuse first; a failed replacement removes the segments again) | TD-543: a server-queued path is split by its `num_entries`; a local file is uploaded first and the uploaded path segmented; anything else refused | no segment created, or the replacement refused or failed |
 | `requeue (--all \| <files>) [--model M]` | TD-540: `requeue_trained()`, server-side against `registry_server` | same | nothing re-queued, or the request failed |
 | `models` | `ModelNameClient::list_models()` (defaults to `http://localhost:8083` when `NAME_SERVICE_URL` is unset) | — | query fails / not compiled |
 
@@ -150,7 +150,7 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 | No tests for command composition (§5) | Bugs above went unnoticed | By inspection | [TD-331](../../guides/TECHNICAL_DEBT.md#td-331-dataset_manager-has-no-tests-for-its-commands) |
 | Operator guide covers 8 of 15 commands (§6) | Pool-changing commands undocumented for operators | By inspection | [TD-332](../../guides/TECHNICAL_DEBT.md#td-332-operator-guide-covers-only-8-of-15-dataset_manager-commands) |
 | `segment` kept a queued whole-file entry beside its segments (§3) | Every pair trained twice | **Fixed October 19, 2026** (owner decision: replace) | [TD-542](../../guides/TECHNICAL_DEBT.md#td-542-dataset_manager-segment-keeps-a-queued-whole-file-entry-so-its-pairs-train-twice) |
-| `segment` against a remote registry queues the client's local path, not the uploaded one (§3) | Segments made off the registry host can't be read by the server | **Verified** | [TD-543](../../guides/TECHNICAL_DEBT.md#td-543-dataset_manager-segment-queues-a-client-local-path-on-a-remote-registry) |
+| `segment` against a remote registry queues the client's local path, not the uploaded one (§3) | Segments made off the registry host can't be read by the server (**fixed in code November 7, 2026**) | **Verified** | [TD-543](../../guides/TECHNICAL_DEBT.md#td-543-dataset_manager-segment-queues-a-client-local-path-on-a-remote-registry) |
 | Parser issues; unchecked `segment` ranges | Already tracked | — | TD-321–325 |
 
 ## Addendum (October 18, 2026): `requeue`
@@ -187,3 +187,13 @@ doesn't answer stops the command (exit 1, nothing changed). `assign` still requi
 group and its source go to stderr, for example `run_group: 'chatbot-v1' (MNS record of model 'm1')`. Local pools have no group, so local
 commands other than `assign` don't contact MNS. `RegistryFtpConfinementTest` `DatasetManagerUsesTheModelsMnsRunGroupForEveryCommand`
 and `DatasetManagerRefusesWhenTheNameServiceDoesNotAnswer` run the real binary against a spawned `registry_server` and a stand-in MNS.
+
+## Addendum (November 7, 2026): `segment` against a remote registry (TD-543)
+
+With `REGISTRY_SERVER_URL` set, `segment <path>` splits a path queued on the server as a whole file by the server's pair count for it
+(`num_entries`), so the client needn't read it. Otherwise a local file is counted, uploaded as `add` does, and the uploaded
+`<data_dir>/<group>/uploads/` path segmented; its segments replace the uploaded whole entry (TD-542). Anything else exits 1 without
+queuing. Both flows are the owner's choice. `registry_server` now records `num_entries` as `DatasetRegistry::count_pairs()` (it counted
+non-blank lines, too many for a file with a non-pair line, so the last segments would load nothing), and `count_pairs()` no longer keeps the
+pairs. Local mode is unchanged. `RegistryFtpConfinementTest` `DatasetManagerSegmentUploadsALocalFileFirst`,
+`DatasetManagerSegmentsAServerPathByItsServerPairCount` and `DatasetManagerSegmentRefusesAnUnknownRemotePath` run the real binary.
