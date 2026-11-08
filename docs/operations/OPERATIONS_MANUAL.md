@@ -560,6 +560,7 @@ All hyperparameters are set in `config.conf` (or environment variables) and read
 | `LEARNING_RATE` | `0.001` | Learning rate |
 | `BATCH_SIZE` | `32` | Batch size |
 | `WEIGHT_DECAY` | `0.01` | L2 weight decay regularization |
+| `DROPOUT` | `0.1` | Dropout while training, `[0, 1)`; 0 = off (TD-344) |
 | `GRADIENT_CLIP` | `1.0` | Gradient clipping norm (0 = disabled) |
 | `SESSION_DIR` | `training_sessions` | Session and checkpoint directory |
 | `GPU_STRATEGY` | `background` | `background` (low-priority) or `full` (max throughput) |
@@ -830,6 +831,7 @@ All settings can be provided via:
 | `LEARNING_RATE` | `0.001` | Learning rate |
 | `BATCH_SIZE` | `32` | Batch size |
 | `WEIGHT_DECAY` | `0.01` | L2 weight decay regularization |
+| `DROPOUT` | `0.1` | Dropout while training, `[0, 1)`; 0 = off (TD-344) |
 | `GRADIENT_CLIP` | `1.0` | Gradient clipping norm (0 = disabled) |
 | `SESSION_DIR` | `training_sessions` | Checkpoint and session file directory |
 | `GPU_STRATEGY` | `background` | `background` (low-priority) or `full` (max throughput) |

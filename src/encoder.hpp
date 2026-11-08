@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.4.1
-// @adai-reviewed: 2026-10-26
+// @adai-version: 1.5.0
+// @adai-reviewed: 2026-11-08
 
 
 #include <algorithm>
@@ -180,6 +180,9 @@ class LLMEncoder {
      * @param requires_grad If true, enables gradient computation
      */
     void set_requires_grad(bool requires_grad);
+
+    /// TD-344: every block's dropout rate and whether it is applied (EncoderDecoderModel's call).
+    void set_dropout(float rate, bool active);
 
     /**
      * Set learning rate for gradient updates

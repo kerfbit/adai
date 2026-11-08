@@ -1,14 +1,15 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.1
-// @adai-reviewed: 2026-10-26
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-08
 
 
 #include <vector>
 #include <memory>
 #include <string>
 #include "gpu/GPUParamRef.hpp"
+#include "Dropout.hpp"
 #include "FeedForward.hpp"
 #include "LayerNorm.hpp"
 #include "Matrix.hpp"
@@ -67,8 +68,10 @@ class EncoderBlock {
     int d_model;
     int num_heads;
     int d_ff;
-    // TODO: See TD-344 in TECHNICAL_DEBT.md - dropout is stored, saved and printed but never applied
+    // TD-344: applied to the attention and feed-forward outputs while training (set_dropout()).
     float dropout_rate;
+    Dropout attn_dropout_;
+    Dropout ff_dropout_;
 
     // Cached values for backward pass
     Matrix cached_input;
@@ -257,6 +260,17 @@ class EncoderBlock {
      */
     float get_dropout_rate() const {
         return dropout_rate;
+    }
+
+    /**
+     * TD-344: sets the dropout rate ([0, 1)) and whether it is applied. Off by default;
+     * EncoderDecoderModel switches it on only while training.
+     */
+    void set_dropout(float rate, bool active);
+    /// Seeds the branches' mask generators, so a test can replay the same masks.
+    void seed_dropout(std::uint64_t seed) {
+        attn_dropout_.seed(seed);
+        ff_dropout_.seed(seed + 1);
     }
 
     /**

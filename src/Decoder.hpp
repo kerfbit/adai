@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
-// @adai-version: 0.18.1
-// @adai-reviewed: 2026-10-26
+// @adai-version: 0.19.0
+// @adai-reviewed: 2026-11-08
 
 
 #include <algorithm>
@@ -243,6 +243,9 @@ class LLMDecoder {
      * @param mode True for training, false for inference
      */
     void set_training(bool mode);
+
+    /// TD-344: every block's dropout rate and whether it is applied (EncoderDecoderModel's call).
+    void set_dropout(float rate, bool active);
 
     /**
      * Set learning rate

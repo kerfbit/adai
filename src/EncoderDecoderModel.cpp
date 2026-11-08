@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.32.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 0.33.0
+// @adai-reviewed: 2026-11-08
 
 #include "EncoderDecoderModel.hpp"
 #include "Activation.hpp"  // TD-216: shared softmax row primitives
@@ -791,6 +791,18 @@ void EncoderDecoderModel::set_training(bool mode) {
     requires_grad = mode;
     encoder->set_requires_grad(mode);
     decoder->set_training(mode);
+    // TD-344: dropout follows training mode, so validation and generation never drop.
+    const bool dropping = mode && dropout_rate_ > 0.0f;
+    encoder->set_dropout(dropout_rate_, dropping);
+    decoder->set_dropout(dropout_rate_, dropping);
+}
+
+void EncoderDecoderModel::set_dropout(float rate) {
+    if (!(rate >= 0.0f && rate < 1.0f)) {
+        throw std::invalid_argument("dropout rate must be in [0, 1), got " + std::to_string(rate));
+    }
+    dropout_rate_ = rate;
+    set_training(requires_grad);
 }
 
 // Set learning rate (TD-360: the encoder and the LM head used to keep their own)

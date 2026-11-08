@@ -1,12 +1,13 @@
 // @adai-status: beta        (TD-061 resolved — layer_norm_bwd's math bug fixed and verified analytically/numerically; most kernels still have no dedicated test and need real GPU hardware to verify, see TECHNICAL_DEBT_RESOLVED.md)
-// @adai-version: 0.14.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 0.15.0
+// @adai-reviewed: 2026-11-08
 
 #ifdef ADAI_ENABLE_GPU
 
 #include "MatrixGPU.hpp"
 #include "GPUUtils.hpp"
 #include "../ActivationConstants.hpp"  // TD-216: GELU constants shared with the CPU
+#include "../DropoutMask.hpp"          // TD-344: the mask hash shared with the CPU
 #include <algorithm>
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
@@ -1186,6 +1187,16 @@ __global__ void sum_squares_accumulate_kernel(const float* data, int size, float
 }
 
 // TD-342: DecoderBlock's gated residual, the gate read on the device.
+__global__ void dropout_forward_kernel(float* data, float* mask, int size, float keep_prob,
+                                       unsigned long long seed) {
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        const float m = adai::dropout_mask_value(seed, static_cast<std::uint64_t>(i), keep_prob);
+        mask[i] = m;
+        data[i] *= m;
+    }
+}
+
 __global__ void gated_residual_add_kernel(float* residual, const float* attn, const float* gate,
                                           int size) {
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1229,6 +1240,17 @@ void gated_residual_add_gpu(float* residual, const float* attn, const float* gat
     const int threads = 256;
     gated_residual_add_kernel<<<(size + threads - 1) / threads, threads, 0,
                                 GPUManager::get_stream()>>>(residual, attn, gate, size);
+    CUDA_CHECK(cudaGetLastError());
+}
+
+void dropout_forward_gpu(float* data, float* mask, int size, float keep_prob,
+                         unsigned long long seed) {
+    if (size <= 0) {
+        return;
+    }
+    const int threads = 256;
+    dropout_forward_kernel<<<(size + threads - 1) / threads, threads, 0,
+                             GPUManager::get_stream()>>>(data, mask, size, keep_prob, seed);
     CUDA_CHECK(cudaGetLastError());
 }
 

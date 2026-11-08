@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.23.4
-// @adai-reviewed: 2026-11-04
+// @adai-version: 0.23.5
+// @adai-reviewed: 2026-11-08
 
 #include "IncrementalTrainer.hpp"
 #include <algorithm>
@@ -296,6 +296,7 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.base_config.learning_rate = svc.learning_rate;
     cfg.base_config.num_epochs = svc.num_epochs;
     cfg.base_config.weight_decay = svc.weight_decay;
+    cfg.base_config.dropout = svc.dropout;  // TD-344
     cfg.base_config.gradient_clip_norm = svc.gradient_clip;
     // TD-017: Map adaptive gradient clipping fields
     cfg.base_config.adaptive_gradient_clip = svc.adaptive_gradient_clip;

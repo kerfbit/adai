@@ -1,6 +1,6 @@
 // @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap; TD-194 gated cross-reference pull + Hebbian association strengthening added to the hippocampal path)
-// @adai-version: 1.8.2
-// @adai-reviewed: 2026-10-26
+// @adai-version: 1.9.0
+// @adai-reviewed: 2026-11-08
 
 #include "DecoderBlock.hpp"
 #include "BinaryIO.hpp"
@@ -15,10 +15,10 @@
 using adai::Logger;
 #include "CrossAttention.hpp"
 
-// TODO: See TD-344 in TECHNICAL_DEBT.md - dropout is stored but never applied
 DecoderBlock::DecoderBlock(int d_model, int num_heads, int d_ff, float dropout,
                            bool enable_world_model, bool enable_hippocampal)
     : d_model(d_model), num_heads(num_heads), d_ff(d_ff), dropout_rate(dropout) {
+    set_dropout(dropout, false);  // TD-344: off until training switches it on
     // Initialize self-attention (masked)
     self_attention = std::make_unique<MultiHeadAttention>(d_model, num_heads);
 
@@ -78,6 +78,7 @@ Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
     Matrix normed1 = norm1->forward(input);
     cached_normed1 = normed1;
     Matrix self_attn_out = self_attention->forward(normed1, &self_attn_mask);
+    self_attn_dropout_.forward(self_attn_out);  // TD-344: no-op unless training with dropout
     cached_self_attn_output = self_attn_out;
 
     // Step 2: First residual connection (input + self-attention output) —
@@ -95,6 +96,7 @@ Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
     Matrix normed2 = norm2->forward(residual1);
     cached_normed2 = normed2;
     Matrix cross_attn_out = cross_attention->forward(normed2, encoder_output, cross_attn_mask);
+    cross_attn_dropout_.forward(cross_attn_out);  // TD-344
     cached_cross_attn_output = cross_attn_out;
 
     // Step 4: Second residual connection (residual1 + cross-attention output)
@@ -113,6 +115,7 @@ Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
     // Step 5: Pre-feedforward layer normalization, then feed-forward network
     Matrix normed3 = norm3->forward(residual2);
     Matrix ff_out = feed_forward->forward(normed3);
+    ff_dropout_.forward(ff_out);  // TD-344
     cached_ff_output = ff_out;
 
     // Step 6: Third residual connection (residual2 + ff output) — the block's
@@ -324,7 +327,8 @@ Matrix DecoderBlock::backward(const Matrix& grad_output, Matrix& grad_encoder_ou
         }
     }
 
-    // Step 2: Gradient through feed-forward network
+    // Step 2: Gradient through the dropout mask (TD-344), then the feed-forward network
+    ff_dropout_.backward(grad_ff_output);
     Matrix grad_normed3 = feed_forward->backward(grad_ff_output);
 
     // Step 3: Gradient through pre-feedforward layer norm
@@ -403,7 +407,8 @@ Matrix DecoderBlock::backward(const Matrix& grad_output, Matrix& grad_encoder_ou
         }
     }
 
-    // Step 6: Gradient through cross-attention
+    // Step 6: Gradient through the dropout mask (TD-344), then cross-attention
+    cross_attn_dropout_.backward(grad_cross_attn_output);
     Matrix grad_normed2_from_cross;
     cross_attention->backward(grad_cross_attn_output, grad_normed2_from_cross,
                               grad_encoder_output);
@@ -431,7 +436,8 @@ Matrix DecoderBlock::backward(const Matrix& grad_output, Matrix& grad_encoder_ou
         }
     }
 
-    // Step 10: Gradient through self-attention
+    // Step 10: Gradient through the dropout mask (TD-344), then self-attention
+    self_attn_dropout_.backward(grad_self_attn_output);
     Matrix grad_normed1 = self_attention->backward(grad_self_attn_output);
 
     // Step 11: Gradient through pre-attention layer norm
@@ -445,6 +451,14 @@ Matrix DecoderBlock::backward(const Matrix& grad_output, Matrix& grad_encoder_ou
     }
 
     return grad_input;
+}
+
+void DecoderBlock::set_dropout(float rate, bool active) {
+    for (Dropout* d : {&self_attn_dropout_, &cross_attn_dropout_, &ff_dropout_}) {
+        d->set_rate(rate);
+        d->set_active(active);
+    }
+    dropout_rate = rate;
 }
 
 void DecoderBlock::update_weights() {
@@ -939,11 +953,13 @@ adai::gpu::GPUMatrix DecoderBlock::gpu_forward(const adai::gpu::GPUMatrix& input
     // 1. norm1 -> masked self-attention -> residual1 (unnormalized)
     adai::gpu::GPUMatrix normed1 = norm1->gpu_forward(input);
     adai::gpu::GPUMatrix self_attn = self_attention->gpu_forward(normed1, self_mask);
+    self_attn_dropout_.gpu_forward(self_attn);  // TD-344: mask generated and kept on the device
     adai::gpu::GPUMatrix res1 = input + self_attn;
 
     // 2. norm2 -> cross-attention -> residual2 (unnormalized)
     adai::gpu::GPUMatrix normed2 = norm2->gpu_forward(res1);
     adai::gpu::GPUMatrix cross_attn = cross_attention->gpu_forward(normed2, encoder_out);
+    cross_attn_dropout_.gpu_forward(cross_attn);
     adai::gpu::GPUMatrix res2 = res1 + cross_attn;
     gpu_apply_gated_paths(res2, world_model_out, memory, repetition_alpha, repetition_decay,
                           cross_reference_alpha, association_decay);  // TD-342
@@ -952,6 +968,7 @@ adai::gpu::GPUMatrix DecoderBlock::gpu_forward(const adai::gpu::GPUMatrix& input
     // normalization once, after the last block, at the LLMDecoder level)
     adai::gpu::GPUMatrix normed3 = norm3->gpu_forward(res2);
     adai::gpu::GPUMatrix ff_out = feed_forward->gpu_forward(normed3);
+    ff_dropout_.gpu_forward(ff_out);
     return res2 + ff_out;
 }
 
@@ -985,7 +1002,9 @@ adai::gpu::GPUMatrix DecoderBlock::gpu_forward_with_cache(
 std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> DecoderBlock::gpu_backward(
     const adai::gpu::GPUMatrix& dout) {
     // Residual3 split: d_res2 = dout (direct) + norm3/ff branch
-    adai::gpu::GPUMatrix d_normed3 = feed_forward->gpu_backward(dout);
+    adai::gpu::GPUMatrix d_normed3 = ff_dropout_.gpu_dropped()  // TD-344
+                                         ? feed_forward->gpu_backward(ff_dropout_.gpu_masked(dout))
+                                         : feed_forward->gpu_backward(dout);
     adai::gpu::GPUMatrix d_res2_from_norm3 = norm3->gpu_backward(d_normed3);
     adai::gpu::GPUMatrix d_res2 = dout + d_res2_from_norm3;
 
@@ -1020,12 +1039,18 @@ std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> DecoderBlock::gpu_backward
 
     // Residual2 split: d_res1 = d_res2 (direct) + norm2/cross-attn branch
     // cross_attention backward returns {d_query=d_normed2, d_kv=d_encoder}
-    auto [d_normed2, d_enc] = cross_attention->gpu_backward(d_res2);
+    auto [d_normed2, d_enc] =
+        cross_attn_dropout_.gpu_dropped()
+            ? cross_attention->gpu_backward(cross_attn_dropout_.gpu_masked(d_res2))
+            : cross_attention->gpu_backward(d_res2);
     adai::gpu::GPUMatrix d_res1_from_norm2 = norm2->gpu_backward(d_normed2);
     adai::gpu::GPUMatrix d_res1 = d_res2 + d_res1_from_norm2;
 
     // Residual1 split: d_input = d_res1 (direct) + norm1/self-attn branch
-    adai::gpu::GPUMatrix d_normed1 = self_attention->gpu_backward(d_res1);
+    adai::gpu::GPUMatrix d_normed1 =
+        self_attn_dropout_.gpu_dropped()
+            ? self_attention->gpu_backward(self_attn_dropout_.gpu_masked(d_res1))
+            : self_attention->gpu_backward(d_res1);
     adai::gpu::GPUMatrix d_input_from_norm1 = norm1->gpu_backward(d_normed1);
     return {d_res1 + d_input_from_norm1, std::move(d_enc)};
 }

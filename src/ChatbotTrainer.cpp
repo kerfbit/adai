@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.18.2
-// @adai-reviewed: 2026-11-04
+// @adai-version: 0.19.0
+// @adai-reviewed: 2026-11-08
 
 #include "ChatbotTrainer.hpp"
 #include <algorithm>
@@ -262,6 +262,11 @@ void ChatbotTrainer::validate_and_correct_config() {
     bool corrected = false;
 
     adai::Logger::info("🔍 Validating model configuration...");
+
+    if (!(config.dropout >= 0.0f && config.dropout < 1.0f)) {  // TD-344
+        throw std::invalid_argument("dropout (" + std::to_string(config.dropout) +
+                                    ") must be in [0, 1)");
+    }
 
     if (config.num_heads <= 0 || config.d_model <= 0 || config.d_model % config.num_heads != 0) {
         throw std::invalid_argument("d_model (" + std::to_string(config.d_model) +
@@ -2164,6 +2169,22 @@ bool ChatbotTrainer::train(int num_epochs) {
                 m.set_hippocampal_updates_enabled(was);
             }
         } hippocampal_updates_off(*model);
+
+        // TD-344: dropout for this train() call only; validate() and the quality generations switch
+        // training mode off, which switches dropout off with it. The model goes back to no dropout
+        // afterwards, so a saved or reused model never drops.
+        struct DropoutForTraining {
+            EncoderDecoderModel& m;
+            float was;
+            DropoutForTraining(EncoderDecoderModel& model_ref, float rate)
+                : m(model_ref), was(model_ref.get_dropout()) {
+                m.set_dropout(rate);
+            }
+            ~DropoutForTraining() {
+                m.set_dropout(was);
+            }
+        } dropout_for_training(*model, config.dropout);
+        adai::Logger::info("  Dropout: {}", config.dropout);
 
         // Split data first (on raw text pairs)
         if (validation_data.empty() && config.validation_split > 0) {

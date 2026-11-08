@@ -2,8 +2,8 @@
 #define MATRIX_GPU_HPP
 
 // @adai-status: beta        (TD-061 resolved — see MatrixGPU.cu's tag; this header just declares/wraps its kernels; TD-050 GPUKVCache added)
-// @adai-version: 0.15.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 0.16.0
+// @adai-reviewed: 2026-11-08
 
 #include <stdexcept>
 #include <vector>
@@ -192,6 +192,12 @@ void gated_residual_add_gpu(float* residual, const float* attn, const float* gat
 // d_attn = tanh(gate[0]) * d_res, and gate_grad[0] += (1 - tanh(gate[0])^2) * sum(d_res * attn)
 void gated_residual_backward_gpu(const float* d_res, const float* attn, const float* gate,
                                  float* d_attn, float* gate_grad, int size);
+
+// TD-344: inverted dropout on the device. mask[i] = adai::dropout_mask_value(seed, i, keep_prob)
+// (1 / keep_prob or 0, the same values the CPU draws for that seed) and data[i] *= mask[i]. The
+// backward pass multiplies the gradient by the kept mask (matrix_multiply_elementwise_gpu()).
+void dropout_forward_gpu(float* data, float* mask, int size, float keep_prob,
+                         unsigned long long seed);
 
 // ============================================================================
 // GPUMatrix — persistent GPU-resident matrix (TD-003)

@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added; TD-181 world_model_inject_every_n_layers added; TD-186 forward_with_encoder() threads world_model_output/memory through to DecoderBlock::forward(), and the same knob now also allocates the hippocampal gated path, never wired by any prior item)
-// @adai-version: 0.18.3
-// @adai-reviewed: 2026-10-26
+// @adai-version: 0.19.0
+// @adai-reviewed: 2026-11-08
 
 #include "Decoder.hpp"
 #include "BinaryIO.hpp"
@@ -53,7 +53,6 @@ LLMDecoder::LLMDecoder(int vocab_size, int d_model, int num_layers, int num_head
     for (int i = 0; i < num_layers; ++i) {
         bool inject_here =
             (world_model_inject_every_n_layers > 0) && (i % world_model_inject_every_n_layers == 0);
-        // TODO: See TD-344 in TECHNICAL_DEBT.md - dropout argument is never applied by DecoderBlock
         decoder_blocks.push_back(std::make_unique<DecoderBlock>(
             d_model, num_heads, d_ff, /*dropout=*/0.1f, /*enable_world_model=*/inject_here,
             /*enable_hippocampal=*/inject_here));
@@ -357,6 +356,12 @@ void LLMDecoder::set_training(bool mode) {
     for (auto& block : decoder_blocks) {
         // DecoderBlock doesn't have set_training, but it respects requires_grad
         // through its internal components
+    }
+}
+
+void LLMDecoder::set_dropout(float rate, bool active) {
+    for (auto& block : decoder_blocks) {
+        block->set_dropout(rate, active);
     }
 }
 

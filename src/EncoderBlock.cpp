@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.2
-// @adai-reviewed: 2026-10-26
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-08
 
 #include "EncoderBlock.hpp"
 #include "BinaryIO.hpp"
@@ -11,9 +11,9 @@
 #include <iostream>
 #include <stdexcept>
 
-// TODO: See TD-344 in TECHNICAL_DEBT.md - dropout is never applied
 EncoderBlock::EncoderBlock(int d_model, int num_heads, int d_ff, float dropout)
     : d_model(d_model), num_heads(num_heads), d_ff(d_ff), dropout_rate(dropout) {
+    set_dropout(dropout, false);  // TD-344: off until training switches it on
     // Initialize multi-head attention
     attention = std::make_unique<MultiHeadAttention>(d_model, num_heads);
 
@@ -41,6 +41,7 @@ Matrix EncoderBlock::forward(const Matrix& input, const Matrix* mask) {
 
     // Step 2: Multi-head self-attention on the normalized input
     Matrix attn_output = attention->forward(normed1, mask);
+    attn_dropout_.forward(attn_output);  // TD-344: no-op unless training with dropout
     cached_attn_output = attn_output;
 
     // Step 3: First residual connection (input + attention output) — stays
@@ -58,6 +59,7 @@ Matrix EncoderBlock::forward(const Matrix& input, const Matrix* mask) {
 
     // Step 5: Feed-forward network on the normalized residual
     Matrix ff_output = feed_forward->forward(normed2);
+    ff_dropout_.forward(ff_output);  // TD-344
     cached_ff_output = ff_output;
 
     // Step 6: Second residual connection (residual1 + ff_output) — the block's
@@ -89,7 +91,8 @@ Matrix EncoderBlock::backward(const Matrix& grad_output) {
         }
     }
 
-    // Step 2: Gradient through feed-forward network
+    // Step 2: Gradient through the dropout mask (TD-344), then the feed-forward network
+    ff_dropout_.backward(grad_ff_output);
     Matrix grad_normed2 = feed_forward->backward(grad_ff_output);
 
     // Step 3: Gradient through pre-feedforward layer norm
@@ -116,7 +119,8 @@ Matrix EncoderBlock::backward(const Matrix& grad_output) {
         }
     }
 
-    // Step 6: Gradient through multi-head attention
+    // Step 6: Gradient through the dropout mask (TD-344), then multi-head attention
+    attn_dropout_.backward(grad_attn_output);
     Matrix grad_normed1 = attention->backward(grad_attn_output);
 
     // Step 7: Gradient through pre-attention layer norm
@@ -150,6 +154,14 @@ void EncoderBlock::update_weights() {
     feed_forward->update_weights();
     norm1->update_weights();
     norm2->update_weights();
+}
+
+void EncoderBlock::set_dropout(float rate, bool active) {
+    attn_dropout_.set_rate(rate);
+    ff_dropout_.set_rate(rate);
+    attn_dropout_.set_active(active);
+    ff_dropout_.set_active(active);
+    dropout_rate = rate;
 }
 
 void EncoderBlock::zero_grad() {
@@ -323,23 +335,29 @@ adai::gpu::GPUMatrix EncoderBlock::gpu_forward(const adai::gpu::GPUMatrix& input
     // LayerNorm1 + self-attention + residual1 (unnormalized)
     adai::gpu::GPUMatrix normed1 = norm1->gpu_forward(input);
     adai::gpu::GPUMatrix attn_out = attention->gpu_forward(normed1, mask);
+    attn_dropout_.gpu_forward(attn_out);  // TD-344: mask generated and kept on the device
     adai::gpu::GPUMatrix res1 = input + attn_out;
 
     // LayerNorm2 + FeedForward + residual2 (unnormalized — final_norm handles
     // normalization once, after the last block, at the LLMEncoder level)
     adai::gpu::GPUMatrix normed2 = norm2->gpu_forward(res1);
     adai::gpu::GPUMatrix ff_out = feed_forward->gpu_forward(normed2);
+    ff_dropout_.gpu_forward(ff_out);
     return res1 + ff_out;
 }
 
 adai::gpu::GPUMatrix EncoderBlock::gpu_backward(const adai::gpu::GPUMatrix& dout) {
     // Residual2 split: d_res1 = dout (direct) + norm2/ff branch
-    adai::gpu::GPUMatrix d_normed2 = feed_forward->gpu_backward(dout);
+    adai::gpu::GPUMatrix d_normed2 = ff_dropout_.gpu_dropped()  // TD-344
+                                         ? feed_forward->gpu_backward(ff_dropout_.gpu_masked(dout))
+                                         : feed_forward->gpu_backward(dout);
     adai::gpu::GPUMatrix d_res1_from_norm2 = norm2->gpu_backward(d_normed2);
     adai::gpu::GPUMatrix d_res1 = dout + d_res1_from_norm2;
 
     // Residual1 split: d_input = d_res1 (direct) + norm1/attn branch
-    adai::gpu::GPUMatrix d_normed1 = attention->gpu_backward(d_res1);
+    adai::gpu::GPUMatrix d_normed1 = attn_dropout_.gpu_dropped()
+                                         ? attention->gpu_backward(attn_dropout_.gpu_masked(d_res1))
+                                         : attention->gpu_backward(d_res1);
     adai::gpu::GPUMatrix d_input_from_norm1 = norm1->gpu_backward(d_normed1);
     return d_res1 + d_input_from_norm1;
 }

@@ -13,10 +13,12 @@
 
 #include "../src/CrossAttention.hpp"
 #include "../src/DecoderBlock.hpp"
+#include "../src/Dropout.hpp"
+#include "../src/EncoderBlock.hpp"
 #include "../src/EncoderDecoderModel.hpp"
+#include "../src/GPUOptimizer.hpp"
 #include "../src/HippocampalMemory.hpp"
 #include "../src/LeJEPAEncoder.hpp"
-#include "../src/GPUOptimizer.hpp"
 #include "../src/Matrix.hpp"
 #include "../src/Optimizer.hpp"
 #include "../src/PositionalEncoding.hpp"
@@ -429,3 +431,73 @@ TEST(GPUGatedPathTest, GatedModelTrainsItsGatesOnTheDevice) {
     }
 }
 
+// TD-344: dropout on the device draws the same mask as the CPU for the same seed, scales the same
+// way, and masks the gradient the same way, through whole blocks.
+TEST(GPUDropoutTest, DeviceMaskMatchesTheCpuMask) {
+    if (!gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    std::mt19937 rng(21);
+    const Matrix x = random_matrix(7, 33, rng, 1.0f);
+    Dropout cpu, dev;
+    for (Dropout* d : {&cpu, &dev}) {
+        d->set_rate(0.4f);
+        d->set_active(true);
+        d->seed(1234);
+    }
+    Matrix x_cpu = x;
+    cpu.forward(x_cpu);
+    GPUMatrix x_dev = x.to_gpu();
+    dev.gpu_forward(x_dev);
+    EXPECT_EQ(flat(Matrix::from_gpu(x_dev)), flat(x_cpu));
+
+    const Matrix g = random_matrix(7, 33, rng, 1.0f);
+    Matrix g_cpu = g;
+    cpu.backward(g_cpu);
+    ASSERT_TRUE(dev.gpu_dropped());
+    EXPECT_EQ(flat(Matrix::from_gpu(dev.gpu_masked(g.to_gpu()))), flat(g_cpu));
+}
+
+TEST(GPUDropoutTest, EncoderBlockMatchesTheCpuWithDropout) {
+    if (!gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    std::mt19937 rng(22);
+    EncoderBlock block(16, 2, 32, 0.1f);
+    block.set_dropout(0.3f, true);
+    const Matrix input = random_matrix(5, 16, rng, 0.5f), dout = random_matrix(5, 16, rng, 0.5f);
+    block.seed_dropout(77);
+    const Matrix out_cpu = block.forward(input);
+    const Matrix d_in_cpu = block.backward(dout);
+
+    block.gpu_upload_weights();
+    block.gpu_zero_grads();
+    block.seed_dropout(77);
+    GPUMatrix in_dev = input.to_gpu(), dout_dev = dout.to_gpu();
+    const Matrix out_gpu = Matrix::from_gpu(block.gpu_forward(in_dev));
+    const Matrix d_in_gpu = Matrix::from_gpu(block.gpu_backward(dout_dev));
+    EXPECT_LT(max_rel_diff(flat(out_gpu), flat(out_cpu)), 1e-4f);
+    EXPECT_LT(max_rel_diff(flat(d_in_gpu), flat(d_in_cpu)), 1e-4f);
+}
+
+TEST(GPUDropoutTest, DecoderBlockMatchesTheCpuWithDropout) {
+    if (!gpu_ready())
+        GTEST_SKIP() << "No GPU device present.";
+    std::mt19937 rng(23);
+    DecoderBlock block(16, 2, 32, 0.1f);
+    block.set_dropout(0.3f, true);
+    const Matrix input = random_matrix(3, 16, rng, 0.5f), enc = random_matrix(4, 16, rng, 0.5f);
+    const Matrix dout = random_matrix(3, 16, rng, 0.5f), mask = causal(3);
+    block.seed_dropout(88);
+    const Matrix out_cpu = block.forward(input, enc, mask);
+    const Matrix d_in_cpu = block.backward(dout);
+
+    block.gpu_upload_weights();
+    block.gpu_zero_grads();
+    block.seed_dropout(88);
+    GPUMatrix in_dev = input.to_gpu(), enc_dev = enc.to_gpu(), mask_dev = mask.to_gpu();
+    GPUMatrix dout_dev = dout.to_gpu();
+    const Matrix out_gpu = Matrix::from_gpu(block.gpu_forward(in_dev, enc_dev, &mask_dev));
+    auto [d_in_dev, d_enc_dev] = block.gpu_backward(dout_dev);
+    (void)d_enc_dev;
+    EXPECT_LT(max_rel_diff(flat(out_gpu), flat(out_cpu)), 1e-4f);
+    EXPECT_LT(max_rel_diff(flat(Matrix::from_gpu(d_in_dev)), flat(d_in_cpu)), 1e-4f);
+}

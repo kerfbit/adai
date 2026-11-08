@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added)
-// @adai-version: 0.13.5
-// @adai-reviewed: 2026-11-04
+// @adai-version: 0.14.0
+// @adai-reviewed: 2026-11-08
 
 #include <atomic>
 #include <cstdint>
@@ -112,6 +112,7 @@ struct TrainingConfig {
     float adam_beta1 = 0.9f;                              // Adam first moment decay
     float adam_beta2 = 0.999f;                            // Adam second moment decay
     float weight_decay = 0.01f;                           // L2 regularization / weight decay
+    float dropout = 0.1f;  // TD-344: block dropout while training, [0, 1); 0 = off
     float gradient_clip_norm = 1.0f;                      // Maximum gradient norm (0 = no clipping)
 
     // Adaptive gradient clipping (TD-017)

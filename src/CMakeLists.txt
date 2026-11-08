@@ -309,6 +309,7 @@ target_link_libraries(adai_feedforward adai_core)
 add_library(adai_transformer STATIC
     EncoderBlock.cpp
     DecoderBlock.cpp
+    Dropout.cpp  # TD-344: the blocks' branch dropout
 )
 target_link_libraries(adai_transformer
     adai_attention

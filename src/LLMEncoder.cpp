@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.5.2
-// @adai-reviewed: 2026-10-27
+// @adai-version: 1.6.0
+// @adai-reviewed: 2026-11-08
 
 #include <algorithm>
 #include <cassert>
@@ -219,6 +219,12 @@ void LLMEncoder::update_weights() {
 
 void LLMEncoder::set_requires_grad(bool requires_grad) {
     this->requires_grad = requires_grad;
+}
+
+void LLMEncoder::set_dropout(float rate, bool active) {
+    for (auto& block : encoder_blocks) {
+        block->set_dropout(rate, active);
+    }
 }
 
 // TD-093 (fixed): the "propagation happens through their components" comment

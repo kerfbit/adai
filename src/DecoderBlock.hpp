@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable        (TD-050 GPU incremental-cache forward added; TD-180 gated world-model/hippocampal cross-attention paths added, CPU forward/backward only — see class doc; TD-187 save()/load() now persist the gated paths, closing TD-180's own documented gap; TD-194 gated cross-reference pull + Hebbian association strengthening added to the hippocampal path)
-// @adai-version: 1.8.1
-// @adai-reviewed: 2026-10-26
+// @adai-version: 1.9.0
+// @adai-reviewed: 2026-11-08
 
 
 #include <vector>
@@ -11,6 +11,7 @@
 #include <utility>
 #include "gpu/GPUParamRef.hpp"
 #include "CrossAttention.hpp"
+#include "Dropout.hpp"
 #include "FeedForward.hpp"
 #include "HippocampalMemory.hpp"
 #include "KVCache.hpp"
@@ -130,8 +131,13 @@ class DecoderBlock {
     int d_model;
     int num_heads;
     int d_ff;
-    // TODO: See TD-344 in TECHNICAL_DEBT.md - stored and saved but never applied in any forward path
+    // TD-344: applied to the self-attention, cross-attention and feed-forward outputs while
+    // training (set_dropout()). The gated world-model/hippocampal paths have their own learned tanh
+    // gate and get none.
     float dropout_rate;
+    Dropout self_attn_dropout_;
+    Dropout cross_attn_dropout_;
+    Dropout ff_dropout_;
 
     // Cached values for backward pass
     Matrix cached_input;
@@ -401,6 +407,18 @@ class DecoderBlock {
      * @param lr New learning rate
      */
     void set_learning_rate(float lr);
+
+    /**
+     * TD-344: sets the dropout rate ([0, 1)) and whether it is applied. Off by default;
+     * EncoderDecoderModel switches it on only while training.
+     */
+    void set_dropout(float rate, bool active);
+    /// Seeds the branches' mask generators, so a test can replay the same masks.
+    void seed_dropout(std::uint64_t seed) {
+        self_attn_dropout_.seed(seed);
+        cross_attn_dropout_.seed(seed + 1);
+        ff_dropout_.seed(seed + 2);
+    }
 
     /**
      * Save decoder block parameters to file.

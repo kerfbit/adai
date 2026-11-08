@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.27.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 1.28.0
+// @adai-reviewed: 2026-11-08
 
 #include <climits>
 #include <cstdint>
@@ -208,6 +208,11 @@ struct ServiceConfig {
 
     /// L2 weight decay regularization (default: 0.01)
     float weight_decay = 0.01f;
+
+    /// TD-344: dropout on every transformer block's attention and feed-forward outputs while
+    /// training, [0, 1); 0 = off (default: 0.1). Never applied in validation, generation or
+    /// serving.
+    float dropout = 0.1f;
 
     /// Gradient clipping norm; 0 = disabled (default: 1.0)
     float gradient_clip = 1.0f;

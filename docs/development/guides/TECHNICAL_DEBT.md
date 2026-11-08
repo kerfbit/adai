@@ -1530,6 +1530,10 @@ The generation and model math run is complete.
 - TD-330 (done in code: fetches report the pairs actually queued; `models` needs `NAME_SERVICE_URL`; `--help`; global options only before
   the command, with values; argument-less commands refuse arguments).
 
+**Training-impact run (November 8, 2026)**, chosen by the owner: the open items that affect a training run, most impactful first. So far:
+- TD-344 (done in code, owner's choice to implement: dropout, `DROPOUT` default 0.1, on every block's attention and feed-forward outputs
+  while training only, on the CPU and both GPU backends with device-generated masks).
+
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
 - TD-372/373 (done in code: the FTP data connection must come from the control connection's client, and FTPS requires `AUTH TLS` and
@@ -9820,7 +9824,7 @@ Tests:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Transformer / DecoderBlock | October 11, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 8, 2026 | Transformer / DecoderBlock | October 11, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-341, by inspection. The constructor takes `dropout` (default 0.1, which
@@ -9833,14 +9837,44 @@ none of the encoders (chatbot, RAG, LeJEPA world model) get dropout either. Fix 
 
 Action Items:
 
-- [ ] Either implement dropout (training-mode only, on sub-layer outputs) or remove the parameter and its persistence (keeping load() compatible).
+- [x] Either implement dropout (training-mode only, on sub-layer outputs) or remove the parameter and its persistence (keeping load() compatible). **Owner decision (November 8, 2026): implement, default 0.1.**
 
-Location in code: `src/DecoderBlock.cpp` (constructor); tagged `TODO: See TD-344`.
+Fix (November 8, 2026):
+- **Where.** Inverted dropout on each block's branch outputs before they are added to the residual stream: the encoder's attention and
+  feed-forward outputs, and the decoder's self-attention, cross-attention and feed-forward outputs. Kept elements are scaled by
+  `1 / (1 - rate)`, so nothing changes at inference. The gated world-model and hippocampal paths, which have their own learned tanh gate,
+  get none. The new `Dropout` component (`src/Dropout.{hpp,cpp}`) holds one branch's mask for its backward pass.
+- **When.** Only while training. A block's dropout is off unless switched on; `EncoderDecoderModel::set_dropout(rate)` enables it and it
+  then follows `set_training()`, so `validate()` and the in-training quality generations (which call `set_training(false)`) never drop.
+  Only `ChatbotTrainer::train()` calls `set_dropout()`, with the configured rate, and sets it back to 0 when it returns, so a saved, cloned
+  or reused model, the serving model and the frozen world model never drop. The LeJEPA world-model pass doesn't use it.
+- **Config.** New `DROPOUT` key (`config.trainer.conf`, environment, default 0.1, `[0, 1)`, 0 = off), mapped through
+  `make_incremental_config()` into `TrainingConfig::dropout`; `ConfigLoader::validate()` and the trainer refuse a value outside `[0, 1)`.
+- **GPU.** The mask is a pure function of a seed and the element index (`adai::dropout_mask_value()`, `src/DropoutMask.hpp`, a splitmix64
+  hash usable in host, CUDA and SYCL code). A new kernel (`dropout_forward_gpu()`, CUDA and SYCL) writes the mask and scales the branch on
+  the device; the backward multiplies the branch gradient by the kept device mask. Only the 64-bit seed crosses to the device, as a kernel
+  argument, per the owner's GPU rule. The same seed gives the same mask on the CPU and on either backend.
+
+Tests: `dropoutTests` (new, `tests/dropout_test.cpp`): off changes nothing, about the rate is dropped and the rest scaled, the backward
+uses the forward's mask, seeds replay masks and calls differ, rates outside `[0, 1)` are refused, the mask function's statistics; the
+encoder and decoder blocks' input gradients with dropout on against finite differences (masks replayed from a seed); a model drops nothing
+without `set_dropout()`, drops after it only in training mode, and refuses a bad rate. `ChatbotTrainerTest`
+`TrainAppliesDropoutOnlyWhileTraining`: training with `dropout = 0.5` works and leaves the model at 0; `dropout = 1` fails. GPU, on the
+oneAPI CPU device (`build/sycl-cpudev`, `ADAI_SYCL_ALLOW_CPU_DEVICE=1`): `GPUDropoutTest` checks the device mask equals the CPU mask for a
+seed, and the encoder and decoder blocks' GPU forward and backward match the CPU with dropout on. The new tests use the new interface, so
+they can't run on the old code, which never read `dropout_rate` in any forward path.
+
+Location in code: `src/Dropout.{hpp,cpp}`, `src/DropoutMask.hpp`, `src/EncoderBlock.cpp` and `src/DecoderBlock.cpp` (forwards, backwards,
+`set_dropout()`), `src/EncoderDecoderModel.cpp` (`set_dropout()`, `set_training()`), `src/ChatbotTrainer.cpp` (`train()`),
+`src/gpu/MatrixGPU.cu`, `src/gpu/sycl/MatrixGPU_SYCL.cpp` (`dropout_forward_gpu()`), `src/Config.cpp` (`DROPOUT`).
 
 Files to Modify:
 
-- `src/DecoderBlock.{hpp,cpp}`
-- `src/Decoder.cpp`
+- `src/Dropout.{hpp,cpp}` (new), `src/DropoutMask.hpp` (new), `src/EncoderBlock.{hpp,cpp}`, `src/DecoderBlock.{hpp,cpp}`,
+  `src/encoder.hpp`, `src/LLMEncoder.cpp`, `src/Decoder.{hpp,cpp}`, `src/EncoderDecoderModel.{hpp,cpp}`, `src/ChatbotTrainer.{hpp,cpp}`,
+  `src/IncrementalTrainer.cpp`, `src/Config.{hpp,cpp}`, `src/gpu/MatrixGPU.{hpp,cu}`, `src/gpu/sycl/MatrixGPU_SYCL.{hpp,cpp}`,
+  `src/CMakeLists.txt`, `config.trainer.conf`
+- `tests/dropout_test.cpp` (new), `tests/chatbottrainer_test.cpp`, `tests/gpu_optimizer_test.cpp`, `tests/CMakeLists.txt`
 
 ---
 

@@ -776,6 +776,34 @@ class EpochRecordingReporter final : public IMetricsReporter {
     }
 };
 
+// TD-344: train() applies DROPOUT while it trains and leaves the model without it, so the saved or
+// reused model never drops; a rate outside [0, 1) is refused.
+TEST_F(MetricsTrackerWiringTest, TrainAppliesDropoutOnlyWhileTraining) {
+    TrainingConfig config = tiny_config();
+    config.dropout = 0.5f;
+    ChatbotTrainer trainer(config);
+    ASSERT_TRUE(trainer.build_vocabulary({"hello world", "how are you", "I am fine", "thank you"},
+                                         100, vocab_path_.string()));
+    {
+        std::ofstream f(data_path_);
+        f << "{\"input\":\"hello world\",\"response\":\"how are you\"}\n"
+             "{\"input\":\"I am fine\",\"response\":\"thank you\"}\n";
+    }
+    ASSERT_TRUE(trainer.load_conversation_data(data_path_.string()));
+    ASSERT_TRUE(trainer.train(2));
+    auto model = trainer.release_model();
+    ASSERT_TRUE(model);
+    EXPECT_FLOAT_EQ(model->get_dropout(), 0.0f);
+
+    TrainingConfig bad = tiny_config();
+    bad.dropout = 1.0f;
+    ChatbotTrainer refused(bad);
+    ASSERT_TRUE(
+        refused.build_vocabulary({"hello world", "how are you"}, 100, vocab_path_.string()));
+    ASSERT_TRUE(refused.load_conversation_data(data_path_.string()));
+    EXPECT_FALSE(refused.train(1));
+}
+
 // TD-268: a run without validation data (validation_split = 0) used to start every epoch on the
 // reporter and end none, and the gradient norm sent was the last window's, not the epoch's average.
 TEST_F(MetricsTrackerWiringTest, EndsEveryEpochOnTheReporterWithoutValidationData) {

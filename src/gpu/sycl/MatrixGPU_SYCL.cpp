@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.15.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 0.16.0
+// @adai-reviewed: 2026-11-08
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -11,6 +11,7 @@
 #include <oneapi/mkl/blas.hpp>
 #include <vector>
 #include "../../ActivationConstants.hpp"  // TD-216: GELU constants shared with the CPU
+#include "../../DropoutMask.hpp"          // TD-344: the mask hash shared with the CPU
 
 namespace adai {
 namespace gpu {
@@ -976,6 +977,22 @@ void matrix_download_gpu(const float* device_ptr, float* host_ptr, int count) {
 // ============================================================================
 // TD-468: device-resident optimizer
 // ============================================================================
+
+// TD-344: inverted dropout, mask generated on the device from the seed. In-order queue: no .wait().
+void dropout_forward_gpu(float* data, float* mask, int size, float keep_prob,
+                         unsigned long long seed) {
+    if (size <= 0) {
+        return;
+    }
+    GPUManager::get_queue().parallel_for(
+        sycl::range<1>(static_cast<size_t>(size)), [=](sycl::id<1> idx) {
+            const size_t i = idx[0];
+            const float m =
+                adai::dropout_mask_value(seed, static_cast<std::uint64_t>(i), keep_prob);
+            mask[i] = m;
+            data[i] *= m;
+        });
+}
 
 // TD-342: DecoderBlock's gated residual, the gate read on the device. In-order queue: no .wait().
 void gated_residual_add_gpu(float* residual, const float* attn, const float* gate, int size) {

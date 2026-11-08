@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.27.2
-// @adai-reviewed: 2026-11-03
+// @adai-version: 1.28.0
+// @adai-reviewed: 2026-11-08
 
 #include "Config.hpp"
 #include <algorithm>
@@ -326,6 +326,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.num_epochs = parse_int(value);
             } else if (key == "WEIGHT_DECAY") {
                 config.weight_decay = parse_float(value);
+            } else if (key == "DROPOUT") {
+                config.dropout = parse_float(value);  // TD-344
             } else if (key == "GRADIENT_CLIP") {
                 config.gradient_clip = parse_float(value);
             } else if (key == "GRADIENT_CLIP_ADAPTIVE") {
@@ -690,6 +692,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_float("WEIGHT_DECAY")) {
         config.weight_decay = *val;
+    }
+    if (auto val = get_env_float("DROPOUT")) {
+        config.dropout = *val;
     }
     if (auto val = get_env_float("GRADIENT_CLIP")) {
         config.gradient_clip = *val;
@@ -1531,6 +1536,9 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
     at_least(config.batch_size, 1, "batch_size");
     at_least(config.gradient_accumulation_steps, 1, "gradient_accumulation_steps");
     require(config.weight_decay >= 0.0f, "weight_decay", std::to_string(config.weight_decay), "must be >= 0");
+    require(config.dropout >= 0.0f && config.dropout < 1.0f, "dropout",
+            std::to_string(config.dropout),
+            "must be in [0, 1)");  // TD-344
     require(config.gradient_clip >= 0.0f, "gradient_clip", std::to_string(config.gradient_clip), "must be >= 0");
     // Adaptive clipping, checked even while it's off (like the world-model block above).
     require(config.gradient_clip_min > 0.0f, "gradient_clip_min", std::to_string(config.gradient_clip_min),
@@ -1678,6 +1686,7 @@ std::string ConfigLoader::to_string(const ServiceConfig& c) {
     item("BATCH_SIZE", num(c.batch_size));
     item("GRADIENT_ACCUMULATION_STEPS", num(c.gradient_accumulation_steps));
     item("WEIGHT_DECAY", num(c.weight_decay));
+    item("DROPOUT", num(c.dropout));
     item("GRADIENT_CLIP", num(c.gradient_clip));
     item("GRADIENT_CLIP_ADAPTIVE", flag(c.adaptive_gradient_clip));
     item("GRADIENT_CLIP_MIN", num(c.gradient_clip_min));

@@ -142,3 +142,13 @@ Tests: `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.
 ## Addendum (October 26, 2026): one update per step (TD-297, TD-346, TD-360)
 
 With a registered optimizer, `update_weights()` steps it once for the whole block (TD-297). Test: `EncoderDecoderModelTest.OneUpdateIsOneStepWithOrWithoutAnOptimizer`.
+
+## Addendum (November 8, 2026): dropout is applied while training (TD-344)
+
+The stored `dropout` rate is now applied, by the owner's decision, as inverted dropout on the block's branch outputs before the residual
+add (the encoder's attention and feed-forward outputs; the decoder's self-attention, cross-attention and feed-forward outputs; not the
+gated world-model and hippocampal paths). It is off unless `set_dropout(rate, active)` turns it on, which `EncoderDecoderModel` does only in
+training mode after `set_dropout(rate)`, and only `ChatbotTrainer::train()` calls that, with `DROPOUT` (default 0.1). The GPU forward
+generates the mask on the device from a seed (`dropout_forward_gpu()`), matching the CPU mask for the same seed, and the GPU backward
+multiplies the branch gradient by it. `seed_dropout()` replays masks for tests. The rate saved in a checkpoint is not what training uses;
+`DROPOUT` is.

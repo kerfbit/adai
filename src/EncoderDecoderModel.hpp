@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.30.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 0.31.0
+// @adai-reviewed: 2026-11-08
 
 #include <cstdint>
 #include <functional>
@@ -130,6 +130,7 @@ class EncoderDecoderModel {
 
     // Training state
     bool requires_grad{true};
+    float dropout_rate_ = 0.0f;  // TD-344: 0 until set_dropout(); applied only in training mode
     float learning_rate{0.001};
     // TD-297: the optimizer register_parameters()/register_lora_parameters() registered with;
     // update_weights() steps it once. nullptr = plain SGD in every layer.
@@ -496,6 +497,17 @@ class EncoderDecoderModel {
      * @param mode True for training, false for inference
      */
     void set_training(bool mode);
+
+    /**
+     * TD-344: the dropout rate ([0, 1)) of every encoder and decoder block. Dropout is applied
+     * only while the model is in training mode (set_training(true)) and after this was called with
+     * a rate above 0; ChatbotTrainer calls it with DROPOUT when training starts. A model nobody
+     * calls it on (serving, generation, a clone, the frozen world model) never drops anything.
+     */
+    void set_dropout(float rate);
+    float get_dropout() const {
+        return dropout_rate_;
+    }
 
     /**
      * Set learning rate

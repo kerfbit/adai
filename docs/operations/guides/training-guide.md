@@ -236,6 +236,7 @@ All training hyperparameters are set in `config.conf` (or environment variables)
 | `NUM_EPOCHS` | `10` | 25 for small datasets; 15–20 for large |
 | `BATCH_SIZE` | `32` | Lower if RAM is tight |
 | `WEIGHT_DECAY` | `0.01` | L2 regularization; raise if overfitting |
+| `DROPOUT` | `0.1` | Dropout on each block's attention and feed-forward outputs while training (never at inference); raise if overfitting, `0` turns it off |
 | `GRADIENT_CLIP` | `1.0` | Lower to `0.5` if you see NaN/Inf warnings |
 | `SESSION_DIR` | `training_sessions` | Change to separate session directories per model |
 | `GPU_STRATEGY` | `background` | Set to `full` on a dedicated training machine |
