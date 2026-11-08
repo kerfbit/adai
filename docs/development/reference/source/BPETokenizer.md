@@ -511,3 +511,13 @@ modes split identically; they differ on accented and non-Latin text, which ASCII
 affected: `load_vocab()` takes the mode from the file, and a file without a `TOKENIZER_MODE` line (the oldest format) now loads as
 ASCII; it used to keep the constructor's mode, which would have become Unicode for those byte-built files. The note above that a
 file without the line keeps the constructor's mode no longer applies.
+
+## Addendum (November 8, 2026): whitespace and the v3 vocabulary format (TD-224)
+
+- **`WhitespaceHandling`** (`PRESERVE` | `COLLAPSE`), with `get_whitespace()`/`set_whitespace()`/`whitespace_name()`. A new tokenizer
+  is `PRESERVE`: `pre_tokenize()` leaves whitespace alone, and any text decodes back exactly (given its characters are in the vocabulary).
+- **`build_vocab()`** always gives space, newline and tab a base token under `PRESERVE`; a line-by-line corpus never contains a newline.
+- **Format v3:** `save_vocab()` writes `# BPE Tokenizer Vocabulary v3.0` and `WHITESPACE PRESERVE|COLLAPSE`. `load_vocab()` starts from
+  `COLLAPSE`, so a v1 or v2 file tokenizes exactly as before; an unknown value is a `VocabularyFileError`.
+- `COLLAPSE` rewrites each whitespace *match* to one space, as it always did. The pattern can match more than once between two words
+  (`"a\n\tb"` gives two spaces), so "one space per run" (§6) was only approximately true.

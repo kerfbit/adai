@@ -2,8 +2,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.2.1
-// @adai-reviewed: 2026-11-04
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-11-08
 
 #include <algorithm>
 #include <cctype>
@@ -84,6 +84,19 @@ enum class TextNormalization {
     CASED,
 };
 
+/**
+ * @brief What pre-tokenization does with whitespace (TD-224)
+ *
+ * PRESERVE keeps spaces, tabs and newlines exactly, so line breaks, paragraphs and indentation
+ * round-trip; it is the default for new vocabularies. COLLAPSE is the original behaviour (every
+ * whitespace run becomes one space), which every vocabulary file before the v3 format uses. Stored
+ * in the vocabulary file like TextNormalization.
+ */
+enum class WhitespaceHandling {
+    COLLAPSE,
+    PRESERVE,
+};
+
 class BPETokenizer {
    private:
     TokenizerMode mode;
@@ -102,6 +115,7 @@ class BPETokenizer {
     // Regex pattern for pre-tokenization (chosen at construction time based on mode)
     std::regex token_pattern;
     TextNormalization normalization_ = TextNormalization::CASED;  // TD-560
+    WhitespaceHandling whitespace_ = WhitespaceHandling::PRESERVE;  // TD-224
 
     // TD-222: identifies this tokenizer's merge state for apply_bpe()'s per-thread cache. Unique per
     // process and never reused, and renewed by every change to the merges or the mode
@@ -138,8 +152,17 @@ class BPETokenizer {
     void set_normalization(TextNormalization normalization);
     /// "cased" or "lowercase".
     static const char* normalization_name(TextNormalization normalization);
+    /// TD-224: PRESERVE (the default for a new tokenizer) or COLLAPSE; load_vocab() sets it from
+    /// the file (COLLAPSE for a v1 or v2 file, which predate the setting).
+    WhitespaceHandling get_whitespace() const {
+        return whitespace_;
+    }
+    /// Set before build_vocab(), as set_normalization().
+    void set_whitespace(WhitespaceHandling whitespace);
+    /// "preserve" or "collapse".
+    static const char* whitespace_name(WhitespaceHandling whitespace);
     /// TD-563: the newest vocabulary file format this build reads (and writes).
-    static constexpr int kVocabFormatMajor = 2;
+    static constexpr int kVocabFormatMajor = 3;
 
     // Build vocabulary from text corpus
     void build_vocab(const std::vector<std::string>& texts, int vocab_size = 10000,

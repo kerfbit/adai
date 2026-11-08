@@ -115,6 +115,11 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 New vocabularies keep letter case. `--lowercase` builds one that lowercases, as every vocabulary before TD-560 did. The parameter
 summary prints `Letter case: kept|lowercased`, and the file records it (`NORMALIZATION`).
 
+## Addendum (November 8, 2026): `--collapse-whitespace` (TD-224)
+
+New vocabularies keep spaces, tabs and newlines exactly. `--collapse-whitespace` builds one that replaces whitespace as every
+vocabulary before TD-224 did. The summary prints `Whitespace: kept|collapsed`, and the file records it (`WHITESPACE`, format v3).
+
 ## Addendum (November 4, 2026): Unicode by default, `--ascii` (TD-564)
 
 `vocab_builder` builds Unicode-mode vocabularies by default (one unit per UTF-8 code point); `--ascii` builds a byte-level one, and

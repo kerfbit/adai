@@ -223,6 +223,7 @@ This matches `vocab_builder --help`.
 | `--ascii` | off | Byte-level tokenization: a multi-byte character becomes several byte tokens. By default each UTF-8 character is one unit (TD-564) |
 | `--unicode` | on | UTF-8 code-point tokenization, the default since TD-564; accepted for older scripts |
 | `--lowercase` | off | Lowercase text before tokenizing, as every vocabulary before TD-560 did. By default letter case is kept |
+| `--collapse-whitespace` | off | Replace whitespace with single spaces, as every vocabulary before TD-224 did. By default spaces, tabs and newlines are kept |
 | `--stats` | off | Print vocabulary statistics after building |
 
 Input formats:

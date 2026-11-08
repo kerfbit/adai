@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.23.5
+// @adai-version: 0.23.6
 // @adai-reviewed: 2026-11-08
 
 #include "IncrementalTrainer.hpp"
@@ -255,6 +255,7 @@ bool IncrementalTrainer::bootstrap_vocab(const std::vector<ConversationPair>& pa
     // TD-560: new vocabularies keep letter case (the tokenizer's default).
     Logger::info("Vocabulary letter case: {}",
                  BPETokenizer::normalization_name(tok.get_normalization()));
+    Logger::info("Vocabulary whitespace: {}", BPETokenizer::whitespace_name(tok.get_whitespace()));
     tok.build_vocab(texts, target_size);
     try {
         tok.save_vocab(vocab_path_);  // throws on failure (TD-221)

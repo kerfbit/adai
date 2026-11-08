@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 1.4.0
+// @adai-reviewed: 2026-11-08
 
 // TODO: See TD-225 in TECHNICAL_DEBT.md - std::cout/std::cerr are used throughout this file instead of
 // adai::Logger (progress output, warnings, save/load summaries).
@@ -62,6 +62,15 @@ void BPETokenizer::set_normalization(TextNormalization normalization) {
 
 const char* BPETokenizer::normalization_name(TextNormalization normalization) {
     return normalization == TextNormalization::CASED ? "cased" : "lowercase";
+}
+
+void BPETokenizer::set_whitespace(WhitespaceHandling whitespace) {
+    whitespace_ = whitespace;
+    cache_key_ = new_cache_key();
+}
+
+const char* BPETokenizer::whitespace_name(WhitespaceHandling whitespace) {
+    return whitespace == WhitespaceHandling::PRESERVE ? "preserve" : "collapse";
 }
 
 // ============================================================================
@@ -193,6 +202,19 @@ void BPETokenizer::build_vocab(const std::vector<std::string>& texts, int vocab_
     // TODO: See TD-225 in TECHNICAL_DEBT.md - IDs follow unordered_map iteration order (not portable).
     int current_id = 4;  // Start after special tokens
     int added_chars = 0;
+    // TD-224: whitespace always has a token, or a corpus read line by line (vocab_builder's plain
+    // and legacy formats) would turn every newline in later text into <unk>.
+    if (whitespace_ == WhitespaceHandling::PRESERVE && total_chars > 0) {
+        for (const char* ws : {" ", "\n", "\t"}) {
+            char_freq.erase(ws);
+            if (current_id < vocab_size) {
+                vocab[ws] = current_id;
+                inverse_vocab[current_id] = ws;
+                current_id++;
+                added_chars++;
+            }
+        }
+    }
     for (const auto& pair : char_freq) {
         if (pair.second >= frequency_threshold && current_id < vocab_size) {
             vocab[pair.first] = current_id;
@@ -278,8 +300,6 @@ std::vector<std::string> BPETokenizer::pre_tokenize(const std::string& text) {
 
     // TD-560: a CASED vocabulary keeps letter case; only a LOWERCASE one (every v1 file)
     // lowercases.
-    // TODO: See TD-224 in TECHNICAL_DEBT.md - the whitespace collapse below is still lossy: models
-    // can never see or produce newlines or tabs.
     std::string lower_text = text;
     if (normalization_ == TextNormalization::CASED) {
         // keep the text as written
@@ -311,7 +331,9 @@ std::vector<std::string> BPETokenizer::pre_tokenize(const std::string& text) {
     static const std::regex kWhitespaceRun("\\s+");
     for (; iter != end; ++iter) {
         std::string token = iter->str();
-        token = std::regex_replace(token, kWhitespaceRun, " ");
+        if (whitespace_ == WhitespaceHandling::COLLAPSE) {  // TD-224: every pre-v3 vocabulary
+            token = std::regex_replace(token, kWhitespaceRun, " ");
+        }
         if (!token.empty()) {
             tokens.push_back(token);
         }
@@ -559,9 +581,12 @@ void BPETokenizer::save_vocab(const std::string& filename) const {
     }
 
     // TD-560: v2 adds NORMALIZATION. A file without it is v1, which always lowercased.
-    file << "# BPE Tokenizer Vocabulary v2.0\n";
+    // TD-224: v3 adds WHITESPACE. A file without it collapsed every whitespace run.
+    file << "# BPE Tokenizer Vocabulary v3.0\n";
     file << "TOKENIZER_MODE " << (mode == TokenizerMode::UNICODE ? "UNICODE" : "ASCII") << "\n";
     file << "NORMALIZATION " << (normalization_ == TextNormalization::CASED ? "CASED" : "LOWERCASE")
+         << "\n";
+    file << "WHITESPACE " << (whitespace_ == WhitespaceHandling::PRESERVE ? "PRESERVE" : "COLLAPSE")
          << "\n";
     file << "VOCAB_SIZE " << vocab.size() << "\n";
 
@@ -619,6 +644,7 @@ void BPETokenizer::save_vocab(const std::string& filename) const {
     std::cout << "[BPE Tokenizer] Vocabulary saved to " << filename << '\n';
     std::cout << "  - Mode: " << (mode == TokenizerMode::UNICODE ? "Unicode" : "ASCII") << '\n';
     std::cout << "  - Normalization: " << normalization_name(normalization_) << '\n';
+    std::cout << "  - Whitespace: " << whitespace_name(whitespace_) << '\n';
     std::cout << "  - Vocabulary size: " << vocab.size() << '\n';
     std::cout << "  - BPE merges: " << bpe_merges.size() << '\n';
 }
@@ -638,6 +664,7 @@ void BPETokenizer::load_vocab(const std::string& filename) {
     cache_key_ = new_cache_key();  // TD-222: results cached for the old merges no longer apply
     // TD-560: a v1 file has no NORMALIZATION line and was always lowercased.
     normalization_ = TextNormalization::LOWERCASE;
+    whitespace_ = WhitespaceHandling::COLLAPSE;  // TD-224: likewise for a file before v3
     // TD-564: a file from before the TOKENIZER_MODE line was always built in ASCII mode; it used to
     // keep the constructor's mode, which is now Unicode.
     mode = TokenizerMode::ASCII;
@@ -705,6 +732,18 @@ void BPETokenizer::load_vocab(const std::string& filename) {
                 normalization_ = TextNormalization::LOWERCASE;
             } else {
                 throw VocabularyFileError("Unknown NORMALIZATION '" + value + "' in " + filename);
+            }
+            continue;
+        }
+
+        if (line.rfind("WHITESPACE", 0) == 0) {  // TD-224
+            const std::string value = line.size() > 11 ? line.substr(11) : std::string();
+            if (value == "PRESERVE") {
+                whitespace_ = WhitespaceHandling::PRESERVE;
+            } else if (value == "COLLAPSE") {
+                whitespace_ = WhitespaceHandling::COLLAPSE;
+            } else {
+                throw VocabularyFileError("Unknown WHITESPACE '" + value + "' in " + filename);
             }
             continue;
         }
@@ -1080,6 +1119,7 @@ float BPETokenizer::measure_fertility(const std::vector<std::string>& texts,
     // Use a shallow copy that shares our vocab/merge tables via the same header-constructed state.
     BPETokenizer probe(mode);
     probe.normalization_ = normalization_;  // TD-560
+    probe.whitespace_ = whitespace_;        // TD-224
     probe.vocab = vocab;
     probe.inverse_vocab = inverse_vocab;
     probe.bpe_merges = bpe_merges;

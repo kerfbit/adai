@@ -1017,14 +1017,14 @@ TEST_F(BPETokenizerTest, LowercaseNormalizationIsTheOldBehaviour) {
     EXPECT_EQ(tokenizer.decode(tokenizer.encode("Hello World", false), true), "hello world");
 }
 
-TEST_F(BPETokenizerTest, SaveWritesV2HeaderAndLoadRestoresNormalization) {
+TEST_F(BPETokenizerTest, SaveWritesV3HeaderAndLoadRestoresNormalization) {
     for (const auto normalization : {TextNormalization::CASED, TextNormalization::LOWERCASE}) {
         BPETokenizer writer;
         writer.set_normalization(normalization);
         writer.build_vocab({"Hello World", "hello world"}, 60, 1);
         writer.save_vocab("test_save_vocab.txt");
         const std::string file = read_file("test_save_vocab.txt");
-        EXPECT_NE(file.find("# BPE Tokenizer Vocabulary v2.0"), std::string::npos);
+        EXPECT_NE(file.find("# BPE Tokenizer Vocabulary v3.0"), std::string::npos);
         EXPECT_NE(file.find(normalization == TextNormalization::CASED ? "NORMALIZATION CASED"
                                                                       : "NORMALIZATION LOWERCASE"),
                   std::string::npos);
@@ -1047,15 +1047,95 @@ TEST_F(BPETokenizerTest, V1VocabularyLoadsAsLowercase) {
     writer.build_vocab({"hello world"}, 40, 1);
     writer.save_vocab("test_save_vocab.txt");
     std::string file = read_file("test_save_vocab.txt");
-    file.replace(file.find("# BPE Tokenizer Vocabulary v2.0"), 31,
+    file.replace(file.find("# BPE Tokenizer Vocabulary v3.0"), 31,
                  "# BPE Tokenizer Vocabulary v1.0");
     file.erase(file.find("NORMALIZATION LOWERCASE\n"), 24);
+    file.erase(file.find("WHITESPACE PRESERVE\n"), 20);
     write_file(test_vocab_file, file);
 
     BPETokenizer reader;  // CASED by default
     reader.load_vocab(test_vocab_file);
     EXPECT_EQ(reader.get_normalization(), TextNormalization::LOWERCASE);
     EXPECT_EQ(reader.encode("HELLO World", false), reader.encode("hello world", false));
+}
+
+// TD-224: new vocabularies keep whitespace exactly; the old collapse is still available.
+TEST_F(BPETokenizerTest, NewVocabulariesKeepWhitespace) {
+    BPETokenizer tokenizer;
+    EXPECT_EQ(tokenizer.get_whitespace(), WhitespaceHandling::PRESERVE);
+    tokenizer.build_vocab({"Hello World\nSecond\tline\n\n    indented  two\r\nend s "}, 120, 1);
+    for (const std::string text : {"Hello World\nSecond\tline", "line\n\n    indented",
+                                   "  two  lines  ", "end\r\nend\n", "\n"}) {
+        EXPECT_EQ(tokenizer.decode(tokenizer.encode(text, false), true), text);
+    }
+    EXPECT_NE(tokenizer.encode("a b", false), tokenizer.encode("a\nb", false));
+}
+
+// A corpus read line by line never contains a newline, and new text still must encode one.
+TEST_F(BPETokenizerTest, WhitespaceHasATokenEvenIfTheCorpusLacksIt) {
+    BPETokenizer tokenizer;
+    tokenizer.build_vocab({"ab", "ba"}, 40, 1);
+    const std::string text = "ab\nba\tab ba";
+    const auto ids = tokenizer.encode(text, false);
+    EXPECT_EQ(std::count(ids.begin(), ids.end(), tokenizer.get_unk_token_id()), 0);
+    EXPECT_EQ(tokenizer.decode(ids, true), text);
+}
+
+TEST_F(BPETokenizerTest, CollapseWhitespaceIsTheOldBehaviour) {
+    BPETokenizer tokenizer;
+    tokenizer.set_whitespace(WhitespaceHandling::COLLAPSE);
+    tokenizer.build_vocab({"Hello World\nSecond\tline"}, 80, 1);
+    EXPECT_EQ(tokenizer.decode(tokenizer.encode("Hello World\nSecond\tline", false), true),
+              "Hello World Second line");
+}
+
+TEST_F(BPETokenizerTest, SaveAndLoadRestoreWhitespaceAndWhitespaceTokensSurvive) {
+    for (const auto whitespace : {WhitespaceHandling::PRESERVE, WhitespaceHandling::COLLAPSE}) {
+        BPETokenizer writer;
+        writer.set_whitespace(whitespace);
+        writer.build_vocab({"one\n\ntwo\tthree\n\nfour\n\n"}, 80, 1);
+        writer.save_vocab("test_save_vocab.txt");
+        EXPECT_NE(read_file("test_save_vocab.txt")
+                      .find(whitespace == WhitespaceHandling::PRESERVE ? "WHITESPACE PRESERVE"
+                                                                       : "WHITESPACE COLLAPSE"),
+                  std::string::npos);
+        BPETokenizer reader;
+        reader.set_whitespace(whitespace == WhitespaceHandling::PRESERVE
+                                  ? WhitespaceHandling::COLLAPSE
+                                  : WhitespaceHandling::PRESERVE);
+        reader.load_vocab("test_save_vocab.txt");
+        EXPECT_EQ(reader.get_whitespace(), whitespace);
+        EXPECT_EQ(reader.encode("one\n\ntwo\tthree", false),
+                  writer.encode("one\n\ntwo\tthree", false));
+    }
+}
+
+// A v2 file (no WHITESPACE line) keeps collapsing, so existing checkpoints tokenize as trained.
+TEST_F(BPETokenizerTest, V2VocabularyLoadsAsCollapse) {
+    BPETokenizer writer;
+    writer.build_vocab({"hello world\nagain"}, 40, 1);
+    writer.save_vocab("test_save_vocab.txt");
+    std::string file = read_file("test_save_vocab.txt");
+    file.replace(file.find("# BPE Tokenizer Vocabulary v3.0"), 31,
+                 "# BPE Tokenizer Vocabulary v2.0");
+    file.erase(file.find("WHITESPACE PRESERVE\n"), 20);
+    write_file(test_vocab_file, file);
+
+    BPETokenizer reader;  // PRESERVE by default
+    reader.load_vocab(test_vocab_file);
+    EXPECT_EQ(reader.get_whitespace(), WhitespaceHandling::COLLAPSE);
+    EXPECT_EQ(reader.decode(reader.encode("hello\nworld", false), true), "hello world");
+}
+
+TEST_F(BPETokenizerTest, UnknownWhitespaceSettingIsRefused) {
+    BPETokenizer writer;
+    writer.build_vocab({"hello"}, 20, 1);
+    writer.save_vocab("test_save_vocab.txt");
+    std::string file = read_file("test_save_vocab.txt");
+    file.replace(file.find("WHITESPACE PRESERVE"), 19, "WHITESPACE SOMETIMES");
+    write_file(test_vocab_file, file);
+    BPETokenizer reader;
+    EXPECT_THROW(reader.load_vocab(test_vocab_file), VocabularyFileError);
 }
 
 // TD-563: a newer format, an unknown header line or an unknown normalization is refused; an older
@@ -1067,7 +1147,7 @@ TEST_F(BPETokenizerTest, UnknownVocabularyFormatsAreRefused) {
     const std::string good = read_file("test_save_vocab.txt");
 
     std::string newer = good;
-    newer.replace(newer.find("v2.0"), 4, "v3.0");
+    newer.replace(newer.find("v3.0"), 4, "v4.0");
     write_file(test_vocab_file, newer);
     BPETokenizer a;
     EXPECT_THROW(a.load_vocab(test_vocab_file), VocabularyFileError);
@@ -1158,7 +1238,8 @@ TEST_F(BPETokenizerTest, VocabularyWithoutAModeLineLoadsAsAscii) {
     std::string file = read_file("test_save_vocab.txt");
     file.erase(file.find("TOKENIZER_MODE ASCII\n"), 21);
     file.erase(file.find("NORMALIZATION LOWERCASE\n"), 24);
-    file.replace(file.find("v2.0"), 4, "v1.0");
+    file.erase(file.find("WHITESPACE PRESERVE\n"), 20);
+    file.replace(file.find("v3.0"), 4, "v1.0");
     write_file(test_vocab_file, file);
     BPETokenizer reader;  // Unicode by default
     reader.load_vocab(test_vocab_file);

@@ -1537,6 +1537,7 @@ The generation and model math run is complete.
   and the device optimizer; `amsgrad` removed; norms summed in `double`).
 - TD-371 (done in code, owner's choice to scale: residual-branch output projections shrink at initialization by the stack's branch count; new
   weights only).
+- TD-224 (done in code for whitespace, owner's choice to preserve all of it: vocabulary format v3, new vocabularies only).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -4911,7 +4912,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open — owner decision November 4, 2026: keep case (TD-560–TD-563); whitespace still undecided | NLP / Tokenizer | October 8, 2026 | Not estimated (requires a new vocab format version and retraining) |
+| LOW | Open — code fix landed November 8, 2026 for whitespace (owner's choice: preserve all); case done by TD-560–TD-563; rebuild and retrain remain (TD-563) | NLP / Tokenizer | October 8, 2026 | Not estimated (requires a new vocab format version and retraining) |
 
 Description:
 Found alongside TD-220 and confirmed by running the real code. `pre_tokenize()` lowercases every
@@ -4928,7 +4929,7 @@ vocab and checkpoint.
 
 Action Items:
 
-- [ ] Owner decision: keep it (and document it as a product limitation), or move to
+- [x] Owner decision: keep it (and document it as a product limitation), or move to
   case-preserving, whitespace-preserving tokenization (GPT-2-style, typically with byte-level
   fallback).
   Decided November 4, 2026 for letter case: keep it, in new vocabularies only (option chosen over lowercase-plus-case-marker tokens
@@ -4937,15 +4938,29 @@ Action Items:
   [TD-561](#td-561-bleu-compares-lowercase-output-with-cased-references) (BLEU case mismatch, independent),
   [TD-562](#td-562-vocabulary-sizing-and-tools-assume-lowercase-text) (sizing and tools) and
   [TD-563](#td-563-rebuild-vocabularies-and-retrain-with-case-and-deploy-in-order) (rebuild, retrain, deployment order). Whitespace
-  (newlines, tabs) is not yet decided.
-- [ ] If changed: bump the vocab file format (`# BPE Tokenizer Vocabulary v2.0` plus a
-  normalization field), keep loading v1 files with the old normalization so existing checkpoints
-  stay usable, and plan a retrain.
+  decided November 8, 2026: preserve all of it, in new vocabularies only.
+- [x] If changed: bump the vocab file format (v3: a `WHITESPACE PRESERVE|COLLAPSE` line), keep
+  loading v1 and v2 files with the old normalization so existing checkpoints stay usable. The retrain
+  is TD-563's.
 
-Location in code: `src/BPETokenizer.cpp` (`pre_tokenize()`); tagged `TODO: See TD-224`.
+Fix (November 8, 2026): `WhitespaceHandling` (`PRESERVE`, the default for a new tokenizer, or `COLLAPSE`) is stored in the vocabulary
+file. `pre_tokenize()` no longer rewrites whitespace under `PRESERVE`, so any text round-trips exactly. `build_vocab()` always gives
+space, newline and tab a base token, because `vocab_builder`'s line-based formats never show it a newline, which would otherwise encode
+as `<unk>`. `vocab_builder --collapse-whitespace` builds the old kind. The format is v3 so that a v2-era binary refuses the file
+instead of silently collapsing. Deploy v3-aware binaries before the first v3 file, and note that a trainer re-saves a v1/v2 vocabulary
+as v3 with each checkpoint (still `COLLAPSE`), so a v3 trainer needs a v3 `chatbot_api_server` too.
 
-Files to Modify (if changed): `src/BPETokenizer.{hpp,cpp}`, `tests/tokenizer_test.cpp`,
-`docs/development/reference/source/BPETokenizer.md`, plus a retraining plan.
+Measured on 500 KB of this repository's Markdown and C++ (218 chunks with their newlines, vocabulary 3,000): 163,151 tokens collapsed,
+163,422 preserved (+0.17%), no `<unk>`, and 218 of 218 chunks round-trip exactly (0 of 218 collapsed). Not measured on the real training data.
+
+Tests: `tests/tokenizer_test.cpp` (`NewVocabulariesKeepWhitespace`, `WhitespaceHasATokenEvenIfTheCorpusLacksIt`,
+`CollapseWhitespaceIsTheOldBehaviour`, `SaveAndLoadRestoreWhitespaceAndWhitespaceTokensSurvive`, `V2VocabularyLoadsAsCollapse`,
+`UnknownWhitespaceSettingIsRefused`).
+
+Location in code: `src/BPETokenizer.cpp` (`pre_tokenize()`, `build_vocab()`, `save_vocab()`, `load_vocab()`).
+
+Files Modified: `src/BPETokenizer.{hpp,cpp}`, `src/VocabBuilder.cpp`, `src/IncrementalTrainer.cpp`, `tests/tokenizer_test.cpp`,
+`docs/development/reference/source/{BPETokenizer,VocabBuilder}.md`.
 
 ---
 

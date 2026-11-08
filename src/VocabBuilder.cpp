@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.2.1
-// @adai-reviewed: 2026-11-04
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-11-08
 
 /**
  * @file VocabBuilder.cpp
@@ -51,6 +51,10 @@ void print_usage(const char* program_name) {
     std::cout << "  --lowercase          Lowercase text before tokenizing, as vocabularies before "
                  "TD-560 did\n";
     std::cout << "                       (default: keep letter case)\n";
+    std::cout
+        << "  --collapse-whitespace  Replace every whitespace run with one space, as vocabularies "
+           "before TD-224 did\n";
+    std::cout << "                       (default: keep spaces, tabs and newlines)\n";
     std::cout << "  --stats              Show vocabulary statistics after building\n";
     std::cout << "  --help               Show this help message\n\n";
 
@@ -99,6 +103,7 @@ int main(int argc, char** argv) {
     bool show_stats = false;
     bool unicode_mode = true;  // TD-564: UTF-8 code points by default
     bool lowercase = false;    // TD-560: new vocabularies keep letter case
+    bool collapse_whitespace = false;  // TD-224: new vocabularies keep whitespace
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -147,6 +152,8 @@ int main(int argc, char** argv) {
             unicode_mode = false;
         } else if (arg == "--lowercase") {  // TD-560
             lowercase = true;
+        } else if (arg == "--collapse-whitespace") {  // TD-224
+            collapse_whitespace = true;
         } else if (arg == "--stats") {
             show_stats = true;
         } else {
@@ -233,12 +240,15 @@ int main(int argc, char** argv) {
     std::cout << "  • Character frequency threshold: " << threshold << "\n";
     std::cout << "  • Tokenizer mode: " << (unicode_mode ? "unicode" : "ascii") << "\n";
     std::cout << "  • Letter case: " << (lowercase ? "lowercased" : "kept") << "\n";
+    std::cout << "  • Whitespace: " << (collapse_whitespace ? "collapsed" : "kept") << "\n";
     std::cout << "  • Output file: " << output_file << "\n" << COLOR_RESET << "\n";
 
     try {
         BPETokenizer tokenizer(unicode_mode ? TokenizerMode::UNICODE : TokenizerMode::ASCII);
         tokenizer.set_normalization(lowercase ? TextNormalization::LOWERCASE
                                               : TextNormalization::CASED);  // TD-560
+        tokenizer.set_whitespace(collapse_whitespace ? WhitespaceHandling::COLLAPSE
+                                                     : WhitespaceHandling::PRESERVE);  // TD-224
         tokenizer.build_vocab(all_texts, vocab_size, threshold);
 
         // Save vocabulary
