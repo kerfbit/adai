@@ -777,10 +777,11 @@ TEST_F(LeJEPAEncoderTest, TrainBatchSigregPullsPooledEmbeddingsTowardGaussian) {
     const float gap_with = pooled_gaussian_gap(with_sigreg, D_MODEL);
     const float gap_without = pooled_gaussian_gap(without, D_MODEL);
     // Without the SIGReg term the predictor pulls the pooled embeddings away from N(0, I); with
-    // it they barely drift. The (unseeded) start varies, so compare drift from the start rather
-    // than end values (measured drift with/without: +0.02/+0.15, +0.07/+0.32, +0.05/+0.27,
-    // -0.02/+0.29).
-    EXPECT_LT(gap_with - start, 0.5f * (gap_without - start))
+    // it they stay closer. Both encoders share their start, so compare their end values: a ratio
+    // of drifts from the unseeded start failed about 1 run in 10 once TD-371 shrank the initial
+    // weights. Measured gap_without - gap_with: lambda 1, mean 0.185, lowest 0.093 in 913 runs;
+    // lambda 0.1, at most 0.047 in 100; lambda 0, at most 0.024 in 200.
+    EXPECT_GT(gap_without - gap_with, 0.06f)
         << "start " << start << ", with " << gap_with << ", without " << gap_without;
 }
 
