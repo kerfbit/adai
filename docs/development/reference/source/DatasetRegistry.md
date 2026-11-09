@@ -68,6 +68,7 @@ trained, or stuck.
 | `remove_pending(path)` | Erases the first entry with that path, saves, and returns the save result (TD-327, November 7, 2026; it used to ignore it, so remote mode reported success) |
 | `assign_model(model, paths, count, segments)` / `unassign_model(…)` / `delete_entries(…)` | Delegate to the transport (work in both modes), then mirror the result into `pending_` with segment-exact matching (TD-205). `count <= 0` with no paths assigns **all** (TD-321) |
 | `pending_files()`, `pending_entries()`, `trained_files()` (each trained path once) | Snapshots |
+| `trained_units()` | TD-546: what was trained, as whole files and segments; a whole-file record covers its segments |
 | `is_trained(path, seg_start = -1, seg_count = -1)` | TD-333: a whole-file query is true when any record of the path exists; a segment query when the whole file or that exact segment was trained. `add_file()` checks the unit being added |
 | `count_acquirable()` | TD-413: loaded pending entries this registry's `model_name` may acquire (unassigned, or assigned to it), the rule `acquire()` uses; `incremental_trainer`'s pre-check |
 | `requeue_trained(paths, all, model)` | TD-540: moves trained entries back to pending through the transport (server-side against `registry_server`), then reloads both lists |

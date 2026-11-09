@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.33.2
-// @adai-reviewed: 2026-11-03
+// @adai-version: 0.33.3
+// @adai-reviewed: 2026-11-08
 
 #include <array>
 #include <atomic>
@@ -1491,25 +1491,18 @@ static int run_main(int argc, char* argv[]) {
 
                 startup_sweep(reg, run_id, dcfg.download_dir);  // loads the pending list (TD-512)
 
-                auto trained_fs = reg.trained_files();
+                auto trained_units = reg.trained_units();  // TD-546
                 auto pending_resp = reg.acquire_pending(run_id);
 
                 // For retrain: already-trained files are read directly by path (they
                 // live on the registry machine which already trained them, so no FTP
                 // needed for the trained portion).  Only newly acquired pending files
                 // may need FTP download.
-                // Trained files are retrained whole (trained_files() lists each path once; TD-333's
-                // per-segment records aren't consulted).
-                // TODO: See TD-546 in TECHNICAL_DEBT.md - a partly trained segmented file is retrained whole and its
-                // pending segments again
+                // Each trained unit is read as it was trained, so a partly trained segmented file's
+                // pending segments, acquired below, aren't also read here (TD-546).
                 // TODO: See TD-411 in TECHNICAL_DEBT.md - trained files are read by registry path, never downloaded, so
                 // retrain against a remote FTP registry can't read them (only pending files are fetched)
-                std::vector<PendingFileRange> local_ranges;
-                for (const auto& path : trained_fs) {
-                    PendingFileRange r;
-                    r.path = path;
-                    local_ranges.push_back(std::move(r));
-                }
+                std::vector<PendingFileRange> local_ranges = std::move(trained_units);
                 std::vector<fs::path> downloaded_paths;
                 if (!pending_resp.files.empty()) {
                     std::vector<PendingFileRange> pending_ranges;

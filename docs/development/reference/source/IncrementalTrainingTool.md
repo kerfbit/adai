@@ -109,8 +109,8 @@ during ai-machine's first deployment.
   pairs)` without the TD-205 range (the chatbot path passes `file_ranges()`), so a file queued as N
   segments is loaded **in full** N times when its segments are claimed together, and each segment's
   "share" is the whole file. (Since TD-337 the file is at least downloaded only once.)
-- **`retrain` retrains a partly trained segmented file whole** (TD-546): `trained_files()` lists each
-  trained path once, and its still-pending segments are acquired and trained again in the same pass.
+- **`retrain` reads trained data per unit** (TD-546, fixed November 8, 2026): `DatasetRegistry::trained_units()` gives whole files and
+  trained segments, so a partly trained file's pending segments, acquired separately, aren't read twice.
 - **LeJEPA claims can't be reclaimed after a crash.** Its run id is always `derive_run_id()` (hostname
   prefix + PID tail, TD-404), and claimed files are only reclaimable by the same run id. After a crash,
   kill, or SIGTERM mid-pass, the files stay claimed by a run id no future process will have, until

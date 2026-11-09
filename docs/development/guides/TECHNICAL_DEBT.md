@@ -1542,6 +1542,7 @@ The generation and model math run is complete.
   id-built prompts for serving, RAG and training, a JSONL `history` field; vocabulary rebuild and retrain with TD-358/TD-563).
 - TD-428 (done in code: one LeJEPA optimizer step per text from both views' accumulated gradients).
 - TD-336 (done in code: multi-line legacy responses kept, a UTF-8 BOM skipped before detection).
+- TD-546 (done in code: `retrain` reads trained data per unit, so a partly trained segmented file's pairs aren't trained twice).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -18026,7 +18027,7 @@ Location in code: `src/IncrementalTrainer.cpp` (`reset_all()`, `reset_model_for_
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / IncrementalTrainingTool | October 19, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 8, 2026 | Training / IncrementalTrainingTool | October 19, 2026 | 1-2 hours |
 
 Description:
 Found while rechecking `IncrementalTrainingTool` after TD-333. `retrain` trains on every path in `trained_files()` (each listed once, whole) plus
@@ -18036,10 +18037,17 @@ segmented files that are part-way through training.
 
 Action Items:
 
-- [ ] Build retrain's trained-file list from the trained records' units (whole files and segments), not `trained_files()`, or drop a trained path's
+- [x] Build retrain's trained-file list from the trained records' units (whole files and segments), not `trained_files()`, or drop a trained path's
   pending segments from the acquired batch.
 
-Location in code: `src/IncrementalTrainingTool.cpp` (`retrain`); tagged `TODO: See TD-546`.
+Fix (November 8, 2026): new `DatasetRegistry::trained_units()` lists what was trained, whole files and segments (a whole-file record covers its
+segments, and a re-trained unit is listed once). `retrain` reads those ranges, so a trained segment no longer brings in the rest of its file. Files
+still pending are acquired as before.
+
+Tests (`DatasetRegistryTests.cpp`): `TrainedUnitsListSegmentsNotTheirWholeFile`, `TrainedUnitsWholeFileRecordCoversItsSegments`. Real binaries, a
+30-pair file in three segments with the first trained: `retrain` loaded 50 pairs before (10 + 30 + 10) and 30 now (10 + 10 + 10).
+
+Location in code: `src/IncrementalTrainingTool.cpp` (`retrain`), `src/DatasetRegistry.{hpp,cpp}` (`trained_units()`).
 
 ---
 

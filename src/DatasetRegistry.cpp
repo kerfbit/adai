@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.11.1
+// @adai-version: 1.12.0
 // @adai-reviewed: 2026-11-08
 
 #include "DatasetRegistry.hpp"
@@ -17,6 +17,7 @@
 #include <set>
 #include <sstream>
 #include <thread>
+#include <tuple>
 #include <utility>
 #include "Logger.hpp"
 #include "PortableTime.hpp"
@@ -408,6 +409,32 @@ DeleteResult DatasetRegistry::delete_entries(const std::vector<std::string>& pat
 
 std::vector<std::string> DatasetRegistry::trained_files() const {
     return std::vector<std::string>(trained_set_.begin(), trained_set_.end());
+}
+
+std::vector<PendingFileRange> DatasetRegistry::trained_units() const {
+    std::set<std::string> whole;
+    for (const auto& dv : registry_) {
+        if (dv.trained && dv.segment_start < 0) {
+            whole.insert(dv.data_file);
+        }
+    }
+    std::set<std::tuple<std::string, int, int>> units;  // a re-trained unit has several records
+    for (const auto& dv : registry_) {
+        if (!dv.trained) {
+            continue;
+        }
+        if (dv.segment_start < 0) {
+            units.emplace(dv.data_file, -1, -1);
+        } else if (whole.count(dv.data_file) == 0) {
+            units.emplace(dv.data_file, dv.segment_start, dv.segment_count);
+        }
+    }
+    std::vector<PendingFileRange> out;
+    out.reserve(units.size());
+    for (const auto& [path, start, count] : units) {
+        out.push_back(PendingFileRange{path, start, count});
+    }
+    return out;
 }
 
 bool DatasetRegistry::is_trained(const std::string& path, int segment_start,

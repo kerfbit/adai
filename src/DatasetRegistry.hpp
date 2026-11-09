@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.10.0
-// @adai-reviewed: 2026-11-07
+// @adai-version: 1.11.0
+// @adai-reviewed: 2026-11-08
 
 #include <memory>
 #include <set>
@@ -248,6 +248,12 @@ class DatasetRegistry {
 
     /** @return Sorted vector of all file paths that have been trained. */
     std::vector<std::string> trained_files() const;
+
+    /**
+     * @return TD-546: what has been trained, one entry per unit, sorted by path and segment: a
+     *         whole file, or each trained segment of it. A whole-file record covers its segments.
+     */
+    std::vector<PendingFileRange> trained_units() const;
 
     /**
      * @return true if @p path (or, with @p segment_start >= 0, that segment of it) is trained.

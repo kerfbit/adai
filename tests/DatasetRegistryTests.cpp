@@ -708,6 +708,58 @@ TEST_F(DatasetRegistryTest, ReleasingAnAcquiredBatchFreesItsSegments) {
         << "a failed pass's segments must be claimable by the next run";
 }
 
+// TD-546: retrain reads trained data from these units, so a trained segment must not bring in the
+// rest of its file, which is either still pending or not trained at all.
+TEST_F(DatasetRegistryTest, TrainedUnitsListSegmentsNotTheirWholeFile) {
+    const std::string whole = (fs::path(data_file_).parent_path() / "whole.jsonl").string();
+    write_file(whole, "{\"input\":\"a\",\"response\":\"b\"}\n");
+    DatasetRegistry reg(make_cfg());
+    reg.load_pending_list();
+    ASSERT_TRUE(reg.add_file(data_file_, 0, 10));
+    ASSERT_TRUE(reg.add_file(data_file_, 10, 10));
+    ASSERT_TRUE(reg.add_file(data_file_, 20, 10));
+    ASSERT_TRUE(reg.add_file(whole));
+
+    AcquireResponse first = reg.acquire_pending("run-1", 2);
+    ASSERT_EQ(first.files.size(), 2u);
+    reg.mark_trained("run-1", first.file_ranges(), {10, 10});
+    reg.mark_trained({whole}, {1});
+
+    DatasetRegistry fresh(make_cfg());
+    fresh.load_registry();
+    const std::vector<PendingFileRange> units = fresh.trained_units();
+    ASSERT_EQ(units.size(), 3u);
+    int segments = 0;
+    for (const auto& u : units) {
+        if (u.path == whole) {
+            EXPECT_EQ(u.segment_start, -1);
+            EXPECT_EQ(u.segment_count, -1);
+        } else {
+            EXPECT_EQ(u.path, data_file_);
+            EXPECT_EQ(u.segment_count, 10);
+            EXPECT_LT(u.segment_start, 20) << "the third segment was never trained";
+            ++segments;
+        }
+    }
+    EXPECT_EQ(segments, 2);
+}
+
+// A file with both a segment record and a whole-file record is still read once.
+TEST_F(DatasetRegistryTest, TrainedUnitsWholeFileRecordCoversItsSegments) {
+    DatasetRegistry reg(make_cfg());
+    reg.load_pending_list();
+    ASSERT_TRUE(reg.add_file(data_file_, 0, 10));
+    const AcquireResponse a = reg.acquire_pending("run-1");
+    ASSERT_EQ(a.files.size(), 1u);
+    reg.mark_trained("run-1", a.file_ranges(), {10});
+    reg.mark_trained({data_file_}, {30});
+
+    const std::vector<PendingFileRange> units = reg.trained_units();
+    ASSERT_EQ(units.size(), 1u);
+    EXPECT_EQ(units[0].path, data_file_);
+    EXPECT_EQ(units[0].segment_start, -1);
+}
+
 TEST_F(DatasetRegistryTest, SegmentsTrainedSeparatelyAreEachRecorded) {
     DatasetRegistry reg(make_cfg());
     reg.load_pending_list();
