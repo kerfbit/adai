@@ -1,14 +1,15 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.11.1
-// @adai-reviewed: 2026-11-08
+// @adai-version: 0.11.2
+// @adai-reviewed: 2026-11-09
 
 #include <memory>
 #include <random>
 #include <string>
 #include <utility>
 #include <vector>
+#include "InitRng.hpp"
 #include "BPETokenizer.hpp"
 #include "EncoderBlock.hpp"
 #include "LayerNorm.hpp"
@@ -93,9 +94,9 @@ class LeJEPAEncoder {
     // implementation comment for the ordering this requires.
     std::vector<int> cached_token_ids;
 
-    // Seeded once at construction (one std::random_device query) rather than per train_step()
-    // call — train_step()'s own span-start draw is the only user.
-    std::mt19937 span_rng_{std::random_device{}()};
+    // Seeded once at construction (one adai::next_init_seed() value, TD-368) rather than per
+    // train_step() call — train_step()'s own span-start draw is the only user.
+    std::mt19937 span_rng_{adai::next_init_seed()};
 
     // Diagnostic state set inside train_step(), valid only immediately after the most recent
     // call (encode() does not update these) — see the getters below for what each one means.
@@ -246,7 +247,7 @@ class LeJEPAEncoder {
     void build_tokenizer(const std::vector<std::string>& corpus, int vocab_size = 10000);
 
     /** Frozen (false) after the pretraining phase completes — see the plan's Training Standard. */
-    /// Seeds the masked-span placement (tests; production draws from std::random_device).
+    /// Seeds the masked-span placement (tests; production draws from adai::next_init_seed()).
     void seed_span_rng(unsigned seed) {
         span_rng_.seed(seed);
     }

@@ -180,3 +180,7 @@ implemented.
 - **Saving.** A failed write or flush (a full disk) throws instead of leaving a short file.
 
 Tests: `FeedForwardPersistenceTest.TruncatedOrEmptyFileThrowsAndLeavesTheLayerUnchanged`, `EncoderDecoderModelTest.EveryCheckpointFileIsCheckedOnLoad`.
+
+## TD-368 addendum (November 9, 2026)
+
+The constructor seeds its generator from `adai::next_init_seed()` (`src/InitRng.hpp`), so `SEED` replays the weights.

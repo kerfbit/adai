@@ -562,6 +562,7 @@ All hyperparameters are set in `config.conf` (or environment variables) and read
 | `BATCH_SIZE` | `32` | Batch size |
 | `WEIGHT_DECAY` | `0.01` | Weight decay on weight matrices only (not LayerNorm, biases, embeddings; TD-469) |
 | `DROPOUT` | `0.1` | Dropout while training, `[0, 1)`; 0 = off (TD-344) |
+| `SEED` | `0` | Replays initialization, shuffles and dropout; 0 = a random seed, logged at startup (TD-368) |
 | `GRADIENT_CLIP` | `1.0` | Gradient clipping norm (0 = disabled) |
 | `SESSION_DIR` | `training_sessions` | Session and checkpoint directory |
 | `GPU_STRATEGY` | `background` | `background` (low-priority) or `full` (max throughput) |
@@ -833,6 +834,7 @@ All settings can be provided via:
 | `BATCH_SIZE` | `32` | Batch size |
 | `WEIGHT_DECAY` | `0.01` | Weight decay on weight matrices only (not LayerNorm, biases, embeddings; TD-469) |
 | `DROPOUT` | `0.1` | Dropout while training, `[0, 1)`; 0 = off (TD-344) |
+| `SEED` | `0` | Replays initialization, shuffles and dropout; 0 = a random seed, logged at startup (TD-368) |
 | `GRADIENT_CLIP` | `1.0` | Gradient clipping norm (0 = disabled) |
 | `SESSION_DIR` | `training_sessions` | Checkpoint and session file directory |
 | `GPU_STRATEGY` | `background` | `background` (low-priority) or `full` (max throughput) |

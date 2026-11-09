@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.29.0
+// @adai-version: 1.30.0
 // @adai-reviewed: 2026-11-09
 
 #include <climits>
@@ -213,6 +213,10 @@ struct ServiceConfig {
     /// training, [0, 1); 0 = off (default: 0.1). Never applied in validation, generation or
     /// serving.
     float dropout = 0.1f;
+
+    /// TD-368: replays weight initialization and the trainer's random choices. 0 = a random seed,
+    /// logged so the run can be replayed.
+    int seed = 0;
 
     /// TD-410: stop a pass when validation loss hasn't improved for this many epochs, then
     /// optionally restore the best epoch's weights.

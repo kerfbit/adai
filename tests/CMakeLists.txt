@@ -170,6 +170,10 @@ target_link_libraries(decoderblockTests adai_transformer GTest::gtest_main)
 add_test(NAME DecoderBlockTests COMMAND decoderblockTests)
 
 # TD-344: block dropout (the component, the blocks' backward with dropout, model-level switching).
+add_executable(initRngTests init_rng_test.cpp)
+target_link_libraries(initRngTests adai_models adai_lejepa GTest::gtest_main)
+add_test(NAME InitRngTests COMMAND initRngTests)
+
 add_executable(dropoutTests dropout_test.cpp)
 target_link_libraries(dropoutTests adai_models GTest::gtest_main)
 add_test(NAME DropoutTests COMMAND dropoutTests)

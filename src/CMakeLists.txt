@@ -72,6 +72,7 @@ find_path(HTTPLIB_INCLUDE_DIR httplib.h
 # Core mathematical operations
 add_library(adai_core STATIC
     Matrix.cpp
+    InitRng.cpp  # TD-368
     BinaryIO.cpp
     Activation.cpp
     Optimizer.cpp

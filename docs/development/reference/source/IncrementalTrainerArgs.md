@@ -175,3 +175,7 @@ MNS-allocated run id still comes first. A restarted pass therefore reclaims its 
 `trainer_service_child_argv()` takes `std::optional<int> admin_port` and adds `--admin-port` only when it's set.
 `sibling_executable_path(argv0, name)` returns `name` in the running executable's directory, falling back to argv[0]'s
 directory and then to the bare name.
+
+## TD-368 addendum (November 9, 2026)
+
+`--seed <n>` (a whole number of at least 1) overrides `SEED`; anything else is an error, exit 1.

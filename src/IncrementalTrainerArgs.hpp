@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.14.0
-// @adai-reviewed: 2026-11-02
+// @adai-version: 0.15.0
+// @adai-reviewed: 2026-11-09
 
 // TD-035: incremental_trainer's global argv parsing and a few small pure helpers, pulled out of
 // IncrementalTrainingTool.cpp so they're testable without touching a real IncrementalTrainer
@@ -26,6 +26,8 @@ struct IncrementalTrainerGlobalArgs {
     // for the duration of that one pass — the supervisor's own admin listener proxies to it while
     // the child is alive. Absent for every interactive/manual invocation.
     std::optional<int> admin_port;
+    // TD-368: `--seed <n>`, at least 1; overrides SEED.
+    std::optional<int> seed;
     // TD-183: selects which training objective `train` runs. "chatbot" (default — the flag can
     // be omitted entirely, matching every existing invocation byte-for-byte) is the existing
     // teacher-forcing ChatbotTrainer/IncrementalTrainer pipeline; "lejepa" instead pretrains the

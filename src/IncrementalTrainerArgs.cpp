@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.15.0
-// @adai-reviewed: 2026-11-02
+// @adai-version: 0.16.0
+// @adai-reviewed: 2026-11-09
 
 #include "IncrementalTrainerArgs.hpp"
 #include <algorithm>
@@ -37,8 +37,9 @@ IncrementalTrainerGlobalArgs parse_incremental_trainer_global_args(int argc, cha
     // TD-401: a global flag that takes a value, given none (last in argv, or followed by another
     // "--" flag), is an error. It used to land in args as a positional, so `status --config` ran
     // with normal config discovery.
-    static const std::set<std::string> kValueFlags = {"--config", "--gpu-strategy", "--model", "--admin-port",
-                                                      "--dataset-kind", "--log-file"};
+    static const std::set<std::string> kValueFlags = {
+        "--config",       "--gpu-strategy", "--model", "--admin-port",
+        "--dataset-kind", "--log-file",     "--seed"};
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -61,6 +62,14 @@ IncrementalTrainerGlobalArgs parse_incremental_trainer_global_args(int argc, cha
                 return fail("Invalid value for --admin-port: '" + value + "' (expected a port, 1-65535)");
             }
             result.admin_port = *port;
+        } else if (a == "--seed") {
+            const std::string value = argv[++i];
+            const auto seed = parse_strict_int(value);
+            if (!seed || *seed < 1) {
+                return fail("Invalid value for --seed: '" + value +
+                            "' (expected a whole number of at least 1)");
+            }
+            result.seed = *seed;
         } else if (a.rfind("--objective=", 0) == 0) {
             // TD-401: anything but "lejepa" (e.g. the typo "lejpa") used to mean chatbot training.
             const std::string value = a.substr(std::string("--objective=").size());

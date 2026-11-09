@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-033 — GPU dispatch still round-trips per op, see TECHNICAL_DEBT.md)
-// @adai-version: 0.10.1
+// @adai-version: 0.10.2
 // @adai-reviewed: 2026-11-09
 
 #include "Matrix.hpp"
@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <iomanip>
 #include <sstream>
+#include "InitRng.hpp"
 #include "Logger.hpp"
 
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
@@ -416,11 +417,8 @@ Matrix Matrix::transpose() const {
 }
 
 // Randomize matrix with Xavier/He initialization
-// TODO: See TD-368 in TECHNICAL_DEBT.md - unseedable; initialization can't be reproduced
-// TODO: See TD-435 in TECHNICAL_DEBT.md - the static generator is shared across threads without locking
 void Matrix::randomize(float scale) {
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
+    std::mt19937 gen(adai::next_init_seed());  // TD-368
     std::normal_distribution<float> dist(0.0f, scale);
 
     for (int i = 0; i < rows; i++) {

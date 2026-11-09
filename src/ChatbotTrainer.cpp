@@ -1,7 +1,8 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.21.0
+// @adai-version: 0.21.1
 // @adai-reviewed: 2026-11-09
 
+#include "InitRng.hpp"
 #include "ChatbotTrainer.hpp"
 #include <algorithm>
 #include <chrono>
@@ -681,8 +682,7 @@ void ChatbotTrainer::preprocess_data() {
  * @brief Shuffle training data indices for epoch
  */
 void ChatbotTrainer::shuffle_training_data() {
-    std::random_device rd;
-    std::mt19937 g(rd());
+    std::mt19937 g(adai::next_init_seed());  // TD-368
     std::shuffle(training_indices.begin(), training_indices.end(), g);
 }
 

@@ -1,13 +1,14 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-11-08
+// @adai-version: 0.1.1
+// @adai-reviewed: 2026-11-09
 
 #include "Dropout.hpp"
 #include <stdexcept>
 #include <string>
 #include "DropoutMask.hpp"
+#include "InitRng.hpp"
 
-Dropout::Dropout() : rng_(std::random_device{}()) {}
+Dropout::Dropout() : rng_(adai::next_init_seed()) {}  // TD-368
 
 void Dropout::set_rate(float rate) {
     if (!(rate >= 0.0f && rate < 1.0f)) {

@@ -83,6 +83,23 @@ TEST(ParseIncrementalTrainerGlobalArgs, StripsGlobalFlagsAndKeepsCommandArgs) {
     EXPECT_EQ(r.args[1], "5");
 }
 
+// TD-368
+TEST(ParseIncrementalTrainerGlobalArgs, SeedFlag) {
+    const auto parse = [](std::vector<std::string> raw) {
+        auto argv = make_argv(raw);
+        return parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+    };
+    EXPECT_FALSE(parse({"incremental_trainer", "train"}).seed.has_value());
+    const auto r = parse({"incremental_trainer", "--seed", "42", "train"});
+    ASSERT_TRUE(r.seed.has_value());
+    EXPECT_EQ(*r.seed, 42);
+    for (const char* bad : {"0", "-1", "12x", "abc"}) {
+        EXPECT_FALSE(parse({"incremental_trainer", "--seed", bad, "train"}).error_message.empty())
+            << bad;
+    }
+    EXPECT_FALSE(parse({"incremental_trainer", "--seed"}).error_message.empty());
+}
+
 TEST(ParseIncrementalTrainerGlobalArgs, DatasetKindFlagUnsetWhenAbsent) {
     // TD-202: absent --dataset-kind means "use the automatic objective->kind default computed
     // in IncrementalTrainingTool.cpp's main()" — this parser itself has no default to fall back

@@ -1,7 +1,8 @@
 // @adai-status: stable        (TD-195 — backward() gradient members now accumulate, not overwrite, across calls)
-// @adai-version: 1.2.1
-// @adai-reviewed: 2026-11-08
+// @adai-version: 1.2.2
+// @adai-reviewed: 2026-11-09
 
+#include "InitRng.hpp"
 #include "FeedForward.hpp"
 #include "BinaryIO.hpp"
 #include "gpu/GPUParamSync.hpp"
@@ -30,9 +31,7 @@ FeedForward::FeedForward(int d_model, int d_ff)
     // Scale for GELU: sqrt(2 / d_model)
     float scale = std::sqrt(2.0f / static_cast<float>(d_model));
 
-    // TODO: See TD-368 in TECHNICAL_DEBT.md - unseedable; initialization can't be reproduced
-    std::random_device rd;
-    std::mt19937 gen(rd());
+    std::mt19937 gen(adai::next_init_seed());  // TD-368
     std::normal_distribution<float> dist(0.0f, scale);
 
     // Initialize W1

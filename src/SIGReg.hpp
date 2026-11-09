@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 0.2.1
+// @adai-reviewed: 2026-11-09
 
 // TD-175 (LJ-1a): Sketched Isotropic Gaussian Regularization (SIGReg), from the LeJEPA paper
 // (arXiv:2511.08544) — see docs/proposals/lejepa_world_model_gated_injection_plan.md's Component 3
@@ -67,7 +67,7 @@ class SIGReg {
      *  draw. */
     void resample_directions();
 
-    /** TD-502: reseeds the direction RNG (seeded from std::random_device at construction) and
+    /** TD-502: reseeds the direction RNG (seeded from adai::next_init_seed() at construction) and
      *  redraws, so runs and tests can be reproduced. */
     void set_seed(std::uint32_t seed);
 

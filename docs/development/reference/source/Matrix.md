@@ -195,3 +195,7 @@ sums over k in order, so results are bit-identical whatever the thread count. Th
 kernel. 64×512×2048 went from 15.4 to 2.7 ms native and from 161 to 2.6 ms portable. Tests: `matrix_simd_test.cpp`'s
 `MatrixTiledMulTest`, `ResultDoesNotDependOnThreadCount`, `KernelMatchesTheCpuAndTheOverride`, and the
 `MatrixSIMDTestsGenericKernel` ctest entry.
+
+## TD-368 addendum (November 9, 2026)
+
+`randomize()` takes a fresh generator seeded from `adai::next_init_seed()` for each call, so `SEED` replays it and the old static-generator race is gone.

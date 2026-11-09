@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-11-08
+// @adai-version: 0.1.1
+// @adai-reviewed: 2026-11-09
 
 #include <cstdint>
 #include <memory>
@@ -38,7 +38,7 @@ class Dropout {
     bool dropping() const {
         return active_ && rate_ > 0.0f;
     }
-    /// Seeds the per-call seed generator (tests; production draws from std::random_device).
+    /// Seeds the per-call seed generator (tests; production draws from adai::next_init_seed()).
     void seed(std::uint64_t seed) {
         rng_.seed(seed);
     }

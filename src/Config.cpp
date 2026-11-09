@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.29.0
+// @adai-version: 1.30.0
 // @adai-reviewed: 2026-11-09
 
 #include "Config.hpp"
@@ -327,6 +327,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.num_epochs = parse_int(value);
             } else if (key == "WEIGHT_DECAY") {
                 config.weight_decay = parse_float(value);
+            } else if (key == "SEED") {
+                config.seed = parse_int(value);  // TD-368
             } else if (key == "DROPOUT") {
                 config.dropout = parse_float(value);  // TD-344
             } else if (key == "EARLY_STOPPING_ENABLED") {
@@ -713,6 +715,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = env_choice("LR_SCHEDULE", get_env("LR_SCHEDULE"), kLrSchedules)) {
         config.lr_schedule = *val;
+    }
+    if (auto val = get_env_int("SEED")) {
+        config.seed = *val;  // TD-368
     }
     if (auto val = get_env_float("DROPOUT")) {
         config.dropout = *val;
@@ -1634,6 +1639,7 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
     at_least(config.auto_save_every_samples, 0, "auto_save_every_samples");
     at_least(config.auto_save_every_minutes, 0, "auto_save_every_minutes");
     at_least(config.max_sessions_to_keep, 0, "max_sessions_to_keep");
+    at_least(config.seed, 0, "seed");
 
     return valid;
 }
@@ -1709,6 +1715,7 @@ std::string ConfigLoader::to_string(const ServiceConfig& c) {
     item("GRADIENT_ACCUMULATION_STEPS", num(c.gradient_accumulation_steps));
     item("WEIGHT_DECAY", num(c.weight_decay));
     item("DROPOUT", num(c.dropout));
+    item("SEED", num(c.seed));
     item("EARLY_STOPPING_ENABLED", flag(c.early_stopping_enabled));
     item("EARLY_STOPPING_PATIENCE", num(c.early_stopping_patience));
     item("RESTORE_BEST_WEIGHTS", flag(c.restore_best_weights));

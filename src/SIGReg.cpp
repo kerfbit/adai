@@ -1,7 +1,8 @@
 // @adai-status: experimental
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 0.2.1
+// @adai-reviewed: 2026-11-09
 
+#include "InitRng.hpp"
 #include "SIGReg.hpp"
 #include <cmath>
 #include <random>
@@ -38,7 +39,7 @@ SIGReg::SIGReg(int d_model, int num_sketches)
     : d_model_(require_positive(d_model, "d_model")),
       num_sketches_(require_positive(num_sketches, "num_sketches")),
       directions_(d_model_, num_sketches_),
-      rng_(std::random_device{}()) {
+      rng_(adai::next_init_seed()) {
     resample_directions();
 }
 

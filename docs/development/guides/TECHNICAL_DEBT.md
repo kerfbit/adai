@@ -1554,6 +1554,7 @@ The generation and model math run is complete.
 - TD-391 (done in code: one card is one SYCL device, Level Zero numbered first; the backend is logged at startup. Check ai-machine's log line).
 - TD-385 (done in code: reductions use one buffer and one wait, on both backends; the per-sample loss download stays).
 - TD-171 (owner chose to benchmark first: B0 CPU numbers recorded, `stacked_gemm_benchmark`; needs an ai-machine run before any model work).
+- TD-368 (done in code: `SEED`/`--seed` replays initialization, shuffles and dropout exactly on the CPU, nearly on the oneAPI CPU device).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -10680,7 +10681,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Transformer / FeedForward | October 12, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 9, 2026 | Transformer / FeedForward | October 12, 2026 | 2-4 hours |
 
 Description:
 Found while tracing `FeedForward` and verified. Every `FeedForward` constructor seeds a fresh
@@ -10693,18 +10694,18 @@ rather than construct two identical models.
 
 Action Items:
 
-- [ ] Add one process-wide seedable initialization RNG (for example `adai::init_rng()` with a `SEED` config key / `--seed` flag; `random_device` when unset, and log the seed actually used).
-- [ ] Route `FeedForward`, `Matrix::randomize()` and the other layer initializers through it.
-- [ ] Test: two models built with the same seed have identical weights.
+- [x] Add one process-wide seedable source: `adai::set_init_seed()`/`next_init_seed()` (`src/InitRng.{hpp,cpp}`), the `SEED` config key and `incremental_trainer --seed`; a random seed when unset, and it's logged.
+- [x] Route `FeedForward`, `Matrix::randomize()` and the layers built on it through it, along with epoch shuffles, `Dropout`, `SIGReg` directions and LeJEPA spans.
+- [x] Test: two models built with the same seed have identical weights.
+- [ ] GPU replays are close, not exact (see below).
 
-Location in code: `src/FeedForward.cpp` (constructor), `src/Matrix.cpp` (`randomize()`); tagged `TODO: See TD-368`.
+Fix (November 9, 2026): each user takes one value from `next_init_seed()` to seed its own generator, so nothing is shared between threads (this also closes TD-435's `randomize()` static-RNG race). With `SEED` unset (0), the first use picks a seed in the range `SEED` accepts and logs `Random seed N (set SEED=N to replay this run)`. Generation, `SpeculativeDecoder`, run ids and the deferred RLHF/LoRA `rand()` initializers are left out: serving isn't part of a training replay, and ids must stay unique.
 
-Files to Modify:
+Verified with real `incremental_trainer` passes (dropout on, 3 epochs): `SEED=7` twice, and `--seed 7` over `SEED=0`, gave byte-identical weight files on the CPU; `SEED=8` and an unset seed differed; and setting a logged random seed reproduced that run exactly. On the oneAPI CPU device two `SEED=7` passes used the same initialization and order but weren't byte-identical (epoch 1 loss equal to 6 decimals, epoch 2 gradient norm 8.183522 vs 8.183523), a last-bit difference that fits the parallel float reductions; the cause wasn't confirmed. Real GPUs are unmeasured.
 
-- `src/FeedForward.cpp`
-- `src/Matrix.cpp`
-- `src/Config.{hpp,cpp}`
-- layer constructors that initialize weights
+Tests: `init_rng_test.cpp` (9 tests; 6 fail when the source ignores the seed) and `incremental_trainer_args_test.cpp`'s `SeedFlag`.
+
+Location in code: `src/InitRng.{hpp,cpp}`, `src/Matrix.cpp`, `src/FeedForward.cpp`, `src/Dropout.cpp`, `src/SIGReg.cpp`, `src/LeJEPAEncoder.hpp`, `src/ChatbotTrainer.cpp`, `src/Config.{hpp,cpp}`, `src/IncrementalTrainerArgs.{hpp,cpp}`, `src/IncrementalTrainingTool.cpp`, `config.trainer.conf`.
 
 ---
 
@@ -13375,7 +13376,7 @@ Action Items:
 
 - [ ] Inline `operator()` in the header (keep the bounds check under a debug macro, or offer an unchecked accessor) and measure the attention loops.
 - [ ] Accumulate `sum()` in `double` (or pairwise/Kahan).
-- [ ] Make `randomize()` take a generator (with TD-368) or guard the static one.
+- [x] Make `randomize()` take a generator (with TD-368) or guard the static one. Done with TD-368, November 9, 2026: each call seeds its own generator from `adai::next_init_seed()`.
 - [ ] Reject negative sizes in the constructor; decide whether to keep the unused `*_gpu()` wrappers.
 
 Location in code: `src/Matrix.cpp` (`operator()`, `sum()`, `randomize()`, `Matrix(int, int)`); `src/Matrix.hpp` (public members); tagged `TODO: See TD-435`.
