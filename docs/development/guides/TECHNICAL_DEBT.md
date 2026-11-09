@@ -1540,6 +1540,7 @@ The generation and model math run is complete.
 - TD-224 (done in code for whitespace, owner's choice to preserve all of it: vocabulary format v3, new vocabularies only).
 - TD-295 (done in code, owner's choice of the proposal as recommended plus multi-turn training data: `<system>`/`<user>`/`<assistant>` at ids 4-6,
   id-built prompts for serving, RAG and training, a JSONL `history` field; vocabulary rebuild and retrain with TD-358/TD-563).
+- TD-428 (done in code: one LeJEPA optimizer step per text from both views' accumulated gradients).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -13003,7 +13004,7 @@ Real passes: three consecutive `--objective=lejepa` passes from the same pre-fix
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | World Model / LeJEPAEncoder | October 14, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 8, 2026 | World Model / LeJEPAEncoder | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `LeJEPAEncoder`, by inspection. `train_step()` applies the target-view gradient
@@ -13016,13 +13017,25 @@ momentum twice, and the objective is optimized as two sequential half-steps.
 
 Action Items:
 
-- [ ] Accumulate both views' gradients (target backward, then a context re-forward and backward) and call `update_weights()` once; update the stale comment; compare a short pretraining run before and after.
+- [x] Accumulate both views' gradients (target backward, then a context re-forward and backward) and call `update_weights()` once; update the stale comment; compare a short pretraining run before and after (see Fix).
 
-Location in code: `src/LeJEPAEncoder.cpp` (`train_step()`); tagged `TODO: See TD-428`.
+Fix (November 8, 2026): `train_tokens()` (`train_step()` and `train_batch()`) runs the target view's backward, re-runs the context view's
+forward on unchanged weights, runs its backward, and calls `update_weights()` once. `get_last_gradient_norm()` is now the norm of the combined
+gradient. Each text now gets one optimizer step where it got two, so a pretraining run with the same `LEARNING_RATE` moves the weights less per
+sample.
+A 480-step CPU pass on the same data (Adam, default rate): average predictor loss 0.45 → 0.73 and SIGReg loss 0.56 → 0.46, old → new, so the
+predictor learns more slowly per text while the embeddings stay closer to the Gaussian target.
+
+Tests (`lejepaencoder_test.cpp`): `TrainStepTakesOneOptimizerStep` (fails on the old code: Adam moved weights by more than the learning rate),
+`TrainStepUpdateMatchesFiniteDifferences` (relative error 0.001; about 0.8 when the context forward is removed). A new `seed_span_rng()` replays
+the masked span.
+
+Location in code: `src/LeJEPAEncoder.cpp` (`train_tokens()`).
 
 Files to Modify:
 
-- `src/LeJEPAEncoder.cpp`
+- `src/LeJEPAEncoder.cpp`, `src/LeJEPAEncoder.hpp`
+- `tests/lejepaencoder_test.cpp`
 
 ---
 

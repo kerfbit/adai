@@ -80,6 +80,8 @@ keeping the workaround:
 One `backward()` for each view into accumulating gradients, followed by one `update_weights()`, is now
 possible.
 
+**Fixed November 8, 2026 (TD-428):** each text now takes that one update, so it gets one optimizer step instead of two.
+
 ### Smaller items (by inspection)
 
 - **An escaping exception type.** `TokenizerEncodingError` derives from `runtime_error`, so it escapes

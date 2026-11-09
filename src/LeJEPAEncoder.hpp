@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-11-02
+// @adai-version: 0.11.1
+// @adai-reviewed: 2026-11-08
 
 #include <memory>
 #include <random>
@@ -56,12 +56,9 @@
  * ([seq_len, d_model]) — required by TD-179's `HippocampalMemory`, which stores/reads keys
  * produced by whichever encoder a caller passes in.
  *
- * TD-189: both loss terms' gradients flow into the same shared encoder weights, but as two
- * *sequential* weight updates within one train_step() call, not one joint combined update —
- * the target view's gradient (SIGReg + the predictor's target-side term) is applied first, then
- * the context view's (the predictor's context-side term). This is a deliberate consequence of
- * every shared component's own backward() overwriting (not accumulating) its gradient members
- * across separate calls; see train_step()'s own implementation comment for the full rationale.
+ * TD-428: both loss terms' gradients flow into the same shared encoder weights in one update per
+ * text: the target view's gradient (SIGReg + the predictor's target-side term) and the context
+ * view's (the predictor's context-side term) accumulate, then one update_weights() applies them.
  * Still no stop-gradient/EMA-teacher asymmetry either way — LeJEPA's own point (per the plan's
  * Background section).
  */
@@ -87,9 +84,7 @@ class LeJEPAEncoder {
     // is in use — see update_weights()'s own doc comment for why calling every sub-component's
     // own update_weights() unconditionally would be a real bug here (each would independently
     // call the SAME shared Optimizer's step(), over-applying it once per sub-component instead
-    // of once per update_weights() call). TD-189: train_step() itself now calls update_weights()
-    // (hence optimizer_->step()) TWICE — once per view's gradient, see train_step()'s own
-    // implementation comment — so "once" here is per update_weights() call, not per train_step().
+    // of once per update_weights() call). train_step() calls update_weights() once (TD-428).
     Optimizer* optimizer_{nullptr};
 
     // Cached value for backward()'s own token_embedding->backward() call, same
@@ -115,7 +110,7 @@ class LeJEPAEncoder {
     Matrix encode_tokens(const std::vector<int>& token_ids);
 
     /** One text's training step (shared by train_step() and train_batch()): view construction,
-     *  predictor loss, and both sequential updates. With per_sequence_sigreg, SIGReg runs on this
+     *  predictor loss, and the update. With per_sequence_sigreg, SIGReg runs on this
      *  text's own token embeddings (train_step()); otherwise pooled_sigreg_grad, when given, is
      *  the gradient of the batch SIGReg loss w.r.t. this text's mean-pooled target embedding
      *  (train_batch()), spread evenly over its tokens. Returns the predictor loss; sets the
@@ -178,9 +173,8 @@ class LeJEPAEncoder {
     /**
      * Self-supervised training step on a single example (TD-178) — see the class doc above for
      * the full view-construction/loss/gradient-flow design. Fully self-contained: forward,
-     * backward, and weight updates all happen inside this one call (TD-189: two sequential
-     * updates, one per view's gradient — see the class doc and this method's own implementation
-     * comment for why).
+     * backward, and weight updates all happen inside this one call (TD-428: one update from
+     * both views' gradients).
      *
      * @param text Raw text — no paired target required, unlike EncoderDecoderModel::train_step.
      * @return {predictor_loss, sigreg_loss}, logged as two separate series (see
@@ -252,6 +246,11 @@ class LeJEPAEncoder {
     void build_tokenizer(const std::vector<std::string>& corpus, int vocab_size = 10000);
 
     /** Frozen (false) after the pretraining phase completes — see the plan's Training Standard. */
+    /// Seeds the masked-span placement (tests; production draws from std::random_device).
+    void seed_span_rng(unsigned seed) {
+        span_rng_.seed(seed);
+    }
+
     void set_requires_grad(bool requires_grad);
 
     void set_learning_rate(float lr);
@@ -310,8 +309,8 @@ class LeJEPAEncoder {
     // All five valid only immediately after the most recent train_step() call.
 
     /** Combined gradient norm (sqrt of sum of squares, matching EncoderBlock::get_gradient_norm()'s
-     *  own combining convention) across train_step()'s two internal sequential updates (TD-189),
-     *  captured right before each update_weights() call zeroes it — calling optimizer_->
+     *  own combining convention) over every registered parameter (TD-428: both views' gradients),
+     *  captured right before update_weights() zeroes it — calling optimizer_->
      *  get_gradient_norm() from OUTSIDE train_step() after it returns always reads 0.0f, since
      *  update_weights() already zeroed every gradient buffer by then. Returns 0.0f when no
      *  optimizer is registered (the plain-SGD fallback path has no single combined-norm primitive

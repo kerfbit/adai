@@ -492,9 +492,9 @@ TEST_F(LeJEPAEncoderTest, TrainStepIsNoOpForWeightsWhenFrozen) {
 
 // Regression test for a real, already-shipping bug found during the advanced-metrics work:
 // LeJEPAEncoder::update_weights() zeroes every gradient buffer internally, and train_step() calls
-// it TWICE before ever returning — so calling optimizer.get_gradient_norm() from OUTSIDE
+// it before returning — so calling optimizer.get_gradient_norm() from OUTSIDE
 // train_step() after it returns always reads 0.0f. get_last_gradient_norm() captures the norm
-// from INSIDE train_step(), before each internal update_weights() call zeroes it.
+// from INSIDE train_step(), before the internal update_weights() call zeroes it.
 TEST_F(LeJEPAEncoderTest, TrainStepSetsPositiveGradientNormWithRegisteredOptimizer) {
     create_test_vocabulary();
     LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
@@ -506,7 +506,7 @@ TEST_F(LeJEPAEncoderTest, TrainStepSetsPositiveGradientNormWithRegisteredOptimiz
     encoder.train_step("hello world this is a test");
 
     // The bug this test guards against: reading optimizer.get_gradient_norm() here (outside
-    // train_step()) would read 0.0f, since both of train_step()'s internal update_weights() calls
+    // train_step()) would read 0.0f, since train_step()'s internal update_weights() call
     // already zeroed it by the time control returns.
     EXPECT_GT(encoder.get_last_gradient_norm(), 0.0f);
 }
@@ -660,7 +660,8 @@ float matrix_delta_l2(const Matrix& before, const Matrix& after) {
 // every encoder_blocks/final_norm weight (only TokenEmbedding::backward() genuinely accumulates).
 // In practice this meant sigreg_lambda had NO effect whatsoever on encoder_blocks/final_norm
 // weights, regardless of its magnitude — only the predictor's own (context-view) gradient ever
-// reached them. This test checks that cranking sigreg_lambda up visibly increases how much
+// reached them. (TD-195 made those backward()s accumulate, so train_step() does this again
+// correctly since TD-428.) This test checks that cranking sigreg_lambda up visibly increases how much
 // encoder_blocks[0]'s own FeedForward weight (W1) moves in a single train_step() call — under the
 // bug, a huge sigreg_lambda moved that weight no more than sigreg_lambda=0 did, since SIGReg's
 // gradient never survived to be applied there.
@@ -696,6 +697,95 @@ TEST_F(LeJEPAEncoderTest, SigregLambdaAffectsEncoderBlockWeightsNotJustTokenEmbe
            "weights move (sum over "
         << trials << " trials: lambda=0 -> " << sum_delta_low << ", lambda=50 -> " << sum_delta_high
         << ") — if it doesn't, the target-view/SIGReg gradient isn't reaching them";
+}
+
+// TD-428: both views' gradients go into one update. Adam's first update moves every weight by at
+// most the learning rate, and the old pair of updates moved them by up to twice that.
+TEST_F(LeJEPAEncoderTest, TrainStepTakesOneOptimizerStep) {
+    create_test_vocabulary();
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder.load_tokenizer_vocab(vocab_file);
+    const float lr = 0.01f;
+    Optimizer optimizer(OptimizerType::ADAM, lr);
+    encoder.register_parameters_with_optimizer(optimizer);
+
+    const Matrix before = encoder.get_encoder_block(0)->get_feed_forward()->get_W1();
+    encoder.train_step("hello world this is a test");
+    const Matrix after = encoder.get_encoder_block(0)->get_feed_forward()->get_W1();
+
+    float largest = 0.0f;
+    for (int i = 0; i < before.rows; ++i) {
+        for (int j = 0; j < before.cols; ++j) {
+            largest = std::max(largest, std::abs(after(i, j) - before(i, j)));
+        }
+    }
+    EXPECT_GT(largest, 0.5f * lr);
+    EXPECT_LE(largest, 1.02f * lr) << "more than one Adam step";
+}
+
+// TD-428: the one update is the gradient of the whole objective, including the context view's path
+// through the encoder (which needs its activations back in the cache). A plain SGD step gives each
+// weight's gradient; compare it with finite differences of the loss on the same masked span.
+TEST_F(LeJEPAEncoderTest, TrainStepUpdateMatchesFiniteDifferences) {
+    LeJEPAEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+    encoder.set_sigreg_lambda(0.0f);  // the returned loss is then the whole objective
+    // Built from the text: with unknown tokens the masked context view would equal the target's.
+    const std::string text = "the quick brown fox jumps over the lazy dog";
+    encoder.build_tokenizer({text}, 64);
+
+    // A fresh predictor outputs almost nothing, so the context view's gradient would be too small
+    // to check. Some training gives it weight.
+    Optimizer warmup(OptimizerType::ADAM, 0.01f);
+    encoder.register_parameters_with_optimizer(warmup);
+    for (int i = 0; i < 40; ++i) {
+        encoder.train_step(text);
+    }
+
+    const float lr = 1.0f;
+    Optimizer optimizer(OptimizerType::SGD, lr);
+    encoder.register_parameters_with_optimizer(optimizer);
+    FeedForward* ff = encoder.get_encoder_block(0)->get_feed_forward();
+    Matrix w1 = ff->get_W1();
+    const auto loss_now = [&] {
+        encoder.seed_span_rng(5);
+        encoder.set_requires_grad(false);
+        const float loss = encoder.train_step(text).first;
+        encoder.set_requires_grad(true);
+        return loss;
+    };
+
+    Matrix numeric(w1.rows, w1.cols);
+    const float eps = 2e-2f;
+    for (int i = 0; i < w1.rows; i += 3) {
+        for (int j = 0; j < w1.cols; j += 7) {
+            const float saved = w1(i, j);
+            w1(i, j) = saved + eps;
+            ff->set_W1(w1);
+            const float plus = loss_now();
+            w1(i, j) = saved - eps;
+            ff->set_W1(w1);
+            const float minus = loss_now();
+            w1(i, j) = saved;
+            ff->set_W1(w1);
+            numeric(i, j) = (plus - minus) / (2.0f * eps);
+        }
+    }
+
+    encoder.seed_span_rng(5);
+    encoder.train_step(text);
+    const Matrix& after = ff->get_W1();
+
+    double error_sq = 0.0, numeric_sq = 0.0;
+    for (int i = 0; i < w1.rows; i += 3) {
+        for (int j = 0; j < w1.cols; j += 7) {
+            const double analytic = (w1(i, j) - after(i, j)) / lr;
+            error_sq += (analytic - numeric(i, j)) * (analytic - numeric(i, j));
+            numeric_sq += numeric(i, j) * numeric(i, j);
+        }
+    }
+    ASSERT_GT(numeric_sq, 0.0);
+    // Measured: 0.001, and about 0.8 without the context view's forward before its backward.
+    EXPECT_LT(std::sqrt(error_sq / numeric_sq), 0.05);
 }
 
 // ============================================================================

@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.11.1
+// @adai-version: 0.11.2
 // @adai-reviewed: 2026-11-08
 
 #include "LeJEPAEncoder.hpp"
@@ -350,54 +350,21 @@ float LeJEPAEncoder::train_tokens(const std::vector<int>& token_ids, bool per_se
             }
         }
 
-        // TODO: See TD-428 in TECHNICAL_DEBT.md - stale: TD-195 made these backward()s accumulate, so the two
-        // sequential update_weights() below (two optimizer steps per sample) are no longer needed
-        // TD-189: LayerNorm::backward()/FeedForward::backward()/MultiHeadAttention::backward()
-        // (used inside encoder_blocks/final_norm) OVERWRITE their own gradient members on every
-        // call rather than accumulating — only TokenEmbedding::backward() actually accumulates
-        // (+=). Calling backward() twice back-to-back for the two views, as this method used to,
-        // silently discarded whichever view's gradient the FIRST call computed for every weight
-        // except token_embedding: in practice only the context view's (predictor's own) gradient
-        // ever reached encoder_blocks/final_norm, and SIGReg's contribution — meant to keep this
-        // encoder's *target*-view output isotropic-Gaussian — never influenced anything but the
-        // embedding table. The fix: consume each view's gradient with its own update_weights()
-        // call immediately after its own backward(), so nothing is overwritten before it's
-        // applied. This trades one atomic combined update for two sequential ones — both views'
-        // gradients still reach every shared weight, just not simultaneously, the same tradeoff
-        // any sequential mini-batch update makes. Widening every shared component's backward()
-        // to accumulate across calls instead would fix this more fundamentally, but is a much
-        // larger, riskier change affecting every other caller of those components (see TD-189's
-        // own entry in TECHNICAL_DEBT.md for why that's tracked separately).
-
-        // Step 1: target view's gradient (predictor's target-side term + SIGReg) — cache is
-        // currently the target view's (the most recent encode_tokens() call above). Applied on
-        // its own so it can't be clobbered by step 2's backward() below.
+        // TD-428: one update from both views' gradients. backward() accumulates (TD-195), so the
+        // target view's and the context view's gradients add up in every shared weight.
+        // The encoder's activation cache holds the target view (the last encode_tokens() above).
         backward(grad_target_total);
-        // Captured BEFORE update_weights() zeroes it — see get_last_gradient_norm()'s own doc
-        // comment for why reading this from outside train_step() always sees 0.0f otherwise.
-        const float grad_norm_1 = optimizer_ ? optimizer_->get_gradient_norm() : 0.0f;
-        update_weights();
 
-        // Step 2: predictor's own backward (uses its own cache from predictor->forward() above,
-        // independent of the encoder's weights, so it's safe to compute after step 1's update)
-        // followed by the context view's gradient into the encoder. Re-running the context
-        // view's forward pass repopulates the encoder's shared cache with its own activations
-        // (needed since step 1's backward() re-pointed it at the target view) — deterministic
-        // given fixed weights (no dropout/randomness in EncoderBlock's own forward), modulo the
-        // small change step 1's update just made to those weights, the same bounded staleness any
-        // sequential mini-batch update incurs.
+        // The predictor uses its own cache. Re-running the context view puts its activations back
+        // in the encoder's cache; the weights haven't changed, so they are the same ones.
         Matrix grad_ctx_embeddings = predictor->backward(grad_predicted);
         encode_tokens(context_tokens);
         backward(grad_ctx_embeddings);
-        const float grad_norm_2 = optimizer_ ? optimizer_->get_gradient_norm() : 0.0f;
-        update_weights();
 
-        // Combined norm across both sequential updates, matching EncoderBlock::get_gradient_norm()'s
-        // own sqrt-of-sum-of-squares combining convention. 0.0f (the member's default) when no
-        // optimizer is registered — the plain-SGD fallback path has no single combined-norm
-        // primitive across every sub-component (Predictor/LayerNorm don't expose one), and
-        // production always registers an optimizer, so this scope is intentionally narrow.
-        last_gradient_norm_ = std::sqrt(grad_norm_1 * grad_norm_1 + grad_norm_2 * grad_norm_2);
+        // Read before update_weights() zeroes the gradients: see get_last_gradient_norm(). Stays
+        // 0 without an optimizer, which has no combined-norm primitive across sub-components.
+        last_gradient_norm_ = optimizer_ ? optimizer_->get_gradient_norm() : 0.0f;
+        update_weights();
     } else {
         last_gradient_norm_ = 0.0f;
     }
