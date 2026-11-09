@@ -1,6 +1,6 @@
 # Proposal: Real Batched Inference (BatchProcessor / BatchedInferenceEngine v2)
 
-- **Status:** Proposed — owner decision October 8, 2026 to plan real batching as a v2 upgrade
+- **Status:** Proposed — owner decision October 8, 2026 to plan real batching as a v2 upgrade; phase B0 CPU results November 9, 2026 (§4.2), on-device run outstanding
 - **Tracks:** [TD-171](../development/guides/TECHNICAL_DEBT.md#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported) (inference half),
   [TD-211](../development/guides/TECHNICAL_DEBT.md#td-211-batchedinferenceengine-queues-and-serializes-requests-but-never-batches-the-model),
   [TD-218](../development/guides/TECHNICAL_DEBT.md#td-218-batchprocessor-helpers-have-dead-surface-lost-ordering-and-unchecked-inputs);
@@ -124,6 +124,26 @@ implementation is recoverable with `git show e8f3580:src/EfficientBatching.hpp`.
 **Not carried over:** `LEFT`/`CENTER` padding (the packed form needs none; add left padding only if a
 GPU decode tile needs it) and data augmentation (training-only, with reproducibility and `EOS`-masking
 bugs, TD-352/TD-353). Augmentation is recorded under TD-014 for possible recreation.
+
+## 4.2 Phase B0 results (November 9, 2026)
+
+`benchmarks/StackedGemmBenchmark.cpp` (`stacked_gemm_benchmark [d_model] [d_ff] [num_heads] [repeats]`), at 768/3072/12 heads, on an 8-thread i5-8350U laptop. "Decode step" is one decoder layer's KV-cached step: 8 dense multiplies, plus per-head attention products that can't be stacked. Speedup is B separate multiplies over one stacked multiply.
+
+| Shape | B=1 | B=4 | B=8 | B=16 | B=32 |
+|---|---|---|---|---|---|
+| CPU, 8 threads, decode step, context 32 | 1.03× | 3.36× | 3.07× | 4.32× | 3.31× |
+| CPU, 8 threads, decode step, context 256 | 1.02× | 3.31× | 3.48× | 4.38× | 4.75× |
+| CPU, 8 threads, decode step, context 512 | 0.99× | 2.68× | 2.93× | 3.44× | 2.86× |
+| CPU, 1 thread, decode step, context 256 | 0.92× | 1.09× | 1.06× | 1.08× | 1.12× |
+| CPU, 8 threads, dense, 32 rows per sequence | 0.96× | 0.96× | 0.95× | 0.96× | 0.96× |
+| CPU, 8 threads, dense, 256 rows per sequence | 1.05× | 1.06× | 1.04× | 1.03× | 1.05× |
+
+- **Where the CPU gain comes from.** With one thread stacking gains only 6-20%, so the gain at 8 threads is idle cores being used, not SIMD or cache. A single decode-step row is too small to thread today. `operator*`'s threading gate, or running requests concurrently, could capture some of it without batching; neither was measured.
+- **Only short rows gain.** With 32 or 256 rows per sequence, the layers already use every core, and stacking gains nothing. So batching helps decode steps, not encoders or training-sized sequences. This also argues against batched training for speed on the CPU.
+- **Attention isn't the limit** at these shapes: 2-13% of a decode step, up to context 512.
+- **The oneAPI CPU device says nothing about Arc.** Dense speedups were 1.7-6.6× for single rows, but the decode step's separate case took 1.7 s at B=16 and 15 s at B=32, against 1.8 ms at B=1. That far-from-linear growth is unexplained and isn't in the attention products, so those tables aren't evidence either way. Three repeats only.
+
+**Verdict: inconclusive; don't start B1 yet.** The CPU is a conditional go for decode steps only. The deciding number is a run on ai-machine's Arc card (`cmake --build --preset=sycl --target stacked_gemm_benchmark`). If separate multiplies scale linearly there and stacking shows no clear gain, v2 stops per §7.
 
 ## 5. Acceptance criteria
 

@@ -1553,6 +1553,7 @@ The generation and model math run is complete.
 - TD-463 (done in code: `mns_server` won't start without a usable database).
 - TD-391 (done in code: one card is one SYCL device, Level Zero numbered first; the backend is logged at startup. Check ai-machine's log line).
 - TD-385 (done in code: reductions use one buffer and one wait, on both backends; the per-sample loss download stays).
+- TD-171 (owner chose to benchmark first: B0 CPU numbers recorded, `stacked_gemm_benchmark`; needs an ai-machine run before any model work).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -3994,7 +3995,9 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open — inference half planned as v2 (October 8, 2026); training half not started | Core Model Architecture | September 14, 2026 | Not estimated (large, multi-session architecture project) |
+| LOW | Open — inference half planned as v2 (October 8, 2026), B0 CPU results November 9, 2026, on-device run outstanding; training half not started | Core Model Architecture | September 14, 2026 | Not estimated (large, multi-session architecture project) |
+
+**Update (November 9, 2026):** owner chose to benchmark first. Phase B0 ran on the CPU ([results](../../proposals/real_batching_v2_plan.md#42-phase-b0-results-november-9-2026)): a decode step is 3-4.7× faster stacked on 8 threads at B ≥ 4 but only 6-20% on one thread, and sequences of 32 or more rows gain nothing. The GPU decision needs `stacked_gemm_benchmark` run on ai-machine; no model code has changed.
 
 **Update (October 8, 2026):** the inference half now has a design proposal, [real_batching_v2_plan.md](../../proposals/real_batching_v2_plan.md). It
 recommends **stacking** sequences' rows into one matrix rather than adding a batch axis: `FeedForward`,

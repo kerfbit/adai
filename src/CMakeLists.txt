@@ -1009,3 +1009,7 @@ message(STATUS "  C++ Standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  Build Examples: ${BUILD_EXAMPLES}")
 message(STATUS "  Build Tests: ${BUILD_TESTING}")
+
+# TD-171, phase B0 of the real-batching plan: stacked vs separate multiplies, in every build (GPU too).
+add_executable(stacked_gemm_benchmark ../benchmarks/StackedGemmBenchmark.cpp)
+target_link_libraries(stacked_gemm_benchmark adai_core)
