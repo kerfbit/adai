@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable        (TD-197 — validate_world_model_link() declared, shared by handle_register()/handle_link_world_model())
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-11-03
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-11-09
 
 
 #include <atomic>
@@ -160,6 +160,11 @@ struct ModelRecord {
 
     std::vector<TrainingHistoryEntry> training_history;
     std::map<std::string, std::string> tags;
+
+    // TD-457: the request_id of the last registration or new run. A retry carrying it gets the
+    // original result, so a reply lost to a timeout can't allocate a second run. Internal: not
+    // part of the record's JSON.
+    std::string last_request_id;
 };
 
 // ============================================================================

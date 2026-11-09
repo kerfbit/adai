@@ -60,6 +60,8 @@ the second reply. Against `mns_server`:
 The retry policy should apply only to idempotent requests, or the requests should carry an idempotency key the server
 deduplicates.
 
+**Fixed November 9, 2026 (TD-457):** `set_training(new_run = true)` and `register_model()` send a `request_id` that their retries repeat, and `mns_server` deduplicates it.
+
 ### A NaN loss makes the MNS record unparseable (verified end to end)
 
 `push_progress()` writes the loss with `operator<<`, so a diverged epoch's NaN goes out as `nan`. `mns_server` accepts it

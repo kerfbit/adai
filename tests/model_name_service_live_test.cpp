@@ -683,6 +683,66 @@ TEST_F(MNSLiveTest, TrainingHistory_PersistsAcrossGetModel) {
 }
 
 
+// TD-457: a repeated request_id is a retry of a delivery the server already processed.
+TEST_F(MNSLiveTest, RepeatedRequestIdDoesNotAllocateAnotherRun) {
+    auto c = make_client();
+    const std::string name = make_model("dedup");
+    ASSERT_EQ(c.Post("/models",
+                     "{\"model_name\":\"" + name +
+                         "\",\"role\":\"chatbot\",\"arch\":{\"d_model\":64,\"num_heads\":2,"
+                         "\"d_ff\":128,\"num_encoder_layers\":1,\"num_decoder_layers\":1,"
+                         "\"max_seq_length\":16}}",
+                     "application/json")
+                  ->status,
+              201);
+    const auto new_run = [&](const std::string& id) {
+        return c.Put("/models/" + name + "/state",
+                     "{\"state\":\"training\",\"new_run\":true,\"request_id\":\"" + id + "\"}",
+                     "application/json");
+    };
+    const auto first = new_run("a1");
+    ASSERT_EQ(first->status, 200);
+    EXPECT_EQ(json_str(first->body, "run_id"), "run-01");
+    ASSERT_EQ(new_run("b2")->status, 200);  // a real new run
+
+    const auto retry = new_run("b2");
+    ASSERT_EQ(retry->status, 200);
+    EXPECT_EQ(json_str(retry->body, "run_id"), "run-02") << "the same run, not run-03";
+
+    const auto next = new_run("c3");
+    ASSERT_EQ(next->status, 200);
+    EXPECT_EQ(json_str(next->body, "run_id"), "run-03");
+}
+
+TEST_F(MNSLiveTest, RepeatedRequestIdGetsTheRegistrationReply) {
+    auto c = make_client();
+    const std::string name = make_model("dedupreg");
+    const auto reg = [&](const std::string& id) {
+        std::string body = "{\"model_name\":\"" + name + "\",\"role\":\"chatbot\",";
+        if (!id.empty())
+            body += "\"request_id\":\"" + id + "\",";
+        body += "\"arch\":{\"d_model\":64,\"num_heads\":2,\"d_ff\":128,"
+                "\"num_encoder_layers\":1,\"num_decoder_layers\":1,\"max_seq_length\":16}}";
+        return c.Post("/models", body, "application/json");
+    };
+    const auto first = reg("a1");
+    ASSERT_EQ(first->status, 201);
+    const auto retry = reg("a1");
+    ASSERT_EQ(retry->status, 201);
+    EXPECT_EQ(json_str(retry->body, "model_id"), json_str(first->body, "model_id"));
+    EXPECT_EQ(reg("other")->status, 409);
+    EXPECT_EQ(reg("")->status, 409);
+}
+
+TEST_F(MNSLiveTest, OverLongRequestIdIsRejected) {
+    auto c = make_client();
+    const std::string body = "{\"model_name\":\"" + make_model("longid") + "\",\"request_id\":\"" +
+                             std::string(129, 'x') + "\",\"arch\":{\"d_model\":64,\"num_heads\":2,"
+                             "\"d_ff\":128,\"num_encoder_layers\":1,\"num_decoder_layers\":1,"
+                             "\"max_seq_length\":16}}";
+    EXPECT_EQ(c.Post("/models", body, "application/json")->status, 400);
+}
+
 // TD-458: a diverged epoch must not make the record, or the whole model list, invalid JSON.
 TEST_F(MNSLiveTest, NonFiniteProgressIsNullAndKeepsJsonValid) {
     auto c = make_client();

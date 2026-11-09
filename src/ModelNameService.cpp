@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.3.1
+// @adai-version: 1.4.0
 // @adai-reviewed: 2026-11-09
 
 #include "ModelNameService.hpp"
@@ -175,6 +175,9 @@ double json_loss(const std::string& body, const std::string& key, double def = 0
         return def;
     }
 }
+
+// TD-457: a client's id for one registration or new run; empty when it sent none.
+constexpr std::size_t kMaxRequestIdBytes = 128;
 
 std::string loss_json(double loss) {
     if (!std::isfinite(loss))
@@ -849,6 +852,10 @@ CREATE TABLE IF NOT EXISTS training_history (
     finished_utc       TEXT DEFAULT '',
     incomplete         INTEGER DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS request_ids (
+    model_name TEXT PRIMARY KEY,
+    request_id TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS roles (
     role       TEXT PRIMARY KEY,
     model_name TEXT NOT NULL
@@ -1104,6 +1111,20 @@ void adai::ModelNameService::load_from_disk() {
     }
     sqlite3_finalize(st);
 
+    // TD-457: so a retry that arrives after a restart is still recognized.
+    sqlite3_stmt* rq = nullptr;
+    if (sqlite3_prepare_v2(db, "SELECT model_name,request_id FROM request_ids", -1, &rq,
+                           nullptr) == SQLITE_OK) {
+        while (sqlite3_step(rq) == SQLITE_ROW) {
+            const char* mn = reinterpret_cast<const char*>(sqlite3_column_text(rq, 0));
+            const char* id = reinterpret_cast<const char*>(sqlite3_column_text(rq, 1));
+            const auto found = mn && id ? models_.find(mn) : models_.end();
+            if (found != models_.end())
+                found->second.last_request_id = id;
+        }
+        sqlite3_finalize(rq);
+    }
+
     // Load training_history for all models
     const char* hsql =
         "SELECT "
@@ -1199,6 +1220,17 @@ void adai::ModelNameService::persist_model(const ModelRecord& rec) {
         Logger::warn("ModelNameService: persist_model step failed: {}", sqlite3_errmsg(db));
     }
     sqlite3_finalize(st);
+
+    if (!rec.last_request_id.empty()) {  // TD-457
+        sqlite3_stmt* rq = nullptr;
+        if (sqlite3_prepare_v2(db, "INSERT OR REPLACE INTO request_ids VALUES (?,?)", -1, &rq,
+                               nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(rq, 1, rec.model_name.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(rq, 2, rec.last_request_id.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_step(rq);
+            sqlite3_finalize(rq);
+        }
+    }
 
     // Rewrite training_history rows for this model (delete + insert is safe at our scale)
     sqlite3_stmt* del = nullptr;
@@ -1318,11 +1350,25 @@ std::pair<int, std::string> adai::ModelNameService::handle_register(const std::s
                 "{\"error\":\"invalid kind: must be encoder, decoder, world_model, or chatbot\"}"};
     }
 
+    const std::string request_id = json_string(body, "request_id");
+    if (request_id.size() > kMaxRequestIdBytes)
+        return {400, "{\"error\":\"request_id too long\"}"};
+
     std::unique_lock lock(mutex_);
-    if (models_.count(model_name))
+    const auto existing = models_.find(model_name);
+    if (existing != models_.end()) {
+        if (!request_id.empty() && request_id == existing->second.last_request_id) {
+            // TD-457: a retry of this registration; its first reply never arrived.
+            std::ostringstream replay;
+            replay << "{\"model_id\":\"" << json_escape(existing->second.model_id)
+                   << "\",\"state\":\"initializing\"}";
+            return {201, replay.str()};
+        }
         return {409, "{\"error\":\"model_name already registered\"}"};
+    }
 
     ModelRecord r;
+    r.last_request_id = request_id;
     r.model_id = generate_uuid();
     r.model_name = model_name;
     r.kind = kind;
@@ -1496,6 +1542,15 @@ std::pair<int, std::string> adai::ModelNameService::handle_state_transition(
     ModelRecord& r = it->second;
     const std::string cur = r.state;
 
+    // TD-457: a retry of a new run whose first reply never arrived gets that run. Allocating again
+    // would skip a run number and archive the run it just started.
+    const std::string request_id = json_string(body, "request_id");
+    if (request_id.size() > kMaxRequestIdBytes)
+        return {400, "{\"error\":\"request_id too long\"}"};
+    if (new_state == "training" && !request_id.empty() && request_id == r.last_request_id) {
+        return {200, serialize_record(r)};
+    }
+
     // State machine: validate the requested transition
     bool valid = false;
     if (new_state == "training") {
@@ -1549,6 +1604,8 @@ std::pair<int, std::string> adai::ModelNameService::handle_state_transition(
         r.progress_best_loss = 0.0;
         r.progress_updated_utc.clear();
 
+        if (!request_id.empty())
+            r.last_request_id = request_id;
         const bool new_run = json_bool(body, "new_run", false);
         if (r.current_run_number == 0) {
             r.current_run_number = 1;  // bootstrap: first-ever training, regardless of new_run
@@ -1767,6 +1824,13 @@ std::pair<int, std::string> adai::ModelNameService::handle_delete(const std::str
             sqlite3_bind_text(sd, 1, name.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_step(sd);
             sqlite3_finalize(sd);
+        }
+        sqlite3_stmt* srq = nullptr;  // TD-457
+        if (sqlite3_prepare_v2(db, "DELETE FROM request_ids WHERE model_name=?", -1, &srq,
+                               nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(srq, 1, name.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_step(srq);
+            sqlite3_finalize(srq);
         }
         sqlite3_stmt* shd = nullptr;
         if (sqlite3_prepare_v2(db, "DELETE FROM training_history WHERE model_name=?", -1, &shd,

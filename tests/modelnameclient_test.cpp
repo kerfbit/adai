@@ -22,7 +22,9 @@
 #ifdef BUILD_MNS_SERVER
 #include <httplib.h>
 #include <chrono>
+#include <mutex>
 #include <thread>
+#include <vector>
 
 // Test servers bind OS-assigned ports (start_server()); only the connection-failure test needs a
 // fixed one.
@@ -135,6 +137,97 @@ TEST(ModelNameClientTest, SetTrainingSendsStateAndNewRunReturnsRunId) {
     EXPECT_NE(captured_body.find("\"state\":\"training\""), std::string::npos);
     EXPECT_NE(captured_body.find("\"new_run\":true"), std::string::npos);
     EXPECT_NE(captured_body.find("\"metrics_session_key\":\"session-key-1\""), std::string::npos);
+}
+
+// TD-457: a retry of a new run or a registration carries the first delivery's request_id, so
+// mns_server can recognize it. The first reply here arrives after the client's 1 s timeout.
+namespace {
+
+std::string request_id_in(const std::string& body) {
+    const std::string needle = "\"request_id\":\"";
+    const auto start = body.find(needle);
+    if (start == std::string::npos)
+        return "";
+    const auto from = start + needle.size();
+    return body.substr(from, body.find('"', from) - from);
+}
+
+struct Deliveries {
+    std::mutex mutex;
+    std::vector<std::string> bodies;
+    int slow_first_ms = 0;
+    void answer(const httplib::Request& req, httplib::Response& res, const std::string& reply) {
+        bool first = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            first = bodies.empty();
+            bodies.push_back(req.body);
+        }
+        if (first && slow_first_ms > 0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(slow_first_ms));
+        res.status = 200;
+        res.set_content(reply, "application/json");
+    }
+};
+
+}  // namespace
+
+TEST(ModelNameClientTest, NewRunRetryRepeatsItsRequestId) {
+    httplib::Server svr;
+    Deliveries d;
+    d.slow_first_ms = 1500;
+    svr.Put("/models/m/state", [&](const httplib::Request& req, httplib::Response& res) {
+        d.answer(req, res, R"({"run_id":"run-02"})");
+    });
+    int port = 0;
+    auto t = start_server(svr, port);
+
+    adai::ModelNameClient client(base_url(port), 1000);
+    EXPECT_EQ(client.set_training("m", /*new_run=*/true), "run-02");
+    stop_server(svr, t);
+
+    ASSERT_EQ(d.bodies.size(), 2u);
+    EXPECT_FALSE(request_id_in(d.bodies[0]).empty()) << d.bodies[0];
+    EXPECT_EQ(request_id_in(d.bodies[0]), request_id_in(d.bodies[1]));
+}
+
+TEST(ModelNameClientTest, RegisterRetryRepeatsItsRequestId) {
+    httplib::Server svr;
+    Deliveries d;
+    d.slow_first_ms = 1500;
+    svr.Post("/models", [&](const httplib::Request& req, httplib::Response& res) {
+        d.answer(req, res, R"({"model_id":"id-1"})");
+    });
+    int port = 0;
+    auto t = start_server(svr, port);
+
+    adai::ModelNameClient client(base_url(port), 1000);
+    EXPECT_EQ(client.register_model("m", "chat", adai::ServiceConfig{}), "id-1");
+    stop_server(svr, t);
+
+    ASSERT_EQ(d.bodies.size(), 2u);
+    EXPECT_FALSE(request_id_in(d.bodies[0]).empty()) << d.bodies[0];
+    EXPECT_EQ(request_id_in(d.bodies[0]), request_id_in(d.bodies[1]));
+}
+
+TEST(ModelNameClientTest, EachNewRunCallHasItsOwnRequestId) {
+    httplib::Server svr;
+    Deliveries d;
+    svr.Put("/models/m/state", [&](const httplib::Request& req, httplib::Response& res) {
+        d.answer(req, res, R"({"run_id":"run-02"})");
+    });
+    int port = 0;
+    auto t = start_server(svr, port);
+
+    adai::ModelNameClient client(base_url(port));
+    client.set_training("m", /*new_run=*/true);
+    client.set_training("m", /*new_run=*/true);
+    client.set_training("m", /*new_run=*/false);
+    stop_server(svr, t);
+
+    ASSERT_EQ(d.bodies.size(), 3u);
+    EXPECT_NE(request_id_in(d.bodies[0]), request_id_in(d.bodies[1]));
+    EXPECT_EQ(request_id_in(d.bodies[2]), "") << "continuing a run needs no id";
 }
 
 TEST(ModelNameClientTest, SetTrainingOmitsSessionKeyWhenEmpty) {

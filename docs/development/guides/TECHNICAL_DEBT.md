@@ -1546,6 +1546,7 @@ The generation and model math run is complete.
 - TD-537 (done in code: `vocab_builder` and `ChatbotTrainer` read training files with `DatasetRegistry`'s parser).
 - TD-476 (done in code: `send_all()` for every plain FTP send, `EINTR` retry, checked socket setup, a PASV wait bounded on both platforms).
 - TD-458 (done in code: non-finite losses are `null` from the client, in `mns_server`'s records and in its history).
+- TD-457 (done in code, owner's choice of an idempotency key: `request_id` on a new run or registration, deduplicated by `mns_server`).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -14414,7 +14415,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | MNS / Client | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 9, 2026 | MNS / Client | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `ModelNameClient` and verified with a mock server. `http_post()`/`http_put()` retry up to 3 times on a
@@ -14429,14 +14430,23 @@ the second reply. Against `mns_server`:
 
 Action Items:
 
-- [ ] Retry only idempotent requests (GETs, and PUTs explicitly marked safe), or add an idempotency key the server deduplicates for `new_run` allocation and registration.
-- [ ] Add a test with a slow mock server asserting a single delivery for non-idempotent calls.
+- [x] Retry only idempotent requests (GETs, and PUTs explicitly marked safe), or add an idempotency key the server deduplicates for `new_run` allocation and registration.
+- [x] Add a test with a slow mock server asserting a single delivery for non-idempotent calls.
 
-Location in code: `src/ModelNameClient.cpp` (`http_post()`, `http_put()`, `set_training()`, `register_model()`); tagged `TODO: See TD-457`.
+Fix (November 9, 2026, owner's choice of the idempotency key): `set_training(new_run = true)` and `register_model()` send one random `request_id` per call,
+and `http_put()`/`http_post()`'s retries repeat it. `mns_server` keeps each model's last id (`ModelRecord::last_request_id`, table `request_ids`, so it survives a
+restart). A repeated id returns the original result: the same run with nothing allocated or archived, or a registration's `201`. A different id or none behaves as
+before, and an id over 128 bytes is `400`. An old server ignores the field, so upgrading the server first or the client first are both safe.
+
+Tests: `modelnameclient_test.cpp` (`NewRunRetryRepeatsItsRequestId`, `RegisterRetryRepeatsItsRequestId`, `EachNewRunCallHasItsOwnRequestId`) and
+`model_name_service_live_test.cpp` (`RepeatedRequestIdDoesNotAllocateAnotherRun`, `RepeatedRequestIdGetsTheRegistrationReply`, `OverLongRequestIdIsRejected`), all
+failing on the old code. With a real `mns_server` restarted between delivery and retry, the retry still returned `run-01` and the next new run `run-02`.
+
+Location in code: `src/ModelNameClient.cpp` (`set_training()`, `register_model()`); `src/ModelNameService.cpp` (`handle_register()`, `handle_state_transition()`).
 
 Files to Modify:
 
-- `src/ModelNameClient.{hpp,cpp}`
+- `src/ModelNameClient.cpp`, `src/ModelNameService.{hpp,cpp}`
 - `tests/modelnameclient_test.cpp`
 
 ---

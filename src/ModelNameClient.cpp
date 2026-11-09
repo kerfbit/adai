@@ -1,8 +1,9 @@
 // @adai-status: stable        (TD-196 — encoder/decoder-linked chatbot arch resolution + connection/world-model-link API added)
-// @adai-version: 1.2.1
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-11-09
 
 #include "ModelNameClient.hpp"
+#include "SecureRandom.hpp"
 #include <chrono>
 #include <cmath>
 #include <sstream>
@@ -216,7 +217,6 @@ adai::ClientModelConnection parse_connection_from_record(const std::string& reco
 
 #ifdef BUILD_MNS_SERVER
 
-// TODO: See TD-457 in TECHNICAL_DEBT.md - POST/PUT retried after a timeout even if processed (set_training(new_run) allocates twice)
 // TODO: See TD-459 in TECHNICAL_DEBT.md - ~16 s per call when MNS doesn't answer; startup chains several
 static constexpr int kBackoffMs[] = {0, 200, 1000};
 static constexpr int kMaxAttempts = 3;
@@ -331,7 +331,8 @@ std::string adai::ModelNameClient::register_model(const std::string& model_name,
                                                   const std::map<std::string, std::string>& tags) {
     std::ostringstream body;
     body << "{\"model_name\":\"" << json_escape_client(model_name) << "\"" << ",\"role\":\""
-         << json_escape_client(role) << "\"" << ",\"run_group\":\""
+         << json_escape_client(role) << "\"" << ",\"request_id\":\"" << secure_random_hex(16)
+         << "\"" << ",\"run_group\":\""
          << json_escape_client(arch.run_group) << "\"" << ",\"arch\":{" << "\"d_model\":" << arch.d_model
          << ",\"num_heads\":" << arch.num_heads << ",\"d_ff\":" << arch.d_ff
          << ",\"num_encoder_layers\":" << arch.num_encoder_layers
@@ -356,6 +357,10 @@ std::string adai::ModelNameClient::set_training(const std::string& model_name, b
                                                 const std::string& metrics_session_key) {
     std::ostringstream body;
     body << "{\"state\":\"training\"" << ",\"new_run\":" << (new_run ? "true" : "false");
+    // TD-457: one id per call. http_put()'s retries repeat it, so a delivery the server already
+    // processed returns the same run instead of allocating another.
+    if (new_run)
+        body << ",\"request_id\":\"" << secure_random_hex(16) << "\"";
     if (!metrics_session_key.empty())
         body << ",\"metrics_session_key\":\"" << json_escape_client(metrics_session_key) << "\"";
     body << "}";
