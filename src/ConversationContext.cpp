@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.4.0
+// @adai-version: 1.5.0
 // @adai-reviewed: 2026-11-04
 
 #include "ConversationContext.hpp"
@@ -43,6 +43,11 @@ void ConversationContext::set_system_message(const std::string& content, int tok
 
 void ConversationContext::add_message(const std::string& role, const std::string& content,
                                       int token_count) {
+    // TD-295: a role containing '|' or a newline corrupted its serialized line, and a message with
+    // role "SYSTEM" came back as the system message.
+    if (!is_valid_role(role)) {
+        throw std::invalid_argument("invalid conversation role: '" + role + "'");
+    }
     // Count tokens if not provided (TD-294: with the token counter when there is one)
     if (token_count == 0) {
         token_count = count_message_tokens(role, content);
@@ -56,7 +61,32 @@ void ConversationContext::add_message(const std::string& role, const std::string
     truncate_to_limits();
 }
 
-// TODO: See TD-295 in TECHNICAL_DEBT.md - plain-text role labels let message content impersonate turns
+std::vector<ConversationTurn> ConversationContext::turns(bool include_system) const {
+    std::vector<ConversationTurn> result;
+    if (include_system && system_message.has_value()) {
+        result.push_back({"system", system_message->content});
+    }
+    for (const auto& msg : messages) {
+        result.push_back({msg.role, msg.content});
+    }
+    return result;
+}
+
+std::vector<int> ConversationContext::encode_for_model(BPETokenizer& tokenizer,
+                                                       bool include_system) const {
+    return tokenizer.encode_conversation(turns(include_system));
+}
+
+bool ConversationContext::is_valid_role(const std::string& role) {
+    if (role.empty() || role.size() > 32 || role == "SYSTEM") {
+        return false;  // "SYSTEM" is the serialized system message's marker
+    }
+    return std::all_of(role.begin(), role.end(),
+                       [](unsigned char c) { return std::isalnum(c) || c == '_' || c == '-'; });
+}
+
+// TD-295: text labels, used only for vocabularies without turn tokens; encode_for_model()
+// otherwise.
 std::string ConversationContext::format_for_model(bool include_system,
                                                   const std::string& separator) const {
     std::ostringstream oss;
@@ -273,7 +303,7 @@ std::string ConversationContext::serialize() const {
 
     // Write all messages
     for (const auto& msg : messages) {
-        // TODO: See TD-295 in TECHNICAL_DEBT.md - roles are written unescaped; '|' or a newline in a role corrupts the line
+        // TD-295: add_message() only accepts roles that can't break this line.
         oss << msg.role << "|" << msg.token_count << "|" << escape_line(msg.content) << "\n";
     }
 
@@ -295,6 +325,7 @@ void ConversationContext::deserialize(const std::string& data) {
     // end; clearing first used to leave the session empty when a line failed to parse.
     ConversationContext parsed(max_messages, max_tokens, keep_system_message);
     parsed.token_counter = token_counter;  // TD-294: imported messages count like the rest
+    parsed.counts_turn_tokens_ = counts_turn_tokens_;
 
     const adai::conversation_format::Parsed lines = adai::conversation_format::parse(data);
     // Data without the metadata/messages separator isn't a serialized conversation: refuse it
@@ -369,6 +400,7 @@ ConversationContext ConversationContext::create_summarized(int keep_recent,
                                                            const std::string& summary_text) const {
     ConversationContext summarized(max_messages, max_tokens, keep_system_message);
     summarized.token_counter = token_counter;  // TD-294
+    summarized.counts_turn_tokens_ = counts_turn_tokens_;
 
     // Copy system message
     if (system_message.has_value()) {
@@ -422,6 +454,9 @@ int ConversationContext::count_message_tokens(const std::string& role,
                                               const std::string& content) const {
     if (!token_counter) {
         return estimate_tokens(content);
+    }
+    if (counts_turn_tokens_) {  // TD-295: the turn token, plus the content
+        return 1 + (content.empty() ? 0 : token_counter(content));
     }
     // The line format_for_model() writes for this message, with its default separator.
     std::string line = role;

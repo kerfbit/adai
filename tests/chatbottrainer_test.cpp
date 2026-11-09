@@ -1362,6 +1362,9 @@ class ChatbotTrainerCacheTest : public ::testing::Test {
     static const std::vector<TokenizedPair>& GetTokenizedValidation(const ChatbotTrainer& t) {
         return t.tokenized_validation_data;
     }
+    static void Preprocess(ChatbotTrainer& t) {
+        t.preprocess_data();  // TD-295
+    }
     // TD-267 hooks
     static void DropSkipped(ChatbotTrainer& t) {
         t.drop_skipped_pairs();
@@ -2081,4 +2084,40 @@ TEST_F(ChatbotTrainerCacheTest, BleuLowercasesOnlyForALowercaseVocabulary) {
     ASSERT_TRUE(lowered.load_tokenizer(cache_dir + "/lower.txt"));
     InitModel(lowered);
     EXPECT_TRUE(BleuLowercases(lowered));
+}
+
+// TD-295: training inputs have the format a served prompt has, earlier turns included.
+TEST_F(ChatbotTrainerCacheTest, InputsUseTurnTokensAndHistory) {
+    TrainingConfig cfg = tiny_training_config(1);
+    ChatbotTrainer trainer(cfg);
+    std::filesystem::create_directories(cache_dir);
+    ASSERT_TRUE(
+        trainer.build_vocabulary({"hello world", "how are you"}, 100, cache_dir + "/turns.txt"));
+    InitModel(trainer);
+
+    SampleMeta meta;
+    meta.history = {{"system", "hello"}, {"user", "how"}, {"assistant", "are"}};
+    std::vector<ConversationPair> data;
+    data.emplace_back("hello world", "how are you");
+    data.emplace_back("you", "world", meta);
+    SetTrainingData(trainer, data);
+    SetValidationData(trainer, {});
+    Preprocess(trainer);
+
+    const auto& tokenized = GetTokenizedTraining(trainer);
+    ASSERT_EQ(tokenized.size(), 2u);
+    using namespace adai::SpecialTokenIDs;
+    const auto& single = tokenized[0].input_tokens;
+    EXPECT_EQ(single.front(), USER_TURN);
+    EXPECT_EQ(single.back(), ASSISTANT_TURN);
+    EXPECT_EQ(std::count(single.begin(), single.end(), USER_TURN), 1);
+
+    const auto& multi = tokenized[1].input_tokens;
+    EXPECT_EQ(multi.front(), SYSTEM_TURN);
+    EXPECT_EQ(std::count(multi.begin(), multi.end(), USER_TURN), 2);
+    EXPECT_EQ(std::count(multi.begin(), multi.end(), ASSISTANT_TURN), 2);
+    EXPECT_EQ(multi.back(), ASSISTANT_TURN);
+    for (int id : tokenized[1].target_tokens) {
+        EXPECT_FALSE(id >= SYSTEM_TURN && id <= ASSISTANT_TURN) << "targets are the reply alone";
+    }
 }

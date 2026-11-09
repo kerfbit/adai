@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.4.0
+// @adai-version: 1.5.0
 // @adai-reviewed: 2026-11-08
 
 // TODO: See TD-225 in TECHNICAL_DEBT.md - std::cout/std::cerr are used throughout this file instead of
@@ -71,6 +71,31 @@ void BPETokenizer::set_whitespace(WhitespaceHandling whitespace) {
 
 const char* BPETokenizer::whitespace_name(WhitespaceHandling whitespace) {
     return whitespace == WhitespaceHandling::PRESERVE ? "preserve" : "collapse";
+}
+
+std::vector<int> BPETokenizer::encode_conversation(const std::vector<ConversationTurn>& turns) {
+    if (!has_turn_tokens_) {
+        throw std::logic_error("encode_conversation(): this vocabulary has no turn tokens");
+    }
+    std::vector<int> ids;
+    for (const auto& turn : turns) {
+        ids.push_back(turn.role == "system"      ? adai::SpecialTokenIDs::SYSTEM_TURN
+                      : turn.role == "assistant" ? adai::SpecialTokenIDs::ASSISTANT_TURN
+                                                 : adai::SpecialTokenIDs::USER_TURN);
+        if (!turn.content.empty()) {  // encode() refuses empty text
+            const std::vector<int> content = encode(turn.content, false);
+            ids.insert(ids.end(), content.begin(), content.end());
+        }
+    }
+    ids.push_back(adai::SpecialTokenIDs::ASSISTANT_TURN);
+    return ids;
+}
+
+std::vector<int> BPETokenizer::encode_prompt(const std::string& text) {
+    if (!has_turn_tokens_) {
+        return encode(text, false);
+    }
+    return encode_conversation({{"user", text}});
 }
 
 // ============================================================================
@@ -202,6 +227,18 @@ void BPETokenizer::build_vocab(const std::vector<std::string>& texts, int vocab_
     // TODO: See TD-225 in TECHNICAL_DEBT.md - IDs follow unordered_map iteration order (not portable).
     int current_id = 4;  // Start after special tokens
     int added_chars = 0;
+    // TD-295: the three turn tokens take ids 4-6 in every new vocabulary.
+    if (total_chars > 0 && vocab_size >= adai::SpecialTokenIDs::ASSISTANT_TURN + 1) {
+        for (const char* turn :
+             {adai::SpecialTokenStrings::SYSTEM_TURN, adai::SpecialTokenStrings::USER_TURN,
+              adai::SpecialTokenStrings::ASSISTANT_TURN}) {
+            vocab[turn] = current_id;
+            inverse_vocab[current_id] = turn;
+            special_tokens.insert(turn);
+            current_id++;
+        }
+        has_turn_tokens_ = true;
+    }
     // TD-224: whitespace always has a token, or a corpus read line by line (vocab_builder's plain
     // and legacy formats) would turn every newline in later text into <unk>.
     if (whitespace_ == WhitespaceHandling::PRESERVE && total_chars > 0) {
@@ -879,6 +916,22 @@ void BPETokenizer::load_vocab(const std::string& filename) {
 
     file.close();
 
+    // TD-295: only tokens spelled and numbered exactly so; older vocabularies use these ids for
+    // ordinary tokens.
+    const auto is_at = [this](const char* token, int id) {
+        const auto it = vocab.find(token);
+        return it != vocab.end() && it->second == id;
+    };
+    has_turn_tokens_ =
+        is_at(adai::SpecialTokenStrings::SYSTEM_TURN, adai::SpecialTokenIDs::SYSTEM_TURN) &&
+        is_at(adai::SpecialTokenStrings::USER_TURN, adai::SpecialTokenIDs::USER_TURN) &&
+        is_at(adai::SpecialTokenStrings::ASSISTANT_TURN, adai::SpecialTokenIDs::ASSISTANT_TURN);
+    if (has_turn_tokens_) {
+        special_tokens.insert(adai::SpecialTokenStrings::SYSTEM_TURN);
+        special_tokens.insert(adai::SpecialTokenStrings::USER_TURN);
+        special_tokens.insert(adai::SpecialTokenStrings::ASSISTANT_TURN);
+    }
+
     if (vocab.empty()) {
         throw VocabularyFileError("Loaded vocabulary is empty from file: " + filename);
     }
@@ -1120,6 +1173,7 @@ float BPETokenizer::measure_fertility(const std::vector<std::string>& texts,
     BPETokenizer probe(mode);
     probe.normalization_ = normalization_;  // TD-560
     probe.whitespace_ = whitespace_;        // TD-224
+    probe.has_turn_tokens_ = has_turn_tokens_;  // TD-295
     probe.vocab = vocab;
     probe.inverse_vocab = inverse_vocab;
     probe.bpe_merges = bpe_merges;

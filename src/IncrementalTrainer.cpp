@@ -229,6 +229,8 @@ bool IncrementalTrainer::bootstrap_vocab(const std::vector<ConversationPair>& pa
             texts.push_back(p.input);
         if (!p.response.empty())
             texts.push_back(p.response);
+        for (const auto& turn : p.meta.history)  // TD-295
+            texts.push_back(turn.second);
     }
     if (texts.empty()) {
         Logger::error("Cannot build vocabulary: training data contains no text");

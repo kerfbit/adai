@@ -1161,3 +1161,33 @@ TEST(ConversationContextTokenCounter, OverlongNewestMessageKeepsATailThatFits) {
     EXPECT_LE(ctx.get_total_tokens(), 30);
     EXPECT_EQ(ctx.get_total_tokens(), static_cast<int>(ctx.format_for_model().size()));
 }
+
+// TD-295: a role that would corrupt its serialized line, or restore as the system message.
+TEST(ConversationContextRoleTest, UnsafeRolesAreRefused) {
+    ConversationContext context;
+    for (const std::string& role :
+         std::vector<std::string>{"", "a|b", "a\nb", "SYSTEM", std::string(33, 'x')}) {
+        EXPECT_THROW(context.add_message(role, "hello"), std::invalid_argument) << role;
+    }
+    EXPECT_NO_THROW(context.add_message("tool_1-a", "hello"));
+    EXPECT_EQ(context.get_message_count(), 1u);
+}
+
+TEST(ConversationContextRoleTest, ACorruptFileRoleFailsTheImportAndKeepsTheSession) {
+    ConversationContext context;
+    context.add_user_message("kept");
+    EXPECT_THROW(
+        context.deserialize("MAX_MESSAGES:0\nMAX_TOKENS:0\nKEEP_SYSTEM:1\n---\nbad role|1|text\n"),
+        std::invalid_argument);
+    EXPECT_EQ(context.get_message_count(), 1u);
+}
+
+TEST(ConversationContextRoleTest, TextFormatIsUnchanged) {
+    ConversationContext context;
+    context.add_user_message("hello");
+    context.add_assistant_message("hi");
+    EXPECT_EQ(context.format_for_model(), "User: hello\nAssistant: hi\n");
+    const auto turns = context.turns();
+    ASSERT_EQ(turns.size(), 2u);
+    EXPECT_EQ(turns[1].role, "assistant");
+}

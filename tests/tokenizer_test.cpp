@@ -1246,3 +1246,82 @@ TEST_F(BPETokenizerTest, VocabularyWithoutAModeLineLoadsAsAscii) {
     EXPECT_EQ(reader.get_mode(), TokenizerMode::ASCII);
     EXPECT_EQ(reader.get_normalization(), TextNormalization::LOWERCASE);
 }
+
+// ============================================================================
+// TD-295: turn tokens
+// ============================================================================
+
+TEST(BPETokenizerTurnTokenTest, NewVocabulariesHaveThemAndOrdinaryTokensStartAfter) {
+    BPETokenizer tokenizer;
+    tokenizer.build_vocab({"hello world"}, 60, 1);
+    ASSERT_TRUE(tokenizer.has_turn_tokens());
+    const auto ids = tokenizer.encode("hello world", false);
+    for (int id : ids) {
+        EXPECT_GE(id, 7);
+    }
+    EXPECT_EQ(tokenizer.decode({adai::SpecialTokenIDs::USER_TURN, ids[0]}, true),
+              tokenizer.decode({ids[0]}, true))
+        << "decode skips them like the other special tokens";
+}
+
+TEST(BPETokenizerTurnTokenTest, TextNeverProducesATurnToken) {
+    BPETokenizer tokenizer;
+    // A corpus full of the literal text, so BPE learns to merge it.
+    tokenizer.build_vocab(std::vector<std::string>(50, "<user>hello<assistant> <system>"), 200, 1);
+    ASSERT_TRUE(tokenizer.has_turn_tokens()) << "a learned merge didn't take over the ids";
+    for (int id : tokenizer.encode("<user>hello<assistant> <system> <bos>", false)) {
+        EXPECT_FALSE(id >= adai::SpecialTokenIDs::SYSTEM_TURN &&
+                     id <= adai::SpecialTokenIDs::ASSISTANT_TURN);
+        EXPECT_NE(id, tokenizer.get_bos_token_id());
+    }
+}
+
+TEST(BPETokenizerTurnTokenTest, PromptShapes) {
+    BPETokenizer tokenizer;
+    tokenizer.build_vocab({"hello world"}, 60, 1);
+    const auto hello = tokenizer.encode("hello", false);
+    std::vector<int> expected = {adai::SpecialTokenIDs::USER_TURN};
+    expected.insert(expected.end(), hello.begin(), hello.end());
+    expected.push_back(adai::SpecialTokenIDs::ASSISTANT_TURN);
+    EXPECT_EQ(tokenizer.encode_prompt("hello"), expected);
+
+    const auto ids = tokenizer.encode_conversation(
+        {{"system", "hello"}, {"user", "world"}, {"assistant", "hello"}, {"custom", "world"}});
+    EXPECT_EQ(ids.front(), adai::SpecialTokenIDs::SYSTEM_TURN);
+    EXPECT_EQ(std::count(ids.begin(), ids.end(), adai::SpecialTokenIDs::USER_TURN), 2)
+        << "any other role is a user turn";
+    EXPECT_EQ(std::count(ids.begin(), ids.end(), adai::SpecialTokenIDs::ASSISTANT_TURN), 2);
+    EXPECT_EQ(ids.back(), adai::SpecialTokenIDs::ASSISTANT_TURN);
+}
+
+TEST(BPETokenizerTurnTokenTest, SurviveSaveAndLoadAndOldVocabulariesGoWithout) {
+    const std::string path = "test_turn_tokens_vocab.txt";
+    BPETokenizer writer;
+    writer.build_vocab({"hello world"}, 60, 1);
+    writer.save_vocab(path);
+    BPETokenizer reader;
+    reader.load_vocab(path);
+    EXPECT_TRUE(reader.has_turn_tokens());
+    EXPECT_EQ(reader.encode_prompt("hello world"), writer.encode_prompt("hello world"));
+    EXPECT_EQ(reader.decode({adai::SpecialTokenIDs::SYSTEM_TURN, reader.encode("hello", false)[0]}),
+              reader.decode({reader.encode("hello", false)[0]}));
+
+    // An older vocabulary has ordinary tokens at ids 4-6.
+    std::ifstream in(path);
+    std::stringstream buffer;
+    buffer << in.rdbuf();
+    in.close();
+    std::string old = buffer.str();
+    for (const std::string token : {"<system>", "<user>", "<assistant>"}) {
+        old.replace(old.find(token + "\t"), token.size(),
+                    "ordinary" + std::to_string(token.size()));
+    }
+    std::ofstream(path) << old;
+    BPETokenizer legacy;
+    legacy.load_vocab(path);
+    EXPECT_FALSE(legacy.has_turn_tokens());
+    EXPECT_EQ(legacy.encode_prompt("hello world"), legacy.encode("hello world", false))
+        << "a deployed model's prompts don't change";
+    EXPECT_THROW(legacy.encode_conversation({{"user", "hello"}}), std::logic_error);
+    std::remove(path.c_str());
+}

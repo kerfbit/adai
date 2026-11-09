@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.19.0
+// @adai-version: 0.20.0
 // @adai-reviewed: 2026-11-08
 
 #include "ChatbotTrainer.hpp"
@@ -615,6 +615,24 @@ void ChatbotTrainer::preprocess_data() {
         return EncoderDecoderModel::strip_leading_bos(tokenizer->encode(clip_text(response), true),
                                                       tokenizer->get_bos_token_id());
     };
+    // TD-295: with turn tokens, an input is [earlier turns] <user> input <assistant>, the format a
+    // served prompt has. Later turns are kept first; the char budget bounds the BPE work as below.
+    auto encode_input = [&](const ConversationPair& pair) {
+        if (!tokenizer->has_turn_tokens()) {
+            return truncate_tokens_tail(
+                tokenizer->encode(truncate_text_tail(pair.input, max_chars), false), max_len);
+        }
+        std::vector<ConversationTurn> newest_first = {
+            {"user", truncate_text_tail(pair.input, max_chars)}};
+        size_t chars = newest_first.front().content.size();
+        for (auto it = pair.meta.history.rbegin();
+             it != pair.meta.history.rend() && chars < max_chars; ++it) {
+            newest_first.push_back({it->first, truncate_text_tail(it->second, max_chars - chars)});
+            chars += newest_first.back().content.size();
+        }
+        std::reverse(newest_first.begin(), newest_first.end());
+        return truncate_tokens_tail(tokenizer->encode_conversation(newest_first), max_len);
+    };
     // Input-side truncation uses truncate_text_tail()/truncate_tokens_tail() instead of the
     // head-keeping clip_text()/truncate_target_keep_eos() used for targets — see their doc
     // comments in ChatbotTrainer.hpp for why.
@@ -647,10 +665,9 @@ void ChatbotTrainer::preprocess_data() {
         }
         try {
             tokenized_training_data[i] = TokenizedPair(
-                truncate_tokens_tail(
-                    tokenizer->encode(truncate_text_tail(pair.input, max_chars), false), max_len),
-                truncate_target_keep_eos(encode_target(pair.response), max_len, eos_id),
-                pair.input, pair.response);
+                encode_input(pair),
+                truncate_target_keep_eos(encode_target(pair.response), max_len, eos_id), pair.input,
+                pair.response);
             training_data[i].meta.token_count =
                 static_cast<int>(tokenized_training_data[i].input_tokens.size() +
                                  tokenized_training_data[i].target_tokens.size());
@@ -686,10 +703,9 @@ void ChatbotTrainer::preprocess_data() {
         }
         try {
             tokenized_validation_data[i] = TokenizedPair(
-                truncate_tokens_tail(
-                    tokenizer->encode(truncate_text_tail(pair.input, max_chars), false), max_len),
-                truncate_target_keep_eos(encode_target(pair.response), max_len, eos_id),
-                pair.input, pair.response);
+                encode_input(pair),
+                truncate_target_keep_eos(encode_target(pair.response), max_len, eos_id), pair.input,
+                pair.response);
             validation_data[i].meta.token_count =
                 static_cast<int>(tokenized_validation_data[i].input_tokens.size() +
                                  tokenized_validation_data[i].target_tokens.size());
@@ -1995,12 +2011,13 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
         sync_host_from_device();  // TD-468: clone() copies the host weights
         std::unique_ptr<EncoderDecoderModel> snapshot = model->clone();
 
-        std::vector<std::string> refs, inputs;
+        std::vector<std::string> refs;
+        std::vector<ModelPrompt> inputs;
         refs.reserve(sample_size);
         inputs.reserve(sample_size);
         for (int i = 0; i < sample_size; ++i) {
             refs.push_back(tokenized_validation_data[i].target_text);
-            inputs.push_back(tokenized_validation_data[i].input_text);
+            inputs.push_back(eval_prompt(tokenized_validation_data[i]));
         }
 
         const int max_tokens = config.generation_quality_max_tokens;
@@ -2047,10 +2064,10 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
         try {
 #ifdef ADAI_ENABLE_GPU
             hypotheses.push_back(model->gpu_generate_response(
-                pair.input_text, config.generation_quality_max_tokens));
+                eval_prompt(pair), config.generation_quality_max_tokens));
 #else
             hypotheses.push_back(
-                model->generate_response(pair.input_text, config.generation_quality_max_tokens));
+                model->generate_response(eval_prompt(pair), config.generation_quality_max_tokens));
 #endif
         } catch (const std::exception& e) {
             adai::Logger::warn("BLEU/ROUGE: skipping sample {} — generate_response() threw: {}", i,
@@ -2072,6 +2089,15 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
 
 // TD-273: the scores are reported (report_sample_quality()) and readable with get_training_pairs()/
 // get_validation_pairs(); GENERATION_QUALITY_BACKFILL turns this on.
+ModelPrompt ChatbotTrainer::eval_prompt(const TokenizedPair& pair) const {
+    // TD-295: the tokens it was trained on, so a multi-turn pair keeps its earlier turns.
+    const auto* tokenizer = model->get_tokenizer();
+    if (tokenizer && tokenizer->has_turn_tokens()) {
+        return ModelPrompt(pair.input_text, pair.input_tokens);
+    }
+    return ModelPrompt(pair.input_text);
+}
+
 bool ChatbotTrainer::bleu_lowercases() const {
     const BPETokenizer* tokenizer = model ? model->get_tokenizer() : nullptr;
     return !tokenizer || tokenizer->get_normalization() == TextNormalization::LOWERCASE;
@@ -2104,7 +2130,7 @@ void ChatbotTrainer::backfill_generation_quality() {
     model->set_training(false);
 
     const bool lowercase_bleu = bleu_lowercases();  // TD-561
-    auto score_sample = [&](const std::string& input, const std::string& target) -> float {
+    auto score_sample = [&](const ModelPrompt& input, const std::string& target) -> float {
         float result = 0.0f;
         try {
 #ifdef ADAI_ENABLE_GPU
@@ -2127,12 +2153,12 @@ void ChatbotTrainer::backfill_generation_quality() {
     };
 
     for (size_t i = 0; i < training_data.size(); ++i) {
-        training_data[i].meta.quality = score_sample(tokenized_training_data[i].input_text,
+        training_data[i].meta.quality = score_sample(eval_prompt(tokenized_training_data[i]),
                                                      tokenized_training_data[i].target_text);
     }
 
     for (size_t i = 0; i < validation_data.size(); ++i) {
-        validation_data[i].meta.quality = score_sample(tokenized_validation_data[i].input_text,
+        validation_data[i].meta.quality = score_sample(eval_prompt(tokenized_validation_data[i]),
                                                        tokenized_validation_data[i].target_text);
     }
 

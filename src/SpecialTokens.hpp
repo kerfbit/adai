@@ -2,8 +2,8 @@
 #define SPECIAL_TOKENS_HPP
 
 // @adai-status: stable
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-10-18
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-11-08
 
 
 #include <stdexcept>
@@ -27,6 +27,9 @@
  * <unk>   | 1  | Unknown tokens              | Replace out-of-vocabulary tokens
  * <bos>   | 2  | Beginning of sequence       | Mark sequence start
  * <eos>   | 3  | End of sequence             | Mark sequence end, stop generation
+ * <system>    | 4 | System turn (TD-295)      | Written only by the prompt formatter, as an ID
+ * <user>      | 5 | User turn (TD-295)        | Same
+ * <assistant> | 6 | Assistant turn (TD-295)   | Same; also ends a prompt to cue the reply
  *
  * @note These IDs are standardized across the entire codebase and must not be changed
  *       without updating all vocabulary files and retrained models.
@@ -48,6 +51,9 @@ namespace SpecialTokenIDs {
 constexpr int PAD = 0;  ///< Padding token ID - used to fill sequences to uniform length
 constexpr int UNK = 1;  ///< Unknown token ID - used for out-of-vocabulary tokens
 constexpr int BOS = 2;  ///< Beginning of sequence - marks the start of a sequence
+constexpr int SYSTEM_TURN = 4;     ///< TD-295: starts a system turn
+constexpr int USER_TURN = 5;       ///< TD-295: starts a user turn
+constexpr int ASSISTANT_TURN = 6;  ///< TD-295: starts an assistant turn
 constexpr int EOS = 3;  ///< End of sequence - marks the end of a sequence and stops generation
 }  // namespace SpecialTokenIDs
 
@@ -58,6 +64,9 @@ namespace SpecialTokenStrings {
 constexpr const char* PAD = "<pad>";  ///< Padding token string
 constexpr const char* UNK = "<unk>";  ///< Unknown token string
 constexpr const char* BOS = "<bos>";  ///< Beginning of sequence token string
+constexpr const char* SYSTEM_TURN = "<system>";        ///< TD-295
+constexpr const char* USER_TURN = "<user>";            ///< TD-295
+constexpr const char* ASSISTANT_TURN = "<assistant>";  ///< TD-295
 constexpr const char* EOS = "<eos>";  ///< End of sequence token string
 }  // namespace SpecialTokenStrings
 

@@ -1,5 +1,5 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.31.0
+// @adai-version: 0.32.0
 // @adai-reviewed: 2026-11-04
 
 #include "ChatbotAPI.hpp"
@@ -475,17 +475,13 @@ std::string ChatbotAPI::handle_chat_session(const std::string& request_body) {
     // Add user message to conversation context
     // TD-485: RAG retrieves with the latest message alone and places the earlier conversation
     // in its prompt; it used to get the whole formatted conversation as its query.
-    const RagTurn rag_turn{message, session->context->format_for_model()};
+    const RagTurn rag_turn{message, session->context->format_for_model(),
+                           session->context->turns()};
     session->context->add_user_message(message);
     session->last_access = std::chrono::steady_clock::now();
 
-    // Format context for model
-    std::string formatted_context = session->context->format_for_model();
-
-    // TODO: See TD-485 in TECHNICAL_DEBT.md - with RAG enabled, this whole conversation becomes the retrieval
-    // query; pass the latest user message for retrieval instead.
     // Generate response
-    std::string response = generate_response(formatted_context, config, &rag_turn);
+    std::string response = generate_response(session_prompt(*session->context), config, &rag_turn);
 
     // Add assistant response to conversation context
     session->context->add_assistant_message(response);
@@ -724,13 +720,18 @@ std::shared_ptr<Session> ChatbotAPI::get_or_create_session(std::string& session_
     // TD-294: the budget is the model's input length, counted with its own tokenizer (it was a
     // fixed 2048 estimated tokens, unrelated to the model).
     ConversationContext::TokenCounter counter;
+    const bool counts_turn_tokens = tokenizer_ && tokenizer_->has_turn_tokens();  // TD-295
     if (tokenizer_) {
         BPETokenizer* tokenizer = tokenizer_;
         counter = [tokenizer](const std::string& text) {
             return static_cast<int>(tokenizer->encode(text, false).size());
         };
     }
-    auto session = std::make_shared<Session>(10, session_token_budget(), std::move(counter));
+    // TD-295: one token of the input is the <assistant> that ends every prompt.
+    const std::size_t budget = session_token_budget();
+    auto session =
+        std::make_shared<Session>(10, counts_turn_tokens && budget > 1 ? budget - 1 : budget,
+                                  std::move(counter), counts_turn_tokens);
     sessions_[session_id] = session;
     return session;
 }
@@ -973,7 +974,14 @@ void ChatbotAPI::enable_batched_inference(const BatchedInferenceConfig& config) 
 // Text Generation
 // ============================================================================
 
-std::string ChatbotAPI::generate_response(const std::string& request_input,
+ModelPrompt ChatbotAPI::session_prompt(const ConversationContext& context) const {
+    if (tokenizer_ && tokenizer_->has_turn_tokens()) {
+        return ModelPrompt(context.format_for_model(), context.encode_for_model(*tokenizer_));
+    }
+    return ModelPrompt(context.format_for_model());
+}
+
+std::string ChatbotAPI::generate_response(const ModelPrompt& request_input,
                                           const GenerationConfig& config, const RagTurn* rag_turn) {
     // TD-038: always timed (start()/stop() are cheap map lookups next to actual model
     // inference) — enable_profiling()/GET /admin/profile gate exposure, not collection, so
@@ -992,15 +1000,21 @@ std::string ChatbotAPI::generate_response(const std::string& request_input,
     // TD-486: RAG builds the prompt and generation continues below like any other request, with this
     // request's strategy and config, reloaded settings, and the GPU decode. RAG used to generate
     // itself: always the default sampling, its startup copy of the settings, and on the CPU.
-    std::string input = request_input;
-    if (rag_engine) {
-        input = rag_turn ? rag_engine->buildPrompt(rag_turn->question, rag_turn->history)
-                         : rag_engine->buildPrompt(request_input);
+    ModelPrompt prompt = request_input;
+    if (rag_engine && tokenizer_->has_turn_tokens()) {  // TD-295
+        prompt = rag_turn ? rag_engine->buildTurnPrompt(rag_turn->question, rag_turn->turns)
+                          : rag_engine->buildTurnPrompt(request_input.text);
+    } else if (rag_engine) {
+        prompt =
+            ModelPrompt(rag_turn ? rag_engine->buildPrompt(rag_turn->question, rag_turn->history)
+                                 : rag_engine->buildPrompt(request_input.text));
     }
+    const std::string& input = prompt.text;
 
     try {
-        // Tokenize input (no special tokens for encoder input)
-        std::vector<int> input_tokens = tokenizer_->encode(input, false);
+        // Tokenize input (no <bos>/<eos> for encoder input; TD-295: a prompt may be built already)
+        std::vector<int> input_tokens =
+            prompt.ids.empty() ? tokenizer_->encode_prompt(input) : prompt.ids;
 
         // TD-038: speculative decoding takes over generation entirely once a draft model is
         // configured — a server-level decoding mechanism (see draft_model_'s doc comment in
@@ -1088,9 +1102,8 @@ std::string ChatbotAPI::generate_response(const std::string& request_input,
 #ifdef ADAI_ENABLE_GPU
         if (adai::gpu::GPUManager::is_available()) {
             return model_->gpu_generate_response_with_strategy(
-                input, static_cast<int>(config.max_length), config.strategy, config.temperature,
-                static_cast<int>(config.top_k), config.top_p,
-                static_cast<int>(config.beam_width));
+                prompt, static_cast<int>(config.max_length), config.strategy, config.temperature,
+                static_cast<int>(config.top_k), config.top_p, static_cast<int>(config.beam_width));
         }
 #endif
 
@@ -1100,7 +1113,7 @@ std::string ChatbotAPI::generate_response(const std::string& request_input,
         // TextGenerator loop over next_token_logits(), re-running the encoder and the whole decoder
         // every step.
         return model_->generate_response_with_strategy(
-            input, static_cast<int>(config.max_length), config.strategy, config.temperature,
+            prompt, static_cast<int>(config.max_length), config.strategy, config.temperature,
             static_cast<int>(config.top_k), config.top_p, static_cast<int>(config.beam_width));
 
     } catch (const std::exception& e) {
@@ -1112,6 +1125,13 @@ std::string ChatbotAPI::generate_response(const std::string& request_input,
 ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
     const std::vector<std::string>& inputs, const GenerationConfig& config,
     const std::vector<RagTurn>* rag_turns) {
+    return generate_batch_responses(std::vector<ModelPrompt>(inputs.begin(), inputs.end()), config,
+                                    rag_turns);
+}
+
+ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
+    const std::vector<ModelPrompt>& inputs, const GenerationConfig& config,
+    const std::vector<RagTurn>* rag_turns) {
     BatchResponse batch_response;
     batch_response.success = true;
 
@@ -1121,8 +1141,8 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
         input_token_sequences.reserve(inputs.size());
 
         for (const auto& input : inputs) {
-            input_token_sequences.push_back(
-                tokenizer_->encode(input, false));  // Encoder: no special tokens
+            input_token_sequences.push_back(  // Encoder: no <bos>/<eos>
+                input.ids.empty() ? tokenizer_->encode_prompt(input.text) : input.ids);
         }
 
         // Dynamic batching is used ONLY to compute padding-efficiency
@@ -1177,7 +1197,7 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_session_responses(
 
     try {
         // Prepare formatted contexts for all sessions
-        std::vector<std::string> formatted_inputs;
+        std::vector<ModelPrompt> formatted_inputs;
         std::vector<RagTurn> rag_turns;  // TD-485
         std::vector<std::string> actual_session_ids;
         formatted_inputs.reserve(inputs.size());
@@ -1210,10 +1230,11 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_session_responses(
         }
 
         for (size_t i = 0; i < inputs.size(); ++i) {
-            rag_turns.push_back({inputs[i], sessions[i]->context->format_for_model()});  // TD-485
+            rag_turns.push_back({inputs[i], sessions[i]->context->format_for_model(),
+                                 sessions[i]->context->turns()});  // TD-485
             sessions[i]->context->add_user_message(inputs[i]);
             sessions[i]->last_access = std::chrono::steady_clock::now();
-            formatted_inputs.push_back(sessions[i]->context->format_for_model());
+            formatted_inputs.push_back(session_prompt(*sessions[i]->context));
         }
 
         // Generate batch responses for formatted contexts

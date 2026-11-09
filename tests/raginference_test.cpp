@@ -730,3 +730,29 @@ TEST_F(RAGInferencePromptBudgetTest, HistoryKeepsItsLatestTurnsWithinTheBudget) 
     EXPECT_EQ(history.substr(history.size() - kept.size()), kept) << "the history's end is kept: " << p;
     EXPECT_EQ(p.find("turn0 "), std::string::npos) << "the oldest turns go first";
 }
+
+// TD-295: retrieved context in a <system> turn, the latest whole turns, the question last.
+TEST_F(RAGInferenceTest, TurnPromptHasContextHistoryAndQuestionWithinTheLimit) {
+    BPETokenizer& tokenizer = *model->get_tokenizer();
+    if (!tokenizer.has_turn_tokens()) {
+        tokenizer.build_vocab({"machine learning is a field of study about data and models"}, 200,
+                              1);
+    }
+    add_sample_documents();
+    std::vector<ConversationTurn> history;
+    for (int i = 0; i < 400; ++i) {
+        history.push_back({i % 2 ? "assistant" : "user", "machine learning"});
+    }
+    RAGInference::RAGConfig small_context;
+    small_context.max_context_length = 8;  // leaves room for the conversation
+    rag->setConfig(small_context);
+    const ModelPrompt prompt = rag->buildTurnPrompt("machine learning", history);
+    using namespace adai::SpecialTokenIDs;
+    ASSERT_FALSE(prompt.ids.empty());
+    EXPECT_LE(prompt.ids.size(), static_cast<size_t>(model->get_max_seq_length()));
+    EXPECT_EQ(prompt.ids.front(), SYSTEM_TURN);
+    EXPECT_EQ(prompt.ids.back(), ASSISTANT_TURN);
+    EXPECT_EQ(std::count(prompt.ids.begin(), prompt.ids.end(), SYSTEM_TURN), 1);
+    EXPECT_GT(std::count(prompt.ids.begin(), prompt.ids.end(), USER_TURN), 1)
+        << "some history fits";
+}

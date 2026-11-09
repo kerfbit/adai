@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-10-17
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-08
 
 
 #include <cctype>
@@ -26,6 +26,9 @@ struct SampleMeta {
     float quality = -1.0f;  ///< Quality score [0, 1]; negative = not set
     float weight = 1.0f;    ///< Sampling weight (1.0 = unweighted)
     int token_count = -1;   ///< Pre-computed token count; negative = not computed
+    /// TD-295: earlier turns of the conversation, oldest first, each {role, content} with role
+    /// "system", "user" or "assistant". Empty for a single exchange.
+    std::vector<std::pair<std::string, std::string>> history;
 };
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -68,7 +71,8 @@ inline std::string json_esc(const std::string& s) {
 // as Python's json and nlohmann/json do.
 struct JsonMember {
     bool is_string = false;  ///< true: `value` is the decoded string; false: the raw token
-    std::string value;       ///< number/true/false/null token; empty for a skipped object/array
+    bool is_container = false;  ///< TD-295: `value` is the raw object or array text
+    std::string value;          ///< number/true/false/null token, or the object/array text
 };
 
 inline void append_utf8(std::string& out, unsigned cp) {
@@ -223,8 +227,11 @@ inline std::vector<std::pair<std::string, JsonMember>> parse_object_members(
                 return members;
             m.is_string = true;
         } else if (c == '{' || c == '[') {
+            const size_t begin = pos;
             if (!skip_container(line, pos))
                 return members;
+            m.value = line.substr(begin, pos - begin);
+            m.is_container = true;
         } else {
             const size_t begin = pos;
             while (pos < line.size() && line[pos] != ',' && line[pos] != '}' &&
@@ -253,6 +260,48 @@ inline std::string member_str(const std::vector<std::pair<std::string, JsonMembe
                               const std::string& key) {
     const JsonMember* m = find_member(members, key);
     return (m && m->is_string) ? m->value : std::string();
+}
+
+/// TD-295: `"history":[{"role":...,"content":...},...]` into `history`. False when it is present
+/// but anything else.
+inline bool parse_history(const std::vector<std::pair<std::string, JsonMember>>& members,
+                          std::vector<std::pair<std::string, std::string>>& history) {
+    const JsonMember* m = find_member(members, "history");
+    if (!m) {
+        return true;
+    }
+    if (!m->is_container || m->value.empty() || m->value.front() != '[') {
+        return false;
+    }
+    const std::string& a = m->value;
+    size_t pos = 1;
+    while (true) {
+        skip_ws(a, pos);
+        if (pos >= a.size()) {
+            return false;
+        }
+        if (a[pos] == ']') {
+            return true;
+        }
+        if (a[pos] != '{') {
+            return false;
+        }
+        const size_t begin = pos;
+        if (!skip_container(a, pos)) {
+            return false;
+        }
+        const auto turn = parse_object_members(a.substr(begin, pos - begin));
+        const std::string role = member_str(turn, "role");
+        const std::string content = member_str(turn, "content");
+        if ((role != "system" && role != "user" && role != "assistant") || content.empty()) {
+            return false;
+        }
+        history.emplace_back(role, content);
+        skip_ws(a, pos);
+        if (pos < a.size() && a[pos] == ',') {
+            ++pos;
+        }
+    }
 }
 
 inline float member_flt(const std::vector<std::pair<std::string, JsonMember>>& members,
@@ -312,6 +361,14 @@ inline std::string sample_to_jsonl(const std::string& input, const std::string& 
         o << ",\"weight\":" << meta.weight;
     if (meta.token_count >= 0)
         o << ",\"token_count\":" << meta.token_count;
+    if (!meta.history.empty()) {  // TD-295
+        o << ",\"history\":[";
+        for (size_t i = 0; i < meta.history.size(); ++i) {
+            o << (i ? "," : "") << "{\"role\":\"" << json_esc(meta.history[i].first)
+              << "\",\"content\":\"" << json_esc(meta.history[i].second) << "\"}";
+        }
+        o << "]";
+    }
     o << "}";
     return o.str();
 }
@@ -319,7 +376,8 @@ inline std::string sample_to_jsonl(const std::string& input, const std::string& 
 /**
  * @brief Parse a JSONL line into input, response, and optional metadata.
  *
- * @return true if the line contained a valid "input" field; false otherwise.
+ * @return true if the line contained a valid "input" field (and, if it has one, a valid "history"
+ * field); false otherwise.
  */
 inline bool parse_jsonl_sample(const std::string& line, std::string& input, std::string& response,
                                SampleMeta& meta) {
@@ -329,7 +387,7 @@ inline bool parse_jsonl_sample(const std::string& line, std::string& input, std:
     const auto members = tsm_detail::parse_object_members(line);
     input = member_str(members, "input");
     response = member_str(members, "response");
-    if (input.empty())
+    if (input.empty() || !tsm_detail::parse_history(members, meta.history))
         return false;
     meta.domain = member_str(members, "domain");
     meta.task_type = member_str(members, "task_type");

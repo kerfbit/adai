@@ -2,7 +2,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.3.0
+// @adai-version: 1.4.0
 // @adai-reviewed: 2026-11-08
 
 #include <algorithm>
@@ -97,6 +97,30 @@ enum class WhitespaceHandling {
     PRESERVE,
 };
 
+/// TD-295: one earlier or current turn of a conversation. Roles other than "system" and
+/// "assistant" are encoded as user turns.
+struct ConversationTurn {
+    std::string role;
+    std::string content;
+};
+
+/**
+ * @brief What the model takes as input (TD-295)
+ *
+ * `text` alone (any string converts) is one user message. `ids`, when not empty, are the finished
+ * encoder input, built by a formatter that writes turn tokens; `text` then only feeds the world
+ * model.
+ */
+struct ModelPrompt {
+    std::string text;
+    std::vector<int> ids;
+
+    ModelPrompt(std::string prompt_text) : text(std::move(prompt_text)) {}  // NOLINT
+    ModelPrompt(const char* prompt_text) : text(prompt_text) {}             // NOLINT
+    ModelPrompt(std::string prompt_text, std::vector<int> prompt_ids)
+        : text(std::move(prompt_text)), ids(std::move(prompt_ids)) {}
+};
+
 class BPETokenizer {
    private:
     TokenizerMode mode;
@@ -116,6 +140,7 @@ class BPETokenizer {
     std::regex token_pattern;
     TextNormalization normalization_ = TextNormalization::CASED;  // TD-560
     WhitespaceHandling whitespace_ = WhitespaceHandling::PRESERVE;  // TD-224
+    bool has_turn_tokens_ = false;                                  // TD-295
 
     // TD-222: identifies this tokenizer's merge state for apply_bpe()'s per-thread cache. Unique per
     // process and never reused, and renewed by every change to the merges or the mode
@@ -161,6 +186,21 @@ class BPETokenizer {
     void set_whitespace(WhitespaceHandling whitespace);
     /// "preserve" or "collapse".
     static const char* whitespace_name(WhitespaceHandling whitespace);
+    /// TD-295: whether this vocabulary has <system>/<user>/<assistant> at ids 4-6. build_vocab()
+    /// adds them; a vocabulary from before TD-295 has ordinary tokens there, and keeps text
+    /// prompts.
+    bool has_turn_tokens() const {
+        return has_turn_tokens_;
+    }
+    /**
+     * TD-295: the encoder input for a conversation: each turn's token followed by its content, then
+     * <assistant> to cue the reply. Turn tokens enter only here, as ids; encode() can't produce
+     * one from text. Requires has_turn_tokens().
+     */
+    std::vector<int> encode_conversation(const std::vector<ConversationTurn>& turns);
+    /// TD-295: the encoder input for one message: <user> message <assistant> with turn tokens, the
+    /// message's plain encoding without.
+    std::vector<int> encode_prompt(const std::string& text);
     /// TD-563: the newest vocabulary file format this build reads (and writes).
     static constexpr int kVocabFormatMajor = 3;
 

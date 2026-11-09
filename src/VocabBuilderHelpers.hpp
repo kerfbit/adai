@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-10-18
 
 /**
@@ -125,6 +125,8 @@ inline std::vector<std::string> load_pairs_format(const std::string& filename) {
                     texts.push_back(in);
                 if (!resp.empty())
                     texts.push_back(resp);
+                for (const auto& turn : meta.history)  // TD-295
+                    texts.push_back(turn.second);
             }
         }
     } else {

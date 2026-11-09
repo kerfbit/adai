@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 2.1.0
+// @adai-version: 2.2.0
 // @adai-reviewed: 2026-10-27
 
 
@@ -102,6 +102,9 @@ class RAGInference {
     static void validateConfig(const RAGConfig& config);
 
     /// Tokens in `text` under the model's tokenizer (0 for empty text).
+    /// Steps shared by every prompt builder: retrieve, log, apply the threshold.
+    void retrieveDocuments(const std::string& query,
+                           std::vector<std::pair<float, const Document*>>& retrieved_docs);
     size_t countTokens(const std::string& text) const;
 
     /// The largest position <= pos that doesn't split a UTF-8 sequence.
@@ -149,6 +152,18 @@ class RAGInference {
      * @param history The earlier conversation, if any (TD-485)
      */
     virtual std::string buildPrompt(const std::string& query, const std::string& history = {});
+
+    /**
+     * @brief buildPrompt() for a vocabulary with turn tokens (TD-295)
+     *
+     * The ids are a <system> turn with the retrieved context, as many of the latest earlier turns
+     * as fit (whole turns), and the question as the last <user> turn, within max_seq_length.
+     *
+     * @param query The question; the only text retrieval uses
+     * @param history The earlier conversation, oldest first
+     */
+    virtual ModelPrompt buildTurnPrompt(const std::string& query,
+                                        const std::vector<ConversationTurn>& history = {});
 
     /// buildPrompt(), also reporting the retrieved documents.
     std::string buildPrompt(const std::string& query,

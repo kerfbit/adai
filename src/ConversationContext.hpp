@@ -2,10 +2,11 @@
 #define CONVERSATIONCONTEXT_HPP
 
 // @adai-status: stable
-// @adai-version: 1.4.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 1.5.0
+// @adai-reviewed: 2026-11-08
 
 #include <deque>
+#include "BPETokenizer.hpp"
 #include <functional>
 #include <optional>
 #include <stdexcept>
@@ -108,6 +109,12 @@ class ConversationContext {
      * @param separator Token separator (default: newline)
      * @return Formatted conversation string
      */
+    /// TD-295: the conversation as turns, the system message first.
+    std::vector<ConversationTurn> turns(bool include_system = true) const;
+
+    /// TD-295: the encoder input with real turn tokens (needs tokenizer.has_turn_tokens()).
+    std::vector<int> encode_for_model(BPETokenizer& tokenizer, bool include_system = true) const;
+
     std::string format_for_model(bool include_system = true,
                                  const std::string& separator = "\n") const;
 
@@ -176,6 +183,15 @@ class ConversationContext {
      * counter.
      */
     void set_token_counter(TokenCounter counter);
+
+    /// TD-295: a message counts as one turn token plus its content instead of a text-labelled line.
+    /// Set by a session on a vocabulary with turn tokens, before set_token_counter().
+    void set_counts_turn_tokens(bool counts_turn_tokens) {
+        counts_turn_tokens_ = counts_turn_tokens;
+    }
+
+    /// TD-295: whether `role` can be stored: 1-32 of [A-Za-z0-9_-], and not the reserved "SYSTEM".
+    static bool is_valid_role(const std::string& role);
 
     /**
      * @brief The tokens `content` would count as a message with `role` (TD-294): its prompt line
@@ -300,6 +316,7 @@ class ConversationContext {
     bool keep_system_message;          // Whether to preserve system message
     int total_tokens{0};               // Cached total token count
     TokenCounter token_counter;        // TD-294: empty = estimate_tokens()
+    bool counts_turn_tokens_ = false;  // TD-295
 
     /**
      * @brief Update total token count cache

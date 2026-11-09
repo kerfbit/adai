@@ -521,3 +521,8 @@ file without the line keeps the constructor's mode no longer applies.
   `COLLAPSE`, so a v1 or v2 file tokenizes exactly as before; an unknown value is a `VocabularyFileError`.
 - `COLLAPSE` rewrites each whitespace *match* to one space, as it always did. The pattern can match more than once between two words
   (`"a\n\tb"` gives two spaces), so "one space per run" (§6) was only approximately true.
+
+## Addendum (November 8, 2026): turn tokens (TD-295)
+
+`build_vocab()` reserves `<system>`/`<user>`/`<assistant>` at ids 4-6; `has_turn_tokens()` reports them. `encode_conversation()` and `encode_prompt()` are
+the only ways they enter a sequence: the pre-tokenizer always splits `<` from letters, so `encode()` can't produce one from text. `decode()` skips them.

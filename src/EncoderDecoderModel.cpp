@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.33.0
+// @adai-version: 0.34.0
 // @adai-reviewed: 2026-11-08
 
 #include "EncoderDecoderModel.hpp"
@@ -317,8 +317,21 @@ void EncoderDecoderModel::sync_generation_config(int max_length, float temperatu
     generator->set_config(synced_config);
 }
 
+std::vector<int> EncoderDecoderModel::prompt_ids(const ModelPrompt& input) const {
+    return input.ids.empty() ? tokenizer->encode_prompt(input.text) : input.ids;
+}
+
 void EncoderDecoderModel::mask_unknown_ids(Matrix& logits) const {
     const int known = static_cast<int>(tokenizer->get_vocab_size());
+    // TD-295: a reply never contains a turn token.
+    if (tokenizer->has_turn_tokens()) {
+        for (int i = 0; i < logits.rows; ++i) {
+            for (int j = adai::SpecialTokenIDs::SYSTEM_TURN;
+                 j <= adai::SpecialTokenIDs::ASSISTANT_TURN && j < logits.cols; ++j) {
+                logits.data[i][j] = -1e9f;
+            }
+        }
+    }
     for (int i = 0; i < logits.rows; ++i) {
         for (int j = std::max(known, 0); j < logits.cols; ++j) {
             logits.data[i][j] = -1e9f;  // probability ~0
@@ -347,7 +360,8 @@ std::vector<int> EncoderDecoderModel::run_single_hypothesis(
 }
 
 // Generate response
-std::string EncoderDecoderModel::generate_response(const std::string& input_text, int max_length) {
+std::string EncoderDecoderModel::generate_response(const ModelPrompt& input, int max_length) {
+    const std::string& input_text = input.text;
     // TD-156: serializes this whole (potentially multi-token) generation against any other
     // thread's forward()/backward()/generate_response()/generate_response_with_strategy() call
     // on this same instance — see model_mutex_'s doc comment in EncoderDecoderModel.hpp.
@@ -359,7 +373,7 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
     // Encode input (no special tokens for encoder input)
     // TD-365: over-long input keeps its last max_seq_length tokens, as in training (it was never
     // truncated, so positions past max_seq_length had no positional encoding).
-    std::vector<int> input_tokens = encoder->keep_last_positions(tokenizer->encode(input_text, false));
+    std::vector<int> input_tokens = encoder->keep_last_positions(prompt_ids(input));
     int input_len = static_cast<int>(input_tokens.size());
     Matrix encoder_mask(input_len, input_len);
     for (int i = 0; i < input_len; ++i) {
@@ -487,11 +501,12 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
 }
 
 // Generate with specific strategy
-std::string EncoderDecoderModel::generate_response_with_strategy(const std::string& input_text,
+std::string EncoderDecoderModel::generate_response_with_strategy(const ModelPrompt& input,
                                                                  int max_length,
                                                                  const std::string& strategy,
                                                                  float temperature, int top_k,
                                                                  float top_p, int num_beams) {
+    const std::string& input_text = input.text;
     // TD-156: see generate_response()'s identical lock above / model_mutex_'s doc comment in
     // EncoderDecoderModel.hpp. This is the entry point RAGInference calls directly (bypassing
     // forward()), so it needs its own lock rather than relying on forward()'s.
@@ -534,7 +549,7 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     // Encode input (no special tokens for encoder input)
     // TD-365: over-long input keeps its last max_seq_length tokens, as in training (it was never
     // truncated, so positions past max_seq_length had no positional encoding).
-    std::vector<int> input_tokens = encoder->keep_last_positions(tokenizer->encode(input_text, false));
+    std::vector<int> input_tokens = encoder->keep_last_positions(prompt_ids(input));
     int input_len = static_cast<int>(input_tokens.size());
     Matrix encoder_mask(input_len, input_len);
     for (int i = 0; i < input_len; ++i) {
@@ -664,7 +679,7 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
 float EncoderDecoderModel::train_step(const std::string& input_text,
                                       const std::string& target_text) {
     std::vector<int> input_tokens =
-        tokenizer->encode(input_text, false);  // Encoder: no special tokens
+        tokenizer->encode_prompt(input_text);  // Encoder: no special tokens
     // Decoder targets: [w1 ... wn, EOS], without the tokenizer's leading BOS (TD-361)
     std::vector<int> target_tokens =
         strip_leading_bos(tokenizer->encode(target_text, true), bos_token_id);
@@ -711,7 +726,7 @@ float EncoderDecoderModel::evaluate(const std::string& input_text, const std::st
     // applies when first tokenizing the dataset — prefer evaluate_tokenized()
     // with already-truncated ids whenever they're available.
     std::vector<int> input_tokens =
-        tokenizer->encode(input_text, false);  // Encoder: no special tokens
+        tokenizer->encode_prompt(input_text);  // Encoder: no special tokens
     // Decoder targets: [w1 ... wn, EOS], without the tokenizer's leading BOS (TD-361)
     std::vector<int> target_tokens =
         strip_leading_bos(tokenizer->encode(target_text, true), bos_token_id);
@@ -1267,14 +1282,18 @@ Matrix EncoderDecoderModel::next_token_logits(const std::vector<int>& raw_input_
     // TD-424: only the requested last rows are projected; the LM head is row-wise, so this gives the
     // same logits as the full projection's last rows.
     if (last_rows <= 1) {
-        return lm_head->forward(last_row(decoder_out));
+        Matrix logits = lm_head->forward(last_row(decoder_out));
+        mask_unknown_ids(logits);  // TD-295: the speculative and batched paths generate from this
+        return logits;
     }
     const int rows = std::min(last_rows, decoder_out.rows);
     Matrix tail(rows, decoder_out.cols);
     for (int r = 0; r < rows; ++r) {
         tail.data[r] = decoder_out.data[decoder_out.rows - rows + r];
     }
-    return lm_head->forward(tail);
+    Matrix logits = lm_head->forward(tail);
+    mask_unknown_ids(logits);
+    return logits;
 }
 
 // Backward pass
@@ -1419,7 +1438,7 @@ float EncoderDecoderModel::gpu_evaluate(const std::string& input_text,
     // ever sees during training, which is what was blowing the GPU memory
     // budget during validation.
     std::vector<int> input_tokens =
-        tokenizer->encode(input_text, false);  // Encoder: no special tokens
+        tokenizer->encode_prompt(input_text);  // Encoder: no special tokens
     // Decoder targets: [w1 ... wn, EOS], without the tokenizer's leading BOS (TD-361)
     std::vector<int> target_tokens =
         strip_leading_bos(tokenizer->encode(target_text, true), bos_token_id);
@@ -1451,8 +1470,8 @@ float EncoderDecoderModel::gpu_evaluate_tokenized(const std::vector<int>& input_
     return loss;
 }
 
-std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_text,
-                                                       int max_length) {
+std::string EncoderDecoderModel::gpu_generate_response(const ModelPrompt& input, int max_length) {
+    const std::string& input_text = input.text;
     // TD-033: see model_mutex_'s doc comment in EncoderDecoderModel.hpp — encoder/decoder/
     // lm_head's own gpu_forward() calls below write through to their persistent per-instance
     // GPUState, which two concurrent callers on the same model instance would race on.
@@ -1463,7 +1482,7 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
 
     // TD-365: over-long input keeps its last max_seq_length tokens, as in training (it was never
     // truncated, so positions past max_seq_length had no positional encoding).
-    std::vector<int> input_tokens = encoder->keep_last_positions(tokenizer->encode(input_text, false));
+    std::vector<int> input_tokens = encoder->keep_last_positions(prompt_ids(input));
 
     // Encode once on GPU; read-only input to every decode step below.
     adai::gpu::GPUMatrix gpu_encoder_out = encoder->gpu_encode(input_tokens);
@@ -1561,9 +1580,12 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
     return response;
 }
 
-std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
-    const std::string& input_text, int max_length, const std::string& strategy,
-    float temperature, int top_k, float top_p, int num_beams) {
+std::string EncoderDecoderModel::gpu_generate_response_with_strategy(const ModelPrompt& input,
+                                                                     int max_length,
+                                                                     const std::string& strategy,
+                                                                     float temperature, int top_k,
+                                                                     float top_p, int num_beams) {
+    const std::string& input_text = input.text;
     // TD-033: GPU-resident analog of generate_response_with_strategy() — see this class's
     // header for why no separate KV-cache-vs-no-cache branch per strategy is needed here, unlike
     // that CPU version. Locked for the same reason generate_response_with_strategy() locks
@@ -1587,7 +1609,7 @@ std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
 
     // TD-365: over-long input keeps its last max_seq_length tokens, as in training (it was never
     // truncated, so positions past max_seq_length had no positional encoding).
-    std::vector<int> input_tokens = encoder->keep_last_positions(tokenizer->encode(input_text, false));
+    std::vector<int> input_tokens = encoder->keep_last_positions(prompt_ids(input));
 
     // Encode once on GPU; read-only input to every decode step below.
     adai::gpu::GPUMatrix gpu_encoder_out = encoder->gpu_encode(input_tokens);

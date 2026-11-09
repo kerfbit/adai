@@ -377,3 +377,41 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
+
+// TD-295: earlier turns of a multi-turn sample.
+TEST(ParseJsonlSampleTest, HistoryIsReadInOrderAndRoundTrips) {
+    const std::string line =
+        R"({"input":"and now?","history":[{"role":"system","content":"be \"kind\""},{"role":"user","content":"hi"},{"role":"assistant","content":"hello\n]"}],"response":"ok"})";
+    std::string in, resp;
+    SampleMeta meta;
+    ASSERT_TRUE(parse_jsonl_sample(line, in, resp, meta));
+    EXPECT_EQ(resp, "ok");
+    ASSERT_EQ(meta.history.size(), 3u);
+    EXPECT_EQ(meta.history[0].first, "system");
+    EXPECT_EQ(meta.history[0].second, "be \"kind\"");
+    EXPECT_EQ(meta.history[2].second, "hello\n]");
+
+    std::string in2, resp2;
+    SampleMeta meta2;
+    ASSERT_TRUE(parse_jsonl_sample(sample_to_jsonl(in, resp, meta), in2, resp2, meta2));
+    EXPECT_EQ(meta2.history, meta.history);
+}
+
+TEST(ParseJsonlSampleTest, NoHistoryIsEmptyAndAnEmptyArrayIsFine) {
+    std::string in, resp;
+    SampleMeta meta;
+    ASSERT_TRUE(parse_jsonl_sample(R"({"input":"a","response":"b","history":[]})", in, resp, meta));
+    EXPECT_TRUE(meta.history.empty());
+}
+
+TEST(ParseJsonlSampleTest, MalformedHistoryRejectsTheSample) {
+    for (const std::string line :
+         {R"({"input":"a","history":"text"})", R"({"input":"a","history":{"role":"user"}})",
+          R"({"input":"a","history":["hi"]})",
+          R"({"input":"a","history":[{"role":"tool","content":"x"}]})",
+          R"({"input":"a","history":[{"role":"user","content":""}]})"}) {
+        std::string in, resp;
+        SampleMeta meta;
+        EXPECT_FALSE(parse_jsonl_sample(line, in, resp, meta)) << line;
+    }
+}

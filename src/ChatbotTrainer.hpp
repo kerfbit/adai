@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added)
-// @adai-version: 0.14.0
+// @adai-version: 0.15.0
 // @adai-reviewed: 2026-11-08
 
 #include <atomic>
@@ -402,6 +402,8 @@ class ChatbotTrainer {
     /// TD-561: whether BLEU compares case-insensitively: when the model's tokenizer lowercases, its
     /// replies are always lowercase while the reference targets keep their capitals.
     bool bleu_lowercases() const;
+    /// TD-295: the prompt a generation-quality check generates from for this pair.
+    ModelPrompt eval_prompt(const TokenizedPair& pair) const;
 
    public:
     /**
@@ -520,7 +522,7 @@ class ChatbotTrainer {
     /// 2 = TD-531/TD-532 JSONL decoding, TD-275 target truncation (October 2026);
     /// 3 = TD-361 targets without the leading <bos> (October 2026);
     /// 4 = TD-271 deterministic validation split; caches hold old random splits (November 2026).
-    static constexpr int kPreprocessFormatVersion = 4;
+    static constexpr int kPreprocessFormatVersion = 5;  // 5: turn tokens (TD-295)
 
     // Getters for testing — also how IncrementalTrainer integration consumes per-epoch metrics
     // (TD-004, absorbed into and completed by TD-009).

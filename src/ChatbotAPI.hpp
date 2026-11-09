@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.25.0
+// @adai-version: 0.26.0
 // @adai-reviewed: 2026-11-04
 
 #include <atomic>
@@ -38,9 +38,10 @@ struct Session {
     // model's tokenizer as the counter (session_token_budget()); the defaults are for other
     // callers.
     Session(size_t max_messages = 10, size_t max_tokens = 2048,
-            ConversationContext::TokenCounter token_counter = {})
+            ConversationContext::TokenCounter token_counter = {}, bool counts_turn_tokens = false)
         : context(std::make_unique<ConversationContext>(max_messages, max_tokens)),
           last_access(std::chrono::steady_clock::now()) {
+        context->set_counts_turn_tokens(counts_turn_tokens);  // TD-295
         if (token_counter) {
             context->set_token_counter(std::move(token_counter));
         }
@@ -84,6 +85,7 @@ class ChatbotAPI {
     struct RagTurn {
         std::string question;
         std::string history;
+        std::vector<ConversationTurn> turns;  // TD-295: `history` as turns, for turn-token prompts
     };
 
     struct BatchResponse {
@@ -266,6 +268,11 @@ class ChatbotAPI {
                                            const GenerationConfig& config,
                                            const std::vector<RagTurn>* rag_turns = nullptr);
 
+    /// TD-295: as above, for prompts already built (sessions).
+    BatchResponse generate_batch_responses(const std::vector<ModelPrompt>& prompts,
+                                           const GenerationConfig& config,
+                                           const std::vector<RagTurn>* rag_turns = nullptr);
+
     /**
      * @brief Generate batch responses with sessions (stateful)
      * @param inputs Vector of input messages
@@ -361,8 +368,12 @@ class ChatbotAPI {
     // Text generation
     // `rag_turn`: for a session turn, the latest message and the earlier conversation, which RAG
     // uses instead of `input` (the whole formatted conversation) (TD-485).
-    std::string generate_response(const std::string& input, const GenerationConfig& config,
+    std::string generate_response(const ModelPrompt& input, const GenerationConfig& config,
                                   const RagTurn* rag_turn = nullptr);
+
+    // TD-295: a session's prompt: real turn tokens when the vocabulary has them, else its text
+    // form.
+    ModelPrompt session_prompt(const ConversationContext& context) const;
 
     // Model components
     EncoderDecoderModel* model_;

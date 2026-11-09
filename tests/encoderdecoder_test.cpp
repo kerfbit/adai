@@ -882,7 +882,8 @@ TEST(EncoderDecoderModelTest, TrainedModelsFirstPredictionIsTheFirstWordNotBos) 
     model.set_training(false);
     const int bos = model.get_bos_token_id();
     for (const auto& [input, target] : pairs) {
-        const std::vector<int> in = tok->encode(input, false);
+        const std::vector<int> in =
+            tok->encode_prompt(input);  // TD-295: as train_step() encodes it
         const std::vector<int> tgt = EncoderDecoderModel::strip_leading_bos(tok->encode(target, true), bos);
         ASSERT_FALSE(tgt.empty());
         // forward() with a 1-token target feeds the decoder just [BOS]; row 0 is the first
@@ -3003,4 +3004,25 @@ TEST(ResidualInitScalingTest, InputWeightsAreLeftAlone) {
     const float w1 = matrix_std(lone.get_feed_forward()->get_W1());
     EXPECT_NEAR(matrix_std(b->get_self_attention()->get_Wq()), wq, 0.1f * wq);
     EXPECT_NEAR(matrix_std(b->get_feed_forward()->get_W1()), w1, 0.1f * w1);
+}
+
+// TD-295: no generation path emits a turn token, and an id prompt is used as given.
+TEST(TurnTokenGenerationTest, TurnTokensAreMaskedAndIdPromptsUsed) {
+    EncoderDecoderModel model(40, 16, 1, 1, 2, 32, 16);
+    model.get_tokenizer()->build_vocab({"hello world how are you"}, 40, 1);
+    ASSERT_TRUE(model.get_tokenizer()->has_turn_tokens());
+    const Matrix logits = model.next_token_logits({5, 8, 9, 6}, {}, 1);
+    for (int id = adai::SpecialTokenIDs::SYSTEM_TURN; id <= adai::SpecialTokenIDs::ASSISTANT_TURN;
+         ++id) {
+        EXPECT_LT(logits(0, id), -1e8f);
+    }
+    EXPECT_GT(logits(0, 8), -1e8f);
+
+    BPETokenizer& tokenizer = *model.get_tokenizer();
+    model.set_training(false);
+    // Greedy is deterministic, so the same ids give the same reply and a plain string is <user>
+    // text.
+    const std::vector<int> ids = tokenizer.encode_prompt("hello world");
+    EXPECT_EQ(model.generate_response_with_strategy("hello world", 5, "greedy"),
+              model.generate_response_with_strategy(ModelPrompt("ignored", ids), 5, "greedy"));
 }

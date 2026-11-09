@@ -255,3 +255,8 @@ that count (or `estimate_tokens(content)` without a counter) for rejecting an ov
 the context, used for imports (`deserialize()`'s temporary), the TD-292 tail cut of an over-long newest message, and the summary
 message of `create_summarized()`. Without a counter nothing changes: `estimate_tokens()` as before. `ChatbotAPI` sets the model's
 tokenizer for every session; see [ChatbotAPI.md](ChatbotAPI.md).
+
+## Addendum (November 8, 2026): turn tokens and role validation (TD-295)
+
+`turns()` and `encode_for_model()` give the conversation as turns and as encoder ids; `format_for_model()` is now only for vocabularies without turn tokens.
+`add_message()` refuses a role outside 1-32 of `[A-Za-z0-9_-]`, and the reserved `SYSTEM` (`is_valid_role()`). `set_counts_turn_tokens()` counts a message as its turn token plus its content.

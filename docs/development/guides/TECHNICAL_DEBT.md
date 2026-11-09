@@ -1538,6 +1538,8 @@ The generation and model math run is complete.
 - TD-371 (done in code, owner's choice to scale: residual-branch output projections shrink at initialization by the stack's branch count; new
   weights only).
 - TD-224 (done in code for whitespace, owner's choice to preserve all of it: vocabulary format v3, new vocabularies only).
+- TD-295 (done in code, owner's choice of the proposal as recommended plus multi-turn training data: `<system>`/`<user>`/`<assistant>` at ids 4-6,
+  id-built prompts for serving, RAG and training, a JSONL `history` field; vocabulary rebuild and retrain with TD-358/TD-563).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -7926,7 +7928,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open — owner decision November 4, 2026: special turn tokens; design proposal written | NLP / ConversationContext | October 9, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 8, 2026 (owner's choices: the proposal as recommended, plus multi-turn training data now); vocabulary rebuild and retrain remain | NLP / ConversationContext | October 9, 2026 | 1-2 hours |
 
 Description:
 Found alongside TD-291. `format_for_model()` writes plain-text `Role: content` lines, so message
@@ -7937,20 +7939,43 @@ custom role containing `|` or a newline would corrupt the file; a regular messag
 
 Action Items:
 
-- [ ] Escape (or reject) role strings in `serialize()`; restrict roles to a known set or a safe charset.
-- [ ] Consider neutralizing role-label prefixes inside content when formatting prompts. Owner decision (November 4, 2026): rather than neutralizing text labels, use real turn tokens (`<system>`/`<user>`/
+- [x] Escape (or reject) role strings in `serialize()`; restrict roles to a known set or a safe charset.
+- [x] Consider neutralizing role-label prefixes inside content when formatting prompts. Owner decision (November 4, 2026): rather than neutralizing text labels, use real turn tokens (`<system>`/`<user>`/
       `<assistant>`) that only the prompt formatter can write. Text labels can't be made safe: the tokenizer lowercases and
       collapses whitespace (TD-224), so typed labels and real ones look the same to the model. Design for review first:
       [Conversation Turn Tokens](../../proposals/conversation_turn_tokens_plan.md) (vocabulary ids 4–6, id-based prompts, the
       same format in training, generation masking, old vocabularies unchanged; needs a vocabulary rebuild and retrain, so best
-      done with TD-224 and the TD-358 retraining). No code has changed yet; the first item (role validation) stays open.
+      done with TD-224 and the TD-358 retraining).
 
-Location in code: `src/ConversationContext.cpp` (`format_for_model()`, `serialize()`); tagged `TODO: See TD-295`.
+Fix (November 8, 2026), following the proposal:
 
-Files to Modify:
+- **Vocabulary:** `build_vocab()` puts `<system>`, `<user>`, `<assistant>` at ids 4-6 and ordinary tokens from 7. `has_turn_tokens()` is true
+  only when all three are spelled and numbered so, which an older vocabulary never is; those keep today's text prompts exactly.
+- **Prompts:** a `ModelPrompt` carries text alone or finished ids, and every string still converts to one. `ConversationContext::encode_for_model()`
+  writes each turn's token and its content's ids, then `<assistant>` as the reply cue; turn ids enter only there, so nothing typed can
+  create one. A plain string (`/chat`, the trainer's quality checks, `train_step()`) is `<user> text <assistant>` through
+  `BPETokenizer::encode_prompt()`. Sessions count a message as one token plus its content, with one token of the budget kept for the cue.
+- **RAG:** `RAGInference::buildTurnPrompt()`: a `<system>` turn with the retrieved context, the latest earlier turns that fit whole, and the question last.
+- **Training:** `preprocess_data()` encodes inputs the same way (`kPreprocessFormatVersion` 5). A JSONL sample may carry
+  `"history":[{"role":"system|user|assistant","content":"..."},...]`, oldest first (`SampleMeta::history`); a malformed one rejects that
+  line. Later turns are kept first when it is too long. The vocabulary builders read history text too. Without turn tokens history is ignored.
+- **Generation:** `mask_unknown_ids()` also masks ids 4-6, and `next_token_logits()` (speculative and batched paths) now masks too.
+- **Roles:** `add_message()` refuses a role that isn't 1-32 of `[A-Za-z0-9_-]` or that is the reserved `SYSTEM`, so a bad import fails and leaves the session alone.
 
-- `src/ConversationContext.cpp`
-- `tests/conversationcontext_test.cpp`
+Checked end to end on a scratch setup: a real `incremental_trainer` pass (CPU, 20 pairs including 4 multi-turn) built a vocabulary with the tokens, and
+`chatbot_api_server` answered from that checkpoint: `/chat` gave the trained replies, and "say it again" after "where do you live" gave
+"in the machine" only through the conversation's earlier turn. GPU generation tests pass on the oneAPI CPU device; not run on real GPU hardware.
+
+The RLHF update path still re-encodes prompts its own way (deferred with TD-500). `RAGInference::generate()`, the standalone path no server
+uses, sends its text prompt as one user turn.
+
+Tests: `tests/tokenizer_test.cpp` (`BPETokenizerTurnTokenTest`), `tests/conversationcontext_test.cpp` (`ConversationContextRoleTest`),
+`tests/training_sample_meta_test.cpp` (history), `tests/chatbottrainer_test.cpp` (`InputsUseTurnTokensAndHistory`),
+`tests/encoderdecoder_test.cpp` (`TurnTokenGenerationTest`), `tests/raginference_test.cpp` (`TurnPromptHasContextHistoryAndQuestionWithinTheLimit`),
+`tests/chatbotapi_test.cpp` (`TypedRoleLabelsAndTurnTokensStayOrdinaryText`, `ASessionAnswersFromTurnTokenPrompts`).
+
+Location in code: `src/BPETokenizer.{hpp,cpp}`, `src/ConversationContext.{hpp,cpp}`, `src/EncoderDecoderModel.{hpp,cpp}`, `src/ChatbotAPI.{hpp,cpp}`,
+`src/RAGInference.{hpp,cpp}`, `src/ChatbotTrainer.{hpp,cpp}`, `src/TrainingSampleMeta.hpp`, `src/SpecialTokens.hpp`.
 
 ---
 

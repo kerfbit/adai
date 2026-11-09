@@ -1,7 +1,7 @@
 # Conversation Turn Tokens
 
-**Status:** Proposed (November 4, 2026). Owner decision on TD-295: real turn tokens rather than text role labels; design first,
-for review before any code changes.
+**Status:** Implemented in code November 8, 2026 (TT-1 to TT-5), as recommended, with multi-turn training data done now (decision 6). TT-6, the
+vocabulary rebuild and retrain, remains. Proposed November 4, 2026.
 
 **Tracks:** [TD-295](../development/guides/TECHNICAL_DEBT.md#td-295-conversation-role-labels-are-spoofable-and-roles-arent-escaped)
 (part 2: typed role labels impersonate turns). Closely tied to

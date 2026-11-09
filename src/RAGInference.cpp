@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.4.1
+// @adai-version: 1.5.0
 // @adai-reviewed: 2026-10-28
 
 #include "RAGInference.hpp"
@@ -173,9 +173,73 @@ std::string RAGInference::buildPrompt(const std::string& query, const std::strin
     return buildPrompt(query, retrieved_docs, history);
 }
 
+ModelPrompt RAGInference::buildTurnPrompt(const std::string& query,
+                                          const std::vector<ConversationTurn>& history) {
+    std::vector<std::pair<float, const Document*>> retrieved_docs;
+    retrieveDocuments(query, retrieved_docs);
+    const std::string context = formatContext(retrieved_docs);
+
+    BPETokenizer& tokenizer = *model->get_tokenizer();
+    const size_t max_seq = static_cast<size_t>(std::max(model->get_max_seq_length(), 1));
+    const std::vector<ConversationTurn> question = {{"user", query}};
+    const size_t question_tokens = tokenizer.encode_conversation(question).size();
+
+    // Longest prefix of the context that fits, cut at a UTF-8 boundary (lower-ranked documents go
+    // first), leaving room for its own turn token.
+    std::string ctx;
+    if (!context.empty() && config.max_context_length > 0 && question_tokens + 1 < max_seq) {
+        const size_t limit =
+            std::min(static_cast<size_t>(config.max_context_length), max_seq - question_tokens - 1);
+        size_t lo = 0, hi = context.size();
+        while (lo < hi) {
+            const size_t mid = utf8Boundary(context, lo + (hi - lo + 1) / 2);
+            if (mid <= lo) {  // only continuation bytes between lo and hi
+                break;
+            }
+            if (countTokens(context.substr(0, mid)) <= limit) {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        ctx = context.substr(0, lo);
+    }
+
+    // The latest earlier turns that fit whole.
+    size_t used = question_tokens + (ctx.empty() ? 0 : countTokens(ctx) + 1);
+    std::vector<ConversationTurn> kept;
+    for (auto it = history.rbegin(); it != history.rend(); ++it) {
+        const size_t tokens = countTokens(it->content) + 1;
+        if (used + tokens > max_seq) {
+            break;
+        }
+        used += tokens;
+        kept.push_back(*it);
+    }
+
+    std::vector<ConversationTurn> turns;
+    if (!ctx.empty()) {
+        turns.push_back({"system", ctx});
+    }
+    turns.insert(turns.end(), kept.rbegin(), kept.rend());
+    turns.push_back(question.front());
+    return ModelPrompt(query, tokenizer.encode_conversation(turns));
+}
+
 std::string RAGInference::buildPrompt(const std::string& query,
                                       std::vector<std::pair<float, const Document*>>& retrieved_docs,
                                       const std::string& history) {
+    retrieveDocuments(query, retrieved_docs);
+
+    // Step 2: Format retrieved documents into context
+    std::string context = formatContext(retrieved_docs);
+
+    // Steps 3-4: context + earlier conversation + question, within max_seq_length (TD-484, TD-485)
+    return buildBudgetedPrompt(query, context, history);
+}
+
+void RAGInference::retrieveDocuments(
+    const std::string& query, std::vector<std::pair<float, const Document*>>& retrieved_docs) {
     // Step 1: Retrieve relevant documents. TD-485: with the latest question only; a session's whole
     // conversation used to be the query, which the encoder cuts to max_seq_length tokens (the first,
     // before TD-365; the last since), mostly earlier turns.
@@ -199,12 +263,6 @@ std::string RAGInference::buildPrompt(const std::string& query,
                                before, config.retrieval_threshold);
         }
     }
-
-    // Step 2: Format retrieved documents into context
-    std::string context = formatContext(retrieved_docs);
-
-    // Steps 3-4: context + earlier conversation + question, within max_seq_length (TD-484, TD-485)
-    return buildBudgetedPrompt(query, context, history);
 }
 
 std::string RAGInference::generateWithRetrieval(

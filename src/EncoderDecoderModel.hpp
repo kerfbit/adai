@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.31.0
+// @adai-version: 0.32.0
 // @adai-reviewed: 2026-11-08
 
 #include <cstdint>
@@ -172,6 +172,8 @@ class EncoderDecoderModel {
                                 int beam_width);
     // Sets logits of IDs the tokenizer doesn't have (IDs >= its vocab size) to -1e9.
     void mask_unknown_ids(Matrix& logits) const;
+    // TD-295: the encoder input for a prompt, before keep_last_positions().
+    std::vector<int> prompt_ids(const ModelPrompt& input) const;
     // Runs a non-beam strategy (normalized name) with a cached model_fn; an unrecognized name runs
     // generate() on the stored config.
     std::vector<int> run_single_hypothesis(const std::string& normalized_strategy,
@@ -331,7 +333,7 @@ class EncoderDecoderModel {
      * @param max_length Maximum output length
      * @return Generated response text
      */
-    std::string generate_response(const std::string& input_text, int max_length = 100);
+    std::string generate_response(const ModelPrompt& input, int max_length = 100);
 
 #ifdef ADAI_ENABLE_GPU
     /**
@@ -362,7 +364,7 @@ class EncoderDecoderModel {
      * @param max_length Maximum output length
      * @return Generated response text
      */
-    std::string gpu_generate_response(const std::string& input_text, int max_length = 100);
+    std::string gpu_generate_response(const ModelPrompt& input, int max_length = 100);
 
     /**
      * GPU-resident equivalent of generate_response_with_strategy() — TD-033's actual
@@ -394,11 +396,10 @@ class EncoderDecoderModel {
      * @param num_beams Beam width for "beam" (and an unrecognized strategy with num_beams > 1)
      * @return Generated response text
      */
-    std::string gpu_generate_response_with_strategy(const std::string& input_text,
-                                                     int max_length = 100,
-                                                     const std::string& strategy = "greedy",
-                                                     float temperature = 1.0f, int top_k = 50,
-                                                     float top_p = 0.9f, int num_beams = 1);
+    std::string gpu_generate_response_with_strategy(const ModelPrompt& input, int max_length = 100,
+                                                    const std::string& strategy = "greedy",
+                                                    float temperature = 1.0f, int top_k = 50,
+                                                    float top_p = 0.9f, int num_beams = 1);
 #endif
 
     /**
@@ -417,7 +418,7 @@ class EncoderDecoderModel {
      *                  num_beams > 1); explicit greedy/sampling/topk/nucleus ignore it (TD-261)
      * @return Generated response text
      */
-    std::string generate_response_with_strategy(const std::string& input_text, int max_length = 100,
+    std::string generate_response_with_strategy(const ModelPrompt& input, int max_length = 100,
                                                 const std::string& strategy = "greedy",
                                                 float temperature = 1.0f, int top_k = 50,
                                                 float top_p = 0.9f, int num_beams = 1);
