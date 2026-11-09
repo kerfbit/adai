@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable        (TD-197 — validate_world_model_link() declared, shared by handle_register()/handle_link_world_model())
-// @adai-version: 1.3.0
+// @adai-version: 1.3.1
 // @adai-reviewed: 2026-11-09
 
 
@@ -192,7 +192,7 @@ class ModelNameService {
     ModelNameService(const ModelNameService&) = delete;
     ModelNameService& operator=(const ModelNameService&) = delete;
 
-    bool start();  ///< Blocking — returns when stop() is called
+    bool start();  ///< Blocking — returns when stop() is called; false if it can't start (TD-463)
     void stop();
     bool is_running() const;
     int get_port() const;
@@ -252,7 +252,7 @@ class ModelNameService {
     void persist_model(const ModelRecord& rec);
     void persist_roles();
     void rewrite_models_jsonl();  ///< Hard-delete (Phase 1 compat); delegates to SQLite DELETE
-    void init_db();               ///< Open/create models.db and run schema migrations
+    bool init_db();               ///< Open/create models.db, run migrations; false if unusable
     void migrate_from_jsonl();    ///< Import models.jsonl + roles.json on first SQLite run
 
     // ── State ────────────────────────────────────────────────────────────────

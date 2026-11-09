@@ -1550,6 +1550,7 @@ The generation and model math run is complete.
 - TD-460 (done in code: retiring a model clears its roles, `resolve_role` only returns production models, reviving takes an explicit flag).
 - TD-410 (done in code, owner's choice to archive: completed epochs recorded, early stopping and schedule configurable, `retrain` archives the previous checkpoints).
 - TD-461 (done in code: unbuildable architectures refused at registration).
+- TD-463 (done in code: `mns_server` won't start without a usable database).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -14653,7 +14654,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | MNS / Server | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 9, 2026 | MNS / Server | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `ModelNameServiceServer` and verified with the real `mns_server`. `ModelNameService::init_db()` logs
@@ -14664,10 +14665,15 @@ run numbering and roles, everything MNS is authoritative for, silently stop surv
 
 Action Items:
 
-- [ ] Make a failed `init_db()` (and a failed schema creation) fatal at startup with a clear message and non-zero exit.
-- [ ] Optionally report persistence status in `/health`.
+- [x] Make a failed `init_db()` (and a failed schema creation) fatal at startup with a clear message and non-zero exit.
+- [x] Report persistence status in `/health`: not needed, since a server without a database no longer starts.
 
-Location in code: `src/ModelNameService.cpp` (`init_db()`, `start()`); tagged `TODO: See TD-463`.
+Fix (November 9, 2026): `init_db()` returns false when `models.db` can't be opened, opens read-only (SQLite falls back to that with no error) or the schema can't be created, and `start()` then logs why and returns
+false, so `mns_server` exits 1 before binding its port.
+
+Tests: `model_name_service_start_test.cpp` (the two refusals fail on the old code, a good database still serves). Real binary: a garbage `models.db` and a read-only one both exit 1; a good one keeps serving.
+
+Location in code: `src/ModelNameService.cpp` (`init_db()`, `start()`).
 
 Files to Modify:
 

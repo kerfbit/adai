@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.5.0
+// @adai-version: 1.5.1
 // @adai-reviewed: 2026-11-09
 
 #include "ModelNameService.hpp"
@@ -758,7 +758,12 @@ adai::ModelNameService::~ModelNameService() {
 bool adai::ModelNameService::start() {
     // TODO: See TD-464 in TECHNICAL_DEBT.md - throws on the server thread with no handler (std::terminate, core dump)
     fs::create_directories(data_dir_);
-    init_db();
+    // TD-463: without a database nothing would survive a restart, while /health said ok and
+    // registrations succeeded.
+    if (!init_db()) {
+        Logger::error("ModelNameService: no usable database in '{}'; not starting", data_dir_);
+        return false;
+    }
     load_from_disk();
 
     // Opened here (not read from) so PUT /admin/config can persist future
@@ -817,18 +822,22 @@ static std::string tags_to_json(const std::map<std::string, std::string>& tags) 
 
 }  // namespace adai
 
-void adai::ModelNameService::init_db() {
+bool adai::ModelNameService::init_db() {
     const std::string db_path = data_dir_ + "/models.db";
     sqlite3* db = nullptr;
     if (sqlite3_open(db_path.c_str(), &db) != SQLITE_OK) {
-        // TODO: See TD-463 in TECHNICAL_DEBT.md - not fatal: MNS keeps running in memory, /health ok, data lost on restart
         Logger::error("ModelNameService: cannot open SQLite DB {}: {}", db_path,
                       sqlite3_errmsg(db));
         if (db)
             sqlite3_close(db);
-        return;
+        return false;
     }
     server_impl_->db = db;
+    // TD-463: SQLite falls back to read-only without an error, and then nothing would be saved.
+    if (sqlite3_db_readonly(db, "main") == 1) {
+        Logger::error("ModelNameService: SQLite DB {} is read-only", db_path);
+        return false;
+    }
     sqlite3_exec(db, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
 
     const char* schema = R"(
@@ -887,7 +896,7 @@ CREATE TABLE IF NOT EXISTS roles (
     if (sqlite3_exec(db, schema, nullptr, nullptr, &errmsg) != SQLITE_OK) {
         Logger::error("ModelNameService: schema creation failed: {}", errmsg);
         sqlite3_free(errmsg);
-        return;
+        return false;
     }
 
     // Migration guard: CREATE TABLE IF NOT EXISTS above doesn't touch a
@@ -947,6 +956,7 @@ CREATE TABLE IF NOT EXISTS roles (
         migrate_from_jsonl();
 
     Logger::info("ModelNameService: SQLite DB ready ({})", db_path);
+    return true;
 }
 
 void adai::ModelNameService::migrate_from_jsonl() {
