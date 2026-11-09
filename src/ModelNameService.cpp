@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.4.0
+// @adai-version: 1.4.1
 // @adai-reviewed: 2026-11-09
 
 #include "ModelNameService.hpp"
@@ -1163,8 +1163,12 @@ void adai::ModelNameService::load_from_disk() {
         while (sqlite3_step(rs) == SQLITE_ROW) {
             const char* role = reinterpret_cast<const char*>(sqlite3_column_text(rs, 0));
             const char* name = reinterpret_cast<const char*>(sqlite3_column_text(rs, 1));
-            if (role && name)
-                roles_[role] = name;
+            if (role && name) {
+                // TD-460: a mapping left behind by a retirement before this fix.
+                const auto model = models_.find(name);
+                if (model == models_.end() || model->second.state != "retired")
+                    roles_[role] = name;
+            }
         }
         sqlite3_finalize(rs);
     }
@@ -1563,10 +1567,15 @@ std::pair<int, std::string> adai::ModelNameService::handle_state_transition(
     } else if (new_state == "candidate") {
         // Normal completion of training; also allows imported models (initializing→candidate)
         // and revival of retired models
-        // TODO: See TD-460 in TECHNICAL_DEBT.md - retired -> candidate skips the run_id check, so a running trainer revives a retired model
+        // TD-460: reviving takes "revive":true, which a trainer never sends, so a pass finishing
+        // after an operator retired its model can't undo that.
+        if (cur == "retired" && !json_bool(body, "revive", false)) {
+            return {409,
+                    "{\"error\":\"model is retired; send \\\"revive\\\":true "
+                    "(mns_cli set-candidate --revive) to bring it back\"}"};
+        }
         valid = (cur == "training" || cur == "initializing" || cur == "retired");
     } else if (new_state == "retired") {
-        // TODO: See TD-460 in TECHNICAL_DEBT.md - retiring a production model leaves roles_ pointing at it
         valid = (cur != "retired");
     } else {
         return {400,
@@ -1581,6 +1590,7 @@ std::pair<int, std::string> adai::ModelNameService::handle_state_transition(
     }
 
     const std::string run_id = json_string(body, "run_id");
+    bool roles_changed = false;
 
     if (new_state == "training") {
         // Client no longer asserts run_id — MNS allocates it (see CLAUDE.md
@@ -1659,11 +1669,23 @@ std::pair<int, std::string> adai::ModelNameService::handle_state_transition(
         r.progress_loss = 0.0;
         r.progress_best_loss = 0.0;
         r.progress_updated_utc.clear();
+    } else if (new_state == "retired") {
+        // TD-460: the role has no production model now. It kept resolving to this one.
+        for (auto role = roles_.begin(); role != roles_.end();) {
+            if (role->second == name) {
+                role = roles_.erase(role);
+                roles_changed = true;
+            } else {
+                ++role;
+            }
+        }
     }
 
     r.state = new_state;
     r.updated_utc = utc_now();
     persist_model(r);
+    if (roles_changed)
+        persist_roles();
     Logger::info("ModelNameService: '{}' state {} -> {}", name, cur, new_state);
     return {200, serialize_record(r)};
 }
@@ -1873,7 +1895,6 @@ std::pair<int, std::string> adai::ModelNameService::handle_list_roles() {
 // Handler: GET /roles/{role}/production
 // ============================================================================
 
-// TODO: See TD-460 in TECHNICAL_DEBT.md - returns the mapped model even when it's retired
 std::pair<int, std::string> adai::ModelNameService::handle_resolve_role(const std::string& role) {
     std::shared_lock lock(mutex_);
     const auto rit = roles_.find(role);
@@ -1882,6 +1903,8 @@ std::pair<int, std::string> adai::ModelNameService::handle_resolve_role(const st
     const auto mit = models_.find(rit->second);
     if (mit == models_.end())
         return {404, "{\"error\":\"production model record not found\"}"};
+    if (mit->second.state != "production")  // TD-460
+        return {404, "{\"error\":\"no production model for role\"}"};
     return {200, resolve_json(mit->second)};
 }
 

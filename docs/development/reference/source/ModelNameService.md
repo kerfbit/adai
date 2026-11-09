@@ -63,6 +63,8 @@ initializing ──training──► training ──candidate──► candidate
 
 ## 3. Problems (verified)
 
+**Fixed November 9, 2026 (TD-460):** the two problems below; retiring clears a model's roles and reviving takes `"revive":true`.
+
 ### Retiring a role's production model leaves the role pointing at it
 
 `retired` is reachable from `production` through `PUT …/state`, but only `handle_promote()` and `handle_delete()` touch

@@ -318,6 +318,7 @@ mns_cli set-candidate <name> <run-id> [options...]
 | `--artifact-checksum CHK` | Opaque checksum string |
 | `--artifact-format FMT` | `adai-native` (default), `safetensors`, or `gguf` |
 | `--summary key=value` | Training summary entry (repeatable: `epochs=15`, `final_loss=0.42`, etc.) |
+| `--revive` | Bring a `retired` model back to `candidate` |
 
 **Example:**
 
@@ -331,7 +332,7 @@ mns_cli set-candidate adai-chatbot-v3 run-01 \
 
 The `incremental_trainer` calls this automatically after a successful training session.
 
-**Valid source states:** `training`, `initializing` (for direct imports), `retired` (for revival).
+**Valid source states:** `training`, `initializing` (for direct imports), `retired` (only with `--revive`, so a trainer finishing its pass can't undo a retirement).
 
 ---
 

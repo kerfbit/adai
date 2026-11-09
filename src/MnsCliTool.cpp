@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 1.3.1
+// @adai-reviewed: 2026-11-09
 
 /**
  * mns_cli — Command-line interface for the ADAI Model Name Service
@@ -241,8 +241,8 @@ const CommandHelp kCommands[] = {
 )"},
     {"set-candidate", R"(  set-candidate <name> <run-id> [--artifact-path PATH] [--artifact-host HOST]
                 [--artifact-checksum CHK] [--artifact-format FMT]
-                [--summary key=value ...]
-      Transition model to "candidate" state with artifact.
+                [--summary key=value ...] [--revive]
+      Transition model to "candidate" state with artifact. A retired model needs --revive.
 )"},
     {"delete", R"(  delete <name>
       Hard-delete a model (only initializing or retired).

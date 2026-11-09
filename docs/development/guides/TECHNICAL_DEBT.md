@@ -1547,6 +1547,7 @@ The generation and model math run is complete.
 - TD-476 (done in code: `send_all()` for every plain FTP send, `EINTR` retry, checked socket setup, a PASV wait bounded on both platforms).
 - TD-458 (done in code: non-finite losses are `null` from the client, in `mns_server`'s records and in its history).
 - TD-457 (done in code, owner's choice of an idempotency key: `request_id` on a new run or registration, deduplicated by `mns_server`).
+- TD-460 (done in code: retiring a model clears its roles, `resolve_role` only returns production models, reviving takes an explicit flag).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -14529,7 +14530,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | MNS / Server | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 9, 2026 | MNS / Server | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `ModelNameService` and verified against a real `mns_server`:
@@ -14544,11 +14545,19 @@ Found while tracing `ModelNameService` and verified against a real `mns_server`:
 
 Action Items:
 
-- [ ] On `→ retired`, remove any role mapping to the model (or refuse to retire a `production` model without a replacement); make `resolve_role` return 404/409 for a non-`production` record.
-- [ ] Require an explicit flag (or no `run_id`) for `retired → candidate` revival, and reject a trainer's `run_id`-bearing candidate call when the model isn't `training`.
-- [ ] Live tests for both.
+- [x] On `→ retired`, remove any role mapping to the model (or refuse to retire a `production` model without a replacement); make `resolve_role` return 404/409 for a non-`production` record.
+- [x] Require an explicit flag (or no `run_id`) for `retired → candidate` revival, and reject a trainer's `run_id`-bearing candidate call when the model isn't `training`.
+- [x] Live tests for both.
 
-Location in code: `src/ModelNameService.cpp` (`handle_state_transition()`, `handle_resolve_role()`); tagged `TODO: See TD-460`.
+Fix (November 9, 2026): retiring a model removes every role mapped to it, `resolve_role` answers 404 unless the mapped model is `production`, and a mapping left by
+an earlier retirement is dropped when `mns_server` loads. `retired → candidate` needs `"revive":true` (`mns_cli set-candidate --revive`), which a trainer never sends, so
+its `set_candidate()` gets 409 and the model stays retired. `initializing → candidate` with a `run_id` stays allowed: `mns_cli set-candidate` always sends one for an import.
+A `chatbot_api_server` with `MODEL_ROLE` gets the 404 at startup and treats it like any failed MNS lookup.
+
+Tests: `MNSLiveTest.RetiringProductionModelClearsItsRole`, `MNSLiveTest.RetiredModelIsRevivedOnlyWithTheFlag`, `BuildSetCandidateRequest.ReviveIsSentOnlyWhenAskedFor` (all
+fail on the old code). A database with a stale mapping written by the old server stops resolving after a restart on the new one.
+
+Location in code: `src/ModelNameService.cpp` (`handle_state_transition()`, `handle_resolve_role()`).
 
 Files to Modify:
 

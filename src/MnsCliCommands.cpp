@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.5.0
-// @adai-reviewed: 2026-11-01
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-11-09
 
 #include "MnsCliCommands.hpp"
 #include <fstream>
@@ -619,18 +619,21 @@ MnsCliRequest build_set_candidate_request(const std::vector<std::string>& args) 
 
     std::string art_path, art_host, art_checksum, art_format = "adai-native";
     std::map<std::string, std::string> summary;
+    bool revive = false;  // TD-460
 
     if (auto error = parse_options(args, 2,
                                    {{"--artifact-path", string_into(art_path)},
                                     {"--artifact-host", string_into(art_host)},
                                     {"--artifact-checksum", string_into(art_checksum)},
                                     {"--artifact-format", string_into(art_format)},
-                                    {"--summary", key_value_into(summary)}})) {
+                                    {"--summary", key_value_into(summary)}},
+                                   {{"--revive", &revive}})) {
         return make_error(*error + "\nUsage: set-candidate <name> <run-id> [options...] (see --help)");
     }
 
     std::ostringstream body;
-    body << "{\"state\":\"candidate\"" << ",\"run_id\":\"" << json_escape(run_id) << "\""
+    body << "{\"state\":\"candidate\"" << (revive ? ",\"revive\":true" : "") << ",\"run_id\":\""
+         << json_escape(run_id) << "\""
          << ",\"artifact\":{" << "\"host\":\"" << json_escape(art_host) << "\"" << ",\"path\":\""
          << json_escape(art_path) << "\"" << ",\"checksum\":\"" << json_escape(art_checksum) << "\""
          << ",\"format\":\"" << json_escape(art_format) << "\"" << "}";

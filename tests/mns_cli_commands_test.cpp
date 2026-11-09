@@ -386,6 +386,16 @@ TEST(BuildSetCandidateRequest, DefaultsArtifactFormatToAdaiNative) {
     EXPECT_NE(r.body.find("\"format\":\"adai-native\""), std::string::npos);
 }
 
+// TD-460: only an explicit --revive brings a retired model back.
+TEST(BuildSetCandidateRequest, ReviveIsSentOnlyWhenAskedFor) {
+    auto plain = build_set_candidate_request({"my-model", "run-1"});
+    ASSERT_FALSE(plain.error);
+    EXPECT_EQ(plain.body.find("revive"), std::string::npos);
+    auto revive = build_set_candidate_request({"my-model", "run-1", "--revive"});
+    ASSERT_FALSE(revive.error);
+    EXPECT_NE(revive.body.find("\"revive\":true"), std::string::npos);
+}
+
 TEST(BuildSetCandidateRequest, ArtifactAndSummaryFieldsRoundTrip) {
     auto r = build_set_candidate_request(
         {"my-model", "run-1", "--artifact-path", "/opt/m.bin", "--artifact-host", "host1",

@@ -683,6 +683,48 @@ TEST_F(MNSLiveTest, TrainingHistory_PersistsAcrossGetModel) {
 }
 
 
+// TD-460: retiring a role's production model leaves the role empty.
+TEST_F(MNSLiveTest, RetiringProductionModelClearsItsRole) {
+    const auto name = make_model("retrole");
+    const auto role = make_role("rr");
+    auto c = make_client();
+    ASSERT_EQ(c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json")->status, 201);
+    ASSERT_EQ(c.Put("/models/" + name + "/state", "{\"state\":\"candidate\"}", "application/json")->status, 200);
+    ASSERT_EQ(c.Put("/roles/" + role + "/production", "{\"model_name\":\"" + name + "\"}",
+                    "application/json")->status, 200);
+    ASSERT_EQ(c.Get("/roles/" + role + "/production")->status, 200);
+
+    ASSERT_EQ(c.Put("/models/" + name + "/state", "{\"state\":\"retired\"}", "application/json")->status, 200);
+    EXPECT_EQ(c.Get("/roles/" + role + "/production")->status, 404);
+    EXPECT_FALSE(body_contains(c.Get("/roles")->body, role));
+}
+
+// TD-460: a trainer finishing its pass can't undo a retirement; an operator can, on purpose.
+TEST_F(MNSLiveTest, RetiredModelIsRevivedOnlyWithTheFlag) {
+    const auto name = make_model("revive");
+    auto c = make_client();
+    ASSERT_EQ(c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json")->status, 201);
+    const auto train = c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"new_run\":false}",
+                             "application/json");
+    ASSERT_EQ(train->status, 200);
+    const std::string run_id = json_str(train->body, "run_id");
+    ASSERT_EQ(c.Put("/models/" + name + "/state", "{\"state\":\"retired\"}", "application/json")->status, 200);
+
+    const auto trainer = c.Put("/models/" + name + "/state",
+                               "{\"state\":\"candidate\",\"run_id\":\"" + run_id + "\"}",
+                               "application/json");
+    EXPECT_EQ(trainer->status, 409);
+    EXPECT_EQ(json_str(c.Get("/models/" + name)->body, "state"), "retired");
+
+    const auto plain = c.Put("/models/" + name + "/state", "{\"state\":\"candidate\"}", "application/json");
+    EXPECT_EQ(plain->status, 409) << "revival takes the explicit flag";
+
+    const auto revived = c.Put("/models/" + name + "/state", "{\"state\":\"candidate\",\"revive\":true}",
+                               "application/json");
+    EXPECT_EQ(revived->status, 200);
+    EXPECT_EQ(json_str(revived->body, "state"), "candidate");
+}
+
 // TD-457: a repeated request_id is a retry of a delivery the server already processed.
 TEST_F(MNSLiveTest, RepeatedRequestIdDoesNotAllocateAnotherRun) {
     auto c = make_client();

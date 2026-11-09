@@ -236,7 +236,7 @@ Transitions the selected model to `training` state. Valid from `initializing` or
 |-------|-------------|
 | Artifact | Absolute path to weight file (optional but recommended) |
 
-Transitions the selected model to `candidate` state. Uses the Run ID from the field above if present. Valid from `training`, `initializing`, or `retired`.
+Transitions the selected model to `candidate` state. Uses the Run ID from the field above if present. Valid from `training` or `initializing`. A `retired` model needs `mns_cli set-candidate --revive`.
 
 #### Promote
 
