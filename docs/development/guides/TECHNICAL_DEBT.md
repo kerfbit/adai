@@ -1552,6 +1552,7 @@ The generation and model math run is complete.
 - TD-461 (done in code: unbuildable architectures refused at registration).
 - TD-463 (done in code: `mns_server` won't start without a usable database).
 - TD-391 (done in code: one card is one SYCL device, Level Zero numbered first; the backend is logged at startup. Check ai-machine's log line).
+- TD-385 (done in code: reductions use one buffer and one wait, on both backends; the per-sample loss download stays).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -11401,7 +11402,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | GPU / Kernels | October 12, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 9, 2026 | GPU / Kernels | October 12, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `MatrixGPU.cu`, by inspection. `matrix_sum_gpu()` reduces recursively and
@@ -11413,14 +11414,22 @@ shape plus a `.wait()` on the submit; the SYCL `count_below_threshold` also lack
 
 Action Items:
 
-- [ ] Reduce in a single launch with a grid-stride loop and atomics (or a two-level fixed buffer reused across calls), and keep the loss on the device until it's actually needed on the host.
+- [x] Reduce without a buffer or a wait per level.
+- [ ] Keep the loss on the device until it's actually needed on the host. Not done: the trainer reads each sample's loss (`CLAUDE.md`'s one scalar per sample), so that download stays. Needs a device-side loss accumulator in `ChatbotTrainer` if it's ever worth doing.
 
-Location in code: `src/gpu/MatrixGPU.cu` (`matrix_sum_gpu()`); tagged `TODO: See TD-385`.
+Fix (November 9, 2026): `matrix_sum_gpu()` and `matrix_count_below_threshold_gpu()` allocate one buffer for every level (`reduction_buffer_size()`), and `finish_reduction()` launches each further level in place and downloads only the final value, in both backends.
+The SYCL `.wait()`s on each submit are gone (in-order queue), which leaves one wait per reduction. `count_below_threshold` returns 0 for `size <= 0` in both backends (SYCL threw, TD-392's allocation). TD-390 had already removed the allocator's own synchronization.
+A 262,144-element sum on the oneAPI CPU device went from about 210-230 to 130-138 us per call. At 512 elements, the loss's size, there was no clear change (950-1000 vs 915-940 us), so this is mostly tidying for the training path; on-device timing is still unmeasured.
 
-Files to Modify:
+Tests: `matrixgpu_td003_test.cpp`'s `SumAndCountAreExactAcrossReductionLevels` (each size where a level appears, up to three levels; passed before the change too, guarding the rewrite) and `EmptyReductionsAreZero` (threw on old SYCL). SYCL ran on the oneAPI CPU device; CUDA is compile-checked only.
+
+Location in code: `src/gpu/MatrixGPU.cu`, `src/gpu/sycl/MatrixGPU_SYCL.cpp` (`reduction_buffer_size()`, `finish_reduction()`).
+
+Files Modified:
 
 - `src/gpu/MatrixGPU.cu`
 - `src/gpu/sycl/MatrixGPU_SYCL.cpp`
+- `tests/matrixgpu_td003_test.cpp`
 
 ---
 

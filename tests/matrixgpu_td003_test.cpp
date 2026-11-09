@@ -103,6 +103,35 @@ TEST(MatrixGPUTD003Test, CountBelowThresholdLargeMatrixMultiBlock) {
     EXPECT_NEAR(m.count_below_threshold(0.01f), 0.5f, 1e-5f);
 }
 
+// TD-385: the reduction levels share one buffer, so check each boundary where a level appears
+// (256 values per block: 257 needs two levels, 65537 three).
+TEST(MatrixGPUTD003Test, SumAndCountAreExactAcrossReductionLevels) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f));
+    for (int n : {1, 255, 256, 257, 512, 65536, 65537, 70001}) {
+        std::vector<float> host(n, 1.0f);
+        for (int i = 0; i < n; i += 3)
+            host[i] = 5.0f;
+        const float below = static_cast<float>(n - (n + 2) / 3);
+        const float total = static_cast<float>(5 * ((n + 2) / 3)) + below;
+        GPUMatrix m = upload(host, 1, n);
+        EXPECT_FLOAT_EQ(adai::gpu::matrix_sum_gpu(m.device_ptr(), n), total) << n;
+        EXPECT_FLOAT_EQ(adai::gpu::matrix_count_below_threshold_gpu(m.device_ptr(), n, 2.0f), below)
+            << n;
+    }
+}
+
+TEST(MatrixGPUTD003Test, EmptyReductionsAreZero) {
+    if (!GPUManager::probe()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+    ASSERT_TRUE(GPUManager::initialize(0, 0.5f));
+    EXPECT_EQ(adai::gpu::matrix_sum_gpu(nullptr, 0), 0.0f);
+    EXPECT_EQ(adai::gpu::matrix_count_below_threshold_gpu(nullptr, 0, 1.0f), 0.0f);
+}
+
 // ============================================================================
 // row_entropy_avg — the new primitive behind attention_entropy.
 // ============================================================================

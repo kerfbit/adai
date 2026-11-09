@@ -103,7 +103,7 @@ kernels, and in the CUDA kernels too. New regression tests (`SoftmaxWideRowsMatc
 ## 5. Other observations (by inspection)
 
 - **Per-call allocation and waits.** `matrix_sum_gpu` and `matrix_count_below_threshold_gpu`
-  allocate a `GPUMemory` per level, `.wait()` on the submit, and download (TD-385's SYCL half).
+  allocate a `GPUMemory` per level, `.wait()` on the submit, and download (TD-385's SYCL half). **Fixed in code November 9, 2026** (TD-385): one buffer for every level and only the final download waits.
   `count_below_threshold` has no `size <= 0` guard (and `GPUMemory(0)` throws on SYCL, TD-392).
 - **Batch helpers** (`matrix_batch_add_gpu`, `matrix_batch_multiply_gpu`, no callers, TD-386) do
   `q.memcpy` from **host** pointer arrays without waiting. Unlike CUDA's pageable-copy staging,

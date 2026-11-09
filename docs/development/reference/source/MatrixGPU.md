@@ -42,7 +42,7 @@ GPU training (`EncoderDecoderModel::gpu_train_step`) and GPU generation
 | `operator*` | cuBLAS GEMM; **checks** `cols == other.rows` |
 | `operator+`, `hadamard` | **Check** shapes |
 | `operator-` | Checks shapes; computes `a + (−1)·b` through a temporary (two launches, one extra allocation) |
-| `scale`, `transpose`, `apply_activation_inplace`, `sum` | No shape concerns. `sum()` synchronizes (TD-385) |
+| `scale`, `transpose`, `apply_activation_inplace`, `sum` | No shape concerns. `sum()` waits once, for its final value (TD-385) |
 | `zero`, `add_inplace(other)` | `cudaMemsetAsync`; in-place add. **`add_inplace` doesn't check that sizes match**, so a smaller `other` reads past its end and a larger one is silently truncated |
 | `softmax_rows_inplace`, `softmax_backward(dout)`, `gelu_backward(dout)` | Kernels from `MatrixGPU.cu` (softmax is subject to the TD-384 race). **The two backward ops don't check `dout`'s shape** |
 | `add_row_bias(bias)`, `sum_rows()`, `masked_fill_inplace(mask, v)` | **No shape checks** on `bias` (must be `1 × cols`) or `mask` (must be `rows × cols`) |

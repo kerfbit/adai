@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-061 resolved — layer_norm_bwd's math bug fixed and verified analytically/numerically; most kernels still have no dedicated test and need real GPU hardware to verify, see TECHNICAL_DEBT_RESOLVED.md)
-// @adai-version: 0.15.0
-// @adai-reviewed: 2026-11-08
+// @adai-version: 0.15.1
+// @adai-reviewed: 2026-11-09
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -404,38 +404,51 @@ void matrix_apply_activation_gpu(float* data, int size, ActivationType type) {
     }
 }
 
-// TODO: See TD-385 in TECHNICAL_DEBT.md - allocates/frees a GPUMemory buffer per recursion level and blocks on a
-// download; called every training step via matrix_cross_entropy_loss_gpu
+// TD-385: every level of a reduction, in one buffer: `size` values need ceil(size / 256) block
+// sums, those ceil(size / 256 / 256) more, down to one value.
+static int reduction_buffer_size(int size) {
+    int total = 0;
+    int blocks = size;
+    do {
+        blocks = (blocks + 255) / 256;
+        total += blocks;
+    } while (blocks > 1);
+    return total;
+}
+
+// `blocks` first-level sums are at the start of `levels`. Each further level is written after the
+// one it reduces; only the final value is downloaded, so this is the only wait.
+static float finish_reduction(float* levels, int blocks) {
+    const int threads = 256;
+    const int smem_bytes = (threads / 32) * static_cast<int>(sizeof(float));
+    float* level = levels;
+    while (blocks > 1) {
+        const int next_blocks = (blocks + threads - 1) / threads;
+        sum_kernel<<<next_blocks, threads, smem_bytes, GPUManager::get_stream()>>>(
+            level, level + blocks, blocks);
+        CUDA_CHECK(cudaGetLastError());
+        level += blocks;
+        blocks = next_blocks;
+    }
+    float result;
+    matrix_download_gpu(level, &result, 1);
+    return result;
+}
+
 float matrix_sum_gpu(const float* data, int size) {
-    // size == 0 (an empty tensor reaching sum()/mean() — e.g. a degenerate
-    // zero-length batch or sequence) would otherwise compute blocks = 0,
-    // which is neither the blocks == 1 base case below nor a value that ever
-    // shrinks on the recursive call — matrix_sum_gpu(ptr, 0) would call
-    // itself with the same size forever, unwinding the stack. See TD-088 in
-    // TECHNICAL_DEBT.md — the identical bug exists in MatrixGPU_SYCL.cpp's
-    // SYCL port of this function; guarded there too.
+    // TD-088: an empty tensor has no block to reduce to.
     if (size <= 0) {
         return 0.0f;
     }
     const int threads = 256;
     const int blocks = (size + threads - 1) / threads;
-
-    GPUMemory<float> block_sums(blocks);
+    GPUMemory<float> levels(reduction_buffer_size(size));
 
     // Shared memory: one float per warp (threads/32), not one per thread.
     const int smem_bytes = (threads / 32) * static_cast<int>(sizeof(float));
-    sum_kernel<<<blocks, threads, smem_bytes, GPUManager::get_stream()>>>(
-        data, block_sums.get(), size);
+    sum_kernel<<<blocks, threads, smem_bytes, GPUManager::get_stream()>>>(data, levels.get(), size);
     CUDA_CHECK(cudaGetLastError());
-
-    if (blocks == 1) {
-        float result;
-        block_sums.copy_to_host(&result, 1);
-        return result;
-    }
-
-    // Recursive reduction for multiple blocks
-    return matrix_sum_gpu(block_sums.get(), blocks);
+    return finish_reduction(levels.get(), blocks);
 }
 
 // ============================================================================
@@ -1089,21 +1102,18 @@ __global__ void count_below_threshold_kernel(const float* input, float* output, 
 }
 
 float matrix_count_below_threshold_gpu(const float* data, int size, float threshold) {
+    if (size <= 0) {
+        return 0.0f;
+    }
     const int threads = 256;
     const int blocks = (size + threads - 1) / threads;
-    GPUMemory<float> block_sums(blocks);
+    GPUMemory<float> levels(reduction_buffer_size(size));
 
     const int smem_bytes = (threads / 32) * static_cast<int>(sizeof(float));
     count_below_threshold_kernel<<<blocks, threads, smem_bytes, GPUManager::get_stream()>>>(
-        data, block_sums.get(), size, threshold);
+        data, levels.get(), size, threshold);
     CUDA_CHECK(cudaGetLastError());
-
-    if (blocks == 1) {
-        float result;
-        block_sums.copy_to_host(&result, 1);
-        return result;
-    }
-    return matrix_sum_gpu(block_sums.get(), blocks);
+    return finish_reduction(levels.get(), blocks);
 }
 
 // Per-row Shannon entropy -sum(p*log(p+eps)) of an already-normalized (e.g.

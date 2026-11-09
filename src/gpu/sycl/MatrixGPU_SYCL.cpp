@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.16.0
-// @adai-reviewed: 2026-11-08
+// @adai-version: 0.16.1
+// @adai-reviewed: 2026-11-09
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -267,47 +267,62 @@ static inline float workgroup_reduce_sum(sycl::nd_item<1> item,
     return total;
 }
 
+// TD-385: every level of a reduction, in one buffer: `size` values need ceil(size / 256) group
+// sums, those ceil(size / 256 / 256) more, down to one value.
+static int reduction_buffer_size(int size) {
+    int total = 0;
+    int groups = size;
+    do {
+        groups = (groups + 255) / 256;
+        total += groups;
+    } while (groups > 1);
+    return total;
+}
+
+// One level of the sum. In-order queue: no .wait().
+static void submit_sum_level(sycl::queue& q, const float* data, float* out, int size) {
+    constexpr int WG_SIZE = 256;
+    const int num_groups = (size + WG_SIZE - 1) / WG_SIZE;
+    q.submit([&](sycl::handler& cgh) {
+        sycl::local_accessor<float, 1> subgroup_sums(sycl::range<1>(WG_SIZE), cgh);
+
+        cgh.parallel_for(sycl::nd_range<1>(num_groups * WG_SIZE, WG_SIZE),
+                         [=](sycl::nd_item<1> item) {
+                             const int global_id = static_cast<int>(item.get_global_id(0));
+                             float val = (global_id < size) ? data[global_id] : 0.0f;
+
+                             val = workgroup_reduce_sum(item, subgroup_sums, val);
+
+                             if (item.get_local_id(0) == 0) {
+                                 out[item.get_group(0)] = val;
+                             }
+                         });
+    });
+}
+
+// `groups` first-level sums are at the start of `levels`. Each further level is written after the
+// one it reduces; only the final value is downloaded, so this is the only wait.
+static float finish_reduction(sycl::queue& q, float* levels, int groups) {
+    float* level = levels;
+    while (groups > 1) {
+        submit_sum_level(q, level, level + groups, groups);
+        level += groups;
+        groups = (groups + 255) / 256;
+    }
+    float result;
+    matrix_download_gpu(level, &result, 1);
+    return result;
+}
+
 float matrix_sum_gpu(const float* data, int size) {
-    // size == 0 (an empty tensor reaching sum()/mean() — e.g. a degenerate
-    // zero-length batch or sequence) would otherwise compute num_groups = 0,
-    // which is neither the num_groups == 1 base case below nor a value that
-    // ever shrinks on the recursive call — matrix_sum_gpu(ptr, 0) would call
-    // itself with the same size forever, unwinding the stack. See TD-088 in
-    // TECHNICAL_DEBT.md — the identical bug exists in MatrixGPU.cu's CUDA
-    // version of this function; guarded there too.
+    // TD-088: an empty tensor has no group to reduce to.
     if (size <= 0) {
         return 0.0f;
     }
     auto& q = GPUManager::get_queue();
-    constexpr int WG_SIZE = 256;
-    int num_groups = (size + WG_SIZE - 1) / WG_SIZE;
-
-    GPUMemory<float> group_sums(num_groups);
-
-    q.submit([&](sycl::handler& cgh) {
-         sycl::local_accessor<float, 1> subgroup_sums(sycl::range<1>(WG_SIZE), cgh);
-         float* out = group_sums.get();
-
-         cgh.parallel_for(sycl::nd_range<1>(num_groups * WG_SIZE, WG_SIZE),
-                          [=](sycl::nd_item<1> item) {
-                              const int global_id = static_cast<int>(item.get_global_id(0));
-                              float val = (global_id < size) ? data[global_id] : 0.0f;
-
-                              val = workgroup_reduce_sum(item, subgroup_sums, val);
-
-                              if (item.get_local_id(0) == 0) {
-                                  out[item.get_group(0)] = val;
-                              }
-                          });
-     }).wait();
-
-    if (num_groups == 1) {
-        float result;
-        group_sums.copy_to_host(&result, 1);
-        return result;
-    }
-
-    return matrix_sum_gpu(group_sums.get(), num_groups);
+    GPUMemory<float> levels(reduction_buffer_size(size));
+    submit_sum_level(q, data, levels.get(), size);
+    return finish_reduction(q, levels.get(), (size + 255) / 256);
 }
 
 // ============================================================================
@@ -885,40 +900,36 @@ void matrix_cross_entropy_grad_gpu(const float* logits, const int* targets, floa
 
 // Count of elements with |x| < threshold. Clone of matrix_sum_gpu's sub-group
 // reduction shape (see above, and MatrixGPU.cu's count_below_threshold_kernel)
-// with the per-thread load replaced by a thresholded predicate; recurses into
-// matrix_sum_gpu itself for the final multi-group reduce.
+// with the per-thread load replaced by a thresholded predicate; finish_reduction()
+// does the final multi-group reduce.
 float matrix_count_below_threshold_gpu(const float* data, int size, float threshold) {
+    if (size <= 0) {
+        return 0.0f;
+    }
     auto& q = GPUManager::get_queue();
     constexpr int WG_SIZE = 256;
     int num_groups = (size + WG_SIZE - 1) / WG_SIZE;
 
-    GPUMemory<float> group_sums(num_groups);
+    GPUMemory<float> levels(reduction_buffer_size(size));
 
     q.submit([&](sycl::handler& cgh) {
-         sycl::local_accessor<float, 1> subgroup_sums(sycl::range<1>(WG_SIZE), cgh);
-         float* out = group_sums.get();
+        sycl::local_accessor<float, 1> subgroup_sums(sycl::range<1>(WG_SIZE), cgh);
+        float* out = levels.get();
 
-         cgh.parallel_for(
-             sycl::nd_range<1>(num_groups * WG_SIZE, WG_SIZE), [=](sycl::nd_item<1> item) {
-                 const int global_id = static_cast<int>(item.get_global_id(0));
-                 float val =
-                     (global_id < size && sycl::fabs(data[global_id]) < threshold) ? 1.0f : 0.0f;
+        cgh.parallel_for(
+            sycl::nd_range<1>(num_groups * WG_SIZE, WG_SIZE), [=](sycl::nd_item<1> item) {
+                const int global_id = static_cast<int>(item.get_global_id(0));
+                float val =
+                    (global_id < size && sycl::fabs(data[global_id]) < threshold) ? 1.0f : 0.0f;
 
-                 val = workgroup_reduce_sum(item, subgroup_sums, val);
+                val = workgroup_reduce_sum(item, subgroup_sums, val);
 
-                 if (item.get_local_id(0) == 0) {
-                     out[item.get_group(0)] = val;
-                 }
-             });
-     }).wait();
-
-    if (num_groups == 1) {
-        float result;
-        group_sums.copy_to_host(&result, 1);
-        return result;
-    }
-
-    return matrix_sum_gpu(group_sums.get(), num_groups);
+                if (item.get_local_id(0) == 0) {
+                    out[item.get_group(0)] = val;
+                }
+            });
+    });
+    return finish_reduction(q, levels.get(), num_groups);
 }
 
 // Per-row Shannon entropy -sum(p*log(p+eps)) of an already-normalized (e.g.
