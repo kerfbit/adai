@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.20.0
+// @adai-version: 0.20.1
 // @adai-reviewed: 2026-11-08
 
 #include "ChatbotTrainer.hpp"
@@ -20,6 +20,7 @@
 #include <thread>
 // TODO: See TD-296 in TECHNICAL_DEBT.md - unused include
 #include "ConversationContext.hpp"
+#include "DatasetRegistry.hpp"
 #include "GenerationQualityMetrics.hpp"
 #include "Logger.hpp"
 #include "SecureRandom.hpp"
@@ -118,68 +119,8 @@ bool ChatbotTrainer::build_vocabulary(const std::vector<std::string>& texts, int
 bool ChatbotTrainer::load_conversation_data(const std::string& filepath) {
     adai::Logger::info("📖 Loading conversation data from: {}", filepath);
 
-    std::ifstream file(filepath);
-    if (!file.is_open()) {
-        adai::Logger::error("❌ Cannot open file: {}", filepath);
-        return false;
-    }
-
-    // Detect format from first non-empty line
-    std::string first_line;
-    while (std::getline(file, first_line)) {
-        first_line.erase(0, first_line.find_first_not_of(" \t\r\n"));
-        if (!first_line.empty())
-            break;
-    }
-    file.seekg(0);
-
-    int pair_count = 0;
-
-    if (!first_line.empty() && first_line.front() == '{') {
-        // JSONL training format
-        std::string line;
-        while (std::getline(file, line)) {
-            if (line.empty() || line.front() != '{')
-                continue;
-            std::string in, resp;
-            SampleMeta meta;
-            if (parse_jsonl_sample(line, in, resp, meta)) {
-                training_data.emplace_back(std::move(in), std::move(resp), std::move(meta));
-                ++pair_count;
-            }
-        }
-    } else {
-        // Legacy INPUT:/RESPONSE: format
-        std::string line, current_input, current_response;
-        while (std::getline(file, line)) {
-            line.erase(0, line.find_first_not_of(" \t\n\r"));
-            line.erase(line.find_last_not_of(" \t\n\r") + 1);
-
-            if (line.empty()) {
-                if (!current_input.empty() && !current_response.empty()) {
-                    training_data.emplace_back(current_input, current_response);
-                    ++pair_count;
-                    current_input.clear();
-                    current_response.clear();
-                }
-                continue;
-            }
-
-            if (line.substr(0, 6) == "INPUT:") {
-                current_input = line.substr(6);
-                current_input.erase(0, current_input.find_first_not_of(" \t"));
-            } else if (line.substr(0, 9) == "RESPONSE:") {
-                current_response = line.substr(9);
-                current_response.erase(0, current_response.find_first_not_of(" \t"));
-            }
-        }
-        if (!current_input.empty() && !current_response.empty()) {
-            training_data.emplace_back(current_input, current_response);
-            ++pair_count;
-        }
-    }
-
-    file.close();
+    const int pair_count =
+        DatasetRegistry::load_conversation_pairs(filepath, training_data);  // TD-537
     adai::Logger::info("✅ Loaded {} conversation pairs", pair_count);
     return pair_count > 0;
 }

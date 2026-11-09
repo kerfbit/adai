@@ -1543,6 +1543,7 @@ The generation and model math run is complete.
 - TD-428 (done in code: one LeJEPA optimizer step per text from both views' accumulated gradients).
 - TD-336 (done in code: multi-line legacy responses kept, a UTF-8 BOM skipped before detection).
 - TD-546 (done in code: `retrain` reads trained data per unit, so a partly trained segmented file's pairs aren't trained twice).
+- TD-537 (done in code: `vocab_builder` and `ChatbotTrainer` read training files with `DatasetRegistry`'s parser).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -17676,7 +17677,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Tooling / vocab_builder | October 17, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 8, 2026 | Tooling / vocab_builder | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `VocabBuilderHelpers.hpp` (see [VocabBuilderHelpers.md](../reference/source/VocabBuilderHelpers.md)); verified.
@@ -17688,11 +17689,19 @@ tokenizes (merges spent on edge whitespace).
 
 Action Items:
 
-- [ ] Share one training-file parser between `ChatbotTrainer` and `vocab_builder` (JSONL and legacy), and strip `\r` in the plain loader.
-- [ ] That shared parser is `DatasetRegistry`'s since TD-336: multi-line legacy responses and a UTF-8 BOM, which the other two still don't handle.
-- [ ] Add CRLF and indentation tests.
+- [x] Share one training-file parser between `ChatbotTrainer` and `vocab_builder` (JSONL and legacy), and strip `\r` in the plain loader.
+- [x] That shared parser is `DatasetRegistry`'s since TD-336: multi-line legacy responses and a UTF-8 BOM reach the other two.
+- [x] Add CRLF and indentation tests.
 
-Location in code: `src/VocabBuilderHelpers.hpp` (`load_pairs_format()`, `load_plain_text()`); tagged `TODO: See TD-537`.
+Fix (November 8, 2026): `load_pairs_format()` and `ChatbotTrainer::load_conversation_data()` both call `DatasetRegistry::load_conversation_pairs()`,
+the parser training reads with, so CRLF, indented prefixes, multi-line responses and a UTF-8 BOM are handled once, and unpaired texts add nothing.
+`load_plain_text()` strips each line's `\r` and a leading BOM. `vocab_builder` now links `adai_core`.
+
+Tests: `vocabbuilder_test.cpp` (`UnpairedTextIsNotKept`, `CrlfAndIndentedPrefixesMatchTheTrainer`, `MultiLineResponseAndByteOrderMark`,
+`ByteOrderMarkBeforeJsonl`, `StripsCarriageReturnsAndByteOrderMark`), `chatbottrainer_test.cpp` (`LoadsLegacyFilesLikeTheRegistry`); all six fail on
+the old code. Four older tests that pinned the unpaired behaviour were rewritten or removed.
+
+Location in code: `src/VocabBuilderHelpers.hpp` (`load_pairs_format()`, `load_plain_text()`).
 
 Files to Modify:
 

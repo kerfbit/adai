@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-10-18
+// @adai-version: 1.3.0
+// @adai-reviewed: 2026-11-08
 
 /**
  * @file VocabBuilderHelpers.hpp
@@ -19,7 +19,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include "TrainingSampleMeta.hpp"
+#include "DatasetRegistry.hpp"
 
 /**
  * TD-534: pick a loader for `filename` from its first non-blank line: `{` (JSONL training data)
@@ -67,7 +67,6 @@ inline bool parse_int_in_range(const std::string& text, long min_value, long max
 /**
  * Load text from plain text file (one non-empty line per sample).
  */
-// TODO: See TD-537 in TECHNICAL_DEBT.md - keeps the \r of CRLF lines.
 inline std::vector<std::string> load_plain_text(const std::string& filename) {
     std::vector<std::string> texts;
     std::ifstream file(filename);
@@ -78,7 +77,13 @@ inline std::vector<std::string> load_plain_text(const std::string& filename) {
     }
 
     std::string line;
+    bool first = true;
     while (std::getline(file, line)) {
+        if (first && line.compare(0, 3, "\xEF\xBB\xBF") == 0)
+            line.erase(0, 3);
+        first = false;
+        if (!line.empty() && line.back() == '\r')  // TD-537: a CRLF file
+            line.pop_back();
         if (!line.empty()) {
             texts.push_back(line);
         }
@@ -92,55 +97,20 @@ inline std::vector<std::string> load_plain_text(const std::string& filename) {
  * Load text from a training data file (JSONL or legacy INPUT:/RESPONSE: format).
  * Returns the concatenated input and response texts for vocabulary building.
  */
-// TODO: See TD-537 in TECHNICAL_DEBT.md - legacy branch keeps leading spaces and \r, skips indented lines and keeps
-// unpaired texts, unlike ChatbotTrainer's parser (verified).
+// TD-537: DatasetRegistry's parser, the one training reads with, so the vocabulary is learned from
+// the same text.
 inline std::vector<std::string> load_pairs_format(const std::string& filename) {
     std::vector<std::string> texts;
-    std::ifstream file(filename);
-
-    if (!file.is_open()) {
-        std::cerr << "Error: Cannot open file: " << filename << "\n";
-        return texts;
+    std::vector<ConversationPair> pairs;
+    DatasetRegistry::load_conversation_pairs(filename, pairs);
+    for (const auto& pair : pairs) {
+        if (!pair.input.empty())
+            texts.push_back(pair.input);
+        if (!pair.response.empty())
+            texts.push_back(pair.response);
+        for (const auto& turn : pair.meta.history)  // TD-295
+            texts.push_back(turn.second);
     }
-
-    // Detect format from first non-empty line
-    std::string first_line;
-    while (std::getline(file, first_line)) {
-        first_line.erase(0, first_line.find_first_not_of(" \t\r\n"));
-        if (!first_line.empty())
-            break;
-    }
-    file.seekg(0);
-
-    std::string line;
-    if (!first_line.empty() && first_line.front() == '{') {
-        // JSONL training format
-        while (std::getline(file, line)) {
-            if (line.empty() || line.front() != '{')
-                continue;
-            std::string in, resp;
-            SampleMeta meta;
-            if (parse_jsonl_sample(line, in, resp, meta)) {
-                if (!in.empty())
-                    texts.push_back(in);
-                if (!resp.empty())
-                    texts.push_back(resp);
-                for (const auto& turn : meta.history)  // TD-295
-                    texts.push_back(turn.second);
-            }
-        }
-    } else {
-        // Legacy INPUT:/RESPONSE: format
-        while (std::getline(file, line)) {
-            if (line.find("INPUT:") == 0) {
-                texts.push_back(line.substr(6));
-            } else if (line.find("RESPONSE:") == 0) {
-                texts.push_back(line.substr(9));
-            }
-        }
-    }
-
-    file.close();
     return texts;
 }
 

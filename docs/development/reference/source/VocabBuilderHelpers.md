@@ -37,6 +37,9 @@ trailing space), and the indented pair's input dropped while its response was ke
 vocabulary is therefore learned from slightly different text than the trainer tokenizes. The impact is small (some merges spent on edge whitespace),
 but the two parsers should share one implementation.
 
+**Fixed November 8, 2026 (TD-537):** `load_pairs_format()` and `ChatbotTrainer::load_conversation_data()` call
+`DatasetRegistry::load_conversation_pairs()`, and `load_plain_text()` strips `\r` and a leading BOM.
+
 ### Already tracked
 
 | Item | Tracked as |
@@ -64,5 +67,5 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 
 | Item | Impact | Basis | Tracked as |
 |---|---|---|---|
-| Legacy/plain loaders keep leading spaces and `\r`, skip indented `INPUT:` lines and keep unpaired texts, unlike the trainer (§2) | Vocabulary learned from slightly different text than training | **Verified** | [TD-537](../../guides/TECHNICAL_DEBT.md#td-537-vocab_builder-legacy-loader-reads-different-text-from-the-trainer) |
+| Legacy/plain loaders keep leading spaces and `\r`, skip indented `INPUT:` lines and keep unpaired texts, unlike the trainer (§2) | Vocabulary learned from slightly different text than training | **Verified** | [TD-537](../../guides/TECHNICAL_DEBT.md#td-537-vocab_builder-legacy-loader-reads-different-text-from-the-trainer); fixed in code November 8, 2026 |
 | `json` loader, inherited JSONL gaps, registry legacy parser | Already tracked | — | TD-536, TD-531/532, TD-336 |

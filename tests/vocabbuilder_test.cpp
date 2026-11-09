@@ -182,6 +182,17 @@ TEST(LoadPlainTextTest, NoTrailingNewlineHandled) {
     remove_tmp(path);
 }
 
+// TD-537: a CRLF line loses its \r and a file its byte-order mark, as a training file does.
+TEST(LoadPlainTextTest, StripsCarriageReturnsAndByteOrderMark) {
+    std::string path = tmp_path("plain_crlf.txt");
+    write_file(path,
+               "\xEF\xBB\xBF"
+               "first line\r\n\r\nsecond line\r\n");
+    const std::vector<std::string> expected = {"first line", "second line"};
+    EXPECT_EQ(load_plain_text(path), expected);
+    remove_tmp(path);
+}
+
 // ============================================================================
 // load_pairs_format Tests
 // ============================================================================
@@ -199,29 +210,58 @@ TEST(LoadPairsFormatTest, EmptyFileReturnsEmpty) {
     remove_tmp(path);
 }
 
-TEST(LoadPairsFormatTest, InputPrefixExtracted) {
+TEST(LoadPairsFormatTest, PrefixesExtracted) {
     std::string path = tmp_path("pairs_input.txt");
-    write_file(path, "INPUT:hello world\n");
+    write_file(path, "INPUT:hello world\nRESPONSE:this is a reply\n");
     auto result = load_pairs_format(path);
-    ASSERT_EQ(result.size(), 1u);
+    ASSERT_EQ(result.size(), 2u);
     EXPECT_EQ(result[0], "hello world");
+    EXPECT_EQ(result[1], "this is a reply");
     remove_tmp(path);
 }
 
-TEST(LoadPairsFormatTest, ResponsePrefixExtracted) {
-    std::string path = tmp_path("pairs_response.txt");
-    write_file(path, "RESPONSE:this is a reply\n");
-    auto result = load_pairs_format(path);
-    ASSERT_EQ(result.size(), 1u);
-    EXPECT_EQ(result[0], "this is a reply");
+// TD-537: the vocabulary is learned from the text the trainer tokenizes, so an unpaired line,
+// which the trainer never sees, adds nothing.
+TEST(LoadPairsFormatTest, UnpairedTextIsNotKept) {
+    std::string path = tmp_path("pairs_unpaired.txt");
+    write_file(path, "INPUT:only a question\n\nINPUT:another question\n");
+    EXPECT_TRUE(load_pairs_format(path).empty());
+    remove_tmp(path);
+}
+
+TEST(LoadPairsFormatTest, CrlfAndIndentedPrefixesMatchTheTrainer) {
+    std::string path = tmp_path("pairs_crlf.txt");
+    write_file(path,
+               "INPUT: hello there\r\nRESPONSE: hi friend\r\n\r\n"
+               "  INPUT: indented question\r\n  RESPONSE: indented answer\r\n");
+    const std::vector<std::string> expected = {"hello there", "hi friend", "indented question",
+                                               "indented answer"};
+    EXPECT_EQ(load_pairs_format(path), expected);
+    remove_tmp(path);
+}
+
+// TD-336's rules reach the vocabulary too.
+TEST(LoadPairsFormatTest, MultiLineResponseAndByteOrderMark) {
+    std::string path = tmp_path("pairs_multiline.txt");
+    write_file(path, "\xEF\xBB\xBFINPUT: code\nRESPONSE: if (x) {\n    y();\n}\n");
+    const std::vector<std::string> expected = {"code", "if (x) {\n    y();\n}"};
+    EXPECT_EQ(load_pairs_format(path), expected);
+    remove_tmp(path);
+}
+
+TEST(LoadPairsFormatTest, ByteOrderMarkBeforeJsonl) {
+    std::string path = tmp_path("pairs_bom.jsonl");
+    write_file(path, "\xEF\xBB\xBF{\"input\":\"a\",\"response\":\"b\"}\n");
+    const std::vector<std::string> expected = {"a", "b"};
+    EXPECT_EQ(load_pairs_format(path), expected);
     remove_tmp(path);
 }
 
 TEST(LoadPairsFormatTest, OtherLinesIgnored) {
     std::string path = tmp_path("pairs_other.txt");
-    write_file(path, "IGNORED LINE\nSOMETHING ELSE\nINPUT:kept\n");
+    write_file(path, "IGNORED LINE\nSOMETHING ELSE\nINPUT:kept\nRESPONSE:too\n");
     auto result = load_pairs_format(path);
-    ASSERT_EQ(result.size(), 1u);
+    ASSERT_EQ(result.size(), 2u);
     EXPECT_EQ(result[0], "kept");
     remove_tmp(path);
 }
@@ -242,20 +282,9 @@ TEST(LoadPairsFormatTest, MultiplePairsExtracted) {
     remove_tmp(path);
 }
 
-TEST(LoadPairsFormatTest, InputWithoutTextExtracted) {
-    // "INPUT:" with nothing after the colon → empty string still pushed
-    std::string path = tmp_path("pairs_bare.txt");
-    write_file(path, "INPUT:\n");
-    auto result = load_pairs_format(path);
-    // Empty string after prefix is still added (empty suffix is not dropped)
-    EXPECT_EQ(result.size(), 1u);
-    EXPECT_EQ(result[0], "");
-    remove_tmp(path);
-}
-
 TEST(LoadPairsFormatTest, BlankLinesBetweenPairsIgnored) {
     std::string path = tmp_path("pairs_blanks.txt");
-    write_file(path, "\nINPUT:a\n\nRESPONSE:b\n\n");
+    write_file(path, "\nINPUT:a\nRESPONSE:b\n\n\n");
     auto result = load_pairs_format(path);
     ASSERT_EQ(result.size(), 2u);
     EXPECT_EQ(result[0], "a");

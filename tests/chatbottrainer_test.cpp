@@ -557,6 +557,23 @@ TEST_F(JsonlLoadTest, LoadsLegacyFormatStillWorks) {
     EXPECT_EQ(trainer.get_training_data_size(), 2u);
 }
 
+// TD-537: the same parser as the registry's, so unseparated pairs, multi-line responses and a
+// byte-order mark all load.
+TEST_F(JsonlLoadTest, LoadsLegacyFilesLikeTheRegistry) {
+    write_jsonl(
+        "\xEF\xBB\xBFINPUT: q1\nRESPONSE: line one\n    line two\n"
+        "INPUT: q2\nRESPONSE: a2\n");
+
+    TrainingConfig cfg;
+    cfg.log_level = LogLevel::SILENT;
+    cfg.validation_split = 0;
+    ChatbotTrainer trainer(cfg);
+    ASSERT_TRUE(trainer.load_conversation_data(tmp_file_.string()));
+    ASSERT_EQ(trainer.get_training_data_size(), 2u);
+    EXPECT_EQ(trainer.get_training_pairs()[0].input, "q1");
+    EXPECT_EQ(trainer.get_training_pairs()[0].response, "line one\n    line two");
+}
+
 TEST_F(JsonlLoadTest, ReturnsFalseForMissingFile) {
     TrainingConfig cfg;
     cfg.log_level = LogLevel::SILENT;
