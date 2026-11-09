@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.4.1
+// @adai-version: 1.5.0
 // @adai-reviewed: 2026-11-09
 
 #include "ModelNameService.hpp"
@@ -178,6 +178,28 @@ double json_loss(const std::string& body, const std::string& key, double def = 0
 
 // TD-457: a client's id for one registration or new run; empty when it sent none.
 constexpr std::size_t kMaxRequestIdBytes = 128;
+
+// TD-461: null when these fields can build a model, else why they can't. A field outside
+// [1, kMaxArchField] (a negative one wraps to a huge size_t) is named. The architecture can't be
+// changed after registration, so an unbuildable one could only be deleted and registered again.
+constexpr size_t kMaxArchField = 1U << 30;
+
+std::optional<std::string> arch_problem(
+    const std::vector<std::pair<const char*, size_t>>& required_fields) {
+    size_t d_model = 0;
+    size_t num_heads = 0;
+    for (const auto& [field, value] : required_fields) {
+        if (value == 0 || value > kMaxArchField)
+            return std::string(field) + " must be a positive whole number";
+        if (std::string(field) == "d_model")
+            d_model = value;
+        if (std::string(field) == "num_heads")
+            num_heads = value;
+    }
+    if (num_heads != 0 && d_model % num_heads != 0)
+        return std::string("d_model must be divisible by num_heads");
+    return std::nullopt;
+}
 
 std::string loss_json(double loss) {
     if (!std::isfinite(loss))
@@ -1382,7 +1404,6 @@ std::pair<int, std::string> adai::ModelNameService::handle_register(const std::s
     r.created_utc = utc_now();
     r.updated_utc = r.created_utc;
 
-    // TODO: See TD-461 in TECHNICAL_DEBT.md - legacy chatbots get no arch validation (missing arch -> all zeros); no d_model % num_heads check for any kind
     const auto arch = extract_object(body, "arch");
     if (arch != "{}") {
         r.d_model = static_cast<size_t>(json_int(arch, "d_model"));
@@ -1415,9 +1436,11 @@ std::pair<int, std::string> adai::ModelNameService::handle_register(const std::s
             return {400, "{\"error\":\"" + kind +
                              " must not set the layer-count field belonging to the other kind\"}"};
         }
-        if (r.d_model == 0 || r.num_heads == 0 || r.d_ff == 0 || r.max_seq_length == 0) {
-            return {400, "{\"error\":\"" + kind +
-                             " requires d_model/num_heads/d_ff/max_seq_length all positive\"}"};
+        if (auto problem = arch_problem({{"d_model", r.d_model},
+                                         {"num_heads", r.num_heads},
+                                         {"d_ff", r.d_ff},
+                                         {"max_seq_length", r.max_seq_length}})) {
+            return {400, "{\"error\":\"" + kind + ": " + *problem + "\"}"};
         }
     } else if (kind == "chatbot") {
         const bool has_encoder = !r.connection.encoder_name.empty();
@@ -1426,6 +1449,16 @@ std::pair<int, std::string> adai::ModelNameService::handle_register(const std::s
             return {400,
                     "{\"error\":\"chatbot requires both encoder_name and decoder_name, or "
                     "neither (legacy inline architecture)\"}"};
+        }
+        if (!has_encoder) {  // legacy: the architecture is inline
+            if (auto problem = arch_problem({{"d_model", r.d_model},
+                                             {"num_heads", r.num_heads},
+                                             {"d_ff", r.d_ff},
+                                             {"num_encoder_layers", r.num_encoder_layers},
+                                             {"num_decoder_layers", r.num_decoder_layers},
+                                             {"max_seq_length", r.max_seq_length}})) {
+                return {400, "{\"error\":\"chatbot: " + *problem + "\"}"};
+            }
         }
         if (has_encoder) {
             const auto enc_it = models_.find(r.connection.encoder_name);

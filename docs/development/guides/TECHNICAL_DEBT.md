@@ -1549,6 +1549,7 @@ The generation and model math run is complete.
 - TD-457 (done in code, owner's choice of an idempotency key: `request_id` on a new run or registration, deduplicated by `mns_server`).
 - TD-460 (done in code: retiring a model clears its roles, `resolve_role` only returns production models, reviving takes an explicit flag).
 - TD-410 (done in code, owner's choice to archive: completed epochs recorded, early stopping and schedule configurable, `retrain` archives the previous checkpoints).
+- TD-461 (done in code: unbuildable architectures refused at registration).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -14582,7 +14583,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | MNS / Server | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 9, 2026 | MNS / Server | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `ModelNameService` and verified against a real `mns_server`. Architecture is immutable after
@@ -14594,10 +14595,16 @@ rejects `d_model % num_heads != 0`, so the model can never be built. The only re
 
 Action Items:
 
-- [ ] Require all six fields positive for a legacy chatbot, and `d_model % num_heads == 0` for every kind; return 400 with the offending field.
-- [ ] Live tests for missing arch and non-divisible heads.
+- [x] Require all six fields positive for a legacy chatbot, and `d_model % num_heads == 0` for every kind; return 400 with the offending field.
+- [x] Live tests for missing arch and non-divisible heads.
 
-Location in code: `src/ModelNameService.cpp` (`handle_register()`); tagged `TODO: See TD-461`.
+Fix (November 9, 2026): `handle_register()` answers 400 naming the field for any legacy `chatbot` missing one of the six fields, any field outside 1 to 2^30 (a negative value used to wrap to a
+huge size), and `d_model` not divisible by `num_heads`, in every kind that carries an architecture. A linked chatbot takes its architecture from its already checked encoder and decoder, so its zero inline fields
+are still accepted. Records registered earlier aren't touched.
+
+Tests: `MNSLiveTest.UnbuildableArchitecturesAreRefused` (fails on the old code); the live tests that registered with no architecture now send one.
+
+Location in code: `src/ModelNameService.cpp` (`handle_register()`).
 
 Files to Modify:
 

@@ -83,6 +83,8 @@ has no live production model. Retiring should clear the role mapping (or be refu
 
 ### Registration accepts architectures that can never work, permanently
 
+**Fixed November 9, 2026 (TD-461):** registration now refuses these with a 400 naming the field.
+
 Architecture is immutable, but a legacy (inline) `chatbot` is registered with **no architecture validation at all**:
 - With no `arch` object: 201, stored as `d_model 0, num_heads 0, …` (the client then hands those zeros to the trainer and
   chat server, TD-459).

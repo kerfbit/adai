@@ -100,6 +100,16 @@ bool json_bool(const std::string& body, const std::string& key) {
     return body.substr(val_pos, 4) == "true";
 }
 
+// The smallest valid architecture, as a field for a registration body (TD-461 requires one).
+std::string arch_field() {
+    return ",\"arch\":{\"d_model\":64,\"num_heads\":2,\"d_ff\":128,"
+           "\"num_encoder_layers\":1,\"num_decoder_layers\":1,\"max_seq_length\":16}";
+}
+
+std::string minimal_body(const std::string& name) {
+    return "{\"model_name\":\"" + name + "\"" + arch_field() + "}";
+}
+
 bool body_contains(const std::string& body, const std::string& substr) {
     return body.find(substr) != std::string::npos;
 }
@@ -168,7 +178,7 @@ TEST_F(MNSLiveTest, RegisterModel_ReturnsUUIDAndInitializingState) {
 TEST_F(MNSLiveTest, RegisterModel_DuplicateReturns409) {
     const auto name = make_model("dup");
     auto c = make_client();
-    const std::string body = "{\"model_name\":\"" + name + "\"}";
+    const std::string body = minimal_body(name);
     auto r1 = c.Post("/models", body, "application/json");
     ASSERT_TRUE(r1);
     EXPECT_EQ(201, r1->status);
@@ -196,7 +206,7 @@ TEST_F(MNSLiveTest, RegisterModel_WithRunGroupPersistsIt) {
     const auto name = make_model("rungroup");
     auto c = make_client();
     const std::string body =
-        "{\"model_name\":\"" + name + "\",\"role\":\"chatbot\",\"run_group\":\"my-group\"}";
+        "{\"model_name\":\"" + name + "\",\"role\":\"chatbot\",\"run_group\":\"my-group\"" + arch_field() + "}";
     auto res = c.Post("/models", body, "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(201, res->status);
@@ -210,7 +220,7 @@ TEST_F(MNSLiveTest, RegisterModel_WithRunGroupPersistsIt) {
 TEST_F(MNSLiveTest, RegisterModel_WithoutRunGroupDefaultsToEmpty) {
     const auto name = make_model("norungroup");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
 
     auto get_res = c.Get("/models/" + name);
     ASSERT_TRUE(get_res);
@@ -221,7 +231,7 @@ TEST_F(MNSLiveTest, RegisterModel_WithoutRunGroupDefaultsToEmpty) {
 TEST_F(MNSLiveTest, UpdateRunGroup_ChangesAlreadyRegisteredModel) {
     const auto name = make_model("upd");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\",\"run_group\":\"original\"}",
+    c.Post("/models", "{\"model_name\":\"" + name + "\",\"run_group\":\"original\"" + arch_field() + "}",
            "application/json");
 
     auto put_res = c.Put("/models/" + name + "/run_group", "{\"run_group\":\"updated\"}",
@@ -246,7 +256,7 @@ TEST_F(MNSLiveTest, UpdateRunGroup_UnknownModelReturns404) {
 TEST_F(MNSLiveTest, UpdateRunGroup_WorksRegardlessOfState) {
     const auto name = make_model("updstate");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
     c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"r\"}",
           "application/json");
 
@@ -265,7 +275,7 @@ TEST_F(MNSLiveTest, UpdateRunGroup_WorksRegardlessOfState) {
 TEST_F(MNSLiveTest, GetModel_ReturnsRecord) {
     const auto name = make_model("get");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
 
     auto res = c.Get("/models/" + name);
     ASSERT_TRUE(res);
@@ -284,7 +294,7 @@ TEST_F(MNSLiveTest, GetModel_NotFoundReturns404) {
 TEST_F(MNSLiveTest, ListModels_ContainsRegisteredModel) {
     const auto name = make_model("list");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
 
     auto res = c.Get("/models");
     ASSERT_TRUE(res);
@@ -299,7 +309,7 @@ TEST_F(MNSLiveTest, ListModels_ContainsRegisteredModel) {
 TEST_F(MNSLiveTest, ResolveModel_InitializingReturns409) {
     const auto name = make_model("resolv");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
 
     auto res = c.Get("/models/" + name + "/resolve");
     ASSERT_TRUE(res);
@@ -313,7 +323,7 @@ TEST_F(MNSLiveTest, ResolveModel_InitializingReturns409) {
 TEST_F(MNSLiveTest, StateTransition_InitializingToTraining) {
     const auto name = make_model("trans");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
 
     const std::string body = "{\"state\":\"training\",\"run_id\":\"run-001\"}";
     auto res = c.Put("/models/" + name + "/state", body, "application/json");
@@ -325,7 +335,7 @@ TEST_F(MNSLiveTest, StateTransition_InitializingToTraining) {
 TEST_F(MNSLiveTest, StateTransition_TrainingToCandidate_AttachesArtifact) {
     const auto name = make_model("cand");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
     // run_id in the training body is a legacy no-op — MNS allocates it server-side
     // (see the "training" branch above / SetTraining_* tests) — so the candidate
     // transition below must use the server-allocated id, not this arbitrary one.
@@ -349,7 +359,7 @@ TEST_F(MNSLiveTest, StateTransition_TrainingToCandidate_AttachesArtifact) {
 TEST_F(MNSLiveTest, StateTransition_InvalidReturns409) {
     const auto name = make_model("inv");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
 
     // initializing -> production is not a valid transition
     auto res =
@@ -361,7 +371,7 @@ TEST_F(MNSLiveTest, StateTransition_InvalidReturns409) {
 TEST_F(MNSLiveTest, StateTransition_TrainingLock_SameRunIdIdempotent) {
     const auto name = make_model("lock");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
     c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"run-1\"}",
           "application/json");
     // Same run_id — should be accepted
@@ -374,7 +384,7 @@ TEST_F(MNSLiveTest, StateTransition_TrainingLock_SameRunIdIdempotent) {
 TEST_F(MNSLiveTest, ExplicitRetire) {
     const auto name = make_model("retire");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
     c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"r1\"}",
           "application/json");
     c.Put("/models/" + name + "/state", "{\"state\":\"candidate\",\"run_id\":\"r1\"}",
@@ -394,7 +404,7 @@ TEST_F(MNSLiveTest, Promote_CandidateToProduction) {
     const auto name = make_model("prod");
     const auto role = make_role("chatbot");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\",\"role\":\"" + role + "\"}",
+    c.Post("/models", "{\"model_name\":\"" + name + "\",\"role\":\"" + role + "\"" + arch_field() + "}",
            "application/json");
     auto train_res = c.Put("/models/" + name + "/state",
                            "{\"state\":\"training\",\"run_id\":\"r1\"}", "application/json");
@@ -405,7 +415,7 @@ TEST_F(MNSLiveTest, Promote_CandidateToProduction) {
     ASSERT_TRUE(cand_res);
     ASSERT_EQ(200, cand_res->status) << cand_res->body;
 
-    const std::string pbody = "{\"model_name\":\"" + name + "\"}";
+    const std::string pbody = minimal_body(name);
     auto res = c.Put("/roles/" + role + "/production", pbody, "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(200, res->status);
@@ -417,10 +427,10 @@ TEST_F(MNSLiveTest, Promote_NonCandidateReturns409) {
     const auto name = make_model("nonprod");
     const auto role = make_role("nr");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
     // Still in initializing state — cannot promote
 
-    const std::string pbody = "{\"model_name\":\"" + name + "\"}";
+    const std::string pbody = minimal_body(name);
     auto res = c.Put("/roles/" + role + "/production", pbody, "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(409, res->status);
@@ -434,7 +444,7 @@ TEST_F(MNSLiveTest, Promote_AutoRetiresPreviousProduction) {
 
     // Register and promote v1
     auto promote_to_candidate = [&](const std::string& mname) {
-        c.Post("/models", "{\"model_name\":\"" + mname + "\",\"role\":\"" + role + "\"}",
+        c.Post("/models", "{\"model_name\":\"" + mname + "\",\"role\":\"" + role + "\"" + arch_field() + "}",
                "application/json");
         auto train_res = c.Put("/models/" + mname + "/state",
                                "{\"state\":\"training\",\"run_id\":\"r\"}", "application/json");
@@ -468,7 +478,7 @@ TEST_F(MNSLiveTest, ResolveRole_ReturnsArtifact) {
     const auto name = make_model("rres");
     const auto role = make_role("rres");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\",\"role\":\"" + role + "\"}",
+    c.Post("/models", "{\"model_name\":\"" + name + "\",\"role\":\"" + role + "\"" + arch_field() + "}",
            "application/json");
     auto train_res = c.Put("/models/" + name + "/state",
                            "{\"state\":\"training\",\"run_id\":\"r\"}", "application/json");
@@ -501,7 +511,7 @@ TEST_F(MNSLiveTest, ListRoles_ContainsPromotedRole) {
     const auto name = make_model("rlst");
     const auto role = make_role("rlst");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\",\"role\":\"" + role + "\"}",
+    c.Post("/models", "{\"model_name\":\"" + name + "\",\"role\":\"" + role + "\"" + arch_field() + "}",
            "application/json");
     auto train_res = c.Put("/models/" + name + "/state",
                            "{\"state\":\"training\",\"run_id\":\"r\"}", "application/json");
@@ -524,7 +534,7 @@ TEST_F(MNSLiveTest, ListRoles_ContainsPromotedRole) {
 TEST_F(MNSLiveTest, ResolveModel_CandidateReturnsArtifact) {
     const auto name = make_model("mres");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
     auto train_res = c.Put("/models/" + name + "/state",
                            "{\"state\":\"training\",\"run_id\":\"r\"}", "application/json");
     const std::string run_id = json_str(train_res->body, "run_id");
@@ -545,7 +555,7 @@ TEST_F(MNSLiveTest, ResolveModel_CandidateReturnsArtifact) {
 TEST_F(MNSLiveTest, ResolveModel_ReturnsRunGroup) {
     const auto name = make_model("mresrg");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\",\"run_group\":\"resolve-group\"}",
+    c.Post("/models", "{\"model_name\":\"" + name + "\",\"run_group\":\"resolve-group\"" + arch_field() + "}",
            "application/json");
     c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"r\"}",
           "application/json");
@@ -568,7 +578,7 @@ TEST_F(MNSLiveTest, ResolveModel_ReturnsRunGroup) {
 TEST_F(MNSLiveTest, DeleteModel_InitializingSucceeds) {
     const auto name = make_model("del");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
 
     auto res = c.Delete("/models/" + name);
     ASSERT_TRUE(res);
@@ -585,7 +595,7 @@ TEST_F(MNSLiveTest, DeleteModel_ProductionReturns409) {
     const auto name = make_model("delprod");
     const auto role = make_role("delprod");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\",\"role\":\"" + role + "\"}",
+    c.Post("/models", "{\"model_name\":\"" + name + "\",\"role\":\"" + role + "\"" + arch_field() + "}",
            "application/json");
     c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"r\"}",
           "application/json");
@@ -608,7 +618,7 @@ TEST_F(MNSLiveTest, DatasetsEndpoint_Returns501WhenNoRegistryConfigured) {
     // so the datasets endpoint must return 501 Not Implemented.
     const auto name = make_model("ds501");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
 
     auto res = c.Get("/models/" + name + "/datasets");
     ASSERT_TRUE(res);
@@ -633,7 +643,7 @@ TEST_F(MNSLiveTest, DatasetsEndpoint_Returns404ForUnknownModel) {
 TEST_F(MNSLiveTest, TrainingHistory_StoredAfterStateTransitions) {
     const auto name = make_model("hist");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
 
     // Transition: initializing → training → candidate. run_id in the training
     // body is a legacy no-op (MNS allocates it server-side) — capture the
@@ -663,7 +673,7 @@ TEST_F(MNSLiveTest, TrainingHistory_StoredAfterStateTransitions) {
 TEST_F(MNSLiveTest, TrainingHistory_PersistsAcrossGetModel) {
     const auto name = make_model("histp");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
     auto train_res = c.Put("/models/" + name + "/state",
                            "{\"state\":\"training\",\"run_id\":\"run-histp-1\"}",
                            "application/json");
@@ -688,7 +698,7 @@ TEST_F(MNSLiveTest, RetiringProductionModelClearsItsRole) {
     const auto name = make_model("retrole");
     const auto role = make_role("rr");
     auto c = make_client();
-    ASSERT_EQ(c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json")->status, 201);
+    ASSERT_EQ(c.Post("/models", minimal_body(name), "application/json")->status, 201);
     ASSERT_EQ(c.Put("/models/" + name + "/state", "{\"state\":\"candidate\"}", "application/json")->status, 200);
     ASSERT_EQ(c.Put("/roles/" + role + "/production", "{\"model_name\":\"" + name + "\"}",
                     "application/json")->status, 200);
@@ -703,7 +713,7 @@ TEST_F(MNSLiveTest, RetiringProductionModelClearsItsRole) {
 TEST_F(MNSLiveTest, RetiredModelIsRevivedOnlyWithTheFlag) {
     const auto name = make_model("revive");
     auto c = make_client();
-    ASSERT_EQ(c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json")->status, 201);
+    ASSERT_EQ(c.Post("/models", minimal_body(name), "application/json")->status, 201);
     const auto train = c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"new_run\":false}",
                              "application/json");
     ASSERT_EQ(train->status, 200);
@@ -723,6 +733,38 @@ TEST_F(MNSLiveTest, RetiredModelIsRevivedOnlyWithTheFlag) {
                                "application/json");
     EXPECT_EQ(revived->status, 200);
     EXPECT_EQ(json_str(revived->body, "state"), "candidate");
+}
+
+// TD-461: an architecture that can never be built is refused, since it can't be changed later.
+TEST_F(MNSLiveTest, UnbuildableArchitecturesAreRefused) {
+    auto c = make_client();
+    const auto reg = [&](const std::string& extra) {
+        return c.Post("/models", "{\"model_name\":\"" + make_model("arch") + "\"" + extra + "}",
+                      "application/json");
+    };
+    const auto no_arch = reg("");
+    EXPECT_EQ(no_arch->status, 400);
+    EXPECT_TRUE(body_contains(no_arch->body, "d_model")) << no_arch->body;
+
+    const auto arch = [](int d_model, int heads, int d_ff, int enc, int dec, int seq) {
+        return ",\"arch\":{\"d_model\":" + std::to_string(d_model) +
+               ",\"num_heads\":" + std::to_string(heads) + ",\"d_ff\":" + std::to_string(d_ff) +
+               ",\"num_encoder_layers\":" + std::to_string(enc) +
+               ",\"num_decoder_layers\":" + std::to_string(dec) +
+               ",\"max_seq_length\":" + std::to_string(seq) + "}";
+    };
+    const auto divisible = reg(arch(100, 8, 128, 1, 1, 16));
+    EXPECT_EQ(divisible->status, 400);
+    EXPECT_TRUE(body_contains(divisible->body, "num_heads")) << divisible->body;
+
+    const auto zero_field = reg(arch(64, 2, 128, 0, 1, 16));
+    EXPECT_EQ(zero_field->status, 400);
+    EXPECT_TRUE(body_contains(zero_field->body, "num_encoder_layers")) << zero_field->body;
+
+    EXPECT_EQ(reg(arch(-64, 2, 128, 1, 1, 16))->status, 400) << "a negative value isn't huge";
+    EXPECT_EQ(reg(",\"kind\":\"encoder\"" + arch(100, 8, 128, 1, 0, 16))->status, 400);
+    EXPECT_EQ(reg(",\"kind\":\"world_model\"" + arch(100, 8, 128, 1, 0, 16))->status, 400);
+    EXPECT_EQ(reg(arch(64, 2, 128, 1, 1, 16))->status, 201);
 }
 
 // TD-457: a repeated request_id is a retry of a delivery the server already processed.
@@ -839,7 +881,7 @@ TEST_F(MNSLiveTest, NonFiniteProgressIsNullAndKeepsJsonValid) {
 TEST_F(MNSLiveTest, SetTraining_FirstEverCallBootstrapsRunOne) {
     const auto name = make_model("run1");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
 
     // Bootstrap: even with new_run=false, the very first call allocates run-01.
     auto res =
@@ -854,7 +896,7 @@ TEST_F(MNSLiveTest, SetTraining_FirstEverCallBootstrapsRunOne) {
 TEST_F(MNSLiveTest, SetTraining_NewRunFalseContinuesSameRun) {
     const auto name = make_model("runsame");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
     c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"new_run\":false}",
           "application/json");
     c.Put("/models/" + name + "/state",
@@ -873,7 +915,7 @@ TEST_F(MNSLiveTest, SetTraining_NewRunFalseContinuesSameRun) {
 TEST_F(MNSLiveTest, SetTraining_NewRunTrueAllocatesFreshRun) {
     const auto name = make_model("runnew");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
     c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"new_run\":false}",
           "application/json");
     c.Put("/models/" + name + "/state",
@@ -891,7 +933,7 @@ TEST_F(MNSLiveTest, SetTraining_NewRunTrueAllocatesFreshRun) {
 TEST_F(MNSLiveTest, PushProgress_UpdatesSnapshotAndRejectsStaleRunId) {
     const auto name = make_model("prog");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
     auto train_res =
         c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"new_run\":false}",
              "application/json");
@@ -923,7 +965,7 @@ TEST_F(MNSLiveTest, PushProgress_UpdatesSnapshotAndRejectsStaleRunId) {
 TEST_F(MNSLiveTest, CrashedRunArchivedAsIncompleteHistoryOnNextTraining) {
     const auto name = make_model("crash");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
     auto train_res =
         c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"new_run\":false}",
              "application/json");
@@ -962,7 +1004,7 @@ TEST_F(MNSLiveTest, CrashedRunArchivedAsIncompleteHistoryOnNextTraining) {
 TEST_F(MNSLiveTest, StateTransition_CandidateRejectsSupersededRunId) {
     const auto name = make_model("stalecand");
     auto c = make_client();
-    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Post("/models", minimal_body(name), "application/json");
 
     // Trainer A starts run-01.
     auto train1 =
@@ -1183,7 +1225,7 @@ TEST_F(MNSLiveTest, RegisterChatbot_EncoderNameReferencesWrongKindReturns400) {
     const auto bot = make_model("wkbot");
     auto c = make_client();
     // A plain chatbot-kind record used where an "encoder" is required.
-    ASSERT_EQ(201, c.Post("/models", "{\"model_name\":\"" + not_enc + "\"}", "application/json")
+    ASSERT_EQ(201, c.Post("/models", minimal_body(not_enc), "application/json")
                        ->status);
     ASSERT_EQ(201, c.Post("/models",
                           "{\"model_name\":\"" + dec + "\",\"kind\":\"decoder\",\"arch\":" +
@@ -1212,7 +1254,7 @@ TEST_F(MNSLiveTest, RegisterChatbot_WorldModelNameMismatchedDModelReturns409) {
     auto c = make_client();
     ASSERT_EQ(201, c.Post("/models",
                           "{\"model_name\":\"" + wm + "\",\"kind\":\"world_model\",\"arch\":" +
-                              arch_json(999, 4, 512, 6, 0, 256) + "}",
+                              arch_json(1000, 4, 512, 6, 0, 256) + "}",
                           "application/json")
                        ->status);
 
@@ -1238,7 +1280,7 @@ TEST_F(MNSLiveTest, RegisterChatbot_WorldModelNameWrongKindReturns400) {
     const auto bot = make_model("regwmwkbot");
     auto c = make_client();
     // An ordinary chatbot-kind record used where a "world_model" is required.
-    ASSERT_EQ(201, c.Post("/models", "{\"model_name\":\"" + not_wm + "\"}", "application/json")
+    ASSERT_EQ(201, c.Post("/models", minimal_body(not_wm), "application/json")
                        ->status);
 
     const std::string bot_body =
@@ -1499,9 +1541,9 @@ TEST_F(MNSLiveTest, LinkWorldModel_TargetNotWorldModelKindReturns400) {
     const auto bot = make_model("linkbadtargetbot");
     const auto not_wm = make_model("linkbadtargetwm");
     auto c = make_client();
-    ASSERT_EQ(201, c.Post("/models", "{\"model_name\":\"" + bot + "\"}", "application/json")
+    ASSERT_EQ(201, c.Post("/models", minimal_body(bot), "application/json")
                        ->status);
-    ASSERT_EQ(201, c.Post("/models", "{\"model_name\":\"" + not_wm + "\"}", "application/json")
+    ASSERT_EQ(201, c.Post("/models", minimal_body(not_wm), "application/json")
                        ->status);
 
     auto res = c.Post("/models/" + bot + "/link-world-model",
