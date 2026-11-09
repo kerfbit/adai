@@ -857,7 +857,7 @@ All settings can be provided via:
 | Key | Default | Description |
 | --- | --- | --- |
 | `GPU_ENABLED` | `false` | Enable GPU acceleration (requires `-DENABLE_GPU=ON` build) |
-| `GPU_DEVICE_ID` | `0` | CUDA device index |
+| `GPU_DEVICE_ID` | `0` | Device index. On SYCL, each card counts once and Level Zero is numbered first (TD-391); the startup log shows the `Backend:` in use |
 | `GPU_MEMORY_FRACTION` | `0.5` | Fraction of GPU memory ADAI may allocate (0.0–1.0) |
 | `GPU_STRATEGY` | `background` | `background` (yields to other GPU work) or `full` (high-priority stream) |
 

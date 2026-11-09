@@ -2,8 +2,8 @@
 #define GPU_UTILS_SYCL_HPP
 
 // @adai-status: beta        (TD-041 resolved — dedicated tests added; real-device paths still unverified by an actual run, see below)
-// @adai-version: 0.8.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-11-09
 
 
 #include <cstddef>
@@ -15,6 +15,7 @@
 #include <sycl/ext/oneapi/properties/properties.hpp>
 #include <cstdlib>
 #include <sycl/sycl.hpp>
+#include "../DeviceSelection.hpp"
 
 namespace adai {
 namespace gpu {
@@ -57,8 +58,20 @@ class GPUManager {
     /// with the same scheduling priority (GPU_STRATEGY) after a device switch.
     inline static bool low_priority_ = true;
 
-    // TODO: See TD-391 in TECHNICAL_DEBT.md - collects GPUs from every platform, so one Arc card appears once per
-    // backend (Level Zero and OpenCL); GPU_DEVICE_ID then picks by platform order and the backend isn't logged.
+    static std::string backend_name(const sycl::device& dev) {
+        switch (dev.get_backend()) {
+            case sycl::backend::ext_oneapi_level_zero:
+                return "level_zero";
+            case sycl::backend::opencl:
+                return "opencl";
+            default:
+                return "other";
+        }
+    }
+
+    // TD-391: one Arc card appears once per backend (Level Zero and OpenCL), so select_devices()
+    // keeps one listing of it and numbers Level Zero first, whatever order the platforms come in.
+    // ONEAPI_DEVICE_SELECTOR, if set, has already narrowed what the runtime lists here.
     // TD-394: GPU-only selection also means no test can run these kernels without a GPU (add a CPU-device test mode)
     static std::vector<sycl::device> enumerate_gpu_devices() {
         // TD-394: ADAI_SYCL_ALLOW_CPU_DEVICE=1 also lists CPU devices (oneAPI's OpenCL CPU
@@ -67,11 +80,18 @@ class GPUManager {
         const char* allow_cpu = std::getenv("ADAI_SYCL_ALLOW_CPU_DEVICE");
         const auto type = (allow_cpu && allow_cpu[0] == '1') ? sycl::info::device_type::all
                                                              : sycl::info::device_type::gpu;
-        std::vector<sycl::device> gpus;
+        std::vector<sycl::device> listed;
+        std::vector<DeviceCandidate> candidates;
         for (auto& platform : sycl::platform::get_platforms()) {
             for (auto& dev : platform.get_devices(type)) {
-                gpus.push_back(dev);
+                listed.push_back(dev);
+                candidates.push_back({backend_name(dev), dev.get_info<sycl::info::device::vendor>(),
+                                      dev.get_info<sycl::info::device::name>()});
             }
+        }
+        std::vector<sycl::device> gpus;
+        for (std::size_t index : select_devices(candidates)) {
+            gpus.push_back(listed[index]);
         }
         return gpus;
     }
@@ -399,6 +419,8 @@ class GPUManager {
         unsigned int compute_units = dev.get_info<sycl::info::device::max_compute_units>();
 
         std::string info = "Device " + std::to_string(device) + ": " + name +
+                           "\n  Backend: " + backend_name(dev) + " (" +
+                           dev.get_platform().get_info<sycl::info::platform::name>() + ")" +
                            "\n  Global Memory: " + std::to_string(global_mem / (1024 * 1024)) +
                            " MB" + "\n  Compute Units: " + std::to_string(compute_units) +
                            "\n  Max Work-Group Size: " + std::to_string(max_wg);

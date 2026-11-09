@@ -1173,6 +1173,11 @@ if(ENABLE_GPU OR ENABLE_SYCL)
     add_test(NAME MatrixGPUTD003Tests COMMAND matrixgpuTd003Tests)
 endif()
 
+# TD-391: no SYCL types, so every build runs it.
+add_executable(deviceSelectionTests device_selection_test.cpp)
+target_link_libraries(deviceSelectionTests GTest::gtest_main)
+add_test(NAME DeviceSelectionTests COMMAND deviceSelectionTests)
+
 # TD-041: GPUManager/GPUMemory tests. Two files, not one, because
 # GPUUtils.hpp compiles to genuinely different code depending on
 # ADAI_ENABLE_GPU — a real device backend (CUDA or SYCL, sharing an identical

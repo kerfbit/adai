@@ -1551,6 +1551,7 @@ The generation and model math run is complete.
 - TD-410 (done in code, owner's choice to archive: completed epochs recorded, early stopping and schedule configurable, `retrain` archives the previous checkpoints).
 - TD-461 (done in code: unbuildable architectures refused at registration).
 - TD-463 (done in code: `mns_server` won't start without a usable database).
+- TD-391 (done in code: one card is one SYCL device, Level Zero numbered first; the backend is logged at startup. Check ai-machine's log line).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -11684,7 +11685,7 @@ Compile-checked only (no CUDA device here). New CUDA-only tests, which skip with
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | GPU / GPUManager | October 12, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 9, 2026 | GPU / GPUManager | October 12, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `GPUUtils_SYCL.hpp`, by inspection. `enumerate_gpu_devices()` collects
@@ -11698,15 +11699,28 @@ for oneMKL) or OpenCL. Given ai-machine's driver-instability history (SIGSEGV in
 
 Action Items:
 
-- [ ] Prefer one backend (Level Zero first, OpenCL as fallback) and de-duplicate physical devices, or document `ONEAPI_DEVICE_SELECTOR=level_zero:gpu` in the deployment config.
-- [ ] Log the platform and backend in `get_device_info()`/the startup line.
-- [ ] Ask the user to check ai-machine's current selection (`sycl-ls`, or the new log line).
+- [x] Prefer one backend (Level Zero first, OpenCL as fallback) and de-duplicate physical devices.
+- [x] Log the platform and backend in `get_device_info()`/the startup line.
+- [ ] Ask the user to check ai-machine's current selection (`sycl-ls`, or the new log line). Open: needs real hardware.
 
-Location in code: `src/gpu/sycl/GPUUtils_SYCL.hpp` (`enumerate_gpu_devices()`, `get_device_info()`); tagged `TODO: See TD-391`.
+Fix (November 9, 2026): `enumerate_gpu_devices()` passes every listed device through `adai::gpu::select_devices()`
+(`src/gpu/DeviceSelection.hpp`, no SYCL types). Level Zero is numbered first and OpenCL last, whatever order the platforms come in, and a device is dropped
+when a better backend lists one of the same vendor and name that no other listing has matched, so two identical cards stay two. SYCL has no device identity
+that works across backends. If a runtime reports a different name for the card, it stays listed twice, but `GPU_DEVICE_ID=0` is still Level Zero.
+`ONEAPI_DEVICE_SELECTOR` still narrows the list first. `get_device_info()` has a `Backend:` line, and `Matrix::gpu_initialize()`/`gpu_try_initialize()` log the device info at INFO.
 
-Files to Modify:
+Tests: `device_selection_test.cpp` (6 tests, in every build; 5 fail with the selection disabled). The whole enumeration ran on the oneAPI CPU device (`Backend: opencl (Intel(R) OpenCL)`, `gpuutilsTests` 23 passed);
+no machine here has two runtimes for one GPU, so the rule itself is covered only by the unit tests.
 
+Location in code: `src/gpu/DeviceSelection.hpp`, `src/gpu/sycl/GPUUtils_SYCL.hpp` (`enumerate_gpu_devices()`, `get_device_info()`), `src/Matrix.cpp`.
+
+Files Modified:
+
+- `src/gpu/DeviceSelection.hpp` (new)
 - `src/gpu/sycl/GPUUtils_SYCL.hpp`
+- `src/Matrix.cpp`
+- `tests/device_selection_test.cpp` (new)
+- `tests/CMakeLists.txt`
 
 ---
 

@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-033 — GPU dispatch still round-trips per op, see TECHNICAL_DEBT.md)
-// @adai-version: 0.10.0
-// @adai-reviewed: 2026-10-20
+// @adai-version: 0.10.1
+// @adai-reviewed: 2026-11-09
 
 #include "Matrix.hpp"
 #include <algorithm>
@@ -810,8 +810,19 @@ bool Matrix::gpu_available() {
     return adai::gpu::GPUManager::is_available();
 }
 
+namespace {
+// TD-391: which device and backend a pass really runs on, for diagnosing driver trouble.
+bool log_gpu_if_initialized(bool initialized) {
+    if (initialized) {
+        adai::Logger::info("[GPU] {}", adai::gpu::GPUManager::get_device_info());
+    }
+    return initialized;
+}
+}  // namespace
+
 bool Matrix::gpu_initialize(int device_id, float memory_fraction, bool use_low_priority) {
-    return adai::gpu::GPUManager::initialize(device_id, memory_fraction, use_low_priority);
+    return log_gpu_if_initialized(
+        adai::gpu::GPUManager::initialize(device_id, memory_fraction, use_low_priority));
 }
 
 bool Matrix::gpu_try_initialize(int device_id, float memory_fraction, bool use_low_priority) {
@@ -819,7 +830,8 @@ bool Matrix::gpu_try_initialize(int device_id, float memory_fraction, bool use_l
         return false;
     }
     try {
-        return adai::gpu::GPUManager::initialize(device_id, memory_fraction, use_low_priority);
+        return log_gpu_if_initialized(
+            adai::gpu::GPUManager::initialize(device_id, memory_fraction, use_low_priority));
     } catch (const std::exception& e) {
         adai::Logger::warn("[GPU] Initialisation failed, falling back to CPU: {}", e.what());
         return false;
