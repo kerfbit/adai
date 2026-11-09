@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039; TD-172 serve command removed, --admin-port added to resume; TD-183 added --objective=lejepa; TD-184 made the lejepa pass resume from an existing checkpoint; TD-202 added automatic-by-objective dataset_kind wiring + --dataset-kind override; TD-204 reverted TD-203's config-file-DATASET_KIND-wins-over-objective change as a design mistake)
-// @adai-version: 0.33.3
-// @adai-reviewed: 2026-11-08
+// @adai-version: 0.33.4
+// @adai-reviewed: 2026-11-09
 
 #include <array>
 #include <atomic>
@@ -1309,8 +1309,6 @@ static int run_main(int argc, char* argv[]) {
         std::string model_path = (args.size() >= 3) ? args[2] : default_model;
 
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
-        // TD-269: warm up once per run
-        config.base_config.lr_schedule = LRSchedule::LINEAR_WARMUP;
         // TD-416: AUTO_SAVE_* as configured (init and retrain used to force 30 min / 1,000 samples).
 
         IncrementalTrainer trainer(vocab_path, model_path, config);
@@ -1383,8 +1381,6 @@ static int run_main(int argc, char* argv[]) {
             init_gpu, [&]() -> int {
                 IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
                 config.base_config.num_epochs = epochs;
-                // TD-269: warm up once per run
-                config.base_config.lr_schedule = LRSchedule::LINEAR_WARMUP;
                 // TD-414: with no vocabulary yet, the first pass builds it from its data (VOCAB_BUILD_SIZE).
                 IncrementalTrainer trainer(default_vocab, default_model, config);
                 PassAdminApi pass(std::nullopt, svc_config);  // TD-416: a SIGTERM drains the pass
@@ -1467,8 +1463,6 @@ static int run_main(int argc, char* argv[]) {
             init_gpu, [&]() -> int {
                 IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
                 config.base_config.num_epochs = epochs;
-                // TD-269: warm up once per run
-                config.base_config.lr_schedule = LRSchedule::LINEAR_WARMUP;
                 // TD-416: AUTO_SAVE_* as configured (this used to force 30 min / 1,000 samples).
 
                 IncrementalTrainer trainer(default_vocab, default_model, config);
@@ -1585,8 +1579,6 @@ static int run_main(int argc, char* argv[]) {
         }
 
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
-        // TD-269: warm up once per run
-        config.base_config.lr_schedule = LRSchedule::LINEAR_WARMUP;
         IncrementalTrainer trainer(default_vocab, default_model, config);
 
         if (trainer.reset_all(keep_data)) {

@@ -234,6 +234,98 @@ std::int64_t saved_global_step(const std::string& path) {
     return in ? step : -1;
 }
 
+namespace {
+std::string write_pairs(const fs::path& dir) {
+    const std::string data = (dir / "td410_pairs.jsonl").string();
+    std::ofstream out(data);
+    for (int i = 0; i < 20; ++i)
+        out << "{\"input\":\"hello there " << i << "\",\"response\":\"hi friend\"}\n";
+    return data;
+}
+}  // namespace
+
+// TD-410: an early-stopped pass records the epochs it ran, not the ones requested. With a learning
+// rate of 0 the validation loss never improves, so patience 1 stops after epoch 2.
+TEST_F(IncrementalTrainerTest, EarlyStoppedPassRecordsCompletedEpochs) {
+    IncrementalConfig config = tiny_local_config(session_dir);
+    config.base_config.learning_rate = 0.0f;
+    config.base_config.enable_early_stopping = true;
+    config.base_config.patience = 1;
+    PendingFileRange file;
+    file.path = write_pairs(test_dir);
+
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+    ASSERT_TRUE(trainer.train_on_files({file}, 10));
+    EXPECT_EQ(trainer.get_session_history().back().epochs_completed, 2);
+}
+
+// TD-410: which checkpoint is best doesn't depend on whether links are made.
+TEST_F(IncrementalTrainerTest, BestCheckpointIsTrackedWithoutSymlinks) {
+    IncrementalConfig config = tiny_local_config(session_dir);
+    ASSERT_FALSE(config.enable_checkpoint_symlinks);
+    PendingFileRange file;
+    file.path = write_pairs(test_dir);
+
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+    ASSERT_TRUE(trainer.train_on_files({file}, 1));
+    EXPECT_EQ(best_checkpoint_path_of(trainer),
+              trainer.get_session_history().back().checkpoint_path);
+}
+
+// TD-410 (owner's choice): a retrain moves the previous run's checkpoints to an archive. Left in
+// place with no history line, the next start's cleanup deleted them.
+TEST_F(IncrementalTrainerTest, RetrainArchivesPreviousCheckpoints) {
+    const std::string checkpoint = touch_full_checkpoint(0);
+    const std::string history_file = session_dir.string() + "/session_history.txt";
+    {
+        std::ofstream file(history_file);
+        file << "# session_id samples_trained epochs final_loss final_val_loss checkpoint_path\n";
+        file << "0 100 5 0.2 0.1 " << checkpoint << "\n";
+    }
+    IncrementalConfig config = tiny_local_config(session_dir);
+    {
+        IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+        ASSERT_EQ(trainer.get_session_history().size(), 1u);
+        trainer.reset_model_for_config();
+    }
+    EXPECT_FALSE(fs::exists(checkpoint + ".config")) << "moved out of the session directory";
+
+    fs::path archive;
+    for (const auto& entry : fs::directory_iterator(session_dir / "archive"))
+        archive = entry.path();
+    ASSERT_FALSE(archive.empty());
+    EXPECT_TRUE(fs::exists(archive / "session_0_checkpoint.bin.config"));
+    EXPECT_TRUE(fs::exists(archive / "session_0_checkpoint.bin.vocab"));
+    EXPECT_TRUE(fs::exists(archive / "session_history.txt"));
+
+    // The next start's cleanup leaves the archive alone.
+    { IncrementalTrainer next(vocab_file.string(), model_file.string(), config); }
+    EXPECT_TRUE(fs::exists(archive / "session_0_checkpoint.bin.config"));
+}
+
+TEST_F(IncrementalTrainerTest, TrainingPolicyComesFromTheServiceConfig) {
+    adai::ServiceConfig svc;
+    svc.early_stopping_enabled = false;
+    svc.early_stopping_patience = 8;
+    svc.restore_best_weights = false;
+    svc.lr_schedule = "constant";
+    const IncrementalConfig cfg = IncrementalTrainer::make_incremental_config(svc);
+    EXPECT_FALSE(cfg.base_config.enable_early_stopping);
+    EXPECT_EQ(cfg.base_config.patience, 8);
+    EXPECT_FALSE(cfg.base_config.restore_best_weights);
+    EXPECT_EQ(cfg.base_config.lr_schedule, LRSchedule::CONSTANT);
+
+    EXPECT_EQ(IncrementalTrainer::make_incremental_config(adai::ServiceConfig{}).base_config.lr_schedule,
+              LRSchedule::LINEAR_WARMUP);
+}
+
+TEST_F(IncrementalTrainerTest, RetrainWithNothingToArchiveMakesNoArchive) {
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(),
+                               tiny_local_config(session_dir));
+    trainer.reset_model_for_config();
+    EXPECT_FALSE(fs::exists(session_dir / "archive"));
+}
+
 // TD-269: the optimizer state and run-level step continue into the next pass (a separate trainer,
 // as each trainer_service pass is a separate process), instead of restarting at step 0.
 TEST_F(IncrementalTrainerTest, TrainingStateContinuesIntoTheNextPass) {

@@ -1548,6 +1548,7 @@ The generation and model math run is complete.
 - TD-458 (done in code: non-finite losses are `null` from the client, in `mns_server`'s records and in its history).
 - TD-457 (done in code, owner's choice of an idempotency key: `request_id` on a new run or registration, deduplicated by `mns_server`).
 - TD-460 (done in code: retiring a model clears its roles, `resolve_role` only returns production models, reviving takes an explicit flag).
+- TD-410 (done in code, owner's choice to archive: completed epochs recorded, early stopping and schedule configurable, `retrain` archives the previous checkpoints).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -12411,7 +12412,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / IncrementalTrainer | October 13, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 9, 2026 | Training / IncrementalTrainer | October 13, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `IncrementalTrainer`, by inspection:
@@ -12428,9 +12429,20 @@ Found while tracing `IncrementalTrainer`, by inspection:
 
 Action Items:
 
-- [ ] Pass `epochs_fully_completed`; expose early-stopping and schedule settings through `ServiceConfig`; remove the unused fields; separate best tracking from symlink updates; archive or delete old checkpoints on `retrain`.
+- [x] Pass `epochs_fully_completed`; expose early-stopping and schedule settings through `ServiceConfig`; remove the unused fields; separate best tracking from symlink updates; archive or delete old checkpoints on `retrain`.
 
-Location in code: `src/IncrementalTrainer.cpp` (`run_training()`, `make_incremental_config()`), `src/IncrementalTrainer.hpp` (`IncrementalConfig`); tagged `TODO: See TD-410`.
+Fix (November 9, 2026): a session and its MNS summary record the epochs actually run (`ChatbotTrainer::get_epochs_run()`; `epochs_fully_completed`, which the entry suggested, is the callback's 0-based index and misses the epoch that triggers early stopping). `EARLY_STOPPING_ENABLED` (true), `EARLY_STOPPING_PATIENCE` (5, at least 1),
+`RESTORE_BEST_WEIGHTS` (true) and `LR_SCHEDULE` are settings with the old fixed values as defaults. `LR_SCHEDULE` takes `linear_warmup` (default) or `constant` only: the decaying
+schedules would re-decay every pass, which TD-269 removed. The unused `save_incremental_checkpoints`/`checkpoint_dir` are gone, and best tracking no longer depends on symlinks.
+
+`retrain` (owner's choice: archive): the entry above was out of date, because an emptied history made the next start's cleanup delete every old checkpoint as having no
+history line, including one MNS might serve. `reset_model_for_config()` now moves them and a copy of the history to `<SESSION_DIR>/archive/<UTC time>/`, and a move that fails stops
+the retrain. Nothing deletes archives. An MNS artifact path pointing at a moved checkpoint is stale until that model's next candidate.
+
+Tests: `incrementaltrainer_test.cpp` (`EarlyStoppedPassRecordsCompletedEpochs`, `BestCheckpointIsTrackedWithoutSymlinks`, `RetrainArchivesPreviousCheckpoints`, all failing on the old code;
+`RetrainWithNothingToArchiveMakesNoArchive`, `TrainingPolicyComesFromTheServiceConfig`), `config_test.cpp` (`TrainingPolicyKeys`, `ValidateRejectsPatienceBelowOne`).
+
+Location in code: `src/IncrementalTrainer.cpp` (`run_training()`, `make_incremental_config()`), `src/IncrementalTrainer.hpp` (`IncrementalConfig`).
 
 Files to Modify:
 

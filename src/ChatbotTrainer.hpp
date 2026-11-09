@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added)
-// @adai-version: 0.15.0
-// @adai-reviewed: 2026-11-08
+// @adai-version: 0.16.0
+// @adai-reviewed: 2026-11-09
 
 #include <atomic>
 #include <cstdint>
@@ -330,6 +330,7 @@ class ChatbotTrainer {
     // update. nullptr (the default) means abort is never requested.
     const std::atomic<bool>* abort_flag_{nullptr};
     bool was_aborted_{false};
+    int epochs_run_{0};  // TD-410: of the last train()
 
     // TD-023: background generation-quality scoring thread
     std::optional<std::thread> generation_quality_thread_;
@@ -477,6 +478,10 @@ class ChatbotTrainer {
     // Access final metrics
     float get_final_training_loss() const;
     float get_final_validation_loss() const;
+    /// TD-410: epochs the last train() ran, including the one that triggered early stopping.
+    int get_epochs_run() const {
+        return epochs_run_;
+    }
 
     // Metrics and logging helpers (public for testing)
 

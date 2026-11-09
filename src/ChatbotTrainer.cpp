@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added; TD-188 preprocess_data() now skips pairs with an empty input/response instead of an uncaught tokenizer crash)
-// @adai-version: 0.20.1
-// @adai-reviewed: 2026-11-08
+// @adai-version: 0.21.0
+// @adai-reviewed: 2026-11-09
 
 #include "ChatbotTrainer.hpp"
 #include <algorithm>
@@ -2186,6 +2186,7 @@ bool ChatbotTrainer::train(int num_epochs) {
 #endif
 
         // Train for specified epochs
+        epochs_run_ = 0;
         for (int epoch = 0; epoch < num_epochs; ++epoch) {
             // TD-169: wall-clock duration for this epoch, fed to metrics_tracker_ below
             // alongside the other per-epoch data — independent of
@@ -2226,6 +2227,8 @@ bool ChatbotTrainer::train(int num_epochs) {
             if (config.enable_loss_quality_backfill) {
                 report_sample_quality(epoch + 1, "loss");  // TD-273
             }
+
+            epochs_run_ = epoch + 1;  // TD-410: before the early-stopping break below
 
             // Early stopping check (epochs_without_improvement maintained by validate())
             if (has_validation && config.enable_early_stopping &&

@@ -1629,6 +1629,40 @@ TEST_F(ConfigTest, ValidateRejectsEachBadValue) {
     }
 }
 
+// TD-410: early stopping and the schedule are settings, with the values that used to be fixed.
+TEST_F(ConfigTest, TrainingPolicyKeys) {
+    const adai::ServiceConfig defaults;
+    EXPECT_TRUE(defaults.early_stopping_enabled);
+    EXPECT_EQ(defaults.early_stopping_patience, 5);
+    EXPECT_TRUE(defaults.restore_best_weights);
+    EXPECT_EQ(defaults.lr_schedule, "linear_warmup");
+
+    {
+        std::ofstream file(test_file);
+        file << "EARLY_STOPPING_ENABLED=false\nEARLY_STOPPING_PATIENCE=9\n"
+                "RESTORE_BEST_WEIGHTS=no\nLR_SCHEDULE=CONSTANT\n";
+    }
+    auto config = ConfigLoader::load(test_file.string());
+    EXPECT_FALSE(config.early_stopping_enabled);
+    EXPECT_EQ(config.early_stopping_patience, 9);
+    EXPECT_FALSE(config.restore_best_weights);
+    EXPECT_EQ(config.lr_schedule, "constant");
+
+    {
+        std::ofstream file(test_file);
+        file << "LR_SCHEDULE=warmup_cosine\n";
+    }
+    EXPECT_EQ(ConfigLoader::load(test_file.string()).lr_schedule, "linear_warmup")
+        << "a decaying schedule isn't offered (TD-269)";
+}
+
+TEST_F(ConfigTest, ValidateRejectsPatienceBelowOne) {
+    adai::ServiceConfig config;
+    config.early_stopping_patience = 0;
+    std::vector<std::string> errors;
+    EXPECT_FALSE(ConfigLoader::validate(config, errors));
+}
+
 TEST_F(ConfigTest, ValidateAcceptsTheDocumentedZeroes) {
     // 0 means "off" or "no limit" for these, so it must stay valid.
     const auto errors = errors_after([](ServiceConfig& c) {

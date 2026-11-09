@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.20.0
-// @adai-reviewed: 2026-11-02
+// @adai-version: 0.21.0
+// @adai-reviewed: 2026-11-09
 
 
 #include <chrono>
@@ -83,11 +83,6 @@ struct IncrementalConfig {
     // TD-405: false (default) continues each pass from the most recent completed session; true
     // uses the lowest validation loss, which is only meaningful with a fixed validation set.
     bool resume_from_best_checkpoint = false;
-
-    // Checkpointing
-    // TODO: See TD-410 in TECHNICAL_DEBT.md - save_incremental_checkpoints and checkpoint_dir are never read
-    bool save_incremental_checkpoints = true;
-    std::string checkpoint_dir = "checkpoints";
 
     // Checkpoint symlink management (TD-005)
     bool enable_checkpoint_symlinks = true;  // Create latest/best symlinks
@@ -213,6 +208,14 @@ class IncrementalTrainer {
      * 768-dim/24-layer).  Any previously loaded weights are discarded.
      */
     void reset_model_for_config();
+
+    /**
+     * TD-410: moves every session_* / auto_save_session_* checkpoint, and the history that lists
+     * them, to `<session_dir>/archive/<UTC time>/`. A retrain empties the history, and the next
+     * start's cleanup deletes any checkpoint the history doesn't list. Throws std::runtime_error
+     * when a file can't be moved, so a retrain doesn't go on and lose it.
+     */
+    void archive_previous_checkpoints();
 
     /**
      * @brief Begin a new training run: obtains an MNS-allocated run_id (and, if

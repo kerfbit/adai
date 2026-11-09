@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added; TD-186 build_model() attaches a pretrained world model/hippocampal memory when configured)
-// @adai-version: 0.23.6
-// @adai-reviewed: 2026-11-08
+// @adai-version: 0.24.0
+// @adai-reviewed: 2026-11-09
 
 #include "IncrementalTrainer.hpp"
 #include <algorithm>
@@ -311,10 +311,14 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.base_config.gradient_clip_spike_k = svc.gradient_clip_spike_k;
     cfg.base_config.batch_size = svc.batch_size;
     cfg.base_config.gradient_accumulation_steps = svc.gradient_accumulation_steps;
-    // TODO: See TD-410 in TECHNICAL_DEBT.md - early stopping/patience/restore-best hard-coded, not configurable
-    cfg.base_config.enable_early_stopping = true;
-    cfg.base_config.patience = 5;
-    cfg.base_config.restore_best_weights = true;
+    cfg.base_config.enable_early_stopping = svc.early_stopping_enabled;
+    cfg.base_config.patience = svc.early_stopping_patience;
+    cfg.base_config.restore_best_weights = svc.restore_best_weights;
+    // TD-269 (owner decision, October 18, 2026): warm up once per run, then hold the base LR. The
+    // step count carries across passes with the training state, so later passes don't re-warm or
+    // re-decay (WARMUP_COSINE decayed to the minimum within every pass); so no decay is offered.
+    cfg.base_config.lr_schedule =
+        svc.lr_schedule == "constant" ? LRSchedule::CONSTANT : LRSchedule::LINEAR_WARMUP;
     cfg.base_config.log_level = LogLevel::NORMAL;
 
     // Metrics push configuration
@@ -412,10 +416,6 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
     }
 
     config = make_incremental_config(svc);
-    // TD-269 (owner decision, October 18, 2026): warm up once per run, then hold the base LR. The
-    // step count carries across passes with the training state, so later passes don't re-warm or
-    // re-decay (WARMUP_COSINE decayed to the minimum within every pass).
-    config.base_config.lr_schedule = LRSchedule::LINEAR_WARMUP;
     vocab_build_size_ = svc.vocab_build_size;
     dataset_config_ = config.dataset;
     // Threaded through to ChatbotTrainer via config.base_config (its constructor
@@ -565,7 +565,52 @@ IncrementalConfig& IncrementalTrainer::get_config() {
     return config;
 }
 
+void IncrementalTrainer::archive_previous_checkpoints() {
+    const fs::path sdir(get_session_dir());
+    std::error_code ec;
+    std::vector<fs::path> files;
+    for (const auto& entry : fs::directory_iterator(sdir, ec)) {
+        if (!session_checkpoint_base_of(entry.path().filename().string()).empty()) {
+            files.push_back(entry.path());
+        }
+    }
+    if (files.empty()) {
+        return;
+    }
+
+    std::time_t now = std::time(nullptr);
+    std::tm utc{};
+#ifdef _WIN32
+    gmtime_s(&utc, &now);
+#else
+    gmtime_r(&now, &utc);
+#endif
+    char stamp[32];
+    std::strftime(stamp, sizeof(stamp), "%Y%m%dT%H%M%SZ", &utc);
+    fs::path archive = sdir / "archive" / stamp;
+    for (int n = 1; fs::exists(archive); ++n) {  // two retrains within a second
+        archive = sdir / "archive" / (std::string(stamp) + "_" + std::to_string(n));
+    }
+
+    try {
+        fs::create_directories(archive);
+        for (const fs::path& file : files) {
+            fs::rename(file, archive / file.filename());
+        }
+        const fs::path history = sdir / "session_history.txt";
+        if (fs::exists(history)) {
+            fs::copy_file(history, archive / history.filename());
+        }
+    } catch (const fs::filesystem_error& e) {
+        throw std::runtime_error("Could not archive the previous checkpoints to " +
+                                 archive.string() + ": " + e.what());
+    }
+    Logger::info("Archived {} file(s) of the previous run's checkpoints to {}", files.size(),
+                 archive.string());
+}
+
 void IncrementalTrainer::reset_model_for_config() {
+    archive_previous_checkpoints();  // TD-410
     // A freshly-built model has no history to compare against — clear tracking
     // state too, otherwise the next session inherits a stale best_validation_loss
     // (and best_checkpoint_path pointing at a now-irrelevant checkpoint) from
@@ -911,8 +956,9 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
         const float final_val_loss = trainer.get_validation_losses().empty()
                                          ? TrainingSession::kNoValidationLoss
                                          : trainer.get_final_validation_loss();
-        // TODO: See TD-410 in TECHNICAL_DEBT.md - records num_epochs requested, not epochs completed (early stopping)
-        finalize_session(finalize_sample_count, num_epochs, final_loss, final_val_loss);
+        // TD-410: what ran, not what was asked for; the two differ after early stopping.
+        const int epochs_run = trainer.get_epochs_run();
+        finalize_session(finalize_sample_count, epochs_run, final_loss, final_val_loss);
         save_session_history();
 
 #ifdef BUILD_MNS_SERVER
@@ -923,7 +969,7 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
             artifact.format = "adai-native";
             std::map<std::string, std::string> summary = {
                 {"final_loss", std::to_string(static_cast<double>(final_loss))},
-                {"epochs", std::to_string(num_epochs)}};
+                {"epochs", std::to_string(epochs_run)}};
             if (final_val_loss != TrainingSession::kNoValidationLoss) {
                 summary["final_val_loss"] = std::to_string(static_cast<double>(final_val_loss));
             }
@@ -2397,10 +2443,6 @@ void IncrementalTrainer::update_checkpoint_symlinks(const std::string& checkpoin
 
 void IncrementalTrainer::update_best_checkpoint(float validation_loss,
                                                 const std::string& checkpoint_path) {
-    if (!config.enable_checkpoint_symlinks) {
-        return;
-    }
-
     // Check if this is the best validation loss so far
     bool is_best = false;
     // TD-541: a pass without validation data (kNoValidationLoss) has nothing to compare, so it
@@ -2425,6 +2467,10 @@ void IncrementalTrainer::update_best_checkpoint(float validation_loss,
         }
         best_checkpoint_path = checkpoint_path;
 
+        // TD-410: the links are optional; knowing which checkpoint is best isn't.
+        if (!config.enable_checkpoint_symlinks) {
+            return;
+        }
         std::string best_link = config.best_symlink_name;
         if (!create_or_update_symlink(checkpoint_path, best_link)) {
             Logger::error("Failed to update best checkpoint symlink! target={} link={}",

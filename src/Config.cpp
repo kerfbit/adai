@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.28.0
-// @adai-reviewed: 2026-11-08
+// @adai-version: 1.29.0
+// @adai-reviewed: 2026-11-09
 
 #include "Config.hpp"
 #include <algorithm>
@@ -211,6 +211,7 @@ const std::vector<std::string>& kStorageBackends = metrics_storage_backend_names
 const std::vector<std::string> kDatasetKinds = {"", "encoder", "decoder", "world_model", "chatbot"};
 const std::vector<std::string> kTokenizerModes = {"unicode", "ascii"};
 const std::vector<std::string> kGpuStrategies = {"background", "full"};
+const std::vector<std::string> kLrSchedules = {"linear_warmup", "constant"};  // TD-410
 
 // TD-290: keys the shipped config files carry for features that don't read them yet.
 // HIPPOCAMPAL_COVERAGE_LOSS_WEIGHT waits for an auxiliary coverage loss in the training loop.
@@ -328,6 +329,14 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.weight_decay = parse_float(value);
             } else if (key == "DROPOUT") {
                 config.dropout = parse_float(value);  // TD-344
+            } else if (key == "EARLY_STOPPING_ENABLED") {
+                config.early_stopping_enabled = parse_file_bool(key, value);  // TD-410
+            } else if (key == "EARLY_STOPPING_PATIENCE") {
+                config.early_stopping_patience = parse_int(value);
+            } else if (key == "RESTORE_BEST_WEIGHTS") {
+                config.restore_best_weights = parse_file_bool(key, value);
+            } else if (key == "LR_SCHEDULE") {
+                config.lr_schedule = parse_file_choice(key, value, kLrSchedules);
             } else if (key == "GRADIENT_CLIP") {
                 config.gradient_clip = parse_float(value);
             } else if (key == "GRADIENT_CLIP_ADAPTIVE") {
@@ -692,6 +701,18 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_float("WEIGHT_DECAY")) {
         config.weight_decay = *val;
+    }
+    if (auto val = get_env_bool("EARLY_STOPPING_ENABLED")) {  // TD-410
+        config.early_stopping_enabled = *val;
+    }
+    if (auto val = get_env_int("EARLY_STOPPING_PATIENCE")) {
+        config.early_stopping_patience = *val;
+    }
+    if (auto val = get_env_bool("RESTORE_BEST_WEIGHTS")) {
+        config.restore_best_weights = *val;
+    }
+    if (auto val = env_choice("LR_SCHEDULE", get_env("LR_SCHEDULE"), kLrSchedules)) {
+        config.lr_schedule = *val;
     }
     if (auto val = get_env_float("DROPOUT")) {
         config.dropout = *val;
@@ -1539,6 +1560,7 @@ bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string
     require(config.dropout >= 0.0f && config.dropout < 1.0f, "dropout",
             std::to_string(config.dropout),
             "must be in [0, 1)");  // TD-344
+    at_least(config.early_stopping_patience, 1, "early_stopping_patience");  // TD-410
     require(config.gradient_clip >= 0.0f, "gradient_clip", std::to_string(config.gradient_clip), "must be >= 0");
     // Adaptive clipping, checked even while it's off (like the world-model block above).
     require(config.gradient_clip_min > 0.0f, "gradient_clip_min", std::to_string(config.gradient_clip_min),
@@ -1687,6 +1709,10 @@ std::string ConfigLoader::to_string(const ServiceConfig& c) {
     item("GRADIENT_ACCUMULATION_STEPS", num(c.gradient_accumulation_steps));
     item("WEIGHT_DECAY", num(c.weight_decay));
     item("DROPOUT", num(c.dropout));
+    item("EARLY_STOPPING_ENABLED", flag(c.early_stopping_enabled));
+    item("EARLY_STOPPING_PATIENCE", num(c.early_stopping_patience));
+    item("RESTORE_BEST_WEIGHTS", flag(c.restore_best_weights));
+    item("LR_SCHEDULE", c.lr_schedule);
     item("GRADIENT_CLIP", num(c.gradient_clip));
     item("GRADIENT_CLIP_ADAPTIVE", flag(c.adaptive_gradient_clip));
     item("GRADIENT_CLIP_MIN", num(c.gradient_clip_min));

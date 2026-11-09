@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.28.0
-// @adai-reviewed: 2026-11-08
+// @adai-version: 1.29.0
+// @adai-reviewed: 2026-11-09
 
 #include <climits>
 #include <cstdint>
@@ -213,6 +213,15 @@ struct ServiceConfig {
     /// training, [0, 1); 0 = off (default: 0.1). Never applied in validation, generation or
     /// serving.
     float dropout = 0.1f;
+
+    /// TD-410: stop a pass when validation loss hasn't improved for this many epochs, then
+    /// optionally restore the best epoch's weights.
+    bool early_stopping_enabled = true;
+    int early_stopping_patience = 5;
+    bool restore_best_weights = true;
+
+    /// TD-410: `linear_warmup` (warm up once per run, then hold the rate) or `constant`.
+    std::string lr_schedule = "linear_warmup";
 
     /// Gradient clipping norm; 0 = disabled (default: 1.0)
     float gradient_clip = 1.0f;
