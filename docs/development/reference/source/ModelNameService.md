@@ -108,7 +108,7 @@ calls fail confusingly (TD-453 is the umbrella fix).
   crash or garbled URL.
 - **Persistence errors are swallowed.** `persist_model()`, `persist_roles()` and `handle_delete()` log (or ignore) SQLite
   failures and still return success, so memory and disk can diverge until restart.
-- **Non-finite numbers** are accepted and re-emitted (TD-458).
+- **Non-finite numbers** (TD-458, fixed November 9, 2026): a loss with no finite value is `null` in every record and NULL in SQLite; other numbers ignore non-finite input.
 - **Promote can leave a model in two roles**: promoting it to a new role rewrites its `role` but leaves the old role's
   mapping.
 - **Unicode escapes**: `json_string()` turns `é` into `u00e9` (affects clients that ASCII-escape).

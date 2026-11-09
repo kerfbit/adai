@@ -13,6 +13,9 @@
  * otherwise and there is nothing meaningful to test.
  */
 #include <gtest/gtest.h>
+
+#include <cmath>
+#include <limits>
 #include "Config.hpp"
 #include "ModelNameClient.hpp"
 
@@ -210,6 +213,29 @@ TEST(ModelNameClientTest, PushProgressSendsEpochAndLossFields) {
     EXPECT_EQ(captured_path, "/models/m/progress");
     EXPECT_NE(captured_body.find("\"epoch\":5"), std::string::npos);
     EXPECT_NE(captured_body.find("\"session_id\":\"session-01\""), std::string::npos);
+}
+
+// TD-458: JSON has no NaN or infinity, so a diverged epoch is sent as null.
+TEST(ModelNameClientTest, PushProgressSendsNonFiniteLossAsNull) {
+    httplib::Server svr;
+    std::string captured_body;
+    svr.Put("/models/m/progress", [&](const httplib::Request& req, httplib::Response& res) {
+        captured_body = req.body;
+        res.status = 200;
+        res.set_content("{}", "application/json");
+    });
+    int port = 0;
+    auto t = start_server(svr, port);
+
+    adai::ModelNameClient client(base_url(port));
+    client.push_progress("m", "run-01", "s", 5, std::nan(""), 1.5);
+    EXPECT_NE(captured_body.find("\"loss\":null"), std::string::npos) << captured_body;
+    EXPECT_NE(captured_body.find("\"best_loss\":1.5"), std::string::npos) << captured_body;
+    client.push_progress("m", "run-01", "s", 5, 2.5, std::numeric_limits<double>::infinity());
+    EXPECT_NE(captured_body.find("\"loss\":2.5"), std::string::npos) << captured_body;
+    EXPECT_NE(captured_body.find("\"best_loss\":null"), std::string::npos) << captured_body;
+
+    stop_server(svr, t);
 }
 
 // ============================================================================

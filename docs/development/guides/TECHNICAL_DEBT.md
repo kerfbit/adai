@@ -1545,6 +1545,7 @@ The generation and model math run is complete.
 - TD-546 (done in code: `retrain` reads trained data per unit, so a partly trained segmented file's pairs aren't trained twice).
 - TD-537 (done in code: `vocab_builder` and `ChatbotTrainer` read training files with `DatasetRegistry`'s parser).
 - TD-476 (done in code: `send_all()` for every plain FTP send, `EINTR` retry, checked socket setup, a PASV wait bounded on both platforms).
+- TD-458 (done in code: non-finite losses are `null` from the client, in `mns_server`'s records and in its history).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -14444,7 +14445,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | MNS / Client | October 14, 2026 | 1-2 hours |
+| MEDIUM | Open — code fix landed November 9, 2026 | MNS / Client | October 14, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `ModelNameClient` and verified end to end with a real `mns_server`. `push_progress()` writes the loss with
@@ -14457,11 +14458,19 @@ diverges, the moment monitoring matters most. Same class as TD-443 (metrics).
 
 Action Items:
 
-- [ ] Client: send non-finite values as `null` (or omit them).
-- [ ] Server: reject or normalize non-finite numbers on input, and never emit `nan`/`inf` (write `null`).
-- [ ] Repair any stored NaN `progress_loss`/`training_history.final_loss` rows on startup.
+- [x] Client: send non-finite values as `null` (or omit them).
+- [x] Server: reject or normalize non-finite numbers on input, and never emit `nan`/`inf` (write `null`).
+- [x] Repair any stored NaN `progress_loss`/`training_history.final_loss` rows on startup.
 
-Location in code: `src/ModelNameClient.cpp` (`push_progress()`); `src/ModelNameService.cpp` (`handle_progress_update()`, the record serializer's `progress` and history output); tagged `TODO: See TD-458`.
+Fix (November 9, 2026): `push_progress()` sends a non-finite loss as `null`. `mns_server` reads `null`, `nan` and `inf` as a loss with no finite value
+(NaN in memory, NULL in SQLite) and always writes it as `null`. Stored rows need no rewrite: NaN was saved as NULL, which used to read back as 0 and now
+reads back as `null`, and a stored infinity is normalized when loaded. `json_double()` no longer accepts non-finite values anywhere, so a `link-world-model`
+setting can't put one into the record either. The Android dashboard's `final_loss` is nullable and shows `diverged`.
+
+Tests: `ModelNameClientTest.PushProgressSendsNonFiniteLossAsNull`, `MNSLiveTest.NonFiniteProgressIsNullAndKeepsJsonValid` (both fail on the old code; the
+live test runs against a real `mns_server`). A real server restart keeps `null`.
+
+Location in code: `src/ModelNameClient.cpp` (`push_progress()`); `src/ModelNameService.cpp` (`handle_progress_update()`, the record serializer's `progress` and history output).
 
 Files to Modify:
 

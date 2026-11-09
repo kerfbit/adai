@@ -22,6 +22,7 @@
 #include <string>
 
 #include <httplib.h>
+#include <nlohmann/json.hpp>
 
 namespace {
 
@@ -679,6 +680,53 @@ TEST_F(MNSLiveTest, TrainingHistory_PersistsAcrossGetModel) {
     EXPECT_EQ(200, r2->status);
     EXPECT_TRUE(body_contains(r1->body, run_id)) << r1->body;
     EXPECT_TRUE(body_contains(r2->body, run_id)) << r2->body;
+}
+
+
+// TD-458: a diverged epoch must not make the record, or the whole model list, invalid JSON.
+TEST_F(MNSLiveTest, NonFiniteProgressIsNullAndKeepsJsonValid) {
+    auto c = make_client();
+    const std::string name = make_model("nan");
+    ASSERT_EQ(c.Post("/models",
+                     "{\"model_name\":\"" + name +
+                         "\",\"role\":\"chatbot\",\"arch\":{\"d_model\":64,\"num_heads\":2,"
+                         "\"d_ff\":128,\"num_encoder_layers\":1,\"num_decoder_layers\":1,"
+                         "\"max_seq_length\":16}}",
+                     "application/json")
+                  ->status,
+              201);
+    const auto started =
+        c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"new_run\":false}",
+              "application/json");
+    ASSERT_EQ(started->status, 200);
+    const std::string run_id = json_str(started->body, "run_id");
+    ASSERT_FALSE(run_id.empty());
+
+    const auto push = [&](const std::string& loss) {
+        return c.Put("/models/" + name + "/progress",
+                     "{\"run_id\":\"" + run_id + "\",\"session_id\":\"s\",\"epoch\":3,"
+                     "\"loss\":" + loss + ",\"best_loss\":1.5}",
+                     "application/json")->status;
+    };
+    for (const std::string loss : {"nan", "inf", "-inf", "null"}) {
+        ASSERT_EQ(push(loss), 200) << loss;
+        const auto record = nlohmann::json::parse(c.Get("/models/" + name)->body, nullptr, false);
+        ASSERT_FALSE(record.is_discarded()) << loss;
+        EXPECT_TRUE(record["progress"]["loss"].is_null()) << loss;
+        EXPECT_DOUBLE_EQ(record["progress"]["best_loss"].get<double>(), 1.5) << loss;
+        EXPECT_FALSE(nlohmann::json::parse(c.Get("/models?limit=1000")->body, nullptr, false)
+                         .is_discarded())
+            << loss;
+    }
+
+    // A new run archives the diverged snapshot.
+    ASSERT_EQ(c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"new_run\":true}",
+                    "application/json")->status, 200);
+    const auto record = nlohmann::json::parse(c.Get("/models/" + name)->body, nullptr, false);
+    ASSERT_FALSE(record.is_discarded());
+    ASSERT_EQ(record["training_history"].size(), 1u);
+    EXPECT_TRUE(record["training_history"][0]["final_loss"].is_null());
+    EXPECT_DOUBLE_EQ(record["progress"]["loss"].get<double>(), 0.0) << "the new run starts clean";
 }
 
 // ---------------------------------------------------------------------------

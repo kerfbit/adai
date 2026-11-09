@@ -1,8 +1,8 @@
 package com.adai.ops.network.dto
 
 // @adai-status: beta        (TD-196 — kind/connection fields + register/link-world-model DTOs added)
-// @adai-version: 0.5.0
-// @adai-reviewed: 2026-09-19
+// @adai-version: 0.5.1
+// @adai-reviewed: 2026-11-09
 
 
 import kotlinx.serialization.Serializable
@@ -32,7 +32,7 @@ data class TrainingHistoryEntryDto(
     val metrics_session_key: String = "",
     val dataset_group: String = "",
     val epochs: Int = 0,
-    val final_loss: Double = 0.0,
+    val final_loss: Double? = null,  // TD-458: null for a run that diverged
     val started_utc: String = "",
     val finished_utc: String = "",
 )

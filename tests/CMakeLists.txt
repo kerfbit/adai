@@ -822,7 +822,8 @@ endif()
 # Tests auto-skip when mns_server is unreachable.
 if(TARGET adai_mns)
     add_executable(mnsLiveTests model_name_service_live_test.cpp)
-    target_include_directories(mnsLiveTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_include_directories(mnsLiveTests PRIVATE ${CMAKE_SOURCE_DIR}/src
+                               ${CMAKE_SOURCE_DIR}/external)
     target_link_libraries(mnsLiveTests
         adai_core
         GTest::gtest_main

@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-11-03
+// @adai-version: 1.3.1
+// @adai-reviewed: 2026-11-09
 
 #include "ModelNameService.hpp"
 #include <httplib.h>
@@ -10,6 +10,7 @@
 #include "DaemonConfigStore.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
@@ -151,10 +152,44 @@ double json_double(const std::string& body, const std::string& key, double def =
     if (pos == std::string::npos)
         return def;
     try {
-        return std::stod(body.substr(pos + needle.size()));
+        const double value = std::stod(body.substr(pos + needle.size()));
+        return std::isfinite(value) ? value : def;  // TD-458: stod reads "nan" and "inf"
     } catch (...) {
         return def;
     }
+}
+
+// TD-458: a loss is NaN in memory when it has no finite value (a diverged epoch): null in JSON and
+// NULL in SQLite. Any other non-finite input counts as that too.
+double json_loss(const std::string& body, const std::string& key, double def = 0.0) {
+    const std::string needle = "\"" + key + "\":";
+    const auto pos = body.find(needle);
+    if (pos == std::string::npos)
+        return def;
+    if (body.compare(pos + needle.size(), 4, "null") == 0)
+        return std::nan("");
+    try {
+        const double value = std::stod(body.substr(pos + needle.size()));
+        return std::isfinite(value) ? value : std::nan("");
+    } catch (...) {
+        return def;
+    }
+}
+
+std::string loss_json(double loss) {
+    if (!std::isfinite(loss))
+        return "null";
+    std::ostringstream text;
+    text << loss;
+    return text.str();
+}
+
+// A NULL column is a loss with no finite value; a row from before TD-458 can also hold infinity.
+double column_loss(sqlite3_stmt* st, int column) {
+    if (sqlite3_column_type(st, column) == SQLITE_NULL)
+        return std::nan("");
+    const double value = sqlite3_column_double(st, column);
+    return std::isfinite(value) ? value : std::nan("");
 }
 
 // Bare-literal boolean (true/false, no quotes).
@@ -456,7 +491,8 @@ static std::string serialize_record(const ModelRecord& r) {
       << ",\"current_run_number\":" << r.current_run_number << ",\"run_started_utc\":\""
       << json_escape(r.run_started_utc) << "\"" << ",\"progress\":{\"session_id\":\""
       << json_escape(r.progress_session_id) << "\"" << ",\"epoch\":" << r.progress_epoch
-      << ",\"loss\":" << r.progress_loss << ",\"best_loss\":" << r.progress_best_loss
+      << ",\"loss\":" << loss_json(r.progress_loss)
+      << ",\"best_loss\":" << loss_json(r.progress_best_loss)
       << ",\"updated_utc\":\"" << json_escape(r.progress_updated_utc) << "\"}"
       << ",\"training_history\":[";
     for (size_t i = 0; i < r.training_history.size(); ++i) {
@@ -466,7 +502,7 @@ static std::string serialize_record(const ModelRecord& r) {
         j << "{\"run_id\":\"" << json_escape(h.run_id) << "\"" << ",\"metrics_session_key\":\""
           << json_escape(h.metrics_session_key) << "\"" << ",\"dataset_group\":\""
           << json_escape(h.dataset_group) << "\"" << ",\"epochs\":" << h.epochs
-          << ",\"final_loss\":" << h.final_loss << ",\"started_utc\":\""
+          << ",\"final_loss\":" << loss_json(h.final_loss) << ",\"started_utc\":\""
           << json_escape(h.started_utc) << "\"" << ",\"finished_utc\":\""
           << json_escape(h.finished_utc) << "\"" << ",\"incomplete\":"
           << (h.incomplete ? "true" : "false") << "}";
@@ -511,8 +547,8 @@ static ModelRecord parse_record(const std::string& line) {
     const auto progress = extract_object(line, "progress");
     r.progress_session_id = json_string(progress, "session_id");
     r.progress_epoch = json_int(progress, "epoch");
-    r.progress_loss = json_double(progress, "loss");
-    r.progress_best_loss = json_double(progress, "best_loss");
+    r.progress_loss = json_loss(progress, "loss");
+    r.progress_best_loss = json_loss(progress, "best_loss");
     r.progress_updated_utc = json_string(progress, "updated_utc");
 
     for (const auto& obj : split_array_objects(extract_array(line, "training_history"))) {
@@ -521,7 +557,7 @@ static ModelRecord parse_record(const std::string& line) {
         h.metrics_session_key = json_string(obj, "metrics_session_key");
         h.dataset_group = json_string(obj, "dataset_group");
         h.epochs = json_int(obj, "epochs");
-        h.final_loss = json_double(obj, "final_loss");
+        h.final_loss = json_loss(obj, "final_loss");
         h.started_utc = json_string(obj, "started_utc");
         h.finished_utc = json_string(obj, "finished_utc");
         h.incomplete = json_bool(obj, "incomplete", false);
@@ -1049,8 +1085,8 @@ void adai::ModelNameService::load_from_disk() {
         r.run_started_utc = col_text(19);
         r.progress_session_id = col_text(20);
         r.progress_epoch = sqlite3_column_int(st, 21);
-        r.progress_loss = sqlite3_column_double(st, 22);
-        r.progress_best_loss = sqlite3_column_double(st, 23);
+        r.progress_loss = column_loss(st, 22);
+        r.progress_best_loss = column_loss(st, 23);
         r.progress_updated_utc = col_text(24);
         r.run_group = col_text(25);
         r.kind = col_text(26);
@@ -1090,7 +1126,7 @@ void adai::ModelNameService::load_from_disk() {
             h.metrics_session_key = col_text(2);
             h.dataset_group = col_text(3);
             h.epochs = sqlite3_column_int(hs, 4);
-            h.final_loss = sqlite3_column_double(hs, 5);
+            h.final_loss = column_loss(hs, 5);
             h.started_utc = col_text(6);
             h.finished_utc = col_text(7);
             h.incomplete = sqlite3_column_int(hs, 8) != 0;
@@ -1549,7 +1585,7 @@ std::pair<int, std::string> adai::ModelNameService::handle_state_transition(
         h.metrics_session_key = json_string(body, "metrics_session_key");
         h.dataset_group = json_string(summary, "dataset_group");
         h.epochs = json_int(summary, "epochs");
-        h.final_loss = json_double(summary, "final_loss");
+        h.final_loss = json_loss(summary, "final_loss");
         h.started_utc = json_string(summary, "started_utc");
         h.finished_utc = json_string(summary, "finished_utc");
         if (h.finished_utc.empty())
@@ -1605,9 +1641,8 @@ std::pair<int, std::string> adai::ModelNameService::handle_progress_update(
 
     r.progress_session_id = json_string(body, "session_id");
     r.progress_epoch = json_int(body, "epoch", r.progress_epoch);
-    // TODO: See TD-458 in TECHNICAL_DEBT.md - accepts nan/inf, which the record serializer then emits as invalid JSON
-    r.progress_loss = json_double(body, "loss", r.progress_loss);
-    r.progress_best_loss = json_double(body, "best_loss", r.progress_best_loss);
+    r.progress_loss = json_loss(body, "loss", r.progress_loss);
+    r.progress_best_loss = json_loss(body, "best_loss", r.progress_best_loss);
     r.progress_updated_utc = utc_now();
     r.updated_utc = r.progress_updated_utc;
     persist_model(r);

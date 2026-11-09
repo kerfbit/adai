@@ -1,9 +1,10 @@
 // @adai-status: stable        (TD-196 — encoder/decoder-linked chatbot arch resolution + connection/world-model-link API added)
-// @adai-version: 1.2.0
-// @adai-reviewed: 2026-11-07
+// @adai-version: 1.2.1
+// @adai-reviewed: 2026-11-09
 
 #include "ModelNameClient.hpp"
 #include <chrono>
+#include <cmath>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
@@ -395,11 +396,18 @@ void adai::ModelNameClient::set_candidate(
 void adai::ModelNameClient::push_progress(const std::string& model_name, const std::string& run_id,
                                           const std::string& session_id, int epoch, double loss,
                                           double best_loss) {
+    // TD-458: JSON has no NaN or infinity, so a diverged epoch is null.
+    const auto number = [](double value) {
+        if (!std::isfinite(value))
+            return std::string("null");
+        std::ostringstream text;
+        text << value;
+        return text.str();
+    };
     std::ostringstream body;
     body << "{\"run_id\":\"" << json_escape_client(run_id) << "\"" << ",\"session_id\":\""
-         // TODO: See TD-458 in TECHNICAL_DEBT.md - NaN loss sent as nan; mns_server stores and re-emits it as invalid JSON
-         << json_escape_client(session_id) << "\"" << ",\"epoch\":" << epoch << ",\"loss\":" << loss
-         << ",\"best_loss\":" << best_loss << "}";
+         << json_escape_client(session_id) << "\"" << ",\"epoch\":" << epoch
+         << ",\"loss\":" << number(loss) << ",\"best_loss\":" << number(best_loss) << "}";
 
     std::string out;
     const int status = http_put("/models/" + model_name + "/progress", body.str(), out);

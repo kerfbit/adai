@@ -1,8 +1,8 @@
 package com.adai.ops.ui.models
 
 // @adai-status: beta        (TD-199 review fix — passes chatbotName into LinkWorldModelDialog so its confirm preview shows the real endpoint)
-// @adai-version: 0.4.1
-// @adai-reviewed: 2026-09-19
+// @adai-version: 0.4.2
+// @adai-reviewed: 2026-11-09
 
 
 import androidx.compose.foundation.clickable
@@ -274,7 +274,7 @@ private fun ModelDetailContent(
                 val h = model.training_history[i]
                 DetailRow(
                     "Run ${h.run_id.ifEmpty { "(unknown)" }}",
-                    "epochs=${h.epochs} loss=${h.final_loss} session=${h.metrics_session_key.ifEmpty { "(none)" }}",
+                    "epochs=${h.epochs} loss=${h.final_loss ?: "diverged"} session=${h.metrics_session_key.ifEmpty { "(none)" }}",
                 )
             }
         }
