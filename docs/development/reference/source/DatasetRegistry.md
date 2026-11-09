@@ -138,14 +138,14 @@ The format is detected from the first non-empty line: `{` means JSONL, anything 
   `count_pairs()`). The read stops once the range is filled; a range past the end just yields
   fewer pairs.
 - **Legacy** format: lines starting `INPUT:`/`RESPONSE:`; a pair ends at a blank line or the next
-  `INPUT:` (unlike `Dataset.hpp`'s parser, unseparated pairs are kept). Only the **first line** of a
-  response is kept; continuation lines are dropped. A segment range on a legacy file logs a warning
+  `INPUT:` (unlike `Dataset.hpp`'s parser, unseparated pairs are kept). Lines after `RESPONSE:` are
+  part of the response, joined with `\n` and keeping their indentation (TD-336). A segment range on a legacy file logs a warning
   and loads the whole file.
 - `count_pairs()` **materializes every pair** to count them (a full parse, including copies of
   all text).
 
 By inspection:
-- A UTF-8 byte-order mark before the first `{` makes a JSONL file parse as legacy (0 pairs).
+- A UTF-8 byte-order mark at the start of a file is skipped, in both formats (TD-336).
 - A JSONL file with blank or comment lines first works, since detection skips blank lines.
 
 ---

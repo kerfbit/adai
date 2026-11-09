@@ -299,6 +299,58 @@ TEST(DatasetRegistryParserTest, EmptyFileReturnsZeroPairs) {
     fs::remove(tmp);
 }
 
+// ── TD-336: multi-line legacy responses and a UTF-8 byte-order mark ──────────────────────────────
+
+TEST(DatasetRegistryParserTest, LegacyResponseKeepsContinuationLines) {
+    const fs::path tmp = fs::temp_directory_path() / "adai_parser_multiline.txt";
+    write_file(tmp.string(),
+               "INPUT: show code\r\n"
+               "RESPONSE: first line\r\n"
+               "if (x) {\r\n"
+               "    y();\r\n"
+               "}\r\n"
+               "\r\n"
+               "stray text after the pair\n"
+               "INPUT: next\n"
+               "RESPONSE:\n"
+               "on its own line\n"
+               "INPUT: last\n"
+               "unrelated line before the response\n"
+               "RESPONSE: done\n");
+
+    std::vector<ConversationPair> pairs;
+    ASSERT_EQ(DatasetRegistry::load_conversation_pairs(tmp.string(), pairs), 3);
+    EXPECT_EQ(pairs[0].response, "first line\nif (x) {\n    y();\n}");
+    EXPECT_EQ(pairs[1].input, "next");
+    EXPECT_EQ(pairs[1].response, "on its own line");
+    EXPECT_EQ(pairs[2].input, "last");
+    EXPECT_EQ(pairs[2].response, "done");
+    fs::remove(tmp);
+}
+
+TEST(DatasetRegistryParserTest, ByteOrderMarkBeforeJsonlIsSkipped) {
+    const fs::path tmp = fs::temp_directory_path() / "adai_parser_bom.jsonl";
+    write_file(tmp.string(), std::string("\xEF\xBB\xBF") + kJsonlPairs);
+
+    std::vector<ConversationPair> pairs;
+    ASSERT_EQ(DatasetRegistry::load_conversation_pairs(tmp.string(), pairs), 2);
+    EXPECT_EQ(pairs[0].input, "hello");
+    EXPECT_EQ(pairs[1].response, "bar");
+    EXPECT_EQ(DatasetRegistry::count_pairs(tmp.string()), 2);
+    fs::remove(tmp);
+}
+
+TEST(DatasetRegistryParserTest, ByteOrderMarkBeforeLegacyIsSkipped) {
+    const fs::path tmp = fs::temp_directory_path() / "adai_parser_bom.txt";
+    write_file(tmp.string(), "\xEF\xBB\xBFINPUT: a\nRESPONSE: b\n\nINPUT: c\nRESPONSE: d\n");
+
+    std::vector<ConversationPair> pairs;
+    ASSERT_EQ(DatasetRegistry::load_conversation_pairs(tmp.string(), pairs), 2);
+    EXPECT_EQ(pairs[0].input, "a");
+    EXPECT_EQ(pairs[0].response, "b");
+    fs::remove(tmp);
+}
+
 // ── JSONL format ─────────────────────────────────────────────────────────────
 
 TEST(DatasetRegistryParserTest, ParsesJsonlPairs) {

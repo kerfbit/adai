@@ -1541,6 +1541,7 @@ The generation and model math run is complete.
 - TD-295 (done in code, owner's choice of the proposal as recommended plus multi-turn training data: `<system>`/`<user>`/`<assistant>` at ids 4-6,
   id-built prompts for serving, RAG and training, a JSONL `history` field; vocabulary rebuild and retrain with TD-358/TD-563).
 - TD-428 (done in code: one LeJEPA optimizer step per text from both views' accumulated gradients).
+- TD-336 (done in code: multi-line legacy responses kept, a UTF-8 BOM skipped before detection).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -9446,7 +9447,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Data / DatasetRegistry | October 11, 2026 | 1 hour |
+| LOW | Open — code fix landed November 8, 2026 | Data / DatasetRegistry | October 11, 2026 | 1 hour |
 
 Description:
 Found alongside TD-333, by inspection. `load_conversation_pairs()`:
@@ -9457,9 +9458,18 @@ Found alongside TD-333, by inspection. `load_conversation_pairs()`:
 
 Action Items:
 
-- [ ] Append continuation lines to the current response; strip a leading BOM before detection; test both.
+- [x] Append continuation lines to the current response; strip a leading BOM before detection; test both.
 
-Location in code: `src/DatasetRegistry.cpp` (`load_conversation_pairs()`); tagged `TODO: See TD-336`.
+Fix (November 8, 2026): `scan_conversation_pairs()` (behind `load_conversation_pairs()` and `count_pairs()`) starts after a UTF-8 BOM in both
+formats, so a JSONL file's first line and a legacy file's first `INPUT:` are read. Lines after `RESPONSE:` are appended to the response with `\n`,
+keeping their indentation, until a blank line (which still ends a pair) or the next `INPUT:`/`RESPONSE:`. Text between a blank line and the next
+`INPUT:` stays ignored, and so does text between `INPUT:` and `RESPONSE:`. `ChatbotTrainer::load_conversation_data()` (no production caller) and
+`vocab_builder` keep their own parsers until TD-537 shares one.
+
+Tests (`DatasetRegistryTests.cpp`): `LegacyResponseKeepsContinuationLines`, `ByteOrderMarkBeforeJsonlIsSkipped`, `ByteOrderMarkBeforeLegacyIsSkipped`
+(all three fail on the old code).
+
+Location in code: `src/DatasetRegistry.cpp` (`scan_conversation_pairs()`).
 
 Files to Modify:
 
@@ -17678,6 +17688,7 @@ tokenizes (merges spent on edge whitespace).
 Action Items:
 
 - [ ] Share one training-file parser between `ChatbotTrainer` and `vocab_builder` (JSONL and legacy), and strip `\r` in the plain loader.
+- [ ] That shared parser is `DatasetRegistry`'s since TD-336: multi-line legacy responses and a UTF-8 BOM, which the other two still don't handle.
 - [ ] Add CRLF and indentation tests.
 
 Location in code: `src/VocabBuilderHelpers.hpp` (`load_pairs_format()`, `load_plain_text()`); tagged `TODO: See TD-537`.

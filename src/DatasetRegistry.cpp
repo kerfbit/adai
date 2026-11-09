@@ -1,11 +1,12 @@
 // @adai-status: stable
-// @adai-version: 1.11.0
-// @adai-reviewed: 2026-11-07
+// @adai-version: 1.11.1
+// @adai-reviewed: 2026-11-08
 
 #include "DatasetRegistry.hpp"
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <cstring>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -781,6 +782,14 @@ int DatasetRegistry::scan_conversation_pairs(const std::string& path,
         return 0;
     }
 
+    // TD-336: both formats start after a UTF-8 byte-order mark.
+    char bom[3] = {};
+    file.read(bom, 3);
+    const bool has_bom = file.gcount() == 3 && std::memcmp(bom, "\xEF\xBB\xBF", 3) == 0;
+    const std::streamoff start = has_bom ? 3 : 0;
+    file.clear();
+    file.seekg(start);
+
     // Detect format from first non-empty line
     std::string first_line;
     while (std::getline(file, first_line)) {
@@ -788,9 +797,9 @@ int DatasetRegistry::scan_conversation_pairs(const std::string& path,
         if (!first_line.empty())
             break;
     }
-    file.seekg(0);
+    file.clear();
+    file.seekg(start);
 
-    // TODO: See TD-336 in TECHNICAL_DEBT.md - a UTF-8 BOM before '{' makes a JSONL file parse as legacy (0 pairs)
     const bool is_jsonl = !first_line.empty() && first_line.front() == '{';
     const bool ranged = segment_start >= 0;
     if (ranged && !is_jsonl) {
@@ -833,12 +842,15 @@ int DatasetRegistry::scan_conversation_pairs(const std::string& path,
         }
     } else {
         // Legacy INPUT:/RESPONSE: format
-        std::string line, current_input, current_response;
-        while (std::getline(file, line)) {
+        std::string raw, line, current_input, current_response;
+        bool in_response = false;  // TD-336: until a blank line or the next INPUT:
+        while (std::getline(file, raw)) {
+            raw.erase(raw.find_last_not_of(" \t\n\r") + 1);
+            line = raw;
             line.erase(0, line.find_first_not_of(" \t\n\r"));
-            line.erase(line.find_last_not_of(" \t\n\r") + 1);
 
             if (line.empty()) {
+                in_response = false;
                 if (!current_input.empty() && !current_response.empty()) {
                     if (pairs)
                         pairs->emplace_back(current_input, current_response);
@@ -859,10 +871,16 @@ int DatasetRegistry::scan_conversation_pairs(const std::string& path,
                 }
                 current_input = line.substr(6);
                 current_input.erase(0, current_input.find_first_not_of(" \t"));
-            // TODO: See TD-336 in TECHNICAL_DEBT.md - only the first response line is kept; continuation lines are dropped
+                in_response = false;
             } else if (line.substr(0, 9) == "RESPONSE:") {
                 current_response = line.substr(9);
                 current_response.erase(0, current_response.find_first_not_of(" \t"));
+                in_response = true;
+            } else if (in_response) {
+                // A continuation line keeps its indentation (code, lists).
+                if (!current_response.empty())
+                    current_response += '\n';
+                current_response += raw;
             }
         }
         if (!current_input.empty() && !current_response.empty()) {
