@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-040 fully resolved — see below)
-// @adai-version: 0.13.0
-// @adai-reviewed: 2026-11-07
+// @adai-version: 0.13.1
+// @adai-reviewed: 2026-11-09
 
 /**
  * FtpDataServer — embedded read-only FTP server for dataset delivery.
@@ -529,13 +529,19 @@ class FtpDataServer {
         }
 #endif
 
+        if (!winsock_guard_.ok()) {  // TD-476
+            Logger::error("[FTP] Winsock could not start: {}", adai::last_socket_error());
+            running_.store(false);
+            return;
+        }
         listen_fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
         if (listen_fd_ == adai::kInvalidSocket) {
             Logger::error("[FTP] Failed to create listen socket: {}", adai::last_socket_error());
             running_.store(false);
             return;
         }
-        adai::set_reuse_addr(listen_fd_);
+        if (!adai::set_reuse_addr(listen_fd_))
+            Logger::warn("[FTP] SO_REUSEADDR failed: {}", adai::last_socket_error());
 
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
@@ -745,11 +751,12 @@ class FtpDataServer {
                 Logger::warn("[FTP] Connection from '{}' refused: {} connections open", client_ip,
                              conns_.size());
                 const std::string busy = "421 Too many connections; try again later.\r\n";
-                adai::send_bytes(conn_fd, busy.c_str(), busy.size());
+                adai::send_all(conn_fd, busy.c_str(), busy.size());
                 adai::close_socket(conn_fd);
                 continue;
             }
-            adai::set_recv_timeout(conn_fd, pre_login_timeout_s_);
+            if (!adai::set_recv_timeout(conn_fd, pre_login_timeout_s_))
+                Logger::warn("[FTP] Couldn't set a receive timeout: {}", adai::last_socket_error());
             auto conn = std::make_unique<Connection>();
             conn->fd = conn_fd;
             Connection* c = conn.get();
@@ -808,7 +815,7 @@ class FtpDataServer {
             return;
         }
 #endif
-        adai::send_bytes(st.fd, line.c_str(), line.size());
+        adai::send_all(st.fd, line.c_str(), line.size());
     }
 
     // TD-375: false when the peer closed, the read timed out (the socket's receive timeout) or the
@@ -913,7 +920,7 @@ class FtpDataServer {
 #endif
                 resp += "\r\n";
                 // TODO: See TD-376 in TECHNICAL_DEBT.md - raw socket write corrupts the channel after AUTH TLS
-                adai::send_bytes(st.fd, resp.c_str(), resp.size());
+                adai::send_all(st.fd, resp.c_str(), resp.size());
             } else if (cmd == "PWD") {
                 send_reply(st, 257, "\"/\" is the current directory");
             } else if (!st.authenticated) {
@@ -1032,7 +1039,9 @@ class FtpDataServer {
             return;
         }
 
-        adai::set_recv_timeout(st.fd, idle_timeout_s_);  // TD-375: longer once logged in
+        // TD-375: longer once logged in
+        if (!adai::set_recv_timeout(st.fd, idle_timeout_s_))
+            Logger::warn("[FTP] Couldn't set a receive timeout: {}", adai::last_socket_error());
         st.authenticated = true;
         st.username = st.pending_user;
         st.run_id = run_id;
@@ -1116,7 +1125,8 @@ class FtpDataServer {
             send_reply(st, 425, "Cannot open data connection.");
             return;
         }
-        adai::set_reuse_addr(srv);
+        if (!adai::set_reuse_addr(srv))
+            Logger::warn("[FTP] SO_REUSEADDR failed: {}", adai::last_socket_error());
 
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
@@ -1157,6 +1167,11 @@ class FtpDataServer {
             }
             if (!running_.load()) {
                 return adai::kInvalidSocket;  // TD-375: stop() doesn't wait out the 30 s
+            }
+            // TD-476: Winsock doesn't apply the receive timeout to accept(). It stays for a
+            // connection that goes away between this wait and the accept().
+            if (!adai::wait_readable(st.pasv_listen_fd, 1000)) {
+                continue;
             }
             adai::set_recv_timeout(st.pasv_listen_fd, 1);
             sockaddr_in peer{};
@@ -1236,7 +1251,8 @@ class FtpDataServer {
         }
         // TD-375: a client that stops reading can't hold the transfer forever, and stop() can wake
         // it.
-        adai::set_send_timeout(data_fd, kDataSendTimeoutS);
+        if (!adai::set_send_timeout(data_fd, kDataSendTimeoutS))
+            Logger::warn("[FTP] Couldn't set a send timeout: {}", adai::last_socket_error());
         {
             std::lock_guard<std::mutex> lock(st.conn->data_mtx);
             st.conn->data_fd = data_fd;
@@ -1317,9 +1333,8 @@ class FtpDataServer {
             } else
 #endif
             {
-                // TODO: See TD-476 in TECHNICAL_DEBT.md - a short write (sent < n) is counted as the full chunk: silent truncation
-                long sent = adai::send_bytes(data_fd, buf.data(), static_cast<std::size_t>(n));
-                if (sent < 0) {
+                // TD-476: a short write used to count as the whole chunk, truncating the transfer.
+                if (!adai::send_all(data_fd, buf.data(), static_cast<std::size_t>(n))) {
                     ok = false;
                     break;
                 }

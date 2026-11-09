@@ -1544,6 +1544,7 @@ The generation and model math run is complete.
 - TD-336 (done in code: multi-line legacy responses kept, a UTF-8 BOM skipped before detection).
 - TD-546 (done in code: `retrain` reads trained data per unit, so a partly trained segmented file's pairs aren't trained twice).
 - TD-537 (done in code: `vocab_builder` and `ChatbotTrainer` read training files with `DatasetRegistry`'s parser).
+- TD-476 (done in code: `send_all()` for every plain FTP send, `EINTR` retry, checked socket setup, a PASV wait bounded on both platforms).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -15077,7 +15078,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Platform / PortableSocket | October 16, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 9, 2026 | Platform / PortableSocket | October 16, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `PortableSocket`:
@@ -15092,11 +15093,21 @@ Found while tracing `PortableSocket`:
 
 Action Items:
 
-- [ ] Add `send_all()` (loop until written, retry `EINTR`) and use it for every `FtpDataServer` send; retry `EINTR` in `recv_bytes()`.
-- [ ] Check and report `WSAStartup()`/`setsockopt()` results; bound PASV `accept()` with `select()`/`poll()` so it works on both platforms.
-- [ ] Unit tests (socket pairs) for short writes and timeouts.
+- [x] Add `send_all()` (loop until written, retry `EINTR`) and use it for every `FtpDataServer` send; retry `EINTR` in `recv_bytes()`.
+- [x] Check and report `WSAStartup()`/`setsockopt()` results; bound PASV `accept()` with `select()`/`poll()` so it works on both platforms.
+- [x] Unit tests (socket pairs) for short writes and timeouts.
 
-Location in code: `src/PortableSocket.hpp` (`send_bytes()`, `recv_bytes()`, `WinsockGuard`, `set_recv_timeout()`); `src/FtpDataServer.hpp` (`RETR` send loop); tagged `TODO: See TD-476`.
+Fix (November 9, 2026): `send_all()` sends every byte, repeating after a signal, and every plain `FtpDataServer` send uses it, so a short write can
+no longer count as a whole `RETR` chunk. `recv_bytes()` repeats on `EINTR`; a receive timeout still returns -1. `WinsockGuard::ok()` reports a failed
+`WSAStartup()` (no `WSACleanup()` then) and `FtpDataServer::start()` refuses to run; the `setsockopt()` helpers return a result the server logs on
+failure. `wait_readable()` (`poll()`/`select()`) bounds the PASV `accept()` on both platforms. `SSL_write()` isn't partial in OpenSSL's default mode;
+a signal there aborts the transfer with 426 rather than truncating it.
+
+Tests: `portable_socket_test.cpp` (8 tests over socket pairs, signals sent only to a thread of the test process). `SendAllSurvivesASignalMidSend` and
+`RecvRetriesWhenInterrupted` fail with the old single `send()`/`recv()`. The Windows branches were built with MinGW-w64 and run under Wine (Winsock
+start, bounded wait 301 ms for 300, `send_all()` of 4 MiB over loopback, a failed `setsockopt()` reported).
+
+Location in code: `src/PortableSocket.hpp` (`send_bytes()`, `recv_bytes()`, `WinsockGuard`, `set_recv_timeout()`); `src/FtpDataServer.hpp` (`RETR` send loop).
 
 Files to Modify:
 

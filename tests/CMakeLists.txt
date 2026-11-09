@@ -1096,6 +1096,11 @@ if(OPENSSL_FOUND)
 endif()
 add_test(NAME FtpDataServerTests COMMAND ftpDataServerTests)
 
+# TD-476: PortableSocket over real socket pairs
+add_executable(portableSocketTests portable_socket_test.cpp)
+target_link_libraries(portableSocketTests GTest::gtest_main)
+add_test(NAME PortableSocketTests COMMAND portableSocketTests)
+
 # TD-233: OS CSPRNG helper.
 add_executable(securerandomTests securerandom_test.cpp)
 target_link_libraries(securerandomTests adai_core GTest::gtest_main)

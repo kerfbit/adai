@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (TD-161 — new, no test coverage yet beyond the callers it replaces)
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-11-07
+// @adai-status: beta        (TD-161; TD-476 send_all(), EINTR retry and tests)
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-11-09
 
 /**
  * @file PortableSocket.hpp
@@ -32,6 +32,7 @@
 #include <cerrno>
 #include <cstring>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
@@ -65,18 +66,25 @@ class WinsockGuard {
    public:
     WinsockGuard() {
 #ifdef _WIN32
-        // TODO: See TD-476 in TECHNICAL_DEBT.md - WSAStartup() failure ignored (and WSACleanup() still called)
         WSADATA wsa_data;
-        WSAStartup(MAKEWORD(2, 2), &wsa_data);
+        ok_ = WSAStartup(MAKEWORD(2, 2), &wsa_data) == 0;
 #endif
     }
     ~WinsockGuard() {
 #ifdef _WIN32
-        WSACleanup();
+        if (ok_)
+            WSACleanup();
 #endif
+    }
+    /// TD-476: false when Winsock couldn't start, so no socket call will work.
+    bool ok() const {
+        return ok_;
     }
     WinsockGuard(const WinsockGuard&) = delete;
     WinsockGuard& operator=(const WinsockGuard&) = delete;
+
+   private:
+    bool ok_ = true;
 };
 
 /** Portable socket close — `closesocket()` on Windows (a `SOCKET` is not a CRT file descriptor,
@@ -92,12 +100,13 @@ inline void close_socket(socket_t s) {
 /** Portable `setsockopt(SOL_SOCKET, SO_REUSEADDR)`. Wrapped only for the `optval` pointer type —
  *  Windows' `setsockopt()` wants `const char*`, POSIX's wants `const void*` — rather than relying
  *  on an `int*` happening to convert to both, as the call sites this replaces did. */
-inline void set_reuse_addr(socket_t s) {
+inline bool set_reuse_addr(socket_t s) {
     int opt = 1;
 #ifdef _WIN32
-    ::setsockopt(s, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&opt), sizeof(opt));
+    return ::setsockopt(s, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&opt),
+                        sizeof(opt)) == 0;
 #else
-    ::setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    return ::setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == 0;
 #endif
 }
 
@@ -108,31 +117,30 @@ inline void set_reuse_addr(socket_t s) {
  * silently sets a nonsense timeout instead of failing loudly, exactly the "compiles fine, wrong
  * at runtime" trap this TD's own writeup calls out for sockets generally.
  */
-// TODO: See TD-476 in TECHNICAL_DEBT.md - setsockopt() result ignored; Winsock doesn't apply SO_RCVTIMEO to accept()
-inline void set_recv_timeout(socket_t s, int seconds) {
+inline bool set_recv_timeout(socket_t s, int seconds) {
 #ifdef _WIN32
     DWORD timeout_ms = static_cast<DWORD>(seconds) * 1000;
-    ::setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout_ms),
-                 sizeof(timeout_ms));
+    return ::setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout_ms),
+                        sizeof(timeout_ms)) == 0;
 #else
     struct timeval tv {
         seconds, 0
     };
-    ::setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    return ::setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) == 0;
 #endif
 }
 
 /// TD-375: the same for SO_SNDTIMEO, so a send to a peer that stops reading gives up.
-inline void set_send_timeout(socket_t s, int seconds) {
+inline bool set_send_timeout(socket_t s, int seconds) {
 #ifdef _WIN32
     DWORD timeout_ms = static_cast<DWORD>(seconds) * 1000;
-    ::setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout_ms),
-                 sizeof(timeout_ms));
+    return ::setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout_ms),
+                        sizeof(timeout_ms)) == 0;
 #else
     struct timeval tv {
         seconds, 0
     };
-    ::setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    return ::setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) == 0;
 #endif
 }
 
@@ -143,7 +151,6 @@ inline void set_send_timeout(socket_t s, int seconds) {
  * (prevents a `SIGPIPE` on a peer that closed its read side mid-write); Windows' `send()` never
  * raises that signal in the first place, so no equivalent flag is needed there.
  */
-// TODO: See TD-476 in TECHNICAL_DEBT.md - returns short writes (signal mid-send); callers need a send_all() loop with EINTR retry
 inline long send_bytes(socket_t s, const char* data, std::size_t len) {
 #ifdef _WIN32
     return ::send(s, data, static_cast<int>(len), 0);
@@ -152,12 +159,61 @@ inline long send_bytes(socket_t s, const char* data, std::size_t len) {
 #endif
 }
 
-// TODO: See TD-476 in TECHNICAL_DEBT.md - no EINTR retry
-inline long recv_bytes(socket_t s, char* data, std::size_t len) {
+/// TD-476: whether the last socket call was interrupted by a signal, so it should be repeated.
+inline bool last_call_interrupted() {
 #ifdef _WIN32
-    return ::recv(s, data, static_cast<int>(len), 0);
+    return WSAGetLastError() == WSAEINTR;
 #else
-    return ::recv(s, data, len, 0);
+    return errno == EINTR;
+#endif
+}
+
+/**
+ * TD-476: send every byte. A signal can make a blocking send() return a short count (8 MiB over a
+ * socket pair stopped at 219 KB). False on any other error or a send timeout, with some of the
+ * data possibly sent.
+ */
+inline bool send_all(socket_t s, const char* data, std::size_t len) {
+    std::size_t sent = 0;
+    while (sent < len) {
+        const long n = send_bytes(s, data + sent, len - sent);
+        if (n > 0) {
+            sent += static_cast<std::size_t>(n);
+        } else if (n == 0 || !last_call_interrupted()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// TD-476: repeats a recv() a signal interrupted; a receive timeout still returns -1.
+inline long recv_bytes(socket_t s, char* data, std::size_t len) {
+    while (true) {
+#ifdef _WIN32
+        const long n = ::recv(s, data, static_cast<int>(len), 0);
+#else
+        const long n = ::recv(s, data, len, 0);
+#endif
+        if (n >= 0 || !last_call_interrupted())
+            return n;
+    }
+}
+
+/**
+ * TD-476: true when @p s has something to read or accept within @p timeout_ms. False on a timeout
+ * or an interruption, so callers loop on their own deadline. This is what bounds an accept() on
+ * both platforms: Winsock doesn't apply SO_RCVTIMEO to it.
+ */
+inline bool wait_readable(socket_t s, int timeout_ms) {
+#ifdef _WIN32
+    fd_set readable;
+    FD_ZERO(&readable);
+    FD_SET(s, &readable);
+    timeval tv{timeout_ms / 1000, (timeout_ms % 1000) * 1000};
+    return ::select(0, &readable, nullptr, nullptr, &tv) > 0;
+#else
+    pollfd p{s, POLLIN, 0};
+    return ::poll(&p, 1, timeout_ms) > 0;
 #endif
 }
 

@@ -10,6 +10,10 @@
 > Code-traced reference. Behaviour marked **verified** was confirmed with scratch programs on Linux. The Windows branches were reviewed
 > only; there's no Windows build or CI here.
 
+
+> **Fixed November 9, 2026 (TD-476):** `send_all()`, `EINTR` retry in `recv_bytes()`, `wait_readable()`, `WinsockGuard::ok()`, and setup helpers that
+> return a result. The gaps below describe the code before that fix; there are now tests in `tests/portable_socket_test.cpp`.
+
 ---
 
 ## 1. What this file is
