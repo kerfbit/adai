@@ -105,3 +105,10 @@ Kept: the token table, the helper list and the test command (`ctest -R SpecialTo
 ## Addendum (October 28, 2026): engine modes retired
 
 `PipelineInferenceEngine` (`--pipeline-inference`) and `IntegratedInferenceEngine` (`--integrated-inference`) were removed in October 2026 (TD-474/TD-475, TD-417–TD-420); mentions of them above describe the code as it was.
+
+## Addendum (November 9, 2026): ids 0-19 reserved (TD-565)
+
+`SpecialTokenIDs::RESERVED_SLOTS` (20) and `FIRST_UNASSIGNED` (7) define the special block of a new vocabulary: 0-3 as before,
+the TD-295 turn tokens at 4-6, and 7-19 held for future special tokens, each with the placeholder entry
+`adai::reserved_slot_token(id)`. Unassigned ids are never encoded from text, decoded, or generated. See BPETokenizer.md's TD-565
+addendum for the file format.

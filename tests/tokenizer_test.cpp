@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <fstream>
+#include <map>
 #include <new>
 #include <random>
 #include <set>
@@ -1017,14 +1018,14 @@ TEST_F(BPETokenizerTest, LowercaseNormalizationIsTheOldBehaviour) {
     EXPECT_EQ(tokenizer.decode(tokenizer.encode("Hello World", false), true), "hello world");
 }
 
-TEST_F(BPETokenizerTest, SaveWritesV3HeaderAndLoadRestoresNormalization) {
+TEST_F(BPETokenizerTest, SaveWritesCurrentHeaderAndLoadRestoresNormalization) {
     for (const auto normalization : {TextNormalization::CASED, TextNormalization::LOWERCASE}) {
         BPETokenizer writer;
         writer.set_normalization(normalization);
         writer.build_vocab({"Hello World", "hello world"}, 60, 1);
         writer.save_vocab("test_save_vocab.txt");
         const std::string file = read_file("test_save_vocab.txt");
-        EXPECT_NE(file.find("# BPE Tokenizer Vocabulary v3.0"), std::string::npos);
+        EXPECT_NE(file.find("# BPE Tokenizer Vocabulary v4.0"), std::string::npos);  // TD-565
         EXPECT_NE(file.find(normalization == TextNormalization::CASED ? "NORMALIZATION CASED"
                                                                       : "NORMALIZATION LOWERCASE"),
                   std::string::npos);
@@ -1047,8 +1048,9 @@ TEST_F(BPETokenizerTest, V1VocabularyLoadsAsLowercase) {
     writer.build_vocab({"hello world"}, 40, 1);
     writer.save_vocab("test_save_vocab.txt");
     std::string file = read_file("test_save_vocab.txt");
-    file.replace(file.find("# BPE Tokenizer Vocabulary v3.0"), 31,
+    file.replace(file.find("# BPE Tokenizer Vocabulary v4.0"), 31,
                  "# BPE Tokenizer Vocabulary v1.0");
+    file.erase(file.find("RESERVED_SPECIAL_IDS "), 24);  // TD-565: added in v4
     file.erase(file.find("NORMALIZATION LOWERCASE\n"), 24);
     file.erase(file.find("WHITESPACE PRESERVE\n"), 20);
     write_file(test_vocab_file, file);
@@ -1116,8 +1118,9 @@ TEST_F(BPETokenizerTest, V2VocabularyLoadsAsCollapse) {
     writer.build_vocab({"hello world\nagain"}, 40, 1);
     writer.save_vocab("test_save_vocab.txt");
     std::string file = read_file("test_save_vocab.txt");
-    file.replace(file.find("# BPE Tokenizer Vocabulary v3.0"), 31,
+    file.replace(file.find("# BPE Tokenizer Vocabulary v4.0"), 31,
                  "# BPE Tokenizer Vocabulary v2.0");
+    file.erase(file.find("RESERVED_SPECIAL_IDS "), 24);  // TD-565: added in v4
     file.erase(file.find("WHITESPACE PRESERVE\n"), 20);
     write_file(test_vocab_file, file);
 
@@ -1147,7 +1150,7 @@ TEST_F(BPETokenizerTest, UnknownVocabularyFormatsAreRefused) {
     const std::string good = read_file("test_save_vocab.txt");
 
     std::string newer = good;
-    newer.replace(newer.find("v3.0"), 4, "v4.0");
+    newer.replace(newer.find("v4.0"), 4, "v5.0");
     write_file(test_vocab_file, newer);
     BPETokenizer a;
     EXPECT_THROW(a.load_vocab(test_vocab_file), VocabularyFileError);
@@ -1239,7 +1242,8 @@ TEST_F(BPETokenizerTest, VocabularyWithoutAModeLineLoadsAsAscii) {
     file.erase(file.find("TOKENIZER_MODE ASCII\n"), 21);
     file.erase(file.find("NORMALIZATION LOWERCASE\n"), 24);
     file.erase(file.find("WHITESPACE PRESERVE\n"), 20);
-    file.replace(file.find("v3.0"), 4, "v1.0");
+    file.erase(file.find("RESERVED_SPECIAL_IDS "), 24);  // TD-565: added in v4
+    file.replace(file.find("v4.0"), 4, "v1.0");
     write_file(test_vocab_file, file);
     BPETokenizer reader;  // Unicode by default
     reader.load_vocab(test_vocab_file);
@@ -1257,7 +1261,7 @@ TEST(BPETokenizerTurnTokenTest, NewVocabulariesHaveThemAndOrdinaryTokensStartAft
     ASSERT_TRUE(tokenizer.has_turn_tokens());
     const auto ids = tokenizer.encode("hello world", false);
     for (int id : ids) {
-        EXPECT_GE(id, 7);
+        EXPECT_GE(id, adai::SpecialTokenIDs::RESERVED_SLOTS);  // TD-565: was 7
     }
     EXPECT_EQ(tokenizer.decode({adai::SpecialTokenIDs::USER_TURN, ids[0]}, true),
               tokenizer.decode({ids[0]}, true))
@@ -1306,12 +1310,14 @@ TEST(BPETokenizerTurnTokenTest, SurviveSaveAndLoadAndOldVocabulariesGoWithout) {
     EXPECT_EQ(reader.decode({adai::SpecialTokenIDs::SYSTEM_TURN, reader.encode("hello", false)[0]}),
               reader.decode({reader.encode("hello", false)[0]}));
 
-    // An older vocabulary has ordinary tokens at ids 4-6.
+    // An older vocabulary has ordinary tokens at ids 4-6 (and, TD-565, no RESERVED_SPECIAL_IDS).
     std::ifstream in(path);
     std::stringstream buffer;
     buffer << in.rdbuf();
     in.close();
     std::string old = buffer.str();
+    old.replace(old.find("v4.0"), 4, "v3.0");
+    old.erase(old.find("RESERVED_SPECIAL_IDS "), 24);
     for (const std::string token : {"<system>", "<user>", "<assistant>"}) {
         old.replace(old.find(token + "\t"), token.size(),
                     "ordinary" + std::to_string(token.size()));
@@ -1324,4 +1330,138 @@ TEST(BPETokenizerTurnTokenTest, SurviveSaveAndLoadAndOldVocabulariesGoWithout) {
         << "a deployed model's prompts don't change";
     EXPECT_THROW(legacy.encode_conversation({{"user", "hello"}}), std::logic_error);
     std::remove(path.c_str());
+}
+
+// ============================================================================
+// TD-565: ids 0-19 reserved for special tokens
+// ============================================================================
+
+namespace {
+std::string read_text(const std::string& path) {
+    std::ifstream in(path);
+    std::stringstream buffer;
+    buffer << in.rdbuf();
+    return buffer.str();
+}
+}  // namespace
+
+TEST(BPETokenizerReservedSlotTest, NewVocabulariesReserveTwentyIds) {
+    BPETokenizer tokenizer;
+    tokenizer.build_vocab({"hello world"}, 60, 1);
+    EXPECT_EQ(tokenizer.first_ordinary_id(), 20);
+    const auto top = tokenizer.get_top_tokens(static_cast<int>(tokenizer.get_vocab_size()));
+    std::map<int, std::string> by_id;
+    for (const auto& [token, id] : top) {
+        by_id[id] = token;
+    }
+    EXPECT_EQ(by_id.at(adai::SpecialTokenIDs::ASSISTANT_TURN), "<assistant>");
+    for (int id = 7; id < 20; ++id) {
+        EXPECT_EQ(by_id.at(id), "<reserved_" + std::to_string(id) + ">") << id;
+    }
+    for (int id : tokenizer.encode("hello world", false)) {
+        EXPECT_GE(id, 20);
+    }
+}
+
+TEST(BPETokenizerReservedSlotTest, ReservedIdsActAsUnknown) {
+    BPETokenizer tokenizer;
+    // A corpus full of the literal placeholder text, so BPE could learn to merge it.
+    tokenizer.build_vocab(std::vector<std::string>(50, "<reserved_7> <reserved_19> hi"), 200, 1);
+    ASSERT_EQ(tokenizer.first_ordinary_id(), 20);
+    for (int id : tokenizer.encode("<reserved_7> <reserved_19> hi", false)) {
+        EXPECT_TRUE(id == tokenizer.get_unk_token_id() || id >= 20) << id;
+    }
+    const int hi = tokenizer.encode("hi", false)[0];
+    EXPECT_EQ(tokenizer.decode({7, 12, 19, hi}, true), tokenizer.decode({hi}, true))
+        << "decode drops them like the other special tokens";
+}
+
+TEST(BPETokenizerReservedSlotTest, SurvivesSaveAndLoadAsFormatV4) {
+    const std::string path = "test_reserved_slots_vocab.txt";
+    BPETokenizer writer;
+    writer.build_vocab({"hello world"}, 60, 1);
+    writer.save_vocab(path);
+    const std::string text = read_text(path);
+    EXPECT_NE(text.find("# BPE Tokenizer Vocabulary v4.0"), std::string::npos);
+    EXPECT_NE(text.find("RESERVED_SPECIAL_IDS 20\n"), std::string::npos);
+    BPETokenizer reader;
+    reader.load_vocab(path);
+    EXPECT_EQ(reader.first_ordinary_id(), 20);
+    EXPECT_TRUE(reader.has_turn_tokens());
+    EXPECT_EQ(reader.encode("hello world", false), writer.encode("hello world", false));
+    EXPECT_EQ(reader.decode({9, reader.encode("hello", false)[0]}),
+              reader.decode({reader.encode("hello", false)[0]}));
+
+    // A later build that names a reserved slot keeps every other id: the slot is special by
+    // position, whatever its name.
+    std::string named = text;
+    named.replace(named.find("<reserved_7>"), 12, "<think>");
+    std::ofstream(path) << named;
+    BPETokenizer future;
+    future.load_vocab(path);
+    EXPECT_EQ(future.first_ordinary_id(), 20);
+    EXPECT_EQ(future.encode("hello world", false), writer.encode("hello world", false));
+    EXPECT_EQ(future.decode({7, future.encode("hello", false)[0]}),
+              future.decode({future.encode("hello", false)[0]}));
+
+    // A missing slot or an unsupported count is refused, not misread.
+    std::string missing = text;
+    const auto at = missing.find("<reserved_12>");
+    missing.erase(at, missing.find('\n', at) - at + 1);
+    std::ofstream(path) << missing;
+    BPETokenizer refused;
+    EXPECT_THROW(refused.load_vocab(path), VocabularyFileError);
+    std::string bad = text;
+    bad.replace(bad.find("RESERVED_SPECIAL_IDS 20"), 23, "RESERVED_SPECIAL_IDS 32");
+    std::ofstream(path) << bad;
+    EXPECT_THROW(refused.load_vocab(path), VocabularyFileError);
+    std::remove(path.c_str());
+}
+
+TEST(BPETokenizerReservedSlotTest, OlderLayoutsKeepTheirIds) {
+    const std::string path = "test_reserved_slots_old.txt";
+    BPETokenizer writer;
+    writer.build_vocab({"hello world"}, 60, 1);
+    writer.save_vocab(path);
+    std::string text = read_text(path);
+
+    // A v3 file from TD-295: turn tokens at 4-6, ordinary tokens from 7, no RESERVED line.
+    std::string v3 = text;
+    v3.replace(v3.find("v4.0"), 4, "v3.0");
+    v3.erase(v3.find("RESERVED_SPECIAL_IDS 20\n"), 24);
+    for (int id = 7; id < 20; ++id) {
+        const std::string slot = "<reserved_" + std::to_string(id) + ">";
+        v3.replace(v3.find(slot + "\t"), slot.size(), "ordinary" + std::to_string(id));
+    }
+    std::ofstream(path) << v3;
+    BPETokenizer td295;
+    td295.load_vocab(path);
+    EXPECT_TRUE(td295.has_turn_tokens());
+    EXPECT_EQ(td295.first_ordinary_id(), 7);
+    EXPECT_EQ(td295.decode({7}), "ordinary7") << "an ordinary token in that layout";
+
+    // Older still: no turn tokens, ordinary tokens from 4.
+    for (const std::string token : {"<system>", "<user>", "<assistant>"}) {
+        v3.replace(v3.find(token + "\t"), token.size(), "plain" + std::to_string(token.size()));
+    }
+    std::ofstream(path) << v3;
+    BPETokenizer legacy;
+    legacy.load_vocab(path);
+    EXPECT_FALSE(legacy.has_turn_tokens());
+    EXPECT_EQ(legacy.first_ordinary_id(), 4);
+
+    // A newer format is refused by this build.
+    text.replace(text.find("v4.0"), 4, "v5.0");
+    std::ofstream(path) << text;
+    BPETokenizer newer;
+    EXPECT_THROW(newer.load_vocab(path), VocabularyFileError);
+    std::remove(path.c_str());
+}
+
+TEST(BPETokenizerReservedSlotTest, SmallVocabulariesHaveNoSpecialBlock) {
+    // Below 20 ids there is no room for the block, so the old layout is kept.
+    BPETokenizer tokenizer;
+    tokenizer.build_vocab({"hello world"}, 15, 1);
+    EXPECT_FALSE(tokenizer.has_turn_tokens());
+    EXPECT_EQ(tokenizer.first_ordinary_id(), 4);
 }

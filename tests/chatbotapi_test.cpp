@@ -1689,8 +1689,8 @@ TEST_F(ChatbotAPIEchoTest, NextTokenLogitsIsTheLastRowOfTheAlignedForward) {
     ASSERT_EQ(next.rows, 1);
     ASSERT_EQ(next.cols, full.cols);
     for (int j = 0; j < full.cols; ++j) {
-        if (j >= adai::SpecialTokenIDs::SYSTEM_TURN && j <= adai::SpecialTokenIDs::ASSISTANT_TURN)
-            continue;  // TD-295: masked for generation
+        if (j >= adai::SpecialTokenIDs::SYSTEM_TURN && j < tokenizer->first_ordinary_id())
+            continue;  // TD-295/TD-565: masked for generation
         EXPECT_NEAR(next.data[0][j], full.data[full.rows - 1][j], 1e-4f) << j;
     }
     // Without the leading BOS the same sequence is accepted unchanged.
@@ -1714,7 +1714,7 @@ TEST_F(ChatbotAPIEchoTest, NextTokenLogitsLastRowsMatchTheAlignedForward) {
     ASSERT_EQ(tail.rows, 3);
     for (int r = 0; r < 3; ++r)
         for (int j = 0; j < full.cols; ++j)
-            if (j < adai::SpecialTokenIDs::SYSTEM_TURN || j > adai::SpecialTokenIDs::ASSISTANT_TURN)
+            if (j < adai::SpecialTokenIDs::SYSTEM_TURN || j >= tokenizer->first_ordinary_id())
                 EXPECT_NEAR(tail.data[r][j], full.data[full.rows - 3 + r][j], 1e-4f)
                     << r << " " << j;
 

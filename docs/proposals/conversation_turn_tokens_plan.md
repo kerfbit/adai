@@ -46,6 +46,10 @@ Reserve `<system>` = 4, `<user>` = 5, `<assistant>` = 6 in the special-token sta
 `build_vocab()`. `load_vocab()` marks them special when present. `BPETokenizer::has_turn_tokens()` reports whether the loaded
 vocabulary has all three at those ids.
 
+**Amended (November 9, 2026, TD-565):** new vocabularies now reserve ids 0–19 for special tokens: the turn tokens keep 4–6,
+ids 7–19 hold placeholders for future special tokens, and ordinary tokens start at 20 (vocabulary format v4). A TD-295
+vocabulary (ordinary tokens from 7) still loads as built.
+
 Existing vocabularies have ordinary tokens at 4–6, so they can't simply gain them. They keep working unchanged (see D7); a model
 gets turn tokens only with a rebuilt vocabulary, which means retraining.
 

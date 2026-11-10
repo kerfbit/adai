@@ -2,8 +2,8 @@
 #define SPECIAL_TOKENS_HPP
 
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-11-08
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-11-09
 
 
 #include <stdexcept>
@@ -30,6 +30,13 @@
  * <system>    | 4 | System turn (TD-295)      | Written only by the prompt formatter, as an ID
  * <user>      | 5 | User turn (TD-295)        | Same
  * <assistant> | 6 | Assistant turn (TD-295)   | Same; also ends a prompt to cue the reply
+ * <reserved_N>| 7-19 | Unassigned (TD-565)     | Held for future special tokens; never encoded, decoded or generated
+ *
+ * TD-565: ids 0-19 are reserved for special tokens in every new vocabulary, and ordinary tokens start
+ * at 20, so a later special token takes a reserved id without moving ordinary tokens or resizing a
+ * trained model's embedding and output layers. An unassigned id has a placeholder entry,
+ * reserved_slot_token(id), that behaves as an unknown: text never encodes to it, decode() drops it and
+ * generation masks it.
  *
  * @note These IDs are standardized across the entire codebase and must not be changed
  *       without updating all vocabulary files and retrained models.
@@ -55,7 +62,14 @@ constexpr int SYSTEM_TURN = 4;     ///< TD-295: starts a system turn
 constexpr int USER_TURN = 5;       ///< TD-295: starts a user turn
 constexpr int ASSISTANT_TURN = 6;  ///< TD-295: starts an assistant turn
 constexpr int EOS = 3;  ///< End of sequence - marks the end of a sequence and stops generation
+constexpr int FIRST_UNASSIGNED = 7;  ///< TD-565: first reserved id with no special token yet
+constexpr int RESERVED_SLOTS = 20;   ///< TD-565: ids 0-19 are special; ordinary tokens start here
 }  // namespace SpecialTokenIDs
+
+/// TD-565: the placeholder entry for an unassigned reserved id, e.g. "<reserved_7>".
+inline std::string reserved_slot_token(int id) {
+    return "<reserved_" + std::to_string(id) + ">";
+}
 
 /**
  * @brief Standard special token string representations

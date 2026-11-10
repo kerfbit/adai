@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy(); TD-182 set_world_model()/get_world_model() added; TD-185 set_hippocampal_memory()/get_hippocampal_memory() + write-policy call site added; TD-186 wired world-model/hippocampal read paths into forward()/generate_response()'s beam branches)
-// @adai-version: 0.34.0
-// @adai-reviewed: 2026-11-08
+// @adai-version: 0.34.1
+// @adai-reviewed: 2026-11-09
 
 #include "EncoderDecoderModel.hpp"
 #include "Activation.hpp"  // TD-216: shared softmax row primitives
@@ -323,13 +323,11 @@ std::vector<int> EncoderDecoderModel::prompt_ids(const ModelPrompt& input) const
 
 void EncoderDecoderModel::mask_unknown_ids(Matrix& logits) const {
     const int known = static_cast<int>(tokenizer->get_vocab_size());
-    // TD-295: a reply never contains a turn token.
-    if (tokenizer->has_turn_tokens()) {
-        for (int i = 0; i < logits.rows; ++i) {
-            for (int j = adai::SpecialTokenIDs::SYSTEM_TURN;
-                 j <= adai::SpecialTokenIDs::ASSISTANT_TURN && j < logits.cols; ++j) {
-                logits.data[i][j] = -1e9f;
-            }
+    // TD-295: a reply never contains a turn token; TD-565: nor a reserved special id.
+    for (int i = 0; i < logits.rows; ++i) {
+        for (int j = adai::SpecialTokenIDs::SYSTEM_TURN;
+             j < tokenizer->first_ordinary_id() && j < logits.cols; ++j) {
+            logits.data[i][j] = -1e9f;
         }
     }
     for (int i = 0; i < logits.rows; ++i) {

@@ -3006,17 +3006,20 @@ TEST(ResidualInitScalingTest, InputWeightsAreLeftAlone) {
     EXPECT_NEAR(matrix_std(b->get_feed_forward()->get_W1()), w1, 0.1f * w1);
 }
 
-// TD-295: no generation path emits a turn token, and an id prompt is used as given.
+// TD-295: no generation path emits a turn token, and an id prompt is used as given. TD-565: nor
+// a reserved special id (7-19).
 TEST(TurnTokenGenerationTest, TurnTokensAreMaskedAndIdPromptsUsed) {
     EncoderDecoderModel model(40, 16, 1, 1, 2, 32, 16);
     model.get_tokenizer()->build_vocab({"hello world how are you"}, 40, 1);
     ASSERT_TRUE(model.get_tokenizer()->has_turn_tokens());
-    const Matrix logits = model.next_token_logits({5, 8, 9, 6}, {}, 1);
-    for (int id = adai::SpecialTokenIDs::SYSTEM_TURN; id <= adai::SpecialTokenIDs::ASSISTANT_TURN;
+    ASSERT_EQ(model.get_tokenizer()->first_ordinary_id(), adai::SpecialTokenIDs::RESERVED_SLOTS);
+    const Matrix logits = model.next_token_logits({5, 20, 21, 6}, {}, 1);
+    for (int id = adai::SpecialTokenIDs::SYSTEM_TURN; id < adai::SpecialTokenIDs::RESERVED_SLOTS;
          ++id) {
-        EXPECT_LT(logits(0, id), -1e8f);
+        EXPECT_LT(logits(0, id), -1e8f) << id;
     }
-    EXPECT_GT(logits(0, 8), -1e8f);
+    EXPECT_GT(logits(0, adai::SpecialTokenIDs::EOS), -1e8f);
+    EXPECT_GT(logits(0, adai::SpecialTokenIDs::RESERVED_SLOTS), -1e8f);
 
     BPETokenizer& tokenizer = *model.get_tokenizer();
     model.set_training(false);

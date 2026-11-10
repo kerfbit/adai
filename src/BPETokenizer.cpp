@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.5.0
-// @adai-reviewed: 2026-11-08
+// @adai-version: 1.6.0
+// @adai-reviewed: 2026-11-09
 
 // TODO: See TD-225 in TECHNICAL_DEBT.md - std::cout/std::cerr are used throughout this file instead of
 // adai::Logger (progress output, warnings, save/load summaries).
@@ -227,8 +227,10 @@ void BPETokenizer::build_vocab(const std::vector<std::string>& texts, int vocab_
     // TODO: See TD-225 in TECHNICAL_DEBT.md - IDs follow unordered_map iteration order (not portable).
     int current_id = 4;  // Start after special tokens
     int added_chars = 0;
-    // TD-295: the three turn tokens take ids 4-6 in every new vocabulary.
-    if (total_chars > 0 && vocab_size >= adai::SpecialTokenIDs::ASSISTANT_TURN + 1) {
+    // TD-295: the three turn tokens take ids 4-6 in every new vocabulary. TD-565: ids 7-19 are held
+    // for future special tokens, each with a placeholder entry, so ordinary tokens start at 20. A
+    // vocabulary with no room past them keeps the old layout.
+    if (total_chars > 0 && vocab_size > adai::SpecialTokenIDs::RESERVED_SLOTS) {
         for (const char* turn :
              {adai::SpecialTokenStrings::SYSTEM_TURN, adai::SpecialTokenStrings::USER_TURN,
               adai::SpecialTokenStrings::ASSISTANT_TURN}) {
@@ -238,6 +240,13 @@ void BPETokenizer::build_vocab(const std::vector<std::string>& texts, int vocab_
             current_id++;
         }
         has_turn_tokens_ = true;
+        for (; current_id < adai::SpecialTokenIDs::RESERVED_SLOTS; ++current_id) {
+            const std::string slot = adai::reserved_slot_token(current_id);
+            vocab[slot] = current_id;
+            inverse_vocab[current_id] = slot;
+            special_tokens.insert(slot);
+        }
+        first_ordinary_id_ = current_id;
     }
     // TD-224: whitespace always has a token, or a corpus read line by line (vocab_builder's plain
     // and legacy formats) would turn every newline in later text into <unk>.
@@ -553,11 +562,10 @@ std::vector<int> BPETokenizer::encode(const std::string& text, bool add_special_
 
     auto tokens = tokenize(text);
     for (const auto& token : tokens) {
-        if (vocab.find(token) != vocab.end()) {
-            ids.push_back(vocab[token]);
-        } else {
-            ids.push_back(unk_token_id);
-        }
+        // TD-565: text never encodes to a special id, assigned or reserved.
+        const auto it = vocab.find(token);
+        ids.push_back(it != vocab.end() && it->second >= first_ordinary_id_ ? it->second
+                                                                            : unk_token_id);
     }
 
     if (add_special_tokens) {
@@ -619,13 +627,15 @@ void BPETokenizer::save_vocab(const std::string& filename) const {
 
     // TD-560: v2 adds NORMALIZATION. A file without it is v1, which always lowercased.
     // TD-224: v3 adds WHITESPACE. A file without it collapsed every whitespace run.
-    file << "# BPE Tokenizer Vocabulary v3.0\n";
+    // TD-565: v4 adds RESERVED_SPECIAL_IDS, the ids below the first ordinary token.
+    file << "# BPE Tokenizer Vocabulary v4.0\n";
     file << "TOKENIZER_MODE " << (mode == TokenizerMode::UNICODE ? "UNICODE" : "ASCII") << "\n";
     file << "NORMALIZATION " << (normalization_ == TextNormalization::CASED ? "CASED" : "LOWERCASE")
          << "\n";
     file << "WHITESPACE " << (whitespace_ == WhitespaceHandling::PRESERVE ? "PRESERVE" : "COLLAPSE")
          << "\n";
     file << "VOCAB_SIZE " << vocab.size() << "\n";
+    file << "RESERVED_SPECIAL_IDS " << first_ordinary_id_ << "\n";
 
     file << "SPECIAL_TOKENS\n";
     file << "pad_token_id " << pad_token_id << "\n";
@@ -743,6 +753,7 @@ void BPETokenizer::load_vocab(const std::string& filename) {
     };
 
     std::string section;
+    int reserved_ids = -1;  // TD-565: RESERVED_SPECIAL_IDS, absent before v4
     while (std::getline(file, line)) {
         // TD-563: a vocabulary written by a newer format is refused rather than misread (an older
         // binary used to skip header lines it didn't know, so it would lowercase a cased
@@ -793,6 +804,20 @@ void BPETokenizer::load_vocab(const std::string& filename) {
             continue;
         }
         if (line.find("VOCAB_SIZE") == 0) {
+            continue;
+        }
+        if (line.rfind("RESERVED_SPECIAL_IDS ", 0) == 0) {  // TD-565
+            try {
+                reserved_ids = std::stoi(line.substr(21));
+            } catch (const std::exception&) {
+                reserved_ids = -1;
+            }
+            if (reserved_ids != adai::SpecialTokenIDs::SYSTEM_TURN &&
+                reserved_ids != adai::SpecialTokenIDs::FIRST_UNASSIGNED &&
+                reserved_ids != adai::SpecialTokenIDs::RESERVED_SLOTS) {
+                throw VocabularyFileError("Unsupported RESERVED_SPECIAL_IDS '" + line.substr(21) +
+                                          "' in " + filename);
+            }
             continue;
         }
         if (line == "SPECIAL_TOKENS") {
@@ -930,6 +955,26 @@ void BPETokenizer::load_vocab(const std::string& filename) {
         special_tokens.insert(adai::SpecialTokenStrings::SYSTEM_TURN);
         special_tokens.insert(adai::SpecialTokenStrings::USER_TURN);
         special_tokens.insert(adai::SpecialTokenStrings::ASSISTANT_TURN);
+    }
+    // TD-565: before v4 the layout follows from the turn tokens: ordinary tokens from 7 with them,
+    // from 4 without. A v4 file states it, and every id below it must be present and is special.
+    if (reserved_ids < 0) {
+        first_ordinary_id_ = has_turn_tokens_ ? adai::SpecialTokenIDs::FIRST_UNASSIGNED
+                                              : adai::SpecialTokenIDs::SYSTEM_TURN;
+    } else {
+        if (reserved_ids > adai::SpecialTokenIDs::SYSTEM_TURN && !has_turn_tokens_) {
+            throw VocabularyFileError("RESERVED_SPECIAL_IDS " + std::to_string(reserved_ids) +
+                                      " without turn tokens at ids 4-6 in " + filename);
+        }
+        for (int id = adai::SpecialTokenIDs::FIRST_UNASSIGNED; id < reserved_ids; ++id) {
+            const auto it = inverse_vocab.find(id);
+            if (it == inverse_vocab.end()) {
+                throw VocabularyFileError("Reserved special id " + std::to_string(id) +
+                                          " has no entry in " + filename);
+            }
+            special_tokens.insert(it->second);
+        }
+        first_ordinary_id_ = reserved_ids;
     }
 
     if (vocab.empty()) {

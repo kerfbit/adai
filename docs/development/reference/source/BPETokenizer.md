@@ -526,3 +526,13 @@ file without the line keeps the constructor's mode no longer applies.
 
 `build_vocab()` reserves `<system>`/`<user>`/`<assistant>` at ids 4-6; `has_turn_tokens()` reports them. `encode_conversation()` and `encode_prompt()` are
 the only ways they enter a sequence: the pre-tokenizer always splits `<` from letters, so `encode()` can't produce one from text. `decode()` skips them.
+
+## Addendum (November 9, 2026): reserved special ids and the v4 format (TD-565)
+
+`build_vocab()` now reserves ids 0-19 for special tokens: the turn tokens at 4-6 and a placeholder entry, `<reserved_7>` to
+`<reserved_19>` (`adai::reserved_slot_token()`), at each of 7-19, all special. Ordinary tokens start at 20; `first_ordinary_id()`
+reports 20, 7 for a TD-295 vocabulary, or 4 for an older one. `encode()` never returns an id below `first_ordinary_id()`,
+`decode()` skips them, and `EncoderDecoderModel::mask_unknown_ids()` masks 4 to `first_ordinary_id() - 1` on every generation path.
+`save_vocab()` writes format v4 with `RESERVED_SPECIAL_IDS <n>`; `load_vocab()` treats every id below it as special whatever its
+name, so a later build can name a slot without moving other ids, and refuses a missing slot or an unsupported count. A vocabulary
+of 20 or fewer ids keeps the old layout, with no turn tokens.

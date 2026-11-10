@@ -2,8 +2,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.4.0
-// @adai-reviewed: 2026-11-08
+// @adai-version: 1.5.0
+// @adai-reviewed: 2026-11-09
 
 #include <algorithm>
 #include <cctype>
@@ -141,6 +141,7 @@ class BPETokenizer {
     TextNormalization normalization_ = TextNormalization::CASED;  // TD-560
     WhitespaceHandling whitespace_ = WhitespaceHandling::PRESERVE;  // TD-224
     bool has_turn_tokens_ = false;                                  // TD-295
+    int first_ordinary_id_ = adai::SpecialTokenIDs::SYSTEM_TURN;    // TD-565
 
     // TD-222: identifies this tokenizer's merge state for apply_bpe()'s per-thread cache. Unique per
     // process and never reused, and renewed by every change to the merges or the mode
@@ -201,8 +202,15 @@ class BPETokenizer {
     /// TD-295: the encoder input for one message: <user> message <assistant> with turn tokens, the
     /// message's plain encoding without.
     std::vector<int> encode_prompt(const std::string& text);
-    /// TD-563: the newest vocabulary file format this build reads (and writes).
-    static constexpr int kVocabFormatMajor = 3;
+    /// TD-565: the first id of an ordinary token; every id below it is special. 20 for a vocabulary
+    /// built since TD-565 (ids 7-19 held, unassigned, for future special tokens), 7 for one built
+    /// with TD-295's turn tokens before it, 4 for an older one.
+    int first_ordinary_id() const {
+        return first_ordinary_id_;
+    }
+    /// TD-563: the newest vocabulary file format this build reads (and writes). v4 (TD-565) adds
+    /// RESERVED_SPECIAL_IDS.
+    static constexpr int kVocabFormatMajor = 4;
 
     // Build vocabulary from text corpus
     void build_vocab(const std::vector<std::string>& texts, int vocab_size = 10000,

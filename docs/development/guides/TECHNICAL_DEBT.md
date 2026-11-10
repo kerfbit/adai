@@ -18,6 +18,9 @@ after the owner asked about frequent "session gone, re-registering" warnings in 
 to `…/metrics/abnormal`, which the metrics server serves only for GET. Every flagged sample gets a 404, which the client takes for a lost
 session: it re-registers, gets 409 because the session is live, retries into another 404, and the sample is never stored.
 
+**November 9, 2026:** Filed and fixed [TD-565](#td-565-vocabularies-have-no-room-for-future-special-tokens) at the owner's request:
+new vocabularies reserve ids 0-19 for special tokens (7-19 unassigned placeholders), ordinary tokens from 20, vocabulary format v4.
+
 **November 4, 2026:** Filed and fixed [TD-564](#td-564-byte-level-ascii-was-the-default-tokenizer-mode) at the owner's request:
 Unicode mode (one BPE unit per UTF-8 character, ISO/IEC 10646) is the default for new vocabularies instead of byte-level ASCII.
 
@@ -1555,6 +1558,8 @@ The generation and model math run is complete.
 - TD-385 (done in code: reductions use one buffer and one wait, on both backends; the per-sample loss download stays).
 - TD-171 (owner chose to benchmark first: B0 CPU numbers recorded, `stacked_gemm_benchmark`; needs an ai-machine run before any model work).
 - TD-368 (done in code: `SEED`/`--seed` replays initialization, shuffles and dropout exactly on the CPU, nearly on the oneAPI CPU device).
+- TD-565 (filed and done in code at the owner's request: ids 0-19 reserved for special tokens in new vocabularies, 7-19 unassigned
+  placeholders that act as unknowns, ordinary tokens from 20, format v4; settles the think-token ids before the retraining vocabulary).
 - The on-device checks left by this run (TD-171's benchmark, TD-391's backend line, TD-368's GPU replay, TD-358's GPU training and the GPU tests) are packaged for ai-machine by `scripts/package_sycl_gpu_tests.sh`; see `scripts/sycl_gpu_tests/README.md`.
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
@@ -2603,6 +2608,7 @@ the planned TD-358 retraining should start from scratch rather than from any exi
   - [TD-562: Vocabulary Sizing and Tools Assume Lowercase Text](#td-562-vocabulary-sizing-and-tools-assume-lowercase-text)
   - [TD-563: Rebuild Vocabularies and Retrain With Case, and Deploy in Order](#td-563-rebuild-vocabularies-and-retrain-with-case-and-deploy-in-order)
   - [TD-564: Byte-Level ASCII Was the Default Tokenizer Mode](#td-564-byte-level-ascii-was-the-default-tokenizer-mode)
+  - [TD-565: Vocabularies Have No Room for Future Special Tokens](#td-565-vocabularies-have-no-room-for-future-special-tokens)
 - [Resolved Items](#resolved-items) (197 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md); re-derive from the Overview's own Resolved Items count above rather than trusting this number blindly — it has drifted stale before)
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -19004,6 +19010,47 @@ applies only to vocabularies built from now on.
 
 Location in code: `src/BPETokenizer.{hpp,cpp}`, `src/Config.hpp`, `src/ChatbotTrainer.hpp`, `src/VocabBuilder.cpp`, `config.trainer.conf`,
 `config.chatbot.conf`.
+
+---
+
+### TD-565: Vocabularies Have No Room for Future Special Tokens
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open — code fix landed November 9, 2026 (owner request) | NLP / Tokenizer | November 9, 2026 | 2-3 hours |
+
+Description:
+Filed and fixed at the owner's request: reserve 20 ids for special tokens in every new vocabulary. Since TD-295, new vocabularies
+put `<pad>`/`<unk>`/`<bos>`/`<eos>` at 0-3 and the turn tokens at 4-6, then ordinary tokens from 7. Any later special token (the
+reasoning plan's `<think>`/`</think>`, which it numbered 4 and 5, already taken) would have had to move every ordinary token, which
+means another vocabulary format, a new embedding and output layout, and retraining. Found while reviewing the stream-of-consciousness
+analysis (`docs/proposals/stream_of_consciousness_analysis.md`, SC-0).
+
+Action Items:
+
+- [x] `SpecialTokenIDs::RESERVED_SLOTS` (20) and `FIRST_UNASSIGNED` (7); `adai::reserved_slot_token(id)` names the placeholder for
+      an unassigned id, `<reserved_7>` to `<reserved_19>`.
+- [x] `build_vocab()` adds the turn tokens at 4-6 and a placeholder entry at each of 7-19, all special, and starts ordinary tokens
+      at 20. The placeholders are real vocabulary entries, so the model's embedding and output layers already have their rows and a
+      later special token takes one without resizing a trained model. A vocabulary of 20 or fewer ids has no room past them and
+      keeps the old layout (no turn tokens, ordinary from 4); real vocabularies are 2,000 or more.
+- [x] Unassigned ids behave as unknowns: `encode()` never returns an id below `first_ordinary_id()` (a vocabulary hit there becomes
+      `<unk>`), `decode()` drops them, and every generation path masks ids 4 to `first_ordinary_id() - 1` (`mask_unknown_ids()`).
+- [x] Vocabulary format v4: `save_vocab()` writes `RESERVED_SPECIAL_IDS <n>`. `load_vocab()` marks every id below it special
+      whatever its name, so a later build can rename a slot (e.g. `<think>`) without changing other ids, and refuses a missing slot,
+      a count other than 4, 7 or 20, or turn tokens missing under a larger count. A v1-v3 file keeps its layout: ordinary tokens
+      from 7 with TD-295's turn tokens, from 4 without. An older binary refuses a v4 file (TD-563).
+- [x] `BPETokenizer::first_ordinary_id()`: 20, 7 or 4.
+- [x] Tests.
+
+Fix (November 9, 2026): as the items above. Tests: `BPETokenizerReservedSlotTest` (`NewVocabulariesReserveTwentyIds`,
+`ReservedIdsActAsUnknown`, `SurvivesSaveAndLoadAsFormatV4` (incl. a renamed slot, a missing slot and an unsupported count),
+`OlderLayoutsKeepTheirIds`, `SmallVocabulariesHaveNoSpecialBlock`), `TurnTokenGenerationTest.TurnTokensAreMaskedAndIdPromptsUsed`
+(ids 4-19 masked, 20 not); the format tests now expect v4 and drop the new line when simulating older files, and the TD-295 tests
+expect ordinary tokens from 20. Retraining needs are TD-563's: build the retraining vocabulary with this layout, and deploy
+v4-aware binaries before it.
+
+Location in code: `src/SpecialTokens.hpp`, `src/BPETokenizer.{hpp,cpp}`, `src/EncoderDecoderModel.cpp`.
 
 ---
 
