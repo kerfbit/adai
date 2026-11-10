@@ -1376,6 +1376,7 @@ foreach(_script_test IN ITEMS
     model_service_test.sh
     package_server_bundle_test.sh
     package_sycl_test.sh
+    package_sycl_gpu_tests_test.sh
     package_windows_test.sh
     run_chatbot_gui_test.sh
     run_chatbot_test.sh

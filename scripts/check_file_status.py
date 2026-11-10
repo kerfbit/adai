@@ -11,8 +11,8 @@ Usage:
     ./scripts/check_file_status.py --changed HEAD~5     # custom base ref
 """
 # @adai-status: stable
-# @adai-version: 1.0.1
-# @adai-reviewed: 2026-09-13
+# @adai-version: 1.0.2
+# @adai-reviewed: 2026-11-09
 from __future__ import annotations
 
 import argparse
@@ -52,6 +52,7 @@ IN_SCOPE_GLOBS = [
     "scripts/*.sh",
     "scripts/*.py",
     "scripts/cloudflared/*.sh",
+    "scripts/sycl_gpu_tests/*.sh",
     "scripts/cloudflared/*.py",
 ]
 

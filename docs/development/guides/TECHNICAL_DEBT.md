@@ -1555,6 +1555,7 @@ The generation and model math run is complete.
 - TD-385 (done in code: reductions use one buffer and one wait, on both backends; the per-sample loss download stays).
 - TD-171 (owner chose to benchmark first: B0 CPU numbers recorded, `stacked_gemm_benchmark`; needs an ai-machine run before any model work).
 - TD-368 (done in code: `SEED`/`--seed` replays initialization, shuffles and dropout exactly on the CPU, nearly on the oneAPI CPU device).
+- The on-device checks left by this run (TD-171's benchmark, TD-391's backend line, TD-368's GPU replay, TD-358's GPU training and the GPU tests) are packaged for ai-machine by `scripts/package_sycl_gpu_tests.sh`; see `scripts/sycl_gpu_tests/README.md`.
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
