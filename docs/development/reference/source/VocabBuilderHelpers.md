@@ -69,3 +69,10 @@ Each new item is tracked in [TECHNICAL_DEBT.md](../../guides/TECHNICAL_DEBT.md) 
 |---|---|---|---|
 | Legacy/plain loaders keep leading spaces and `\r`, skip indented `INPUT:` lines and keep unpaired texts, unlike the trainer (§2) | Vocabulary learned from slightly different text than training | **Verified** | [TD-537](../../guides/TECHNICAL_DEBT.md#td-537-vocab_builder-legacy-loader-reads-different-text-from-the-trainer); fixed in code November 8, 2026 |
 | `json` loader, inherited JSONL gaps, registry legacy parser | Already tracked | — | TD-536, TD-531/532, TD-336 |
+
+## Addendum (November 9, 2026): `load_json_format()` parses JSON (TD-536)
+
+`load_json_format()` reads the file with the vendored nlohmann/json instead of scanning for quote characters. It accepts only a top-level
+array of strings: escapes are decoded, empty strings skipped, and invalid JSON, an object or any non-string element gives an error and no
+texts (so `vocab_builder` exits 1). Object keys and escaped quotes can no longer leak into the vocabulary. The gaps listed above for this
+function no longer apply.

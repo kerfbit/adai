@@ -341,6 +341,31 @@ TEST(LoadJsonFormatTest, EmptyStringSkipped) {
     remove_tmp(path);
 }
 
+// TD-536: the loader used to scan for quote characters: an escaped quote ended a string early,
+// "\n" stayed two characters, and object keys were taken as text.
+TEST(LoadJsonFormatTest, EscapesAreDecoded) {
+    std::string path = tmp_path("json_escapes.txt");
+    write_file(path, R"(["say \"hi\"", "line one\nline two", "café", "back\\slash"])");
+    auto result = load_json_format(path);
+    ASSERT_EQ(result.size(), 4u);
+    EXPECT_EQ(result[0], "say \"hi\"");
+    EXPECT_EQ(result[1], "line one\nline two");
+    EXPECT_EQ(result[2], "caf\xc3\xa9");
+    EXPECT_EQ(result[3], "back\\slash");
+    remove_tmp(path);
+}
+
+TEST(LoadJsonFormatTest, OnlyAnArrayOfStringsIsAccepted) {
+    std::string path = tmp_path("json_shapes.txt");
+    for (const std::string bad :
+         {R"({"text": "hello"})", R"(["hello", 3])", R"(["hello", {"text": "x"}])",
+          R"(["unterminated)", R"("just a string")"}) {
+        write_file(path, bad);
+        EXPECT_TRUE(load_json_format(path).empty()) << bad << ": keys and non-strings aren't text";
+    }
+    remove_tmp(path);
+}
+
 TEST(LoadJsonFormatTest, StringsWithSpacesPreserved) {
     std::string path = tmp_path("json_spaces.txt");
     write_file(path, R"(["  spaces  ", "  both  "])");

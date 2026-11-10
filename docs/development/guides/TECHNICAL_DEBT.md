@@ -1568,6 +1568,7 @@ to finish before the retraining vocabulary is built (TD-563). So far:
   instead of giving one id to two tokens).
 - TD-505 (done in code: `load_vocab()` refuses special-token ids other than the standard 0-3; the unused, 0-3-only helpers in
   `SpecialTokens.hpp` are removed).
+- TD-536 (done in code: `vocab_builder`'s `json` input is parsed as JSON, escapes decoded, and anything but an array of strings refused).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -17779,7 +17780,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Tooling / vocab_builder | October 17, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 9, 2026 | Tooling / vocab_builder | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `VocabBuilder.cpp`/`VocabBuilderHelpers.hpp` (by inspection): the `json` loader collects every quoted string in the file,
@@ -17789,7 +17790,7 @@ frequency flag is `--threshold`, default 1); the JSONL loader inherits TD-531/TD
 
 Action Items:
 
-- [ ] Parse `json` input with `nlohmann/json` (string array only). The other half, fixing OPERATIONS_MANUAL.md §4 from `--help`, was done with TD-534 (October 17, 2026); the JSONL loader's TD-531/TD-532 gaps are fixed too.
+- [x] Parse `json` input with `nlohmann/json` (string array only). The other half, fixing OPERATIONS_MANUAL.md §4 from `--help`, was done with TD-534 (October 17, 2026); the JSONL loader's TD-531/TD-532 gaps are fixed too.
 
 Location in code: `src/VocabBuilderHelpers.hpp` (`load_json_format()`); tagged `TODO: See TD-536`.
 
@@ -17797,6 +17798,13 @@ Files to Modify:
 
 - `src/VocabBuilderHelpers.hpp`
 - `docs/operations/OPERATIONS_MANUAL.md`
+
+Fix (November 9, 2026): `load_json_format()` parses the file with the vendored nlohmann/json. A top-level array of strings is read with
+every escape decoded (`\"`, `\n`, `\u00e9`, `\\`), empty strings skipped as before; invalid JSON, an object, or any non-string element
+is refused with an error naming the problem, and `vocab_builder` then exits 1 ("No text data loaded"), so keys and structure never become
+vocabulary. OPERATIONS_MANUAL.md §4 says so. Tests: `EscapesAreDecoded` and `OnlyAnArrayOfStringsIsAccepted` (both failed on the old
+code). Checked with the real binary: an array with an escaped quote, a `\n` and `\u00e9` built a vocabulary with `"`, a newline and `é`
+as single tokens; `[{"text": "hello"}]` exited 1 naming element 0.
 
 ---
 

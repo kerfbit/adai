@@ -233,7 +233,7 @@ Input formats:
   parses it, or legacy `INPUT:`/`RESPONSE:` lines.
 - `plain` takes each line as raw text. It isn't meant for training data, and warns if a file looks
   like it.
-- `json` is a JSON array of strings.
+- `json` is a JSON array of strings, read as standard JSON (escapes such as `\"`, `\n` and `\u00e9` decoded). Anything else, such as an object or a non-string element, is refused with an error (TD-536).
 
 **Unicode by default (TD-564, November 4, 2026).** New vocabularies split text into UTF-8 characters (ISO/IEC 10646 code
 points), so accented and non-Latin letters are single units rather than byte fragments; on plain ASCII text nothing changes.

@@ -751,6 +751,8 @@ message(STATUS "Building dataset_manager - standalone dataset queue management t
 # Vocabulary Builder - Standalone BPE vocabulary creation tool
 add_executable(vocab_builder VocabBuilder.cpp)
 target_link_libraries(vocab_builder adai_nlp adai_core)
+# TD-536: the json input format is parsed with the vendored nlohmann/json.
+target_include_directories(vocab_builder PRIVATE ${CMAKE_SOURCE_DIR}/external)
 set_target_properties(vocab_builder PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )

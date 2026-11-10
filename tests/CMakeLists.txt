@@ -453,6 +453,7 @@ target_link_libraries(vocabbuilderTests
     adai_core
     GTest::gtest_main
 )
+target_include_directories(vocabbuilderTests PRIVATE ${CMAKE_SOURCE_DIR}/external)  # TD-536
 add_test(NAME VocabBuilderTests COMMAND vocabbuilderTests)
 
 # ============================================================================

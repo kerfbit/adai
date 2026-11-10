@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
-// @adai-reviewed: 2026-11-08
+// @adai-version: 1.4.0
+// @adai-reviewed: 2026-11-09
 
 /**
  * @file VocabBuilderHelpers.hpp
@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 #include "DatasetRegistry.hpp"
+#include "nlohmann/json.hpp"
 
 /**
  * TD-534: pick a loader for `filename` from its first non-blank line: `{` (JSONL training data)
@@ -115,10 +116,11 @@ inline std::vector<std::string> load_pairs_format(const std::string& filename) {
 }
 
 /**
- * Load text from JSON array format (expects ["text1", "text2", ...]).
- * Uses a simple quote-scanning parser — not a full JSON library.
+ * Load text from a JSON array of strings (["text1", "text2", ...]). TD-536: parsed with
+ * nlohmann/json, so escapes are decoded; it used to take every quoted string, object keys
+ * included, and an escaped quote ended a string early. Anything but an array of strings is
+ * refused (an error, and no texts), as is invalid JSON. Empty strings are skipped.
  */
-// TODO: See TD-536 in TECHNICAL_DEBT.md - takes every quoted string (keys too) and doesn't unescape.
 inline std::vector<std::string> load_json_format(const std::string& filename) {
     std::vector<std::string> texts;
     std::ifstream file(filename);
@@ -128,23 +130,25 @@ inline std::vector<std::string> load_json_format(const std::string& filename) {
         return texts;
     }
 
-    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    file.close();
-
-    size_t pos = 0;
-    while ((pos = content.find('"', pos)) != std::string::npos) {
-        pos++;  // Skip opening quote
-        size_t end = content.find('"', pos);
-        if (end == std::string::npos) {
-            break;
-        }
-
-        std::string text = content.substr(pos, end - pos);
-        if (!text.empty()) {
-            texts.push_back(text);
-        }
-        pos = end + 1;
+    const nlohmann::json doc = nlohmann::json::parse(file, nullptr, /*allow_exceptions=*/false);
+    if (doc.is_discarded()) {
+        std::cerr << "Error: " << filename << " is not valid JSON\n";
+        return texts;
     }
-
+    if (!doc.is_array()) {
+        std::cerr << "Error: " << filename << " must be a JSON array of strings\n";
+        return texts;
+    }
+    for (std::size_t i = 0; i < doc.size(); ++i) {
+        if (!doc[i].is_string()) {
+            std::cerr << "Error: element " << i << " of " << filename
+                      << " is not a string; the json format is an array of strings\n";
+            return {};
+        }
+        std::string text = doc[i].get<std::string>();
+        if (!text.empty()) {
+            texts.push_back(std::move(text));
+        }
+    }
     return texts;
 }
