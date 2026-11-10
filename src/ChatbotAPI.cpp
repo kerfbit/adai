@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-053 resolved; capped by TD-033 — GPU-resident decode wired in, benchmark blocked on real GPU hardware, see TECHNICAL_DEBT.md)
-// @adai-version: 0.32.0
-// @adai-reviewed: 2026-11-04
+// @adai-version: 0.32.1
+// @adai-reviewed: 2026-11-09
 
 #include "ChatbotAPI.hpp"
 #include "nlohmann/json.hpp"
@@ -1159,7 +1159,7 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
             create_dynamic_batches(input_token_sequences,
                                    32,                         // max_batch_size
                                    10,                         // length_tolerance
-                                   // TODO: See TD-505 in TECHNICAL_DEBT.md - constant, not the tokenizer's PAD ID.
+                                   // TD-505: load_vocab() refuses any other PAD id.
                                    adai::SpecialTokenIDs::PAD  // pad_token_id
             );
 

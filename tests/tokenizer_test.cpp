@@ -1519,3 +1519,39 @@ TEST(BPETokenizerReservedSlotTest, SmallVocabulariesHaveNoSpecialBlock) {
     EXPECT_FALSE(tokenizer.has_turn_tokens());
     EXPECT_EQ(tokenizer.first_ordinary_id(), 4);
 }
+
+// ============================================================================
+// TD-505: the special-token ids are the standard 0-3
+// ============================================================================
+
+TEST_F(BPETokenizerTest, NonStandardSpecialTokenIdsAreRefused) {
+    BPETokenizer writer;
+    writer.build_vocab({"hello world"}, 60, 1);
+    writer.save_vocab(test_vocab_file);
+    const std::string good = read_file(test_vocab_file);
+
+    // BOS = EOS made every training target start with the stop token; swapped ids encoded text
+    // with the wrong markers. Each used to load.
+    for (const auto& [from, to] : std::vector<std::pair<std::string, std::string>>{
+             {"eos_token_id 3", "eos_token_id 2"},
+             {"pad_token_id 0", "pad_token_id 5"},
+             {"<bos>\t2", "<bos>\t9"}}) {
+        std::string bad = good;
+        bad.replace(bad.find(from), from.size(), to);
+        write_file(test_vocab_file, bad);
+        BPETokenizer reader;
+        EXPECT_THROW(reader.load_vocab(test_vocab_file), VocabularyFileError) << to;
+    }
+    // A swap that keeps every id inside 0-3 is refused too.
+    std::string swapped = good;
+    swapped.replace(swapped.find("bos_token_id 2"), 14, "bos_token_id 3");
+    swapped.replace(swapped.find("eos_token_id 3"), 14, "eos_token_id 2");
+    write_file(test_vocab_file, swapped);
+    BPETokenizer reader;
+    EXPECT_THROW(reader.load_vocab(test_vocab_file), VocabularyFileError);
+
+    write_file(test_vocab_file, good);
+    BPETokenizer ok;
+    EXPECT_NO_THROW(ok.load_vocab(test_vocab_file));
+    EXPECT_EQ(ok.get_bos_token_id(), adai::SpecialTokenIDs::BOS);
+}

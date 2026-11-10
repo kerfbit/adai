@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.7.0
+// @adai-version: 1.8.0
 // @adai-reviewed: 2026-11-09
 
 // TODO: See TD-225 in TECHNICAL_DEBT.md - std::cout/std::cerr are used throughout this file instead of
@@ -39,20 +39,15 @@ BPETokenizer::BPETokenizer(TokenizerMode mode_)
     : mode(mode_),
       token_pattern(mode_ == TokenizerMode::UNICODE ? UNICODE_PATTERN : ASCII_PATTERN),
       cache_key_(new_cache_key()) {
-    vocab["<pad>"] = pad_token_id;
-    vocab["<unk>"] = unk_token_id;
-    vocab["<bos>"] = bos_token_id;
-    vocab["<eos>"] = eos_token_id;
-
-    inverse_vocab[pad_token_id] = "<pad>";
-    inverse_vocab[unk_token_id] = "<unk>";
-    inverse_vocab[bos_token_id] = "<bos>";
-    inverse_vocab[eos_token_id] = "<eos>";
-
-    special_tokens.insert("<pad>");
-    special_tokens.insert("<unk>");
-    special_tokens.insert("<bos>");
-    special_tokens.insert("<eos>");
+    for (const auto& [token, id] :
+         {std::pair<const char*, int>{adai::SpecialTokenStrings::PAD, pad_token_id},
+          {adai::SpecialTokenStrings::UNK, unk_token_id},
+          {adai::SpecialTokenStrings::BOS, bos_token_id},
+          {adai::SpecialTokenStrings::EOS, eos_token_id}}) {
+        vocab[token] = id;
+        inverse_vocab[id] = token;
+        special_tokens.insert(token);
+    }
 }
 
 void BPETokenizer::set_normalization(TextNormalization normalization) {
@@ -850,8 +845,6 @@ void BPETokenizer::read_vocab_file(const std::string& filename) {
                                       line);
         }
 
-        // TODO: See TD-505 in TECHNICAL_DEBT.md - IDs accepted unchecked (non-standard or duplicate, verified), while
-        // several components hard-code 0-3.
         if (section == "SPECIAL_TOKENS") {
             size_t space_pos = line.find(' ');
             if (space_pos == std::string::npos) {
@@ -993,23 +986,33 @@ void BPETokenizer::read_vocab_file(const std::string& filename) {
         throw VocabularyFileError("Loaded vocabulary is empty from file: " + filename);
     }
 
-    if (vocab.find("<pad>") == vocab.end() || vocab.find("<unk>") == vocab.end() ||
-        vocab.find("<bos>") == vocab.end() || vocab.find("<eos>") == vocab.end()) {
-        throw VocabularyFileError("Missing required special tokens in " + filename);
+    // TD-505: the four ids are the standard 0-3, which the batching, padding and generation code
+    // uses directly; a file with other ids used to load (BOS = EOS made every target start with the
+    // stop token).
+    const struct {
+        const char* key;
+        int id;
+        int standard;
+        const char* token;
+    } kStandard[] = {
+        {"pad_token_id", pad_token_id, adai::SpecialTokenIDs::PAD, adai::SpecialTokenStrings::PAD},
+        {"unk_token_id", unk_token_id, adai::SpecialTokenIDs::UNK, adai::SpecialTokenStrings::UNK},
+        {"bos_token_id", bos_token_id, adai::SpecialTokenIDs::BOS, adai::SpecialTokenStrings::BOS},
+        {"eos_token_id", eos_token_id, adai::SpecialTokenIDs::EOS, adai::SpecialTokenStrings::EOS},
+    };
+    for (const auto& special : kStandard) {
+        if (special.id != special.standard) {
+            throw VocabularyFileError(std::string(special.key) + " is " +
+                                      std::to_string(special.id) + " in " + filename +
+                                      "; it must be " + std::to_string(special.standard));
+        }
+        const auto it = vocab.find(special.token);
+        if (it == vocab.end() || it->second != special.standard) {
+            throw VocabularyFileError(std::string(special.token) + " must be id " +
+                                      std::to_string(special.standard) + " in " + filename);
+        }
+        special_tokens.insert(special.token);
     }
-
-    // TODO: See TD-225 in TECHNICAL_DEBT.md - special IDs from the file aren't checked against
-    // adai::SpecialTokenIDs, which other code (BatchProcessor, TextGenerator, Dataset) uses directly.
-    // Ensure special_tokens set is fully populated
-    special_tokens.insert("<pad>");
-    special_tokens.insert("<unk>");
-    special_tokens.insert("<bos>");
-    special_tokens.insert("<eos>");
-
-    inverse_vocab[pad_token_id] = "<pad>";
-    inverse_vocab[unk_token_id] = "<unk>";
-    inverse_vocab[bos_token_id] = "<bos>";
-    inverse_vocab[eos_token_id] = "<eos>";
 
     std::cout << "[BPE Tokenizer] Vocabulary loaded from " << filename << '\n';
     std::cout << "  - Mode: " << (mode == TokenizerMode::UNICODE ? "Unicode" : "ASCII") << '\n';

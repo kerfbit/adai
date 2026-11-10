@@ -112,3 +112,12 @@ Kept: the token table, the helper list and the test command (`ctest -R SpecialTo
 the TD-295 turn tokens at 4-6, and 7-19 held for future special tokens, each with the placeholder entry
 `adai::reserved_slot_token(id)`. Unassigned ids are never encoded from text, decoded, or generated. See BPETokenizer.md's TD-565
 addendum for the file format.
+
+## Addendum (November 9, 2026): ids enforced, unused helpers removed (TD-505)
+
+`BPETokenizer::load_vocab()` refuses a vocabulary whose `pad`/`unk`/`bos`/`eos` ids aren't 0-3 or whose four entries aren't at those
+ids, so the constants and the tokenizer always agree. The header (now 2.0.0) keeps the id and string constants, the TD-295/TD-565
+block (`FIRST_UNASSIGNED`, `RESERVED_SLOTS`, `reserved_slot_token()`), `SpecialTokenConfig` and `is_stop_token()`; `validate()`,
+`is_special_token()`, `is_special_token_string()`, `get_special_token_string()`, `get_special_token_id()` and the `create_*` helpers are
+removed (no callers outside their tests, and they knew only ids 0-3). The file-format example shows format v4. The gaps listed above
+for these helpers no longer apply.

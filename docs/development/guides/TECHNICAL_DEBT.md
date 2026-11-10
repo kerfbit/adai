@@ -1566,6 +1566,8 @@ The generation and model math run is complete.
 to finish before the retraining vocabulary is built (TD-563). So far:
 - TD-223 (done in code: a failed `load_vocab()` leaves the tokenizer unchanged; a second `build_vocab()` replaces the vocabulary
   instead of giving one id to two tokens).
+- TD-505 (done in code: `load_vocab()` refuses special-token ids other than the standard 0-3; the unused, 0-3-only helpers in
+  `SpecialTokens.hpp` are removed).
 
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
@@ -5044,7 +5046,7 @@ Action Items:
 - [ ] Rename `get_top_tokens()` (e.g. `get_tokens_by_id()`) or record merge frequencies during
   training to make it true; update `vocab_builder`.
 - [ ] Make base-ID assignment and tie-breaking deterministic (sort by frequency, then by token).
-- [ ] Warn (or throw) in `load_vocab()` when the special IDs differ from `SpecialTokenIDs`.
+- [x] Warn (or throw) in `load_vocab()` when the special IDs differ from `SpecialTokenIDs`. (Done with TD-505, November 9, 2026: it throws.)
 - [ ] Tighten `is_valid_utf8()` to RFC 3629.
 - [ ] Fix `DataFetcher.cpp`'s pointer to say the FIM tokens still need adding (TD-006).
 
@@ -16413,7 +16415,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | NLP / SpecialTokens | October 17, 2026 | 1-2 hours |
+| LOW | Open — code fix landed November 9, 2026 | NLP / SpecialTokens | October 17, 2026 | 1-2 hours |
 
 Description:
 Found while tracing `SpecialTokens.hpp` (see [SpecialTokens.md](../reference/source/SpecialTokens.md)). The header declares PAD/UNK/BOS/EOS = 0/1/2/3
@@ -16429,9 +16431,9 @@ standardized and "must not be changed", but:
 
 Action Items:
 
-- [ ] In `load_vocab()`, reject special-token IDs other than 0–3 (the header's rule) or at least call `validate()`.
-- [ ] Or make the constant-using components take IDs from the tokenizer.
-- [ ] Remove the unused helpers or use them (strings in `BPETokenizer.cpp`); fix the format example.
+- [x] In `load_vocab()`, reject special-token IDs other than 0–3 (the header's rule) or at least call `validate()`.
+- [x] ~~Or make the constant-using components take IDs from the tokenizer.~~ Not needed: with the ids enforced, the constants are the tokenizer's ids.
+- [x] Remove the unused helpers or use them (strings in `BPETokenizer.cpp`); fix the format example.
 
 Location in code: `src/SpecialTokens.hpp` (`validate()`, format example), `src/BPETokenizer.cpp` (`load_vocab()` SPECIAL_TOKENS section), `src/PipelineInferenceEngine.hpp`, `src/ChatbotAPI.cpp` (batch padding); tagged `TODO: See TD-505`.
 
@@ -16441,6 +16443,20 @@ Files to Modify:
 - `src/BPETokenizer.cpp`
 - `src/PipelineInferenceEngine.hpp`
 - `src/ChatbotAPI.cpp`
+
+Fix (November 9, 2026): `load_vocab()` refuses a file whose `pad_token_id`/`unk_token_id`/`bos_token_id`/`eos_token_id` aren't 0-3, or
+whose `<pad>`/`<unk>`/`<bos>`/`<eos>` entries aren't at those ids, with a `VocabularyFileError` naming the field (with TD-223 the
+tokenizer is left as it was). Every shipped vocabulary already uses 0-3 (`vocab_builder` always wrote them), so none is affected. The
+components that use the constants (`/chat/batch` padding, `BatchProcessor`, `TextGenerator`'s defaults) are therefore correct for
+any vocabulary that loads; `PipelineInferenceEngine` was retired (TD-474). `SpecialTokens.hpp` (2.0.0) drops `validate()`,
+`is_special_token()`, `is_special_token_string()`, `get_special_token_string()`, `get_special_token_id()` and the three
+`create_*` set/map helpers: none had a caller outside their tests, and they knew only ids 0-3, so they would have called `<user>` or a
+reserved id an ordinary token (TD-295, TD-565). `SpecialTokenConfig` and `is_stop_token()` (used by `TextGenerator`) stay.
+`BPETokenizer.cpp` uses `SpecialTokenStrings` instead of literals, the header's file-format example shows format v4, and the
+orphaned, never-built `tests/test_migration.cpp`, which called the removed helpers, is deleted. Tests:
+`NonStandardSpecialTokenIdsAreRefused` (BOS = EOS, PAD = 5, `<bos>` at 9 and a BOS/EOS swap inside 0-3 each used to load; it failed on
+the old code), `ReservedSlotsFollowTheTurnTokens`; the removed helpers' tests went with them. Also closes TD-225's "unchecked special
+IDs" item.
 
 ---
 

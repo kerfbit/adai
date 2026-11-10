@@ -2,14 +2,11 @@
 #define SPECIAL_TOKENS_HPP
 
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 2.0.0
 // @adai-reviewed: 2026-11-09
 
 
-#include <stdexcept>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 
 /**
  * @file SpecialTokens.hpp
@@ -141,49 +138,16 @@ struct SpecialTokenConfig {
     int get_eos_token_id() const {
         return eos_token_id;
     }
-
-    // TODO: See TD-505 in TECHNICAL_DEBT.md - never called; load_vocab() accepts non-standard and duplicate IDs.
-    /**
-     * @brief Validate that token IDs are non-negative and unique
-     * @throws std::invalid_argument if validation fails
-     */
-    void validate() const {
-        if (pad_token_id < 0 || unk_token_id < 0 || bos_token_id < 0 || eos_token_id < 0) {
-            throw std::invalid_argument("Special token IDs must be non-negative");
-        }
-
-        std::unordered_set<int> ids = {pad_token_id, unk_token_id, bos_token_id, eos_token_id};
-        if (ids.size() != 4) {
-            throw std::invalid_argument("Special token IDs must be unique");
-        }
-    }
 };
 
 // ============================================================================
 // Special Token Utility Functions
 // ============================================================================
 
-/**
- * @brief Check if a token ID corresponds to any special token
- * @param token_id The token ID to check
- * @param config Special token configuration (uses defaults if not provided)
- * @return true if the token is a special token, false otherwise
- */
-inline bool is_special_token(int token_id,
-                             const SpecialTokenConfig& config = SpecialTokenConfig()) {
-    return token_id == config.pad_token_id || token_id == config.unk_token_id ||
-           token_id == config.bos_token_id || token_id == config.eos_token_id;
-}
-
-/**
- * @brief Check if a token string corresponds to any special token
- * @param token_str The token string to check
- * @return true if the token is a special token string, false otherwise
- */
-inline bool is_special_token_string(const std::string& token_str) {
-    return token_str == SpecialTokenStrings::PAD || token_str == SpecialTokenStrings::UNK ||
-           token_str == SpecialTokenStrings::BOS || token_str == SpecialTokenStrings::EOS;
-}
+// TD-505: the id/string lookup and set/map helpers that used to be here were unused outside their
+// tests and knew only ids 0-3, not the turn tokens or reserved ids (TD-295, TD-565). BPETokenizer is
+// the source of truth: decode() skips every special token, first_ordinary_id() bounds them, and
+// load_vocab() refuses a file whose ids 0-3 aren't the standard ones.
 
 /**
  * @brief Check if a token ID is a stop token (EOS or PAD)
@@ -197,91 +161,6 @@ inline bool is_special_token_string(const std::string& token_str) {
  */
 inline bool is_stop_token(int token_id, const SpecialTokenConfig& config = SpecialTokenConfig()) {
     return token_id == config.eos_token_id || token_id == config.pad_token_id;
-}
-
-/**
- * @brief Get the string representation of a special token ID
- * @param token_id The special token ID
- * @param config Special token configuration (uses defaults if not provided)
- * @return The string representation (e.g., "<bos>")
- * @throws std::invalid_argument if token_id is not a special token
- */
-inline std::string get_special_token_string(
-    int token_id, const SpecialTokenConfig& config = SpecialTokenConfig()) {
-    if (token_id == config.pad_token_id) {
-        return SpecialTokenStrings::PAD;
-    }
-    if (token_id == config.unk_token_id) {
-        return SpecialTokenStrings::UNK;
-    }
-    if (token_id == config.bos_token_id) {
-        return SpecialTokenStrings::BOS;
-    }
-    if (token_id == config.eos_token_id) {
-        return SpecialTokenStrings::EOS;
-    }
-
-    throw std::invalid_argument("Token ID " + std::to_string(token_id) + " is not a special token");
-}
-
-/**
- * @brief Get the token ID for a special token string
- * @param token_str The special token string (e.g., "<bos>")
- * @param config Special token configuration (uses defaults if not provided)
- * @return The token ID
- * @throws std::invalid_argument if token_str is not a special token string
- */
-inline int get_special_token_id(const std::string& token_str,
-                                const SpecialTokenConfig& config = SpecialTokenConfig()) {
-    if (token_str == SpecialTokenStrings::PAD) {
-        return config.pad_token_id;
-    }
-    if (token_str == SpecialTokenStrings::UNK) {
-        return config.unk_token_id;
-    }
-    if (token_str == SpecialTokenStrings::BOS) {
-        return config.bos_token_id;
-    }
-    if (token_str == SpecialTokenStrings::EOS) {
-        return config.eos_token_id;
-    }
-
-    throw std::invalid_argument("Token string '" + token_str + "' is not a special token");
-}
-
-/**
- * @brief Create a set of special token strings
- * @return An unordered set containing all special token strings
- */
-inline std::unordered_set<std::string> create_special_token_set() {
-    return {SpecialTokenStrings::PAD, SpecialTokenStrings::UNK, SpecialTokenStrings::BOS,
-            SpecialTokenStrings::EOS};
-}
-
-/**
- * @brief Create a map from special token strings to their IDs
- * @param config Special token configuration (uses defaults if not provided)
- * @return An unordered map of token string -> token ID
- */
-inline std::unordered_map<std::string, int> create_special_token_map(
-    const SpecialTokenConfig& config = SpecialTokenConfig()) {
-    return {{SpecialTokenStrings::PAD, config.pad_token_id},
-            {SpecialTokenStrings::UNK, config.unk_token_id},
-            {SpecialTokenStrings::BOS, config.bos_token_id},
-            {SpecialTokenStrings::EOS, config.eos_token_id}};
-}
-
-/**
- * @brief Create an inverse map from special token IDs to their strings
- * @param config Special token configuration (uses defaults if not provided)
- * @return An unordered map of token ID -> token string
- */
-inline std::unordered_map<int, std::string> create_inverse_special_token_map(
-    const SpecialTokenConfig& config = SpecialTokenConfig()) {
-    return {{config.pad_token_id, SpecialTokenStrings::PAD},
-            {config.unk_token_id, SpecialTokenStrings::UNK},
-            {config.bos_token_id, SpecialTokenStrings::BOS},
-            {config.eos_token_id, SpecialTokenStrings::EOS}};
 }
 
 // ============================================================================
@@ -364,21 +243,35 @@ inline std::unordered_map<int, std::string> create_inverse_special_token_map(
 /**
  * @example Vocabulary file format
  *
- * Special tokens must be defined in vocabulary files:
+ * The current format (v4, TD-565), as save_vocab() writes it; tokens are escaped (\s for a space)
+ * and separated from their ids by a tab. load_vocab() requires ids 0-3 as below (TD-505).
  * @code
- * # BPE Tokenizer Vocabulary v1.0
+ * # BPE Tokenizer Vocabulary v4.0
+ * TOKENIZER_MODE UNICODE
+ * NORMALIZATION CASED
+ * WHITESPACE PRESERVE
  * VOCAB_SIZE 10000
+ * RESERVED_SPECIAL_IDS 20
  * SPECIAL_TOKENS
  * pad_token_id 0
  * unk_token_id 1
  * bos_token_id 2
  * eos_token_id 3
  * VOCAB
- * <pad>    0
- * <unk>    1
- * <bos>    2
- * <eos>    3
- * token1   4
+ * <pad>         0
+ * <unk>         1
+ * <bos>         2
+ * <eos>         3
+ * <system>      4
+ * <user>        5
+ * <assistant>   6
+ * <reserved_7>  7
+ * ...
+ * <reserved_19> 19
+ * \s            20
+ * ...
+ * BPE_MERGES 9980
+ * t  h
  * ...
  * @endcode
  */
