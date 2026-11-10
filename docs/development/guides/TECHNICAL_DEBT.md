@@ -1562,6 +1562,11 @@ The generation and model math run is complete.
   placeholders that act as unknowns, ordinary tokens from 20, format v4; settles the think-token ids before the retraining vocabulary).
 - The on-device checks left by this run (TD-171's benchmark, TD-391's backend line, TD-368's GPU replay, TD-358's GPU training and the GPU tests) are packaged for ai-machine by `scripts/package_sycl_gpu_tests.sh`; see `scripts/sycl_gpu_tests/README.md`.
 
+**Vocabulary readiness run (November 9, 2026)**, chosen by the owner while the ai-machine checks wait: the tokenizer and data items
+to finish before the retraining vocabulary is built (TD-563). So far:
+- TD-223 (done in code: a failed `load_vocab()` leaves the tokenizer unchanged; a second `build_vocab()` replaces the vocabulary
+  instead of giving one id to two tokens).
+
 **Registry and FTP security run (October 21, 2026)**, chosen by the owner. So far:
 - TD-490 (done in code: registry group names validated in every route);
 - TD-372/373 (done in code: the FTP data connection must come from the control connection's client, and FTPS requires `AUTH TLS` and
@@ -4896,7 +4901,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | NLP / Tokenizer | October 8, 2026 | 2-4 hours |
+| MEDIUM | Open — code fix landed November 9, 2026 | NLP / Tokenizer | October 8, 2026 | 2-4 hours |
 
 Description:
 Found alongside TD-220 and confirmed by running the real code:
@@ -4916,11 +4921,11 @@ tokenizer.
 
 Action Items:
 
-- [ ] `load_vocab()`: parse into local tables, validate, then swap them in, so a failure leaves the
+- [x] `load_vocab()`: parse into local tables, validate, then swap them in, so a failure leaves the
   previous state untouched (strong exception guarantee).
-- [ ] `build_vocab()`: reset to the four specials first (true replacement, as the test intends), or
+- [x] `build_vocab()`: reset to the four specials first (true replacement, as the test intends), or
   throw if the tokenizer is already trained.
-- [ ] Fix `RepeatedBuildVocab` to check ID uniqueness and that the first build's tokens are gone;
+- [x] Fix `RepeatedBuildVocab` to check ID uniqueness and that the first build's tokens are gone;
   add a failed-load-preserves-state test.
 
 Location in code: `src/BPETokenizer.cpp` (`load_vocab()`, `build_vocab()`),
@@ -4931,6 +4936,14 @@ Files to Modify:
 
 - `src/BPETokenizer.cpp`
 - `tests/tokenizer_test.cpp`, `tests/tokenizer_error_handling_test.cpp`
+
+Fix (November 9, 2026): `load_vocab()` reads the file into a new tokenizer (`read_vocab_file()`) and moves it into place only
+when the whole file loaded, so a failed load leaves the tokenizer, its settings and its layout as they were. `build_vocab()` on a
+tokenizer that already has a vocabulary starts from a new one with the same mode, normalization and whitespace settings, so
+ids run from 0 with none repeated and the standard special layout (TD-565) applies. The `--pipeline-inference` catch the
+description mentions went with `PipelineInferenceEngine` (TD-474). Tests: `RepeatedBuildVocab` now checks that every id is used
+once, ids run 0 to size-1, and the first build's tokens are gone (it failed on the old code with 13 ids used twice);
+`FailedLoadKeepsThePreviousVocabulary` and `RebuildAfterLoadStartsFromTheStandardLayout` are new; all three failed before the fix.
 
 ---
 

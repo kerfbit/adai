@@ -2,7 +2,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.5.0
+// @adai-version: 1.6.0
 // @adai-reviewed: 2026-11-09
 
 #include <algorithm>
@@ -212,7 +212,8 @@ class BPETokenizer {
     /// RESERVED_SPECIAL_IDS.
     static constexpr int kVocabFormatMajor = 4;
 
-    // Build vocabulary from text corpus
+    // Build vocabulary from text corpus. TD-223: replaces any earlier vocabulary, keeping only the
+    // mode, normalization and whitespace settings.
     void build_vocab(const std::vector<std::string>& texts, int vocab_size = 10000,
                      int frequency_threshold = 1);
 
@@ -265,6 +266,7 @@ class BPETokenizer {
     void save_vocab(const std::string& filename) const;
 
     // Load vocabulary from file (restores the saved TokenizerMode automatically)
+    /// TD-223: all or nothing; a file that fails to load leaves the tokenizer as it was.
     void load_vocab(const std::string& filename);
 
     // Print vocabulary statistics
@@ -327,4 +329,7 @@ class BPETokenizer {
 
     // Validate input string
     static void validate_input(const std::string& text, const std::string& context);
+
+    // TD-223: load_vocab()'s parser, run on a fresh tokenizer that replaces this one on success.
+    void read_vocab_file(const std::string& filename);
 };

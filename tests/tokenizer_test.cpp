@@ -14,6 +14,19 @@
 #include <vector>
 #include "../src/BPETokenizer.hpp"
 
+namespace {
+std::string read_file(const std::string& path) {
+    std::ifstream in(path);
+    std::stringstream ss;
+    ss << in.rdbuf();
+    return ss.str();
+}
+void write_file(const std::string& path, const std::string& text) {
+    std::ofstream out(path, std::ios::trunc);
+    out << text;
+}
+}  // namespace
+
 // Helper function to create a test vocabulary file
 void create_test_vocab(const std::string& filename) {
     std::ofstream file(filename);
@@ -543,13 +556,67 @@ TEST_F(BPETokenizerTest, RepeatedBuildVocab) {
     size_t size1 = tokenizer.get_vocab_size();
 
     std::vector<std::string> texts2 = {"world"};
-    tokenizer.build_vocab(texts2, 25, 1);
+    tokenizer.build_vocab(texts2, 40, 1);  // room past the 20 special ids (TD-565)
     size_t size2 = tokenizer.get_vocab_size();
 
-    // Second build should replace vocabulary
-    // TODO: See TD-223 in TECHNICAL_DEBT.md - this only checks the size changed; a second build actually
-    // appends and produces duplicate IDs. Check ID uniqueness once fixed.
+    // Second build should replace vocabulary. TD-223: it used to restart ids at 4 and append to the
+    // first build's merges, giving one id to two tokens.
     EXPECT_NE(size1, size2);
+    std::set<int> ids;
+    std::set<std::string> tokens;
+    for (const auto& [token, id] : tokenizer.get_top_tokens(static_cast<int>(size2) + 10)) {
+        EXPECT_TRUE(ids.insert(id).second) << "id " << id << " used twice";
+        tokens.insert(token);
+    }
+    EXPECT_EQ(ids.size(), size2);
+    EXPECT_EQ(*ids.rbegin(), static_cast<int>(size2) - 1) << "ids are 0..size-1";
+    EXPECT_EQ(tokens.count("h"), 0u) << "the first build's tokens are gone";
+    EXPECT_EQ(tokens.count("w"), 1u);
+    const auto world = tokenizer.encode("world", false);
+    EXPECT_EQ(tokenizer.decode(world), "world");
+}
+
+// TD-223: a failed load_vocab() used to clear every table first, leaving the tokenizer gutted.
+TEST_F(BPETokenizerTest, FailedLoadKeepsThePreviousVocabulary) {
+    BPETokenizer tokenizer;
+    tokenizer.set_normalization(TextNormalization::LOWERCASE);
+    tokenizer.build_vocab({"hello world"}, 60, 1);
+    const auto before = tokenizer.encode("hello world", false);
+    const size_t size = tokenizer.get_vocab_size();
+    const int first_ordinary = tokenizer.first_ordinary_id();
+
+    tokenizer.save_vocab(test_vocab_file);
+    std::string broken = read_file(test_vocab_file);
+    // A malformed id on the last VOCAB line, after the earlier tables have been read.
+    broken.replace(broken.rfind("BPE_MERGES"), 0, "lost\tabc\n");
+    write_file(test_vocab_file, broken);
+
+    EXPECT_THROW(tokenizer.load_vocab(test_vocab_file), VocabularyFileError);
+    EXPECT_EQ(tokenizer.get_vocab_size(), size);
+    EXPECT_EQ(tokenizer.encode("hello world", false), before);
+    EXPECT_EQ(tokenizer.decode(before), "hello world");
+    EXPECT_EQ(tokenizer.get_normalization(), TextNormalization::LOWERCASE);
+    EXPECT_EQ(tokenizer.first_ordinary_id(), first_ordinary);
+    EXPECT_TRUE(tokenizer.has_turn_tokens());
+}
+
+// TD-223: a second build_vocab() keeps the settings chosen for the tokenizer and nothing else.
+TEST_F(BPETokenizerTest, RebuildAfterLoadStartsFromTheStandardLayout) {
+    BPETokenizer writer;
+    writer.build_vocab({"hello world"}, 60, 1);
+    writer.save_vocab(test_vocab_file);
+    BPETokenizer tokenizer;
+    tokenizer.load_vocab(test_vocab_file);
+    tokenizer.set_whitespace(WhitespaceHandling::COLLAPSE);
+    tokenizer.build_vocab({"abc abd"}, 40, 1);
+    EXPECT_EQ(tokenizer.get_whitespace(), WhitespaceHandling::COLLAPSE);
+    EXPECT_EQ(tokenizer.first_ordinary_id(), 20);
+    std::set<int> ids;
+    for (const auto& [token, id] : tokenizer.get_top_tokens(1000)) {
+        EXPECT_TRUE(ids.insert(id).second) << token;
+        EXPECT_NE(token, "h");
+    }
+    EXPECT_EQ(ids.size(), tokenizer.get_vocab_size());
 }
 
 TEST_F(BPETokenizerTest, LoadNonexistentFile) {
@@ -981,19 +1048,6 @@ TEST(BPETokenizerCacheTest, AlternatingTokenizersKeepTheirOwnResults) {
 // ============================================================================
 // TD-560 / TD-563: letter case and the v2 vocabulary format
 // ============================================================================
-
-namespace {
-std::string read_file(const std::string& path) {
-    std::ifstream in(path);
-    std::stringstream ss;
-    ss << in.rdbuf();
-    return ss.str();
-}
-void write_file(const std::string& path, const std::string& text) {
-    std::ofstream out(path, std::ios::trunc);
-    out << text;
-}
-}  // namespace
 
 TEST_F(BPETokenizerTest, NewVocabulariesKeepCase) {
     BPETokenizer tokenizer;

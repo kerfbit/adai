@@ -536,3 +536,10 @@ reports 20, 7 for a TD-295 vocabulary, or 4 for an older one. `encode()` never r
 `save_vocab()` writes format v4 with `RESERVED_SPECIAL_IDS <n>`; `load_vocab()` treats every id below it as special whatever its
 name, so a later build can name a slot without moving other ids, and refuses a missing slot or an unsupported count. A vocabulary
 of 20 or fewer ids keeps the old layout, with no turn tokens.
+
+## Addendum (November 9, 2026): load and rebuild are all or nothing (TD-223)
+
+`load_vocab()` parses into a new tokenizer (`read_vocab_file()`) and moves it into place only when the whole file has loaded; a
+`VocabularyFileError` leaves the previous vocabulary, settings and layout untouched. `build_vocab()` on a tokenizer that already has a
+vocabulary starts from a new one that keeps only the mode, normalization and whitespace settings, so the second build's ids run from 0
+with none shared. The gaps listed for both functions above no longer apply.

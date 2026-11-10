@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.6.0
+// @adai-version: 1.7.0
 // @adai-reviewed: 2026-11-09
 
 // TODO: See TD-225 in TECHNICAL_DEBT.md - std::cout/std::cerr are used throughout this file instead of
@@ -179,6 +179,14 @@ void BPETokenizer::validate_input(const std::string& text, const std::string& co
 // frequency_threshold: minimum frequency for a character/codepoint to be added to vocab
 void BPETokenizer::build_vocab(const std::vector<std::string>& texts, int vocab_size,
                                int frequency_threshold) {
+    // TD-223: a second build used to restart ids at 4 and append to the first build's merges,
+    // giving one id to two tokens. Start from a new tokenizer with this one's settings instead.
+    if (vocab.size() > 4 || !bpe_merges.empty()) {
+        BPETokenizer fresh(mode);
+        fresh.normalization_ = normalization_;
+        fresh.whitespace_ = whitespace_;
+        *this = std::move(fresh);
+    }
     std::cout << "\n[BPE Tokenizer] Building vocabulary ("
               << (mode == TokenizerMode::UNICODE ? "Unicode" : "ASCII") << " mode)..." << '\n';
     std::cout << "[1/3] Counting character frequencies..." << std::flush;
@@ -222,8 +230,6 @@ void BPETokenizer::build_vocab(const std::vector<std::string>& texts, int vocab_
     std::cout << " (" << total_chars << " total characters)" << '\n';
 
     std::cout << "[2/3] Building base vocabulary..." << std::flush;
-    // TODO: See TD-223 in TECHNICAL_DEBT.md - a second build_vocab() on the same instance restarts IDs
-    // at 4 and appends to the existing merges, giving duplicate IDs; reset or refuse instead.
     // TODO: See TD-225 in TECHNICAL_DEBT.md - IDs follow unordered_map iteration order (not portable).
     int current_id = 4;  // Start after special tokens
     int added_chars = 0;
@@ -697,6 +703,14 @@ void BPETokenizer::save_vocab(const std::string& filename) const {
 }
 
 void BPETokenizer::load_vocab(const std::string& filename) {
+    // TD-223: parse into a new tokenizer and take it only if the whole file loads, so a failure
+    // leaves this one unchanged (it used to clear every table first).
+    BPETokenizer loaded;
+    loaded.read_vocab_file(filename);
+    *this = std::move(loaded);
+}
+
+void BPETokenizer::read_vocab_file(const std::string& filename) {
     if (filename.empty()) {
         throw VocabularyFileError("Vocabulary filename is empty");
     }
@@ -706,8 +720,6 @@ void BPETokenizer::load_vocab(const std::string& filename) {
         throw VocabularyFileError("Could not open vocabulary file: " + filename);
     }
 
-    // TODO: See TD-223 in TECHNICAL_DEBT.md - tables are cleared before parsing, so any exception below
-    // leaves the tokenizer gutted; parse into locals and swap on success.
     cache_key_ = new_cache_key();  // TD-222: results cached for the old merges no longer apply
     // TD-560: a v1 file has no NORMALIZATION line and was always lowercased.
     normalization_ = TextNormalization::LOWERCASE;
